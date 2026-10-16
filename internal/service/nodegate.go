@@ -54,6 +54,21 @@ func (e *NodeDownError) Error() string {
 
 func (e *NodeDownError) Unwrap() error { return errs.ErrBusy }
 
+// PlacementNoNodeError is a refusal because the env's placement has no node
+// yet (D6). It is an errs.ErrBusy (503), like an offline node.
+type PlacementNoNodeError struct{ Placement string }
+
+func (e *PlacementNoNodeError) Error() string {
+	return "placement " + e.Placement + " has no node yet"
+}
+
+func (e *PlacementNoNodeError) Unwrap() error { return errs.ErrBusy }
+
+// noNode is the refusal for an env with no node.
+func (o *Orchestrator) noNode(ctx context.Context, e store.Environment) error {
+	return &PlacementNoNodeError{Placement: o.placementName(ctx, e.PlacementID)}
+}
+
 func ago(d time.Duration) string {
 	switch {
 	case d < time.Minute:
@@ -68,8 +83,9 @@ func ago(d time.Duration) string {
 
 // NodeDown is what the env and tile pages show when their node is offline.
 type NodeDown struct {
-	Name     string
-	LastSeen time.Time
+	Name      string // the node: admins only (D3)
+	Placement string // the env's placement: what members are told
+	LastSeen  time.Time
 }
 
 type allowOldKey struct{}
@@ -147,7 +163,7 @@ func (o *Orchestrator) EnvNodeDown(ctx context.Context, envID string) (NodeDown,
 	}
 	var d *NodeDownError
 	if errors.As(o.nodeUp(ctx, e.NodeID), &d) {
-		return NodeDown{Name: d.Name, LastSeen: d.LastSeen}, true
+		return NodeDown{Name: d.Name, Placement: o.placementName(ctx, e.PlacementID), LastSeen: d.LastSeen}, true
 	}
 	return NodeDown{}, false
 }
@@ -157,7 +173,13 @@ func (o *Orchestrator) EnvNodeDown(ctx context.Context, envID string) (NodeDown,
 // left to the verb's own lookup to report.
 func (o *Orchestrator) gateEnv(ctx context.Context, envID string, disk bool) error {
 	e, err := o.store.Environments.Get(ctx, envID)
-	if err != nil || e.NodeID == "" {
+	if err != nil {
+		return nil
+	}
+	if e.NodeID == "" {
+		if e.PlacementID != "" { // waiting for its placement's node (D6)
+			return o.noNode(ctx, e)
+		}
 		return nil
 	}
 	if err := o.nodeUp(ctx, e.NodeID); err != nil {
@@ -296,10 +318,14 @@ func (o *Orchestrator) skip(ctx context.Context, kind jobs.Kind, p any, reason s
 // is offline.
 func (o *Orchestrator) skipIfDown(ctx context.Context, err error, kind jobs.Kind, p any, lock ...string) (bool, error) {
 	var d *NodeDownError
-	if !errors.As(err, &d) {
-		return false, err
+	var w *PlacementNoNodeError
+	switch {
+	case errors.As(err, &d):
+		return true, o.skip(ctx, kind, p, "skipped: "+d.Name+" offline", lock...)
+	case errors.As(err, &w):
+		return true, o.skip(ctx, kind, p, "skipped: placement "+w.Placement+" has no node yet", lock...)
 	}
-	return true, o.skip(ctx, kind, p, "skipped: "+d.Name+" offline", lock...)
+	return false, err
 }
 
 // scheduleBackup is the schedule driver for a volume backup: queued, or

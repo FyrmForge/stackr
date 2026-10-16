@@ -92,8 +92,9 @@ type EnvironmentStore interface {
 	// Subnets is every env's network, all nodes: the blocks of the cluster
 	// pool envs hold.
 	Subnets(ctx context.Context) ([]string, error)
-	// AdoptUnplaced gives every env with no node this one (envs made before
-	// nodes existed) and reports how many.
+	// AdoptUnplaced gives every env with no node, and no placement or one
+	// standing on this node, that node (envs made before nodes existed) and
+	// reports how many. An env whose placement has no node yet keeps waiting.
 	AdoptUnplaced(ctx context.Context, nodeID string) (int64, error)
 	Update(ctx context.Context, e Environment) error
 	Delete(ctx context.Context, id string) error
@@ -150,7 +151,8 @@ func (s environments) Subnets(ctx context.Context) ([]string, error) {
 }
 
 func (s environments) AdoptUnplaced(ctx context.Context, nodeID string) (int64, error) {
-	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ? WHERE node_id = ''`, nodeID)
+	res, err := s.q.ExecContext(ctx, `UPDATE environments SET node_id = ?1 WHERE node_id = ''
+		AND (placement_id = '' OR placement_id IN (SELECT id FROM placements WHERE node_id = ?1))`, nodeID)
 	if err != nil {
 		return 0, err
 	}

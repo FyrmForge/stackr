@@ -60,11 +60,16 @@ func (o *Orchestrator) withController(ctx context.Context) (context.Context, err
 	return docker.WithNode(ctx, id), nil
 }
 
-// unplaced is the node of an env row that has none: a row from before nodes
-// or a bare fixture. Routed, that is an error, a call without a node fails
-// loudly instead of guessing; until the DockerRouter is wired nothing routes,
-// and such an env runs on the controller, where every env ran before nodes.
+// unplaced is the node of an env row that has none. An env whose placement has
+// no node yet waits for one (D6): that is a *PlacementNoNodeError. Otherwise
+// it is a row from before nodes or a bare fixture. Routed, that is an error,
+// a call without a node fails loudly instead of guessing; until the
+// DockerRouter is wired nothing routes, and such an env runs on the
+// controller, where every env ran before nodes.
 func (o *Orchestrator) unplaced(ctx context.Context, e store.Environment) (string, error) {
+	if e.PlacementID != "" {
+		return "", o.noNode(ctx, e)
+	}
 	if _, routed := o.docker.(*DockerRouter); routed {
 		return "", fmt.Errorf("environment %s has no node: %w", e.Slug, docker.ErrNoNode)
 	}
@@ -166,8 +171,9 @@ func (o *Orchestrator) eachNode(ctx context.Context, f func(ctx context.Context,
 	return errors.Join(errs...)
 }
 
-// envPins is environment.Leaf's WithPlacement: the pins of a new env's stack
-// and org, and the controller.
+// envPins is environment.Leaf's WithPlacement: the placement pins of a new
+// env's stack and org, the default placement, and how to find the node a
+// placement stands on.
 func (o *Orchestrator) envPins(ctx context.Context, stackID string) (environment.Pins, error) {
 	var p environment.Pins
 	st, err := o.store.Stacks.Get(ctx, stackID)
@@ -178,12 +184,14 @@ func (o *Orchestrator) envPins(ctx context.Context, stackID string) (environment
 	if err != nil {
 		return p, err
 	}
-	if p.Stack, err = o.pinNode(ctx, st.PlacementID); err != nil {
+	def, err := o.store.Placements.GetByName(ctx, DefaultPlacement)
+	if err != nil {
 		return p, err
 	}
-	if p.Org, err = o.pinNode(ctx, org.PlacementID); err != nil {
-		return p, err
+	p.Stack, p.Org, p.Default = st.PlacementID, org.PlacementID, def.ID
+	p.NodeOf = func(ctx context.Context, id string) (string, error) {
+		pl, err := o.store.Placements.Get(ctx, id)
+		return pl.NodeID, err
 	}
-	p.Controller, err = o.controllerID(ctx)
-	return p, err
+	return p, nil
 }

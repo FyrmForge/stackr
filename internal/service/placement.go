@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,17 +11,17 @@ import (
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // Placement: where an org, stack, env or tile runs (a pin for new envs, the
-// env's own node once made), which node its public traffic comes in on, and
-// the ordered exits its outbound traffic leaves by. A scope with no value
-// of its own inherits from the one above it; the controller is the default
-// ingress and a missing ladder means the own node's uplink.
+// env's own placement once made), which placement its public traffic comes in
+// on, and the ordered exits its outbound traffic leaves by. A scope with no
+// value of its own inherits from the one above it. A placement names one node
+// at a time; members see placement names, never node names (D3).
 //
-// Only nodes opened to the org are offered (the controller always is).
+// Only placements open to the org are offered (a server admin may use any).
 // Verbs here do not check the caller's right: the route's middleware does
 // (org.write, stack.write, env.write), except the ones for admins.
 
@@ -43,16 +44,20 @@ const (
 	RungDown    = "down"
 )
 
-// PlacementNode is a node offered to the org.
+// PlacementNode is a node offered to the org (OfferedNodes, admin and move
+// code), or, in a PlacementView, a placement offered to the org: ID and Name
+// are then both the placement name, never the node's.
 type PlacementNode struct {
 	ID, Name   string
 	Controller bool
-	Ingress    bool // tagged ingress
-	Egress     bool // tagged egress
+	Ingress    bool   // tagged ingress
+	Egress     bool   // tagged egress
+	Why        string // a placement that does not fit the scope: "needs storage", "no node yet", "offline"
 }
 
-// PlacementRung is one rung of an exit ladder. Up and Down are the whole
-// ladder (node ids) after moving this rung; nil = it is at that end.
+// PlacementRung is one rung of an exit ladder. NodeID is the placement name
+// (OwnRung for the own uplink). Up and Down are the whole ladder (placement
+// names) after moving this rung; nil = it is at that end.
 type PlacementRung struct {
 	NodeID   string
 	Name     string
@@ -63,7 +68,8 @@ type PlacementRung struct {
 }
 
 // PlacementEnvs is the existing envs under a stack or org that a pin does not
-// move: Count of them are not on the pin, on Where (their node names).
+// move: Count of them are not on the pin, on Where (their placement names).
+// Each is moved by pinning the env itself (SetPin on the env).
 type PlacementEnvs struct {
 	Count int
 	Where string
@@ -74,16 +80,18 @@ type PlacementView struct {
 	Kind, ID string
 	Nodes    []PlacementNode
 
-	// Runs on. Pin is the node id picked here ("" = inherit); for an env it
-	// is the node it runs on now. PinFrom is the "From stack: x." hint.
+	// Runs on. Pin is the placement name picked here ("" = inherit); for an
+	// env it is the placement it belongs to. PinFrom is the "From stack: x."
+	// hint.
 	Pin     string
 	PinName string
 	PinFrom string
 	Stay    PlacementEnvs // org and stack only
 
-	// Ingress: the pick here, and where an inherited one comes from.
+	// Ingress: the pick here (a placement name), and where an inherited one
+	// comes from. IngressName is the placement in effect, or "cluster default".
 	Ingress     string
-	IngressName string // the node in effect
+	IngressName string
 	IngressFrom string
 
 	// Exits. Inherited: the ladder shown is the one above's. From names it.
@@ -143,13 +151,14 @@ func (o *Orchestrator) chain(ctx context.Context, kind, id string) ([]scopeRef, 
 }
 
 // OfferedNodes are the nodes the org may place things on: the controller and
-// every confirmed node opened to the org, controller first.
+// every confirmed node that holds a placement open to the org, controller
+// first. Admin and move code; members see OfferedPlacements.
 func (o *Orchestrator) OfferedNodes(ctx context.Context, orgID string) ([]PlacementNode, error) {
 	return o.offered(ctx, orgID, false)
 }
 
 // offered lists the offered nodes; anywhere (a server admin) skips the
-// opened-to-the-org check.
+// open-to-the-org check.
 func (o *Orchestrator) offered(ctx context.Context, orgID string, anywhere bool) ([]PlacementNode, error) {
 	all, err := o.nodeLeaf().List(ctx)
 	if err != nil {
@@ -161,7 +170,7 @@ func (o *Orchestrator) offered(ctx context.Context, orgID string, anywhere bool)
 			continue
 		}
 		if !anywhere {
-			if ok, err := o.NodeOpenToOrg(ctx, n.ID, orgID); err != nil {
+			if ok, err := o.nodeOpenToOrg(ctx, n.ID, orgID); err != nil {
 				return nil, err
 			} else if !ok {
 				continue
@@ -185,6 +194,63 @@ func (o *Orchestrator) offered(ctx context.Context, orgID string, anywhere bool)
 	return out, nil
 }
 
+// OfferedPlacements are the placements open to the org, default first. need
+// is what the scope asks of a node: a placement that does not fit says why.
+func (o *Orchestrator) OfferedPlacements(ctx context.Context, orgID string, need Needs) ([]PlacementNode, error) {
+	ps, err := o.sortedPlacements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []PlacementNode
+	for _, p := range ps {
+		if ok, err := o.placementOpenTo(ctx, p.ID, orgID); err != nil {
+			return nil, err
+		} else if !ok {
+			continue
+		}
+		st, err := o.nodeStateOf(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		pn := PlacementNode{ID: p.Name, Name: p.Name}
+		switch {
+		case !st.HasNode:
+			pn.Why = "no node yet"
+		default:
+			tags := node.Tags(st.Node)
+			pn.Ingress, pn.Egress = slices.Contains(tags, node.TagIngress), slices.Contains(tags, node.TagEgress)
+			pn.Why = strings.Join(planfile.Fits(tags, need), ", ")
+			if pn.Why == "" && !st.Online {
+				pn.Why = "offline"
+			}
+		}
+		out = append(out, pn)
+	}
+	return out, nil
+}
+
+// scopeNeeds is what the envs a scope covers ask of a node.
+func (o *Orchestrator) scopeNeeds(ctx context.Context, kind, id string) (Needs, error) {
+	var n Needs
+	switch kind {
+	case ScopeEnv:
+		return o.envNeeds(ctx, id)
+	case ScopeOrg, ScopeStack:
+		es, err := o.envsUnder(ctx, kind, id)
+		if err != nil {
+			return n, err
+		}
+		for _, e := range es {
+			en, err := o.envNeeds(ctx, e.ID)
+			if err != nil {
+				return n, err
+			}
+			n.Storage = n.Storage || en.Storage
+		}
+	}
+	return n, nil
+}
+
 // Placement is the screen for one scope.
 func (o *Orchestrator) Placement(ctx context.Context, kind, id string) (PlacementView, error) {
 	v := PlacementView{Kind: kind, ID: id}
@@ -192,41 +258,60 @@ func (o *Orchestrator) Placement(ctx context.Context, kind, id string) (Placemen
 	if err != nil {
 		return v, err
 	}
-	if v.Nodes, err = o.OfferedNodes(ctx, og.ID); err != nil {
-		return v, err
-	}
-	name := o.nodeNamer(ctx)
-	ctl, err := o.controllerID(ctx)
+	need, err := o.scopeNeeds(ctx, kind, id)
 	if err != nil {
 		return v, err
 	}
-	if err := o.pinView(ctx, &v, ch, og, name); err != nil {
+	if v.Nodes, err = o.OfferedPlacements(ctx, og.ID, need); err != nil {
 		return v, err
 	}
-	// Ingress: the nearest pick wins.
+	if err := o.pinView(ctx, &v, ch, og); err != nil {
+		return v, err
+	}
+	if err := o.ingressView(ctx, &v, ch); err != nil {
+		return v, err
+	}
+	return v, o.exitsView(ctx, &v, ch)
+}
+
+// ingressView fills the ingress part: the nearest pick wins; with none, an
+// env enters on its own placement when that node is tagged ingress, else on
+// the cluster default (D10).
+func (o *Orchestrator) ingressView(ctx context.Context, v *PlacementView, ch []scopeRef) error {
 	for i, s := range ch {
 		pick, err := o.ingressPick(ctx, s.kind, s.id)
 		if err != nil {
-			return v, err
+			return err
 		}
+		if pick == "" {
+			continue
+		}
+		name := o.placementName(ctx, pick)
 		if i == 0 {
-			v.Ingress = pick
+			v.Ingress = name
 		}
-		if pick != "" {
-			v.IngressName = name(pick)
-			if i > 0 {
-				v.IngressFrom = fromHint(s, name(pick))
-			}
-			break
+		v.IngressName = name
+		if i > 0 {
+			v.IngressFrom = fromHint(s, name)
+		}
+		return nil
+	}
+	v.IngressName = "cluster default"
+	v.IngressFrom = "From default."
+	if v.Kind == ScopeEnv || v.Kind == ScopeTile {
+		envID := ch[len(ch)-3].id
+		if v.Kind == ScopeEnv {
+			envID = ch[0].id
+		}
+		e, err := o.store.Environments.Get(ctx, envID)
+		if err != nil {
+			return err
+		}
+		if n, err := o.store.Nodes.Get(ctx, e.NodeID); err == nil && slices.Contains(node.Tags(n), node.TagIngress) {
+			v.IngressName, v.IngressFrom = o.placementName(ctx, e.PlacementID), "From the placement."
 		}
 	}
-	if v.IngressName == "" {
-		v.IngressName = name(ctl)
-		if len(ch) > 1 || v.Ingress == "" {
-			v.IngressFrom = "From default: " + name(ctl) + "."
-		}
-	}
-	return v, o.exitsView(ctx, &v, ch, name)
+	return nil
 }
 
 func fromHint(s scopeRef, node string) string {
@@ -249,81 +334,70 @@ func (o *Orchestrator) nodeNamer(ctx context.Context) func(string) string {
 	}
 }
 
-func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scopeRef, og store.Org, name func(string) string) error {
-	var stack *store.Stack
+func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scopeRef, og store.Org) error {
 	if v.Kind == ScopeTile {
 		return nil
 	}
-	ogPin, err := o.pinNode(ctx, og.PlacementID)
-	if err != nil {
-		return err
+	pinName := func(pin *string) string {
+		if pin == nil {
+			return ""
+		}
+		return o.placementName(ctx, *pin)
 	}
+	ogPin := pinName(og.PlacementID)
+	var stackPin string
 	switch v.Kind {
 	case ScopeOrg:
-		if ogPin != nil {
-			v.Pin = *ogPin
-		}
+		v.Pin = ogPin
 	case ScopeStack:
 		st, err := o.store.Stacks.Get(ctx, v.ID)
 		if err != nil {
 			return err
 		}
-		stack = &st
-		stPin, err := o.pinNode(ctx, st.PlacementID)
-		if err != nil {
-			return err
-		}
-		if stPin != nil {
-			v.Pin = *stPin
-		}
-		if ogPin != nil {
-			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, name(*ogPin))
+		v.Pin = pinName(st.PlacementID)
+		if ogPin != "" {
+			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, ogPin)
 		}
 	case ScopeEnv:
 		e, err := o.store.Environments.Get(ctx, v.ID)
 		if err != nil {
 			return err
 		}
-		v.Pin = e.NodeID
 		st, err := o.store.Stacks.Get(ctx, e.StackID)
 		if err != nil {
 			return err
 		}
-		stPin, err := o.pinNode(ctx, st.PlacementID)
-		if err != nil {
-			return err
-		}
+		v.Pin = o.placementName(ctx, e.PlacementID)
+		stackPin = pinName(st.PlacementID)
 		switch {
-		case stPin != nil && *stPin == e.NodeID:
-			v.PinFrom = fromHint(scopeRef{kind: ScopeStack}, name(e.NodeID))
-		case ogPin != nil && *ogPin == e.NodeID:
-			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, name(e.NodeID))
+		case stackPin != "" && stackPin == v.Pin:
+			v.PinFrom = fromHint(scopeRef{kind: ScopeStack}, v.Pin)
+		case ogPin != "" && ogPin == v.Pin:
+			v.PinFrom = fromHint(scopeRef{kind: ScopeOrg}, v.Pin)
 		}
 	}
-	if v.Pin != "" {
-		v.PinName = name(v.Pin)
-	}
+	v.PinName = v.Pin
 	if v.Kind == ScopeEnv {
 		return nil
 	}
 	// The effective pin new envs get, and the envs that are not on it.
 	eff := v.Pin
-	if eff == "" && stack != nil && ogPin != nil {
-		eff = *ogPin
+	if eff == "" && v.Kind == ScopeStack {
+		eff = ogPin
 	}
 	if eff == "" {
 		return nil
 	}
-	v.PinName = name(eff)
+	v.PinName = eff
 	envs, err := o.envsUnder(ctx, v.Kind, v.ID)
 	if err != nil {
 		return err
 	}
 	where := map[string]bool{}
 	for _, e := range envs {
-		if e.NodeID != eff {
+		if n := o.placementName(ctx, e.PlacementID); n != eff {
 			v.Stay.Count++
-			where[name(e.NodeID)] = true
+			where[n] = true
 		}
 	}
 	names := make([]string, 0, len(where))
@@ -355,7 +429,8 @@ func (o *Orchestrator) envsUnder(ctx context.Context, kind, id string) ([]store.
 	return out, nil
 }
 
-// ladders reads the stored ladders of a chain, nearest first.
+// ladders reads the stored ladders of a chain, nearest first, as node ids
+// (what the mesh and the resolver use).
 func (o *Orchestrator) ladders(ctx context.Context, ch []scopeRef) ([][]string, error) {
 	out := make([][]string, len(ch))
 	for i, s := range ch {
@@ -368,8 +443,24 @@ func (o *Orchestrator) ladders(ctx context.Context, ch []scopeRef) ([][]string, 
 	return out, nil
 }
 
-func (o *Orchestrator) exitsView(ctx context.Context, v *PlacementView, ch []scopeRef, name func(string) string) error {
-	ls, err := o.ladders(ctx, ch)
+// rawLadders are the stored ladders of a chain, nearest first, as placement
+// ids (OwnRung stays), whether or not the placement has a node.
+func (o *Orchestrator) rawLadders(ctx context.Context, ch []scopeRef) ([][]string, error) {
+	out := make([][]string, len(ch))
+	for i, s := range ch {
+		rs, err := o.store.ExitLadders.List(ctx, s.kind, s.id)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rs {
+			out[i] = append(out[i], r.TargetID)
+		}
+	}
+	return out, nil
+}
+
+func (o *Orchestrator) exitsView(ctx context.Context, v *PlacementView, ch []scopeRef) error {
+	ls, err := o.rawLadders(ctx, ch)
 	if err != nil {
 		return err
 	}
@@ -383,13 +474,23 @@ func (o *Orchestrator) exitsView(ctx context.Context, v *PlacementView, ch []sco
 			}
 		}
 	}
-	if from > 0 {
-		v.ExitsFrom = "From " + ch[from].kind + ": " + strings.Join(mapNames(shown, name), ", ") + "."
+	name := func(id string) string {
+		if id == OwnRung {
+			return OwnRung
+		}
+		return o.placementName(ctx, id)
 	}
-	states, why, down := o.rungStates(ctx, v.Kind, v.ID, name)
+	names := make([]string, len(shown))
+	for i, id := range shown {
+		names[i] = name(id)
+	}
+	if from > 0 {
+		v.ExitsFrom = "From " + ch[from].kind + ": " + strings.Join(mapNames(names), ", ") + "."
+	}
+	states, why, down := o.rungStates(ctx, v.Kind, v.ID, shown)
 	v.NoNetWhy = why
 	for i, id := range shown {
-		r := PlacementRung{NodeID: id, Own: id == OwnRung, Name: name(id)}
+		r := PlacementRung{NodeID: names[i], Own: id == OwnRung, Name: names[i]}
 		if r.Own {
 			r.Name = "own node (no exit)"
 			v.OwnListed = true
@@ -398,24 +499,23 @@ func (o *Orchestrator) exitsView(ctx context.Context, v *PlacementView, ch []sco
 			r.State, r.Detail = st.state, st.detail
 		}
 		if !v.Inherited {
-			r.Up, r.Down = swapped(shown, i, i-1), swapped(shown, i, i+1)
+			r.Up, r.Down = swapped(names, i, i-1), swapped(names, i, i+1)
 		}
 		v.Rungs = append(v.Rungs, r)
 	}
 	v.NoNet = down && !v.OwnListed
 	for _, n := range v.Nodes {
-		if n.Egress && !slices.Contains(shown, n.ID) {
+		if n.Egress && !slices.Contains(names, n.Name) {
 			v.Spare = append(v.Spare, n)
 		}
 	}
 	return nil
 }
 
-func mapNames(ids []string, name func(string) string) []string {
-	out := make([]string, len(ids))
-	for i, id := range ids {
-		out[i] = name(id)
-		if id == OwnRung {
+func mapNames(names []string) []string {
+	out := slices.Clone(names)
+	for i, n := range out {
+		if n == OwnRung {
 			out[i] = "own node"
 		}
 	}
@@ -437,7 +537,7 @@ type rungState struct{ state, detail string }
 // ladder on the env's node: the one in use, the others standby, or all down.
 // Org and stack scopes cover many envs and show none. Unknown (no worker
 // connection, the controller's own node, no ladder running) is an empty map.
-func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, name func(string) string) (map[string]rungState, string, bool) {
+func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, ids []string) (map[string]rungState, string, bool) {
 	envID := id
 	if kind == ScopeTile {
 		t, err := o.store.Tiles.Get(ctx, id)
@@ -466,11 +566,10 @@ func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, name fun
 		}
 		st, out := l.State, map[string]rungState{}
 		since := time.Since(st.Since).Round(time.Second)
-		ids, _ := o.ladderIDs(ctx, kind, id)
 		for _, rid := range ids {
-			real := rid
-			if rid == OwnRung {
-				real = e.NodeID
+			real := e.NodeID
+			if rid != OwnRung {
+				real, _ = placementNode(ctx, o.store.Placements, rid)
 			}
 			switch {
 			case st.Down:
@@ -486,72 +585,88 @@ func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, name fun
 	return nil, "", false
 }
 
-// ladderIDs is the ladder in effect at a scope: its own, else the nearest above.
-func (o *Orchestrator) ladderIDs(ctx context.Context, kind, id string) ([]string, error) {
+// ladderNames is the ladder in effect at a scope as placement names (OwnRung
+// stays): its own, else the nearest above.
+func (o *Orchestrator) ladderNames(ctx context.Context, kind, id string) ([]string, error) {
 	ch, _, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return nil, err
 	}
-	ls, err := o.ladders(ctx, ch)
+	ls, err := o.rawLadders(ctx, ch)
 	if err != nil {
 		return nil, err
 	}
 	for _, l := range ls {
 		if len(l) > 0 {
-			return l, nil
+			names := make([]string, len(l))
+			for i, t := range l {
+				names[i] = t
+				if t != OwnRung {
+					names[i] = o.placementName(ctx, t)
+				}
+			}
+			return names, nil
 		}
 	}
 	return nil, nil
 }
 
-// offers errs unless nodeID is offered to the scope's org.
-// A server admin may pin anywhere.
-func (o *Orchestrator) offers(ctx context.Context, by *Principal, orgID, nodeID string) (PlacementNode, error) {
-	ns, err := o.offered(ctx, orgID, by != nil && by.Access.Admin)
+// effectivePlacement is the placement a new env of the stack belongs to: the
+// stack's pin, the org's, else default.
+func (o *Orchestrator) effectivePlacement(ctx context.Context, stackID string) (store.Placement, error) {
+	st, err := o.store.Stacks.Get(ctx, stackID)
 	if err != nil {
-		return PlacementNode{}, err
+		return store.Placement{}, err
 	}
-	for _, n := range ns {
-		if n.ID == nodeID {
-			return n, nil
+	pin := st.PlacementID
+	if pin == nil {
+		og, err := o.store.Orgs.Get(ctx, st.OrgID)
+		if err != nil {
+			return store.Placement{}, err
 		}
+		pin = og.PlacementID
 	}
-	return PlacementNode{}, errs.Invalidf("node", "that node is not open to this organization")
+	if pin != nil {
+		return o.store.Placements.Get(ctx, *pin)
+	}
+	return o.store.Placements.GetByName(ctx, DefaultPlacement)
 }
 
-func (o *Orchestrator) auditPlacement(ctx context.Context, tx store.Tx, by *Principal, action, kind, id, detail string) error {
-	if by == nil {
-		return nil
-	}
-	return audit(tx).Append(ctx, securitylog.Event{
-		Action: action, ActorID: by.User.ID, KeyID: by.KeyID,
-		TargetKind: kind, TargetID: id, Detail: detail,
-	})
-}
-
-// SetPin pins an org or stack: new envs below it start on nodeID ("" = no
-// pin, inherit). It never moves an existing env (see MoveEnvsToPin).
-func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, nodeID string) error {
-	if kind != ScopeOrg && kind != ScopeStack {
-		return errs.Invalidf("scope", "only an org or a stack is pinned; an env moves")
+// SetPin pins an org, stack or env to a placement by name ("" = no pin,
+// inherit; an env then falls back to what its stack, org or default gives).
+//
+//   - Org and stack: new envs below it belong to the placement. Existing envs
+//     on the same node as the placement follow it; the rest stay until the env
+//     itself is pinned (the view lists them as Stay).
+//   - Env: pinning it to a placement on another node moves it (D4). The move
+//     is refused here with *MoveNeeded; the caller shows the plan and confirms
+//     through MoveEnvToPlacement.
+func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, name string) error {
+	if kind != ScopeOrg && kind != ScopeStack && kind != ScopeEnv {
+		return errs.Invalidf("scope", "only an org, a stack or an env is pinned")
 	}
 	_, og, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return err
 	}
-	if nodeID != "" {
-		if _, err := o.offers(ctx, by, og.ID, nodeID); err != nil {
+	var p store.Placement
+	if name != "" {
+		if p, err = o.offers(ctx, by, og.ID, name); err != nil {
+			return err
+		}
+	}
+	if kind == ScopeEnv {
+		return o.pinEnv(ctx, by, id, p, name == "")
+	}
+	if name != "" {
+		if err := o.pinFits(ctx, kind, id, p); err != nil {
 			return err
 		}
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		var pin *string
-		if nodeID != "" {
-			pid, err := nodePlacement(ctx, tx.Tables, nodeID)
-			if err != nil {
-				return err
-			}
-			pin = &pid
+		if name != "" {
+			pin = &p.ID
 		}
 		if kind == ScopeOrg {
 			og.PlacementID = pin
@@ -568,111 +683,182 @@ func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, node
 				return err
 			}
 		}
-		return o.auditPlacement(ctx, tx, by, "placement.pin", kind, id, "node "+nodeID)
+		return o.auditPlacement(ctx, tx, by, "placement.pin", kind, id, "placement "+name)
 	})
-	if err == nil {
-		o.kickMesh()
+	if err != nil {
+		return err
 	}
-	return err
+	if err := o.followPin(ctx, kind, id); err != nil {
+		return err
+	}
+	o.kickMesh()
+	return nil
 }
 
-// MoveEnvsToPin (server admin) moves every env under the org or stack that
-// is not on the scope's pin to it, live, one job each. The jobs are
-// returned; the first refusal stops the rest.
-func (o *Orchestrator) MoveEnvsToPin(ctx context.Context, by *Principal, kind, id string) ([]Job, error) {
-	v, err := o.Placement(ctx, kind, id)
+// pinFits refuses a pin whose node cannot hold the envs it would take over:
+// those under the scope that are not on the placement already.
+func (o *Orchestrator) pinFits(ctx context.Context, kind, id string, p store.Placement) error {
+	es, err := o.envsUnder(ctx, kind, id)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	pin := v.Pin
-	if pin == "" && kind == ScopeStack {
-		_, og, err := o.chain(ctx, kind, id)
-		if err != nil {
-			return nil, err
-		}
-		ogPin, err := o.pinNode(ctx, og.PlacementID)
-		if err != nil {
-			return nil, err
-		}
-		if ogPin != nil {
-			pin = *ogPin
-		}
-	}
-	if pin == "" {
-		return nil, errs.Conflictf("nothing is pinned here")
-	}
-	envs, err := o.envsUnder(ctx, kind, id)
-	if err != nil {
-		return nil, err
-	}
-	var jobs []Job
-	for _, e := range envs {
-		if e.NodeID == pin {
+	var need Needs
+	for _, e := range es {
+		if e.PlacementID == p.ID {
 			continue
 		}
-		j, err := o.MoveEnv(ctx, by, e.ID, pin, true)
+		en, err := o.envNeeds(ctx, e.ID)
 		if err != nil {
-			return jobs, err
+			return err
 		}
-		jobs = append(jobs, j)
+		need.Storage = need.Storage || en.Storage
 	}
-	return jobs, nil
+	if why, err := o.unfit(ctx, p, need); err != nil {
+		return err
+	} else if why != "" {
+		return errs.Invalidf("placement", "%s does not fit the envs here: %s", p.Name, why)
+	}
+	return nil
 }
 
-// SetIngress picks the node whose Caddy serves a scope's public routes
-// ("" = inherit). The node must be tagged ingress and open to the org.
-func (o *Orchestrator) SetIngress(ctx context.Context, by *Principal, kind, id, nodeID string) error {
+// followPin re-homes the envs under an org or stack whose effective
+// placement changed to one on their own node. Moving to another node is not
+// done here.
+func (o *Orchestrator) followPin(ctx context.Context, kind, id string) error {
+	es, err := o.envsUnder(ctx, kind, id)
+	if err != nil {
+		return err
+	}
+	for _, e := range es {
+		eff, err := o.effectivePlacement(ctx, e.StackID)
+		if err != nil {
+			return err
+		}
+		if eff.ID != e.PlacementID && eff.NodeID == e.NodeID {
+			if err := o.store.Environments.SetPlacement(ctx, e.ID, eff.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// pinEnv is SetPin on an env. inherit pins it to what its stack, org or the
+// default gives.
+func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, p store.Placement, inherit bool) error {
+	e, err := o.store.Environments.Get(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if inherit {
+		if p, err = o.effectivePlacement(ctx, e.StackID); err != nil {
+			return err
+		}
+	}
+	if e.PlacementID == p.ID {
+		return nil
+	}
+	need, err := o.envNeeds(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if why, err := o.unfit(ctx, p, need); err != nil {
+		return err
+	} else if why != "" {
+		return errs.Invalidf("placement", "%s does not fit this env: %s", p.Name, why)
+	}
+	switch {
+	case e.NodeID == p.NodeID: // same node: only the belonging changes
+	case e.NodeID == "": // waiting for a node (D6): it takes the placement's
+	case p.NodeID == "":
+		return errs.Conflictf("%s has no node yet; %s would have nowhere to run.", p.Name, e.Slug)
+	default:
+		plan, err := o.PlanEnvPin(ctx, envID, p.Name)
+		if err != nil {
+			return err
+		}
+		return &MoveNeeded{Plan: plan}
+	}
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := tx.Environments.SetPlacement(ctx, envID, p.ID); err != nil {
+			return err
+		}
+		return o.auditPlacement(ctx, tx, by, "placement.pin", ScopeEnv, envID, "placement "+p.Name)
+	})
+	if err != nil {
+		return err
+	}
+	if e.NodeID == "" && p.NodeID != "" {
+		return o.placementNodeSet(ctx, by, p.ID, p.NodeID)
+	}
+	o.kickMesh()
+	return nil
+}
+
+// SetIngress picks the placement whose node's Caddy serves a scope's public
+// routes ("" = inherit). The placement must be open to the org and, once it
+// has a node, that node must be tagged ingress.
+func (o *Orchestrator) SetIngress(ctx context.Context, by *Principal, kind, id, name string) error {
 	_, og, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return err
 	}
-	if nodeID != "" {
-		n, err := o.offers(ctx, by, og.ID, nodeID)
+	var pick string
+	if name != "" {
+		p, err := o.offers(ctx, by, og.ID, name)
 		if err != nil {
 			return err
 		}
-		if !n.Ingress {
-			return errs.Invalidf("node", "%s is not tagged ingress", n.Name)
+		if why, err := o.unfit(ctx, p, Needs{Ingress: true}); err != nil {
+			return err
+		} else if why != "" {
+			return errs.Invalidf("placement", "%s cannot be an ingress: %s", p.Name, why)
 		}
+		pick = p.ID
 	}
 	return o.store.Tx(ctx, func(tx store.Tx) error {
-		if err := tx.IngressPicks.Set(ctx, kind, id, nodeID); err != nil {
+		if err := tx.IngressPicks.Set(ctx, kind, id, pick); err != nil {
 			return err
 		}
-		return o.auditPlacement(ctx, tx, by, "placement.ingress", kind, id, "node "+nodeID)
+		return o.auditPlacement(ctx, tx, by, "placement.ingress", kind, id, "placement "+name)
 	})
 }
 
-// SetExits replaces a scope's exit ladder: nodeIDs top to bottom, OwnRung
-// for the own node's uplink. None = inherit. Each node must be tagged egress
-// and open to the org.
-func (o *Orchestrator) SetExits(ctx context.Context, by *Principal, kind, id string, nodeIDs []string) error {
+// SetExits replaces a scope's exit ladder: placement names top to bottom,
+// OwnRung for the own node's uplink. None = inherit. Each placement must be
+// open to the org and, once it has a node, that node must be tagged egress.
+func (o *Orchestrator) SetExits(ctx context.Context, by *Principal, kind, id string, names []string) error {
 	_, og, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return err
 	}
 	seen := map[string]bool{}
-	for _, n := range nodeIDs {
+	ids := make([]string, 0, len(names))
+	for _, n := range names {
 		if seen[n] {
 			return errs.Invalidf("exits", "an exit is listed twice")
 		}
 		seen[n] = true
 		if n == OwnRung {
+			ids = append(ids, OwnRung)
 			continue
 		}
 		p, err := o.offers(ctx, by, og.ID, n)
 		if err != nil {
 			return err
 		}
-		if !p.Egress {
-			return errs.Invalidf("exits", "%s is not tagged egress", p.Name)
+		if why, err := o.unfit(ctx, p, Needs{Egress: true}); err != nil {
+			return err
+		} else if why != "" {
+			return errs.Invalidf("exits", "%s cannot be an exit: %s", p.Name, why)
 		}
+		ids = append(ids, p.ID)
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		if err := tx.ExitLadders.Set(ctx, kind, id, nodeIDs); err != nil {
+		if err := tx.ExitLadders.Set(ctx, kind, id, ids); err != nil {
 			return err
 		}
-		return o.auditPlacement(ctx, tx, by, "placement.exits", kind, id, strings.Join(nodeIDs, ","))
+		return o.auditPlacement(ctx, tx, by, "placement.exits", kind, id, strings.Join(names, ","))
 	})
 	if err == nil {
 		o.kickMesh()
@@ -682,25 +868,20 @@ func (o *Orchestrator) SetExits(ctx context.Context, by *Principal, kind, id str
 
 // ExitsAdd appends a rung; ExitsRemove drops one. Both read the ladder in
 // effect at the scope itself (an inherited ladder is copied first).
-func (o *Orchestrator) ExitsAdd(ctx context.Context, by *Principal, kind, id, nodeID string) error {
-	cur, err := o.ownLadder(ctx, kind, id)
+func (o *Orchestrator) ExitsAdd(ctx context.Context, by *Principal, kind, id, name string) error {
+	cur, err := o.ladderNames(ctx, kind, id)
 	if err != nil {
 		return err
 	}
-	return o.SetExits(ctx, by, kind, id, append(cur, nodeID))
+	return o.SetExits(ctx, by, kind, id, append(cur, name))
 }
 
-func (o *Orchestrator) ExitsRemove(ctx context.Context, by *Principal, kind, id, nodeID string) error {
-	cur, err := o.ownLadder(ctx, kind, id)
+func (o *Orchestrator) ExitsRemove(ctx context.Context, by *Principal, kind, id, name string) error {
+	cur, err := o.ladderNames(ctx, kind, id)
 	if err != nil {
 		return err
 	}
-	return o.SetExits(ctx, by, kind, id, slices.DeleteFunc(cur, func(n string) bool { return n == nodeID }))
-}
-
-// ownLadder is the scope's own ladder, or the inherited one to start from.
-func (o *Orchestrator) ownLadder(ctx context.Context, kind, id string) ([]string, error) {
-	return o.ladderIDs(ctx, kind, id)
+	return o.SetExits(ctx, by, kind, id, slices.DeleteFunc(cur, func(n string) bool { return n == name }))
 }
 
 // ResolveExits is the ladder a tile uses (tile, env, stack, org, its node), for
@@ -726,8 +907,14 @@ func (o *Orchestrator) ResolveExits(ctx context.Context, tileID string) (exits.R
 	return res, err
 }
 
-// IngressFor is the ingress node id in effect for a tile: the nearest pick
-// up the chain, "" = the default ingress node.
+// ingressPick is the scope's own ingress pick as a placement id ("" = inherit).
+func (o *Orchestrator) ingressPick(ctx context.Context, kind, id string) (string, error) {
+	return o.store.IngressPicks.Get(ctx, kind, id)
+}
+
+// IngressFor is the ingress node id in effect for a tile (D10): the node of
+// the nearest picked placement; else the env's own node when it is tagged
+// ingress; else "" = the default ingress node.
 func (o *Orchestrator) IngressFor(ctx context.Context, tileID string) (string, error) {
 	ch, _, err := o.chain(ctx, ScopeTile, tileID)
 	if err != nil {
@@ -735,9 +922,28 @@ func (o *Orchestrator) IngressFor(ctx context.Context, tileID string) (string, e
 	}
 	for _, s := range ch {
 		pick, err := o.ingressPick(ctx, s.kind, s.id)
-		if err != nil || pick != "" {
-			return pick, err
+		if err != nil {
+			return "", err
 		}
+		if pick == "" {
+			continue
+		}
+		if nid, err := placementNode(ctx, o.store.Placements, pick); err != nil {
+			return "", err
+		} else if nid != "" {
+			if _, err := o.store.Nodes.Get(ctx, nid); err == nil {
+				return nid, nil
+			} else if !errors.Is(err, errs.ErrNotFound) {
+				return "", err
+			}
+		}
+	}
+	e, err := o.store.Environments.Get(ctx, ch[1].id)
+	if err != nil {
+		return "", err
+	}
+	if n, err := o.store.Nodes.Get(ctx, e.NodeID); err == nil && slices.Contains(node.Tags(n), node.TagIngress) {
+		return n.ID, nil
 	}
 	return "", nil
 }

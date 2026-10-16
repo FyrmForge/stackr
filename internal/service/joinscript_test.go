@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/jointoken"
 )
@@ -122,87 +121,5 @@ func TestJoinTwoStep(t *testing.T) {
 	w.orch.cfg.Version = "v0.7.0"
 	if out := mint(t, w, adm, "w2"); !strings.Contains(out.TwoStep, "releases/download/v0.7.0/") {
 		t.Errorf("two step = %q", out.TwoStep)
-	}
-}
-
-// The add-node choice rides on the token: no orgs = open to all, named orgs
-// = only those. A rejoin keeps what the node had.
-func TestJoinTokenCarriesOrgs(t *testing.T) {
-	w, adm, _ := joinWorld(t)
-	ctx := context.Background()
-
-	if _, err := w.orch.CreateJoinToken(ctx, adm, JoinTokenSpec{NodeName: "w0", Orgs: []string{"nope"}}); !errors.As(err, new(errs.Invalid)) {
-		t.Errorf("unknown org = %v", err)
-	}
-	all := mint(t, w, adm, "w1")
-	st, err := w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, all.Token))
-	must(t, err)
-	n, err := w.st.Nodes.Get(ctx, st.NodeID)
-	must(t, err)
-	if !n.OpenToAll {
-		t.Error("a node minted without orgs is not open to all")
-	}
-
-	some, err := w.orch.CreateJoinToken(ctx, adm, JoinTokenSpec{NodeName: "w2", Orgs: []string{"acme"}})
-	must(t, err)
-	st, err = w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, some.Token))
-	must(t, err)
-	n, err = w.st.Nodes.Get(ctx, st.NodeID)
-	must(t, err)
-	ids, err := w.st.NodeOrgs.OrgIDs(ctx, n.ID)
-	must(t, err)
-	if n.OpenToAll || len(ids) != 1 || ids[0] != w.org {
-		t.Errorf("open to all = %v, orgs = %v", n.OpenToAll, ids)
-	}
-	if _, err := w.orch.ConfirmJoin(ctx, adm, n.ID); err != nil {
-		t.Fatal(err)
-	}
-	// a rejoin keeps the node's own orgs, whatever its token says
-	rj, err := w.orch.RejoinNode(ctx, adm, "w2")
-	must(t, err)
-	_, err = w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, rj.Token))
-	must(t, err)
-	n, err = w.st.Nodes.Get(ctx, n.ID)
-	must(t, err)
-	if ids, _ := w.st.NodeOrgs.OrgIDs(ctx, n.ID); n.OpenToAll || len(ids) != 1 {
-		t.Errorf("after rejoin open to all = %v, orgs = %v", n.OpenToAll, ids)
-	}
-}
-
-// Open to all lets every org pin; closing it falls back to the node's own
-// list, which it never touches.
-func TestNodeOpenToAll(t *testing.T) {
-	n := newTwoNodes(t)
-	ctx := context.Background()
-	adm := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
-	d, err := n.orch.NodeDetail(ctx, "w1")
-	must(t, err)
-	org := d.Orgs[0].ID
-
-	must(t, n.orch.SetNodeOpenToAll(ctx, adm, "w1", true))
-	if ok, _ := n.orch.NodeOpenToOrg(ctx, "w1", org); !ok {
-		t.Error("open to all, yet the org may not pin")
-	}
-	if _, err := n.orch.OpenNode(ctx, adm, "w1", "acme", false); err == nil {
-		t.Error("closed one org on a node open to all")
-	}
-	if out, err := n.orch.OpenNodeAll(ctx, adm, "w1", false); err != nil || out.OpenToAll {
-		t.Fatalf("close all = %+v, %v", out, err)
-	}
-	if ok, _ := n.orch.NodeOpenToOrg(ctx, "w1", org); ok {
-		t.Error("closed, yet the org may pin")
-	}
-	if d, _ := n.orch.NodeDetail(ctx, "w1"); len(d.EnvList) != 1 {
-		t.Errorf("closing moved envs: %+v", d.EnvList)
-	}
-	must(t, n.orch.SetNodeOrgs(ctx, adm, "w1", []string{org}))
-	if ok, _ := n.orch.NodeOpenToOrg(ctx, "w1", org); !ok {
-		t.Error("opened one by one, yet the org may not pin")
-	}
-	if err := n.orch.SetNodeOpenToAll(ctx, adm, n.ctl.ID, false); err == nil {
-		t.Error("closed the controller")
-	}
-	if err := n.orch.SetNodeOpenToAll(ctx, &Principal{}, "w1", true); err == nil {
-		t.Error("a non-admin opened a node")
 	}
 }

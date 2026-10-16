@@ -24,9 +24,6 @@ type JoinToken struct {
 	Facts       string     `db:"facts" json:"-"`
 	CertPEM     string     `db:"cert_pem" json:"-"`
 	RejectedAt  *time.Time `db:"rejected_at" json:"rejected_at"`
-	// OpenToAll and OrgIDs (a JSON array) are who the new node is open to.
-	OpenToAll bool   `db:"open_to_all" json:"open_to_all"`
-	OrgIDs    string `db:"org_ids" json:"org_ids"`
 }
 
 type JoinTokenStore interface {

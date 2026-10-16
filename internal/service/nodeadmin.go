@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -17,14 +16,13 @@ import (
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
-// The Nodes admin verbs: list and show nodes, edit tags, open a node to orgs,
-// remove, forget, and redeploy the envs a forgotten node left behind.
-//
+// The Nodes admin verbs: list and show nodes, edit tags, remove and forget.
+// Who may use a node is the placement's business (placements.go); the envs a
+// forgotten node left behind come back through their placement (D8).
 
 // Node action names in the security log.
 const (
 	auditNodeTags   = "node.tags"
-	auditNodeOpen   = "node.open"
 	auditNodeRemove = "node.remove"
 	auditNodeForget = "node.forget"
 	auditEnvRestore = "env.restore"
@@ -46,15 +44,17 @@ func (m *meshSvc) factsOf(id string) (worker.Facts, bool) {
 type NodeCard struct {
 	ID, Name, Role, Status, Range string
 	Tags                          []string
+	Placements                    []string // names of the placements standing on it
 	Envs                          int
 	Controller                    bool
 }
 
 // NodeEnv is an env on a node.
 type NodeEnv struct {
-	ID, Path string // "org / stack / env"
-	Pin      string // where its node came from
-	Tiles    int
+	ID, Path  string // "org / stack / env"
+	Placement string // the placement the env belongs to
+	Pin       string // where its placement came from
+	Tiles     int
 }
 
 // NodeCertInfo is one certificate of a node.
@@ -66,12 +66,6 @@ type NodeCertInfo struct {
 	RenewFrom time.Time
 }
 
-// NodeOrg is an org and whether the node is opened to it.
-type NodeOrg struct {
-	ID, Name string
-	On       bool
-}
-
 // NodeDetail is the node drawer.
 type NodeDetail struct {
 	NodeCard
@@ -79,8 +73,6 @@ type NodeDetail struct {
 	Facts     *worker.Facts // nil until the node has answered
 	EnvList   []NodeEnv
 	Certs     []NodeCertInfo
-	OpenToAll bool // every org's owners may pin here; Orgs are the picks for when it is off
-	Orgs      []NodeOrg
 	// RoutesServed is what the controller refuses to stop serving (the
 	// panel route and every external route); 0 for a worker.
 	RoutesServed int
@@ -110,9 +102,18 @@ func (o *Orchestrator) shownStatus(n store.Node) string {
 
 func (o *Orchestrator) card(ctx context.Context, n store.Node) (NodeCard, error) {
 	es, err := o.store.Environments.ListByNode(ctx, n.ID)
+	if err != nil {
+		return NodeCard{}, err
+	}
+	ps, err := o.store.Placements.ListByNode(ctx, n.ID)
+	names := make([]string, 0, len(ps))
+	for _, p := range ps {
+		names = append(names, p.Name)
+	}
+	slices.Sort(names)
 	return NodeCard{
 		ID: n.ID, Name: n.Name, Role: n.Role, Status: o.shownStatus(n), Range: envNets(es),
-		Tags: node.Tags(n), Envs: len(es), Controller: n.Role == node.Controller,
+		Tags: node.Tags(n), Placements: names, Envs: len(es), Controller: n.Role == node.Controller,
 	}, err
 }
 
@@ -182,10 +183,6 @@ func (o *Orchestrator) NodeDetail(ctx context.Context, id string) (NodeDetail, e
 			Revoked: c.RevokedAt != nil, RenewFrom: c.NotAfter.Add(-life / 3),
 		})
 	}
-	d.OpenToAll = n.OpenToAll || n.Role == node.Controller
-	if d.Orgs, err = o.nodeOrgList(ctx, n); err != nil {
-		return d, err
-	}
 	if c.Controller {
 		rs, err := o.routes.List(ctx)
 		if err != nil {
@@ -216,55 +213,16 @@ func (o *Orchestrator) nodeEnvs(ctx context.Context, nodeID string) ([]NodeEnv, 
 		if err != nil {
 			return nil, err
 		}
-		stPin, err := o.pinNode(ctx, st.PlacementID)
-		if err != nil {
-			return nil, err
-		}
-		ogPin, err := o.pinNode(ctx, og.PlacementID)
-		if err != nil {
-			return nil, err
-		}
 		pin := "pinned on the env"
 		switch {
-		case stPin != nil && *stPin == nodeID:
+		case st.PlacementID != nil && *st.PlacementID == e.PlacementID:
 			pin = "pinned on the stack"
-		case ogPin != nil && *ogPin == nodeID:
+		case og.PlacementID != nil && *og.PlacementID == e.PlacementID:
 			pin = "pinned on the org"
 		}
-		out = append(out, NodeEnv{ID: e.ID, Path: og.Slug + " / " + st.Slug + " / " + e.Slug, Pin: pin, Tiles: len(ts)})
+		out = append(out, NodeEnv{ID: e.ID, Path: og.Slug + " / " + st.Slug + " / " + e.Slug, Placement: o.placementName(ctx, e.PlacementID), Pin: pin, Tiles: len(ts)})
 	}
 	return out, nil
-}
-
-func (o *Orchestrator) nodeOrgList(ctx context.Context, n store.Node) ([]NodeOrg, error) {
-	ogs, err := o.orgs.ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	on, err := o.store.NodeOrgs.OrgIDs(ctx, n.ID)
-	if err != nil {
-		return nil, err
-	}
-	var out []NodeOrg
-	for _, og := range ogs {
-		out = append(out, NodeOrg{ID: og.ID, Name: og.Name, On: n.Role == node.Controller || slices.Contains(on, og.ID)})
-	}
-	return out, nil
-}
-
-// NodeOpenToOrg reports whether an org's owners may pin to the node: the
-// controller and a node open to all take every org, any other worker only
-// the orgs an admin opened it to. Admins pin anywhere; the placement verbs
-// ask this for owners.
-func (o *Orchestrator) NodeOpenToOrg(ctx context.Context, nodeID, orgID string) (bool, error) {
-	n, err := o.nodeLeaf().Get(ctx, nodeID)
-	if err != nil {
-		return false, err
-	}
-	if n.Role == node.Controller || n.OpenToAll {
-		return true, nil
-	}
-	return o.store.NodeOrgs.Has(ctx, nodeID, orgID)
 }
 
 // SetNodeTags (server admin) replaces a node's tags. The controller keeps its
@@ -279,7 +237,7 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 		}
 	}
 	tags = slices.Compact(slices.Sorted(slices.Values(tags)))
-	n, err := o.nodeLeaf().Get(ctx, id)
+	n, err := o.nodeByRef(ctx, id) // a name, an id or a unique id prefix
 	if err != nil {
 		return err
 	}
@@ -295,6 +253,19 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 				return err
 			}
 			return errs.Conflictf("%s is the default ingress: it serves the panel and %d routes. Set another default ingress first.", n.Name, len(rs))
+		}
+	}
+	if slices.Contains(node.Tags(n), node.TagStorage) && !slices.Contains(tags, node.TagStorage) {
+		es, err := o.store.Environments.ListByNode(ctx, n.ID)
+		if err != nil {
+			return err
+		}
+		for _, e := range es {
+			if need, err := o.envNeeds(ctx, e.ID); err != nil {
+				return err
+			} else if need.Storage {
+				return errs.Conflictf("%s still holds data for %s; move it first.", n.Name, o.scopePath(ctx, ScopeEnv, e.ID))
+			}
 		}
 	}
 	if slices.Contains(node.Tags(n), node.TagEgress) && !slices.Contains(tags, node.TagEgress) && o.DefaultExit(ctx) == n.ID {
@@ -345,68 +316,6 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 		}
 	}
 	return err
-}
-
-// SetNodeOrgs (server admin) opens a worker to exactly these orgs. The
-// controller is always open to all.
-func (o *Orchestrator) SetNodeOrgs(ctx context.Context, by *Principal, id string, orgIDs []string) error {
-	if err := nodeAdmin(by); err != nil {
-		return err
-	}
-	n, err := o.nodeLeaf().Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if n.Role == node.Controller {
-		return errs.Conflictf("%s is open to every organization.", n.Name)
-	}
-	for _, og := range orgIDs {
-		if _, err := o.orgs.Get(ctx, og); err != nil {
-			return errs.Invalidf("orgs", "unknown organization")
-		}
-	}
-	orgIDs = slices.Compact(slices.Sorted(slices.Values(orgIDs)))
-	return o.store.Tx(ctx, func(tx store.Tx) error {
-		if err := tx.NodeOrgs.Set(ctx, id, orgIDs); err != nil {
-			return err
-		}
-		return audit(tx).Append(ctx, securitylog.Event{
-			Action: auditNodeOpen, ActorID: by.User.ID, KeyID: by.KeyID,
-			TargetKind: "node", TargetID: id, Detail: fmt.Sprintf("%d orgs", len(orgIDs)),
-		})
-	})
-}
-
-// SetNodeOpenToAll (server admin) opens a worker to every org, or closes it
-// back to the orgs it was opened to one by one. Envs already on it stay.
-func (o *Orchestrator) SetNodeOpenToAll(ctx context.Context, by *Principal, id string, all bool) error {
-	if err := nodeAdmin(by); err != nil {
-		return err
-	}
-	n, err := o.nodeLeaf().Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if n.Role == node.Controller {
-		return errs.Conflictf("%s is open to every organization.", n.Name)
-	}
-	if n.Status == node.StatusPending {
-		return errs.ErrNotFound
-	}
-	n.OpenToAll = all
-	detail := "closed to all orgs"
-	if all {
-		detail = "open to all orgs"
-	}
-	return o.store.Tx(ctx, func(tx store.Tx) error {
-		if err := tx.Nodes.Update(ctx, n); err != nil {
-			return err
-		}
-		return audit(tx).Append(ctx, securitylog.Event{
-			Action: auditNodeOpen, ActorID: by.User.ID, KeyID: by.KeyID,
-			TargetKind: "node", TargetID: id, Detail: detail,
-		})
-	})
 }
 
 // dropNode revokes the node's certs, takes it out of the mesh and deletes the
@@ -493,6 +402,7 @@ func (o *Orchestrator) ForgetNode(ctx context.Context, by *Principal, id, confir
 // LostEnv is an env whose node was forgotten.
 type LostEnv struct {
 	ID, Path, Node string // Node is the forgotten node's name
+	Placement      string // repoint it to restore its envs (D8)
 	Volumes        int
 	Tiles          int
 }
@@ -514,61 +424,10 @@ func (o *Orchestrator) LostEnvs(ctx context.Context) ([]LostEnv, error) {
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, LostEnv{ID: e.ID, Path: e.Path, Node: f.Name, Volumes: len(vs), Tiles: e.Tiles})
+			out = append(out, LostEnv{ID: e.ID, Path: e.Path, Node: f.Name, Placement: e.Placement, Volumes: len(vs), Tiles: e.Tiles})
 		}
 	}
 	return out, nil
-}
-
-// RestoreLostEnv (server admin) puts a lost env on a node and queues a
-// deploy of each of its tiles. Volumes start empty; restore their backups
-// from the volume once the env is up.
-func (o *Orchestrator) RestoreLostEnv(ctx context.Context, by *Principal, envID, toNode string) ([]Job, error) {
-	if err := nodeAdmin(by); err != nil {
-		return nil, err
-	}
-	e, err := o.store.Environments.Get(ctx, envID)
-	if err != nil {
-		return nil, err
-	}
-	fs, err := o.store.ForgottenNodes.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !slices.ContainsFunc(fs, func(f store.ForgottenNode) bool { return f.ID == e.NodeID }) {
-		return nil, errs.Conflictf("That env is not lost.")
-	}
-	to, err := o.nodeLeaf().Get(ctx, toNode)
-	if err != nil {
-		return nil, err
-	}
-	if to.Status != node.StatusOnline {
-		return nil, errs.Conflictf("node %s is %s", to.Name, to.Status)
-	}
-	if err := o.store.Environments.SetNode(ctx, envID, to.ID); err != nil {
-		return nil, err
-	}
-	if err := o.store.Tx(ctx, func(tx store.Tx) error {
-		return audit(tx).Append(ctx, securitylog.Event{
-			Action: auditEnvRestore, ActorID: by.User.ID, KeyID: by.KeyID,
-			TargetKind: "env", TargetID: envID, Detail: "redeploy on " + to.Name,
-		})
-	}); err != nil {
-		return nil, err
-	}
-	ts, err := o.tiles.List(ctx, envID)
-	if err != nil {
-		return nil, err
-	}
-	var jobs []Job
-	for _, t := range deployOrder(ts) {
-		j, err := o.Deploy(ctx, t.ID)
-		if err != nil {
-			return jobs, err
-		}
-		jobs = append(jobs, j)
-	}
-	return jobs, nil
 }
 
 // PendingNode is a machine that called in with a join token.

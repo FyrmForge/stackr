@@ -83,28 +83,15 @@ func TestNodeAdminLifecycle(t *testing.T) {
 		t.Error("tag changes are not audited")
 	}
 
-	// open to orgs
+	// the node's placements and envs
+	n.placeW1(t, false)
 	d, err := n.orch.NodeDetail(ctx, "w1")
 	must(t, err)
-	if len(d.EnvList) != 1 || d.EnvList[0].Path != "acme / shop / edge" || len(d.Orgs) != 1 || d.Orgs[0].On {
+	if len(d.EnvList) != 1 || d.EnvList[0].Path != "acme / shop / edge" || d.EnvList[0].Placement != "w1" || !slices.Equal(d.Placements, []string{"w1"}) {
 		t.Fatalf("detail = %+v", d)
 	}
-	org := d.Orgs[0].ID
-	if ok, _ := n.orch.NodeOpenToOrg(ctx, "w1", org); ok {
-		t.Error("a worker is open before an admin opens it")
-	}
-	must(t, n.orch.SetNodeOrgs(ctx, adm, "w1", []string{org}))
-	if ok, _ := n.orch.NodeOpenToOrg(ctx, "w1", org); !ok {
-		t.Error("not open after opening")
-	}
-	if ok, _ := n.orch.NodeOpenToOrg(ctx, n.ctl.ID, org); !ok {
-		t.Error("the controller is open to every org")
-	}
-	if err := n.orch.SetNodeOrgs(ctx, adm, n.ctl.ID, nil); err == nil {
-		t.Error("controller org list was set")
-	}
 
-	// remove needs the node empty; the controller never goes
+	// remove needs the node empty and without placements; the controller never goes
 	if _, err := n.orch.RemoveNode(ctx, adm, "w1"); err == nil {
 		t.Error("removed a node that runs an env")
 	}
@@ -128,16 +115,8 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	if len(lost) != 1 || lost[0].Node != "w1" || lost[0].Path != "acme / shop / edge" {
 		t.Fatalf("lost = %+v", lost)
 	}
-	if _, err := n.orch.RestoreLostEnv(ctx, adm, n.dev.ID, n.ctl.ID); err == nil {
-		t.Error("restored an env that is not lost")
-	}
-	if _, err := n.orch.RestoreLostEnv(ctx, adm, lost[0].ID, n.ctl.ID); err != nil {
-		t.Fatal(err)
-	}
-	if lost, _ = n.orch.LostEnvs(ctx); len(lost) != 0 {
-		t.Errorf("still lost: %+v", lost)
-	}
-	if !slices.ContainsFunc(events(t, w, auditEnvRestore), func(e SecurityEvent) bool { return e.TargetID == n.edge.ID }) {
-		t.Error("restore is not audited")
+	// the lost env names its placement: repointing that restores it (lane M)
+	if lost[0].Placement != "w1" {
+		t.Errorf("lost env placement = %q, want w1", lost[0].Placement)
 	}
 }
