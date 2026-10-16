@@ -9,8 +9,7 @@ The `stackr` commands below run on the controller and need a login first. See [L
 Needs a Linux box, root, Docker 26.0 or newer, systemd, WireGuard in the kernel, UDP 51871 and TCP 7443 and 7444. The [README](../../README.md#system-requirements) has the rest.
 
 1. In the panel, open Admin, Nodes, Add node. Give it a name: lowercase letters, digits and dashes.
-   - **Tags:** every new node has `egress`. Tick `ingress` or `builder` for more roles.
-   - **Open to:** "All orgs" by default. Untick it to pick the orgs whose owners may pin envs to it.
+   - **Tags:** every new node has `egress`. Tick `ingress`, `builder` or `storage` for more roles. Envs with volumes or managed databases only run on `storage` nodes.
 
 2. Press Get join command. The panel shows one line. It works once and expires after 60 minutes.
 
@@ -24,66 +23,39 @@ Needs a Linux box, root, Docker 26.0 or newer, systemd, WireGuard in the kernel,
 
 4. Back in the panel, the Add node dialog shows the machine that called in. Check it and press Add.
 
-5. The new machine prints a link to the node in the panel. Open it to set tags, exits and orgs.
+5. The new machine prints a link to the node in the panel. Open it to set tags and exits. Orgs reach a node through a [placement](placements.md).
 
 From the CLI on the controller:
 
 ```bash
-stackr node add vps-fsn1                          # open to all orgs
-stackr node add vps-fsn1 --org acme --org shop    # open to these orgs only
+stackr node add vps-fsn1
+stackr node add vps-db --tag storage
 stackr node ls --pending
 stackr node confirm vps-fsn1
 stackr node ls
 ```
 
-`--tag ingress` or `--tag builder` adds roles; `egress` is always on. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
+`--tag ingress`, `--tag builder` or `--tag storage` adds roles; `egress` is always on. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
 
-## Pin envs to nodes
+## Nodes and placements
 
-New envs run on the controller unless you pin. A new worker is open to all orgs: any org's owners may pin to it.
+Nodes are hardware, and only server admins see them: `stackr node`, `stackr cluster` and the Nodes tab are admin-only. Orgs, stacks and envs name a placement, never a node. A placement stands on one node and an admin repoints it. See [Placements](placements.md) for pins, access and moves.
 
-To limit it, open the node's drawer in the panel, Tags tab. Turn off "Open to all orgs" and tick the orgs that may pin. From the CLI:
-
-```bash
-stackr node close vps-fsn1 --all          # only the orgs opened one by one
-stackr node open vps-fsn1 --org acme      # add one
-stackr node open vps-fsn1 --all           # every org again
-```
-
-Closing never moves envs that are already on the node.
-
-1. Pin the org or a stack. New envs go there.
-
-   ```bash
-   stackr pin vps-fsn1 --org acme
-   stackr pin vps-fsn1 --stack shop
-   ```
-
-   Envs that already exist stay where they are. To move one:
-
-   ```bash
-   stackr env move --stack shop --env prod --to vps-fsn1
-   ```
-
-   A move copies while the env runs, then stops it for a final copy. `--cold` stops first. `--dry-run` shows the plan.
-
-2. Read a pin with `stackr pin --org acme`. Remove it with `stackr pin --clear --org acme`.
-
-`stackr node close vps-fsn1 --org acme` stops new envs of that org landing there, on a node not open to all. The envs already on it stay.
+To take a worker out, repoint its placements first (`stackr admin placement move`); `stackr node remove` refuses while a placement or an env is on the node.
 
 ## Ingress and egress
 
 Ingress is the node public traffic enters through. Egress is the node an env's outgoing traffic leaves through.
 
-**Ingress.** The node needs the `ingress` tag and TCP 80 and 443 free.
+**Ingress.** The node needs the `ingress` tag and TCP 80 and 443 free. With no pick, an env's routes enter on its own node when that node has the tag, else on the default ingress. A pick names a placement.
 
 ```bash
 stackr node tag vps-fsn1 ingress
-stackr ingress set vps-fsn1 --stack shop --env prod
+stackr ingress set eu-prod --stack shop --env prod
 stackr ingress get --stack shop --env prod
 ```
 
-A pick covers its org, stack, env or tile and everything below it. `stackr ingress set --clear --stack shop` goes back to inheriting.
+A pick covers its org, stack, env or tile and everything below it. `stackr ingress set --clear --stack shop` goes back to inheriting. Point DNS at the node a host enters through.
 
 The default ingress serves the panel and every route without a pick. Moving it lists where each host points today, then asks you to type the node's name.
 
@@ -93,10 +65,10 @@ stackr ingress set vps-fsn1 --default
 
 Point DNS at the new default ingress.
 
-**Egress.** A node with the `egress` tag sends traffic out its own uplink. To send a scope's traffic out another node, give it an ordered exit list.
+**Egress.** A node with the `egress` tag sends traffic out its own uplink. To send a scope's traffic out another placement's node, give it an ordered exit list of placements (or `own`).
 
 ```bash
-stackr exit set vps-fsn1 vps-hel1 --stack shop --env prod
+stackr exit set eu-prod eu-db --stack shop --env prod
 stackr exit ls --stack shop --env prod
 ```
 
@@ -110,7 +82,7 @@ stackr node exit vps-home vps-fsn1 vps-hel1
 
 The exits are tried in order, up to three. A node without `egress` always needs at least one; tag it `egress` to send its traffic out its own uplink instead. The cluster-wide default exit is `stackr exit set vps-fsn1 --default`; `stackr exit set --default` clears it. With none set, every node uses its own uplink. See both defaults with `stackr ingress get --default`.
 
-Change tags with `stackr node tag` and `stackr node untag`.
+Change tags with `stackr node tag` and `stackr node untag`. The default ingress and exit and `stackr node exit` name nodes; they are admin settings.
 
 ## Rejoin a broken worker
 

@@ -15,7 +15,7 @@ import (
 // Nodes are addressed by name. Every write prints one line saying what
 // changed; --json prints the API's object.
 
-var nodeTags = []string{"ingress", "egress", "builder"}
+var nodeTags = []string{"ingress", "egress", "builder", "storage"}
 
 // ---- small formatters ----
 
@@ -97,12 +97,12 @@ func (a *app) nodeNames() (map[string]string, error) {
 func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
 		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(),
-		a.nodeTag(true), a.nodeTag(false), a.nodeExit(), a.nodeOpen(true), a.nodeOpen(false),
+		a.nodeTag(true), a.nodeTag(false), a.nodeExit(),
 		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget(), a.nodeBackup(), a.nodeBackups())
 }
 
 func (a *app) nodeAdd() *cobra.Command {
-	var tags, orgs []string
+	var tags []string
 	c := leaf("add <name>", "admin.join-token", "Make the join command for a new worker; it always gets egress (server admin)", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			for _, t := range tags {
@@ -110,7 +110,7 @@ func (a *app) nodeAdd() *cobra.Command {
 					return usage("unknown tag %q; tags are %s", t, strings.Join(nodeTags, ", "))
 				}
 			}
-			v, err := a.call(POST, "/admin/join-tokens", map[string]any{"node_name": args[0], "tags": tags, "orgs": orgs})
+			v, err := a.call(POST, "/admin/join-tokens", map[string]any{"node_name": args[0], "tags": tags})
 			if err != nil {
 				return err
 			}
@@ -121,10 +121,9 @@ func (a *app) nodeAdd() *cobra.Command {
 			return nil
 		})
 	c.Long = "Make the join command for a new worker (server admin). The node always gets egress; add more tags with --tag.\n" +
-		"It is open to every org unless you name orgs with --org."
-	c.Example = "  stackr node add vps-fsn1 --tag ingress\n  stackr node add vps-fsn1 --org acme --org shop"
-	c.Flags().StringArrayVar(&tags, "tag", nil, "another capability: ingress or builder (repeatable; egress is always on)")
-	c.Flags().StringArrayVar(&orgs, "org", nil, "open it to this org only (repeatable; default: every org)")
+		"Orgs reach it through a placement: stackr admin placement add <name> --node <node>."
+	c.Example = "  stackr node add vps-fsn1 --tag ingress\n  stackr node add vps-fsn1 --tag storage"
+	c.Flags().StringArrayVar(&tags, "tag", nil, "another capability: ingress, builder or storage (repeatable; egress is always on)")
 	return c
 }
 
@@ -225,7 +224,7 @@ func stateWord(s string) string {
 func (a *app) nodeLs() *cobra.Command {
 	var state string
 	var pend bool
-	c := leaf("ls", "node.list,admin.join-requests", "List nodes", exact(0), func(*cobra.Command, []string) error {
+	c := leaf("ls", "node.list,admin.join-requests", "List nodes (server admin)", exact(0), func(*cobra.Command, []string) error {
 		if pend || state == "pending" {
 			return a.pendingLs()
 		}
@@ -331,10 +330,8 @@ func (a *app) nodeShow() *cobra.Command {
 			if r := cell(n["range"]); r != "(none)" {
 				rows = append(rows, []string{"range", r})
 			}
-			if n["open_to_all"] == true {
-				rows = append(rows, []string{"open to", "all orgs"})
-			} else if o := strs(n["open_to"]); len(o) > 0 {
-				rows = append(rows, []string{"open to", strings.Join(o, ", ")})
+			if ps := strs(n["placements"]); len(ps) > 0 {
+				rows = append(rows, []string{"placements", strings.Join(ps, ", ")})
 			}
 			envs := []string{}
 			for _, e := range asList(n["env_list"]) {
@@ -363,7 +360,7 @@ func (a *app) nodeShow() *cobra.Command {
 }
 
 func (a *app) nodeTag(add bool) *cobra.Command {
-	use, op, short := "tag <name> <tag>...", "admin.node-tags", "Add capability tags (ingress, egress, builder) (server admin)"
+	use, op, short := "tag <name> <tag>...", "admin.node-tags", "Add capability tags (ingress, egress, builder, storage) (server admin)"
 	if !add {
 		use, short = "untag <name> <tag>...", "Remove capability tags (server admin)"
 	}
@@ -426,83 +423,6 @@ func (a *app) nodeExit() *cobra.Command {
 			return nil
 		})
 	c.Example = "  stackr node exit vps-home vps-fsn1 vps-hel1"
-	return c
-}
-
-func (a *app) nodeOpen(open bool) *cobra.Command {
-	use, short := "open <name>", "Let an org, or with --all every org, pin to a node (server admin)"
-	if !open {
-		use, short = "close <name>", "Stop an org pinning to a node, or with --all end its open to all orgs; envs there stay (server admin)"
-	}
-	var orgSlug string
-	var all bool
-	c := leaf(use, "admin.node-open,admin.node-close,admin.node-open-all", short, exact(1), func(*cobra.Command, []string) error { return nil })
-	c.RunE = func(_ *cobra.Command, args []string) error {
-		if all {
-			if orgSlug != "" {
-				return usage("--all and --org do not go together")
-			}
-			v, err := a.call(PUT, "/admin/nodes/"+url.PathEscape(args[0])+"/open-to-all", map[string]bool{"open": open})
-			if err != nil {
-				return err
-			}
-			if a.json {
-				return a.show(v)
-			}
-			if open {
-				a.say("%s: open to all orgs", args[0])
-			} else {
-				a.say("%s: open only to %s; envs already there stay", args[0], orList(strs(asMap(v)["open_to"])))
-			}
-			return nil
-		}
-		if orgSlug == "" {
-			p, err := a.orgPath()
-			if err != nil {
-				return err
-			}
-			orgSlug = last(p)
-		}
-		name := args[0]
-		if open {
-			v, err := a.call(POST, "/admin/nodes/"+url.PathEscape(name)+"/orgs", map[string]string{"org": orgSlug})
-			if err != nil {
-				return err
-			}
-			if a.json {
-				return a.show(v)
-			}
-			a.say("%s: open to %s", name, orgSlug)
-			return nil
-		}
-		n, err := a.node(name)
-		if err != nil {
-			return err
-		}
-		cnt := 0
-		for _, e := range asList(n["env_list"]) {
-			if cell(asMap(e)["org"]) == orgSlug {
-				cnt++
-			}
-		}
-		if cnt > 0 {
-			if err := a.confirm(fmt.Sprintf("%s runs %d %s envs; they stay, new ones cannot land there. Close it to %s?", name, cnt, orgSlug, orgSlug)); err != nil {
-				return err
-			}
-		}
-		v, err := a.call(DELETE, "/admin/nodes/"+url.PathEscape(name)+"/orgs/"+url.PathEscape(orgSlug), nil)
-		if err != nil {
-			return err
-		}
-		if a.json {
-			return a.show(v)
-		}
-		a.say("%s: closed to %s", name, orgSlug)
-		return nil
-	}
-	c.Example = "  stackr node " + strings.Fields(use)[0] + " vps-fsn1 --org acme\n  stackr node " + strings.Fields(use)[0] + " vps-fsn1 --all"
-	c.Flags().StringVar(&orgSlug, "org", "", "the org (default: the current one)")
-	c.Flags().BoolVar(&all, "all", false, "every org at once")
 	return c
 }
 
@@ -589,42 +509,24 @@ func (a *app) nodeRotate() *cobra.Command {
 }
 
 func (a *app) nodeRemove() *cobra.Command {
-	var moveTo string
-	c := leaf("remove <name>", "admin.node-remove,env.move", "Take a healthy worker out, after moving its envs (server admin)", exact(1),
-		func(c *cobra.Command, args []string) error {
+	c := leaf("remove <name>", "admin.node-remove", "Take a healthy worker out, once no placement points at it (server admin)", exact(1),
+		func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			n, err := a.node(name)
 			if err != nil {
 				return err
 			}
-			if cell(n["role"]) == "controller" { // before any move: --move-to would empty it first
+			if cell(n["role"]) == "controller" {
 				return fmt.Errorf("%s is the controller; it cannot be removed", name)
 			}
-			envs := asList(n["env_list"])
-			if len(envs) > 0 && moveTo == "" {
-				return fmt.Errorf("%s runs %s. Move them first: stackr env move <env> --to <node>, or pass --move-to <node>", name, plural(len(envs), "env", "envs"))
+			if ps := strs(n["placements"]); len(ps) > 0 {
+				return fmt.Errorf("%s hosts placement %s. Repoint it first: stackr admin placement move <placement> <node>", name, strings.Join(ps, ", "))
 			}
-			const steps = "Stops everything on it, backs it up, checks the backups, then cleans the box and removes it. A failed backup stops there and starts the apps again."
-			q := "Remove " + name + " from the cluster? " + steps
-			if len(envs) > 0 {
-				q = fmt.Sprintf("Move %s to %s, then remove %s? %s", plural(len(envs), "env", "envs"), moveTo, name, steps)
+			if envs := asList(n["env_list"]); len(envs) > 0 {
+				return fmt.Errorf("%s runs %s. Repoint its placements first: stackr admin placement move <placement> <node>", name, plural(len(envs), "env", "envs"))
 			}
-			if err := a.confirm(q); err != nil {
+			if err := a.confirm("Remove " + name + " from the cluster? Stops everything on it, backs it up, checks the backups, then cleans the box and removes it. A failed backup stops there and starts the apps again."); err != nil {
 				return err
-			}
-			for _, e := range envs {
-				parts := strings.Split(cell(asMap(e)["path"]), "/")
-				if len(parts) != 3 {
-					return fmt.Errorf("cannot place env %q", cell(asMap(e)["path"]))
-				}
-				base := "/orgs/" + url.PathEscape(parts[0])
-				j, err := a.call(POST, base+"/stacks/"+url.PathEscape(parts[1])+"/envs/"+url.PathEscape(parts[2])+"/move", map[string]any{"to": moveTo})
-				if err != nil {
-					return err
-				}
-				if err := a.follow(base, j, "move"); err != nil {
-					return err
-				}
 			}
 			j, err := a.call(DELETE, "/admin/nodes/"+url.PathEscape(name), nil)
 			if err != nil {
@@ -632,8 +534,7 @@ func (a *app) nodeRemove() *cobra.Command {
 			}
 			return a.follow("/admin", j, "removal of "+name)
 		})
-	c.Example = "  stackr node remove vps-fsn1 --move-to home"
-	c.Flags().StringVar(&moveTo, "move-to", "", "move its envs to this node first")
+	c.Example = "  stackr node remove vps-fsn1"
 	return c
 }
 
@@ -728,7 +629,7 @@ func (a *app) nodeForget() *cobra.Command {
 			lost := asList(asMap(v)["lost"])
 			a.say("%s: forgotten; %s marked lost", name, plural(len(lost), "env", "envs"))
 			if len(lost) > 0 {
-				a.say("Bring them back: stackr env restore <env> --stack <stack> --to <node>   (stackr env lost lists them)")
+				a.say("Bring them back: stackr env restore --placement <placement> --to <node>   (stackr env lost lists them)")
 			}
 			return nil
 		})
