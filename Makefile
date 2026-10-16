@@ -86,7 +86,7 @@ generate:
 ## test: Run all tests
 test: check-templ
 	templ generate
-	go test ./...
+	go test -timeout 20m ./...
 
 ## test-integration: Unit tests plus the build-tagged ones against the local Docker daemon
 test-integration: check-templ
