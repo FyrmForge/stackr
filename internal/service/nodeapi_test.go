@@ -167,7 +167,7 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	if got, err := n.orch.PinOf(ctx, "env", e.ID); err != nil || got.Placement != "w1" {
 		t.Errorf("PinOf env = %+v, %v", got, err)
 	}
-	if err := n.orch.SetPin(ctx, own, "org", og.ID, ""); err != nil {
+	if _, err := n.orch.PinScope(ctx, own, "org", og.ID, "", "", "edge", "qa"); err != nil { // the envs on w1 stay
 		t.Fatal(err)
 	}
 	if got, _ := n.orch.PinOf(ctx, "org", og.ID); got.Placement != "" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -115,7 +116,8 @@ func TestPlacementAdminVerbs(t *testing.T) {
 	if err := n.orch.DeletePlacement(ctx, adm, "eu"); !isConflict(err) {
 		t.Errorf("delete a pinned placement = %v", err)
 	}
-	must(t, n.orch.SetPin(ctx, adm, ScopeOrg, acmeID(t, n), ""))
+	_, err = n.orch.PinScope(ctx, adm, ScopeOrg, acmeID(t, n), "", "", "edge") // edge stays on eu
+	must(t, err)
 	if err := n.orch.DeletePlacement(ctx, adm, "eu"); !isConflict(err) { // the edge env followed the pin
 		t.Errorf("delete a placement holding an env = %v", err)
 	}
@@ -387,6 +389,19 @@ func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 		t.Error("the confirmed stack pin was not written")
 	}
 	n.wait(t, js[0])
+
+	// clearing the pin hands edge (on w1) to default on the controller: that
+	// moves it too, so it waits for the confirm and nothing is written
+	err = n.orch.SetPin(ctx, adm, ScopeStack, n.stack, "")
+	if !errors.As(err, &need) || !slices.ContainsFunc(need.Plans, func(p PlacementMovePlan) bool { return p.Placement == "acme/shop/edge" }) {
+		t.Fatalf("clearing a pin over an env on another node = %v", err)
+	}
+	if ps, err := n.orch.PlanPin(ctx, adm, ScopeStack, n.stack, ""); err != nil || len(ps) != len(need.Plans) {
+		t.Errorf("PlanPin of a clear = %+v, %v", ps, err)
+	}
+	if st, _ := n.st.Stacks.Get(ctx, n.stack); st.PlacementID == nil {
+		t.Fatal("a refused clear was written")
+	}
 
 	// env pin onto the other node: refused, nothing written
 	err = n.orch.SetPin(ctx, adm, ScopeEnv, n.edge.ID, DefaultPlacement)

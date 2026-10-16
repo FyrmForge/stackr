@@ -595,33 +595,34 @@ func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, na
 	if kind == ScopeEnv {
 		return o.pinEnv(ctx, by, id, p, name == "", confirm)
 	}
-	if name != "" {
-		if err := o.pinFits(ctx, og, kind, id, p, except); err != nil {
-			return nil, err
-		}
+	// the placement the envs end up on: the pin, or the one a cleared pin inherits
+	target, err := o.pinTarget(ctx, og, kind, p, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.pinFits(ctx, og, kind, id, target, except); err != nil {
+		return nil, err
 	}
 	var jobs []Job
-	if name != "" {
-		moving, plans, err := o.pinPlans(ctx, kind, id, p, except)
-		if err != nil {
-			return nil, err
+	moving, plans, err := o.pinPlans(ctx, kind, id, target, except)
+	if err != nil {
+		return nil, err
+	}
+	if len(plans) > 0 {
+		if confirm != o.scopeSlug(ctx, kind, id) {
+			return nil, &MoveNeeded{Plans: plans}
 		}
-		if len(plans) > 0 {
-			if confirm != o.scopeSlug(ctx, kind, id) {
-				return nil, &MoveNeeded{Plans: plans}
+		for _, pl := range plans {
+			if !pl.OK {
+				return nil, errs.Conflictf("%s cannot move: %s", pl.Placement, pmFailedChecks(pl.Checks))
 			}
-			for _, pl := range plans {
-				if !pl.OK {
-					return nil, errs.Conflictf("%s cannot move: %s", pl.Placement, pmFailedChecks(pl.Checks))
-				}
+		}
+		for _, e := range moving {
+			j, err := o.MoveEnvToPlacement(ctx, by, e.ID, target.Name, e.Slug)
+			if err != nil {
+				return jobs, err
 			}
-			for _, e := range moving {
-				j, err := o.MoveEnvToPlacement(ctx, by, e.ID, p.Name, e.Slug)
-				if err != nil {
-					return jobs, err
-				}
-				jobs = append(jobs, j)
-			}
+			jobs = append(jobs, j)
 		}
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
@@ -656,6 +657,19 @@ func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, na
 	return jobs, nil
 }
 
+// pinTarget is where pinning an org or stack to p (name "" = clearing it)
+// puts its envs: p, else what the cleared scope inherits (a stack the org's
+// pin, else default).
+func (o *Orchestrator) pinTarget(ctx context.Context, og store.Org, kind string, p store.Placement, name string) (store.Placement, error) {
+	if name != "" {
+		return p, nil
+	}
+	if kind == ScopeStack && og.PlacementID != nil {
+		return o.store.Placements.Get(ctx, *og.PlacementID)
+	}
+	return o.store.Placements.GetByName(ctx, DefaultPlacement)
+}
+
 // scopeSlug is the word that confirms a pin moving envs: the org's, stack's
 // or env's slug.
 func (o *Orchestrator) scopeSlug(ctx context.Context, kind, id string) string {
@@ -676,18 +690,27 @@ func (o *Orchestrator) scopeSlug(ctx context.Context, kind, id string) string {
 	return ""
 }
 
-// PlanPin is the moves pinning an org or stack to placement would cause,
-// one plan per env that changes node; none when nothing moves.
+// PlanPin is the moves pinning an org or stack to placement ("" = clearing
+// the pin) would cause, one plan per env that changes node; none when nothing
+// moves. A pin the envs do not fit is refused here, before any plan.
 func (o *Orchestrator) PlanPin(ctx context.Context, by *Principal, kind, id, name string) ([]PlacementMovePlan, error) {
 	if kind != ScopeOrg && kind != ScopeStack {
 		return nil, errs.Invalidf("scope", "only an org or a stack pin moves several envs")
 	}
 	_, og, err := o.chain(ctx, kind, id)
-	if err != nil || name == "" {
+	if err != nil {
 		return nil, err
 	}
-	p, err := o.offers(ctx, by, og.ID, name)
-	if err != nil {
+	var p store.Placement
+	if name != "" {
+		if p, err = o.offers(ctx, by, og.ID, name); err != nil {
+			return nil, err
+		}
+	}
+	if p, err = o.pinTarget(ctx, og, kind, p, name); err != nil {
+		return nil, err
+	}
+	if err := o.pinFits(ctx, og, kind, id, p, nil); err != nil {
 		return nil, err
 	}
 	_, plans, err := o.pinPlans(ctx, kind, id, p, nil)
