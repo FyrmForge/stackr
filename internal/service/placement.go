@@ -44,9 +44,9 @@ const (
 	RungDown    = "down"
 )
 
-// PlacementNode is a node offered to the org (OfferedNodes, admin and move
-// code), or, in a PlacementView, a placement offered to the org: ID and Name
-// are then both the placement name, never the node's.
+// PlacementNode is, in a PlacementView, a placement offered to the org: ID
+// and Name are both the placement name, never the node's. The exit view
+// (nodeexit.go) lists egress nodes with it.
 type PlacementNode struct {
 	ID, Name   string
 	Controller bool
@@ -148,50 +148,6 @@ func (o *Orchestrator) chain(ctx context.Context, kind, id string) ([]scopeRef, 
 		return out, g, nil
 	}
 	return nil, og, errs.Invalidf("scope", "unknown scope %q", kind)
-}
-
-// OfferedNodes are the nodes the org may place things on: the controller and
-// every confirmed node that holds a placement open to the org, controller
-// first. Admin and move code; members see OfferedPlacements.
-func (o *Orchestrator) OfferedNodes(ctx context.Context, orgID string) ([]PlacementNode, error) {
-	return o.offered(ctx, orgID, false)
-}
-
-// offered lists the offered nodes; anywhere (a server admin) skips the
-// open-to-the-org check.
-func (o *Orchestrator) offered(ctx context.Context, orgID string, anywhere bool) ([]PlacementNode, error) {
-	all, err := o.nodeLeaf().List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []PlacementNode
-	for _, n := range all {
-		if n.Status == node.StatusPending {
-			continue
-		}
-		if !anywhere {
-			if ok, err := o.nodeOpenToOrg(ctx, n.ID, orgID); err != nil {
-				return nil, err
-			} else if !ok {
-				continue
-			}
-		}
-		tags := node.Tags(n)
-		out = append(out, PlacementNode{
-			ID: n.ID, Name: n.Name, Controller: n.Role == node.Controller,
-			Ingress: slices.Contains(tags, node.TagIngress), Egress: slices.Contains(tags, node.TagEgress),
-		})
-	}
-	slices.SortStableFunc(out, func(a, b PlacementNode) int {
-		if a.Controller != b.Controller {
-			if a.Controller {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(a.Name, b.Name)
-	})
-	return out, nil
 }
 
 // OfferedPlacements are the placements open to the org, default first. need

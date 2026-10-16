@@ -166,24 +166,6 @@ func (o *Orchestrator) scopePath(ctx context.Context, kind, id string) string {
 	return strings.Join(parts, "/")
 }
 
-// nodeUsable is the check before an env goes onto a node by node id (the
-// legacy node-addressed move): it is online and, unless the caller is a
-// server admin, a placement open to the org stands on it.
-func (o *Orchestrator) nodeUsable(ctx context.Context, by *Principal, n store.Node, orgID string) error {
-	if n.Status != node.StatusOnline {
-		return errs.Conflictf("%s is %s", n.Name, n.Status)
-	}
-	if by != nil && by.Access.Admin {
-		return nil
-	}
-	if ok, err := o.nodeOpenToOrg(ctx, n.ID, orgID); err != nil {
-		return err
-	} else if !ok {
-		return errs.Refusedf("That node is not open to this organization.")
-	}
-	return nil
-}
-
 // orgSlugs turns org ids into slugs; a gone org keeps its id.
 func (o *Orchestrator) orgSlugs(ctx context.Context, ids []string) []string {
 	out := make([]string, 0, len(ids))

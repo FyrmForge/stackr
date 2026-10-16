@@ -146,7 +146,7 @@ func TestMovePullsImports(t *testing.T) {
 	n.wFake.RunID = "new"
 	n.wFake.Details = map[string]docker.Detail{"new": {Running: true, Networks: map[string]string{n.dev.Network: "10.209.0.2"}}}
 
-	j, err := n.orch.MoveEnv(ctx, &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}, n.dev.ID, "w1", false)
+	j, err := n.startMove(&Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}, n.dev.ID, "w1", false)
 	must(t, err)
 	if j = n.wait(t, j); j.State != job.Done {
 		t.Fatalf("move job = %s %q\nw: %v", j.State, j.Error, callNames(n.wFake))

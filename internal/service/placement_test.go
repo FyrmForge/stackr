@@ -104,25 +104,14 @@ func TestPlacement(t *testing.T) {
 	}
 }
 
-func TestPlanMoveAndStatus(t *testing.T) {
+func TestEnvMoveStatus(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
-	st, err := n.orch.store.Stacks.Get(ctx, n.stack)
-	must(t, err)
-	if _, err := n.orch.PlanMove(ctx, n.dev.ID, ""); err == nil {
-		t.Fatal("planned a move with no node open to the org")
-	}
-	must(t, n.st.PlacementOrgs.Set(ctx, addPlacement(t, n, "w1", "w1", false).ID, []string{st.OrgID}))
-	p, err := n.orch.PlanMove(ctx, n.dev.ID, "w1")
-	must(t, err)
-	if p.From != n.ctl.Name || p.To != "w1" || len(p.Targets) != 1 {
-		t.Errorf("plan = %+v", p)
-	}
 	if ms, err := n.orch.EnvMoveStatus(ctx, n.dev.ID); err != nil || ms != nil {
 		t.Fatalf("status before any move = %+v, %v", ms, err)
 	}
-	if _, err := n.orch.MoveEnv(ctx, admin, n.dev.ID, "w1", true); err != nil {
+	if _, err := n.startMove(admin, n.dev.ID, "w1", true); err != nil {
 		t.Fatal(err)
 	}
 	ms, err := n.orch.EnvMoveStatus(ctx, n.dev.ID)

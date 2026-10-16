@@ -29,15 +29,12 @@ func TestMoveEnvColdToWorker(t *testing.T) {
 	n.wFake.RunID = "new"
 	n.wFake.Details = map[string]docker.Detail{"new": {Running: true, Networks: map[string]string{n.dev.Network: "10.209.0.2"}}}
 
-	if _, err := n.orch.MoveEnv(ctx, nil, n.dev.ID, "w1", false); err == nil {
-		t.Fatal("a move with no principal was accepted")
-	}
-	if _, err := n.orch.MoveEnv(ctx, admin, n.dev.ID, n.ctl.ID, false); err == nil {
+	if _, err := n.startMove(admin, n.dev.ID, n.ctl.ID, false); err == nil {
 		t.Fatal("moved an env to the node it is on")
 	}
-	j, err := n.orch.MoveEnv(ctx, admin, n.dev.ID, "w1", false)
+	j, err := n.startMove(admin, n.dev.ID, "w1", false)
 	must(t, err)
-	if _, err := n.orch.MoveEnv(ctx, admin, n.dev.ID, "w1", false); err == nil {
+	if _, err := n.startMove(admin, n.dev.ID, "w1", false); err == nil {
 		t.Error("a second move while one runs was accepted")
 	}
 	if j = n.wait(t, j); j.State != job.Done {
@@ -66,6 +63,16 @@ func TestMoveEnvColdToWorker(t *testing.T) {
 			t.Errorf("%s events = %+v, %v", a, evs, err)
 		}
 	}
+}
+
+// startMove is the move core every move path ends in: begin, then queue.
+func (n *twoNodes) startMove(by *Principal, envID, to string, live bool) (Job, error) {
+	ctx := context.Background()
+	m, err := n.orch.moveFlow().Begin(ctx, move.Request{EnvID: envID, From: n.ctl.ID, To: to, Live: live})
+	if err != nil {
+		return Job{}, err
+	}
+	return n.orch.enqueueMove(ctx, m, by.User.ID, by.KeyID)
 }
 
 // A restart resumes a move that was cut off: one job for the unfinished move.

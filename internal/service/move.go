@@ -185,36 +185,6 @@ func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Resul
 	return res, nil
 }
 
-// MoveEnv moves an env to another node as a job: cold (stop, copy, start) or
-// live (rsync while it runs, then stop and a checksum pass). Who may is the
-// route's middleware (placement.write); placement repoints and pin changes
-// go through placementmove.go instead.
-func (o *Orchestrator) MoveEnv(ctx context.Context, by *Principal, envID, toNode string, live bool) (Job, error) {
-	if by == nil {
-		return Job{}, errs.ErrRefused
-	}
-	orgID, err := o.placementOrg(ctx, ScopeEnv, envID)
-	if err != nil {
-		return Job{}, err
-	}
-	from, err := o.nodeOfEnvID(ctx, envID)
-	if err != nil {
-		return Job{}, err
-	}
-	to, err := o.nodeByRef(ctx, toNode)
-	if err != nil {
-		return Job{}, err
-	}
-	if err := o.nodeUsable(ctx, by, to, orgID); err != nil {
-		return Job{}, err
-	}
-	m, err := o.moveFlow().Begin(ctx, move.Request{EnvID: envID, From: from.ID, To: to.ID, Live: live})
-	if err != nil {
-		return Job{}, err
-	}
-	return o.enqueueMove(ctx, m, by.User.ID, by.KeyID)
-}
-
 // enqueueMove locks the env and every tile it has, like a promote.
 func (o *Orchestrator) enqueueMove(ctx context.Context, m EnvMove, by, keyID string) (Job, error) {
 	ts, err := o.tiles.List(ctx, m.EnvID)
