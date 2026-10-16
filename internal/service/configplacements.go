@@ -186,7 +186,7 @@ func (o *Orchestrator) orgMoves(ctx context.Context, live *orgconfig.Live, f *or
 
 // stackPlacements is promote's Placements: the facts and lookups for the
 // stack plan of one env.
-func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promote.PlacementLive, error) { //nolint:unused // wired by the integrator: Placements: orch.stackPlacements
+func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promote.PlacementLive, error) {
 	var live promote.PlacementLive
 	e, err := o.envs.Get(ctx, envID)
 	if err != nil {
@@ -253,7 +253,7 @@ func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promo
 }
 
 // setPlacing applies one planned stack-file change.
-func (o *Orchestrator) setPlacing(ctx context.Context, st store.Stack, w promote.PlacementWrite) error { //nolint:unused // used by stackPlacements
+func (o *Orchestrator) setPlacing(ctx context.Context, st store.Stack, w promote.PlacementWrite) error {
 	switch w.Field {
 	case "pin":
 		return o.setPin(ctx, st, w.Scope, w.ScopeID, w.Refs[0], w.Moving)

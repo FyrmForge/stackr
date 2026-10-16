@@ -546,6 +546,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			DNS01:       orch.dns01,
 			RouteHeld:   orch.routes.Covers,
 			WriteParams: orch.writeParams,
+			Placements:  orch.stackPlacements,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {

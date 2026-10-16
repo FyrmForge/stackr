@@ -264,7 +264,10 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			return err
 		}
 	}
-	return f.rollout(ctx, w, e, log, swap)
+	if err := f.rollout(ctx, w, e, log, swap); err != nil {
+		return err
+	}
+	return f.applyPlacing(ctx, w, log)
 }
 
 // swapOrDefer marks the job swapping before the first write, unless a tile of
