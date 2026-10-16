@@ -431,7 +431,7 @@ func TestReportedPrefixesRejoin(t *testing.T) {
 	row := store.JoinToken{Facts: `{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},` +
 		`{"name":"br-1","prefixes":["10.208.0.1/24"]},{"name":"br-2","prefixes":["10.208.9.1/24"]},` +
 		`{"name":"wg0","prefixes":["10.208.7.1/24"]},` +
-		`{"name":"eth0","prefixes":["192.168.1.5/24"]}],"stackr_bridges":["br-1"]}`}
+		`{"name":"eth0","prefixes":["192.168.1.5/24"]}],"stackr_bridges":["br-1"],"docker_networks":{"br-2":"lab"}}`}
 	str := func(is []node.Iface) string {
 		var out []string
 		for _, i := range is {
@@ -439,10 +439,10 @@ func TestReportedPrefixesRejoin(t *testing.T) {
 		}
 		return fmt.Sprint(out)
 	}
-	if got := str(reportedPrefixes(row, true)); got != "[br-2=10.208.9.1/24 eth0=192.168.1.5/24]" {
+	if got := str(reportedPrefixes(row, true)); got != "[lab (br-2)=10.208.9.1/24 eth0=192.168.1.5/24]" {
 		t.Errorf("rejoin = %s", got)
 	}
-	if got := str(reportedPrefixes(row, false)); got != "[br-2=10.208.9.1/24 wg0=10.208.7.1/24 eth0=192.168.1.5/24]" {
+	if got := str(reportedPrefixes(row, false)); got != "[lab (br-2)=10.208.9.1/24 wg0=10.208.7.1/24 eth0=192.168.1.5/24]" {
 		t.Errorf("new node = %s", got)
 	}
 }

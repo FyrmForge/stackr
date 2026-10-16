@@ -497,6 +497,8 @@ func reportedPrefixes(r store.JoinToken, rejoin bool) []node.Iface {
 			Prefixes []string `json:"prefixes"`
 		} `json:"interfaces"`
 		StackrBridges []string `json:"stackr_bridges"`
+		// DockerNetworks names each bridge's Docker network, for the refusal.
+		DockerNetworks map[string]string `json:"docker_networks"`
 	}
 	if json.Unmarshal([]byte(r.Facts), &f) != nil {
 		return nil
@@ -506,9 +508,13 @@ func reportedPrefixes(r store.JoinToken, rejoin bool) []node.Iface {
 		if i.Name == mesh.Iface || slices.Contains(f.StackrBridges, i.Name) || rejoin && i.Name == mesh.LegacyIface {
 			continue
 		}
+		name := i.Name
+		if d, ok := f.DockerNetworks[i.Name]; ok {
+			name = d + " (" + i.Name + ")"
+		}
 		for _, s := range i.Prefixes {
 			if p, err := netip.ParsePrefix(s); err == nil {
-				out = append(out, node.Iface{Name: i.Name, Prefix: p})
+				out = append(out, node.Iface{Name: name, Prefix: p})
 			}
 		}
 	}

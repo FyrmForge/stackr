@@ -72,7 +72,7 @@ func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []Iface) (store.No
 	}
 	for _, i := range ifaces {
 		if i.Prefix.Overlaps(mesh.Supernet) || i.Prefix.Overlaps(mesh.Transit) {
-			return n, errs.Conflictf("Node %s has network %s (%s) on the cluster's reserved range %s or %s; move it off first.",
+			return n, errs.Conflictf("Node %s has network %s (%s) on the cluster's reserved range %s or %s. Move it off, reject this request and run a new join command.",
 				n.Name, i.Name, i.Prefix, mesh.Supernet, mesh.Transit)
 		}
 	}

@@ -283,6 +283,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		client: &http.Client{Timeout: 30 * time.Second}}
 	st, err := j.run(ctx, csr, wgPub, map[string]any{
 		"interfaces": worker.Interfaces(), "wg_port": *wgPort, "stackr_bridges": stackrBridges(ctx),
+		"docker_networks": dockerNetNames(ctx), // so a refusal names the network, not its bridge
 	})
 	if err != nil {
 		return err
