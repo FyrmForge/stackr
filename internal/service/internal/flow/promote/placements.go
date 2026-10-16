@@ -109,6 +109,14 @@ func (f *Flow) planScope(
 	for _, b := range blockers {
 		p.block("%s", b)
 	}
+	// A promote has no confirm step, so a pin that moves running envs waits
+	// for the move to be confirmed where it can be; once they are there, the
+	// pin moves nothing and lands.
+	for _, c := range cs {
+		if c.Kind == "pin" && c.Impact != "" {
+			p.block("pin %s %s; confirm that move on the Placement tab or with stackr pin, then promote again", c.New, c.Impact)
+		}
+	}
 	p.Warnings = append(p.Warnings, warns...)
 	for _, c := range cs {
 		p.add(c)

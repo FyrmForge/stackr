@@ -105,7 +105,8 @@ func TestPlanPlacing(t *testing.T) {
 			live: PlacementLive{Moves: func(_ context.Context, scope, pl string, _ []string) (map[string]planfile.MoveFact, error) {
 				return map[string]planfile.MoveFact{"shop/dev": move, "shop/prd": move}, nil
 			}},
-			impact: "moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s",
+			impact:  "moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s",
+			blocker: "pin eu-prod moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s; confirm that move on the Placement tab or with stackr pin",
 		},
 		{
 			name: "pin whose checks fail", file: placeHead + "environments:\n  dev: {pin: eu-prod}\n  prd: {from: promote}\n", env: "dev", changes: "pin:dev", blocker: "shop/dev cannot move: target online: h4 offline",
@@ -145,7 +146,9 @@ func TestPlanPlacing(t *testing.T) {
 			has := func(ss []string, sub string) bool {
 				return sub == "" && len(ss) == 0 || sub != "" && slices.ContainsFunc(ss, func(s string) bool { return strings.Contains(s, sub) })
 			}
-			blockers := slices.DeleteFunc(slices.Clone(p.Blockers), func(s string) bool { return !strings.Contains(s, "placement") && !strings.Contains(s, "cannot move") })
+			blockers := slices.DeleteFunc(slices.Clone(p.Blockers), func(s string) bool {
+				return !strings.Contains(s, "placement") && !strings.Contains(s, "cannot move") && !strings.Contains(s, "Placement tab")
+			})
 			if !has(blockers, c.blocker) {
 				t.Errorf("blockers = %v, want %q", p.Blockers, c.blocker)
 			}

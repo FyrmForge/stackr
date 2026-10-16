@@ -19,7 +19,7 @@ import (
 )
 
 // srvSite is the server wizard and the gate over one stand-in page, since
-// server.go (the integrator's) is what mounts them in the real site.
+// server.go mounts them in the real site.
 type srvSite struct {
 	env *servicetest.Env
 	h   http.Handler

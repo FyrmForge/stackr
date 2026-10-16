@@ -115,7 +115,7 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	if len(lost) != 1 || lost[0].Node != "w1" || lost[0].Path != "acme / shop / edge" {
 		t.Fatalf("lost = %+v", lost)
 	}
-	// the lost env names its placement: repointing that restores it (lane M)
+	// the lost env names its placement: repointing that restores it
 	if lost[0].Placement != "w1" {
 		t.Errorf("lost env placement = %q, want w1", lost[0].Placement)
 	}

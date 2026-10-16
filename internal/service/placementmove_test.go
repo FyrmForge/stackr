@@ -391,3 +391,27 @@ func TestMoveChecksNamesNodes(t *testing.T) {
 		t.Fatalf("checks = %+v", cs)
 	}
 }
+
+// An org file pin that moves an env: the approved apply moves it, acting as
+// the file (no principal of its own), and the org ends pinned.
+func TestFilePinMovesEnv(t *testing.T) {
+	ctx := context.Background()
+	n := newPMFix(t)
+	pw := n.placement(t, "pw", "w1")
+	st, err := n.st.Stacks.Get(ctx, n.stack)
+	must(t, err)
+	must(t, n.orch.setPin(ctx, st, ScopeOrg, st.OrgID, "pw", []string{envPath(st, n.dev)}))
+	js, err := n.st.Jobs.ListTouching(ctx, []string{n.devT.ID}, string(kindMoveEnv), 10)
+	must(t, err)
+	if len(js) != 1 {
+		t.Fatalf("move jobs = %d, want 1", len(js))
+	}
+	if j := n.wait(t, js[0]); j.State != job.Done {
+		t.Fatalf("move job = %s %q", j.State, j.Error)
+	}
+	e, _ := n.orch.envs.Get(ctx, n.dev.ID)
+	og, _ := n.st.Orgs.Get(ctx, st.OrgID)
+	if e.NodeID != "w1" || e.PlacementID != pw.ID || og.PlacementID == nil || *og.PlacementID != pw.ID {
+		t.Fatalf("env on %q in %q, org pin %v; want w1 in pw, pinned", e.NodeID, e.PlacementID, og.PlacementID)
+	}
+}

@@ -203,9 +203,8 @@ func TestServerFilePlacementRemoval(t *testing.T) {
 	}
 }
 
-// A repoint the move checks refuse blocks the plan; one they pass is a
-// risky change. Until lane M lands the checks read "not built yet", which
-// blocks too, so this test only asserts the shape.
+// A repoint the move checks pass is a placement-move change; one that moves
+// envs is risky, so its approve needs the confirm.
 func TestServerFileRepointPlan(t *testing.T) {
 	ctx := context.Background()
 	r := newFileRig(t)
@@ -217,14 +216,34 @@ func TestServerFileRepointPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if p := planOf(t, pl); p.Blocked() || !hasKind(p, "placement-move", "eu-prod") {
+		t.Fatalf("plan = %+v, want an unblocked placement-move", p)
+	}
+
+	// with an env on it the move is an impact line: no approve without the confirm
+	tl := r.env.Tile(t, r.env.Org(t, "acme"))
+	pid, _ := r.env.Store.Placements.GetByName(ctx, "eu-prod")
+	if err := r.env.Store.Environments.SetPlacement(ctx, tl.Env, pid.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.env.Store.Environments.SetNode(ctx, tl.Env, h3); err != nil {
+		t.Fatal(err)
+	}
+	if pl, err = r.env.Orch.PlanServerFile(ctx, []byte("version: 1\nplacements:\n  eu-prod: {node: h4}\n")); err != nil {
+		t.Fatal(err)
+	}
 	p := planOf(t, pl)
-	switch {
-	case p.Blocked():
-		if !strings.Contains(strings.Join(p.Blockers, "|"), "placements.eu-prod: moving to h4 fails") {
-			t.Errorf("blockers = %q", p.Blockers)
+	impact := ""
+	for _, c := range p.Changes {
+		if c.Kind == "placement-move" {
+			impact = c.Impact
 		}
-	case !hasKind(p, "placement-move", "eu-prod"):
-		t.Errorf("changes = %+v, want placement-move", p.Changes)
+	}
+	if p.Blocked() || !strings.Contains(impact, "moves 1 env (acme/shop/dev) to h4") {
+		t.Fatalf("plan = %+v, want the move as an impact line", p)
+	}
+	if _, err := r.env.Orch.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{}); !isConflict(err) {
+		t.Errorf("approve without the confirm = %v, want a conflict", err)
 	}
 }
 
@@ -241,7 +260,7 @@ func TestServerFileRepointApplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if planOf(t, pl).Blocked() {
-		t.Skipf("the move checks need lane M: %q", planOf(t, pl).Blockers)
+		t.Fatalf("blocked: %q", planOf(t, pl).Blockers)
 	}
 	if _, err := r.env.Orch.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{Confirm: true}); err != nil {
 		t.Fatal(err)

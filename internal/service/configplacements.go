@@ -271,6 +271,9 @@ func (o *Orchestrator) setPlacing(ctx context.Context, st store.Stack, w promote
 // ponytail: SetPin may refuse with *MoveNeeded until the envs are on the
 // placement; the second SetPin ignores that, since the moves are in flight.
 func (o *Orchestrator) setPin(ctx context.Context, st store.Stack, kind, id, placement string, moving []string) error {
+	// the moves act as the file: the security log reads "configfile"; no
+	// admin rights, so the org's open-to check still holds
+	by := &Principal{User: User{ID: "configfile"}}
 	err := o.SetPin(ctx, nil, kind, id, placement)
 	var need *MoveNeeded
 	refused := errors.As(err, &need)
@@ -285,7 +288,7 @@ func (o *Orchestrator) setPin(ctx context.Context, st store.Stack, kind, id, pla
 		if err != nil {
 			return err
 		}
-		_, err = o.MoveEnvToPlacement(ctx, nil, id, placement, e.Slug)
+		_, err = o.MoveEnvToPlacement(ctx, by, id, placement, e.Slug)
 		return err
 	}
 	target, err := o.store.Placements.GetByName(ctx, placement)
@@ -300,7 +303,7 @@ func (o *Orchestrator) setPin(ctx context.Context, st store.Stack, kind, id, pla
 		if e.PlacementID == target.ID {
 			continue
 		}
-		if _, err := o.MoveEnvToPlacement(ctx, nil, e.ID, placement, e.Slug); err != nil {
+		if _, err := o.MoveEnvToPlacement(ctx, by, e.ID, placement, e.Slug); err != nil {
 			return err
 		}
 	}
