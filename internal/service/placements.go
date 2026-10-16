@@ -169,11 +169,14 @@ func (o *Orchestrator) nodeOpenToOrg(ctx context.Context, nodeID, orgID string) 
 // offers returns the placement by name, or errs unless it is open to the
 // org. A server admin may use any.
 func (o *Orchestrator) offers(ctx context.Context, by *Principal, orgID, name string) (store.Placement, error) {
-	p, err := o.placementRow(ctx, name)
-	if err != nil {
-		return p, err
-	}
-	if by != nil && by.Access.Admin {
+	admin := by != nil && by.Access.Admin
+	p, err := o.store.Placements.GetByName(ctx, strings.TrimSpace(name))
+	switch {
+	case errors.Is(err, errs.ErrNotFound) && !admin: // no oracle for names a member cannot see
+		return p, errs.Invalidf("placement", "%s is not open to this organization", strings.TrimSpace(name))
+	case err != nil:
+		return o.placementRow(ctx, name)
+	case admin:
 		return p, nil
 	}
 	if ok, err := o.placementOpenTo(ctx, p.ID, orgID); err != nil {
