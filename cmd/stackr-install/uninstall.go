@@ -23,9 +23,9 @@ import (
 )
 
 // uninstall is `stackr-install uninstall [--purge] [--yes]`: take stackr off
-// a worker box. Volumes and images stay (a rejoin finds its data again);
-// --purge removes those and the node's state too, once the node's name is
-// typed.
+// a worker box. Volumes, images and binaries stay (a rejoin finds its data
+// again); --purge removes those and the node's state too, once the node's
+// name is typed.
 
 const (
 	managedLabel = "label=stackr.managed=true"
@@ -50,7 +50,7 @@ type uninstallEnv struct {
 
 func uninstall(ctx context.Context, args []string, out io.Writer, in io.Reader) error {
 	fs := flag.NewFlagSet("stackr-install uninstall", flag.ContinueOnError)
-	purge := fs.Bool("purge", false, "also remove stackr's volumes and images and this node's state")
+	purge := fs.Bool("purge", false, "also remove stackr's volumes, images and binaries and this node's state")
 	yes := fs.Bool("yes", false, "do not ask before uninstalling (--purge still asks for the node's name)")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	stateDir := fs.String("state-dir", "/var/lib/stackr-worker", "where the worker keeps its certs and state")
@@ -126,7 +126,7 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	e.mesh(ctx, try)
 
 	if !purge {
-		r.say("Done. Volumes, images and", e.stateDir, "stay; --purge removes them.")
+		r.say("Done. Volumes, images, binaries and", e.stateDir, "stay; --purge removes them.")
 		return errors.Join(errs...)
 	}
 	r.say("Purging volumes, images and state")
@@ -134,6 +134,12 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	try("docker", "volume", "rm", "stackr-caddy") // an ingress node's only
 	e.removeImages(ctx, fail)
 	fail(r.run(ctx, "rm", "-rf", e.stateDir))
+	// This installer among them: Linux keeps a running binary until it exits.
+	bins := []string{filepath.Join(worker.SwapBinDir, ".stackr-swap")}
+	for _, n := range worker.SwapBinaries {
+		bins = append(bins, filepath.Join(worker.SwapBinDir, n), filepath.Join(worker.SwapBinDir, n+".prev"))
+	}
+	fail(r.run(ctx, "rm", append([]string{"-f"}, bins...)...))
 	r.say("Done. stackr is off this box.")
 	return errors.Join(errs...)
 }
@@ -281,7 +287,7 @@ func (e uninstallEnv) confirmPurge() error {
 	if err != nil {
 		return err
 	}
-	e.r.say("--purge removes stackr's volumes and images and", e.stateDir, "from this box.")
+	e.r.say("--purge removes stackr's volumes, images and binaries and", e.stateDir, "from this box.")
 	e.r.say("Type the node's name to go on (the name the panel shows for it; an older node: its id):")
 	line, _ := bufio.NewReader(e.in).ReadString('\n')
 	if strings.TrimSpace(line) != want {

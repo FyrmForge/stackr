@@ -213,7 +213,7 @@ func TestUninstallCommands(t *testing.T) {
 	} {
 		at = index(t, out, step, at)
 	}
-	for _, kept := range []string{"volume rm", "image rm", "rm -rf"} {
+	for _, kept := range []string{"volume rm", "image rm", "rm -rf", "/usr/local/bin/"} {
 		if strings.Contains(out, kept) {
 			t.Errorf("a plain uninstall ran %q:\n%s", kept, out)
 		}
@@ -271,7 +271,8 @@ func TestUninstallPurgeAsksTheName(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"docker volume rm v1 v2", "docker volume rm stackr-caddy", "docker image rm -f i1 i2 i3 i4 i5", "rm -rf " + r.state} {
+	for _, want := range []string{"docker volume rm v1 v2", "docker volume rm stackr-caddy", "docker image rm -f i1 i2 i3 i4 i5", "rm -rf " + r.state,
+		"rm -f /usr/local/bin/.stackr-swap /usr/local/bin/stackrd /usr/local/bin/stackrd.prev /usr/local/bin/stackr-install /usr/local/bin/stackr-install.prev"} {
 		if !strings.Contains(flat(out), want) {
 			t.Errorf("purge lacks %q:\n%s", want, out)
 		}

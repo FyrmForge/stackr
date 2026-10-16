@@ -34,12 +34,12 @@ Remove already cleans the box. Use `stackr-install uninstall` when the panel can
 sudo stackr-install uninstall
 ```
 
-It stops the worker service and removes stackr's containers, networks, firewall rules and mesh. Volumes, images and `/var/lib/stackr-worker` stay, so a rejoin finds its data.
+It stops the worker service and removes stackr's containers, networks, firewall rules and mesh. Volumes, images, the binaries in `/usr/local/bin` and `/var/lib/stackr-worker` stay, so a rejoin finds its data.
 
 ```bash
 sudo stackr-install uninstall --purge
 ```
 
-`--purge` also deletes the volumes, images and state. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
+`--purge` also deletes the volumes, images, binaries and state. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
 
 It refuses to run on the controller box.
