@@ -633,7 +633,7 @@ func doneText(in installspec.Input, key, admin string, cli, dry bool) string {
 
   panel     %s
 %s  data      %s
-  cli       stackr <command>          (works when DNS or the proxy is broken)
+  cli       stackr <command>          (reaches the panel through its URL)
   upgrade   Admin, Update in the panel
   people    invite them from the org's Members tab
 `, status, in.BaseURL(), login, in.DataDir)
@@ -665,10 +665,8 @@ DNS: two records, both pointing at this server:
 The second is not optional. Stacks get hostnames under %s, and each
 one needs to resolve before a certificate can be issued for it.
 
-Until DNS is live there is no browser route in: the panel publishes no port,
-so everything arrives through Caddy. Use the admin CLI on this box instead:
-
-  stackr --help
+Until DNS is live there is no way in: the panel publishes no port, so
+everything arrives through Caddy, the CLI on this box included.
 `, w, in.PanelHost, w, "*."+root, root)
 }
 

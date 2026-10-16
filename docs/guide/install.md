@@ -72,11 +72,7 @@ Running the installer again converges on the saved answers. A flag that disagree
 1. Open `https://stkr.apps.example.com` (your own domain; `http://` with `--https=false`).
 2. Log in with the admin email and password.
 
-Until DNS is live there is no browser route in, because the panel publishes no port. The installer also put a `stackr` command on the box. It works without DNS:
-
-```bash
-stackr --help
-```
+Until DNS is live there is no way in, because the panel publishes no port. The `stackr` command the installer put on the box goes through the panel's URL too, so it also waits for DNS and the certificate.
 
 ## First login and onboarding
 
