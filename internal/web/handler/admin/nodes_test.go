@@ -105,7 +105,7 @@ func TestAdminNodeOverview(t *testing.T) {
 	}
 	rec := s.As(t, root, "GET", "/-/admin/nodes/"+ns[0].ID, nil)
 	body := rec.Body.String()
-	for _, want := range []string{"1 core", runtime.GOARCH, "just now","Addresses", "Machine", "Tunnels"} {
+	for _, want := range []string{"1 core", runtime.GOARCH, "just now", "Addresses", "Machine", "Tunnels"} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
 			t.Fatalf("overview = %d, no %q in\n%s", rec.Code, want, body)
 		}

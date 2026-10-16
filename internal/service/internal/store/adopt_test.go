@@ -8,7 +8,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
-// Envs made before nodes existed (node_id '') are placed on the given node;
+// Envs made before nodes existed (node_id ”) are placed on the given node;
 // placed ones stay where they are.
 func TestAdoptUnplaced(t *testing.T) {
 	st := storetest.Store(t)

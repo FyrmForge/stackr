@@ -43,7 +43,7 @@ func TestRiskyRemovalsAutoOK(t *testing.T) {
 	if onlyGaps := (planfile.Plan{Gaps: []planfile.Gap{{Kind: "secret", Key: "a.b"}}}); onlyGaps.AutoOK() {
 		t.Error("a plan of gaps alone has nothing to apply by itself")
 	}
-		onlyRemoval := planfile.Plan{Changes: []planfile.Change{{Kind: "route-delete", Key: "route:x", Optional: true}}}
+	onlyRemoval := planfile.Plan{Changes: []planfile.Change{{Kind: "route-delete", Key: "route:x", Optional: true}}}
 	if onlyRemoval.AutoOK() {
 		t.Error("a removal row keeps a plan from applying by itself")
 	}
