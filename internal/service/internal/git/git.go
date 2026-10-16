@@ -81,7 +81,9 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 	} else if err := dropLocks(filepath.Join(r.Dir, ".git")); err != nil {
 		return "", err
 	}
-	if err := run(r.Dir, "fetch", "origin", ref); err != nil {
+	// No auto gc: a detached one outlives the job and holds locks the next
+	// checkout's dropLocks would remove.
+	if err := run(r.Dir, "-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "origin", ref); err != nil {
 		return "", fmt.Errorf("git fetch %s: %w", ref, err)
 	}
 	// Detached HEAD by design: one path for a branch and a raw SHA; -f
