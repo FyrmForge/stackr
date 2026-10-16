@@ -55,6 +55,11 @@ const (
 	ClusterCAKeyFile  = "keys/cluster-ca.key"
 	ClusterCACertFile = "keys/cluster-ca.crt"
 	WGKeyFile         = "keys/wg.key"
+	// The previous root and the cross cert, kept while a CA rollover runs:
+	// without them a restore mid-rollover finishes it and cuts off workers
+	// still on the old root.
+	ClusterCAPrevCertFile  = "keys/cluster-ca.prev.crt"
+	ClusterCACrossCertFile = "keys/cluster-ca.cross.crt"
 	// The controller's own cert and key, so a restore keeps them.
 	ControllerKeyFile  = "keys/controller.key"
 	ControllerCertFile = "keys/controller.crt"
@@ -88,6 +93,8 @@ var PanelState = []Member{
 	{Name: VersionMember, Mode: 0o644},
 	{Name: ClusterCAKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ClusterCACertFile, Mode: 0o644, Optional: true, OnDisk: true},
+	{Name: ClusterCAPrevCertFile, Mode: 0o644, Optional: true, OnDisk: true},
+	{Name: ClusterCACrossCertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: WGKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ControllerKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ControllerCertFile, Mode: 0o644, Optional: true, OnDisk: true},

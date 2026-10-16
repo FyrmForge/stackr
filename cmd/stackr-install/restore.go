@@ -97,8 +97,11 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		src := filepath.Join(stage, m.Name)
 		if _, err := os.Stat(src); m.Optional && errors.Is(err, os.ErrNotExist) {
 			// A previous controller cert left from before would co-sign
-			// recovery answers the archived state had stopped.
-			if m.Name == installspec.ControllerPrevKeyFile || m.Name == installspec.ControllerPrevCertFile {
+			// recovery answers the archived state had stopped; a previous
+			// root left from before would start a rollover it never had.
+			switch m.Name {
+			case installspec.ControllerPrevKeyFile, installspec.ControllerPrevCertFile,
+				installspec.ClusterCAPrevCertFile, installspec.ClusterCACrossCertFile:
 				if err := os.Remove(filepath.Join(dataDir, m.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 					return err
 				}

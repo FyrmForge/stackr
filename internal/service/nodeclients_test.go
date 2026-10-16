@@ -141,7 +141,8 @@ func TestBootMakesTheCAOnce(t *testing.T) {
 			t.Errorf("%s: %v", f, err)
 		}
 	}
-	if clusterca.CAKeyFile != installspec.ClusterCAKeyFile || clusterca.CACertFile != installspec.ClusterCACertFile {
+	if clusterca.CAKeyFile != installspec.ClusterCAKeyFile || clusterca.CACertFile != installspec.ClusterCACertFile ||
+		clusterca.CAPrevCertFile != installspec.ClusterCAPrevCertFile {
 		t.Error("clusterca and installspec disagree on the CA file names")
 	}
 	issued := func(o *Orchestrator) []SecurityEvent {

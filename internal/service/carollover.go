@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
@@ -402,7 +403,7 @@ func (o *Orchestrator) rootStragglers(ctx context.Context, curFP string, settle 
 
 // crossFile is the new root signed by the old one, kept for the length of a
 // rollover so a recover answer can carry it (worker.RecoverAnswer.Cross).
-const crossFile = "keys/cluster-ca.cross.crt"
+const crossFile = installspec.ClusterCACrossCertFile
 
 // writeCross cross-signs next's key with old's, before old's key is gone.
 func writeCross(dir string, old, next *clusterca.CA) error {
