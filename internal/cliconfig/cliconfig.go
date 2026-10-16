@@ -22,7 +22,9 @@ type Link struct {
 	Tile  string `json:"tile,omitempty"`
 }
 
-// Save writes c to path, 0600, making its directory 0700.
+// Save writes c to path, 0600, making its directory 0700. A temp file
+// renamed over path: a planted symlink is replaced, never written through,
+// and an old file's looser mode does not survive.
 func Save(path string, c Config) error {
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
@@ -31,5 +33,19 @@ func Save(path string, c Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	f, err := os.CreateTemp(filepath.Dir(path), ".cli-*") // 0600
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err = f.Write(b); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
