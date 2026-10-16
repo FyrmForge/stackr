@@ -326,7 +326,7 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 	must(t, err)
 	o.docker.(*DockerRouter).Set("w1", dead)
 	err = o.skipUnreachable(ctx, vol.ID)
-	if !errors.Is(err, jobs.ErrSkipped) || !err.Error() != "skipped: node unreachable" {
+	if !errors.Is(err, jobs.ErrSkipped) || err.Error() != "skipped: node unreachable" {
 		t.Errorf("dropped node = %v", err)
 	}
 	// A worker too old is refused, not unreachable: the backup reports it.
