@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -282,9 +281,7 @@ func TestRemoveForgetLost(t *testing.T) {
 	if _, err := n.orch.RemoveNodeRef(ctx, adm, "tmp"); err == nil || !strings.Contains(err.Error(), "Placement tmp") {
 		t.Fatalf("remove under a placement = %v", err)
 	}
-	if _, err := n.orch.ForgetNodeRef(ctx, adm, "tmp"); err != nil {
-		t.Fatal(err)
-	}
+	forgetNow(t, n, "tmp")
 	if rungs, _ := n.st.ExitLadders.List(ctx, "env", n.dev.ID); len(rungs) != 0 {
 		t.Errorf("exit rungs left: %v", rungs)
 	}
@@ -300,8 +297,7 @@ func TestRemoveForgetLost(t *testing.T) {
 		t.Error("the node row is still there")
 	}
 
-	out, err := n.orch.ForgetNodeRef(ctx, adm, "w1")
-	must(t, err)
+	out := forgetNow(t, n, "w1")
 	if len(out.Lost) != 1 || out.Lost[0].Path != "acme/shop/edge" || out.Lost[0].Placement != "w1" {
 		t.Fatalf("forget = %+v", out)
 	}
@@ -415,17 +411,39 @@ func TestRejectRejoinKeepsNode(t *testing.T) {
 	}
 }
 
-// A rejoin skips only stackr's own networks; a new node skips none.
+// A pending machine shows the addresses a person knows it by.
+func TestHostAddresses(t *testing.T) {
+	got := hostAddresses([]worker.Iface{
+		{Name: "lo", Prefixes: []string{"127.0.0.1/8", "::1/128"}},
+		{Name: "eth0", Prefixes: []string{"192.168.1.110/24", "fe80::1/64", "2001:db8::5/64"}},
+		{Name: "docker0", Prefixes: []string{"172.17.0.1/16"}},
+		{Name: "br-1a2b3c4d5e6f", Prefixes: []string{"10.208.0.1/24"}},
+		{Name: "stackr0", Prefixes: []string{"10.207.255.1/24"}},
+		{Name: "veth12", Prefixes: []string{"169.254.3.1/16"}},
+	})
+	if fmt.Sprint(got) != "[192.168.1.110/24 2001:db8::5/64]" {
+		t.Fatalf("addresses = %v", got)
+	}
+}
+
+// stackr's own networks are skipped on any join, wg0 on a rejoin only.
 func TestReportedPrefixesRejoin(t *testing.T) {
 	row := store.JoinToken{Facts: `{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},` +
 		`{"name":"br-1","prefixes":["10.208.0.1/24"]},{"name":"br-2","prefixes":["10.208.9.1/24"]},` +
+		`{"name":"wg0","prefixes":["10.208.7.1/24"]},` +
 		`{"name":"eth0","prefixes":["192.168.1.5/24"]}],"stackr_bridges":["br-1"]}`}
-	str := func(ps []netip.Prefix) string { return fmt.Sprint(ps) }
-	if got := str(reportedPrefixes(row, true)); got != "[10.208.9.1/24 192.168.1.5/24]" {
+	str := func(is []node.Iface) string {
+		var out []string
+		for _, i := range is {
+			out = append(out, i.Name+"="+i.Prefix.String())
+		}
+		return fmt.Sprint(out)
+	}
+	if got := str(reportedPrefixes(row, true)); got != "[br-2=10.208.9.1/24 eth0=192.168.1.5/24]" {
 		t.Errorf("rejoin = %s", got)
 	}
-	if got := reportedPrefixes(row, false); len(got) != 4 {
-		t.Errorf("new node = %v", got)
+	if got := str(reportedPrefixes(row, false)); got != "[br-2=10.208.9.1/24 wg0=10.208.7.1/24 eth0=192.168.1.5/24]" {
+		t.Errorf("new node = %s", got)
 	}
 }
 

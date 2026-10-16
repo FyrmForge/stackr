@@ -13,6 +13,8 @@ type NodesView struct {
 	// Placements is a GET to the Placements tab, for the lost envs' hint.
 	Placements string
 	Lost       []LostEnvRow
+	// Pending are the machines that called in and wait for a confirm.
+	Pending []PendingRow
 	Rows  []NodeRow
 	Adder *AddNodeView // the open add-node steps, nil = closed
 	// Defaults is the cluster-wide default ingress and exit; nil = single node.
@@ -145,10 +147,12 @@ type AddNodeView struct {
 	Pending *PendingRow
 }
 
-// PendingRow is the machine that called in.
+// PendingRow is a machine that called in and waits for a confirm. System
+// "" = it reported none; Confirm and Reject are POSTs.
 type PendingRow struct {
 	Name, System, Confirm, Reject string
-	Addresses                     []string
+	Requested                     string // "5 min ago"
+	Addresses, Tags               []string
 }
 
 // NodeView is the node drawer's body. Only the active tab's fields are set.
@@ -329,6 +333,40 @@ templ Nodes(v NodesView) {
 				}
 			}
 		}
+		if len(v.Pending) > 0 {
+			@c.Section("Waiting to join", "instance", "Machines that ran a join command. Add the ones you expect, reject the rest.") {
+				<ul class="space-y-3">
+					for _, p := range v.Pending {
+						<li class="panel px-4 py-3 text-sm space-y-2">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="text-rw-text font-medium">{ p.Name }</span>
+								for _, t := range p.Tags {
+									@c.Chip(t, "accent")
+								}
+								<span class="ml-auto">@c.Chip("pending", "warn")</span>
+							</div>
+							<p class="text-xs text-rw-muted">
+								called in { p.Requested }
+								if p.System != "" {
+									· { p.System }
+								}
+							</p>
+							if len(p.Addresses) > 0 {
+								<p class="font-mono text-xs text-rw-text break-all">{ strings.Join(p.Addresses, ", ") }</p>
+							}
+							<div class="flex gap-2">
+								<form hx-post={ p.Reject } hx-target={ target() } hx-swap="outerHTML">
+									<button type="submit" class="btn btn-ghost btn-sm">Reject</button>
+								</form>
+								<form hx-post={ p.Confirm } hx-target={ target() } hx-swap="outerHTML">
+									<button type="submit" class="btn btn-primary btn-sm">Add { p.Name }</button>
+								</form>
+							</div>
+						</li>
+					}
+				</ul>
+			}
+		}
 		@c.Section("Nodes", "instance", "Machines this panel runs envs on.") {
 			if v.Adder != nil {
 				@AddNode(*v.Adder)
@@ -484,8 +522,10 @@ templ AddNode(v AddNodeView) {
 						<dd class="text-rw-text">{ v.Pending.Name }</dd>
 						<dt class="text-rw-muted">Addresses</dt>
 						<dd class="text-rw-text font-mono text-xs">{ strings.Join(v.Pending.Addresses, ", ") }</dd>
-						<dt class="text-rw-muted">System</dt>
-						<dd class="text-rw-text">{ v.Pending.System }</dd>
+						if v.Pending.System != "" {
+							<dt class="text-rw-muted">System</dt>
+							<dd class="text-rw-text">{ v.Pending.System }</dd>
+						}
 					</dl>
 					<div class="flex gap-2">
 						<form hx-post={ v.Pending.Reject } hx-target={ target() } hx-swap="outerHTML">

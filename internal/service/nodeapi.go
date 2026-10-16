@@ -420,6 +420,9 @@ func (o *Orchestrator) RemoveNodeRef(ctx context.Context, by *Principal, ref str
 type ForgetOut struct {
 	Node string       `json:"node"`
 	Lost []NodeEnvOut `json:"lost"`
+	// Job cleans a node still online before it is forgotten; nil when the
+	// node was forgotten at once.
+	Job *Job `json:"job,omitempty"`
 }
 
 // ForgetNodeRef writes off a dead worker (ForgetNode by name; the caller has
@@ -436,10 +439,15 @@ func (o *Orchestrator) ForgetNodeRef(ctx context.Context, by *Principal, ref str
 	if err != nil {
 		return ForgetOut{}, err
 	}
-	if err := o.ForgetNode(ctx, by, n.ID, n.Name); err != nil {
+	j, err := o.ForgetNode(ctx, by, n.ID, n.Name)
+	if err != nil {
 		return ForgetOut{}, err
 	}
-	return ForgetOut{Node: n.Name, Lost: lost}, nil
+	out := ForgetOut{Node: n.Name, Lost: lost}
+	if j.ID != "" {
+		out.Job = &j
+	}
+	return out, nil
 }
 
 // rejoinMu makes expire-then-mint one step per panel.

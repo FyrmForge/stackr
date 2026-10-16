@@ -3,12 +3,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -219,7 +223,7 @@ func (o *Orchestrator) nodeEnvs(ctx context.Context, nodeID string) ([]NodeEnv, 
 		case og.PlacementID != nil && *og.PlacementID == e.PlacementID:
 			pin = "pinned on the org"
 		}
-		out = append(out, NodeEnv{ID: e.ID, Path: og.Slug + " / " + st.Slug + " / " + e.Slug, Placement: o.placementName(ctx, e.PlacementID), Pin: pin, Tiles: len(ts)})
+		out = append(out, NodeEnv{ID: e.ID, Path: og.Slug + "/" + st.Slug + "/" + e.Slug, Placement: o.placementName(ctx, e.PlacementID), Pin: pin, Tiles: len(ts)})
 	}
 	return out, nil
 }
@@ -378,24 +382,55 @@ func (o *Orchestrator) ForgetPreview(ctx context.Context, id string) ([]NodeEnv,
 }
 
 // ForgetNode (server admin) drops a node that is gone for good: its certs are
-// revoked and its links cut at once; its envs become lost until redeployed.
-// confirm must be the node's name.
-func (o *Orchestrator) ForgetNode(ctx context.Context, by *Principal, id, confirm string) error {
+// revoked and its links cut; its envs become lost until redeployed. confirm
+// must be the node's name. An offline node is dropped at once (Job is zero).
+// One still online is cleaned first by a job, as a remove cleans it, so the
+// box can join again without stackr's old mesh and networks in the way.
+func (o *Orchestrator) ForgetNode(ctx context.Context, by *Principal, id, confirm string) (Job, error) {
 	if err := nodeAdmin(by); err != nil {
-		return err
+		return Job{}, err
 	}
 	n, err := o.workerNode(ctx, id)
 	if err != nil {
-		return err
+		return Job{}, err
 	}
 	if confirm != n.Name {
-		return errs.Invalidf("confirm", "type %s to confirm", n.Name)
+		return Job{}, errs.Invalidf("confirm", "type %s to confirm", n.Name)
 	}
 	// Forgetting would silently clear that node's exit, as a remove refuses to.
 	if err := o.exitGuard(ctx, n); err != nil {
+		return Job{}, err
+	}
+	if o.nodeUp(ctx, n.ID) == nil {
+		return o.enqueue(ctx, kindForgetNode, nodeJob{NodeID: n.ID, By: by.User.ID, KeyID: by.KeyID}, "node:"+n.ID)
+	}
+	return Job{}, o.dropNode(ctx, by, n, auditNodeForget, true)
+}
+
+const kindForgetNode jobs.Kind = "forget-node"
+
+// runForgetNode is the "forget-node" job: clean the box while the mesh still
+// reaches it, then forget the node. A failed clean is logged, not fatal: the
+// node is gone for good either way, and its installer clears what is left
+// when the box joins again.
+func (o *Orchestrator) runForgetNode(ctx context.Context, r *jobs.Run, p nodeJob) error {
+	n, err := o.workerNode(ctx, p.NodeID)
+	if err != nil {
 		return err
 	}
-	return o.dropNode(ctx, by, n, auditNodeForget, true)
+	if err := o.exitGuard(ctx, n); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "cleaning %s\n", n.Name)
+	if err := hostUninstall(o, ctx, n.ID, r.Log); err != nil {
+		_, _ = fmt.Fprintf(r.Log, "could not clean %s: %v; forgetting it anyway\n", n.Name, err)
+	}
+	by := &Principal{User: User{ID: p.By}, KeyID: p.KeyID}
+	if err := o.dropNode(ctx, by, n, auditNodeForget, true); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "%s forgotten\n", n.Name)
+	return nil
 }
 
 // LostEnv is an env whose node was forgotten.
@@ -429,32 +464,67 @@ func (o *Orchestrator) LostEnvs(ctx context.Context) ([]LostEnv, error) {
 	return out, nil
 }
 
-// PendingNode is a machine that called in with a join token.
+// PendingNode is a machine that called in with a join token. Addresses are
+// the ones a person knows the machine by: no loopback, link-local or Docker
+// and stackr bridges.
 type PendingNode struct {
-	ID, Name  string
-	Addresses []string
-	Facts     worker.Facts
+	ID, Name    string
+	Tags        []string
+	Addresses   []string
+	Facts       worker.Facts
+	RequestedAt time.Time
+}
+
+// PendingNodes (server admin) is every machine that called in and waits for
+// a confirm or a reject, the ones a confirm refused among them.
+func (o *Orchestrator) PendingNodes(ctx context.Context) ([]PendingNode, error) {
+	ps, err := o.pendingJoins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PendingNode, 0, len(ps))
+	for _, p := range ps {
+		n := PendingNode{ID: p.NodeID, Name: p.Name, Tags: p.Tags, RequestedAt: p.RequestedAt}
+		_ = json.Unmarshal(p.Facts, &n.Facts)
+		n.Addresses = hostAddresses(n.Facts.Interfaces)
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 // PendingNodeByName (server admin) is the pending node of that name, or
 // ErrNotFound while the machine has not called in.
 func (o *Orchestrator) PendingNodeByName(ctx context.Context, name string) (PendingNode, error) {
-	ps, err := o.pendingJoins(ctx)
+	ps, err := o.PendingNodes(ctx)
 	if err != nil {
 		return PendingNode{}, err
 	}
 	for _, p := range ps {
-		if p.Name != name {
-			continue
+		if p.Name == name {
+			return p, nil
 		}
-		out := PendingNode{ID: p.NodeID, Name: p.Name}
-		_ = json.Unmarshal(p.Facts, &out.Facts)
-		for _, i := range out.Facts.Interfaces {
-			out.Addresses = append(out.Addresses, i.Prefixes...)
-		}
-		return out, nil
 	}
 	return PendingNode{}, errs.ErrNotFound
+}
+
+// hostAddresses are the addresses of the machine's own interfaces: loopback,
+// link-local, Docker's and stackr's bridges and veths are left out.
+func hostAddresses(is []worker.Iface) []string {
+	var out []string
+	for _, i := range is {
+		if i.Name == "lo" || i.Name == "docker0" || i.Name == mesh.Iface ||
+			strings.HasPrefix(i.Name, "br-") || strings.HasPrefix(i.Name, "veth") {
+			continue
+		}
+		for _, s := range i.Prefixes {
+			p, err := netip.ParsePrefix(s)
+			if err != nil || p.Addr().IsLoopback() || p.Addr().IsLinkLocalUnicast() {
+				continue
+			}
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // envNets is the networks of envs es, as a node shows them: its blocks of the

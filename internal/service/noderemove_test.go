@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -56,6 +57,23 @@ func removeNow(t *testing.T, n *twoNodes, id string) {
 	if j = n.wait(t, j); j.State != job.Done {
 		t.Fatalf("remove %s: %s %s", id, j.State, j.Error)
 	}
+}
+
+// forgetNow forgets a node by name and, when it was online, waits for the
+// job that cleans it first.
+func forgetNow(t *testing.T, n *twoNodes, ref string) ForgetOut {
+	t.Helper()
+	fakeUninstall(t, nil)
+	out, err := n.orch.ForgetNodeRef(context.Background(), adminP(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Job != nil {
+		if j := n.wait(t, *out.Job); j.State != job.Done {
+			t.Fatalf("forget %s: %s %s", ref, j.State, j.Error)
+		}
+	}
+	return out
 }
 
 var managedLabel = map[string]string{docker.LabelManaged: "true"}
@@ -222,7 +240,7 @@ func TestForgetRefusesAnotherNodesDefaultExit(t *testing.T) {
 	if _, err := n.orch.SetNodeExit(ctx, adm, "plain", []string{"h4"}); err != nil {
 		t.Fatal(err)
 	}
-	err := n.orch.ForgetNode(ctx, adm, "h4", "h4")
+	_, err := n.orch.ForgetNode(ctx, adm, "h4", "h4")
 	if !isConflict(err) || !strings.Contains(err.Error(), "default exit of plain") {
 		t.Fatalf("forget a default exit = %v, want a conflict naming plain", err)
 	}
@@ -235,7 +253,45 @@ func TestForgetRefusesAnotherNodesDefaultExit(t *testing.T) {
 	if _, err := n.orch.SetNodeExit(ctx, adm, "plain", []string{n.ctl.ID}); err != nil {
 		t.Fatal(err)
 	}
-	must(t, n.orch.ForgetNode(ctx, adm, "h4", "h4"))
+	fakeUninstall(t, nil) // h4 is online: the forget is a job that cleans it
+	j, err := n.orch.ForgetNode(ctx, adm, "h4", "h4")
+	must(t, err)
+	n.wait(t, j)
+}
+
+// Forgetting a node that is still online cleans its box first, by a job,
+// while the mesh still reaches it; a failed clean still forgets it.
+func TestForgetOnlineNodeCleansFirst(t *testing.T) {
+	ctx := context.Background()
+	for _, fail := range []bool{false, true} {
+		n := newTwoNodes(t)
+		seedRemovable(t, n, "w2")
+		var rowThere bool
+		ran := fakeUninstall(t, func(id string) {
+			_, err := n.st.Nodes.Get(ctx, id)
+			rowThere = err == nil
+		})
+		if fail {
+			prev := hostUninstall
+			hostUninstall = func(*Orchestrator, context.Context, string, io.Writer) error { *ran = append(*ran, "w2"); return errors.New("box gone") }
+			t.Cleanup(func() { hostUninstall = prev })
+			rowThere = true
+		}
+		j, err := n.orch.ForgetNode(ctx, adminP(), "w2", "w2")
+		must(t, err)
+		if j.Kind != string(kindForgetNode) {
+			t.Fatalf("job kind = %q", j.Kind)
+		}
+		if j = n.wait(t, j); j.State != job.Done {
+			t.Fatalf("fail=%v: job %s: %s", fail, j.State, j.Error)
+		}
+		if len(*ran) != 1 || !rowThere {
+			t.Errorf("fail=%v: uninstall ran %v, row there %v; want once, before the drop", fail, *ran, rowThere)
+		}
+		if _, err := n.st.Nodes.Get(ctx, "w2"); !errors.Is(err, errs.ErrNotFound) {
+			t.Errorf("fail=%v: w2 still there: %v", fail, err)
+		}
+	}
 }
 
 func isNodeDown(err error) bool {

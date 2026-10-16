@@ -53,11 +53,16 @@ func (l *Leaf) CreatePendingOrRejoin(ctx context.Context, name string, tags []st
 	return n, true, err
 }
 
+// Iface is one network a joining node reported: the interface and a prefix on it.
+type Iface struct {
+	Name   string
+	Prefix netip.Prefix
+}
+
 // Confirm gives a pending node the lowest free transit address; a rejoin
-// keeps the one it had. ifaces are the node's reported interface prefixes:
-// one on the cluster's reserved ranges is refused, its networks would clash
-// with the cluster's.
-func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []netip.Prefix) (store.Node, error) {
+// keeps the one it had. ifaces are the node's reported networks: one on the
+// cluster's reserved ranges is refused, it would clash with the cluster's.
+func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []Iface) (store.Node, error) {
 	n, err := l.nodes.Get(ctx, id)
 	if err != nil {
 		return n, err
@@ -65,10 +70,10 @@ func (l *Leaf) Confirm(ctx context.Context, id string, ifaces []netip.Prefix) (s
 	if n.Status != StatusPending {
 		return n, errs.ErrNotFound
 	}
-	for _, p := range ifaces {
-		if p.Overlaps(mesh.Supernet) || p.Overlaps(mesh.Transit) {
-			return n, errs.Conflictf("Node %s has a network (%s) on the cluster's reserved range %s or %s; move it off first.",
-				n.Name, p, mesh.Supernet, mesh.Transit)
+	for _, i := range ifaces {
+		if i.Prefix.Overlaps(mesh.Supernet) || i.Prefix.Overlaps(mesh.Transit) {
+			return n, errs.Conflictf("Node %s has network %s (%s) on the cluster's reserved range %s or %s; move it off first.",
+				n.Name, i.Name, i.Prefix, mesh.Supernet, mesh.Transit)
 		}
 	}
 	n.RangeCIDR, n.Status = n.ID, StatusJoined

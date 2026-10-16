@@ -144,21 +144,19 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/:node/backup", h.nodeJob("overview", "Node backup queued.", func(c echo.Context) (service.Job, error) {
 		return h.orch.BackupNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)
-	g.POST(nodesBase+"/:node/forget", h.leave("Node forgotten.", func(c echo.Context) error {
-		return h.orch.ForgetNode(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("confirm"))
-	}), m)
-}
-
-// leave runs an action that ends the node, then answers the Nodes tab; a
-// refusal answers the node's own drawer.
-func (h *handler) leave(note string, do func(echo.Context) error) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		err := do(c)
-		if err != nil {
+	// An offline node is forgotten at once: the Nodes tab. One still online
+	// is cleaned by a job first: its drawer, with the job.
+	g.POST(nodesBase+"/:node/forget", func(c echo.Context) error {
+		j, err := h.orch.ForgetNode(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("confirm"))
+		switch {
+		case err != nil:
 			return h.nodeAnswer(c, "security", "", err)
+		case j.ID != "":
+			c.Set("job", j)
+			return h.nodeAnswer(c, "security", "Cleaning the box, then forgetting the node.", nil)
 		}
-		return h.answer(c, "nodes", note, extra{}, nil)
-	}
+		return h.answer(c, "nodes", "Node forgotten.", extra{}, nil)
+	}, m)
 }
 
 // nodeJob runs an action that queues a job and answers the node drawer on a
@@ -247,18 +245,29 @@ func (h *handler) pollNode(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	sys := p.Facts.Kernel
-	if p.Facts.CPUs > 0 {
-		sys += fmt.Sprintf(" · %d cores · %s", p.Facts.CPUs, gb(p.Facts.MemBytes))
+	r := pendingRow(p)
+	return respond.HTML(c, http.StatusOK, ui.AddNode(ui.AddNodeView{Step: 3, Name: p.Name, Pending: &r}))
+}
+
+// pendingRow is a machine waiting for a confirm, as the add steps and the
+// Nodes tab show it. System is "" when it reported nothing.
+func pendingRow(p service.PendingNode) ui.PendingRow {
+	var sys []string
+	if p.Facts.Kernel != "" {
+		sys = append(sys, p.Facts.Kernel)
 	}
-	return respond.HTML(c, http.StatusOK, ui.AddNode(ui.AddNodeView{
-		Step: 3, Name: p.Name,
-		Pending: &ui.PendingRow{
-			Name: p.Name, System: sys, Addresses: p.Addresses,
-			Confirm: nodesBase + "/pending/" + p.ID + "/confirm",
-			Reject:  nodesBase + "/pending/" + p.ID + "/reject",
-		},
-	}))
+	if p.Facts.CPUs > 0 {
+		sys = append(sys, fmt.Sprintf("%d cores", p.Facts.CPUs))
+	}
+	if p.Facts.MemBytes > 0 {
+		sys = append(sys, gb(p.Facts.MemBytes))
+	}
+	return ui.PendingRow{
+		Name: p.Name, System: strings.Join(sys, " · "), Addresses: p.Addresses, Tags: p.Tags,
+		Requested: ago(p.RequestedAt),
+		Confirm:   nodesBase + "/pending/" + p.ID + "/confirm",
+		Reject:    nodesBase + "/pending/" + p.ID + "/reject",
+	}
 }
 
 func gb(b uint64) string { return fmt.Sprintf("%.0f GB", float64(b)/(1<<30)) }
@@ -274,6 +283,16 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 		return nil, err
 	}
 	v := ui.NodesView{Add: nodesBase + "/add", Adder: x.adder, Placements: ui.Base + "?tab=placements"}
+	ps, err := h.orch.PendingNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range ps {
+		// the open add steps already show the one they wait for
+		if x.adder == nil || x.adder.Name != p.Name {
+			v.Pending = append(v.Pending, pendingRow(p))
+		}
+	}
 	for _, n := range ns {
 		v.Rows = append(v.Rows, ui.NodeRow{
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
@@ -546,8 +565,8 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		}
 		v.Forget = comp.ConfirmView{
 			Button: "Forget node", Title: "Forget " + d.Name + "?",
-			Warning: "Use this only if " + d.Name + " is gone for good.",
-			Kept:    []string{"its envs' rows and settings, listed as lost until you redeploy them"},
+			Warning: "Use this only if " + d.Name + " is gone for good. If it still answers, its containers, networks and tunnel come off first.",
+			Kept:    []string{"its envs' rows and settings, listed as lost until you redeploy them", "the volumes on the box"},
 			Word:    d.Name, Action: base + "/forget", Target: "#" + comp.DrawerRoot,
 			Vals: string(vals),
 			Body: ui.ForgetWarning(fb),

@@ -316,6 +316,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindRegistryClean: controllerJob(o, payload(o.runRegistryClean)),
 		kindMoveEnv:       payload(o.runMove),
 		kindRemoveNode:    controllerJob(o, payload(o.runRemoveNode)),
+		kindForgetNode:    controllerJob(o, payload(o.runForgetNode)),
 		kindNodeBackup:    controllerJob(o, payload(o.runNodeBackup)),
 		kindWorkerRollout: controllerJob(o, o.runWorkerRollout),
 	}

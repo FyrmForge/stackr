@@ -222,6 +222,14 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	// hold the ports, and its networks already sit in stackr's ranges.
 	_, err = os.Stat(filepath.Join(*stateDir, "node.crt"))
 	fresh := err != nil
+	oldID := oldNodeID(*stateDir)
+	// A box with no node cert left but stackr's mesh or networks still on it
+	// has no membership to keep: clear them, the reserved-range check would
+	// refuse them.
+	if fresh && (meshUp() || len(stackrBridges(ctx)) > 0) {
+		r.say("  this box still carries stackr's mesh or networks from before; clearing them")
+		clearOld(ctx, r, *stateDir)
+	}
 	miss := requirements(gatherHost(ctx), true, fresh)
 	if fresh && !r.dry {
 		ps := fixedPorts(true, *wgPort)
@@ -280,6 +288,11 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	r.say("  confirmed: node", st.NodeID, "at", st.WGAddress)
+	// Before the new state: the old mesh.json names the exit links to clear.
+	if staleMembership(oldID, st.NodeID) {
+		r.say("  this box was another node before (" + oldID + "); clearing its mesh, networks and containers")
+		clearOld(ctx, r, *stateDir)
+	}
 	if err := writeJoinState(*stateDir, st, kb); err != nil {
 		return err
 	}
@@ -304,6 +317,37 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	r.say("Continue setup in the panel:")
 	r.say(" ", nodeLink(u.String(), st.NodeID))
 	return nil
+}
+
+// oldNodeID is the node id in the box's old node cert, "" when there is none.
+func oldNodeID(stateDir string) string {
+	b, err := os.ReadFile(filepath.Join(stateDir, "node.crt"))
+	if err != nil {
+		return ""
+	}
+	c, err := clusterca.ParseCertPEM(b)
+	if err != nil {
+		return ""
+	}
+	return c.Subject.CommonName
+}
+
+// staleMembership: the box was a node the panel no longer has (forgotten,
+// or of another cluster), so the join made a new node. A rejoin keeps the
+// node's id and its envs, which must stay running.
+func staleMembership(oldID, newID string) bool {
+	return oldID != "" && oldID != newID
+}
+
+// clearOld takes a former node's leftovers off the box, as an uninstall
+// without --purge does: the worker service, stackr's containers and networks,
+// its firewall rules and mesh. Volumes, images and the state dir stay. A
+// failure is a warning: the join goes on, the new worker sets its mesh again.
+func clearOld(ctx context.Context, r runner, stateDir string) {
+	err := uninstallEnv{r: r, read: read, yes: true, stateDir: stateDir, installDir: envOr("STACKR_DATA_DIR", "/var/lib/stackr")}.run(ctx, false)
+	if err != nil {
+		r.say("  warning: clearing the old node:", err)
+	}
 }
 
 // nodeLink opens the node's drawer on the panel's cluster map.

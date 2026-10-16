@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -89,7 +90,7 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	n.placeW1(t, false)
 	d, err := n.orch.NodeDetail(ctx, "w1")
 	must(t, err)
-	if len(d.EnvList) != 1 || d.EnvList[0].Path != "acme / shop / edge" || d.EnvList[0].Placement != "w1" || !slices.Equal(d.Placements, []string{"w1"}) {
+	if len(d.EnvList) != 1 || d.EnvList[0].Path != "acme/shop/edge" || d.EnvList[0].Placement != "w1" || !slices.Equal(d.Placements, []string{"w1"}) {
 		t.Fatalf("detail = %+v", d)
 	}
 
@@ -102,11 +103,11 @@ func TestNodeAdminLifecycle(t *testing.T) {
 	}
 
 	// forget needs the name, then the env is lost
-	if err := n.orch.ForgetNode(ctx, adm, "w1", "nope"); err == nil {
+	if _, err := n.orch.ForgetNode(ctx, adm, "w1", "nope"); err == nil {
 		t.Error("forgot without the name")
 	}
 	// the controller leaves through w1 now: forgetting w1 would clear that silently
-	if err := n.orch.ForgetNode(ctx, adm, "w1", "w1"); !isConflict(err) {
+	if _, err := n.orch.ForgetNode(ctx, adm, "w1", "w1"); !isConflict(err) {
 		t.Errorf("forgot the controller's default exit: %v", err)
 	}
 	must(t, n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"ingress", "egress"}))
@@ -116,11 +117,17 @@ func TestNodeAdminLifecycle(t *testing.T) {
 		v.ScopeKind, v.ScopeID, v.Name, v.CreatedAt = "env", n.edge.ID, v.ID, time.Now()
 		must(t, n.st.Volumes.Create(ctx, v))
 	}
-	must(t, n.orch.ForgetNode(ctx, adm, "w1", "w1"))
+	// w1 is down for good: no job, it is forgotten at once
+	w1, _ := n.st.Nodes.Get(ctx, "w1")
+	w1.Status = node.StatusOffline
+	must(t, n.st.Nodes.Update(ctx, w1))
+	if j, err := n.orch.ForgetNode(ctx, adm, "w1", "w1"); err != nil || j.ID != "" {
+		t.Fatalf("forget an offline node = %+v, %v; want it gone at once", j, err)
+	}
 	one(t, w, auditNodeForget)
 	lost, err := n.orch.LostEnvs(ctx)
 	must(t, err)
-	if len(lost) != 1 || lost[0].Node != "w1" || lost[0].Path != "acme / shop / edge" || lost[0].Volumes != 1 {
+	if len(lost) != 1 || lost[0].Node != "w1" || lost[0].Path != "acme/shop/edge" || lost[0].Volumes != 1 {
 		t.Fatalf("lost = %+v", lost)
 	}
 	// the lost env names its placement: repointing that restores it
