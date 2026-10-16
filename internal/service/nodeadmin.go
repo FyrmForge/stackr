@@ -11,7 +11,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -420,7 +419,7 @@ func (o *Orchestrator) LostEnvs(ctx context.Context) ([]LostEnv, error) {
 			return nil, err
 		}
 		for _, e := range es {
-			vs, err := o.volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
+			vs, err := o.pmVolumes(ctx, e.ID) // orphans are not restored; the repoint wizard counts the same
 			if err != nil {
 				return nil, err
 			}

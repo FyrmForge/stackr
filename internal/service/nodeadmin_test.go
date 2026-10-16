@@ -5,9 +5,11 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 func TestNodeAdminLifecycle(t *testing.T) {
@@ -108,11 +110,17 @@ func TestNodeAdminLifecycle(t *testing.T) {
 		t.Errorf("forgot the controller's default exit: %v", err)
 	}
 	must(t, n.orch.SetNodeTags(ctx, adm, n.ctl.ID, []string{"ingress", "egress"}))
+	// one live volume and one orphan: only the live one is lost
+	gone := time.Now()
+	for _, v := range []store.Volume{{ID: "v-live", Slug: "data"}, {ID: "v-orphan", Slug: "old", OrphanedAt: &gone}} {
+		v.ScopeKind, v.ScopeID, v.Name, v.CreatedAt = "env", n.edge.ID, v.ID, time.Now()
+		must(t, n.st.Volumes.Create(ctx, v))
+	}
 	must(t, n.orch.ForgetNode(ctx, adm, "w1", "w1"))
 	one(t, w, auditNodeForget)
 	lost, err := n.orch.LostEnvs(ctx)
 	must(t, err)
-	if len(lost) != 1 || lost[0].Node != "w1" || lost[0].Path != "acme / shop / edge" {
+	if len(lost) != 1 || lost[0].Node != "w1" || lost[0].Path != "acme / shop / edge" || lost[0].Volumes != 1 {
 		t.Fatalf("lost = %+v", lost)
 	}
 	// the lost env names its placement: repointing that restores it

@@ -297,6 +297,9 @@ func pmMemory(toName string, f *worker.Facts, tiles []store.Tile) (bool, string)
 	note := ""
 	if unlimited > 0 {
 		note = fmt.Sprintf(" (%d tiles have no limit)", unlimited)
+		if unlimited == 1 {
+			note = " (1 tile has no limit)"
+		}
 	}
 	switch {
 	case mb == 0:
