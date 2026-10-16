@@ -43,3 +43,22 @@ sudo stackr-install uninstall --purge
 `--purge` also deletes the volumes, images, binaries and state. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
 
 It refuses to run on the controller box.
+
+## Remove the panel
+
+`stackr-install uninstall` refuses on the controller, so a panel comes off by hand. Remove the workers first, or they keep calling back. If you may want this install again, keep a panel backup and its recovery passphrase off the box.
+
+On the controller, as root:
+
+```bash
+docker ps -aq --filter label=stackr.managed=true | xargs -r docker rm -f
+docker ps -aq --filter label=stackr.role=panel | xargs -r docker rm -f
+docker rm -f stackr-proxy stackr-registry
+docker volume ls -q --filter label=stackr.managed=true | xargs -r docker volume rm
+docker volume rm stackr-caddy
+docker network ls -q --filter label=stackr.managed=true | xargs -r docker network rm
+rm -rf /var/lib/stackr
+rm -f /usr/local/bin/stackr /usr/local/bin/stackr-install
+```
+
+Images stay; `docker image ls` shows them. stackr's firewall rules and the `stackr0` interface go at the next reboot.
