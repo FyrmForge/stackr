@@ -359,7 +359,7 @@ func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 	// env pin onto the other node: refused, nothing written
 	err = n.orch.SetPin(ctx, adm, ScopeEnv, n.dev.ID, "w1")
 	var need *MoveNeeded
-	if !errors.As(err, &need) && !errors.Is(err, errs.ErrNotBuilt) { // the plan is lane M's
+	if !errors.As(err, &need) {
 		t.Fatalf("env pin that moves = %v", err)
 	}
 	if got, _ := n.st.Environments.Get(ctx, n.dev.ID); got.PlacementID == w1.ID || got.NodeID != n.ctl.ID {

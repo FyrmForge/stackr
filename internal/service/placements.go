@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/FyrmForge/stackr/internal/worker"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/worker"
 
 	"github.com/google/uuid"
 
@@ -236,7 +237,6 @@ func (o *Orchestrator) placementOut(ctx context.Context, p store.Placement) (Pla
 	out.Envs = len(es)
 	mv, err := o.PlacementMove(ctx, p.Name)
 	switch {
-	case errors.Is(err, errs.ErrNotBuilt): // lane M's body is not in yet
 	case err != nil:
 		return out, err
 	case mv != nil && mv.State != "done":

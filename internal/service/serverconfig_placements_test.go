@@ -34,9 +34,7 @@ func hasKind(p serverconfig.Plan, kind, tile string) bool {
 	return false
 }
 
-// settled waits for the plan to end applied or error and returns it. The
-// placement verbs and the move are other lanes' until they merge; a plan
-// that ends "not built yet" skips the test.
+// settled waits for the plan to end applied and returns it.
 func (r fileRig) settled(t *testing.T, id string) service.ServerPlan {
 	t.Helper()
 	var last service.ServerPlan
@@ -48,9 +46,6 @@ func (r fileRig) settled(t *testing.T, id string) service.ServerPlan {
 		last = p
 		return p.Status == "applied" || p.Status == "error"
 	})
-	if last.Status == "error" && strings.Contains(last.Error, errs.ErrNotBuilt.Error()) {
-		t.Skipf("needs the placement verbs of lanes A and M: %s", last.Error)
-	}
 	if last.Status != "applied" {
 		t.Fatalf("server plan %s = %s: %s", id, last.Status, last.Error)
 	}
