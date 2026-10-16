@@ -2897,7 +2897,7 @@ func roleButtons(roles []string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if r == "owner" {
+			if r == "member" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 219, " checked")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

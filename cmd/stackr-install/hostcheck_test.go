@@ -30,7 +30,7 @@ func TestAtLeast(t *testing.T) {
 // A box that meets everything: a current Ubuntu with Docker.
 func goodHost() hostFacts {
 	return hostFacts{Docker: "29.0.0", Systemd: true, IP: true, Iptables: "iptables v1.8.10 (nf_tables)",
-		Kernel: "6.8.0-45-generic", Interface: []netip.Prefix{netip.MustParsePrefix("192.168.1.20/24")}}
+		Kernel: "6.8.0-45-generic", Interface: []hostNet{{Name: "eth0", Prefix: netip.MustParsePrefix("192.168.1.20/24")}}}
 }
 
 func TestRequirements(t *testing.T) {
@@ -55,13 +55,13 @@ func TestRequirements(t *testing.T) {
 		{"no systemd on a controller", func(f *hostFacts) { f.Systemd = false }, false, true, ""},
 		{"no ip on a worker", func(f *hostFacts) { f.IP = false }, true, true, "iproute2"},
 		{"LAN in the supernet", func(f *hostFacts) {
-			f.Interface = []netip.Prefix{netip.MustParsePrefix("10.210.4.7/16")}
-		}, true, true, "overlaps 10.208.0.0/12"},
+			f.Interface = []hostNet{{Name: "eth0", Prefix: netip.MustParsePrefix("10.210.4.7/16")}}
+		}, true, true, "network eth0 (10.210.0.0/16) overlaps 10.208.0.0/12"},
 		{"LAN on the transit", func(f *hostFacts) {
-			f.Interface = []netip.Prefix{netip.MustParsePrefix("10.207.0.1/16")}
+			f.Interface = []hostNet{{Name: "eth0", Prefix: netip.MustParsePrefix("10.207.0.1/16")}}
 		}, false, true, "overlaps 10.207.255.0/24"},
 		{"a broad 10/8 LAN", func(f *hostFacts) {
-			f.Interface = []netip.Prefix{netip.MustParsePrefix("10.0.0.5/8")}
+			f.Interface = []hostNet{{Name: "eth0", Prefix: netip.MustParsePrefix("10.0.0.5/8")}}
 		}, true, true, "overlaps"},
 		{"Docker pool on the cluster pool", func(f *hostFacts) {
 			f.DockerPools = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
@@ -70,7 +70,7 @@ func TestRequirements(t *testing.T) {
 			f.DockerPools = []netip.Prefix{netip.MustParsePrefix("172.80.0.0/12")}
 		}, true, true, ""},
 		{"overlap on a rejoin is ours", func(f *hostFacts) {
-			f.Interface = []netip.Prefix{netip.MustParsePrefix("10.210.4.1/24")}
+			f.Interface = []hostNet{{Name: "eth0", Prefix: netip.MustParsePrefix("10.210.4.1/24")}}
 		}, true, false, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {

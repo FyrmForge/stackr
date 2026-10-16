@@ -76,14 +76,16 @@ func failed(cs []planfile.Check) []string {
 	return out
 }
 
+// Each check fails alone, except the mesh link: a link to a node that is
+// down was last measured while it was up, so it fails with that node.
 func TestPlacementMoveChecksFailAlone(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
-		name, want string
+		name, want string // want: the failed checks, comma separated
 		arrange    func(t *testing.T, n *pmFix)
 	}{
 		{"all pass", "", func(*testing.T, *pmFix) {}},
-		{"target online", "target online", func(t *testing.T, n *pmFix) {
+		{"target online", "target online,mesh link", func(t *testing.T, n *pmFix) {
 			w1, _ := n.st.Nodes.Get(ctx, "w1")
 			w1.Status = node.StatusOffline
 			must(t, n.st.Nodes.Update(ctx, w1))
@@ -115,7 +117,7 @@ func TestPlacementMoveChecksFailAlone(t *testing.T) {
 			plan, err := n.orch.PlanPlacementMove(ctx, "eu", "w1")
 			must(t, err)
 			got := failed(plan.Checks)
-			if c.want == "" && len(got) != 0 || c.want != "" && !slices.Equal(got, []string{c.want}) {
+			if strings.Join(got, ",") != c.want {
 				t.Fatalf("failed = %v, want %q\n%+v", got, c.want, plan.Checks)
 			}
 			if plan.OK != (c.want == "") {
@@ -136,7 +138,7 @@ func TestPlacementMoveChecksFailAlone(t *testing.T) {
 		must(t, n.st.Nodes.Update(ctx, w1))
 		plan, err := n.orch.PlanPlacementMove(ctx, "edge-pl", n.ctl.Name)
 		must(t, err)
-		if got := failed(plan.Checks); !slices.Equal(got, []string{"source online"}) {
+		if got := failed(plan.Checks); !slices.Equal(got, []string{"mesh link", "source online"}) {
 			t.Fatalf("failed = %v\n%+v", got, plan.Checks)
 		}
 		if _, err := n.orch.MovePlacement(ctx, n.admin, "edge-pl", n.ctl.Name, "edge-pl"); !pmConflict(err) {
@@ -295,10 +297,17 @@ func TestMovePlacementRestoresAfterForget(t *testing.T) {
 	must(t, n.st.Environments.SetPlacement(ctx, n.edge.ID, lost.ID))
 	must(t, n.st.Volumes.Create(ctx, store.Volume{ID: "v-lost", ScopeKind: "env", ScopeID: n.edge.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}))
 	vid := "v-lost"
+	// no backup of data yet: the disk check fails and names it
+	plan, err := n.orch.PlanPlacementMove(ctx, "lost", "w1")
+	must(t, err)
+	if got := failed(plan.Checks); plan.OK || !slices.Equal(got, []string{"disk"}) ||
+		!strings.Contains(plan.Checks[3].Detail, "no backup to restore of data") {
+		t.Fatalf("restore with no backup: failed %v\n%+v", got, plan.Checks)
+	}
 	must(t, n.st.BackupDests.Create(ctx, store.BackupDest{ID: "d", Kind: "s3", Name: "d", Endpoint: "e", Bucket: "b", AccessKey: "a", SecretKey: "s", CreatedAt: time.Now()}))
 	must(t, n.st.BackupRuns.Create(ctx, store.BackupRun{ID: "r1", Kind: "volume", VolumeID: &vid, DestID: "d", Status: backup.Done, ObjectKey: "k.tar.age", CreatedAt: time.Now()}))
 
-	plan, err := n.orch.PlanPlacementMove(ctx, "lost", "w1")
+	plan, err = n.orch.PlanPlacementMove(ctx, "lost", "w1")
 	must(t, err)
 	if !plan.Restore || !plan.OK || plan.From != "h3" || len(plan.Envs) != 1 || plan.Envs[0].Bytes != -1 {
 		t.Fatalf("plan = %+v", plan)

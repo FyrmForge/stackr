@@ -615,7 +615,7 @@ func (a *app) nodeForget() *cobra.Command {
 				}
 				fmt.Fprintf(&b, "\n  %s  %s", cell(m["path"]), strings.Join(vols, ", "))
 			}
-			b.WriteString("\nForgetting removes " + name + " from the cluster for good: its certificate is revoked, its tunnel removed, its address range retired.")
+			b.WriteString("\nForgetting removes " + name + " from the cluster for good: its certificate is revoked, its tunnel removed, its address range retired. If it still answers, its containers, networks and tunnel come off the box first; volumes stay.")
 			if err := a.confirm(b.String()); err != nil {
 				return err
 			}
@@ -625,6 +625,12 @@ func (a *app) nodeForget() *cobra.Command {
 			}
 			if a.json {
 				return a.show(v)
+			}
+			// a node still online is cleaned by a job first
+			if j := asMap(v)["job"]; j != nil {
+				if err := a.follow("/admin", j, "forget of "+name); err != nil {
+					return err
+				}
 			}
 			lost := asList(asMap(v)["lost"])
 			a.say("%s: forgotten; %s marked lost", name, plural(len(lost), "env", "envs"))

@@ -485,29 +485,36 @@ func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID str
 	})
 }
 
-// reportedPrefixes is every interface prefix a joining node reported. A
-// rejoin's box still carries the cluster's own networks (stackr0, the Docker
-// bridges stackr made, which the installer names in stackr_bridges): those
-// are skipped there, everything else is checked like a new node's.
-func reportedPrefixes(r store.JoinToken, rejoin bool) []netip.Prefix {
+// reportedPrefixes is every interface prefix a joining node reported, less
+// stackr's own: stackr0 and the Docker bridges stackr made (the installer
+// names them in stackr_bridges). A rejoin keeps them; a box that was a node
+// before has its installer clear them once the join is confirmed. The
+// legacy wg0 is skipped on a rejoin only: on a new box it may be anyone's.
+func reportedPrefixes(r store.JoinToken, rejoin bool) []node.Iface {
 	var f struct {
 		Interfaces []struct {
 			Name     string   `json:"name"`
 			Prefixes []string `json:"prefixes"`
 		} `json:"interfaces"`
 		StackrBridges []string `json:"stackr_bridges"`
+		// DockerNetworks names each bridge's Docker network, for the refusal.
+		DockerNetworks map[string]string `json:"docker_networks"`
 	}
 	if json.Unmarshal([]byte(r.Facts), &f) != nil {
 		return nil
 	}
-	var out []netip.Prefix
+	var out []node.Iface
 	for _, i := range f.Interfaces {
-		if rejoin && (i.Name == mesh.Iface || i.Name == mesh.LegacyIface || slices.Contains(f.StackrBridges, i.Name)) {
+		if i.Name == mesh.Iface || slices.Contains(f.StackrBridges, i.Name) || rejoin && i.Name == mesh.LegacyIface {
 			continue
+		}
+		name := i.Name
+		if d, ok := f.DockerNetworks[i.Name]; ok {
+			name = d + " (" + i.Name + ")"
 		}
 		for _, s := range i.Prefixes {
 			if p, err := netip.ParsePrefix(s); err == nil {
-				out = append(out, p)
+				out = append(out, node.Iface{Name: name, Prefix: p})
 			}
 		}
 	}

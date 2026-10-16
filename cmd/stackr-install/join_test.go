@@ -226,6 +226,35 @@ func TestWriteJoinState(t *testing.T) {
 	}
 }
 
+// A box keeps its envs only when the join kept its node: a forgotten node
+// rejoining by a new token gets a new id, and its leftovers are cleared.
+func TestStaleMembership(t *testing.T) {
+	dir := t.TempDir()
+	if id := oldNodeID(dir); id != "" || staleMembership(id, "n2") {
+		t.Fatalf("a box with no cert: id %q", id)
+	}
+	ca, _ := clusterca.NewCA(time.Now())
+	key, _ := clusterca.NewKey()
+	csr, _ := clusterca.NewCSR(key)
+	iss, err := ca.IssueNode(csr, "n1", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node.crt"), iss.CertPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := oldNodeID(dir)
+	if id != "n1" {
+		t.Fatalf("old id = %q", id)
+	}
+	if staleMembership(id, "n1") {
+		t.Error("a rejoin of the same node is cleared")
+	}
+	if !staleMembership(id, "n2") {
+		t.Error("a forgotten node joining as a new one keeps its leftovers")
+	}
+}
+
 // A join takes the installer out of the panel image next to stackrd; both
 // are staged and renamed in.
 func TestFetchWorkerExtractsBothBinaries(t *testing.T) {

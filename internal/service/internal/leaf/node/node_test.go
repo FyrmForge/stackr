@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -80,12 +81,13 @@ func TestConfirmTransit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := l.Confirm(ctx, p.ID, []netip.Prefix{netip.MustParsePrefix("192.168.1.5/24")})
+	n, err := l.Confirm(ctx, p.ID, []node.Iface{{Name: "eth0", Prefix: netip.MustParsePrefix("192.168.1.5/24")}})
 	if err != nil || n.WGAddress != "10.207.255.1" || n.Status != node.StatusJoined {
 		t.Fatalf("confirm = %+v, %v", n, err)
 	}
 	p2, _ := l.CreatePending(ctx, "w2", nil, "k2")
-	if _, err := l.Confirm(ctx, p2.ID, []netip.Prefix{netip.MustParsePrefix("10.208.4.1/24")}); err == nil {
-		t.Fatal("a node on the cluster pool was confirmed")
+	if _, err := l.Confirm(ctx, p2.ID, []node.Iface{{Name: "br-lan", Prefix: netip.MustParsePrefix("10.208.4.1/24")}}); err == nil ||
+		!strings.Contains(err.Error(), "network br-lan (10.208.4.1/24)") || !strings.Contains(err.Error(), "run a new join command") {
+		t.Fatalf("a node on the cluster pool: %v", err)
 	}
 }

@@ -51,6 +51,14 @@ func plan(t *testing.T, js string) service.PlacementMovePlan {
 	return p
 }
 
+// A finished env reads "moved", once.
+func TestMoveProgressViewDoneRow(t *testing.T) {
+	v := moveProgressView("eu", service.PlacementMoveStatus{State: "done", Envs: []service.MoveStatus{{Path: "acme/shop/prod"}}})
+	if e := v.Envs[0]; e.State != "moved" || e.Step != "" {
+		t.Errorf("done row = %+v", e)
+	}
+}
+
 // Apply is offered only when the service and every line agree.
 func TestMoveChecksViewGatesApply(t *testing.T) {
 	const ok = `{"Placement":"eu-prod","From":"h3","To":"h4","OK":true,"Envs":[{"Path":"acme/shop/prod","Volumes":2,"Bytes":-1,"Downtime":"about 20 s"}],

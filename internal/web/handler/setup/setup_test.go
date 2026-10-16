@@ -127,12 +127,12 @@ func TestByHand(t *testing.T) {
 		t.Errorf("domains = %+v %v", rs, err)
 	}
 	// the people panel: everyone else on the server, the add form with
-	// owner picked, and a pending invite's link to copy
+	// member picked, and a pending invite's link to copy
 	body = page(
 		t, s, sess, b+"/team",
 		"People on this server",
 		"owner@acme.test",
-		`name="role" value="owner" checked`,
+		`name="role" value="member" checked`,
 		"Add to organization",
 	)
 	redirect(t, s, sess, b+"/team/members", url.Values{"email": {"new@x.test"}, "role": {"owner"}}, b+"/team")

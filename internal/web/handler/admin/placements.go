@@ -260,7 +260,7 @@ func (h *handler) startMove(c echo.Context) error {
 	if err != nil {
 		return h.plAnswer(c, "", plOpen{}, err)
 	}
-	return h.progressAnswer(c, "Move started.")
+	return h.progressAnswer(c, "") // the box says it runs; a note would outlive it
 }
 
 // POST /-/admin/placements/:placement/retry
@@ -269,7 +269,7 @@ func (h *handler) retryMove(c echo.Context) error {
 	if err != nil {
 		return h.plAnswer(c, "", plOpen{}, err)
 	}
-	return h.progressAnswer(c, "Retrying the envs left behind.")
+	return h.progressAnswer(c, "")
 }
 
 // GET /-/admin/placements/:placement/progress; with ?poll=1 only the box,
@@ -320,7 +320,7 @@ func moveProgressView(name string, st service.PlacementMoveStatus) *ui.MoveProgr
 		v.Retry = base + "/retry"
 	}
 	for _, m := range st.Envs {
-		e := ui.MoveProgressEnv{Path: m.Path, State: "done", Step: "moved", Error: m.Move.Error}
+		e := ui.MoveProgressEnv{Path: m.Path, State: "moved", Error: m.Move.Error}
 		switch {
 		case m.Active:
 			e.State, e.Step = "moving", ""

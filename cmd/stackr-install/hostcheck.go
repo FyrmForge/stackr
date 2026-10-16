@@ -43,10 +43,17 @@ type hostFacts struct {
 	Iptables  string // `iptables --version`, "" when missing
 	Kernel    string // the running kernel's release
 	WGModule  bool   // the wireguard module is loaded
-	Interface []netip.Prefix
+	Interface []hostNet
 	// DockerPools are Docker's default-address-pools (daemon.json): where
 	// Docker picks a subnet for a network nobody gave one.
 	DockerPools []netip.Prefix
+}
+
+// hostNet is one address of the box and the network it is on: the
+// interface, or for a Docker bridge the Docker network's name.
+type hostNet struct {
+	Name   string
+	Prefix netip.Prefix
 }
 
 func gatherHost(ctx context.Context) hostFacts {
@@ -62,19 +69,37 @@ func gatherHost(ctx context.Context) hostFacts {
 	_, err = os.Stat("/sys/module/wireguard")
 	f.WGModule = err == nil
 	f.DockerPools = dockerPools("/etc/docker/daemon.json")
+	nets := dockerNetNames(ctx)
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {
 		if i.Flags&net.FlagLoopback != 0 || i.Name == mesh.Iface {
 			continue
 		}
+		name := i.Name
+		if d, ok := nets[i.Name]; ok {
+			name = d + " (" + i.Name + ")"
+		}
 		as, _ := i.Addrs()
 		for _, a := range as {
 			if p, err := netip.ParsePrefix(a.String()); err == nil {
-				f.Interface = append(f.Interface, p)
+				f.Interface = append(f.Interface, hostNet{Name: name, Prefix: p})
 			}
 		}
 	}
 	return f
+}
+
+// dockerNetNames maps a user-defined bridge's interface (br- and the first
+// 12 of the network's id) to the Docker network's name.
+func dockerNetNames(ctx context.Context) map[string]string {
+	out, _ := read(ctx, "docker", "network", "ls", "--no-trunc", "--format", "{{.ID}} {{.Name}}")
+	m := map[string]string{}
+	for _, l := range strings.Split(out, "\n") {
+		if id, name, ok := strings.Cut(strings.TrimSpace(l), " "); ok && len(id) >= 12 {
+			m["br-"+id[:12]] = name
+		}
+	}
+	return m
 }
 
 // dockerPools reads the default-address-pools bases out of a daemon.json;
@@ -179,11 +204,11 @@ func requirements(f hostFacts, worker, fresh bool) []string {
 		}
 	}
 	if fresh {
-		for _, p := range f.Interface {
+		for _, n := range f.Interface {
 			for _, r := range reservedRanges {
-				if r.p.Overlaps(p.Masked()) {
-					miss = append(miss, fmt.Sprintf("this box's network %s overlaps %s, which stackr reserves for %s",
-						p.Masked(), r.p, r.what))
+				if r.p.Overlaps(n.Prefix.Masked()) {
+					miss = append(miss, fmt.Sprintf("this box's network %s (%s) overlaps %s, which stackr reserves for %s",
+						n.Name, n.Prefix.Masked(), r.p, r.what))
 				}
 			}
 		}

@@ -1799,6 +1799,16 @@
       },
       "ForgetOut": {
         "properties": {
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lost": {
             "items": {
               "$ref": "#/components/schemas/NodeEnvOut"

@@ -1,12 +1,17 @@
 package admin_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -89,6 +94,58 @@ func TestAdminNodes(t *testing.T) {
 		if rec := s.Do(t, c.method, c.path, url.Values{"name": {"w1"}}); rec.Code != http.StatusForbidden {
 			t.Errorf("owner %s %s = %d, want 403", c.method, c.path, rec.Code)
 		}
+	}
+}
+
+// A machine that called in shows on the Nodes tab with its own addresses
+// only, and Reject frees its name: the add steps take it again.
+func TestAdminNodesPending(t *testing.T) {
+	s := webtest.New(t)
+	uid := s.User(t, "root@x.test", true)
+	root := s.Session(t, uid)
+	adm := &service.Principal{User: service.User{ID: uid}, Access: authz.User{ID: uid, Active: true, Admin: true}}
+	ctx := t.Context()
+	tok, err := s.Orch.CreateJoinToken(ctx, adm, service.JoinTokenSpec{NodeName: "ct110"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := clusterca.NewKey()
+	csr, _ := clusterca.NewCSR(key)
+	if _, err := s.Orch.RequestJoin(ctx, service.JoinMeta{HTTPS: true}, service.JoinRequest{
+		Token: tok.Token, CSR: string(csr), WGPublicKey: base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		Facts: json.RawMessage(`{"kernel":"6.8.0","interfaces":[{"name":"lo","prefixes":["127.0.0.1/8"]},` +
+			`{"name":"eth0","prefixes":["192.168.1.110/24","fe80::1/64"]},{"name":"docker0","prefixes":["172.17.0.1/16"]}]}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil)
+	body := rec.Body.String()
+	for _, want := range []string{"Waiting to join", "ct110", "192.168.1.110/24", "6.8.0", "/reject"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("nodes tab: no %q in\n%s", want, body)
+		}
+	}
+	for _, not := range []string{"127.0.0.1", "fe80::1", "172.17.0.1"} {
+		if strings.Contains(body, not) {
+			t.Errorf("nodes tab lists %s", not)
+		}
+	}
+	// the name is taken while it waits
+	rec = s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"ct110"}})
+	if !strings.Contains(rec.Body.String(), "already exists") {
+		t.Fatalf("add a pending name = %d\n%s", rec.Code, rec.Body)
+	}
+	ps, err := s.Orch.PendingNodes(ctx)
+	if err != nil || len(ps) != 1 {
+		t.Fatalf("pending = %+v, %v", ps, err)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/nodes/pending/"+ps[0].ID+"/reject", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "Waiting to join") {
+		t.Fatalf("reject = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"ct110"}})
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "already exists") {
+		t.Errorf("add after reject = %d\n%s", rec.Code, rec.Body)
 	}
 }
 

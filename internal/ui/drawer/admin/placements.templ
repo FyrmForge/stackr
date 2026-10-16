@@ -210,7 +210,8 @@ templ MoveWizard(v MoveWizardView) {
 			<form hx-get={ v.Check } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 				<div>
 					<label for="move-to" class="label">Move to</label>
-					<select id="move-to" name="to" class="input">
+					<select id="move-to" name="to" class="input" required>
+						<option value="" disabled selected?={ v.To == "" }>Pick a node</option>
 						for _, n := range v.Nodes {
 							<option value={ n.Value } selected?={ n.Value == v.To }>{ n.Label }</option>
 						}
@@ -268,7 +269,7 @@ templ MoveWizard(v MoveWizardView) {
 				if v.OK {
 					@c.Confirm(v.Confirm)
 				} else {
-					<button type="button" class="btn btn-primary btn-sm" disabled>Apply</button>
+					<button type="button" class="btn btn-primary btn-sm" disabled>Move</button>
 				}
 			</div>
 		}
@@ -277,12 +278,10 @@ templ MoveWizard(v MoveWizardView) {
 
 func moveVals(to string) string { return fmt.Sprintf(`{"to":%q}`, to) }
 
-// moveStepOn marks the step the wizard is on: 1 pick, 2 checks, 3 once they pass.
+// moveStepOn marks the step the wizard is on: 1 pick, 2 while the checks
+// show; 3 is the confirm dialog Move opens.
 func moveStepOn(v MoveWizardView, i int) bool {
-	if v.Step == 1 {
-		return i == 1
-	}
-	return i == 2 && !v.OK || i == 3 && v.OK
+	return i == min(v.Step, 2)
 }
 
 // MoveProgress is a repoint's progress; it polls itself while running.
