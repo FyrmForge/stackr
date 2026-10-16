@@ -18,7 +18,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -119,13 +118,16 @@ func (o *Orchestrator) pmVolumes(ctx context.Context, envID string) ([]store.Vol
 	return slices.DeleteFunc(vs, func(v store.Volume) bool { return v.OrphanedAt != nil }), err
 }
 
-// pmEnvNeeds is what the envs ask of the node they land on: storage for a
-// volume or a managed tile, plus what extra adds.
-// ponytail: derived here so moves stand alone; lane A's envNeeds is the same
-// rule per env and should replace this once it lands.
+// pmEnvNeeds is what the envs ask of the node they land on (envNeeds, per
+// env) plus what extra adds, with the volumes and tiles the checks size.
 func (o *Orchestrator) pmEnvNeeds(ctx context.Context, envIDs []string, extra Needs) (needs Needs, vols []store.Volume, tiles []store.Tile, err error) {
 	needs = extra
 	for _, id := range envIDs {
+		n, err := o.envNeeds(ctx, id)
+		if err != nil {
+			return needs, nil, nil, err
+		}
+		needs.Storage = needs.Storage || n.Storage
 		vs, err := o.pmVolumes(ctx, id)
 		if err != nil {
 			return needs, nil, nil, err
@@ -133,9 +135,6 @@ func (o *Orchestrator) pmEnvNeeds(ctx context.Context, envIDs []string, extra Ne
 		ts, err := o.store.Tiles.ListByEnv(ctx, id)
 		if err != nil {
 			return needs, nil, nil, err
-		}
-		if len(vs) > 0 || slices.ContainsFunc(ts, func(t store.Tile) bool { return t.Kind == tile.Managed }) {
-			needs.Storage = true
 		}
 		vols, tiles = append(vols, vs...), append(tiles, ts...)
 	}
