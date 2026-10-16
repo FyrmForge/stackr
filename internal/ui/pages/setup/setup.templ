@@ -796,7 +796,7 @@ templ roleButtons(roles []string) {
 		<div class="flex gap-2">
 			for _, r := range roles {
 				<label class="flex-1 cursor-pointer">
-					<input type="radio" name="role" value={ r } checked?={ r == "owner" } class="peer sr-only"/>
+					<input type="radio" name="role" value={ r } checked?={ r == "member" } class="peer sr-only"/>
 					<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">
 						{ r }
 						<span class="block text-xs text-rw-faint">{ roleHelp(r) }</span>

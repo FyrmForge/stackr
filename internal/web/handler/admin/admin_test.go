@@ -131,6 +131,14 @@ func TestAdminDrawer(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `hx-get="/-/admin?tab=users"`) {
 		t.Errorf("fresh load has no admin drawer:\n%s", w.Body)
 	}
+	// and a node's drawer, opened from its Nodes tab, the same way
+	req = httptest.NewRequest("GET", "/acme?drawer=node:n1&tab=envs", nil)
+	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if !strings.Contains(w.Body.String(), `hx-get="/-/admin/nodes/n1?tab=envs"`) {
+		t.Errorf("fresh load has no node drawer:\n%s", w.Body)
+	}
 }
 
 // The Backups tab edits the panel backup switch, schedule, keep and

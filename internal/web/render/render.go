@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/ui/cluster"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 )
 
@@ -37,8 +38,13 @@ func Page(c echo.Context, status int, title string, body templ.Component) error 
 func PageWith(c echo.Context, status int, title string, body, actions, drawer templ.Component) error {
 	s := Shell(c, title)
 	s.Actions = actions
-	if drawer == nil && s.Admin && c.QueryParam("drawer") == "admin" {
-		drawer = components.DrawerLoad("/-/admin?tab=" + url.QueryEscape(c.QueryParam("tab")))
+	// the admin drawer and a node's, opened from it, sit on any page
+	if d := c.QueryParam("drawer"); drawer == nil && s.Admin {
+		if id, ok := strings.CutPrefix(d, "node:"); ok && id != "" {
+			drawer = components.DrawerLoad(cluster.NodeDrawer(id, c.QueryParam("tab")))
+		} else if d == "admin" {
+			drawer = components.DrawerLoad("/-/admin?tab=" + url.QueryEscape(c.QueryParam("tab")))
+		}
 	}
 	s.Drawer, s.Tab = drawer, c.QueryParam("tab")
 	if drawer == nil {

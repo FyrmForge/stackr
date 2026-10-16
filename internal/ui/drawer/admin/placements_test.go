@@ -37,11 +37,26 @@ func TestMoveWizardChecks(t *testing.T) {
 	if strings.Contains(out, "<confirm-dialog") {
 		t.Errorf("a failing wizard offers the confirm\n%s", out)
 	}
+	// one button word either way, and the header on the checks step
+	if !strings.Contains(out, `disabled>Move</button>`) || !strings.Contains(out, `font-medium">2 Checks`) {
+		t.Errorf("failing wizard: button or step\n%s", out)
+	}
 	v.OK, v.Checks[1].OK, v.Checks[1].Detail = true, true, ""
 	v.Confirm = c.ConfirmView{Button: "Move", Title: "Move eu-prod to h4?", Word: "eu-prod", Kept: []string{"data"}, Action: "/x/move", Target: "#drawer"}
 	out = render(t, MoveWizard(v))
-	if !strings.Contains(out, "<confirm-dialog") || !strings.Contains(out, `word="eu-prod"`) || strings.Contains(out, "disabled") {
+	if !strings.Contains(out, "<confirm-dialog") || !strings.Contains(out, `word="eu-prod"`) || strings.Contains(out, "disabled") ||
+		!strings.Contains(out, `font-medium">2 Checks`) {
 		t.Errorf("passing wizard lacks the confirm\n%s", out)
+	}
+}
+
+// Step 1 picks no node for you: the select starts on a disabled prompt.
+func TestMoveWizardPick(t *testing.T) {
+	out := render(t, MoveWizard(MoveWizardView{Placement: "eu", Step: 1, Check: "/x/move", Cancel: "/x",
+		Nodes: []Option{{Value: "controller", Label: "controller"}, {Value: "h4", Label: "h4"}}}))
+	if !strings.Contains(out, `<option value="" disabled selected>Pick a node</option>`) || !strings.Contains(out, "required") ||
+		strings.Contains(out, `value="controller" selected`) {
+		t.Errorf("step 1\n%s", out)
 	}
 }
 

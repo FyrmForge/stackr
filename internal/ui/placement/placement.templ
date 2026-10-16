@@ -139,7 +139,7 @@ templ offers(rows []Offer) {
 		<tbody>
 			for _, r := range rows {
 				<tr>
-					<td class="pr-4 text-rw-text">{ r.Name }</td>
+					<td class="pr-4 text-rw-text whitespace-nowrap">{ r.Name }</td>
 					<td class="pr-4 text-rw-muted">{ r.Tags }</td>
 					<td class="pr-4 text-rw-muted">{ yesNo(r.Public) }</td>
 					<td class="pr-4 text-rw-muted">
