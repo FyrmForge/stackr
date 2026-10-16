@@ -144,9 +144,9 @@ A second break glass within 10 minutes is refused.
 
 On the controller, `stackr` runs inside the panel container, so the browser login cannot reach it. Use a key.
 
-The first install logs the CLI on the controller in as the admin for you, with a key bound to no org, so it runs server admin commands too. The key is never printed.
+The first install logs the CLI on the controller in as the admin for you, with a key bound to no org, so it runs server admin commands too. The key is stored in `/var/lib/stackr/cli.json` and never printed. It works once the panel's DNS and certificate do.
 
-If that login failed, or you want an admin key elsewhere, mint one with `stackr admin key <name>` from a logged-in admin CLI and log in with it:
+For an admin key elsewhere, mint one with `stackr admin key <name>` on the controller and log in with it:
 
 ```bash
 stackr login https://stkr.apps.example.com --with-key "$KEY"

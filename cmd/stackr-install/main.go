@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/FyrmForge/stackr/internal/cliconfig"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
 )
@@ -210,17 +211,18 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		func() error { return os.WriteFile(wrapperPath, []byte(wrapper(in.DataDir)), 0o755) }); err != nil {
 		return err
 	}
-	cli := ""
+	cli := false
 	if needAdmin {
 		apiKey, err := r.createAdmin(ctx, in, image, *adminEmail, password)
 		if err != nil {
 			return fmt.Errorf("admin: %w; re-run with --admin-email to try again", err)
 		}
 		if apiKey != "" {
-			cli = "in"
-			if err := r.loginCLI(ctx, in, apiKey); err != nil {
+			// Not fatal: the passphrase below is shown only this once.
+			if err := r.loginCLI(in, apiKey); err != nil {
 				r.say("  cli login:", err.Error())
-				cli = "failed"
+			} else {
+				cli = true
 			}
 		}
 	}
@@ -601,30 +603,23 @@ func quote(args []string) string {
 	return b.String()
 }
 
-// doneText closes the run; admin is the account made this run, if any.
-// loginCLI logs the CLI on this box in with the new admin's API key: the
-// key goes to the wrapper's login through the environment, never an
-// argument or the screen.
-func (r runner) loginCLI(ctx context.Context, in installspec.Input, key string) error {
-	panel, err := read(ctx, "docker", "ps", "-q", "--filter", "label="+installspec.LabelRole+"=panel")
-	if err != nil || panel == "" {
-		return errors.New("the panel container is not running")
-	}
-	cmd := exec.CommandContext(ctx, "docker", "exec", "-e", "STACKR_CONFIG="+filepath.Join(in.DataDir, "cli.json"),
-		"-e", "STACKR_KEY", strings.Fields(panel)[0], "/stackr", "login", in.BaseURL())
-	cmd.Env = append(os.Environ(), "STACKR_KEY="+key)
-	if b, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(b)))
-	}
-	return nil
+// loginCLI logs the CLI on this box in with the new admin's API key by
+// writing its config: no call, so it works before DNS and the certificate
+// do, and the key never reaches an argument or the screen. The admin has no
+// org yet, so none is stored.
+func (r runner) loginCLI(in installspec.Input, key string) error {
+	p := filepath.Join(in.DataDir, "cli.json")
+	return r.write(p, func() error {
+		return cliconfig.Save(p, cliconfig.Config{Server: strings.TrimRight(in.BaseURL(), "/"), Key: key})
+	})
 }
 
 // docsCLILogin is where the guide explains the CLI login.
 const docsCLILogin = "https://github.com/FyrmForge/stackr/blob/master/docs/guide/nodes.md#log-the-cli-in"
 
-// cli is "in" when the installer logged the CLI on this box in, "failed"
-// when it tried and could not, "" when there was no new admin.
-func doneText(in installspec.Input, key, admin, cli string, dry bool) string {
+// doneText closes the run; admin is the account made this run, if any, and
+// cli says the installer logged the CLI on this box in.
+func doneText(in installspec.Input, key, admin string, cli, dry bool) string {
 	status := "stackr is running."
 	if dry {
 		status = "Dry run finished, nothing was installed. A real run would end with:"
@@ -650,17 +645,11 @@ the panel's own backups, and restoring them anywhere else needs it.
   %s
 `, key)
 	}
-	switch cli {
-	case "in":
+	if cli {
 		s += fmt.Sprintf(`
 The CLI on this box is logged in as the admin. For a laptop, make an API
 key in the panel and log in there: %s
 `, docsCLILogin)
-	case "failed":
-		s += fmt.Sprintf(`
-The CLI on this box could not log in. Run: stackr login %s
-Docs: %s
-`, in.BaseURL(), docsCLILogin)
 	}
 	if !in.HTTPS {
 		return s

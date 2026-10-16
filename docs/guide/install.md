@@ -46,7 +46,7 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
    The second one is needed. Every stack gets a name under the domain, and each name must resolve before a certificate can be issued. With `--https=false` the installer prints no records; point the same names at the box yourself.
 
-5. The installer logs the CLI on this box in as the admin, so `stackr` works there straight away, server admin commands included. The key is never printed. See [Log the CLI in](nodes.md#log-the-cli-in).
+5. The installer logs the CLI on this box in as the admin, server admin commands included. It stores the key in `/var/lib/stackr/cli.json` and never prints it. `stackr` reaches the panel at its public URL, so it works once DNS and the certificate do. See [Log the CLI in](nodes.md#log-the-cli-in).
 
 Flags you may want:
 

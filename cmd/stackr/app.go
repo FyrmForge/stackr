@@ -24,6 +24,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
+
+	"github.com/FyrmForge/stackr/internal/cliconfig"
 )
 
 // app is the runtime every command reads: where to talk, how to print,
@@ -42,19 +44,10 @@ type app struct {
 	planShown bool   // a plan was printed as a table: a job's own "plan:" log lines repeat it
 }
 
-// config is the one file the CLI keeps, 0600.
-type config struct {
-	Server string          `json:"server"`
-	Key    string          `json:"key"`
-	Org    string          `json:"org"`
-	Links  map[string]link `json:"links,omitempty"` // directory -> link
-}
-
-type link struct {
-	Stack string `json:"stack,omitempty"`
-	Env   string `json:"env,omitempty"`
-	Tile  string `json:"tile,omitempty"`
-}
+type (
+	config = cliconfig.Config
+	link   = cliconfig.Link
+)
 
 func configPath() string {
 	if p := os.Getenv("STACKR_CONFIG"); p != "" {
@@ -92,16 +85,7 @@ func (a *app) load() error {
 	return nil
 }
 
-func (a *app) save() error {
-	b, err := json.MarshalIndent(a.cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(a.cfgPath), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(a.cfgPath, b, 0o600)
-}
+func (a *app) save() error { return cliconfig.Save(a.cfgPath, a.cfg) }
 
 // here is the link of this directory or the nearest parent that has one.
 func (a *app) here() (string, link) {

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/cliconfig"
 	"github.com/FyrmForge/stackr/internal/installspec"
 )
 
@@ -120,16 +124,41 @@ func TestDoneText(t *testing.T) {
 		HTTPSPort: "443",
 		DataDir:   "/d",
 	}
-	s := doneText(in, "k3y", "me@example.com", "in", false)
+	s := doneText(in, "k3y", "me@example.com", true, false)
 	for _, want := range []string{"https://stkr.example.com", "k3y", "me@example.com", "*.example.com", "Caddy",
 		"CLI on this box is logged in", docsCLILogin} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
-	rerun := doneText(in, "", "", "", false)
+	rerun := doneText(in, "", "", false, false)
 	if strings.Contains(rerun, "Recovery passphrase") || strings.Contains(rerun, "log in") || strings.Contains(rerun, "logged in") {
 		t.Error("a re-run printed the passphrase or the new admin")
+	}
+}
+
+// The installer logs the box's CLI in by writing its config, no call: a
+// fresh box has no DNS or certificate yet.
+func TestLoginCLIWritesTheConfig(t *testing.T) {
+	in := installspec.Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPS: true, HTTPSPort: "443", DataDir: t.TempDir()}
+	p := filepath.Join(in.DataDir, "cli.json")
+	if err := (runner{dry: true, out: &strings.Builder{}}).loginCLI(in, "k3y"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("a dry run wrote %s", p)
+	}
+	if err := (runner{out: &strings.Builder{}}).loginCLI(in, "k3y"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("cli.json = %v, %v; want 0600", fi, err)
+	}
+	b, _ := os.ReadFile(p)
+	var c cliconfig.Config
+	if err := json.Unmarshal(b, &c); err != nil || c.Server != "https://stkr.example.com" || c.Key != "k3y" || c.Org != "" {
+		t.Errorf("cli.json = %+v, %v", c, err)
 	}
 }
 
