@@ -40,7 +40,10 @@ func TestRiskyRemovalsAutoOK(t *testing.T) {
 	if quiet.Risky() || len(quiet.Removals()) != 0 || !quiet.AutoOK() {
 		t.Errorf("quiet plan: risky %v, removals %d, auto %v", quiet.Risky(), len(quiet.Removals()), quiet.AutoOK())
 	}
-	onlyRemoval := planfile.Plan{Changes: []planfile.Change{{Kind: "route-delete", Key: "route:x", Optional: true}}}
+	if onlyGaps := (planfile.Plan{Gaps: []planfile.Gap{{Kind: "secret", Key: "a.b"}}}); onlyGaps.AutoOK() {
+		t.Error("a plan of gaps alone has nothing to apply by itself")
+	}
+		onlyRemoval := planfile.Plan{Changes: []planfile.Change{{Kind: "route-delete", Key: "route:x", Optional: true}}}
 	if onlyRemoval.AutoOK() {
 		t.Error("a removal row keeps a plan from applying by itself")
 	}
