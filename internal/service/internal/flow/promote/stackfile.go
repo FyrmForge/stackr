@@ -38,6 +38,12 @@ type File struct {
 	Envs     EnvsNode                          `yaml:"environments"`
 	PREnvs   *PREnvs                           `yaml:"pr_envs"`
 	Shared   map[string]RawMap                 `yaml:"shared"`
+	// Pin, Ingress and Exits are placement names: the stack's pin (new envs
+	// start there), its ingress override and its exit ladder. The main file's
+	// alone. An absent key says nothing; an empty exits: clears the ladder.
+	Pin     string   `yaml:"pin"`
+	Ingress string   `yaml:"ingress"`
+	Exits   []string `yaml:"exits"`
 }
 
 // Defaults is one rung of the settings cascade; nil = say nothing here.
@@ -159,6 +165,11 @@ type EnvConf struct {
 	Defaults Defaults              `yaml:"defaults"`
 	Tiles    map[string]TileNode   `yaml:"tiles"`
 	Volumes  map[string]VolumeNode `yaml:"volumes"`
+	// Pin is the placement the env belongs to (a different one moves it);
+	// Ingress and Exits override the stack's for this env.
+	Pin     string   `yaml:"pin"`
+	Ingress string   `yaml:"ingress"`
+	Exits   []string `yaml:"exits"`
 }
 
 // TileNode is an env entry: an exclusion (false/null) or a body.
@@ -321,8 +332,10 @@ type Resolved struct {
 	// env -> "group.name" -> entry.
 	Params   map[string]map[string]planfile.Entry
 	Defaults Defaults
-	Domains  []Reservation
-	Envs     map[string]ResolvedEnv
+	// Placing is the stack's pin, ingress and exits as the file names them.
+	Placing planfile.Placing
+	Domains []Reservation
+	Envs    map[string]ResolvedEnv
 	// PREnabled is pr_envs.enabled; absent means off.
 	PREnabled bool
 	// PRForks is pr_envs.forks: build pull requests from forks too.
@@ -334,6 +347,7 @@ type ResolvedEnv struct {
 	Auto                 bool
 	Locked               *bool // nil: the file says nothing
 	Color                string
+	Placing              planfile.Placing // the env's own pin, ingress and exits
 	Defaults             Defaults
 	Tiles                map[string]TileConf
 	Volumes              map[string]VolumeConf
@@ -406,6 +420,14 @@ func Parse(data []byte) (*File, error) {
 	if err := f.Defaults.check(); err != nil {
 		return nil, fmt.Errorf("defaults: %w", err)
 	}
+	if err := planfile.CheckPlacing("stack", f.placing()); err != nil {
+		return nil, err
+	}
+	for _, n := range f.Envs.Order {
+		if err := planfile.CheckPlacing("environments."+n, f.Envs.Envs[n].placing()); err != nil {
+			return nil, err
+		}
+	}
 	if pr := f.PREnvs; pr != nil {
 		if len(pr.Against) > 0 {
 			return nil, fmt.Errorf("pr_envs.against is not built yet; remove it")
@@ -436,6 +458,9 @@ func Load(data []byte, fetch Fetcher, orgSlug string) (*Resolved, error) {
 		var x File
 		if err := strictYAML(b, &x); err != nil {
 			return nil, fmt.Errorf("include %s: %w", inc, err)
+		}
+		if !x.placing().IsZero() { // the stack's pin, ingress and exits are the main file's too
+			return nil, fmt.Errorf("include %s: pin, ingress and exits belong in the main stack file", inc)
 		}
 		if x.PREnvs != nil { // pr_envs (enabled, forks, against, tiles) is the main file's alone
 			return nil, fmt.Errorf("include %s: pr_envs belongs in the main stack file", inc)
@@ -489,6 +514,7 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 	r := &Resolved{
 		Stack:     f.Stack,
 		Defaults:  f.Defaults,
+		Placing:   f.placing(),
 		Domains:   f.Domains,
 		Envs:      map[string]ResolvedEnv{},
 		PREnabled: f.PREnvs != nil && f.PREnvs.Enabled != nil && *f.PREnvs.Enabled,
@@ -529,6 +555,7 @@ func resolve(f *File, orgSlug string) (*Resolved, error) {
 		re := ResolvedEnv{
 			Locked:   ec.Locked,
 			Color:    ec.Color,
+			Placing:  ec.placing(),
 			Defaults: ec.Defaults,
 			Tiles:    map[string]TileConf{},
 			Volumes:  map[string]VolumeConf{},
@@ -980,6 +1007,9 @@ func mergeEnv(base, x EnvConf) EnvConf {
 	}
 	if base.Color == "" {
 		base.Color = x.Color
+	}
+	if base.placing().IsZero() {
+		base.Pin, base.Ingress, base.Exits = x.Pin, x.Ingress, x.Exits
 	}
 	if base.Tiles == nil {
 		base.Tiles = map[string]TileNode{}
