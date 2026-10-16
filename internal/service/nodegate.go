@@ -39,17 +39,24 @@ const (
 func seenKey(nodeID string) string { return "node.seen." + nodeID }
 
 // NodeDownError is a refusal because a worker is not online. It is an
-// errs.ErrBusy (503) that says which node and since when.
+// errs.ErrBusy (503). Error says since when but not which node: it lands in
+// job errors env members read (D3). Detail names the node, for admins.
 type NodeDownError struct {
 	Name     string
 	LastSeen time.Time // zero = never seen
 }
 
-func (e *NodeDownError) Error() string {
+func (e *NodeDownError) Error() string { return "the node is offline, " + e.Since() }
+
+// Detail is Error with the node's name: admins only.
+func (e *NodeDownError) Detail() string { return e.Name + " is offline, " + e.Since() }
+
+// Since is "never seen" or "last seen <ago>".
+func (e *NodeDownError) Since() string {
 	if e.LastSeen.IsZero() {
-		return e.Name + " is offline, never seen"
+		return "never seen"
 	}
-	return e.Name + " is offline, last seen " + ago(time.Since(e.LastSeen))
+	return "last seen " + ago(time.Since(e.LastSeen))
 }
 
 func (e *NodeDownError) Unwrap() error { return errs.ErrBusy }
@@ -321,7 +328,7 @@ func (o *Orchestrator) skipIfDown(ctx context.Context, err error, kind jobs.Kind
 	var w *PlacementNoNodeError
 	switch {
 	case errors.As(err, &d):
-		return true, o.skip(ctx, kind, p, "skipped: "+d.Name+" offline", lock...)
+		return true, o.skip(ctx, kind, p, "skipped: node offline", lock...)
 	case errors.As(err, &w):
 		return true, o.skip(ctx, kind, p, "skipped: placement "+w.Placement+" has no node yet", lock...)
 	}
@@ -383,9 +390,10 @@ func (o *Orchestrator) skipUnreachable(ctx context.Context, volumeID string) err
 		return nil // a worker too old is refused, not unreachable: the backup says so
 	}
 	if errors.As(err, &d) {
-		return fmt.Errorf("%w: %s offline", jobs.ErrSkipped, d.Name)
+		return fmt.Errorf("%w: node offline", jobs.ErrSkipped)
 	}
-	return fmt.Errorf("%w: %s unreachable: %v", jobs.ErrSkipped, n.Name, err)
+	slog.Warn("backup: node unreachable", "node", n.Name, "err", err)
+	return fmt.Errorf("%w: node unreachable", jobs.ErrSkipped)
 }
 
 // scheduleCron is the schedule driver for a cron tile: a run is queued, or

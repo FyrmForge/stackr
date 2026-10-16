@@ -134,10 +134,16 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				if !ok {
 					return ""
 				}
-				if p := middleware.Principal(c); p == nil || authz.Can(p.Access, "node.manage", authz.Resource{}) != nil {
+				const tail = ". Deploys here are refused until it is back."
+				down := &service.NodeDownError{Name: d.Name, LastSeen: d.LastSeen}
+				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
+					return down.Detail() + tail
+				}
+				if d.Placement == "" {
 					return middleware.NodeOfflineMsg + " Deploys here are refused until it is back."
 				}
-				return (&service.NodeDownError{Name: d.Name, LastSeen: d.LastSeen}).Error() + ". Deploys here are refused until it is back."
+				// members get the placement, never the node (D3)
+				return "Placement " + d.Placement + " is offline, " + down.Since() + tail
 			})
 			return next(c)
 		}

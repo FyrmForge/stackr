@@ -375,7 +375,7 @@ func JSONErrors() echo.MiddlewareFunc {
 				}
 				var down *service.NodeDownError
 				if p := Principal(c); p != nil && errors.As(he.Internal, &down) && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
-					body.Error = down.Error()
+					body.Error = down.Detail()
 				}
 			} else {
 				logging.FromContext(c.Request().Context()).Error("api", "error", err.Error())
