@@ -810,3 +810,7 @@ What Wave 0 did differently from section 2, or added where the plan was silent:
   go in 028 instead of waiting for a squash.
 - **Unexported stubs carry `//nolint:unused // lane X`.** Drop the comment
   together with the stub.
+
+## Integrator notes for lanes (after W0)
+- D13 revised: SQLite can drop these columns (W0 note 10). Lane A drops `orgs.node_id` and `stacks.node_id` in its migration 028.
+- W0 commit on `placements`: 0e23cb9.
