@@ -501,7 +501,6 @@ templ AddNode(v AddNodeView) {
 }
 
 templ ForgetWarning(b ForgetBody) {
-	<p class="text-sm text-rw-text">Use this only if { b.Name } is gone for good.</p>
 	if len(b.Lost) > 0 {
 		<p class="text-sm text-rw-muted mt-2">Lost until you redeploy:</p>
 		<ul class="text-sm text-rw-text list-disc pl-5">
