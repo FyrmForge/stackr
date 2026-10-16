@@ -776,12 +776,17 @@ func (o *Orchestrator) SetIngress(ctx context.Context, by *Principal, kind, id, 
 		}
 		pick = p.ID
 	}
-	return o.store.Tx(ctx, func(tx store.Tx) error {
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.IngressPicks.Set(ctx, kind, id, pick); err != nil {
 			return err
 		}
 		return o.auditPlacement(ctx, tx, by, "placement.ingress", kind, id, "placement "+name)
 	})
+	if err != nil {
+		return err
+	}
+	// the routes move to the picked node's proxy now, not at the next sync
+	return o.sync.Sync(ctx)
 }
 
 // SetExits replaces a scope's exit ladder: placement names top to bottom,

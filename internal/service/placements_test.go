@@ -536,3 +536,15 @@ func TestOrgPinSkipsPinnedStacks(t *testing.T) {
 		t.Errorf("org pin with every stack pinned = %v", err)
 	}
 }
+
+// An ingress pick moves routes between nodes' proxies, so it pushes the
+// routing table at once (the rig's override waited for the next sync).
+func TestSetIngressPushesRoutes(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	before := n.pushes.Load()
+	must(t, n.orch.SetIngress(ctx, adminP(), ScopeStack, n.stack, DefaultPlacement))
+	if n.pushes.Load() == before {
+		t.Error("an ingress pick pushed no routes")
+	}
+}
