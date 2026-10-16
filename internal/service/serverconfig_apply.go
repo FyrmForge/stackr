@@ -87,8 +87,10 @@ func (o *Orchestrator) serverLive(ctx context.Context, f *serverconfig.File) (se
 	if live.Claims, err = o.claims(ctx); err != nil {
 		return live, err
 	}
-	live.Connectors, err = o.connectorsLive(ctx)
-	return live, err
+	if live.Connectors, err = o.connectorsLive(ctx); err != nil {
+		return live, err
+	}
+	return live, o.placementsLive(ctx, f, &live)
 }
 
 // runningTiles is how many tiles a cascade change would redeploy.
@@ -261,7 +263,7 @@ func newRisk(pl ServerPlan, now serverconfig.Plan) error {
 // verb, in the order the plan documents: server params, connector shares,
 // settings and the cascade rung, backup destinations (then the panel's
 // backup destination, which may name one just made), domains, routes, orgs,
-// then the removals that were ticked.
+// nodes and placements, then the removals that were ticked.
 type serverWalk struct {
 	o        *Orchestrator
 	ctx      context.Context
@@ -287,6 +289,7 @@ func (w *serverWalk) run() error {
 		{"domains", w.domains},
 		{"routes", w.routes},
 		{"orgs", w.orgs},
+		{"nodes and placements", w.placements},
 		{"removals", w.removals},
 	} {
 		if err := step.do(); err != nil {
@@ -731,6 +734,8 @@ func (w *serverWalk) removals() error {
 			err = w.deleteDomain(c.Tile)
 		case "connector-share-delete":
 			err = w.unshare(c.Tile, c.Field, c.Old)
+		case "placement-delete":
+			err = w.deletePlacement(c.Tile)
 		case "org-unbind":
 			_, err = w.o.SetOrgConfigRepo(w.ctx, w.orgIDs[c.Tile], "", "", "", "", false)
 		default:

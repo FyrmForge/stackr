@@ -85,6 +85,7 @@ func Export(live Live) ([]byte, error) {
 	}
 	f.exportConnectors(live)
 	f.exportOrgs(live)
+	f.exportPlacements(live)
 	if len(f.Params) == 0 {
 		f.Params = nil
 	}
@@ -220,5 +221,29 @@ func (f *File) exportOrgs(live Live) {
 			fo.Name = o.Name
 		}
 		f.Orgs = append(f.Orgs, fo)
+	}
+}
+
+// exportPlacements writes every joined node's tags and every placement. The
+// controller is a node like the others; open is left out when it is all.
+func (f *File) exportPlacements(live Live) {
+	for _, n := range live.Nodes {
+		if n.Pending || n.Forgotten {
+			continue
+		}
+		if f.Nodes == nil {
+			f.Nodes = map[string]Node{}
+		}
+		f.Nodes[n.Name] = Node{Tags: slices.Sorted(slices.Values(n.Tags))}
+	}
+	for _, p := range live.Placements {
+		if f.Placements == nil {
+			f.Placements = map[string]Placement{}
+		}
+		fp := Placement{Node: p.Node}
+		if !p.OpenToAll {
+			fp.Open = &Share{Orgs: slices.Sorted(slices.Values(p.Orgs))}
+		}
+		f.Placements[p.Name] = fp
 	}
 }
