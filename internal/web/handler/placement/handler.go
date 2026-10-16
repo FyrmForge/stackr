@@ -134,11 +134,10 @@ func hint(o service.PlacementOffer) string {
 	return " (" + strings.Join(parts, ", ") + ")"
 }
 
-// offers is the org's placement list. ponytail: until lane A fills
-// OrgPlacements the tab shows no hints; the ErrNotBuilt guard goes with W0.
+// offers is the org's placement list, by name and in order.
 func (h *handler) offers(c echo.Context) (map[string]service.PlacementOffer, []service.PlacementOffer, error) {
 	list, err := h.orch.OrgPlacements(c.Request().Context(), middleware.ScopeOf(c).Org.ID)
-	if err != nil && !errors.Is(err, errs.ErrNotBuilt) {
+	if err != nil {
 		return nil, nil, err
 	}
 	by := map[string]service.PlacementOffer{}

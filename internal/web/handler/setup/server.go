@@ -2,7 +2,6 @@ package setup
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -118,8 +117,7 @@ func (h *handler) serverHand(c echo.Context) error {
 		v.Dests = append(v.Dests, pages.ServerDest{Name: d.Name, Detail: d.Bucket})
 	}
 	ps, err := h.orch.Placements(ctx)
-	// ponytail: the summary is optional; a server that cannot list placements still sets up.
-	if err != nil && !errors.Is(err, errs.ErrNotBuilt) {
+	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	for _, p := range ps {

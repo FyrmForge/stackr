@@ -1,13 +1,9 @@
 package api_test
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
-
-	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 // Nodes are hardware for server admins: every node route, the cluster map
@@ -65,11 +61,7 @@ func TestNodeAPI(t *testing.T) {
 		t.Errorf("admin sees the address: %s", body)
 	}
 
-	// an owner pins the org to the default placement and reads it back (the
-	// verbs read placement names once lane A is merged; until then they stub)
-	if _, err := w.env.Orch.Placements(context.Background()); errors.Is(err, errs.ErrNotBuilt) {
-		return
-	}
+	// an owner pins the org to the default placement and reads it back
 	if code, body = w.do(t, w.owner, "PUT", "/orgs/acme/pin", `{"placement":"default"}`); code != 200 {
 		t.Errorf("pin = %d %s", code, body)
 	}

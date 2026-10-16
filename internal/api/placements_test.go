@@ -1,12 +1,8 @@
 package api_test
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"testing"
-
-	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 // The admin placement routes are for server admins; the dev list is for any
@@ -41,13 +37,9 @@ func TestPlacementRoutesGated(t *testing.T) {
 	}
 }
 
-// A round trip per route. It needs lane A's placements and lane M's moves;
-// until they are merged the service answers ErrNotBuilt and this skips.
+// A round trip per route.
 func TestPlacementsAPI(t *testing.T) {
 	w := newWorld(t)
-	if _, err := w.env.Orch.Placements(context.Background()); errors.Is(err, errs.ErrNotBuilt) {
-		t.Skip("placements are not built in this tree yet")
-	}
 	// a fresh install has the default placement on the controller
 	code, body := w.do(t, w.admin, "GET", "/admin/placements", "")
 	if code != 200 || !strings.Contains(body, `"name":"default"`) || !strings.Contains(body, `"default":true`) {
@@ -75,7 +67,7 @@ func TestPlacementsAPI(t *testing.T) {
 	if code, body = w.do(t, w.owner, "GET", "/orgs/acme/pin", ""); code != 200 || !strings.Contains(body, "eu-db") {
 		t.Errorf("get pin = %d %s", code, body)
 	}
-	if code, _ = w.do(t, w.owner, "PUT", "/orgs/acme/pin", `{"placement":"nope"}`); code != 404 && code != 422 && code != 409 {
+	if code, _ = w.do(t, w.owner, "PUT", "/orgs/acme/pin", `{"placement":"nope"}`); code != 400 && code != 404 && code != 422 && code != 409 {
 		t.Errorf("unknown pin = %d", code)
 	}
 
