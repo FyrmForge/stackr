@@ -198,7 +198,7 @@ func TestDiff(t *testing.T) {
 			},
 		},
 		{
-			name: "secret declared without a value is a note",
+			name: "secret declared without a value is a gap, not a note",
 			live: withParams,
 			file: v1 + `params:
   email:
@@ -207,7 +207,6 @@ func TestDiff(t *testing.T) {
       sender: old@acme.test
       api_key: {type: secret}
 `,
-			note: "params.email.token (all) is declared and not set",
 		},
 		{
 			name: "a secret is never turned back into a param",

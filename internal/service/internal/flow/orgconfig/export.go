@@ -25,6 +25,9 @@ func Export(live Live) ([]byte, error) {
 		Version: 1,
 		Org:     og.Name,
 		Stacks:  map[string]StackRef{},
+		Pin:     live.Current.Pin,
+		Ingress: live.Current.Ingress,
+		Exits:   live.Current.Exits,
 	}
 	exportParams(&f, live)
 	s, err := settings.Parse(og.Settings)

@@ -259,8 +259,8 @@ func TestPlanThenApply(t *testing.T) {
 		!strings.Contains(got, "param:app.mode") || !strings.Contains(got, "domain:api") {
 		t.Errorf("plan = %s\nwant roughly %s", got, want)
 	}
-	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "app.key") {
-		t.Errorf("warnings = %v", p.Warnings)
+	if len(p.Warnings) != 0 || len(p.Gaps) != 1 || p.Gaps[0].Key != "app.key" {
+		t.Errorf("warnings = %v, gaps = %+v", p.Warnings, p.Gaps)
 	}
 	applied, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
 	must(t, err)

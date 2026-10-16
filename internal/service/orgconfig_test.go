@@ -586,3 +586,24 @@ func TestOrgParamRemoval(t *testing.T) {
 		t.Errorf("org after a ticked secret removal = %q", got)
 	}
 }
+
+// The org file's pin is checked against the placements the server holds: an
+// undeclared name blocks the plan; the reserved default plans a pin change.
+func TestOrgFilePinPlans(t *testing.T) {
+	r := newOrgRig(t)
+	r.orgFile(t, "version: 1\norg: acme\npin: eu-prod\n")
+	r.bind(t, false)
+	p := r.plans(t)[0]
+	if !strings.Contains(p.Plan, "placement eu-prod is not declared") || !strings.Contains(p.Summary, "1 blocker") {
+		t.Errorf("plan = %s / %s, want a blocker naming eu-prod", p.Summary, p.Plan)
+	}
+
+	r.orgFile(t, "version: 1\norg: acme\npin: default\ningress: default\nexits: [own]\n")
+	p, err := r.env.Orch.PlanOrgConfig(context.Background(), r.org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Status != "pending" || !strings.Contains(p.Plan, `"kind":"pin"`) || !strings.Contains(p.Plan, `"kind":"exits"`) || strings.Contains(p.Plan, "blockers") {
+		t.Errorf("plan = %s / %s, want pin, ingress and exits changes and no blocker", p.Status, p.Plan)
+	}
+}
