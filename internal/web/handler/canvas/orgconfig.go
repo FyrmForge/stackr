@@ -90,7 +90,7 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		box.Review.Done, box.Review.Ticked = true, latest.Ticked
 	case latest.Status == "pending" && can(c, cd.s, "orgplan.approve"):
 		box.Review.Reject = f.Base + "/plans/" + latest.ID + "/reject"
-		if !pl.Blocked() && len(pl.Changes) > 0 {
+		if pl.CanApprove() {
 			box.Review.Approve = f.Base + "/plans/" + latest.ID + "/approve"
 		}
 	}

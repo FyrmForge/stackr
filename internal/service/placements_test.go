@@ -110,7 +110,8 @@ func TestPlacementAdminVerbs(t *testing.T) {
 	if err := n.orch.DeletePlacement(ctx, adm, DefaultPlacement); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("delete default = %v", err)
 	}
-	must(t, n.orch.SetPin(ctx, adm, ScopeOrg, acmeID(t, n), "eu"))
+	_, err = n.orch.PinScope(ctx, adm, ScopeOrg, acmeID(t, n), "eu", "", "dev") // dev, on the controller, stays
+	must(t, err)
 	if err := n.orch.DeletePlacement(ctx, adm, "eu"); !isConflict(err) {
 		t.Errorf("delete a pinned placement = %v", err)
 	}
@@ -249,8 +250,8 @@ func TestPlacementFit(t *testing.T) {
 		t.Error("pinned a stack holding a volume env to a node without storage")
 	}
 	mustTag(t, n, adm, "w1", "storage")
-	if err := n.orch.SetPin(ctx, adm, ScopeStack, n.stack, "plain"); err != nil {
-		t.Errorf("pin to a storage node = %v", err)
+	if err := n.orch.SetPin(ctx, adm, ScopeStack, n.stack, "plain"); !errors.As(err, new(*MoveNeeded)) {
+		t.Errorf("pin to a storage node = %v, want the move of dev to confirm", err)
 	}
 	// and the tag cannot go while that data sits there
 	must(t, n.st.Environments.SetNode(ctx, n.dev.ID, "w1"))
@@ -289,7 +290,8 @@ func TestEnvCreateOnPlacement(t *testing.T) {
 		t.Fatalf("unpinned env on %q in %q", e.NodeID, e.PlacementID)
 	}
 
-	must(t, n.orch.SetPin(ctx, adm, ScopeOrg, acme, "eu-prod"))
+	_, err = n.orch.PinScope(ctx, adm, ScopeOrg, acme, "eu-prod", "", "dev", "qa") // the existing envs stay: new ones are under test
+	must(t, err)
 	e, err = n.orch.CreateEnv(ctx, n.stack, "stage", EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
 	must(t, err)
 	if e.NodeID != "w1" || e.PlacementID != w1.ID {
@@ -339,9 +341,11 @@ func TestEnvCreateOnPlacement(t *testing.T) {
 	}
 }
 
-// Org and stack pins carry an env that is on the same node; an env pin that
-// would move it is refused with the plan to confirm. Pinning an env to the
-// placement it already holds, or to another on its own node, only relabels it.
+// Org and stack pins carry an env that is on the same node and move the
+// ones on another node only once confirmed with the scope's slug (D4); an env
+// pin that would move it is refused with the plan to confirm. Pinning an env
+// to the placement it already holds, or to another on its own node, only
+// relabels it.
 func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
@@ -349,29 +353,47 @@ func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 	w1 := n.placeW1(t, true)
 	twin := addPlacement(t, n, "w1-twin", "w1", true)
 
-	// edge is on w1: a stack pin to w1-twin takes it along, dev (on the controller) stays
-	must(t, n.orch.SetPin(ctx, adm, ScopeStack, n.stack, "w1-twin"))
+	// dev is on the controller: a stack pin to w1-twin is refused with its
+	// move, one plan per env, and nothing is written
+	err := n.orch.SetPin(ctx, adm, ScopeStack, n.stack, "w1-twin")
+	var need *MoveNeeded
+	if !errors.As(err, &need) || len(need.Plans) != 1 || need.Plans[0].Placement != "acme/shop/dev" || !strings.Contains(err.Error(), "acme/shop/dev") {
+		t.Fatalf("stack pin over an env on another node = %v", err)
+	}
+	if st, _ := n.st.Stacks.Get(ctx, n.stack); st.PlacementID != nil {
+		t.Fatal("a refused stack pin was written")
+	}
+	if ps, err := n.orch.PlanPin(ctx, adm, ScopeStack, n.stack, "w1-twin"); err != nil || len(ps) != 1 {
+		t.Errorf("PlanPin = %+v, %v", ps, err)
+	}
+	if _, err := n.orch.PinScope(ctx, adm, ScopeStack, n.stack, "w1-twin", "wrong"); !errors.As(err, &need) {
+		t.Errorf("wrong confirm = %v", err)
+	}
+	// the stack's slug confirms: dev's move is queued, edge (on w1) just follows
+	js, err := n.orch.PinScope(ctx, adm, ScopeStack, n.stack, "w1-twin", "shop")
+	must(t, err)
+	if len(js) != 1 {
+		t.Fatalf("confirmed stack pin queued %d moves, want 1", len(js))
+	}
 	edge, _ := n.st.Environments.Get(ctx, n.edge.ID)
 	dev, _ := n.st.Environments.Get(ctx, n.dev.ID)
 	if edge.PlacementID != twin.ID || edge.NodeID != "w1" {
 		t.Errorf("edge in %q on %q", edge.PlacementID, edge.NodeID)
 	}
-	if dev.PlacementID == twin.ID || dev.NodeID != n.ctl.ID {
-		t.Errorf("dev in %q on %q", dev.PlacementID, dev.NodeID)
+	if dev.PlacementID != twin.ID {
+		t.Errorf("dev in %q, want w1-twin once its move started", dev.PlacementID)
 	}
-	v, err := n.orch.Placement(ctx, ScopeStack, n.stack)
-	must(t, err)
-	if v.Pin != "w1-twin" || v.Stay.Count != 1 || v.Stay.Where != DefaultPlacement {
-		t.Errorf("stack view = pin %q stay %+v", v.Pin, v.Stay)
+	if st, _ := n.st.Stacks.Get(ctx, n.stack); st.PlacementID == nil || *st.PlacementID != twin.ID {
+		t.Error("the confirmed stack pin was not written")
 	}
+	n.wait(t, js[0])
 
 	// env pin onto the other node: refused, nothing written
-	err = n.orch.SetPin(ctx, adm, ScopeEnv, n.dev.ID, "w1")
-	var need *MoveNeeded
-	if !errors.As(err, &need) {
+	err = n.orch.SetPin(ctx, adm, ScopeEnv, n.edge.ID, DefaultPlacement)
+	if !errors.As(err, &need) || len(need.Plans) != 1 {
 		t.Fatalf("env pin that moves = %v", err)
 	}
-	if got, _ := n.st.Environments.Get(ctx, n.dev.ID); got.PlacementID == w1.ID || got.NodeID != n.ctl.ID {
+	if got, _ := n.st.Environments.Get(ctx, n.edge.ID); got.PlacementID != twin.ID || got.NodeID != "w1" {
 		t.Errorf("refused pin still wrote: %+v", got)
 	}
 	// same node: just a relabel
@@ -460,7 +482,8 @@ func TestMemberViewHoldsNoNodeName(t *testing.T) {
 	p := addPlacement(t, n, "eu-prod", "w1", true)
 	must(t, n.st.Environments.SetPlacement(ctx, n.edge.ID, p.ID))
 	mustTag(t, n, adm, "w1", "ingress", "egress")
-	must(t, n.orch.SetPin(ctx, adm, ScopeOrg, acme, "eu-prod"))
+	_, err := n.orch.PinScope(ctx, adm, ScopeOrg, acme, "eu-prod", "", "dev") // dev stays on the controller
+	must(t, err)
 	must(t, n.orch.SetIngress(ctx, adm, ScopeStack, n.stack, "eu-prod"))
 	must(t, n.orch.SetExits(ctx, adm, ScopeOrg, acme, []string{"eu-prod", DefaultPlacement}))
 	edgeT := n.edgeT
@@ -531,7 +554,8 @@ func TestOrgPinSkipsPinnedStacks(t *testing.T) {
 	if err := n.orch.SetPin(ctx, adm, ScopeOrg, acmeID(t, n), "plain"); err == nil {
 		t.Fatal("pinned the org over an unpinned volume env to a node without storage")
 	}
-	must(t, n.orch.SetPin(ctx, adm, ScopeStack, n.stack, DefaultPlacement))
+	_, err := n.orch.PinScope(ctx, adm, ScopeStack, n.stack, DefaultPlacement, "", "edge") // edge, on w1, stays
+	must(t, err)
 	if err := n.orch.SetPin(ctx, adm, ScopeOrg, acmeID(t, n), "plain"); err != nil {
 		t.Errorf("org pin with every stack pinned = %v", err)
 	}

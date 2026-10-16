@@ -111,6 +111,10 @@ func (p Plan) Removals() []Change {
 	return out
 }
 
+// CanApprove says a person may approve the plan: no blocker, and something
+// to apply besides gaps (those are filled in place).
+func (p Plan) CanApprove() bool { return !p.Blocked() && len(p.Changes) > 0 }
+
 // AutoOK says the plan may apply by itself: no blocker, no impact line, no
 // removal row, and something to apply besides gaps. An empty plan is.
 func (p Plan) AutoOK() bool {

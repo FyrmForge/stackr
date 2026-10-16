@@ -227,12 +227,12 @@ func routes(h *v1.H) []Route {
 		{GET, "/nodes/:node", "node.get", "node.manage", h.GetNode()},
 		{GET, "/admin/placements", "admin.placements", "node.manage", h.Placements()},
 		{POST, "/admin/placements", "admin.placement-create", "node.manage", h.CreatePlacement()},
-		{PUT, "/admin/placements/:name/open", "admin.placement-open", "node.manage", h.SetPlacementOpen()},
-		{DELETE, "/admin/placements/:name", "admin.placement-delete", "node.manage", h.DeletePlacement()},
-		{GET, "/admin/placements/:name/move-plan", "admin.placement-move-plan", "node.manage", h.PlacementMovePlan()},
-		{POST, "/admin/placements/:name/move", "admin.placement-move", "node.manage", h.MovePlacement()},
-		{POST, "/admin/placements/:name/retry", "admin.placement-retry", "node.manage", h.RetryPlacementMove()},
-		{GET, "/admin/placements/:name/move", "admin.placement-move-status", "node.manage", h.PlacementMove()},
+		{PUT, "/admin/placements/:placement/open", "admin.placement-open", "node.manage", h.SetPlacementOpen()},
+		{DELETE, "/admin/placements/:placement", "admin.placement-delete", "node.manage", h.DeletePlacement()},
+		{GET, "/admin/placements/:placement/move-plan", "admin.placement-move-plan", "node.manage", h.PlacementMovePlan()},
+		{POST, "/admin/placements/:placement/move", "admin.placement-move", "node.manage", h.MovePlacement()},
+		{POST, "/admin/placements/:placement/retry", "admin.placement-retry", "node.manage", h.RetryPlacementMove()},
+		{GET, "/admin/placements/:placement/move", "admin.placement-move-status", "node.manage", h.PlacementMove()},
 		{GET, "/cluster", "cluster.status", "node.manage", h.Cluster()},
 		{POST, "/registry/login", "registry.login", Self, h.RegistryLogin()},
 		{PUT, "/admin/nodes/:node/tags", "admin.node-tags", "node.manage", h.TagNode()},
@@ -385,6 +385,7 @@ func placement(h *v1.H) []Route {
 			out = append(out,
 				Route{http.MethodGet, s.base + "/pin", s.name + ".pin", "org.read", h.Pin(s.at)},
 				Route{http.MethodPut, s.base + "/pin", s.name + ".pin-set", "placement.write", h.SetPin(s.at)},
+				Route{http.MethodGet, s.base + "/pin-plan", s.name + ".pin-plan", "placement.write", h.PinPlan(s.at)},
 			)
 		}
 	}

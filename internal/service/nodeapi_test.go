@@ -123,7 +123,7 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	own := ownerP(og.ID)
 	n.placeW1(t, false)
 
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, "w1"); err == nil || !strings.Contains(err.Error(), "not open") {
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "w1"); err == nil || !strings.Contains(err.Error(), "not open") {
 		t.Fatalf("pin to a closed placement = %v", err)
 	}
 	if _, err := n.orch.PlacementForNewEnv(ctx, own, n.stack, "w1"); err == nil {
@@ -140,7 +140,15 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	if !slices.Equal(d.Placements, []string{"w1"}) {
 		t.Errorf("placements on w1 = %v", d.Placements)
 	}
-	p, err := n.orch.PinNode(ctx, own, "org", og.ID, "w1")
+	// dev runs on the controller: the org pin moves it, so it waits for the
+	// confirm; leaving dev out (as a file that pins it does) lands the pin
+	var need *MoveNeeded
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "w1"); !errors.As(err, &need) || len(need.Plans) != 1 || need.Plans[0].Placement != "acme/shop/dev" {
+		t.Fatalf("org pin over an env on another node = %v", err)
+	}
+	_, err = n.orch.PinScope(ctx, own, "org", og.ID, "w1", "", "dev")
+	must(t, err)
+	p, err := n.orch.PinOf(ctx, "org", og.ID)
 	must(t, err)
 	if p.Scope != "acme" || p.Placement != "w1" {
 		t.Errorf("pin = %+v", p)
@@ -150,7 +158,7 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	if e.NodeID != "w1" || e.PlacementID != mustPlacement(t, n, "w1").ID {
 		t.Errorf("new env on %q in %q, want the pinned w1", e.NodeID, e.PlacementID)
 	}
-	if _, err := n.orch.PinNode(ctx, own, "env", n.dev.ID, "w1"); err == nil {
+	if err := n.orch.SetPin(ctx, own, "env", n.dev.ID, "w1"); err == nil {
 		t.Error("an env on the controller was pinned to w1 without a move")
 	}
 	if got, err := n.orch.PinOf(ctx, "stack", n.stack); err != nil || got.Placement != "w1" {
@@ -159,7 +167,7 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	if got, err := n.orch.PinOf(ctx, "env", e.ID); err != nil || got.Placement != "w1" {
 		t.Errorf("PinOf env = %+v, %v", got, err)
 	}
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, ""); err != nil {
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := n.orch.PinOf(ctx, "org", og.ID); got.Placement != "" {
@@ -167,13 +175,13 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	}
 	// closing keeps the envs, stops new pins
 	must(t, n.orch.SetPlacementOpen(ctx, adm, "w1", false, nil))
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, "w1"); err == nil {
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "w1"); err == nil {
 		t.Error("pinned to a placement closed again")
 	}
 	if got, _ := n.st.Environments.Get(ctx, e.ID); got.NodeID != "w1" {
 		t.Errorf("closing moved the env to %q", got.NodeID)
 	}
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, "nope"); !errors.As(err, new(errs.Invalid)) {
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "nope"); !errors.As(err, new(errs.Invalid)) {
 		t.Errorf("pin to a placement that does not exist = %v", err)
 	}
 	if c := auditCount(t, n, "placement.pin"); c != 2 {

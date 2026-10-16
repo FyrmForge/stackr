@@ -299,7 +299,7 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 		v.Defaults = d
 	}
 	for _, l := range lost {
-		v.Lost = append(v.Lost, ui.LostEnvRow{Path: l.Path, Node: l.Node, Volumes: l.Volumes})
+		v.Lost = append(v.Lost, ui.LostEnvRow{Path: l.Path, Node: l.Node, Placement: l.Placement, Volumes: l.Volumes})
 	}
 	if v.Trust, err = h.trustView(c); err != nil {
 		return nil, err

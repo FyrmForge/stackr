@@ -67,7 +67,7 @@ func scopeName(p string) string {
 
 func (a *app) pin() *cobra.Command {
 	var clear bool
-	c := waits(leaf("pin [placement]", "org.pin,org.pin-set,stack.pin,stack.pin-set,env.pin,env.pin-set,env.pin-plan", "Pin an org, stack or env to a placement: where its envs run", upTo(1),
+	c := waits(leaf("pin [placement]", "org.pin,org.pin-set,org.pin-plan,stack.pin,stack.pin-set,stack.pin-plan,env.pin,env.pin-set,env.pin-plan", "Pin an org, stack or env to a placement: where its envs run", upTo(1),
 		func(c *cobra.Command, args []string) error {
 			p, err := a.place(c, atEnv)
 			if err != nil {
@@ -97,42 +97,63 @@ func (a *app) pin() *cobra.Command {
 				name = args[0]
 			}
 			body := map[string]string{"placement": name}
-			if strings.Contains(p, "/envs/") {
-				// A pin that moves the env shows the plan first and needs --yes.
-				plan, err := a.call(GET, p+"/pin-plan?to="+url.QueryEscape(name), nil)
-				if err != nil {
-					return err
-				}
-				if pm := asMap(plan); len(asList(pm["envs"])) > 0 {
-					if a.json {
-						if err := a.show(plan); err != nil {
-							return err
-						}
-					} else {
+			// A pin that moves envs to another node shows each one's plan
+			// first and needs --yes; the confirm is the scope's slug.
+			plans, err := a.pinPlans(p, name)
+			if err != nil {
+				return err
+			}
+			if len(plans) > 0 {
+				var paths []string
+				for _, pl := range plans {
+					pm := asMap(pl)
+					if !a.json {
 						a.sayPlan(pm)
 					}
 					if pm["ok"] != true {
-						return fmt.Errorf("%s cannot move to %s yet: a check failed", scopeName(p), name)
+						return fmt.Errorf("%s cannot move to %s yet: a check failed", cell(pm["placement"]), cell(pm["to"]))
 					}
-					if err := a.confirm(fmt.Sprintf("Pin %s to %s? That moves it from %s to %s.", scopeName(p), name, cell(pm["from"]), cell(pm["to"]))); err != nil {
+					paths = append(paths, cell(pm["placement"]))
+				}
+				if a.json {
+					if err := a.show(plans); err != nil {
 						return err
 					}
-					body["confirm"] = last(p)
 				}
+				to := name
+				if to == "" {
+					to = cell(asMap(plans[0])["to"]) + " (inherited)"
+				}
+				q := fmt.Sprintf("Pin %s to %s? That moves %s (%s); each stops while it moves.",
+					scopeName(p), to, plural(len(paths), "env", "envs"), strings.Join(paths, ", "))
+				if err := a.confirm(q); err != nil {
+					return err
+				}
+				body["confirm"] = last(p)
 			}
 			v, err := a.call(PUT, p+"/pin", body)
 			if err != nil {
 				return err
 			}
-			if j := asMap(v)["job"]; j != nil { // the pin moved the env
+			m := asMap(v)
+			jobs := asList(m["jobs"])
+			if j := m["job"]; j != nil { // an env pin moved the env
+				jobs = []any{j}
+			}
+			if len(jobs) > 0 {
 				if nw, _ := c.Flags().GetBool("no-wait"); nw {
-					return a.show(j, "id", "kind", "state")
+					return a.show(jobs, "id", "kind", "state")
 				}
 				base, err := a.orgPath()
 				if err != nil {
 					return err
 				}
-				return a.follow(base, j, "move")
+				for _, j := range jobs {
+					if err := a.follow(base, j, "move"); err != nil {
+						return err
+					}
+				}
+				return nil
 			}
 			if a.json {
 				return a.show(v)
@@ -145,11 +166,24 @@ func (a *app) pin() *cobra.Command {
 			return nil
 		}))
 	c.Long = "Pin an org, stack or env to a placement; stackr placements lists the ones open to the org.\n" +
-		"Pinning changes where an existing env runs: it moves, after the plan is shown and --yes."
+		"Pinning changes where existing envs run: each one on another node moves, after its plan is shown and --yes."
 	c.Example = "  stackr pin eu-prod --org acme\n  stackr pin eu-prod --stack shop\n  stackr pin eu-db --stack shop --env prod --yes\n  stackr pin --clear --stack shop"
 	c.Flags().BoolVar(&clear, "clear", false, "remove the pin")
 	scopeFlags(c, false)
 	return c
+}
+
+// pinPlans is the move plans pinning the scope at p to name would cause:
+// an env's one plan when it moves, an org's or stack's one per env.
+func (a *app) pinPlans(p, name string) ([]any, error) {
+	plan, err := a.call(GET, p+"/pin-plan?to="+url.QueryEscape(name), nil)
+	if err != nil || !strings.Contains(p, "/envs/") {
+		return asList(plan), err
+	}
+	if len(asList(asMap(plan)["envs"])) == 0 {
+		return nil, nil
+	}
+	return []any{plan}, nil
 }
 
 func (a *app) ingress() *cobra.Command {
@@ -413,7 +447,7 @@ func (a *app) envLost() *cobra.Command {
 			}
 			m["vols"] = strings.Join(vols, ",")
 		}
-		return a.show(v, "path", "vols")
+		return a.show(v, "path", "placement", "vols")
 	})
 }
 

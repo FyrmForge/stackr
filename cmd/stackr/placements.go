@@ -87,6 +87,14 @@ func placementState(m map[string]any) string {
 	return "online"
 }
 
+// stopNote says the envs of a move stop while they move, in the right number.
+func stopNote(n int) string {
+	if n == 1 {
+		return "Its env stops while it moves."
+	}
+	return fmt.Sprintf("Its %d envs stop while they move.", n)
+}
+
 func (a *app) placementLs() *cobra.Command {
 	return leaf("ls", "admin.placements", "List placements with their node (server admin)", exact(0),
 		func(*cobra.Command, []string) error {
@@ -234,8 +242,7 @@ func (a *app) placementMove() *cobra.Command {
 			if pm["ok"] != true {
 				return fmt.Errorf("%s cannot move to %s yet: a check failed", name, to)
 			}
-			q := fmt.Sprintf("Move placement %s from %s to %s? Its %s stop while they move.",
-				name, cell(pm["from"]), to, plural(len(asList(pm["envs"])), "env", "envs"))
+			q := fmt.Sprintf("Move placement %s from %s to %s? %s", name, cell(pm["from"]), to, stopNote(len(asList(pm["envs"]))))
 			if err := a.confirm(q); err != nil {
 				return err
 			}
@@ -255,9 +262,35 @@ func (a *app) placementRetry() *cobra.Command {
 				if e := cell(m["error"]); e != "(none)" {
 					a.say("  %s", e)
 				}
+				a.sayMoveEnvs(m, map[string]string{})
 			}
 			return a.followMove(c, args[0], placementPath(args[0])+"/retry", nil)
 		}))
+}
+
+// sayMoveEnvs prints a repoint's env lines, "  acme/shop/prod  moving: Copy
+// while running", each when it changed since said last held it.
+func (a *app) sayMoveEnvs(m map[string]any, said map[string]string) {
+	for _, x := range asList(m["envs"]) {
+		e := asMap(x)
+		line := "moved"
+		switch {
+		case e["active"] == true:
+			line = "moving"
+			for _, st := range asList(e["steps"]) {
+				if sm := asMap(st); cell(sm["state"]) == "running" {
+					line += ": " + cell(sm["label"])
+				}
+			}
+		case cell(e["error"]) != "(none)":
+			line = "failed: " + cell(e["error"])
+		}
+		path := cell(e["path"])
+		if said[path] != line {
+			said[path] = line
+			a.say("  %s\t%s", path, line)
+		}
+	}
 }
 
 // followMove starts a repoint or its retry and follows it to the end: the
@@ -270,12 +303,16 @@ func (a *app) followMove(c *cobra.Command, name, path string, body any) error {
 	if nw, _ := c.Flags().GetBool("no-wait"); nw {
 		return nil
 	}
+	said := map[string]string{}
 	for {
 		st, err := a.call(GET, placementPath(name)+"/move", nil)
 		if err != nil {
 			return err
 		}
 		m := asMap(st)
+		if !a.json {
+			a.sayMoveEnvs(m, said)
+		}
 		if cell(m["state"]) == "running" {
 			time.Sleep(2 * time.Second)
 			continue

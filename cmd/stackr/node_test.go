@@ -316,6 +316,26 @@ func TestPinEnv(t *testing.T) {
 	}
 }
 
+// A stack or org pin that moves envs prints one plan per env and needs --yes,
+// typing the scope's slug; the moves it starts are followed.
+func TestPinStackMoves(t *testing.T) {
+	const plans = `[{"placement":"acme/shop/dev","from":"default","to":"eu-prod","envs":[{"path":"acme/shop/dev","volumes":0,"bytes":0,"downtime":"about 5 s"}],"checks":[{"name":"tags","ok":true}],"ok":true},` +
+		`{"placement":"acme/shop/prod","from":"default","to":"eu-prod","envs":[{"path":"acme/shop/prod","volumes":1,"bytes":10,"downtime":"about 20 s"}],"checks":[{"name":"tags","ok":true}],"ok":true}]`
+	args := []string{"pin", "eu-prod", "--stack", "shop"}
+	r := fake(t, map[string]string{"/pin-plan": plans, "/pin": `{"scope":"acme/shop","placement":"eu-prod","jobs":[{},{}]}`})
+	code, out, errw := cli(t, args...)
+	if code != 3 || !strings.Contains(out, "acme/shop/dev") || !strings.Contains(out, "acme/shop/prod") ||
+		!strings.Contains(errw, "That moves 2 envs (acme/shop/dev, acme/shop/prod)") || len(writes(r)) != 0 {
+		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
+	}
+	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 {
+		t.Fatalf("-y = %d %q", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `PUT /api/v1/orgs/acme/stacks/shop/pin {"confirm":"shop","placement":"eu-prod"}` {
+		t.Errorf("writes = %v", w)
+	}
+}
+
 func TestIngress(t *testing.T) {
 	r := fake(t, map[string]string{"/ingress": `{"scope":"acme/shop/prod","placement":"eu-prod","from":"acme/shop"}`})
 	code, out, errw := cli(t, "ingress", "get", "--stack", "shop", "--env", "prod")
@@ -450,12 +470,14 @@ func TestAdminPlacementMove(t *testing.T) {
 	r := fake(t, map[string]string{"/move-plan": plan, "/move": `{}`})
 	code, out, errw := cli(t, "admin", "placement", "move", "eu-prod", "h5")
 	if code != 3 || !strings.Contains(out, "Move eu-prod: h4 to h5") || !strings.Contains(out, "ok    target online") ||
-		!strings.Contains(out, "h5 free 40 GB") || !strings.Contains(errw, "Move placement eu-prod from h4 to h5?") || len(writes(r)) != 0 {
+		!strings.Contains(out, "h5 free 40 GB") || !strings.Contains(errw, "Move placement eu-prod from h4 to h5? Its env stops while it moves.") || len(writes(r)) != 0 {
 		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
 	}
 	// the job is the first env's: the command waits for the repoint's own end
-	r = fake(t, map[string]string{"/move-plan": plan, "/move": `{"state":"done","from":"h4","to":"h5","done":2,"all":2}`})
-	if code, out, errw = cli(t, "-y", "admin", "placement", "move", "eu-prod", "h5"); code != 0 || !strings.Contains(out, "eu-prod: done to h5, 2 of 2 envs moved") {
+	r = fake(t, map[string]string{"/move-plan": plan, "/move": `{"state":"done","from":"h4","to":"h5","done":2,"all":2,` +
+		`"envs":[{"path":"acme/shop/prod","active":false,"steps":[]},{"path":"acme/shop/dev","active":false,"error":"h5 disk full","steps":[]}]}`})
+	if code, out, errw = cli(t, "-y", "admin", "placement", "move", "eu-prod", "h5"); code != 0 || !strings.Contains(out, "eu-prod: done to h5, 2 of 2 envs moved") ||
+		!strings.Contains(out, "acme/shop/prod\tmoved") || !strings.Contains(out, "acme/shop/dev\tfailed: h5 disk full") {
 		t.Fatalf("-y = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-prod/move {"confirm":"eu-prod","to":"h5"}` {
@@ -481,10 +503,10 @@ func TestAdminPlacementRetry(t *testing.T) {
 }
 
 func TestEnvLostRestore(t *testing.T) {
-	lost := `[{"id":"e1","path":"acme/api/dev","org":"acme","volumes":[{"id":"v1","name":"db-data","run_id":"r1","last_backup":"2026-10-12T08:00:00Z"},{"id":"v2","name":"cache","last_backup":null}]}]`
+	lost := `[{"id":"e1","path":"acme/api/dev","org":"acme","placement":"eu-db","volumes":[{"id":"v1","name":"db-data","run_id":"r1","last_backup":"2026-10-12T08:00:00Z"},{"id":"v2","name":"cache","last_backup":null}]}]`
 	fake(t, map[string]string{"/lost-envs": lost})
 	code, out, errw := cli(t, "env", "lost")
-	if code != 0 || !strings.Contains(out, "acme/api/dev\tdb-data,cache") {
+	if code != 0 || !strings.Contains(out, "acme/api/dev\teu-db\tdb-data,cache") {
 		t.Fatalf("lost = %d %q %q", code, out, errw)
 	}
 	// a restore is a repoint off a forgotten node: the server restores the volumes

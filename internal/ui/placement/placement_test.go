@@ -23,7 +23,7 @@ func render(t *testing.T, c templ.Component) string {
 // failing check lists itself and offers no Confirm.
 func TestMoveDialog(t *testing.T) {
 	v := ui.MoveView{
-		Base: "/acme/shop/prod/-/placement", Env: "prod", From: "eu-prod", To: "eu-db",
+		Action: "/acme/shop/prod/-/placement/move", Env: "prod", From: "eu-prod", To: "eu-db",
 		Envs:     []ui.MoveLine{{Path: "acme/shop/prod", Detail: "2 volumes"}},
 		Checks:   []ui.CheckLine{{Name: "tags", OK: true}, {Name: "disk", OK: false, Detail: "needs 9 GB"}},
 		Downtime: "20 s", Vals: `{"placement":"eu-db","confirm":"prod"}`,

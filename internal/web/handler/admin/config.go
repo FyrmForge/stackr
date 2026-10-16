@@ -126,7 +126,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 			box.Review.Plan.Gaps = append(box.Review.Plan.Gaps, gapView(g.Kind, g.Key, g.Tags))
 		}
 		box.Review.Reject = ui.Base + "/config/plans/" + latest.ID + "/reject"
-		if !pl.Blocked() && len(pl.Changes) > 0 {
+		if pl.CanApprove() {
 			box.Review.Approve = ui.Base + "/config/plans/" + latest.ID + "/approve"
 		}
 	}

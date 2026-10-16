@@ -25,7 +25,7 @@ func (p *Plan) placing(f *File, live Live) {
 		Moves: live.Moves,
 	})
 	p.Changes = append(p.Changes, cs...)
-	for _, b := range blockers {
+	for _, b := range append(blockers, live.FileErrors...) {
 		p.block("%s", b)
 	}
 	p.Notes = append(p.Notes, warns...)

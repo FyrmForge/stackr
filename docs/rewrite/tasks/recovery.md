@@ -44,7 +44,7 @@ manual actions for three stacks with two envs, with easy data mistakes.
 ## Smallest feature set, in order
 0. Server file: `stackr server export` from a healthy box (or the bound
    repo's `stackr-server.yml`) is the config half of the rebuild; on a fresh
-   box `stackr server apply <file>` recreates settings, routes, destinations,
+   box `stackr server apply -f <file>` recreates settings, routes, destinations,
    connector shares and orgs, then each org file rebinds.
 1. Recovery hold: a restored panel boots with the scheduler held until
    converge finishes or an admin releases it. (`restore.go`,

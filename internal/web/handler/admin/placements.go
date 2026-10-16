@@ -314,7 +314,7 @@ func moveProgressView(name string, st service.PlacementMoveStatus) *ui.MoveProgr
 		v.Retry = base + "/retry"
 	}
 	for _, m := range st.Envs {
-		e := ui.MoveProgressEnv{State: "done", Step: "moved", Error: m.Move.Error}
+		e := ui.MoveProgressEnv{Path: m.Path, State: "done", Step: "moved", Error: m.Move.Error}
 		switch {
 		case m.Active:
 			e.State, e.Step = "moving", ""

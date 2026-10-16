@@ -249,7 +249,7 @@ func (h *handler) serverPlan(c echo.Context) error {
 		}
 	}
 	if pl.Status == "pending" && !applying {
-		if len(p.Changes) > 0 || p.Blocked() { // gaps alone have nothing to approve
+		if p.CanApprove() {
 			v.Approve = ServerBase + "/config/plan/" + pl.ID + "/approve"
 		}
 		v.Reject = ServerBase + "/config/plan/" + pl.ID + "/reject"

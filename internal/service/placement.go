@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -67,14 +68,6 @@ type PlacementRung struct {
 	Up, Down []string
 }
 
-// PlacementEnvs is the existing envs under a stack or org that a pin does not
-// move: Count of them are not on the pin, on Where (their placement names).
-// Each is moved by pinning the env itself (SetPin on the env).
-type PlacementEnvs struct {
-	Count int
-	Where string
-}
-
 // PlacementView is everything the Placement screen of one scope shows.
 type PlacementView struct {
 	Kind, ID string
@@ -86,7 +79,6 @@ type PlacementView struct {
 	Pin     string
 	PinName string
 	PinFrom string
-	Stay    PlacementEnvs // org and stack only
 
 	// Ingress: the pick here (a placement name), and where an inherited one
 	// comes from. IngressName is the placement in effect, or "cluster default".
@@ -336,37 +328,16 @@ func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scope
 	if v.Kind == ScopeEnv {
 		return nil
 	}
-	// The effective pin new envs get, and the envs that are not on it.
-	eff := v.Pin
-	if eff == "" && v.Kind == ScopeStack {
-		eff = ogPin
+	// The effective pin new envs get.
+	if v.Pin == "" && v.Kind == ScopeStack {
+		v.PinName = ogPin
 	}
-	if eff == "" {
-		return nil
-	}
-	v.PinName = eff
-	envs, err := o.envsUnder(ctx, v.Kind, v.ID)
-	if err != nil {
-		return err
-	}
-	where := map[string]bool{}
-	for _, e := range envs {
-		if n := o.placementName(ctx, e.PlacementID); n != eff {
-			v.Stay.Count++
-			where[n] = true
-		}
-	}
-	names := make([]string, 0, len(where))
-	for n := range where {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	v.Stay.Where = strings.Join(names, ", ")
 	return nil
 }
 
 // envsUnder is every env the org or stack pin covers: an org pin skips
-// the stacks with a pin of their own, as the org file plan does.
+// the stacks with a pin of their own, as the org file plan does, and a PR
+// env is its base's, not placed (movable skips them too).
 func (o *Orchestrator) envsUnder(ctx context.Context, kind, id string) ([]store.Environment, error) {
 	sts := []store.Stack{{ID: id}}
 	if kind == ScopeOrg {
@@ -384,7 +355,7 @@ func (o *Orchestrator) envsUnder(ctx context.Context, kind, id string) ([]store.
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, es...)
+		out = append(out, slices.DeleteFunc(es, func(e store.Environment) bool { return e.Type == environment.Ephemeral })...)
 	}
 	return out, nil
 }
@@ -594,33 +565,63 @@ func (o *Orchestrator) effectivePlacement(ctx context.Context, stackID string) (
 
 // SetPin pins an org, stack or env to a placement by name ("" = no pin,
 // inherit; an env then falls back to what its stack, org or default gives).
-//
-//   - Org and stack: new envs below it belong to the placement. Existing envs
-//     on the same node as the placement follow it; the rest stay until the env
-//     itself is pinned (the view lists them as Stay).
-//   - Env: pinning it to a placement on another node moves it (D4). The move
-//     is refused here with *MoveNeeded; the caller shows the plan and confirms
-//     through MoveEnvToPlacement.
+// A pin that changes the node an existing env runs on moves it (D4): SetPin
+// refuses that with *MoveNeeded, one plan per env, and PinScope confirms it.
 func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, name string) error {
+	_, err := o.PinScope(ctx, by, kind, id, name, "")
+	return err
+}
+
+// PinScope is SetPin that, when confirm is the scope's slug (the org's,
+// stack's or env's), moves the envs the pin takes to another node instead of
+// refusing. Every move's checks must pass; the moves are queued jobs, one
+// per env. An env whose placement stays on its node only changes placement;
+// a placement with no node moves nothing (D6).
+// except are env slugs left where they are: a stack file pins them itself.
+func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, name, confirm string, except ...string) ([]Job, error) {
 	if kind != ScopeOrg && kind != ScopeStack && kind != ScopeEnv {
-		return errs.Invalidf("scope", "only an org, a stack or an env is pinned")
+		return nil, errs.Invalidf("scope", "only an org, a stack or an env is pinned")
 	}
 	_, og, err := o.chain(ctx, kind, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var p store.Placement
 	if name != "" {
 		if p, err = o.offers(ctx, by, og.ID, name); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if kind == ScopeEnv {
-		return o.pinEnv(ctx, by, id, p, name == "")
+		return o.pinEnv(ctx, by, id, p, name == "", confirm)
 	}
 	if name != "" {
-		if err := o.pinFits(ctx, kind, id, p); err != nil {
-			return err
+		if err := o.pinFits(ctx, og, kind, id, p, except); err != nil {
+			return nil, err
+		}
+	}
+	var jobs []Job
+	if name != "" {
+		moving, plans, err := o.pinPlans(ctx, kind, id, p, except)
+		if err != nil {
+			return nil, err
+		}
+		if len(plans) > 0 {
+			if confirm != o.scopeSlug(ctx, kind, id) {
+				return nil, &MoveNeeded{Plans: plans}
+			}
+			for _, pl := range plans {
+				if !pl.OK {
+					return nil, errs.Conflictf("%s cannot move: %s", pl.Placement, pmFailedChecks(pl.Checks))
+				}
+			}
+			for _, e := range moving {
+				j, err := o.MoveEnvToPlacement(ctx, by, e.ID, p.Name, e.Slug)
+				if err != nil {
+					return jobs, err
+				}
+				jobs = append(jobs, j)
+			}
 		}
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
@@ -646,25 +647,91 @@ func (o *Orchestrator) SetPin(ctx context.Context, by *Principal, kind, id, name
 		return o.auditPlacement(ctx, tx, by, "placement.pin", kind, id, "placement "+name)
 	})
 	if err != nil {
-		return err
+		return jobs, err
 	}
 	if err := o.followPin(ctx, kind, id); err != nil {
-		return err
+		return jobs, err
 	}
 	o.kickMesh()
-	return nil
+	return jobs, nil
+}
+
+// scopeSlug is the word that confirms a pin moving envs: the org's, stack's
+// or env's slug.
+func (o *Orchestrator) scopeSlug(ctx context.Context, kind, id string) string {
+	switch kind {
+	case ScopeOrg:
+		if og, err := o.store.Orgs.Get(ctx, id); err == nil {
+			return og.Slug
+		}
+	case ScopeStack:
+		if st, err := o.store.Stacks.Get(ctx, id); err == nil {
+			return st.Slug
+		}
+	case ScopeEnv:
+		if e, err := o.store.Environments.Get(ctx, id); err == nil {
+			return e.Slug
+		}
+	}
+	return ""
+}
+
+// PlanPin is the moves pinning an org or stack to placement would cause,
+// one plan per env that changes node; none when nothing moves.
+func (o *Orchestrator) PlanPin(ctx context.Context, by *Principal, kind, id, name string) ([]PlacementMovePlan, error) {
+	if kind != ScopeOrg && kind != ScopeStack {
+		return nil, errs.Invalidf("scope", "only an org or a stack pin moves several envs")
+	}
+	_, og, err := o.chain(ctx, kind, id)
+	if err != nil || name == "" {
+		return nil, err
+	}
+	p, err := o.offers(ctx, by, og.ID, name)
+	if err != nil {
+		return nil, err
+	}
+	_, plans, err := o.pinPlans(ctx, kind, id, p, nil)
+	return plans, err
+}
+
+// pinPlans is the envs under an org or stack that pinning it to p moves to
+// another node, with each one's plan; an env waiting for a node (D6) takes
+// p's and deploys. Envs already on p or on p's node do not move; nor does
+// anything when p has no node.
+func (o *Orchestrator) pinPlans(ctx context.Context, kind, id string, p store.Placement, except []string) ([]store.Environment, []PlacementMovePlan, error) {
+	if p.NodeID == "" {
+		return nil, nil, nil
+	}
+	es, err := o.envsUnder(ctx, kind, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	var moving []store.Environment
+	var plans []PlacementMovePlan
+	for _, e := range es {
+		if e.PlacementID == p.ID || e.NodeID == p.NodeID || slices.Contains(except, e.Slug) {
+			continue
+		}
+		pl, err := o.PlanEnvPin(ctx, e.ID, p.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		moving, plans = append(moving, e), append(plans, pl)
+	}
+	return moving, plans, nil
 }
 
 // pinFits refuses a pin whose node cannot hold the envs it would take over:
-// those under the scope that are not on the placement already.
-func (o *Orchestrator) pinFits(ctx context.Context, kind, id string, p store.Placement) error {
+// those under the scope that are not on the placement already, and the envs
+// the stack files declare that do not exist yet (a pin of their own aside).
+func (o *Orchestrator) pinFits(ctx context.Context, og store.Org, kind, id string, p store.Placement, except []string) error {
 	es, err := o.envsUnder(ctx, kind, id)
 	if err != nil {
 		return err
 	}
 	var need Needs
 	for _, e := range es {
-		if e.PlacementID == p.ID {
+		if e.PlacementID == p.ID || slices.Contains(except, e.Slug) {
 			continue
 		}
 		en, err := o.envNeeds(ctx, e.ID)
@@ -672,6 +739,30 @@ func (o *Orchestrator) pinFits(ctx context.Context, kind, id string, p store.Pla
 			return err
 		}
 		need.Storage = need.Storage || en.Storage
+	}
+	sts := []store.Stack{}
+	if kind == ScopeStack {
+		st, err := o.store.Stacks.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		sts = append(sts, st)
+	} else if sts, err = o.store.Stacks.ListByOrg(ctx, id); err != nil {
+		return err
+	}
+	for _, st := range sts {
+		if kind == ScopeOrg && st.PlacementID != nil {
+			continue
+		}
+		fn, err := o.stackFileNeeds(ctx, og, st)
+		if err != nil {
+			return err
+		}
+		for slug, n := range fn {
+			if !slices.Contains(except, slug) {
+				need.Storage = need.Storage || n.Storage
+			}
+		}
 	}
 	if why, err := o.unfit(ctx, p, need); err != nil {
 		return err
@@ -703,41 +794,61 @@ func (o *Orchestrator) followPin(ctx context.Context, kind, id string) error {
 	return nil
 }
 
-// pinEnv is SetPin on an env. inherit pins it to what its stack, org or the
-// default gives.
-func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, p store.Placement, inherit bool) error {
+// pinEnv is PinScope on an env. inherit pins it to what its stack, org or
+// the default gives. A pin onto another node is refused with *MoveNeeded
+// unless confirm is the env's slug; then the env moves.
+func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, p store.Placement, inherit bool, confirm string) ([]Job, error) {
 	e, err := o.store.Environments.Get(ctx, envID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if inherit {
 		if p, err = o.effectivePlacement(ctx, e.StackID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if e.PlacementID == p.ID {
-		return nil
+		return nil, nil
 	}
 	need, err := o.envNeeds(ctx, envID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	st, err := o.store.Stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return nil, err
+	}
+	og, err := o.store.Orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	fn, err := o.stackFileNeeds(ctx, og, st)
+	if err != nil {
+		return nil, err
+	}
+	need.Storage = need.Storage || fn[e.Slug].Storage
 	if why, err := o.unfit(ctx, p, need); err != nil {
-		return err
+		return nil, err
 	} else if why != "" {
-		return errs.Invalidf("placement", "%s does not fit this env: %s", p.Name, why)
+		return nil, errs.Invalidf("placement", "%s does not fit this env: %s", p.Name, why)
 	}
 	switch {
-	case e.NodeID == p.NodeID: // same node: only the belonging changes
-	case e.NodeID == "": // waiting for a node (D6): it takes the placement's
+	case e.NodeID == p.NodeID: // same node, or both waiting: only the belonging changes
 	case p.NodeID == "":
-		return errs.Conflictf("%s has no node yet; %s would have nowhere to run.", p.Name, e.Slug)
+		return nil, errs.Conflictf("%s has no node yet; %s would have nowhere to run.", p.Name, e.Slug)
 	default:
 		plan, err := o.PlanEnvPin(ctx, envID, p.Name)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return &MoveNeeded{Plan: plan}
+		if confirm != e.Slug {
+			return nil, &MoveNeeded{Plans: []PlacementMovePlan{plan}}
+		}
+		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, confirm)
+		if err != nil {
+			return nil, err
+		}
+		return []Job{j}, nil
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.Environments.SetPlacement(ctx, envID, p.ID); err != nil {
@@ -746,13 +857,10 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 		return o.auditPlacement(ctx, tx, by, "placement.pin", ScopeEnv, envID, "placement "+p.Name)
 	})
 	if err != nil {
-		return err
-	}
-	if e.NodeID == "" && p.NodeID != "" {
-		return o.placementNodeSet(ctx, by, p.ID, p.NodeID)
+		return nil, err
 	}
 	o.kickMesh()
-	return nil
+	return nil, nil
 }
 
 // SetIngress picks the placement whose node's Caddy serves a scope's public

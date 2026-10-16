@@ -76,9 +76,11 @@ type MoveStepOut struct {
 
 // MoveEnvStatusOut is one env's move progress.
 type MoveEnvStatusOut struct {
+	Path   string        `json:"path"` // org/stack/env
 	From   string        `json:"from"`
 	To     string        `json:"to"`
 	Active bool          `json:"active"`
+	Error  string        `json:"error,omitempty"` // the env's move failed and rolled back
 	Steps  []MoveStepOut `json:"steps"`
 }
 
@@ -123,13 +125,21 @@ func movePlanOut(p service.PlacementMovePlan) MovePlanOut {
 	return out
 }
 
+func movePlansOut(ps []service.PlacementMovePlan) []MovePlanOut {
+	out := make([]MovePlanOut, len(ps))
+	for i, p := range ps {
+		out[i] = movePlanOut(p)
+	}
+	return out
+}
+
 func moveStatusOut(s *service.PlacementMoveStatus) *MoveStatusOut {
 	if s == nil {
 		return nil
 	}
 	out := &MoveStatusOut{State: s.State, From: s.From, To: s.To, Done: s.Done, All: s.All, Error: s.Error, Envs: []MoveEnvStatusOut{}}
 	for _, e := range s.Envs {
-		row := MoveEnvStatusOut{From: e.From, To: e.To, Active: e.Active, Steps: []MoveStepOut{}}
+		row := MoveEnvStatusOut{Path: e.Path, From: e.From, To: e.To, Active: e.Active, Error: e.Move.Error, Steps: []MoveStepOut{}}
 		for _, st := range e.Steps {
 			row.Steps = append(row.Steps, MoveStepOut{Label: st.Label, State: st.State, Detail: st.Detail})
 		}
@@ -191,14 +201,14 @@ type OpenIn struct {
 // envs already there stay.
 func (h *H) SetPlacementOpen() Endpoint {
 	return Done(func(c echo.Context, in OpenIn) error {
-		return h.Orch.SetPlacementOpen(rc(c), middleware.Principal(c), c.Param("name"), in.All, in.Orgs)
+		return h.Orch.SetPlacementOpen(rc(c), middleware.Principal(c), c.Param("placement"), in.All, in.Orgs)
 	})
 }
 
 // DeletePlacement (server admin) deletes a placement no pin or env uses.
 func (h *H) DeletePlacement() Endpoint {
 	return Done(func(c echo.Context, _ None) error {
-		return h.Orch.DeletePlacement(rc(c), middleware.Principal(c), c.Param("name"))
+		return h.Orch.DeletePlacement(rc(c), middleware.Principal(c), c.Param("placement"))
 	})
 }
 
@@ -206,7 +216,7 @@ func (h *H) DeletePlacement() Endpoint {
 // the placement to ?to=<node>.
 func (h *H) PlacementMovePlan() Endpoint {
 	return Get(func(c echo.Context) (MovePlanOut, error) {
-		p, err := h.Orch.PlanPlacementMove(rc(c), c.Param("name"), c.QueryParam("to"))
+		p, err := h.Orch.PlanPlacementMove(rc(c), c.Param("placement"), c.QueryParam("to"))
 		return movePlanOut(p), err
 	}).Q("to")
 }
@@ -221,21 +231,21 @@ type PlacementMoveIn struct {
 // moves; the job is not awaited.
 func (h *H) MovePlacement() Endpoint {
 	return Job(func(c echo.Context, in PlacementMoveIn) (service.Job, error) {
-		return h.Orch.MovePlacement(rc(c), middleware.Principal(c), c.Param("name"), in.To, in.Confirm)
+		return h.Orch.MovePlacement(rc(c), middleware.Principal(c), c.Param("placement"), in.To, in.Confirm)
 	})
 }
 
 // RetryPlacementMove (server admin) moves the envs a failed repoint left.
 func (h *H) RetryPlacementMove() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.Orch.RetryPlacementMove(rc(c), middleware.Principal(c), c.Param("name"))
+		return h.Orch.RetryPlacementMove(rc(c), middleware.Principal(c), c.Param("placement"))
 	})
 }
 
 // PlacementMove (server admin) is the placement's latest move; 404 = none.
 func (h *H) PlacementMove() Endpoint {
 	return Get(func(c echo.Context) (MoveStatusOut, error) {
-		s, err := h.Orch.PlacementMove(rc(c), c.Param("name"))
+		s, err := h.Orch.PlacementMove(rc(c), c.Param("placement"))
 		if err != nil {
 			return MoveStatusOut{}, err
 		}
@@ -280,20 +290,21 @@ func (h *H) SetEnvPin() Endpoint {
 			return err
 		}
 		by, ctx, env := middleware.Principal(c), rc(c), scope(c).Env
-		pin, err := h.Orch.PinNode(ctx, by, "env", env.ID, in.Placement)
-		out := EnvPinOut{Scope: pin.Scope, Placement: in.Placement}
+		jobs, err := h.Orch.PinScope(ctx, by, "env", env.ID, in.Placement, in.Confirm)
 		var mn *service.MoveNeeded
-		switch {
-		case errors.As(err, &mn) && in.Confirm == env.Slug:
-			j, err := h.Orch.MoveEnvToPlacement(ctx, by, env.ID, in.Placement, in.Confirm)
-			if err != nil {
-				return err
-			}
-			out.Job = &j
-		case errors.As(err, &mn):
-			return c.JSON(http.StatusConflict, movePlanOut(mn.Plan))
-		case err != nil:
+		if errors.As(err, &mn) {
+			return c.JSON(http.StatusConflict, movePlanOut(mn.Plans[0]))
+		}
+		if err != nil {
 			return err
+		}
+		pin, err := h.Orch.PinOf(ctx, "env", env.ID)
+		if err != nil {
+			return err
+		}
+		out := EnvPinOut{Scope: pin.Scope, Placement: pin.Placement}
+		if len(jobs) > 0 {
+			out.Job = &jobs[0]
 		}
 		return c.JSON(http.StatusOK, out)
 	}

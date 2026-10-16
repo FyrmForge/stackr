@@ -358,7 +358,7 @@ func TestEnvPinMove(t *testing.T) {
 			t.Errorf("check %q names a node: %q", c.Name, c.Detail)
 		}
 	}
-	if (&MoveNeeded{Plan: plan}).Error() == "" {
+	if (&MoveNeeded{Plans: []PlacementMovePlan{plan}}).Error() == "" {
 		t.Error("empty MoveNeeded message")
 	}
 	if _, err := n.orch.MoveEnvToPlacement(ctx, n.admin, n.dev.ID, "pw", "nope"); !pmInvalid(err) {
@@ -405,7 +405,7 @@ func TestFilePinMovesEnv(t *testing.T) {
 	pw := n.placement(t, "pw", "w1")
 	st, err := n.st.Stacks.Get(ctx, n.stack)
 	must(t, err)
-	must(t, n.orch.setPin(ctx, st, ScopeOrg, st.OrgID, "pw", []string{envPath(st, n.dev)}))
+	must(t, n.orch.setPin(ctx, ScopeOrg, st.OrgID, "pw", nil))
 	js, err := n.st.Jobs.ListTouching(ctx, []string{n.devT.ID}, string(kindMoveEnv), 10)
 	must(t, err)
 	if len(js) != 1 {

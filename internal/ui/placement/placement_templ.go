@@ -1177,8 +1177,8 @@ type CheckLine struct {
 // MoveView is the pin change dialog for one env: what moves, the checks, and
 // the downtime. Vals is the JSON the confirm posts (placement, confirm).
 type MoveView struct {
-	Base     string // POST Base/move
-	Env      string // the slug typed to confirm
+	Action   string // POST: confirms the move
+	Env      string // the slug typed to confirm: the env's, stack's or org's
 	From, To string // placement names
 	Envs     []MoveLine
 	Checks   []CheckLine
@@ -1216,7 +1216,7 @@ func Move(v MoveView) templ.Component {
 				Primary: true,
 				Button:  "Move " + v.Env,
 				Title:   "Move " + v.Env + " to " + v.To + "?",
-				Action:  v.Base + "/move",
+				Action:  v.Action,
 				Target:  target(),
 				Word:    v.Env,
 				Kept:    []string{"The data stays on " + v.From + " until you remove it."},

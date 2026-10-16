@@ -112,7 +112,7 @@ func TestPlanPlacing(t *testing.T) {
 				return map[string]planfile.MoveFact{"shop/dev": move, "shop/prd": move}, nil
 			}},
 			impact:  "moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s",
-			blocker: "pin eu-prod moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s; confirm that move on the Placement tab or with stackr pin",
+			blocker: "pin eu-prod moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s; confirm that move on the Placement tab or with stackr pin eu-prod --stack shop, then promote again",
 		},
 		{
 			name: "pin whose checks fail", file: placeHead + "environments:\n  dev: {pin: eu-prod}\n  prd: {from: promote}\n", env: "dev", changes: "pin:dev", blocker: "shop/dev cannot move: target online: h4 offline",
@@ -199,7 +199,7 @@ func TestPlanPlacingUnwired(t *testing.T) {
 	}
 }
 
-// applyPlacing hands every planned change to Set, once, with the moving envs.
+// applyPlacing hands every planned change to Set, once.
 func TestApplyPlacing(t *testing.T) {
 	w := setup(t)
 	w.files["p"] = placeHead + "pin: eu-prod\nexits: [eu-prod, own]\nenvironments:\n  dev: {ingress: eu-prod}\n  prd: {from: promote}\n"
@@ -219,7 +219,7 @@ func TestApplyPlacing(t *testing.T) {
 		t.Fatalf("sets = %+v", sets)
 	}
 	pin := sets[0]
-	if pin.Field != "pin" || pin.Scope != "stack" || pin.ScopeID != w.st.ID || !slices.Equal(pin.Refs, []string{"eu-prod"}) || !slices.Equal(pin.Moving, []string{"shop/dev"}) {
+	if pin.Field != "pin" || pin.Scope != "stack" || pin.ScopeID != w.st.ID || !slices.Equal(pin.Refs, []string{"eu-prod"}) || len(pin.Except) != 0 {
 		t.Errorf("pin write = %+v", pin)
 	}
 	if sets[1].Field != "exits" || !slices.Equal(sets[1].Refs, []string{"eu-prod", "own"}) {

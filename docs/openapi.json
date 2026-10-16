@@ -3140,7 +3140,13 @@
           "active": {
             "type": "boolean"
           },
+          "error": {
+            "type": "string"
+          },
           "from": {
+            "type": "string"
+          },
+          "path": {
             "type": "string"
           },
           "steps": {
@@ -3154,6 +3160,7 @@
           }
         },
         "required": [
+          "path",
           "from",
           "to",
           "active",
@@ -4067,8 +4074,43 @@
         ],
         "type": "object"
       },
+      "PinIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "placement": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "placement"
+        ],
+        "type": "object"
+      },
       "PinOut": {
         "properties": {
+          "placement": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "placement"
+        ],
+        "type": "object"
+      },
+      "PinSetOut": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "type": "array"
+          },
           "placement": {
             "type": "string"
           },
@@ -9414,13 +9456,13 @@
         "x-verb": "node.manage"
       }
     },
-    "/api/v1/admin/placements/{name}": {
+    "/api/v1/admin/placements/{placement}": {
       "delete": {
         "operationId": "admin.placement-delete",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "placement",
             "required": true,
             "schema": {
               "type": "string"
@@ -9445,13 +9487,13 @@
         "x-verb": "node.manage"
       }
     },
-    "/api/v1/admin/placements/{name}/move": {
+    "/api/v1/admin/placements/{placement}/move": {
       "get": {
         "operationId": "admin.placement-move-status",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "placement",
             "required": true,
             "schema": {
               "type": "string"
@@ -9487,7 +9529,7 @@
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "placement",
             "required": true,
             "schema": {
               "type": "string"
@@ -9529,13 +9571,13 @@
         "x-verb": "node.manage"
       }
     },
-    "/api/v1/admin/placements/{name}/move-plan": {
+    "/api/v1/admin/placements/{placement}/move-plan": {
       "get": {
         "operationId": "admin.placement-move-plan",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "placement",
             "required": true,
             "schema": {
               "type": "string"
@@ -9574,13 +9616,13 @@
         "x-verb": "node.manage"
       }
     },
-    "/api/v1/admin/placements/{name}/open": {
+    "/api/v1/admin/placements/{placement}/open": {
       "put": {
         "operationId": "admin.placement-open",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "placement",
             "required": true,
             "schema": {
               "type": "string"
@@ -9615,13 +9657,13 @@
         "x-verb": "node.manage"
       }
     },
-    "/api/v1/admin/placements/{name}/retry": {
+    "/api/v1/admin/placements/{placement}/retry": {
       "post": {
         "operationId": "admin.placement-retry",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "placement",
             "required": true,
             "schema": {
               "type": "string"
@@ -13124,7 +13166,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PlacementRef"
+                "$ref": "#/components/schemas/PinIn"
               }
             }
           },
@@ -13135,7 +13177,55 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PinOut"
+                  "$ref": "#/components/schemas/PinSetOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
+    "/api/v1/orgs/{org}/pin-plan": {
+      "get": {
+        "operationId": "org.pin-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MovePlanOut"
+                  },
+                  "type": "array"
                 }
               }
             },
@@ -19230,7 +19320,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PlacementRef"
+                "$ref": "#/components/schemas/PinIn"
               }
             }
           },
@@ -19241,7 +19331,63 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PinOut"
+                  "$ref": "#/components/schemas/PinSetOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/pin-plan": {
+      "get": {
+        "operationId": "stack.pin-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MovePlanOut"
+                  },
+                  "type": "array"
                 }
               }
             },

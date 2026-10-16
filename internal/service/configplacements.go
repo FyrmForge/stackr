@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
@@ -88,6 +88,34 @@ func (o *Orchestrator) placingOf(ctx context.Context, kind, id string, pin *stri
 	return p, err
 }
 
+// stackFileNeeds is, per env slug, what the stack's file at its config
+// branch's head asks of a node (volumes, a managed tile): a pin is checked
+// against an env the file declares before its first deploy writes it down.
+// No config repo: nil. A file that cannot be read refuses, as the stack
+// plan does, rather than let a pin through unchecked.
+func (o *Orchestrator) stackFileNeeds(ctx context.Context, og store.Org, st store.Stack) (map[string]planfile.Needs, error) {
+	if st.ConfigRepo == "" {
+		return nil, nil
+	}
+	_, sha, err := o.configHead(ctx, st)
+	if err != nil {
+		return nil, errs.Conflictf("stack %s: its file cannot be read to check the pin: %v", st.Slug, err)
+	}
+	data, fetch, err := o.stackFile(ctx, st, sha, io.Discard)
+	var r *promote.Resolved
+	if err == nil {
+		r, err = promote.Load(data, fetch, og.Slug)
+	}
+	if err != nil {
+		return nil, errs.Conflictf("stack %s: its file cannot be read to check the pin: %v", st.Slug, err)
+	}
+	out := make(map[string]planfile.Needs, len(r.Envs))
+	for slug, e := range r.Envs {
+		out[slug] = promote.FileNeeds(e)
+	}
+	return out, nil
+}
+
 // envPath is "stack/env", the key plans use for an env.
 func envPath(st store.Stack, e store.Environment) string { return st.Slug + "/" + e.Slug }
 
@@ -153,7 +181,7 @@ func (o *Orchestrator) orgPlacements(ctx context.Context, live *orgconfig.Live) 
 // pin: EnvNeeds, what the envs the org pin covers ask of their node, and
 // Moves, the envs the pin would move. A stack with its own pin is not covered.
 func (o *Orchestrator) orgMoves(ctx context.Context, live *orgconfig.Live, f *orgconfig.File) error {
-	live.Moves, live.EnvNeeds = nil, nil
+	live.Moves, live.EnvNeeds, live.FileErrors = nil, nil, nil
 	if f.Pin == "" {
 		return nil
 	}
@@ -176,12 +204,54 @@ func (o *Orchestrator) orgMoves(ctx context.Context, live *orgconfig.Live, f *or
 		}
 		live.EnvNeeds[path] = n
 	}
+	o.orgFileNeeds(ctx, live, f)
 	if f.Pin == live.Current.Pin {
 		return nil
 	}
 	var err error
 	live.Moves, err = o.pinMoves(ctx, live.Placements, f.Pin, envs)
 	return err
+}
+
+// orgFileNeeds adds to live.EnvNeeds what the stack files of the stacks the
+// org pin covers declare, read at the binding the org file gives them (a
+// stack it adds too), so a volume no deploy wrote down yet still needs
+// storage. A file that cannot be read is a blocker in FileErrors.
+func (o *Orchestrator) orgFileNeeds(ctx context.Context, live *orgconfig.Live, f *orgconfig.File) {
+	covered := map[string]store.Stack{}
+	pinned := map[string]bool{}
+	for _, sl := range live.Stacks {
+		if sl.Stack.PlacementID != nil {
+			pinned[sl.Stack.Slug] = true
+		} else {
+			covered[sl.Stack.Slug] = sl.Stack
+		}
+	}
+	for slug, ref := range f.Stacks {
+		if pinned[slug] {
+			continue
+		}
+		st, ok := covered[slug]
+		if !ok { // the apply creates it; its clone gets a directory of its own
+			st = store.Stack{ID: "new-" + live.Org.ID + "-" + slug, OrgID: live.Org.ID, Slug: slug}
+		}
+		b := ref.Binding(live.Org)
+		st.ConfigRepo, st.ConfigBranch, st.ConfigPath, st.ConfigConnectorID = b.Repo, b.Branch, b.Path, b.ConnectorID
+		covered[slug] = st
+	}
+	for _, slug := range slices.Sorted(maps.Keys(covered)) {
+		fn, err := o.stackFileNeeds(ctx, live.Org, covered[slug])
+		if err != nil {
+			live.FileErrors = append(live.FileErrors, err.Error())
+			continue
+		}
+		for env, n := range fn {
+			path := slug + "/" + env
+			cur := live.EnvNeeds[path]
+			cur.Storage = cur.Storage || n.Storage
+			live.EnvNeeds[path] = cur
+		}
+	}
 }
 
 // stackPlacements is promote's Placements: the facts and lookups for the
@@ -248,15 +318,15 @@ func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promo
 		}
 		return o.pinMoves(ctx, live.Placements, placement, envs)
 	}
-	live.Set = func(ctx context.Context, w promote.PlacementWrite) error { return o.setPlacing(ctx, st, w) }
+	live.Set = func(ctx context.Context, w promote.PlacementWrite) error { return o.setPlacing(ctx, w) }
 	return live, nil
 }
 
 // setPlacing applies one planned stack-file change.
-func (o *Orchestrator) setPlacing(ctx context.Context, st store.Stack, w promote.PlacementWrite) error {
+func (o *Orchestrator) setPlacing(ctx context.Context, w promote.PlacementWrite) error {
 	switch w.Field {
 	case "pin":
-		return o.setPin(ctx, st, w.Scope, w.ScopeID, w.Refs[0], w.Moving)
+		return o.setPin(ctx, w.Scope, w.ScopeID, w.Refs[0], w.Except)
 	case "ingress":
 		return o.SetIngress(ctx, nil, w.Scope, w.ScopeID, w.Refs[0])
 	case "exits":
@@ -265,65 +335,14 @@ func (o *Orchestrator) setPlacing(ctx context.Context, st store.Stack, w promote
 	return nil
 }
 
-// setPin pins a scope and moves the envs the plan said would move (D4). The
-// plan was approved, so each move is confirmed with the env's slug. A move is
-// a queued job, not awaited.
-// ponytail: SetPin may refuse with *MoveNeeded until the envs are on the
-// placement; the second SetPin ignores that, since the moves are in flight.
-func (o *Orchestrator) setPin(ctx context.Context, st store.Stack, kind, id, placement string, moving []string) error {
-	// the moves act as the file: the security log reads "configfile"; no
-	// admin rights, so the org's open-to check still holds
+// setPin pins a scope and moves the envs it takes along (D4), but the ones
+// in except. The plan was approved, so the moves are confirmed: they act as
+// the config file (the security log reads "configfile"; no admin rights, so
+// the org's open-to check still holds). A move is a queued job, not awaited.
+func (o *Orchestrator) setPin(ctx context.Context, kind, id, placement string, except []string) error {
 	by := &Principal{User: User{ID: "configfile"}}
-	err := o.SetPin(ctx, nil, kind, id, placement)
-	var need *MoveNeeded
-	refused := errors.As(err, &need)
-	if err != nil && !refused {
-		return err
-	}
-	if kind == ScopeEnv {
-		if !refused {
-			return nil
-		}
-		e, err := o.envs.Get(ctx, id)
-		if err != nil {
-			return err
-		}
-		_, err = o.MoveEnvToPlacement(ctx, by, id, placement, e.Slug)
-		return err
-	}
-	target, err := o.store.Placements.GetByName(ctx, placement)
-	if err != nil {
-		return err
-	}
-	for _, path := range moving {
-		e, err := o.envByPath(ctx, st.OrgID, path)
-		if err != nil {
-			return err
-		}
-		if e.PlacementID == target.ID {
-			continue
-		}
-		if _, err := o.MoveEnvToPlacement(ctx, by, e.ID, placement, e.Slug); err != nil {
-			return err
-		}
-	}
-	if !refused {
-		return nil
-	}
-	if err = o.SetPin(ctx, nil, kind, id, placement); errors.As(err, &need) {
-		return nil
-	}
+	_, err := o.PinScope(ctx, by, kind, id, placement, o.scopeSlug(ctx, kind, id), except...)
 	return err
-}
-
-// envByPath is the env "stack/env" of the org.
-func (o *Orchestrator) envByPath(ctx context.Context, orgID, path string) (store.Environment, error) {
-	sl, es, _ := strings.Cut(path, "/")
-	st, err := o.stacks.GetBySlug(ctx, orgID, sl)
-	if err != nil {
-		return store.Environment{}, err
-	}
-	return o.envs.GetBySlug(ctx, st.ID, es)
 }
 
 // applyOrgPlacing applies the org file's pin, ingress and exits changes. The
@@ -331,7 +350,7 @@ func (o *Orchestrator) envByPath(ctx context.Context, orgID, path string) (store
 func (o *Orchestrator) applyOrgPlacing(ctx context.Context, og store.Org, f *orgconfig.File, live orgconfig.Live, kind string) error {
 	switch kind {
 	case "pin":
-		return o.setPin(ctx, store.Stack{OrgID: og.ID}, ScopeOrg, og.ID, f.Pin, slices.Sorted(maps.Keys(live.Moves)))
+		return o.setPin(ctx, ScopeOrg, og.ID, f.Pin, nil)
 	case "ingress":
 		return o.SetIngress(ctx, nil, ScopeOrg, og.ID, f.Ingress)
 	case "exits":

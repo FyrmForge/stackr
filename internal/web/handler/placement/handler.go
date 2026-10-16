@@ -213,40 +213,51 @@ func (h *handler) show(c echo.Context, status int, note, errMsg string) error {
 }
 
 // showWith is show with the pin change dialog over the tab.
-func (h *handler) showWith(c echo.Context, status int, note, errMsg string, dialog *service.PlacementMovePlan) error {
+func (h *handler) showWith(c echo.Context, status int, note, errMsg string, dialog *ui.MoveView) error {
 	v, err := h.build(c)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	v.Note, v.Error = note, errMsg
 	if dialog != nil {
-		v.Move = ui.Move(moveView(c, *dialog))
+		v.Move = ui.Move(*dialog)
 	}
 	return respond.HTML(c, status, ui.Placement(v))
 }
 
-// moveView is the plan as the dialog shows it. Confirm posts the target
-// placement and the env slug, which the service checks.
-func moveView(c echo.Context, p service.PlacementMovePlan) ui.MoveView {
-	s := middleware.ScopeOf(c)
-	vals, _ := json.Marshal(map[string]string{"placement": p.To, "confirm": s.Env.Slug})
-	v := ui.MoveView{
-		Base: base(c), Env: s.Env.Slug, From: p.From, To: p.To,
-		OK: p.OK, Restore: p.Restore, Vals: string(vals),
-	}
-	for _, e := range p.Envs {
-		d := count(e.Volumes, "volume")
-		if e.Bytes >= 0 {
-			d += ", " + service.HumanBytes(e.Bytes)
+// moveView is the plans of a pin change as the dialog shows them, one per
+// env it moves. Confirm posts the target placement and word, the scope's
+// slug, to action; the service checks it.
+func moveView(action, word string, ps []service.PlacementMovePlan) ui.MoveView {
+	v := ui.MoveView{Action: action, Env: word, OK: true}
+	for i, p := range ps {
+		if i == 0 {
+			v.From, v.To = p.From, p.To
+		} else if p.From != v.From {
+			v.From = "their placements"
 		}
-		v.Envs = append(v.Envs, ui.MoveLine{Path: e.Path, Detail: d})
-		if v.Downtime == "" {
-			v.Downtime = strings.TrimPrefix(e.Downtime, "about ")
+		v.OK = v.OK && p.OK
+		v.Restore = v.Restore || p.Restore
+		for _, e := range p.Envs {
+			d := count(e.Volumes, "volume")
+			if e.Bytes >= 0 {
+				d += ", " + service.HumanBytes(e.Bytes)
+			}
+			v.Envs = append(v.Envs, ui.MoveLine{Path: e.Path, Detail: d})
+			if v.Downtime == "" {
+				v.Downtime = strings.TrimPrefix(e.Downtime, "about ")
+			}
+		}
+		for _, k := range p.Checks {
+			name := k.Name
+			if len(ps) > 1 {
+				name = p.Placement + ": " + name
+			}
+			v.Checks = append(v.Checks, ui.CheckLine{Name: name, Detail: k.Detail, OK: k.OK})
 		}
 	}
-	for _, k := range p.Checks {
-		v.Checks = append(v.Checks, ui.CheckLine{Name: k.Name, Detail: k.Detail, OK: k.OK})
-	}
+	vals, _ := json.Marshal(map[string]string{"placement": v.To, "confirm": word})
+	v.Vals = string(vals)
 	return v
 }
 
@@ -279,8 +290,11 @@ func (h *handler) act(note string, do func(echo.Context, string, string) error) 
 	}
 }
 
+// pin sets the scope's pin; with confirm (the scope's slug, from the move
+// dialog) a pin that moves envs starts their moves.
 func (h *handler) pin(c echo.Context, kind, id string) error {
-	return h.orch.SetPin(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"))
+	_, err := h.orch.PinScope(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"), c.FormValue("confirm"))
+	return err
 }
 
 func (h *handler) ingress(c echo.Context, kind, id string) error {
@@ -300,25 +314,27 @@ func (h *handler) remove(c echo.Context, kind, id string) error {
 	return h.orch.ExitsRemove(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"))
 }
 
-// moved answers a pin change that moves envs. An env shows the plan and,
-// when every check passes, the confirm; an org or stack lists the envs, which
-// are pinned one by one.
+// moved answers a pin change that moves envs with the plan of each and,
+// when every check passes, the confirm. An env's confirm goes to its move
+// route; an org's or stack's back to its pin route.
 func (h *handler) moved(c echo.Context, kind string, mv *service.MoveNeeded) error {
-	if kind == service.ScopeEnv {
-		return h.showWith(c, http.StatusOK, "", "", &mv.Plan)
+	s := middleware.ScopeOf(c)
+	action, word := base(c)+"/pin", s.Org.Slug
+	switch kind {
+	case service.ScopeEnv:
+		action, word = base(c)+"/move", s.Env.Slug
+	case service.ScopeStack:
+		word = s.Stack.Slug
 	}
-	var paths []string
-	for _, e := range mv.Plan.Envs {
-		paths = append(paths, e.Path)
-	}
-	return h.show(c, http.StatusUnprocessableEntity, "", "This pin moves running envs ("+strings.Join(paths, ", ")+"). Pin each env instead.")
+	v := moveView(action, word, mv.Plans)
+	return h.showWith(c, http.StatusOK, "", "", &v)
 }
 
 // Move is POST …/move (placement, confirm): queue the env's move and open
 // the progress tab.
 func (h *handler) Move(c echo.Context) error {
 	s := middleware.ScopeOf(c)
-	_, err := h.orch.MoveEnvToPlacement(c.Request().Context(), middleware.Principal(c), s.Env.ID, c.FormValue("placement"), c.FormValue("confirm"))
+	_, err := h.orch.PinScope(c.Request().Context(), middleware.Principal(c), service.ScopeEnv, s.Env.ID, c.FormValue("placement"), c.FormValue("confirm"))
 	if err != nil {
 		msg, ok := refused(err)
 		if !ok {

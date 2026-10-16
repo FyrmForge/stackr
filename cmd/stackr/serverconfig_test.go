@@ -137,7 +137,7 @@ func TestServerApprove(t *testing.T) {
 	}
 }
 
-// apply <file> stores a local plan, shows it, and approves it like approve.
+// apply -f FILE stores a local plan, shows it, and approves it like approve.
 func TestServerApplyFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "stackr-server.yml")
 	if err := os.WriteFile(file, []byte("version: 1\n"), 0o600); err != nil {
@@ -145,7 +145,7 @@ func TestServerApplyFile(t *testing.T) {
 	}
 	ps := &planServer{row: riskyRow}
 	ps.serve(t)
-	code, _, errw := cli(t, "server", "apply", file, "--remove", "route:old.example.com", "--no-wait", "-y")
+	code, _, errw := cli(t, "server", "apply", "-f", file, "--remove", "route:old.example.com", "--no-wait", "-y")
 	if code != 0 {
 		t.Fatalf("apply = %d %s", code, errw)
 	}
@@ -162,7 +162,7 @@ func TestServerApplyFile(t *testing.T) {
 
 	ps.row = `{"id":"p2","status":"clean","plan":"{}"}`
 	ps.reqs = nil
-	if code, _, errw := cli(t, "server", "apply", file, "-y"); code != 0 || len(ps.reqs) != 1 ||
+	if code, _, errw := cli(t, "server", "apply", "-f", file, "-y"); code != 0 || len(ps.reqs) != 1 ||
 		!strings.Contains(errw, "nothing to apply") {
 		t.Errorf("apply of a clean plan = %d %q, sent %q; want one request and a note", code, errw, ps.reqs)
 	}

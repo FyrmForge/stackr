@@ -60,7 +60,8 @@ type PlacementMovePlan struct {
 	OK                  bool
 }
 
-// PlacementMoveStatus is a running or finished repoint.
+// PlacementMoveStatus is a running or finished repoint. Envs is every env
+// of the placement, named by path, with its move when it has one.
 type PlacementMoveStatus struct {
 	State     string // running | failed | done
 	From, To  string
@@ -69,11 +70,16 @@ type PlacementMoveStatus struct {
 	Envs      []MoveStatus
 }
 
-// MoveNeeded is SetPin's refusal when the pin change moves an env.
-type MoveNeeded struct{ Plan PlacementMovePlan }
+// MoveNeeded is SetPin's refusal when the pin change moves envs: one plan
+// per env, each's Placement its path.
+type MoveNeeded struct{ Plans []PlacementMovePlan }
 
 func (e *MoveNeeded) Error() string {
-	return "this pin change moves " + e.Plan.Placement + "; confirm the move"
+	paths := make([]string, len(e.Plans))
+	for i, p := range e.Plans {
+		paths[i] = p.Placement
+	}
+	return "this pin change moves " + strings.Join(paths, ", ") + "; confirm the move"
 }
 
 // ---- checks ----
@@ -763,11 +769,16 @@ func (o *Orchestrator) PlacementMove(ctx context.Context, placement string) (*Pl
 		if e.NodeID == pm.ToNode {
 			s.Done++
 		}
-		if ms, err := o.EnvMoveStatus(ctx, e.ID); err != nil {
+		ms, err := o.EnvMoveStatus(ctx, e.ID)
+		if err != nil {
 			return nil, err
-		} else if ms != nil && ms.Move.PlacementMoveID != nil && *ms.Move.PlacementMoveID == pm.ID {
-			s.Envs = append(s.Envs, *ms)
 		}
+		if ms == nil || ms.Move.PlacementMoveID == nil || *ms.Move.PlacementMoveID != pm.ID {
+			// restored from backups, or not started: no move row of this repoint
+			ms = &MoveStatus{Active: e.NodeID != pm.ToNode}
+			ms.Path, _ = o.pmEnvPath(ctx, e)
+		}
+		s.Envs = append(s.Envs, *ms)
 	}
 	return s, nil
 }
@@ -787,15 +798,20 @@ func pmPlacementNames(fromID, fromName, toID, toName string) pmNames {
 	}}
 }
 
-// PlanEnvPin is the move pinning an env to placement would cause. A pin that
-// leaves the env on its node comes back with no Envs. Member-facing: it
-// names placements, never nodes.
+// PlanEnvPin is the move pinning an env to placement would cause; ""
+// is the pin the env inherits. A pin that leaves the env on its node comes
+// back with no Envs. Member-facing: it names placements, never nodes.
 func (o *Orchestrator) PlanEnvPin(ctx context.Context, envID, placement string) (PlacementMovePlan, error) {
 	e, err := o.store.Environments.Get(ctx, envID)
 	if err != nil {
 		return PlacementMovePlan{}, err
 	}
-	p, err := o.store.Placements.GetByName(ctx, placement)
+	var p store.Placement
+	if placement == "" {
+		p, err = o.effectivePlacement(ctx, e.StackID)
+	} else {
+		p, err = o.store.Placements.GetByName(ctx, placement)
+	}
 	if err != nil {
 		return PlacementMovePlan{}, err
 	}

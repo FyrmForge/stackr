@@ -32,11 +32,12 @@ func TestPlacement(t *testing.T) {
 	}
 	must(t, n.orch.SetPlacementOpen(ctx, admin, "w1", false, []string{"acme"}))
 
-	// Pin the stack: the envs elsewhere stay, and say so.
-	must(t, n.orch.SetPin(ctx, admin, ScopeStack, n.stack, "w1"))
+	// Pin the stack, dev aside (it runs on the controller: the pin would move it).
+	_, err = n.orch.PinScope(ctx, admin, ScopeStack, n.stack, "w1", "", "dev")
+	must(t, err)
 	v, err := n.orch.Placement(ctx, ScopeStack, n.stack)
 	must(t, err)
-	if v.Pin != "w1" || v.PinName != "w1" || v.Stay.Count != 1 || v.Stay.Where != DefaultPlacement {
+	if v.Pin != "w1" || v.PinName != "w1" {
 		t.Errorf("stack placement = %+v", v)
 	}
 	ev, err := n.orch.Placement(ctx, ScopeEnv, n.edge.ID)

@@ -87,9 +87,9 @@ type MoveProgressView struct {
 	Poll, Retry, Back                 string
 }
 
-// MoveProgressEnv is one env move: its state word and the step it is on.
+// MoveProgressEnv is one env move: its path, state word and the step it is on.
 type MoveProgressEnv struct {
-	State, Step, Error string
+	Path, State, Step, Error string
 }
 
 templ placementForm(f PlacementFormView, id string, withName bool) {
@@ -303,8 +303,9 @@ templ MoveProgress(v MoveProgressView) {
 		<ul class="space-y-1 text-sm">
 			for _, e := range v.Envs {
 				<li class="flex flex-wrap items-center gap-2">
+					<span class="text-rw-text">{ e.Path }</span>
 					<span class="text-rw-faint">{ e.State }</span>
-					<span class="text-rw-text">{ e.Step }</span>
+					<span class="text-rw-muted">{ e.Step }</span>
 					if e.Error != "" {
 						<span class="text-xs text-rw-danger">{ e.Error }</span>
 					}

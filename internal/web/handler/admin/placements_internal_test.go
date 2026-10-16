@@ -75,8 +75,9 @@ func TestMoveChecksViewGatesApply(t *testing.T) {
 }
 
 func TestMoveProgressView(t *testing.T) {
-	v := moveProgressView("eu-prod", service.PlacementMoveStatus{State: "running", From: "h3", To: "h4", Done: 1, All: 2})
-	if !strings.Contains(v.Poll, "/eu-prod/progress?poll=1") || v.Retry != "" {
+	v := moveProgressView("eu-prod", service.PlacementMoveStatus{State: "running", From: "h3", To: "h4", Done: 1, All: 2,
+		Envs: []service.MoveStatus{{Path: "acme/shop/prod", Active: true}}})
+	if !strings.Contains(v.Poll, "/eu-prod/progress?poll=1") || v.Retry != "" || len(v.Envs) != 1 || v.Envs[0].Path != "acme/shop/prod" {
 		t.Errorf("running = %+v", v)
 	}
 	v = moveProgressView("eu-prod", service.PlacementMoveStatus{State: "failed", Error: "disk full"})

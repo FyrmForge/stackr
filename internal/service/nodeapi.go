@@ -634,15 +634,6 @@ type PinOut struct {
 	Placement string `json:"placement"`
 }
 
-// PinNode pins an org, stack or env to a placement by name; ref "" clears the
-// pin. An env pin that moves the env fails with *MoveNeeded (D4).
-func (o *Orchestrator) PinNode(ctx context.Context, by *Principal, kind, id, ref string) (PinOut, error) {
-	if err := o.SetPin(ctx, by, kind, id, ref); err != nil {
-		return PinOut{}, err
-	}
-	return o.PinOf(ctx, kind, id)
-}
-
 // PinOf answers where new envs of an org or stack go (its own pin, else the
 // one above it), or the placement an env belongs to.
 func (o *Orchestrator) PinOf(ctx context.Context, kind, id string) (PinOut, error) {

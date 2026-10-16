@@ -20,14 +20,14 @@ stackr pin eu-db --stack shop
 stackr pin --clear --stack shop
 ```
 
-Pinning an existing env moves it. The command prints the plan and needs `--yes`:
+A pin that puts existing envs on another node moves them, one job per env. The command prints each env's plan and needs `--yes`, which types the org, stack or env slug:
 
 ```bash
 stackr pin eu-prod --stack shop --env prod
-stackr pin eu-prod --stack shop --env prod --yes
+stackr pin eu-prod --stack shop --yes
 ```
 
-The same pins go in `stackr-org.yml` and the stack files as `pin: eu-prod`. A pin to a placement the org cannot use, or one whose node lacks a tag the env needs, is a plan error.
+The same pins go in `stackr-org.yml` and the stack files as `pin: eu-prod`. A pin to a placement the org cannot use, or one whose node lacks a tag the envs need, is refused, from the CLI, the panel or a file. Volumes and managed tiles a stack file declares count before their first deploy: they need a node tagged `storage`.
 
 Ingress and exits name placements too:
 

@@ -22,12 +22,13 @@ func (e EnvConf) placing() planfile.Placing {
 
 // PlacementWrite is one pin, ingress or exits change the apply hands to
 // PlacementLive.Set. Field is pin, ingress or exits; Scope is stack or env
-// and ScopeID its row. Moving is the "stack/env" paths a pin change moves.
+// and ScopeID its row. Except is the env slugs a stack pin leaves alone: the
+// file pins them itself.
 type PlacementWrite struct {
 	Scope, ScopeID string
 	Field          string
 	Refs           []string // pin and ingress: one placement; exits: the ladder
-	Moving         []string
+	Except         []string
 }
 
 // placeStep is a PlacementWrite the plan decided on.
@@ -75,7 +76,7 @@ func (f *Flow) planPlacing(ctx context.Context, p *Plan, w *work, r *Resolved) e
 		if stackKeys.Pin != "" {
 			for n, e := range r.Envs {
 				if !slices.Contains(except, n) {
-					need.Storage = need.Storage || fileNeeds(e).Storage
+					need.Storage = need.Storage || FileNeeds(e).Storage
 				}
 			}
 		}
@@ -95,14 +96,15 @@ func (f *Flow) planPlacing(ctx context.Context, p *Plan, w *work, r *Resolved) e
 		need = ns[w.e.Slug]
 	}
 	if envKeys.Pin != "" {
-		need.Storage = need.Storage || fileNeeds(*re).Storage
+		need.Storage = need.Storage || FileNeeds(*re).Storage
 	}
 	return f.planScope(ctx, p, w, "env", w.e.ID, w.e.Slug, envKeys, live.Env, need, nil)
 }
 
-// fileNeeds is what an env asks of its node by the file alone: volumes or a
-// managed tile need storage before the first deploy writes them down.
-func fileNeeds(e ResolvedEnv) planfile.Needs {
+// FileNeeds is what an env asks of its node by the file alone: volumes or a
+// managed tile need storage before the first deploy writes them down. Pins
+// set outside the file (CLI, API, panel, org file) check it too.
+func FileNeeds(e ResolvedEnv) planfile.Needs {
 	n := planfile.Needs{Storage: len(e.Volumes) > 0}
 	for _, t := range e.Tiles {
 		n.Storage = n.Storage || t.Type == tile.Managed
@@ -133,9 +135,13 @@ func (f *Flow) planScope(
 	// A promote has no confirm step, so a pin that moves running envs waits
 	// for the move to be confirmed where it can be; once they are there, the
 	// pin moves nothing and lands.
+	cmd := "stackr pin " + want.Pin + " --stack " + w.st.Slug
+	if scope == "env" {
+		cmd += " --env " + tile
+	}
 	for _, c := range cs {
 		if c.Kind == "pin" && c.Impact != "" {
-			p.block("pin %s %s; confirm that move on the Placement tab or with stackr pin, then promote again", c.New, c.Impact)
+			p.block("pin %s %s; confirm that move on the Placement tab or with %s, then promote again", c.New, c.Impact, cmd)
 		}
 	}
 	p.Warnings = append(p.Warnings, warns...)
@@ -146,7 +152,7 @@ func (f *Flow) planScope(
 		case "exits":
 			st.Refs = want.Exits
 		case "pin":
-			st.Moving = slices.Sorted(maps.Keys(in.Moves))
+			st.Except = except
 		}
 		w.placing = append(w.placing, st)
 	}

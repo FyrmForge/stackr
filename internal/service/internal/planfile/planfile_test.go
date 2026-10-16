@@ -300,3 +300,22 @@ func TestCollapse(t *testing.T) {
 		t.Errorf("round trip = %+v, %v", back, err)
 	}
 }
+
+// Approve is offered for changes with no blocker; gaps alone and a blocked
+// plan have nothing to approve.
+func TestCanApprove(t *testing.T) {
+	ch := []planfile.Change{{Kind: "settings"}}
+	for _, c := range []struct {
+		p    planfile.Plan
+		want bool
+	}{
+		{planfile.Plan{Changes: ch}, true},
+		{planfile.Plan{Changes: ch, Blockers: []string{"x"}}, false},
+		{planfile.Plan{Gaps: []planfile.Gap{{Kind: "secret", Key: "a.b"}}}, false},
+		{planfile.Plan{}, false},
+	} {
+		if got := c.p.CanApprove(); got != c.want {
+			t.Errorf("%+v: CanApprove = %v, want %v", c.p, got, c.want)
+		}
+	}
+}

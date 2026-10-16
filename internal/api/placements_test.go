@@ -96,3 +96,28 @@ func TestPlacementsAPI(t *testing.T) {
 		t.Errorf("delete = %d %s", code, body)
 	}
 }
+
+// An org or stack pin that puts envs on another node shows one plan per env
+// and answers 409 with them until confirm is the scope's slug; then the moves
+// start, one job per env (D4).
+func TestScopePinMoves(t *testing.T) {
+	w := newWorld(t)
+	w.env.Worker(t, "w9", "iss")
+	if code, body := w.do(t, w.admin, "POST", "/admin/placements", `{"name":"far","node":"w9","orgs":["acme"]}`); code != 201 {
+		t.Fatalf("create = %d %s", code, body)
+	}
+	code, body := w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/pin-plan?to=far", "")
+	if code != 200 || !strings.Contains(body, `"placement":"acme/shop/dev"`) || !strings.Contains(body, `"checks"`) {
+		t.Fatalf("pin plan = %d %s", code, body)
+	}
+	if code, body = w.do(t, w.owner, "PUT", "/orgs/acme/stacks/shop/pin", `{"placement":"far"}`); code != 409 || !strings.Contains(body, "acme/shop/dev") {
+		t.Fatalf("unconfirmed = %d %s", code, body)
+	}
+	if code, body = w.do(t, w.owner, "PUT", "/orgs/acme/stacks/shop/pin", `{"placement":"far","confirm":"wrong"}`); code != 409 {
+		t.Errorf("wrong confirm = %d %s", code, body)
+	}
+	code, body = w.do(t, w.owner, "PUT", "/orgs/acme/stacks/shop/pin", `{"placement":"far","confirm":"shop"}`)
+	if code != 200 || !strings.Contains(body, `"placement":"far"`) || !strings.Contains(body, `"jobs":[{`) {
+		t.Fatalf("confirmed = %d %s", code, body)
+	}
+}

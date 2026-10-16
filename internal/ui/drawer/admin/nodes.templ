@@ -118,8 +118,8 @@ type NodeRow struct {
 // LostEnvRow is an env of a forgotten node. It comes back by repointing its
 // placement; Open is a GET to the Placements tab.
 type LostEnvRow struct {
-	Path, Node string
-	Volumes    int
+	Path, Node, Placement string
+	Volumes               int
 }
 
 // Option is a select choice.
@@ -319,6 +319,7 @@ templ Nodes(v NodesView) {
 						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
 							<span class="text-rw-text">{ l.Path }</span>
 							@c.Chip(l.Node+" was forgotten", "warn")
+							<span class="text-xs text-rw-muted">placement { l.Placement }</span>
 							<span class="text-xs text-rw-faint">{ plural(l.Volumes, "volume") }</span>
 						</li>
 					}

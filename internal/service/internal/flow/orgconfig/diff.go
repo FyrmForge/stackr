@@ -77,6 +77,9 @@ type Live struct {
 	// the envs the org pin would cover are in it: a stack with its own pin
 	// is left out.
 	EnvNeeds map[string]planfile.Needs
+	// FileErrors is why a stack file the org pin covers could not be read
+	// for its needs: each blocks the plan.
+	FileErrors []string
 	// Moves is, per "stack/env" path, the move the file's pin would cause.
 	// The orchestrator fills it once the file is parsed.
 	Moves map[string]planfile.MoveFact

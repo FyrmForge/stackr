@@ -9,7 +9,9 @@ import (
 
 	"github.com/FyrmForge/hamr/pkg/server"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web"
 )
@@ -93,5 +95,32 @@ func TestNoNodeNames(t *testing.T) {
 	}
 	if rec := b.do(t, "POST", "/acme/-/placement/move-all", url.Values{}); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("move-all = %d, want it gone", rec.Code)
+	}
+}
+
+// A stack pin that puts an env on another node answers with the move dialog:
+// the env's line, its checks, and a confirm typed with the stack's slug that
+// posts back to the pin route.
+func TestStackPinMoveDialog(t *testing.T) {
+	b := newBrowser(t, "owner")
+	og, err := b.env.Store.Orgs.GetBySlug(t.Context(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.env.Tile(t, og.ID)
+	b.env.Worker(t, "w9", "iss")
+	adm := &service.Principal{Access: authz.User{ID: "a", Active: true, Admin: true}}
+	if _, err := b.env.Orch.CreatePlacement(t.Context(), adm, service.PlacementSpec{Name: "far", Node: "w9", OpenToAll: true}); err != nil {
+		t.Fatal(err)
+	}
+	rec := b.do(t, "POST", "/acme/shop/-/placement/pin", url.Values{"placement": {"far"}})
+	body := rec.Body.String()
+	for _, want := range []string{"acme/shop/dev", "Moves from default to far", "/acme/shop/-/placement/pin", `word="shop"`, "Move shop to far?"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dialog lacks %q (%d)\n%s", want, rec.Code, body)
+		}
+	}
+	if st, _ := b.env.Store.Stacks.GetBySlug(t.Context(), og.ID, "shop"); st.PlacementID != nil {
+		t.Error("the pin was written before the move was confirmed")
 	}
 }
