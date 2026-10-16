@@ -603,7 +603,7 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	if err != nil {
 		return err
 	}
-	if ctx, err = o.withEnvNode(ctx, e); err != nil {
+	if ctx, err = o.withEnvNode(tearingDown(ctx), e); err != nil {
 		return err
 	}
 	if _, err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {

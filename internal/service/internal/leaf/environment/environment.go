@@ -517,6 +517,9 @@ func (l *Leaf) Delete(ctx context.Context, e store.Environment, tileCount int) e
 	if tileCount > 0 {
 		return errs.Conflictf("Remove this environment's tiles first.")
 	}
+	if e.NodeID == "" && e.PlacementID != "" { // waiting for a node (D6): no network was ever made
+		return l.envs.Delete(ctx, e.ID)
+	}
 	if err := l.net.RemoveNetwork(onNode(ctx, e), e.Network); err != nil {
 		return err
 	}

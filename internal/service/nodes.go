@@ -68,6 +68,9 @@ func (o *Orchestrator) withController(ctx context.Context) (context.Context, err
 // controller, where every env ran before nodes.
 func (o *Orchestrator) unplaced(ctx context.Context, e store.Environment) (string, error) {
 	if e.PlacementID != "" {
+		if down, _ := ctx.Value(tearDownKey{}).(bool); down {
+			return o.controllerID(ctx)
+		}
 		return "", o.noNode(ctx, e)
 	}
 	if _, routed := o.docker.(*DockerRouter); routed {
@@ -86,6 +89,15 @@ func (o *Orchestrator) withEnvNode(ctx context.Context, e store.Environment) (co
 		}
 	}
 	return docker.WithNode(ctx, id), nil
+}
+
+type tearDownKey struct{}
+
+// tearingDown marks ctx as a delete. An env still waiting for its placement's
+// node (D6) never ran anywhere, so under it the env resolves to the
+// controller, where every removal finds nothing and passes.
+func tearingDown(ctx context.Context) context.Context {
+	return context.WithValue(ctx, tearDownKey{}, true)
 }
 
 // withEnvIDNode is withEnvNode for an env id.

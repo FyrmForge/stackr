@@ -320,6 +320,15 @@ func TestEnvCreateOnPlacement(t *testing.T) {
 	if got, _ := n.st.Environments.Get(ctx, e.ID); got.NodeID != "" {
 		t.Errorf("the waiting env moved to %q", got.NodeID)
 	}
+	// a waiting env and its tiles can still be deleted: nothing ran anywhere
+	dj, err := n.orch.DeleteTile(ctx, tl.ID)
+	must(t, err)
+	if j := n.wait(t, dj); j.State != "done" {
+		t.Fatalf("delete a waiting env's tile = %s %s", j.State, j.Error)
+	}
+	if err := n.orch.DeleteEnv(ctx, e.ID); err != nil {
+		t.Fatalf("delete a waiting env = %v", err)
+	}
 
 	// an offline node is refused for an explicit placement, not for a pin
 	w1n, _ := n.st.Nodes.Get(ctx, "w1")
