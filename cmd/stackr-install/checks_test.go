@@ -120,15 +120,15 @@ func TestDoneText(t *testing.T) {
 		HTTPSPort: "443",
 		DataDir:   "/d",
 	}
-	s := doneText(in, "k3y", "me@example.com", "stk_apikey", false)
+	s := doneText(in, "k3y", "me@example.com", "in", false)
 	for _, want := range []string{"https://stkr.example.com", "k3y", "me@example.com", "*.example.com", "Caddy",
-		"stackr login https://stkr.example.com --with-key stk_apikey", docsCLILogin} {
+		"CLI on this box is logged in", docsCLILogin} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}
 	}
 	rerun := doneText(in, "", "", "", false)
-	if strings.Contains(rerun, "Recovery passphrase") || strings.Contains(rerun, "log in") || strings.Contains(rerun, "API key") {
+	if strings.Contains(rerun, "Recovery passphrase") || strings.Contains(rerun, "log in") || strings.Contains(rerun, "logged in") {
 		t.Error("a re-run printed the passphrase or the new admin")
 	}
 }

@@ -46,13 +46,7 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
 4. Save the recovery passphrase the installer prints. It is shown once. It opens the panel's own backups, and a restore on another box needs it.
 
-5. The installer also prints an admin API key, shown once, and the line that logs the CLI on this box in with it:
-
-   ```bash
-   stackr login https://stkr.apps.example.com --with-key <key>
-   ```
-
-   The key is bound to no org, so server admin commands like `stackr node add` work with it. See [Log the CLI in](nodes.md#log-the-cli-in).
+5. The installer logs the CLI on this box in as the admin, so `stackr` works there straight away, server admin commands included. The key is never printed. See [Log the CLI in](nodes.md#log-the-cli-in).
 
 Flags you may want:
 
