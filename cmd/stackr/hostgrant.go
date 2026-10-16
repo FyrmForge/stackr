@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -75,6 +77,13 @@ func (a *app) hostGrant() *cobra.Command {
 				return err
 			}
 			_, err := a.call(DELETE, path, nil)
+			// A 404 is the stack's, or its grant's: a stack that reads has none.
+			var e *apiErr
+			if errors.As(err, &e) && e.Status == http.StatusNotFound {
+				if _, gerr := a.call(GET, p+"/host-grant", nil); gerr == nil {
+					return fmt.Errorf("%s has no elevated access to revoke", what)
+				}
+			}
 			return err
 		}))
 	revoke.Flags().StringVar(&tile, "tile", "", "revoke only this tile's lines")

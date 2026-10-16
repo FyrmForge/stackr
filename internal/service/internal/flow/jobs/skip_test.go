@@ -2,6 +2,8 @@ package jobs_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -41,5 +43,20 @@ func TestWarningLineOnce(t *testing.T) {
 	b, _ := os.ReadFile(j.LogPath)
 	if string(b) != "warning: h3 has 8% free\n" {
 		t.Errorf("log = %q", b)
+	}
+}
+
+// A handler that returns ErrSkipped finishes skipped with its reason; any
+// other error still fails the job.
+func TestHandlerSkip(t *testing.T) {
+	skip := func(context.Context, *jobs.Run) error { return fmt.Errorf("%w: h3 offline", jobs.ErrSkipped) }
+	fail := func(context.Context, *jobs.Run) error { return errors.New("disk full") }
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"s": skip, "f": fail}, jobs.Options{})
+	start(t, r)
+	s, f := enqueue(t, r, "s", "t1"), enqueue(t, r, "f", "t2")
+	waitState(t, l, s, job.Skipped)
+	waitState(t, l, f, job.Failed)
+	if j, _ := l.Get(ctx, s); j.Error != "skipped: h3 offline" {
+		t.Errorf("reason = %q", j.Error)
 	}
 }

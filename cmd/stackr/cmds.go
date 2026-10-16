@@ -844,14 +844,26 @@ func (a *app) resourceOwner(level, owner string) (string, error) {
 	return "", usage("--level is instance, org or stack, not %q", level)
 }
 
-// jobs reads jobs in the org, or with --admin anywhere.
+// jobs reads jobs in the org, or with --admin anywhere. A job the org
+// does not have is looked for under /admin too, so a server admin reads a
+// server job (it has no org) without --admin.
 func (a *app) jobs() *cobra.Command {
 	var admin, follow bool
-	base := func() (string, error) {
+	base := func(id string) (string, error) {
 		if admin {
 			return "/admin", nil
 		}
-		return a.orgPath()
+		p, err := a.orgPath()
+		if err == nil {
+			var e *apiErr
+			if _, err = a.call(GET, p+"/jobs/"+id, nil); err == nil || !errors.As(err, &e) || e.Status != http.StatusNotFound {
+				return p, err
+			}
+		}
+		if _, aerr := a.call(GET, "/admin/jobs/"+id, nil); aerr == nil {
+			return "/admin", nil
+		}
+		return "", err
 	}
 	log := leaf(
 		"log <id>",
@@ -859,7 +871,7 @@ func (a *app) jobs() *cobra.Command {
 		"Print a job's log; --follow waits for its end",
 		exact(1),
 		func(c *cobra.Command, args []string) error {
-			b, err := base()
+			b, err := base(args[0])
 			if err != nil {
 				return err
 			}
@@ -898,7 +910,7 @@ func (a *app) jobs() *cobra.Command {
 	c := noun("job", "Jobs: deploys, promotes, backups, everything queued",
 		ls,
 		leaf("get <id>", "job.get,admin.job-get", "Show a job", exact(1), func(_ *cobra.Command, args []string) error {
-			b, err := base()
+			b, err := base(args[0])
 			if err != nil {
 				return err
 			}
@@ -911,7 +923,7 @@ func (a *app) jobs() *cobra.Command {
 		log,
 		leaf("cancel <id>", "job.cancel,admin.job-cancel", "Cancel a queued or running job", exact(1),
 			func(_ *cobra.Command, args []string) error {
-				b, err := base()
+				b, err := base(args[0])
 				if err != nil {
 					return err
 				}

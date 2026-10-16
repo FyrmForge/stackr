@@ -33,6 +33,8 @@ type rig struct {
 	mu   sync.Mutex
 	reqs []string
 	idx  map[string][]byte // "repo@sha256:.." or "repo:tag" -> index bytes
+	// noReferrers answers the referrers API 404, as registry:3 does.
+	noReferrers bool
 }
 
 func newRig(t *testing.T, loose bool, user, pass string) *rig {
@@ -50,6 +52,10 @@ func newRig(t *testing.T, loose bool, user, pass string) *rig {
 		r.mu.Lock()
 		r.reqs = append(r.reqs, req.Method+" "+req.URL.Path)
 		r.mu.Unlock()
+		if r.noReferrers && strings.Contains(req.URL.Path, "/referrers/") {
+			http.NotFound(w, req)
+			return
+		}
 		if loose && r.serveIndex(w, req) {
 			return
 		}
@@ -377,4 +383,32 @@ func TestCopyUnreachable(t *testing.T) {
 	_, ok, err := Held(context.Background(), d, nil, []string{"amd64"})
 	noErr(t, err)
 	eq(t, false, ok)
+}
+
+// An attestation naming its image as an OCI subject leaves no
+// "sha256-<child>" referrers tag behind on a registry without the referrers
+// API: the only tags are the import's own.
+func TestCopyNoReferrersTag(t *testing.T) {
+	src, dst := newRig(t, false, "", ""), newRig(t, true, "", "")
+	dst.noReferrers = true
+	img := archImage(t, "amd64")
+	h, _ := img.Digest()
+	sz, _ := img.Size()
+	mt, _ := img.MediaType()
+	at, err := random.Image(64, 1)
+	noErr(t, err)
+	at = mutate.Subject(at, v1.Descriptor{MediaType: mt, Digest: h, Size: sz}).(v1.Image)
+	idx := mutate.AppendManifests(mutate.IndexMediaType(empty.Index, types.OCIImageIndex),
+		mutate.IndexAddendum{Add: img, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "amd64"}}},
+		mutate.IndexAddendum{Add: at, Descriptor: v1.Descriptor{
+			Platform:    &v1.Platform{OS: "unknown", Architecture: "unknown"},
+			Annotations: map[string]string{"vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": h.String()},
+		}})
+	noErr(t, remote.WriteIndex(ref(t, src.host+"/lib/app:1"), idx))
+	_, err = Copy(context.Background(), src.host+"/lib/app:1", dst.host+"/org/lib/app:1", nil, nil, []string{"amd64"})
+	noErr(t, err)
+	_, err = remote.Head(ref(t, dst.host+"/org/lib/app@"+h.String()))
+	noErr(t, err)
+	_, err = remote.Head(ref(t, dst.host+"/org/lib/app:"+strings.Replace(h.String(), ":", "-", 1)))
+	isErr(t, err, "the image's digest tag must be absent")
 }

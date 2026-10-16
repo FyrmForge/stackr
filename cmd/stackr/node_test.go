@@ -585,3 +585,29 @@ func TestGlobMatch(t *testing.T) {
 		}
 	}
 }
+
+// job log reads a server job (the org route 404s on it) under /admin
+// without --admin; a job neither has keeps the org's not-found.
+func TestJobLogFindsServerJob(t *testing.T) {
+	var reqs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		reqs = append(reqs, req.URL.Path)
+		if strings.HasPrefix(req.URL.Path, "/api/v1/orgs/") || strings.Contains(req.URL.Path, "/nope") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"no job"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"job":{"id":"j1"},"log":"hello\n"}`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	if code, out, errw := cli(t, "job", "log", "j1"); code != 0 || out != "hello\n" {
+		t.Fatalf("log = %d %q %q", code, out, errw)
+	}
+	if last := reqs[len(reqs)-1]; last != "/api/v1/admin/jobs/j1/log" {
+		t.Errorf("read %q, want the admin route", last)
+	}
+	if code, _, errw := cli(t, "job", "log", "nope"); code == 0 || !strings.Contains(errw, "no job") {
+		t.Errorf("missing = %d %q", code, errw)
+	}
+}

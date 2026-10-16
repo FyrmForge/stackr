@@ -243,6 +243,9 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 	sp := fbackup.Spec{Trigger: "manual", Mode: p.Mode}
 	destID, method := p.DestID, p.Method
 	if p.ScheduleID != "" {
+		if err := o.skipUnreachable(ctx, v.ID); err != nil {
+			return err
+		}
 		s, err := o.backups.GetSchedule(ctx, p.ScheduleID)
 		if err != nil {
 			return err
