@@ -192,7 +192,7 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 		return OrgPlan{}, err
 	}
 	status := orgplan.Pending
-	if len(p.Changes) == 0 && !p.Blocked() {
+	if len(p.Changes) == 0 && !p.Blocked() && len(p.Gaps) == 0 { // a gap stays pending: it is filled in place
 		status = orgplan.Clean
 	}
 	row, err := o.createOrgPlan(ctx, OrgPlan{
@@ -514,6 +514,27 @@ func (o *Orchestrator) orgParamScope(ctx context.Context, og store.Org, tile str
 		sc = ParamScope{Kind: "tier", ID: t.ID}
 	}
 	return sc, nil
+}
+
+// FillOrgGap saves secrets a pending org plan is missing (a gap) on the env
+// key's scope (all, pr or a tier slug), then plans the file again so the gap
+// closes.
+func (o *Orchestrator) FillOrgGap(ctx context.Context, orgID, envKey string, es []ParamEntry) (OrgPlan, error) {
+	og, err := o.store.Orgs.Get(ctx, orgID)
+	if err != nil {
+		return OrgPlan{}, err
+	}
+	sc, err := o.orgParamScope(ctx, og, envKey)
+	if errors.Is(err, errs.ErrNotFound) {
+		return OrgPlan{}, errs.Conflictf("Tier %s is made by this plan; approve it first, then fill the secret.", envKey)
+	}
+	if err != nil {
+		return OrgPlan{}, err
+	}
+	if _, err := o.SetParams(ctx, sc, es); err != nil {
+		return OrgPlan{}, err
+	}
+	return o.PlanOrgConfig(ctx, orgID)
 }
 
 // removeOrgParam drops one name from an env key's scope (see putOrgParams).
