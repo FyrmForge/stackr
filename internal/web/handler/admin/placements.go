@@ -231,11 +231,17 @@ func moveChecksView(w *ui.MoveWizardView, plan service.PlacementMovePlan) *ui.Mo
 		return w
 	}
 	vals, _ := json.Marshal(map[string]string{"to": plan.To, "confirm": plan.Placement})
+	// a move leaves the old volumes on the source; a restore (the source was
+	// forgotten) or a placement with no node yet has none to keep
+	kept := "the backups"
+	if !plan.Restore && plan.From != "" {
+		kept += ", and the data on " + plan.From + " until you remove it"
+	}
 	w.Confirm = comp.ConfirmView{
 		Button:  "Move",
 		Title:   "Move " + plan.Placement + " to " + plan.To + "?",
 		Warning: "Envs stop while they move. Apps come back on " + plan.To + ".",
-		Kept:    []string{"the backups, and the data on " + plan.From + " until the move ends"},
+		Kept:    []string{kept},
 		Word:    plan.Placement,
 		Action:  plBase + "/" + plan.Placement + "/move",
 		Target:  target(),

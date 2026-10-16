@@ -63,6 +63,14 @@ func TestMoveChecksViewGatesApply(t *testing.T) {
 	if w.Envs[0].Size != "" {
 		t.Errorf("unknown size shown as %q", w.Envs[0].Size)
 	}
+	// the old volumes stay on the source; a restore's source is gone
+	if k := w.Confirm.Kept; len(k) != 1 || k[0] != "the backups, and the data on h3 until you remove it" {
+		t.Errorf("kept = %q", k)
+	}
+	restore := strings.Replace(ok, `"OK":true`, `"OK":true,"Restore":true`, 1)
+	if k := moveChecksView(&ui.MoveWizardView{}, plan(t, restore)).Confirm.Kept; len(k) != 1 || k[0] != "the backups" {
+		t.Errorf("restore kept = %q", k)
+	}
 	// the service says OK but a line failed: no Apply
 	bad := strings.Replace(ok, `"ok":true,"detail":"h4 free 12 GB"`, `"ok":false,"detail":"h4 free 1 GB, needs 9 GB"`, 1)
 	if w := moveChecksView(&ui.MoveWizardView{}, plan(t, bad)); w.OK || w.Confirm.Action != "" {
