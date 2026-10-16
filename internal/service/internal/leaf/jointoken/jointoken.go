@@ -43,23 +43,19 @@ func Hash(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Mint stores a new token for a node name, tags and the orgs the node opens
-// to (openAll, else orgIDs) and returns the token, which exists nowhere else.
-func (l *Leaf) Mint(ctx context.Context, name string, tags []string, openAll bool, orgIDs []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
+// Mint stores a new token for a node name and tags and returns the token,
+// which exists nowhere else.
+func (l *Leaf) Mint(ctx context.Context, name string, tags []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {
 		return "", store.JoinToken{}, err
 	}
 	token := Prefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
 	t, _ := json.Marshal(tags)
-	if orgIDs == nil {
-		orgIDs = []string{}
-	}
-	o, _ := json.Marshal(orgIDs)
 	now := time.Now().UTC()
 	row := store.JoinToken{
 		ID: uuid.NewString(), Hash: Hash(token), NodeName: name, Tags: string(t),
-		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(ttl), OpenToAll: openAll, OrgIDs: string(o),
+		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(ttl),
 	}
 	return token, row, l.rows.Create(ctx, row)
 }

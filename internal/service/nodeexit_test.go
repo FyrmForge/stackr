@@ -34,6 +34,7 @@ func TestEnvExits(t *testing.T) {
 	ctx := context.Background()
 	adm := nodeExitAdmin()
 	seedNode(t, n, "h4", `["egress"]`, "10.210.0.0/16")
+	h4p, w1p := addPlacement(t, n, "h4", "h4", true), addPlacement(t, n, "w1", "w1", true)
 	seedNode(t, n, "h5", `["egress"]`, "10.211.0.0/16")
 
 	dev, err := n.st.Environments.Get(ctx, n.dev.ID)
@@ -100,11 +101,11 @@ func TestEnvExits(t *testing.T) {
 	want("org beats node default", l, own, []string{"h4"}, false)
 
 	// A ladder whose rungs all lack egress is no internet, not the own uplink.
-	must(t, n.st.ExitLadders.Set(ctx, "env", n.dev.ID, []string{"w1"}))
+	must(t, n.st.ExitLadders.Set(ctx, "env", n.dev.ID, []string{w1p.ID}))
 	l, own = got(dev, ctl)
 	want("egress node, ladder of non-egress rungs", l, own, nil, false)
 	// Itself plus another exit keeps both, so the own uplink is a rung.
-	must(t, n.st.ExitLadders.Set(ctx, "env", n.dev.ID, []string{n.ctl.ID, "h4"}))
+	must(t, n.st.ExitLadders.Set(ctx, "env", n.dev.ID, []string{mustPlacement(t, n, DefaultPlacement).ID, h4p.ID}))
 	l, own = got(dev, ctl)
 	want("egress node, self then h4", l, own, []string{n.ctl.ID, "h4"}, false)
 }

@@ -3,10 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // FakeJoinNode is the fake host's join bootstrap: it mints a token, posts
@@ -42,9 +47,30 @@ func (o *Orchestrator) FakeJoinNode(ctx context.Context, name string, tags []str
 	if err := o.store.Nodes.Update(ctx, n); err != nil {
 		return JoinStatus{}, err
 	}
+	if err := o.fakePlacement(ctx, n); err != nil {
+		return JoinStatus{}, err
+	}
 	out, err := o.JoinStatus(ctx, tok.Token)
 	if err != nil {
 		return out, err
 	}
 	return out, o.refreshNodeClients(ctx)
+}
+
+// fakePlacement gives a fake worker a placement to stand on, open to all:
+// fake-a for the first, fake-b for the next.
+func (o *Orchestrator) fakePlacement(ctx context.Context, n store.Node) error {
+	ps, err := o.store.Placements.List(ctx)
+	if err != nil {
+		return err
+	}
+	taken := 0
+	for _, p := range ps {
+		if strings.HasPrefix(p.Name, "fake-") {
+			taken++
+		}
+	}
+	return o.store.Placements.Create(ctx, store.Placement{
+		ID: uuid.NewString(), Name: "fake-" + string(rune('a'+taken)), NodeID: n.ID, OpenToAll: true, CreatedAt: time.Now().UTC(),
+	})
 }

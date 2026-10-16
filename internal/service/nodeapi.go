@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -18,10 +17,12 @@ import (
 )
 
 // The API and CLI face of the node and placement verbs. Names in, names out:
-// a node is found by name, id or a unique id prefix and answered by name.
-// Nothing here owns data: node access (node_orgs), tags, removal and forget
-// are nodeadmin.go, pins, ingress picks (ingress_picks) and exit ladders are
-// placement.go; these are thin wrappers that translate and shape the answer.
+// a node (admin verbs) is found by name, id or a unique id prefix and answered
+// by name; pins, ingress picks and exit ladders take and answer placement
+// names, never node names (D3). Nothing here owns data: tags, removal and
+// forget are nodeadmin.go, pins, ingress picks (ingress_picks) and exit
+// ladders are placement.go; these are thin wrappers that translate and shape
+// the answer.
 
 const (
 	// StateNeedsRejoin marks a worker whose join command was re-issued; it
@@ -35,22 +36,22 @@ const (
 // the worker's facts and are zero when it has not reported (or is the
 // controller).
 type NodeOut struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Role      string   `json:"role"`
-	State     string   `json:"state"`
-	Tags      []string `json:"tags"`
-	Envs      int      `json:"envs"`
-	OpenToAll bool     `json:"open_to_all"` // every org may pin here; open_to lists the picks for when it is off
-	OpenTo    []string `json:"open_to"`
-	Range     string   `json:"range"`
-	WGAddress string   `json:"wg_address"`
-	CPU       int      `json:"cpu"`
-	MemTotal  uint64   `json:"mem_total"`
-	DiskFree  uint64   `json:"disk_free"`
-	DiskTotal uint64   `json:"disk_total"`
-	Docker    string   `json:"docker"`
-	Arch      string   `json:"arch"`
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Role  string   `json:"role"`
+	State string   `json:"state"`
+	Tags  []string `json:"tags"`
+	Envs  int      `json:"envs"`
+	// Placements are the names of the placements standing on the node.
+	Placements []string `json:"placements"`
+	Range      string   `json:"range"`
+	WGAddress  string   `json:"wg_address"`
+	CPU        int      `json:"cpu"`
+	MemTotal   uint64   `json:"mem_total"`
+	DiskFree   uint64   `json:"disk_free"`
+	DiskTotal  uint64   `json:"disk_total"`
+	Docker     string   `json:"docker"`
+	Arch       string   `json:"arch"`
 	// Version is the stackr build the node reported; Behind is a worker
 	// whose build is not the panel's, TooOld one the panel refuses to drive.
 	Version string `json:"version"`
@@ -71,10 +72,11 @@ type NodeVolume struct {
 
 // NodeEnvOut is an env that runs on (or ran on) a node, with its volumes.
 type NodeEnvOut struct {
-	ID      string       `json:"id"`
-	Path    string       `json:"path"` // org/stack/env
-	Org     string       `json:"org"`
-	Volumes []NodeVolume `json:"volumes"`
+	ID        string       `json:"id"`
+	Path      string       `json:"path"` // org/stack/env
+	Org       string       `json:"org"`
+	Placement string       `json:"placement"`
+	Volumes   []NodeVolume `json:"volumes"`
 }
 
 // NodeCertOut is the node's live certificate.
@@ -164,15 +166,20 @@ func (o *Orchestrator) scopePath(ctx context.Context, kind, id string) string {
 	return strings.Join(parts, "/")
 }
 
-// nodeUsable is the check before an env goes onto a node: it is online and
-// offered to the org (a server admin skips the second).
+// nodeUsable is the check before an env goes onto a node by node id (the
+// legacy node-addressed move): it is online and, unless the caller is a
+// server admin, a placement open to the org stands on it.
 func (o *Orchestrator) nodeUsable(ctx context.Context, by *Principal, n store.Node, orgID string) error {
 	if n.Status != node.StatusOnline {
 		return errs.Conflictf("%s is %s", n.Name, n.Status)
 	}
-	if _, err := o.offers(ctx, by, orgID, n.ID); err != nil {
-		og, _ := o.store.Orgs.Get(ctx, orgID)
-		return errs.Refusedf("%s is not open to %s; a server admin opens it with stackr node open %s --org %s", n.Name, og.Slug, n.Name, og.Slug)
+	if by != nil && by.Access.Admin {
+		return nil
+	}
+	if ok, err := o.nodeOpenToOrg(ctx, n.ID, orgID); err != nil {
+		return err
+	} else if !ok {
+		return errs.Refusedf("That node is not open to this organization.")
 	}
 	return nil
 }
@@ -216,7 +223,7 @@ func (o *Orchestrator) nodeEnvOut(ctx context.Context, e store.Environment) (Nod
 	if err != nil {
 		return NodeEnvOut{}, err
 	}
-	ne := NodeEnvOut{ID: e.ID, Path: og.Slug + "/" + st.Slug + "/" + e.Slug, Org: og.Slug, Volumes: []NodeVolume{}}
+	ne := NodeEnvOut{ID: e.ID, Path: og.Slug + "/" + st.Slug + "/" + e.Slug, Org: og.Slug, Placement: o.placementName(ctx, e.PlacementID), Volumes: []NodeVolume{}}
 	vs, err := o.store.Volumes.ListByScope(ctx, "env", e.ID)
 	if err != nil {
 		return ne, err
@@ -270,13 +277,18 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	if err != nil {
 		return NodeOut{}, err
 	}
-	open, err := o.store.NodeOrgs.OrgIDs(ctx, n.ID)
+	ps, err := o.store.Placements.ListByNode(ctx, n.ID)
 	if err != nil {
 		return NodeOut{}, err
 	}
+	names := make([]string, 0, len(ps))
+	for _, p := range ps {
+		names = append(names, p.Name)
+	}
+	slices.Sort(names)
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		OpenToAll: n.OpenToAll || n.Role == node.Controller, OpenTo: o.orgSlugs(ctx, open), Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{},
+		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{},
 	}
 	if !hasEgress(n) {
 		ids, err := scopeLadder(ctx, o.store, scopeNode, n.ID)
@@ -412,52 +424,6 @@ func (o *Orchestrator) TagNode(ctx context.Context, by *Principal, ref string, s
 	return o.nodeOut(ctx, n)
 }
 
-// OpenNode lets an org pin to the node (open) or stops it (close). Envs the
-// org already runs there stay.
-func (o *Orchestrator) OpenNode(ctx context.Context, by *Principal, ref, orgSlug string, open bool) (NodeOut, error) {
-	n, err := o.nodeByRef(ctx, ref)
-	if err != nil {
-		return NodeOut{}, err
-	}
-	og, err := o.store.Orgs.GetBySlug(ctx, orgSlug)
-	if err != nil {
-		return NodeOut{}, err
-	}
-	cur, err := o.store.NodeOrgs.OrgIDs(ctx, n.ID)
-	if err != nil {
-		return NodeOut{}, err
-	}
-	if open && !slices.Contains(cur, og.ID) {
-		cur = append(cur, og.ID)
-	}
-	if !open {
-		if n.OpenToAll {
-			return NodeOut{}, errs.Conflictf("%s is open to all orgs. Close it to all first, then open it to the orgs you want.", n.Name)
-		}
-		cur = slices.DeleteFunc(cur, func(id string) bool { return id == og.ID })
-	}
-	if err := o.SetNodeOrgs(ctx, by, n.ID, cur); err != nil {
-		return NodeOut{}, err
-	}
-	return o.nodeOut(ctx, n)
-}
-
-// OpenNodeAll opens the node to every org (open) or back to its own list
-// (close), by name. Envs already there stay.
-func (o *Orchestrator) OpenNodeAll(ctx context.Context, by *Principal, ref string, open bool) (NodeOut, error) {
-	n, err := o.nodeByRef(ctx, ref)
-	if err != nil {
-		return NodeOut{}, err
-	}
-	if err := o.SetNodeOpenToAll(ctx, by, n.ID, open); err != nil {
-		return NodeOut{}, err
-	}
-	if n, err = o.store.Nodes.Get(ctx, n.ID); err != nil {
-		return NodeOut{}, err
-	}
-	return o.nodeOut(ctx, n)
-}
-
 // RemoveNodeRef queues the removal of a worker with no envs left (RemoveNode
 // by name).
 func (o *Orchestrator) RemoveNodeRef(ctx context.Context, by *Principal, ref string) (Job, error) {
@@ -522,7 +488,7 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 	if _, err := o.store.JoinTokens.ExpireUnspentFor(ctx, n.Name, time.Now().UTC()); err != nil {
 		return JoinTokenOut{}, err
 	}
-	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0, true, nil) // a rejoin keeps the node's orgs
+	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0)
 	if err != nil {
 		return out, err
 	}
@@ -535,7 +501,7 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 }
 
 // LostEnvsOf are the org's envs whose node was forgotten, with their volumes
-// and newest backups.
+// and newest backups. They come back by repointing their placement (D8).
 func (o *Orchestrator) LostEnvsOf(ctx context.Context, orgSlug string) ([]NodeEnvOut, error) {
 	fs, err := o.store.ForgottenNodes.List(ctx)
 	if err != nil {
@@ -554,79 +520,6 @@ func (o *Orchestrator) LostEnvsOf(ctx context.Context, orgSlug string) ([]NodeEn
 		}
 	}
 	return out, nil
-}
-
-// RestoreOut is the re-homed env and the volumes the caller restores from
-// backups next (a volume with no RunID starts empty).
-type RestoreOut struct {
-	Env   NodeEnvOut `json:"env"`
-	Node  string     `json:"node"`
-	Tiles []string   `json:"tiles"`
-}
-
-// rehomeLostEnv puts a lost env (one whose node was forgotten) on a live node
-// the org may use and audits it; the tiles are not started.
-func (o *Orchestrator) rehomeLostEnv(ctx context.Context, by *Principal, envID, toRef string) (store.Environment, store.Node, error) {
-	e, err := o.store.Environments.Get(ctx, envID)
-	if err != nil {
-		return e, store.Node{}, err
-	}
-	fs, err := o.store.ForgottenNodes.List(ctx)
-	if err != nil {
-		return e, store.Node{}, err
-	}
-	if !slices.ContainsFunc(fs, func(f store.ForgottenNode) bool { return f.ID == e.NodeID }) {
-		return e, store.Node{}, errs.Conflictf("%s is not lost; it runs on a node that is still in the cluster (stackr env move moves it)", e.Slug)
-	}
-	to, err := o.nodeByRef(ctx, toRef)
-	if err != nil {
-		return e, to, err
-	}
-	orgID, err := o.placementOrg(ctx, ScopeEnv, envID)
-	if err != nil {
-		return e, to, err
-	}
-	if err := o.nodeUsable(ctx, by, to, orgID); err != nil {
-		return e, to, err
-	}
-	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		if err := tx.Environments.SetNode(ctx, e.ID, to.ID); err != nil {
-			return err
-		}
-		return audit(tx).Append(ctx, securitylog.Event{
-			Action: auditEnvRestore, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "env", TargetID: e.ID, Detail: "to node " + to.Name,
-		})
-	})
-	e.NodeID = to.ID
-	o.kickMesh()
-	return e, to, err
-}
-
-// RestoreEnv re-homes a lost env onto a live node: it gets the node and data
-// comes back through the volume restores that follow; the tiles start after
-// them (RestoreLostEnv, the admin screen's, deploys at once instead).
-func (o *Orchestrator) RestoreEnv(ctx context.Context, by *Principal, envID, toRef string) (RestoreOut, error) {
-	orgID, err := o.placementOrg(ctx, ScopeEnv, envID)
-	if err != nil {
-		return RestoreOut{}, err
-	}
-	if err := authz.Can(by.Access, "placement.write", authz.Resource{OrgID: orgID}); err != nil {
-		return RestoreOut{}, err
-	}
-	e, to, err := o.rehomeLostEnv(ctx, by, envID, toRef)
-	if err != nil {
-		return RestoreOut{}, err
-	}
-	ts, err := o.store.Tiles.ListByEnv(ctx, e.ID)
-	if err != nil {
-		return RestoreOut{}, err
-	}
-	ne, err := o.nodeEnvOut(ctx, e)
-	out := RestoreOut{Env: ne, Node: to.Name, Tiles: []string{}}
-	for _, t := range ts {
-		out.Tiles = append(out.Tiles, t.ID)
-	}
-	return out, err
 }
 
 // ---- cluster status ----
@@ -753,31 +646,23 @@ func (o *Orchestrator) ClusterStatus(ctx context.Context) (ClusterOut, error) {
 
 // ---- placement by name ----
 
-// PinOut is where new envs of a scope go; Node is "" with no pin.
+// PinOut is where new envs of a scope go; Placement is "" with no pin.
 type PinOut struct {
-	Scope string `json:"scope"`
-	Node  string `json:"node"`
+	Scope     string `json:"scope"`
+	Placement string `json:"placement"`
 }
 
-// PinNode pins an org or stack to a node, so its new envs go there; ref ""
-// clears the pin. Envs already made stay where they are.
+// PinNode pins an org, stack or env to a placement by name; ref "" clears the
+// pin. An env pin that moves the env fails with *MoveNeeded (D4).
 func (o *Orchestrator) PinNode(ctx context.Context, by *Principal, kind, id, ref string) (PinOut, error) {
-	nid := ""
-	if ref != "" {
-		n, err := o.nodeByRef(ctx, ref)
-		if err != nil {
-			return PinOut{}, err
-		}
-		nid = n.ID
-	}
-	if err := o.SetPin(ctx, by, kind, id, nid); err != nil {
+	if err := o.SetPin(ctx, by, kind, id, ref); err != nil {
 		return PinOut{}, err
 	}
 	return o.PinOf(ctx, kind, id)
 }
 
-// PinOf answers where new envs of an org or stack go: its own pin, else the
-// one above it.
+// PinOf answers where new envs of an org or stack go (its own pin, else the
+// one above it), or the placement an env belongs to.
 func (o *Orchestrator) PinOf(ctx context.Context, kind, id string) (PinOut, error) {
 	ch, og, err := o.chain(ctx, kind, id)
 	if err != nil {
@@ -785,85 +670,91 @@ func (o *Orchestrator) PinOf(ctx context.Context, kind, id string) (PinOut, erro
 	}
 	out := PinOut{Scope: o.scopePath(ctx, kind, id)}
 	for _, c := range ch {
-		var nid *string
+		var pin *string
 		switch c.kind {
+		case ScopeEnv:
+			e, err := o.store.Environments.Get(ctx, c.id)
+			if err != nil {
+				return out, err
+			}
+			if e.PlacementID != "" {
+				out.Placement = o.placementName(ctx, e.PlacementID)
+				return out, nil
+			}
 		case ScopeStack:
 			st, err := o.store.Stacks.Get(ctx, c.id)
 			if err != nil {
 				return out, err
 			}
-			if nid, err = o.pinNode(ctx, st.PlacementID); err != nil {
-				return out, err
-			}
+			pin = st.PlacementID
 		case ScopeOrg:
-			if nid, err = o.pinNode(ctx, og.PlacementID); err != nil {
-				return out, err
-			}
+			pin = og.PlacementID
 		}
-		if nid != nil {
-			out.Node = o.nodeName(ctx, *nid)
+		if pin != nil {
+			out.Placement = o.placementName(ctx, *pin)
 			return out, nil
 		}
 	}
 	return out, nil
 }
 
-// NodeForNewEnv is the node id a new env is asked to run on (--node); the org
-// must have it open.
-func (o *Orchestrator) NodeForNewEnv(ctx context.Context, by *Principal, stackID, ref string) (string, error) {
-	n, err := o.nodeByRef(ctx, ref)
-	if err != nil {
-		return "", err
-	}
+// PlacementForNewEnv is the placement id a new env is asked to belong to
+// (--placement); the org must have it open, and a placement with a node needs
+// that node online.
+func (o *Orchestrator) PlacementForNewEnv(ctx context.Context, by *Principal, stackID, name string) (string, error) {
 	orgID, err := o.placementOrg(ctx, ScopeStack, stackID)
 	if err != nil {
 		return "", err
 	}
-	return n.ID, o.nodeUsable(ctx, by, n, orgID)
+	p, err := o.offers(ctx, by, orgID, name)
+	if err != nil {
+		return "", err
+	}
+	if st, err := o.nodeStateOf(ctx, p); err != nil {
+		return "", err
+	} else if st.HasNode && !st.Online {
+		return "", errs.Conflictf("%s is offline.", p.Name)
+	}
+	return p.ID, nil
 }
 
-// IngressOut is the ingress node of a scope and where that came from.
+// IngressOut is the ingress placement of a scope and where that came from.
+// Placement is "cluster default" when nothing is picked and the env's own
+// node is not an ingress.
 type IngressOut struct {
-	Scope string `json:"scope"`
-	Node  string `json:"node"`
-	From  string `json:"from"` // the scope that set it, or "default"
+	Scope     string `json:"scope"`
+	Placement string `json:"placement"`
+	From      string `json:"from"` // the scope that set it, or "default"
 }
 
 // IngressGet is the effective ingress of a scope: the nearest pick up the
-// chain, else the default (the controller).
+// chain, else the env's own placement when its node is tagged ingress, else
+// the cluster default.
 func (o *Orchestrator) IngressGet(ctx context.Context, kind, id string) (IngressOut, error) {
+	v := PlacementView{Kind: kind, ID: id}
 	ch, _, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return IngressOut{}, err
 	}
-	out := IngressOut{Scope: o.scopePath(ctx, kind, id), From: "default"}
+	if err := o.ingressView(ctx, &v, ch); err != nil {
+		return IngressOut{}, err
+	}
+	out := IngressOut{Scope: o.scopePath(ctx, kind, id), Placement: v.IngressName, From: "default"}
 	for _, c := range ch {
-		pick, err := o.ingressPick(ctx, c.kind, c.id)
-		if err != nil {
+		if pick, err := o.ingressPick(ctx, c.kind, c.id); err != nil {
 			return out, err
-		}
-		if pick != "" {
-			out.Node, out.From = o.nodeName(ctx, pick), o.scopePath(ctx, c.kind, c.id)
-			return out, nil
+		} else if pick != "" {
+			out.From = o.scopePath(ctx, c.kind, c.id)
+			break
 		}
 	}
-	di, err := o.DefaultIngress(ctx)
-	out.Node = o.nodeName(ctx, di)
-	return out, err
+	return out, nil
 }
 
-// IngressSet picks the ingress node of a scope; ref "" clears the pick so the
-// scope inherits again.
+// IngressSet picks the ingress placement of a scope; ref "" clears the pick
+// so the scope inherits again.
 func (o *Orchestrator) IngressSet(ctx context.Context, by *Principal, kind, id, ref string) (IngressOut, error) {
-	nid := ""
-	if ref != "" {
-		n, err := o.nodeByRef(ctx, ref)
-		if err != nil {
-			return IngressOut{}, err
-		}
-		nid = n.ID
-	}
-	if err := o.SetIngress(ctx, by, kind, id, nid); err != nil {
+	if err := o.SetIngress(ctx, by, kind, id, ref); err != nil {
 		return IngressOut{}, err
 	}
 	return o.IngressGet(ctx, kind, id)
@@ -871,9 +762,9 @@ func (o *Orchestrator) IngressSet(ctx context.Context, by *Principal, kind, id, 
 
 // ExitRungOut is one exit in a scope's list.
 type ExitRungOut struct {
-	Position int    `json:"position"`
-	Node     string `json:"node"`
-	State    string `json:"state"` // in use | standby | down | "" when unknown
+	Position  int    `json:"position"`
+	Placement string `json:"placement"`
+	State     string `json:"state"` // in use | standby | down | "" when unknown
 }
 
 // ExitOut is the exit list of a scope. An empty list means the env's own node.
@@ -906,27 +797,15 @@ func (o *Orchestrator) ExitGet(ctx context.Context, kind, id string) (ExitOut, e
 		}
 	}
 	for i, r := range v.Rungs {
-		out.Exits = append(out.Exits, ExitRungOut{Position: i + 1, Node: r.Name, State: r.State})
+		out.Exits = append(out.Exits, ExitRungOut{Position: i + 1, Placement: r.Name, State: r.State})
 	}
 	return out, nil
 }
 
-// ExitSet replaces the scope's exit list (names; "own" is the env's own
-// uplink); none clears it.
+// ExitSet replaces the scope's exit list (placement names; "own" is the env's
+// own uplink); none clears it.
 func (o *Orchestrator) ExitSet(ctx context.Context, by *Principal, kind, id string, refs []string) (ExitOut, error) {
-	ids := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		if ref == OwnRung {
-			ids = append(ids, OwnRung)
-			continue
-		}
-		n, err := o.nodeByRef(ctx, ref)
-		if err != nil {
-			return ExitOut{}, err
-		}
-		ids = append(ids, n.ID)
-	}
-	if err := o.SetExits(ctx, by, kind, id, ids); err != nil {
+	if err := o.SetExits(ctx, by, kind, id, refs); err != nil {
 		return ExitOut{}, err
 	}
 	return o.ExitGet(ctx, kind, id)

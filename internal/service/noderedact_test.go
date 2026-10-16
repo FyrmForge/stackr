@@ -10,7 +10,7 @@ import (
 // through the node and cluster views.
 func TestRedactedHidesOtherOrgs(t *testing.T) {
 	n := NodeOut{
-		Name: "w1", OpenTo: []string{"orgb"}, DefaultExit: []string{"exitb"},
+		Name: "w1", Placements: []string{"orgb-place"}, DefaultExit: []string{"exitb"},
 		Range: "10.9.0.0/24", WGAddress: "10.9.0.1", Version: "v0.6.9", Arch: "arm64",
 		Docker: "27.1", Behind: true, CPU: 8, MemTotal: 1, DiskFree: 2, DiskTotal: 3,
 	}
@@ -29,7 +29,7 @@ func TestRedactedHidesOtherOrgs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, bad := range []string{"orgb", "exitb", "10.9.", "v0.6.9", "arm64", "27.1", "192.168", "1.2.3.4", `"behind":true`, `"disk_total":3`} {
+		for _, bad := range []string{"orgb", "orgb-place", "exitb", "10.9.", "v0.6.9", "arm64", "27.1", "192.168", "1.2.3.4", `"behind":true`, `"disk_total":3`} {
 			if strings.Contains(string(b), bad) {
 				t.Errorf("%T leaks %q: %s", v, bad, b)
 			}
