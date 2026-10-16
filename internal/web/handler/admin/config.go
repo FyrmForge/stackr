@@ -2,12 +2,16 @@ package admin
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -43,6 +47,7 @@ func (h *handler) mountConfig(g *echo.Group, a *middleware.Access) {
 		j, err := h.orch.ApproveServerPlan(c.Request().Context(), c.Param("plan"), opts)
 		return "Approved: the apply is queued.", &j, err
 	}), approve)
+	g.POST(b+"/gaps/secret", h.fillSecret, a.Require("serverparams.write"))
 	g.POST(b+"/plans/:plan/reject", h.act("config", func(c echo.Context) (string, *service.Job, error) {
 		_, err := h.orch.RejectServerPlan(c.Request().Context(), c.Param("plan"))
 		return "Plan rejected.", nil, err
@@ -117,6 +122,9 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 	case latest.Status == "applied":
 		box.Review.Done, box.Review.Ticked = true, latest.Ticked
 	case latest.Status == "pending":
+		for _, g := range pl.Gaps {
+			box.Review.Plan.Gaps = append(box.Review.Plan.Gaps, gapView(g.Kind, g.Key, g.Tags))
+		}
 		box.Review.Reject = ui.Base + "/config/plans/" + latest.ID + "/reject"
 		if !pl.Blocked() {
 			box.Review.Approve = ui.Base + "/config/plans/" + latest.ID + "/approve"
@@ -135,4 +143,50 @@ func planRow(p service.ServerPlan) comp.PlanRow {
 		Source:  p.Source,
 		Error:   p.Error,
 	}
+}
+
+// gapView is one gap of the server plan as the plan draws it. A secret gets
+// the field that posts to fillSecret; a node, the prefilled Add node link.
+func gapView(kind, key string, tags []string) comp.GapView {
+	if kind == "node" {
+		label := "Node " + key
+		if len(tags) > 0 {
+			label += " (" + strings.Join(tags, ", ") + ")"
+		}
+		q := url.Values{"name": {key}, "tags": {strings.Join(tags, ",")}}
+		return comp.GapView{Kind: kind, Label: label, AddNode: nodesBase + "/add?" + q.Encode()}
+	}
+	return comp.GapView{Kind: kind, Label: "Server secret " + key, Field: "secret." + key, Post: ui.Base + "/config/gaps/secret"}
+}
+
+// POST /-/admin/config/gaps/secret (secret.<collection>.<name>): saves the
+// value on the server scope, then plans the bound file again so the gap
+// closes. A panel with no bound file only saves.
+func (h *handler) fillSecret(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	var es []service.ParamEntry
+	for _, e := range render.ParamEntries(form) {
+		// the plan fills secrets only; an empty value would keep nothing
+		if e.Kind == "secret" && e.Value != "" {
+			es = append(es, e)
+		}
+	}
+	if len(es) == 0 {
+		return h.answer(c, "config", "", extra{}, errs.Invalidf("value", "enter the value"))
+	}
+	ctx := c.Request().Context()
+	if _, err := h.orch.SetParams(ctx, service.ServerParamScope, es); err != nil {
+		return h.answer(c, "config", "", extra{}, err)
+	}
+	if b, err := h.orch.ServerConfigBinding(ctx); err != nil || b.Repo == "" {
+		return h.answer(c, "config", "Saved. Plan the file again to close the gap.", extra{}, err)
+	}
+	p, err := h.orch.PlanServerConfig(ctx)
+	if err != nil {
+		return h.answer(c, "config", "", extra{}, err)
+	}
+	return h.answer(c, "config", "Saved and planned: "+p.Summary+".", extra{}, nil)
 }
