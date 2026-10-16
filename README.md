@@ -35,11 +35,10 @@ names whatever is missing.
 - **Free ports**, checked on a first install:
   - UDP 51871, the mesh's WireGuard (`--wg-port` to pick another; stackr's
     interface is `stackr0`, so a VPN on `wg0`/51820 is left alone).
-  - Controller: TCP 80 and 443 (`--http-port`, `--https-port`), TCP
-    127.0.0.1:5000 (the image registry).
-  - Worker: TCP 7443 (worker API, tunnel only), TCP 7444 (liveness, public),
-    TCP 127.0.0.1:5000 (registry front). An ingress worker also needs TCP 80
-    and 443; tagging it ingress refuses while something else holds them.
+  - Controller: TCP 80 and 443 (`--http-port`, `--https-port`).
+  - Worker: TCP 7443 (worker API, tunnel only), TCP 7444 (liveness, public).
+    An ingress worker also needs TCP 80 and 443; tagging it ingress refuses
+    while something else holds them.
   - Exit links use UDP 52000 to 52255 and a relay node UDP 52300 and up,
     one port per pair, only while one is set up.
 - **Address ranges stackr reserves.** A box whose networks overlap them

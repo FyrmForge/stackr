@@ -35,16 +35,16 @@ The panel is the controller: the web UI, the API and the first node. One box run
      --admin-email you@example.com
    ```
 
-3. Add the two DNS records the installer prints, both pointing at this box's public IP.
+3. Save the recovery passphrase the installer prints. It is shown once. It opens the panel's own backups, and a restore on another box needs it.
+
+4. With HTTPS (the default), add the two DNS records the installer prints, both pointing at this box's public IP.
 
    ```
    stkr.apps.example.com   A   <public IP>
    *.apps.example.com      A   <public IP>
    ```
 
-   The second one is needed. Every stack gets a name under the domain, and each name must resolve before a certificate can be issued.
-
-4. Save the recovery passphrase the installer prints. It is shown once. It opens the panel's own backups, and a restore on another box needs it.
+   The second one is needed. Every stack gets a name under the domain, and each name must resolve before a certificate can be issued. With `--https=false` the installer prints no records; point the same names at the box yourself.
 
 5. The installer logs the CLI on this box in as the admin, so `stackr` works there straight away, server admin commands included. The key is never printed. See [Log the CLI in](nodes.md#log-the-cli-in).
 
@@ -56,7 +56,8 @@ Flags you may want:
 | `--panel-host` | The panel's own name. Default `stkr.<domain>`. |
 | `--email` | ACME contact address. Required with HTTPS. |
 | `--admin-email` | The first admin. |
-| `--https=false` | Serve plain HTTP. |
+| `--https=false` | Serve plain HTTP. The panel is then on `http://`. |
+| `--proxy` | CDN or load balancer ranges (for example Cloudflare's) whose X-Forwarded-For is trusted. |
 | `--dns-token` | Cloudflare API token, for wildcard certificates through DNS-01. |
 | `--http-port`, `--https-port` | Host ports. Defaults 80 and 443. |
 | `--wg-port` | UDP port of the mesh. Default 51871. |
@@ -68,7 +69,7 @@ Running the installer again converges on the saved answers. A flag that disagree
 
 ## Check it
 
-1. Open `https://stkr.apps.example.com` (your own domain).
+1. Open `https://stkr.apps.example.com` (your own domain; `http://` with `--https=false`).
 2. Log in with the admin email and password.
 
 Until DNS is live there is no browser route in, because the panel publishes no port. The installer also put a `stackr` command on the box. It works without DNS:
