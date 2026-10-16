@@ -94,7 +94,7 @@ templ runsOn(v View) {
 		}
 		<form hx-post={ v.Base + "/pin" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="runs-on" class="sr-only">Runs on</label>
-			<select id="runs-on" name="placement" class="input w-auto" disabled?={ !v.editable() }>
+			<select id="runs-on" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
 				if v.Scope != "env" {
 					<option value="" selected?={ v.Pin == "" }>Inherit</option>
 				}
@@ -166,7 +166,7 @@ templ ingress(v View) {
 	@c.Section("Ingress", v.Scope, "") {
 		<form hx-post={ v.Base + "/ingress" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="ingress-node" class="sr-only">Ingress</label>
-			<select id="ingress-node" name="placement" class="input w-auto" disabled?={ !v.editable() }>
+			<select id="ingress-node" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
 				<option value="" selected?={ v.Ingress == "" }>Inherit</option>
 				for _, n := range v.IngressOpts {
 					<option value={ n.ID } selected?={ n.ID == v.Ingress }>{ n.Name + n.Hint }</option>
@@ -232,7 +232,7 @@ templ exits(v View) {
 		if v.editable() && (len(v.Spare) > 0 || !v.OwnListed) {
 			<form hx-post={ v.Base + "/exits/add" } hx-target={ target() } hx-swap="outerHTML" class="mt-3 flex flex-wrap items-center gap-2">
 				<label for="exit-add" class="sr-only">Add exit</label>
-				<select id="exit-add" name="placement" class="input w-auto">
+				<select id="exit-add" name="placement" class="input w-auto max-w-full">
 					for _, n := range v.Spare {
 						<option value={ n.ID }>{ n.Name + n.Hint }</option>
 					}

@@ -258,7 +258,7 @@ func runsOn(v View) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" hx-swap=\"outerHTML\" class=\"flex flex-wrap items-center gap-2\"><label for=\"runs-on\" class=\"sr-only\">Runs on</label> <select id=\"runs-on\" name=\"placement\" class=\"input w-auto\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" hx-swap=\"outerHTML\" class=\"flex flex-wrap items-center gap-2\"><label for=\"runs-on\" class=\"sr-only\">Runs on</label> <select id=\"runs-on\" name=\"placement\" class=\"input w-auto max-w-full\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -560,7 +560,7 @@ func ingress(v View) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" hx-swap=\"outerHTML\" class=\"flex flex-wrap items-center gap-2\"><label for=\"ingress-node\" class=\"sr-only\">Ingress</label> <select id=\"ingress-node\" name=\"placement\" class=\"input w-auto\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" hx-swap=\"outerHTML\" class=\"flex flex-wrap items-center gap-2\"><label for=\"ingress-node\" class=\"sr-only\">Ingress</label> <select id=\"ingress-node\" name=\"placement\" class=\"input w-auto max-w-full\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -951,7 +951,7 @@ func exits(v View) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "\" hx-swap=\"outerHTML\" class=\"mt-3 flex flex-wrap items-center gap-2\"><label for=\"exit-add\" class=\"sr-only\">Add exit</label> <select id=\"exit-add\" name=\"placement\" class=\"input w-auto\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "\" hx-swap=\"outerHTML\" class=\"mt-3 flex flex-wrap items-center gap-2\"><label for=\"exit-add\" class=\"sr-only\">Add exit</label> <select id=\"exit-add\" name=\"placement\" class=\"input w-auto max-w-full\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
