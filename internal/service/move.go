@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -186,18 +185,16 @@ func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Resul
 	return res, nil
 }
 
-// MoveEnv (org owner; the target must be open to the org) moves an env to
-// another node as a job: cold (stop, copy, start) or live (rsync while it
-// runs, then stop and a checksum pass).
+// MoveEnv moves an env to another node as a job: cold (stop, copy, start) or
+// live (rsync while it runs, then stop and a checksum pass). Who may is the
+// route's middleware (placement.write); placement repoints and pin changes
+// go through placementmove.go instead.
 func (o *Orchestrator) MoveEnv(ctx context.Context, by *Principal, envID, toNode string, live bool) (Job, error) {
 	if by == nil {
 		return Job{}, errs.ErrRefused
 	}
 	orgID, err := o.placementOrg(ctx, ScopeEnv, envID)
 	if err != nil {
-		return Job{}, err
-	}
-	if err := authz.Can(by.Access, "placement.write", authz.Resource{OrgID: orgID}); err != nil {
 		return Job{}, err
 	}
 	from, err := o.nodeOfEnvID(ctx, envID)
@@ -277,6 +274,11 @@ func (o *Orchestrator) runMove(ctx context.Context, r *jobs.Run, p moveJob) erro
 	}
 	if err == nil && m.Phase == move.Done {
 		err = o.relinkMoved(ctx, m.EnvID, m.FromNode, m.ToNode)
+	}
+	if m.PlacementMoveID != nil && (m.Phase == move.Done || m.Phase == move.RolledBack) {
+		if serr := o.placementMoveSettle(ctx, *m.PlacementMoveID, &m); serr != nil {
+			slog.Warn("move: placement move not settled", "move", m.ID, "err", serr)
+		}
 	}
 	return err
 }
