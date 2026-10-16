@@ -365,7 +365,8 @@ func (o *Orchestrator) pinView(ctx context.Context, v *PlacementView, ch []scope
 	return nil
 }
 
-// envsUnder is every env of the org or stack.
+// envsUnder is every env the org or stack pin covers: an org pin skips
+// the stacks with a pin of their own, as the org file plan does.
 func (o *Orchestrator) envsUnder(ctx context.Context, kind, id string) ([]store.Environment, error) {
 	sts := []store.Stack{{ID: id}}
 	if kind == ScopeOrg {
@@ -376,6 +377,9 @@ func (o *Orchestrator) envsUnder(ctx context.Context, kind, id string) ([]store.
 	}
 	var out []store.Environment
 	for _, st := range sts {
+		if kind == ScopeOrg && st.PlacementID != nil {
+			continue
+		}
 		es, err := o.store.Environments.ListByStack(ctx, st.ID)
 		if err != nil {
 			return nil, err

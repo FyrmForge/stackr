@@ -518,3 +518,21 @@ func TestMemberViewHoldsNoNodeName(t *testing.T) {
 		t.Errorf("offered placements = %v", names)
 	}
 }
+
+// An org pin covers only the stacks without a pin of their own, so a volume
+// env in a pinned stack does not stop the org pinning to a node without
+// storage (the org file plan skips those stacks too).
+func TestOrgPinSkipsPinnedStacks(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	addPlacement(t, n, "plain", "w1", true) // w1 has no tags
+	must(t, n.st.Volumes.Create(ctx, store.Volume{ID: "v1", ScopeKind: "env", ScopeID: n.dev.ID, Slug: "data", Name: "dev-data", CreatedAt: time.Now()}))
+	if err := n.orch.SetPin(ctx, adm, ScopeOrg, acmeID(t, n), "plain"); err == nil {
+		t.Fatal("pinned the org over an unpinned volume env to a node without storage")
+	}
+	must(t, n.orch.SetPin(ctx, adm, ScopeStack, n.stack, DefaultPlacement))
+	if err := n.orch.SetPin(ctx, adm, ScopeOrg, acmeID(t, n), "plain"); err != nil {
+		t.Errorf("org pin with every stack pinned = %v", err)
+	}
+}
