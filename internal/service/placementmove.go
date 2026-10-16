@@ -176,16 +176,21 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 	}
 
 	// target online
-	if o.nodeUp(ctx, to) != nil {
+	toUp := o.nodeUp(ctx, to) == nil
+	if !toUp {
 		add("target online", false, toName+" is offline")
 	} else {
 		add("target online", true, toName+" is online")
 	}
 
-	// mesh link
+	// mesh link: a measure of a link with an end down is stale
 	switch {
 	case noSource:
 		add("mesh link", true, "no source node to reach")
+	case !toUp:
+		add("mesh link", false, "needs "+toName+" online")
+	case o.nodeUp(ctx, from) != nil:
+		add("mesh link", false, "needs "+nm.label(from)+" online")
 	case o.mesh == nil:
 		add("mesh link", true, "mesh not running")
 	default:
@@ -211,7 +216,7 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 	}
 
 	// disk
-	ok, detail := o.pmDisk(ctx, from, to, noSource, vols, nm)
+	ok, detail := o.pmDisk(ctx, from, to, from == "", forgotten, vols, nm)
 	add("disk", ok, detail)
 
 	// memory
@@ -252,24 +257,43 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 	return out, nil
 }
 
-// pmDisk: the target's free disk against the volumes' sizes plus 10%. A size
-// or a disk that cannot be read is a detail, never a failure.
-func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, noSource bool, vols []store.Volume, nm pmNames) (bool, string) {
-	if len(vols) == 0 {
+// pmDisk: the target's free disk against the volumes' sizes plus 10%. A
+// restore sizes each volume by its newest backup and fails on a volume that
+// has none. A size or a disk that cannot be read is a detail, never a failure.
+func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, restore bool, vols []store.Volume, nm pmNames) (bool, string) {
+	switch {
+	case len(vols) == 0:
 		return true, "no volumes"
-	}
-	if noSource {
-		return true, "restored from backups"
+	case waiting:
+		return true, "no data yet: the envs wait for a node"
 	}
 	var total uint64
 	unknown := 0
+	var bare []string
 	for _, v := range vols {
+		if restore {
+			r, err := o.newestBackup(ctx, v.ID)
+			switch {
+			case err != nil:
+				return false, err.Error()
+			case r == nil:
+				bare = append(bare, v.Slug)
+			case r.SizeBytes > 0:
+				total += uint64(r.SizeBytes)
+			default:
+				unknown++
+			}
+			continue
+		}
 		info, err := o.docker.InspectVolume(docker.WithNode(ctx, from), v.Name)
 		if err != nil || info.SizeBytes < 0 {
 			unknown++
 			continue
 		}
 		total += uint64(info.SizeBytes)
+	}
+	if len(bare) > 0 {
+		return false, "no backup to restore of " + strings.Join(bare, ", ")
 	}
 	free, disk := o.diskOf(ctx, to)
 	if free == 0 && disk == 0 {
@@ -608,15 +632,9 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 		return Job{}, err
 	}
 	for _, v := range vs {
-		runs, err := o.store.BackupRuns.ListByVolume(ctx, v.ID)
+		newest, err := o.newestBackup(ctx, v.ID)
 		if err != nil {
 			return Job{}, err
-		}
-		var newest *store.BackupRun
-		for i, r := range runs {
-			if r.Status == backup.Done && (newest == nil || r.CreatedAt.After(newest.CreatedAt)) {
-				newest = &runs[i]
-			}
 		}
 		if newest == nil {
 			continue
@@ -630,6 +648,21 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 		*warn = append(*warn, err)
 	}
 	return first, nil
+}
+
+// newestBackup is the volume's newest finished backup run, nil when it has none.
+func (o *Orchestrator) newestBackup(ctx context.Context, volumeID string) (*store.BackupRun, error) {
+	runs, err := o.store.BackupRuns.ListByVolume(ctx, volumeID)
+	if err != nil {
+		return nil, err
+	}
+	var newest *store.BackupRun
+	for i, r := range runs {
+		if r.Status == backup.Done && (newest == nil || r.CreatedAt.After(newest.CreatedAt)) {
+			newest = &runs[i]
+		}
+	}
+	return newest, nil
 }
 
 // pmDeployEnv queues a deploy of every tile of the env, dependencies first,
