@@ -421,7 +421,7 @@ func (a *app) envLost() *cobra.Command {
 // server rehomes each env and restores its volumes from the backups.
 func (a *app) envRestore() *cobra.Command {
 	var placement, to string
-	c := waits(leaf("restore", "admin.placement-move-plan,admin.placement-move", "Bring a placement's lost envs back from their backups on a live node (server admin)", exact(0),
+	c := waits(leaf("restore", "admin.placement-move-plan,admin.placement-move,admin.placement-move-status", "Bring a placement's lost envs back from their backups on a live node (server admin)", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			if placement == "" || to == "" {
 				return usage("--placement <name> and --to <node> are required; stackr env lost lists the lost envs")
@@ -447,7 +447,7 @@ func (a *app) envRestore() *cobra.Command {
 			if err := a.confirm(fmt.Sprintf("Restore placement %s on %s? Each env is brought back from its last backup; data written since is lost.", placement, to)); err != nil {
 				return err
 			}
-			return a.job(c, "/admin", POST, placementPath(placement)+"/move", map[string]string{"to": to, "confirm": placement}, "restore of "+placement)
+			return a.followMove(c, placement, placementPath(placement)+"/move", map[string]string{"to": to, "confirm": placement})
 		}))
 	c.Example = "  stackr env restore --placement eu-db --to h5"
 	c.Flags().StringVar(&placement, "placement", "", "the placement whose node was forgotten")

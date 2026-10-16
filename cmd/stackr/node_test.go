@@ -489,13 +489,13 @@ func TestEnvLostRestore(t *testing.T) {
 	}
 	// a restore is a repoint off a forgotten node: the server restores the volumes
 	const plan = `{"placement":"eu-db","from":"h3","to":"h5","restore":true,"envs":[{"path":"acme/api/dev","volumes":2,"bytes":-1,"downtime":"about 1 min"}],"checks":[{"name":"target online","ok":true}],"ok":true}`
-	r := fake(t, map[string]string{"/move-plan": plan, "/move": `{}`})
+	r := fake(t, map[string]string{"/move-plan": plan, "/move": `{"state":"done","from":"h3","to":"h5","done":1,"all":1}`})
 	args := []string{"env", "restore", "--placement", "eu-db", "--to", "h5"}
 	if code, out, errw = cli(t, args...); code != 3 || !strings.Contains(out, "Restore from backups eu-db") || !strings.Contains(errw, "Restore placement eu-db on h5?") || len(writes(r)) != 0 {
 		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
 	}
-	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 {
-		t.Fatalf("-y = %d %q", code, errw)
+	if code, out, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 || !strings.Contains(out, "eu-db: done to h5, 1 of 1 envs moved") {
+		t.Fatalf("-y = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-db/move {"confirm":"eu-db","to":"h5"}` {
 		t.Errorf("writes = %v", w)
