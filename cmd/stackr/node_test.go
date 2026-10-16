@@ -94,14 +94,17 @@ func TestNodeReject(t *testing.T) {
 }
 
 func TestNodeLs(t *testing.T) {
-	list := `[` + nodeJSON + `,{"id":"n2","name":"nas","role":"worker","state":"pending","tags":[],"envs":0,"cpu":0,"mem_total":0,"disk_free":0,"docker":""}]`
-	fake(t, map[string]string{"/nodes": list})
+	// /nodes never lists a pending node: a waiting worker is a join request.
+	pend := `[{"node_id":"n2","name":"nas","tags":["builder"],"facts":{"cpus":4,"mem_bytes":8589934592},"requested_at":"2026-10-16T10:00:00Z"}]`
+	fake(t, map[string]string{"/nodes": `[` + nodeJSON + `]`, "/admin/join-requests": pend})
 	code, out, errw := cli(t, "node", "ls")
-	if code != 0 || !strings.Contains(out, "vps-fsn1\tworker\tonline\tingress,egress\t2\t2\t4.0 GB\t71 GB\t29.9.0") || !strings.Contains(out, "nas\t") {
+	if code != 0 || !strings.Contains(out, "vps-fsn1\tworker\tonline\tingress,egress\t2\t2\t4.0 GB\t71 GB\t29.9.0") || strings.Contains(out, "nas") {
 		t.Fatalf("ls = %d %q %q", code, out, errw)
 	}
-	if _, out, _ = cli(t, "node", "ls", "--pending"); strings.Contains(out, "vps-fsn1") || !strings.Contains(out, "nas") {
-		t.Errorf("--pending = %q", out)
+	for _, args := range [][]string{{"node", "ls", "--pending"}, {"node", "ls", "--state", "pending"}} {
+		if _, out, _ = cli(t, args...); strings.Contains(out, "vps-fsn1") || !strings.Contains(out, "nas\tbuilder\t4\t8.0 GB\t2026-10-16T10:00:00Z") {
+			t.Errorf("%v = %q", args, out)
+		}
 	}
 	if _, out, _ = cli(t, "node", "ls", "--state", "online"); strings.Contains(out, "nas") || !strings.Contains(out, "vps-fsn1") {
 		t.Errorf("--state = %q", out)

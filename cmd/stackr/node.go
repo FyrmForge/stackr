@@ -225,9 +225,9 @@ func stateWord(s string) string {
 func (a *app) nodeLs() *cobra.Command {
 	var state string
 	var pend bool
-	c := leaf("ls", "node.list", "List nodes", exact(0), func(*cobra.Command, []string) error {
-		if pend {
-			state = "pending"
+	c := leaf("ls", "node.list,admin.join-requests", "List nodes", exact(0), func(*cobra.Command, []string) error {
+		if pend || state == "pending" {
+			return a.pendingLs()
 		}
 		v, err := a.call(GET, "/nodes", nil)
 		if err != nil {
@@ -260,6 +260,29 @@ func (a *app) nodeLs() *cobra.Command {
 	c.Flags().StringVar(&state, "state", "", "only nodes in this state (online, pending, ...)")
 	c.Flags().BoolVar(&pend, "pending", false, "only nodes waiting for stackr node confirm")
 	return c
+}
+
+// pendingLs lists the workers waiting for confirm. They are join requests,
+// not nodes yet: /nodes, like the panel's list, leaves them out.
+func (a *app) pendingLs() error {
+	v, err := a.call(GET, "/admin/join-requests", nil)
+	if err != nil {
+		return err
+	}
+	rows := asList(v)
+	if a.json {
+		return a.show(rows)
+	}
+	for _, r := range rows {
+		m := asMap(r)
+		facts := asMap(m["facts"])
+		m["tags"] = strings.Join(strs(m["tags"]), ",")
+		m["cpu"], m["mem"] = facts["cpus"], gb(facts["mem_bytes"])
+		if num(m["cpu"]) == 0 {
+			m["cpu"] = "-"
+		}
+	}
+	return a.show(rows, "name", "tags", "cpu", "mem", "requested_at")
 }
 
 func (a *app) nodeShow() *cobra.Command {
