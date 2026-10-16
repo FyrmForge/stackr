@@ -1323,6 +1323,106 @@
         ],
         "type": "object"
       },
+      "EnvOut": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "base_env_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "color": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "from_branch": {
+            "type": "string"
+          },
+          "from_kind": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "placement": {
+            "type": "string"
+          },
+          "placement_id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "stack_id": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stack_id",
+          "name",
+          "slug",
+          "type",
+          "settings",
+          "color",
+          "position",
+          "network",
+          "from_kind",
+          "from_branch",
+          "auto",
+          "created_at",
+          "locked",
+          "node_id",
+          "subnet",
+          "placement_id",
+          "placement"
+        ],
+        "type": "object"
+      },
       "EnvPairsIn": {
         "properties": {
           "env_pairs": {
@@ -14000,7 +14100,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Environment"
+                    "$ref": "#/components/schemas/EnvOut"
                   },
                   "type": "array"
                 }
@@ -14056,7 +14156,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -14204,7 +14304,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -14268,7 +14368,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -14498,7 +14598,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -14861,7 +14961,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -15551,7 +15651,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -18983,7 +19083,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Environment"
+                    "$ref": "#/components/schemas/EnvOut"
                   },
                   "type": "array"
                 }

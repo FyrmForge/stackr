@@ -335,7 +335,7 @@ func (a *app) exits() *cobra.Command {
 				a.say("%s: goes out through its own placement (no exit list)", cell(m["scope"]))
 				return nil
 			}
-			return a.show(m["exits"], "position", "node", "state") // node here is a placement name
+			return a.show(m["exits"], "position", "placement", "state")
 		})
 	ls.Example = "  stackr exit ls --stack shop --env prod"
 	set := leaf("set [placement]...", "org.exits-set,stack.exits-set,env.exits-set,tile.exits-set,admin.default-exit-set", "Set the ordered exit list of a scope: placements, or own for the env's own", atLeast(0),
@@ -388,7 +388,7 @@ func (a *app) envLs() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.show(v, "slug", "name", "type", "from_kind", "from_branch", "auto", "release_id", "id")
+			return a.show(v, "slug", "name", "type", "placement", "from_kind", "from_branch", "auto", "release_id", "id")
 		}))
 }
 

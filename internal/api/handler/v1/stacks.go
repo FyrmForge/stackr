@@ -170,29 +170,59 @@ func (h *H) EnvSync() Endpoint {
 
 // ---- envs ----
 
+// EnvOut is an env as the API shows it: its placement by name, and no node
+// (D3: where a placement runs is for admins, on the node routes).
+type EnvOut struct {
+	service.Environment
+	NodeID    string `json:"node_id,omitempty"` // shadows the row's; never set
+	Placement string `json:"placement"`         // "" = none yet
+}
+
+// envOut wraps a service answer: h.envOut(c)(h.Orch.X(...)).
+func (h *H) envOut(c echo.Context) func(service.Environment, error) (EnvOut, error) {
+	return func(e service.Environment, err error) (EnvOut, error) {
+		return EnvOut{Environment: e, Placement: h.Orch.PlacementName(rc(c), e.PlacementID)}, err
+	}
+}
+
+func (h *H) envOuts(c echo.Context, es []service.Environment, err error) ([]EnvOut, error) {
+	out := make([]EnvOut, 0, len(es))
+	for _, e := range es {
+		o, _ := h.envOut(c)(e, nil)
+		out = append(out, o)
+	}
+	return out, err
+}
+
 func (h *H) Envs() Endpoint {
-	return Get(func(c echo.Context) ([]service.Environment, error) { return list(h.Orch.Envs(rc(c), stackID(c))) })
+	return Get(func(c echo.Context) ([]EnvOut, error) {
+		es, err := h.Orch.Envs(rc(c), stackID(c))
+		return h.envOuts(c, es, err)
+	})
 }
 
 func (h *H) Ladder() Endpoint {
-	return Get(func(c echo.Context) ([]service.Environment, error) { return list(h.Orch.Ladder(rc(c), stackID(c))) })
+	return Get(func(c echo.Context) ([]EnvOut, error) {
+		es, err := h.Orch.Ladder(rc(c), stackID(c))
+		return h.envOuts(c, es, err)
+	})
 }
 
 func (h *H) CreateEnv() Endpoint {
-	return JSON(201, func(c echo.Context, in EnvIn) (service.Environment, error) {
+	return JSON(201, func(c echo.Context, in EnvIn) (EnvOut, error) {
 		if in.Type != "ephemeral" {
 			if err := h.Orch.JoinsLockedTier(rc(c), middleware.Principal(c), stackID(c), in.Name, ""); err != nil {
-				return service.Environment{}, err
+				return EnvOut{}, err
 			}
 		}
 		placementID := ""
 		if in.Placement != "" {
 			var err error
 			if placementID, err = h.Orch.PlacementForNewEnv(rc(c), middleware.Principal(c), stackID(c), in.Placement); err != nil {
-				return service.Environment{}, err
+				return EnvOut{}, err
 			}
 		}
-		return h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{
+		return h.envOut(c)(h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{
 			PlacementID: placementID,
 			Type:        in.Type,
 			Base:        in.Base,
@@ -200,7 +230,7 @@ func (h *H) CreateEnv() Endpoint {
 			FromKind:    in.FromKind,
 			FromBranch:  in.FromBranch,
 			Auto:        in.Auto,
-		})
+		}))
 	})
 }
 
@@ -209,7 +239,7 @@ func (h *H) ReorderEnvs() Endpoint {
 }
 
 func (h *H) GetEnv() Endpoint {
-	return Get(func(c echo.Context) (service.Environment, error) { return *scope(c).Env, nil })
+	return Get(func(c echo.Context) (EnvOut, error) { return h.envOut(c)(*scope(c).Env, nil) })
 }
 
 // Traffic is the env's tile-to-tile lanes at the last sample.
@@ -218,31 +248,31 @@ func (h *H) Traffic() Endpoint {
 }
 
 func (h *H) RenameEnv() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (service.Environment, error) {
+	return JSON(200, func(c echo.Context, in NameIn) (EnvOut, error) {
 		if e := scope(c).Env; e.Type == "static" {
 			if err := h.Orch.JoinsLockedTier(rc(c), middleware.Principal(c), e.StackID, in.Name, e.Slug); err != nil {
-				return *e, err
+				return h.envOut(c)(*e, err)
 			}
 		}
-		return h.Orch.RenameEnv(rc(c), envID(c), in.Name)
+		return h.envOut(c)(h.Orch.RenameEnv(rc(c), envID(c), in.Name))
 	})
 }
 
 func (h *H) SetEnvColor() Endpoint {
-	return JSON(200, func(c echo.Context, in ColorIn) (service.Environment, error) {
-		return h.Orch.SetEnvColor(rc(c), envID(c), in.Color)
+	return JSON(200, func(c echo.Context, in ColorIn) (EnvOut, error) {
+		return h.envOut(c)(h.Orch.SetEnvColor(rc(c), envID(c), in.Color))
 	})
 }
 
 func (h *H) SetEnvFrom() Endpoint {
-	return JSON(200, func(c echo.Context, in FromIn) (service.Environment, error) {
-		return h.Orch.SetEnvFrom(rc(c), envID(c), in.Kind, in.Branch, in.Auto)
+	return JSON(200, func(c echo.Context, in FromIn) (EnvOut, error) {
+		return h.envOut(c)(h.Orch.SetEnvFrom(rc(c), envID(c), in.Kind, in.Branch, in.Auto))
 	})
 }
 
 func (h *H) SetEnvSettings() Endpoint {
-	return JSON(200, func(c echo.Context, in Blob) (service.Environment, error) {
-		return h.Orch.SetEnvSettings(rc(c), envID(c), string(in))
+	return JSON(200, func(c echo.Context, in Blob) (EnvOut, error) {
+		return h.envOut(c)(h.Orch.SetEnvSettings(rc(c), envID(c), string(in)))
 	})
 }
 

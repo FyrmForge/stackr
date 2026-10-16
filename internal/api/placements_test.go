@@ -60,6 +60,12 @@ func TestPlacementsAPI(t *testing.T) {
 		t.Errorf("dev list = %d %s", code, body)
 	}
 
+	// an env names its placement, never its node
+	code, body = w.do(t, w.owner, "GET", "/orgs/acme/stacks/shop/envs/dev", "")
+	if code != 200 || !strings.Contains(body, `"placement":"default"`) || strings.Contains(body, "node_id") {
+		t.Errorf("env = %d %s", code, body)
+	}
+
 	// a pin names a placement; one the org cannot use is refused
 	if code, body = w.do(t, w.owner, "PUT", "/orgs/acme/pin", `{"placement":"eu-db"}`); code != 200 {
 		t.Errorf("pin = %d %s", code, body)

@@ -57,14 +57,8 @@ func yesNo(v any) string {
 	return "no"
 }
 
-// pl reads a placement name from an answer; the pin, ingress and exit
-// answers have called the field "node" and "placement".
-func pl(m map[string]any) string {
-	if v, ok := m["placement"]; ok {
-		return cell(v)
-	}
-	return cell(m["node"])
-}
+// pl reads the placement name of a pin, ingress or exit answer.
+func pl(m map[string]any) string { return cell(m["placement"]) }
 
 // adminPlacement is `stackr admin placement`.
 func (a *app) adminPlacement() *cobra.Command {

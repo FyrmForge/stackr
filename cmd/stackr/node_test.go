@@ -349,7 +349,7 @@ func TestIngress(t *testing.T) {
 }
 
 func TestExit(t *testing.T) {
-	r := fake(t, map[string]string{"/exits": `{"scope":"acme/shop/prod","from":"acme/shop/prod","exits":[{"position":1,"node":"eu-prod","state":"in use"},{"position":2,"node":"home","state":"standby"}]}`})
+	r := fake(t, map[string]string{"/exits": `{"scope":"acme/shop/prod","from":"acme/shop/prod","exits":[{"position":1,"placement":"eu-prod","state":"in use"},{"position":2,"placement":"home","state":"standby"}]}`})
 	code, out, errw := cli(t, "exit", "set", "eu-prod", "home", "--stack", "shop", "--env", "prod")
 	if code != 0 || !strings.Contains(out, "acme/shop/prod: goes out through eu-prod, then home; no internet if all are down") {
 		t.Fatalf("set = %d %q %q", code, out, errw)
