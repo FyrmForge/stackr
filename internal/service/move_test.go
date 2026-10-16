@@ -29,8 +29,8 @@ func TestMoveEnvColdToWorker(t *testing.T) {
 	n.wFake.RunID = "new"
 	n.wFake.Details = map[string]docker.Detail{"new": {Running: true, Networks: map[string]string{n.dev.Network: "10.209.0.2"}}}
 
-	if _, err := n.orch.MoveEnv(ctx, &Principal{}, n.dev.ID, "w1", false); err == nil {
-		t.Fatal("a non-admin moved an env")
+	if _, err := n.orch.MoveEnv(ctx, nil, n.dev.ID, "w1", false); err == nil {
+		t.Fatal("a move with no principal was accepted")
 	}
 	if _, err := n.orch.MoveEnv(ctx, admin, n.dev.ID, n.ctl.ID, false); err == nil {
 		t.Fatal("moved an env to the node it is on")

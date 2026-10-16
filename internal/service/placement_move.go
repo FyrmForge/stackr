@@ -86,6 +86,7 @@ type MoveStep struct {
 // MoveStatus is the newest move of an env, as the progress view shows it.
 type MoveStatus struct {
 	Move     EnvMove
+	Path     string // org/stack/env
 	From, To string // node names
 	Active   bool
 	Steps    []MoveStep
@@ -100,6 +101,9 @@ func (o *Orchestrator) EnvMoveStatus(ctx context.Context, envID string) (*MoveSt
 	m := slices.MaxFunc(ms, func(a, b store.EnvMove) int { return a.StartedAt.Compare(b.StartedAt) })
 	name := o.nodeNamer(ctx)
 	s := &MoveStatus{Move: m, From: name(m.FromNode), To: name(m.ToNode)}
+	if e, err := o.store.Environments.Get(ctx, envID); err == nil {
+		s.Path, _ = o.pmEnvPath(ctx, e)
+	}
 	s.Active = m.Phase != move.Done && m.Phase != move.RolledBack
 	type stepDef struct{ phase, label string }
 	defs := []stepDef{{move.Stopping, "Stop"}, {move.Copying, "Copy"}, {move.Starting, "Start on " + s.To}, {move.Cleaning, "Remove old containers"}}
