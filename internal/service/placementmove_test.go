@@ -315,8 +315,19 @@ func TestMovePlacementRestoresAfterForget(t *testing.T) {
 	}
 	rs, err := n.st.Jobs.ListByState(ctx, "queued", "running", "done", "failed", "waiting")
 	must(t, err)
-	if !slices.ContainsFunc(rs, func(j store.Job) bool { return j.Kind == string(kindRestore) }) {
-		t.Errorf("no restore job among %d jobs", len(rs))
+	// the restore comes first and holds the tile, so its deploy waits for it
+	slices.Reverse(rs) // oldest first
+	ri := slices.IndexFunc(rs, func(j store.Job) bool { return j.Kind == string(kindRestore) })
+	di := slices.IndexFunc(rs, func(j store.Job) bool {
+		return j.Kind == string(kindDeploy) && slices.Contains(j.LockSet, n.edgeT.ID)
+	})
+	switch {
+	case ri < 0 || di < 0:
+		t.Fatalf("restore at %d, deploy at %d among %d jobs", ri, di, len(rs))
+	case ri > di:
+		t.Errorf("the deploy was queued before the restore")
+	case !slices.Contains(rs[ri].LockSet, n.edgeT.ID):
+		t.Errorf("restore locks %v, not the tile %s", rs[ri].LockSet, n.edgeT.ID)
 	}
 }
 

@@ -584,18 +584,24 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 	}
 	o.pmAudit(ctx, by, auditEnvRestore, "env", e.ID, "to node "+o.nodeName(ctx, toNode))
 	o.kickMesh()
-	first, err := o.pmDeployEnv(ctx, e.ID)
+	// Restores first, each holding every tile of the env: the deploys queued
+	// after wait behind them, so no app starts on an empty volume.
+	ts, err := o.tiles.List(ctx, e.ID)
 	if err != nil {
-		*warn = append(*warn, err)
+		return Job{}, err
+	}
+	hold := make([]string, 0, len(ts))
+	for _, t := range ts {
+		hold = append(hold, t.ID)
 	}
 	vs, err := o.store.Volumes.ListByScope(ctx, "env", e.ID)
 	if err != nil {
-		return first, err
+		return Job{}, err
 	}
 	for _, v := range vs {
 		runs, err := o.store.BackupRuns.ListByVolume(ctx, v.ID)
 		if err != nil {
-			return first, err
+			return Job{}, err
 		}
 		var newest *store.BackupRun
 		for i, r := range runs {
@@ -606,9 +612,13 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 		if newest == nil {
 			continue
 		}
-		if _, err := o.RestoreBackup(ctx, by, newest.ID, v.ID, v.ID); err != nil {
+		if _, err := o.queueRestore(ctx, newest.ID, v, v, hold...); err != nil {
 			*warn = append(*warn, fmt.Errorf("restore %s: %w", v.Slug, err))
 		}
+	}
+	first, err := o.pmDeployEnv(ctx, e.ID)
+	if err != nil {
+		*warn = append(*warn, err)
 	}
 	return first, nil
 }

@@ -182,7 +182,13 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, by *Principal, runID, 
 	if by != nil && by.Access.KeyStack != "" && (a.Stack != by.Access.KeyStack || b.Stack != a.Stack) {
 		return Job{}, errs.ErrNotFound
 	}
-	lock := []string{"volume:" + dst.ID}
+	return o.queueRestore(ctx, runID, src, dst)
+}
+
+// queueRestore queues the restore of run (of src) into dst; extra locks are
+// held too, so jobs on them queued later wait for the restore.
+func (o *Orchestrator) queueRestore(ctx context.Context, runID string, src, dst store.Volume, extra ...string) (Job, error) {
+	lock := append([]string{"volume:" + dst.ID}, extra...)
 	if dst.InstanceID != nil {
 		// No Provision or Bind while the dump loads: a deploy locks its own
 		// tile only, so the instance, its slices and their consumers are all
