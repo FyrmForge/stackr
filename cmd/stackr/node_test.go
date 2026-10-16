@@ -453,8 +453,10 @@ func TestAdminPlacementMove(t *testing.T) {
 		!strings.Contains(out, "h5 free 40 GB") || !strings.Contains(errw, "Move placement eu-prod from h4 to h5?") || len(writes(r)) != 0 {
 		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
 	}
-	if code, _, errw = cli(t, "-y", "admin", "placement", "move", "eu-prod", "h5"); code != 0 {
-		t.Fatalf("-y = %d %q", code, errw)
+	// the job is the first env's: the command waits for the repoint's own end
+	r = fake(t, map[string]string{"/move-plan": plan, "/move": `{"state":"done","from":"h4","to":"h5","done":2,"all":2}`})
+	if code, out, errw = cli(t, "-y", "admin", "placement", "move", "eu-prod", "h5"); code != 0 || !strings.Contains(out, "eu-prod: done to h5, 2 of 2 envs moved") {
+		t.Fatalf("-y = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-prod/move {"confirm":"eu-prod","to":"h5"}` {
 		t.Errorf("writes = %v", w)
@@ -468,8 +470,9 @@ func TestAdminPlacementMove(t *testing.T) {
 
 func TestAdminPlacementRetry(t *testing.T) {
 	r := fake(t, map[string]string{"/move": `{"state":"failed","from":"h4","to":"h5","done":1,"all":2,"error":"h5 disk full"}`, "/retry": `{}`})
+	// the fake's repoint stays failed, so the retry ends failed too
 	code, out, errw := cli(t, "admin", "placement", "retry", "eu-prod")
-	if code != 0 || !strings.Contains(out, "eu-prod: failed to h5, 1 of 2 envs moved") || !strings.Contains(out, "h5 disk full") {
+	if code != 1 || !strings.Contains(out, "eu-prod: failed to h5, 1 of 2 envs moved") || !strings.Contains(out, "h5 disk full") || !strings.Contains(errw, "the move of eu-prod failed") {
 		t.Fatalf("retry = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != "POST /api/v1/admin/placements/eu-prod/retry " {

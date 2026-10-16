@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -215,7 +216,7 @@ func (a *app) sayPlan(m map[string]any) {
 }
 
 func (a *app) placementMove() *cobra.Command {
-	c := waits(leaf("move <name> <node>", "admin.placement-move-plan,admin.placement-move", "Repoint a placement to another node, moving its envs (server admin)", exact(2),
+	c := waits(leaf("move <name> <node>", "admin.placement-move-plan,admin.placement-move,admin.placement-move-status", "Repoint a placement to another node, moving its envs (server admin)", exact(2),
 		func(c *cobra.Command, args []string) error {
 			name, to := args[0], args[1]
 			plan, err := a.call(GET, placementPath(name)+"/move-plan?to="+url.QueryEscape(to), nil)
@@ -239,7 +240,7 @@ func (a *app) placementMove() *cobra.Command {
 				return err
 			}
 			// --yes is the typed name: the server wants it back as confirm.
-			return a.job(c, "/admin", POST, placementPath(name)+"/move", map[string]string{"to": to, "confirm": name}, "move of "+name)
+			return a.followMove(c, name, placementPath(name)+"/move", map[string]string{"to": to, "confirm": name})
 		}))
 	c.Example = "  stackr admin placement move eu-prod h5\n  stackr admin placement move eu-prod h5 --yes"
 	return c
@@ -255,6 +256,36 @@ func (a *app) placementRetry() *cobra.Command {
 					a.say("  %s", e)
 				}
 			}
-			return a.job(c, "/admin", POST, placementPath(args[0])+"/retry", nil, "move of "+args[0])
+			return a.followMove(c, args[0], placementPath(args[0])+"/retry", nil)
 		}))
+}
+
+// followMove starts a repoint or its retry and follows it to the end: the
+// job it returns is the first env's, so after that the repoint's own state
+// is polled until it is no longer running.
+func (a *app) followMove(c *cobra.Command, name, path string, body any) error {
+	if err := a.job(c, "/admin", POST, path, body, "move of "+name); err != nil {
+		return err
+	}
+	if nw, _ := c.Flags().GetBool("no-wait"); nw {
+		return nil
+	}
+	for {
+		st, err := a.call(GET, placementPath(name)+"/move", nil)
+		if err != nil {
+			return err
+		}
+		m := asMap(st)
+		if cell(m["state"]) == "running" {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if !a.json {
+			a.say("%s: %s to %s, %v of %v envs moved", name, cell(m["state"]), cell(m["to"]), m["done"], m["all"])
+		}
+		if cell(m["state"]) == "failed" {
+			return fmt.Errorf("the move of %s failed: %s; fix it, then stackr admin placement retry %s", name, cell(m["error"]), name)
+		}
+		return nil
+	}
 }
