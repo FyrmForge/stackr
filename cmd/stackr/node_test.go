@@ -20,7 +20,7 @@ func fakeErr(t *testing.T, status int, body string) {
 }
 
 const nodeJSON = `{"id":"n1","name":"vps-fsn1","role":"worker","state":"online","tags":["ingress","egress"],"envs":2,` +
-	`"open_to":["acme"],"cpu":2,"mem_total":4294967296,"disk_free":76235669504,"docker":"29.9.0","arch":"amd64","version":"v0.5.0","behind":true,` +
+	`"placements":[],"cpu":2,"mem_total":4294967296,"disk_free":76235669504,"docker":"29.9.0","arch":"amd64","version":"v0.5.0","behind":true,` +
 	`"env_list":[{"id":"e1","path":"acme/shop/prod","org":"acme","volumes":[{"id":"v1","name":"pg-data","last_backup":"2026-10-12T08:00:00Z"},{"id":"v2","name":"cache","last_backup":null}]}],` +
 	`"exit_for":["acme/shop/prod"],"ingress_for":[],"default_ingress":false}`
 
@@ -34,18 +34,21 @@ func TestNodeAdd(t *testing.T) {
 		strings.Contains(out, "trusted certificate") {
 		t.Fatalf("add = %d %q %q", code, out, errw)
 	}
-	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"vps-fsn1","orgs":null,"tags":["ingress","egress"]}` {
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"vps-fsn1","tags":["ingress","egress"]}` {
 		t.Errorf("writes = %v", w)
 	}
-	// --org opens it to those orgs only; a panel without a trusted
-	// certificate gets the two-step command
+	// a panel without a trusted certificate gets the two-step command
 	r = fake(t, map[string]string{"/admin/join-tokens": `{"two_step":"curl -fLo stackr-install X\n./stackr-install join","expires_at":"2099-01-01T00:00:00Z"}`})
-	code, out, errw = cli(t, "node", "add", "vps-fsn1", "--org", "acme", "--org", "shop")
+	code, out, errw = cli(t, "node", "add", "vps-fsn1", "--tag", "storage")
 	if code != 0 || !strings.Contains(out, "no trusted certificate") || !strings.Contains(out, "  ./stackr-install join") || strings.Contains(out, "| sh") {
-		t.Fatalf("add --org = %d %q %q", code, out, errw)
+		t.Fatalf("add two-step = %d %q %q", code, out, errw)
 	}
-	if w := writes(r); len(w) != 1 || !strings.Contains(w[0], `"orgs":["acme","shop"]`) {
+	if w := writes(r); len(w) != 1 || !strings.Contains(w[0], `"tags":["storage"]`) {
 		t.Errorf("writes = %v", w)
+	}
+	// access is per placement now: the org flag is gone
+	if code, _, errw = cli(t, "node", "add", "x", "--org", "acme"); code != 2 || !strings.Contains(errw, "unknown flag") {
+		t.Errorf("add --org = %d %q", code, errw)
 	}
 	r = fake(t, nil)
 	if code, _, errw := cli(t, "node", "add", "x", "--tag", "gpu"); code != 2 || !strings.Contains(errw, `unknown tag "gpu"`) || len(r.reqs) != 0 {
@@ -189,34 +192,6 @@ func TestNodeExit(t *testing.T) {
 	}
 }
 
-func TestNodeOpenClose(t *testing.T) {
-	r := fake(t, map[string]string{"/orgs": `{}`, "/nodes/vps-fsn1": nodeJSON, "/orgs/acme": `{}`})
-	if code, out, errw := cli(t, "node", "open", "vps-fsn1", "--org", "acme"); code != 0 || !strings.Contains(out, "vps-fsn1: open to acme") {
-		t.Fatalf("open = %d %q %q", code, out, errw)
-	}
-	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/nodes/vps-fsn1/orgs {"org":"acme"}` {
-		t.Errorf("open writes = %v", w)
-	}
-	r = fake(t, map[string]string{"/nodes/vps-fsn1": nodeJSON})
-	if code, _, errw := cli(t, "node", "close", "vps-fsn1", "--org", "acme"); code != 3 || !strings.Contains(errw, "vps-fsn1 runs 1 acme envs; they stay") || len(writes(r)) != 0 {
-		t.Errorf("close no -y = %d %q, writes %v", code, errw, writes(r))
-	}
-	if code, out, errw := cli(t, "-y", "node", "close", "vps-fsn1", "--org", "acme"); code != 0 || !strings.Contains(out, "closed to acme") {
-		t.Fatalf("close -y = %d %q %q", code, out, errw)
-	}
-	if w := writes(r); len(w) != 1 || w[0] != "DELETE /api/v1/admin/nodes/vps-fsn1/orgs/acme " {
-		t.Errorf("close writes = %v", w)
-	}
-	// the org defaults to the logged-in one (acme in the test config)
-	r = fake(t, map[string]string{"/orgs": `{}`})
-	if code, _, errw := cli(t, "node", "open", "nas"); code != 0 {
-		t.Fatalf("default org = %d %q", code, errw)
-	}
-	if w := writes(r); len(w) != 1 || !strings.HasSuffix(w[0], `{"org":"acme"}`) {
-		t.Errorf("default org writes = %v", w)
-	}
-}
-
 func TestNodeRejoin(t *testing.T) {
 	r := fake(t, map[string]string{"/rejoin": `{"command":"stackr-install join --token R","one_line":"curl -fsSL https://p/join/R | sh","expires_at":"2099-01-01T00:00:00Z"}`})
 	code, out, errw := cli(t, "node", "rejoin", "nas")
@@ -241,24 +216,19 @@ func TestNodeRemove(t *testing.T) {
 	if w := writes(r); len(w) != 1 || w[0] != "DELETE /api/v1/admin/nodes/w " {
 		t.Errorf("writes = %v", w)
 	}
-	// envs on it and no --move-to: refused, nothing sent
+	// a placement on it, or envs on it: refused, nothing sent
+	r = fake(t, map[string]string{"/nodes/w": strings.Replace(nodeJSON, `"placements":[]`, `"placements":["eu-prod"]`, 1)})
+	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "hosts placement eu-prod") || len(writes(r)) != 0 {
+		t.Errorf("with placement = %d %q, writes %v", code, errw, writes(r))
+	}
 	r = fake(t, map[string]string{"/nodes/w": nodeJSON})
-	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "runs 1 env. Move them first") || len(writes(r)) != 0 {
+	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "runs 1 env. Repoint its placements first") || len(writes(r)) != 0 {
 		t.Errorf("with envs = %d %q, writes %v", code, errw, writes(r))
 	}
-	// the controller is refused before any move, envs or not
+	// the controller is refused, envs or not
 	r = fake(t, map[string]string{"/nodes/w": strings.Replace(nodeJSON, `"role":"worker"`, `"role":"controller"`, 1)})
-	if code, _, errw := cli(t, "-y", "node", "remove", "w", "--move-to", "home"); code != 1 || !strings.Contains(errw, "is the controller") || len(writes(r)) != 0 {
+	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "is the controller") || len(writes(r)) != 0 {
 		t.Errorf("controller = %d %q, writes %v", code, errw, writes(r))
-	}
-	// --move-to moves each env, then removes
-	r = fake(t, map[string]string{"/nodes/w": nodeJSON, "/move": `{}`, "/admin/nodes/w": `{}`})
-	if code, _, errw := cli(t, "-y", "node", "remove", "w", "--move-to", "home"); code != 0 {
-		t.Fatalf("--move-to = %d %q", code, errw)
-	}
-	w := writes(r)
-	if len(w) != 2 || w[0] != `POST /api/v1/orgs/acme/stacks/shop/envs/prod/move {"to":"home"}` || w[1] != "DELETE /api/v1/admin/nodes/w " {
-		t.Errorf("--move-to writes = %v", w)
 	}
 }
 
@@ -278,12 +248,12 @@ func TestNodeForget(t *testing.T) {
 }
 
 func TestPin(t *testing.T) {
-	r := fake(t, map[string]string{"/pin": `{"scope":"acme","node":"vps-fsn1"}`})
-	code, out, errw := cli(t, "pin", "vps-fsn1", "--org", "acme")
-	if code != 0 || !strings.Contains(out, "acme: new envs go to vps-fsn1. Existing envs stay") {
+	r := fake(t, map[string]string{"/pin": `{"scope":"acme","placement":"eu-prod"}`})
+	code, out, errw := cli(t, "pin", "eu-prod", "--org", "acme")
+	if code != 0 || !strings.Contains(out, "acme: envs go to eu-prod") {
 		t.Fatalf("org pin = %d %q %q", code, out, errw)
 	}
-	if code, _, errw = cli(t, "pin", "vps-fsn1", "--stack", "shop"); code != 0 {
+	if code, _, errw = cli(t, "pin", "eu-prod", "--stack", "shop"); code != 0 {
 		t.Fatalf("stack pin = %d %q", code, errw)
 	}
 	if code, out, _ = cli(t, "pin", "--clear", "--stack", "shop"); code != 0 || !strings.Contains(out, "pin removed") {
@@ -291,126 +261,219 @@ func TestPin(t *testing.T) {
 	}
 	w := writes(r)
 	want := []string{
-		`PUT /api/v1/orgs/acme/pin {"node":"vps-fsn1"}`,
-		`PUT /api/v1/orgs/acme/stacks/shop/pin {"node":"vps-fsn1"}`,
-		`PUT /api/v1/orgs/acme/stacks/shop/pin {"node":""}`,
+		`PUT /api/v1/orgs/acme/pin {"placement":"eu-prod"}`,
+		`PUT /api/v1/orgs/acme/stacks/shop/pin {"placement":"eu-prod"}`,
+		`PUT /api/v1/orgs/acme/stacks/shop/pin {"placement":""}`,
 	}
 	if strings.Join(w, "|") != strings.Join(want, "|") {
 		t.Errorf("writes = %v", w)
 	}
-	// an env is not pinned, and a node with --clear is ambiguous: no request
-	r = fake(t, nil)
-	if code, _, errw = cli(t, "pin", "vps-fsn1", "--env", "prod", "--stack", "shop"); code != 2 || !strings.Contains(errw, "stackr env move") || len(r.reqs) != 0 {
-		t.Errorf("env pin = %d %q, sent %v", code, errw, r.reqs)
+	if code, _, _ = cli(t, "pin", "eu-prod", "--clear", "--org", "acme"); code != 2 {
+		t.Errorf("placement and clear = %d", code)
 	}
-	if code, _, _ = cli(t, "pin", "vps-fsn1", "--clear", "--org", "acme"); code != 2 || len(r.reqs) != 0 {
-		t.Errorf("node and clear = %d, sent %v", code, r.reqs)
-	}
-	// a server refusal (a node not open to the org) is exit 1 with the words
-	fakeErr(t, 403, `{"error":"nas is not open to acme; a server admin opens it with stackr node open nas --org acme"}`)
-	if code, _, errw = cli(t, "pin", "nas", "--stack", "shop"); code != 1 || !strings.Contains(errw, "stackr node open nas --org acme") {
+	// a server refusal (a placement not open to the org) is exit 1 with the words
+	fakeErr(t, 403, `{"error":"eu-db is not open to acme"}`)
+	if code, _, errw = cli(t, "pin", "eu-db", "--stack", "shop"); code != 1 || !strings.Contains(errw, "eu-db is not open to acme") {
 		t.Errorf("refusal = %d %q", code, errw)
 	}
 	// bare pin shows where new envs go
-	fake(t, map[string]string{"/pin": `{"scope":"acme","node":""}`})
-	if code, out, _ = cli(t, "pin", "--org", "acme"); code != 0 || !strings.Contains(out, "no pin; new envs go to the controller") {
+	fake(t, map[string]string{"/pin": `{"scope":"acme","placement":""}`})
+	if code, out, _ = cli(t, "pin", "--org", "acme"); code != 0 || !strings.Contains(out, "no pin; new envs go to the default placement") {
 		t.Errorf("show = %d %q", code, out)
 	}
 }
 
+// An env pin that moves the env prints the plan and needs --yes; one that
+// moves nothing is a plain set.
+func TestPinEnv(t *testing.T) {
+	const plan = `{"placement":"eu-prod","from":"eu-db","to":"eu-prod","envs":[{"path":"acme/shop/prod","volumes":1,"bytes":1073741824,"downtime":"about 20 s"}],` +
+		`"checks":[{"name":"tags","ok":true},{"name":"disk","ok":true,"detail":"h4 free 12 GB"}],"ok":true}`
+	args := []string{"pin", "eu-prod", "--stack", "shop", "--env", "prod"}
+	r := fake(t, map[string]string{"/pin-plan": plan, "/pin": `{"scope":"acme/shop/prod","placement":"eu-prod","job":{}}`})
+	code, out, errw := cli(t, args...)
+	if code != 3 || !strings.Contains(out, "Move eu-prod: eu-db to eu-prod") || !strings.Contains(out, "acme/shop/prod") ||
+		!strings.Contains(out, "ok    tags") || len(writes(r)) != 0 {
+		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
+	}
+	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 {
+		t.Fatalf("-y = %d %q", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `PUT /api/v1/orgs/acme/stacks/shop/envs/prod/pin {"confirm":"prod","placement":"eu-prod"}` {
+		t.Errorf("writes = %v", w)
+	}
+	// a failing check stops before the prompt
+	r = fake(t, map[string]string{"/pin-plan": strings.Replace(strings.Replace(plan, `],"ok":true}`, `],"ok":false}`, 1), `"name":"tags","ok":true`, `"name":"tags","ok":false`, 1)})
+	if code, out, errw = cli(t, append([]string{"-y"}, args...)...); code != 1 || !strings.Contains(out, "FAIL  tags") || len(writes(r)) != 0 {
+		t.Errorf("failed check = %d %q %q, writes %v", code, out, errw, writes(r))
+	}
+	// no move: a plain set
+	r = fake(t, map[string]string{"/pin-plan": `{"envs":[],"checks":[],"ok":true}`, "/pin": `{"scope":"acme/shop/prod","placement":"eu-prod"}`})
+	if code, out, errw = cli(t, args...); code != 0 || !strings.Contains(out, "acme/shop/prod: envs go to eu-prod") {
+		t.Fatalf("plain = %d %q %q", code, out, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `PUT /api/v1/orgs/acme/stacks/shop/envs/prod/pin {"placement":"eu-prod"}` {
+		t.Errorf("plain writes = %v", w)
+	}
+}
+
 func TestIngress(t *testing.T) {
-	r := fake(t, map[string]string{"/ingress": `{"scope":"acme/shop/prod","node":"vps-fsn1","from":"acme/shop"}`})
+	r := fake(t, map[string]string{"/ingress": `{"scope":"acme/shop/prod","placement":"eu-prod","from":"acme/shop"}`})
 	code, out, errw := cli(t, "ingress", "get", "--stack", "shop", "--env", "prod")
-	if code != 0 || !strings.Contains(out, "acme/shop/prod\tvps-fsn1\t(from acme/shop)") {
+	if code != 0 || !strings.Contains(out, "acme/shop/prod\teu-prod\t(from acme/shop)") {
 		t.Fatalf("get = %d %q %q", code, out, errw)
 	}
-	if code, _, errw = cli(t, "ingress", "set", "home", "--tile", "admin", "--stack", "shop", "--env", "prod"); code != 0 {
+	if code, _, errw = cli(t, "ingress", "set", "eu-prod", "--tile", "admin", "--stack", "shop", "--env", "prod"); code != 0 {
 		t.Fatalf("set tile = %d %q", code, errw)
 	}
-	if code, _, errw = cli(t, "ingress", "set", "home", "--stack", "shop"); code != 0 {
+	if code, _, errw = cli(t, "ingress", "set", "eu-prod", "--stack", "shop"); code != 0 {
 		t.Fatalf("set stack = %d %q", code, errw)
 	}
 	if code, _, _ = cli(t, "ingress", "set", "--clear", "--org", "acme"); code != 0 {
 		t.Fatalf("clear = %d", code)
 	}
 	want := []string{
-		`PUT /api/v1/orgs/acme/stacks/shop/envs/prod/tiles/admin/ingress {"node":"home"}`,
-		`PUT /api/v1/orgs/acme/stacks/shop/ingress {"node":"home"}`,
-		`PUT /api/v1/orgs/acme/ingress {"node":""}`,
+		`PUT /api/v1/orgs/acme/stacks/shop/envs/prod/tiles/admin/ingress {"placement":"eu-prod"}`,
+		`PUT /api/v1/orgs/acme/stacks/shop/ingress {"placement":"eu-prod"}`,
+		`PUT /api/v1/orgs/acme/ingress {"placement":""}`,
 	}
 	if w := writes(r); strings.Join(w, "|") != strings.Join(want, "|") {
 		t.Errorf("writes = %v", w)
 	}
 	if code, _, errw = cli(t, "ingress", "set"); code != 2 {
-		t.Errorf("no node = %d %q", code, errw)
+		t.Errorf("no placement = %d %q", code, errw)
 	}
-	fakeErr(t, 403, `{"error":"nas is not tagged ingress"}`)
-	if code, _, errw = cli(t, "ingress", "set", "nas", "--stack", "shop"); code != 1 || !strings.Contains(errw, "nas is not tagged ingress") {
+	fakeErr(t, 403, `{"error":"eu-db's node is not tagged ingress"}`)
+	if code, _, errw = cli(t, "ingress", "set", "eu-db", "--stack", "shop"); code != 1 || !strings.Contains(errw, "not tagged ingress") {
 		t.Errorf("untagged = %d %q", code, errw)
 	}
 }
 
 func TestExit(t *testing.T) {
-	r := fake(t, map[string]string{"/exits": `{"scope":"acme/shop/prod","from":"acme/shop/prod","exits":[{"position":1,"node":"vps-fsn1","state":"in use"},{"position":2,"node":"home","state":"standby"}]}`})
-	code, out, errw := cli(t, "exit", "set", "vps-fsn1", "home", "--stack", "shop", "--env", "prod")
-	if code != 0 || !strings.Contains(out, "acme/shop/prod: goes out through vps-fsn1, then home; no internet if all are down") {
+	r := fake(t, map[string]string{"/exits": `{"scope":"acme/shop/prod","from":"acme/shop/prod","exits":[{"position":1,"node":"eu-prod","state":"in use"},{"position":2,"node":"home","state":"standby"}]}`})
+	code, out, errw := cli(t, "exit", "set", "eu-prod", "home", "--stack", "shop", "--env", "prod")
+	if code != 0 || !strings.Contains(out, "acme/shop/prod: goes out through eu-prod, then home; no internet if all are down") {
 		t.Fatalf("set = %d %q %q", code, out, errw)
 	}
-	if code, out, _ = cli(t, "exit", "set", "--clear", "--stack", "shop", "--env", "prod"); code != 0 || !strings.Contains(out, "its own node") {
+	if code, out, _ = cli(t, "exit", "set", "--clear", "--stack", "shop", "--env", "prod"); code != 0 || !strings.Contains(out, "its own placement") {
 		t.Errorf("clear = %d %q", code, out)
 	}
 	want := []string{
-		`PUT /api/v1/orgs/acme/stacks/shop/envs/prod/exits {"nodes":["vps-fsn1","home"]}`,
-		`PUT /api/v1/orgs/acme/stacks/shop/envs/prod/exits {"nodes":[]}`,
+		`PUT /api/v1/orgs/acme/stacks/shop/envs/prod/exits {"placements":["eu-prod","home"]}`,
+		`PUT /api/v1/orgs/acme/stacks/shop/envs/prod/exits {"placements":[]}`,
 	}
 	if w := writes(r); strings.Join(w, "|") != strings.Join(want, "|") {
 		t.Errorf("writes = %v", w)
 	}
 	code, out, errw = cli(t, "exit", "ls", "--stack", "shop", "--env", "prod")
-	if code != 0 || !strings.Contains(out, "1\tvps-fsn1\tin use") || !strings.Contains(out, "2\thome\tstandby") {
+	if code != 0 || !strings.Contains(out, "1\teu-prod\tin use") || !strings.Contains(out, "2\thome\tstandby") {
 		t.Errorf("ls = %d %q %q", code, out, errw)
 	}
 	fake(t, map[string]string{"/exits": `{"scope":"acme/shop","from":"default","exits":[]}`})
-	if _, out, _ = cli(t, "exit", "ls", "--stack", "shop"); !strings.Contains(out, "its own node") {
+	if _, out, _ = cli(t, "exit", "ls", "--stack", "shop"); !strings.Contains(out, "its own placement") {
 		t.Errorf("empty ls = %q", out)
 	}
 	if code, _, _ = cli(t, "exit", "set", "a", "--clear"); code != 2 {
-		t.Errorf("nodes and clear = %d", code)
+		t.Errorf("placements and clear = %d", code)
 	}
 }
 
-func TestEnvMove(t *testing.T) {
-	answers := map[string]string{
-		"/envs/prod": `{"slug":"prod","node_id":"n0"}`,
-		"/nodes":     `[{"id":"n0","name":"home"},{"id":"n1","name":"vps-fsn1"}]`,
-		"/move":      `{}`,
+// The removed verbs are gone, not hidden.
+func TestNodeAccessVerbsGone(t *testing.T) {
+	r := fake(t, nil)
+	for _, args := range [][]string{{"node", "open", "x"}, {"node", "close", "x"}, {"env", "move", "--stack", "s", "--env", "e", "--to", "n"}} {
+		if code, _, _ := cli(t, args...); code == 0 || len(r.reqs) != 0 {
+			t.Errorf("%v = %d, sent %v", args, code, r.reqs)
+		}
 	}
-	args := []string{"env", "move", "--stack", "shop", "--env", "prod", "--to", "vps-fsn1"}
-	r := fake(t, answers)
-	code, _, errw := cli(t, args...)
-	if code != 3 || !strings.Contains(errw, "Move acme/shop/prod from home to vps-fsn1?") || !strings.Contains(errw, "live: copies while running") || len(writes(r)) != 0 {
-		t.Errorf("no -y = %d %q, writes %v", code, errw, writes(r))
+}
+
+// stackr placements is the member's list: names, tags, public IP, online,
+// usable, and no node.
+func TestPlacementsList(t *testing.T) {
+	list := `[{"name":"eu-prod","tags":["ingress","egress"],"public":true,"online":true,"has_node":true,"usable":true},` +
+		`{"name":"eu-db","tags":["storage"],"public":false,"online":false,"has_node":true,"usable":false,"why":"offline"}]`
+	r := fake(t, map[string]string{"/placements": list})
+	code, out, errw := cli(t, "placements")
+	if code != 0 || !strings.Contains(out, "eu-prod\tingress,egress\tyes\tyes\tyes") || !strings.Contains(out, "eu-db\tstorage\tno\tno\tno\toffline") {
+		t.Fatalf("placements = %d %q %q", code, out, errw)
 	}
-	if code, out, _ := cli(t, append(args, "--dry-run")...); code != 0 || !strings.Contains(out, "Move acme/shop/prod from home to vps-fsn1?") || len(writes(r)) != 0 {
-		t.Errorf("--dry-run = %d %q, writes %v", code, out, writes(r))
+	if strings.Contains(out, "node") || len(r.reqs) != 1 || r.reqs[0] != "GET /api/v1/orgs/acme/placements " {
+		t.Errorf("out %q, sent %v", out, r.reqs)
 	}
-	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 {
-		t.Fatalf("-y = %d %q", code, errw)
+	if code, out, _ = cli(t, "--json", "placements"); code != 0 || !strings.Contains(out, `"name": "eu-prod"`) {
+		t.Errorf("json = %d %q", code, out)
 	}
-	if code, _, errw = cli(t, append([]string{"-y"}, append(args, "--cold")...)...); code != 0 {
-		t.Fatalf("--cold = %d %q", code, errw)
+}
+
+func TestAdminPlacement(t *testing.T) {
+	r := fake(t, map[string]string{"/admin/placements": `[` +
+		`{"name":"default","node":"ctl","tags":["ingress"],"online":true,"open_to_all":true,"open_to":[],"envs":3},` +
+		`{"name":"eu-db","node":"h3","tags":["storage"],"online":false,"open_to_all":false,"open_to":["acme"],"envs":1},` +
+		`{"name":"eu-new","node":"","tags":[],"online":false,"open_to_all":true,"open_to":[],"envs":0},` +
+		`{"name":"old","node":"h9","online":false,"open_to_all":true,"open_to":[],"envs":2,"node_forgotten":true}]`})
+	code, out, errw := cli(t, "admin", "placement", "ls")
+	for _, w := range []string{"default\tctl\tingress\tall\t3\tonline", "eu-db\th3\tstorage\tacme\t1\toffline", "no node yet", "node forgotten: repoint to restore"} {
+		if code != 0 || !strings.Contains(out, w) {
+			t.Fatalf("ls = %d %q %q, want %q", code, out, errw, w)
+		}
 	}
-	w := writes(r)
-	if len(w) != 2 || w[0] != `POST /api/v1/orgs/acme/stacks/shop/envs/prod/move {"cold":false,"to":"vps-fsn1"}` ||
-		w[1] != `POST /api/v1/orgs/acme/stacks/shop/envs/prod/move {"cold":true,"to":"vps-fsn1"}` {
+	if code, out, errw = cli(t, "admin", "placement", "add", "eu-prod", "--node", "h4", "--open", "acme,shop"); code != 0 || !strings.Contains(out, "eu-prod: made, on h4") {
+		t.Fatalf("add = %d %q %q", code, out, errw)
+	}
+	if code, _, _ = cli(t, "admin", "placement", "add", "eu-x", "--open", ","); code != 2 {
+		t.Errorf("bad --open = %d", code)
+	}
+	if code, out, errw = cli(t, "admin", "placement", "open", "eu-prod", "all"); code != 0 || !strings.Contains(out, "open to all orgs") {
+		t.Fatalf("open = %d %q %q", code, out, errw)
+	}
+	if code, _, _ = cli(t, "admin", "placement", "rm", "eu-x"); code != 3 {
+		t.Errorf("rm no -y = %d", code)
+	}
+	if code, out, errw = cli(t, "-y", "admin", "placement", "rm", "eu-x"); code != 0 || !strings.Contains(out, "eu-x: deleted") {
+		t.Fatalf("rm = %d %q %q", code, out, errw)
+	}
+	want := []string{
+		`POST /api/v1/admin/placements {"name":"eu-prod","node":"h4","orgs":["acme","shop"]}`,
+		`PUT /api/v1/admin/placements/eu-prod/open {"all":true,"orgs":null}`,
+		`DELETE /api/v1/admin/placements/eu-x `,
+	}
+	if w := writes(r); strings.Join(w, "|") != strings.Join(want, "|") {
 		t.Errorf("writes = %v", w)
 	}
-	if code, _, errw = cli(t, "env", "move", "--stack", "shop", "--env", "prod"); code != 2 || !strings.Contains(errw, "--to") {
-		t.Errorf("no --to = %d %q", code, errw)
+}
+
+// move prints the checks; it exits 3 until --yes, which sends the placement's
+// name as the confirm. A failing check stops it with no write.
+func TestAdminPlacementMove(t *testing.T) {
+	const plan = `{"placement":"eu-prod","from":"h4","to":"h5","restore":false,"envs":[{"path":"acme/shop/prod","volumes":2,"bytes":2147483648,"downtime":"about 25 s"}],` +
+		`"checks":[{"name":"target online","ok":true},{"name":"disk","ok":true,"detail":"h5 free 40 GB, needs 2.0 GB + 10%"}],"ok":true}`
+	r := fake(t, map[string]string{"/move-plan": plan, "/move": `{}`})
+	code, out, errw := cli(t, "admin", "placement", "move", "eu-prod", "h5")
+	if code != 3 || !strings.Contains(out, "Move eu-prod: h4 to h5") || !strings.Contains(out, "ok    target online") ||
+		!strings.Contains(out, "h5 free 40 GB") || !strings.Contains(errw, "Move placement eu-prod from h4 to h5?") || len(writes(r)) != 0 {
+		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
 	}
-	fakeErr(t, 409, `{"error":"vps-ams is offline"}`)
-	if code, _, errw = cli(t, "-y", "env", "move", "--stack", "shop", "--env", "prod", "--to", "vps-ams"); code == 0 {
-		t.Errorf("refusal = %d %q", code, errw)
+	if code, _, errw = cli(t, "-y", "admin", "placement", "move", "eu-prod", "h5"); code != 0 {
+		t.Fatalf("-y = %d %q", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-prod/move {"confirm":"eu-prod","to":"h5"}` {
+		t.Errorf("writes = %v", w)
+	}
+	bad := strings.Replace(strings.Replace(plan, `],"ok":true}`, `],"ok":false}`, 1), `"name":"disk","ok":true`, `"name":"disk","ok":false`, 1)
+	r = fake(t, map[string]string{"/move-plan": bad})
+	if code, out, errw = cli(t, "-y", "admin", "placement", "move", "eu-prod", "h5"); code != 1 || !strings.Contains(out, "FAIL  disk") || len(writes(r)) != 0 {
+		t.Errorf("failed check = %d %q %q, writes %v", code, out, errw, writes(r))
+	}
+}
+
+func TestAdminPlacementRetry(t *testing.T) {
+	r := fake(t, map[string]string{"/move": `{"state":"failed","from":"h4","to":"h5","done":1,"all":2,"error":"h5 disk full"}`, "/retry": `{}`})
+	code, out, errw := cli(t, "admin", "placement", "retry", "eu-prod")
+	if code != 0 || !strings.Contains(out, "eu-prod: failed to h5, 1 of 2 envs moved") || !strings.Contains(out, "h5 disk full") {
+		t.Fatalf("retry = %d %q %q", code, out, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != "POST /api/v1/admin/placements/eu-prod/retry " {
+		t.Errorf("writes = %v", w)
 	}
 }
 
@@ -421,44 +484,42 @@ func TestEnvLostRestore(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "acme/api/dev\tdb-data,cache") {
 		t.Fatalf("lost = %d %q %q", code, out, errw)
 	}
-	r := fake(t, map[string]string{
-		"/lost-envs": lost,
-		"/restore":   `{"env":{"volumes":[{"id":"v1","name":"db-data","run_id":"r1"},{"id":"v2","name":"cache"}]},"node":"home","tiles":["t1"]}`,
-		"/start":     `{}`,
-	})
-	args := []string{"env", "restore", "dev", "--stack", "api", "--to", "home"}
-	if code, _, errw = cli(t, args...); code != 3 || !strings.Contains(errw, "Restore acme/api/dev on home?") ||
-		!strings.Contains(errw, "db-data  from the backup of") || !strings.Contains(errw, "cache  no backup: starts empty") || len(writes(r)) != 0 {
-		t.Errorf("no -y = %d %q, writes %v", code, errw, writes(r))
+	// a restore is a repoint off a forgotten node: the server restores the volumes
+	const plan = `{"placement":"eu-db","from":"h3","to":"h5","restore":true,"envs":[{"path":"acme/api/dev","volumes":2,"bytes":-1,"downtime":"about 1 min"}],"checks":[{"name":"target online","ok":true}],"ok":true}`
+	r := fake(t, map[string]string{"/move-plan": plan, "/move": `{}`})
+	args := []string{"env", "restore", "--placement", "eu-db", "--to", "h5"}
+	if code, out, errw = cli(t, args...); code != 3 || !strings.Contains(out, "Restore from backups eu-db") || !strings.Contains(errw, "Restore placement eu-db on h5?") || len(writes(r)) != 0 {
+		t.Errorf("no -y = %d %q %q, writes %v", code, out, errw, writes(r))
 	}
-	if code, out, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 || !strings.Contains(out, "acme/api/dev: running on home") {
-		t.Fatalf("-y = %d %q %q", code, out, errw)
+	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 0 {
+		t.Fatalf("-y = %d %q", code, errw)
 	}
-	want := []string{
-		`POST /api/v1/orgs/acme/stacks/api/envs/dev/restore {"to":"home"}`,
-		`POST /api/v1/orgs/acme/volumes/v1/restore {"run_id":"r1","target_volume_id":"v1"}`,
-		`POST /api/v1/orgs/acme/stacks/api/envs/dev/tiles/t1/start `,
-	}
-	if w := writes(r); strings.Join(w, "|") != strings.Join(want, "|") {
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-db/move {"confirm":"eu-db","to":"h5"}` {
 		t.Errorf("writes = %v", w)
 	}
-	// an env that is not lost is refused before anything is sent
-	r = fake(t, map[string]string{"/lost-envs": `[]`})
-	if code, _, errw = cli(t, "-y", "env", "restore", "dev", "--stack", "api", "--to", "home"); code != 1 || !strings.Contains(errw, "is not lost") || len(writes(r)) != 0 {
+	// a placement that is not on a forgotten node is a plain move: refused here
+	r = fake(t, map[string]string{"/move-plan": strings.Replace(plan, `"restore":true`, `"restore":false`, 1)})
+	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 1 || !strings.Contains(errw, "not on a forgotten node") || len(writes(r)) != 0 {
 		t.Errorf("not lost = %d %q, writes %v", code, errw, writes(r))
+	}
+	if code, _, errw = cli(t, "env", "restore", "--to", "h5"); code != 2 {
+		t.Errorf("no --placement = %d %q", code, errw)
 	}
 }
 
-func TestEnvCreateNodeAndLs(t *testing.T) {
-	r := fake(t, map[string]string{"/envs": `[{"slug":"dev","name":"dev","type":"static","node_id":"n0"}]`, "/nodes": `[{"id":"n0","name":"home"}]`})
-	if code, out, errw := cli(t, "env", "ls", "--stack", "shop"); code != 0 || !strings.Contains(out, "dev\tdev\tstatic\thome") {
+func TestEnvCreatePlacementAndLs(t *testing.T) {
+	r := fake(t, map[string]string{"/envs": `[{"slug":"dev","name":"dev","type":"static","node_id":"n0"}]`})
+	if code, out, errw := cli(t, "env", "ls", "--stack", "shop"); code != 0 || !strings.Contains(out, "dev\tdev\tstatic") || strings.Contains(out, "home") {
 		t.Errorf("ls = %d %q %q", code, out, errw)
 	}
-	if code, _, errw := cli(t, "env", "create", "demo", "--stack", "shop", "--from-kind", "promote", "--node", "vps-fsn1"); code != 0 {
+	if len(r.reqs) != 1 { // members cannot read /nodes: env ls asks for envs only
+		t.Errorf("ls sent %v", r.reqs)
+	}
+	if code, _, errw := cli(t, "env", "create", "demo", "--stack", "shop", "--from-kind", "promote", "--placement", "eu-prod"); code != 0 {
 		t.Fatalf("create = %d %q", code, errw)
 	}
 	w := writes(r)
-	if len(w) != 1 || !strings.Contains(w[0], `"node":"vps-fsn1"`) {
+	if len(w) != 1 || !strings.Contains(w[0], `"placement":"eu-prod"`) {
 		t.Errorf("create writes = %v", w)
 	}
 }

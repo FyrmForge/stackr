@@ -67,6 +67,7 @@ func (a *app) commands() []*cobra.Command {
 		a.admin(),
 		a.nodes(),
 		a.cluster(),
+		a.placements(),
 		a.pin(),
 		a.ingress(),
 		a.exits(),
@@ -1009,6 +1010,7 @@ func (a *app) admin() *cobra.Command {
 	return noun("admin", "Server administration (stackr admins)",
 		list("orgs", "admin.orgs", "List every org", "/admin/orgs", orgCols...),
 		list("users", "admin.users", "List users", "/admin/users", userCols...),
+		a.adminPlacement(),
 		setAdmin,
 		leaf("disable <user-id>", "admin.user-disable", "Disable a user; their sessions and keys close", exact(1),
 			func(_ *cobra.Command, args []string) error {

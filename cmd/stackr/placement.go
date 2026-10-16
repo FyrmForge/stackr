@@ -6,14 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
 
 // Placement: pin, ingress and exit work the same at every scope, so they are
-// top-level nouns with --org, --stack, --env and --tile; env move and the
-// lost-env verbs are under env (stack.go adds them).
+// top-level nouns with --org, --stack, --env and --tile; they name placements,
+// never nodes. The lost-env verbs are under env (stack.go adds them).
 
 // scopeFlags gives c the flags that name a scope. The deepest one given wins;
 // none given means the linked directory, else the org.
@@ -68,12 +67,9 @@ func scopeName(p string) string {
 
 func (a *app) pin() *cobra.Command {
 	var clear bool
-	c := leaf("pin [node]", "org.pin,org.pin-set,stack.pin,stack.pin-set", "Pin an org or stack to a node: where its new envs go", upTo(1),
+	c := waits(leaf("pin [placement]", "org.pin,org.pin-set,stack.pin,stack.pin-set,env.pin,env.pin-set,env.pin-plan", "Pin an org, stack or env to a placement: where its envs run", upTo(1),
 		func(c *cobra.Command, args []string) error {
-			if flag(c, "env") != "" {
-				return usage("an env runs where it is; stackr env move moves it. Pin an org or a stack")
-			}
-			p, err := a.place(c, atStack)
+			p, err := a.place(c, atEnv)
 			if err != nil {
 				return err
 			}
@@ -86,35 +82,71 @@ func (a *app) pin() *cobra.Command {
 					return a.show(v)
 				}
 				m := asMap(v)
-				if cell(m["node"]) == "(none)" {
-					a.say("%s: no pin; new envs go to the controller", cell(m["scope"]))
+				if pl(m) == "(none)" {
+					a.say("%s: no pin; new envs go to the default placement", cell(m["scope"]))
 				} else {
-					a.say("%s: new envs go to %s", cell(m["scope"]), cell(m["node"]))
+					a.say("%s: envs go to %s", cell(m["scope"]), pl(m))
 				}
 				return nil
 			}
 			if len(args) == 1 && clear {
-				return usage("pass a node or --clear, not both")
+				return usage("pass a placement or --clear, not both")
 			}
-			node := ""
+			name := ""
 			if len(args) == 1 {
-				node = args[0]
+				name = args[0]
 			}
-			v, err := a.call(PUT, p+"/pin", map[string]string{"node": node})
+			body := map[string]string{"placement": name}
+			if strings.Contains(p, "/envs/") {
+				// A pin that moves the env shows the plan first and needs --yes.
+				plan, err := a.call(GET, p+"/pin-plan?to="+url.QueryEscape(name), nil)
+				if err != nil {
+					return err
+				}
+				if pm := asMap(plan); len(asList(pm["envs"])) > 0 {
+					if a.json {
+						if err := a.show(plan); err != nil {
+							return err
+						}
+					} else {
+						a.sayPlan(pm)
+					}
+					if pm["ok"] != true {
+						return fmt.Errorf("%s cannot move to %s yet: a check failed", scopeName(p), name)
+					}
+					if err := a.confirm(fmt.Sprintf("Pin %s to %s? That moves it from %s to %s.", scopeName(p), name, cell(pm["from"]), cell(pm["to"]))); err != nil {
+						return err
+					}
+					body["confirm"] = last(p)
+				}
+			}
+			v, err := a.call(PUT, p+"/pin", body)
 			if err != nil {
 				return err
+			}
+			if j := asMap(v)["job"]; j != nil { // the pin moved the env
+				if nw, _ := c.Flags().GetBool("no-wait"); nw {
+					return a.show(j, "id", "kind", "state")
+				}
+				base, err := a.orgPath()
+				if err != nil {
+					return err
+				}
+				return a.follow(base, j, "move")
 			}
 			if a.json {
 				return a.show(v)
 			}
-			if node == "" {
-				a.say("%s: pin removed; new envs follow the pin above, else the controller", scopeName(p))
+			if name == "" {
+				a.say("%s: pin removed; envs follow the pin above, else the default placement", scopeName(p))
 			} else {
-				a.say("%s: new envs go to %s. Existing envs stay where they are (stackr env move moves one).", scopeName(p), node)
+				a.say("%s: envs go to %s", scopeName(p), name)
 			}
 			return nil
-		})
-	c.Example = "  stackr pin vps-fsn1 --org acme\n  stackr pin vps-fsn1 --stack shop\n  stackr pin --clear --stack shop"
+		}))
+	c.Long = "Pin an org, stack or env to a placement; stackr placements lists the ones open to the org.\n" +
+		"Pinning changes where an existing env runs: it moves, after the plan is shown and --yes."
+	c.Example = "  stackr pin eu-prod --org acme\n  stackr pin eu-prod --stack shop\n  stackr pin eu-db --stack shop --env prod --yes\n  stackr pin --clear --stack shop"
 	c.Flags().BoolVar(&clear, "clear", false, "remove the pin")
 	scopeFlags(c, false)
 	return c
@@ -124,7 +156,7 @@ func (a *app) ingress() *cobra.Command {
 	var clear, def bool
 	var getDef bool
 	var confirm string
-	get := leaf("get", "org.ingress,stack.ingress,env.ingress,tile.ingress,admin.node-defaults", "Which node public traffic enters through", exact(0),
+	get := leaf("get", "org.ingress,stack.ingress,env.ingress,tile.ingress,admin.node-defaults", "Which placement public traffic enters through", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			if getDef {
 				return a.showDefaults()
@@ -141,51 +173,51 @@ func (a *app) ingress() *cobra.Command {
 				return a.show(v)
 			}
 			m := asMap(v)
-			a.say("%s\t%s\t(from %s)", cell(m["scope"]), cell(m["node"]), cell(m["from"]))
+			a.say("%s\t%s\t(from %s)", cell(m["scope"]), pl(m), cell(m["from"]))
 			return nil
 		})
 	get.Example = "  stackr ingress get --stack shop --env prod\n  stackr ingress get --default"
-	get.Flags().BoolVar(&getDef, "default", false, "show the cluster-wide default ingress and exit")
-	set := leaf("set [node]", "org.ingress-set,stack.ingress-set,env.ingress-set,tile.ingress-set,admin.default-ingress-set,admin.default-ingress-plan", "Pick the ingress node of a scope", upTo(1),
+	get.Flags().BoolVar(&getDef, "default", false, "show the cluster-wide default ingress and exit (server admin)")
+	set := leaf("set [placement]", "org.ingress-set,stack.ingress-set,env.ingress-set,tile.ingress-set,admin.default-ingress-set,admin.default-ingress-plan", "Pick the ingress placement of a scope", upTo(1),
 		func(c *cobra.Command, args []string) error {
 			if def {
 				return a.setDefaultIngress(args, confirm)
 			}
 			if len(args) == 0 && !clear {
-				return usage("pass a node, or --clear")
+				return usage("pass a placement, or --clear")
 			}
 			if len(args) == 1 && clear {
-				return usage("pass a node or --clear, not both")
+				return usage("pass a placement or --clear, not both")
 			}
 			p, err := a.place(c, atTile)
 			if err != nil {
 				return err
 			}
-			node := ""
+			name := ""
 			if len(args) == 1 {
-				node = args[0]
+				name = args[0]
 			}
-			v, err := a.call(PUT, p+"/ingress", map[string]string{"node": node})
+			v, err := a.call(PUT, p+"/ingress", map[string]string{"placement": name})
 			if err != nil {
 				return err
 			}
 			if a.json {
 				return a.show(v)
 			}
-			if node == "" {
-				a.say("%s: public traffic enters through %s (inherited)", scopeName(p), cell(asMap(v)["node"]))
+			if name == "" {
+				a.say("%s: public traffic enters through %s (inherited)", scopeName(p), pl(asMap(v)))
 			} else {
-				a.say("%s: public traffic enters through %s", scopeName(p), node)
+				a.say("%s: public traffic enters through %s", scopeName(p), name)
 			}
 			return nil
 		})
-	set.Example = "  stackr ingress set home --tile admin --stack shop --env prod\n  stackr ingress set vps-fsn1 --default"
+	set.Example = "  stackr ingress set eu-prod --tile admin --stack shop --env prod\n  stackr ingress set h4 --default"
 	set.Flags().BoolVar(&clear, "clear", false, "remove the pick; the scope inherits")
-	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default ingress to <node>; shows where the hosts point first")
+	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default ingress to <node> (server admin); shows where the hosts point first")
 	set.Flags().StringVar(&confirm, "confirm", "", "with --default: the node's name, to skip the prompt")
 	scopeFlags(get, true)
 	scopeFlags(set, true)
-	return noun("ingress", "The node public traffic enters through", get, set)
+	return noun("ingress", "The placement public traffic enters through", get, set)
 }
 
 func (a *app) showDefaults() error {
@@ -300,28 +332,28 @@ func (a *app) exits() *cobra.Command {
 			}
 			m := asMap(v)
 			if len(asList(m["exits"])) == 0 {
-				a.say("%s: goes out through its own node (no exit list)", cell(m["scope"]))
+				a.say("%s: goes out through its own placement (no exit list)", cell(m["scope"]))
 				return nil
 			}
-			return a.show(m["exits"], "position", "node", "state")
+			return a.show(m["exits"], "position", "node", "state") // node here is a placement name
 		})
 	ls.Example = "  stackr exit ls --stack shop --env prod"
-	set := leaf("set [node]...", "org.exits-set,stack.exits-set,env.exits-set,tile.exits-set,admin.default-exit-set", "Set the ordered exit list of a scope", atLeast(0),
+	set := leaf("set [placement]...", "org.exits-set,stack.exits-set,env.exits-set,tile.exits-set,admin.default-exit-set", "Set the ordered exit list of a scope: placements, or own for the env's own", atLeast(0),
 		func(c *cobra.Command, args []string) error {
 			if def {
 				return a.setDefault(c, args, "/admin/default-exit", "exit")
 			}
 			if len(args) == 0 && !clear {
-				return usage("pass the exit nodes in order, or --clear")
+				return usage("pass the exit placements in order (or own), or --clear")
 			}
 			if len(args) > 0 && clear {
-				return usage("pass nodes or --clear, not both")
+				return usage("pass placements or --clear, not both")
 			}
 			p, err := a.place(c, atTile)
 			if err != nil {
 				return err
 			}
-			v, err := a.call(PUT, p+"/exits", map[string][]string{"nodes": append([]string{}, args...)})
+			v, err := a.call(PUT, p+"/exits", map[string][]string{"placements": append([]string{}, args...)})
 			if err != nil {
 				return err
 			}
@@ -330,7 +362,7 @@ func (a *app) exits() *cobra.Command {
 			}
 			switch len(args) {
 			case 0:
-				a.say("%s: goes out through its own node", scopeName(p))
+				a.say("%s: goes out through its own placement", scopeName(p))
 			case 1:
 				a.say("%s: goes out through %s; no internet if it is down", scopeName(p), args[0])
 			default:
@@ -339,75 +371,25 @@ func (a *app) exits() *cobra.Command {
 			}
 			return nil
 		})
-	set.Example = "  stackr exit set vps-fsn1 home --stack shop --env prod\n  stackr exit set --clear --stack shop --env prod"
+	set.Example = "  stackr exit set eu-prod home --stack shop --env prod\n  stackr exit set --clear --stack shop --env prod"
 	set.Flags().BoolVar(&clear, "clear", false, "remove the list: the scope goes out through its own node")
-	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default exit to <node> (no node clears it)")
+	set.Flags().BoolVar(&def, "default", false, "set the cluster-wide default exit to <node> (server admin; no node clears it)")
 	scopeFlags(ls, true)
 	scopeFlags(set, true)
-	return noun("exit", "The nodes traffic leaves the cluster through", ls, set)
+	return noun("exit", "The placements traffic leaves the cluster through", ls, set)
 }
 
 // ---- env: node column, move, lost, restore ----
 
 func (a *app) envLs() *cobra.Command {
-	return leaf("ls", "env.list,node.list", "List environments", exact(0),
+	return leaf("ls", "env.list", "List environments", exact(0),
 		a.at(atStack, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/envs", nil)
 			if err != nil {
 				return err
 			}
-			if a.json {
-				return a.show(v)
-			}
-			names, _ := a.nodeNames()
-			for _, e := range asList(v) {
-				m := asMap(e)
-				m["node"] = names[cell(m["node_id"])]
-				if m["node"] == "" {
-					m["node"] = "(lost)"
-				}
-			}
-			return a.show(v, "slug", "name", "type", "node", "from_kind", "from_branch", "auto", "release_id", "id")
+			return a.show(v, "slug", "name", "type", "from_kind", "from_branch", "auto", "release_id", "id")
 		}))
-}
-
-func (a *app) envMove() *cobra.Command {
-	var to string
-	var cold, dry bool
-	c := waits(leaf("move", "env.get,node.list,env.move", "Move the env to another node", exact(0),
-		a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
-			if to == "" {
-				return usage("--to <node> is required; stackr node ls lists them")
-			}
-			e, err := a.call(GET, p, nil)
-			if err != nil {
-				return err
-			}
-			names, err := a.nodeNames()
-			if err != nil {
-				return err
-			}
-			from := names[cell(asMap(e)["node_id"])]
-			mode := "live: copies while running, then stops for a final copy"
-			if cold {
-				mode = "cold: stops first and copies once; longer downtime"
-			}
-			q := fmt.Sprintf("Move %s from %s to %s?\n  mode   %s\n  after  new addresses on %s; routes, links and exits follow; old volumes stay on %s",
-				scopeName(p), from, to, mode, to, from)
-			if dry {
-				a.say("%s", q)
-				return nil
-			}
-			if err := a.confirm(q); err != nil {
-				return err
-			}
-			return a.orgJob(c, POST, p+"/move", map[string]any{"to": to, "cold": cold}, "move")
-		})))
-	c.Example = "  stackr env move --stack shop --env prod --to vps-fsn1\n  stackr env move --stack shop --env prod --to home --cold"
-	c.Flags().StringVar(&to, "to", "", "the node to move to")
-	c.Flags().BoolVar(&cold, "cold", false, "stop first and copy once (default: live)")
-	c.Flags().BoolVar(&dry, "dry-run", false, "print the plan and stop")
-	return c
 }
 
 func (a *app) envLost() *cobra.Command {
@@ -435,77 +417,41 @@ func (a *app) envLost() *cobra.Command {
 	})
 }
 
+// envRestore brings lost envs back by repointing their placement: the
+// server rehomes each env and restores its volumes from the backups.
 func (a *app) envRestore() *cobra.Command {
-	var to string
-	c := leaf("restore <env>", "env.lost,node.list,env.restore,backup.restore,tile.start", "Bring a lost env back from its backups on a live node", exact(1),
-		func(c *cobra.Command, args []string) error {
-			if to == "" {
-				return usage("--to <node> is required; stackr node ls lists them")
+	var placement, to string
+	c := waits(leaf("restore", "admin.placement-move-plan,admin.placement-move", "Bring a placement's lost envs back from their backups on a live node (server admin)", exact(0),
+		func(c *cobra.Command, _ []string) error {
+			if placement == "" || to == "" {
+				return usage("--placement <name> and --to <node> are required; stackr env lost lists the lost envs")
 			}
-			sp, err := a.path(c, atStack, "")
+			plan, err := a.call(GET, placementPath(placement)+"/move-plan?to="+url.QueryEscape(to), nil)
 			if err != nil {
 				return err
 			}
-			op, _ := a.orgPath()
-			p := sp + "/envs/" + url.PathEscape(args[0])
-			lost, err := a.call(GET, op+"/lost-envs", nil)
-			if err != nil {
+			pm := asMap(plan)
+			if a.json {
+				if err := a.show(plan); err != nil {
+					return err
+				}
+			} else {
+				a.sayPlan(pm)
+			}
+			if pm["ok"] != true {
+				return fmt.Errorf("%s cannot be restored on %s yet: a check failed", placement, to)
+			}
+			if pm["restore"] != true {
+				return fmt.Errorf("%s is not on a forgotten node; stackr admin placement move repoints it", placement)
+			}
+			if err := a.confirm(fmt.Sprintf("Restore placement %s on %s? Each env is brought back from its last backup; data written since is lost.", placement, to)); err != nil {
 				return err
 			}
-			var env map[string]any
-			for _, e := range asList(lost) {
-				if m := asMap(e); cell(m["path"]) == scopeName(p) {
-					env = m
-				}
-			}
-			if env == nil {
-				return fmt.Errorf("%s is not lost; stackr env lost lists the ones that are", scopeName(p))
-			}
-			var b strings.Builder
-			fmt.Fprintf(&b, "Restore %s on %s?", scopeName(p), to)
-			for _, x := range asList(env["volumes"]) {
-				vm := asMap(x)
-				if t, err := time.Parse(time.RFC3339, cell(vm["last_backup"])); err == nil {
-					fmt.Fprintf(&b, "\n  %s  from the backup of %s (%s)", cell(vm["name"]), t.Local().Format("2006-01-02 15:04"), ago(t))
-				} else {
-					fmt.Fprintf(&b, "\n  %s  no backup: starts empty", cell(vm["name"]))
-				}
-			}
-			if err := a.confirm(b.String()); err != nil {
-				return err
-			}
-			v, err := a.call(POST, p+"/restore", map[string]string{"to": to})
-			if err != nil {
-				return err
-			}
-			re := asMap(v)
-			for _, x := range asList(asMap(re["env"])["volumes"]) {
-				vm := asMap(x)
-				if cell(vm["run_id"]) == "(none)" {
-					continue
-				}
-				j, err := a.call(POST, op+"/volumes/"+cell(vm["id"])+"/restore", map[string]string{"run_id": cell(vm["run_id"]), "target_volume_id": cell(vm["id"])})
-				if err != nil {
-					return err
-				}
-				if err := a.follow(op, j, "restore of "+cell(vm["name"])); err != nil {
-					return err
-				}
-			}
-			for _, id := range strs(re["tiles"]) {
-				j, err := a.call(POST, p+"/tiles/"+id+"/start", nil)
-				if err != nil {
-					return err
-				}
-				if err := a.follow(op, j, "start"); err != nil {
-					return err
-				}
-			}
-			a.say("%s: running on %s", scopeName(p), to)
-			return nil
-		})
-	c.Example = "  stackr env restore dev --stack api --to home"
-	c.Flags().StringVar(&to, "to", "", "the node to restore onto")
+			return a.job(c, "/admin", POST, placementPath(placement)+"/move", map[string]string{"to": to, "confirm": placement}, "restore of "+placement)
+		}))
+	c.Example = "  stackr env restore --placement eu-db --to h5"
+	c.Flags().StringVar(&placement, "placement", "", "the placement whose node was forgotten")
+	c.Flags().StringVar(&to, "to", "", "the live node to restore onto")
 	return c
 }
 

@@ -222,17 +222,22 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/join-requests/:node/confirm", "admin.join-confirm", "node.manage", h.ConfirmJoin()},
 		{POST, "/admin/join-requests/:node/reject", "admin.join-reject", "node.manage", h.RejectJoin()},
 
-		// nodes: reads for any member (redacted), writes for server admins
-		{GET, "/nodes", "node.list", Self, h.Nodes()},
-		{GET, "/nodes/:node", "node.get", Self, h.GetNode()},
-		{GET, "/cluster", "cluster.status", Self, h.Cluster()},
+		// nodes are admin-only hardware; members see placements
+		{GET, "/nodes", "node.list", "node.manage", h.Nodes()},
+		{GET, "/nodes/:node", "node.get", "node.manage", h.GetNode()},
+		{GET, "/admin/placements", "admin.placements", "node.manage", h.Placements()},
+		{POST, "/admin/placements", "admin.placement-create", "node.manage", h.CreatePlacement()},
+		{PUT, "/admin/placements/:name/open", "admin.placement-open", "node.manage", h.SetPlacementOpen()},
+		{DELETE, "/admin/placements/:name", "admin.placement-delete", "node.manage", h.DeletePlacement()},
+		{GET, "/admin/placements/:name/move-plan", "admin.placement-move-plan", "node.manage", h.PlacementMovePlan()},
+		{POST, "/admin/placements/:name/move", "admin.placement-move", "node.manage", h.MovePlacement()},
+		{POST, "/admin/placements/:name/retry", "admin.placement-retry", "node.manage", h.RetryPlacementMove()},
+		{GET, "/admin/placements/:name/move", "admin.placement-move-status", "node.manage", h.PlacementMove()},
+		{GET, "/cluster", "cluster.status", "node.manage", h.Cluster()},
 		{POST, "/registry/login", "registry.login", Self, h.RegistryLogin()},
 		{PUT, "/admin/nodes/:node/tags", "admin.node-tags", "node.manage", h.TagNode()},
 		{PUT, "/admin/nodes/:node/exit", "admin.node-exit", "node.manage", h.SetNodeExit()},
-		{POST, "/admin/nodes/:node/orgs", "admin.node-open", "node.manage", h.OpenNode()},
-		{DELETE, "/admin/nodes/:node/orgs/:org", "admin.node-close", "node.manage", h.CloseNode()},
-		{PUT, "/admin/nodes/:node/open-to-all", "admin.node-open-all", "node.manage", h.OpenNodeAll()},
-		{GET, "/admin/node-defaults", "admin.node-defaults", Self, h.NodeDefaults()},
+		{GET, "/admin/node-defaults", "admin.node-defaults", "node.manage", h.NodeDefaults()},
 		{GET, "/admin/default-ingress/plan", "admin.default-ingress-plan", "node.manage", h.DefaultIngressPlan()},
 		{PUT, "/admin/default-ingress", "admin.default-ingress-set", "node.manage", h.SetDefaultIngress()},
 		{PUT, "/admin/default-exit", "admin.default-exit-set", "node.manage", h.SetDefaultExit()},
@@ -350,12 +355,15 @@ func scoped(h *v1.H) []Route {
 	)
 }
 
-// placement are the routes that exist once per scope: pins (org and stack),
-// the ingress node and the exit list (org, stack, env and tile).
+// placement are the routes that exist once per scope: pins (org, stack and
+// env; the env's moves it), the ingress placement and the exit list (org,
+// stack, env and tile). All name placements, never nodes.
 func placement(h *v1.H) []Route {
 	out := []Route{
-		{http.MethodPost, env + "/move", "env.move", "placement.write", h.MoveEnv()},
-		{http.MethodPost, env + "/restore", "env.restore", "placement.write", h.RestoreEnv()},
+		{http.MethodGet, org + "/placements", "org.placements", "org.read", h.OrgPlacements()},
+		{http.MethodGet, env + "/pin", "env.pin", "org.read", h.Pin(v1.AtEnv)},
+		{http.MethodGet, env + "/pin-plan", "env.pin-plan", "placement.write", h.EnvPinPlan()},
+		{http.MethodPut, env + "/pin", "env.pin-set", "placement.write", h.SetEnvPin()},
 	}
 	for _, s := range []struct {
 		base, name string
