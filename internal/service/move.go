@@ -191,11 +191,21 @@ func (o *Orchestrator) enqueueMove(ctx context.Context, m EnvMove, by, keyID str
 	if err != nil {
 		return Job{}, err
 	}
+	return o.enqueue(ctx, kindMoveEnv, moveJob{MoveID: m.ID, EnvID: m.EnvID, By: by, KeyID: keyID}, moveLocks(m, ts)...)
+}
+
+// moveLocks is a move's job locks: its env and tiles, and for a live move
+// the target node, whose rsync helpers publish fixed host ports
+// (move.RsyncPort up), so two live moves onto one node run one at a time.
+func moveLocks(m EnvMove, ts []Tile) []string {
 	lock := []string{"env:" + m.EnvID}
 	for _, t := range ts {
 		lock = append(lock, t.ID)
 	}
-	return o.enqueue(ctx, kindMoveEnv, moveJob{MoveID: m.ID, EnvID: m.EnvID, By: by, KeyID: keyID}, lock...)
+	if m.Live {
+		lock = append(lock, "rsync-target:"+m.ToNode)
+	}
+	return lock
 }
 
 // resumeMoves queues a job for every move a restart cut off.

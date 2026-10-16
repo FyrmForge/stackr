@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,5 +123,19 @@ func TestMoveAddrOfController(t *testing.T) {
 	must(t, err)
 	if got != mesh.ControllerTransit.String() {
 		t.Fatalf("controller addr = %q, want %s", got, mesh.ControllerTransit)
+	}
+}
+
+// Two live moves onto one node share a lock: their rsync helpers bind the
+// same host ports there (the rig's second env failed on 8873 otherwise).
+func TestMoveLocksSerialiseLiveMovesOntoOneNode(t *testing.T) {
+	a := moveLocks(EnvMove{EnvID: "e1", ToNode: "n2", Live: true}, nil)
+	b := moveLocks(EnvMove{EnvID: "e2", ToNode: "n2", Live: true}, nil)
+	if !slices.ContainsFunc(a, func(l string) bool { return slices.Contains(b, l) }) {
+		t.Errorf("live moves onto one node share no lock: %v %v", a, b)
+	}
+	c := moveLocks(EnvMove{EnvID: "e3", ToNode: "n3", Live: true}, nil)
+	if slices.ContainsFunc(a, func(l string) bool { return slices.Contains(c, l) }) {
+		t.Errorf("moves onto different nodes share a lock: %v %v", a, c)
 	}
 }
