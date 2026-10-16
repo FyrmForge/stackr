@@ -10,7 +10,9 @@ import (
 // NodesView is the admin Nodes tab. Add "" = may not add a node.
 type NodesView struct {
 	Add   string // GET: opens the add-node steps
-	Lost  []LostEnvRow
+	// Placements is a GET to the Placements tab, for the lost envs' hint.
+	Placements string
+	Lost       []LostEnvRow
 	Rows  []NodeRow
 	Adder *AddNodeView // the open add-node steps, nil = closed
 	// Defaults is the cluster-wide default ingress and exit; nil = single node.
@@ -113,13 +115,11 @@ type NodeRow struct {
 	Cores, Mem               string // "4 cores", "8 GB"
 }
 
-// LostEnvRow is an env of a forgotten node, with the nodes it can go to.
+// LostEnvRow is an env of a forgotten node. It comes back by repointing its
+// placement; Open is a GET to the Placements tab.
 type LostEnvRow struct {
-	Path, Node string
-	Volumes    int
-	Action     string // POST env=&node=
-	EnvID      string
-	Nodes      []Option
+	Path, Node, Placement string
+	Volumes               int
 }
 
 // Option is a select choice.
@@ -134,10 +134,7 @@ type AddNodeView struct {
 	Name       string
 	Tags       []string // the choices
 	Picked     []string
-	Orgs       []Option // every org, Value = slug
-	AllOrgs    bool     // open to all orgs (the default)
-	PickedOrgs []string
-	Create     string // POST name, tag, all, org
+	Create     string // POST name, tag
 	Cancel     string // GET: closes the steps
 	// Step 2
 	Command string
@@ -178,15 +175,12 @@ type NodeView struct {
 	Envs []NodeEnvRow
 	// Network
 	Ifaces []IfaceRow
-	// Tags and open to orgs
+	// Tags
 	TagsAction  string // POST tag=, exit=
 	Exits       [3]string // default exit picks by node name, "" = none
 	ExitNodes   []Option  // nodes tagged egress, Value = name
 	AllTags     []string
 	RoutesNote  string
-	OrgsAction  string // POST all=, org=; "" = the controller, open to all
-	OpenToAll   bool
-	Orgs        []NodeOrgRow
 	// Security
 	Certs  []CertRow
 	Rotate      string // POST: replace the node's mesh keys
@@ -217,11 +211,6 @@ type IfaceRow struct{ Group, Name, Addr, Label string }
 
 // TunnelRow is one peer of the node. Open is a GET answering the tunnel drawer.
 type TunnelRow struct{ Name, Dials, Ping, Open string }
-
-type NodeOrgRow struct {
-	ID, Name string
-	On       bool
-}
 
 type CertRow struct{ Serial, Issued, Expires, RenewFrom, State string }
 
@@ -324,32 +313,20 @@ func picked(v *AddNodeView, t string) bool {
 templ Nodes(v NodesView) {
 	<div id="tab-nodes">
 		if len(v.Lost) > 0 {
-			@c.Section("Lost envs", "instance", "Pick a node for each. They start empty; restore a volume's backup after.") {
+			@c.Section("Lost envs", "instance", "Their node was forgotten. Repoint the placement they belong to and they come back from backups.") {
 				<ul class="space-y-3">
 					for _, l := range v.Lost {
-						<li class="panel px-4 py-3 text-sm space-y-2">
-							<div class="flex flex-wrap items-center gap-2">
-								<span class="text-rw-text">{ l.Path }</span>
-								@c.Chip(l.Node+" was forgotten", "warn")
-								<span class="text-xs text-rw-faint">{ plural(l.Volumes, "volume") }</span>
-							</div>
-							if len(l.Nodes) > 0 {
-								<form hx-post={ l.Action } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
-									<input type="hidden" name="env" value={ l.EnvID }/>
-									<div>
-										<label for={ "lost-" + l.EnvID } class="label">Redeploy on</label>
-										<select id={ "lost-" + l.EnvID } name="node" class="input">
-											for _, n := range l.Nodes {
-												<option value={ n.Value }>{ n.Label }</option>
-											}
-										</select>
-									</div>
-									<button type="submit" class="btn btn-primary btn-sm">Redeploy empty</button>
-								</form>
-							}
+						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+							<span class="text-rw-text">{ l.Path }</span>
+							@c.Chip(l.Node+" was forgotten", "warn")
+							<span class="text-xs text-rw-muted">placement { l.Placement }</span>
+							<span class="text-xs text-rw-faint">{ plural(l.Volumes, "volume") }</span>
 						</li>
 					}
 				</ul>
+				if v.Placements != "" {
+					<button type="button" hx-get={ v.Placements } hx-target={ target() } hx-swap="outerHTML" class="btn btn-primary btn-sm mt-3">Open placements</button>
+				}
 			}
 		}
 		@c.Section("Nodes", "instance", "Machines this panel runs envs on.") {
@@ -479,21 +456,7 @@ templ AddNode(v AddNodeView) {
 		switch v.Step {
 			case 1:
 				<form hx-post={ v.Create } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
-					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Placeholder: "vps-fsn1", Help: "Lowercase, used in pins and the CLI."})
-					<fieldset class="space-y-1">
-						<legend class="label">Open to</legend>
-						<input type="checkbox" id="add-node-all" name="all" value="on" checked?={ v.AllOrgs } class="peer accent-rw-accent"/>
-						<label for="add-node-all" class="text-rw-text">All orgs</label>
-						<div class="space-y-1 pl-6 peer-checked:hidden">
-							for _, o := range v.Orgs {
-								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.Value } checked?={ hasTag(v.PickedOrgs, o.Value) } class="accent-rw-accent"/> { o.Label }</label>
-							}
-							if len(v.Orgs) == 0 {
-								<p class="text-sm text-rw-faint">No organizations yet.</p>
-							}
-						</div>
-						<p class="text-xs text-rw-faint">Owners of these orgs can pin envs here.</p>
-					</fieldset>
+					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Placeholder: "vps-fsn1", Help: "Lowercase, used in placements and the CLI."})
 					<fieldset class="space-y-1">
 						<legend class="label">Tags</legend>
 						for _, t := range v.Tags {
@@ -538,7 +501,6 @@ templ AddNode(v AddNodeView) {
 }
 
 templ ForgetWarning(b ForgetBody) {
-	<p class="text-sm text-rw-text">Use this only if { b.Name } is gone for good.</p>
 	if len(b.Lost) > 0 {
 		<p class="text-sm text-rw-muted mt-2">Lost until you redeploy:</p>
 		<ul class="text-sm text-rw-text list-disc pl-5">
@@ -562,7 +524,7 @@ templ NodeBody(tab string, v NodeView) {
 		}
 		switch tab {
 			case "envs":
-				@c.Section("Envs on this node", "", "Pins decide where new envs go. Moving an existing env is a separate step.") {
+				@c.Section("Envs on this node", "", "Placements decide where envs run. Repoint a placement to move its envs.") {
 					if len(v.Envs) == 0 {
 						<p class="text-sm text-rw-faint">No envs on this node.</p>
 					} else {
@@ -618,26 +580,6 @@ templ NodeBody(tab string, v NodeView) {
 						</fieldset>
 						<button type="submit" class="btn btn-primary btn-sm">Save tags</button>
 					</form>
-				}
-				@c.Section("Open to orgs", "", "Owners of an open org can pin envs here. Admins can pin anywhere.") {
-					if v.OrgsAction == "" {
-						<p class="text-sm text-rw-muted">The controller is open to every organization.</p>
-					} else {
-						<form hx-post={ v.OrgsAction } hx-target={ target() } hx-swap="outerHTML" class="space-y-2">
-							<input type="checkbox" id="node-open-all" name="all" value="on" role="switch" checked?={ v.OpenToAll } class="peer accent-rw-accent"/>
-							<label for="node-open-all" class="text-rw-text">Open to all orgs</label>
-							<div class="space-y-2 peer-checked:hidden">
-								for _, o := range v.Orgs {
-									<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
-								}
-								if len(v.Orgs) == 0 {
-									<p class="text-sm text-rw-faint">No organizations yet.</p>
-								}
-							</div>
-							<p class="text-xs text-rw-faint">Closing keeps the envs already here.</p>
-							<button type="submit" class="btn btn-ghost btn-sm">Save</button>
-						</form>
-					}
 				}
 			case "security":
 				@c.Section("Connection", "", "") {
@@ -867,6 +809,8 @@ func tagHelp(t string) string {
 		return "Internet traffic may leave from this node's IP."
 	case "builder":
 		return "Builds images."
+	case "storage":
+		return "Holds volumes and managed databases."
 	}
 	return ""
 }

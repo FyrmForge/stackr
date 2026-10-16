@@ -35,6 +35,10 @@ func New(t *testing.T) *Site {
 func NewWith(t *testing.T, opts []service.Option) *Site {
 	t.Helper()
 	env := servicetest.NewWith(t, opts)
+	// the site past the server wizard, as on any install with an org
+	if err := env.Orch.FinishServerSetup(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
 	srv, err := server.New(server.WithDevMode(true))
 	if err != nil {
 		t.Fatal(err)

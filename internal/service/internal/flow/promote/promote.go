@@ -47,6 +47,9 @@ type Flow struct {
 	WriteParams func(ctx context.Context, s params.Scope, skipEnv string, write func() error) error
 	// Build builds one service tile at a commit and returns the image row id.
 	Build func(ctx context.Context, st store.Stack, t store.Tile, commit string, log io.Writer) (string, error)
+	// Placements gathers the facts the stack file's pin, ingress and exits
+	// are checked against, for the env being planned. Nil = no checks.
+	Placements func(ctx context.Context, envID string) (PlacementLive, error)
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -261,7 +264,10 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			return err
 		}
 	}
-	return f.rollout(ctx, w, e, log, swap)
+	if err := f.rollout(ctx, w, e, log, swap); err != nil {
+		return err
+	}
+	return f.applyPlacing(ctx, w, log)
 }
 
 // swapOrDefer marks the job swapping before the first write, unless a tile of

@@ -21,8 +21,8 @@ func TestIngressPicks(t *testing.T) {
 	if got, err := s.IngressPicks.Get(ctx, "env", "e1"); err != nil || got != "n2" {
 		t.Fatalf("get = %q, %v", got, err)
 	}
-	if rows, _ := s.IngressPicks.ListByNode(ctx, "n2"); !reflect.DeepEqual(rows, []store.IngressPick{{ScopeKind: "env", ScopeID: "e1", NodeID: "n2"}}) {
-		t.Errorf("by node = %+v", rows)
+	if rows, _ := s.IngressPicks.ListByPlacement(ctx, "n2"); !reflect.DeepEqual(rows, []store.IngressPick{{ScopeKind: "env", ScopeID: "e1", PlacementID: "n2"}}) {
+		t.Errorf("by placement = %+v", rows)
 	}
 	if err := s.IngressPicks.Set(ctx, "env", "e1", ""); err != nil {
 		t.Fatal(err)

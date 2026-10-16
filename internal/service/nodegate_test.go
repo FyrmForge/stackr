@@ -60,8 +60,9 @@ func jobCount(t *testing.T, o *Orchestrator) int {
 	return len(js)
 }
 
-// Work for an env on an offline node is refused up front, naming the node and
-// when it was last seen, and no job row is written.
+// Work for an env on an offline node is refused up front, saying when it was
+// last seen but not naming the node (members read it), and no job row is
+// written.
 func TestOfflineNodeRefusesWork(t *testing.T) {
 	ctx := context.Background()
 	o, env, tl := gateWorld(t)
@@ -79,8 +80,8 @@ func TestOfflineNodeRefusesWork(t *testing.T) {
 		"run":     func() error { _, _, err := o.RunTile(ctx, tl.ID); return err },
 	} {
 		err := call()
-		if !errors.Is(err, errs.ErrBusy) || err == nil || !strings.Contains(err.Error(), "w1 is offline, last seen") {
-			t.Errorf("%s = %v, want w1 is offline, last seen", name, err)
+		if !errors.Is(err, errs.ErrBusy) || err == nil || !strings.Contains(err.Error(), "node is offline, last seen") || strings.Contains(err.Error(), "w1") {
+			t.Errorf("%s = %v, want node is offline, last seen", name, err)
 		}
 	}
 	if got := jobCount(t, o); got != before {
@@ -93,14 +94,17 @@ func TestOfflineNodeRefusesWork(t *testing.T) {
 	}
 }
 
-// A node never seen reads "never seen".
+// A node never seen reads "never seen"; only Detail names the node.
 func TestNodeDownErrorWords(t *testing.T) {
-	if got := (&NodeDownError{Name: "h3"}).Error(); got != "h3 is offline, never seen" {
+	if got := (&NodeDownError{Name: "h3"}).Detail(); got != "h3 is offline, never seen" {
 		t.Errorf("never seen = %q", got)
 	}
-	got := (&NodeDownError{Name: "h3", LastSeen: time.Now().Add(-14*time.Minute - time.Second)}).Error()
-	if got != "h3 is offline, last seen 14 min ago" {
+	d := &NodeDownError{Name: "h3", LastSeen: time.Now().Add(-14*time.Minute - time.Second)}
+	if got := d.Detail(); got != "h3 is offline, last seen 14 min ago" {
 		t.Errorf("seen = %q", got)
+	}
+	if got := d.Error(); got != "the node is offline, last seen 14 min ago" {
+		t.Errorf("error = %q", got)
 	}
 }
 
@@ -190,7 +194,7 @@ func TestScheduledWorkOnAnOfflineNodeIsSkipped(t *testing.T) {
 		t.Fatalf("%d skipped jobs, want 2", len(js))
 	}
 	for _, j := range js {
-		if j.Error != "skipped: w1 offline" || !job.Terminal(j.State) {
+		if j.Error != "skipped: node offline" || !job.Terminal(j.State) {
 			t.Errorf("job %s = %s %q", j.Kind, j.State, j.Error)
 		}
 	}
@@ -322,7 +326,7 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 	must(t, err)
 	o.docker.(*DockerRouter).Set("w1", dead)
 	err = o.skipUnreachable(ctx, vol.ID)
-	if !errors.Is(err, jobs.ErrSkipped) || !strings.HasPrefix(err.Error(), "skipped: w1 unreachable") {
+	if !errors.Is(err, jobs.ErrSkipped) || err.Error() != "skipped: node unreachable" {
 		t.Errorf("dropped node = %v", err)
 	}
 	// A worker too old is refused, not unreachable: the backup reports it.
@@ -334,7 +338,7 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 		t.Errorf("too old = %v, want the backup to run and say so", err)
 	}
 	setStatus(t, o, "w1", node.StatusOffline)
-	if err := o.skipUnreachable(ctx, vol.ID); err == nil || err.Error() != "skipped: w1 offline" {
+	if err := o.skipUnreachable(ctx, vol.ID); err == nil || err.Error() != "skipped: node offline" {
 		t.Errorf("offline node = %v", err)
 	}
 }

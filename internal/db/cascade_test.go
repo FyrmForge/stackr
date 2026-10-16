@@ -58,7 +58,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO invites VALUES ('i1','o1','x@y.z','owner','u1',?,?,NULL)`, []any{now, now}},
 		{`INSERT INTO api_keys (id, user_id, org_id, name, token_hash, created_at) VALUES ('k1','u1','o1','ci','hash',?)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?,NULL)`, []any{now}},
-		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','')`, []any{now}},
+		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','','')`, []any{now}},
 		{`INSERT INTO params VALUES ('p1','org','o1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p3','env','e1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO tiers VALUES ('ti1','o1','prod',0,1,?)`, []any{now}},
@@ -122,7 +122,7 @@ func TestStackDeleteCascades(t *testing.T) {
 	execAll(t, db, []stmt{
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?,NULL)`, []any{now}},
-		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','')`, []any{now}},
+		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','','')`, []any{now}},
 	})
 	execAll(t, db, tileWithDomains(now))
 
@@ -151,7 +151,7 @@ func TestDomainResourceGuards(t *testing.T) {
 	execAll(t, db, []stmt{
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?,NULL)`, []any{now}},
-		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','')`, []any{now}},
+		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','','')`, []any{now}},
 	})
 	execAll(t, db, tileWithDomains(now))
 
@@ -194,7 +194,7 @@ func sliceWorld(t *testing.T) *sqlx.DB {
 	execAll(t, db, []stmt{
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?,NULL)`, []any{now}},
-		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','')`, []any{now}},
+		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','','')`, []any{now}},
 		tileRow("pg", "managed", nil, nil, now),
 		tileRow("api-db", "slice", "infra:${{ env.name }}:pg", "write", now),
 		tileRow("api", "image", nil, nil, now),

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -203,6 +204,7 @@ type twoNodes struct {
 	devT, edgeT Tile
 	ctlRS, wRS  *[]string // the scripts each node's table applied
 	dir         string
+	pushes      *atomic.Int32 // proxy configs pushed to the controller
 }
 
 func newTwoNodes(t *testing.T) *twoNodes {
@@ -210,7 +212,8 @@ func newTwoNodes(t *testing.T) *twoNodes {
 	ctx := context.Background()
 	dir := t.TempDir()
 	cfg := Config{DataDir: dir, SecretsKey: testKey, Conntrack: dir + "/nf_conntrack"}
-	proxy := WithProxy(func(context.Context, json.RawMessage) error { return nil })
+	pushes := new(atomic.Int32)
+	proxy := WithProxy(func(context.Context, json.RawMessage) error { pushes.Add(1); return nil })
 
 	// One boot to migrate and make the controller row, so the router can name it.
 	first, err := New(cfg, WithDocker(dockerfake.New()), WithVIP(vipStub{}), proxy)
@@ -223,13 +226,14 @@ func newTwoNodes(t *testing.T) *twoNodes {
 		Status: node.StatusOnline, CreatedAt: time.Now(),
 	}))
 
-	n := &twoNodes{st: st, ctl: ctl, ctlFake: dockerfake.New(), wFake: dockerfake.New(), dir: dir}
+	n := &twoNodes{st: st, ctl: ctl, ctlFake: dockerfake.New(), wFake: dockerfake.New(), dir: dir, pushes: pushes}
 	router := NewRouter(map[string]Docker{ctl.ID: n.ctlFake, "w1": n.wFake})
 	n.orch, err = New(cfg, WithDocker(router), WithVIP(vipStub{}), proxy)
 	must(t, err)
 	t.Cleanup(func() { _ = n.orch.Close() })
 	n.orch.envs.WithPlacement(n.orch.envPins)                       // service.New wires this; saying it twice is harmless
 	n.orch.helperReady = func(context.Context) error { return nil } // no cluster registry here
+	n.orch.markStackrPublished()                                    // nor a publish for an ingress worker's proxy to wait on
 	n.orch.tiles.Gate = tile.Gate{Poll: 5 * time.Millisecond, Grace: 10 * time.Millisecond, Deadline: time.Second}
 
 	table := func(rs *[]string) *vip.Table {

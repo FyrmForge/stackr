@@ -371,7 +371,7 @@ func (a *app) releases() *cobra.Command {
 // ---- env ----
 
 func (a *app) envs() *cobra.Command {
-	var typ, base, color, createKind, fromKind, fromBranch, node string
+	var typ, base, color, createKind, fromKind, fromBranch, placement string
 	var auto bool
 	create := leaf("create <name>", "env.list,env.create", "Make an environment", exact(1),
 		a.at(atStack, func(_ *cobra.Command, p string, args []string) error {
@@ -396,8 +396,8 @@ func (a *app) envs() *cobra.Command {
 			if base != "" {
 				body["base_env_id"] = base
 			}
-			if node != "" {
-				body["node"] = node
+			if placement != "" {
+				body["placement"] = placement
 			}
 			v, err := a.call(POST, p+"/envs", body)
 			if err != nil {
@@ -409,7 +409,7 @@ func (a *app) envs() *cobra.Command {
 	create.Flags().StringVar(&typ, "type", "static", "static or ephemeral")
 	create.Flags().StringVar(&base, "base", "", "the env id an ephemeral env copies")
 	create.Flags().StringVar(&color, "color", "", "the panel colour")
-	create.Flags().StringVar(&node, "node", "", "run it on this node (default: the stack's or org's pin, else the controller)")
+	create.Flags().StringVar(&placement, "placement", "", "run it on this placement (default: the stack's or org's pin, else the default placement)")
 	from := leaf("from", "env.from", "Set where the env's releases come from", exact(0),
 		a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
 			_, err := a.call(PUT, p+"/from", map[string]any{"kind": fromKind, "branch": fromBranch, "auto": auto})
@@ -424,7 +424,6 @@ func (a *app) envs() *cobra.Command {
 	}
 	return scoped(noun("env", "Environments of the stack",
 		a.envLs(),
-		a.envMove(),
 		a.envLost(),
 		a.envRestore(),
 		a.get("ladder", "env.ladder", "List environments in promote order", atStack, "/ladder", envCols...),

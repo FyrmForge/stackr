@@ -2,12 +2,14 @@ package canvas
 
 import (
 	"encoding/json"
+	"net/url"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
@@ -88,8 +90,18 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		box.Review.Done, box.Review.Ticked = true, latest.Ticked
 	case latest.Status == "pending" && can(c, cd.s, "orgplan.approve"):
 		box.Review.Reject = f.Base + "/plans/" + latest.ID + "/reject"
-		if !pl.Blocked() {
+		if pl.CanApprove() {
 			box.Review.Approve = f.Base + "/plans/" + latest.ID + "/approve"
+		}
+	}
+	if latest.Status == "pending" && latest.DecidedAt == nil {
+		fill := can(c, cd.s, "org.config.bind")
+		for _, g := range pl.Gaps {
+			gv := comp.GapView{Kind: g.Kind, Label: "Secret " + g.Key + " (" + g.Env + ")", Field: "secret." + g.Key}
+			if fill {
+				gv.Post = f.Base + "/gaps/secret?env=" + url.QueryEscape(g.Env)
+			}
+			box.Review.Plan.Gaps = append(box.Review.Plan.Gaps, gv)
 		}
 	}
 	v.Latest, v.Plans = box, v.Plans[1:]
@@ -156,6 +168,24 @@ func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {
 	site.POST(o+"/plan", h.orgAction("config", func(c echo.Context, og *service.Org) (string, error) {
 		p, err := h.orch.PlanOrgConfig(c.Request().Context(), og.ID)
 		return "Planned: " + p.Summary + ".", err
+	}), bind)
+	// a secret the pending plan is missing: saved on its env key's scope, then re-planned
+	site.POST(o+"/gaps/secret", h.orgAction("config", func(c echo.Context, og *service.Org) (string, error) {
+		form, err := c.FormParams()
+		if err != nil {
+			return "", errs.Invalidf("value", "bad form")
+		}
+		var es []service.ParamEntry
+		for _, e := range render.ParamEntries(form) {
+			if e.Kind == "secret" && e.Value != "" {
+				es = append(es, e)
+			}
+		}
+		if len(es) == 0 {
+			return "", errs.Invalidf("value", "enter the value")
+		}
+		p, err := h.orch.FillOrgGap(c.Request().Context(), og.ID, c.QueryParam("env"), es)
+		return "Saved and planned: " + p.Summary + ".", err
 	}), bind)
 	site.POST(o+"/plans/:plan/approve", h.orgAction("config", func(c echo.Context, og *service.Org) (string, error) {
 		j, err := h.orch.ApproveOrgPlan(c.Request().Context(), c.Param("plan"), render.ApproveOpts(c))

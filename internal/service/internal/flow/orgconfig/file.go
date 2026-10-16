@@ -40,6 +40,16 @@ type File struct {
 	Domains   []Reservation       `yaml:"domains,omitempty"`
 	Shares    map[string]Share    `yaml:"shares,omitempty"` // nil: the key is absent, say nothing; {} removes every share
 	Moved     []Move              `yaml:"moved,omitempty"`
+	// Pin, Ingress and Exits are placement names (Exits: or own). New envs of
+	// the org start on Pin; an absent key says nothing, an empty exits: clears.
+	Pin     string   `yaml:"pin,omitempty"`
+	Ingress string   `yaml:"ingress,omitempty"`
+	Exits   []string `yaml:"exits,omitempty"`
+}
+
+// Placing is the three keys as the planfile helper reads them.
+func (f *File) Placing() planfile.Placing {
+	return planfile.Placing{Pin: f.Pin, Ingress: f.Ingress, Exits: f.Exits}
 }
 
 // Tier is one org tier: an env named like it joins it. A tier starts locked.
@@ -345,6 +355,9 @@ func Parse(data []byte) (*File, error) {
 		if err := checkMove(m); err != nil {
 			return nil, err
 		}
+	}
+	if err := planfile.CheckPlacing("org", f.Placing()); err != nil {
+		return nil, err
 	}
 	return &f, nil
 }

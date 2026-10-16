@@ -19,7 +19,7 @@ type Change = planfile.Change
 
 // Plan is what applying the file would do, in the order apply walks it:
 // server params, connector shares, settings and the cascade rung, backup
-// dests, domains, routes, orgs, then the ticked removals. Blockers refuse
+// dests, domains, routes, orgs, nodes and placements, then the ticked removals. Blockers refuse
 // the apply; Notes do not. Flat in JSON: the stored row reads the same as
 // planfile.Plan.
 type Plan struct{ planfile.Plan }
@@ -29,7 +29,7 @@ type Plan struct{ planfile.Plan }
 func (p *Plan) Summary() string {
 	return p.Plan.Summary(func(kind string) bool {
 		switch kind {
-		case "org-create", "route", "dest", "domain", "param", "connector-share":
+		case "org-create", "placement", "route", "dest", "domain", "param", "connector-share":
 			return true
 		}
 		return false

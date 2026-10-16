@@ -15,8 +15,9 @@ const Root = "placement"
 
 func target() string { return "#" + Root }
 
-// Option is a node the viewer may pick.
-type Option struct{ ID, Name string }
+// Option is a placement the viewer may pick. Hint is its fit, e.g.
+// " (ingress, storage)" or " (offline)"; never a node name.
+type Option struct{ ID, Name, Hint string }
 
 // Rung is one exit in the ladder. Up and Down are the whole ladder after
 // moving it; nil = at that end. State is in use, standby, down or "".
@@ -24,6 +25,15 @@ type Rung struct {
 	NodeID, Name, State, Detail string
 	Own                         bool
 	Up, Down                    []string
+}
+
+// Offer is one row of the org's list of placements it may use.
+type Offer struct {
+	Name, Tags string
+	Public     bool
+	Online     bool
+	Usable     bool
+	Why        string
 }
 
 // View is the tab. Base is the placement route all actions hang off; ""
@@ -35,27 +45,24 @@ type View struct {
 	Note  string // what an action did
 
 	// Runs on (not for a tile)
-	RunsOn    bool
-	Nodes     []Option
-	Pin       string // picked node id; "" = inherit (org, stack)
-	PinFrom   string // "From stack: vps-fsn1."
-	StayCount int    // envs under this org or stack that are not on the pin
-	StayWhere string
-	PinName   string // the pin in effect, for the banner
-	MoveAll   bool   // the viewer may move them (admin)
-	CanMove   bool   // env: the viewer may move it (admin)
-	Moving    string // env: link to the progress tab while a move runs
+	RunsOn  bool
+	Nodes   []Option        // the placements open to the org
+	Pin     string          // picked placement; "" = inherit (org, stack)
+	PinFrom string          // "From stack: eu-prod."
+	Moving  string          // env: link to the progress tab while a move runs
+	Offers  []Offer         // org: what it may use
+	Move    templ.Component // env: the pin change dialog, when the pin moves it
 
 	// Ingress
 	Ingress     string
 	IngressFrom string
-	IngressOpts []Option // nodes tagged ingress
+	IngressOpts []Option // placements tagged ingress
 
 	// Exits
 	Inherited bool
 	ExitsFrom string
 	Rungs     []Rung
-	Spare     []Option // egress nodes not in the ladder
+	Spare     []Option // egress placements not in the ladder
 	OwnListed bool
 	NoNet     bool
 	NoNetWhy  string
@@ -77,7 +84,6 @@ templ Placement(v View) {
 		}
 		@ingress(v)
 		@exits(v)
-		<div id="placement-dialog"></div>
 	</div>
 }
 
@@ -86,71 +92,84 @@ templ runsOn(v View) {
 		if v.Moving != "" {
 			<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
 		}
-		if v.Scope == "env" {
+		<form hx-post={ v.Base + "/pin" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="runs-on" class="sr-only">Runs on</label>
-			<select
-				id="runs-on"
-				name="to"
-				class="input w-auto"
-				disabled?={ !v.CanMove }
-				hx-get={ v.Base + "/move" }
-				hx-trigger="change"
-				hx-target="#placement-dialog"
-				hx-swap="innerHTML"
-			>
+			<select id="runs-on" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
+				if v.Scope != "env" {
+					<option value="" selected?={ v.Pin == "" }>Inherit</option>
+				}
 				for _, n := range v.Nodes {
-					<option value={ n.ID } selected?={ n.ID == v.Pin }>{ n.Name }</option>
+					<option value={ n.ID } selected?={ n.ID == v.Pin }>{ n.Name + n.Hint }</option>
 				}
 			</select>
+			if v.editable() {
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			}
+		</form>
+		<p class="mt-2 text-xs text-rw-faint">
+			if v.Scope == "env" {
+				Changing it moves this env.
+			} else {
+				New envs below this start here. A change that moves a running env asks first.
+			}
 			if v.PinFrom != "" {
-				<p class="mt-2 text-xs text-rw-faint">{ v.PinFrom }</p>
+				{ " " + v.PinFrom }
 			}
-			if !v.CanMove {
-				<p class="mt-2 text-xs text-rw-faint">Moving an environment needs a server admin.</p>
-			}
-		} else {
-			<form hx-post={ v.Base + "/pin" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
-				<label for="runs-on" class="sr-only">Runs on</label>
-				<select id="runs-on" name="node" class="input w-auto" disabled?={ !v.editable() }>
-					<option value="" selected?={ v.Pin == "" }>Inherit</option>
-					for _, n := range v.Nodes {
-						<option value={ n.ID } selected?={ n.ID == v.Pin }>{ n.Name }</option>
-					}
-				</select>
-				if v.editable() {
-					<button type="submit" class="btn btn-primary btn-sm">Save</button>
-				}
-			</form>
-			<p class="mt-2 text-xs text-rw-faint">
-				New envs below this start here.
-				if v.PinFrom != "" {
-					{ " " + v.PinFrom }
-				}
-			</p>
-			if v.StayCount > 0 {
-				<div class="banner mt-3 flex flex-wrap items-center gap-3" role="status">
-					<span>
-						New envs go to { v.PinName }. { count(v.StayCount, "existing env") } stay on { v.StayWhere }.
-					</span>
-					if v.MoveAll && v.editable() {
-						<form hx-post={ v.Base + "/move-all" } hx-target={ target() } hx-swap="outerHTML" class="ml-auto">
-							<button type="submit" class="btn btn-ghost btn-sm">Move them too</button>
-						</form>
-					}
-				</div>
-			}
+		</p>
+		if v.Move != nil {
+			@v.Move
+		}
+		if len(v.Offers) > 0 {
+			@offers(v.Offers)
 		}
 	}
+}
+
+templ offers(rows []Offer) {
+	<table class="mt-4 w-full text-sm">
+		<caption class="text-left text-xs text-rw-faint pb-1">Placements this organization may use</caption>
+		<thead>
+			<tr class="text-left text-xs text-rw-faint">
+				<th scope="col" class="font-normal pr-4">Name</th>
+				<th scope="col" class="font-normal pr-4">Tags</th>
+				<th scope="col" class="font-normal pr-4">Public IP</th>
+				<th scope="col" class="font-normal pr-4">State</th>
+			</tr>
+		</thead>
+		<tbody>
+			for _, r := range rows {
+				<tr>
+					<td class="pr-4 text-rw-text">{ r.Name }</td>
+					<td class="pr-4 text-rw-muted">{ r.Tags }</td>
+					<td class="pr-4 text-rw-muted">{ yesNo(r.Public) }</td>
+					<td class="pr-4 text-rw-muted">
+						if r.Usable {
+							Usable
+						} else {
+							{ r.Why }
+						}
+					</td>
+				</tr>
+			}
+		</tbody>
+	</table>
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 templ ingress(v View) {
 	@c.Section("Ingress", v.Scope, "") {
 		<form hx-post={ v.Base + "/ingress" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="ingress-node" class="sr-only">Ingress</label>
-			<select id="ingress-node" name="node" class="input w-auto" disabled?={ !v.editable() }>
+			<select id="ingress-node" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
 				<option value="" selected?={ v.Ingress == "" }>Inherit</option>
 				for _, n := range v.IngressOpts {
-					<option value={ n.ID } selected?={ n.ID == v.Ingress }>{ n.Name }</option>
+					<option value={ n.ID } selected?={ n.ID == v.Ingress }>{ n.Name + n.Hint }</option>
 				}
 			</select>
 			if v.editable() {
@@ -171,7 +190,7 @@ templ exits(v View) {
 		if v.NoNet {
 			<div class="banner banner-danger mb-3" role="alert">
 				<p class="font-medium">No internet for these apps.</p>
-				<p>Every exit in the list is down. Add own node to fall back to it.</p>
+				<p>Every exit in the list is down. Add own placement to fall back to it.</p>
 				if v.NoNetWhy != "" {
 					<p class="text-xs">{ v.NoNetWhy }</p>
 				}
@@ -182,7 +201,7 @@ templ exits(v View) {
 				if v.ExitsFrom != "" {
 					{ v.ExitsFrom }
 				} else {
-					Inherit: out through the node the app runs on.
+					Inherit: out through the placement the app runs on.
 				}
 			</p>
 		}
@@ -202,7 +221,7 @@ templ exits(v View) {
 							@reorder("Up", v.Base+"/exits", r.Up)
 							@reorder("Down", v.Base+"/exits", r.Down)
 							<form hx-post={ v.Base + "/exits/remove" } hx-target={ target() } hx-swap="outerHTML">
-								<input type="hidden" name="node" value={ r.NodeID }/>
+								<input type="hidden" name="placement" value={ r.NodeID }/>
 								<button type="submit" class="btn btn-ghost btn-sm" aria-label={ "Remove " + r.Name }>Remove</button>
 							</form>
 						}
@@ -213,12 +232,12 @@ templ exits(v View) {
 		if v.editable() && (len(v.Spare) > 0 || !v.OwnListed) {
 			<form hx-post={ v.Base + "/exits/add" } hx-target={ target() } hx-swap="outerHTML" class="mt-3 flex flex-wrap items-center gap-2">
 				<label for="exit-add" class="sr-only">Add exit</label>
-				<select id="exit-add" name="node" class="input w-auto">
+				<select id="exit-add" name="placement" class="input w-auto max-w-full">
 					for _, n := range v.Spare {
-						<option value={ n.ID }>{ n.Name }</option>
+						<option value={ n.ID }>{ n.Name + n.Hint }</option>
 					}
 					if !v.OwnListed {
-						<option value="own">own node (no exit)</option>
+						<option value="own">own placement (no exit)</option>
 					}
 				</select>
 				<button type="submit" class="btn btn-ghost btn-sm">Add exit</button>
@@ -261,60 +280,83 @@ templ Load(url string) {
 	<div hx-get={ url } hx-trigger="load" hx-target="this" hx-swap="outerHTML" hx-push-url="false" aria-busy="true" class="text-sm text-rw-muted">Loading…</div>
 }
 
-// MoveView is the move dialog for one env.
-type MoveView struct {
-	Base    string // POST here
-	Env     string
-	From    string
-	To      string
-	Targets []Option
-	ToID    string
-	Volumes int
-	Data    string // "12.4 GB"; "" = sizes not known
+// MoveLine is one env a pin change moves.
+type MoveLine struct{ Path, Detail string }
+
+// CheckLine is one line of the move's checks.
+type CheckLine struct {
+	Name, Detail string
+	OK           bool
 }
 
-// Move is the dialog: target node, how (live by default, or cold), and what
-// moves. It opens on arrival.
+// MoveView is the pin change dialog for one env: what moves, the checks, and
+// the downtime. Vals is the JSON the confirm posts (placement, confirm).
+type MoveView struct {
+	Action   string // POST: confirms the move
+	Env      string // the slug typed to confirm: the env's, stack's or org's
+	From, To string // placement names
+	Envs     []MoveLine
+	Checks   []CheckLine
+	OK       bool // every check passed
+	Restore  bool
+	Vals     string
+	Downtime string
+}
+
+// Move is the dialog. A failing check shows the list and no Confirm.
 templ Move(v MoveView) {
-	@c.Confirm(c.ConfirmView{
-		Open:    true,
-		Primary: true,
-		Button:  "Move " + v.Env,
-		Title:   "Move " + v.Env + " to " + v.To + "?",
-		Action:  v.Base + "/move",
-		Target:  target(),
-		Include: "[data-move-field]",
-		Body:    moveBody(v),
-	})
+	if v.OK {
+		@c.Confirm(c.ConfirmView{
+			Open:    true,
+			Primary: true,
+			Button:  "Move " + v.Env,
+			Title:   "Move " + v.Env + " to " + v.To + "?",
+			Action:  v.Action,
+			Target:  target(),
+			Word:    v.Env,
+			Kept:    []string{"The data stays on " + v.From + " until you remove it."},
+			Vals:    v.Vals,
+			Body:    moveBody(v),
+		})
+	} else {
+		<div class="panel p-4 mt-4 space-y-3" role="alert">
+			<p class="text-sm font-medium text-rw-text">{ v.Env } cannot move to { v.To } yet.</p>
+			@moveBody(v)
+		</div>
+	}
 }
 
 templ moveBody(v MoveView) {
 	<div class="space-y-4">
-		<p class="text-sm text-rw-muted">{ v.Env } stops while its data copies.</p>
-		<div>
-			<label for="move-to" class="label">Move to</label>
-			<select id="move-to" name="to" class="input" data-move-field>
-				for _, n := range v.Targets {
-					<option value={ n.ID } selected?={ n.ID == v.ToID }>{ n.Name }</option>
-				}
-			</select>
-		</div>
-		<fieldset class="space-y-2 text-sm">
-			<legend class="label">How</legend>
-			<label class="flex items-start gap-2"><input type="radio" name="how" value="live" checked class="mt-1 accent-rw-accent" data-move-field/> <span><span class="font-medium text-rw-text">Live</span> Copies while running, then stops briefly.</span></label>
-			<label class="flex items-start gap-2"><input type="radio" name="how" value="cold" class="mt-1 accent-rw-accent" data-move-field/> <span><span class="font-medium text-rw-text">Cold</span> Stops first, then copies.</span></label>
-		</fieldset>
-		<dl class="text-sm grid grid-cols-[6rem_1fr] gap-y-1">
-			<dt class="text-rw-faint">Data</dt>
-			<dd class="text-rw-text">
-				{ count(v.Volumes, "volume") }
-				if v.Data != "" {
-					{ " · " + v.Data }
-				}
-			</dd>
-			<dt class="text-rw-faint">Old copy</dt>
-			<dd class="text-rw-text">kept on { v.From } until you remove it</dd>
-		</dl>
+		<p class="text-sm text-rw-muted">
+			Moves from { v.From } to { v.To }.
+			if v.Restore {
+				{ " " + "The old copy is gone: data comes back from backups." }
+			}
+			if v.Downtime != "" {
+				{ " Stops for " + v.Downtime + "." }
+			}
+		</p>
+		<ul class="text-sm space-y-1">
+			for _, e := range v.Envs {
+				<li class="text-rw-text">{ e.Path } <span class="text-rw-faint">{ e.Detail }</span></li>
+			}
+		</ul>
+		<ul class="text-sm space-y-1" aria-label="Checks">
+			for _, k := range v.Checks {
+				<li>
+					if k.OK {
+						<span class="text-rw-ok">Pass</span>
+					} else {
+						<span class="text-rw-danger">Fail</span>
+					}
+					{ " " + k.Name }
+					if k.Detail != "" {
+						<span class="text-xs text-rw-faint">{ " " + k.Detail }</span>
+					}
+				</li>
+			}
+		</ul>
 	</div>
 }
 
@@ -343,8 +385,17 @@ templ Progress(v ProgressView) {
 		}
 	>
 		<div>
-			<h3 class="text-base font-semibold text-rw-text">Move to { v.To }</h3>
-			<p class="text-xs text-rw-faint">from { v.From } · started { v.Started }</p>
+			if v.To != "" {
+				<h3 class="text-base font-semibold text-rw-text">Move to { v.To }</h3>
+			} else {
+				<h3 class="text-base font-semibold text-rw-text">Move</h3>
+			}
+			<p class="text-xs text-rw-faint">
+				if v.From != "" {
+					from { v.From } ·
+				}
+				started { v.Started }
+			</p>
 		</div>
 		<ol class="space-y-2">
 			for i, s := range v.Steps {
@@ -360,16 +411,16 @@ templ Progress(v ProgressView) {
 		</ol>
 		switch v.State {
 			case "running":
-				<p class="text-xs text-rw-faint">If it fails, { v.Env } starts again on { v.From }.</p>
+				<p class="text-xs text-rw-faint">If it fails, { v.Env } starts again where it was.</p>
 			case "rolled_back":
 				<p class="banner banner-danger" role="alert">
-					Rolled back: { v.Env } runs on { v.From }.
+					Rolled back: { v.Env } runs where it did.
 					if v.Error != "" {
 						{ " " + v.Error }
 					}
 				</p>
 			case "done":
-				<p class="banner" role="status">Done: { v.Env } runs on { v.To }.</p>
+				<p class="banner" role="status">Done: { v.Env } moved.</p>
 		}
 	</div>
 }

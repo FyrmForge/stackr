@@ -476,6 +476,24 @@
         ],
         "type": "object"
       },
+      "CheckOut": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "ok"
+        ],
+        "type": "object"
+      },
       "ClusterGroup": {
         "properties": {
           "name": {
@@ -593,14 +611,11 @@
           "name": {
             "type": "string"
           },
-          "open_to": {
+          "placements": {
             "items": {
               "type": "string"
             },
             "type": "array"
-          },
-          "open_to_all": {
-            "type": "boolean"
           },
           "public": {
             "items": {
@@ -640,8 +655,7 @@
           "state",
           "tags",
           "envs",
-          "open_to_all",
-          "open_to",
+          "placements",
           "range",
           "wg_address",
           "cpu",
@@ -1291,7 +1305,7 @@
           "name": {
             "type": "string"
           },
-          "node": {
+          "placement": {
             "type": "string"
           },
           "type": {
@@ -1305,7 +1319,107 @@
           "from_kind",
           "from_branch",
           "auto",
-          "node"
+          "placement"
+        ],
+        "type": "object"
+      },
+      "EnvOut": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "base_env_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "color": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "from_branch": {
+            "type": "string"
+          },
+          "from_kind": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "placement": {
+            "type": "string"
+          },
+          "placement_id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "release_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "stack_id": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stack_id",
+          "name",
+          "slug",
+          "type",
+          "settings",
+          "color",
+          "position",
+          "network",
+          "from_kind",
+          "from_branch",
+          "auto",
+          "created_at",
+          "locked",
+          "node_id",
+          "subnet",
+          "placement_id",
+          "placement"
         ],
         "type": "object"
       },
@@ -1320,6 +1434,45 @@
         },
         "required": [
           "env_pairs"
+        ],
+        "type": "object"
+      },
+      "EnvPinIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "placement": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "placement"
+        ],
+        "type": "object"
+      },
+      "EnvPinOut": {
+        "properties": {
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "placement": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "placement"
         ],
         "type": "object"
       },
@@ -1387,6 +1540,9 @@
           "node_id": {
             "type": "string"
           },
+          "placement_id": {
+            "type": "string"
+          },
           "position": {
             "type": "integer"
           },
@@ -1432,7 +1588,8 @@
           "created_at",
           "locked",
           "node_id",
-          "subnet"
+          "subnet",
+          "placement_id"
         ],
         "type": "object"
       },
@@ -1460,7 +1617,7 @@
       },
       "ExitRungOut": {
         "properties": {
-          "node": {
+          "placement": {
             "type": "string"
           },
           "position": {
@@ -1472,7 +1629,7 @@
         },
         "required": [
           "position",
-          "node",
+          "placement",
           "state"
         ],
         "type": "object"
@@ -1694,6 +1851,33 @@
         ],
         "type": "object"
       },
+      "Gap": {
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "key"
+        ],
+        "type": "object"
+      },
       "HostGrant": {
         "properties": {
           "approved_by": {
@@ -1853,7 +2037,7 @@
           "from": {
             "type": "string"
           },
-          "node": {
+          "placement": {
             "type": "string"
           },
           "scope": {
@@ -1862,7 +2046,7 @@
         },
         "required": [
           "scope",
-          "node",
+          "placement",
           "from"
         ],
         "type": "object"
@@ -2180,12 +2364,6 @@
           "node_name": {
             "type": "string"
           },
-          "orgs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "tags": {
             "items": {
               "type": "string"
@@ -2199,8 +2377,7 @@
         "required": [
           "node_name",
           "tags",
-          "ttl_minutes",
-          "orgs"
+          "ttl_minutes"
         ],
         "type": "object"
       },
@@ -2935,9 +3112,86 @@
         ],
         "type": "object"
       },
-      "MoveIn": {
+      "MoveEnvOut": {
         "properties": {
-          "cold": {
+          "bytes": {
+            "type": "integer"
+          },
+          "downtime": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "volumes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "volumes",
+          "bytes",
+          "downtime"
+        ],
+        "type": "object"
+      },
+      "MoveEnvStatusOut": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/MoveStepOut"
+            },
+            "type": "array"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "from",
+          "to",
+          "active",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "MovePlanOut": {
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckOut"
+            },
+            "type": "array"
+          },
+          "envs": {
+            "items": {
+              "$ref": "#/components/schemas/MoveEnvOut"
+            },
+            "type": "array"
+          },
+          "from": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "placement": {
+            "type": "string"
+          },
+          "restore": {
             "type": "boolean"
           },
           "to": {
@@ -2945,8 +3199,68 @@
           }
         },
         "required": [
+          "placement",
+          "from",
           "to",
-          "cold"
+          "restore",
+          "envs",
+          "checks",
+          "ok"
+        ],
+        "type": "object"
+      },
+      "MoveStatusOut": {
+        "properties": {
+          "all": {
+            "type": "integer"
+          },
+          "done": {
+            "type": "integer"
+          },
+          "envs": {
+            "items": {
+              "$ref": "#/components/schemas/MoveEnvStatusOut"
+            },
+            "type": "array"
+          },
+          "error": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "from",
+          "to",
+          "done",
+          "all",
+          "envs"
+        ],
+        "type": "object"
+      },
+      "MoveStepOut": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "state"
         ],
         "type": "object"
       },
@@ -2993,6 +3307,9 @@
           "path": {
             "type": "string"
           },
+          "placement": {
+            "type": "string"
+          },
           "volumes": {
             "items": {
               "$ref": "#/components/schemas/NodeVolume"
@@ -3004,6 +3321,7 @@
           "id",
           "path",
           "org",
+          "placement",
           "volumes"
         ],
         "type": "object"
@@ -3109,14 +3427,11 @@
           "name": {
             "type": "string"
           },
-          "open_to": {
+          "placements": {
             "items": {
               "type": "string"
             },
             "type": "array"
-          },
-          "open_to_all": {
-            "type": "boolean"
           },
           "range": {
             "type": "string"
@@ -3150,8 +3465,7 @@
           "state",
           "tags",
           "envs",
-          "open_to_all",
-          "open_to",
+          "placements",
           "range",
           "wg_address",
           "cpu",
@@ -3208,14 +3522,11 @@
           "name": {
             "type": "string"
           },
-          "open_to": {
+          "placements": {
             "items": {
               "type": "string"
             },
             "type": "array"
-          },
-          "open_to_all": {
-            "type": "boolean"
           },
           "range": {
             "type": "string"
@@ -3249,8 +3560,7 @@
           "state",
           "tags",
           "envs",
-          "open_to_all",
-          "open_to",
+          "placements",
           "range",
           "wg_address",
           "cpu",
@@ -3295,17 +3605,40 @@
         ],
         "type": "object"
       },
-      "NodesIn": {
+      "OfferOut": {
         "properties": {
-          "nodes": {
+          "has_node": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "tags": {
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "usable": {
+            "type": "boolean"
+          },
+          "why": {
+            "type": "string"
           }
         },
         "required": [
-          "nodes"
+          "name",
+          "tags",
+          "public",
+          "online",
+          "has_node",
+          "usable"
         ],
         "type": "object"
       },
@@ -3320,14 +3653,21 @@
         ],
         "type": "object"
       },
-      "OpenAllIn": {
+      "OpenIn": {
         "properties": {
-          "open": {
+          "all": {
             "type": "boolean"
+          },
+          "orgs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "open"
+          "all",
+          "orgs"
         ],
         "type": "object"
       },
@@ -3378,7 +3718,7 @@
           "name": {
             "type": "string"
           },
-          "node_id": {
+          "placement_id": {
             "oneOf": [
               {
                 "type": "string"
@@ -3461,17 +3801,6 @@
         },
         "required": [
           "file"
-        ],
-        "type": "object"
-      },
-      "OrgIn": {
-        "properties": {
-          "org": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "org"
         ],
         "type": "object"
       },
@@ -3745,9 +4074,23 @@
         ],
         "type": "object"
       },
+      "PinIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "placement": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "placement"
+        ],
+        "type": "object"
+      },
       "PinOut": {
         "properties": {
-          "node": {
+          "placement": {
             "type": "string"
           },
           "scope": {
@@ -3756,7 +4099,153 @@
         },
         "required": [
           "scope",
-          "node"
+          "placement"
+        ],
+        "type": "object"
+      },
+      "PinSetOut": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "type": "array"
+          },
+          "placement": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "placement"
+        ],
+        "type": "object"
+      },
+      "PlacementIn": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "orgs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "node",
+          "orgs"
+        ],
+        "type": "object"
+      },
+      "PlacementMoveIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "PlacementOut": {
+        "properties": {
+          "default": {
+            "type": "boolean"
+          },
+          "envs": {
+            "type": "integer"
+          },
+          "move": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MoveStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "node_forgotten": {
+            "type": "boolean"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "open_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "open_to_all": {
+            "type": "boolean"
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "node",
+          "tags",
+          "public",
+          "online",
+          "open_to_all",
+          "open_to",
+          "envs",
+          "default",
+          "node_forgotten"
+        ],
+        "type": "object"
+      },
+      "PlacementRef": {
+        "properties": {
+          "placement": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "placement"
+        ],
+        "type": "object"
+      },
+      "PlacementsIn": {
+        "properties": {
+          "placements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "placements"
         ],
         "type": "object"
       },
@@ -3771,6 +4260,12 @@
           "changes": {
             "items": {
               "$ref": "#/components/schemas/Change"
+            },
+            "type": "array"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
             },
             "type": "array"
           },
@@ -4083,28 +4578,6 @@
         "required": [
           "run_id",
           "target_volume_id"
-        ],
-        "type": "object"
-      },
-      "RestoreOut": {
-        "properties": {
-          "env": {
-            "$ref": "#/components/schemas/NodeEnvOut"
-          },
-          "node": {
-            "type": "string"
-          },
-          "tiles": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "env",
-          "node",
-          "tiles"
         ],
         "type": "object"
       },
@@ -4948,7 +5421,10 @@
           "name": {
             "type": "string"
           },
-          "node_id": {
+          "org_id": {
+            "type": "string"
+          },
+          "placement_id": {
             "oneOf": [
               {
                 "type": "string"
@@ -4957,9 +5433,6 @@
                 "type": "null"
               }
             ]
-          },
-          "org_id": {
-            "type": "string"
           },
           "settings": {
             "type": "string"
@@ -5035,6 +5508,12 @@
           },
           "from": {
             "type": "string"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            },
+            "type": "array"
           },
           "release": {
             "type": "integer"
@@ -6250,17 +6729,6 @@
         },
         "type": "object"
       },
-      "ToIn": {
-        "properties": {
-          "to": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "to"
-        ],
-        "type": "object"
-      },
       "TrustNode": {
         "properties": {
           "id": {
@@ -6520,6 +6988,12 @@
           "env": {
             "type": "string"
           },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            },
+            "type": "array"
+          },
           "release": {
             "type": "integer"
           },
@@ -6551,6 +7025,12 @@
           "changes": {
             "items": {
               "$ref": "#/components/schemas/Change"
+            },
+            "type": "array"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
             },
             "type": "array"
           },
@@ -8315,7 +8795,7 @@
             "description": "error"
           }
         },
-        "x-verb": "@self"
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/admin/nodes/rotate": {
@@ -8524,148 +9004,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ForgetOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "node.manage"
-      }
-    },
-    "/api/v1/admin/nodes/{node}/open-to-all": {
-      "put": {
-        "operationId": "admin.node-open-all",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "node",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OpenAllIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NodeOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "node.manage"
-      }
-    },
-    "/api/v1/admin/nodes/{node}/orgs": {
-      "post": {
-        "operationId": "admin.node-open",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "node",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OrgIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NodeOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "node.manage"
-      }
-    },
-    "/api/v1/admin/nodes/{node}/orgs/{org}": {
-      "delete": {
-        "operationId": "admin.node-close",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "node",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NodeOut"
                 }
               }
             },
@@ -9047,6 +9385,314 @@
           }
         },
         "x-verb": "serverparams.write"
+      }
+    },
+    "/api/v1/admin/placements": {
+      "get": {
+        "operationId": "admin.placements",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlacementOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      },
+      "post": {
+        "operationId": "admin.placement-create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlacementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlacementOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/placements/{placement}": {
+      "delete": {
+        "operationId": "admin.placement-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "placement",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/placements/{placement}/move": {
+      "get": {
+        "operationId": "admin.placement-move-status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "placement",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoveStatusOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      },
+      "post": {
+        "operationId": "admin.placement-move",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "placement",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlacementMoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/placements/{placement}/move-plan": {
+      "get": {
+        "operationId": "admin.placement-move-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "placement",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovePlanOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/placements/{placement}/open": {
+      "put": {
+        "operationId": "admin.placement-open",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "placement",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/placements/{placement}/retry": {
+      "post": {
+        "operationId": "admin.placement-retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "placement",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/admin/proxy/sync": {
@@ -9754,7 +10400,7 @@
             "description": "error"
           }
         },
-        "x-verb": "@self"
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/invites/{token}": {
@@ -10060,7 +10706,7 @@
             "description": "error"
           }
         },
-        "x-verb": "@self"
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/nodes/recover": {
@@ -10178,7 +10824,7 @@
             "description": "error"
           }
         },
-        "x-verb": "@self"
+        "x-verb": "node.manage"
       }
     },
     "/api/v1/orgs": {
@@ -11553,7 +12199,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodesIn"
+                "$ref": "#/components/schemas/PlacementsIn"
               }
             }
           },
@@ -11675,7 +12321,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/PlacementRef"
               }
             }
           },
@@ -12520,7 +13166,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/PinIn"
               }
             }
           },
@@ -12531,7 +13177,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PinOut"
+                  "$ref": "#/components/schemas/PinSetOut"
                 }
               }
             },
@@ -12549,6 +13195,95 @@
           }
         },
         "x-verb": "placement.write"
+      }
+    },
+    "/api/v1/orgs/{org}/pin-plan": {
+      "get": {
+        "operationId": "org.pin-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MovePlanOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
+    "/api/v1/orgs/{org}/placements": {
+      "get": {
+        "operationId": "org.placements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OfferOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.read"
       }
     },
     "/api/v1/orgs/{org}/pr/params": {
@@ -13455,7 +14190,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Environment"
+                    "$ref": "#/components/schemas/EnvOut"
                   },
                   "type": "array"
                 }
@@ -13511,7 +14246,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -13659,7 +14394,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -13723,7 +14458,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -13878,7 +14613,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodesIn"
+                "$ref": "#/components/schemas/PlacementsIn"
               }
             }
           },
@@ -13953,7 +14688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -14058,7 +14793,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/PlacementRef"
               }
             }
           },
@@ -14272,70 +15007,6 @@
         "x-verb": "tile.write"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/move": {
-      "post": {
-        "operationId": "env.move",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MoveIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            },
-            "description": "Accepted"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "placement.write"
-      }
-    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/name": {
       "put": {
         "operationId": "env.rename",
@@ -14380,7 +15051,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -14655,6 +15326,183 @@
         "x-verb": "variable.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/pin": {
+      "get": {
+        "operationId": "env.pin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.read"
+      },
+      "put": {
+        "operationId": "env.pin-set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvPinIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvPinOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/pin-plan": {
+      "get": {
+        "operationId": "env.pin-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovePlanOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/plan/{release}": {
       "get": {
         "operationId": "promote.plan",
@@ -14789,70 +15637,6 @@
         "x-verb": "env.write"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/restore": {
-      "post": {
-        "operationId": "env.restore",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ToIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestoreOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "placement.write"
-      }
-    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/rollback/{release}": {
       "post": {
         "operationId": "promote.rollback",
@@ -14957,7 +15741,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Environment"
+                  "$ref": "#/components/schemas/EnvOut"
                 }
               }
             },
@@ -16293,7 +17077,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodesIn"
+                "$ref": "#/components/schemas/PlacementsIn"
               }
             }
           },
@@ -16559,7 +17343,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/PlacementRef"
               }
             }
           },
@@ -18004,7 +18788,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodesIn"
+                "$ref": "#/components/schemas/PlacementsIn"
               }
             }
           },
@@ -18331,7 +19115,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/PlacementRef"
               }
             }
           },
@@ -18389,7 +19173,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Environment"
+                    "$ref": "#/components/schemas/EnvOut"
                   },
                   "type": "array"
                 }
@@ -18536,7 +19320,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NodeIn"
+                "$ref": "#/components/schemas/PinIn"
               }
             }
           },
@@ -18547,7 +19331,63 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PinOut"
+                  "$ref": "#/components/schemas/PinSetOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/pin-plan": {
+      "get": {
+        "operationId": "stack.pin-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MovePlanOut"
+                  },
+                  "type": "array"
                 }
               }
             },

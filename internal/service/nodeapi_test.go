@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -110,8 +112,8 @@ func TestTagNodeByName(t *testing.T) {
 	}
 }
 
-// An owner pins and moves only within the nodes opened to the org; the
-// controller is always open.
+// An owner pins only to placements open to the org; the default is open to
+// all. An env pin that would move the env is refused until confirmed.
 func TestOpenPinAndPlacement(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
@@ -119,64 +121,71 @@ func TestOpenPinAndPlacement(t *testing.T) {
 	og, err := n.st.Orgs.GetBySlug(ctx, "acme")
 	must(t, err)
 	own := ownerP(og.ID)
+	n.placeW1(t, false)
 
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, "w1"); err == nil || !strings.Contains(err.Error(), "not open") {
-		t.Fatalf("pin to a closed node = %v", err)
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "w1"); err == nil || !strings.Contains(err.Error(), "not open") {
+		t.Fatalf("pin to a closed placement = %v", err)
 	}
-	if _, err := n.orch.NodeForNewEnv(ctx, own, n.stack, "w1"); err == nil {
-		t.Fatal("an owner placed an env on a closed node")
+	if _, err := n.orch.PlacementForNewEnv(ctx, own, n.stack, "w1"); err == nil {
+		t.Fatal("an owner placed an env on a closed placement")
 	}
-	if _, err := n.orch.MoveEnv(ctx, own, n.dev.ID, "w1", false); err == nil {
-		t.Fatal("an owner moved an env to a closed node")
+	if ok, _ := n.orch.nodeOpenToOrg(ctx, "w1", og.ID); ok {
+		t.Fatal("a node holding only a closed placement is open to the org")
 	}
-	if _, err := n.orch.OpenNode(ctx, adm, "w1", "acme", true); err != nil {
-		t.Fatal(err)
+	must(t, n.orch.SetPlacementOpen(ctx, adm, "w1", false, []string{"acme"}))
+	if ok, _ := n.orch.nodeOpenToOrg(ctx, "w1", og.ID); !ok {
+		t.Error("an opened placement does not open its node to the org")
 	}
 	d, _ := n.orch.GetNode(ctx, "w1")
-	if !slices.Equal(d.OpenTo, []string{"acme"}) {
-		t.Errorf("open_to = %v", d.OpenTo)
+	if !slices.Equal(d.Placements, []string{"w1"}) {
+		t.Errorf("placements on w1 = %v", d.Placements)
 	}
-	p, err := n.orch.PinNode(ctx, own, "org", og.ID, "w1")
+	// dev runs on the controller: the org pin moves it, so it waits for the
+	// confirm; leaving dev out (as a file that pins it does) lands the pin
+	var need *MoveNeeded
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "w1"); !errors.As(err, &need) || len(need.Plans) != 1 || need.Plans[0].Placement != "acme/shop/dev" {
+		t.Fatalf("org pin over an env on another node = %v", err)
+	}
+	_, err = n.orch.PinScope(ctx, own, "org", og.ID, "w1", "", "dev")
 	must(t, err)
-	if p.Scope != "acme" || p.Node != "w1" {
+	p, err := n.orch.PinOf(ctx, "org", og.ID)
+	must(t, err)
+	if p.Scope != "acme" || p.Placement != "w1" {
 		t.Errorf("pin = %+v", p)
 	}
 	e, err := n.orch.CreateEnv(ctx, n.stack, "qa", EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
 	must(t, err)
-	if e.NodeID != "w1" {
-		t.Errorf("new env on %q, want the pinned w1", e.NodeID)
+	if e.NodeID != "w1" || e.PlacementID != mustPlacement(t, n, "w1").ID {
+		t.Errorf("new env on %q in %q, want the pinned w1", e.NodeID, e.PlacementID)
 	}
-	if _, err := n.orch.PinNode(ctx, own, "env", n.dev.ID, "w1"); err == nil {
-		t.Error("an env was pinned")
+	if err := n.orch.SetPin(ctx, own, "env", n.dev.ID, "w1"); err == nil {
+		t.Error("an env on the controller was pinned to w1 without a move")
 	}
-	if got, err := n.orch.PinOf(ctx, "stack", n.stack); err != nil || got.Node != "w1" {
+	if got, err := n.orch.PinOf(ctx, "stack", n.stack); err != nil || got.Placement != "w1" {
 		t.Errorf("PinOf stack = %+v, %v", got, err)
 	}
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, ""); err != nil {
+	if got, err := n.orch.PinOf(ctx, "env", e.ID); err != nil || got.Placement != "w1" {
+		t.Errorf("PinOf env = %+v, %v", got, err)
+	}
+	if _, err := n.orch.PinScope(ctx, own, "org", og.ID, "", "", "edge", "qa"); err != nil { // the envs on w1 stay
 		t.Fatal(err)
 	}
-	if got, _ := n.orch.PinOf(ctx, "org", og.ID); got.Node != "" {
+	if got, _ := n.orch.PinOf(ctx, "org", og.ID); got.Placement != "" {
 		t.Errorf("cleared pin = %+v", got)
 	}
 	// closing keeps the envs, stops new pins
-	if _, err := n.orch.OpenNode(ctx, adm, "w1", "acme", false); err != nil {
-		t.Fatal(err)
+	must(t, n.orch.SetPlacementOpen(ctx, adm, "w1", false, nil))
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "w1"); err == nil {
+		t.Error("pinned to a placement closed again")
 	}
-	if _, err := n.orch.PinNode(ctx, own, "org", og.ID, "w1"); err == nil {
-		t.Error("pinned to a node closed again")
+	if got, _ := n.st.Environments.Get(ctx, e.ID); got.NodeID != "w1" {
+		t.Errorf("closing moved the env to %q", got.NodeID)
 	}
-	if _, err := n.orch.OpenNode(ctx, adm, "w1", "nope", true); err == nil {
-		t.Error("opened to an org that does not exist")
+	if err := n.orch.SetPin(ctx, own, "org", og.ID, "nope"); !errors.As(err, new(errs.Invalid)) {
+		t.Errorf("pin to a placement that does not exist = %v", err)
 	}
-	// an open node serves the owner's move too
-	must(t, func() error { _, err := n.orch.OpenNode(ctx, adm, "w1", "acme", true); return err }())
-	if _, err := n.orch.MoveEnv(ctx, own, n.dev.ID, "w1", false); err != nil {
-		t.Errorf("owner move to an open node = %v", err)
-	}
-	for a, want := range map[string]int{auditNodeOpen: 3, "placement.pin": 2} {
-		if c := auditCount(t, n, a); c != want {
-			t.Errorf("%s rows = %d, want %d", a, c, want)
-		}
+	if c := auditCount(t, n, "placement.pin"); c != 2 {
+		t.Errorf("placement.pin rows = %d, want 2", c)
 	}
 }
 
@@ -184,35 +193,37 @@ func TestIngressAndExits(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
-	if _, err := n.orch.IngressSet(ctx, adm, "stack", n.stack, "w1"); err == nil || !strings.Contains(err.Error(), "w1 is not tagged ingress") {
+	n.placeW1(t, true)
+	if _, err := n.orch.IngressSet(ctx, adm, "stack", n.stack, "w1"); err == nil || !strings.Contains(err.Error(), "cannot be an ingress") {
 		t.Fatalf("untagged ingress = %v", err)
 	}
 	_, err := n.orch.TagNode(ctx, adm, "w1", TagSpec{Add: []string{"ingress", "egress"}})
 	must(t, err)
 
+	// dev runs on the controller, which is tagged ingress: it enters on its own placement
 	got, err := n.orch.IngressGet(ctx, "env", n.dev.ID)
 	must(t, err)
-	if got.Node != n.ctl.Name || got.From != "default" || got.Scope != "acme/shop/dev" {
+	if got.Placement != DefaultPlacement || got.From != "default" || got.Scope != "acme/shop/dev" {
 		t.Errorf("default ingress = %+v", got)
 	}
 	if _, err := n.orch.IngressSet(ctx, adm, "stack", n.stack, "w1"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = n.orch.IngressGet(ctx, "env", n.dev.ID)
-	if got.Node != "w1" || got.From != "acme/shop" {
+	if got.Placement != "w1" || got.From != "acme/shop" {
 		t.Errorf("inherited ingress = %+v", got)
 	}
-	if _, err := n.orch.IngressSet(ctx, adm, "env", n.dev.ID, n.ctl.Name); err != nil {
+	if _, err := n.orch.IngressSet(ctx, adm, "env", n.dev.ID, DefaultPlacement); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = n.orch.IngressGet(ctx, "env", n.dev.ID)
-	if got.Node != n.ctl.Name || got.From != "acme/shop/dev" {
+	if got.Placement != DefaultPlacement || got.From != "acme/shop/dev" {
 		t.Errorf("env ingress = %+v", got)
 	}
 	if _, err := n.orch.IngressSet(ctx, adm, "env", n.dev.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = n.orch.IngressGet(ctx, "env", n.dev.ID); got.Node != "w1" {
+	if got, _ = n.orch.IngressGet(ctx, "env", n.dev.ID); got.Placement != "w1" {
 		t.Errorf("cleared ingress = %+v", got)
 	}
 	// a node cannot lose the tag while a scope uses it
@@ -221,11 +232,11 @@ func TestIngressAndExits(t *testing.T) {
 	}
 
 	if _, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"w1", "w1"}); err == nil {
-		t.Error("a node listed twice")
+		t.Error("a placement listed twice")
 	}
-	ex, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"w1", n.ctl.Name})
+	ex, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"w1", DefaultPlacement})
 	must(t, err)
-	if len(ex.Exits) != 2 || ex.Exits[0].Node != "w1" || ex.Exits[0].Position != 1 {
+	if len(ex.Exits) != 2 || ex.Exits[0].Placement != "w1" || ex.Exits[0].Position != 1 {
 		t.Errorf("exits = %+v", ex)
 	}
 	d, _ := n.orch.GetNode(ctx, "w1")
@@ -239,7 +250,8 @@ func TestIngressAndExits(t *testing.T) {
 		t.Errorf("cleared exits = %+v", ex)
 	}
 	addNode(t, n, "plain", "10.231.0.0/16")
-	if _, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"plain"}); err == nil || !strings.Contains(err.Error(), "not tagged egress") {
+	addPlacement(t, n, "plain", "plain", true)
+	if _, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"plain"}); err == nil || !strings.Contains(err.Error(), "cannot be an exit") {
 		t.Errorf("untagged exit = %v", err)
 	}
 	for a, want := range map[string]int{"placement.ingress": 3, "placement.exits": 2} {
@@ -249,12 +261,14 @@ func TestIngressAndExits(t *testing.T) {
 	}
 }
 
-// Remove needs an empty worker and cleans up after it; forget writes a worker
-// off and leaves its envs lost, restorable onto a live node.
-func TestRemoveForgetRestore(t *testing.T) {
+// Remove needs an empty worker with no placement on it and cleans up after
+// it; forget writes a worker off, prunes its placements' rungs and leaves its
+// envs lost, to come back through their placement.
+func TestRemoveForgetLost(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
+	n.placeW1(t, true)
 	if _, err := n.orch.RemoveNodeRef(ctx, adm, "w1"); err == nil || !strings.Contains(err.Error(), "still runs 1 envs") {
 		t.Fatalf("remove with an env = %v", err)
 	}
@@ -262,19 +276,33 @@ func TestRemoveForgetRestore(t *testing.T) {
 		t.Fatal("the controller was removed")
 	}
 	addNode(t, n, "tmp", "10.230.0.0/16", "egress")
+	tmp := addPlacement(t, n, "tmp", "tmp", true)
 	_, err := n.orch.ExitSet(ctx, adm, "env", n.dev.ID, []string{"tmp"})
 	must(t, err)
-	removeNow(t, n, "tmp")
-	if _, err := n.st.Nodes.Get(ctx, "tmp"); err == nil {
-		t.Error("the node row is still there")
+	if _, err := n.orch.RemoveNodeRef(ctx, adm, "tmp"); err == nil || !strings.Contains(err.Error(), "Placement tmp") {
+		t.Fatalf("remove under a placement = %v", err)
+	}
+	if _, err := n.orch.ForgetNodeRef(ctx, adm, "tmp"); err != nil {
+		t.Fatal(err)
 	}
 	if rungs, _ := n.st.ExitLadders.List(ctx, "env", n.dev.ID); len(rungs) != 0 {
 		t.Errorf("exit rungs left: %v", rungs)
 	}
+	if p, err := n.st.Placements.Get(ctx, tmp.ID); err != nil || p.NodeID != "tmp" {
+		t.Errorf("the placement of a forgotten node = %+v, %v", p, err)
+	}
+	if got, _ := n.orch.PlacementByName(ctx, "tmp"); !got.NodeForgotten || got.Online || got.NodeName != "tmp" {
+		t.Errorf("placement on a forgotten node = %+v", got)
+	}
+	addNode(t, n, "tmp2", "10.229.0.0/16")
+	removeNow(t, n, "tmp2")
+	if _, err := n.st.Nodes.Get(ctx, "tmp2"); err == nil {
+		t.Error("the node row is still there")
+	}
 
 	out, err := n.orch.ForgetNodeRef(ctx, adm, "w1")
 	must(t, err)
-	if len(out.Lost) != 1 || out.Lost[0].Path != "acme/shop/edge" {
+	if len(out.Lost) != 1 || out.Lost[0].Path != "acme/shop/edge" || out.Lost[0].Placement != "w1" {
 		t.Fatalf("forget = %+v", out)
 	}
 	lost, err := n.orch.LostEnvsOf(ctx, "acme")
@@ -282,25 +310,7 @@ func TestRemoveForgetRestore(t *testing.T) {
 	if other, _ := n.orch.LostEnvsOf(ctx, "other"); len(lost) != 1 || lost[0].ID != n.edge.ID || len(other) != 0 {
 		t.Fatalf("lost = %+v", lost)
 	}
-	if _, err := n.orch.RestoreEnv(ctx, adm, n.dev.ID, n.ctl.Name); err == nil || !strings.Contains(err.Error(), "not lost") {
-		t.Errorf("restoring a live env = %v", err)
-	}
-	if _, err := n.orch.RestoreEnv(ctx, adm, n.edge.ID, "w1"); err == nil {
-		t.Error("restored onto a forgotten node")
-	}
-	re, err := n.orch.RestoreEnv(ctx, adm, n.edge.ID, n.ctl.Name)
-	must(t, err)
-	if re.Node != n.ctl.Name || len(re.Tiles) != 1 {
-		t.Errorf("restore = %+v", re)
-	}
-	e, _ := n.st.Environments.Get(ctx, n.edge.ID)
-	if e.NodeID != n.ctl.ID || e.Subnet != "" {
-		t.Errorf("env on %q subnet %q", e.NodeID, e.Subnet)
-	}
-	if lost, _ = n.orch.LostEnvsOf(ctx, "acme"); len(lost) != 0 {
-		t.Errorf("still lost: %+v", lost)
-	}
-	for a, want := range map[string]int{auditNodeRemove: 1, auditNodeForget: 1, auditEnvRestore: 1} {
+	for a, want := range map[string]int{auditNodeRemove: 1, auditNodeForget: 2} {
 		if c := auditCount(t, n, a); c != want {
 			t.Errorf("%s rows = %d, want %d", a, c, want)
 		}

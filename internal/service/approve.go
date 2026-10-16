@@ -26,7 +26,8 @@ type ApproveOpts struct {
 
 // checkApprove is the approve contract over a stored plan's JSON (either
 // table: both flow plans embed planfile.Plan, flat in JSON): a blocked plan
-// is refused with its blockers, a risky one needs Confirm, a tick must name a
+// is refused with its blockers, one that only has gaps has nothing to apply,
+// a risky one needs Confirm, a tick must name a
 // removal row of the plan.
 func checkApprove(id, planJSON string, opts ApproveOpts) error {
 	var p planfile.Plan
@@ -35,6 +36,9 @@ func checkApprove(id, planJSON string, opts ApproveOpts) error {
 	}
 	if p.Blocked() {
 		return errs.Conflictf("This plan is blocked: %s", strings.Join(p.Blockers, "; "))
+	}
+	if len(p.Changes) == 0 && len(p.Gaps) > 0 {
+		return errs.Conflictf("Nothing to apply yet: fill in what the plan is missing.")
 	}
 	return p.Approvable(opts.Ticked, opts.Confirm)
 }

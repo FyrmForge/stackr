@@ -44,6 +44,31 @@ type Live struct {
 	Claims     []org.Claim     // every domain on the server and its org: the new-org slug check
 
 	TLSOff bool // STACKR_TLS=off: pass-through routes need TLS
+
+	Nodes      []NodeLive
+	Placements []PlacementLive
+	Moves      map[string][]planfile.Check // "placement->node": checks for each repoint the file asks for
+	MoveEnvs   map[string][]string         // "placement->node": env paths it moves
+}
+
+// NodeLive is one node row, pending ones included.
+type NodeLive struct {
+	ID, Name  string
+	Tags      []string
+	Pending   bool
+	Online    bool
+	Forgotten bool
+	// Locked says why a tag cannot be dropped now (SetNodeTags would
+	// refuse), by tag.
+	Locked map[string]string
+}
+
+// PlacementLive is one placement. Node is the node's name, "" = none.
+type PlacementLive struct {
+	ID, Name, Node string
+	OpenToAll      bool
+	Orgs           []string // slugs
+	Used           int      // pins + envs
 }
 
 // ConnectorLive is a server connector with the orgs it is shared with.
@@ -55,7 +80,7 @@ type ConnectorLive struct {
 
 // Diff is the plan for f against live, in the order apply walks it: params,
 // connector shares, settings and the cascade rung, backup dests, domains,
-// routes, orgs, then the removal rows. The file never deletes on its own:
+// routes, orgs, nodes and placements, then the removal rows. The file never deletes on its own:
 // what a present block no longer names is an unticked removal row, and a
 // removal the verb would refuse (a dest a schedule uses, a resource tiles
 // sit under) gets a note instead of a row, so a blocker never makes the plan
@@ -74,6 +99,8 @@ func Diff(f *File, live Live) Plan {
 	d.domains()
 	d.routes()
 	d.orgs()
+	d.nodes()
+	d.placements()
 	d.p.Changes = append(d.p.Changes, d.removals...)
 	return d.p
 }
@@ -194,7 +221,8 @@ func (d *differ) params() {
 			case decl.Type == params.Secret && ok && !old.Secret:
 				d.add(Change{Kind: "param-update", Field: key, Note: "becomes a secret"})
 			case decl.Type == params.Secret && (!ok || old.V == ""):
-				d.note("params.%s is declared and not set; anything that reads it waits until it is", key)
+				// anything that reads it waits until it is set
+				d.p.Gaps = append(d.p.Gaps, planfile.Gap{Kind: "secret", Scope: "server", Key: key})
 			case decl.Type == params.Param && decl.Value != nil && !ok:
 				d.add(Change{Kind: "param", Field: key, New: *decl.Value})
 			case decl.Type == params.Param && decl.Value != nil && old.V != *decl.Value:

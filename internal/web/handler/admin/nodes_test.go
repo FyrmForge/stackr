@@ -35,10 +35,15 @@ func TestAdminNodes(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "lowercase") {
 		t.Errorf("bad name = %d\n%s", rec.Code, rec.Body)
 	}
-	// not open to all, and no org picked
-	rec = s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"w8"}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "pick at least one org") {
-		t.Errorf("no orgs = %d\n%s", rec.Code, rec.Body)
+	// placements hold the access now: the dialog asks no orgs
+	rec = s.As(t, root, "GET", "/-/admin/nodes/add?name=h4&tags=ingress,storage", nil)
+	for _, want := range []string{`value="h4"`, `value="ingress" checked`, `value="storage" checked`} {
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("prefilled add = %d, no %q in\n%s", rec.Code, want, rec.Body)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "Open to") || strings.Contains(rec.Body.String(), `name="org"`) {
+		t.Errorf("add dialog still asks for orgs\n%s", rec.Body)
 	}
 	// nothing has called in: the poll has nothing to say
 	if rec := s.As(t, root, "GET", "/-/admin/nodes/add/poll?name=w9", nil); rec.Code != http.StatusNoContent {
@@ -52,8 +57,8 @@ func TestAdminNodes(t *testing.T) {
 	}
 	id := ns[0].ID
 	rec = s.As(t, root, "GET", "/-/admin/nodes/"+id+"?tab=tags", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Open to orgs") ||
-		!strings.Contains(rec.Body.String(), "open to every organization") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Save tags") ||
+		strings.Contains(rec.Body.String(), "Open to orgs") {
 		t.Fatalf("tags tab = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", url.Values{"tag": {"builder", "egress"}})
@@ -100,7 +105,7 @@ func TestAdminNodeOverview(t *testing.T) {
 	}
 	rec := s.As(t, root, "GET", "/-/admin/nodes/"+ns[0].ID, nil)
 	body := rec.Body.String()
-	for _, want := range []string{"1 core", runtime.GOARCH, "just now","Addresses", "Machine", "Tunnels"} {
+	for _, want := range []string{"1 core", runtime.GOARCH, "just now", "Addresses", "Machine", "Tunnels"} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
 			t.Fatalf("overview = %d, no %q in\n%s", rec.Code, want, body)
 		}

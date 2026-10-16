@@ -27,11 +27,13 @@ const (
 	Worker     = "worker"
 )
 
-// Capability tags. The controller is tagged with all three at bootstrap.
+// Capability tags. The controller is tagged with all four at bootstrap.
+// storage: the node may hold volumes (envs with volumes or managed tiles).
 const (
 	TagIngress = "ingress"
 	TagEgress  = "egress"
 	TagBuilder = "builder"
+	TagStorage = "storage"
 )
 
 // Status of a node row.
@@ -88,7 +90,7 @@ func (l *Leaf) Bootstrap(ctx context.Context) (n store.Node, created bool, err e
 	if err == nil || !errors.Is(err, errs.ErrNotFound) {
 		return n, false, err
 	}
-	tags, _ := json.Marshal([]string{TagIngress, TagEgress, TagBuilder})
+	tags, _ := json.Marshal([]string{TagIngress, TagEgress, TagBuilder, TagStorage})
 	n = store.Node{
 		ID:        uuid.NewString(),
 		Name:      "controller",

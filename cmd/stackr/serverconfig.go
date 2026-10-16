@@ -107,10 +107,10 @@ func (a *app) serverConfig() *cobra.Command {
 			}
 			return a.approveServer(c, v, remove)
 		}))
-	apply := waits(leaf("apply <file>", "admin.config-plan-file,admin.config-plan-approve",
-		"Plan a local stackr-server.yml (not the repo's) and apply it: prints the plan, then asks", exact(1),
-		func(c *cobra.Command, args []string) error {
-			b, err := os.ReadFile(args[0])
+	apply := waits(leaf("apply", "admin.config-plan-file,admin.config-plan-approve",
+		"Plan a local stackr-server.yml (not the repo's) and apply it: prints the plan, then asks", exact(0),
+		func(c *cobra.Command, _ []string) error {
+			b, err := os.ReadFile(file)
 			if err != nil {
 				return err
 			}
@@ -120,6 +120,7 @@ func (a *app) serverConfig() *cobra.Command {
 			}
 			return a.approveServer(c, v, remove)
 		}))
+	apply.Flags().StringVarP(&file, "file", "f", "stackr-server.yml", "the file to apply")
 	for _, c := range []*cobra.Command{approve, apply} {
 		c.Flags().StringArrayVar(&remove, "remove", nil, "tick a removal row to apply it (repeatable; the plan lists the keys)")
 	}

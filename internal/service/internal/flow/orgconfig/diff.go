@@ -30,7 +30,7 @@ type Change = planfile.Change
 
 // Plan is what applying the file would do, in the order apply walks it:
 // moved: renames, the org, tiers, params, defaults, colors, stacks, domains,
-// shares.
+// shares, then the org's pin, ingress and exits.
 // Blockers refuse the apply; Notes do not.
 type Plan struct{ planfile.Plan }
 
@@ -69,6 +69,20 @@ type Live struct {
 	Connectors []store.Connector                  // the org's connected connectors
 	Shares     []store.Share                      // the org's network shares
 	ShareUsers map[string][]string                // share slug -> slugs of the tiles whose lines mount it
+
+	Placements planfile.PlacementFacts // the placements as this org sees them
+	// Current is the org's own pin, ingress and exits, by placement name.
+	Current planfile.Placing
+	// EnvNeeds is, per "stack/env" path, what an env asks of its node. Only
+	// the envs the org pin would cover are in it: a stack with its own pin
+	// is left out.
+	EnvNeeds map[string]planfile.Needs
+	// FileErrors is why a stack file the org pin covers could not be read
+	// for its needs: each blocks the plan.
+	FileErrors []string
+	// Moves is, per "stack/env" path, the move the file's pin would cause.
+	// The orchestrator fills it once the file is parsed.
+	Moves map[string]planfile.MoveFact
 }
 
 // StackLive is one stack.
@@ -131,6 +145,7 @@ func Diff(f *File, live Live) Plan {
 	p.stacks(f.Stacks, live, stacks)
 	p.domains(f.Domains, live)
 	p.shares(f.Shares, live)
+	p.placing(f, live)
 	return p
 }
 
@@ -318,7 +333,8 @@ func (p *Plan) tierParams(blocks map[string]map[string]planfile.Entry, scopes ma
 			case decl.Secret && !ok && decl.Generate > 0:
 				p.add(Change{Kind: "param", Tile: env, Field: key, Note: "generated"})
 			case decl.Secret && !ok:
-				p.Notes = append(p.Notes, "params."+key+" ("+env+") is declared and not set; tiles that read it wait until it is")
+				// Env is the env key (a tier, pr or all): which scope the field writes.
+				p.Gaps = append(p.Gaps, planfile.Gap{Kind: "secret", Scope: "org", Env: env, Key: key})
 			case decl.Secret:
 			case !ok:
 				p.add(Change{Kind: "param", Tile: env, Field: key, New: decl.Value})

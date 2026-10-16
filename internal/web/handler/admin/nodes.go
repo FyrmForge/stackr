@@ -35,19 +35,25 @@ const breakGlassWord = "break glass"
 // verb is node.manage, so the route's Require is the whole gate.
 func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	m := a.Require("node.manage")
+	h.mountPlacements(g, a)
 	g.GET(nodesBase+"/add", h.addNode, m)
 	g.POST(nodesBase+"/add", h.mintNode, m)
 	g.GET(nodesBase+"/add/poll", h.pollNode, m)
 	g.POST(nodesBase+"/pending/:node/confirm", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
-		n, err := h.orch.ConfirmJoin(c.Request().Context(), middleware.Principal(c), c.Param("node"))
-		return n.Name + " added.", nil, err
+		ctx := c.Request().Context()
+		n, err := h.orch.ConfirmJoin(ctx, middleware.Principal(c), c.Param("node"))
+		if err != nil {
+			return "", nil, err
+		}
+		// a node the bound server file names queues a re-plan, so a
+		// placement waiting on it gets its node without a push
+		if b, berr := h.orch.ServerConfigBinding(ctx); berr == nil && b.Repo != "" {
+			return n.Name + " added. The server file is re-planning.", nil, nil
+		}
+		return n.Name + " added.", nil, nil
 	}), m)
 	g.POST(nodesBase+"/pending/:node/reject", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
 		return "Rejected.", nil, h.orch.RejectJoin(c.Request().Context(), middleware.Principal(c), c.Param("node"))
-	}), m)
-	g.POST(nodesBase+"/lost/restore", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
-		_, err := h.orch.RestoreLostEnv(c.Request().Context(), middleware.Principal(c), c.FormValue("env"), c.FormValue("node"))
-		return "Redeploying.", nil, err
 	}), m)
 	g.GET(nodesBase+"/:node", h.nodeDrawer, m)
 	g.POST(nodesBase+"/:node/tags", h.nodeAct("tags", "Saved.", func(c echo.Context) error {
@@ -62,17 +68,6 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 			}
 		}
 		return h.orch.SaveNodeTags(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["tag"], exits)
-	}), m)
-	g.POST(nodesBase+"/:node/orgs", h.nodeAct("tags", "Saved.", func(c echo.Context) error {
-		f, err := c.FormParams()
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "bad form")
-		}
-		ctx, by := c.Request().Context(), middleware.Principal(c)
-		if err := h.orch.SetNodeOrgs(ctx, by, c.Param("node"), f["org"]); err != nil {
-			return err
-		}
-		return h.orch.SetNodeOpenToAll(ctx, by, c.Param("node"), f.Get("all") != "")
 	}), m)
 	g.POST(nodesBase+"/default-ingress/preview", h.previewIngress, m)
 	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
@@ -192,26 +187,25 @@ func (h *handler) nodeAct(tab, note string, do func(echo.Context) error) echo.Ha
 
 // GET /-/admin/nodes/add
 func (h *handler) addNode(c echo.Context) error {
-	v, err := h.step1(c, "", nil, true, nil, "")
+	// the plan's "Add this node" link prefills the name and tags from the file
+	var tags []string
+	for _, t := range strings.Split(c.QueryParam("tags"), ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	v, err := h.step1(c, strings.TrimSpace(c.QueryParam("name")), tags, "")
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	return h.answer(c, "nodes", "", extra{adder: v}, nil)
 }
 
-func (h *handler) step1(c echo.Context, name string, picked []string, all bool, orgs []string, msg string) (*ui.AddNodeView, error) {
-	ogs, err := h.orch.AllOrgs(c.Request().Context())
-	if err != nil {
-		return nil, err
-	}
-	v := &ui.AddNodeView{
+func (h *handler) step1(c echo.Context, name string, picked []string, msg string) (*ui.AddNodeView, error) {
+	return &ui.AddNodeView{
 		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
-		AllOrgs: all, PickedOrgs: orgs, Create: nodesBase + "/add", Cancel: ui.Base + "?tab=nodes",
-	}
-	for _, o := range ogs {
-		v.Orgs = append(v.Orgs, ui.Option{Value: o.Slug, Label: o.Name})
-	}
-	return v, nil
+		Create: nodesBase + "/add", Cancel: ui.Base + "?tab=nodes",
+	}, nil
 }
 
 // POST /-/admin/nodes/add
@@ -220,27 +214,16 @@ func (h *handler) mintNode(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	name, all := strings.TrimSpace(f.Get("name")), f.Get("all") != ""
-	var orgs []string
-	if !all {
-		orgs = f["org"]
-	}
-	err = nil
-	if !all && len(orgs) == 0 {
-		err = errs.Invalidf("orgs", "pick at least one org, or All orgs")
-	}
-	var out service.JoinTokenOut
-	if err == nil {
-		out, err = h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{
-			NodeName: name, Tags: f["tag"], Orgs: orgs,
-		})
-	}
+	name := strings.TrimSpace(f.Get("name"))
+	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{
+		NodeName: name, Tags: f["tag"],
+	})
 	if err != nil {
 		msg, ok := render.Refused(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}
-		v, err := h.step1(c, name, f["tag"], all, orgs, msg)
+		v, err := h.step1(c, name, f["tag"], msg)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
@@ -290,7 +273,7 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 	if err != nil {
 		return nil, err
 	}
-	v := ui.NodesView{Add: nodesBase + "/add", Adder: x.adder}
+	v := ui.NodesView{Add: nodesBase + "/add", Adder: x.adder, Placements: ui.Base + "?tab=placements"}
 	for _, n := range ns {
 		v.Rows = append(v.Rows, ui.NodeRow{
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
@@ -316,13 +299,7 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 		v.Defaults = d
 	}
 	for _, l := range lost {
-		r := ui.LostEnvRow{Path: l.Path, Node: l.Node, Volumes: l.Volumes, EnvID: l.ID, Action: nodesBase + "/lost/restore"}
-		for _, n := range ns {
-			if n.Status == "online" {
-				r.Nodes = append(r.Nodes, ui.Option{Value: n.ID, Label: n.Name})
-			}
-		}
-		v.Lost = append(v.Lost, r)
+		v.Lost = append(v.Lost, ui.LostEnvRow{Path: l.Path, Node: l.Node, Placement: l.Placement, Volumes: l.Volumes})
 	}
 	if v.Trust, err = h.trustView(c); err != nil {
 		return nil, err
@@ -521,14 +498,9 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	}
 	if d.Controller {
 		v.RoutesNote = fmt.Sprintf("%s serves the panel and %d routes.", d.Name, d.RoutesServed)
-	} else {
-		v.OrgsAction, v.OpenToAll = base+"/orgs", d.OpenToAll
 	}
 	for _, e := range d.EnvList {
 		v.Envs = append(v.Envs, ui.NodeEnvRow{Path: e.Path, Pin: e.Pin, Tiles: e.Tiles})
-	}
-	for _, o := range d.Orgs {
-		v.Orgs = append(v.Orgs, ui.NodeOrgRow{ID: o.ID, Name: o.Name, On: o.On})
 	}
 	var newest time.Time // the newest valid cert's expiry
 	for _, ce := range d.Certs {

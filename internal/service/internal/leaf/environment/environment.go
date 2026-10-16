@@ -37,22 +37,25 @@ type Networks interface {
 }
 
 // Pins are the facts placement needs from the other tables, read by the
-// caller: the stack's and the org's node pins, and the controller.
+// caller: the placement ids of the stack's and the org's pins, the default
+// placement, and how to find the node a placement stands on.
 type Pins struct {
 	Stack, Org *string
-	Controller string
+	Default    string
+	// NodeOf is the node id a placement stands on; "" = no node yet.
+	NodeOf func(ctx context.Context, placementID string) (string, error)
 }
 
-// Place is the node a new env runs on: its own pin, then the stack's, then
-// the org's, then the controller. Pins decide only where new envs go; an env
-// already made never moves because a pin changed.
+// Place is the placement a new env belongs to: its own, then the stack's,
+// then the org's, then the default. A placement is a name for a node; an env
+// already made never moves because a pin changed (that is a move).
 func Place(env string, p Pins) string {
 	for _, id := range []string{env, deref(p.Stack), deref(p.Org)} {
 		if id != "" {
 			return id
 		}
 	}
-	return p.Controller
+	return p.Default
 }
 
 func deref(s *string) string {
@@ -223,15 +226,17 @@ func (l *Leaf) Below(ctx context.Context, e store.Environment) (store.Environmen
 
 // Spec is what Create needs beyond the name. Base is a PR env's base env id.
 type Spec struct {
-	// NodeID pins this env to a node; "" places it by the stack's and org's
-	// pins, else on the controller (Place).
-	NodeID     string
-	Type       string
-	Base       *string
-	Color      string
-	FromKind   string
-	FromBranch string
-	Auto       bool
+	// PlacementID is the placement this env belongs to; "" places it by the
+	// stack's and org's pins, else the default (Place). NodeID, when set,
+	// is where it runs instead of the placement's node.
+	PlacementID string
+	NodeID      string
+	Type        string
+	Base        *string
+	Color       string
+	FromKind    string
+	FromBranch  string
+	Auto        bool
 }
 
 // Create puts a static env on top of the ladder; a PR env takes the same
@@ -249,27 +254,35 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 	if sp.Type != Static && sp.Type != Ephemeral {
 		return store.Environment{}, errs.Invalidf("type", "Unknown environment type %q.", sp.Type)
 	}
-	node := sp.NodeID
-	if node == "" && l.pins != nil {
+	node, placement := sp.NodeID, sp.PlacementID
+	if l.pins != nil {
 		p, err := l.pins(ctx, stackID)
 		if err != nil {
 			return store.Environment{}, err
 		}
-		node = Place("", p)
+		if placement == "" && node == "" {
+			placement = Place("", p)
+		}
+		if node == "" && placement != "" && p.NodeOf != nil {
+			if node, err = p.NodeOf(ctx, placement); err != nil {
+				return store.Environment{}, err
+			}
+		}
 	}
 	id := uuid.NewString()
 	e := store.Environment{
-		ID:        id,
-		StackID:   stackID,
-		Type:      sp.Type,
-		BaseEnvID: sp.Base,
-		Settings:  "{}",
-		Color:     sp.Color,
-		Position:  pos,
-		Network:   "stackr-env-" + id,
-		NodeID:    node,
-		Locked:    true,
-		CreatedAt: time.Now().UTC(),
+		ID:          id,
+		StackID:     stackID,
+		Type:        sp.Type,
+		BaseEnvID:   sp.Base,
+		Settings:    "{}",
+		Color:       sp.Color,
+		Position:    pos,
+		Network:     "stackr-env-" + id,
+		NodeID:      node,
+		PlacementID: placement,
+		Locked:      true,
+		CreatedAt:   time.Now().UTC(),
 	}
 	if err := l.name(ctx, &e, name); err != nil {
 		return e, err
@@ -286,13 +299,14 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 // flow's (see the envops rules), never this row's.
 func (l *Leaf) CloneRow(ctx context.Context, base store.Environment, name, branch string) (store.Environment, error) {
 	e, err := l.Create(ctx, base.StackID, name, Spec{
-		NodeID:     base.NodeID,
-		Type:       Ephemeral,
-		Base:       &base.ID,
-		Color:      base.Color,
-		FromKind:   FromBranch,
-		FromBranch: branch,
-		Auto:       true,
+		PlacementID: base.PlacementID,
+		NodeID:      base.NodeID,
+		Type:        Ephemeral,
+		Base:        &base.ID,
+		Color:       base.Color,
+		FromKind:    FromBranch,
+		FromBranch:  branch,
+		Auto:        true,
 	})
 	if err != nil {
 		return e, err
@@ -502,6 +516,9 @@ func (l *Leaf) DropShared(ctx context.Context, name string) error {
 func (l *Leaf) Delete(ctx context.Context, e store.Environment, tileCount int) error {
 	if tileCount > 0 {
 		return errs.Conflictf("Remove this environment's tiles first.")
+	}
+	if e.NodeID == "" && e.PlacementID != "" { // waiting for a node (D6): no network was ever made
+		return l.envs.Delete(ctx, e.ID)
 	}
 	if err := l.net.RemoveNetwork(onNode(ctx, e), e.Network); err != nil {
 		return err

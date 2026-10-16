@@ -45,7 +45,7 @@ var joinStatusGrace = time.Hour
 
 var (
 	joinNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
-	joinTags   = []string{node.TagIngress, node.TagEgress, node.TagBuilder}
+	joinTags   = []string{node.TagIngress, node.TagEgress, node.TagBuilder, node.TagStorage}
 )
 
 // JoinTokenSpec is what an admin asks for.
@@ -53,9 +53,6 @@ type JoinTokenSpec struct {
 	NodeName   string   `json:"node_name"`
 	Tags       []string `json:"tags"`
 	TTLMinutes int      `json:"ttl_minutes"` // 0 = one hour
-	// Orgs are the org slugs whose owners may pin to the node; none = every
-	// org (open to all).
-	Orgs []string `json:"orgs"`
 }
 
 // JoinTokenOut is a minted token. The token and the command carry it; both
@@ -174,25 +171,14 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
 		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
 	}
-	var orgIDs []string
-	for _, sl := range spec.Orgs {
-		og, err := o.store.Orgs.GetBySlug(ctx, sl)
-		if errors.Is(err, errs.ErrNotFound) {
-			return JoinTokenOut{}, errs.Invalidf("orgs", "no organization %q", sl)
-		} else if err != nil {
-			return JoinTokenOut{}, err
-		}
-		orgIDs = append(orgIDs, og.ID)
-	}
 	// A default exit can't be picked before the node exists, so a new node
 	// always has egress; an admin can drop it once it is up.
-	return o.mintJoin(ctx, by, name, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes, len(orgIDs) == 0, orgIDs)
+	return o.mintJoin(ctx, by, name, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes)
 }
 
 // mintJoin is the token itself. A rejoin names a node that already exists
 // (RejoinNode set it to needs-rejoin); its request then reuses the row.
-// openAll and orgIDs are who a new node opens to.
-func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string, tagList []string, ttlMinutes int, openAll bool, orgIDs []string) (JoinTokenOut, error) {
+func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string, tagList []string, ttlMinutes int) (JoinTokenOut, error) {
 	ttl := time.Duration(ttlMinutes) * time.Minute
 	switch {
 	case ttlMinutes < 0 || ttl > JoinTokenMaxTTL:
@@ -207,7 +193,7 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string,
 	tags := slices.Compact(slices.Sorted(slices.Values(tagList)))
 	var out JoinTokenOut
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		token, row, err := o.joinTokens(tx).Mint(ctx, name, tags, openAll, slices.Compact(slices.Sorted(slices.Values(orgIDs))), by.User.ID, ttl)
+		token, row, err := o.joinTokens(tx).Mint(ctx, name, tags, by.User.ID, ttl)
 		if err != nil {
 			return err
 		}
@@ -294,14 +280,9 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		}
 		var tags []string
 		_ = json.Unmarshal([]byte(row.Tags), &tags)
-		n, fresh, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin, row.OpenToAll)
+		n, _, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin)
 		if err != nil {
 			return err
-		}
-		if fresh && !row.OpenToAll {
-			if err := o.openToTokenOrgs(ctx, tx, n.ID, row.OrgIDs); err != nil {
-				return err
-			}
 		}
 		if err := jt.Record(ctx, row, n.ID, req.CSR, req.WGPublicKey, facts); err != nil {
 			return err
@@ -313,21 +294,6 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		})
 	})
 	return st, err
-}
-
-// openToTokenOrgs opens a new node to the orgs its join token named, less
-// any deleted since the mint.
-func (o *Orchestrator) openToTokenOrgs(ctx context.Context, tx store.Tx, nodeID, raw string) error {
-	var ids, live []string
-	_ = json.Unmarshal([]byte(raw), &ids)
-	for _, id := range ids {
-		if _, err := tx.Orgs.Get(ctx, id); err == nil {
-			live = append(live, id)
-		} else if !errors.Is(err, errs.ErrNotFound) {
-			return err
-		}
-	}
-	return tx.NodeOrgs.Set(ctx, nodeID, live)
 }
 
 func checkCSR(s string) error {
@@ -474,8 +440,21 @@ func (o *Orchestrator) ConfirmJoin(ctx context.Context, by *Principal, nodeID st
 	})
 	if err == nil {
 		o.kickMesh() // the controller adds the peer; the next refresh brings the worker online
+		o.replanServerFile(ctx)
 	}
 	return JoinedNode{ID: out.ID, Name: out.Name, WGAddress: out.WGAddress, Status: out.Status}, err
+}
+
+// replanServerFile queues a re-plan of the bound server file, so a placement
+// waiting for the node that just joined gets it without a push. Nothing is
+// queued when no file is bound.
+func (o *Orchestrator) replanServerFile(ctx context.Context) {
+	if b, err := o.ServerConfigBinding(ctx); err != nil || b.Repo == "" {
+		return
+	}
+	if _, err := o.enqueue(ctx, kindServerPlan, serverPlanJob{}, "serverconfig"); err != nil {
+		slog.Warn("join: server file not re-planned", "err", err)
+	}
 }
 
 // RejectJoin (server admin) turns a pending node away and deletes its row; a

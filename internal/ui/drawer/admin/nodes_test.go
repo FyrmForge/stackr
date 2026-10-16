@@ -146,3 +146,14 @@ func TestNodeOverviewBackups(t *testing.T) {
 		t.Errorf("volumes not inside details\n%s", out)
 	}
 }
+
+// A lost env names the placement whose repoint brings it back.
+func TestLostEnvNamesPlacement(t *testing.T) {
+	var b strings.Builder
+	if err := Nodes(NodesView{Lost: []LostEnvRow{{Path: "acme/shop/prod", Node: "h3", Placement: "eu-db", Volumes: 1}}}).Render(t.Context(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if out := b.String(); !strings.Contains(out, "placement eu-db") || !strings.Contains(out, "h3 was forgotten") {
+		t.Errorf("lost row lacks its placement:\n%s", out)
+	}
+}

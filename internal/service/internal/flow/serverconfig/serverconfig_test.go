@@ -9,6 +9,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -369,8 +370,9 @@ func TestDiffParams(t *testing.T) {
 		changes []string
 		blocker string
 		note    string
+		gap     string
 	}{
-		{name: "same", file: "params:\n  s3:\n    region: {type: param, value: eu}\n    key: {type: secret}\n", note: "s3.key is declared and not set"},
+		{name: "same", file: "params:\n  s3:\n    region: {type: param, value: eu}\n    key: {type: secret}\n", gap: "s3.key"},
 		{name: "new param", file: "params:\n  s3:\n    bucket: {type: param, value: b}\n", changes: []string{"param:s3.bucket"}},
 		{name: "changed param", file: "params:\n  s3:\n    region: {type: param, value: us}\n", changes: []string{"param-update:s3.region"}},
 		{name: "param becomes secret", file: "params:\n  s3:\n    region: {type: secret}\n", changes: []string{"param-update:s3.region"}},
@@ -383,6 +385,11 @@ func TestDiffParams(t *testing.T) {
 			wantKinds(t, p, c.changes...)
 			has(t, "blockers", p.Blockers, c.blocker)
 			has(t, "notes", p.Notes, c.note)
+			if c.gap != "" && !slices.ContainsFunc(p.Gaps, func(g planfile.Gap) bool {
+				return g.Kind == "secret" && g.Scope == "server" && g.Key == c.gap
+			}) {
+				t.Errorf("gaps = %+v, want the server secret %s", p.Gaps, c.gap)
+			}
 			if len(p.Removals()) != 0 {
 				t.Errorf("a param is never a removal row: %+v", p.Removals())
 			}

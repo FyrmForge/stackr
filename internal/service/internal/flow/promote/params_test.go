@@ -60,8 +60,9 @@ func TestPlanEnvParams(t *testing.T) {
 		got["pr.app.mode"].New != "sandbox" || len(got) != 3 {
 		t.Errorf("first plan = %+v", got)
 	}
-	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "app.sec") {
-		t.Errorf("warnings = %v", p.Warnings)
+	if len(p.Warnings) != 0 || len(p.Gaps) != 1 || p.Gaps[0].Key != "app.sec" || p.Gaps[0].Kind != "secret" ||
+		p.Gaps[0].Scope != "env" || p.Gaps[0].Env != w.dev.Slug {
+		t.Errorf("warnings = %v, gaps = %+v", p.Warnings, p.Gaps)
 	}
 	_, err := w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
 	must(t, err)

@@ -44,11 +44,33 @@ type Plan struct {
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Gaps are what the plan can fill in place (an unset secret); they
+	// render and never block.
+	Gaps []planfile.Gap `json:"gaps,omitempty"`
 	// Deployed is the ids of the tiles Apply rolled out, in order (the
 	// orchestrator queues on_deploy runs from it). Empty on a dry run.
 	Deployed []string `json:"-"`
 	// Removed is the ids of the tiles Apply took out (their run logs go).
 	Removed []string `json:"-"`
+}
+
+// PlacementLive is the placement facts of one stack plan, gathered by the
+// orchestrator for the env being planned. Every field is a fact or a lookup;
+// the rules live in planfile.
+type PlacementLive struct {
+	Placements planfile.PlacementFacts
+	Stack, Env planfile.Placing // the stack's and the env's own pin, ingress and exits now
+	Inherit    string           // the placement the stack's or org's pin gives the env (default when none)
+	// Needs is, per env slug of the stack, what the env asks of its node. Read
+	// only when the file names a pin, so an export or a pinless file never pays.
+	Needs func(ctx context.Context) (map[string]planfile.Needs, error)
+	// Moves is, per "stack/env" path, the move pinning scope (stack or env) to
+	// placement would cause. except are env slugs the file pins itself, which
+	// a stack pin does not move. Nil = moves are not checked.
+	Moves func(ctx context.Context, scope, placement string, except []string) (map[string]planfile.MoveFact, error)
+	// Set writes one planned change through the service's verbs; a pin that
+	// moves envs also moves them. Nil = changes are not applied.
+	Set func(ctx context.Context, w PlacementWrite) error
 }
 
 // shownValues are the tile keys whose old and new values the plan prints:
@@ -141,9 +163,11 @@ type work struct {
 	redeploy   map[string]bool
 	unpin      map[string]bool // image tiles whose tag moved: run the tag, pin again
 	sync       bool
-	deployed   []string // tile ids rolled out, filled by apply
-	removed    []string // tile ids actually removed, filled by apply
-	owed       []string // tile ids a parked sync rollout still has to deploy
+	place      *PlacementLive // the placement facts, when the file names a pin, ingress or exits
+	placing    []placeStep    // the pin, ingress and exits changes apply hands to place.Set
+	deployed   []string       // tile ids rolled out, filled by apply
+	removed    []string       // tile ids actually removed, filled by apply
+	owed       []string       // tile ids a parked sync rollout still has to deploy
 }
 
 // instanceWork is a managed tile's allow list and env pairs as the file
@@ -324,6 +348,9 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 		return err
 	}
 	w.orgs = orgs
+	if err := f.planPlacing(ctx, p, w, r); err != nil {
+		return err
+	}
 	// Stack-level keys land with the bottom rung, where new config enters
 	// the ladder, so a rollback higher up never rewrites them (DECIDE 31).
 	if w.bottom {
@@ -1039,7 +1066,12 @@ func (f *Flow) diffParams(
 				Collection: c, Name: n, Kind: params.Secret, Value: params.Generate(decl.Generate),
 			})
 		case decl.Secret && !ok:
-			p.Warnings = append(p.Warnings, "params."+where+key+" is declared and not set; tiles that read it wait until it is")
+			// a gap: the plan can ask for the value in place; tiles that read it wait until it is set
+			g := planfile.Gap{Kind: "secret", Scope: "env", Env: w.e.Slug, Key: key}
+			if label != "" {
+				g.Scope, g.Env = "stack", label
+			}
+			p.Gaps = append(p.Gaps, g)
 		case decl.Secret:
 		case !ok:
 			p.add(Change{Kind: "param", Field: where + key, New: decl.Value})

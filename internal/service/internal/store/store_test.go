@@ -189,6 +189,9 @@ func TestRoundTrip(t *testing.T) {
 		Status:      "online",
 		CreatedAt:   t0,
 	}, func(n *store.Node) { n.Tags, n.Status, n.WGPublicKey = `["ingress"]`, "offline", "k2" })
+	if err := s.Placements.Create(ctx, store.Placement{ID: "pl1", Name: "eu", NodeID: "n1", OpenToAll: true, CreatedAt: t0}); err != nil {
+		t.Fatal(err)
+	}
 	roundTrip(t, s.Stacks, store.Stack{
 		ID:                "s1",
 		OrgID:             "o1",
@@ -201,8 +204,8 @@ func TestRoundTrip(t *testing.T) {
 		ConfigBranch:      "main",
 		ConfigPath:        "stackr.yml",
 		CreatedAt:         t0,
-		NodeID:            ptr("n1"),
-	}, func(st *store.Stack) { st.Description, st.ConfigBranch, st.NodeID = "d2", "dev", nil })
+		PlacementID:       ptr("pl1"),
+	}, func(st *store.Stack) { st.Description, st.ConfigBranch, st.PlacementID = "d2", "dev", nil })
 	roundTrip(t, s.Releases, store.Release{
 		ID:        "r1",
 		StackID:   "s1",
@@ -219,22 +222,23 @@ func TestRoundTrip(t *testing.T) {
 		CreatedAt: t0,
 	}, func(x *store.Tier) { x.Slug, x.Position, x.Locked = "live", 0, false })
 	roundTrip(t, s.Environments, store.Environment{
-		ID:         "e1",
-		StackID:    "s1",
-		Name:       "Prod",
-		Slug:       "prod",
-		Type:       "static",
-		Settings:   "{}",
-		Color:      "red",
-		Position:   1,
-		Network:    "net1",
-		FromKind:   "branch",
-		FromBranch: "main",
-		Auto:       true,
-		Locked:     true,
-		CreatedAt:  t0,
-		NodeID:     "n1",
-		Subnet:     "10.213.4.0/24",
+		ID:          "e1",
+		StackID:     "s1",
+		Name:        "Prod",
+		Slug:        "prod",
+		Type:        "static",
+		Settings:    "{}",
+		Color:       "red",
+		Position:    1,
+		Network:     "net1",
+		FromKind:    "branch",
+		FromBranch:  "main",
+		Auto:        true,
+		Locked:      true,
+		CreatedAt:   t0,
+		NodeID:      "n1",
+		Subnet:      "10.213.4.0/24",
+		PlacementID: "pl1",
 	}, func(e *store.Environment) {
 		e.Locked = false
 		e.ReleaseID = ptr("r1")

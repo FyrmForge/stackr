@@ -22,6 +22,8 @@ type EnvMove struct {
 	StartedAt  time.Time  `db:"started_at" json:"started_at"`
 	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
 	Error      string     `db:"error" json:"error"`
+	// PlacementMoveID is the placement repoint this move is part of; nil = a move of its own.
+	PlacementMoveID *string `db:"placement_move_id" json:"placement_move_id"`
 }
 
 type MoveStore interface {

@@ -337,14 +337,14 @@ func (o *Orchestrator) diffServer(ctx context.Context, f *serverconfig.File) (se
 }
 
 // storeServerPlan stores p as the row r describes (Source, Commit, File),
-// clean when there is nothing to do.
+// clean when there is nothing to do and nothing to fill in.
 func (o *Orchestrator) storeServerPlan(ctx context.Context, p serverconfig.Plan, r ServerPlan) (ServerPlan, error) {
 	blob, err := json.Marshal(p)
 	if err != nil {
 		return r, err
 	}
 	r.Plan, r.Summary, r.Status = string(blob), p.Summary(), orgplan.Pending
-	if len(p.Changes) == 0 && !p.Blocked() {
+	if len(p.Changes) == 0 && !p.Blocked() && len(p.Gaps) == 0 {
 		r.Status = orgplan.Clean
 	}
 	return o.createServerPlan(ctx, r)

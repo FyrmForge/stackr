@@ -100,6 +100,11 @@ func (f *Flow) Export(ctx context.Context, stackID, envID string) ([]byte, []str
 	var out omap
 	out.put("version", 1)
 	out.put("stack", st.Slug)
+	if live, err := f.placementsOf(ctx, ladder[0].ID); err != nil {
+		return nil, nil, err
+	} else if live != nil {
+		putPlacing(&out, live.Stack)
+	}
 
 	ps, err := f.exportParams(ctx, st, envs, envID == "")
 	if err != nil {
@@ -202,6 +207,15 @@ func (f *Flow) exportEnv(ctx context.Context, st store.Stack, e store.Environmen
 	}
 	if e.Color != "" {
 		env.put("color", e.Color)
+	}
+	if live, err := f.placementsOf(ctx, e.ID); err != nil {
+		return nil, err
+	} else if live != nil {
+		pl := live.Env
+		if pl.Pin == live.Inherit { // it sits where the stack or org puts it: say nothing
+			pl.Pin = ""
+		}
+		putPlacing(&env, pl)
 	}
 	if _, in, err := f.D.Tiers.Of(ctx, st.OrgID, e.Slug); err != nil {
 		return nil, err

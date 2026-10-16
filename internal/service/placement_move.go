@@ -5,75 +5,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// The move dialog and the move progress view read these; the move itself is
-// MoveEnv (move.go).
-
-// MovePlan is what the move dialog shows for one env and one target.
-type MovePlan struct {
-	EnvName  string
-	From, To string // node names
-	FromID   string
-	Targets  []PlacementNode // nodes the env may move to, not its own
-	Volumes  int
-	Bytes    int64 // -1 = not all sizes are known
-}
-
-// PlanMove reads the env's data on its node and the nodes it may go to. to
-// may be "" (the first target is used).
-func (o *Orchestrator) PlanMove(ctx context.Context, envID, to string) (MovePlan, error) {
-	var p MovePlan
-	e, err := o.store.Environments.Get(ctx, envID)
-	if err != nil {
-		return p, err
-	}
-	st, err := o.store.Stacks.Get(ctx, e.StackID)
-	if err != nil {
-		return p, err
-	}
-	from, err := o.nodeOfEnvID(ctx, envID)
-	if err != nil {
-		return p, err
-	}
-	ns, err := o.OfferedNodes(ctx, st.OrgID)
-	if err != nil {
-		return p, err
-	}
-	p = MovePlan{EnvName: e.Name, From: from.Name, FromID: from.ID}
-	for _, n := range ns {
-		if n.ID != from.ID {
-			p.Targets = append(p.Targets, n)
-		}
-	}
-	if len(p.Targets) == 0 {
-		return p, errs.Conflictf("no other node is open to this organization")
-	}
-	p.To = p.Targets[0].Name
-	for _, n := range p.Targets {
-		if n.ID == to {
-			p.To = n.Name
-		}
-	}
-	vols, err := moveEnv{o}.Volumes(ctx, envID)
-	if err != nil {
-		return p, err
-	}
-	p.Volumes = len(vols)
-	for _, v := range vols {
-		info, err := o.docker.InspectVolume(docker.WithNode(ctx, from.ID), v.Name)
-		if err != nil || info.SizeBytes < 0 {
-			p.Bytes = -1
-			break
-		}
-		p.Bytes += info.SizeBytes
-	}
-	return p, nil
-}
+// The move progress view reads these; moves start in placementmove.go.
 
 // MoveStep is one line of the progress view. State is done, running or
 // waiting.
@@ -86,6 +22,7 @@ type MoveStep struct {
 // MoveStatus is the newest move of an env, as the progress view shows it.
 type MoveStatus struct {
 	Move     EnvMove
+	Path     string // org/stack/env
 	From, To string // node names
 	Active   bool
 	Steps    []MoveStep
@@ -100,6 +37,9 @@ func (o *Orchestrator) EnvMoveStatus(ctx context.Context, envID string) (*MoveSt
 	m := slices.MaxFunc(ms, func(a, b store.EnvMove) int { return a.StartedAt.Compare(b.StartedAt) })
 	name := o.nodeNamer(ctx)
 	s := &MoveStatus{Move: m, From: name(m.FromNode), To: name(m.ToNode)}
+	if e, err := o.store.Environments.Get(ctx, envID); err == nil {
+		s.Path, _ = o.pmEnvPath(ctx, e)
+	}
 	s.Active = m.Phase != move.Done && m.Phase != move.RolledBack
 	type stepDef struct{ phase, label string }
 	defs := []stepDef{{move.Stopping, "Stop"}, {move.Copying, "Copy"}, {move.Starting, "Start on " + s.To}, {move.Cleaning, "Remove old containers"}}

@@ -64,6 +64,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(render.Waiting(deps.Orch))
 	site.Use(render.NodeDown(deps.Orch))
 	site.Use(render.DrawerTab)
+	site.Use(setup.ServerPending(deps.Orch))
 	site.Use(setup.Pending)
 	auth := deps.Access.Browser()
 
@@ -96,6 +97,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	page, authed := deps.Access.LoginFirst(), deps.Access.Authed()
 
 	setup.NewHandler(deps.Orch).Mount(site, deps.Access)
+	setup.NewHandler(deps.Orch).MountServer(site, deps.Access)
 
 	inv := invite.NewHandler(deps.Orch)
 	site.GET("/invite/:token", inv.Page)

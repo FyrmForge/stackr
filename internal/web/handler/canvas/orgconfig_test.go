@@ -294,3 +294,29 @@ func TestOrgPlanAppliedShowsTicks(t *testing.T) {
 		t.Errorf("applied org plan does not show its ticks:\n%s", body)
 	}
 }
+
+// A secret the file declares and the panel lacks is a gap with a field; an
+// owner saves it in place, which re-plans and closes the gap.
+func TestOrgPlanGapSecret(t *testing.T) {
+	r := newConfigRig(t)
+	r.file(t, "version: 1\norg: acme\nparams:\n  email:\n    all:\n      token: {type: secret}\n")
+	if _, err := r.owner.env.Orch.SetOrgConfigRepo(context.Background(), r.owner.org, r.conn, "acme/org", "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	const post = "/acme/-/drawer/gaps/secret?env=all"
+	body := r.owner.do(t, "GET", "/acme/-/drawer?tab=config", nil, true).Body.String()
+	if !strings.Contains(body, "Secret email.token (all)") || !strings.Contains(body, `name="secret.email.token"`) ||
+		!strings.Contains(body, `hx-post="`+strings.ReplaceAll(post, "&", "&amp;")+`"`) {
+		t.Fatalf("no gap field:\n%s", body)
+	}
+	if rec := r.viewer.do(t, "POST", post, url.Values{"secret.email.token": {"x"}}, true); rec.Code != http.StatusForbidden {
+		t.Errorf("viewer fill = %d, want 403", rec.Code)
+	}
+	if rec := r.owner.do(t, "POST", post, url.Values{"secret.email.token": {""}}, true); !strings.Contains(rec.Body.String(), "enter the value") {
+		t.Errorf("empty fill = %d\n%s", rec.Code, rec.Body)
+	}
+	rec := r.owner.do(t, "POST", post, url.Values{"secret.email.token": {"s3cret"}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved and planned") || strings.Contains(rec.Body.String(), "Secret email.token") {
+		t.Fatalf("fill = %d\n%s", rec.Code, rec.Body)
+	}
+}

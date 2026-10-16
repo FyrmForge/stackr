@@ -36,7 +36,7 @@ func TestNodesMigrationRoundTrip(t *testing.T) {
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1)`, []any{now}},
 	})
 
-	step(int(v) - 10)
+	step(27 - 10) // 028 drops the pin columns this checks
 	var env struct {
 		NodeID string `db:"node_id"`
 		Subnet string `db:"subnet"`
@@ -67,6 +67,6 @@ func TestNodesMigrationRoundTrip(t *testing.T) {
 		t.Fatalf("pin after node delete = %v, %v; want NULL", pin, err)
 	}
 
-	step(10 - int(v)) // down again with a node-shaped schema
-	step(int(v) - 10) // and up
+	step(10 - 27) // down again with a node-shaped schema
+	step(27 - 10) // and up
 }

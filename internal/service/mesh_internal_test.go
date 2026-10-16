@@ -214,7 +214,7 @@ func TestMeshSyncPushesOnChangeAndRemoveNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs, _ := st.ExitLadders.List(ctx, "org", "o1")
-	if len(rs) != 1 || rs[0].NodeID != ctrl.ID {
+	if len(rs) != 1 || rs[0].TargetID != ctrl.ID {
 		t.Errorf("ladder after removal = %+v", rs)
 	}
 	last := fakes["w1"].pushed[len(fakes["w1"].pushed)-1]

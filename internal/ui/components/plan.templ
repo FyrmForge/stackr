@@ -1,6 +1,9 @@
 package components
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 // PlanView is a promote or rollback dry run (service.PromotePlan), or a
 // release diff: what would change, what blocks it, what to watch.
@@ -10,6 +13,8 @@ type PlanView struct {
 	Changes   []ChangeView
 	Blockers  []string
 	Warnings  []string
+	// Gaps are what the plan can fill in place; they never gate CanDeploy.
+	Gaps      []GapView
 	CanDeploy bool
 	// Ticks draws a removal row's checkbox; false = the viewer cannot approve.
 	Ticks bool
@@ -18,6 +23,18 @@ type PlanView struct {
 	Applying bool
 	// Done: the apply ended; the same ticks read "removed" in place of "removing".
 	Done bool
+}
+
+// GapView is one thing a plan waits on that can be filled in place. Kind is
+// "secret" (an unset value: Field is the input's name, Post saves it and
+// re-plans, "" = no field) or "node" (a node the file names that has not
+// joined: AddNode opens the Add node steps prefilled, "" = no button).
+type GapView struct {
+	Kind    string
+	Label   string // "Server secret db.password", "Node h4 (ingress, egress)"
+	Field   string // secret: "secret.<collection>.<name>"
+	Post    string // secret: POST
+	AddNode string // node: GET
 }
 
 // ChangeView mirrors promote.Change, and planfile.Change for the config
@@ -100,6 +117,23 @@ templ Plan(p PlanView) {
 				</ul>
 			</div>
 		}
+		if len(p.Gaps) > 0 {
+			<ul class="space-y-2" aria-label="To fill in">
+				for i, g := range p.Gaps {
+					<li class="panel border-rw-warn/40 px-4 py-2.5 text-sm flex flex-wrap items-center gap-2">
+						@Chip(gapWord(g), "warn")
+						<span class="text-rw-text">{ g.Label }</span>
+						if g.Kind == "secret" && g.Post != "" {
+							<input type="password" id={ fmt.Sprintf("gap-%d", i) } name={ g.Field } class="input ml-auto w-56" autocomplete="off" aria-label={ "Value for " + g.Label }/>
+							<button type="button" class="btn btn-primary btn-sm" hx-post={ g.Post } hx-params={ g.Field } hx-include={ fmt.Sprintf("#gap-%d", i) } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Save and re-plan</button>
+						}
+						if g.Kind == "node" && g.AddNode != "" {
+							<button type="button" class="btn btn-primary btn-sm ml-auto" hx-get={ g.AddNode } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Add this node</button>
+						}
+					</li>
+				}
+			</ul>
+		}
 		if len(p.Changes) == 0 {
 			<p class="text-sm text-rw-faint">Nothing changes.</p>
 		}
@@ -164,6 +198,13 @@ templ Plan(p PlanView) {
 			}
 		</ul>
 	</section>
+}
+
+func gapWord(g GapView) string {
+	if g.Kind == "node" {
+		return "node missing"
+	}
+	return "unset"
 }
 
 func planSign(c ChangeView) string {

@@ -2,15 +2,17 @@ package service
 
 import "fmt"
 
-// What a member who is not a server admin sees of the cluster: names, tags,
-// states and counts, never addresses, ranges, builds or other orgs' envs.
+// What a caller who is not a server admin may be shown of the cluster. Node
+// views are admin-only since placements (D3); these stay as the fallback for
+// a surface that must show a node anyway: names, tags, states and counts,
+// never addresses, ranges, builds, placements or other orgs' envs.
 
-// Redacted drops the node's addresses and range, who it is open to, its
+// Redacted drops the node's addresses and range, the placements on it, its
 // build, size and architecture: all of it fingerprints the box or names
 // orgs the caller may not be in.
 func (n NodeOut) Redacted() NodeOut {
 	n.Range, n.WGAddress = "", ""
-	n.OpenToAll, n.OpenTo, n.DefaultExit = false, []string{}, []string{}
+	n.Placements, n.DefaultExit = []string{}, []string{}
 	n.Version, n.Arch, n.Docker = "", "", ""
 	n.Behind, n.TooOld = false, false
 	n.CPU, n.MemTotal, n.DiskFree, n.DiskTotal = 0, 0, 0, 0

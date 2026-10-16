@@ -65,11 +65,13 @@ func (c Change) Line() string {
 }
 
 // Plan is what applying a file would do. Blockers refuse the apply; Notes
-// do not. A flow embeds it and adds its Summary kinds.
+// do not. Gaps are what the plan can fill in place; they render and never
+// gate AutoOK. A flow embeds it and adds its Summary kinds.
 type Plan struct {
 	Changes  []Change `json:"changes"`
 	Blockers []string `json:"blockers,omitempty"`
 	Notes    []string `json:"notes,omitempty"`
+	Gaps     []Gap    `json:"gaps,omitempty"`
 }
 
 func (p Plan) Blocked() bool { return len(p.Blockers) > 0 }
@@ -109,10 +111,14 @@ func (p Plan) Removals() []Change {
 	return out
 }
 
+// CanApprove says a person may approve the plan: no blocker, and something
+// to apply besides gaps (those are filled in place).
+func (p Plan) CanApprove() bool { return !p.Blocked() && len(p.Changes) > 0 }
+
 // AutoOK says the plan may apply by itself: no blocker, no impact line, no
-// removal row. An empty plan is.
+// removal row, and something to apply besides gaps. An empty plan is.
 func (p Plan) AutoOK() bool {
-	return !p.Blocked() && !p.Risky() && len(p.Removals()) == 0
+	return !p.Blocked() && !p.Risky() && len(p.Removals()) == 0 && (len(p.Changes) > 0 || len(p.Gaps) == 0)
 }
 
 // TickedRemovals are the removal rows keys tick, in plan order. A key the
@@ -309,4 +315,62 @@ type Defaults struct {
 	Protect         *bool    `yaml:"protect,omitempty" json:"protect,omitempty"`
 	ProtectUser     *string  `yaml:"protect_user,omitempty" json:"protect_user,omitempty"`
 	ProtectPassword *string  `yaml:"protect_password,omitempty" json:"protect_password,omitempty"`
+}
+
+// Check is one line of a move's CI-style checks.
+type Check struct {
+	Name   string `json:"name"` // "target online", "mesh link", "tags", "disk", "memory", "cpu arch", "source online"
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"` // "h4 free 12 GB, needs 9.4 GB + 10%"
+}
+
+// Gap is something a plan can fill in place.
+type Gap struct {
+	Kind  string   `json:"kind"`            // "secret" | "node"
+	Scope string   `json:"scope,omitempty"` // secret: server | org | stack | env
+	Env   string   `json:"env,omitempty"`   // secret at env scope: the env slug
+	Key   string   `json:"key"`             // secret: collection.name; node: the node name
+	Tags  []string `json:"tags,omitempty"`  // node: tags from the file
+}
+
+// Needs is what an env, or a placement used as an override, asks of the node
+// it lands on.
+type Needs struct {
+	Storage bool // volumes or a managed tile
+	Ingress bool // an ingress override names the placement
+	Egress  bool // an exit rung names the placement
+}
+
+// PlacementFacts are the placements an org or stack plan checks its pin,
+// ingress and exits against.
+type PlacementFacts struct {
+	Known map[string]PlacementFact // by placement name
+}
+
+// PlacementFact is one placement as one org sees it.
+type PlacementFact struct {
+	Open, HasNode, Online bool
+	Tags                  []string
+}
+
+// MoveFact is the move a pin change would cause for one existing env.
+type MoveFact struct {
+	From, To string // placement names
+	Checks   []Check
+	Downtime string
+}
+
+// Fits is why a node with tags does not fit n; nil = it fits. This is the
+// one tag rule: service and flows call it, never a copy.
+func Fits(tags []string, n Needs) []string {
+	var out []string
+	for _, w := range []struct {
+		need bool
+		tag  string
+	}{{n.Storage, "storage"}, {n.Ingress, "ingress"}, {n.Egress, "egress"}} {
+		if w.need && !slices.Contains(tags, w.tag) {
+			out = append(out, "needs "+w.tag)
+		}
+	}
+	return out
 }

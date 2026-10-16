@@ -22,15 +22,14 @@ const (
 	StatusJoined  = "joined" // confirmed, cert issued, not yet seen online
 )
 
-// CreatePending makes the row for a worker that asked to join; openAll is
-// whether every org may pin to it.
-func (l *Leaf) CreatePending(ctx context.Context, name string, tags []string, wgKey string, openAll bool) (store.Node, error) {
+// CreatePending makes the row for a worker that asked to join.
+func (l *Leaf) CreatePending(ctx context.Context, name string, tags []string, wgKey string) (store.Node, error) {
 	t, _ := json.Marshal(tags)
 	id := uuid.NewString()
 	n := store.Node{
 		ID: id, Name: name, Slug: name, Role: Worker, Tags: string(t),
 		RangeCIDR: "pending:" + id, WGPublicKey: wgKey, Status: StatusPending,
-		CreatedAt: time.Now().UTC(), OpenToAll: openAll,
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := l.nodes.Create(ctx, n); err != nil {
 		if _, ok := errs.IsConflict(err); ok {
@@ -43,14 +42,14 @@ func (l *Leaf) CreatePending(ctx context.Context, name string, tags []string, wg
 
 // CreatePendingOrRejoin is CreatePending, except a worker already in the
 // table in state rejoin (a re-issued join command) goes back to pending with
-// the new WireGuard key and keeps its id, range, address and orgs. fresh is
+// the new WireGuard key and keeps its id, range and address. fresh is
 // true for a new row.
-func (l *Leaf) CreatePendingOrRejoin(ctx context.Context, name string, tags []string, wgKey, rejoin string, openAll bool) (n store.Node, fresh bool, err error) {
+func (l *Leaf) CreatePendingOrRejoin(ctx context.Context, name string, tags []string, wgKey, rejoin string) (n store.Node, fresh bool, err error) {
 	if n, err := l.nodes.GetBySlug(ctx, name); err == nil && n.Status == rejoin {
 		n.Status, n.WGPublicKey = StatusPending, wgKey
 		return n, false, l.nodes.Update(ctx, n)
 	}
-	n, err = l.CreatePending(ctx, name, tags, wgKey, openAll)
+	n, err = l.CreatePending(ctx, name, tags, wgKey)
 	return n, true, err
 }
 

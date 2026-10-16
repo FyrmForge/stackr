@@ -19,18 +19,18 @@ import (
 func ptr(s string) *string { return &s }
 
 // An env's own pin beats its stack's, which beats its org's, which beats the
-// controller; the empty string is no pin.
+// default placement; the empty string is no pin.
 func TestPlace(t *testing.T) {
 	for name, tc := range map[string]struct {
 		env  string
 		pins environment.Pins
 		want string
 	}{
-		"nothing pinned": {"", environment.Pins{Controller: "c"}, "c"},
-		"org":            {"", environment.Pins{Org: ptr("o"), Controller: "c"}, "o"},
-		"stack over org": {"", environment.Pins{Stack: ptr("s"), Org: ptr("o"), Controller: "c"}, "s"},
-		"env over all":   {"e", environment.Pins{Stack: ptr("s"), Org: ptr("o"), Controller: "c"}, "e"},
-		"empty pin":      {"", environment.Pins{Stack: ptr(""), Org: ptr("o"), Controller: "c"}, "o"},
+		"nothing pinned": {"", environment.Pins{Default: "c"}, "c"},
+		"org":            {"", environment.Pins{Org: ptr("o"), Default: "c"}, "o"},
+		"stack over org": {"", environment.Pins{Stack: ptr("s"), Org: ptr("o"), Default: "c"}, "s"},
+		"env over all":   {"e", environment.Pins{Stack: ptr("s"), Org: ptr("o"), Default: "c"}, "e"},
+		"empty pin":      {"", environment.Pins{Stack: ptr(""), Org: ptr("o"), Default: "c"}, "o"},
 	} {
 		if got := environment.Place(tc.env, tc.pins); got != tc.want {
 			t.Errorf("%s: placed on %q, want %q", name, got, tc.want)
@@ -52,11 +52,22 @@ func TestCreatePlacesByPins(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		if err := st.Placements.Create(ctx, store.Placement{ID: "p-" + id, Name: id, NodeID: id, OpenToAll: true, CreatedAt: now}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	stack := seedStack(t, st)
 	stk, err := st.Stacks.Get(ctx, stack)
 	if err != nil {
 		t.Fatal(err)
+	}
+	def, err := st.Placements.GetByName(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeOf := func(ctx context.Context, id string) (string, error) {
+		p, err := st.Placements.Get(ctx, id)
+		return p.NodeID, err
 	}
 	pins := func(context.Context, string) (environment.Pins, error) {
 		s, err := st.Stacks.Get(ctx, stack)
@@ -64,26 +75,29 @@ func TestCreatePlacesByPins(t *testing.T) {
 			return environment.Pins{}, err
 		}
 		o, err := st.Orgs.Get(ctx, stk.OrgID)
-		return environment.Pins{Stack: s.NodeID, Org: o.NodeID, Controller: ctl.ID}, err
+		if err != nil {
+			return environment.Pins{}, err
+		}
+		return environment.Pins{Stack: s.PlacementID, Org: o.PlacementID, Default: def.ID, NodeOf: nodeOf}, nil
 	}
 	l := environment.New(st.Environments, dockerfake.New()).WithPlacement(pins)
 
 	dev, err := l.Create(ctx, stack, "dev", branch("main"))
-	if err != nil || dev.NodeID != ctl.ID {
-		t.Fatalf("no pins: %q, %v; want the controller", dev.NodeID, err)
+	if err != nil || dev.NodeID != ctl.ID || dev.PlacementID != def.ID {
+		t.Fatalf("no pins: %q in %q, %v; want the controller in default", dev.NodeID, dev.PlacementID, err)
 	}
 
 	org, _ := st.Orgs.Get(ctx, stk.OrgID)
-	org.NodeID = ptr("w1")
+	org.PlacementID = ptr("p-w1")
 	if err := st.Orgs.Update(ctx, org); err != nil {
 		t.Fatal(err)
 	}
 	qa, _ := l.Create(ctx, stack, "qa", branch("qa"))
-	if qa.NodeID != "w1" {
-		t.Errorf("org pinned to w1: env on %q", qa.NodeID)
+	if qa.NodeID != "w1" || qa.PlacementID != "p-w1" {
+		t.Errorf("org pinned to w1: env on %q in %q", qa.NodeID, qa.PlacementID)
 	}
 
-	stk.NodeID = ptr("w2")
+	stk.PlacementID = ptr("p-w2")
 	if err := st.Stacks.Update(ctx, stk); err != nil {
 		t.Fatal(err)
 	}
@@ -195,4 +209,31 @@ func hasPrefix(ps []netip.Prefix, s string) bool {
 		}
 	}
 	return false
+}
+
+// A pin on a placement with no node yet makes the env with no node: it
+// waits (D6) instead of landing on the controller.
+func TestCreateOnNodelessPlacement(t *testing.T) {
+	st := storetest.Store(t)
+	storetest.Controller(t, st)
+	if err := st.Placements.Create(ctx, store.Placement{ID: "p-wait", Name: "wait", OpenToAll: true, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	stack := seedStack(t, st)
+	stk, _ := st.Stacks.Get(ctx, stack)
+	stk.PlacementID = ptr("p-wait")
+	if err := st.Stacks.Update(ctx, stk); err != nil {
+		t.Fatal(err)
+	}
+	def, _ := st.Placements.GetByName(ctx, "default")
+	l := environment.New(st.Environments, dockerfake.New()).WithPlacement(func(context.Context, string) (environment.Pins, error) {
+		return environment.Pins{Stack: stk.PlacementID, Default: def.ID, NodeOf: func(ctx context.Context, id string) (string, error) {
+			p, err := st.Placements.Get(ctx, id)
+			return p.NodeID, err
+		}}, nil
+	})
+	e, err := l.Create(ctx, stack, "dev", branch("main"))
+	if err != nil || e.NodeID != "" || e.PlacementID != "p-wait" {
+		t.Fatalf("env on a nodeless placement: node %q placement %q, %v", e.NodeID, e.PlacementID, err)
+	}
 }

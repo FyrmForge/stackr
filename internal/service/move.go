@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -186,49 +185,27 @@ func (o *Orchestrator) pushLocal(ctx context.Context, ref string) (imgcopy.Resul
 	return res, nil
 }
 
-// MoveEnv (org owner; the target must be open to the org) moves an env to
-// another node as a job: cold (stop, copy, start) or live (rsync while it
-// runs, then stop and a checksum pass).
-func (o *Orchestrator) MoveEnv(ctx context.Context, by *Principal, envID, toNode string, live bool) (Job, error) {
-	if by == nil {
-		return Job{}, errs.ErrRefused
-	}
-	orgID, err := o.placementOrg(ctx, ScopeEnv, envID)
-	if err != nil {
-		return Job{}, err
-	}
-	if err := authz.Can(by.Access, "placement.write", authz.Resource{OrgID: orgID}); err != nil {
-		return Job{}, err
-	}
-	from, err := o.nodeOfEnvID(ctx, envID)
-	if err != nil {
-		return Job{}, err
-	}
-	to, err := o.nodeByRef(ctx, toNode)
-	if err != nil {
-		return Job{}, err
-	}
-	if err := o.nodeUsable(ctx, by, to, orgID); err != nil {
-		return Job{}, err
-	}
-	m, err := o.moveFlow().Begin(ctx, move.Request{EnvID: envID, From: from.ID, To: to.ID, Live: live})
-	if err != nil {
-		return Job{}, err
-	}
-	return o.enqueueMove(ctx, m, by.User.ID, by.KeyID)
-}
-
 // enqueueMove locks the env and every tile it has, like a promote.
 func (o *Orchestrator) enqueueMove(ctx context.Context, m EnvMove, by, keyID string) (Job, error) {
 	ts, err := o.tiles.List(ctx, m.EnvID)
 	if err != nil {
 		return Job{}, err
 	}
+	return o.enqueue(ctx, kindMoveEnv, moveJob{MoveID: m.ID, EnvID: m.EnvID, By: by, KeyID: keyID}, moveLocks(m, ts)...)
+}
+
+// moveLocks is a move's job locks: its env and tiles, and for a live move
+// the target node, whose rsync helpers publish fixed host ports
+// (move.RsyncPort up), so two live moves onto one node run one at a time.
+func moveLocks(m EnvMove, ts []Tile) []string {
 	lock := []string{"env:" + m.EnvID}
 	for _, t := range ts {
 		lock = append(lock, t.ID)
 	}
-	return o.enqueue(ctx, kindMoveEnv, moveJob{MoveID: m.ID, EnvID: m.EnvID, By: by, KeyID: keyID}, lock...)
+	if m.Live {
+		lock = append(lock, "rsync-target:"+m.ToNode)
+	}
+	return lock
 }
 
 // resumeMoves queues a job for every move a restart cut off.
@@ -277,6 +254,11 @@ func (o *Orchestrator) runMove(ctx context.Context, r *jobs.Run, p moveJob) erro
 	}
 	if err == nil && m.Phase == move.Done {
 		err = o.relinkMoved(ctx, m.EnvID, m.FromNode, m.ToNode)
+	}
+	if m.PlacementMoveID != nil && (m.Phase == move.Done || m.Phase == move.RolledBack) {
+		if serr := o.placementMoveSettle(ctx, *m.PlacementMoveID, &m); serr != nil {
+			slog.Warn("move: placement move not settled", "move", m.ID, "err", serr)
+		}
 	}
 	return err
 }

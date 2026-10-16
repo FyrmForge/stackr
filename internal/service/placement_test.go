@@ -14,27 +14,30 @@ func TestPlacement(t *testing.T) {
 	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
 	org, err := n.orch.store.Stacks.Get(ctx, n.stack)
 	must(t, err)
+	w1 := addPlacement(t, n, "w1", "w1", false)
+	must(t, n.st.Environments.SetPlacement(ctx, n.edge.ID, w1.ID))
 
-	// Only the controller is offered until a worker is opened to the org.
-	ns, err := n.orch.OfferedNodes(ctx, org.OrgID)
+	// Only the default is offered until the placement on w1 is opened to the org.
+	ps, err := n.orch.OfferedPlacements(ctx, org.OrgID, Needs{})
 	must(t, err)
-	if len(ns) != 1 || !ns[0].Controller {
-		t.Fatalf("offered before open = %+v", ns)
+	if len(ps) != 1 || ps[0].Name != DefaultPlacement {
+		t.Fatalf("offered before open = %+v", ps)
 	}
 	owner := &Principal{User: User{ID: "u-owner"}, Access: authz.User{ID: "u-owner", Active: true}}
 	if err := n.orch.SetPin(ctx, owner, ScopeStack, n.stack, "w1"); err == nil {
-		t.Fatal("an owner pinned to a node that is not open to the org")
+		t.Fatal("an owner pinned to a placement that is not open to the org")
 	}
-	if err := n.orch.SetNodeOrgs(ctx, &Principal{}, "w1", []string{org.OrgID}); err == nil {
-		t.Fatal("a non-admin opened a node")
+	if err := n.orch.SetPlacementOpen(ctx, &Principal{}, "w1", false, []string{"acme"}); err == nil {
+		t.Fatal("a non-admin opened a placement")
 	}
-	must(t, n.orch.SetNodeOrgs(ctx, admin, "w1", []string{org.OrgID}))
+	must(t, n.orch.SetPlacementOpen(ctx, admin, "w1", false, []string{"acme"}))
 
-	// Pin the stack: the envs already there stay, and say so.
-	must(t, n.orch.SetPin(ctx, admin, ScopeStack, n.stack, "w1"))
+	// Pin the stack, dev aside (it runs on the controller: the pin would move it).
+	_, err = n.orch.PinScope(ctx, admin, ScopeStack, n.stack, "w1", "", "dev")
+	must(t, err)
 	v, err := n.orch.Placement(ctx, ScopeStack, n.stack)
 	must(t, err)
-	if v.Pin != "w1" || v.PinName != "w1" || v.Stay.Count != 1 || v.Stay.Where != n.ctl.Name {
+	if v.Pin != "w1" || v.PinName != "w1" {
 		t.Errorf("stack placement = %+v", v)
 	}
 	ev, err := n.orch.Placement(ctx, ScopeEnv, n.edge.ID)
@@ -59,7 +62,7 @@ func TestPlacement(t *testing.T) {
 	if got != "w1" || ev.IngressName != "w1" || ev.IngressFrom != "From org: w1." || ev.Ingress != "" {
 		t.Errorf("ingress for = %q, view = %+v", got, ev)
 	}
-	must(t, n.orch.SetIngress(ctx, admin, ScopeEnv, n.edge.ID, n.ctl.ID))
+	must(t, n.orch.SetIngress(ctx, admin, ScopeEnv, n.edge.ID, DefaultPlacement))
 	if got, _ = n.orch.IngressFor(ctx, n.edgeT.ID); got != n.ctl.ID {
 		t.Errorf("env pick lost to the org's: %q", got)
 	}
@@ -70,12 +73,12 @@ func TestPlacement(t *testing.T) {
 	if err := n.orch.ExitsAdd(ctx, admin, ScopeStack, n.stack, "w1"); err == nil {
 		t.Error("an exit listed twice")
 	}
-	if err := n.orch.ExitsAdd(ctx, admin, ScopeStack, n.stack, n.ctl.ID); err != nil {
+	if err := n.orch.ExitsAdd(ctx, admin, ScopeStack, n.stack, DefaultPlacement); err != nil {
 		t.Errorf("controller is tagged egress: %v", err)
 	}
 	sv, err := n.orch.Placement(ctx, ScopeStack, n.stack)
 	must(t, err)
-	if len(sv.Rungs) != 3 || sv.Rungs[1].Name != "own node (no exit)" || !sv.OwnListed || sv.Rungs[0].Up != nil || !slices.Equal(sv.Rungs[0].Down, []string{OwnRung, "w1", n.ctl.ID}) {
+	if len(sv.Rungs) != 3 || sv.Rungs[1].Name != "own node (no exit)" || !sv.OwnListed || sv.Rungs[0].Up != nil || !slices.Equal(sv.Rungs[0].Down, []string{OwnRung, "w1", DefaultPlacement}) {
 		t.Fatalf("stack rungs = %+v", sv.Rungs)
 	}
 	ev, err = n.orch.Placement(ctx, ScopeEnv, n.edge.ID)
@@ -88,39 +91,28 @@ func TestPlacement(t *testing.T) {
 	if r.Source != "stack" {
 		t.Errorf("resolved from %q", r.Source)
 	}
-	must(t, n.orch.SetExits(ctx, admin, ScopeStack, n.stack, []string{n.ctl.ID, "w1"}))
+	must(t, n.orch.SetExits(ctx, admin, ScopeStack, n.stack, []string{DefaultPlacement, "w1"}))
 	must(t, n.orch.ExitsRemove(ctx, admin, ScopeStack, n.stack, "w1"))
-	must(t, n.orch.ExitsRemove(ctx, admin, ScopeStack, n.stack, n.ctl.ID))
+	must(t, n.orch.ExitsRemove(ctx, admin, ScopeStack, n.stack, DefaultPlacement))
 	if sv, _ = n.orch.Placement(ctx, ScopeStack, n.stack); !sv.Inherited || len(sv.Rungs) != 0 {
 		t.Errorf("emptied ladder should inherit: %+v", sv)
 	}
 
-	// Closing the node stops offering it.
-	must(t, n.orch.SetNodeOrgs(ctx, admin, "w1", nil))
-	if ns, _ = n.orch.OfferedNodes(ctx, org.OrgID); len(ns) != 1 {
-		t.Errorf("offered after close = %+v", ns)
+	// Closing the placement stops offering it.
+	must(t, n.orch.SetPlacementOpen(ctx, admin, "w1", false, nil))
+	if ps, _ = n.orch.OfferedPlacements(ctx, org.OrgID, Needs{}); len(ps) != 1 {
+		t.Errorf("offered after close = %+v", ps)
 	}
 }
 
-func TestPlanMoveAndStatus(t *testing.T) {
+func TestEnvMoveStatus(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
-	st, err := n.orch.store.Stacks.Get(ctx, n.stack)
-	must(t, err)
-	if _, err := n.orch.PlanMove(ctx, n.dev.ID, ""); err == nil {
-		t.Fatal("planned a move with no node open to the org")
-	}
-	must(t, n.orch.SetNodeOrgs(ctx, admin, "w1", []string{st.OrgID}))
-	p, err := n.orch.PlanMove(ctx, n.dev.ID, "w1")
-	must(t, err)
-	if p.From != n.ctl.Name || p.To != "w1" || len(p.Targets) != 1 {
-		t.Errorf("plan = %+v", p)
-	}
 	if ms, err := n.orch.EnvMoveStatus(ctx, n.dev.ID); err != nil || ms != nil {
 		t.Fatalf("status before any move = %+v, %v", ms, err)
 	}
-	if _, err := n.orch.MoveEnv(ctx, admin, n.dev.ID, "w1", true); err != nil {
+	if _, err := n.startMove(admin, n.dev.ID, "w1", true); err != nil {
 		t.Fatal(err)
 	}
 	ms, err := n.orch.EnvMoveStatus(ctx, n.dev.ID)

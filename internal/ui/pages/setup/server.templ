@@ -1,0 +1,166 @@
+package setup
+
+// The server's first-run wizard: a branch question, then either the by-hand
+// page (domains, a backup destination, a placements summary) or the file page
+// (connector and repo, then the plan). Both end on Finish, then org setup.
+
+// ServerBranchView is the branch question.
+type ServerBranchView struct{ Base string }
+
+// ServerDests is one global backup destination, as a row.
+type ServerDest struct{ Name, Detail string }
+
+// ServerHandView is the by-hand branch.
+type ServerHandView struct {
+	Frame
+	Base       string
+	Root       string
+	Panel      string
+	Email      string
+	Dests      []ServerDest
+	Placements []string // "default: ctl" lines, admin eyes only
+	AdminURL   string   // the placements admin page
+}
+
+// ServerFileView is the file branch's first screen.
+type ServerFileView struct {
+	Frame
+	Base       string
+	Connectors []Option
+	Repo       string
+	Branch     string
+	Path       string
+	Bound      bool   // a repo is bound
+	PlanURL    string // "" = no plan yet
+}
+
+// ServerBranch asks how the server is set up.
+templ ServerBranch(v ServerBranchView) {
+	@shell(Frame{Title: "Set up this server", Subtitle: "Domains, backups and placements are the server's, not an organization's."}) {
+		<form novalidate hx-post={ v.Base + "/mode" } class="space-y-3">
+			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
+				<span class="block text-sm font-semibold text-rw-text">From a server file</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">stackr-server.yml in a GitHub repo declares the server.</span>
+			</button>
+			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
+				<span class="block text-sm font-semibold text-rw-text">By hand</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">Set the domains and a backup destination here.</span>
+			</button>
+		</form>
+		<form novalidate hx-post={ v.Base + "/done" } class="mt-4 text-center">
+			<button type="submit" class="text-xs text-rw-faint hover:text-rw-text transition-colors">Skip for now</button>
+		</form>
+	}
+}
+
+// ServerHand is the by-hand branch: one page, three sections.
+templ ServerHand(v ServerHandView) {
+	@shell(v.Frame) {
+		<form novalidate hx-post={ v.Base + "/domains" } class="space-y-4">
+			<h3 class="text-sm font-semibold text-rw-text">Domains</h3>
+			<div>
+				<label class="label" for="srv-root">Root domain</label>
+				<input type="text" id="srv-root" name="root_domain" value={ v.Root } placeholder="example.com" class="input font-mono"/>
+				<p class="mt-1.5 text-xs text-rw-faint">Stacks get their hostnames under it.</p>
+			</div>
+			<div>
+				<label class="label" for="srv-panel">Panel domain</label>
+				<input type="text" id="srv-panel" name="panel_domain" value={ v.Panel } placeholder="stackr.example.com" class="input font-mono"/>
+			</div>
+			<div>
+				<label class="label" for="srv-acme">ACME email</label>
+				<input type="email" id="srv-acme" name="acme_email" value={ v.Email } placeholder="you@example.com" class="input"/>
+				<p class="mt-1.5 text-xs text-rw-faint">Certificate notices go here.</p>
+			</div>
+			<button type="submit" class="btn btn-primary w-full">Save domains</button>
+		</form>
+		<hr class="my-6 border-rw-border"/>
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-rw-text">Backup destination</h3>
+			for _, d := range v.Dests {
+				<p class="text-sm text-rw-muted"><span class="text-rw-text">{ d.Name }</span> <span class="font-mono text-rw-faint">{ d.Detail }</span></p>
+			}
+			<form novalidate hx-post={ v.Base + "/dest" } class="space-y-3">
+				<div>
+					<label class="label" for="srv-dest-name">Name</label>
+					<input type="text" id="srv-dest-name" name="dest_name" class="input"/>
+				</div>
+				<div>
+					<label class="label" for="srv-dest-endpoint">S3 endpoint</label>
+					<input type="text" id="srv-dest-endpoint" name="endpoint" placeholder="s3.example.com" class="input font-mono"/>
+				</div>
+				<div>
+					<label class="label" for="srv-dest-bucket">Bucket</label>
+					<input type="text" id="srv-dest-bucket" name="bucket" class="input font-mono"/>
+				</div>
+				<div>
+					<label class="label" for="srv-dest-region">Region</label>
+					<input type="text" id="srv-dest-region" name="region" class="input font-mono"/>
+				</div>
+				<div>
+					<label class="label" for="srv-dest-key">Access key</label>
+					<input type="text" id="srv-dest-key" name="access_key" autocomplete="off" class="input font-mono"/>
+				</div>
+				<div>
+					<label class="label" for="srv-dest-secret">Secret key</label>
+					<input type="password" id="srv-dest-secret" name="secret_key" autocomplete="off" class="input font-mono"/>
+				</div>
+				<button type="submit" class="btn btn-ghost w-full">Add destination</button>
+			</form>
+		</div>
+		<hr class="my-6 border-rw-border"/>
+		<div class="space-y-2">
+			<h3 class="text-sm font-semibold text-rw-text">Placements</h3>
+			for _, p := range v.Placements {
+				<p class="text-sm font-mono text-rw-muted">{ p }</p>
+			}
+			<p class="text-xs text-rw-faint">Which node each placement runs on is set on the admin page.</p>
+			<a href={ templ.SafeURL(v.AdminURL) } class="btn btn-ghost btn-sm w-full">Open placements</a>
+		</div>
+		@serverFinish(v.Base)
+	}
+}
+
+// ServerFile is the file branch: bind the repo, then read the plan.
+templ ServerFile(v ServerFileView) {
+	@shell(v.Frame) {
+		<form novalidate hx-post={ v.Base + "/bind" } class="space-y-4">
+			<div>
+				<label class="label" for="srv-conn">Connector</label>
+				<select id="srv-conn" name="connector_id" class="input">
+					for _, o := range v.Connectors {
+						<option value={ o.Value } selected?={ o.Picked }>{ o.Label }</option>
+					}
+				</select>
+				if len(v.Connectors) == 0 {
+					<p class="mt-1.5 text-xs text-rw-faint">No server connector yet. Add one under admin, connectors.</p>
+				}
+			</div>
+			<div>
+				<label class="label" for="srv-repo">Repository</label>
+				<input type="text" id="srv-repo" name="repo" value={ v.Repo } placeholder="owner/name" class="input font-mono"/>
+			</div>
+			<div>
+				<label class="label" for="srv-branch">Branch</label>
+				<input type="text" id="srv-branch" name="branch" value={ v.Branch } placeholder="default" class="input font-mono"/>
+			</div>
+			<div>
+				<label class="label" for="srv-path">File</label>
+				<input type="text" id="srv-path" name="path" value={ v.Path } placeholder="stackr-server.yml" class="input font-mono"/>
+			</div>
+			<button type="submit" class="btn btn-primary w-full">Save and plan</button>
+		</form>
+		if v.PlanURL != "" {
+			@nav(v.PlanURL, "Review the plan")
+		}
+		@serverFinish(v.Base)
+	}
+}
+
+// serverFinish ends the wizard; org setup follows.
+templ serverFinish(base string) {
+	<form novalidate hx-post={ base + "/done" } class="mt-6">
+		<button type="submit" class="btn btn-primary w-full">Finish</button>
+	</form>
+	<p class="mt-2 text-center"><a href={ templ.SafeURL(base + "?pick=1") } class="text-xs text-rw-faint hover:text-rw-text transition-colors">Pick the other way</a></p>
+}

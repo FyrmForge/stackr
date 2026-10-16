@@ -22,6 +22,9 @@ import (
 func setup(t *testing.T) (*servicetest.Env, http.Handler) {
 	t.Helper()
 	env := servicetest.New(t)
+	if err := env.Orch.FinishServerSetup(context.Background(), nil); err != nil { // past the admin wizard
+		t.Fatal(err)
+	}
 	srv, err := server.New(server.WithDevMode(true))
 	if err != nil {
 		t.Fatal(err)

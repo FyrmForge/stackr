@@ -40,6 +40,9 @@ func TestRiskyRemovalsAutoOK(t *testing.T) {
 	if quiet.Risky() || len(quiet.Removals()) != 0 || !quiet.AutoOK() {
 		t.Errorf("quiet plan: risky %v, removals %d, auto %v", quiet.Risky(), len(quiet.Removals()), quiet.AutoOK())
 	}
+	if onlyGaps := (planfile.Plan{Gaps: []planfile.Gap{{Kind: "secret", Key: "a.b"}}}); onlyGaps.AutoOK() {
+		t.Error("a plan of gaps alone has nothing to apply by itself")
+	}
 	onlyRemoval := planfile.Plan{Changes: []planfile.Change{{Kind: "route-delete", Key: "route:x", Optional: true}}}
 	if onlyRemoval.AutoOK() {
 		t.Error("a removal row keeps a plan from applying by itself")
@@ -295,5 +298,24 @@ func TestCollapse(t *testing.T) {
 	back, err := planfile.Expand(got)
 	if err != nil || !reflect.DeepEqual(back, blocks) {
 		t.Errorf("round trip = %+v, %v", back, err)
+	}
+}
+
+// Approve is offered for changes with no blocker; gaps alone and a blocked
+// plan have nothing to approve.
+func TestCanApprove(t *testing.T) {
+	ch := []planfile.Change{{Kind: "settings"}}
+	for _, c := range []struct {
+		p    planfile.Plan
+		want bool
+	}{
+		{planfile.Plan{Changes: ch}, true},
+		{planfile.Plan{Changes: ch, Blockers: []string{"x"}}, false},
+		{planfile.Plan{Gaps: []planfile.Gap{{Kind: "secret", Key: "a.b"}}}, false},
+		{planfile.Plan{}, false},
+	} {
+		if got := c.p.CanApprove(); got != c.want {
+			t.Errorf("%+v: CanApprove = %v, want %v", c.p, got, c.want)
+		}
 	}
 }

@@ -91,6 +91,9 @@ func (o *Orchestrator) PreviewOrgConfig(ctx context.Context, orgID string, file 
 	if err != nil {
 		return OrgConfigPlan{}, err
 	}
+	if err := o.orgMoves(ctx, &live, f); err != nil {
+		return OrgConfigPlan{}, err
+	}
 	return o.orgLimitBlock(ctx, f, orgconfig.Diff(f, live)), nil
 }
 
@@ -177,6 +180,9 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 		})
 	}
 	live, err := o.orgLive(ctx, og)
+	if err == nil {
+		err = o.orgMoves(ctx, &live, f)
+	}
 	if err != nil {
 		return OrgPlan{}, err
 	}
@@ -186,7 +192,7 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 		return OrgPlan{}, err
 	}
 	status := orgplan.Pending
-	if len(p.Changes) == 0 && !p.Blocked() {
+	if len(p.Changes) == 0 && !p.Blocked() && len(p.Gaps) == 0 { // a gap stays pending: it is filled in place
 		status = orgplan.Clean
 	}
 	row, err := o.createOrgPlan(ctx, OrgPlan{
@@ -279,7 +285,7 @@ func (o *Orchestrator) orgLive(ctx context.Context, og store.Org) (orgconfig.Liv
 	for _, st := range sts {
 		live.Stacks = append(live.Stacks, orgconfig.StackLive{Stack: st})
 	}
-	return live, nil
+	return live, o.orgPlacements(ctx, &live)
 }
 
 // tierLive fills the tier side of live: the ladder, each tier's params, the
@@ -355,6 +361,9 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 		return err
 	}
 	live, err := o.orgLive(ctx, og)
+	if err == nil {
+		err = o.orgMoves(ctx, &live, f)
+	}
 	if err != nil {
 		return err
 	}
@@ -470,6 +479,8 @@ func (o *Orchestrator) walkOrgPlan(
 			err = o.DeleteShare(ctx, og.ID, c.Tile)
 		case "param-remove":
 			err = o.removeOrgParam(ctx, og, c.Tile, c.Field)
+		case "pin", "ingress", "exits":
+			err = o.applyOrgPlacing(ctx, og, f, live, c.Kind)
 		}
 		if err != nil {
 			return bound, fmt.Errorf("%s %s: %w", c.Kind, what, err)
@@ -503,6 +514,27 @@ func (o *Orchestrator) orgParamScope(ctx context.Context, og store.Org, tile str
 		sc = ParamScope{Kind: "tier", ID: t.ID}
 	}
 	return sc, nil
+}
+
+// FillOrgGap saves secrets a pending org plan is missing (a gap) on the env
+// key's scope (all, pr or a tier slug), then plans the file again so the gap
+// closes.
+func (o *Orchestrator) FillOrgGap(ctx context.Context, orgID, envKey string, es []ParamEntry) (OrgPlan, error) {
+	og, err := o.store.Orgs.Get(ctx, orgID)
+	if err != nil {
+		return OrgPlan{}, err
+	}
+	sc, err := o.orgParamScope(ctx, og, envKey)
+	if errors.Is(err, errs.ErrNotFound) {
+		return OrgPlan{}, errs.Conflictf("Tier %s is made by this plan; approve it first, then fill the secret.", envKey)
+	}
+	if err != nil {
+		return OrgPlan{}, err
+	}
+	if _, err := o.SetParams(ctx, sc, es); err != nil {
+		return OrgPlan{}, err
+	}
+	return o.PlanOrgConfig(ctx, orgID)
 }
 
 // removeOrgParam drops one name from an env key's scope (see putOrgParams).

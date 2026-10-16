@@ -13,8 +13,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -584,5 +586,61 @@ func TestOrgParamRemoval(t *testing.T) {
 	r.applied(t, pl.ID)
 	if got := names("org"); got != "keep" {
 		t.Errorf("org after a ticked secret removal = %q", got)
+	}
+}
+
+// The org file's pin is checked against the placements the server holds: an
+// undeclared name blocks the plan; the reserved default plans a pin change.
+func TestOrgFilePinPlans(t *testing.T) {
+	r := newOrgRig(t)
+	r.orgFile(t, "version: 1\norg: acme\npin: eu-prod\n")
+	r.bind(t, false)
+	p := r.plans(t)[0]
+	if !strings.Contains(p.Plan, "placement eu-prod is not declared") || !strings.Contains(p.Summary, "1 blocker") {
+		t.Errorf("plan = %s / %s, want a blocker naming eu-prod", p.Summary, p.Plan)
+	}
+
+	r.orgFile(t, "version: 1\norg: acme\npin: default\ningress: default\nexits: [own]\n")
+	p, err := r.env.Orch.PlanOrgConfig(context.Background(), r.org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Status != "pending" || !strings.Contains(p.Plan, `"kind":"pin"`) || !strings.Contains(p.Plan, `"kind":"exits"`) || strings.Contains(p.Plan, "blockers") {
+		t.Errorf("plan = %s / %s, want pin, ingress and exits changes and no blocker", p.Status, p.Plan)
+	}
+}
+
+// An org pin counts the volumes a covered stack's file declares before any
+// deploy wrote them down, a stack the org file adds included: a placement
+// whose node lacks storage blocks the plan.
+func TestOrgFilePinSeesStackFileVolumes(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	w := r.env.Worker(t, "w1", "root")
+	if err := r.env.Store.Placements.Create(ctx, store.Placement{ID: "pl-plain", Name: "plain", NodeID: w, OpenToAll: true, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	r.g.Commit(t, "acme/shop", "main", map[string]string{
+		"stackr-compose.yml": "version: 1\nstack: shop\nladder:\n  - dev\nhead: main\nvolumes:\n  data: {}\n",
+	})
+	r.orgFile(t, "version: 1\norg: acme\npin: plain\nstacks:\n  shop:\n    repo: acme/shop\n")
+	r.bind(t, false)
+	if p := r.plans(t)[0]; !strings.Contains(p.Plan, "placement plain does not fit: needs storage") {
+		t.Errorf("plan = %s / %s, want the storage blocker", p.Summary, p.Plan)
+	}
+
+	// a pin from the CLI, API or panel reads the bound stack's file the same way
+	if err := r.env.Store.Stacks.Create(ctx, store.Stack{
+		ID: "st-shop", OrgID: r.org, Name: "shop", Slug: "shop", Settings: "{}",
+		ConfigConnectorID: r.conn, ConfigRepo: "https://github.com/acme/shop", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adm := &service.Principal{Access: authz.User{ID: "u", Active: true, Admin: true}}
+	for _, kind := range []string{"org", "stack"} {
+		id := map[string]string{"org": r.org, "stack": "st-shop"}[kind]
+		if err := r.env.Orch.SetPin(ctx, adm, kind, id, "plain"); !errors.As(err, new(errs.Invalid)) || !strings.Contains(err.Error(), "needs storage") {
+			t.Errorf("%s pin over a file volume to a node without storage = %v", kind, err)
+		}
 	}
 }

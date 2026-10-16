@@ -34,6 +34,8 @@ type File struct {
 	Domains     []Domain                    `yaml:"domains,omitempty"` // instance domain resources
 	Connectors  []Connector                 `yaml:"connectors,omitempty"`
 	Orgs        []Org                       `yaml:"orgs,omitempty"`
+	Nodes       map[string]Node             `yaml:"nodes,omitempty"`      // by node name; the file declares, never creates
+	Placements  map[string]Placement        `yaml:"placements,omitempty"` // by placement name
 }
 
 // setting is a settings: value as text; Parse leaves every value a string.
@@ -154,6 +156,8 @@ func Parse(data []byte) (*File, error) {
 		f.checkDomains,
 		f.checkConnectors,
 		f.checkOrgs,
+		f.checkNodes,
+		f.checkPlacements,
 	} {
 		if err := check(); err != nil {
 			return nil, err
