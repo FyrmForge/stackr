@@ -78,6 +78,8 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 		if err := run("", append(args, "--", r.URL, r.Dir)...); err != nil {
 			return "", fmt.Errorf("git clone: %w", err)
 		}
+	} else if err := dropLocks(filepath.Join(r.Dir, ".git")); err != nil {
+		return "", err
 	}
 	if err := run(r.Dir, "fetch", "origin", ref); err != nil {
 		return "", fmt.Errorf("git fetch %s: %w", ref, err)
@@ -89,6 +91,26 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 	}
 	out, err := r.git(ctx, "rev-parse", "HEAD")
 	return strings.TrimSpace(string(out)), err
+}
+
+// dropLocks removes the *.lock files a killed git left in a clone (a
+// superseded job's checkout is SIGKILLed mid-write; so is one in a crash).
+// Left there, every later fetch or checkout of the clone fails for good.
+// Safe only because no other git writes the clone at the same time: every
+// Checkout caller holds the orchestrator's per-dir repoLock, and one stackr
+// process owns a data dir.
+func dropLocks(gitDir string) error {
+	return filepath.WalkDir(gitDir, func(p string, d os.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir() && d.Name() == "objects":
+			return filepath.SkipDir
+		case d.Type().IsRegular() && strings.HasSuffix(d.Name(), ".lock"):
+			return os.Remove(p)
+		}
+		return nil
+	})
 }
 
 // ReadFile returns path as it is at commit, from the local clone.

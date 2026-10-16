@@ -65,10 +65,7 @@ func TestPREnvsOptIn(t *testing.T) {
 	file("")
 	eventually(t, "dev", hasDev)
 	pr("opened")
-	// the PR job runs after the push job (same queue); give it a moment
-	// by queueing a second, observable job behind it.
-	file("")
-	eventually(t, "the queue to drain", func() bool { return hasDev() })
+	drained(t, env.Orch)
 	if has() {
 		t.Fatal("pr-7 made with no pr_envs")
 	}
@@ -80,6 +77,15 @@ func TestPREnvsOptIn(t *testing.T) {
 	file("")
 	pr("closed")
 	eventually(t, "pr-7 removed", func() bool { return !has() })
+}
+
+// drained waits until no job is queued, running or parked.
+func drained(t *testing.T, o *service.Orchestrator) {
+	t.Helper()
+	eventually(t, "the queue to drain", func() bool {
+		js, err := o.Jobs(context.Background(), 0, "queued", "running", "waiting")
+		return err == nil && len(js) == 0
+	})
 }
 
 // A stack file that does not load is not "PR envs are off": the job log says
@@ -164,8 +170,7 @@ func TestPREnvsForks(t *testing.T) {
 	file("pr_envs:\n  enabled: true\n")
 	eventually(t, "dev", func() bool { return has("dev") })
 	fork("8")
-	file("pr_envs:\n  enabled: true\n") // queued behind the PR job
-	eventually(t, "the queue to drain", func() bool { return has("dev") })
+	drained(t, env.Orch)
 	if has("pr-8") {
 		t.Fatal("pr-8 made for a fork with forks off")
 	}

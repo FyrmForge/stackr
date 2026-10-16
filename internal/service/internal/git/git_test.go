@@ -161,6 +161,17 @@ func TestCheckoutReadDiff(t *testing.T) {
 	if sha, err := broken.Checkout(ctx, "", &log); err != nil || sha != second {
 		t.Fatalf("redo clone: %q %v", sha, err)
 	}
+
+	// A checkout killed mid-write (a superseded job) leaves its locks; the
+	// next one clears them instead of failing for good.
+	for _, l := range []string{"HEAD.lock", "index.lock", "refs/heads/main.lock"} {
+		if err := os.WriteFile(filepath.Join(r.Dir, ".git", l), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sha, err := r.Checkout(ctx, second, &log); err != nil || sha != second {
+		t.Fatalf("checkout over stale locks: %q %v\n%s", sha, err, log.String())
+	}
 }
 
 func TestProtocolAllowlist(t *testing.T) {
