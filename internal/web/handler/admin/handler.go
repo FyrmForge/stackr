@@ -244,6 +244,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		return ui.Users(v), err
 	case "nodes":
 		return h.nodesTab(c, x)
+	case "placements":
+		return h.placementsTab(c, plOpen{})
 	case "routes":
 		rs, err := h.orch.ExternalRoutes(ctx)
 		v := ui.RoutesView{Add: ui.Base + "/routes"}
