@@ -78,7 +78,16 @@ func (l *tryLimiter) allow(ip string) (bool, time.Duration) {
 	}
 	w, ok := l.m[ip]
 	if !ok && len(l.m) >= joinMaxKeys {
-		return false, joinWindow
+		// Full of live keys: drop the oldest window rather than refuse, so
+		// many /64s cannot lock everyone out of joining.
+		// ponytail: O(n) scan per new key while full, a heap if it ever shows.
+		var oldest string
+		for k, w := range l.m {
+			if oldest == "" || w.reset.Before(l.m[oldest].reset) {
+				oldest = k
+			}
+		}
+		delete(l.m, oldest)
 	}
 	if !now.Before(w.reset) {
 		w.n, w.reset = 0, now.Add(joinWindow)

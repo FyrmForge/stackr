@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +35,20 @@ func TestLimiterKeysIPv6ByPrefix(t *testing.T) {
 	}
 	if ok, _ := l.allow("192.0.2.1"); !ok {
 		t.Fatal("an IPv4 client was counted with the IPv6 ones")
+	}
+}
+
+// A limiter full of live keys admits a new client by dropping the oldest.
+func TestLimiterFullAdmitsNewKey(t *testing.T) {
+	l := newTryLimiter(2)
+	for i := range joinMaxKeys {
+		l.allow(fmt.Sprintf("10.%d.%d.%d", i>>16, (i>>8)&255, i&255))
+	}
+	if ok, _ := l.allow("192.0.2.1"); !ok {
+		t.Fatal("a new client was refused while the limiter was full")
+	}
+	if len(l.m) != joinMaxKeys {
+		t.Fatalf("keys = %d, want %d", len(l.m), joinMaxKeys)
 	}
 }
 
