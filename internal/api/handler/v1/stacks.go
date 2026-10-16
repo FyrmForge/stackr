@@ -42,7 +42,7 @@ type (
 		FromKind   string  `json:"from_kind"` // branch | promote
 		FromBranch string  `json:"from_branch"`
 		Auto       bool    `json:"auto"`
-		Node       string  `json:"node"` // a node's name; "" = the pins decide
+		Placement  string  `json:"placement"` // a placement's name; "" = the pins decide
 	}
 	ColorIn struct {
 		Color string `json:"color"`
@@ -185,21 +185,21 @@ func (h *H) CreateEnv() Endpoint {
 				return service.Environment{}, err
 			}
 		}
-		nodeID := ""
-		if in.Node != "" {
+		placementID := ""
+		if in.Placement != "" {
 			var err error
-			if nodeID, err = h.Orch.NodeForNewEnv(rc(c), middleware.Principal(c), stackID(c), in.Node); err != nil {
+			if placementID, err = h.Orch.PlacementForNewEnv(rc(c), middleware.Principal(c), stackID(c), in.Placement); err != nil {
 				return service.Environment{}, err
 			}
 		}
 		return h.Orch.CreateEnv(rc(c), stackID(c), in.Name, service.EnvSpec{
-			NodeID:     nodeID,
-			Type:       in.Type,
-			Base:       in.Base,
-			Color:      in.Color,
-			FromKind:   in.FromKind,
-			FromBranch: in.FromBranch,
-			Auto:       in.Auto,
+			PlacementID: placementID,
+			Type:        in.Type,
+			Base:        in.Base,
+			Color:       in.Color,
+			FromKind:    in.FromKind,
+			FromBranch:  in.FromBranch,
+			Auto:        in.Auto,
 		})
 	})
 }
