@@ -25,24 +25,28 @@ type handler struct{ orch *service.Orchestrator }
 
 func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orch} }
 
-// level is one scope's paths and the verbs that guard them.
+// level is one scope's paths and the verb that guards its reads. Every
+// write is placement.write (owner), as on the API: a member may deploy, but
+// moving an env or rerouting its traffic is the owner's call.
 type level struct {
-	path        string
-	read, write authz.Verb
+	path string
+	read authz.Verb
 }
 
+const write authz.Verb = "placement.write"
+
 var levels = []level{
-	{"/:org/-/placement", "org.read", "org.write"},
-	{"/:org/:stack/-/placement", "org.read", "stack.write"},
-	{"/:org/:stack/:env/-/placement", "org.read", "env.write"},
-	{"/:org/:stack/:env/-/tiles/:tile/placement", "tile.read", "tile.write"},
+	{"/:org/-/placement", "org.read"},
+	{"/:org/:stack/-/placement", "org.read"},
+	{"/:org/:stack/:env/-/placement", "org.read"},
+	{"/:org/:stack/:env/-/tiles/:tile/placement", "tile.read"},
 }
 
 // Mount registers the tab on g. The env's move routes sit under its own path.
 // A pin change that moves the env answers with the dialog; Move confirms it.
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	for _, l := range levels {
-		read, write := a.Require(l.read), a.Require(l.write)
+		read, write := a.Require(l.read), a.Require(write)
 		g.GET(l.path, h.Get, read)
 		g.POST(l.path+"/pin", h.act("Saved.", h.pin), write)
 		g.POST(l.path+"/ingress", h.act("Saved.", h.ingress), write)
@@ -51,7 +55,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		g.POST(l.path+"/exits/remove", h.act("Saved.", h.remove), write)
 	}
 	e := levels[2].path
-	g.POST(e+"/move", h.Move, a.Require("env.write"))
+	g.POST(e+"/move", h.Move, a.Require(write))
 	g.GET(e+"/move/status", h.Status, a.Require("org.read"))
 }
 
@@ -97,13 +101,6 @@ func can(c echo.Context, v authz.Verb) bool {
 func admin(c echo.Context) bool {
 	p := middleware.Principal(c)
 	return p != nil && p.Access.Admin
-}
-
-func writeVerb(kind string) authz.Verb {
-	return map[string]authz.Verb{
-		service.ScopeOrg: levels[0].write, service.ScopeStack: levels[1].write,
-		service.ScopeEnv: levels[2].write, service.ScopeTile: levels[3].write,
-	}[kind]
 }
 
 // refused is the message of an error the viewer can act on.
@@ -185,7 +182,7 @@ func (h *handler) build(c echo.Context) (ui.View, error) {
 		NoNet:       pv.NoNet,
 		NoNetWhy:    pv.NoNetWhy,
 	}
-	if can(c, writeVerb(kind)) {
+	if can(c, write) {
 		v.Base = base(c)
 	}
 	if kind == service.ScopeOrg {

@@ -124,3 +124,23 @@ func TestStackPinMoveDialog(t *testing.T) {
 		t.Error("the pin was written before the move was confirmed")
 	}
 }
+
+// A member deploys but never moves an env: the tab is read-only and every
+// placement write is refused, at each scope, as on the API.
+func TestMemberCannotPin(t *testing.T) {
+	m := newBrowser(t, "member")
+	og, err := m.env.Store.Orgs.GetBySlug(t.Context(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.env.Tile(t, og.ID)
+	body := m.do(t, "GET", "/acme/shop/-/placement", nil).Body.String()
+	if !strings.Contains(body, "Runs on") || strings.Contains(body, "/placement/pin") {
+		t.Errorf("member got a write form\n%s", body)
+	}
+	for _, p := range []string{"/acme/-/placement/pin", "/acme/shop/-/placement/pin", "/acme/shop/dev/-/placement/pin", "/acme/shop/dev/-/placement/move", "/acme/shop/dev/-/placement/ingress"} {
+		if rec := m.do(t, "POST", p, url.Values{"placement": {"default"}}); rec.Code != http.StatusForbidden {
+			t.Errorf("member POST %s = %d, want 403", p, rec.Code)
+		}
+	}
+}
