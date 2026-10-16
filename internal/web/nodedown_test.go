@@ -15,10 +15,10 @@ import (
 func TestNodeDownBanner(t *testing.T) {
 	ctx := context.Background()
 	s := webtest.New(t)
-	st := s.Env.Store
-	w := s.Env.Worker(t, "hidden-h4", "iss")
+	st := s.Store
+	w := s.Worker(t, "hidden-h4", "iss")
 	adm := &service.Principal{Access: authz.User{ID: "root", Active: true, Admin: true}}
-	p, err := s.Env.Orch.CreatePlacement(ctx, adm, service.PlacementSpec{Name: "eu-prod", Node: "hidden-h4", OpenToAll: true})
+	p, err := s.Orch.CreatePlacement(ctx, adm, service.PlacementSpec{Name: "eu-prod", Node: "hidden-h4", OpenToAll: true})
 	must(t, err)
 	must(t, st.Environments.SetNode(ctx, s.Tile.Env, w))
 	must(t, st.Environments.SetPlacement(ctx, s.Tile.Env, p.ID))
@@ -32,7 +32,7 @@ func TestNodeDownBanner(t *testing.T) {
 	if !strings.Contains(body, "Placement eu-prod is offline") || strings.Contains(body, "hidden-h4") {
 		t.Errorf("owner page: want the placement and no node\n%s", body)
 	}
-	admin := s.Env.Session(t, s.Env.User(t, "root@x.test", true))
+	admin := s.Session(t, s.User(t, "root@x.test", true))
 	if body := s.As(t, admin, "GET", page, nil).Body.String(); !strings.Contains(body, "hidden-h4 is offline") {
 		t.Errorf("admin page: want the node\n%s", body)
 	}

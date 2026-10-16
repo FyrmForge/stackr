@@ -153,8 +153,12 @@ func TestSecretGap(t *testing.T) {
 	if len(p.Gaps) != 1 || p.Gaps[0].Kind != want.Kind || p.Gaps[0].Key != want.Key || p.Gaps[0].Env != "all" || p.Gaps[0].Scope != "org" {
 		t.Errorf("gaps = %+v", p.Gaps)
 	}
-	if len(p.Notes) != 0 || p.Blocked() || !p.AutoOK() {
-		t.Errorf("a gap must not gate: notes %v", p.Notes)
+	if len(p.Notes) != 0 || p.Blocked() || p.AutoOK() {
+		t.Errorf("gaps alone: notes %v, blocked %v, auto %v; want a plan with nothing to apply by itself", p.Notes, p.Blocked(), p.AutoOK())
+	}
+	p.Changes = append(p.Changes, orgconfig.Change{Kind: "param", Tile: "all", Field: "email.sender"})
+	if !p.AutoOK() {
+		t.Error("a gap must not gate a plan that has changes")
 	}
 }
 
