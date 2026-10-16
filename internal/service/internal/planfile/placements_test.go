@@ -95,6 +95,13 @@ func TestPlacingPlan(t *testing.T) {
 			t.Errorf("got %+v %v", cs, b)
 		}
 	})
+	t.Run("a refused pin moves nothing", func(t *testing.T) {
+		cs, b, _ := PlacingPlan(PlacingIn{Scope: "stack", Want: Placing{Pin: "eu-prod"}, Have: Placing{Pin: "eu-db"}, Facts: facts,
+			Need: Needs{Storage: true}, Moves: map[string]MoveFact{"api/prod": pass}})
+		if len(b) != 1 || !strings.Contains(b[0], "needs storage") || cs[0].Impact != "" {
+			t.Errorf("got %+v %v", cs, b)
+		}
+	})
 	t.Run("moves ignored when pin same", func(t *testing.T) {
 		cs, b, _ := PlacingPlan(PlacingIn{Scope: "stack", Want: Placing{Pin: "eu-prod"}, Have: Placing{Pin: "eu-prod"}, Facts: facts,
 			Moves: map[string]MoveFact{"api/prod": fail}})

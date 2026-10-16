@@ -18,6 +18,7 @@ func facts() planfile.PlacementFacts {
 		"eu-db":   {Open: true, HasNode: true, Online: true, Tags: []string{"storage"}},
 		"closed":  {Open: false, HasNode: true, Online: true},
 		"waiting": {Open: true},
+		"edge":    {Open: true, HasNode: true, Online: true, Tags: []string{"ingress"}},
 	}}
 }
 
@@ -93,6 +94,11 @@ func TestPlanPlacing(t *testing.T) {
 			live: PlacementLive{Needs: func(context.Context) (map[string]planfile.Needs, error) {
 				return map[string]planfile.Needs{"dev": {Storage: true}}, nil
 			}}, changes: "pin:shop pin:dev", warn: "no node yet",
+		},
+		{
+			// nothing is deployed yet, so only the file says the env holds data
+			name: "file volumes need storage", file: placeHead + "pin: edge\nvolumes:\n  data: {}\n", env: "dev",
+			changes: "pin:shop", blocker: "placement edge does not fit: needs storage",
 		},
 		{
 			name: "ingress needs ingress", file: placeHead + "ingress: eu-db\n", env: "dev", changes: "ingress:shop", blocker: "needs ingress",

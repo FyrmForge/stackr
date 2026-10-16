@@ -124,10 +124,13 @@ func PlacingPlan(in PlacingIn) (cs []Change, blockers, warnings []string) {
 		ref(w.Pin, in.Need)
 		if w.Pin != h.Pin {
 			c := Change{Kind: "pin", Tile: in.Tile, Field: in.Scope, Old: h.Pin, New: w.Pin}
-			fails := moveFails(w.Pin, in.Moves)
-			blockers = append(blockers, fails...)
-			if len(fails) == 0 {
-				c.Impact = moveImpact(w.Pin, in.Moves)
+			// a pin the org cannot use moves nothing: its blocker says why
+			if b, _ := PlacementRef(w.Pin, in.Need, in.Facts); b == "" {
+				fails := moveFails(w.Pin, in.Moves)
+				blockers = append(blockers, fails...)
+				if len(fails) == 0 {
+					c.Impact = moveImpact(w.Pin, in.Moves)
+				}
 			}
 			cs = append(cs, c)
 		}

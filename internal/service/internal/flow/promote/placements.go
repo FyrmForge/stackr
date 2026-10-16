@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 )
 
@@ -71,6 +72,13 @@ func (f *Flow) planPlacing(ctx context.Context, p *Plan, w *work, r *Resolved) e
 				need.Storage = need.Storage || n.Storage
 			}
 		}
+		if stackKeys.Pin != "" {
+			for n, e := range r.Envs {
+				if !slices.Contains(except, n) {
+					need.Storage = need.Storage || fileNeeds(e).Storage
+				}
+			}
+		}
 		if err := f.planScope(ctx, p, w, "stack", w.st.ID, w.st.Slug, stackKeys, live.Stack, need, except); err != nil {
 			return err
 		}
@@ -86,7 +94,20 @@ func (f *Flow) planPlacing(ctx context.Context, p *Plan, w *work, r *Resolved) e
 		}
 		need = ns[w.e.Slug]
 	}
+	if envKeys.Pin != "" {
+		need.Storage = need.Storage || fileNeeds(*re).Storage
+	}
 	return f.planScope(ctx, p, w, "env", w.e.ID, w.e.Slug, envKeys, live.Env, need, nil)
+}
+
+// fileNeeds is what an env asks of its node by the file alone: volumes or a
+// managed tile need storage before the first deploy writes them down.
+func fileNeeds(e ResolvedEnv) planfile.Needs {
+	n := planfile.Needs{Storage: len(e.Volumes) > 0}
+	for _, t := range e.Tiles {
+		n.Storage = n.Storage || t.Type == tile.Managed
+	}
+	return n
 }
 
 func (f *Flow) planScope(
