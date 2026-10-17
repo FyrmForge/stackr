@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -213,7 +214,11 @@ func (a *app) sayPlan(m map[string]any) {
 	for _, ck := range asList(m["checks"]) {
 		cm := asMap(ck)
 		mark, tail := "ok  ", ""
-		if cm["ok"] != true {
+		switch {
+		case cm["ok"] == true:
+		case cm["overridable"] == true:
+			mark = "WARN"
+		default:
 			mark = "FAIL"
 		}
 		if d := cell(cm["detail"]); d != "(none)" {
@@ -223,7 +228,49 @@ func (a *app) sayPlan(m map[string]any) {
 	}
 }
 
+// planAcks are the details of the plan's failed checks that --start-empty
+// overrides (volumes with no backup start empty). fail is the refusal when
+// another check failed; without startEmpty the overridable ones refuse too.
+func planAcks(m map[string]any, startEmpty bool, fail string) ([]string, error) {
+	var acks []string
+	for _, ck := range asList(m["checks"]) {
+		cm := asMap(ck)
+		switch {
+		case cm["ok"] == true:
+		case cm["overridable"] == true:
+			acks = append(acks, cell(cm["detail"]))
+		default:
+			return nil, errors.New(fail)
+		}
+	}
+	if len(acks) > 0 && !startEmpty {
+		return nil, fmt.Errorf("%s; pass --start-empty to restore anyway", strings.Join(acks, "; "))
+	}
+	if len(acks) == 0 && m["ok"] != true {
+		return nil, errors.New(fail)
+	}
+	return acks, nil
+}
+
+// moveBody is a repoint's body: --yes is the typed name, so confirm is it.
+func moveBody(to, confirm string, startEmpty bool) map[string]any {
+	b := map[string]any{"to": to, "confirm": confirm}
+	if startEmpty {
+		b["start_empty"] = true
+	}
+	return b
+}
+
+// ackNote opens a confirm question with what --start-empty accepted.
+func ackNote(acks []string) string {
+	if len(acks) == 0 {
+		return ""
+	}
+	return strings.Join(acks, "; ") + ". "
+}
+
 func (a *app) placementMove() *cobra.Command {
+	var startEmpty bool
 	c := waits(leaf("move <name> <node>", "admin.placement-move-plan,admin.placement-move,admin.placement-move-status", "Repoint a placement to another node, moving its envs (server admin)", exact(2),
 		func(c *cobra.Command, args []string) error {
 			name, to := args[0], args[1]
@@ -239,17 +286,19 @@ func (a *app) placementMove() *cobra.Command {
 			} else {
 				a.sayPlan(pm)
 			}
-			if pm["ok"] != true {
-				return fmt.Errorf("%s cannot move to %s yet: a check failed", name, to)
+			acks, err := planAcks(pm, startEmpty, fmt.Sprintf("%s cannot move to %s yet: a check failed", name, to))
+			if err != nil {
+				return err
 			}
-			q := fmt.Sprintf("Move placement %s from %s to %s? %s", name, cell(pm["from"]), to, stopNote(len(asList(pm["envs"]))))
+			q := fmt.Sprintf("%sMove placement %s from %s to %s? %s", ackNote(acks), name, cell(pm["from"]), to, stopNote(len(asList(pm["envs"]))))
 			if err := a.confirm(q); err != nil {
 				return err
 			}
 			// --yes is the typed name: the server wants it back as confirm.
-			return a.followMove(c, name, placementPath(name)+"/move", map[string]string{"to": to, "confirm": name})
+			return a.followMove(c, name, placementPath(name)+"/move", moveBody(to, name, startEmpty))
 		}))
-	c.Example = "  stackr admin placement move eu-prod h5\n  stackr admin placement move eu-prod h5 --yes"
+	c.Example = "  stackr admin placement move eu-prod h5\n  stackr admin placement move eu-prod h5 --yes\n  stackr admin placement move lab h5 --start-empty --yes"
+	c.Flags().BoolVar(&startEmpty, "start-empty", false, "restore even though some volumes have no backup: they start empty")
 	return c
 }
 

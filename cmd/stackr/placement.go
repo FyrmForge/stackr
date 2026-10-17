@@ -462,6 +462,7 @@ func (a *app) envLost() *cobra.Command {
 // server rehomes each env and restores its volumes from the backups.
 func (a *app) envRestore() *cobra.Command {
 	var placement, to string
+	var startEmpty bool
 	c := waits(leaf("restore", "admin.placement-move-plan,admin.placement-move,admin.placement-move-status", "Bring a placement's lost envs back from their backups on a live node (server admin)", exact(0),
 		func(c *cobra.Command, _ []string) error {
 			if placement == "" || to == "" {
@@ -479,18 +480,20 @@ func (a *app) envRestore() *cobra.Command {
 			} else {
 				a.sayPlan(pm)
 			}
-			if pm["ok"] != true {
-				return fmt.Errorf("%s cannot be restored on %s yet: a check failed", placement, to)
+			acks, err := planAcks(pm, startEmpty, fmt.Sprintf("%s cannot be restored on %s yet: a check failed", placement, to))
+			if err != nil {
+				return err
 			}
 			if pm["restore"] != true {
 				return fmt.Errorf("%s is not on a forgotten node; stackr admin placement move repoints it", placement)
 			}
-			if err := a.confirm(fmt.Sprintf("Restore placement %s on %s? Each env is brought back from its last backup; data written since is lost.", placement, to)); err != nil {
+			if err := a.confirm(fmt.Sprintf("%sRestore placement %s on %s? Each env is brought back from its last backup; data written since is lost.", ackNote(acks), placement, to)); err != nil {
 				return err
 			}
-			return a.followMove(c, placement, placementPath(placement)+"/move", map[string]string{"to": to, "confirm": placement})
+			return a.followMove(c, placement, placementPath(placement)+"/move", moveBody(to, placement, startEmpty))
 		}))
-	c.Example = "  stackr env restore --placement eu-db --to h5"
+	c.Example = "  stackr env restore --placement eu-db --to h5\n  stackr env restore --placement eu-db --to h5 --start-empty"
+	c.Flags().BoolVar(&startEmpty, "start-empty", false, "restore even though some volumes have no backup: they start empty")
 	c.Flags().StringVar(&placement, "placement", "", "the placement whose node was forgotten")
 	c.Flags().StringVar(&to, "to", "", "the live node to restore onto")
 	return c

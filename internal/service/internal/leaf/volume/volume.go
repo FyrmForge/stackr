@@ -200,8 +200,8 @@ func (l *Leaf) HoldsData(ctx context.Context, v store.Volume) bool {
 // CLI, or the orphan job after its backup. mountedBy are the slugs of the
 // tiles whose volumes lines still name it.
 func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) error {
-	if len(mountedBy) > 0 {
-		return errs.Conflictf("detach the volume from %s before deleting it", strings.Join(mountedBy, ", "))
+	if err := detached(mountedBy); err != nil {
+		return err
 	}
 	ctx, err := l.at(ctx, v)
 	if err != nil {
@@ -211,6 +211,21 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 		return err
 	}
 	return l.volumes.Delete(ctx, v.ID)
+}
+
+// DeleteRow is Delete for a volume whose node is gone: the row only.
+func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string) error {
+	if err := detached(mountedBy); err != nil {
+		return err
+	}
+	return l.volumes.Delete(ctx, v.ID)
+}
+
+func detached(mountedBy []string) error {
+	if len(mountedBy) > 0 {
+		return errs.Conflictf("detach the volume from %s before deleting it", strings.Join(mountedBy, ", "))
+	}
+	return nil
 }
 
 // SizeBytes is the volume's uncompressed size; -1 when Docker cannot tell.

@@ -66,10 +66,11 @@ type MoveWizardView struct {
 	Confirm         c.ConfirmView
 }
 
-// CheckRow is one line of the CI-style list.
+// CheckRow is one line of the CI-style list. Ack: failed, but the typed
+// confirm accepts it (volumes with no backup start empty).
 type CheckRow struct {
 	Name, Detail string
-	OK           bool
+	OK, Ack      bool
 }
 
 // MoveEnvRow is an env the move takes along. Size is "" when unknown.
@@ -235,13 +236,16 @@ templ MoveWizard(v MoveWizardView) {
 						if k.OK {
 							<span class="text-rw-success w-4 shrink-0" aria-hidden="true">✓</span>
 							<span class="sr-only">Passed:</span>
+						} else if k.Ack {
+							<span class="text-rw-warn w-4 shrink-0" aria-hidden="true">!</span>
+							<span class="sr-only">Needs your confirm:</span>
 						} else {
 							<span class="text-rw-danger w-4 shrink-0" aria-hidden="true">✗</span>
 							<span class="sr-only">Failed:</span>
 						}
 						<span class="text-rw-text">{ k.Name }</span>
 						if k.Detail != "" {
-							<span class={ "text-xs", templ.KV("text-rw-muted", k.OK), templ.KV("text-rw-danger", !k.OK) }>{ k.Detail }</span>
+							<span class={ "text-xs", templ.KV("text-rw-muted", k.OK), templ.KV("text-rw-warn", k.Ack), templ.KV("text-rw-danger", !k.OK && !k.Ack) }>{ k.Detail }</span>
 						}
 					</li>
 				}

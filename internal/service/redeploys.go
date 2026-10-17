@@ -83,8 +83,12 @@ func (q *redeploys) await(ctx context.Context, o *Orchestrator, log io.Writer) e
 // reachedByRedeploy says whether a cascade or param change redeploys t: it
 // has containers, or a deploy that worked was followed by one that failed
 // and left it with none. A tile that never ran, a run-to-completion tile
-// and a slice are not redeployed.
+// and a slice are not redeployed, nor is a tile whose env's node is
+// forgotten: nothing of it runs, and only a repoint brings it back.
 func (o *Orchestrator) reachedByRedeploy(ctx context.Context, t Tile) (bool, error) {
+	if o.envForgotten(ctx, t.EnvironmentID) {
+		return false, nil
+	}
 	cs, err := o.tiles.Replicas(ctx, t)
 	if err != nil || len(cs) > 0 {
 		return len(cs) > 0, err

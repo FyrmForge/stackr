@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
@@ -214,12 +215,20 @@ func moveChecksView(w *ui.MoveWizardView, plan service.PlacementMovePlan) *ui.Mo
 	w.Step, w.From, w.To, w.OK, w.Restore = 2, plan.From, plan.To, plan.OK, plan.Restore
 	w.Checks, w.Envs = nil, nil
 	ok := true
+	var acks []string // failed lines the confirm acknowledges: volumes that start empty
 	for _, k := range plan.Checks {
-		w.Checks = append(w.Checks, ui.CheckRow{Name: k.Name, OK: k.OK, Detail: k.Detail})
-		ok = ok && k.OK
+		w.Checks = append(w.Checks, ui.CheckRow{Name: k.Name, OK: k.OK, Ack: k.Overridable, Detail: k.Detail})
+		switch {
+		case k.OK:
+		case k.Overridable:
+			acks = append(acks, k.Detail)
+		default:
+			ok = false
+		}
 	}
-	// Apply stays off unless the service said so and no line failed
-	w.OK = plan.OK && ok
+	// Apply stays off unless the service said so (or only acknowledgeable
+	// lines failed) and no other line failed
+	w.OK = (plan.OK || len(acks) > 0) && ok
 	for _, e := range plan.Envs {
 		r := ui.MoveEnvRow{Path: e.Path, Volumes: e.Volumes, Downtime: e.Downtime}
 		if e.Bytes >= 0 {
@@ -230,7 +239,13 @@ func moveChecksView(w *ui.MoveWizardView, plan service.PlacementMovePlan) *ui.Mo
 	if !w.OK {
 		return w
 	}
-	vals, _ := json.Marshal(map[string]string{"to": plan.To, "confirm": plan.Placement})
+	in := map[string]string{"to": plan.To, "confirm": plan.Placement}
+	warning := "Envs stop while they move. Apps come back on " + plan.To + "."
+	if len(acks) > 0 {
+		in["start_empty"] = "1"
+		warning = strings.Join(acks, "; ") + ". Typing the name accepts that. " + warning
+	}
+	vals, _ := json.Marshal(in)
 	// a move leaves the old volumes on the source; a restore (the source was
 	// forgotten) or a placement with no node yet has none to keep
 	kept := "the backups"
@@ -240,7 +255,7 @@ func moveChecksView(w *ui.MoveWizardView, plan service.PlacementMovePlan) *ui.Mo
 	w.Confirm = comp.ConfirmView{
 		Button:  "Move",
 		Title:   "Move " + plan.Placement + " to " + plan.To + "?",
-		Warning: "Envs stop while they move. Apps come back on " + plan.To + ".",
+		Warning: warning,
 		Kept:    []string{kept},
 		Word:    plan.Placement,
 		Action:  plBase + "/" + plan.Placement + "/move",
@@ -256,7 +271,7 @@ func moveChecksView(w *ui.MoveWizardView, plan service.PlacementMovePlan) *ui.Mo
 // and answers its progress; the job is not awaited.
 func (h *handler) startMove(c echo.Context) error {
 	ctx, name := c.Request().Context(), c.Param("placement")
-	_, err := h.orch.MovePlacement(ctx, middleware.Principal(c), name, c.FormValue("to"), c.FormValue("confirm"))
+	_, err := h.orch.MovePlacement(ctx, middleware.Principal(c), name, c.FormValue("to"), c.FormValue("confirm"), c.FormValue("start_empty") == "1")
 	if err != nil {
 		return h.plAnswer(c, "", plOpen{}, err)
 	}

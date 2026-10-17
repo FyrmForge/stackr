@@ -522,6 +522,23 @@ func TestEnvLostRestore(t *testing.T) {
 	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-db/move {"confirm":"eu-db","to":"h5"}` {
 		t.Errorf("writes = %v", w)
 	}
+	// a volume with no backup: -y alone refuses; --start-empty acknowledges it
+	empty := strings.Replace(strings.Replace(plan, `{"name":"target online","ok":true}`,
+		`{"name":"target online","ok":true},{"name":"disk","ok":false,"overridable":true,"detail":"no backup for cache; it starts empty"}`, 1), `],"ok":true}`, `],"ok":false}`, 1)
+	r = fake(t, map[string]string{"/move-plan": empty, "/move": `{"state":"done","from":"h3","to":"h5","done":1,"all":1}`})
+	if code, out, errw = cli(t, append([]string{"-y"}, args...)...); code != 1 || !strings.Contains(out, "WARN  disk") ||
+		!strings.Contains(errw, "no backup for cache; it starts empty; pass --start-empty") || len(writes(r)) != 0 {
+		t.Errorf("no --start-empty = %d %q %q, writes %v", code, out, errw, writes(r))
+	}
+	if code, _, errw = cli(t, append(append([]string{}, args...), "--start-empty")...); code != 3 || !strings.Contains(errw, "no backup for cache; it starts empty. Restore placement eu-db") {
+		t.Errorf("--start-empty, no -y = %d %q", code, errw)
+	}
+	if code, out, errw = cli(t, append(append([]string{"-y"}, args...), "--start-empty")...); code != 0 {
+		t.Fatalf("--start-empty -y = %d %q %q", code, out, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/placements/eu-db/move {"confirm":"eu-db","start_empty":true,"to":"h5"}` {
+		t.Errorf("writes = %v", w)
+	}
 	// a placement that is not on a forgotten node is a plain move: refused here
 	r = fake(t, map[string]string{"/move-plan": strings.Replace(plan, `"restore":true`, `"restore":false`, 1)})
 	if code, _, errw = cli(t, append([]string{"-y"}, args...)...); code != 1 || !strings.Contains(errw, "not on a forgotten node") || len(writes(r)) != 0 {

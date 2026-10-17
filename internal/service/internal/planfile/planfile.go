@@ -392,6 +392,9 @@ type Check struct {
 	Name   string `json:"name"` // "target online", "mesh link", "tags", "disk", "memory", "cpu arch", "source online"
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"` // "h4 free 12 GB, needs 9.4 GB + 10%"
+	// Overridable: failed, but the move may go on when the caller
+	// acknowledges it (a restore whose volumes have no backup start empty).
+	Overridable bool `json:"overridable,omitempty"`
 }
 
 // Gap is something a plan can fill in place.

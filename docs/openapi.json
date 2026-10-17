@@ -490,6 +490,9 @@
           },
           "ok": {
             "type": "boolean"
+          },
+          "overridable": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4184,6 +4187,9 @@
         "properties": {
           "confirm": {
             "type": "string"
+          },
+          "start_empty": {
+            "type": "boolean"
           },
           "to": {
             "type": "string"
