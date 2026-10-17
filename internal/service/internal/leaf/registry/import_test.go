@@ -152,8 +152,8 @@ func TestSweepWaitsForImportInFlight(t *testing.T) {
 	swept := make(chan error, 1)
 	go func() { swept <- l.WhileGated(ctx, func(context.Context) error { return nil }) }()
 	select {
-	case <-swept:
-		t.Fatal("the sweep ran while an import was copying")
+	case err := <-swept:
+		t.Fatalf("the sweep ran while an import was copying (err %v)", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(finish)

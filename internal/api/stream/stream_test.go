@@ -28,7 +28,8 @@ func TestStopEndsStreams(t *testing.T) {
 	Stop()
 	for range 2 {
 		select {
-		case <-done:
+		case err := <-done:
+			_ = err // ended by Stop: that it ended is the test
 		case <-time.After(2 * time.Second):
 			t.Fatal("a stream outlived Stop")
 		}

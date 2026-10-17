@@ -426,8 +426,8 @@ func TestRebuildVIPsSerialised(t *testing.T) {
 	done := make(chan error)
 	go func() { done <- r.orch.rebuildVIPs(context.Background()) }()
 	select {
-	case <-done:
-		t.Fatal("rebuild ran while another held the lock")
+	case err := <-done:
+		t.Fatalf("rebuild ran while another held the lock (err %v)", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 	l.Unlock()

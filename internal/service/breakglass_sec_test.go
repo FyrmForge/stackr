@@ -66,9 +66,9 @@ func TestBreakGlassRefusesDuringRollover(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- o.BreakGlass(ctx, adminP()) }()
 	select {
-	case <-done:
+	case err := <-done:
 		rolloverMu.Unlock()
-		t.Fatal("break glass ran while rolloverMu was held")
+		t.Fatalf("break glass ran while rolloverMu was held (err %v)", err)
 	case <-time.After(150 * time.Millisecond):
 	}
 	rolloverMu.Unlock()
