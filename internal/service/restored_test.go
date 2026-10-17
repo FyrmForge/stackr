@@ -166,7 +166,7 @@ func TestRestoreVolumesBeforeDeploy(t *testing.T) {
 	}
 	var p tileJob
 	must(t, json.Unmarshal([]byte(js[dapp].Payload), &p))
-	if !strings.Contains(p.Note, "no backup for cache; it starts empty") || !strings.Contains(p.Note, "kept kept its data") {
+	if !strings.Contains(p.Note, "no backup for cache; it starts empty") || !strings.Contains(p.Note, "kept holds data") {
 		t.Errorf("deploy note = %q", p.Note)
 	}
 	evs, err := w.orch.SecurityLog(ctx, SecurityFilter{Action: auditEnvRestore, TargetID: w.env})

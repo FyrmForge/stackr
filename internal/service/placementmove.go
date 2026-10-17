@@ -660,7 +660,7 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 			continue
 		}
 		if o.volumes.HoldsData(ctx, v) {
-			notes = append(notes, v.Slug+" kept its data; not restored from a backup")
+			notes = append(notes, v.Slug+" holds data (or its node did not answer); not restored from a backup")
 			continue
 		}
 		newest, err := o.newestBackup(ctx, v.ID)
