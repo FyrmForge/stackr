@@ -81,6 +81,10 @@ func (o *Orchestrator) vipLock(ctx context.Context) sync.Locker {
 type nodeVIPs struct {
 	mu     sync.RWMutex
 	tables map[string]tile.VIP
+	// down is the refusal for a node with no table (it is not connected):
+	// Orchestrator.nodeDown, which names the node for admins only. Set once
+	// at New; nil = a refusal naming no node.
+	down func(ctx context.Context, id string) *NodeDownError
 }
 
 func newNodeVIPs(tables map[string]tile.VIP) *nodeVIPs {
@@ -108,12 +112,15 @@ func (n *nodeVIPs) For(ctx context.Context) (tile.VIP, error) {
 		return nil, docker.ErrNoNode
 	}
 	n.mu.RLock()
-	defer n.mu.RUnlock()
 	t, ok := n.tables[id]
-	if !ok {
-		return nil, fmt.Errorf("%w: no VIP table for node %s", errs.ErrBusy, id)
+	n.mu.RUnlock()
+	switch {
+	case ok:
+		return t, nil
+	case n.down != nil:
+		return nil, n.down(ctx, id)
 	}
-	return t, nil
+	return nil, fmt.Errorf("%w: the node has no VIP table", errs.ErrBusy)
 }
 
 func (n *nodeVIPs) Set(ctx context.Context, v string, replicas, lan []string) error {

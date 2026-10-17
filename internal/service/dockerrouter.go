@@ -81,8 +81,11 @@ func (r *DockerRouter) pick(ctx context.Context) (Docker, error) {
 			return nil, err
 		}
 	}
+	// The panel's Gate (Orchestrator.gate) refuses a node with no client
+	// first, as a NodeDownError that names it for admins only; this is the
+	// gateless router's (tests), which names no node: members read it.
 	if !ok {
-		return nil, fmt.Errorf("%w: no connection to node %s", errs.ErrBusy, id)
+		return nil, fmt.Errorf("%w: no connection to the node", errs.ErrBusy)
 	}
 	return c, nil
 }

@@ -355,3 +355,26 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 		t.Errorf("offline node = %v", err)
 	}
 }
+
+// A node with no VIP table is refused as down: members read the error, so
+// it names no node; admins get the name from Detail.
+func TestNoVIPTableIsNodeDown(t *testing.T) {
+	ctx := context.Background()
+	o, _, _ := gateWorld(t)
+	n, err := o.store.Nodes.Get(ctx, "w1")
+	must(t, err)
+	n.Name = "edge-east"
+	must(t, o.store.Nodes.Update(ctx, n))
+	o.vip.(*nodeVIPs).Detach("w1")
+	_, err = o.vipFor(WithNode(ctx, "w1"))
+	var d *NodeDownError
+	if !errors.As(err, &d) || !errors.Is(err, errs.ErrBusy) {
+		t.Fatalf("no table = %v", err)
+	}
+	if strings.Contains(err.Error(), "w1") || strings.Contains(err.Error(), "edge-east") {
+		t.Errorf("member error names the node: %q", err)
+	}
+	if !strings.Contains(d.Detail(), "edge-east") {
+		t.Errorf("admin detail = %q", d.Detail())
+	}
+}
