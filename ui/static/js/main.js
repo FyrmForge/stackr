@@ -133,20 +133,38 @@ document.addEventListener('click', function (evt) {
         clearTimeout(fileTimer);
         fileTimer = setTimeout(function () { checkFileNow(p); }, 300);
     }
+    // The repo's YAML files at the branch fill the path's datalist, so the
+    // browser filters them as the path is typed. One fetch per repo and
+    // branch; typing the path only re-reads the cached list.
     function checkFileNow(p) {
         var pathIn = p.querySelector('[data-path-input]');
         var note = p.querySelector('[data-path-note]');
         var repo = p.querySelector('[data-combo-input]').value.trim();
         if (!note || !repo.includes('/')) return;
+        var ref = p.querySelector('[data-branch-input]').value.trim();
+        var key = repo + '@' + ref;
+        function show(files) {
+            var path = pathIn.value.trim() || pathIn.placeholder;
+            var found = files.indexOf(path) >= 0;
+            note.textContent = found ? path + ' found in this branch.' : path + ' is not in this branch yet.';
+            note.classList.toggle('text-rw-warning', !found);
+            note.classList.toggle('text-rw-faint', found);
+        }
+        if (p._filesKey === key) { show(p._files); return; }
         note.textContent = '';
-        ask(p, '/file', {
-            repo: repo,
-            ref: p.querySelector('[data-branch-input]').value.trim(),
-            path: pathIn.value.trim(),
-        }, function (d) {
-            note.textContent = d.exists ? d.path + ' found in this branch.' : d.path + ' is not in this branch yet.';
-            note.classList.toggle('text-rw-warning', !d.exists);
-            note.classList.toggle('text-rw-faint', d.exists);
+        ask(p, '/files', { repo: repo, ref: ref }, function (files) {
+            p._filesKey = key;
+            p._files = files;
+            var dl = p.querySelector('[data-path-list]');
+            if (dl) {
+                dl.innerHTML = '';
+                files.forEach(function (f) {
+                    var o = document.createElement('option');
+                    o.value = f;
+                    dl.appendChild(o);
+                });
+            }
+            show(files);
         });
     }
 
@@ -178,6 +196,8 @@ document.addEventListener('click', function (evt) {
     document.addEventListener('focusin', function (e) {
         var p = pickerOf(e.target);
         if (p && e.target.matches('[data-combo-input]')) filter(p);
+        // A saved repo was never picked on this page: list its files now.
+        if (p && e.target.matches('[data-path-input]')) checkFileNow(p);
     });
     document.addEventListener('keydown', function (e) {
         var p = pickerOf(e.target);

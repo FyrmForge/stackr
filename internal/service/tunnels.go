@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -59,6 +60,35 @@ func fillEnds(m *ClusterMap, in []clusterNodeIn, spec func(string) (worker.MeshS
 	for _, ls := range [][]ClusterLink{m.Links, m.Pairs} {
 		for i := range ls {
 			ls[i].Ends = [2]TunnelEnd{end(ls[i].A, ls[i].B), end(ls[i].B, ls[i].A)}
+		}
+	}
+}
+
+// natPublic sets Public on each network behind a router: the public address
+// a node outside it sees that network's packets arrive from.
+func natPublic(m *ClusterMap) {
+	netOf := map[string]string{}
+	for _, n := range m.Nodes {
+		netOf[n.ID] = n.Net
+	}
+	for i := range m.Networks {
+		c := &m.Networks[i]
+		if !c.Router {
+			continue
+		}
+		for _, l := range m.Pairs {
+			// The outside end's SeenFrom is where the inside end's packets come from.
+			seen := ""
+			switch {
+			case netOf[l.A] == c.ID && netOf[l.B] != c.ID:
+				seen = l.Ends[1].SeenFrom
+			case netOf[l.B] == c.ID && netOf[l.A] != c.ID:
+				seen = l.Ends[0].SeenFrom
+			}
+			if ap, err := netip.ParseAddrPort(seen); err == nil && !ap.Addr().IsPrivate() && !ap.Addr().IsLoopback() {
+				c.Public = ap.Addr().Unmap().String()
+				break
+			}
 		}
 	}
 }

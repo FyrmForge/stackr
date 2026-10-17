@@ -202,8 +202,8 @@ func TestDrawerActions(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	rec := s.Do(t, "POST", "/acme/shop/-/drawer/delete", nil)
-	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "environments first") {
-		t.Errorf("delete a stack with envs = %d %s", rec.Code, rec.Body)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "to remove it and everything in it") {
+		t.Errorf("delete a stack untyped = %d %s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", "/acme/-/vars", url.Values{
 		"scope":          {"org"},

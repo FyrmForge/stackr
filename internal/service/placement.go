@@ -609,7 +609,7 @@ func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, na
 		return nil, err
 	}
 	if len(plans) > 0 {
-		if confirm != o.scopeSlug(ctx, kind, id) {
+		if confirm != o.scopeSlug(ctx, kind, id) && !pmIdle(plans) {
 			return nil, &MoveNeeded{Plans: plans}
 		}
 		for _, pl := range plans {
@@ -819,7 +819,8 @@ func (o *Orchestrator) followPin(ctx context.Context, kind, id string) error {
 
 // pinEnv is PinScope on an env. inherit pins it to what its stack, org or
 // the default gives. A pin onto another node is refused with *MoveNeeded
-// unless confirm is the env's slug; then the env moves.
+// unless confirm is the env's slug or nothing in it runs or holds data;
+// then the env moves.
 func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, p store.Placement, inherit bool, confirm string) ([]Job, error) {
 	e, err := o.store.Environments.Get(ctx, envID)
 	if err != nil {
@@ -864,10 +865,10 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 		if err != nil {
 			return nil, err
 		}
-		if confirm != e.Slug {
+		if confirm != e.Slug && !pmIdle([]PlacementMovePlan{plan}) {
 			return nil, &MoveNeeded{Plans: []PlacementMovePlan{plan}}
 		}
-		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, confirm)
+		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, e.Slug)
 		if err != nil {
 			return nil, err
 		}
@@ -886,10 +887,27 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 	return nil, nil
 }
 
+// IngressHostsMove is PickIngress's refusal when the pick sends hosts to
+// another proxy: their DNS must point there or they stop answering.
+type IngressHostsMove struct {
+	Hosts []string
+	To    string // the placement, or "the default ingress"
+}
+
+func (e *IngressHostsMove) Error() string {
+	return fmt.Sprintf("%s will be served by %s; point their DNS there first", strings.Join(e.Hosts, ", "), e.To)
+}
+
 // SetIngress picks the placement whose node's Caddy serves a scope's public
 // routes ("" = inherit). The placement must be open to the org and, once it
 // has a node, that node must be tagged ingress.
 func (o *Orchestrator) SetIngress(ctx context.Context, by *Principal, kind, id, name string) error {
+	return o.PickIngress(ctx, by, kind, id, name, true)
+}
+
+// PickIngress is SetIngress that, unless confirm, refuses with
+// *IngressHostsMove when the scope's hosts would move to another proxy.
+func (o *Orchestrator) PickIngress(ctx context.Context, by *Principal, kind, id, name string, confirm bool) error {
 	_, og, err := o.chain(ctx, kind, id)
 	if err != nil {
 		return err
@@ -906,6 +924,19 @@ func (o *Orchestrator) SetIngress(ctx context.Context, by *Principal, kind, id, 
 			return errs.Invalidf("placement", "%s cannot be an ingress: %s", p.Name, why)
 		}
 		pick = p.ID
+	}
+	if !confirm {
+		hosts, err := o.ingressHostsMoving(ctx, kind, id, pick)
+		if err != nil {
+			return err
+		}
+		if len(hosts) > 0 {
+			to := name
+			if to == "" {
+				to = "the inherited ingress"
+			}
+			return &IngressHostsMove{Hosts: hosts, To: to}
+		}
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.IngressPicks.Set(ctx, kind, id, pick); err != nil {
@@ -1003,6 +1034,85 @@ func (o *Orchestrator) ResolveExits(ctx context.Context, tileID string) (exits.R
 	return res, err
 }
 
+// ingressOver is a scope's ingress pick as it would be.
+type ingressOver struct{ kind, id, pick string }
+
+// ingressHostsMoving are the hosts of the scope's tiles whose ingress node
+// changes when the scope's pick becomes pick.
+func (o *Orchestrator) ingressHostsMoving(ctx context.Context, kind, id, pick string) ([]string, error) {
+	var tileIDs []string
+	switch kind {
+	case ScopeTile:
+		tileIDs = []string{id}
+	default:
+		var envs []store.Environment
+		if kind == ScopeEnv {
+			e, err := o.store.Environments.Get(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			envs = []store.Environment{e}
+		} else {
+			sts := []store.Stack{{ID: id}}
+			if kind == ScopeOrg {
+				var err error
+				if sts, err = o.store.Stacks.ListByOrg(ctx, id); err != nil {
+					return nil, err
+				}
+			}
+			for _, st := range sts {
+				es, err := o.store.Environments.ListByStack(ctx, st.ID)
+				if err != nil {
+					return nil, err
+				}
+				envs = append(envs, es...)
+			}
+		}
+		for _, e := range envs {
+			ts, err := o.store.Tiles.ListByEnv(ctx, e.ID)
+			if err != nil {
+				return nil, err
+			}
+			for _, t := range ts {
+				tileIDs = append(tileIDs, t.ID)
+			}
+		}
+	}
+	def, err := o.DefaultIngress(ctx)
+	if err != nil {
+		return nil, err
+	}
+	or := func(n string) string {
+		if n == "" {
+			return def
+		}
+		return n
+	}
+	var hosts []string
+	for _, tid := range tileIDs {
+		before, err := o.ingressWith(ctx, tid, nil)
+		if err != nil {
+			return nil, err
+		}
+		after, err := o.ingressWith(ctx, tid, &ingressOver{kind, id, pick})
+		if err != nil {
+			return nil, err
+		}
+		if or(before) == or(after) {
+			continue
+		}
+		ds, err := o.store.Domains.ListByTile(ctx, tid)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range ds {
+			hosts = append(hosts, d.Host)
+		}
+	}
+	slices.Sort(hosts)
+	return slices.Compact(hosts), nil
+}
+
 // ingressPick is the scope's own ingress pick as a placement id ("" = inherit).
 func (o *Orchestrator) ingressPick(ctx context.Context, kind, id string) (string, error) {
 	return o.store.IngressPicks.Get(ctx, kind, id)
@@ -1012,6 +1122,12 @@ func (o *Orchestrator) ingressPick(ctx context.Context, kind, id string) (string
 // the nearest picked placement; else the env's own node when it is tagged
 // ingress; else "" = the default ingress node.
 func (o *Orchestrator) IngressFor(ctx context.Context, tileID string) (string, error) {
+	return o.ingressWith(ctx, tileID, nil)
+}
+
+// ingressWith is IngressFor with over, when set, standing in for the
+// stored pick of its scope (what a pick would change).
+func (o *Orchestrator) ingressWith(ctx context.Context, tileID string, over *ingressOver) (string, error) {
 	ch, _, err := o.chain(ctx, ScopeTile, tileID)
 	if err != nil {
 		return "", err
@@ -1020,6 +1136,9 @@ func (o *Orchestrator) IngressFor(ctx context.Context, tileID string) (string, e
 		pick, err := o.ingressPick(ctx, s.kind, s.id)
 		if err != nil {
 			return "", err
+		}
+		if over != nil && over.kind == s.kind && over.id == s.id {
+			pick = over.pick
 		}
 		if pick == "" {
 			continue

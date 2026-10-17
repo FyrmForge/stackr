@@ -437,6 +437,32 @@ func (d *Client) EnsureBuilder(ctx context.Context, name string, memMB int) erro
 	return nil
 }
 
+// replaceLines writes w whole lines with old replaced by new, so a match
+// split across two writes is still caught; flush writes the rest.
+type replaceLines struct {
+	w        io.Writer
+	old, new []byte
+	buf      []byte
+}
+
+func (r *replaceLines) Write(p []byte) (int, error) {
+	r.buf = append(r.buf, p...)
+	i := bytes.LastIndexByte(r.buf, '\n')
+	if i < 0 {
+		return len(p), nil
+	}
+	_, err := r.w.Write(bytes.ReplaceAll(r.buf[:i+1], r.old, r.new))
+	r.buf = append(r.buf[:0], r.buf[i+1:]...)
+	return len(p), err
+}
+
+func (r *replaceLines) flush() {
+	if len(r.buf) > 0 {
+		_, _ = r.w.Write(bytes.ReplaceAll(r.buf, r.old, r.new))
+		r.buf = r.buf[:0]
+	}
+}
+
 // Build builds dir into tag with buildx, streaming plain progress to log, and
 // returns the image id. --load puts the result in the daemon.
 func (d *Client) Build(
@@ -457,8 +483,13 @@ func (d *Client) Build(
 		return "", err
 	}
 	defer done()
-	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, log, log
-	if err := cmd.Run(); err != nil {
+	// buildx names its instance in the log; a worker's carries the node's
+	// mesh address, which members reading the log must not see.
+	w := &replaceLines{w: log, old: []byte(d.builderName(builder)), new: []byte(builder)}
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, w, w
+	err = cmd.Run()
+	w.flush()
+	if err != nil {
 		return "", fmt.Errorf("buildx build: %w", err)
 	}
 	info, err := d.cli.ImageInspect(ctx, tag)

@@ -254,13 +254,20 @@ func (s *Server) facts(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(s.Facts(r.Context()))
 }
 
+// HostFacts is the machine itself: kernel, cores, memory and arch. The
+// installer sends it at join, before a worker runs, so the pending row has a
+// System line.
+func HostFacts() Facts {
+	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
+	return Facts{Kernel: strings.TrimSpace(string(b)), CPUs: runtime.NumCPU(), Arch: runtime.GOARCH, MemBytes: meminfo("MemTotal:")}
+}
+
 // Facts is what the node reports about itself: GET /v1/facts, and the body
 // of a recovery call.
 func (s *Server) Facts(ctx context.Context) Facts {
-	f := Facts{CPUs: runtime.NumCPU(), Arch: runtime.GOARCH, Version: s.cfg.Version, Interfaces: Interfaces()}
-	b, _ := os.ReadFile("/proc/sys/kernel/osrelease")
-	f.Kernel = strings.TrimSpace(string(b))
-	f.MemBytes, f.MemFree = meminfo("MemTotal:"), meminfo("MemAvailable:")
+	f := HostFacts()
+	f.Version, f.Interfaces = s.cfg.Version, Interfaces()
+	f.MemFree = meminfo("MemAvailable:")
 	if f2 := strings.Fields(readFile("/proc/uptime")); len(f2) > 0 {
 		f.UptimeS, _ = strconv.ParseFloat(f2[0], 64)
 	}

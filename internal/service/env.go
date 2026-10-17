@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
 
 type EnvSpec = environment.Spec
@@ -52,11 +54,22 @@ func (o *Orchestrator) JoinsLockedTier(ctx context.Context, by *Principal, stack
 }
 
 func (o *Orchestrator) CreateEnv(ctx context.Context, stackID, name string, s EnvSpec) (Environment, error) {
+	var err error
+	if s.DefaultBranch, err = o.EnvDefaultBranch(ctx, stackID); err != nil {
+		return Environment{}, err
+	}
 	e, err := o.envs.Create(ctx, stackID, name, s)
 	if err == nil {
 		o.kickMesh()
 	}
 	return e, err
+}
+
+// EnvDefaultBranch is what a new branch env builds when given no branch:
+// the stack file's branch, else main.
+func (o *Orchestrator) EnvDefaultBranch(ctx context.Context, stackID string) (string, error) {
+	st, err := o.stacks.Get(ctx, stackID)
+	return cmp.Or(st.ConfigBranch, "main"), err
 }
 
 // RenameEnv moves name and slug, and the auto domains under the env with
@@ -102,8 +115,29 @@ func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environm
 // SetEnvFrom sets where the env's releases come from: a branch (auto or
 // not) or promotion from the rung below.
 func (o *Orchestrator) SetEnvFrom(ctx context.Context, id, kind, branch string, auto bool) (Environment, error) {
-	return o.onEnv(ctx, id,
-		func(e Environment) (Environment, error) { return o.envs.SetFrom(ctx, e, kind, branch, auto) })
+	return o.onEnv(ctx, id, func(e Environment) (Environment, error) {
+		was := e.FromBranch
+		e, err := o.envs.SetFrom(ctx, e, kind, branch, auto)
+		if err != nil || e.FromKind != environment.FromBranch || e.FromBranch == was {
+			return e, err
+		}
+		// its building tiles follow, or no push would build them again
+		ts, err := o.tiles.List(ctx, e.ID)
+		if err != nil {
+			return e, err
+		}
+		for _, t := range ts {
+			if !tile.Builds(t) || t.GitBranch == e.FromBranch {
+				continue
+			}
+			cur := t
+			cur.GitBranch = e.FromBranch
+			if _, _, err := o.tiles.Update(ctx, t, cur); err != nil {
+				return e, err
+			}
+		}
+		return e, nil
+	})
 }
 
 func (o *Orchestrator) SetEnvColor(ctx context.Context, id, color string) (Environment, error) {

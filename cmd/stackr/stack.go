@@ -28,7 +28,7 @@ var (
 	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
 	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
-	runCols     = []string{"id", "status", "trigger", "created_at", "size_bytes", "object_key", "error"}
+	runCols     = []string{"id", "status", "trigger", "dest", "created_at", "size_bytes", "object_key", "error"}
 	pinCols     = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
 	tileRunCols = []string{"id", "status", "trigger", "exit_code", "reason", "created_at", "finished_at"}
 )
@@ -326,15 +326,61 @@ func (a *app) stacks() *cobra.Command {
 			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
 				return a.orgJob(c, POST, p+"/image-check", nil, "image check")
 			}))),
-		leaf("rm", "stack.delete", "Delete the stack", exact(0),
-			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
-				if err := a.confirm("Remove stack " + last(p) + "? It must be empty of environments first."); err != nil {
+		a.stackRm(),
+	), false)
+}
+
+// stackRm deletes an empty stack, or with --cascade everything in it, in one
+// job. The stack is the argument, --stack or the linked one.
+func (a *app) stackRm() *cobra.Command {
+	var cascade bool
+	c := waits(leaf("rm [stack]", "stack.delete,stack.teardown",
+		"Delete the stack; --cascade removes its tiles and environments too", upTo(1),
+		named("stack", a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
+			if !cascade {
+				if err := a.confirm("Remove stack " + last(p) + "? It must be empty of environments first; --cascade removes them."); err != nil {
 					return err
 				}
 				_, err := a.call(DELETE, p, nil)
 				return err
-			})),
-	), false)
+			}
+			if err := a.confirm("Remove stack " + last(p) + " with every tile and environment in it? Volumes are kept until removed."); err != nil {
+				return err
+			}
+			j, err := a.call(POST, p+"/teardown", map[string]string{"confirm": last(p)})
+			if err != nil {
+				return err
+			}
+			if id, _ := asMap(j)["id"].(string); id == "" { // an empty stack goes at once
+				return nil
+			}
+			if nw, _ := c.Flags().GetBool("no-wait"); nw {
+				return a.show(j, "id", "kind", "state")
+			}
+			base, err := a.orgPath()
+			if err != nil {
+				return err
+			}
+			return a.follow(base, j, "stack removal")
+		}))))
+	c.Flags().BoolVar(&cascade, "cascade", false, "remove the stack's tiles and environments first")
+	return c
+}
+
+// named lets a scope flag be given as the command's one argument
+// ("stack rm shop" for "stack rm --stack shop").
+func named(flagName string, run func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
+	return func(c *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			if v := flag(c, flagName); v != "" && v != args[0] {
+				return usage("give the %s once: as the argument or as --%s", flagName, flagName)
+			}
+			if err := c.Flags().Set(flagName, args[0]); err != nil {
+				return err
+			}
+		}
+		return run(c, args)
+	}
 }
 
 func (a *app) releases() *cobra.Command {
@@ -395,7 +441,7 @@ func (a *app) envs() *cobra.Command {
 			}
 			return a.show(v, envCols...)
 		}))
-	create.Example = "  stackr env create dev --stack shop --from-branch main\n  stackr env create staging --stack shop"
+	create.Example = "  stackr env create dev --stack shop --branch main\n  stackr env create staging --stack shop"
 	create.Flags().StringVar(&typ, "type", "static", "static or ephemeral")
 	create.Flags().StringVar(&base, "base", "", "the env id an ephemeral env copies")
 	create.Flags().StringVar(&color, "color", "", "the panel colour")
@@ -409,7 +455,7 @@ func (a *app) envs() *cobra.Command {
 		"branch (builds a branch) or promote (takes releases by hand); default branch for the stack's first env, promote after")
 	from.Flags().StringVar(&fromKind, "from-kind", "branch", "branch (builds a branch) or promote (takes releases by hand)")
 	for _, c := range []*cobra.Command{create, from} {
-		c.Flags().StringVar(&fromBranch, "from-branch", "", "the branch it builds")
+		c.Flags().StringVar(&fromBranch, "branch", "", "the branch it builds")
 		c.Flags().BoolVar(&auto, "auto", false, "deploy each new release on its own")
 	}
 	return scoped(noun("env", "Environments of the stack",
@@ -458,14 +504,14 @@ func (a *app) envs() *cobra.Command {
 				_, err := a.call(PUT, p+"/envs-order", map[string]any{"ids": ids})
 				return err
 			})),
-		leaf("rm", "env.delete", "Delete the environment", exact(0),
-			a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
-				if err := a.confirm("Remove environment " + last(p) + " and its tiles? Their volumes are kept until removed."); err != nil {
+		leaf("rm [env]", "env.delete", "Delete the environment", upTo(1),
+			named("env", a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
+				if err := a.confirm("Remove environment " + last(p) + "? It must be empty of tiles first."); err != nil {
 					return err
 				}
 				_, err := a.call(DELETE, p, nil)
 				return err
-			})),
+			}))),
 	), false)
 }
 
@@ -1051,9 +1097,14 @@ func (a *app) domains() *cobra.Command {
 			"redirect-to": "redirect_to",
 		}
 	}
-	add := leaf("add <host>", "domain.attach", "Route a host to the tile", exact(1), nil)
+	add := leaf("add [host]", "domain.attach", "Route a host to the tile; --auto names one under the nearest domain resource", upTo(1), nil)
 	addKeys := domainFlags(add)
+	var auto bool
+	add.Flags().BoolVar(&auto, "auto", false, "take the generated name under the nearest domain resource, like the panel's Add auto domain")
 	add.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
+		if auto == (len(args) == 1) {
+			return usage("give a host, or --auto for a generated one")
+		}
 		body, err := changed(c, addKeys)
 		if err != nil {
 			return err
@@ -1061,7 +1112,11 @@ func (a *app) domains() *cobra.Command {
 		if body == nil {
 			body = map[string]any{}
 		}
-		body["host"] = args[0]
+		if auto {
+			body["auto"] = true
+		} else {
+			body["host"] = args[0]
+		}
 		v, err := a.call(POST, p+"/domains", body)
 		if err != nil {
 			return err

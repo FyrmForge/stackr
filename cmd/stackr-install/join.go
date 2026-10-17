@@ -281,7 +281,9 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	r.say("  made this node's keys")
 	j := joinCall{panel: u.String(), token: *token, caSHA: fp, poll: 10 * time.Second, say: r.say,
 		client: &http.Client{Timeout: 30 * time.Second}}
+	hf := worker.HostFacts()
 	st, err := j.run(ctx, csr, wgPub, map[string]any{
+		"kernel": hf.Kernel, "cpus": hf.CPUs, "mem_bytes": hf.MemBytes, "arch": hf.Arch,
 		"interfaces": worker.Interfaces(), "wg_port": *wgPort, "stackr_bridges": stackrBridges(ctx),
 		"docker_networks": dockerNetNames(ctx), // so a refusal names the network, not its bridge
 	})
@@ -342,10 +344,11 @@ func staleMembership(oldID, newID string) bool {
 
 // clearOld takes a former node's leftovers off the box, as an uninstall
 // without --purge does: the worker service, stackr's containers and networks,
-// its firewall rules and mesh. Volumes, images and the state dir stay. A
+// its firewall rules and mesh, and the proxy's certificates. Env volumes,
+// images and the state dir stay. A
 // failure is a warning: the join goes on, the new worker sets its mesh again.
 func clearOld(ctx context.Context, r runner, stateDir string) {
-	err := uninstallEnv{r: r, read: read, yes: true, stateDir: stateDir, installDir: envOr("STACKR_DATA_DIR", "/var/lib/stackr")}.run(ctx, false)
+	err := uninstallEnv{r: r, read: read, yes: true, formerNode: true, stateDir: stateDir, installDir: envOr("STACKR_DATA_DIR", "/var/lib/stackr")}.run(ctx, false)
 	if err != nil {
 		r.say("  warning: clearing the old node:", err)
 	}

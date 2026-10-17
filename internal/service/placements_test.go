@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -343,6 +344,26 @@ func TestEnvCreateOnPlacement(t *testing.T) {
 	}
 }
 
+// An env with no tiles and no volumes moves without a typed confirm: nothing
+// stops and no data moves.
+func TestPinEmptyEnvNeedsNoConfirm(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	n.placeW1(t, true)
+	addPlacement(t, n, "w1-twin", "w1", true)
+	empty, err := n.orch.CreateEnv(ctx, n.stack, "empty", EnvSpec{Type: environment.Static, FromKind: environment.FromBranch, FromBranch: "main"})
+	must(t, err)
+	js, err := n.orch.PinScope(ctx, adm, ScopeEnv, empty.ID, "w1-twin", "")
+	if err != nil || len(js) != 1 {
+		t.Fatalf("empty env pin = %v, %v; want its move queued without a confirm", js, err)
+	}
+	// dev has a tile: its pin still asks
+	if _, err := n.orch.PinScope(ctx, adm, ScopeEnv, n.dev.ID, "w1-twin", ""); !errors.As(err, new(*MoveNeeded)) {
+		t.Errorf("env with a tile = %v, want the move to confirm", err)
+	}
+}
+
 // Org and stack pins carry an env that is on the same node and move the
 // ones on another node only once confirmed with the scope's slug (D4); an env
 // pin that would move it is refused with the plan to confirm. Pinning an env
@@ -428,6 +449,34 @@ func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 	}
 	if err := n.orch.SetPin(ctx, adm, "tile", "x", "w1"); !errors.As(err, new(errs.Invalid)) {
 		t.Errorf("pin on a tile = %v", err)
+	}
+}
+
+// An ingress pick that sends a tile's hosts to another proxy asks first;
+// one that keeps them where they are, or a confirmed one, saves.
+func TestPickIngressAsksWhenHostsMove(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	n.placeW1(t, true)
+	mustTag(t, n, adm, "w1", "ingress")
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d1", TileID: n.devT.ID, Host: "shop.example.com", Path: "/", CreatedAt: time.Now()}))
+
+	var hm *IngressHostsMove
+	if err := n.orch.PickIngress(ctx, adm, ScopeEnv, n.dev.ID, "w1", false); !errors.As(err, &hm) || !slices.Equal(hm.Hosts, []string{"shop.example.com"}) || hm.To != "w1" {
+		t.Fatalf("pick that moves a host = %v", err)
+	}
+	if pick, _ := n.orch.ingressPick(ctx, ScopeEnv, n.dev.ID); pick != "" {
+		t.Fatal("a refused pick was written")
+	}
+	must(t, n.orch.PickIngress(ctx, adm, ScopeEnv, n.dev.ID, "w1", true))
+	// edge has no hosts: its pick moves nothing and saves
+	must(t, n.orch.PickIngress(ctx, adm, ScopeEnv, n.edge.ID, "w1", false))
+	// the API path saves and names the moved hosts
+	out, err := n.orch.IngressSet(ctx, adm, ScopeEnv, n.dev.ID, "")
+	must(t, err)
+	if !slices.Equal(out.Moved, []string{"shop.example.com"}) {
+		t.Errorf("IngressSet moved = %v", out.Moved)
 	}
 }
 

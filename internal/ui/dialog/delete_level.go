@@ -1,6 +1,10 @@
 package dialog
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"encoding/json"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // Delete confirms for the home, org and stack level cards. The answer is a
 // redirect to the canvas, or the drawer again with the refusal (target).
@@ -17,15 +21,18 @@ func DeleteOrg(name, action, target string) c.ConfirmView {
 	}
 }
 
-func DeleteStack(name, action, target string) c.ConfirmView {
+// DeleteStack takes the stack and everything in it; slug is the word typed.
+func DeleteStack(name, slug, action, target string) c.ConfirmView {
+	vals, _ := json.Marshal(map[string]string{"confirm": slug})
 	return c.ConfirmView{
 		Button:  "Delete stack",
 		Title:   "Delete " + name + "?",
-		Warning: "Its releases and params go. Refused while it has envs.",
+		Warning: "Its tiles, envs, releases and params go.",
 		Kept:    []string{"backups already in a destination", "its volumes, for the orphan retention; a last backup is taken before they go"},
-		Word:    name,
+		Word:    slug,
 		Action:  action,
 		Target:  target,
+		Vals:    string(vals),
 	}
 }
 

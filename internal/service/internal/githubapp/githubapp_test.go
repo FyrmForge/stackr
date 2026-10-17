@@ -118,6 +118,35 @@ func TestNotInstalledAndRepos(t *testing.T) {
 	}
 }
 
+func TestBranchesAndYAMLFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/repos/acme/cfg/branches":
+			_, _ = w.Write([]byte(`[{"name":"main"},{"name":"dev"}]`))
+		case "/repos/acme/cfg/git/trees/feat%2Fx":
+			_, _ = w.Write([]byte(`{"tree":[{"path":"stackr-org.yml","type":"blob"},{"path":"stacks","type":"tree"},{"path":"stacks/qa.yaml","type":"blob"},{"path":"README.md","type":"blob"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New("https://stackr.example.com")
+	c.apiURL = srv.URL
+	ctx := context.Background()
+	if bs, err := c.Branches(ctx, "t", "acme/cfg"); err != nil || strings.Join(bs, ",") != "main,dev" {
+		t.Fatalf("branches = %v %v", bs, err)
+	}
+	fs, err := c.YAMLFiles(ctx, "t", "https://github.com/acme/cfg.git", "feat/x")
+	if err != nil || strings.Join(fs, ",") != "stackr-org.yml,stacks/qa.yaml" {
+		t.Fatalf("files = %v %v", fs, err)
+	}
+	for _, bad := range []string{"acme", "acme/../x", "a/b/c", "../b", "acme/cfg?x"} {
+		if _, err := c.Branches(ctx, "t", bad); err == nil {
+			t.Errorf("repo %q accepted", bad)
+		}
+	}
+}
+
 // An App made after the panel moved registers the new host (port kept).
 func TestManifestFollowsPanelHost(t *testing.T) {
 	for _, c := range []struct{ base, panel, want string }{

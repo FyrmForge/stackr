@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -265,6 +266,12 @@ func (v View) legend() []struct{ kind, label string } {
 		}
 	}
 	return out
+}
+
+// tunnels says the canvas draws a mesh tunnel, whose arrow is the side
+// that dials.
+func (v View) tunnels() bool {
+	return slices.ContainsFunc(v.Edges, func(e Edge) bool { return strings.HasPrefix(e.Kind, "tunnel") })
 }
 
 // wall is the boundary's run: 120 px past the top and bottom cards (v0).

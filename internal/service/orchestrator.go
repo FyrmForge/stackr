@@ -141,6 +141,9 @@ type Config struct {
 	// cluster registry (imports.go). Off for a fake host and for tests with no
 	// registry behind them.
 	RegistryImports bool
+	// ProbeDests makes a backup destination pass a test write before it is
+	// saved. Off for tests with no bucket behind them.
+	ProbeDests bool
 }
 
 // Option changes how New builds the tree; tests use it.
@@ -709,6 +712,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn("vip: boot rebuild failed", "err", err)
 	}
 	orch.vipLegacy(ctx)
+	orch.settleRestored(ctx)
+	if err := orch.backups.Interrupted(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("close interrupted backups: %w", err)
+	}
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)

@@ -169,6 +169,57 @@ func TestYesIsNotForce(t *testing.T) {
 	}
 }
 
+// stack rm and env rm take their scope as the argument; --cascade posts a
+// teardown confirmed by the slug.
+func TestRmTakesTheScope(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	for _, c := range []struct{ args, want string }{
+		{"stack rm shop -y", "DELETE /api/v1/orgs/acme/stacks/shop "},
+		{"env rm dev --stack shop -y", "DELETE /api/v1/orgs/acme/stacks/shop/envs/dev "},
+		{"stack rm shop --cascade -y --no-wait", `POST /api/v1/orgs/acme/stacks/shop/teardown {"confirm":"shop"}`},
+	} {
+		r.reqs = nil
+		if code, _, errw := cli(t, strings.Fields(c.args)...); code != 0 {
+			t.Errorf("%s = %d %s", c.args, code, errw)
+			continue
+		}
+		if len(r.reqs) == 0 || r.reqs[len(r.reqs)-1] != c.want {
+			t.Errorf("%s sent %q, want %q", c.args, r.reqs, c.want)
+		}
+	}
+	if code, _, _ := cli(t, "stack", "rm", "shop", "--stack", "mart", "-y"); code != 2 {
+		t.Errorf("two stacks = %d, want 2", code)
+	}
+}
+
+// tile domain add takes a host or --auto, never both; env create's branch
+// flag is --branch.
+func TestDomainAutoAndBranch(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	tile := "/api/v1/orgs/acme/stacks/shop/envs/dev/tiles/api"
+	for _, c := range []struct{ args, want string }{
+		{"tile domain add --auto --stack shop --env dev --tile api", "POST " + tile + `/domains {"auto":true}`},
+		{"tile domain add a.io --stack shop --env dev --tile api", "POST " + tile + `/domains {"host":"a.io"}`},
+		{"env create qa --stack shop --branch main", `POST /api/v1/orgs/acme/stacks/shop/envs {"auto":false,"color":"","from_branch":"main","from_kind":"","name":"qa","type":"static"}`},
+	} {
+		r.reqs = nil
+		if code, _, errw := cli(t, strings.Fields(c.args)...); code != 0 {
+			t.Errorf("%s = %d %s", c.args, code, errw)
+			continue
+		}
+		if len(r.reqs) == 0 || r.reqs[len(r.reqs)-1] != c.want {
+			t.Errorf("%s sent %q, want %q", c.args, r.reqs, c.want)
+		}
+	}
+	for _, args := range []string{"tile domain add --stack shop --env dev --tile api", "tile domain add a.io --auto --stack shop --env dev --tile api"} {
+		if code, _, _ := cli(t, strings.Fields(args)...); code != 2 {
+			t.Errorf("%s = %d, want 2", args, code)
+		}
+	}
+}
+
 func TestUsageExitsTwo(t *testing.T) {
 	useServer(t, "http://127.0.0.1:1")
 	for _, args := range [][]string{
@@ -308,6 +359,10 @@ func TestDomainResourceRoutes(t *testing.T) {
 		},
 		{
 			"add --level stack --owner acme/shop --host shop.io",
+			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
+		},
+		{
+			"add shop.io --level stack --owner shop",
 			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
 		},
 		{
@@ -585,7 +640,7 @@ func TestTileExecExitCode(t *testing.T) {
 	}
 }
 
-// An invite with no --role asks for owner, v1's one role; a shared flag var
+// An invite with no --role asks for member, the panel's default too; a shared flag var
 // once let `members set` wipe the default and the body carried none.
 func TestInviteDefaultRole(t *testing.T) {
 	var r recorder
@@ -593,8 +648,8 @@ func TestInviteDefaultRole(t *testing.T) {
 	if code, _, errw := cli(t, "org", "invites", "add", "--email", "a@acme.test"); code != 0 {
 		t.Fatalf("invites add = %d %s", code, errw)
 	}
-	if len(r.reqs) == 0 || !strings.Contains(r.reqs[len(r.reqs)-1], `"role":"owner"`) {
-		t.Errorf("invite sent %v, want role owner", r.reqs)
+	if len(r.reqs) == 0 || !strings.Contains(r.reqs[len(r.reqs)-1], `"role":"member"`) {
+		t.Errorf("invite sent %v, want role member", r.reqs)
 	}
 }
 
@@ -694,6 +749,19 @@ func TestPromoteAsks(t *testing.T) {
 		if code, _, errw := cli(t, append([]string{"-y"}, verb...)...); code == 0 || posted(r) || !strings.Contains(errw, "blocked") {
 			t.Errorf("%s blocked = %d %q, posted %v", verb[0], code, errw, posted(r))
 		}
+	}
+}
+
+// A pin move the blocker already quotes is not printed again as an impact.
+func TestPromoteDryRunSaysPinMoveOnce(t *testing.T) {
+	fake(t, map[string]string{
+		"/releases": `[{"id":"r7","number":7}]`,
+		"/plan/r7": `{"can_deploy":false,"plan":{"changes":[{"kind":"pin","new":"eu","impact":"moves shop/prod"}],` +
+			`"blockers":["pin eu moves shop/prod; confirm that move on the Placement tab"]}}`,
+	})
+	_, _, errw := cli(t, "promote", "7", "--stack", "shop", "--env", "prod", "--dry-run")
+	if n := strings.Count(errw, "moves shop/prod"); n != 1 {
+		t.Errorf("pin move said %d times:\n%s", n, errw)
 	}
 }
 

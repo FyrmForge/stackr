@@ -96,3 +96,22 @@ func TestTunnelsOf(t *testing.T) {
 		t.Errorf("h3 has tunnels %+v", got)
 	}
 }
+
+// A NAT shows the address an outside node sees its network's packets from.
+func TestNatPublic(t *testing.T) {
+	m := ClusterMap{
+		Nodes:    []ClusterNode{{ID: "ctl", Net: "pub"}, {ID: "w1", Net: "home"}, {ID: "w2", Net: "home"}},
+		Networks: []ClusterNet{{ID: "pub"}, {ID: "home", Router: true}},
+		Pairs: []ClusterLink{
+			{A: "w1", B: "w2", Ends: [2]TunnelEnd{{SeenFrom: "192.168.1.5:51871"}, {SeenFrom: "192.168.1.6:51871"}}},
+			{A: "ctl", B: "w1", Ends: [2]TunnelEnd{{SeenFrom: "109.148.70.232:40001"}, {SeenFrom: "203.0.113.1:51871"}}},
+		},
+	}
+	natPublic(&m)
+	if got := m.Networks[1].Public; got != "109.148.70.232" {
+		t.Errorf("home NAT public = %q", got)
+	}
+	if got := m.Networks[0].Public; got != "" {
+		t.Errorf("pub has no router, got %q", got)
+	}
+}

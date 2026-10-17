@@ -118,6 +118,25 @@ func TestCreateTaken(t *testing.T) {
 	}
 }
 
+// The owner adding a host it already holds (the row org create made) gets
+// that row back, declared; another org adding it is still refused.
+func TestCreateOwnHostAgain(t *testing.T) {
+	st, l, orgs := world(t)
+	o1 := "o1"
+	must(t, st.DomainResources.Create(ctx, store.DomainResource{
+		ID: "auto", Level: domainres.Org, OrgID: &o1, Host: "acme.example.io", CreatedAt: t0,
+	}))
+	got, err := l.Create(ctx, domainres.Spec{Level: domainres.Org, OwnerID: "o1", Host: "acme.example.io", IncludeEnvOnDefault: true}, "o1", orgs)
+	must(t, err)
+	if got.ID != "auto" || !got.Declared || !got.IncludeEnvOnDefault {
+		t.Errorf("got %+v, want the auto row declared", got)
+	}
+	_, err = l.Create(ctx, domainres.Spec{Level: domainres.Org, OwnerID: "o2", Host: "acme.example.io"}, "o2", orgs)
+	if _, ok := errs.IsConflict(err); !ok {
+		t.Errorf("another org: err = %v, want a conflict", err)
+	}
+}
+
 // Both directions on one label rule: a resource may not lead with another
 // org's slug, and an org may not rename onto the slug a foreign resource
 // leads with. An org's own rows, and its stacks' rows, never count.

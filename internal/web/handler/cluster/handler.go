@@ -230,7 +230,7 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 		m.Nodes = append(m.Nodes, u)
 	}
 	for _, n := range cm.Networks {
-		m.Nets = append(m.Nets, cluster.Net{ID: n.ID, CIDR: n.CIDR, Nodes: n.Nodes, Router: n.Router, Forward: n.Forward, Unsure: n.Unsure})
+		m.Nets = append(m.Nets, cluster.Net{ID: n.ID, CIDR: n.CIDR, Nodes: n.Nodes, Router: n.Router, Forward: n.Forward, Unsure: n.Unsure, Public: n.Public})
 	}
 	for _, l := range cm.Links {
 		m.Links = append(m.Links, mapLink(l))

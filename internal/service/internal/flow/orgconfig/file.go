@@ -67,7 +67,7 @@ type tierBody struct {
 
 func (ts *Tiers) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.MappingNode {
-		return fmt.Errorf("line %d: tiers is a map of slug to {locked: bool}, bottom first", n.Line)
+		return planfile.LineError(n.Line, "tiers is a map of slug to {locked: bool}, bottom first")
 	}
 	*ts = nil
 	for i := 0; i < len(n.Content); i += 2 {
@@ -76,7 +76,7 @@ func (ts *Tiers) UnmarshalYAML(n *yaml.Node) error {
 		switch {
 		case v.Kind == yaml.ScalarNode && v.Tag == "!!null": // `dev:` alone
 		case v.Kind != yaml.MappingNode:
-			return fmt.Errorf("line %d: tiers.%s is {locked: bool}", v.Line, k.Value)
+			return planfile.LineError(v.Line, "tiers.%s is {locked: bool}", k.Value)
 		default:
 			var body tierBody
 			if err := strictNode(v, &body); err != nil {
@@ -203,13 +203,13 @@ type StackRef struct {
 // inline stack, which the rewrite has no apply path for.
 func (r *StackRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.MappingNode {
-		return fmt.Errorf("line %d: a stack entry is repo, branch, path and connector, or path alone", n.Line)
+		return planfile.LineError(n.Line, "a stack entry is repo, branch, path and connector, or path alone")
 	}
 	for i := 0; i < len(n.Content); i += 2 {
 		switch k := n.Content[i]; k.Value {
 		case "repo", "branch", "path", "connector":
 		default:
-			return fmt.Errorf("line %d: %s: inline stacks are not supported; put the stack in its own file", k.Line, k.Value)
+			return planfile.LineError(k.Line, "%s: inline stacks are not supported; put the stack in its own file", k.Value)
 		}
 	}
 	type plain StackRef
@@ -290,7 +290,7 @@ var removedKeys = map[string]string{
 func Parse(data []byte) (*File, error) {
 	var f File
 	var err error
-	if err = planfile.StrictYAML(data, &f, removedKeys); err != nil {
+	if err = planfile.ParseFile(data, &f, removedKeys); err != nil {
 		return nil, fmt.Errorf("yaml: %w", err)
 	}
 	if f.Version != 1 {

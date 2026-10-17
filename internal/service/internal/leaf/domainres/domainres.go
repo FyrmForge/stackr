@@ -66,10 +66,41 @@ func (l *Leaf) Create(ctx context.Context, s Spec, ownOrgID string, orgs []store
 	}
 	err = l.rows.Create(ctx, r)
 	_, taken := errs.IsConflict(err)
-	if taken {
-		return r, errs.Conflictf("%s is already a domain resource.", r.Host)
+	if !taken {
+		return r, err
 	}
-	return r, err
+	if cur, ok := l.sameOwner(ctx, r); ok {
+		// Adding a host its owner already holds (the one org create made,
+		// say) is not an error: the row becomes declared with these settings.
+		cur.Declared = true
+		cur.IncludeEnvOnDefault = r.IncludeEnvOnDefault
+		cur.ACMEEmail = r.ACMEEmail
+		return cur, l.rows.Update(ctx, cur)
+	}
+	return r, errs.Conflictf("%s is already a domain resource.", r.Host)
+}
+
+// sameOwner is the row holding r's host when it sits at r's level under
+// r's owner.
+func (l *Leaf) sameOwner(ctx context.Context, r store.DomainResource) (store.DomainResource, bool) {
+	all, err := l.rows.List(ctx)
+	if err != nil {
+		return store.DomainResource{}, false
+	}
+	for _, c := range all {
+		if c.Host == r.Host && c.Level == r.Level &&
+			str(c.OrgID) == str(r.OrgID) && str(c.StackID) == str(r.StackID) {
+			return c, true
+		}
+	}
+	return store.DomainResource{}, false
+}
+
+func str(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // Prepare is the row Create would write, every check but the taken host

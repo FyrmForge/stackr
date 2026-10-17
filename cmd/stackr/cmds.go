@@ -318,6 +318,15 @@ func (a *app) orgs() *cobra.Command {
 			})
 		}
 	}
+	var allInvites bool
+	invitesLs := leaf("ls", "invite.list", "List pending invites; --all adds used and expired ones", exact(0),
+		func(c *cobra.Command, args []string) error {
+			if allInvites {
+				return get("/invites?all=true", "email", "role", "expires_at", "used_at", "id")(c, args)
+			}
+			return get("/invites", "email", "role", "expires_at", "id")(c, args)
+		})
+	invitesLs.Flags().BoolVar(&allInvites, "all", false, "add used and expired invites")
 	// Each verb has its own role: one shared var let set's flag wipe add's default.
 	var inviteRole, setRoleTo, email, url, user string
 	invite := leaf("add", "invite.create", "Invite someone; the link is a credential", exact(0),
@@ -333,7 +342,7 @@ func (a *app) orgs() *cobra.Command {
 			})
 		})
 	invite.Flags().StringVar(&email, "email", "", "who it is for (required)")
-	invite.Flags().StringVar(&inviteRole, "role", "owner", "viewer, member or owner: viewer sees, member deploys and edits stacks, owner also manages people and settings")
+	invite.Flags().StringVar(&inviteRole, "role", "member", "viewer, member or owner: viewer sees, member deploys and edits stacks, owner also manages people and settings")
 	setRole := leaf("set <user-id>", "member.role", "Change a member's role", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			return org(func(p string) error {
@@ -479,13 +488,7 @@ func (a *app) orgs() *cobra.Command {
 				}),
 		),
 		noun("invites", "Pending invites",
-			leaf(
-				"ls",
-				"invite.list",
-				"List invites",
-				exact(0),
-				get("/invites", "email", "role", "expires_at", "used_at", "id"),
-			),
+			invitesLs,
 			invite,
 			leaf("rm <id>", "invite.list,invite.revoke", "Revoke an invite; its link stops working", exact(1),
 				func(_ *cobra.Command, args []string) error {
@@ -750,11 +753,17 @@ func (a *app) domainResources() *cobra.Command {
 		},
 	)
 	add := leaf(
-		"add",
+		"add [host]",
 		"domain-resource.create,domain-resource.create-stack,admin.domain-resource-create",
-		"Add a host tiles get names under, at instance, org or stack level",
-		exact(0),
-		func(*cobra.Command, []string) error {
+		"Add a host tiles get names under, at instance, org or stack level; one the owner already has is kept",
+		upTo(1),
+		func(_ *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				if host != "" && host != args[0] {
+					return usage("give the host once: as the argument or as --host")
+				}
+				host = args[0]
+			}
 			p, err := a.resourceOwner(level, owner)
 			if err != nil {
 				return err
@@ -969,6 +978,9 @@ func (a *app) admin() *cobra.Command {
 			if t := flag(c, "tag"); t != "" {
 				body = map[string]string{"tag": t}
 			}
+			if d := flag(c, "dest"); d != "" {
+				body = map[string]string{"dest": d}
+			}
 			return a.job(c, "/admin", POST, path, body, what)
 		}))
 	}
@@ -983,6 +995,8 @@ func (a *app) admin() *cobra.Command {
 		"Upgrade this stackr server? The panel restarts; tiles keep running.")
 	upgrade.Flags().String("tag", "", "the release tag (stackr admin upgrade-check names the newest)")
 	_ = upgrade.MarkFlagRequired("tag")
+	panelBackup := adminJob("panel-backup", "admin.panel-backup", "Back up stackr's own database now", "/admin/panel-backups", "panel backup", "")
+	panelBackup.Flags().String("dest", "", "a server destination's name, or local (default: the scheduled destination)")
 	var set, clear []string
 	defaults := leaf(
 		"defaults",
@@ -1097,18 +1111,12 @@ func (a *app) admin() *cobra.Command {
 			"/admin/panel-backups",
 			"id",
 			"status",
+			"dest",
 			"created_at",
 			"size_bytes",
 			"error",
 		),
-		adminJob(
-			"panel-backup",
-			"admin.panel-backup",
-			"Back up stackr's own database now",
-			"/admin/panel-backups",
-			"panel backup",
-			"",
-		),
+		panelBackup,
 		leaf("proxy-sync", "admin.proxy-sync", "Push the routing table to Caddy again", exact(0),
 			func(*cobra.Command, []string) error {
 				_, err := a.call(POST, "/admin/proxy/sync", nil)

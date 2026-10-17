@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -29,7 +30,7 @@ func (o *Orchestrator) BackupDests(ctx context.Context, orgID string) ([]BackupD
 
 // CreateBackupDest adds an S3 destination; orgID nil = a global one (admin).
 func (o *Orchestrator) CreateBackupDest(ctx context.Context, orgID *string, s BackupDestSpec) (BackupDest, error) {
-	return o.backups.Create(ctx, orgID, s)
+	return o.backups.Create(ctx, orgID, s, o.probeDest())
 }
 
 // GlobalBackupDests lists the admin-global destinations, shared or not.
@@ -44,7 +45,16 @@ func (o *Orchestrator) UpdateBackupDest(ctx context.Context, orgID, id string, s
 	if err != nil {
 		return d, err
 	}
-	return o.backups.Update(ctx, d, s)
+	return o.backups.Update(ctx, d, s, o.probeDest())
+}
+
+// probeDest is the test write a destination passes before it is saved;
+// none when Config.ProbeDests is off (tests with no bucket behind them).
+func (o *Orchestrator) probeDest() backup.Probe {
+	if !o.cfg.ProbeDests {
+		return nil
+	}
+	return o.backup.Probe
 }
 
 func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) error {
@@ -226,9 +236,32 @@ func (o *Orchestrator) PanelBackups(ctx context.Context) ([]BackupRun, error) {
 	return o.backups.PanelRuns(ctx)
 }
 
-// PanelBackupNow queues an archive of the panel database.
-func (o *Orchestrator) PanelBackupNow(ctx context.Context) (Job, error) {
-	return o.enqueue(ctx, kindPanelBackup, nil, o.panelLock(false)...)
+// PanelBackupNow queues an archive of the panel database to dest: a server
+// destination's id or name, "local" for the panel's disk, or "" for the
+// scheduled destination (local when there is none).
+func (o *Orchestrator) PanelBackupNow(ctx context.Context, dest string) (Job, error) {
+	id := ""
+	switch dest = strings.TrimSpace(dest); dest {
+	case "local":
+	case "":
+		var err error
+		if id, err = o.settings.Get(ctx, "panel_backup_dest"); err != nil {
+			return Job{}, err
+		}
+	default:
+		ds, err := o.backups.Global(ctx)
+		if err != nil {
+			return Job{}, err
+		}
+		i := slices.IndexFunc(ds, func(d BackupDest) bool { return d.ID == dest || d.Name == dest })
+		if i < 0 {
+			return Job{}, errs.Invalidf("dest", "no server backup destination %q", dest)
+		}
+		if ds[i].Kind != backup.Local {
+			id = ds[i].ID
+		}
+	}
+	return o.enqueue(ctx, kindPanelBackup, panelBackupJob{DestID: id}, o.panelLock(false)...)
 }
 
 // panelLock is a panel backup job's lock set: the panel lock, so it never
@@ -479,9 +512,10 @@ const panelFixedKeep = 14
 // panelBackup archives the panel under trigger schedule, manual or upgrade,
 // each with its own prefix and prune. A scheduled run goes to
 // panel_backup_dest (a global destination; local when unset or gone, with a
-// warning in the log) and keeps panel_backup_keep; a manual one and the
-// pre-upgrade archive stay local and keep panelFixedKeep.
-func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger string) (store.BackupRun, error) {
+// warning in the log) and keeps panel_backup_keep. A manual one goes to
+// destID (the one Back up now picked, "" local) and the pre-upgrade archive
+// stays local; both keep panelFixedKeep.
+func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, destID string) (store.BackupRun, error) {
 	ctx, err := o.withController(ctx)
 	if err != nil {
 		return store.BackupRun{}, err
@@ -491,26 +525,30 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger s
 		return store.BackupRun{}, err
 	}
 	keep := panelFixedKeep
-	if trigger == "schedule" {
-		id, err := o.settings.Get(ctx, "panel_backup_dest")
-		if err != nil {
+	id := ""
+	switch trigger {
+	case "schedule":
+		if id, err = o.settings.Get(ctx, "panel_backup_dest"); err != nil {
 			return store.BackupRun{}, err
-		}
-		if id != "" {
-			d, err := o.backups.Get(ctx, id)
-			if err == nil && d.OrgID != nil {
-				err = errs.ErrNotFound
-			}
-			if err != nil {
-				_, _ = fmt.Fprintf(log, "warning: panel backup destination %s is gone (%v); using the local one\n", id, err)
-			} else {
-				dest = d
-			}
 		}
 		if keep, err = o.settings.Int(ctx, "panel_backup_keep"); err != nil {
 			return store.BackupRun{}, err
 		}
+	case "manual":
+		id = destID
 	}
+	if id != "" {
+		d, err := o.backups.Get(ctx, id)
+		if err == nil && d.OrgID != nil {
+			err = errs.ErrNotFound
+		}
+		if err != nil {
+			_, _ = fmt.Fprintf(log, "warning: panel backup destination %s is gone (%v); using the local one\n", id, err)
+		} else {
+			dest = d
+		}
+	}
+	_, _ = fmt.Fprintf(log, "panel backup to %s\n", dest.Name)
 	return o.backup.PanelBackup(ctx, fbackup.Panel{
 		Vacuum: func(ctx context.Context, path string) error {
 			_, err := o.db.ExecContext(ctx, "VACUUM INTO ?", path)

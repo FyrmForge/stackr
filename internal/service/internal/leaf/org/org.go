@@ -363,7 +363,7 @@ func (l *Leaf) Invite(
 		return store.Invite{}, errs.Invalidf("email", "an email is required")
 	}
 	if role == "" {
-		role = Owner
+		role = "member" // the least that can deploy; owner is asked for by name
 	}
 	if !validRole(role) {
 		return store.Invite{}, errs.Invalidf("role", "unknown role %q", role)

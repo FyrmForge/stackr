@@ -15,6 +15,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
@@ -89,6 +90,9 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 	if err := refuseServerRefs(t); err != nil {
 		return Tile{}, err
 	}
+	if err := o.envBranch(ctx, &t); err != nil {
+		return Tile{}, err
+	}
 	if t.CPULimit > 0 || t.MemLimitMB > 0 {
 		n, err := o.nodeOfEnvID(ctx, t.EnvironmentID)
 		if err != nil {
@@ -99,6 +103,29 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 		}
 	}
 	return o.tiles.Create(ctx, t)
+}
+
+// envBranch: a building tile in an env built from a branch builds from that
+// branch, since only a push to the env's branch builds it. An empty branch
+// takes the env's; another one is refused.
+func (o *Orchestrator) envBranch(ctx context.Context, t *Tile) error {
+	if !tile.Builds(*t) {
+		return nil
+	}
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	if e.FromKind != environment.FromBranch || e.FromBranch == "" {
+		return nil
+	}
+	if t.GitBranch == "" {
+		t.GitBranch = e.FromBranch
+	}
+	if t.GitBranch != e.FromBranch {
+		return errs.Invalidf("git_branch", "This environment builds from branch %s, so its tiles build from it too.", e.FromBranch)
+	}
+	return nil
 }
 
 // refuseServerRefs: a server param ref in a tile's env, volumes or command
@@ -127,6 +154,11 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	}
 	if err := refuseServerRefs(cur); err != nil {
 		return old, nil, err
+	}
+	if cur.GitBranch != old.GitBranch || cur.Kind != old.Kind || cur.GitURL != old.GitURL {
+		if err := o.envBranch(ctx, &cur); err != nil {
+			return old, nil, err
+		}
 	}
 	// only a limit this edit changed: a tile already over the host's size
 	// can still be renamed or retargeted

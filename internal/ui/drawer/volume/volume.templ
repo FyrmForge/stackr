@@ -119,7 +119,7 @@ type BackupsView struct {
 type Schedule struct{ ID, Method, Cron, TZ, Dest, Keep, Mode string }
 
 type Run struct {
-	ID, Status, Trigger, When, Size, Error string
+	ID, Status, Trigger, When, Size, Error, Dest string
 	Restorable                             bool
 }
 
@@ -261,6 +261,9 @@ templ History(b BackupsView) {
 						}
 						if r.Trigger != "schedule" {
 							<span class="text-rw-faint">{ r.Trigger }</span>
+						}
+						if r.Dest != "" {
+							<span class="text-rw-faint">to { r.Dest }</span>
 						}
 						if r.Error != "" {
 							<span class="text-rw-danger truncate">{ r.Error }</span>

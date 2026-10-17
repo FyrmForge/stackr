@@ -78,12 +78,12 @@ func TestVisibility(t *testing.T) {
 	if again, _ := l.EnsureLocal(ctx, "/var/lib/stackr/backups"); again.ID != local.ID {
 		t.Error("EnsureLocal made a second local destination")
 	}
-	own, err := l.Create(ctx, &org, s3("hetzner", true))
+	own, err := l.Create(ctx, &org, s3("hetzner", true), nil)
 	if err != nil || own.Shared {
 		t.Fatalf("own = %+v, %v (an org destination is never shared)", own, err)
 	}
-	shared, _ := l.Create(ctx, nil, s3("offsite", true))
-	private, _ := l.Create(ctx, nil, s3("panel", false))
+	shared, _ := l.Create(ctx, nil, s3("offsite", true), nil)
+	private, _ := l.Create(ctx, nil, s3("panel", false), nil)
 	if own.ArchiveKey == shared.ArchiveKey || own.ArchiveKey == "" {
 		t.Error("destinations share an archive key")
 	}
@@ -130,16 +130,38 @@ func TestVisibility(t *testing.T) {
 			t.Errorf("Resolve(%q) accepted", ref)
 		}
 	}
-	if _, err := l.Create(ctx, &org, s3("hetzner", false)); err == nil {
+	if _, err := l.Create(ctx, &org, s3("hetzner", false), nil); err == nil {
 		t.Error("duplicate name accepted")
 	}
 	if err := l.Delete(ctx, local, false); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("delete local = %v", err)
 	}
 
-	upd, err := l.Update(ctx, own, backup.Dest{Name: "hetzner", Bucket: "b2", AccessKey: "ak"})
+	upd, err := l.Update(ctx, own, backup.Dest{Name: "hetzner", Bucket: "b2", AccessKey: "ak"}, nil)
 	if err != nil || upd.SecretKey != "sk" || upd.ArchiveKey != own.ArchiveKey {
 		t.Errorf("update = %+v, %v (secret and archive key must stay)", upd, err)
+	}
+}
+
+// A destination the probe cannot write to is not saved, and the refusal
+// never quotes its keys.
+func TestCreateProbes(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	org := seedOrg(t, st)
+	refuse := func(context.Context, store.BackupDest) error {
+		return errors.New("InvalidAccessKeyId: key ak with secret sk is unknown")
+	}
+	_, err := l.Create(ctx, &org, s3("bad", false), refuse)
+	if _, ok := errs.IsInvalid(err); !ok || strings.Contains(err.Error(), "ak ") || strings.Contains(err.Error(), "sk ") {
+		t.Fatalf("create = %v, want an invalid error with no keys", err)
+	}
+	if ds, _ := l.Visible(ctx, org); slices.ContainsFunc(ds, func(d store.BackupDest) bool { return d.Name == "bad" }) {
+		t.Error("a destination that failed its probe was saved")
+	}
+	pass := func(context.Context, store.BackupDest) error { return nil }
+	if _, err := l.Create(ctx, &org, s3("good", false), pass); err != nil {
+		t.Errorf("create with a passing probe = %v", err)
 	}
 }
 
@@ -148,8 +170,8 @@ func TestSchedules(t *testing.T) {
 	l := leaf(st)
 	org, other := seedOrg(t, st), seedOrg(t, st)
 	vol := seedVolume(t, st, org)
-	theirs, _ := l.Create(ctx, &other, s3("theirs", false))
-	mine, _ := l.Create(ctx, &org, s3("mine", false))
+	theirs, _ := l.Create(ctx, &other, s3("theirs", false), nil)
+	mine, _ := l.Create(ctx, &org, s3("mine", false), nil)
 	methods := []string{"tar"}
 
 	s, err := l.AddSchedule(ctx, vol, org, methods, backup.Schedule{Cron: " 0  3 * * * ", Keep: 7})
@@ -246,6 +268,9 @@ func TestPrune(t *testing.T) {
 	if len(rows) != 6 {
 		t.Errorf("%d run rows left, want 6", len(rows))
 	}
+	if len(rows) > 0 && rows[0].Dest != local.Name {
+		t.Errorf("run names destination %q, want %q", rows[0].Dest, local.Name)
+	}
 
 	obj.fail = backup.ObjectKey(pB, "vol.tar.gz.age", day)
 	if gone := l.Prune(ctx, obj, pB, 2); len(gone) != 1 {
@@ -335,7 +360,7 @@ func TestPruneKeepsProtected(t *testing.T) {
 func TestDeleteRefusesPanelDest(t *testing.T) {
 	st := servicetest.Store(t)
 	l := leaf(st)
-	d, err := l.Create(ctx, nil, s3("offsite", false))
+	d, err := l.Create(ctx, nil, s3("offsite", false), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

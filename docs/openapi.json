@@ -297,6 +297,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "dest": {
+            "type": "string"
+          },
           "dest_id": {
             "type": "string"
           },
@@ -372,7 +375,8 @@
           "object_key",
           "size_bytes",
           "error",
-          "created_at"
+          "created_at",
+          "dest"
         ],
         "type": "object"
       },
@@ -1105,6 +1109,9 @@
       },
       "DomainIn": {
         "properties": {
+          "auto": {
+            "type": "boolean"
+          },
           "force_https": {
             "oneOf": [
               {
@@ -2046,6 +2053,12 @@
         "properties": {
           "from": {
             "type": "string"
+          },
+          "moved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "placement": {
             "type": "string"
@@ -3876,6 +3889,17 @@
         ],
         "type": "object"
       },
+      "PanelBackupIn": {
+        "properties": {
+          "dest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dest"
+        ],
+        "type": "object"
+      },
       "Param": {
         "properties": {
           "collection": {
@@ -5626,6 +5650,17 @@
         "required": [
           "add",
           "remove"
+        ],
+        "type": "object"
+      },
+      "TeardownIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
         ],
         "type": "object"
       },
@@ -9216,6 +9251,16 @@
       "post": {
         "operationId": "admin.panel-backup",
         "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PanelBackupIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "202": {
             "content": {
@@ -12370,6 +12415,13 @@
             "in": "path",
             "name": "org",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "all",
             "schema": {
               "type": "string"
             }
@@ -19782,6 +19834,62 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "stack.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/teardown": {
+      "post": {
+        "operationId": "stack.teardown",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeardownIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
           },
           "default": {
             "content": {

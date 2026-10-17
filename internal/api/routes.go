@@ -145,6 +145,7 @@ func routes(h *v1.H) []Route {
 		{PUT, stack + "/settings", "stack.settings", "stack.write", h.SetStackSettings()},
 		{POST, stack + "/domain-resources", "domain-resource.create-stack", "domain.resource", h.CreateStackDomainResource()},
 		{DELETE, stack, "stack.delete", "stack.write", h.DeleteStack()},
+		{POST, stack + "/teardown", "stack.teardown", "stack.write", h.TeardownStack()},
 		{POST, stack + "/image-check", "stack.image-check", "stack.write", h.CheckStackImages()},
 		{GET, stack + "/releases", "release.list", "org.read", h.Releases()},
 		{GET, stack + "/releases/:release", "release.get", "org.read", h.Release()},

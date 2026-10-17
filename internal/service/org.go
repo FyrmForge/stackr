@@ -356,6 +356,16 @@ func (o *Orchestrator) ConnectorRepos(ctx context.Context, orgID, id string) ([]
 	return o.conns.Repos(ctx, orgID, id)
 }
 
+// ConnectorBranches is repo's branches as connector id sees them.
+func (o *Orchestrator) ConnectorBranches(ctx context.Context, orgID, id, repo string) ([]string, error) {
+	return o.conns.RepoBranches(ctx, orgID, id, repo)
+}
+
+// ConnectorYAMLFiles is repo's YAML files at ref as connector id sees them.
+func (o *Orchestrator) ConnectorYAMLFiles(ctx context.Context, orgID, id, repo, ref string) ([]string, error) {
+	return o.conns.RepoYAMLFiles(ctx, orgID, id, repo, ref)
+}
+
 // ConnectedConnectors is the org's connectors past GitHub's handshake.
 func (o *Orchestrator) ConnectedConnectors(ctx context.Context, orgID string) ([]Connector, error) {
 	return o.conns.ListConnected(ctx, orgID)

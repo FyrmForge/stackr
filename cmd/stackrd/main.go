@@ -249,6 +249,7 @@ func run(log *slog.Logger, generate bool) error {
 		PanelPort:       envPort,
 		FakeHost:        fake,
 		RegistryImports: fake == "",
+		ProbeDests:      true,
 		MeshWG:          controllerWG(fake),
 		MeshRunner:      worker.ExecRunner{},
 		MeshWGPort:      config.GetEnvOrDefaultInt("STACKR_MESH_WG_PORT", 0),

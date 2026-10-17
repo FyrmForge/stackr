@@ -61,10 +61,11 @@ type runJob struct {
 	RunID  string `json:"run_id"`
 }
 
-// panelBackupJob is the panel-backup payload; Scheduled marks a cron run
-// (the manual button sends none).
+// panelBackupJob is the panel-backup payload; Scheduled marks a cron run,
+// DestID is where a manual one goes ("" local).
 type panelBackupJob struct {
-	Scheduled bool `json:"scheduled"`
+	Scheduled bool   `json:"scheduled"`
+	DestID    string `json:"dest_id,omitempty"`
 }
 
 type tileJob struct {
@@ -240,8 +241,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
-		kindPR:     payload(o.runPR),
-		kindDelete: payload(o.runDelete),
+		kindPR:            payload(o.runPR),
+		kindDelete:        payload(o.runDelete),
+		kindStackTeardown: payload(o.runStackTeardown),
 		kindRestart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Restart(ctx, t, r.Log) })
 		}),
@@ -277,7 +279,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if p.Scheduled {
 				trigger = "schedule"
 			}
-			_, err = o.panelBackup(ctx, r.Log, trigger)
+			_, err = o.panelBackup(ctx, r.Log, trigger, p.DestID)
 			return err
 		}),
 		kindUpgrade: payload(func(ctx context.Context, r *jobs.Run, p upgradeJob) error {

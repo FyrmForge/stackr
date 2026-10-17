@@ -111,6 +111,9 @@ type ClusterNet struct {
 	// network (no public worker to ask), which a router may not loop back.
 	Forward string
 	Unsure  bool
+	// Public is the address nodes outside see the network's packets come
+	// from, "" = not seen.
+	Public string
 }
 
 // ClusterLink is one tunnel between a connected pair. MS < 0 = not measured:
@@ -452,6 +455,7 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 		}
 		m.Links = directLinks(m.Links, m.Nodes, names, o.mesh.Direct, o.mesh.Via)
 		fillEnds(&m, in, o.mesh.Spec)
+		natPublic(&m)
 		o.remember(ctx, &m, in, o.mesh.Direct)
 	}
 	recall(&m, in)

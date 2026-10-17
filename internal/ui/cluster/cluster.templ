@@ -35,10 +35,15 @@ templ netCard(name, sub string) {
 }
 
 // natCard is a network's router: public traffic for the box goes through it.
-templ natCard() {
-	<div class="card-face h-full rounded-xl border border-rw-strong bg-rw-surface shadow-rw flex flex-col items-center justify-center">
+// public is the address the network is seen from outside, "" = not seen.
+templ natCard(public string) {
+	<div class="card-face h-full rounded-xl border border-rw-strong bg-rw-surface shadow-rw flex flex-col items-center justify-center min-w-0 px-1">
 		<span class="text-sm font-semibold text-rw-text leading-tight">NAT</span>
-		<span class="text-[11px] text-rw-faint leading-tight">router</span>
+		if public != "" {
+			<span class="text-[11px] text-rw-faint font-mono leading-tight truncate max-w-full" title="Public IP">{ public }</span>
+		} else {
+			<span class="text-[11px] text-rw-faint leading-tight">router</span>
+		}
 	</div>
 }
 

@@ -13,6 +13,20 @@ import (
 	"github.com/docker/docker/client"
 )
 
+// A worker builder's name (its mesh address) is replaced even when buildx
+// splits the line across writes.
+func TestReplaceLinesHidesBuilderAddress(t *testing.T) {
+	var out strings.Builder
+	w := &replaceLines{w: &out, old: []byte("stackr-builder-10-0-0-1-7443"), new: []byte("stackr-builder")}
+	for _, p := range []string{"#0 building with \"stackr-buil", "der-10-0-0-1-7443\" instance\n#1 done", "\n", "tail"} {
+		_, _ = w.Write([]byte(p))
+	}
+	w.flush()
+	if want := "#0 building with \"stackr-builder\" instance\n#1 done\ntail"; out.String() != want {
+		t.Fatalf("got %q", out.String())
+	}
+}
+
 // buildx prints a header before the ids; neither the header nor a stderr
 // warning is a removed entry.
 func TestParsePruneSkipsNoise(t *testing.T) {

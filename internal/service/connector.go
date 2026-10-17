@@ -232,7 +232,11 @@ func (o *Orchestrator) orgWebhook(ctx context.Context, orgID string, d delivery)
 		return err
 	}
 	for _, st := range sts {
-		if ok, err := o.usesRepo(ctx, st, d.repo); err != nil || !ok {
+		ok, err := o.usesRepo(ctx, st, d.repo)
+		if ok && d.ev.Push != nil {
+			ok, err = o.pushFollowed(ctx, st, d)
+		}
+		if err != nil || !ok {
 			if err != nil {
 				return err
 			}

@@ -256,7 +256,7 @@ func CheckWide(ps map[string]map[string]Param, allowGenerate bool) error {
 	return nil
 }
 
-var unknownField = regexp.MustCompile(`^(?:line \d+: )?field (\S+) not found in type \S+$`)
+var unknownField = regexp.MustCompile(`^(line \d+: )?field (\S+) not found in type \S+$`)
 
 // StrictYAML decodes refusing unknown keys, top level included. removed
 // tells an old file what replaced a key (nil = no hints).
@@ -269,6 +269,61 @@ func StrictYAML(data []byte, out any, removed map[string]string) error {
 	return nil
 }
 
+// ParseFile is StrictYAML for a whole file a person edits (the org and
+// server files): every problem the decode finds is listed, one per line,
+// each with its line number, and the file's lines around them follow, the
+// bad one marked with >.
+func ParseFile(data []byte, out any, removed map[string]string) error {
+	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec.KnownFields(true)
+	err := dec.Decode(out)
+	if err == nil || err == io.EOF {
+		return nil
+	}
+	msg := err.Error()
+	if te, ok := err.(*yaml.TypeError); ok {
+		msg = humanLines(te, removed, true)
+	}
+	return fmt.Errorf("%s", msg+excerpt(data, msg))
+}
+
+// LineError is a custom unmarshaler's complaint about the node at line. It
+// is a yaml.TypeError, so the decode goes on and ParseFile lists the rest
+// of the file's problems with it rather than stopping at the first.
+func LineError(line int, format string, a ...any) error {
+	return &yaml.TypeError{Errors: []string{fmt.Sprintf("line %d: ", line) + fmt.Sprintf(format, a...)}}
+}
+
+var (
+	lineRef      = regexp.MustCompile(`line (\d+)`)
+	fragmentLine = regexp.MustCompile(`^line \d+: `) // counts lines of a re-marshalled fragment, not the file
+)
+
+// excerpt is the file's lines around each line msg names: one before, the
+// line itself marked with >, one after. Display only, never a decision.
+// ponytail: first 5 lines named, the rest are still listed in msg.
+func excerpt(data []byte, msg string) string {
+	src := strings.Split(string(data), "\n")
+	var b strings.Builder
+	seen := map[int]bool{}
+	for _, m := range lineRef.FindAllStringSubmatch(msg, 5) {
+		var n int
+		if _, err := fmt.Sscan(m[1], &n); err != nil || n < 1 || n > len(src) || seen[n] {
+			continue
+		}
+		seen[n] = true
+		b.WriteString("\n")
+		for i := max(n-1, 1); i <= min(n+1, len(src)); i++ {
+			mark := "  "
+			if i == n {
+				mark = "> "
+			}
+			fmt.Fprintf(&b, "\n%s%4d | %s", mark, i, src[i-1])
+		}
+	}
+	return b.String()
+}
+
 // humanYAML rewrites yaml.v3's unknown-key errors: they name a Go type and
 // count lines in a re-marshalled fragment, which means nothing to the
 // person editing the file.
@@ -277,20 +332,35 @@ func humanYAML(err error, removed map[string]string) error {
 	if !ok {
 		return err
 	}
+	return fmt.Errorf("%s", humanLines(te, removed, false))
+}
+
+// humanLines is humanYAML's rewrite; lines keeps the line numbers, which
+// are true only when data is the whole file, and lists one per line.
+func humanLines(te *yaml.TypeError, removed map[string]string, lines bool) string {
 	msgs := make([]string, 0, len(te.Errors))
 	for _, e := range te.Errors {
 		m := unknownField.FindStringSubmatch(e)
 		if m == nil {
+			if !lines {
+				e = fragmentLine.ReplaceAllString(e, "")
+			}
 			msgs = append(msgs, e)
 			continue
 		}
-		s := "unknown key " + m[1]
-		if hint := removed[m[1]]; hint != "" {
+		s := "unknown key " + m[2]
+		if hint := removed[m[2]]; hint != "" {
 			s += " (no longer supported: " + hint + ")"
+		}
+		if lines && m[1] != "" {
+			s = m[1] + s
 		}
 		msgs = append(msgs, s)
 	}
-	return fmt.Errorf("%s", strings.Join(msgs, "; "))
+	if lines {
+		return strings.Join(msgs, "\n")
+	}
+	return strings.Join(msgs, "; ")
 }
 
 // KeepSecretPair settles protect_user + protect_password of a file's defaults

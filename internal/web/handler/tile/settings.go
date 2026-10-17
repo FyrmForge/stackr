@@ -251,6 +251,8 @@ func formKey(field string) string {
 		return "restart_policy"
 	case "healthcheck":
 		return "healthcheck_cmd"
+	case "git_branch":
+		return "branch"
 	}
 	return field
 }

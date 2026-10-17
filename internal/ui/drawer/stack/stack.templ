@@ -106,7 +106,7 @@ templ Settings(v SettingsView) {
 			}
 		}
 		if v.Base != "" {
-			@c.DangerSection("Deleting this stack removes its releases and params. It is refused while it still has environments.", v.Where, "Backups already in a destination are kept.") {
+			@c.DangerSection("Deleting this stack removes its tiles, envs, releases and params.", v.Where, "Backups already in a destination are kept.") {
 				@c.Confirm(v.Delete)
 			}
 		}

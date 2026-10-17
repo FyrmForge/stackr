@@ -288,6 +288,11 @@ templ switchTo(base, mode, label string) {
 	<form novalidate hx-post={ base + "/mode" } class="mt-3">
 		<input type="hidden" name="mode" value={ mode }/>
 		<button type="submit" class="btn btn-ghost btn-sm w-full">{ label }</button>
+		if mode == "ui" {
+			<p class="mt-1 text-center text-xs text-rw-faint">No config file: you enter the name, GitHub and domain here, step by step.</p>
+		} else {
+			<p class="mt-1 text-center text-xs text-rw-faint">One file in a GitHub repo declares the whole organization instead.</p>
+		}
 	</form>
 }
 
@@ -431,10 +436,10 @@ templ ConfigBody(v GitHubView) {
 // list is in the page (the install gate loaded it) and main.js filters it.
 // The field still accepts anything typed: an app installed seconds ago can
 // list nothing yet, and a plan that says "repo not found" beats refusing
-// it. v0 looked the branch and the path up from data-picker-base; there is
-// nothing to ask yet, so the branch list and the path note stay empty.
+// it. The branch list and the repo's YAML files come from
+// data-picker-base/<connector>, so the path field filters like the repo one.
 templ repoPicker(v GitHubView) {
-	<div data-repo-picker class="space-y-5">
+	<div data-repo-picker data-picker-base={ v.Base + "/config/connector" } class="space-y-5">
 		<div>
 			<label class="label" for="setup-repo">Repository (owner/name)</label>
 			<div class="relative">
@@ -461,17 +466,16 @@ templ repoPicker(v GitHubView) {
 			</div>
 			<p class="mt-1.5 text-xs text-rw-faint">Type to filter what this connector can see.</p>
 		</div>
-		<div class="grid grid-cols-2 gap-3">
-			<div>
-				<label class="label" for="setup-branch">Branch</label>
-				<input type="text" id="setup-branch" name="branch" value={ v.Branch } list="setup-branch-list" autocomplete="off" data-branch-input class="input font-mono"/>
-				<datalist id="setup-branch-list" data-branch-list></datalist>
-			</div>
-			<div>
-				<label class="label" for="setup-path">File path</label>
-				<input type="text" id="setup-path" name="path" value={ v.Path } placeholder="stackr-org.yml" autocomplete="off" data-path-input class="input font-mono"/>
-				<p data-path-note aria-live="polite" class="mt-1.5 text-xs text-rw-faint"></p>
-			</div>
+		<div>
+			<label class="label" for="setup-branch">Branch</label>
+			<input type="text" id="setup-branch" name="branch" value={ v.Branch } list="setup-branch-list" autocomplete="off" data-branch-input class="input font-mono"/>
+			<datalist id="setup-branch-list" data-branch-list></datalist>
+		</div>
+		<div>
+			<label class="label" for="setup-path">File path</label>
+			<input type="text" id="setup-path" name="path" value={ v.Path } placeholder="stackr-org.yml" list="setup-path-list" autocomplete="off" data-path-input class="input font-mono"/>
+			<datalist id="setup-path-list" data-path-list></datalist>
+			<p data-path-note aria-live="polite" class="mt-1.5 text-xs text-rw-faint"></p>
 		</div>
 	</div>
 }
@@ -599,7 +603,7 @@ templ planChangeLine(ch Change) {
 		<span class="text-rw-muted">{ ch.Field }</span>
 	}
 	if ch.Old != "" || ch.New != "" {
-		<span class="text-rw-faint ml-auto truncate max-w-[50%]">
+		<span class="text-rw-faint ml-auto min-w-0 break-all">
 			if ch.Old != "" {
 				<span class="text-rw-danger line-through">{ ch.Old }</span>
 			}

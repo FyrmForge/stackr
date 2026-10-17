@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -28,11 +29,23 @@ type Destination interface {
 
 var ErrNotFound = errors.New("backup destination: no such object")
 
-// Probe checks a destination by writing and deleting a small object.
+// Probe checks a destination by writing and deleting a small object. An
+// S3 refusal comes back as its code and message alone.
 func Probe(ctx context.Context, d Destination) error {
 	const key = ".stackr-probe"
 	if err := d.Put(ctx, key, bytes.NewReader([]byte("ok"))); err != nil {
-		return err
+		return short(err)
 	}
-	return d.Delete(ctx, key)
+	return short(d.Delete(ctx, key))
+}
+
+func short(err error) error {
+	var api interface {
+		ErrorCode() string
+		ErrorMessage() string
+	}
+	if errors.As(err, &api) {
+		return fmt.Errorf("%s: %s", api.ErrorCode(), api.ErrorMessage())
+	}
+	return err
 }

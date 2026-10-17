@@ -51,6 +51,14 @@ func (f *fakeApp) Repos(_ context.Context, token string) ([]githubapp.Repo, erro
 	return []githubapp.Repo{{FullName: "acme/api", DefaultBranch: "main"}}, nil
 }
 
+func (f *fakeApp) Branches(context.Context, string, string) ([]string, error) {
+	return []string{"main"}, nil
+}
+
+func (f *fakeApp) YAMLFiles(context.Context, string, string, string) ([]string, error) {
+	return []string{"stackr-org.yml"}, nil
+}
+
 func (f *fakeApp) SetHookURL(_ context.Context, id string, _ githubapp.App) error {
 	f.hooked = append(f.hooked, id)
 	if len(f.hooked) == 1 {

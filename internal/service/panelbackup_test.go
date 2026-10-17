@@ -106,7 +106,7 @@ func TestScheduledPanelBackupToDest(t *testing.T) {
 		s3.objs[prefix+k] = []byte("old")
 	}
 	var log bytes.Buffer
-	r, err := w.orch.panelBackup(ctx, &log, "schedule")
+	r, err := w.orch.panelBackup(ctx, &log, "schedule", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestScheduledPanelBackupDestGone(t *testing.T) {
 	must(t, w.orch.SetSetting(ctx, "panel_backup_dest", d.ID))
 	must(t, w.orch.backups.Delete(ctx, d, false)) // as if the row went another way
 	var log bytes.Buffer
-	r, err := w.orch.panelBackup(ctx, &log, "schedule")
+	r, err := w.orch.panelBackup(ctx, &log, "schedule", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,28 +141,47 @@ func TestScheduledPanelBackupDestGone(t *testing.T) {
 	}
 }
 
-// The manual button always goes local and is marked manual, whatever the
-// scheduled destination is.
-func TestManualPanelBackupStaysLocal(t *testing.T) {
+// Back up now defaults to the scheduled destination, takes "local" or a
+// destination's name, and refuses one that is not a server destination.
+// The run goes where the job says and is marked manual.
+func TestManualPanelBackupPicksDest(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	_, srv := newFakeS3(t)
 	d := w.globalS3(t, srv.URL)
 	must(t, w.orch.SetSetting(ctx, "panel_backup_dest", d.ID))
-	r, err := w.orch.panelBackup(ctx, io.Discard, "manual")
+	for dest, want := range map[string]string{"": d.ID, "local": "", "offsite": d.ID} {
+		j, err := w.orch.PanelBackupNow(ctx, dest)
+		must(t, err)
+		var p panelBackupJob
+		must(t, json.Unmarshal([]byte(j.Payload), &p))
+		if p.DestID != want {
+			t.Errorf("PanelBackupNow(%q) dest = %q, want %q", dest, p.DestID, want)
+		}
+	}
+	if _, err := w.orch.PanelBackupNow(ctx, "nope"); err == nil {
+		t.Error("an unknown destination was accepted")
+	}
+	r, err := w.orch.panelBackup(ctx, io.Discard, "manual", d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, _ := w.orch.localDest(ctx)
-	if r.DestID != local.ID || r.Trigger != "manual" {
+	if r.DestID != d.ID || r.Trigger != "manual" {
 		t.Errorf("run = %q on %q", r.Trigger, r.DestID)
+	}
+	r, err = w.orch.panelBackup(ctx, io.Discard, "manual", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local, _ := w.orch.localDest(ctx); r.DestID != local.ID {
+		t.Errorf("manual run with no dest went to %q, want local", r.DestID)
 	}
 }
 
 // The archive takes the proxy volume's tar through the docker tool.
 func TestPanelBackupReadsProxyVolume(t *testing.T) {
 	w := newWorld(t)
-	if _, err := w.orch.panelBackup(context.Background(), io.Discard, "manual"); err != nil {
+	if _, err := w.orch.panelBackup(context.Background(), io.Discard, "manual", ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range w.fake.Calls() {
@@ -188,7 +207,7 @@ func TestPanelBackupPrunesByTrigger(t *testing.T) {
 		must(t, err)
 		return ks
 	}
-	up, err := w.orch.panelBackup(ctx, io.Discard, "upgrade")
+	up, err := w.orch.panelBackup(ctx, io.Discard, "upgrade", "")
 	must(t, err)
 	// Fifteen manual archives already there: one more keeps the newest 14.
 	manual := "stackr/_panel/" + w.orch.cfg.InstallID + "/manual/"
@@ -197,14 +216,14 @@ func TestPanelBackupPrunesByTrigger(t *testing.T) {
 		must(t, os.MkdirAll(filepath.Dir(filepath.Join(local.Endpoint, k)), 0o700))
 		must(t, os.WriteFile(filepath.Join(local.Endpoint, k), []byte("old"), 0o600))
 	}
-	if _, err := w.orch.panelBackup(ctx, io.Discard, "manual"); err != nil {
+	if _, err := w.orch.panelBackup(ctx, io.Discard, "manual", ""); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(list(manual)); n != 14 {
 		t.Errorf("manual archives kept = %d, want 14", n)
 	}
 	for range 2 {
-		if _, err := w.orch.panelBackup(ctx, io.Discard, "schedule"); err != nil {
+		if _, err := w.orch.panelBackup(ctx, io.Discard, "schedule", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -221,7 +240,7 @@ func TestPanelBackupPrunesByTrigger(t *testing.T) {
 func TestPanelBackupLocks(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	manual, err := w.orch.PanelBackupNow(ctx)
+	manual, err := w.orch.PanelBackupNow(ctx, "")
 	must(t, err)
 	var payload struct{ Scheduled bool }
 	payload.Scheduled = true

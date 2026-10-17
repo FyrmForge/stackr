@@ -5,6 +5,7 @@
 package env
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -115,7 +116,6 @@ func createView(c echo.Context) dialog.CreateTileView {
 		Name:     c.FormValue("name"),
 		Image:    c.FormValue("image_ref"),
 		GitURL:   c.FormValue("git_url"),
-		Branch:   c.FormValue("git_branch"),
 		Schedule: c.FormValue("schedule"),
 		Trigger:  c.FormValue("trigger"),
 		Engine:   c.FormValue("engine"),
@@ -164,14 +164,13 @@ func (h *handler) CreateTile(c echo.Context) error {
 	default:
 		t.ImageRef = v.Image
 		t.GitURL = v.GitURL
-		t.GitBranch = v.Branch
 		t.Schedule = v.Schedule
 		t.Trigger = v.Trigger
 		t.Command = v.Command
 		if v.Source == "service" {
 			t.ImageRef = ""
 		} else {
-			t.GitURL, t.GitBranch = "", ""
+			t.GitURL = ""
 		}
 		t, err = h.orch.CreateTile(c.Request().Context(), t)
 	}
@@ -205,7 +204,6 @@ var createFields = []string{
 	"name",
 	"image_ref",
 	"git_url",
-	"git_branch",
 	"schedule",
 	"engine",
 	"provision_from",
@@ -787,6 +785,7 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 			When:       when(&r.CreatedAt),
 			Size:       render.Size(r.SizeBytes),
 			Error:      r.Error,
+			Dest:       cmp.Or(names[r.DestID], r.Dest),
 			Restorable: r.Status == "done" && r.ObjectKey != "",
 		})
 		if r.Status == "queued" || r.Status == "running" {

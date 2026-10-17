@@ -607,6 +607,14 @@ func decrypt(src io.Reader, pass string) (io.Reader, error) {
 	return out, nil
 }
 
+// Probe writes and deletes a small object at d, so a typo in its endpoint,
+// bucket or keys shows when it is saved, not at the first backup.
+func (f *Flow) Probe(ctx context.Context, d store.BackupDest) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return s3.Probe(ctx, open(d))
+}
+
 // open is the destination's object store; local and S3 share every path.
 func open(d store.BackupDest) s3.Destination {
 	if d.Kind == bk.Local {

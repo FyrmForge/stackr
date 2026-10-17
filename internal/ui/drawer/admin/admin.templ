@@ -28,6 +28,8 @@ type User struct {
 type UpdateView struct {
 	Version  string
 	Checked  bool
+	// Upgrading: an upgrade was just queued; the tab reloads when its job ends.
+	Upgrading bool
 	Latest   string // "" after a check = a dev build
 	Newer    bool
 	CheckErr string
@@ -187,10 +189,13 @@ templ Update(v UpdateView) {
 				} else if v.Checked {
 					<p class="text-rw-muted">Up to date: <span class="font-mono">{ v.Latest }</span> is the latest release.</p>
 				}
+				if v.Upgrading {
+					<p class="text-rw-text" role="status">Upgrading. The panel restarts and this tab reloads when it is back.</p>
+				}
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)
 				}
-				if !v.Checked {
+				if !v.Checked && !v.Upgrading {
 					@c.PostButton("Check for update", Base+"/update/check")
 				}
 			</div>
@@ -331,7 +336,16 @@ templ Backups(v BackupsView) {
 					<p class="text-sm text-rw-muted">Last run: { v.Rows[0].When }, { v.Rows[0].Status }, to { v.Rows[0].Dest }.</p>
 				}
 				if v.Now != "" {
-					@c.PostButton("Back up now", v.Now)
+					<form hx-post={ v.Now } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+						<label for="backup_now_dest" class="text-sm text-rw-muted">Destination</label>
+						<select id="backup_now_dest" name="dest" class="input w-auto">
+							<option value="local" selected?={ v.Sched.Dest == "" }>Local</option>
+							for _, d := range v.Sched.Dests {
+								<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
+							}
+						</select>
+						<button type="submit" class="btn btn-ghost btn-sm">Back up now</button>
+					</form>
 				}
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)

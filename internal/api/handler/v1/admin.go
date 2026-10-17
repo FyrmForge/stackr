@@ -89,8 +89,18 @@ func (h *H) PanelBackups() Endpoint {
 	return Get(func(c echo.Context) ([]service.BackupRun, error) { return list(h.Orch.PanelBackups(rc(c))) })
 }
 
+// PanelBackupIn picks where a run-now panel backup goes: a server
+// destination's name or id, "local", or empty for the scheduled one.
+type PanelBackupIn struct {
+	Dest string `json:"dest"`
+}
+
+func (PanelBackupIn) BodyOptional() {}
+
 func (h *H) PanelBackupNow() Endpoint {
-	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.PanelBackupNow(rc(c)) })
+	return Job(func(c echo.Context, in PanelBackupIn) (service.Job, error) {
+		return h.Orch.PanelBackupNow(rc(c), in.Dest)
+	})
 }
 
 func (h *H) SyncProxy() Endpoint {

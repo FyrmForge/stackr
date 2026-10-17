@@ -259,6 +259,66 @@ func (c *Client) Repos(ctx context.Context, token string) ([]Repo, error) {
 	return out.Repositories, nil
 }
 
+// Branches lists repo's branch names (owner/name), for the config picker.
+// ponytail: first 100 only, paginate when someone has more.
+func (c *Client) Branches(ctx context.Context, token, repo string) ([]string, error) {
+	p, err := repoPath(repo)
+	if err != nil {
+		return nil, err
+	}
+	var out []struct {
+		Name string `json:"name"`
+	}
+	if err := c.api(ctx, http.MethodGet, p+"/branches?per_page=100", token, &out); err != nil {
+		return nil, err
+	}
+	names := make([]string, len(out))
+	for i, b := range out {
+		names[i] = b.Name
+	}
+	return names, nil
+}
+
+// YAMLFiles lists the .yml and .yaml paths in repo at ref, for the config
+// file picker. ponytail: one tree read capped at 1 MiB like every answer;
+// a repo too big for that lists nothing and the field takes what is typed.
+func (c *Client) YAMLFiles(ctx context.Context, token, repo, ref string) ([]string, error) {
+	p, err := repoPath(repo)
+	if err != nil {
+		return nil, err
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
+	var out struct {
+		Tree []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"tree"`
+	}
+	if err := c.api(ctx, http.MethodGet, p+"/git/trees/"+url.PathEscape(ref)+"?recursive=1", token, &out); err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range out.Tree {
+		if e.Type == "blob" && (strings.HasSuffix(e.Path, ".yml") || strings.HasSuffix(e.Path, ".yaml")) {
+			files = append(files, e.Path)
+		}
+	}
+	return files, nil
+}
+
+// repoPath is /repos/owner/name for an owner/name or a github.com URL,
+// refusing anything else so a typed value never reaches another API path.
+func repoPath(repo string) (string, error) {
+	owner, name, ok := strings.Cut(strings.TrimPrefix(RepoURL(repo), "https://github.com/"), "/")
+	name = strings.TrimSuffix(name, ".git")
+	if !ok || owner == "" || name == "" || owner == ".." || name == ".." || strings.ContainsAny(owner+name, "/:?#%") {
+		return "", fmt.Errorf("not an owner/name repository: %q", repo)
+	}
+	return "/repos/" + owner + "/" + name, nil
+}
+
 // api calls GitHub with a bearer (app JWT or installation token; GitHub takes
 // Bearer for both) and decodes the JSON answer into out.
 func (c *Client) api(ctx context.Context, method, path, bearer string, out any) error {

@@ -105,7 +105,7 @@ func (s *Share) UnmarshalYAML(n *yaml.Node) error {
 		s.Orgs = []string{}
 		return n.Decode(&s.Orgs)
 	}
-	return fmt.Errorf("line %d: share is all, or a list of org slugs", n.Line)
+	return planfile.LineError(n.Line, "share is all, or a list of org slugs")
 }
 
 func (s Share) MarshalYAML() (any, error) {
@@ -141,7 +141,7 @@ var removedKeys map[string]string
 // normalised in place, so Diff compares like with like.
 func Parse(data []byte) (*File, error) {
 	var f File
-	if err := planfile.StrictYAML(data, &f, removedKeys); err != nil {
+	if err := planfile.ParseFile(data, &f, removedKeys); err != nil {
 		return nil, fmt.Errorf("yaml: %w", err)
 	}
 	if f.Version != 1 {

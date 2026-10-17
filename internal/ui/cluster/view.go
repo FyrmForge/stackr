@@ -77,6 +77,7 @@ type Net struct {
 	Router   bool
 	Forward  string // the node the NAT forwards to; "" = not known
 	Unsure   bool   // Forward came from inside the network
+	Public   string // the address the network is seen from outside; "" = not seen
 }
 
 type Link struct {
@@ -267,7 +268,7 @@ func Build(m Map, base string, notes []graph.Note, create []graph.Create) graph.
 			rowH = max(rowH, cardH(n))
 		}
 		if c.Router {
-			add(natID(c.ID), rect{x, rowY + (faceH-natH)/2, natW, natH}, graph.Node{Kind: "nat", Name: "NAT", Card: natCard()})
+			add(natID(c.ID), rect{x, rowY + (faceH-natH)/2, natW, natH}, graph.Node{Kind: "nat", Name: "NAT", Card: natCard(c.Public)})
 			x += natW + gapX
 		}
 		for _, n := range ns {
