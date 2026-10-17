@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -189,5 +190,29 @@ func TestWithBoxIgnoresBoxFacts(t *testing.T) {
 	old.Root = "other.com"
 	if reflect.DeepEqual(withBox(old, now), now) {
 		t.Error("a changed answer was hidden")
+	}
+}
+
+// The wrapper passes the CLI's STACKR_* variables into the panel container
+// by name, values off argv, and keeps its own STACKR_CONFIG.
+func TestWrapperPassesStackrEnv(t *testing.T) {
+	dir := t.TempDir()
+	fake := "#!/bin/sh\nif [ \"$1\" = ps ]; then echo c1; exit; fi\necho \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := filepath.Join(dir, "stackr")
+	if err := os.WriteFile(w, []byte(wrapper("/data")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(w, "org", "ls")
+	cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin", "STACKR_KEY=s3cret", "STACKR_CONFIG=/elsewhere", "OTHER=1"}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	got := strings.TrimSpace(string(out))
+	if want := "exec -i -e STACKR_KEY -e STACKR_CONFIG=/data/cli.json c1 /stackr org ls"; got != want {
+		t.Fatalf("docker got %q, want %q", got, want)
 	}
 }
