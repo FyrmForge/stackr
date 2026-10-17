@@ -580,6 +580,9 @@ func (a *app) dests() *cobra.Command {
 		"Add an S3 destination",
 		exact(1),
 		func(c *cobra.Command, args []string) error {
+			if shared && !server {
+				return errors.New("--shared is for a server destination; add --server")
+			}
 			p, err := base()
 			if err != nil {
 				return err

@@ -67,3 +67,12 @@ func TestAdminRegistryClean(t *testing.T) {
 		t.Errorf("clean -y = %d %q, wrote %q", code, errw, writes(r))
 	}
 }
+
+// dest add --shared without --server is refused before any write: the org
+// route has no shared destinations.
+func TestDestAddSharedNeedsServer(t *testing.T) {
+	r := fake(t, map[string]string{})
+	if code, _, errw := cli(t, "dest", "add", "off", "--shared", "--access-key", "a", "--secret-key", "b"); code == 0 || !strings.Contains(errw, "--server") || len(writes(r)) != 0 {
+		t.Fatalf("dest add --shared = %d %q, wrote %q", code, errw, writes(r))
+	}
+}

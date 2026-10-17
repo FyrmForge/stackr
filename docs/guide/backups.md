@@ -10,7 +10,7 @@ With no destination, archives stay on the controller under its data dir (`/var/l
 2. Or from the CLI, which prompts for the keys:
 
    ```bash
-   stackr dest add offsite --endpoint https://s3.example.com --region eu --bucket stackr-backups --shared
+   stackr dest add offsite --server --shared --endpoint https://s3.example.com --region eu --bucket stackr-backups
    ```
 
 ## The panel
@@ -32,7 +32,8 @@ The archive is encrypted with the recovery passphrase the installer showed. Keep
 ### Restore the panel
 
 1. Get the archive. Local ones are under `/var/lib/stackr/backups/stackr/_panel/`. For S3, download the newest object under `stackr/_panel/<install id>/`.
-2. On the controller, as root:
+2. On a new box, install first with the same flags as the old one (see [Install](install.md)). Restore needs that install's answers.
+3. On the controller, as root:
 
    ```bash
    sudo stackr-install restore --passphrase '<recovery passphrase>' panel.tar.gz.age
@@ -40,7 +41,7 @@ The archive is encrypted with the recovery passphrase the installer showed. Keep
 
    Without `--passphrase` it uses this box's master key. On a new box you need the passphrase.
 
-The old database is kept as `stackr.db.before-restore-<time>`.
+The old database is kept as `stackr.db.before-restore-<time>`. Workers reconnect by themselves. Tiles that ran on the old controller do not come back on a new box until they are deployed again.
 
 ## Volumes
 
