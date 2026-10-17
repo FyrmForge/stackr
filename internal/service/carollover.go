@@ -351,6 +351,15 @@ func (o *Orchestrator) reconcileRollover(ctx context.Context) (store.ClusterCA, 
 	}
 	cur := o.cluster.ca.Cert
 	switch {
+	case hasPrev && clusterca.Fingerprint(prev) == clusterca.Fingerprint(cur):
+		// A crash inside RotateCA, after the previous cert and before the new
+		// root: nothing rotated. Never record a rollover from a root to itself.
+		if err := clusterca.DropPrevCA(o.cfg.DataDir); err != nil {
+			return st, err
+		}
+		_ = dropCross(o.cfg.DataDir)
+		o.cluster.setRoots([]*x509.Certificate{cur})
+		return st, nil
 	case hasPrev && !st.RollingOver():
 		now := time.Now().UTC()
 		st.CurrentFP, st.PreviousFP, st.RolloverStartedAt = clusterca.Fingerprint(cur), clusterca.Fingerprint(prev), &now

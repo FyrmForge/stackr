@@ -128,6 +128,7 @@ func newClusterPanel(t *testing.T) *Orchestrator {
 		WithProxy(func(context.Context, json.RawMessage) error { return nil }))
 	must(t, err)
 	t.Cleanup(func() { _ = o.Close() })
+	o.trustAsync.Wait() // the boot chores, before a test moves the CA under them
 	return o
 }
 

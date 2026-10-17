@@ -725,7 +725,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn("moves: resume failed", "err", err)
 	}
 	orch.redeployRestored(ctx)
-	go orch.dailyChores(context.Background())
+	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
+	orch.detach(context.Background(), orch.dailyChores)
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
 		slog.Warn("scheduler: entries skipped", "err", err)
