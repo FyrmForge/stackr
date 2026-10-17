@@ -53,6 +53,10 @@ func TestIface(t *testing.T) {
 	if a == b || len(a) > 15 || !strings.HasPrefix(a, "wgx-") || a != Iface("node-a") {
 		t.Errorf("iface %q %q", a, b)
 	}
+	// A node that is both client and exit of another keeps two interfaces.
+	if s := ServeIface("node-a"); s == a || len(s) > 15 || !strings.HasPrefix(s, "wgx-") {
+		t.Errorf("serve iface %q, link iface %q", s, a)
+	}
 }
 
 func joined(steps []Step) []string {
@@ -74,8 +78,8 @@ func has(t *testing.T, lines []string, want string) {
 }
 
 func link() Link {
-	return Link{Iface: "wgx-b", KeyFile: "/k", Port: 51821, PeerKey: "PB", Endpoint: "192.0.2.11:51821",
-		Addr: "10.251.0.1/30", Table: 101, Sources: []string{"10.214.1.0/24"}}
+	return Link{Iface: "wgx-b", KeyFile: "/k", Port: 52000, PeerKey: "PB", Endpoint: "10.207.255.3:52000",
+		Addr: "10.251.0.1/30", Table: 1003, Sources: []string{"10.208.1.0/24"}}
 }
 
 func TestLinkUp(t *testing.T) {
@@ -86,12 +90,12 @@ func TestLinkUp(t *testing.T) {
 	l := joined(s)
 	for _, w := range []string{
 		"ip link add wgx-b type wireguard",
-		"wg set wgx-b listen-port 51821 private-key /k peer PB endpoint 192.0.2.11:51821 allowed-ips 0.0.0.0/0 persistent-keepalive 25",
+		"wg set wgx-b listen-port 52000 private-key /k peer PB endpoint 10.207.255.3:52000 allowed-ips 0.0.0.0/0 persistent-keepalive 25",
 		"ip addr add 10.251.0.1/30 dev wgx-b",
 		"ip link set wgx-b mtu 1420 up",
-		"ip route replace default dev wgx-b table 101",
+		"ip route replace default dev wgx-b table 1003",
 		"iptables -t nat -I STACKR-NAT 1 -o wgx-b -j ACCEPT",
-		"iptables -t raw -I STACKR-RAW 1 -i wgx-b -d 10.214.1.0/24 -j ACCEPT",
+		"iptables -t raw -I STACKR-RAW 1 -i wgx-b -d 10.208.1.0/24 -j ACCEPT",
 		"iptables -t filter -I STACKR-XN 1 -i wgx-b -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
 		"iptables -t filter -A STACKR-XN -i wgx-b -j DROP",
 	} {
@@ -135,30 +139,30 @@ func TestLinkDown(t *testing.T) {
 }
 
 func TestSubjectRules(t *testing.T) {
-	s := Subject{Sources: []string{"10.214.1.0/24", "10.214.3.0/24"}, PrefBase: 1000}
-	r, err := s.Route(101)
+	s := Subject{Sources: []string{"10.208.1.0/24", "10.208.3.0/24"}, PrefBase: 10002}
+	r, err := s.Route(1003)
 	if err != nil {
 		t.Fatal(err)
 	}
 	l := joined(r)
-	has(t, l, "ip rule add pref 1000 from 10.214.1.0/24 lookup main suppress_prefixlength 0")
-	has(t, l, "ip rule add pref 1001 from 10.214.1.0/24 lookup 101")
-	has(t, l, "ip rule add pref 1002 from 10.214.3.0/24 lookup main suppress_prefixlength 0")
-	has(t, l, "ip rule add pref 1003 from 10.214.3.0/24 lookup 101")
+	has(t, l, "ip rule add pref 10002 from 10.208.1.0/24 lookup main suppress_prefixlength 0")
+	has(t, l, "ip rule add pref 10003 from 10.208.1.0/24 lookup 1003")
+	has(t, l, "ip rule add pref 10004 from 10.208.3.0/24 lookup main suppress_prefixlength 0")
+	has(t, l, "ip rule add pref 10005 from 10.208.3.0/24 lookup 1003")
 	// Deletes come before adds so a re-route never stacks duplicate rules.
 	if !strings.HasPrefix(l[0], "ip rule del pref") {
 		t.Errorf("first step %q", l[0])
 	}
 	b, _ := s.Blackhole()
 	bl := joined(b)
-	has(t, bl, "ip rule add pref 1001 from 10.214.1.0/24 blackhole")
-	has(t, bl, "ip rule add pref 1000 from 10.214.1.0/24 lookup main suppress_prefixlength 0")
+	has(t, bl, "ip rule add pref 10003 from 10.208.1.0/24 blackhole")
+	has(t, bl, "ip rule add pref 10002 from 10.208.1.0/24 lookup main suppress_prefixlength 0")
 	for _, c := range s.Clear() {
 		if !c.IgnoreErr {
 			t.Error("clear must tolerate missing rules")
 		}
 	}
-	if _, err := (Subject{Sources: s.Sources}).Route(101); err == nil {
+	if _, err := (Subject{Sources: s.Sources}).Route(1003); err == nil {
 		t.Error("missing pref base accepted")
 	}
 	if _, err := s.Route(0); err == nil {
@@ -167,14 +171,14 @@ func TestSubjectRules(t *testing.T) {
 }
 
 func serve() Serve {
-	return Serve{Iface: "wgx-a", KeyFile: "/k", Port: 51821, PeerKey: "PA", Endpoint: "192.0.2.10:51821",
-		Addr: "10.251.0.2/30", PeerAddr: "10.251.0.1/32", Subnets: []string{"10.214.1.0/24"},
-		Uplink: "eth0", Table: 151, Mark: 0x51, Pref: 1000}
+	return Serve{Iface: "wgx-a", KeyFile: "/k", Port: 52000, PeerKey: "PA", Endpoint: "10.207.255.2:52000",
+		Addr: "10.251.0.2/30", PeerAddr: "10.251.0.1/32", Subnets: []string{"10.208.1.0/24"},
+		Uplink: "eth0", Table: 1302, Mark: 0x5002, Pref: 20002}
 }
 
 func TestServeUp(t *testing.T) {
 	v := serve()
-	if got := v.AllowedIPs(); got != "10.214.1.0/24,10.251.0.1/32" {
+	if got := v.AllowedIPs(); got != "10.208.1.0/24,10.251.0.1/32" {
 		t.Errorf("allowed = %s", got)
 	}
 	s, err := v.Up()
@@ -183,10 +187,10 @@ func TestServeUp(t *testing.T) {
 	}
 	l := joined(s)
 	for _, w := range []string{
-		"wg set wgx-a listen-port 51821 private-key /k peer PA endpoint 192.0.2.10:51821 allowed-ips 10.214.1.0/24,10.251.0.1/32",
-		"iptables -t mangle -A STACKR-XM-wgx-a -i wgx-a -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x51",
-		"iptables -t mangle -A STACKR-XM-wgx-a -m connmark --mark 0x51 -j CONNMARK --restore-mark",
-		"iptables -t nat -A STACKR-XT-wgx-a -s 10.214.1.0/24 -o eth0 -j MASQUERADE",
+		"wg set wgx-a listen-port 52000 private-key /k peer PA endpoint 10.207.255.2:52000 allowed-ips 10.208.1.0/24,10.251.0.1/32",
+		"iptables -t mangle -A STACKR-XM-wgx-a -i wgx-a -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x5002",
+		"iptables -t mangle -A STACKR-XM-wgx-a -m connmark --mark 0x5002 -j CONNMARK --restore-mark",
+		"iptables -t nat -A STACKR-XT-wgx-a -s 10.208.1.0/24 -o eth0 -j MASQUERADE",
 		"iptables -t filter -A STACKR-XF-wgx-a -o wgx-a -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
 		"iptables -t filter -A STACKR-XF-wgx-a -i wgx-a -o eth0 -j ACCEPT",
 		"iptables -t filter -A STACKR-XF-wgx-a -i wgx-a -j DROP",
@@ -194,8 +198,8 @@ func TestServeUp(t *testing.T) {
 		"iptables -t nat -I POSTROUTING 1 -j STACKR-XT-wgx-a",
 		"iptables -t filter -I DOCKER-USER 1 -j STACKR-XF-wgx-a",
 		"iptables -t filter -A INPUT -i wgx-a -j DROP",
-		"ip route replace 10.214.1.0/24 dev wgx-a table 151",
-		"ip rule add pref 1000 fwmark 0x51 lookup 151",
+		"ip route replace 10.208.1.0/24 dev wgx-a table 1302",
+		"ip rule add pref 20002 fwmark 0x5002 lookup 1302",
 	} {
 		has(t, l, w)
 	}
@@ -307,7 +311,7 @@ func newHarness(rungs ...Rung) *harness {
 	for _, r := range rungs {
 		h.up[r.NodeID] = true
 	}
-	h.l = NewLadder(Subject{Sources: []string{"10.214.1.0/24"}, PrefBase: 1000}, rungs,
+	h.l = NewLadder(Subject{Sources: []string{"10.208.1.0/24"}, PrefBase: 10002}, rungs,
 		RunnerFunc(func(_ context.Context, a []string) error { h.cmds = append(h.cmds, strings.Join(a, " ")); return nil }),
 		PingerFunc(func(_ context.Context, r Rung) error {
 			h.pings = append(h.pings, r.NodeID)
@@ -350,15 +354,15 @@ func (h *harness) blackholed() bool {
 }
 
 var (
-	rb  = Rung{NodeID: "b", Iface: "wgx-b", Table: 101, Target: "1.1.1.1"}
-	rc  = Rung{NodeID: "c", Iface: "wgx-c", Table: 102, Target: "1.1.1.1"}
+	rb  = Rung{NodeID: "b", Iface: "wgx-b", Table: 1003, Target: "1.1.1.1"}
+	rc  = Rung{NodeID: "c", Iface: "wgx-c", Table: 1004, Target: "1.1.1.1"}
 	own = Rung{NodeID: "a", Own: true, Target: "1.1.1.1"}
 )
 
 func TestLadderStartAndSteady(t *testing.T) {
 	h := newHarness(rb, rc)
 	s := h.tick(t)
-	if s.Active != 0 || s.NodeID != "b" || s.Down || !h.routed("101") {
+	if s.Active != 0 || s.NodeID != "b" || s.Down || !h.routed("1003") {
 		t.Fatalf("start = %+v cmds %v", s, h.cmds)
 	}
 	// Healthy and steady: only the live rung is probed, nothing reapplied,
@@ -385,7 +389,7 @@ func TestLadderFailoverAndRecovery(t *testing.T) {
 		}
 	}
 	s := h.tick(t)
-	if s.Active != 1 || s.NodeID != "c" || !h.routed("102") {
+	if s.Active != 1 || s.NodeID != "c" || !h.routed("1004") {
 		t.Fatalf("third failure: %+v cmds %v", s, h.cmds)
 	}
 	// c dies, then own uplink takes over: rules are cleared, not installed.
@@ -393,7 +397,7 @@ func TestLadderFailoverAndRecovery(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		s = h.tick(t)
 	}
-	if s.Active != 2 || s.NodeID != "a" || h.routed("101") || h.routed("102") || h.blackholed() {
+	if s.Active != 2 || s.NodeID != "a" || h.routed("1003") || h.routed("1004") || h.blackholed() {
 		t.Fatalf("own rung: %+v cmds %v", s, h.cmds)
 	}
 	// b returns: needs RecoverAfter (2) good probes in a row, then goes back up.
@@ -403,7 +407,7 @@ func TestLadderFailoverAndRecovery(t *testing.T) {
 	}
 	h.t0 = h.t0.Add(time.Minute)
 	s = h.tick(t)
-	if s.Active != 0 || !h.routed("101") || !s.Since.Equal(h.t0) {
+	if s.Active != 0 || !h.routed("1003") || !s.Since.Equal(h.t0) {
 		t.Fatalf("recovery: %+v cmds %v", s, h.cmds)
 	}
 	// b blips once while good: the streak resets, no switch.
@@ -433,7 +437,7 @@ func TestLadderExhausted(t *testing.T) {
 	// The lower rung comes back first: one good probe is enough from down.
 	h.up["c"] = true
 	s = h.tick(t)
-	if s.Down || s.NodeID != "c" || !h.routed("102") {
+	if s.Down || s.NodeID != "c" || !h.routed("1004") {
 		t.Fatalf("back from down: %+v cmds %v", s, h.cmds)
 	}
 	// Failing mid ladder with nothing left reports down with a reason.

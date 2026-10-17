@@ -766,6 +766,10 @@ type ExitOut struct {
 	Scope string        `json:"scope"`
 	From  string        `json:"from"`
 	Exits []ExitRungOut `json:"exits"`
+	// NoInternet is set when every exit is down: the env's traffic is
+	// dropped, never sent out its own uplink; Why says what the ladder saw.
+	NoInternet bool   `json:"no_internet"`
+	Why        string `json:"why,omitempty"`
 }
 
 // ExitGet is the list in force for a scope: its own, else the nearest scope
@@ -792,6 +796,9 @@ func (o *Orchestrator) ExitGet(ctx context.Context, kind, id string) (ExitOut, e
 	}
 	for i, r := range v.Rungs {
 		out.Exits = append(out.Exits, ExitRungOut{Position: i + 1, Placement: r.Name, State: r.State})
+	}
+	if v.NoNet {
+		out.NoInternet, out.Why = true, v.NoNetWhy
 	}
 	return out, nil
 }

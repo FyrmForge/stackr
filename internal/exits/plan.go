@@ -53,6 +53,11 @@ func Iface(peerNodeID string) string {
 	return "wgx-" + hex.EncodeToString(h[:])[:10]
 }
 
+// ServeIface is the wg interface name of the exit side towards a client
+// node. It differs from Iface(clientNodeID), so two nodes that are each
+// other's exit keep the link and the serve on separate interfaces.
+func ServeIface(clientNodeID string) string { return Iface("serve:" + clientNodeID) }
+
 func cmd(a ...string) Step   { return Step{Argv: a} }
 func quiet(a ...string) Step { return Step{Argv: a, IgnoreErr: true} }
 func ipt(table string, rule ...string) []string {

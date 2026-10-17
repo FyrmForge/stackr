@@ -467,7 +467,7 @@ type rungState struct{ state, detail string }
 // rungStates is the live state of the rungs an env or tile uses, from the
 // ladder on the env's node: the one in use, the others standby, or all down.
 // Org and stack scopes cover many envs and show none. Unknown (no worker
-// connection, the controller's own node, no ladder running) is an empty map.
+// connection, no ladder running) is an empty map.
 func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, ids []string) (map[string]rungState, string, bool) {
 	envID := id
 	if kind == ScopeTile {
@@ -483,8 +483,13 @@ func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, ids []st
 	if err != nil || e.NodeID == "" || e.Subnet == "" {
 		return nil, "", false
 	}
-	c, err := o.nodeExtras(e.NodeID)
-	if err != nil || c == nil {
+	if o.mesh == nil {
+		return nil, "", false
+	}
+	// The mesh's own lookup: a worker's client, or the controller's node in
+	// process, so an env on the controller shows its exit state too.
+	c, ok := o.mesh.nodes(e.NodeID)
+	if !ok {
 		return nil, "", false
 	}
 	info, err := c.MeshInfo(ctx)
@@ -497,10 +502,14 @@ func (o *Orchestrator) rungStates(ctx context.Context, kind, id string, ids []st
 		}
 		st, out := l.State, map[string]rungState{}
 		since := time.Since(st.Since).Round(time.Second)
+		name := o.nodeNamer(ctx)
 		for _, rid := range ids {
 			real := e.NodeID
 			if rid != OwnRung {
 				real, _ = placementNode(ctx, o.store.Placements, rid)
+			}
+			if real != "" {
+				st.Reason = strings.ReplaceAll(st.Reason, real, name(real)) // the ladder names nodes by id
 			}
 			switch {
 			case st.Down:
