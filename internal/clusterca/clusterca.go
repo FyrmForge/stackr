@@ -423,8 +423,8 @@ func LoadPrevCA(dir string) (*x509.Certificate, error) {
 
 // RotateCA makes next the current root and keeps the current one's cert as
 // the previous root (cert only). The previous cert is written first: a crash
-// between the two writes leaves the old root current and listed twice, which
-// is harmless. Rolling over twice in a row loses the first previous root, so
+// between the two writes leaves the old root current and listed as previous
+// too, which the caller reads as nothing rotated (service.reconcileRollover). Rolling over twice in a row loses the first previous root, so
 // callers finish a rollover before starting another.
 func RotateCA(dir string, next *CA) error {
 	cur, err := LoadCA(dir)

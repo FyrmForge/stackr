@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -237,6 +238,32 @@ func TestRolloverReconcilesFromDisk(t *testing.T) {
 	must(t, err)
 	if !st.RollingOver() || st.PreviousFP != clusterca.Fingerprint(old.Cert) || len(o.cluster.roots()) != 2 {
 		t.Fatalf("state = %+v roots = %d", st, len(o.cluster.roots()))
+	}
+}
+
+// A crash inside RotateCA, after the previous cert and before the new root:
+// the previous root on disk is the current one. Nothing rotated, so no
+// rollover from a root to itself is recorded and the leftovers go.
+func TestRolloverReconcileSameRootIsNoRollover(t *testing.T) {
+	ctx := context.Background()
+	o := rolloverRig(t)
+	next, err := clusterca.NewCA(time.Now())
+	must(t, err)
+	must(t, writeCross(o.cfg.DataDir, o.cluster.ca, next))
+	must(t, os.WriteFile(filepath.Join(o.cfg.DataDir, clusterca.CAPrevCertFile), clusterca.BundlePEM([]*x509.Certificate{o.cluster.ca.Cert}), 0o644))
+	st, err := o.reconcileRollover(ctx)
+	must(t, err)
+	if st.RollingOver() || len(o.cluster.roots()) != 1 {
+		t.Fatalf("state = %+v roots = %d", st, len(o.cluster.roots()))
+	}
+	if _, ok, _ := o.store.ClusterCA.Get(ctx); ok {
+		t.Fatal("cluster_ca written for a rollover that never happened")
+	}
+	if _, err := clusterca.LoadPrevCA(o.cfg.DataDir); !os.IsNotExist(err) {
+		t.Fatalf("previous root still on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(o.cfg.DataDir, crossFile)); !os.IsNotExist(err) {
+		t.Fatalf("cross cert still on disk: %v", err)
 	}
 }
 
