@@ -37,6 +37,8 @@ type App interface {
 	ConvertManifest(ctx context.Context, code string) (githubapp.App, error)
 	Token(ctx context.Context, key string, app githubapp.App) (string, error)
 	Repos(ctx context.Context, token string) ([]githubapp.Repo, error)
+	Branches(ctx context.Context, token, repo string) ([]string, error)
+	YAMLFiles(ctx context.Context, token, repo, ref string) ([]string, error)
 	SetHookURL(ctx context.Context, connectorID string, app githubapp.App) error
 }
 
@@ -439,6 +441,34 @@ func (l *Leaf) repos(ctx context.Context, c store.Connector) ([]githubapp.Repo, 
 		return nil, err
 	}
 	return l.app.Repos(ctx, tok)
+}
+
+// RepoBranches lists repo's branches through connector id, for the config
+// picker.
+func (l *Leaf) RepoBranches(ctx context.Context, orgID, id, repo string) ([]string, error) {
+	c, err := l.Usable(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := l.Token(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return l.app.Branches(ctx, tok, repo)
+}
+
+// RepoYAMLFiles lists repo's YAML files at ref through connector id, for
+// the config file picker.
+func (l *Leaf) RepoYAMLFiles(ctx context.Context, orgID, id, repo, ref string) ([]string, error) {
+	c, err := l.Usable(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := l.Token(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return l.app.YAMLFiles(ctx, tok, repo, ref)
 }
 
 // Token is c's installation token (cached by the wrapper).

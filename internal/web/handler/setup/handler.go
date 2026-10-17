@@ -49,6 +49,8 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	site.POST(s+"/connector", h.connector, a.Require("org.setup.connector"))
 	site.POST(s+"/domain", h.domain, a.Require("org.setup.domain"))
 	site.POST(s+"/config", h.bind, a.Require("org.config.bind"))
+	site.GET(s+"/config/connector/:connector/branches", h.branches, step)
+	site.GET(s+"/config/connector/:connector/files", h.files, step)
 	approve := a.Require("orgplan.approve")
 	site.POST(s+"/config/plan/:plan/approve", h.approve, approve)
 	site.POST(s+"/config/plan/:plan/reject", h.reject, approve)
@@ -390,6 +392,31 @@ func doneSubtitle(og *service.Org) string {
 // apply runs; without one it is the latest plan still waiting. The org is
 // addressed by id there: the apply renames it under the wait. While the
 // apply runs the banner polls this URL every 2s (v0's PlanBody).
+// GET /:org/-/setup/config/connector/:connector/branches?repo=, the repo
+// picker's branch list.
+func (h *handler) branches(c echo.Context) error {
+	og := middleware.ScopeOf(c).Org
+	bs, err := h.orch.ConnectorBranches(c.Request().Context(), og.ID, c.Param("connector"), c.QueryParam("repo"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.JSON(c, http.StatusOK, bs)
+}
+
+// GET /:org/-/setup/config/connector/:connector/files?repo=&ref=, the repo
+// picker's file list.
+func (h *handler) files(c echo.Context) error {
+	og := middleware.ScopeOf(c).Org
+	fs, err := h.orch.ConnectorYAMLFiles(c.Request().Context(), og.ID, c.Param("connector"), c.QueryParam("repo"), c.QueryParam("ref"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if fs == nil {
+		fs = []string{}
+	}
+	return respond.JSON(c, http.StatusOK, fs)
+}
+
 func (h *handler) plan(c echo.Context) error {
 	og, ctx := middleware.ScopeOf(c).Org, c.Request().Context()
 	if og.SetupDoneAt != nil {
