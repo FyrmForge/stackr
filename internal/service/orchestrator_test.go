@@ -273,13 +273,13 @@ func TestPromoteBlockersOneAnswer(t *testing.T) {
 	rel, err := w.orch.releases.Create(ctx, other, "test", nil)
 	must(t, err)
 
-	pp, err := w.orch.PlanPromote(ctx, w.env, rel.ID)
+	pp, err := w.orch.PlanPromote(ctx, nil, w.env, rel.ID)
 	must(t, err)
 	if pp.CanDeploy || len(pp.Plan.Blockers) != 1 {
 		t.Fatalf("plan = %+v, want one blocker", pp)
 	}
-	for _, verb := range []func(context.Context, string, string) (Job, error){w.orch.Promote, w.orch.Rollback} {
-		j, err := verb(ctx, w.env, rel.ID)
+	for _, verb := range []func(context.Context, *Principal, string, string) (Job, error){w.orch.Promote, w.orch.Rollback} {
+		j, err := verb(ctx, nil, w.env, rel.ID)
 		must(t, err)
 		if j = w.wait(t, j.ID); j.State != job.Failed || !strings.Contains(j.Error, pp.Plan.Blockers[0]) {
 			t.Errorf("job = %s %q, want failed with %q", j.State, j.Error, pp.Plan.Blockers[0])
@@ -371,7 +371,7 @@ func (w *world) promoteTile(t *testing.T, slug, tiles string) Tile {
 	rel, err := w.orch.releases.Create(ctx, w.stack, "test",
 		[]release.Pin{{Slug: release.ConfigSlug, Repo: st.ConfigRepo, CommitSHA: "c1"}})
 	must(t, err)
-	j, err := w.orch.Promote(ctx, w.env, rel.ID)
+	j, err := w.orch.Promote(ctx, nil, w.env, rel.ID)
 	must(t, err)
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("promote = %s: %s", j.State, j.Error)

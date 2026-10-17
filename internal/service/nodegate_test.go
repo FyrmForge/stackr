@@ -75,7 +75,7 @@ func TestOfflineNodeRefusesWork(t *testing.T) {
 		"restart": func() error { _, err := o.RestartTile(ctx, tl.ID); return err },
 		"start":   func() error { _, err := o.StartTile(ctx, tl.ID); return err },
 		"stop":    func() error { _, err := o.StopTile(ctx, tl.ID); return err },
-		"promote": func() error { _, err := o.enqueuePromote(ctx, env.ID, "rel"); return err },
+		"promote": func() error { _, err := o.enqueuePromote(ctx, env.ID, "rel", false); return err },
 		"envsync": func() error { _, err := o.EnvSync(ctx, env.ID, "other", nil, ""); return err },
 		"run":     func() error { _, _, err := o.RunTile(ctx, tl.ID); return err },
 	} {

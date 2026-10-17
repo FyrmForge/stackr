@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
@@ -254,6 +255,33 @@ func (o *Orchestrator) orgFileNeeds(ctx context.Context, live *orgconfig.Live, f
 	}
 }
 
+// mayPlaceKey marks a promote's ctx as approved by someone who may change
+// pin, ingress and exits: an org owner (placement.write), the same right the
+// Placement tab and the pin routes ask. No mark: a stack plan that changes
+// one is blocked (promote.NeedsOwner), so a member's promote or a push's
+// auto promote never moves an env; it waits for an owner.
+type mayPlaceKey struct{}
+
+func withMayPlace(ctx context.Context, ok bool) context.Context {
+	return context.WithValue(ctx, mayPlaceKey{}, ok)
+}
+
+// mayPlace says by may change the placing of the env's stack.
+func (o *Orchestrator) mayPlace(ctx context.Context, by *Principal, envID string) (bool, error) {
+	if by == nil {
+		return false, nil
+	}
+	e, err := o.envs.Get(ctx, envID)
+	if err != nil {
+		return false, err
+	}
+	st, err := o.stacks.Get(ctx, e.StackID)
+	if err != nil {
+		return false, err
+	}
+	return authz.Can(by.Access, "placement.write", authz.Resource{OrgID: st.OrgID, StackID: st.ID}) == nil, nil
+}
+
 // stackPlacements is promote's Placements: the facts and lookups for the
 // stack plan of one env.
 func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promote.PlacementLive, error) {
@@ -319,6 +347,7 @@ func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promo
 		return o.pinMoves(ctx, live.Placements, placement, envs)
 	}
 	live.Set = func(ctx context.Context, w promote.PlacementWrite) error { return o.setPlacing(ctx, w) }
+	live.MayPlace, _ = ctx.Value(mayPlaceKey{}).(bool)
 	return live, nil
 }
 

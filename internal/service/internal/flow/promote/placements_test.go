@@ -25,6 +25,7 @@ func facts() planfile.PlacementFacts {
 // wire gives the flow a gatherer; sets collects what apply would write.
 func wire(w *world, live PlacementLive, sets *[]PlacementWrite) {
 	live.Placements = facts()
+	live.MayPlace = true // an owner approves; the service test covers a member
 	live.Set = func(_ context.Context, pw PlacementWrite) error {
 		*sets = append(*sets, pw)
 		return nil

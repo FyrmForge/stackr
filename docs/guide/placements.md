@@ -29,6 +29,8 @@ stackr pin eu-prod --stack shop --yes
 
 The same pins go in `stackr-org.yml` and the stack files as `pin: eu-prod`. A pin to a placement the org cannot use, or one whose node lacks a tag the envs need, is refused, from the CLI, the panel or a file. Volumes and managed tiles a stack file declares count before their first deploy: they need a node tagged `storage`.
 
+Pins, ingress and exits are an org owner's to set. A stack file promote that changes one waits for an owner to promote it; a member's promote and a push's auto promote are refused.
+
 Ingress and exits name placements too:
 
 ```bash

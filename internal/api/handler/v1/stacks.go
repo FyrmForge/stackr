@@ -124,7 +124,7 @@ func (h *H) Release() Endpoint {
 // Rollback refuse with (B2, B20).
 func (h *H) PlanPromote() Endpoint {
 	return Get(func(c echo.Context) (service.PromotePlan, error) {
-		return h.Orch.PlanPromote(rc(c), envID(c), c.Param("release"))
+		return h.Orch.PlanPromote(rc(c), middleware.Principal(c), envID(c), c.Param("release"))
 	})
 }
 
@@ -138,13 +138,13 @@ func (PromoteIn) BodyOptional() {}
 
 func (h *H) Promote() Endpoint {
 	return Job(func(c echo.Context, in PromoteIn) (service.Job, error) {
-		return h.Orch.PromoteTicked(rc(c), envID(c), c.Param("release"), in.Ticked)
+		return h.Orch.PromoteTicked(rc(c), middleware.Principal(c), envID(c), c.Param("release"), in.Ticked)
 	})
 }
 
 func (h *H) Rollback() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
-		return h.Orch.Rollback(rc(c), envID(c), c.Param("release"))
+		return h.Orch.Rollback(rc(c), middleware.Principal(c), envID(c), c.Param("release"))
 	})
 }
 

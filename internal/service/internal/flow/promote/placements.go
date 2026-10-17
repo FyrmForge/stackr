@@ -31,6 +31,10 @@ type PlacementWrite struct {
 	Except         []string
 }
 
+// NeedsOwner is the blocker of a plan that changes pin, ingress or exits
+// when its approver is no org owner (PlacementLive.MayPlace).
+const NeedsOwner = "This changes pin, ingress or exits, so an org owner must promote it."
+
 // placeStep is a PlacementWrite the plan decided on.
 type placeStep struct{ PlacementWrite }
 
@@ -143,6 +147,9 @@ func (f *Flow) planScope(
 		if c.Kind == "pin" && c.Impact != "" {
 			p.block("pin %s %s; confirm that move on the Placement tab or with %s, then promote again", c.New, c.Impact, cmd)
 		}
+	}
+	if len(cs) > 0 && !w.place.MayPlace && !slices.Contains(p.Blockers, NeedsOwner) {
+		p.block("%s", NeedsOwner)
 	}
 	p.Warnings = append(p.Warnings, warns...)
 	for _, c := range cs {
