@@ -59,6 +59,7 @@ func (o *Orchestrator) importLogged(ctx context.Context, orgID, ref string, c st
 	}
 	res, err := o.regs.Import(ctx, req)
 	if no := (*imgcopy.DeniedError)(nil); errors.As(err, &no) {
+		slog.Warn("import: upstream refused", "ref", ref, "at", no.Path, "status", no.Status, "codes", no.Codes, "user", c.Username)
 		err = fmt.Errorf("%w: %s", err, deniedFix(ref, c))
 	}
 	return res.LocalRef, res.Digest, err

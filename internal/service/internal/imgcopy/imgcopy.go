@@ -98,8 +98,9 @@ func Copy(ctx context.Context, src, dst string, srcAuth authn.Authenticator, dst
 
 	d, err := remote.Get(srcRef, so...)
 	if err != nil {
-		if denied(err) {
-			return Result{}, &DeniedError{Ref: src}
+		if no := denied(err); no != nil {
+			no.Ref = src
+			return Result{}, no
 		}
 		if unreachable(err) {
 			return Result{}, &UnreachableError{Registry: srcRef.Context().RegistryStr(), Err: fmt.Errorf("source %s: %w", srcRef, err)}
@@ -204,25 +205,35 @@ func (e *UnreachableError) Unwrap() error { return e.Err }
 // DeniedError is Copy's answer when src's registry refused it (401 or 403,
 // UNAUTHORIZED or DENIED): a private image without a credential that reads
 // it, or one that does not exist (ghcr and others say "denied" for both).
-// Its text is the ref alone, never the registry's token URL.
-type DeniedError struct{ Ref string }
+// Its text is the ref alone, never the registry's token URL; Status, Codes
+// and Path (the refusing request's, no query) are for the server log.
+type DeniedError struct {
+	Ref    string
+	Status int
+	Codes  []string
+	Path   string
+}
 
 func (e *DeniedError) Error() string { return e.Ref + " is private or missing" }
 
-func denied(err error) bool {
+func denied(err error) *DeniedError {
 	var te *transport.Error
 	if !errors.As(err, &te) {
-		return false
+		return nil
 	}
-	if te.StatusCode == http.StatusUnauthorized || te.StatusCode == http.StatusForbidden {
-		return true
+	no := &DeniedError{Status: te.StatusCode}
+	if te.Request != nil && te.Request.URL != nil {
+		no.Path = te.Request.URL.Host + te.Request.URL.Path
 	}
+	hit := te.StatusCode == http.StatusUnauthorized || te.StatusCode == http.StatusForbidden
 	for _, d := range te.Errors {
-		if d.Code == transport.UnauthorizedErrorCode || d.Code == transport.DeniedErrorCode {
-			return true
-		}
+		no.Codes = append(no.Codes, string(d.Code))
+		hit = hit || d.Code == transport.UnauthorizedErrorCode || d.Code == transport.DeniedErrorCode
 	}
-	return false
+	if !hit {
+		return nil
+	}
+	return no
 }
 
 func unreachable(err error) bool {
