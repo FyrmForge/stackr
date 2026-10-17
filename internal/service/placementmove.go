@@ -717,7 +717,9 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 	return first, notes, errors.Join(errl...)
 }
 
-// newestBackup is the volume's newest finished backup run, nil when it has none.
+// newestBackup is the volume's newest finished backup run, nil when it has
+// none. A pre-restore run is skipped: on a lost volume it is the empty one
+// the restore itself took, not data.
 func (o *Orchestrator) newestBackup(ctx context.Context, volumeID string) (*store.BackupRun, error) {
 	runs, err := o.store.BackupRuns.ListByVolume(ctx, volumeID)
 	if err != nil {
@@ -725,7 +727,7 @@ func (o *Orchestrator) newestBackup(ctx context.Context, volumeID string) (*stor
 	}
 	var newest *store.BackupRun
 	for i, r := range runs {
-		if r.Status == backup.Done && (newest == nil || r.CreatedAt.After(newest.CreatedAt)) {
+		if r.Status == backup.Done && r.Trigger != backup.PreRestore && (newest == nil || r.CreatedAt.After(newest.CreatedAt)) {
 			newest = &runs[i]
 		}
 	}

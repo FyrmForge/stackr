@@ -128,6 +128,9 @@ func TestRestoreVolumesBeforeDeploy(t *testing.T) {
 		return v
 	}
 	vol("data", nil, "data.tar.gz.age")
+	// a later pre-restore run is the empty volume a restore took: never picked
+	vd := "v-data"
+	must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{ID: "r-pre", Kind: "volume", VolumeID: &vd, DestID: "d", Status: backup.Done, Trigger: backup.PreRestore, ObjectKey: "pre.tar.gz.age", CreatedAt: old.Add(time.Minute)}))
 	vol("db", &mi, "db.sql.gz.age")
 	vol("cache", nil, "")
 	vol("kept", nil, "kept.tar.gz.age")
@@ -156,6 +159,8 @@ func TestRestoreVolumesBeforeDeploy(t *testing.T) {
 		t.Errorf("a volume with no backup was restored")
 	case data > dpg || dpg > db || db > dapp:
 		t.Errorf("order: restore data %d, deploy pg %d, restore db %d, deploy app %d", data, dpg, db, dapp)
+	case !strings.Contains(js[data].Payload, `"r-data"`):
+		t.Errorf("data restores %s, want run r-data", js[data].Payload)
 	case !slices.Contains(js[data].LockSet, app.ID) || !slices.Contains(js[db].LockSet, app.ID):
 		t.Errorf("restores lock %v and %v, not the app %s", js[data].LockSet, js[db].LockSet, app.ID)
 	}
