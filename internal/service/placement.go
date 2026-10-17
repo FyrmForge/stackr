@@ -609,7 +609,7 @@ func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, na
 		return nil, err
 	}
 	if len(plans) > 0 {
-		if confirm != o.scopeSlug(ctx, kind, id) {
+		if confirm != o.scopeSlug(ctx, kind, id) && !pmIdle(plans) {
 			return nil, &MoveNeeded{Plans: plans}
 		}
 		for _, pl := range plans {
@@ -819,7 +819,8 @@ func (o *Orchestrator) followPin(ctx context.Context, kind, id string) error {
 
 // pinEnv is PinScope on an env. inherit pins it to what its stack, org or
 // the default gives. A pin onto another node is refused with *MoveNeeded
-// unless confirm is the env's slug; then the env moves.
+// unless confirm is the env's slug or nothing in it runs or holds data;
+// then the env moves.
 func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, p store.Placement, inherit bool, confirm string) ([]Job, error) {
 	e, err := o.store.Environments.Get(ctx, envID)
 	if err != nil {
@@ -864,10 +865,10 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 		if err != nil {
 			return nil, err
 		}
-		if confirm != e.Slug {
+		if confirm != e.Slug && !pmIdle([]PlacementMovePlan{plan}) {
 			return nil, &MoveNeeded{Plans: []PlacementMovePlan{plan}}
 		}
-		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, confirm)
+		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, e.Slug)
 		if err != nil {
 			return nil, err
 		}

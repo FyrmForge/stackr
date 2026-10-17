@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -340,6 +341,26 @@ func TestEnvCreateOnPlacement(t *testing.T) {
 	must(t, n.st.Nodes.Update(ctx, w1n))
 	if _, err := n.orch.PlacementForNewEnv(ctx, adm, n.stack, "eu-prod"); !isConflict(err) {
 		t.Errorf("placement on an offline node = %v", err)
+	}
+}
+
+// An env with no tiles and no volumes moves without a typed confirm: nothing
+// stops and no data moves.
+func TestPinEmptyEnvNeedsNoConfirm(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	n.placeW1(t, true)
+	addPlacement(t, n, "w1-twin", "w1", true)
+	empty, err := n.orch.CreateEnv(ctx, n.stack, "empty", EnvSpec{Type: environment.Static, FromKind: environment.FromBranch, FromBranch: "main"})
+	must(t, err)
+	js, err := n.orch.PinScope(ctx, adm, ScopeEnv, empty.ID, "w1-twin", "")
+	if err != nil || len(js) != 1 {
+		t.Fatalf("empty env pin = %v, %v; want its move queued without a confirm", js, err)
+	}
+	// dev has a tile: its pin still asks
+	if _, err := n.orch.PinScope(ctx, adm, ScopeEnv, n.dev.ID, "w1-twin", ""); !errors.As(err, new(*MoveNeeded)) {
+		t.Errorf("env with a tile = %v, want the move to confirm", err)
 	}
 }
 

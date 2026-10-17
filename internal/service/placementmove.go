@@ -47,6 +47,7 @@ var placementMoveMu sync.Mutex
 type MoveEnvLine struct {
 	Path     string
 	Volumes  int
+	Tiles    int
 	Bytes    int64  // -1 = unknown
 	Downtime string // "about 20 s"
 }
@@ -368,7 +369,7 @@ func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore 
 	if err != nil {
 		return MoveEnvLine{}, err
 	}
-	l := MoveEnvLine{Path: path, Volumes: len(vols), Downtime: pmDowntime(len(ts))}
+	l := MoveEnvLine{Path: path, Volumes: len(vols), Tiles: len(ts), Downtime: pmDowntime(len(ts))}
 	switch {
 	case e.NodeID == "":
 		l.Downtime = "none, it is waiting for a node"
@@ -385,6 +386,22 @@ func (o *Orchestrator) pmLine(ctx context.Context, e store.Environment, restore 
 		}
 	}
 	return l, nil
+}
+
+// pmIdle says the plans move nothing that runs or holds data: no tile
+// stops and no volume moves, so the move needs no typed confirm.
+func pmIdle(ps []PlacementMovePlan) bool {
+	for _, p := range ps {
+		if p.Restore {
+			return false
+		}
+		for _, e := range p.Envs {
+			if e.Tiles > 0 || e.Volumes > 0 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func pmOK(cs []planfile.Check) bool {
