@@ -193,6 +193,10 @@ func TestSaveLoadCA(t *testing.T) {
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("key file: %v %v", st, err)
 	}
+	// Written aside and renamed in: nothing is left beside the pair.
+	if left, _ := filepath.Glob(filepath.Join(dir, "keys", "*.new")); len(left) > 0 {
+		t.Fatalf("left aside: %v", left)
+	}
 	got, err := LoadCA(dir)
 	if err != nil || !got.Cert.Equal(ca.Cert) {
 		t.Fatalf("load: %v", err)

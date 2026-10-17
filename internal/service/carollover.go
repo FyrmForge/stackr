@@ -127,6 +127,9 @@ func (o *Orchestrator) FinishRollover(ctx context.Context, by *Principal) error 
 	if rolloverDetached.Load() { // its pushes can wait minutes on an offline worker
 		return errs.Conflictf("The rollover is still sending the trust list. Try again in a few minutes.")
 	}
+	if o.cluster.revoking.Load() { // it holds rollMu for minutes with a worker offline
+		return errs.Conflictf("The controller certificate is being replaced. Try again in a few minutes.")
+	}
 	rolloverMu.Lock()
 	defer rolloverMu.Unlock()
 	st, err := o.reconcileRollover(ctx)
@@ -295,6 +298,14 @@ func (o *Orchestrator) advanceRollover(ctx context.Context, by *Principal, st st
 // mended by reconcileRollover), then from the trust list and cluster_ca.
 func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st store.ClusterCA, forced bool) error {
 	uid, kid := actorOf(by)
+	// rollMu: the panel backup copies the key files and the row as one moment.
+	o.cluster.rollMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			o.cluster.rollMu.Unlock()
+		}
+	}()
 	if err := clusterca.DropPrevCA(o.cfg.DataDir); err != nil {
 		return err
 	}
@@ -326,6 +337,8 @@ func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st sto
 	if err != nil {
 		return err
 	}
+	o.cluster.rollMu.Unlock()
+	locked = false
 	slog.Info("cluster: root rollover finished", "root", st.CurrentFP, "forced", forced)
 	if o.mesh != nil {
 		if err := o.mesh.Sync(ctx, "", true); err != nil {
@@ -340,6 +353,9 @@ func (o *Orchestrator) finishRollover(ctx context.Context, by *Principal, st sto
 // (crash after RotateCA) starts the record; a rollover recorded with no
 // previous root on disk (crash after DropPrevCA) finishes it.
 func (o *Orchestrator) reconcileRollover(ctx context.Context) (store.ClusterCA, error) {
+	// rollMu: a mend drops key files; the panel backup must not copy half.
+	o.cluster.rollMu.Lock()
+	defer o.cluster.rollMu.Unlock()
 	st, _, err := o.store.ClusterCA.Get(ctx)
 	if err != nil {
 		return st, err
@@ -432,7 +448,11 @@ func writeCross(dir string, old, next *clusterca.CA) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, crossFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	path := filepath.Join(dir, crossFile)
+	if err := os.WriteFile(path+".new", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(path+".new", path)
 }
 
 // readCross is the cross cert as PEM, nil outside a rollover.

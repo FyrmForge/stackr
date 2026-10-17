@@ -374,7 +374,8 @@ func ParseCertPEM(b []byte) (*x509.Certificate, error) {
 	return x509.ParseCertificate(blk.Bytes)
 }
 
-// SaveCA writes keys/cluster-ca.key (0600) and keys/cluster-ca.crt under dir.
+// SaveCA writes keys/cluster-ca.key (0600) and keys/cluster-ca.crt under dir,
+// each aside first and renamed in.
 func SaveCA(dir string, ca *CA) error {
 	k, err := KeyPEM(ca.Key)
 	if err != nil {
@@ -384,10 +385,30 @@ func SaveCA(dir string, ca *CA) error {
 	if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(CAKeyFile)), 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, CAKeyFile), k, 0o600); err != nil {
-		return err
+	return writeAside(dir, []file{{CAKeyFile, k, 0o600}, {CACertFile, c, 0o644}})
+}
+
+type file struct {
+	name string
+	b    []byte
+	mode os.FileMode
+}
+
+// writeAside writes every file as name.new, then renames each into place: no
+// reader sees a half-written file. The pair is torn only between the renames;
+// callers that care (the panel backup) hold a lock over that.
+func writeAside(dir string, fs []file) error {
+	for _, f := range fs {
+		if err := os.WriteFile(filepath.Join(dir, f.name+".new"), f.b, f.mode); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(filepath.Join(dir, CACertFile), c, 0o644)
+	for _, f := range fs {
+		if err := os.Rename(filepath.Join(dir, f.name+".new"), filepath.Join(dir, f.name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadCA reads what SaveCA wrote. A missing file is an os.ErrNotExist error.
@@ -432,7 +453,7 @@ func RotateCA(dir string, next *CA) error {
 		return err
 	}
 	b := BundlePEM([]*x509.Certificate{cur.Cert})
-	if err := os.WriteFile(filepath.Join(dir, CAPrevCertFile), b, 0o644); err != nil {
+	if err := writeAside(dir, []file{{CAPrevCertFile, b, 0o644}}); err != nil {
 		return err
 	}
 	return SaveCA(dir, next)
