@@ -116,7 +116,6 @@ func createView(c echo.Context) dialog.CreateTileView {
 		Name:     c.FormValue("name"),
 		Image:    c.FormValue("image_ref"),
 		GitURL:   c.FormValue("git_url"),
-		Branch:   c.FormValue("git_branch"),
 		Schedule: c.FormValue("schedule"),
 		Trigger:  c.FormValue("trigger"),
 		Engine:   c.FormValue("engine"),
@@ -165,14 +164,13 @@ func (h *handler) CreateTile(c echo.Context) error {
 	default:
 		t.ImageRef = v.Image
 		t.GitURL = v.GitURL
-		t.GitBranch = v.Branch
 		t.Schedule = v.Schedule
 		t.Trigger = v.Trigger
 		t.Command = v.Command
 		if v.Source == "service" {
 			t.ImageRef = ""
 		} else {
-			t.GitURL, t.GitBranch = "", ""
+			t.GitURL = ""
 		}
 		t, err = h.orch.CreateTile(c.Request().Context(), t)
 	}
@@ -206,7 +204,6 @@ var createFields = []string{
 	"name",
 	"image_ref",
 	"git_url",
-	"git_branch",
 	"schedule",
 	"engine",
 	"provision_from",

@@ -3,7 +3,7 @@ package dialog
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 // CreateTileView is the create-tile form. Source picks the fields: image
-// (a ref), service (a repo: connector + URL + branch), cron (image +
+// (a ref), service (a repo: connector + URL; it builds from the env's branch), cron (image +
 // schedule), function (image + trigger), managed (an engine). Switching
 // the source re-GETs the form with the typed values kept. ponytail: the
 // repo pick is a URL field (a private repo goes through the connector for
@@ -16,7 +16,6 @@ type CreateTileView struct {
 	Image      string
 	Hosts      string // the org's connector hosts, for the repo field's help
 	GitURL     string
-	Branch     string
 	Schedule   string
 	Trigger    string
 	Command    string
@@ -55,7 +54,6 @@ templ CreateTile(v CreateTileView) {
 			switch v.Source {
 				case "service":
 					@c.Field(c.FieldView{Name: "git_url", Label: "Repo URL", Value: v.GitURL, Placeholder: "https://github.com/acme/api", Required: true, Help: hostsHelp(v.Hosts), Error: v.Errors["git_url"]})
-					@c.Field(c.FieldView{Name: "git_branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Error: v.Errors["git_branch"]})
 				case "managed":
 					<div>
 						<label for="engine" class="label">Engine</label>
