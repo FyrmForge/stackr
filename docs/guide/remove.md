@@ -24,7 +24,7 @@ What remove does, in order:
 
 If a backup fails, it stops there, starts the apps again and leaves the node in place.
 
-The node must be online. For a dead node use `stackr node forget <name>`. It revokes the node for good and marks its envs lost. `stackr env lost` lists them. `stackr env restore <env> --stack <stack> --to <node>` brings one back from its backups.
+The node must be online. For a dead node use `stackr node forget <name>`. It revokes the node for good and marks its envs lost. `stackr env lost` lists them. `stackr env restore --placement <placement> --to <node>` brings a placement's envs back from their backups.
 
 ## Uninstall on the box
 
