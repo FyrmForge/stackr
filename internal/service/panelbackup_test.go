@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"encoding/xml"
 	"io"
@@ -257,6 +258,55 @@ func TestPanelBackupLocks(t *testing.T) {
 	}
 	if !job.Overlaps(manual.LockSet, sched.LockSet) {
 		t.Error("the two share no lock: they would run together")
+	}
+}
+
+// The panel backup copies the data dir under rollMu, so a controller cert
+// renewal (key and cert renamed in two steps) never lands half in the archive.
+func TestPanelBackupWaitsForRenewal(t *testing.T) {
+	w := newWorld(t)
+	if w.orch.cluster == nil {
+		t.Fatal("no cluster on the test panel")
+	}
+	w.orch.cluster.rollMu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := w.orch.panelBackup(context.Background(), io.Discard, "manual", "")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("backup ran during a renewal: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	w.orch.cluster.rollMu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// save writes the new pair aside and renames it in: a loadable pair, nothing
+// left beside it.
+func TestControllerSaveRenames(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	dir := w.orch.cfg.DataDir
+	n, err := issueController(ctx, w.orch.cluster.st, w.orch.cluster.ca)
+	must(t, err)
+	must(t, n.save(dir))
+	kp, cp := filepath.Join(dir, controllerKeyFile), filepath.Join(dir, controllerCertFile)
+	pair, err := tls.LoadX509KeyPair(cp, kp)
+	must(t, err)
+	if !bytes.Equal(pair.Certificate[0], n.pair.Certificate[0]) {
+		t.Error("the saved cert is not the new one")
+	}
+	for _, p := range []string{kp + ".new", cp + ".new"} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s left behind: %v", p, err)
+		}
+	}
+	if fi, err := os.Stat(kp); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("key mode = %v, %v", fi.Mode(), err)
 	}
 }
 
