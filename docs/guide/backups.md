@@ -54,9 +54,11 @@ The passphrase can also come on stdin with `--passphrase-stdin`. `--passphrase` 
 
 The old database is kept as `stackr.db.before-restore-<time>`. Workers reconnect by themselves and keep their tiles running.
 
-On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. They show as deploy jobs in the job list. Tiles you had stopped stay stopped. Their volumes start empty on a new box: restore those from their own backups (see Volumes below).
+On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, managed databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
 
-The CLI on the controller is logged in as the admin again: restore makes a new API key and writes `/var/lib/stackr/cli.json`.
+The newest backup has to be reachable from the new box. A backup on an S3 destination is, since the destination's keys come back with the database. A backup on the old controller's local disk went with it. A volume with no backup starts empty, and its deploy log and the security log say `no backup for <volume>; it starts empty`. Anything written after the newest backup is lost. A volume that still holds data is left alone.
+
+The CLI on the controller is logged in as the admin again: restore makes a new API key and writes `/var/lib/stackr/cli.json`. The admin's older `installer` and `restore` keys are revoked, and the security log records each one.
 
 ## Volumes
 

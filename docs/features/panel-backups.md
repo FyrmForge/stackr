@@ -50,9 +50,19 @@ on the controller (its placement's node too) that has no container and whose new
 env sync, start or restart is newer than any stop, then removes the file. A worker's tiles, stopped tiles,
 never deployed ones and envs mid move are left alone; crons come back through the scheduler.
 
+Those deploys wait for the env's volumes (managed instances' too) to come back from their newest finished
+backup run. Only a volume that holds no data (gone or measured empty) is restored, so one that survived is
+never rolled back. A tar backup is restored first, holding every tile to deploy; a dump backup is loaded
+right after its instance's deploy, holding the instance's consumers. A volume with no backup starts empty:
+each deploy's job log opens with `warning: no backup for <volume>; it starts empty`, and an `env.restore`
+row in the security log names it. Not covered: a backup on the old controller's local destination (it went
+with the box; S3 destinations work, their keys are in the database), writes after the newest backup, and
+volumes of envs whose tiles are all stopped or never deployed.
+
 When the panel runs this installer's own build, restore mints a new API key for the oldest active stackr admin
 (`stackrd admin-key`, key name `restore`) and writes `<data dir>/cli.json` with it, as the install does. The
 old key lived in the replaced database's world, and a new box has no cli.json; it is never in the archive.
+The admin's earlier `installer` and `restore` keys are revoked in the same transaction, a `key.revoke` row each.
 
 At boot the panel clears `<data dir>/backups/scratch`, where a crash can
 leave unencrypted spool files.
