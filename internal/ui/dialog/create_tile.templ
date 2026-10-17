@@ -29,9 +29,9 @@ type Option struct{ Value, Label string }
 
 func hostsHelp(hosts string) string {
 	if hosts == "" {
-		return "A public repo; install a connector for private ones."
+		return "Builds from this environment's branch; a private repo needs a connector."
 	}
-	return "Private repos on " + hosts + " clone through the org's connector."
+	return "Builds from this environment's branch; private repos on " + hosts + " clone through the org's connector."
 }
 
 // Sources are the create form's source switch.
