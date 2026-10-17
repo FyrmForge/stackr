@@ -318,6 +318,15 @@ func (a *app) orgs() *cobra.Command {
 			})
 		}
 	}
+	var allInvites bool
+	invitesLs := leaf("ls", "invite.list", "List pending invites; --all adds used and expired ones", exact(0),
+		func(c *cobra.Command, args []string) error {
+			if allInvites {
+				return get("/invites?all=true", "email", "role", "expires_at", "used_at", "id")(c, args)
+			}
+			return get("/invites", "email", "role", "expires_at", "id")(c, args)
+		})
+	invitesLs.Flags().BoolVar(&allInvites, "all", false, "add used and expired invites")
 	// Each verb has its own role: one shared var let set's flag wipe add's default.
 	var inviteRole, setRoleTo, email, url, user string
 	invite := leaf("add", "invite.create", "Invite someone; the link is a credential", exact(0),
@@ -333,7 +342,7 @@ func (a *app) orgs() *cobra.Command {
 			})
 		})
 	invite.Flags().StringVar(&email, "email", "", "who it is for (required)")
-	invite.Flags().StringVar(&inviteRole, "role", "owner", "viewer, member or owner: viewer sees, member deploys and edits stacks, owner also manages people and settings")
+	invite.Flags().StringVar(&inviteRole, "role", "member", "viewer, member or owner: viewer sees, member deploys and edits stacks, owner also manages people and settings")
 	setRole := leaf("set <user-id>", "member.role", "Change a member's role", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			return org(func(p string) error {
@@ -479,13 +488,7 @@ func (a *app) orgs() *cobra.Command {
 				}),
 		),
 		noun("invites", "Pending invites",
-			leaf(
-				"ls",
-				"invite.list",
-				"List invites",
-				exact(0),
-				get("/invites", "email", "role", "expires_at", "used_at", "id"),
-			),
+			invitesLs,
 			invite,
 			leaf("rm <id>", "invite.list,invite.revoke", "Revoke an invite; its link stops working", exact(1),
 				func(_ *cobra.Command, args []string) error {

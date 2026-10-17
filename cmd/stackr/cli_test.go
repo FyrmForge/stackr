@@ -613,7 +613,7 @@ func TestTileExecExitCode(t *testing.T) {
 	}
 }
 
-// An invite with no --role asks for owner, v1's one role; a shared flag var
+// An invite with no --role asks for member, the panel's default too; a shared flag var
 // once let `members set` wipe the default and the body carried none.
 func TestInviteDefaultRole(t *testing.T) {
 	var r recorder
@@ -621,8 +621,8 @@ func TestInviteDefaultRole(t *testing.T) {
 	if code, _, errw := cli(t, "org", "invites", "add", "--email", "a@acme.test"); code != 0 {
 		t.Fatalf("invites add = %d %s", code, errw)
 	}
-	if len(r.reqs) == 0 || !strings.Contains(r.reqs[len(r.reqs)-1], `"role":"owner"`) {
-		t.Errorf("invite sent %v, want role owner", r.reqs)
+	if len(r.reqs) == 0 || !strings.Contains(r.reqs[len(r.reqs)-1], `"role":"member"`) {
+		t.Errorf("invite sent %v, want role member", r.reqs)
 	}
 }
 

@@ -108,8 +108,14 @@ func (h *H) RemoveMember() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.RemoveMember(rc(c), orgID(c), c.Param("user")) })
 }
 
+// Invites is the org's pending invites; ?all=true adds used and expired ones.
 func (h *H) Invites() Endpoint {
-	return Get(func(c echo.Context) ([]service.Invite, error) { return list(h.Orch.Invites(rc(c), orgID(c))) })
+	return Get(func(c echo.Context) ([]service.Invite, error) {
+		if c.QueryParam("all") == "true" {
+			return list(h.Orch.Invites(rc(c), orgID(c)))
+		}
+		return list(h.Orch.PendingInvites(rc(c), orgID(c)))
+	}).Q("all")
 }
 
 func (h *H) Invite() Endpoint {
