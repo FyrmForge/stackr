@@ -10,6 +10,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
 
 type EnvSpec = environment.Spec
@@ -114,8 +115,29 @@ func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environm
 // SetEnvFrom sets where the env's releases come from: a branch (auto or
 // not) or promotion from the rung below.
 func (o *Orchestrator) SetEnvFrom(ctx context.Context, id, kind, branch string, auto bool) (Environment, error) {
-	return o.onEnv(ctx, id,
-		func(e Environment) (Environment, error) { return o.envs.SetFrom(ctx, e, kind, branch, auto) })
+	return o.onEnv(ctx, id, func(e Environment) (Environment, error) {
+		was := e.FromBranch
+		e, err := o.envs.SetFrom(ctx, e, kind, branch, auto)
+		if err != nil || e.FromKind != environment.FromBranch || e.FromBranch == was {
+			return e, err
+		}
+		// its building tiles follow, or no push would build them again
+		ts, err := o.tiles.List(ctx, e.ID)
+		if err != nil {
+			return e, err
+		}
+		for _, t := range ts {
+			if !tile.Builds(t) || t.GitBranch == e.FromBranch {
+				continue
+			}
+			cur := t
+			cur.GitBranch = e.FromBranch
+			if _, _, err := o.tiles.Update(ctx, t, cur); err != nil {
+				return e, err
+			}
+		}
+		return e, nil
+	})
 }
 
 func (o *Orchestrator) SetEnvColor(ctx context.Context, id, color string) (Environment, error) {

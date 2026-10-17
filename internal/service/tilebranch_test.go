@@ -85,3 +85,29 @@ func TestPushSkipsUnfollowedBranch(t *testing.T) {
 		t.Fatalf("push jobs after a push to main = %d, want 1", n)
 	}
 }
+
+// Moving an env to another branch takes its building tiles along, so the
+// new branch's pushes build them.
+func TestEnvBranchMovesTiles(t *testing.T) {
+	r := newSyncRig(t) // staging builds from main
+	ctx := context.Background()
+	tl, err := r.e.Orch.CreateTile(ctx, service.Tile{
+		StackID: r.dev.Stack, EnvironmentID: r.staging.ID, Name: "api",
+		Kind: "service", GitURL: "https://github.com/acme/api",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.Orch.SetEnvFrom(ctx, r.staging.ID, "branch", "release", false); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := r.e.Orch.Tiles(ctx, r.staging.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range ts {
+		if x.ID == tl.ID && x.GitBranch != "release" {
+			t.Fatalf("tile branch after env move = %q", x.GitBranch)
+		}
+	}
+}
