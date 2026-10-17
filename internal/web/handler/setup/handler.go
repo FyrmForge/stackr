@@ -470,6 +470,10 @@ func (h *handler) plan(c echo.Context) error {
 		v.Parsed = true
 		v.Errors = p.Blockers
 		v.Warnings = p.Notes
+		// gaps are filled on the org's Config tab, past the wizard
+		for _, g := range p.Gaps {
+			v.Warnings = append(v.Warnings, "Secret "+g.Key+" ("+g.Env+") has no value yet: its tiles wait until you set it on the org's Config tab.")
+		}
 		v.Changes = planRows(p)
 	}
 	if pl.Status == "pending" && !applying {
