@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -223,6 +225,21 @@ func (o *Orchestrator) enqueuePush(ctx context.Context, p pushJob) (Job, error) 
 		"push:"+p.StackID,
 		"push:"+p.StackID+":"+promote.NormalizeRepo(p.Event.Repo)+"@"+p.Event.Branch,
 	)
+}
+
+// pushFollowed: a push to d.branch has work in st when one of its static
+// envs builds from that branch, or it lands on the config repo's branch
+// (the stack file's ladder may make envs). Anything else would queue a job
+// that only logs "nothing to do".
+func (o *Orchestrator) pushFollowed(ctx context.Context, st store.Stack, d delivery) (bool, error) {
+	if st.ConfigRepo != "" && promote.NormalizeRepo(st.ConfigRepo) == promote.NormalizeRepo(d.repo) &&
+		d.branch == cmp.Or(st.ConfigBranch, d.defaultBranch) {
+		return true, nil
+	}
+	envs, err := o.envs.List(ctx, st.ID)
+	return slices.ContainsFunc(envs, func(e store.Environment) bool {
+		return e.Type != environment.Ephemeral && e.FromKind == environment.FromBranch && e.FromBranch == d.branch
+	}), err
 }
 
 // usesRepo: the stack's config repo or any of its tiles builds from repo.
