@@ -207,7 +207,7 @@ type twoNodes struct {
 	pushes      *atomic.Int32 // proxy configs pushed to the controller
 }
 
-func newTwoNodes(t *testing.T) *twoNodes {
+func newTwoNodes(t *testing.T, opts ...Option) *twoNodes {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -228,7 +228,7 @@ func newTwoNodes(t *testing.T) *twoNodes {
 
 	n := &twoNodes{st: st, ctl: ctl, ctlFake: dockerfake.New(), wFake: dockerfake.New(), dir: dir, pushes: pushes}
 	router := NewRouter(map[string]Docker{ctl.ID: n.ctlFake, "w1": n.wFake})
-	n.orch, err = New(cfg, WithDocker(router), WithVIP(vipStub{}), proxy)
+	n.orch, err = New(cfg, append([]Option{WithDocker(router), WithVIP(vipStub{}), proxy}, opts...)...)
 	must(t, err)
 	t.Cleanup(func() { _ = n.orch.Close() })
 	n.orch.envs.WithPlacement(n.orch.envPins)                       // service.New wires this; saying it twice is harmless
