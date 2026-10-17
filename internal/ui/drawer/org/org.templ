@@ -598,7 +598,7 @@ templ Config(v ConfigView) {
 				<div class="space-y-4">
 					@c.PlanLine(v.Latest.Row)
 					if v.Latest.Row.Error != "" {
-						<div class="banner banner-danger" role="alert">{ v.Latest.Row.Error }</div>
+						<div class="banner banner-danger whitespace-pre-wrap font-mono text-xs" role="alert">{ v.Latest.Row.Error }</div>
 					} else {
 						@c.PlanReview(v.Latest.Review)
 					}

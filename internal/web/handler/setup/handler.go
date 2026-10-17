@@ -639,8 +639,9 @@ func (h *handler) bind(c echo.Context) error {
 	// when the fresh plan is clean; a clean bind stays on the form.
 	switch pl := ps[0]; {
 	case pl.Status == "error":
-		hamrmw.SetFlash(c, "Binding saved, but planning failed: "+pl.Error, hamrmw.FlashError)
-		return respond.Redirect(c, base(og)+"/config")
+		// the plan screen shows the file's problems and the lines they are on
+		hamrmw.SetFlash(c, "Binding saved, but the file has problems.", hamrmw.FlashError)
+		return respond.Redirect(c, planURL(og, pl.ID, ""))
 	case pl.Status == "clean" && f("plan_only") == "":
 		hamrmw.SetFlash(c, "Planned. Nothing to change.", hamrmw.FlashSuccess)
 		return respond.Redirect(c, base(og)+"/config")

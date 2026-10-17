@@ -563,6 +563,26 @@ func one(t *testing.T, what string, got []string, want string) {
 	}
 }
 
+// A file with several problems lists them all, each with its line, and
+// shows the bad lines marked.
+func TestParseListsEveryProblem(t *testing.T) {
+	src := "version: 1\norg: Acme\nstacks:\n  qa:\n    base: {}\nsecrets: {}\n"
+	_, err := orgconfig.Parse([]byte(src))
+	if err == nil {
+		t.Fatal("parsed")
+	}
+	for _, want := range []string{
+		"line 5: base: inline stacks are not supported",
+		"line 6: unknown key secrets",
+		">    5 |     base: {}",
+		">    6 | secrets: {}",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q:\n%s", want, err)
+		}
+	}
+}
+
 func TestParseRefuses(t *testing.T) {
 	for _, c := range []struct {
 		name string
