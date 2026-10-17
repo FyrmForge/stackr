@@ -158,6 +158,8 @@ func notFound(path string) string {
 	segs := strings.Split(strings.Trim(strings.SplitN(path, "?", 2)[0], "/"), "/")
 	if len(segs) >= 2 && segs[0] == "orgs" { // the org is the caller's own
 		segs = segs[2:]
+	} else if segs[0] == "me" || segs[0] == "admin" { // a scope, not a kind
+		segs = segs[1:]
 	}
 	if len(segs)%2 == 1 {
 		segs = segs[:len(segs)-1]
