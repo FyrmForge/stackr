@@ -24,6 +24,7 @@ type fakeApp struct {
 	state        string
 	notInstalled bool
 	hooked       []string // SetHookURL calls; the first fails
+	account      string   // the login Installation answers
 }
 
 func (f *fakeApp) Manifest(id, _, state string) (string, string, error) {
@@ -45,6 +46,11 @@ func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (strin
 		return "", githubapp.ErrNotInstalled
 	}
 	return "tok-" + app.Slug, nil
+}
+
+func (f *fakeApp) Installation(ctx context.Context, key string, app githubapp.App) (string, string, error) {
+	tok, err := f.Token(ctx, key, app)
+	return tok, f.account, err
 }
 
 func (f *fakeApp) Repos(_ context.Context, token string) ([]githubapp.Repo, error) {

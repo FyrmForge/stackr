@@ -37,8 +37,9 @@ type App struct {
 }
 
 type cachedToken struct {
-	token string
-	exp   time.Time
+	token   string
+	account string // the GitHub login the installation is on
+	exp     time.Time
 }
 
 // ErrNotInstalled: the app exists on GitHub but no account installed it, so
@@ -213,24 +214,34 @@ func (c *Client) ConvertManifest(ctx context.Context, code string) (App, error) 
 // harmless). Uses the app's first installation: a private app installs only
 // on its owning account.
 func (c *Client) Token(ctx context.Context, key string, app App) (string, error) {
+	tok, _, err := c.Installation(ctx, key, app)
+	return tok, err
+}
+
+// Installation is Token and the GitHub login (user or org) the app is
+// installed on, which owns the ghcr.io packages the token may read.
+func (c *Client) Installation(ctx context.Context, key string, app App) (token, account string, err error) {
 	c.mu.Lock()
 	t, ok := c.tokens[key]
 	c.mu.Unlock()
 	if ok && time.Until(t.exp) > 2*time.Minute {
-		return t.token, nil
+		return t.token, t.account, nil
 	}
 	jwt, err := signJWT(fmt.Sprint(app.ID), app.PEM)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var insts []struct {
-		ID int64 `json:"id"`
+		ID      int64 `json:"id"`
+		Account struct {
+			Login string `json:"login"`
+		} `json:"account"`
 	}
 	if err := c.api(ctx, http.MethodGet, "/app/installations", jwt, &insts); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(insts) == 0 {
-		return "", fmt.Errorf("github app %s: %w", app.Slug, ErrNotInstalled)
+		return "", "", fmt.Errorf("github app %s: %w", app.Slug, ErrNotInstalled)
 	}
 	var tok struct {
 		Token     string    `json:"token"`
@@ -238,12 +249,12 @@ func (c *Client) Token(ctx context.Context, key string, app App) (string, error)
 	}
 	path := fmt.Sprintf("/app/installations/%d/access_tokens", insts[0].ID)
 	if err := c.api(ctx, http.MethodPost, path, jwt, &tok); err != nil {
-		return "", err
+		return "", "", err
 	}
 	c.mu.Lock()
-	c.tokens[key] = cachedToken{tok.Token, tok.ExpiresAt}
+	c.tokens[key] = cachedToken{tok.Token, insts[0].Account.Login, tok.ExpiresAt}
 	c.mu.Unlock()
-	return tok.Token, nil
+	return tok.Token, insts[0].Account.Login, nil
 }
 
 // Repos lists the repositories the installation token may read. It doubles
