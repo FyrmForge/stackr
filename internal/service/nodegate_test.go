@@ -108,6 +108,19 @@ func TestNodeDownErrorWords(t *testing.T) {
 	}
 }
 
+// A forgotten node has no row any more; its refusal still names it, not its id.
+func TestNodeDownNamesForgottenNode(t *testing.T) {
+	ctx := context.Background()
+	o, _, _ := gateWorld(t)
+	must(t, o.store.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone-id", Name: "h3", ForgottenAt: time.Now()}))
+	if got := o.nodeDown(ctx, "gone-id").Name; got != "h3" {
+		t.Errorf("name = %q, want h3", got)
+	}
+	if got := o.nodeDown(ctx, "w1").Name; got != "w1" {
+		t.Errorf("live node name = %q, want w1", got)
+	}
+}
+
 // Under 1 GB free refuses and names the node; under 10% warns; a node that
 // does not report its disk passes with a note.
 func TestDiskCheck(t *testing.T) {
