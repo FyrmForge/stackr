@@ -169,6 +169,30 @@ func TestYesIsNotForce(t *testing.T) {
 	}
 }
 
+// stack rm and env rm take their scope as the argument; --cascade posts a
+// teardown confirmed by the slug.
+func TestRmTakesTheScope(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	for _, c := range []struct{ args, want string }{
+		{"stack rm shop -y", "DELETE /api/v1/orgs/acme/stacks/shop "},
+		{"env rm dev --stack shop -y", "DELETE /api/v1/orgs/acme/stacks/shop/envs/dev "},
+		{"stack rm shop --cascade -y --no-wait", `POST /api/v1/orgs/acme/stacks/shop/teardown {"confirm":"shop"}`},
+	} {
+		r.reqs = nil
+		if code, _, errw := cli(t, strings.Fields(c.args)...); code != 0 {
+			t.Errorf("%s = %d %s", c.args, code, errw)
+			continue
+		}
+		if len(r.reqs) == 0 || r.reqs[len(r.reqs)-1] != c.want {
+			t.Errorf("%s sent %q, want %q", c.args, r.reqs, c.want)
+		}
+	}
+	if code, _, _ := cli(t, "stack", "rm", "shop", "--stack", "mart", "-y"); code != 2 {
+		t.Errorf("two stacks = %d, want 2", code)
+	}
+}
+
 func TestUsageExitsTwo(t *testing.T) {
 	useServer(t, "http://127.0.0.1:1")
 	for _, args := range [][]string{
@@ -308,6 +332,10 @@ func TestDomainResourceRoutes(t *testing.T) {
 		},
 		{
 			"add --level stack --owner acme/shop --host shop.io",
+			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
+		},
+		{
+			"add shop.io --level stack --owner shop",
 			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
 		},
 		{

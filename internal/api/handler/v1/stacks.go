@@ -103,6 +103,19 @@ func (h *H) DeleteStack() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteStack(rc(c), stackID(c)) })
 }
 
+// TeardownIn names the stack being removed: Confirm is its slug.
+type TeardownIn struct {
+	Confirm string `json:"confirm"`
+}
+
+// TeardownStack queues one job that removes the stack's tiles, its envs and
+// the stack.
+func (h *H) TeardownStack() Endpoint {
+	return Job(func(c echo.Context, in TeardownIn) (service.Job, error) {
+		return h.Orch.TeardownStack(rc(c), stackID(c), in.Confirm)
+	})
+}
+
 func (h *H) CheckStackImages() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.CheckImages(rc(c), stackID(c), "") })
 }

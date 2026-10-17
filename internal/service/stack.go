@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -56,6 +58,82 @@ func (o *Orchestrator) DeleteStack(ctx context.Context, id string) error {
 		return json.Unmarshal([]byte(j.Payload), &p) == nil && p.HostAccess != nil && p.HostAccess.Stack == id
 	})
 	return nil
+}
+
+const kindStackTeardown jobs.Kind = "stack-teardown"
+
+type stackJob struct {
+	StackID string `json:"stack_id"`
+}
+
+// TeardownStack queues one job that removes every tile, then every env,
+// then the stack. confirm must be the stack's slug: the caller typed it.
+// Volumes are kept, as env delete keeps them.
+func (o *Orchestrator) TeardownStack(ctx context.Context, id, confirm string) (Job, error) {
+	st, err := o.stacks.Get(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	if confirm != st.Slug {
+		return Job{}, errs.Invalidf("confirm", "Type the stack's slug, %s, to remove it and everything in it.", st.Slug)
+	}
+	lock := []string{"stack:" + id}
+	es, err := o.envs.List(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	for _, e := range es {
+		lock = append(lock, "env:"+e.ID)
+	}
+	ts, err := o.tiles.ListByStack(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	lock = append(lock, ids(ts)...)
+	return o.enqueue(ctx, kindStackTeardown, stackJob{StackID: id}, lock...)
+}
+
+// runStackTeardown is the "stack-teardown" job: each env's tiles go as a
+// tile delete takes them, then the env, then the stack.
+func (o *Orchestrator) runStackTeardown(ctx context.Context, r *jobs.Run, p stackJob) error {
+	es, err := o.envs.List(ctx, p.StackID)
+	if err != nil {
+		return err
+	}
+	for _, e := range es {
+		ectx, err := o.withEnvNode(tearingDown(ctx), e)
+		if err != nil {
+			return err
+		}
+		ts, err := o.tiles.List(ectx, e.ID)
+		if err != nil {
+			return err
+		}
+		if len(ts) > 0 {
+			if _, err := o.promote.Remove(ectx, e, ts, r.Log); err != nil {
+				return err
+			}
+			for _, t := range ts {
+				if err := o.dropTileGrant(ectx, t); err != nil {
+					return err
+				}
+				o.cancelWaitingTile(ectx, t.ID)
+			}
+			if err := o.dropRuns(ids(ts)); err != nil {
+				return err
+			}
+		}
+		if err := o.DeleteEnv(ctx, e.ID); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(r.Log, "removed environment %s and %d tile(s)\n", e.Name, len(ts))
+	}
+	o.sched.Reload(ctx)
+	if err := o.DeleteStack(ctx, p.StackID); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(r.Log, "removed the stack")
+	return o.sync.Sync(ctx)
 }
 
 // SetConfigRepo points the stack at its stackr-compose.yml (config-as-code).

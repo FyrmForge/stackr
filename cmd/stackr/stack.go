@@ -326,15 +326,47 @@ func (a *app) stacks() *cobra.Command {
 			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
 				return a.orgJob(c, POST, p+"/image-check", nil, "image check")
 			}))),
-		leaf("rm", "stack.delete", "Delete the stack", exact(0),
-			a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
-				if err := a.confirm("Remove stack " + last(p) + "? It must be empty of environments first."); err != nil {
+		a.stackRm(),
+	), false)
+}
+
+// stackRm deletes an empty stack, or with --cascade everything in it, in one
+// job. The stack is the argument, --stack or the linked one.
+func (a *app) stackRm() *cobra.Command {
+	var cascade bool
+	c := waits(leaf("rm [stack]", "stack.delete,stack.teardown",
+		"Delete the stack; --cascade removes its tiles and environments too", upTo(1),
+		named("stack", a.at(atStack, func(c *cobra.Command, p string, _ []string) error {
+			if !cascade {
+				if err := a.confirm("Remove stack " + last(p) + "? It must be empty of environments first; --cascade removes them."); err != nil {
 					return err
 				}
 				_, err := a.call(DELETE, p, nil)
 				return err
-			})),
-	), false)
+			}
+			if err := a.confirm("Remove stack " + last(p) + " with every tile and environment in it? Volumes are kept until removed."); err != nil {
+				return err
+			}
+			return a.orgJob(c, POST, p+"/teardown", map[string]string{"confirm": last(p)}, "stack removal")
+		}))))
+	c.Flags().BoolVar(&cascade, "cascade", false, "remove the stack's tiles and environments first")
+	return c
+}
+
+// named lets a scope flag be given as the command's one argument
+// ("stack rm shop" for "stack rm --stack shop").
+func named(flagName string, run func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
+	return func(c *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			if v := flag(c, flagName); v != "" && v != args[0] {
+				return usage("give the %s once: as the argument or as --%s", flagName, flagName)
+			}
+			if err := c.Flags().Set(flagName, args[0]); err != nil {
+				return err
+			}
+		}
+		return run(c, args)
+	}
 }
 
 func (a *app) releases() *cobra.Command {
@@ -458,14 +490,14 @@ func (a *app) envs() *cobra.Command {
 				_, err := a.call(PUT, p+"/envs-order", map[string]any{"ids": ids})
 				return err
 			})),
-		leaf("rm", "env.delete", "Delete the environment", exact(0),
-			a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
-				if err := a.confirm("Remove environment " + last(p) + " and its tiles? Their volumes are kept until removed."); err != nil {
+		leaf("rm [env]", "env.delete", "Delete the environment", upTo(1),
+			named("env", a.at(atEnv, func(c *cobra.Command, p string, _ []string) error {
+				if err := a.confirm("Remove environment " + last(p) + "? It must be empty of tiles first."); err != nil {
 					return err
 				}
 				_, err := a.call(DELETE, p, nil)
 				return err
-			})),
+			}))),
 	), false)
 }
 

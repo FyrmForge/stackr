@@ -240,8 +240,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return o.runPush(ctx, p.StackID, p.Event, r.Log)
 		}),
-		kindPR:     payload(o.runPR),
-		kindDelete: payload(o.runDelete),
+		kindPR:            payload(o.runPR),
+		kindDelete:        payload(o.runDelete),
+		kindStackTeardown: payload(o.runStackTeardown),
 		kindRestart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Restart(ctx, t, r.Log) })
 		}),
