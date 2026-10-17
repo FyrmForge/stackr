@@ -20,11 +20,11 @@
 # cannot be restored here, it needs the app's encryption.
 set -euo pipefail
 
-RIG="${RIG:-stackr-test.inanga-degree.ts.net}"
+RIG="${RIG:-root@192.168.1.109}"
 DATA="${RIG_DATA:-/var/lib/stackr}"
 PRESERVE="${RIG_PRESERVE:-/home/darthvader/stackr-preserve/rig}"
-INSTALLER="${RIG_INSTALLER:-/home/darthvader/stackr-install}"
-DOMAIN="${RIG_DOMAIN:-stackr-test.vulpe.dev}"
+INSTALLER="${RIG_INSTALLER:-/root/stackr-install}"
+DOMAIN="${RIG_DOMAIN:-stackr-lxc.vulpe.dev}"
 EMAIL="${RIG_EMAIL:-dumitru.v.dv@gmail.com}"
 # The rig's own network proxy: Caddy trusts its X-Forwarded-For, so the panel
 # sees real client addresses (the login limit keys on them). Never Tailscale.
@@ -79,9 +79,10 @@ ship() {
 # install makes the rig's admin on a fresh DB (an upgrade keeps the one it
 # has). The password is the rig's fixed test login, so passing it inline is fine.
 install() {
-	rig docker run --rm --privileged --net=host --pid=host -v /:/host -e STACKR_ADMIN_PASSWORD="$ADMIN_PASSWORD" alpine \
+	rig "umask 077;" docker run --rm --privileged --net=host --pid=host -v /:/host -e STACKR_ADMIN_PASSWORD="$ADMIN_PASSWORD" alpine \
 		chroot /host "$INSTALLER" --domain "$DOMAIN" --panel-host "$DOMAIN" --email "$EMAIL" --proxy "$FRONT_PROXY" \
-		--admin-email "$ADMIN_EMAIL" >/dev/null 2>&1 || true
+		--admin-email "$ADMIN_EMAIL" '>/root/rig-install.log' '2>&1' ||
+		{ echo "installer failed; see /root/rig-install.log on the rig (it holds the recovery passphrase)" >&2; exit 1; }
 	rig docker ps --format "'{{.Names}} {{.Image}} {{.Status}}'"
 }
 
