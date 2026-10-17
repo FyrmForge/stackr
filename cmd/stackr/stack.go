@@ -347,7 +347,21 @@ func (a *app) stackRm() *cobra.Command {
 			if err := a.confirm("Remove stack " + last(p) + " with every tile and environment in it? Volumes are kept until removed."); err != nil {
 				return err
 			}
-			return a.orgJob(c, POST, p+"/teardown", map[string]string{"confirm": last(p)}, "stack removal")
+			j, err := a.call(POST, p+"/teardown", map[string]string{"confirm": last(p)})
+			if err != nil {
+				return err
+			}
+			if id, _ := asMap(j)["id"].(string); id == "" { // an empty stack goes at once
+				return nil
+			}
+			if nw, _ := c.Flags().GetBool("no-wait"); nw {
+				return a.show(j, "id", "kind", "state")
+			}
+			base, err := a.orgPath()
+			if err != nil {
+				return err
+			}
+			return a.follow(base, j, "stack removal")
 		}))))
 	c.Flags().BoolVar(&cascade, "cascade", false, "remove the stack's tiles and environments first")
 	return c

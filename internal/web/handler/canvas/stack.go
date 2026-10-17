@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
@@ -85,7 +86,7 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		return stackui.Settings(v), nil
 	}
 	v.Base = f.Base
-	v.Delete = dialog.DeleteStack(st.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
+	v.Delete = dialog.DeleteStack(st.Name, st.Slug, f.Base+"/delete", "#"+comp.DrawerRoot)
 	if st.ConfigRepo != "" {
 		v.Unbind = comp.ConfirmView{
 			Button:  "Unbind",
@@ -173,8 +174,12 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		return "Queued: the job below follows it.", nil
 	}), a.Require("env.write"))
 	site.POST(s+"/delete", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
-		if err := h.orch.DeleteStack(c.Request().Context(), cd.s.Stack.ID); err != nil {
+		j, err := h.orch.TeardownStack(c.Request().Context(), cd.s.Stack.ID, c.FormValue("confirm"))
+		if err != nil {
 			return "", err
+		}
+		if j.ID != "" {
+			hamrmw.SetFlash(c, "Removing "+cd.s.Stack.Name+": its tiles and envs go first, then the stack.", hamrmw.FlashInfo)
 		}
 		return redirect(c, "/"+cd.s.Org.Slug)
 	}), write)

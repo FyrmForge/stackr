@@ -36,6 +36,21 @@ func TestTeardownStack(t *testing.T) {
 	}
 }
 
+// An empty stack goes at once, with no job.
+func TestTeardownEmptyStack(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	st, err := w.orch.CreateStack(ctx, w.org, "Mart", "")
+	must(t, err)
+	j, err := w.orch.TeardownStack(ctx, st.ID, st.Slug)
+	if err != nil || j.ID != "" {
+		t.Fatalf("teardown of an empty stack = %+v, %v", j, err)
+	}
+	if _, err := w.st.Stacks.Get(ctx, st.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("stack still there: %v", err)
+	}
+}
+
 func isInvalid(err error) bool {
 	_, ok := errs.IsInvalid(err)
 	return ok

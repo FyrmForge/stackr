@@ -68,7 +68,8 @@ type stackJob struct {
 
 // TeardownStack queues one job that removes every tile, then every env,
 // then the stack. confirm must be the stack's slug: the caller typed it.
-// Volumes are kept, as env delete keeps them.
+// Volumes are kept, as env delete keeps them. A stack with no envs goes at
+// once and the Job is zero.
 func (o *Orchestrator) TeardownStack(ctx context.Context, id, confirm string) (Job, error) {
 	st, err := o.stacks.Get(ctx, id)
 	if err != nil {
@@ -81,6 +82,9 @@ func (o *Orchestrator) TeardownStack(ctx context.Context, id, confirm string) (J
 	es, err := o.envs.List(ctx, id)
 	if err != nil {
 		return Job{}, err
+	}
+	if len(es) == 0 { // nothing runs: gone now, no job
+		return Job{}, o.DeleteStack(ctx, id)
 	}
 	for _, e := range es {
 		lock = append(lock, "env:"+e.ID)
