@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -16,9 +17,12 @@ import (
 // redeployRestored runs once, on the first boot after stackr-install
 // restore: the restore leaves installspec.RestoredMarker in the data dir. A
 // wiped controller lost its tile containers; every tile of an env placed on
-// the controller that ran before and has none now gets a normal deploy job.
-// Workers kept theirs; a tile stopped before stays stopped. Errors are
-// logged, never fatal: the panel still serves.
+// the controller that ran before and has none now gets a normal deploy job,
+// queued behind the restore of the env's lost volumes from their newest
+// backups (restoreThenDeploy). A volume with no backup starts empty: the
+// deploy's job log and the security log say so. Workers kept theirs; a tile
+// stopped before stays stopped. Errors are logged, never fatal: the panel
+// still serves.
 func (o *Orchestrator) redeployRestored(ctx context.Context) {
 	marker := filepath.Join(o.cfg.DataDir, installspec.RestoredMarker)
 	if _, err := os.Stat(marker); err != nil {
@@ -62,23 +66,32 @@ func (o *Orchestrator) queueRestored(ctx context.Context) (int, error) {
 		if err != nil {
 			return n, err
 		}
+		var lost []Tile
 		for _, t := range ts {
 			if t.Kind == tile.Slice || tile.RunToCompletion(t.Kind) {
 				continue // no containers; crons come back through the scheduler
 			}
 			ran, err := o.ranBeforeRestore(ctx, t)
-			if err != nil || !ran {
-				if err != nil {
-					slog.Warn("restore: tile skipped", "tile", t.ID, "err", err)
-				}
-				continue
+			if err != nil {
+				slog.Warn("restore: tile skipped", "tile", t.ID, "err", err)
 			}
-			if _, err := o.Deploy(ctx, t.ID); err != nil {
-				slog.Warn("restore: deploy not queued", "tile", t.ID, "err", err)
-				continue
+			if ran {
+				lost = append(lost, t)
 			}
-			n++
 		}
+		if len(lost) == 0 {
+			continue
+		}
+		_, notes, err := o.restoreThenDeploy(ctx, e.ID, lost)
+		if err != nil {
+			slog.Warn("restore: not all of the env was queued", "env", e.ID, "err", err)
+			notes = append(notes, err.Error())
+		}
+		if len(notes) > 0 {
+			slog.Warn("restore: volumes", "env", e.ID, "notes", strings.Join(notes, "; "))
+			o.pmAudit(ctx, nil, auditEnvRestore, "env", e.ID, "after a panel restore: "+strings.Join(notes, "; "))
+		}
+		n += len(lost)
 	}
 	return n, nil
 }

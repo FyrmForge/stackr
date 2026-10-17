@@ -198,10 +198,15 @@ func (o *Orchestrator) DeleteTile(ctx context.Context, id string) (Job, error) {
 // newer deploy of the tile supersedes a queued one. One gate for deploy and
 // redeploy (B29).
 func (o *Orchestrator) Deploy(ctx context.Context, id string) (Job, error) {
+	return o.deployNoted(ctx, id, "")
+}
+
+// deployNoted is Deploy with a note the job log opens with.
+func (o *Orchestrator) deployNoted(ctx context.Context, id, note string) (Job, error) {
 	if err := o.gateTile(ctx, id, true); err != nil {
 		return Job{}, err
 	}
-	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id}, id)
+	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id, Note: note}, id)
 }
 
 // RestartTile and StartTile: a cron or function has runs, not replicas;

@@ -604,50 +604,117 @@ func (o *Orchestrator) pmStartEnv(ctx context.Context, by *Principal, pm store.P
 	return o.enqueueMove(ctx, m, by.User.ID, by.KeyID)
 }
 
-// pmRestoreEnv rehomes a lost env on toNode, queues a deploy of each of its
-// tiles, and then a restore of each volume's newest backup (a restore stops
-// the holders itself). A volume with no backup starts empty. Failures of the
-// deploys and restores are collected in warn: the env is on its node by then.
-// ponytail: deploys and restores are queued side by side, not chained; a
-// restore that lands before the container exists is fine, one that overlaps
-// its first start is not. Chain them if that shows up.
+// pmRestoreEnv rehomes a lost env on toNode, then restores its volumes from
+// their newest backups and deploys its tiles (restoreThenDeploy). Failures
+// and volumes that start empty are collected in warn: the env is on its node
+// by then.
 func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.Environment, toNode string, warn *[]error) (Job, error) {
 	if err := o.store.Environments.SetNode(ctx, e.ID, toNode); err != nil {
 		return Job{}, err
 	}
 	o.pmAudit(ctx, by, auditEnvRestore, "env", e.ID, "to node "+o.nodeName(ctx, toNode))
 	o.kickMesh()
-	// Restores first, each holding every tile of the env: the deploys queued
-	// after wait behind them, so no app starts on an empty volume.
 	ts, err := o.tiles.List(ctx, e.ID)
 	if err != nil {
 		return Job{}, err
+	}
+	first, notes, err := o.restoreThenDeploy(ctx, e.ID, ts)
+	for _, n := range notes {
+		*warn = append(*warn, errors.New(n))
+	}
+	if err != nil {
+		*warn = append(*warn, err)
+	}
+	return first, nil
+}
+
+// restoreThenDeploy brings an env's lost volumes back from their newest
+// finished backups and queues a deploy of each of ts, so no app starts on an
+// empty volume. The runner starts jobs whose locks overlap in the order they
+// were queued, so the queue order is the mechanism: the tar restores first,
+// each holding every tile of ts; then the deploys, dependencies first, with
+// a managed instance's dump restore queued right after the instance's own
+// deploy (a dump loads into a running engine; the restore holds the
+// instance's consumers, which deploy after it). Only a volume that holds no
+// data is restored, so one that kept its data is never rolled back. notes
+// name the volumes that start empty or were left alone; every deploy's job
+// log opens with them.
+func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts []store.Tile) (Job, []string, error) {
+	vs, err := o.store.Volumes.ListByScope(ctx, "env", envID)
+	if err != nil {
+		return Job{}, nil, err
 	}
 	hold := make([]string, 0, len(ts))
 	for _, t := range ts {
 		hold = append(hold, t.ID)
 	}
-	vs, err := o.store.Volumes.ListByScope(ctx, "env", e.ID)
-	if err != nil {
-		return Job{}, err
+	type dump struct {
+		run string
+		v   store.Volume
 	}
+	dumps := map[string][]dump{} // instance tile id -> its dump restores
+	var notes []string
+	var errl []error
 	for _, v := range vs {
+		if v.OrphanedAt != nil {
+			continue
+		}
+		if o.volumes.HoldsData(ctx, v) {
+			notes = append(notes, v.Slug+" kept its data; not restored from a backup")
+			continue
+		}
 		newest, err := o.newestBackup(ctx, v.ID)
 		if err != nil {
-			return Job{}, err
+			return Job{}, notes, err
 		}
 		if newest == nil {
+			notes = append(notes, "no backup for "+v.Slug+"; it starts empty")
+			continue
+		}
+		if strings.HasSuffix(newest.ObjectKey, ".sql.gz.age") && v.InstanceID != nil {
+			it, err := o.instanceTile(ctx, *v.InstanceID)
+			if err != nil {
+				errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, err))
+				continue
+			}
+			dumps[it.ID] = append(dumps[it.ID], dump{newest.ID, v})
+			continue
+		}
+		// the pre-restore backup mounts it; made here, it carries stackr's label
+		if _, err := o.volumes.Ensure(ctx, v); err != nil {
+			errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, err))
 			continue
 		}
 		if _, err := o.queueRestore(ctx, newest.ID, v, v, hold...); err != nil {
-			*warn = append(*warn, fmt.Errorf("restore %s: %w", v.Slug, err))
+			errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, err))
 		}
 	}
-	first, err := o.pmDeployEnv(ctx, e.ID)
-	if err != nil {
-		*warn = append(*warn, err)
+	note := strings.Join(notes, "\n")
+	var first Job
+	for _, t := range deployOrder(ts) {
+		j, err := o.deployNoted(ctx, t.ID, note)
+		var down *NodeDownError
+		switch {
+		case errors.As(err, &down):
+			slog.Warn("restore: deploy waits for the node", "tile", t.Slug, "node", down.Name)
+		case err != nil:
+			errl = append(errl, fmt.Errorf("deploy %s: %w", t.Slug, err))
+		case first.ID == "":
+			first = j
+		}
+		for _, d := range dumps[t.ID] {
+			if _, err := o.queueRestore(ctx, d.run, d.v, d.v, hold...); err != nil {
+				errl = append(errl, fmt.Errorf("restore %s: %w", d.v.Slug, err))
+			}
+		}
+		delete(dumps, t.ID)
 	}
-	return first, nil
+	for _, ds := range dumps {
+		for _, d := range ds {
+			notes = append(notes, d.v.Slug+": its instance is not deployed, so its dump was not restored")
+		}
+	}
+	return first, notes, errors.Join(errl...)
 }
 
 // newestBackup is the volume's newest finished backup run, nil when it has none.
