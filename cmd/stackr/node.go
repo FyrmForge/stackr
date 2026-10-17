@@ -175,7 +175,11 @@ func (a *app) nodeConfirm() *cobra.Command {
 			if b := num(facts["mem_bytes"]); b > 0 {
 				sys = append(sys, gb(b))
 			}
-			if err := a.confirm(fmt.Sprintf("Add %s (%s) to the cluster? It will run what you pin to it.", cell(p["name"]), strings.Join(sys, ", "))); err != nil {
+			who := cell(p["name"])
+			if len(sys) > 0 {
+				who += " (" + strings.Join(sys, ", ") + ")"
+			}
+			if err := a.confirm("Add " + who + " to the cluster? It will run what you pin to it."); err != nil {
 				return err
 			}
 			v, err := a.call(POST, "/admin/join-requests/"+cell(p["node_id"])+"/confirm", nil)

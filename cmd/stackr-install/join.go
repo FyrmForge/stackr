@@ -281,7 +281,9 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	r.say("  made this node's keys")
 	j := joinCall{panel: u.String(), token: *token, caSHA: fp, poll: 10 * time.Second, say: r.say,
 		client: &http.Client{Timeout: 30 * time.Second}}
+	hf := worker.HostFacts()
 	st, err := j.run(ctx, csr, wgPub, map[string]any{
+		"kernel": hf.Kernel, "cpus": hf.CPUs, "mem_bytes": hf.MemBytes, "arch": hf.Arch,
 		"interfaces": worker.Interfaces(), "wg_port": *wgPort, "stackr_bridges": stackrBridges(ctx),
 		"docker_networks": dockerNetNames(ctx), // so a refusal names the network, not its bridge
 	})
