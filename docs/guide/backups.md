@@ -27,6 +27,8 @@ The panel archives its database, master key and proxy certificates on a schedule
 
 3. A copy is also taken before every upgrade.
 
+Only the scheduled archives go to the destination. An archive you run now and the pre-upgrade copy stay on the controller, so copy one off the box yourself before you wipe it.
+
 The archive is encrypted with the recovery passphrase the installer showed. Keep that passphrase off the box.
 
 ### Restore the panel
