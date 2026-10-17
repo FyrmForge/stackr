@@ -2,12 +2,14 @@ package main
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"golang.org/x/term"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 )
@@ -25,13 +28,18 @@ import (
 // panel passed its gate and still turned out broken.
 func restore(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stackr-install restore", flag.ContinueOnError)
-	pass := fs.String("passphrase", "", "recovery passphrase (default: this box's master key)")
+	passFlag := fs.String("passphrase", "", "recovery passphrase; prefer "+passphraseEnv+" or --passphrase-stdin, a flag shows in ps")
+	passStdin := fs.Bool("passphrase-stdin", false, "read the recovery passphrase from the first line of stdin")
 	image := fs.String("image", "", "panel image to run (default: the build the archive names)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: stackr-install restore [--passphrase P] [--image REF] <archive>")
+		return errors.New("usage: stackr-install restore [--passphrase-stdin] [--image REF] <archive | s3://bucket/key>")
+	}
+	pass, err := passphrase(*passFlag, os.Getenv(passphraseEnv), *passStdin, os.Stdin)
+	if err != nil {
+		return err
 	}
 	dataDir := "/var/lib/stackr"
 	if d := os.Getenv("STACKR_DATA_DIR"); d != "" {
@@ -44,20 +52,44 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("no install answers in %s (install first): %w", dataDir, err)
 	}
-	if *pass == "" {
+	fromKey := pass == ""
+	if fromKey {
 		b, err := os.ReadFile(filepath.Join(dataDir, installspec.KeyFile))
 		if err != nil {
-			return fmt.Errorf("no --passphrase and no master key on this box: %w", err)
+			return fmt.Errorf("no passphrase and no master key on this box: %w", err)
 		}
-		*pass = strings.TrimSpace(string(b))
+		pass = strings.TrimSpace(string(b))
 	}
-	f, err := os.Open(fs.Arg(0))
+	src := fs.Arg(0)
+	if strings.HasPrefix(src, "s3://") {
+		tmp, key, err := fetchS3(ctx, src, dataDir, os.Getenv)
+		if err != nil {
+			return fmt.Errorf("fetch the archive (nothing changed): %w", err)
+		}
+		defer func() { _ = os.Remove(tmp) }()
+		_, _ = fmt.Fprintln(out, "Fetched", key)
+		src = tmp
+	}
+	f, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 	stage := filepath.Join(dataDir, "restore-"+time.Now().UTC().Format("20060102T150405"))
-	ver, err := unpack(f, *pass, stage)
+	ver, err := unpack(f, pass, stage)
+	if err != nil && fromKey && term.IsTerminal(int(os.Stdin.Fd())) {
+		// On a new box the master key is the new install's, not the
+		// archive's: ask for the recovery passphrase.
+		_, _ = fmt.Fprint(out, "This box's master key does not open the archive. Recovery passphrase: ")
+		b, perr := term.ReadPassword(int(os.Stdin.Fd()))
+		_, _ = fmt.Fprintln(out)
+		if perr != nil {
+			return perr
+		}
+		if _, err = f.Seek(0, io.SeekStart); err == nil {
+			ver, err = unpack(f, strings.TrimSpace(string(b)), stage)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("read archive (nothing changed): %w", err)
 	}
@@ -120,13 +152,78 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err := restoreCaddy(ctx, r, *image, stage); err != nil {
 		r.say("  warning: proxy volume not restored, certificates will be re-issued:", err)
 	}
+	// The restored panel's first boot redeploys the controller's tiles.
+	if err := os.WriteFile(filepath.Join(dataDir, installspec.RestoredMarker), nil, 0o600); err != nil {
+		return err
+	}
 	if err := r.docker(ctx, installspec.Panel(*image, in).RunArgs()...); err != nil {
 		return err
 	}
 	if err := dropStage(stage); err != nil {
 		r.say("  warning: delete", stage, "by hand, it holds unencrypted certificate keys:", err)
 	}
+	// The CLI key on this box lived in the replaced database (and, on a new
+	// box, in a cli.json that is gone): mint a new one. Not fatal.
+	if err := r.relogCLI(ctx, in, *image); err != nil {
+		r.say("  cli login:", err.Error(), "- log in by hand:", docsCLILogin)
+	}
 	r.say("Restored", fs.Arg(0), "on", *image+". The replaced database is", replaced)
+	return nil
+}
+
+// passphraseEnv carries the recovery passphrase without a flag (ps shows
+// flags to every user on the box).
+const passphraseEnv = "STACKR_RECOVERY_PASSPHRASE"
+
+// passphrase is the recovery passphrase from the flag, the environment or
+// the first line of stdin, in that order; "" = use this box's master key.
+func passphrase(flagVal, envVal string, fromStdin bool, stdin io.Reader) (string, error) {
+	switch {
+	case flagVal != "":
+		return flagVal, nil
+	case envVal != "":
+		return envVal, nil
+	case fromStdin:
+		line, err := bufio.NewReader(stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("read the passphrase from stdin: %w", err)
+		}
+		if line = strings.TrimRight(line, "\r\n"); line == "" {
+			return "", errors.New("--passphrase-stdin: stdin held no passphrase")
+		}
+		return line, nil
+	}
+	return "", nil
+}
+
+// relogCLI mints the admin a new API key in the restored panel and writes
+// this box's cli.json with it, the way the install does. Only this
+// installer's own build is asked: an older stackrd has no admin-key and
+// would boot a second server on the same database instead.
+func (r runner) relogCLI(ctx context.Context, in installspec.Input, image string) error {
+	own, err := checkVersion("", version)
+	if err != nil || installspec.Image(own) != image {
+		return fmt.Errorf("the panel runs %s, not this installer's build", image)
+	}
+	if err := waitHealthy(ctx, "http://"+net.JoinHostPort(in.Bind, installspec.PanelPort)+"/api/health"); err != nil {
+		return err
+	}
+	panel, err := read(ctx, "docker", "ps", "-q", "--filter", "label="+installspec.LabelRole+"=panel")
+	if err != nil || panel == "" {
+		return errors.New("the panel container is not running")
+	}
+	b, err := exec.CommandContext(ctx, "docker", "exec", strings.Fields(panel)[0], "/stackrd", "admin-key").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
+	}
+	key := adminKey(string(b))
+	if key == "" {
+		return errors.New("the panel minted no key")
+	}
+	if err := r.loginCLI(in, key); err != nil {
+		return err
+	}
+	r.say("  the CLI on this box is logged in as the admin again")
 	return nil
 }
 

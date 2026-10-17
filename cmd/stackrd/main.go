@@ -117,6 +117,14 @@ func main() {
 		}
 		return
 	}
+	if flag.Arg(0) == "admin-key" {
+		// The restore's way to log the controller's CLI back in.
+		if err := adminKey(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd admin-key:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if flag.Arg(0) == "upgrade-swap" {
 		// The one-shot helper the self-upgrade launches from the new image.
 		if err := service.RunPanelSwap(context.Background()); err != nil {
@@ -350,6 +358,19 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 	}
 	_, _ = fmt.Fprintln(out, "admin", u.Email, "created")
 	_, _ = fmt.Fprintln(out, adminKeyPrefix+key) // the installer shows it once
+	return nil
+}
+
+// adminKey mints a new key for the stackr admin and prints it on the line
+// stackr-install reads.
+func adminKey(out io.Writer) error {
+	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: masterKey()}
+	u, key, err := service.MintAdminKey(context.Background(), cfg)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(out, "key minted for", u.Email)
+	_, _ = fmt.Fprintln(out, adminKeyPrefix+key)
 	return nil
 }
 

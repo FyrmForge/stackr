@@ -43,6 +43,42 @@ func CreateAdmin(ctx context.Context, cfg Config, email, password, name string) 
 	return u, tok, err
 }
 
+// MintAdminKey mints a new API key, bound to no org, for the oldest active
+// stackr admin: the restore's way to log the controller's CLI back in, since
+// the old key went with the old box's cli.json. Like CreateAdmin, only the
+// installer reaches it (stackrd admin-key).
+func MintAdminKey(ctx context.Context, cfg Config) (User, string, error) {
+	var u User
+	var tok string
+	err := withStore(ctx, cfg, func(st *store.Store) error {
+		return st.Tx(ctx, func(tx store.Tx) error {
+			l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
+			all, err := l.List(ctx)
+			if err != nil {
+				return err
+			}
+			var found bool
+			for _, x := range all {
+				if x.Admin() && x.Active && (!found || x.CreatedAt.Before(u.CreatedAt)) {
+					u, found = x, true
+				}
+			}
+			if !found {
+				return errs.Conflictf("no active stackr admin")
+			}
+			var k store.APIKey
+			if tok, k, err = l.MintKey(ctx, u, "", "", "restore", "", ""); err != nil {
+				return err
+			}
+			return audit(tx).Append(ctx, securitylog.Event{
+				Action: securitylog.KeyMint, ActorID: u.ID, TargetKind: "api_key", TargetID: k.ID,
+				Detail: "name=restore org= level= stack=",
+			})
+		})
+	})
+	return u, tok, err
+}
+
 // NeedsAdmin reports whether the install has no account yet, so a re-run of
 // the installer knows to ask for one.
 func NeedsAdmin(ctx context.Context, cfg Config) (bool, error) {

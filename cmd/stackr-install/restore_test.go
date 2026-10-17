@@ -207,3 +207,69 @@ func TestUnpackPanelState(t *testing.T) {
 		t.Error("a keys/ file outside installspec.PanelState was accepted")
 	}
 }
+
+// The flag wins, then the environment, then stdin when asked; nothing given
+// is "" (this box's master key). Stdin is never read unasked.
+func TestPassphrase(t *testing.T) {
+	for _, c := range []struct {
+		flag, env string
+		stdin     bool
+		in, want  string
+		err       bool
+	}{
+		{flag: "f", env: "e", stdin: true, in: "s\n", want: "f"},
+		{env: "e", stdin: true, in: "s\n", want: "e"},
+		{stdin: true, in: "s p\r\nmore\n", want: "s p"},
+		{stdin: true, in: "last", want: "last"},
+		{stdin: true, in: "\n", err: true},
+		{in: "s\n", want: ""},
+	} {
+		got, err := passphrase(c.flag, c.env, c.stdin, strings.NewReader(c.in))
+		if (err != nil) != c.err || got != c.want {
+			t.Errorf("passphrase(%+v) = %q, %v; want %q", c, got, err, c.want)
+		}
+	}
+}
+
+func TestParseS3(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"s3://b/stackr/_panel/x/scheduled/a.age": {"b", "stackr/_panel/x/scheduled/a.age"},
+		"s3://b/stackr/_panel/x/":                {"b", "stackr/_panel/x/"},
+		"s3://b":                                 {"b", ""},
+	} {
+		b, k, err := parseS3(in)
+		if err != nil || b != want[0] || k != want[1] {
+			t.Errorf("parseS3(%q) = %q, %q, %v", in, b, k, err)
+		}
+	}
+	for _, bad := range []string{"https://b/k", "s3:///k"} {
+		if _, _, err := parseS3(bad); err == nil {
+			t.Errorf("parseS3(%q) took it", bad)
+		}
+	}
+}
+
+// The newest archive is the greatest timestamp, whatever trigger dir holds it.
+func TestNewestKey(t *testing.T) {
+	keys := []string{
+		"p/scheduled/20261017-030000-panel.tar.gz.age",
+		"p/pre-upgrade/20261017-120000-panel.tar.gz.age",
+		"p/manual/20261016-235959-panel.tar.gz.age",
+		"p/manual/",
+	}
+	if got := newestKey(keys); got != keys[1] {
+		t.Errorf("newestKey = %q, want %q", got, keys[1])
+	}
+	if got := newestKey(nil); got != "" {
+		t.Errorf("newestKey(nil) = %q", got)
+	}
+}
+
+// No keys in the environment: refused before any call.
+func TestFetchS3NeedsKeys(t *testing.T) {
+	env := map[string]string{s3EndpointEnv: "http://127.0.0.1:1", s3AccessKeyEnv: "a"}
+	_, _, err := fetchS3(context.Background(), "s3://b/k", t.TempDir(), func(k string) string { return env[k] })
+	if err == nil || !strings.Contains(err.Error(), s3SecretKeyEnv) {
+		t.Fatalf("err = %v, want one naming %s", err, s3SecretKeyEnv)
+	}
+}
