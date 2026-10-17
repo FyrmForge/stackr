@@ -58,7 +58,7 @@ type ProxyDocker interface {
 func (f *Flow) Upgradable() bool { return parseTag(f.Version) != nil }
 
 // Check asks GitHub for the latest release tag. The caller stores it
-// (upgrade_latest) with the time (upgrade_checked_at).
+// (upgrade_latest).
 func (f *Flow) Check(ctx context.Context) (string, error) {
 	if !f.Upgradable() {
 		return "", nil
@@ -113,7 +113,7 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	}
 	defer f.upgrading.Unlock()
 	if !f.Upgradable() {
-		return "", errs.Conflictf("dev build, no upgrades")
+		return "", errs.Conflictf("A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.")
 	}
 	if !Newer(tag, f.Version) {
 		return "", errs.Conflictf("%s is not newer than %s", tag, f.Version)

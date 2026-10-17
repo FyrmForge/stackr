@@ -23,8 +23,9 @@ type User struct {
 	Enable        string // POST
 }
 
-// UpdateView is the self-upgrade. Checked says a check ran this answer;
-// the check reaches GitHub, so a tab open never runs one.
+// UpdateView is the self-upgrade. Checked says a check has run (this
+// answer, or the last one remembered); the check reaches GitHub, so a tab
+// open never runs one.
 type UpdateView struct {
 	Version  string
 	Checked  bool
@@ -177,7 +178,7 @@ templ Update(v UpdateView) {
 				if v.CheckErr != "" {
 					<p class="text-rw-danger" role="status">Could not check for an update: { v.CheckErr }</p>
 				} else if v.Checked && v.Latest == "" {
-					<p class="text-rw-muted">Dev build, no upgrades.</p>
+					<p class="text-rw-muted">A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.</p>
 				} else if v.Checked && v.Newer {
 					<p class="flex items-center gap-2">
 						@c.Chip("update available", "warn")
@@ -195,8 +196,10 @@ templ Update(v UpdateView) {
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)
 				}
-				if !v.Checked && !v.Upgrading {
+				if !v.Upgrading && !v.Checked {
 					@c.PostButton("Check for update", Base+"/update/check")
+				} else if !v.Upgrading && (v.Latest != "" || v.CheckErr != "") {
+					@c.PostButton("Check again", Base+"/update/check")
 				}
 			</div>
 		}

@@ -66,6 +66,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	adminEmail := fs.String("admin-email", "", "the stackr admin's email; the password comes from "+passwordEnv+" or a prompt")
 	fs.IntVar(&in.WGPort, "wg-port", 0, fmt.Sprintf("UDP port of the controller's mesh WireGuard (default %d)", mesh.DefaultPort))
+	allowDown := fs.Bool("allow-downgrade", false, "move the panel to an older release than it runs (migrations may not reverse)")
 	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -173,6 +174,16 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			filepath.Join(in.DataDir, installspec.File))
 	}
 
+	// Decided before anything is written: a refused downgrade changes nothing.
+	panelID, cur := panelVersion(ctx)
+	mv := stay
+	if panelID != "" {
+		mv = decide(cur, ver)
+	}
+	if mv == down && !*allowDown {
+		return downgradeErr(cur, ver)
+	}
+
 	r.say("Installing stackr", ver)
 	if err := r.mkdir(filepath.Join(in.DataDir, "keys"), 0o700); err != nil {
 		return err
@@ -194,18 +205,25 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
-	if err := r.ensureProxy(ctx, image, in, *dnsToken, proxyUp); err != nil {
-		return err
-	}
-	if err := r.ensureRegistry(ctx, in.DataDir); err != nil {
-		return err
-	}
-	// The panel may be renamed stackr-<version> by an upgrade; its label is
-	// what stays.
-	if id, _ := read(ctx, "docker", "ps", "-aq", "--filter", "label="+installspec.LabelRole+"=panel"); id != "" {
-		r.say("  have panel", strings.Fields(id)[0])
-	} else if err := r.docker(ctx, installspec.Panel(image, in).RunArgs()...); err != nil {
-		return err
+	if mv != stay {
+		r.say("  moving the panel from", cmp.Or(cur, "a dev build"), "to", ver)
+		if err := runSteps(ctx, r.upgradeSteps(in, panelID, ver, *dnsToken, proxyUp)); err != nil {
+			return err
+		}
+	} else {
+		if err := r.ensureProxy(ctx, image, in, *dnsToken, proxyUp); err != nil {
+			return err
+		}
+		if err := r.ensureRegistry(ctx, in.DataDir); err != nil {
+			return err
+		}
+		// The panel may be renamed stackr-<version> by an upgrade; its label
+		// is what stays.
+		if panelID != "" {
+			r.say("  have panel", panelID)
+		} else if err := r.docker(ctx, installspec.Panel(image, in).RunArgs()...); err != nil {
+			return err
+		}
 	}
 	if err := r.write(wrapperPath,
 		func() error { return os.WriteFile(wrapperPath, []byte(wrapper(in.DataDir)), 0o755) }); err != nil {

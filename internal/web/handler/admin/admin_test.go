@@ -31,7 +31,7 @@ func TestAdminDrawer(t *testing.T) {
 	for tab, want := range map[string]string{
 		"settings": `id="admin-settings"`,
 		"users":    "owner@acme.test",
-		"update":   "/-/admin/update/check",
+		"update":   "A dev build cannot upgrade itself",
 		"routes":   `id="tab-routes"`,
 		"caddy":    `name="proxy_custom"`,
 		"backups":  "No panel backups yet",

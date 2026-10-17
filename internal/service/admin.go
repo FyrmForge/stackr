@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/netip"
 	"slices"
@@ -361,21 +362,39 @@ func (o *Orchestrator) SetSettingDefaults(ctx context.Context, vals map[string]s
 // Version is the running build.
 func (o *Orchestrator) Version() string { return o.cfg.Version }
 
-// CheckUpgrade asks GitHub for the latest release; newer says whether it
-// is newer than this build (false on a dev build).
+// keyUpgradeLatest is the release the last update check found (a settings
+// row, not a knob): the Update tab shows it after a restart.
+const keyUpgradeLatest = "upgrade_latest"
+
+// CheckUpgrade asks GitHub for the latest release and remembers it; newer
+// says whether it is newer than this build (false on a dev build).
 func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer bool, err error) {
 	if latest, err = o.upgrade.Check(ctx); err != nil {
 		return "", false, err
 	}
+	if err := o.store.Settings.Set(ctx, keyUpgradeLatest, latest); err != nil {
+		slog.Warn("update check: not remembered", "err", err)
+	}
 	_, newer = o.upgrade.Available(latest)
 	return latest, newer, nil
+}
+
+// LastUpgradeCheck is the last check's answer, compared with this build;
+// ok is false when none ran. A dev build needs none: its answer is "".
+func (o *Orchestrator) LastUpgradeCheck(ctx context.Context) (latest string, newer, ok bool) {
+	if !o.upgrade.Upgradable() {
+		return "", false, true
+	}
+	latest, ok, _ = o.store.Settings.Get(ctx, keyUpgradeLatest)
+	_, newer = o.upgrade.Available(latest)
+	return latest, newer, ok
 }
 
 // Upgrade queues the self-upgrade to tag: pull, pre-upgrade archive, then
 // the helper container swaps the panel.
 func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if !o.upgrade.Upgradable() {
-		return Job{}, errs.Conflictf("dev build, no upgrades")
+		return Job{}, errs.Conflictf("A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.")
 	}
 	// The new panel rolls the workers onto its build once it has published
 	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.

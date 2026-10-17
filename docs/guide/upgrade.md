@@ -32,7 +32,21 @@ stackr admin upgrade-workers
 
 `upgrade-workers` does the same as Update workers and Retry.
 
+## From the installer
+
+Run the `stackr-install` of the release you want on the panel's box, as root. No flags are needed, it reuses the saved answers.
+
+```bash
+./stackr-install
+```
+
+- Same version as the panel: nothing changes.
+- Newer version, or a dev build on either side: it does what Update does. The panel archives its database, the panel restarts on the new image, and the workers roll onto it. A panel that does not come up healthy is swapped back to the old one.
+- Older version: refused, since migrations may not reverse. Restore the pre-upgrade archive instead, or pass `--allow-downgrade`.
+
+This is the way off a dev build, which the Update button cannot move.
+
 ## Notes
 
-- A dev build cannot upgrade.
+- A dev build cannot upgrade from the panel. Use the installer.
 - The pre-upgrade archive is kept. See [Backups](backups.md).

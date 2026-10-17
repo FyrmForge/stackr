@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
@@ -31,7 +32,7 @@ type Docker interface {
 const (
 	LabelRole = "stackr.role"
 	// SpecEnv carries the new panel's spec into the helper, as JSON.
-	SpecEnv = "STACKR_SWAP_SPEC"
+	SpecEnv = installspec.SwapSpecEnv
 )
 
 type Leaf struct {

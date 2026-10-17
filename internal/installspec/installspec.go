@@ -152,6 +152,29 @@ func (in Input) BaseURL() string {
 // images without the v.
 func Image(version string) string { return Repo + ":" + strings.TrimPrefix(version, "v") }
 
+// SwapSpecEnv carries the new panel's spec into `stackrd upgrade-swap`. A
+// wire contract: an older image's helper reads the same name.
+const SwapSpecEnv = "STACKR_SWAP_SPEC"
+
+// SwapSpec is the SwapSpecEnv value `stackrd upgrade-swap` reads, for the
+// installer's upgrade: the panel at version as the panel's own Update hands
+// it over, named after the release so the old container keeps its name until
+// the new one passes. The field names are the Docker wrapper's (it has no
+// json tags); cmd/stackrd's spec test holds the two equal.
+func SwapSpec(version string, in Input) (string, error) {
+	c := Panel(Image(version), in)
+	b, err := json.Marshal(struct {
+		Name, Image string
+		Cmd, Env    []string
+		Labels      map[string]string
+		Volumes     []string
+		HostNetwork bool
+		CapAdd      []string
+		Restart     string
+	}{PanelName + "-" + strings.TrimPrefix(version, "v"), c.Image, c.Cmd, c.Env, c.Labels, c.Volumes, c.HostNetwork, c.CapAdd, c.Restart})
+	return string(b), err
+}
+
 // Container is one container, rendered as `docker run` args by the
 // installer and converted to the Docker wrapper's spec by the panel.
 type Container struct {

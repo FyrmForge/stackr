@@ -280,6 +280,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		v := ui.UpdateView{}
 		if x.check != nil {
 			v = *x.check
+		} else {
+			v.Latest, v.Newer, v.Checked = h.orch.LastUpgradeCheck(ctx)
 		}
 		v.Version, v.Job = h.orch.Version(), job
 		if v.Upgrading && job != nil {
