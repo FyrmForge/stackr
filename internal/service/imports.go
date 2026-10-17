@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"runtime"
@@ -15,10 +16,12 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/registry"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
+	lregistry "github.com/FyrmForge/stackr/internal/service/internal/registry"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -29,12 +32,20 @@ import (
 // controller, and never leaves it. platforms are the CPU types to hold; nil is
 // clusterPlatforms. The registry leaf does the copy and writes the record.
 func (o *Orchestrator) Import(ctx context.Context, orgID, ref, auth string, platforms []string) (localRef, digest string, err error) {
-	return o.importLogged(ctx, orgID, ref, auth, platforms, nil)
+	var c store.Credential
+	if auth != "" {
+		if c, err = o.creds.Get(ctx, orgID, auth); err != nil {
+			return "", "", err
+		}
+	}
+	return o.importLogged(ctx, orgID, ref, c, platforms, nil)
 }
 
-// importLogged is Import with a log: the warning for an unreachable upstream
-// answered from our own copy goes there (the deploy log).
-func (o *Orchestrator) importLogged(ctx context.Context, orgID, ref, auth string, platforms []string, log io.Writer) (localRef, digest string, err error) {
+// importLogged is Import with the credential itself (zero = anonymous) and
+// a log: the warning for an unreachable upstream answered from our own copy
+// goes there (the deploy log). A refusal comes back as one line naming the
+// fix (deniedFix).
+func (o *Orchestrator) importLogged(ctx context.Context, orgID, ref string, c store.Credential, platforms []string, log io.Writer) (localRef, digest string, err error) {
 	og, err := o.store.Orgs.Get(ctx, orgID)
 	if err != nil {
 		return "", "", err
@@ -43,15 +54,32 @@ func (o *Orchestrator) importLogged(ctx context.Context, orgID, ref, auth string
 		platforms = o.clusterPlatforms(ctx)
 	}
 	req := registry.ImportRequest{OrgID: orgID, OrgSlug: og.Slug, Ref: ref, Platforms: platforms, Log: log}
-	if auth != "" {
-		c, err := o.creds.Get(ctx, orgID, auth)
-		if err != nil {
-			return "", "", err
-		}
+	if c.Password != "" {
 		req.Auth = authn.FromConfig(authn.AuthConfig{Username: c.Username, Password: c.Password})
 	}
 	res, err := o.regs.Import(ctx, req)
+	if no := (*imgcopy.DeniedError)(nil); errors.As(err, &no) {
+		err = fmt.Errorf("%w: %s", err, deniedFix(ref, c))
+	}
 	return res.LocalRef, res.Digest, err
+}
+
+// pullCred is the credential every pull and registry check of ref uses
+// (deploy, import, the image watch): the org's own for ref's host, else
+// none (anonymous). ok=false = anonymous.
+func (o *Orchestrator) pullCred(ctx context.Context, orgID, ref string) (store.Credential, bool, error) {
+	return o.creds.For(ctx, orgID, ref)
+}
+
+// deniedFix is what to do about a registry that refused ref, given the
+// credential that was offered (zero = none).
+func deniedFix(ref string, c store.Credential) string {
+	name, _, _ := strings.Cut(ref, "@")
+	host, _, _, _ := lregistry.ParseRef(name)
+	if c.Password != "" {
+		return "the org's credential for " + host + " cannot read it"
+	}
+	return "add a credential for " + host + " to the org"
 }
 
 // outsideRef reports an image ref that does not come from stackr: not a
@@ -94,20 +122,19 @@ func (o *Orchestrator) ownClusterRef(ctx context.Context, orgID, ref string) err
 }
 
 // importForDeploy is flow/deploy's Import hook: an outside ref is imported on
-// the controller before its node pulls, with the org's credential credID
-// ("" anonymous). imported=false: the ref is not outside, or the install does
+// the controller before its node pulls, with c (pullCred's; zero anonymous). imported=false: the ref is not outside, or the install does
 // not route through the registry (Config.RegistryImports), so the node pulls
 // it as it is. run is the ref the node pulls and the container runs: the
 // org's own copy at its digest, never the outside name, which every org on a
 // node shares (two orgs on one tag would each retag it for the other).
-func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref, credID string, log io.Writer) (run string, imported bool, err error) {
+func (o *Orchestrator) importForDeploy(ctx context.Context, orgID, ref string, c store.Credential, log io.Writer) (run string, imported bool, err error) {
 	if err := o.ownClusterRef(ctx, orgID, ref); err != nil {
 		return "", false, err
 	}
 	if !o.cfg.RegistryImports || !o.outsideRef(ctx, ref) {
 		return ref, false, nil
 	}
-	local, digest, err := o.importLogged(ctx, orgID, ref, credID, nil, log)
+	local, digest, err := o.importLogged(ctx, orgID, ref, c, nil, log)
 	if err != nil {
 		return "", false, err
 	}

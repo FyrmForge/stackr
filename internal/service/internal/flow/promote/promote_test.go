@@ -84,7 +84,7 @@ func setup(t *testing.T) *world {
 		Params:   params.New(s.Params),
 		Managed:  managed.New(s.ManagedInstances, s.Provisions, s.Bindings),
 		Domains:  domain.New(s.Domains, fake, "proxy"),
-		Creds:    credential.New(s.Credentials),
+		Cred:     credential.New(s.Credentials).For,
 		Settings: settings.New(s.Settings, nil),
 		Jobs:     job.New(s.Jobs),
 		Tiers:    tier.New(s.Tiers),

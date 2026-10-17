@@ -240,10 +240,13 @@ func TestCopyPrivateSource(t *testing.T) {
 	good := &authn.Basic{Username: "bot", Password: "s3cret-fake"}
 	noErr(t, remote.Write(ref(t, src.host+"/p/app:1"), archImage(t, "amd64"), remote.WithAuth(good)))
 
-	_, err := Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", &authn.Basic{Username: "bot", Password: "wrong"}, nil, []string{"amd64"})
-	isErr(t, err)
-	_, err = Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", nil, nil, []string{"amd64"})
-	isErr(t, err)
+	// refused either way: one DeniedError naming the ref, no registry URL
+	for _, a := range []authn.Authenticator{&authn.Basic{Username: "bot", Password: "wrong"}, nil} {
+		_, err := Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", a, nil, []string{"amd64"})
+		var no *DeniedError
+		eq(t, true, errors.As(err, &no), err)
+		eq(t, src.host+"/p/app:1 is private or missing", err.Error())
+	}
 
 	res, err := Copy(context.Background(), src.host+"/p/app:1", dst.host+"/o/app:1", good, nil, []string{"amd64"})
 	noErr(t, err)

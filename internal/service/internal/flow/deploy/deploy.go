@@ -68,9 +68,11 @@ type Flow struct {
 	Tiers    *tier.Leaf
 	Managed  *managed.Leaf
 	Domains  *domain.Leaf
-	Creds    *credential.Leaf
 	Settings *settings.Leaf
 	Jobs     *job.Leaf
+	// Cred is the credential for an image ref (Orchestrator.pullCred, or
+	// credential.Leaf.For); ok=false = anonymous.
+	Cred func(ctx context.Context, orgID, ref string) (store.Credential, bool, error)
 	// HostGrants is the stack's approved host access (host: mounts,
 	// devices, privileged); nil = nothing is granted.
 	HostGrants *hostgrant.Leaf
@@ -89,13 +91,13 @@ type Flow struct {
 	VIPLock func(context.Context) sync.Locker
 
 	// Import brings an outside image into the cluster registry on the
-	// controller before a node pulls it (credID is the org's credential for
-	// ref, "" anonymous). imported=false: pull ref as it is. run is the ref the
+	// controller before a node pulls it (c is Cred's for ref, zero
+	// anonymous). imported=false: pull ref as it is. run is the ref the
 	// node pulls and the container starts with: an import's is the org's
 	// registry copy at its digest. log is
 	// the deploy log, for the warning when an unreachable upstream is answered
 	// from the registry's own copy. nil = every pull goes outside.
-	Import func(ctx context.Context, orgID, ref, credID string, log io.Writer) (run string, imported bool, err error)
+	Import func(ctx context.Context, orgID, ref string, c store.Credential, log io.Writer) (run string, imported bool, err error)
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
@@ -317,17 +319,18 @@ func (f *Flow) prepare(
 	if err != nil {
 		return r, e, "", err
 	}
-	auth, credID := "", ""
-	if c, ok, err := f.Creds.For(ctx, o.ID, ref); err != nil {
+	auth := ""
+	c, ok, err := f.Cred(ctx, o.ID, ref)
+	if err != nil {
 		return r, e, "", err
 	} else if ok {
-		auth, credID = credential.Auth(c), c.ID
+		auth = credential.Auth(c)
 	}
 	run := ref
 	if f.Import != nil {
 		var imported bool
-		if run, imported, err = f.Import(ctx, o.ID, ref, credID, log); err != nil {
-			return r, e, "", fmt.Errorf("import %s: %w", ref, err)
+		if run, imported, err = f.Import(ctx, o.ID, ref, c, log); err != nil {
+			return r, e, "", err // names the ref itself
 		}
 		if imported {
 			auth = "" // the node loads the org's registry copy, which needs none

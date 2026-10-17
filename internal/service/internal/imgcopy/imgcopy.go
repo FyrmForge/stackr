@@ -98,6 +98,9 @@ func Copy(ctx context.Context, src, dst string, srcAuth authn.Authenticator, dst
 
 	d, err := remote.Get(srcRef, so...)
 	if err != nil {
+		if denied(err) {
+			return Result{}, &DeniedError{Ref: src}
+		}
 		if unreachable(err) {
 			return Result{}, &UnreachableError{Registry: srcRef.Context().RegistryStr(), Err: fmt.Errorf("source %s: %w", srcRef, err)}
 		}
@@ -197,6 +200,30 @@ type UnreachableError struct {
 
 func (e *UnreachableError) Error() string { return e.Err.Error() }
 func (e *UnreachableError) Unwrap() error { return e.Err }
+
+// DeniedError is Copy's answer when src's registry refused it (401 or 403,
+// UNAUTHORIZED or DENIED): a private image without a credential that reads
+// it, or one that does not exist (ghcr and others say "denied" for both).
+// Its text is the ref alone, never the registry's token URL.
+type DeniedError struct{ Ref string }
+
+func (e *DeniedError) Error() string { return e.Ref + " is private or missing" }
+
+func denied(err error) bool {
+	var te *transport.Error
+	if !errors.As(err, &te) {
+		return false
+	}
+	if te.StatusCode == http.StatusUnauthorized || te.StatusCode == http.StatusForbidden {
+		return true
+	}
+	for _, d := range te.Errors {
+		if d.Code == transport.UnauthorizedErrorCode || d.Code == transport.DeniedErrorCode {
+			return true
+		}
+	}
+	return false
+}
 
 func unreachable(err error) bool {
 	var te *transport.Error

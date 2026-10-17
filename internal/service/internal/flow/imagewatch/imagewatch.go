@@ -17,7 +17,6 @@ import (
 	"golang.org/x/mod/semver"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
@@ -36,8 +35,10 @@ type Flow struct {
 	Tiles    *tile.Leaf
 	Images   *image.Leaf
 	Releases *release.Leaf
-	Creds    *credential.Leaf
 	Settings *settings.Leaf
+	// Cred is the credential for an image ref (Orchestrator.pullCred, or
+	// credential.Leaf.For); ok=false = anonymous.
+	Cred func(ctx context.Context, orgID, ref string) (store.Credential, bool, error)
 
 	// Registry calls; nil = the real registry package.
 	Digest func(ctx context.Context, ref, user, pass string) (string, error)
@@ -185,7 +186,7 @@ func (f *Flow) direct(ctx context.Context, e store.Environment) bool {
 func (f *Flow) ask(ctx context.Context, w watched) *answer {
 	a := &answer{}
 	user, pass := "", ""
-	if c, ok, err := f.Creds.For(ctx, w.org, w.t.ImageRef); err != nil {
+	if c, ok, err := f.Cred(ctx, w.org, w.t.ImageRef); err != nil {
 		a.err = err
 	} else if ok {
 		user, pass = c.Username, c.Password
