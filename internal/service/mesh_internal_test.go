@@ -50,14 +50,16 @@ func TestBuildMeshExits(t *testing.T) {
 	if len(a.Peers) != 2 || a.ListenPort != MeshWGPort || a.Address.String() != "10.207.255.1/24" {
 		t.Fatalf("a mesh = %+v", a)
 	}
-	// Two subjects with disjoint pref blocks; the first ladder lists the own uplink last.
-	if len(a.Ladders) != 2 {
+	// One subject per env, its rule block fixed by its network's /24.
+	if len(a.Ladders) != 3 {
 		t.Fatalf("ladders = %+v", a.Ladders)
 	}
-	l1, l0 := a.Ladders[0], a.Ladders[1] // keys sort "b" before "c,a"
-	if l1.Subject.PrefBase+2*len(l1.Subject.Sources) > l0.Subject.PrefBase {
-		t.Errorf("pref blocks overlap: %d (%d) and %d", l0.Subject.PrefBase, len(l0.Subject.Sources), l1.Subject.PrefBase)
+	for i, l := range a.Ladders {
+		if want := exitPrefBase + 2*(i+1); len(l.Subject.Sources) != 1 || l.Subject.PrefBase != want {
+			t.Errorf("ladder %d = %+v, want one source at pref %d", i, l.Subject, want)
+		}
 	}
+	l0 := a.Ladders[0] // 10.208.1.0/24 over c, then the own uplink
 	// Links: one per exit node, scoped to the sources routed over it.
 	if len(a.Links) != 2 {
 		t.Fatalf("links = %+v", a.Links)
@@ -75,7 +77,7 @@ func TestBuildMeshExits(t *testing.T) {
 		t.Fatalf("c serves = %+v", c.Serves)
 	}
 	sv := c.Serves[0]
-	if sv.Iface != exits.Iface("a") || strings.Join(sv.Subnets, ",") != "10.208.1.0/24,10.208.2.0/24" ||
+	if sv.Iface != exits.ServeIface("a") || strings.Join(sv.Subnets, ",") != "10.208.1.0/24,10.208.2.0/24" ||
 		sv.PeerKey != "ex-a" || sv.Mark != exitMarkBase+1 || sv.Table != exitTableServ+1 || sv.Port != lc.Port {
 		t.Errorf("serve = %+v", sv)
 	}
@@ -558,5 +560,172 @@ func TestMeshRemoveNodeOfAGoneBox(t *testing.T) {
 	m := newMeshSvc(st, func(id string) (MeshNode, bool) { f, ok := fakes[id]; return f, ok })
 	if err := m.RemoveNode(ctx, "w1"); err != nil {
 		t.Fatalf("remove of a gone box: %v", err)
+	}
+}
+
+// An env's exit follows it when it moves: the old node drops the env's ladder
+// and its link to the exit, the exit serves the new node, and an env that
+// lands on its exit leaves by that node's own uplink. Pushing the new node
+// alone (Ensure, before its containers start) also pushes the exit side. A
+// second env on the old node keeps its rule block through all of it.
+func TestMeshExitFollowsMove(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	w1 := mustNode(t, n, "w1")
+	w1.Tags, w1.WGAddress, w1.WGPublicKey = `["egress"]`, "10.207.255.2", "wg-w1"
+	must(t, n.st.Nodes.Update(ctx, w1))
+	must(t, n.st.Nodes.Create(ctx, store.Node{ID: "h4", Name: "h4", Slug: "h4", Role: "worker", Tags: `["egress"]`,
+		RangeCIDR: "10.210.0.0/16", WGAddress: "10.207.255.3", WGPublicKey: "wg-h4", Status: "online", CreatedAt: time.Now()}))
+	edge := addPlacement(t, n, "edge", "h4", true)
+	other := addPlacement(t, n, "w1p", "w1", true)
+	ctl := n.ctl.ID
+	if n.ctl.WGPublicKey == "" {
+		n.ctl.WGPublicKey = "wg-ctl"
+		must(t, n.st.Nodes.Update(ctx, n.ctl))
+	}
+
+	lab, err := n.orch.CreateEnv(ctx, n.stack, "lab", EnvSpec{Type: "static", FromKind: "branch", FromBranch: "main"})
+	must(t, err)
+	// networks come with the first deploy; dev's sorts before lab's
+	for id, sub := range map[string]string{n.dev.ID: "10.208.5.0/24", lab.ID: "10.208.9.0/24"} {
+		_, err := n.st.DB().ExecContext(ctx, `UPDATE environments SET subnet = ? WHERE id = ?`, sub, id)
+		must(t, err)
+	}
+	dev, err := n.st.Environments.Get(ctx, n.dev.ID)
+	must(t, err)
+	lab, err = n.st.Environments.Get(ctx, lab.ID)
+	must(t, err)
+	if lab.NodeID != ctl || dev.Subnet == "" || lab.Subnet == "" {
+		t.Fatalf("fixture: lab on %q, subnets %q %q", lab.NodeID, dev.Subnet, lab.Subnet)
+	}
+	must(t, n.st.ExitLadders.Set(ctx, "env", dev.ID, []string{edge.ID}))
+	must(t, n.st.ExitLadders.Set(ctx, "env", lab.ID, []string{other.ID}))
+
+	fakes := map[string]*fakeMeshNode{ctl: {}, "w1": {}, "h4": {}}
+	m := newMeshSvc(n.st, func(id string) (MeshNode, bool) { f, ok := fakes[id]; return f, ok })
+	m.ctlID = ctl
+	for id := range fakes {
+		m.exitPK[id] = "ex-" + id
+	}
+	spec := func(id string) worker.MeshSpec {
+		t.Helper()
+		s, ok := m.Spec(id)
+		if !ok {
+			t.Fatalf("no spec for %s", id)
+		}
+		return s
+	}
+	ladder := func(s worker.MeshSpec, sub string) *worker.LadderSpec {
+		for i, l := range s.Ladders {
+			if slices.Contains(l.Subject.Sources, sub) {
+				return &s.Ladders[i]
+			}
+		}
+		return nil
+	}
+	link := func(s worker.MeshSpec, to string) *exits.Link {
+		for i, l := range s.Links {
+			if l.Iface == exits.Iface(to) {
+				return &s.Links[i]
+			}
+		}
+		return nil
+	}
+	serve := func(s worker.MeshSpec, client string) *exits.Serve {
+		for i, v := range s.Serves {
+			if v.Iface == exits.ServeIface(client) {
+				return &s.Serves[i]
+			}
+		}
+		return nil
+	}
+
+	must(t, m.Sync(ctx, "", false))
+	labL := ladder(spec(ctl), lab.Subnet)
+	if labL == nil {
+		t.Fatal("lab has no ladder")
+	}
+	labPref := labL.Subject.PrefBase
+	l, lk, sv := ladder(spec(ctl), dev.Subnet), link(spec(ctl), "h4"), serve(spec("h4"), ctl)
+	if l == nil || len(l.Rungs) != 1 || l.Rungs[0].NodeID != "h4" || lk == nil || !slices.Equal(lk.Sources, []string{dev.Subnet}) ||
+		sv == nil || !slices.Equal(sv.Subnets, []string{dev.Subnet}) || l.Rungs[0].Target != strings.Split(sv.Addr, "/")[0] {
+		t.Fatalf("before the move: ladder %+v link %+v serve %+v", l, lk, sv)
+	}
+	oldAddr := lk.Addr
+
+	// dev moves to w1. Ensure pushes w1 and the exit that serves it.
+	must(t, n.st.Environments.SetNode(ctx, dev.ID, "w1"))
+	h4Pushes := len(fakes["h4"].pushed)
+	must(t, m.Sync(ctx, "w1", false))
+	if len(fakes["h4"].pushed) != h4Pushes+1 {
+		t.Fatal("pushing the moved env's new node left its exit without the serve")
+	}
+	if got := fakes["h4"].pushed[len(fakes["h4"].pushed)-1]; serve(got, "w1") == nil {
+		t.Fatalf("exit pushed without a serve for w1: %+v", got.Serves)
+	}
+	must(t, m.Sync(ctx, "", false))
+	c, w, x := spec(ctl), spec("w1"), spec("h4")
+	if ladder(c, dev.Subnet) != nil || link(c, "h4") != nil || serve(x, ctl) != nil {
+		t.Errorf("the old node still routes dev: ladder %+v link %+v serve %+v", ladder(c, dev.Subnet), link(c, "h4"), serve(x, ctl))
+	}
+	l, lk, sv = ladder(w, dev.Subnet), link(w, "h4"), serve(x, "w1")
+	if l == nil || lk == nil || sv == nil || !slices.Equal(lk.Sources, []string{dev.Subnet}) || !slices.Equal(sv.Subnets, []string{dev.Subnet}) ||
+		l.Rungs[0].Target != strings.Split(sv.Addr, "/")[0] || lk.Addr == oldAddr || lk.Port != sv.Port {
+		t.Fatalf("after the move: ladder %+v link %+v serve %+v", l, lk, sv)
+	}
+	if got := ladder(c, lab.Subnet); got == nil || got.Subject.PrefBase != labPref {
+		t.Errorf("lab's rule block moved: %+v, was %d", got, labPref)
+	}
+
+	// dev moves onto its exit: the own uplink, nothing routed anywhere.
+	must(t, n.st.Environments.SetNode(ctx, dev.ID, "h4"))
+	must(t, m.Sync(ctx, "", false))
+	w, x = spec("w1"), spec("h4")
+	if ladder(x, dev.Subnet) != nil || len(x.Links) != 0 || len(x.Serves) != 0 || link(w, "h4") != nil || ladder(w, dev.Subnet) != nil {
+		t.Errorf("on its exit: h4 %+v, w1 links %+v", x, w.Links)
+	}
+}
+
+type ladderNode struct {
+	fakeMeshNode
+	info worker.MeshInfo
+}
+
+func (l *ladderNode) MeshInfo(context.Context) (worker.MeshInfo, error) { return l.info, nil }
+
+// An env on the controller whose every exit is down says so, and why, with
+// the exit named: the controller's own ladder state comes from the mesh's
+// in-process node, as a worker's comes from its client.
+func TestExitGetDownOnController(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	must(t, n.st.Nodes.Create(ctx, store.Node{ID: "node-h4", Name: "h4", Slug: "h4", Role: "worker", Tags: `["egress"]`,
+		RangeCIDR: "10.210.0.0/16", WGAddress: "10.207.255.3", Status: "online", CreatedAt: time.Now()}))
+	edge := addPlacement(t, n, "edge", "node-h4", true)
+	_, err := n.st.DB().ExecContext(ctx, `UPDATE environments SET subnet = '10.208.5.0/24' WHERE id = ?`, n.dev.ID)
+	must(t, err)
+	must(t, n.st.ExitLadders.Set(ctx, "env", n.dev.ID, []string{edge.ID}))
+	ctl := &ladderNode{info: worker.MeshInfo{Ladders: []worker.LadderStatus{{Sources: []string{"10.208.5.0/24"},
+		State: exits.State{Active: -1, Down: true, Reason: "no exit answers (node-h4: timeout)", Since: time.Now()}}}}}
+	n.orch.mesh = newMeshSvc(n.st, func(id string) (MeshNode, bool) { return ctl, id == n.ctl.ID })
+
+	out, err := n.orch.ExitGet(ctx, ScopeEnv, n.dev.ID)
+	must(t, err)
+	if !out.NoInternet || out.Why != "no exit answers (h4: timeout)" || len(out.Exits) != 1 || out.Exits[0].State != RungDown {
+		t.Errorf("exit view = %+v", out)
+	}
+}
+
+// Two nodes that are each other's exit keep the link and the serve on
+// separate interfaces.
+func TestBuildMeshMutualExits(t *testing.T) {
+	in := meshIn{Nodes: []meshNodeIn{
+		tnode("a", 0, "203.0.113.1", meshEnvIn{Subnet: "10.208.1.0/24", Ladder: []string{"b"}}),
+		tnode("b", 1, "203.0.113.2", meshEnvIn{Subnet: "10.208.2.0/24", Ladder: []string{"a"}}),
+	}}
+	for id, s := range buildMesh(in) {
+		if len(s.Links) != 1 || len(s.Serves) != 1 || s.Links[0].Iface == s.Serves[0].Iface {
+			t.Errorf("%s: links %+v serves %+v", id, s.Links, s.Serves)
+		}
 	}
 }

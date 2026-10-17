@@ -376,7 +376,13 @@ func (a *app) exits() *cobra.Command {
 				a.say("%s: goes out through its own placement (no exit list)", cell(m["scope"]))
 				return nil
 			}
-			return a.show(m["exits"], "position", "placement", "state")
+			if err := a.show(m["exits"], "position", "placement", "state"); err != nil {
+				return err
+			}
+			if m["no_internet"] == true {
+				a.say("%s: no internet, every exit is down: %s", cell(m["scope"]), cell(m["why"]))
+			}
+			return nil
 		})
 	ls.Example = "  stackr exit ls --stack shop --env prod"
 	set := leaf("set [placement]...", "org.exits-set,stack.exits-set,env.exits-set,tile.exits-set,admin.default-exit-set", "Set the ordered exit list of a scope: placements, or own for the env's own", atLeast(0),

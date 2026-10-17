@@ -52,7 +52,7 @@ const (
 	MeshWGPort = mesh.DefaultPort
 
 	exitPortBase  = 52000  // + pair index
-	exitPrefBase  = 10000  // subject blocks, two prefs per source
+	exitPrefBase  = 10000  // + 2 per env /24 of the pool (envPref)
 	exitPrefServe = 20000  // + client slot, the exit side's fwmark rule
 	exitTableLink = 1000   // + exit slot (mesh.Slot, 1..254), client side
 	exitTableServ = 1300   // + client slot, exit side
@@ -205,7 +205,8 @@ func (m *meshSvc) Ensure(ctx context.Context, nodeID string) error {
 }
 
 // Sync computes every node's spec and pushes it: all nodes when only is "",
-// else that one. Unchanged specs are skipped unless force.
+// else that one and the exits serving it, so an env that just landed there
+// finds its exit answering. Unchanged specs are skipped unless force.
 func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 	m.syncMu.Lock()
 	defer m.syncMu.Unlock()
@@ -216,7 +217,8 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 	// Exit sides first, so a client's first probe finds its link answering.
 	ids := make([]string, 0, len(specs))
 	for id := range specs {
-		if only == "" || id == only {
+		serves := slices.ContainsFunc(specs[id].Serves, func(v exits.Serve) bool { return v.Iface == exits.ServeIface(only) })
+		if only == "" || id == only || serves {
 			ids = append(ids, id)
 		}
 	}
@@ -747,36 +749,28 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 		spec.Address = netip.PrefixFrom(n.Transit, mesh.Transit.Bits())
 		spec.Peers, _ = mesh.Peers(n.Node, all, next)
 
-		// Subjects: envs of this node that share a ladder.
-		groups := map[string][]string{}
-		for _, e := range n.Envs {
-			var l []string
-			for _, id := range e.Ladder {
-				if x, ok := byID[id]; id == n.ID || ok && usable(x) {
-					l = append(l, id)
-				}
+		// One subject per env, its rule block fixed by its network: an env
+		// arriving or leaving never moves another env's rules, so no ladder
+		// of an untouched env restarts (a restart clears its rules: its
+		// traffic would leave by the uplink until the next tick).
+		envs := slices.Clone(n.Envs)
+		slices.SortFunc(envs, func(a, b meshEnvIn) int { return strings.Compare(a.Subnet, b.Subnet) })
+		clientLinks[n.ID] = map[string]*linkPlan{}
+		for _, e := range envs {
+			pref, ok := envPref(e.Subnet)
+			if !ok {
+				continue
 			}
+			srcs := []string{e.Subnet}
 			// An empty ladder is kept: it blackholes the env's internet, and
 			// never falls back to the own uplink.
-			k := strings.Join(l, ",")
-			groups[k] = append(groups[k], e.Subnet)
-		}
-		keys := make([]string, 0, len(groups))
-		for k := range groups {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		clientLinks[n.ID] = map[string]*linkPlan{}
-		pref := exitPrefBase
-		for _, k := range keys {
-			srcs := groups[k]
-			sort.Strings(srcs)
 			var ids []string
-			if k != "" {
-				ids = strings.Split(k, ",")
+			for _, id := range e.Ladder {
+				if x, ok := byID[id]; id == n.ID || ok && usable(x) {
+					ids = append(ids, id)
+				}
 			}
 			ls := worker.LadderSpec{Subject: exits.Subject{Sources: srcs, PrefBase: pref}}
-			pref += 2 * len(srcs)
 			for _, id := range ids {
 				if id == n.ID {
 					ls.Rungs = append(ls.Rungs, exits.Rung{NodeID: id, Own: true, Target: pingTarget})
@@ -839,7 +833,7 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 			})
 			ex := specs[xid]
 			ex.Serves = append(ex.Serves, exits.Serve{
-				Iface: exits.Iface(cid), Port: exitPortBase + idx, PeerKey: c.ExitKey,
+				Iface: exits.ServeIface(cid), Port: exitPortBase + idx, PeerKey: c.ExitKey,
 				Addr:     netip.PrefixFrom(sAddr, 30).String(),
 				PeerAddr: netip.PrefixFrom(cAddr, 32).String(),
 				Subnets:  srcs,
@@ -854,6 +848,17 @@ func buildMesh(in meshIn) map[string]worker.MeshSpec {
 		specs[id] = sp
 	}
 	return specs
+}
+
+// envPref is the first of the two ip rule priorities of the env on network
+// sub: fixed by the network's /24 in the cluster pool, so below exitPrefServe.
+func envPref(sub string) (int, bool) {
+	p, err := netip.ParsePrefix(sub)
+	if err != nil || !mesh.Supernet.Contains(p.Addr()) {
+		return 0, false
+	}
+	a, base := p.Addr().As4(), mesh.Supernet.Addr().As4()
+	return exitPrefBase + 2*(int(a[1]-base[1])<<8|int(a[2])), true
 }
 
 func uniq(in []string) []string {

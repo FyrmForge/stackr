@@ -1614,14 +1614,21 @@
           "from": {
             "type": "string"
           },
+          "no_internet": {
+            "type": "boolean"
+          },
           "scope": {
+            "type": "string"
+          },
+          "why": {
             "type": "string"
           }
         },
         "required": [
           "scope",
           "from",
-          "exits"
+          "exits",
+          "no_internet"
         ],
         "type": "object"
       },
