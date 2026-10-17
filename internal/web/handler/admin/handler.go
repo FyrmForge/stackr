@@ -58,7 +58,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		return "Proxy config re-pushed.", nil, h.orch.SyncProxy(c.Request().Context())
 	}), a.Require("proxy.admin"))
 	g.POST(b+"/backups", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
-		j, err := h.orch.PanelBackupNow(c.Request().Context())
+		j, err := h.orch.PanelBackupNow(c.Request().Context(), c.FormValue("dest"))
 		return "Backup queued.", &j, err
 	}), a.Require("container.admin"))
 	g.POST(b+"/backups/schedule", h.act("backups", func(c echo.Context) (string, *service.Job, error) {

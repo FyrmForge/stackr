@@ -6,7 +6,7 @@ Two things are backed up: the panel itself, and the data volumes of your apps.
 
 With no destination, archives stay on the controller under its data dir (`/var/lib/stackr/backups`). That is the same box. Add an S3 destination to get them off it.
 
-1. Admin, Backups, add a destination. It takes an endpoint, region, bucket and keys.
+1. Admin, Backups, add a destination. It takes an endpoint, region, bucket and keys. Saving writes and deletes a test object, so a wrong endpoint or key is refused at once.
 2. Or from the CLI, which prompts for the keys:
 
    ```bash
@@ -18,16 +18,16 @@ With no destination, archives stay on the controller under its data dir (`/var/l
 The panel archives its database, master key and proxy certificates on a schedule. The default is daily at 03:00, keeping 14.
 
 1. Admin, Backups, Stackr's own database. Set the schedule, how many to keep and the destination.
-2. To run one now:
+2. To run one now, pick its destination next to Back up now (the scheduled one is the default), or:
 
    ```bash
-   stackr admin panel-backup
+   stackr admin panel-backup --dest offsite
    stackr admin panel-backups
    ```
 
 3. A copy is also taken before every upgrade.
 
-Only the scheduled archives go to the destination. An archive you run now and the pre-upgrade copy stay on the controller, so copy one off the box yourself before you wipe it.
+The pre-upgrade copy stays on the controller, so copy one off the box yourself before you wipe it. The history and `panel-backups` name where each run went.
 
 The archive is encrypted with the recovery passphrase the installer showed. Keep that passphrase off the box.
 

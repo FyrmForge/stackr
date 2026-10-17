@@ -978,6 +978,9 @@ func (a *app) admin() *cobra.Command {
 			if t := flag(c, "tag"); t != "" {
 				body = map[string]string{"tag": t}
 			}
+			if d := flag(c, "dest"); d != "" {
+				body = map[string]string{"dest": d}
+			}
 			return a.job(c, "/admin", POST, path, body, what)
 		}))
 	}
@@ -992,6 +995,8 @@ func (a *app) admin() *cobra.Command {
 		"Upgrade this stackr server? The panel restarts; tiles keep running.")
 	upgrade.Flags().String("tag", "", "the release tag (stackr admin upgrade-check names the newest)")
 	_ = upgrade.MarkFlagRequired("tag")
+	panelBackup := adminJob("panel-backup", "admin.panel-backup", "Back up stackr's own database now", "/admin/panel-backups", "panel backup", "")
+	panelBackup.Flags().String("dest", "", "a server destination's name, or local (default: the scheduled destination)")
 	var set, clear []string
 	defaults := leaf(
 		"defaults",
@@ -1111,14 +1116,7 @@ func (a *app) admin() *cobra.Command {
 			"size_bytes",
 			"error",
 		),
-		adminJob(
-			"panel-backup",
-			"admin.panel-backup",
-			"Back up stackr's own database now",
-			"/admin/panel-backups",
-			"panel backup",
-			"",
-		),
+		panelBackup,
 		leaf("proxy-sync", "admin.proxy-sync", "Push the routing table to Caddy again", exact(0),
 			func(*cobra.Command, []string) error {
 				_, err := a.call(POST, "/admin/proxy/sync", nil)

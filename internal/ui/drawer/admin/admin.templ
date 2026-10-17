@@ -336,7 +336,16 @@ templ Backups(v BackupsView) {
 					<p class="text-sm text-rw-muted">Last run: { v.Rows[0].When }, { v.Rows[0].Status }, to { v.Rows[0].Dest }.</p>
 				}
 				if v.Now != "" {
-					@c.PostButton("Back up now", v.Now)
+					<form hx-post={ v.Now } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+						<label for="backup_now_dest" class="text-sm text-rw-muted">Destination</label>
+						<select id="backup_now_dest" name="dest" class="input w-auto">
+							<option value="local" selected?={ v.Sched.Dest == "" }>Local</option>
+							for _, d := range v.Sched.Dests {
+								<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
+							}
+						</select>
+						<button type="submit" class="btn btn-ghost btn-sm">Back up now</button>
+					</form>
 				}
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)

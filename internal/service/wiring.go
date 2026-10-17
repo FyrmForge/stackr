@@ -496,7 +496,7 @@ func (o *Orchestrator) upgradeArchive(ctx context.Context, log io.Writer) (strin
 	if o.cfg.PanelSpec == nil {
 		return "", errors.New("no panel spec: this install cannot upgrade itself")
 	}
-	r, err := o.panelBackup(ctx, log, "upgrade")
+	r, err := o.panelBackup(ctx, log, "upgrade", "")
 	return r.ObjectKey, err
 }
 
