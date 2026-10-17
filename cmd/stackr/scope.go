@@ -208,20 +208,29 @@ func (a *app) orgJob(c *cobra.Command, method, path string, body any, what strin
 	return a.job(c, base, method, path, body, what)
 }
 
-// find is the row of a list whose field matches want.
+// find is the row of a list whose field matches want. Fields are tried in
+// order (id before name), and a field that matches more than one row is
+// refused rather than guessed.
 func (a *app) find(path, what, want string, fields ...string) (map[string]any, error) {
 	v, err := a.call(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
 	xs, _ := v.([]any)
-	for _, x := range xs {
-		m, _ := x.(map[string]any)
-		for _, f := range fields {
-			if cell(m[f]) == want {
-				return m, nil
+	for _, f := range fields {
+		var hit []map[string]any
+		for _, x := range xs {
+			if m, _ := x.(map[string]any); cell(m[f]) == want {
+				hit = append(hit, m)
 			}
 		}
+		switch len(hit) {
+		case 0:
+			continue
+		case 1:
+			return hit[0], nil
+		}
+		return nil, fmt.Errorf("%d %ss match %q; pass the id", len(hit), what, want)
 	}
 	return nil, fmt.Errorf("no %s %q", what, want)
 }

@@ -268,11 +268,15 @@ func (a *app) keys() *cobra.Command {
 			return a.show(v, keyCols...)
 		}),
 		add,
-		leaf("rm <id>", "key.revoke", "Revoke a key", exact(1), func(_ *cobra.Command, args []string) error {
-			if err := a.confirm("Revoke API key " + args[0] + "? Anything using it stops working."); err != nil {
+		leaf("rm <name|id>", "key.revoke", "Revoke a key", exact(1), func(_ *cobra.Command, args []string) error {
+			k, err := a.find("/me/keys", "key", args[0], "id", "name")
+			if err != nil {
 				return err
 			}
-			_, err := a.call(DELETE, "/me/keys/"+args[0], nil)
+			if err := a.confirm("Revoke API key " + cell(k["name"]) + "? Anything using it stops working."); err != nil {
+				return err
+			}
+			_, err = a.call(DELETE, "/me/keys/"+url.PathEscape(cell(k["id"])), nil)
 			return err
 		}),
 	)

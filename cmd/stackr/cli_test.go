@@ -788,8 +788,11 @@ func TestRmNamesWhatItRemoves(t *testing.T) {
 		"/members":      `[{"user_id":"u1","email":"u@x.io"}]`,
 		"/invites":      `[{"id":"i1","email":"new@x.io"}]`,
 		"/volumes":      `[{"id":"v1","slug":"pgdata","scope_kind":"org"}]`,
+		"/me/keys":      `[{"id":"k1","name":"ci"},{"id":"k2","name":"dup"},{"id":"k3","name":"dup"}]`,
 	}
 	for _, c := range []struct{ args, name, want string }{
+		{"key rm ci", "ci", "DELETE /api/v1/me/keys/k1 "},
+		{"key rm k2", "dup", "DELETE /api/v1/me/keys/k2 "},
 		{"dest rm s3-eu", "s3-eu", "DELETE " + org + "/backup-dests/d1 "},
 		{"org creds rm ghcr", "ghcr", "DELETE " + org + "/credentials/c1 "},
 		{"org members rm u1", "u@x.io", "DELETE " + org + "/members/u1 "},
@@ -806,10 +809,29 @@ func TestRmNamesWhatItRemoves(t *testing.T) {
 			t.Errorf("%s -y = %d %s, wrote %q, want %q", c.args, code, errw, writes(r), c.want)
 		}
 	}
-	for _, args := range []string{"dest rm nope -y", "org creds rm nope -y", "org members rm nope -y"} {
+	for _, args := range []string{"dest rm nope -y", "org creds rm nope -y", "org members rm nope -y", "key rm nope -y"} {
 		r := fake(t, answers)
 		if code, _, errw := cli(t, strings.Fields(args)...); code == 0 || !strings.Contains(errw, `"nope"`) || len(writes(r)) != 0 {
 			t.Errorf("%s = %d %q, wrote %q", args, code, errw, writes(r))
+		}
+	}
+	r := fake(t, answers)
+	if code, _, errw := cli(t, "key", "rm", "dup", "-y"); code == 0 || !strings.Contains(errw, `2 keys match "dup"`) || len(writes(r)) != 0 {
+		t.Errorf("ambiguous key rm = %d %q, wrote %q", code, errw, writes(r))
+	}
+}
+
+// A bare 404 names what was missing, under the org or a /me or /admin scope.
+func TestNotFoundNamesTheObject(t *testing.T) {
+	for path, want := range map[string]string{
+		"/me/keys/x":                       `no key "x"`,
+		"/admin/nodes/n1/drain":            `no node "n1"`,
+		"/admin/users/u1":                  `no user "u1"`,
+		"/orgs/acme/stacks/shop/envs/dev":  `no env "dev" in shop`,
+		"/orgs/acme/stacks/shop/tiles/x/y": `no tile "x" in shop`,
+	} {
+		if got := notFound(path); got != want {
+			t.Errorf("notFound(%s) = %q, want %q", path, got, want)
 		}
 	}
 }
