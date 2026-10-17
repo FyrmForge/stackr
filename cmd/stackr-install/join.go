@@ -415,7 +415,10 @@ func (r runner) run(ctx context.Context, name string, args ...string) error {
 	r.say(" ", name, strings.Join(args[:min(2, len(args))], " "))
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = r.out, r.out
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s: %w", name, strings.Join(args[:min(2, len(args))], " "), err)
+	}
+	return nil
 }
 
 func have(name string) bool { _, err := exec.LookPath(name); return err == nil }

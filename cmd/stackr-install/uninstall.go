@@ -29,6 +29,8 @@ import (
 
 const (
 	managedLabel = "label=stackr.managed=true"
+	// builderName matches the buildx builder's container and its state volume.
+	builderName = "name=^buildx_buildkit_stackr-builder"
 	// stackrChain is the prefix of every iptables chain stackr makes.
 	stackrChain = "STACKR-"
 	// moveComment marks the INPUT rules a volume move opens (worker.moveComment).
@@ -117,6 +119,9 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	e.removeAll(ctx, "docker", []string{"ps", "-aq", "--filter", managedLabel}, []string{"rm", "-f"}, fail)
 	// The proxy and the host helper that ran this are named, not labelled managed.
 	try("docker", "rm", "-f", installspec.ProxyName, "stackr-host-helper")
+	// buildx makes the builder's container, so it has no label; it sits on
+	// stackr-builder-net and the network rm fails while it lives.
+	e.removeAll(ctx, "docker", []string{"ps", "-aq", "--filter", builderName}, []string{"rm", "-f"}, fail)
 	e.removeAll(ctx, "docker", []string{"network", "ls", "-q", "--filter", managedLabel}, []string{"network", "rm"}, fail)
 
 	r.say("Removing stackr's firewall rules")
@@ -132,6 +137,7 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	r.say("Purging volumes, images and state")
 	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", managedLabel}, []string{"volume", "rm"}, fail)
 	try("docker", "volume", "rm", "stackr-caddy") // an ingress node's only
+	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", builderName}, []string{"volume", "rm"}, fail)
 	e.removeImages(ctx, fail)
 	fail(r.run(ctx, "rm", "-rf", e.stateDir))
 	// This installer among them: Linux keeps a running binary until it exits.
