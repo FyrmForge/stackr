@@ -36,7 +36,6 @@ type App interface {
 	Manifest(connectorID, ghOrg, state string) (action, manifest string, err error)
 	ConvertManifest(ctx context.Context, code string) (githubapp.App, error)
 	Token(ctx context.Context, key string, app githubapp.App) (string, error)
-	Installation(ctx context.Context, key string, app githubapp.App) (token, account string, err error)
 	Repos(ctx context.Context, token string) ([]githubapp.Repo, error)
 	SetHookURL(ctx context.Context, connectorID string, app githubapp.App) error
 }
@@ -449,37 +448,6 @@ func (l *Leaf) Token(ctx context.Context, c store.Connector) (string, error) {
 		return "", NoConnector{Host: c.Host}
 	}
 	return l.app.Token(ctx, c.ID, *app)
-}
-
-// PackageToken is an installation token that reads owner's ghcr.io
-// packages (the app asks for packages:read): from the org's connected GitHub
-// connector, its own first, then the server ones shared with it, whose app is
-// installed on owner (a GitHub login, any case). ok=false: none is. A
-// connector GitHub will not answer for is skipped.
-func (l *Leaf) PackageToken(ctx context.Context, orgID, owner string) (string, bool, error) {
-	own, err := l.conns.ListByOrg(ctx, orgID)
-	if err != nil {
-		return "", false, err
-	}
-	shared, err := l.conns.ListSharedWith(ctx, orgID)
-	if err != nil {
-		return "", false, err
-	}
-	for _, c := range slices.Concat(own, shared) {
-		app := parse(c).App
-		if app == nil || c.Provider != GitHub || c.Host != GitHubHost {
-			continue
-		}
-		tok, account, err := l.app.Installation(ctx, c.ID, *app)
-		if err != nil {
-			slog.Warn("ghcr: connector not asked", "connector", c.Name, "err", err)
-			continue
-		}
-		if strings.EqualFold(account, owner) {
-			return tok, true, nil
-		}
-	}
-	return "", false, nil
 }
 
 // WebhookSecret is the HMAC key for /hooks/connectors/<id>; "" (not

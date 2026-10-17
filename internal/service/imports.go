@@ -66,51 +66,19 @@ func (o *Orchestrator) importLogged(ctx context.Context, orgID, ref string, c st
 }
 
 // pullCred is the credential every pull and registry check of ref uses
-// (deploy, import, the image watch): the org's own for ref's host; else, for
-// ghcr.io, the installation token of the org's GitHub connector installed on
-// the image's owner (no ID: it is no row); else none. ok=false = anonymous.
+// (deploy, import, the image watch): the org's own for ref's host, else
+// none (anonymous). ok=false = anonymous.
 func (o *Orchestrator) pullCred(ctx context.Context, orgID, ref string) (store.Credential, bool, error) {
-	if c, ok, err := o.creds.For(ctx, orgID, ref); err != nil || ok {
-		return c, ok, err
-	}
-	owner, ok := ghcrOwner(ref)
-	if !ok {
-		return store.Credential{}, false, nil
-	}
-	tok, ok, err := o.conns.PackageToken(ctx, orgID, owner)
-	if err != nil || !ok {
-		return store.Credential{}, false, err
-	}
-	return store.Credential{OrgID: orgID, URL: ghcrHost, Username: "x-access-token", Password: tok}, true, nil
-}
-
-const ghcrHost = "ghcr.io"
-
-// ghcrOwner is the owner (first path segment) of a ghcr.io ref, pinned or
-// not; ok=false for any other host.
-func ghcrOwner(ref string) (string, bool) {
-	name, _, _ := strings.Cut(ref, "@")
-	host, path, _, ok := lregistry.ParseRef(name)
-	if !ok || !strings.EqualFold(host, ghcrHost) {
-		return "", false
-	}
-	owner, _, _ := strings.Cut(path, "/")
-	return owner, true
+	return o.creds.For(ctx, orgID, ref)
 }
 
 // deniedFix is what to do about a registry that refused ref, given the
-// credential that was offered (zero = none; no ID = a GitHub connector's).
+// credential that was offered (zero = none).
 func deniedFix(ref string, c store.Credential) string {
 	name, _, _ := strings.Cut(ref, "@")
 	host, _, _, _ := lregistry.ParseRef(name)
-	owner, ghcr := ghcrOwner(ref)
-	switch {
-	case c.Password != "" && c.ID == "":
-		return "the GitHub connector for " + owner + " cannot read it; give its app access to the package or add a ghcr.io credential to the org"
-	case c.Password != "":
+	if c.Password != "" {
 		return "the org's credential for " + host + " cannot read it"
-	case ghcr:
-		return "connect GitHub for " + owner + " or add a ghcr.io credential to the org"
 	}
 	return "add a credential for " + host + " to the org"
 }

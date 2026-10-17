@@ -21,9 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -298,8 +296,7 @@ func TestImportDeniedLine(t *testing.T) {
 		cred store.Credential
 		want string
 	}{
-		{"ghcr.io/acme/x:1", store.Credential{}, "ghcr.io/acme/x:1 is private or missing: connect GitHub for acme or add a ghcr.io credential to the org"},
-		{"ghcr.io/acme/x:1", store.Credential{Username: "x-access-token", Password: "t"}, "ghcr.io/acme/x:1 is private or missing: the GitHub connector for acme cannot read it; give its app access to the package or add a ghcr.io credential to the org"},
+		{"ghcr.io/acme/x:1", store.Credential{}, "ghcr.io/acme/x:1 is private or missing: add a credential for ghcr.io to the org"},
 		{"quay.io/a/b@sha256:abcd", store.Credential{}, "quay.io/a/b@sha256:abcd is private or missing: add a credential for quay.io to the org"},
 		{"quay.io/a/b:1", store.Credential{ID: "c1", Username: "u", Password: "p"}, "quay.io/a/b:1 is private or missing: the org's credential for quay.io cannot read it"},
 	} {
@@ -307,73 +304,5 @@ func TestImportDeniedLine(t *testing.T) {
 		if err == nil || err.Error() != c.want {
 			t.Errorf("import %s = %v, want %q", c.ref, err, c.want)
 		}
-	}
-}
-
-// ghApp is the GitHub App wrapper for pullCred: every app is installed on
-// account and mints "tok-<slug>".
-type ghApp struct {
-	account string
-	mints   int
-}
-
-func (g *ghApp) Manifest(string, string, string) (string, string, error) { return "", "", nil }
-func (g *ghApp) ConvertManifest(context.Context, string) (githubapp.App, error) {
-	return githubapp.App{}, nil
-}
-func (g *ghApp) Token(ctx context.Context, key string, app githubapp.App) (string, error) {
-	tok, _, err := g.Installation(ctx, key, app)
-	return tok, err
-}
-func (g *ghApp) Installation(_ context.Context, _ string, app githubapp.App) (string, string, error) {
-	g.mints++
-	return "tok-" + app.Slug, g.account, nil
-}
-func (g *ghApp) Repos(context.Context, string) ([]githubapp.Repo, error) { return nil, nil }
-func (g *ghApp) SetHookURL(context.Context, string, githubapp.App) error { return nil }
-
-// pullCred: the org's credential for the host wins; else a ghcr.io ref gets
-// the token of the GitHub connector installed on its owner (any case,
-// pinned or not); any other host, or an owner no connector is on, is
-// anonymous and never asks GitHub.
-func TestPullCred(t *testing.T) {
-	ctx := context.Background()
-	orch, err := New(
-		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},
-		WithDocker(dockerfake.New()),
-		WithVIP(vipStub{}),
-		WithProxy(func(context.Context, json.RawMessage) error { return nil }),
-	)
-	must(t, err)
-	t.Cleanup(func() { _ = orch.Close() })
-	gh := &ghApp{account: "FyrmForge"}
-	orch.conns = connector.New(orch.store.Connectors, gh)
-	og := store.Org{ID: "o1", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
-	must(t, orch.store.Orgs.Create(ctx, og))
-	must(t, orch.store.Connectors.Create(ctx, store.Connector{
-		ID: "c1", OrgID: &og.ID, Provider: "github", Name: "gh", Host: "github.com",
-		Config: `{"app":{"id":1,"slug":"app","pem":"k"}}`, CreatedAt: time.Now(),
-	}))
-	for _, c := range []struct{ ref, pass string }{
-		{"ghcr.io/fyrmforge/site:latest", "tok-app"},
-		{"ghcr.io/FyrmForge/site:1", "tok-app"},
-		{"ghcr.io/fyrmforge/site@sha256:abcd", "tok-app"},
-		{"ghcr.io/someoneelse/x:1", ""},
-		{"quay.io/fyrmforge/site:1", ""},
-		{"fyrmforge/site:1", ""},
-	} {
-		got, ok, err := orch.pullCred(ctx, og.ID, c.ref)
-		if err != nil || ok != (c.pass != "") || got.Password != c.pass || ok && (got.Username != "x-access-token" || got.ID != "" || got.URL != "ghcr.io") {
-			t.Errorf("pullCred %s = %s %t %v, want password %q", c.ref, got.Username, ok, err, c.pass)
-		}
-	}
-	mints := gh.mints
-	if _, _, err := orch.pullCred(ctx, og.ID, "quay.io/fyrmforge/site:1"); err != nil || gh.mints != mints {
-		t.Errorf("a non-ghcr ref asked GitHub (%d mints, was %d)", gh.mints, mints)
-	}
-	cred, err := orch.creds.Create(ctx, og.ID, credential.Spec{Name: "gh pat", URL: "ghcr.io", Username: "me", Password: "pat"})
-	must(t, err)
-	if got, ok, err := orch.pullCred(ctx, og.ID, "ghcr.io/fyrmforge/site:1"); err != nil || !ok || got.ID != cred.ID || got.Password != "pat" {
-		t.Errorf("the org's ghcr.io credential did not win: %s %t %v", got.Username, ok, err)
 	}
 }

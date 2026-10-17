@@ -67,7 +67,7 @@ func TestToken(t *testing.T) {
 		}
 		switch r.Method + " " + r.URL.Path {
 		case "GET /app/installations":
-			_, _ = w.Write([]byte(`[{"id":7,"account":{"login":"FyrmForge"}}]`))
+			_, _ = w.Write([]byte(`[{"id":7}]`))
 		case "POST /app/installations/7/access_tokens":
 			mints++
 			exp := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
@@ -84,9 +84,6 @@ func TestToken(t *testing.T) {
 		if tok, err := c.Token(context.Background(), "conn1", app); err != nil || tok != "ghs_x" {
 			t.Fatalf("token: %q %v", tok, err)
 		}
-	}
-	if tok, acct, err := c.Installation(context.Background(), "conn1", app); err != nil || tok != "ghs_x" || acct != "FyrmForge" {
-		t.Fatalf("installation: %q %q %v", tok, acct, err)
 	}
 	if mints != 1 {
 		t.Fatalf("minted %d times, want 1 (cached)", mints)
