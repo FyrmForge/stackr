@@ -428,9 +428,13 @@ func waitHealthy(ctx context.Context, url string) error {
 // panel): in the container's home it went with every upgrade's recreate.
 const wrapperPath = "/usr/local/bin/stackr"
 
+// The STACKR_* variables the CLI reads (STACKR_KEY, STACKR_ORG, the backup
+// keys) are passed on by name, so their values stay off argv.
 func wrapper(dataDir string) string {
 	return `#!/bin/sh
-exec docker exec -i -e STACKR_CONFIG=` + filepath.Join(dataDir, "cli.json") + ` "$(docker ps -q --filter label=stackr.role=panel | head -n1)" /stackr "$@"
+envs=""
+for v in $(env | sed -n 's/^\(STACKR_[A-Z0-9_]*\)=.*/\1/p'); do [ "$v" = STACKR_CONFIG ] || envs="$envs -e $v"; done
+exec docker exec -i $envs -e STACKR_CONFIG=` + filepath.Join(dataDir, "cli.json") + ` "$(docker ps -q --filter label=stackr.role=panel | head -n1)" /stackr "$@"
 `
 }
 

@@ -54,8 +54,10 @@ On the controller, as root:
 docker ps -aq --filter label=stackr.managed=true | xargs -r docker rm -f
 docker ps -aq --filter label=stackr.role=panel | xargs -r docker rm -f
 docker rm -f stackr-proxy stackr-registry
+docker ps -aq --filter name=^buildx_buildkit_stackr-builder | xargs -r docker rm -f
 docker volume ls -q --filter label=stackr.managed=true | xargs -r docker volume rm
-docker volume rm stackr-caddy
+docker volume ls -q --filter name=^buildx_buildkit_stackr-builder | xargs -r docker volume rm
+docker volume rm stackr-caddy stackr-registry-data
 docker network ls -q --filter label=stackr.managed=true | xargs -r docker network rm
 rm -rf /var/lib/stackr
 rm -f /usr/local/bin/stackr /usr/local/bin/stackr-install
