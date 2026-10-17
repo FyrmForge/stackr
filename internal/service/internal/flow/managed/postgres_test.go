@@ -200,3 +200,12 @@ func TestPostgresRestoreFilterSparesData(t *testing.T) {
 		t.Error("the admin role statements reached the load")
 	}
 }
+
+// A stack named pg made role names postgres reserves (pg_prod_appdb).
+func TestSQLIdentAvoidsReservedPrefix(t *testing.T) {
+	for in, want := range map[string]string{"pg_prod_appdb": "db_pg_prod_appdb", "pg-x": "db_pg_x", "pgx_a": "pgx_a", "9a": "db_9a", "shop_dev": "shop_dev"} {
+		if got := sqlIdent(in); got != want {
+			t.Errorf("sqlIdent(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

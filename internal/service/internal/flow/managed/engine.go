@@ -141,8 +141,8 @@ func engine(name string) (ManagedTile, error) {
 // allow.
 const maxName = 56
 
-// sqlIdent: lowercase, digits and underscores, never leading with a digit,
-// at most maxName long.
+// sqlIdent: lowercase, digits and underscores, never leading with a digit or
+// pg_ (postgres reserves role names starting with it), at most maxName long.
 func sqlIdent(slug string) string {
 	id := strings.Map(func(r rune) rune {
 		switch {
@@ -153,7 +153,7 @@ func sqlIdent(slug string) string {
 		}
 		return -1
 	}, strings.ToLower(slug))
-	if id == "" || (id[0] >= '0' && id[0] <= '9') {
+	if id == "" || (id[0] >= '0' && id[0] <= '9') || strings.HasPrefix(id, "pg_") {
 		id = "db_" + id
 	}
 	return id[:min(len(id), maxName)]

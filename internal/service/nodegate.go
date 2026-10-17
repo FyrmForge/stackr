@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -142,6 +143,10 @@ func (o *Orchestrator) nodeDown(ctx context.Context, id string) *NodeDownError {
 	name := id
 	if n, err := o.store.Nodes.Get(ctx, id); err == nil {
 		name = n.Name
+	} else if fs, err := o.store.ForgottenNodes.List(ctx); err == nil {
+		if i := slices.IndexFunc(fs, func(f store.ForgottenNode) bool { return f.ID == id }); i >= 0 {
+			name = fs[i].Name // forget drops the node row; refusals still name it
+		}
 	}
 	return &NodeDownError{Name: name, LastSeen: o.lastSeen(id)}
 }
