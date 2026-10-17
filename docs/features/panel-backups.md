@@ -29,15 +29,30 @@ read, the archive is still written without it and the job log says so.
 ## Restore
 The archive is encrypted with the recovery passphrase (default: the box's master key).
 
-1. Fetch the archive. Local: `<data dir>/backups/stackr/_panel/<install id>/<scheduled|manual|upgrade>/`. On S3,
-   the object key is `stackr/_panel/<install id>/<scheduled|manual|upgrade>/<utc timestamp>-panel.tar.gz.age`;
-   download the newest, for example
-   `aws s3 cp --endpoint-url <endpoint> s3://<bucket>/<key> panel.tar.gz.age`.
-2. On the host: `stackr-install restore [--passphrase P] panel.tar.gz.age`.
+1. Local archives are under `<data dir>/backups/stackr/_panel/<install id>/<scheduled|manual|upgrade>/`. On S3,
+   the object key is `stackr/_panel/<install id>/<scheduled|manual|upgrade>/<utc timestamp>-panel.tar.gz.age`.
+2. On the host: `stackr-install restore <archive | s3://bucket/key>`. An S3 key ending in `/` is a prefix: the
+   newest archive under it (by its timestamp, across trigger dirs). The S3 keys come from
+   `STACKR_BACKUP_ENDPOINT`, `STACKR_BACKUP_REGION` (default `us-east-1`), `STACKR_BACKUP_ACCESS_KEY` and
+   `STACKR_BACKUP_SECRET_KEY`; the download sits in the data dir (0600) and is deleted after.
+3. The passphrase: `STACKR_RECOVERY_PASSPHRASE`, or the first line of stdin with `--passphrase-stdin`, or
+   `--passphrase P` (shows in `ps`). With none, the box's master key; when that does not open the archive and
+   stdin is a terminal, a prompt asks for it.
 
 Restore stops the proxy, keeps a copy of the current `stackr-caddy` tree, wipes and refills it from the
 archive (the copy goes back if the untar fails), starts the proxy, then starts the panel on the archived
 build. The replaced database is kept as `<data dir>/stackr.db.before-restore-<time>`; the staging dir, which
 holds unencrypted certificate keys, is deleted once the restore went through. An older archive without
-`caddy.tar.gz` restores as before. At boot the panel clears `<data dir>/backups/scratch`, where a crash can
+`caddy.tar.gz` restores as before.
+
+Restore leaves `<data dir>/restored`. The panel's next boot queues a normal deploy job for every tile of an env
+on the controller (its placement's node too) that has no container and whose newest finished deploy, promote,
+env sync, start or restart is newer than any stop, then removes the file. A worker's tiles, stopped tiles,
+never deployed ones and envs mid move are left alone; crons come back through the scheduler.
+
+When the panel runs this installer's own build, restore mints a new API key for the oldest active stackr admin
+(`stackrd admin-key`, key name `restore`) and writes `<data dir>/cli.json` with it, as the install does. The
+old key lived in the replaced database's world, and a new box has no cli.json; it is never in the archive.
+
+At boot the panel clears `<data dir>/backups/scratch`, where a crash can
 leave unencrypted spool files.
