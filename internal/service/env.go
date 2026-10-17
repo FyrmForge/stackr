@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"strings"
 
@@ -52,11 +53,22 @@ func (o *Orchestrator) JoinsLockedTier(ctx context.Context, by *Principal, stack
 }
 
 func (o *Orchestrator) CreateEnv(ctx context.Context, stackID, name string, s EnvSpec) (Environment, error) {
+	var err error
+	if s.DefaultBranch, err = o.EnvDefaultBranch(ctx, stackID); err != nil {
+		return Environment{}, err
+	}
 	e, err := o.envs.Create(ctx, stackID, name, s)
 	if err == nil {
 		o.kickMesh()
 	}
 	return e, err
+}
+
+// EnvDefaultBranch is what a new branch env builds when given no branch:
+// the stack file's branch, else main.
+func (o *Orchestrator) EnvDefaultBranch(ctx context.Context, stackID string) (string, error) {
+	st, err := o.stacks.Get(ctx, stackID)
+	return cmp.Or(st.ConfigBranch, "main"), err
 }
 
 // RenameEnv moves name and slug, and the auto domains under the env with

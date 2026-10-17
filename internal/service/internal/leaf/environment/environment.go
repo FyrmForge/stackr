@@ -236,7 +236,9 @@ type Spec struct {
 	Color       string
 	FromKind    string
 	FromBranch  string
-	Auto        bool
+	// DefaultBranch is what a branch env with no branch builds from.
+	DefaultBranch string
+	Auto          bool
 }
 
 // Create puts a static env on top of the ladder; a PR env takes the same
@@ -292,6 +294,12 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 		if len(ladder) == 0 || sp.Type == Ephemeral {
 			sp.FromKind = FromBranch
 		}
+	}
+	switch {
+	case sp.FromKind == FromPromote:
+		sp.FromBranch = ""
+	case sp.FromKind == FromBranch && strings.TrimSpace(sp.FromBranch) == "":
+		sp.FromBranch = sp.DefaultBranch
 	}
 	if err := checkFrom(e, sp.FromKind, sp.FromBranch, len(ladder) == 0); err != nil {
 		return e, err

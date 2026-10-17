@@ -79,8 +79,18 @@ func TestLadder(t *testing.T) {
 	if e, err := l.Create(ctx, s2, "dev", environment.Spec{Type: environment.Static, FromBranch: "main"}); err != nil || e.FromKind != environment.FromBranch {
 		t.Errorf("first env default = %q, %v", e.FromKind, err)
 	}
-	if e, err := l.Create(ctx, s2, "qa", environment.Spec{Type: environment.Static}); err != nil || e.FromKind != environment.FromPromote {
-		t.Errorf("second env default = %q, %v", e.FromKind, err)
+	if e, err := l.Create(ctx, s2, "qa", environment.Spec{Type: environment.Static, FromBranch: "x"}); err != nil ||
+		e.FromKind != environment.FromPromote || e.FromBranch != "" {
+		t.Errorf("second env default = %q %q, %v", e.FromKind, e.FromBranch, err)
+	}
+	// a branch env given no branch takes the default; with none it is refused
+	nb := environment.Spec{Type: environment.Static, FromKind: environment.FromBranch, DefaultBranch: "trunk"}
+	if e, err := l.Create(ctx, s2, "feat", nb); err != nil || e.FromBranch != "trunk" {
+		t.Errorf("default branch = %q, %v", e.FromBranch, err)
+	}
+	nb.DefaultBranch = ""
+	if _, err := l.Create(ctx, s2, "feat2", nb); err == nil {
+		t.Error("a branch env with no branch accepted")
 	}
 	staging, _ := l.Create(ctx, s, "staging", promote)
 	prod, err := l.Create(ctx, s, "prod", promote)

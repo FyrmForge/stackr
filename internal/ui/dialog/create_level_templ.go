@@ -141,7 +141,7 @@ func CreateLevel(v CreateLevelView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Error: v.Errors["branch"]}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Help: "Pushes to this branch build the environment.", Error: v.Errors["branch"]}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

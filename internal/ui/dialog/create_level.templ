@@ -32,7 +32,7 @@ templ CreateLevel(v CreateLevelView) {
 						<label class="flex items-center gap-2"><input type="radio" name="from" value="promote" checked?={ v.From == "promote" }/> promotion from the rung below</label>
 					}
 				</fieldset>
-				@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Error: v.Errors["branch"]})
+				@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Help: "Pushes to this branch build the environment.", Error: v.Errors["branch"]})
 			}
 			@c.Submit("Create")
 		</div>

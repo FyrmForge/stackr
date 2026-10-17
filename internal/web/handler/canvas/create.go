@@ -68,6 +68,9 @@ func (h *handler) levelForm(c echo.Context, kind string) dialog.CreateLevelView 
 		if l, err := h.orch.Ladder(c.Request().Context(), s.Stack.ID); err == nil && len(l) == 0 {
 			v.First = true
 		}
+		if v.Branch == "" {
+			v.Branch, _ = h.orch.EnvDefaultBranch(c.Request().Context(), s.Stack.ID)
+		}
 	}
 	return v
 }
