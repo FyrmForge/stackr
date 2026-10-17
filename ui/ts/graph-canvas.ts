@@ -46,6 +46,7 @@ class GraphCanvas extends HTMLElement {
   private pinch: { dist: number; mid: Pt } | null = null;
   private sizing: { box: Element; p: Pt; w: number; h: number } | null = null;
   private frame = 0;
+  private labels = new WeakMap<Element, SVGTextElement>();
   private observer = new MutationObserver(() => {
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => this.repath());
@@ -347,12 +348,17 @@ class GraphCanvas extends HTMLElement {
     for (const p of this.paths()) {
       // Up to the next edge: a pipe's core and a clickable line's hit path
       // follow the edge's d; the label is the text among them.
-      let label: Element | null = null;
+      let label: SVGTextElement | null = this.labels.get(p) ?? null;
       for (let sib = p.nextElementSibling; sib && !sib.hasAttribute("data-from"); sib = sib.nextElementSibling) {
         if (sib.matches("[data-edge-core], [data-edge-hit]")) sib.setAttribute("d", p.getAttribute("d") ?? "");
         else if (sib instanceof SVGTextElement && sib.matches("[data-edge-label]")) label = sib;
       }
-      if (!(label instanceof SVGTextElement)) continue;
+      if (!label) continue;
+      // Labels move to the end of the svg once, so no later line covers them.
+      if (!this.labels.has(p)) {
+        this.labels.set(p, label);
+        label.parentNode?.appendChild(label);
+      }
       const m = p.getPointAtLength(p.getTotalLength() / 2);
       label.setAttribute("x", String(m.x));
       let r: Box = { x: 0, y: 0, w: 0, h: 0 };
