@@ -98,11 +98,11 @@ pave() {
 	echo "paved to $v; log in as $ADMIN_EMAIL, make the org, then: scripts/rig.sh restore --org <slug>"
 }
 
-# upgrade keeps the DB: the installer is a no-op while the containers exist
-# (DECIDE 137), so they go first. Needs v0.0.38 or later on the rig.
+# upgrade keeps the DB: the installer upgrades a panel on another version in
+# place (archive, swap, health, workers). Re-shipping the same version is a
+# no-op, so bump the dev number.
 upgrade() {
 	ship "$1"
-	rig 'docker rm -f stackr stackr-proxy >/dev/null 2>&1 || true'
 	install
 }
 
