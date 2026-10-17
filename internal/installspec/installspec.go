@@ -50,6 +50,10 @@ const (
 	// KeyFile is the master key under the data dir; the panel archive
 	// restores it to the same place.
 	KeyFile = "keys/master.key"
+	// RestoredMarker is what stackr-install restore leaves in the data dir:
+	// the panel's next boot redeploys the controller's tiles and removes it.
+	// Never in an archive.
+	RestoredMarker = "restored"
 	// Cluster files under the data dir; the panel archive carries them so a
 	// restored head is the same head (same CA, same WireGuard identity).
 	ClusterCAKeyFile  = "keys/cluster-ca.key"

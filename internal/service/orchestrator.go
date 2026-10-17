@@ -716,6 +716,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.resumeMoves(ctx); err != nil {
 		slog.Warn("moves: resume failed", "err", err)
 	}
+	orch.redeployRestored(ctx)
 	go orch.dailyChores(context.Background())
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
