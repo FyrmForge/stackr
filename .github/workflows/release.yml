@@ -29,6 +29,9 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           allow-initial-development-versions: true
+          # Stay on 0.8.x for now: feat: bumps the patch like fix:. Drop
+          # these two options to let feat: cut a minor again.
+          custom-arguments: --commit-analyzer-opt minor_release_rules=release-minor --commit-analyzer-opt patch_release_rules=feat,fix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
