@@ -2,17 +2,23 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -82,5 +88,90 @@ func TestRedeployAfterRestore(t *testing.T) {
 	w.orch.redeployRestored(ctx) // no marker: nothing more
 	if n := deploys(lost); n != 1 {
 		t.Errorf("second boot: %d deploys of the lost tile, want 1", n)
+	}
+}
+
+// After a restore the lost volumes come back before their apps start: the
+// tar restore is queued first and holds the tiles, the managed instance
+// deploys before its dump is loaded, and the app's deploy waits behind both.
+// A volume with no backup starts empty and says so; one that kept its data
+// is left alone.
+func TestRestoreVolumesBeforeDeploy(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	old := time.Now().Add(-time.Hour)
+	ran := func(tl Tile) {
+		t.Helper()
+		must(t, w.st.Jobs.Create(ctx, store.Job{
+			ID: uuid.NewString(), Kind: string(kindDeploy), State: job.Done, LockSet: store.StringList{tl.ID},
+			Payload: "{}", CreatedAt: old,
+		}))
+	}
+	app := w.tile(t, "app", false)
+	ran(app)
+	pg := store.Tile{
+		ID: uuid.NewString(), StackID: w.stack, EnvironmentID: w.env, Name: "pg", Slug: "pg", Kind: tile.Managed,
+		EnvJSON: "{}", BuildArgs: "{}", Replicas: 1, UpdatePolicy: "manual", CreatedAt: old, UpdatedAt: old,
+	}
+	must(t, w.st.Tiles.Create(ctx, pg))
+	ran(pg)
+	must(t, w.st.ManagedInstances.Create(ctx, store.ManagedInstance{ID: "mi", TileID: pg.ID, Engine: "postgres", CreatedAt: old}))
+	must(t, w.st.BackupDests.Create(ctx, store.BackupDest{ID: "d", Kind: "s3", Name: "d", Endpoint: "e", Bucket: "b", AccessKey: "a", SecretKey: "s", CreatedAt: old}))
+	mi := "mi"
+	vol := func(slug string, inst *string, key string) store.Volume {
+		t.Helper()
+		v := store.Volume{ID: "v-" + slug, ScopeKind: "env", ScopeID: w.env, InstanceID: inst, Slug: slug, Name: "stackr-vol-" + slug, CreatedAt: old}
+		must(t, w.st.Volumes.Create(ctx, v))
+		if key != "" {
+			must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{ID: "r-" + slug, Kind: "volume", VolumeID: &v.ID, DestID: "d", Status: backup.Done, ObjectKey: key, CreatedAt: old}))
+		}
+		return v
+	}
+	vol("data", nil, "data.tar.gz.age")
+	// a later pre-restore run is the empty volume a restore took: never picked
+	vd := "v-data"
+	must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{ID: "r-pre", Kind: "volume", VolumeID: &vd, DestID: "d", Status: backup.Done, Trigger: backup.PreRestore, ObjectKey: "pre.tar.gz.age", CreatedAt: old.Add(time.Minute)}))
+	vol("db", &mi, "db.sql.gz.age")
+	vol("cache", nil, "")
+	vol("kept", nil, "kept.tar.gz.age")
+	w.fake.Volumes = append(w.fake.Volumes, docker.VolumeInfo{Name: "stackr-vol-kept", SizeBytes: 10})
+
+	marker := filepath.Join(w.orch.cfg.DataDir, installspec.RestoredMarker)
+	must(t, os.WriteFile(marker, nil, 0o600))
+	w.orch.redeployRestored(ctx)
+
+	js, err := w.st.Jobs.ListByState(ctx)
+	must(t, err)
+	slices.Reverse(js) // oldest first
+	at := func(kind jobs.Kind, payload string) int {
+		return slices.IndexFunc(js, func(j store.Job) bool {
+			return j.Kind == string(kind) && j.CreatedAt.After(old) && strings.Contains(j.Payload, payload)
+		})
+	}
+	data, db, kept := at(kindRestore, "v-data"), at(kindRestore, "v-db"), at(kindRestore, "v-kept")
+	dpg, dapp := at(kindDeploy, pg.ID), at(kindDeploy, app.ID)
+	switch {
+	case data < 0 || db < 0 || dpg < 0 || dapp < 0:
+		t.Fatalf("restore data %d, restore db %d, deploy pg %d, deploy app %d among %d jobs", data, db, dpg, dapp, len(js))
+	case kept >= 0:
+		t.Errorf("the volume that kept its data was restored")
+	case at(kindRestore, "v-cache") >= 0:
+		t.Errorf("a volume with no backup was restored")
+	case data > dpg || dpg > db || db > dapp:
+		t.Errorf("order: restore data %d, deploy pg %d, restore db %d, deploy app %d", data, dpg, db, dapp)
+	case !strings.Contains(js[data].Payload, `"r-data"`):
+		t.Errorf("data restores %s, want run r-data", js[data].Payload)
+	case !slices.Contains(js[data].LockSet, app.ID) || !slices.Contains(js[db].LockSet, app.ID):
+		t.Errorf("restores lock %v and %v, not the app %s", js[data].LockSet, js[db].LockSet, app.ID)
+	}
+	var p tileJob
+	must(t, json.Unmarshal([]byte(js[dapp].Payload), &p))
+	if !strings.Contains(p.Note, "no backup for cache; it starts empty") || !strings.Contains(p.Note, "kept holds data") {
+		t.Errorf("deploy note = %q", p.Note)
+	}
+	evs, err := w.orch.SecurityLog(ctx, SecurityFilter{Action: auditEnvRestore, TargetID: w.env})
+	must(t, err)
+	if len(evs) != 1 || !strings.Contains(evs[0].Detail, "no backup for cache; it starts empty") {
+		t.Errorf("security log = %+v", evs)
 	}
 }

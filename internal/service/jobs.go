@@ -69,6 +69,8 @@ type panelBackupJob struct {
 
 type tileJob struct {
 	TileID string `json:"tile_id"`
+	// Note opens a deploy's job log (a restore's warnings).
+	Note string `json:"note,omitempty"`
 }
 
 type promoteJob struct {
@@ -167,6 +169,11 @@ func withOwed(payload string, owed []string) string {
 func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 	return map[jobs.Kind]jobs.Handler{
 		kindDeploy: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
+			for l := range strings.SplitSeq(p.Note, "\n") {
+				if l != "" {
+					_, _ = fmt.Fprintln(r.Log, "warning: "+l)
+				}
+			}
 			ctx, err := o.withTileNode(ctx, p.TileID)
 			if err != nil {
 				return err
