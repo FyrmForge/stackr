@@ -36,5 +36,10 @@ func TestCreateLevel(t *testing.T) {
 	if strings.Count(got, `name="from"`) != 2 {
 		t.Error("the stack form asks where releases come from")
 	}
+	b.Reset()
+	_ = CreateLevel(CreateLevelView{Kind: "env", First: true}).Render(context.Background(), &b)
+	if strings.Contains(b.String(), `value="promote"`) || !strings.Contains(b.String(), `value="branch"`) {
+		t.Error("the first env is offered promotion")
+	}
 	_ = DeleteOrg("acme", "/a", "#t") // a type-the-name confirm must say what is kept
 }

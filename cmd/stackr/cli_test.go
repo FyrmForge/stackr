@@ -958,8 +958,8 @@ func TestEnvAuthenticatesWithoutConfig(t *testing.T) {
 	}
 }
 
-// job ls asks for the newest 20 unless told; env create takes promote once
-// the stack has an env, and needs --from-kind for its first.
+// job ls asks for the newest 20 unless told; env create leaves --from-kind
+// to the server (branch for the first env, promote after) and asks nothing.
 func TestListAndCreateDefaults(t *testing.T) {
 	r := fake(t, nil)
 	cli(t, "job", "ls")
@@ -968,14 +968,10 @@ func TestListAndCreateDefaults(t *testing.T) {
 	if !slices.Equal(r.reqs, want) {
 		t.Errorf("job ls sent %q, want %q", r.reqs, want)
 	}
-	for envs, want := range map[string]string{`[]`: "", `[{"slug":"dev"}]`: `"from_kind":"promote"`} {
-		r := fake(t, map[string]string{"/envs": envs})
-		code, _, errw := cli(t, "env", "create", "prod", "--stack", "shop")
-		w := writes(r)
-		if want == "" && (code != 2 || len(w) != 0 || !strings.Contains(errw, "--from-kind")) ||
-			want != "" && (code != 0 || len(w) != 1 || !strings.Contains(w[0], want)) {
-			t.Errorf("env create with envs %s = %d %q, wrote %q", envs, code, errw, w)
-		}
+	r = fake(t, nil)
+	code, _, errw := cli(t, "env", "create", "prod", "--stack", "shop")
+	if w := writes(r); code != 0 || len(r.reqs) != 1 || len(w) != 1 || !strings.Contains(w[0], `"from_kind":""`) {
+		t.Errorf("env create = %d %q, sent %q", code, errw, r.reqs)
 	}
 }
 

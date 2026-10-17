@@ -11,6 +11,7 @@ type CreateLevelView struct {
 	Action string
 	Name   string
 	From   string // env: branch | promote
+	First  bool   // env: the stack's first, which can only build a branch
 	Branch string
 	Errors map[string]string // field -> message; "general" = the form's
 }
@@ -27,7 +28,9 @@ templ CreateLevel(v CreateLevelView) {
 				<fieldset class="space-y-2 text-sm">
 					<legend class="label">Releases come from</legend>
 					<label class="flex items-center gap-2"><input type="radio" name="from" value="branch" checked?={ v.From != "promote" }/> a branch</label>
-					<label class="flex items-center gap-2"><input type="radio" name="from" value="promote" checked?={ v.From == "promote" }/> promotion from the rung below</label>
+					if !v.First {
+						<label class="flex items-center gap-2"><input type="radio" name="from" value="promote" checked?={ v.From == "promote" }/> promotion from the rung below</label>
+					}
 				</fieldset>
 				@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Error: v.Errors["branch"]})
 			}

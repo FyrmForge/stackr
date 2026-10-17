@@ -55,20 +55,27 @@ func createButtons(c echo.Context, l level) []ui.Create {
 	return out
 }
 
-func levelForm(c echo.Context, kind string) dialog.CreateLevelView {
-	return dialog.CreateLevelView{
+func (h *handler) levelForm(c echo.Context, kind string) dialog.CreateLevelView {
+	v := dialog.CreateLevelView{
 		Kind:   kind,
 		Action: where(c).base + "/-/new-" + kind,
 		Name:   c.FormValue("name"),
 		From:   c.FormValue("from"),
 		Branch: c.FormValue("branch"),
 	}
+	if s := middleware.ScopeOf(c); kind == "env" && s.Stack != nil {
+		// the bottom rung has nothing to promote from: offer only a branch
+		if l, err := h.orch.Ladder(c.Request().Context(), s.Stack.ID); err == nil && len(l) == 0 {
+			v.First = true
+		}
+	}
+	return v
 }
 
 // GET <page>/-/new-<stack|env>: the empty form into the drawer.
 func (h *handler) newLevel(kind string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		return respond.HTML(c, http.StatusOK, dialog.CreateLevel(levelForm(c, kind)))
+		return respond.HTML(c, http.StatusOK, dialog.CreateLevel(h.levelForm(c, kind)))
 	}
 }
 
@@ -76,7 +83,7 @@ func (h *handler) newLevel(kind string) echo.HandlerFunc {
 // refusal re-renders the form with the field marked (422).
 func (h *handler) createLevel(kind string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		v, s, ctx := levelForm(c, kind), middleware.ScopeOf(c), c.Request().Context()
+		v, s, ctx := h.levelForm(c, kind), middleware.ScopeOf(c), c.Request().Context()
 		var url string
 		var err error
 		switch kind {
