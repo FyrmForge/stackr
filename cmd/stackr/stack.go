@@ -373,18 +373,8 @@ func (a *app) releases() *cobra.Command {
 func (a *app) envs() *cobra.Command {
 	var typ, base, color, createKind, fromKind, fromBranch, placement string
 	var auto bool
-	create := leaf("create <name>", "env.list,env.create", "Make an environment", exact(1),
+	create := leaf("create <name>", "env.create", "Make an environment", exact(1),
 		a.at(atStack, func(_ *cobra.Command, p string, args []string) error {
-			if createKind == "" {
-				v, err := a.call(GET, p+"/envs", nil)
-				if err != nil {
-					return err
-				}
-				if es, _ := v.([]any); len(es) == 0 {
-					return usage("the stack's first env needs --from-kind: branch or promote")
-				}
-				createKind = "promote"
-			}
 			body := map[string]any{
 				"name":        args[0],
 				"type":        typ,
@@ -405,7 +395,7 @@ func (a *app) envs() *cobra.Command {
 			}
 			return a.show(v, envCols...)
 		}))
-	create.Example = "  stackr env create staging --stack shop"
+	create.Example = "  stackr env create dev --stack shop --from-branch main\n  stackr env create staging --stack shop"
 	create.Flags().StringVar(&typ, "type", "static", "static or ephemeral")
 	create.Flags().StringVar(&base, "base", "", "the env id an ephemeral env copies")
 	create.Flags().StringVar(&color, "color", "", "the panel colour")
@@ -416,7 +406,7 @@ func (a *app) envs() *cobra.Command {
 			return err
 		}))
 	create.Flags().StringVar(&createKind, "from-kind", "",
-		"branch (builds a branch) or promote (takes releases by hand); default promote once the stack has an env")
+		"branch (builds a branch) or promote (takes releases by hand); default branch for the stack's first env, promote after")
 	from.Flags().StringVar(&fromKind, "from-kind", "branch", "branch (builds a branch) or promote (takes releases by hand)")
 	for _, c := range []*cobra.Command{create, from} {
 		c.Flags().StringVar(&fromBranch, "from-branch", "", "the branch it builds")

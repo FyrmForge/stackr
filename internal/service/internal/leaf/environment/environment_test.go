@@ -74,6 +74,14 @@ func TestLadder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// no from-kind: branch at the bottom, promote above it
+	s2 := seedStack(t, st)
+	if e, err := l.Create(ctx, s2, "dev", environment.Spec{Type: environment.Static, FromBranch: "main"}); err != nil || e.FromKind != environment.FromBranch {
+		t.Errorf("first env default = %q, %v", e.FromKind, err)
+	}
+	if e, err := l.Create(ctx, s2, "qa", environment.Spec{Type: environment.Static}); err != nil || e.FromKind != environment.FromPromote {
+		t.Errorf("second env default = %q, %v", e.FromKind, err)
+	}
 	staging, _ := l.Create(ctx, s, "staging", promote)
 	prod, err := l.Create(ctx, s, "prod", promote)
 	if err != nil {

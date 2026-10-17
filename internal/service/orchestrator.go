@@ -526,7 +526,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Managed:    orch.managed,
 			Domains:    orch.domains,
 			Import:     orch.importForDeploy,
-			Creds:      orch.creds,
+			Cred:       orch.pullCred,
 			Settings:   orch.settings,
 			Jobs:       orch.jobRows,
 			HostGrants: orch.hostgrant,
@@ -576,7 +576,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Tiles:    orch.tiles,
 			Images:   orch.images,
 			Releases: orch.releases,
-			Creds:    orch.creds,
+			Cred:     orch.pullCred,
 			Settings: orch.settings,
 		}
 	})

@@ -174,27 +174,27 @@ func TestImportForDeploy(t *testing.T) {
 	n.orch.regs.WithBase("http://127.0.0.1:1").WithCopier(fakeCopy(&calls))
 	og, err := n.orch.store.Orgs.GetBySlug(ctx, "acme")
 	must(t, err)
-	if _, imported, _ := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "", io.Discard); imported || len(calls) != 0 {
+	if _, imported, _ := n.orch.importForDeploy(ctx, og.ID, "nginx:1", store.Credential{}, io.Discard); imported || len(calls) != 0 {
 		t.Fatal("imports are off by default")
 	}
 	n.orch.cfg.RegistryImports = true
 	for _, ref := range []string{"localhost:5000/acme/shop/web:abc", "localhost:5000/stackr.system/stackr:1", ""} {
-		if _, imported, err := n.orch.importForDeploy(ctx, og.ID, ref, "", io.Discard); imported || err != nil || len(calls) != 0 {
+		if _, imported, err := n.orch.importForDeploy(ctx, og.ID, ref, store.Credential{}, io.Discard); imported || err != nil || len(calls) != 0 {
 			t.Fatalf("%q was imported: %v", ref, err)
 		}
 	}
 	// Another org's image is refused by name, whether or not the node holds it.
 	must(t, n.orch.SetSetting(ctx, "panel_domain", "panel.test"))
 	for _, ref := range []string{"localhost:5000/zed/shop/web@sha256:abc", "localhost:5000/zed/docker.io/library/redis:7", "registry.panel.test/zed/shop/web:abc"} {
-		if _, _, err := n.orch.importForDeploy(ctx, og.ID, ref, "", io.Discard); err == nil {
+		if _, _, err := n.orch.importForDeploy(ctx, og.ID, ref, store.Credential{}, io.Discard); err == nil {
 			t.Errorf("%q: another org's image was accepted", ref)
 		}
 	}
-	run, imported, err := n.orch.importForDeploy(ctx, og.ID, "nginx:1", "", io.Discard)
+	run, imported, err := n.orch.importForDeploy(ctx, og.ID, "nginx:1", store.Credential{}, io.Discard)
 	if err != nil || !imported || run != "localhost:5000/acme/docker.io/library/nginx@sha256:up" {
 		t.Fatalf("tag ref: %q %v %v", run, imported, err)
 	}
-	run, imported, err = n.orch.importForDeploy(ctx, og.ID, "ghcr.io/foo/bar@sha256:abcd", "", io.Discard)
+	run, imported, err = n.orch.importForDeploy(ctx, og.ID, "ghcr.io/foo/bar@sha256:abcd", store.Credential{}, io.Discard)
 	if err != nil || !imported || run != "localhost:5000/acme/ghcr.io/foo/bar@sha256:up" {
 		t.Fatalf("digest ref: %q %v %v", run, imported, err)
 	}
@@ -270,6 +270,39 @@ func TestImportsDoNotShareANameAcrossOrgs(t *testing.T) {
 		must(t, err)
 		if im.Newer() != behind {
 			t.Errorf("tile %s: runs %s, upstream %s, behind = %v", tl, im.Digest, im.LastDigest, im.Newer())
+		}
+	}
+}
+
+// A registry that refuses an import comes back as one line: the ref once,
+// what to do about it, nothing of the registry's own error.
+func TestImportDeniedLine(t *testing.T) {
+	ctx := context.Background()
+	orch, err := New(
+		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},
+		WithDocker(dockerfake.New()),
+		WithVIP(vipStub{}),
+		WithProxy(func(context.Context, json.RawMessage) error { return nil }),
+	)
+	must(t, err)
+	t.Cleanup(func() { _ = orch.Close() })
+	orch.regs.WithBase("http://127.0.0.1:1").WithCopier(func(_ context.Context, src, _ string, _ authn.Authenticator, _ http.RoundTripper, _ []string) (imgcopy.Result, error) {
+		return imgcopy.Result{}, &imgcopy.DeniedError{Ref: src}
+	})
+	og := store.Org{ID: "o1", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
+	must(t, orch.store.Orgs.Create(ctx, og))
+	for _, c := range []struct {
+		ref  string
+		cred store.Credential
+		want string
+	}{
+		{"ghcr.io/acme/x:1", store.Credential{}, "ghcr.io/acme/x:1 is private or missing: add a credential for ghcr.io to the org"},
+		{"quay.io/a/b@sha256:abcd", store.Credential{}, "quay.io/a/b@sha256:abcd is private or missing: add a credential for quay.io to the org"},
+		{"quay.io/a/b:1", store.Credential{ID: "c1", Username: "u", Password: "p"}, "quay.io/a/b:1 is private or missing: the org's credential for quay.io cannot read it"},
+	} {
+		_, _, err := orch.importLogged(ctx, og.ID, c.ref, c.cred, []string{"amd64"}, nil)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("import %s = %v, want %q", c.ref, err, c.want)
 		}
 	}
 }

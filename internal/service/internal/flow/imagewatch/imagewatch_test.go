@@ -78,7 +78,7 @@ func TestCheck(t *testing.T) {
 		Tiles:    tile.New(s.Tiles, fake, vipStub{}),
 		Images:   image.New(s.Images, fake),
 		Releases: release.New(s.Releases, s.ReleaseTiles),
-		Creds:    credential.New(s.Credentials),
+		Cred:     credential.New(s.Credentials).For,
 		Settings: settings.New(s.Settings, nil),
 		Digest:   reg.Digest,
 		Tags:     reg.Tags,

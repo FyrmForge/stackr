@@ -87,6 +87,10 @@ func (l *Leaf) Import(ctx context.Context, req ImportRequest) (Imported, error) 
 			return Imported{LocalRef: l.Local(repo, tag), Digest: held.Digest}, nil
 		}
 	}
+	var no *imgcopy.DeniedError
+	if errors.As(err, &no) {
+		return Imported{}, err // already names the ref; the caller adds the fix
+	}
 	if err != nil {
 		return Imported{}, fmt.Errorf("import %s: %w", req.Ref, err)
 	}

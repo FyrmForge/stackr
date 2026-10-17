@@ -287,6 +287,12 @@ func (l *Leaf) Create(ctx context.Context, stackID, name string, sp Spec) (store
 	if err := l.name(ctx, &e, name); err != nil {
 		return e, err
 	}
+	if sp.FromKind == "" { // the bottom rung and a PR env build a branch; the rest promote
+		sp.FromKind = FromPromote
+		if len(ladder) == 0 || sp.Type == Ephemeral {
+			sp.FromKind = FromBranch
+		}
+	}
 	if err := checkFrom(e, sp.FromKind, sp.FromBranch, len(ladder) == 0); err != nil {
 		return e, err
 	}
