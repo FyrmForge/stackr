@@ -70,13 +70,41 @@ func MintAdminKey(ctx context.Context, cfg Config) (User, string, error) {
 			if tok, k, err = l.MintKey(ctx, u, "", "", "restore", "", ""); err != nil {
 				return err
 			}
-			return audit(tx).Append(ctx, securitylog.Event{
+			if err := audit(tx).Append(ctx, securitylog.Event{
 				Action: securitylog.KeyMint, ActorID: u.ID, TargetKind: "api_key", TargetID: k.ID,
 				Detail: "name=restore org= level= stack=",
-			})
+			}); err != nil {
+				return err
+			}
+			return revokeBoxKeys(ctx, tx, l, u.ID, k.ID)
 		})
 	})
 	return u, tok, err
+}
+
+// revokeBoxKeys revokes the user's earlier box CLI keys (named installer or
+// restore) but keep: the new cli.json holds keep, and the old ones lived on a
+// box that is gone or in an archive.
+func revokeBoxKeys(ctx context.Context, tx store.Tx, l *user.Leaf, userID, keep string) error {
+	ks, err := l.Keys(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, k := range ks {
+		if k.ID == keep || (k.Name != "installer" && k.Name != "restore") {
+			continue
+		}
+		if err := l.RevokeKey(ctx, userID, k.ID); err != nil {
+			return err
+		}
+		if err := audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyRevoke, ActorID: userID, TargetKind: "api_key", TargetID: k.ID,
+			Detail: "name=" + k.Name + ": replaced by the box CLI key " + keep,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // NeedsAdmin reports whether the install has no account yet, so a re-run of
