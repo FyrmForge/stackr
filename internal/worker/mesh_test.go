@@ -314,11 +314,42 @@ func TestFirstPushClearsWhatTheLastRunLeft(t *testing.T) {
 	if added < 0 || dropped < added || run.count("ip rule del pref 10001") != 1 {
 		t.Errorf("new rule at %d, old dropped at %d:\n%s", added, dropped, strings.Join(run.calls, "\n"))
 	}
-	if run.count("ip link del "+exits.Iface("nc")) == 0 || run.count("ip link add "+exits.ServeIface("nc")) != 1 {
-		t.Errorf("old serve not torn down:\n%s", strings.Join(run.calls, "\n"))
+	if !downBeforeUp(run, exits.Iface("nc"), exits.ServeIface("nc")) {
+		t.Errorf("old serve not torn down before the new one binds its port:\n%s", strings.Join(run.calls, "\n"))
 	}
 	// the unchanged link is built again: a reboot may have taken it
 	if run.count("ip link add "+exits.Iface("nx")) != 1 {
 		t.Error("the link was not rebuilt")
 	}
+
+	// Within one process too: a renamed serve (same port) goes before its
+	// successor comes up.
+	again := next
+	again.Serves = append([]exits.Serve(nil), next.Serves...)
+	again.Serves[0].Iface = exits.Iface("nc")
+	run.mu.Lock()
+	run.calls = nil
+	run.mu.Unlock()
+	if err := s2.ApplyMesh(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	if !downBeforeUp(run, exits.ServeIface("nc"), exits.Iface("nc")) || run.count("ip link add "+exits.Iface("nx")) != 0 {
+		t.Errorf("rename in one process:\n%s", strings.Join(run.calls, "\n"))
+	}
+}
+
+// downBeforeUp reports whether old was deleted before new was added.
+func downBeforeUp(run *meshRunner, old, new string) bool {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	del, add := -1, -1
+	for i, c := range run.calls {
+		if c == "ip link del "+old && del < 0 {
+			del = i
+		}
+		if c == "ip link add "+new+" type wireguard" {
+			add = i
+		}
+	}
+	return del >= 0 && add > del
 }

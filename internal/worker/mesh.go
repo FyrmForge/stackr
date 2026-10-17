@@ -330,10 +330,24 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 	for _, v := range prev.Serves {
 		oldS[v.Iface] = v
 	}
+	// What went is torn down first: a renamed interface frees its port and
+	// name before its successor binds them. An interface name torn down is
+	// built again even when its own entry did not change.
+	gone := map[string]bool{}
+	for _, l := range oldL {
+		if !slices.ContainsFunc(links, func(n exits.Link) bool { return n.Iface == l.Iface }) {
+			_ = exits.Apply(ctx, run, l.Down())
+			gone[l.Iface] = true
+		}
+	}
+	for _, v := range oldS {
+		if !slices.ContainsFunc(serves, func(n exits.Serve) bool { return n.Iface == v.Iface }) {
+			_ = exits.Apply(ctx, run, v.Down())
+			gone[v.Iface] = true
+		}
+	}
 	for _, l := range links {
-		o, ok := oldL[l.Iface]
-		delete(oldL, l.Iface)
-		if ok && !fresh && reflect.DeepEqual(o, l) {
+		if o, ok := oldL[l.Iface]; ok && !fresh && !gone[l.Iface] && reflect.DeepEqual(o, l) {
 			continue
 		}
 		steps, err := l.Up()
@@ -344,13 +358,8 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 			return err
 		}
 	}
-	for _, l := range oldL {
-		_ = exits.Apply(ctx, run, l.Down())
-	}
 	for _, v := range serves {
-		o, ok := oldS[v.Iface]
-		delete(oldS, v.Iface)
-		if ok && !fresh && reflect.DeepEqual(o, v) {
+		if o, ok := oldS[v.Iface]; ok && !fresh && !gone[v.Iface] && reflect.DeepEqual(o, v) {
 			continue
 		}
 		steps, err := v.Up()
@@ -360,9 +369,6 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 		if err != nil {
 			return err
 		}
-	}
-	for _, v := range oldS {
-		_ = exits.Apply(ctx, run, v.Down())
 	}
 
 	// The first tick of every new ladder runs here, before the caller starts
