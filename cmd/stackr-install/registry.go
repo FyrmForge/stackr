@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -28,7 +27,7 @@ func (r runner) ensureRegistry(ctx context.Context, dataDir string) error {
 			return err
 		}
 	}
-	if err := os.MkdirAll(installspec.RegistryDir(dataDir), 0o700); err != nil {
+	if err := r.mkdir(installspec.RegistryDir(dataDir), 0o700); err != nil {
 		return err
 	}
 	return r.docker(ctx, want.RunArgs()...) // docker run makes the named volume

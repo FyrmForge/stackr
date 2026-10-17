@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,6 +34,25 @@ func TestPanelSpecBothWays(t *testing.T) {
 	}
 	if !upgrade.HostNetwork || len(upgrade.CapAdd) == 0 || upgrade.Labels["stackr.role"] != "panel" {
 		t.Errorf("panel lost host net, NET_ADMIN or its role label: %+v", upgrade)
+	}
+}
+
+// The installer's upgrade hands upgrade-swap the spec as JSON; it must decode
+// to what the panel's own Update launches.
+func TestSwapSpecDecodes(t *testing.T) {
+	in := installspec.Input{Root: "example.com", PanelHost: "stkr.example.com", DataDir: "/var/lib/stackr", Bind: "172.17.0.1"}
+	raw, err := installspec.SwapSpec("v0.2.0", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got service.ContainerSpec
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := panelSpec(in)(installspec.Image("0.2.0"))
+	want.Name = "stackr-0.2.0"
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("swap spec and upgrade spec disagree:\nswap    %+v\nupgrade %+v", got, want)
 	}
 }
 
