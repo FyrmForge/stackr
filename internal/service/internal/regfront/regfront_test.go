@@ -78,6 +78,11 @@ func TestTokenVerify(t *testing.T) {
 	if _, err := Verify(key, p+"x."+sig, now); err != ErrToken {
 		t.Errorf("tampered: %v", err)
 	}
+	// The hour-long node pass nodes were once handed is refused, signed or not.
+	pass := Sign(key, Claims{Kind: KindNode, Subject: "n1", Expires: now.Add(time.Hour).Unix()})
+	if _, err := Verify(key, pass, now); err != ErrToken {
+		t.Errorf("node pass: %v", err)
+	}
 }
 
 func newServer(t *testing.T, f Facts, audit *[]Issued) (*Server, *httptest.Server, *[]*http.Request) {
@@ -136,7 +141,7 @@ func mint(t *testing.T, base, scope string) string {
 
 func TestFrontFlow(t *testing.T) {
 	var audit []Issued
-	_, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
+	_, front, seen := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
 	defer front.Close()
 
 	// the challenge
@@ -202,7 +207,7 @@ func TestSystemOrgPullOnly(t *testing.T) {
 // upload, the registry never sees the mount.
 func TestMountWithoutSourceIsPlainUpload(t *testing.T) {
 	var audit []Issued
-	_, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PushRepos: []string{"acme/shop/web"}}, &audit)
+	_, front, seen := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PushRepos: []string{"acme/shop/web"}}, &audit)
 	defer front.Close()
 	tok := mint(t, front.URL, "repository:acme/shop/web:pull,push repository:acme/shop/api:pull")
 	res := get(t, "POST", front.URL+"/v2/acme/shop/web/blobs/uploads/?mount=sha256:1&from=acme/shop/api", tok)
@@ -315,7 +320,7 @@ func TestDecideImports(t *testing.T) {
 func TestFrontImportsAcrossOrgs(t *testing.T) {
 	var audit []Issued
 	a, b := ImportRepo("acme", "ghcr.io/foo/bar:1"), ImportRepo("zed", "ghcr.io/foo/bar:1")
-	_, front, _ := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullImports: []string{a}}, &audit)
+	_, front, _ := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PullImports: []string{a}}, &audit)
 	defer front.Close()
 
 	tok := mint(t, front.URL, "repository:"+a+":pull repository:"+b+":pull")
@@ -521,7 +526,7 @@ func TestPushHoldTimesOut(t *testing.T) {
 // from the Host and X-Forwarded-Proto), adds the hop, and drops our token.
 func TestProxyHeaders(t *testing.T) {
 	var audit []Issued
-	s, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
+	s, front, seen := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
 	defer front.Close()
 	s.Backend.Path = "/base"
 	tok := mint(t, front.URL, "repository:acme/shop/web:pull")

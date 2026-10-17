@@ -316,7 +316,9 @@ func Verify(key []byte, token string, now time.Time) (Claims, error) {
 		return c, ErrToken
 	}
 	b, err := base64.RawURLEncoding.DecodeString(p)
-	if err != nil || json.Unmarshal(b, &c) != nil {
+	// No token is issued to a node since nodes stopped pulling through a
+	// front; the node passes of before lived an hour and must not still work.
+	if err != nil || json.Unmarshal(b, &c) != nil || c.Kind == KindNode {
 		return c, ErrToken
 	}
 	if now.Unix() >= c.Expires {
