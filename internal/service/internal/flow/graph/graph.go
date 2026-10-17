@@ -88,8 +88,8 @@ const (
 const (
 	CardW  = 220
 	CardH  = 104 // border 2 + p-3.5 28 + head 38.5 + footer pt-3/border/line 29 = 97.5, so a ~6 px gap over the footer
-	ShortH = 62 // a detached volume
-	SubH   = 30 // the room each sub-tile strip takes when placing (never drawn height)
+	ShortH = 62  // a detached volume
+	SubH   = 30  // the room each sub-tile strip takes when placing (never drawn height)
 	Grid   = 22
 	GapX   = 40 // clear space a placement keeps around a card
 	GapY   = 30

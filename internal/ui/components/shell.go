@@ -24,7 +24,7 @@ type Shell struct {
 	// NodeDown is the offline banner on an env or tile page whose node is
 	// down: the whole sentence, "" = none.
 	NodeDown string
-	Flash   Flash
+	Flash    Flash
 	// EnvColor is the URL's env hue (one of EnvColors): the top bar's band
 	// and the env crumb's dot. "" = no env, or no hue picked.
 	EnvColor string

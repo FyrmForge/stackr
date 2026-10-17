@@ -273,7 +273,10 @@ func TestForgetOnlineNodeCleansFirst(t *testing.T) {
 		})
 		if fail {
 			prev := hostUninstall
-			hostUninstall = func(*Orchestrator, context.Context, string, io.Writer) error { *ran = append(*ran, "w2"); return errors.New("box gone") }
+			hostUninstall = func(*Orchestrator, context.Context, string, io.Writer) error {
+				*ran = append(*ran, "w2")
+				return errors.New("box gone")
+			}
 			t.Cleanup(func() { hostUninstall = prev })
 			rowThere = true
 		}
