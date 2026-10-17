@@ -29,7 +29,7 @@ func (o *Orchestrator) BackupDests(ctx context.Context, orgID string) ([]BackupD
 
 // CreateBackupDest adds an S3 destination; orgID nil = a global one (admin).
 func (o *Orchestrator) CreateBackupDest(ctx context.Context, orgID *string, s BackupDestSpec) (BackupDest, error) {
-	return o.backups.Create(ctx, orgID, s)
+	return o.backups.Create(ctx, orgID, s, o.probeDest())
 }
 
 // GlobalBackupDests lists the admin-global destinations, shared or not.
@@ -44,7 +44,16 @@ func (o *Orchestrator) UpdateBackupDest(ctx context.Context, orgID, id string, s
 	if err != nil {
 		return d, err
 	}
-	return o.backups.Update(ctx, d, s)
+	return o.backups.Update(ctx, d, s, o.probeDest())
+}
+
+// probeDest is the test write a destination passes before it is saved;
+// none when Config.ProbeDests is off (tests with no bucket behind them).
+func (o *Orchestrator) probeDest() backup.Probe {
+	if !o.cfg.ProbeDests {
+		return nil
+	}
+	return o.backup.Probe
 }
 
 func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) error {

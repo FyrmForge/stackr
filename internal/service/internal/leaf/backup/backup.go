@@ -89,9 +89,13 @@ func (l *Leaf) EnsureLocal(ctx context.Context, dir string) (store.BackupDest, e
 	return d, l.dests.Create(ctx, d)
 }
 
+// Probe tries a destination before it is saved (a test write); nil skips it.
+type Probe func(context.Context, store.BackupDest) error
+
 // Create adds an S3 destination; orgID nil makes it admin-global. Every
 // destination gets its own random archive key here and keeps it for life.
-func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest) (store.BackupDest, error) {
+// It is saved only once probe can write to it.
+func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest, probe Probe) (store.BackupDest, error) {
 	d := store.BackupDest{
 		ID:         uuid.NewString(),
 		OrgID:      orgID,
@@ -102,13 +106,14 @@ func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest) (store.BackupD
 	if s.SecretKey == "" {
 		return d, errs.Invalidf("secret_key", "an S3 destination needs a secret key")
 	}
-	if err := l.fill(ctx, &d, s); err != nil {
+	if err := l.fill(ctx, &d, s, probe); err != nil {
 		return d, err
 	}
 	return d, l.dests.Create(ctx, d)
 }
 
-func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest) (store.BackupDest, error) {
+// Update changes a destination; like Create, only once probe can write to it.
+func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest, probe Probe) (store.BackupDest, error) {
 	if d.Kind == Local {
 		return d, errs.Refusedf("the local destination is part of the install")
 	}
@@ -118,7 +123,7 @@ func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest) (store.Ba
 	if s.AccessKey == "" {
 		s.AccessKey = d.AccessKey
 	}
-	if err := l.fill(ctx, &d, s); err != nil {
+	if err := l.fill(ctx, &d, s, probe); err != nil {
 		return d, err
 	}
 	return d, l.dests.Update(ctx, d)
@@ -236,7 +241,7 @@ func blank(ds []store.BackupDest) []store.BackupDest {
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest) error {
+func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Probe) error {
 	name := strings.TrimSpace(s.Name)
 	if !nameRe.MatchString(name) {
 		return errs.Invalidf("name", "a name is letters, digits, - and _ (it is used as ${{ org.backups.NAME }})")
@@ -267,6 +272,14 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest) error {
 	d.Region = strings.TrimSpace(s.Region)
 	d.Bucket = bucket
 	d.AccessKey, d.SecretKey, d.Shared = strings.TrimSpace(s.AccessKey), s.SecretKey, s.Shared && d.OrgID == nil
+	if probe == nil {
+		return nil
+	}
+	if err := probe(ctx, *d); err != nil {
+		// An S3 error can quote the request; never let a key through.
+		msg := strings.NewReplacer(d.SecretKey, "***", d.AccessKey, "***").Replace(err.Error())
+		return errs.Invalidf("endpoint", "a test write to bucket %s failed: %s", d.Bucket, msg)
+	}
 	return nil
 }
 

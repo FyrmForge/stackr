@@ -141,6 +141,9 @@ type Config struct {
 	// cluster registry (imports.go). Off for a fake host and for tests with no
 	// registry behind them.
 	RegistryImports bool
+	// ProbeDests makes a backup destination pass a test write before it is
+	// saved. Off for tests with no bucket behind them.
+	ProbeDests bool
 }
 
 // Option changes how New builds the tree; tests use it.
