@@ -28,7 +28,7 @@ type move int
 
 const (
 	stay move = iota // same version: nothing
-	up               // newer, or either side a dev build
+	up               // newer (0.8.2-dev.1 is after 0.8.1, before 0.8.2), or a panel image that is no release
 	down             // older: migrations may not reverse
 )
 
