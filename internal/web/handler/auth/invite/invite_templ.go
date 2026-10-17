@@ -316,7 +316,7 @@ func register(base string, f Form) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Autocomplete: "new-password", Required: true, Error: f.Errors["password"],
-				Help: "At least 8 characters with uppercase, lowercase, a number, and a special character."}).Render(ctx, templ_7745c5c3_Buffer)
+				Help: "At least 8 characters."}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

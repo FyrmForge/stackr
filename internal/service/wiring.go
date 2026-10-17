@@ -81,14 +81,14 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 	for i, r := range routes {
 		ext[i] = domain.NodeRoute{Route: r}
 	}
-	return o.deploy.ProxyConfigs(ctx, in, ext, o.placement(ctx))
+	return o.deploy.ProxyConfigs(ctx, in, ext, o.placement(ctx, di))
 }
 
-// placement answers deploy.Placement: the tile's env node and, when that is
-// not the controller, the tile's VIP (its pause container's address on the
-// env network) so another node's Caddy can reach it. A tile whose VIP cannot
-// be read keeps "" and is served by container name, as before.
-func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
+// placement answers deploy.Placement: the tile's env node and, unless the
+// controller both runs and serves it, the tile's VIP (its pause container's
+// address on the env network) so another node's Caddy can reach it. A tile
+// whose VIP cannot be read keeps "" and is served by container name, as before.
+func (o *Orchestrator) placement(ctx context.Context, defIngress string) deploy.Placement {
 	return func(tileID string) (ingress, node, vip string) {
 		t, err := o.store.Tiles.Get(ctx, tileID)
 		if err != nil {
@@ -99,7 +99,7 @@ func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
 			return "", "", ""
 		}
 		ingress, _ = o.IngressFor(ctx, tileID)
-		if ctl, err := o.controllerID(ctx); err != nil || node == ctl {
+		if ctl, err := o.controllerID(ctx); err != nil || !needsVIP(node, ctl, cmp.Or(ingress, defIngress)) {
 			return ingress, node, ""
 		}
 		if v, ok := o.tileVIP(ctx, node, t.ID); ok {
@@ -107,6 +107,12 @@ func (o *Orchestrator) placement(ctx context.Context) deploy.Placement {
 		}
 		return ingress, node, vip
 	}
+}
+
+// needsVIP: only the controller's own Caddy shares a network with the
+// controller's replicas; every other ingress dials the tile's VIP over the mesh.
+func needsVIP(node, ctl, ingress string) bool {
+	return node != ctl || ingress != ctl
 }
 
 // caddyFor is a worker's Caddy admin API, nil while the node has no connection.

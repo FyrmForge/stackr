@@ -57,7 +57,7 @@ templ register(base string, f Form) {
 			@c.FieldError("email", f.Errors["email"])
 		</div>
 		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Autocomplete: "new-password", Required: true, Error: f.Errors["password"],
-			Help: "At least 8 characters with uppercase, lowercase, a number, and a special character."})
+			Help: "At least 8 characters."})
 		@c.Field(c.FieldView{Name: "confirm_password", Label: "Confirm password", Type: "password", Autocomplete: "new-password", Required: true, Error: f.Errors["confirm_password"]})
 		@c.Submit("Join " + f.Org)
 	}
