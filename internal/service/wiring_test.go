@@ -51,3 +51,21 @@ func TestProxyPushPerNode(t *testing.T) {
 		t.Fatal("rejected push reported ok")
 	}
 }
+
+// Only a controller tile served by the controller's own Caddy goes by
+// container name; a worker ingress in front of it needs the VIP.
+func TestNeedsVIP(t *testing.T) {
+	for _, c := range []struct {
+		node, ingress string
+		want          bool
+	}{
+		{"ctl", "ctl", false},
+		{"ctl", "h4", true},
+		{"w1", "ctl", true},
+		{"w1", "w1", true},
+	} {
+		if got := needsVIP(c.node, "ctl", c.ingress); got != c.want {
+			t.Errorf("needsVIP(%s, ingress %s) = %v, want %v", c.node, c.ingress, got, c.want)
+		}
+	}
+}
