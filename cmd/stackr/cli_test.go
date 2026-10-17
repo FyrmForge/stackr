@@ -193,6 +193,33 @@ func TestRmTakesTheScope(t *testing.T) {
 	}
 }
 
+// tile domain add takes a host or --auto, never both; env create's branch
+// flag is --branch.
+func TestDomainAutoAndBranch(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	tile := "/api/v1/orgs/acme/stacks/shop/envs/dev/tiles/api"
+	for _, c := range []struct{ args, want string }{
+		{"tile domain add --auto --stack shop --env dev --tile api", "POST " + tile + `/domains {"auto":true}`},
+		{"tile domain add a.io --stack shop --env dev --tile api", "POST " + tile + `/domains {"host":"a.io"}`},
+		{"env create qa --stack shop --branch main", `POST /api/v1/orgs/acme/stacks/shop/envs {"auto":false,"color":"","from_branch":"main","from_kind":"","name":"qa","type":"static"}`},
+	} {
+		r.reqs = nil
+		if code, _, errw := cli(t, strings.Fields(c.args)...); code != 0 {
+			t.Errorf("%s = %d %s", c.args, code, errw)
+			continue
+		}
+		if len(r.reqs) == 0 || r.reqs[len(r.reqs)-1] != c.want {
+			t.Errorf("%s sent %q, want %q", c.args, r.reqs, c.want)
+		}
+	}
+	for _, args := range []string{"tile domain add --stack shop --env dev --tile api", "tile domain add a.io --auto --stack shop --env dev --tile api"} {
+		if code, _, _ := cli(t, strings.Fields(args)...); code != 2 {
+			t.Errorf("%s = %d, want 2", args, code)
+		}
+	}
+}
+
 func TestUsageExitsTwo(t *testing.T) {
 	useServer(t, "http://127.0.0.1:1")
 	for _, args := range [][]string{

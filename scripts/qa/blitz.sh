@@ -122,7 +122,7 @@ login_check() {
 		exit 1
 	fi
 	sr stack create "$QA" >/dev/null 2>&1 || true
-	sr env create "$ENV" --stack "$QA" --from-kind branch --from-branch main >/dev/null 2>&1 || true
+	sr env create "$ENV" --stack "$QA" --from-kind branch --branch main >/dev/null 2>&1 || true
 }
 
 # ---- 2. passthrough route: the cert through the proxy is the upstream's

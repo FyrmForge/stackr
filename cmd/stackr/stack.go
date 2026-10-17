@@ -441,7 +441,7 @@ func (a *app) envs() *cobra.Command {
 			}
 			return a.show(v, envCols...)
 		}))
-	create.Example = "  stackr env create dev --stack shop --from-branch main\n  stackr env create staging --stack shop"
+	create.Example = "  stackr env create dev --stack shop --branch main\n  stackr env create staging --stack shop"
 	create.Flags().StringVar(&typ, "type", "static", "static or ephemeral")
 	create.Flags().StringVar(&base, "base", "", "the env id an ephemeral env copies")
 	create.Flags().StringVar(&color, "color", "", "the panel colour")
@@ -455,7 +455,7 @@ func (a *app) envs() *cobra.Command {
 		"branch (builds a branch) or promote (takes releases by hand); default branch for the stack's first env, promote after")
 	from.Flags().StringVar(&fromKind, "from-kind", "branch", "branch (builds a branch) or promote (takes releases by hand)")
 	for _, c := range []*cobra.Command{create, from} {
-		c.Flags().StringVar(&fromBranch, "from-branch", "", "the branch it builds")
+		c.Flags().StringVar(&fromBranch, "branch", "", "the branch it builds")
 		c.Flags().BoolVar(&auto, "auto", false, "deploy each new release on its own")
 	}
 	return scoped(noun("env", "Environments of the stack",
@@ -1097,9 +1097,14 @@ func (a *app) domains() *cobra.Command {
 			"redirect-to": "redirect_to",
 		}
 	}
-	add := leaf("add <host>", "domain.attach", "Route a host to the tile", exact(1), nil)
+	add := leaf("add [host]", "domain.attach", "Route a host to the tile; --auto names one under the nearest domain resource", upTo(1), nil)
 	addKeys := domainFlags(add)
+	var auto bool
+	add.Flags().BoolVar(&auto, "auto", false, "take the generated name under the nearest domain resource, like the panel's Add auto domain")
 	add.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
+		if auto == (len(args) == 1) {
+			return usage("give a host, or --auto for a generated one")
+		}
 		body, err := changed(c, addKeys)
 		if err != nil {
 			return err
@@ -1107,7 +1112,11 @@ func (a *app) domains() *cobra.Command {
 		if body == nil {
 			body = map[string]any{}
 		}
-		body["host"] = args[0]
+		if auto {
+			body["auto"] = true
+		} else {
+			body["host"] = args[0]
+		}
 		v, err := a.call(POST, p+"/domains", body)
 		if err != nil {
 			return err

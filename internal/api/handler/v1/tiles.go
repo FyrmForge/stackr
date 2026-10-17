@@ -95,6 +95,7 @@ type (
 		ForceHTTPS *bool                `json:"force_https"`
 		RedirectTo string               `json:"redirect_to"`
 		Extras     service.DomainExtras `json:"proxy"`
+		Auto       bool                 `json:"auto,omitempty"` // attach only: the generated name under the nearest domain resource; Host is ignored
 	}
 	RawCaddyIn struct {
 		RawCaddy string `json:"raw_caddy"`
@@ -128,6 +129,7 @@ func (in DomainIn) spec() service.DomainSpec {
 		ForceHTTPS: in.ForceHTTPS,
 		RedirectTo: in.RedirectTo,
 		Extras:     in.Extras,
+		Auto:       in.Auto,
 	}
 }
 
