@@ -344,10 +344,11 @@ func staleMembership(oldID, newID string) bool {
 
 // clearOld takes a former node's leftovers off the box, as an uninstall
 // without --purge does: the worker service, stackr's containers and networks,
-// its firewall rules and mesh. Volumes, images and the state dir stay. A
+// its firewall rules and mesh, and the proxy's certificates. Env volumes,
+// images and the state dir stay. A
 // failure is a warning: the join goes on, the new worker sets its mesh again.
 func clearOld(ctx context.Context, r runner, stateDir string) {
-	err := uninstallEnv{r: r, read: read, yes: true, stateDir: stateDir, installDir: envOr("STACKR_DATA_DIR", "/var/lib/stackr")}.run(ctx, false)
+	err := uninstallEnv{r: r, read: read, yes: true, formerNode: true, stateDir: stateDir, installDir: envOr("STACKR_DATA_DIR", "/var/lib/stackr")}.run(ctx, false)
 	if err != nil {
 		r.say("  warning: clearing the old node:", err)
 	}

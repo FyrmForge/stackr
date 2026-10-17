@@ -48,6 +48,10 @@ type uninstallEnv struct {
 	yes        bool
 	stateDir   string
 	installDir string
+	// formerNode: a join clears what a former node left before it goes on.
+	// It also drops the proxy's certificates (another cluster's) and prints
+	// no Done, since the join is not over.
+	formerNode bool
 }
 
 func uninstall(ctx context.Context, args []string, out io.Writer, in io.Reader) error {
@@ -118,7 +122,8 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	r.say("Removing stackr's containers and networks")
 	e.removeAll(ctx, "docker", []string{"ps", "-aq", "--filter", managedLabel}, []string{"rm", "-f"}, fail)
 	// The proxy and the host helper that ran this are named, not labelled managed.
-	try("docker", "rm", "-f", installspec.ProxyName, "stackr-host-helper")
+	// -v takes the anonymous volumes Caddy's image declares with it.
+	try("docker", "rm", "-f", "-v", installspec.ProxyName, "stackr-host-helper")
 	// buildx makes the builder's container, so it has no label; it sits on
 	// stackr-builder-net and the network rm fails while it lives.
 	e.removeAll(ctx, "docker", []string{"ps", "-aq", "--filter", builderName}, []string{"rm", "-f"}, fail)
@@ -130,13 +135,17 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	r.say("Removing the mesh")
 	e.mesh(ctx, try)
 
+	if e.formerNode {
+		try("docker", "volume", "rm", installspec.ProxyVolume)
+		return errors.Join(errs...)
+	}
 	if !purge {
 		r.say("Done. Volumes, images, binaries and", e.stateDir, "stay; --purge removes them.")
 		return errors.Join(errs...)
 	}
 	r.say("Purging volumes, images and state")
 	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", managedLabel}, []string{"volume", "rm"}, fail)
-	try("docker", "volume", "rm", "stackr-caddy") // an ingress node's only
+	try("docker", "volume", "rm", installspec.ProxyVolume) // an ingress node's only
 	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", builderName}, []string{"volume", "rm"}, fail)
 	e.removeImages(ctx, fail)
 	fail(r.run(ctx, "rm", "-rf", e.stateDir))

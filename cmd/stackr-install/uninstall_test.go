@@ -200,7 +200,7 @@ func TestUninstallCommands(t *testing.T) {
 		"rm -f " + joinUnitPath,
 		"systemctl daemon-reload",
 		"docker rm -f c1 c2",
-		"docker rm -f stackr-proxy stackr-host-helper",
+		"docker rm -f -v stackr-proxy stackr-host-helper",
 		"docker rm -f b1",
 		"docker network rm n1",
 		"iptables-restore --noflush",
@@ -219,6 +219,26 @@ func TestUninstallCommands(t *testing.T) {
 	for _, kept := range []string{"volume rm", "image rm", "rm -rf", "/usr/local/bin/"} {
 		if strings.Contains(out, kept) {
 			t.Errorf("a plain uninstall ran %q:\n%s", kept, out)
+		}
+	}
+}
+
+// A join clearing a former node also drops the old proxy's certificates and
+// says no Done, since the join goes on.
+func TestUninstallFormerNode(t *testing.T) {
+	r := newUninstallRig(t)
+	e := r.env(true, "")
+	e.formerNode = true
+	if err := e.run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	out := flat(r.out.String())
+	if !strings.Contains(out, "docker volume rm stackr-caddy") {
+		t.Errorf("former node kept stackr-caddy:\n%s", out)
+	}
+	for _, bad := range []string{"Done", "volume rm v1", "image rm", "rm -rf"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("former node cleanup ran or said %q:\n%s", bad, out)
 		}
 	}
 }
