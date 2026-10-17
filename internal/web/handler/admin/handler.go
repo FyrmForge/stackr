@@ -46,10 +46,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		return "User enabled.", nil, h.orch.EnableUser(c.Request().Context(), c.Param("user"))
 	}), a.Require("user.admin"))
 	g.POST(b+"/update/check", h.Check, a.Require("admin.read"))
-	g.POST(b+"/update/run", h.act("update", func(c echo.Context) (string, *service.Job, error) {
-		j, err := h.orch.Upgrade(c.Request().Context(), c.QueryParam("tag"))
-		return "Upgrade queued: the panel restarts when it is done.", &j, err
-	}), a.Require("container.admin"))
+	g.POST(b+"/update/run", h.Upgrade, a.Require("container.admin"))
 	g.POST(b+"/update/workers", h.act("update", func(c echo.Context) (string, *service.Job, error) {
 		j, err := h.orch.UpdateWorkers(c.Request().Context(), middleware.Principal(c))
 		return "Worker rollout queued.", &j, err
@@ -195,6 +192,16 @@ func (h *handler) Check(c echo.Context) error {
 	return h.answer(c, "update", "", extra{check: &v}, nil)
 }
 
+// POST /-/admin/update/run queues the upgrade; the tab says it is under way
+// until the job's stream ends, then reloads.
+func (h *handler) Upgrade(c echo.Context) error {
+	j, err := h.orch.Upgrade(c.Request().Context(), c.QueryParam("tag"))
+	if err != nil {
+		return h.answer(c, "update", "", extra{}, err)
+	}
+	return h.answer(c, "update", "", extra{job: &j, check: &ui.UpdateView{Upgrading: true}}, nil)
+}
+
 func (h *handler) answer(c echo.Context, tab, note string, x extra, actErr error) error {
 	f, status := frame(tab), http.StatusOK
 	if actErr != nil {
@@ -275,6 +282,9 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			v = *x.check
 		}
 		v.Version, v.Job = h.orch.Version(), job
+		if v.Upgrading && job != nil {
+			job.Refresh = ui.Base + "?tab=update"
+		}
 		if v.Newer {
 			v.Run = comp.ConfirmView{
 				Button:  "Upgrade to " + v.Latest,

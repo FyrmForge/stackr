@@ -28,6 +28,8 @@ type User struct {
 type UpdateView struct {
 	Version  string
 	Checked  bool
+	// Upgrading: an upgrade was just queued; the tab reloads when its job ends.
+	Upgrading bool
 	Latest   string // "" after a check = a dev build
 	Newer    bool
 	CheckErr string
@@ -187,10 +189,13 @@ templ Update(v UpdateView) {
 				} else if v.Checked {
 					<p class="text-rw-muted">Up to date: <span class="font-mono">{ v.Latest }</span> is the latest release.</p>
 				}
+				if v.Upgrading {
+					<p class="text-rw-text" role="status">Upgrading. The panel restarts and this tab reloads when it is back.</p>
+				}
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)
 				}
-				if !v.Checked {
+				if !v.Checked && !v.Upgrading {
 					@c.PostButton("Check for update", Base+"/update/check")
 				}
 			</div>
