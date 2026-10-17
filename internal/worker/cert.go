@@ -227,7 +227,7 @@ func (s *Server) swapCertFiles(certPEM, keyPEM []byte) error {
 	d := s.cfg.StateDir
 	for _, f := range []string{certFile, keyFile} {
 		if b, err := os.ReadFile(filepath.Join(d, f)); err == nil {
-			if err := os.WriteFile(filepath.Join(d, f+".prev"), b, 0o600); err != nil {
+			if err := writeKey(filepath.Join(d, f+".prev"), b); err != nil {
 				return err
 			}
 		}

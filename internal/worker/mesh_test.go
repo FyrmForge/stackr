@@ -353,3 +353,17 @@ func downBeforeUp(run *meshRunner, old, new string) bool {
 	}
 	return del >= 0 && add > del
 }
+
+// A failed ping is one line in the ladder's reason, never ping's raw output.
+func TestPingErrOneLine(t *testing.T) {
+	loss := "PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\n\n--- 1.1.1.1 ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss, time 0ms\n"
+	for _, c := range []struct{ out, want string }{
+		{loss, "no reply to ping"},
+		{"ping: SO_BINDTODEVICE wgx-1: No such device\n", "ping: SO_BINDTODEVICE wgx-1: No such device"},
+		{"", "ping: exit status 2"},
+	} {
+		if got := pingErr([]byte(c.out), errors.New("exit status 2")).Error(); got != c.want {
+			t.Errorf("pingErr(%q) = %q, want %q", c.out, got, c.want)
+		}
+	}
+}

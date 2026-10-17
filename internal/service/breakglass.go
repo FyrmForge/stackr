@@ -76,6 +76,12 @@ func (o *Orchestrator) BreakGlass(ctx context.Context, by *Principal) error {
 	}
 	o.breakGlassAudit(ctx, by, "started")
 
+	c := o.cluster
+	// No controller cert renewal in between, and no panel backup copies the
+	// key files while they change (it holds rollMu). Lock order: rolloverMu,
+	// then rollMu, as in startRollover.
+	c.rollMu.Lock()
+	defer c.rollMu.Unlock()
 	// Files first: a crash after this leaves a root nobody holds a cert for,
 	// and running it again finishes the job (the gap only counts a row).
 	now := time.Now()
@@ -92,9 +98,6 @@ func (o *Orchestrator) BreakGlass(ctx context.Context, by *Principal) error {
 	if err := dropCross(o.cfg.DataDir); err != nil {
 		return err
 	}
-	c := o.cluster
-	c.rollMu.Lock() // no controller cert renewal in between
-	defer c.rollMu.Unlock()
 	// The previous controller key may be what leaked too.
 	if err := c.forgetPrev(o.cfg.DataDir); err != nil {
 		return err

@@ -167,9 +167,22 @@ func (p execPinger) Ping(ctx context.Context, r exits.Rung) error {
 	}
 	out, err := p.r.Run(ctx, nil, "ping", args...)
 	if err != nil {
-		return fmt.Errorf("ping %s: %w: %s", r.Target, err, strings.TrimSpace(string(out)))
+		return pingErr(out, err)
 	}
 	return nil
+}
+
+// pingErr is a failed ping in one line for the ladder's reason: "no reply to
+// ping" when it ran and nothing came back, else ping's last line of output.
+func pingErr(out []byte, err error) error {
+	s := strings.TrimSpace(string(out))
+	if strings.Contains(s, "100% packet loss") {
+		return errors.New("no reply to ping")
+	}
+	if s == "" {
+		return fmt.Errorf("ping: %w", err)
+	}
+	return errors.New(s[strings.LastIndexByte(s, '\n')+1:])
 }
 
 func (s *Server) pinger() exits.Pinger {

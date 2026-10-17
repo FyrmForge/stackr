@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -92,5 +95,46 @@ func TestBreakGlassRejectsPendingJoins(t *testing.T) {
 	}
 	if s, err := o.JoinStatus(ctx, out.Token); err != nil || s.Status != JoinRejected {
 		t.Errorf("status = %+v %v, want rejected", s, err)
+	}
+}
+
+// Break glass writes the new root under rollMu, the lock the panel backup
+// copies under: while it is held, the CA files stay as they were.
+func TestBreakGlassWritesCAUnderRollMu(t *testing.T) {
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	read := func() []byte {
+		var b []byte
+		for _, f := range []string{clusterca.CAKeyFile, clusterca.CACertFile} {
+			x, err := os.ReadFile(filepath.Join(o.cfg.DataDir, f))
+			must(t, err)
+			b = append(b, x...)
+		}
+		return b
+	}
+	before := read()
+	o.cluster.rollMu.Lock()
+	done := make(chan error, 1)
+	go func() { done <- o.BreakGlass(ctx, adminP()) }()
+	select {
+	case err := <-done:
+		o.cluster.rollMu.Unlock()
+		t.Fatalf("break glass ran while rollMu was held (err %v)", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if !bytes.Equal(read(), before) {
+		t.Error("the CA files changed while rollMu was held")
+	}
+	o.cluster.rollMu.Unlock()
+	must(t, <-done)
+	if bytes.Equal(read(), before) {
+		t.Error("break glass left the old root on disk")
+	}
+	if _, err := clusterca.LoadCA(o.cfg.DataDir); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := filepath.Glob(filepath.Join(o.cfg.DataDir, "*", "*.new"))
+	if len(left) > 0 {
+		t.Errorf("files left aside: %v", left)
 	}
 }
