@@ -455,6 +455,9 @@ templ legend(v View) {
 					live traffic
 				</div>
 			}
+			if v.tunnels() {
+				<div class="graph-legend-row">Arrow: who dials. No arrow: both.</div>
+			}
 		</div>
 	}
 }
