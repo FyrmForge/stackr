@@ -28,7 +28,7 @@ var (
 	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
 	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
 	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
-	runCols     = []string{"id", "status", "trigger", "created_at", "size_bytes", "object_key", "error"}
+	runCols     = []string{"id", "status", "trigger", "dest", "created_at", "size_bytes", "object_key", "error"}
 	pinCols     = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
 	tileRunCols = []string{"id", "status", "trigger", "exit_code", "reason", "created_at", "finished_at"}
 )

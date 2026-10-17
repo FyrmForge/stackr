@@ -1106,6 +1106,7 @@ func (a *app) admin() *cobra.Command {
 			"/admin/panel-backups",
 			"id",
 			"status",
+			"dest",
 			"created_at",
 			"size_bytes",
 			"error",

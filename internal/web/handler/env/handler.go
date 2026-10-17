@@ -5,6 +5,7 @@
 package env
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -787,6 +788,7 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 			When:       when(&r.CreatedAt),
 			Size:       render.Size(r.SizeBytes),
 			Error:      r.Error,
+			Dest:       cmp.Or(names[r.DestID], r.Dest),
 			Restorable: r.Status == "done" && r.ObjectKey != "",
 		})
 		if r.Status == "queued" || r.Status == "running" {

@@ -93,6 +93,9 @@ type BackupRun struct {
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
 	GroupID    *string    `db:"group_id" json:"group_id"`
+	// Dest is the destination's name ("local" for the install's disk),
+	// filled by the leaf's run lists, never stored.
+	Dest string `db:"-" json:"dest"`
 }
 
 type BackupRunStore interface {

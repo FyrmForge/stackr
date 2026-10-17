@@ -246,6 +246,9 @@ func TestPrune(t *testing.T) {
 	if len(rows) != 6 {
 		t.Errorf("%d run rows left, want 6", len(rows))
 	}
+	if len(rows) > 0 && rows[0].Dest != local.Name {
+		t.Errorf("run names destination %q, want %q", rows[0].Dest, local.Name)
+	}
 
 	obj.fail = backup.ObjectKey(pB, "vol.tar.gz.age", day)
 	if gone := l.Prune(ctx, obj, pB, 2); len(gone) != 1 {

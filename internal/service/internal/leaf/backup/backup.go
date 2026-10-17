@@ -464,19 +464,40 @@ func (l *Leaf) GetRun(ctx context.Context, id string) (store.BackupRun, error) {
 	return l.runs.Get(ctx, id)
 }
 
-// Runs is a volume's runs, newest first.
+// Runs is a volume's runs, newest first, each naming its destination.
 func (l *Leaf) Runs(ctx context.Context, volumeID string) ([]store.BackupRun, error) {
-	return newest(l.runs.ListByVolume(ctx, volumeID))
+	rs, err := l.runs.ListByVolume(ctx, volumeID)
+	if err != nil {
+		return nil, err
+	}
+	return l.newest(ctx, rs)
 }
 
-// PanelRuns is the panel self-backup's runs, newest first.
+// PanelRuns is the panel self-backup's runs, newest first, each naming its
+// destination.
 func (l *Leaf) PanelRuns(ctx context.Context) ([]store.BackupRun, error) {
-	return newest(l.runs.ListByKind(ctx, KindPanel))
+	rs, err := l.runs.ListByKind(ctx, KindPanel)
+	if err != nil {
+		return nil, err
+	}
+	return l.newest(ctx, rs)
 }
 
-func newest(rs []store.BackupRun, err error) ([]store.BackupRun, error) {
+func (l *Leaf) newest(ctx context.Context, rs []store.BackupRun) ([]store.BackupRun, error) {
 	slices.SortFunc(rs, func(a, b store.BackupRun) int { return b.CreatedAt.Compare(a.CreatedAt) })
-	return rs, err
+	names := map[string]string{}
+	for i := range rs {
+		id := rs[i].DestID
+		if _, ok := names[id]; !ok {
+			d, err := l.dests.Get(ctx, id)
+			if err != nil {
+				return rs, err
+			}
+			names[id] = d.Name
+		}
+		rs[i].Dest = names[id]
+	}
+	return rs, nil
 }
 
 // Restorable loads runID and says whether it may be restored from
