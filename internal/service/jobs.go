@@ -229,6 +229,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if err != nil {
 				return err
 			}
+			if err := o.skipDownCron(ctx, p.RunID); err != nil {
+				return err
+			}
 			return o.run.Do(ctx, p.RunID, r.Log)
 		}),
 		kindPush: payload(func(ctx context.Context, r *jobs.Run, p pushJob) error {

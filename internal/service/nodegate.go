@@ -373,13 +373,13 @@ func (o *Orchestrator) volumeNode(ctx context.Context, volumeID string) string {
 	return id
 }
 
-// skipUnreachable is a scheduled backup's check as it starts: its node is
-// online and its Docker answers, else the run is skipped (jobs.ErrSkipped),
-// not failed. A node that dropped is marked offline only after missed
-// refreshes; a schedule firing in between is the same skip. An error once
-// the backup runs is the backup's own and still fails it.
-func (o *Orchestrator) skipUnreachable(ctx context.Context, volumeID string) error {
-	n, err := o.store.Nodes.Get(ctx, o.volumeNode(ctx, volumeID))
+// skipUnreachable is a scheduled backup's or cron run's check as it starts:
+// its node is online and its Docker answers, else the run is skipped
+// (jobs.ErrSkipped), not failed. A node that dropped is marked offline only
+// after missed refreshes; a schedule firing in between is the same skip. An
+// error once the run is under way is its own and still fails it.
+func (o *Orchestrator) skipUnreachable(ctx context.Context, nodeID string) error {
+	n, err := o.store.Nodes.Get(ctx, nodeID)
 	if err != nil || n.Role != node.Worker {
 		return nil // the controller is always up; a lookup error is the job's
 	}
@@ -392,12 +392,12 @@ func (o *Orchestrator) skipUnreachable(ctx context.Context, volumeID string) err
 	}
 	var d *NodeDownError
 	if _, refused := errs.IsConflict(err); err == nil || refused {
-		return nil // a worker too old is refused, not unreachable: the backup says so
+		return nil // a worker too old is refused, not unreachable: the run says so
 	}
 	if errors.As(err, &d) {
 		return fmt.Errorf("%w: node offline", jobs.ErrSkipped)
 	}
-	slog.Warn("backup: node unreachable", "node", n.Name, "err", err)
+	slog.Warn("scheduled run: node unreachable", "node", n.Name, "err", err)
 	return fmt.Errorf("%w: node unreachable", jobs.ErrSkipped)
 }
 
