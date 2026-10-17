@@ -284,3 +284,41 @@ func TestMeshEndpoint(t *testing.T) {
 		t.Errorf("without wg = %d, want 501", resp.StatusCode)
 	}
 }
+
+// A new process whose first push differs from what the last run left (the
+// panel's own node after an upgrade) tears down the old serve and drops the
+// old ladder's rules, after the new ladder has routed its env.
+func TestFirstPushClearsWhatTheLastRunLeft(t *testing.T) {
+	dir, ctx := t.TempDir(), context.Background()
+	s, _, _ := newMeshServer(t, dir, &pingFake{})
+	if err := s.ApplyMesh(ctx, meshSpec()); err != nil {
+		t.Fatal(err)
+	}
+	s.Stop()
+	next := meshSpec()
+	next.Serves[0].Iface = exits.ServeIface("nc")
+	next.Ladders[0].Subject.PrefBase = 10002
+	s2, run, _ := newMeshServer(t, dir, &pingFake{})
+	if err := s2.ApplyMesh(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	added, dropped := -1, -1
+	for i, c := range run.calls {
+		switch c {
+		case "ip rule add pref 10003 from 10.213.1.0/24 lookup 1001":
+			added = i
+		case "ip rule del pref 10000":
+			dropped = i
+		}
+	}
+	if added < 0 || dropped < added || run.count("ip rule del pref 10001") != 1 {
+		t.Errorf("new rule at %d, old dropped at %d:\n%s", added, dropped, strings.Join(run.calls, "\n"))
+	}
+	if run.count("ip link del "+exits.Iface("nc")) == 0 || run.count("ip link add "+exits.ServeIface("nc")) != 1 {
+		t.Errorf("old serve not torn down:\n%s", strings.Join(run.calls, "\n"))
+	}
+	// the unchanged link is built again: a reboot may have taken it
+	if run.count("ip link add "+exits.Iface("nx")) != 1 {
+		t.Error("the link was not rebuilt")
+	}
+}

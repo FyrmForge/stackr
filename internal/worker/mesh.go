@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -293,9 +294,14 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 			serves[i].Uplink = uplink
 		}
 	}
-	prev := s.mesh.applied
-	if prev == nil {
-		prev = &MeshSpec{}
+	// The first apply of this process (a restart, the panel's own node after
+	// an upgrade) knows nothing it built: everything is built again, and the
+	// saved spec says what the last run left behind for teardown.
+	prev, fresh := s.mesh.applied, s.mesh.applied == nil
+	if fresh {
+		if prev, _ = s.savedMesh(); prev == nil {
+			prev = &MeshSpec{}
+		}
 	}
 
 	// Stop what changed or went and clear its rules before links move.
@@ -327,7 +333,7 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 	for _, l := range links {
 		o, ok := oldL[l.Iface]
 		delete(oldL, l.Iface)
-		if ok && reflect.DeepEqual(o, l) {
+		if ok && !fresh && reflect.DeepEqual(o, l) {
 			continue
 		}
 		steps, err := l.Up()
@@ -344,7 +350,7 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 	for _, v := range serves {
 		o, ok := oldS[v.Iface]
 		delete(oldS, v.Iface)
-		if ok && reflect.DeepEqual(o, v) {
+		if ok && !fresh && reflect.DeepEqual(o, v) {
 			continue
 		}
 		steps, err := v.Up()
@@ -385,6 +391,11 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 		}()
 		s.mesh.ladders[w.Subject.PrefBase] = rl
 	}
+	if fresh {
+		// Only now, so no env still routed by the last run's rules loses
+		// them before its new ladder has routed it.
+		_ = exits.Apply(ctx, run, staleRules(prev.Ladders, spec.Ladders))
+	}
 	if err := s.meshFence(ctx, run, spec.NoUplink); err != nil {
 		return err
 	}
@@ -392,6 +403,28 @@ func (s *Server) meshExits(ctx context.Context, spec MeshSpec) error {
 	cp.Links, cp.Serves = links, serves
 	s.mesh.applied = &cp
 	return nil
+}
+
+// staleRules deletes the ip rules of the old ladders that no current
+// ladder holds (two priorities per source from its PrefBase).
+func staleRules(old, cur []LadderSpec) []exits.Step {
+	prefs := func(ls []LadderSpec) []int {
+		var out []int
+		for _, l := range ls {
+			for i := range 2 * len(l.Subject.Sources) {
+				out = append(out, l.Subject.PrefBase+i)
+			}
+		}
+		return out
+	}
+	keep := prefs(cur)
+	var st []exits.Step
+	for _, p := range prefs(old) {
+		if !slices.Contains(keep, p) {
+			st = append(st, exits.Step{Argv: []string{"ip", "rule", "del", "pref", strconv.Itoa(p)}, IgnoreErr: true})
+		}
+	}
+	return st
 }
 
 // meshFence brings the uplink fence to the wanted env subnets. It runs after
