@@ -118,12 +118,12 @@ func TestPromoteParksOnHostAccess(t *testing.T) {
 		[]release.Pin{{Slug: release.ConfigSlug, Repo: st.ConfigRepo, CommitSHA: "c1"}})
 	must(t, err)
 
-	pp, err := w.orch.PlanPromote(ctx, w.env, rel.ID)
+	pp, err := w.orch.PlanPromote(ctx, nil, w.env, rel.ID)
 	must(t, err)
 	if !pp.CanDeploy || len(pp.Plan.Blockers) != 1 {
 		t.Fatalf("plan = %+v, want queueable with the host access blocker", pp)
 	}
-	j, err := w.orch.Promote(ctx, w.env, rel.ID)
+	j, err := w.orch.Promote(ctx, nil, w.env, rel.ID)
 	must(t, err)
 	const ask = "elevated access: mon host:/var/run/docker.sock:/s:ro"
 	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || *j.WaitingParam != ask {
@@ -385,7 +385,7 @@ func TestPromoteRemovingTileDropsGrant(t *testing.T) {
 		must(t, err)
 		return r.ID
 	}
-	j, err := w.orch.Promote(ctx, w.env, rel("c1"))
+	j, err := w.orch.Promote(ctx, nil, w.env, rel("c1"))
 	must(t, err)
 	w.waiting(t, j.ID)
 	pg, err := w.orch.HostGrant(ctx, w.stack)
@@ -395,7 +395,7 @@ func TestPromoteRemovingTileDropsGrant(t *testing.T) {
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("first promote = %s %q", j.State, j.Error)
 	}
-	j, err = w.orch.Promote(ctx, w.env, rel("c2"))
+	j, err = w.orch.Promote(ctx, nil, w.env, rel("c2"))
 	must(t, err)
 	if j = w.wait(t, j.ID); j.State != job.Done {
 		t.Fatalf("second promote = %s %q", j.State, j.Error)

@@ -71,6 +71,10 @@ type PlacementLive struct {
 	// Set writes one planned change through the service's verbs; a pin that
 	// moves envs also moves them. Nil = changes are not applied.
 	Set func(ctx context.Context, w PlacementWrite) error
+	// MayPlace says whoever approves this plan may change pin, ingress and
+	// exits (an org owner). False: a plan that changes one is blocked with
+	// NeedsOwner, so it waits for an owner to promote it.
+	MayPlace bool
 }
 
 // shownValues are the tile keys whose old and new values the plan prints:

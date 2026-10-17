@@ -165,7 +165,7 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		if e == nil {
 			return "", errs.ErrNotFound
 		}
-		j, err := h.orch.PromoteTicked(c.Request().Context(), e.ID, c.Param("release"), render.ApproveOpts(c).Ticked)
+		j, err := h.orch.PromoteTicked(c.Request().Context(), middleware.Principal(c), e.ID, c.Param("release"), render.ApproveOpts(c).Ticked)
 		if err != nil {
 			return "", err
 		}

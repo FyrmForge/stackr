@@ -39,28 +39,38 @@ func (o *Orchestrator) Release(ctx context.Context, id string) (Release, map[str
 	return r, pins, err
 }
 
-// PlanPromote is the dry run of taking releaseID into envID.
-func (o *Orchestrator) PlanPromote(ctx context.Context, envID, releaseID string) (PromotePlan, error) {
-	p, err := o.promote.Plan(ctx, envID, releaseID, io.Discard)
+// PlanPromote is the dry run of taking releaseID into envID, as by would
+// approve it: a plan that changes pin, ingress or exits is blocked unless by
+// is an org owner.
+func (o *Orchestrator) PlanPromote(ctx context.Context, by *Principal, envID, releaseID string) (PromotePlan, error) {
+	ok, err := o.mayPlace(ctx, by, envID)
+	if err != nil {
+		return PromotePlan{}, err
+	}
+	p, err := o.promote.Plan(withMayPlace(ctx, ok), envID, releaseID, io.Discard)
 	if err != nil {
 		return PromotePlan{}, err
 	}
 	return PromotePlan{Plan: p, CanDeploy: !p.Blocked() || p.OnlyHostAccess()}, nil
 }
 
-// Promote queues taking releaseID into envID. The job re-plans and refuses
-// with the same blockers the dry run shows.
-func (o *Orchestrator) Promote(ctx context.Context, envID, releaseID string) (Job, error) {
-	return o.enqueuePromote(ctx, envID, releaseID)
+// Promote queues taking releaseID into envID, approved by by. The job
+// re-plans and refuses with the same blockers the dry run shows.
+func (o *Orchestrator) Promote(ctx context.Context, by *Principal, envID, releaseID string) (Job, error) {
+	return o.PromoteTicked(ctx, by, envID, releaseID, nil)
 }
 
 // PromoteTicked is Promote that also applies the plan's secret removal rows
 // (Change.Key) named in ticked; unticked ones stay.
-func (o *Orchestrator) PromoteTicked(ctx context.Context, envID, releaseID string, ticked []string) (Job, error) {
-	return o.enqueuePromote(ctx, envID, releaseID, ticked...)
+func (o *Orchestrator) PromoteTicked(ctx context.Context, by *Principal, envID, releaseID string, ticked []string) (Job, error) {
+	ok, err := o.mayPlace(ctx, by, envID)
+	if err != nil {
+		return Job{}, err
+	}
+	return o.enqueuePromote(ctx, envID, releaseID, ok, ticked...)
 }
 
 // Rollback is Promote with an older release: one path, one rule (B2).
-func (o *Orchestrator) Rollback(ctx context.Context, envID, releaseID string) (Job, error) {
-	return o.Promote(ctx, envID, releaseID)
+func (o *Orchestrator) Rollback(ctx context.Context, by *Principal, envID, releaseID string) (Job, error) {
+	return o.Promote(ctx, by, envID, releaseID)
 }

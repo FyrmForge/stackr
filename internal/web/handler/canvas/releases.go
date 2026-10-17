@@ -9,6 +9,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -113,7 +114,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		return comp.Releases(v), nil
 	}
 	e, n, cur := es[ei], rs[ri].Number, runs(es[ei])
-	p, err := h.orch.PlanPromote(ctx, e.ID, plan)
+	p, err := h.orch.PlanPromote(ctx, middleware.Principal(c), e.ID, plan)
 	if err != nil {
 		return nil, err
 	}

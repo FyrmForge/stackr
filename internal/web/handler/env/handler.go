@@ -97,7 +97,7 @@ func (h *handler) JobEvents(c echo.Context) error {
 // POST …/-/rollback/:release answers with the job's live status for
 // the caller's target.
 func (h *handler) Rollback(c echo.Context) error {
-	j, err := h.orch.Rollback(c.Request().Context(), scope(c).Env.ID, c.Param("release"))
+	j, err := h.orch.Rollback(c.Request().Context(), middleware.Principal(c), scope(c).Env.ID, c.Param("release"))
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
