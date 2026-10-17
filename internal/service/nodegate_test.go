@@ -19,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -333,12 +334,12 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 	o, env, _ := gateWorld(t)
 	vol := store.Volume{ID: uuid.NewString(), ScopeKind: "env", ScopeID: env.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}
 	must(t, o.store.Volumes.Create(ctx, vol))
-	must(t, o.skipUnreachable(ctx, vol.ID))
+	must(t, o.skipUnreachable(ctx, o.volumeNode(ctx, vol.ID)))
 
 	dead, err := docker.NewRemote("tcp://127.0.0.1:1", &http.Client{})
 	must(t, err)
 	o.docker.(*DockerRouter).Set("w1", dead)
-	err = o.skipUnreachable(ctx, vol.ID)
+	err = o.skipUnreachable(ctx, o.volumeNode(ctx, vol.ID))
 	if !errors.Is(err, jobs.ErrSkipped) || err.Error() != "skipped: node unreachable" {
 		t.Errorf("dropped node = %v", err)
 	}
@@ -347,11 +348,61 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 	o.cluster.old["w1"] = "v0.0.1"
 	o.cluster.mu.Unlock()
 	o.docker.(*DockerRouter).Set("w1", dead)
-	if err := o.skipUnreachable(ctx, vol.ID); err != nil {
+	if err := o.skipUnreachable(ctx, o.volumeNode(ctx, vol.ID)); err != nil {
 		t.Errorf("too old = %v, want the backup to run and say so", err)
 	}
 	setStatus(t, o, "w1", node.StatusOffline)
-	if err := o.skipUnreachable(ctx, vol.ID); err == nil || err.Error() != "skipped: node offline" {
+	if err := o.skipUnreachable(ctx, o.volumeNode(ctx, vol.ID)); err == nil || err.Error() != "skipped: node offline" {
 		t.Errorf("offline node = %v", err)
+	}
+}
+
+// A node with no VIP table is refused as down: members read the error, so
+// it names no node; admins get the name from Detail.
+func TestNoVIPTableIsNodeDown(t *testing.T) {
+	ctx := context.Background()
+	o, _, _ := gateWorld(t)
+	n, err := o.store.Nodes.Get(ctx, "w1")
+	must(t, err)
+	n.Name = "edge-east"
+	must(t, o.store.Nodes.Update(ctx, n))
+	o.vip.(*nodeVIPs).Detach("w1")
+	_, err = o.vipFor(WithNode(ctx, "w1"))
+	var d *NodeDownError
+	if !errors.As(err, &d) || !errors.Is(err, errs.ErrBusy) {
+		t.Fatalf("no table = %v", err)
+	}
+	if strings.Contains(err.Error(), "w1") || strings.Contains(err.Error(), "edge-east") {
+		t.Errorf("member error names the node: %q", err)
+	}
+	if !strings.Contains(d.Detail(), "edge-east") {
+		t.Errorf("admin detail = %q", d.Detail())
+	}
+}
+
+// A scheduled run whose node went offline after it was queued is skipped as
+// its job starts, its run row closed with the reason; a manual one is not.
+func TestScheduledRunSkipsAnOfflineNode(t *testing.T) {
+	ctx := context.Background()
+	o, _, tl := gateWorld(t)
+	sched, err := o.runs.Start(ctx, tl.ID, nil, lrun.Schedule)
+	must(t, err)
+	manual, err := o.runs.Start(ctx, tl.ID, nil, lrun.Manual)
+	must(t, err)
+	nctx := WithNode(ctx, "w1")
+	must(t, o.skipDownCron(nctx, sched.ID)) // online: it runs
+
+	setStatus(t, o, "w1", node.StatusOffline)
+	err = o.skipDownCron(nctx, sched.ID)
+	if !errors.Is(err, jobs.ErrSkipped) || err.Error() != "skipped: node offline" {
+		t.Fatalf("offline = %v", err)
+	}
+	r, err := o.runs.Get(ctx, "", sched.ID)
+	must(t, err)
+	if r.Status != lrun.Cancelled || r.Reason != "skipped: node offline" {
+		t.Errorf("run row = %s %q", r.Status, r.Reason)
+	}
+	if err := o.skipDownCron(nctx, manual.ID); err != nil {
+		t.Errorf("manual run = %v, want it to run and report the node itself", err)
 	}
 }

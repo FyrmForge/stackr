@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -38,9 +41,10 @@ func (o *Orchestrator) scheduleSettings(ctx context.Context) (map[string]string,
 }
 
 // runCleanup is the disk sweep: dangling stackr images, stackr builds no
-// running container or recent release reaches, and old build cache. It never
-// touches an image stackr did not build, nor a volume. A step that fails is
-// logged and the next still runs.
+// running container or recent release reaches, stackr's own images of other
+// builds than the running one and its rollback (stackrKeep), and old build
+// cache. It never touches any other image stackr did not build, nor a volume.
+// A step that fails is logged and the next still runs.
 func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 	on, err := o.settings.Get(ctx, "cleanup_enabled")
 	if err != nil {
@@ -67,6 +71,16 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 		note("dangling images on "+nd.Name, n, byteSize(b), err)
 		return nil
 	})
+
+	if keep, err := o.stackrKeep(ctx); err != nil {
+		note("old stackr images", 0, "", err)
+	} else if keep != nil {
+		_ = o.eachNode(ctx, func(ctx context.Context, nd store.Node) error {
+			n, b, err := o.pruneStackrImages(ctx, keep)
+			note("old stackr images on "+nd.Name, n, byteSize(b), err)
+			return nil
+		})
+	}
 
 	n, b := 0, int64(0)
 	keep, pinned, running, err := o.cleanupKeep(ctx)
@@ -236,6 +250,121 @@ func (o *Orchestrator) cleanupKeep(ctx context.Context) (ids, pinned, running []
 		return nil, nil, nil, err
 	}
 	return ids, pinned, running, nil
+}
+
+// stackrImageRepos are the names a stackr image goes by on a node: the
+// release on ghcr (the installer's and the panel upgrade's pull) and the
+// cluster registry copy (the controller's publish tag, a worker's load).
+var stackrImageRepos = []string{installspec.Repo, docker.ClusterPrefix + stackrRepo}
+
+// splitTag cuts ref into repo and tag; ok is false for a ref with no tag.
+func splitTag(ref string) (repo, tag string, ok bool) {
+	i := strings.LastIndex(ref, ":")
+	if i <= strings.LastIndex(ref, "/") {
+		return ref, "", false
+	}
+	return ref[:i], ref[i+1:], true
+}
+
+// stackrKeep is the stackr image names every node keeps: the running build
+// (the controller proxy's tag and cfg.Version) and the one before it
+// (panel_prev_version, the build workers may still run and an upgrade rolls
+// back to), under both repos and under the registry digest a worker loads it
+// by (docker localName). nil, nil = remove nothing: the running build is not
+// known, or a panel upgrade is under way (its new image is neither yet).
+func (o *Orchestrator) stackrKeep(ctx context.Context) ([]string, error) {
+	img, err := o.controllerStackrImage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var vers []string
+	if repo, tag, ok := splitTag(img); ok && slices.Contains(stackrImageRepos, repo) {
+		vers = append(vers, tag)
+	}
+	if v := strings.TrimPrefix(o.cfg.Version, "v"); v != "" {
+		vers = append(vers, v)
+	}
+	if len(vers) == 0 {
+		return nil, nil
+	}
+	js, err := o.store.Jobs.ListByState(ctx, "queued", "running", "waiting")
+	if err != nil {
+		return nil, err
+	}
+	if slices.ContainsFunc(js, func(j store.Job) bool { return j.Kind == string(kindUpgrade) }) {
+		return nil, nil
+	}
+	prev, _, err := o.store.Settings.Get(ctx, keyPanelPrevVersion)
+	if err != nil {
+		return nil, err
+	}
+	if prev = strings.TrimPrefix(prev, "v"); prev != "" {
+		vers = append(vers, prev)
+	}
+	var keep []string
+	for _, v := range vers {
+		for _, repo := range stackrImageRepos {
+			keep = append(keep, repo+":"+v)
+		}
+		dg, err := o.regs.Resolve(ctx, stackrRepo, v)
+		if err != nil {
+			return nil, fmt.Errorf("the registry digest of stackr %s: %w", v, err)
+		}
+		pushed, _ := stackrDigests.Load(v)
+		for _, d := range []any{dg, pushed} {
+			if d, ok := d.(string); ok && d != "" {
+				keep = append(keep, docker.ClusterPrefix+stackrRepo+":sha256-"+strings.TrimPrefix(d, "sha256:"))
+			}
+		}
+	}
+	return keep, nil
+}
+
+// pruneStackrImages removes, on the node in ctx, every stackr image (by
+// stackrImageRepos) none of whose names is in keep and that no container,
+// running or stopped, was made from. Only the stackr names are untagged: an
+// image also tagged otherwise stays under that name. Returns how many images
+// went and their size.
+func (o *Orchestrator) pruneStackrImages(ctx context.Context, keep []string) (int, int64, error) {
+	cs, err := o.docker.List(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	used := map[string]bool{}
+	for _, c := range cs {
+		used[c.Image], used[c.ImageID] = true, true
+	}
+	ims, err := o.docker.ListImages(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	n, size := 0, int64(0)
+	var failed []error
+	for _, im := range ims {
+		var mine []string
+		for _, t := range im.Tags {
+			if repo, _, ok := splitTag(t); ok && slices.Contains(stackrImageRepos, repo) {
+				mine = append(mine, t)
+			}
+		}
+		if len(mine) == 0 || used[im.ID] ||
+			slices.ContainsFunc(im.Tags, func(t string) bool { return used[t] || slices.Contains(keep, t) }) {
+			continue
+		}
+		gone := 0
+		for _, t := range mine {
+			switch err := o.docker.RemoveImage(ctx, t); {
+			case err == nil, errors.Is(err, docker.ErrNotFound):
+				gone++
+			default:
+				failed = append(failed, err)
+			}
+		}
+		if gone == len(im.Tags) {
+			n, size = n+1, size+im.Size
+		}
+	}
+	return n, size, errors.Join(failed...)
 }
 
 // byteSize is n in the largest binary unit that keeps it above 1.

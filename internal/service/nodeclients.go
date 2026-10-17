@@ -313,16 +313,31 @@ func issueController(ctx context.Context, st *store.Store, ca *clusterca.CA) (ne
 	return newController{pair, iss.CertPEM, kb, iss.Serial}, err
 }
 
-// save writes the pair to the data dir (both files are panel state).
+// save writes the pair to the data dir (both files are panel state). Both
+// are written aside first, then renamed, as keepPrev does: no reader sees a
+// half-written file, and the panel backup holds rollMu over the gap between
+// the two renames.
 func (n newController) save(dataDir string) error {
 	kp, cp := filepath.Join(dataDir, controllerKeyFile), filepath.Join(dataDir, controllerCertFile)
 	if err := os.MkdirAll(filepath.Dir(kp), 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(kp, n.keyPEM, 0o600); err != nil {
-		return err
+	files := []struct {
+		path string
+		b    []byte
+		mode os.FileMode
+	}{{kp, n.keyPEM, 0o600}, {cp, n.certPEM, 0o644}}
+	for _, f := range files {
+		if err := os.WriteFile(f.path+".new", f.b, f.mode); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(cp, n.certPEM, 0o644)
+	for _, f := range files {
+		if err := os.Rename(f.path+".new", f.path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // certSerial is the hex serial workers match against ControllerSerials (the

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
@@ -36,6 +37,23 @@ func (o *Orchestrator) queueRun(ctx context.Context, tileID, trigger string) (Jo
 	}
 	r, err = o.runs.SetJob(ctx, r.ID, j.ID)
 	return j, r, err
+}
+
+// skipDownCron is a scheduled run's skipUnreachable as its job starts, on
+// the node in ctx: scheduleCron checked only at queue time. The run row the
+// queue wrote is closed as cancelled with the skip as its reason; the job is
+// recorded skipped.
+func (o *Orchestrator) skipDownCron(ctx context.Context, runID string) error {
+	r, err := o.runs.Get(ctx, "", runID)
+	if err != nil || r.Trigger != lrun.Schedule || lrun.Done(r) {
+		return nil // the run flow answers for a run that is gone or closed
+	}
+	id, _ := docker.NodeFrom(ctx)
+	if err := o.skipUnreachable(ctx, id); err != nil {
+		_, ferr := o.runs.Finish(context.WithoutCancel(ctx), runID, nil, lrun.Cancelled, err.Error())
+		return errors.Join(err, ferr)
+	}
+	return nil
 }
 
 type ranFirstKey struct{}

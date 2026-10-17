@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -282,7 +283,7 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 	sp := fbackup.Spec{Trigger: "manual", Mode: p.Mode}
 	destID, method := p.DestID, p.Method
 	if p.ScheduleID != "" {
-		if err := o.skipUnreachable(ctx, v.ID); err != nil {
+		if err := o.skipUnreachable(ctx, o.volumeNode(ctx, v.ID)); err != nil {
 			return err
 		}
 		s, err := o.backups.GetSchedule(ctx, p.ScheduleID)
@@ -549,7 +550,16 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 		}
 	}
 	_, _ = fmt.Fprintf(log, "panel backup to %s\n", dest.Name)
+	// rollMu: no controller cert renewal or root rollover rewrites key files
+	// while they are copied. Nothing here takes rolloverMu, so no lock order
+	// to keep; a revoke holds rollMu up to controllerAckBound, and the backup
+	// waits that out.
+	var lock sync.Locker
+	if o.cluster != nil {
+		lock = &o.cluster.rollMu
+	}
 	return o.backup.PanelBackup(ctx, fbackup.Panel{
+		Lock: lock,
 		Vacuum: func(ctx context.Context, path string) error {
 			_, err := o.db.ExecContext(ctx, "VACUUM INTO ?", path)
 			return err

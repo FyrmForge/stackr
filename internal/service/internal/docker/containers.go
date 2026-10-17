@@ -234,6 +234,7 @@ func (d *Client) List(ctx context.Context, labels map[string]string) ([]Containe
 		row := Container{
 			ID:          c.ID,
 			Image:       c.Image,
+			ImageID:     c.ImageID,
 			State:       c.State,
 			Health:      healthWord(c.Status),
 			Labels:      c.Labels,

@@ -415,6 +415,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 
 		stackrPublished: make(chan struct{}),
 	}
+	if nv, ok := orch.vip.(*nodeVIPs); ok {
+		nv.down = orch.nodeDown
+	}
 	// Every network comes from one cluster pool: a reservation avoids every
 	// env's network and every node's reported bridges, not just its own node's.
 	nodes.Taken = func(ctx context.Context) ([]netip.Prefix, error) {

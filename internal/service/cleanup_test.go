@@ -3,15 +3,19 @@ package service
 import (
 	"bytes"
 	"context"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
@@ -186,5 +190,81 @@ func TestCleanupOffDoesNothing(t *testing.T) {
 	}
 	if len(w.refs()) != 1 {
 		t.Errorf("images changed: %v", w.refs())
+	}
+}
+
+// removedImages is every ref the sweep asked Docker to remove.
+func (w *world) removedImages() []string {
+	var out []string
+	for _, c := range w.fake.Calls() {
+		if c.Method == "RemoveImage" {
+			out = append(out, c.Args[0])
+		}
+	}
+	return out
+}
+
+// Stackr's own images of old builds go, under both names and the digest name
+// a worker loads them by; the running build and the one before it stay, as
+// does an old one a container was made from (by id) and any foreign image.
+func TestCleanupOldStackrImages(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))
+	srv := httptest.NewServer(&fakeRegistry{tags: map[string]map[string]string{
+		stackrRepo: {"0.8.2": "sha256:cur", "0.8.1": "sha256:prev", "0.8.0": "sha256:old"},
+	}})
+	defer srv.Close()
+	w.orch.regs.WithBase(srv.URL)
+	w.orch.cfg.Version = "v0.8.2"
+	must(t, w.st.Settings.Set(ctx, keyPanelPrevVersion, "v0.8.1"))
+	w.fake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: installspec.Repo + ":0.8.2"}}
+
+	ghcr, local := installspec.Repo+":", docker.ClusterPrefix+stackrRepo+":"
+	w.fake.Images = append(w.fake.Images,
+		docker.Image{ID: "sha256:i2", Tags: []string{ghcr + "0.8.2", local + "0.8.2"}, Size: 10},
+		docker.Image{ID: "sha256:i2w", Tags: []string{local + "sha256-cur"}, Size: 10},
+		docker.Image{ID: "sha256:i1", Tags: []string{ghcr + "0.8.1"}, Size: 10},
+		docker.Image{ID: "sha256:i1w", Tags: []string{local + "sha256-prev"}, Size: 10},
+		docker.Image{ID: "sha256:i0", Tags: []string{ghcr + "0.8.0", local + "0.8.0"}, Size: 10},
+		docker.Image{ID: "sha256:i0w", Tags: []string{local + "sha256-old"}, Size: 10},
+		docker.Image{ID: "sha256:i7", Tags: []string{ghcr + "0.7.0"}, Size: 10},
+		docker.Image{ID: "sha256:redis", Tags: []string{"redis:7"}, Size: 10},
+	)
+	// A helper left from 0.7.0, made by image id.
+	w.fake.Containers = append(w.fake.Containers, docker.Container{ID: "h", Image: "sha256:i7", ImageID: "sha256:i7", State: "exited"})
+
+	log := w.cleanup(t)
+	got := w.removedImages()
+	slices.Sort(got)
+	want := []string{ghcr + "0.8.0", local + "0.8.0", local + "sha256-old"}
+	if !slices.Equal(got, want) {
+		t.Errorf("removed %v, want %v\n%s", got, want, log)
+	}
+	if !strings.Contains(log, "old stackr images on ") || !strings.Contains(log, ": 2 removed") {
+		t.Errorf("log: %q", log)
+	}
+}
+
+// With the running build unknown, or a panel upgrade in flight, no stackr
+// image goes.
+func TestCleanupStackrImagesFailClosed(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))
+	w.fake.Images = append(w.fake.Images, docker.Image{ID: "sha256:i0", Tags: []string{installspec.Repo + ":0.8.0"}})
+	w.fake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: "caddy:2"}}
+	w.cleanup(t)
+	if got := w.removedImages(); len(got) != 0 {
+		t.Errorf("unknown build: removed %v", got)
+	}
+
+	w.orch.cfg.Version = "0.8.2"
+	must(t, w.st.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: string(kindUpgrade), State: job.Running, Payload: "{}", CreatedAt: time.Now(),
+	}))
+	w.cleanup(t)
+	if got := w.removedImages(); len(got) != 0 {
+		t.Errorf("upgrade running: removed %v", got)
 	}
 }

@@ -78,6 +78,11 @@ func TestTokenVerify(t *testing.T) {
 	if _, err := Verify(key, p+"x."+sig, now); err != ErrToken {
 		t.Errorf("tampered: %v", err)
 	}
+	// The hour-long node pass nodes were once handed is refused, signed or not.
+	pass := Sign(key, Claims{Kind: KindNode, Subject: "n1", Expires: now.Add(time.Hour).Unix()})
+	if _, err := Verify(key, pass, now); err != ErrToken {
+		t.Errorf("node pass: %v", err)
+	}
 }
 
 func newServer(t *testing.T, f Facts, audit *[]Issued) (*Server, *httptest.Server, *[]*http.Request) {
@@ -136,7 +141,7 @@ func mint(t *testing.T, base, scope string) string {
 
 func TestFrontFlow(t *testing.T) {
 	var audit []Issued
-	_, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
+	_, front, seen := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
 	defer front.Close()
 
 	// the challenge
@@ -202,7 +207,7 @@ func TestSystemOrgPullOnly(t *testing.T) {
 // upload, the registry never sees the mount.
 func TestMountWithoutSourceIsPlainUpload(t *testing.T) {
 	var audit []Issued
-	_, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PushRepos: []string{"acme/shop/web"}}, &audit)
+	_, front, seen := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PushRepos: []string{"acme/shop/web"}}, &audit)
 	defer front.Close()
 	tok := mint(t, front.URL, "repository:acme/shop/web:pull,push repository:acme/shop/api:pull")
 	res := get(t, "POST", front.URL+"/v2/acme/shop/web/blobs/uploads/?mount=sha256:1&from=acme/shop/api", tok)
@@ -315,7 +320,7 @@ func TestDecideImports(t *testing.T) {
 func TestFrontImportsAcrossOrgs(t *testing.T) {
 	var audit []Issued
 	a, b := ImportRepo("acme", "ghcr.io/foo/bar:1"), ImportRepo("zed", "ghcr.io/foo/bar:1")
-	_, front, _ := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullImports: []string{a}}, &audit)
+	_, front, _ := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PullImports: []string{a}}, &audit)
 	defer front.Close()
 
 	tok := mint(t, front.URL, "repository:"+a+":pull repository:"+b+":pull")
@@ -445,11 +450,83 @@ func TestGate(t *testing.T) {
 	}
 }
 
+// drained says whether the gate drains within d.
+func drained(g *Gate, d time.Duration) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	return g.Drain(ctx) == nil
+}
+
+// A push holds the gate from its first blob to its tagged manifest: a sweep
+// shutting the gate in between waits for it while the push's own requests go
+// through; a push that had not started is refused.
+func TestPushHoldsGate(t *testing.T) {
+	var audit []Issued
+	web, api := "acme/shop/web", "acme/shop/api"
+	s, front, _ := newServer(t, Facts{Kind: KindUser, Subject: "u1", Orgs: []string{"acme"}}, &audit)
+	defer front.Close()
+	s.Gate = &Gate{}
+	tok := mint(t, front.URL, "repository:"+web+":pull,push repository:"+api+":pull,push")
+
+	if res := get(t, "POST", front.URL+"/v2/"+web+"/blobs/uploads/", tok); res.StatusCode != 200 {
+		t.Fatalf("blob upload = %d", res.StatusCode)
+	}
+	open, _ := s.Gate.Close()
+	defer open()
+	if drained(s.Gate, 150*time.Millisecond) {
+		t.Fatal("the sweep went ahead between a push's blob and its manifest")
+	}
+	// A fresh token mid-push is the same push.
+	tok2 := mint(t, front.URL, "repository:"+web+":pull,push repository:"+api+":pull,push")
+	for _, c := range []struct{ method, path string }{
+		{"PATCH", "/blobs/uploads/9f1c"},
+		{"PUT", "/blobs/uploads/9f1c?digest=sha256:aa"},
+		{"PUT", "/manifests/sha256:bb"}, // a platform manifest: still untagged
+	} {
+		if res := get(t, c.method, front.URL+"/v2/"+web+c.path, tok2); res.StatusCode != 200 {
+			t.Errorf("%s %s mid-push = %d", c.method, c.path, res.StatusCode)
+		}
+	}
+	if drained(s.Gate, 150*time.Millisecond) {
+		t.Fatal("a manifest by digest ended the push")
+	}
+	if res := get(t, "POST", front.URL+"/v2/"+api+"/blobs/uploads/", tok); res.StatusCode != 503 {
+		t.Errorf("a new push while shut = %d", res.StatusCode)
+	}
+	if res := get(t, "PUT", front.URL+"/v2/"+web+"/manifests/v1", tok2); res.StatusCode != 200 {
+		t.Fatalf("tag = %d", res.StatusCode)
+	}
+	if !drained(s.Gate, time.Second) {
+		t.Error("the tagged manifest did not end the push")
+	}
+}
+
+// A push that never sends its manifest lets go after PushHold.
+func TestPushHoldTimesOut(t *testing.T) {
+	var audit []Issued
+	web := "acme/shop/web"
+	s, front, _ := newServer(t, Facts{Kind: KindUser, Subject: "u1", Orgs: []string{"acme"}}, &audit)
+	defer front.Close()
+	s.Gate, s.PushHold = &Gate{}, 100*time.Millisecond
+	tok := mint(t, front.URL, "repository:"+web+":pull,push")
+	if res := get(t, "POST", front.URL+"/v2/"+web+"/blobs/uploads/", tok); res.StatusCode != 200 {
+		t.Fatalf("blob upload = %d", res.StatusCode)
+	}
+	open, _ := s.Gate.Close()
+	defer open()
+	if !drained(s.Gate, 2*time.Second) {
+		t.Error("an abandoned push kept the sweep off")
+	}
+	if res := get(t, "PATCH", front.URL+"/v2/"+web+"/blobs/uploads/9f1c", tok); res.StatusCode != 503 {
+		t.Errorf("the timed-out push while shut = %d", res.StatusCode)
+	}
+}
+
 // The proxy keeps what Caddy forwarded (the registry builds its upload URLs
 // from the Host and X-Forwarded-Proto), adds the hop, and drops our token.
 func TestProxyHeaders(t *testing.T) {
 	var audit []Issued
-	s, front, seen := newServer(t, Facts{Kind: KindNode, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
+	s, front, seen := newServer(t, Facts{Kind: KindBuilder, Subject: "n1", PullRepos: []string{"acme/shop/web"}}, &audit)
 	defer front.Close()
 	s.Backend.Path = "/base"
 	tok := mint(t, front.URL, "repository:acme/shop/web:pull")

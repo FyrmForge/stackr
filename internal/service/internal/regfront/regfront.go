@@ -316,7 +316,9 @@ func Verify(key []byte, token string, now time.Time) (Claims, error) {
 		return c, ErrToken
 	}
 	b, err := base64.RawURLEncoding.DecodeString(p)
-	if err != nil || json.Unmarshal(b, &c) != nil {
+	// No token is issued to a node since nodes stopped pulling through a
+	// front; the node passes of before lived an hour and must not still work.
+	if err != nil || json.Unmarshal(b, &c) != nil || c.Kind == KindNode {
 		return c, ErrToken
 	}
 	if now.Unix() >= c.Expires {
@@ -362,6 +364,13 @@ func (g *Gate) TryEnter() (leave func(), ok bool) {
 	if g.shut != nil {
 		return nil, false
 	}
+	return g.join(), true
+}
+
+// join starts a write whether or not the gate is shut, for a request of a
+// write that already holds it (a push between its first blob and its
+// manifest): the sweep's Drain waits for that write anyway. Call with g.mu.
+func (g *Gate) join() (leave func()) {
 	g.writers++
 	var once sync.Once
 	return func() {
@@ -370,7 +379,7 @@ func (g *Gate) TryEnter() (leave func(), ok bool) {
 			g.writers--
 			g.mu.Unlock()
 		})
-	}, true
+	}
 }
 
 // Enter waits for the gate to open, then starts a write as TryEnter does. A
@@ -454,6 +463,63 @@ func (g *Gate) Wait(ctx context.Context) error {
 // takes seconds; a builder retries on 503.
 const gateRetryAfter = "10"
 
+// DefaultPushHold is how long a push may hold the gate from its first write
+// when its tagged manifest never comes (an abandoned push).
+const DefaultPushHold = 10 * time.Minute
+
+// pushHolds keeps the gate entered for each push in flight through the
+// front, from its first write to its tagged manifest: a push's blobs are
+// untagged until then, and a sweep between two of its requests would collect
+// them. A push is its token holder and repo, not the token: Docker fetches a
+// new one on a long push.
+// ponytail: two concurrent pushes of one repo by one holder share a hold, so
+// the first manifest ends it for both; per upload session if that bites.
+type pushHolds struct {
+	mu    sync.Mutex
+	holds map[string]*pushHold
+}
+
+type pushHold struct{ leave func() }
+
+// enter starts a request of the push key: the push enters the gate on its
+// first write (false while the gate is shut), and every request of it is a
+// writer of its own, so neither the hold timing out nor the manifest ending
+// it cuts a request short.
+func (p *pushHolds) enter(g *Gate, key string, hold time.Duration) (leave func(), ok bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.holds[key] == nil {
+		end, ok := g.TryEnter()
+		if !ok {
+			return nil, false
+		}
+		if p.holds == nil {
+			p.holds = map[string]*pushHold{}
+		}
+		h := &pushHold{end}
+		p.holds[key] = h
+		// From the first write, not slid on: no client keeps sweeps off for long.
+		time.AfterFunc(hold, func() { p.end(key, h) })
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.join(), true
+}
+
+// end releases the push key's hold h; nil = whichever it holds. A timer of
+// an ended hold leaves the next push's alone.
+func (p *pushHolds) end(key string, h *pushHold) {
+	p.mu.Lock()
+	cur := p.holds[key]
+	if cur == nil || (h != nil && cur != h) {
+		p.mu.Unlock()
+		return
+	}
+	delete(p.holds, key)
+	p.mu.Unlock()
+	cur.leave()
+}
+
 // Server is the front: the token endpoint at /token and the proxy under /v2/.
 type Server struct {
 	Key []byte
@@ -472,12 +538,17 @@ type Server struct {
 	// finished a push), once per manifest, with the token's holder. Nil = none.
 	Pushed func(context.Context, Pushed)
 	// Gate, when closed, refuses every write with 503 and Retry-After: the
-	// cleanup sweep is collecting garbage. Reads go through. Nil = never shut.
+	// cleanup sweep is collecting garbage. Reads go through, and so do the
+	// writes of a push that entered before it shut (pushHolds). Nil = never
+	// shut.
 	Gate *Gate
-	Now  func() time.Time
+	// PushHold bounds a push's hold on the gate (pushHolds); 0 = DefaultPushHold.
+	PushHold time.Duration
+	Now      func() time.Time
 
-	once  sync.Once
-	proxy *httputil.ReverseProxy
+	once   sync.Once
+	proxy  *httputil.ReverseProxy
+	pushes pushHolds
 }
 
 func (s *Server) now() time.Time {
@@ -671,8 +742,14 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if s.Gate != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		leave, open := s.Gate.TryEnter()
+	push := ""
+	if s.Gate != nil && r.Method != http.MethodGet && r.Method != http.MethodHead && len(need) > 0 {
+		push = string(c.Kind) + "\x00" + c.Subject + "\x00" + need[0].Repo
+		hold := s.PushHold
+		if hold <= 0 {
+			hold = DefaultPushHold
+		}
+		leave, open := s.pushes.enter(s.Gate, push, hold)
 		if !open {
 			w.Header().Set("Retry-After", gateRetryAfter)
 			w.Header().Set("Content-Type", "application/json")
@@ -715,14 +792,22 @@ func (s *Server) serveV2(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 	})
-	if s.Pushed == nil || r.Method != http.MethodPut {
+	if r.Method != http.MethodPut {
 		s.proxy.ServeHTTP(w, r)
 		return
 	}
 	sw := &statusWriter{ResponseWriter: w}
 	s.proxy.ServeHTTP(sw, r)
 	repo, kind, ref, _ := splitPath(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v2"), "/"))
-	if kind == "manifests" && sw.status/100 == 2 {
+	if kind != "manifests" || sw.status/100 != 2 {
+		return
+	}
+	// A tag is a push's last write; a manifest by digest (a multi-arch
+	// image's per-platform ones) is untagged until the index goes up.
+	if push != "" && !strings.Contains(ref, ":") {
+		s.pushes.end(push, nil)
+	}
+	if s.Pushed != nil {
 		s.Pushed(r.Context(), Pushed{
 			Repo: repo, Reference: ref, Digest: w.Header().Get("Docker-Content-Digest"),
 			Kind: c.Kind, Subject: c.Subject,

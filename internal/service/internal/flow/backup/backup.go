@@ -412,7 +412,11 @@ type Panel struct {
 	Caddy  func(ctx context.Context, w io.Writer) error
 	// DataDir holds the other files of installspec.PanelState (the cluster
 	// CA, the WireGuard key); each is archived when present. "" = none.
-	DataDir    string
+	DataDir string
+	// Lock is held from the database copy until the data dir files are in
+	// the archive, not over the upload: a renewal rewrites a key pair there
+	// in two renames, under this lock. nil = none.
+	Lock       sync.Locker
 	Trigger    string
 	MasterKey  string
 	Version    string
@@ -463,26 +467,12 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest, l
 	if err := os.MkdirAll(f.Scratch, 0o700); err != nil {
 		return "", 0, err
 	}
-	db := filepath.Join(f.Scratch, fmt.Sprintf("panel-%d.db", time.Now().UnixNano()))
-	defer func() { _ = os.Remove(db) }()
-	if err := p.Vacuum(ctx, db); err != nil {
-		return "", 0, fmt.Errorf("vacuum into: %w", err)
-	}
-	caddy := f.panelCaddy(ctx, p, log)
-	defer func() { _ = os.Remove(caddy) }()
 	spool, err := f.spool("panel")
 	if err != nil {
 		return "", 0, err
 	}
 	defer drop(spool)
-	enc, err := encrypt(spool, p.Passphrase, 0)
-	if err != nil {
-		return "", 0, err
-	}
-	if err := panelTar(enc, db, caddy, p); err != nil {
-		return "", 0, err
-	}
-	if err := enc.Close(); err != nil {
+	if err := f.panelArchive(ctx, p, spool, log); err != nil {
 		return "", 0, err
 	}
 	size, _ := spool.Seek(0, io.SeekCurrent)
@@ -491,6 +481,30 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest, l
 	}
 	key := bk.ObjectKey(bk.PanelPrefix(p.InstallID, p.trigger()), "panel.tar.gz.age", time.Now())
 	return key, size, open(dest).Put(ctx, key, spool)
+}
+
+// panelArchive writes the encrypted archive to w under p.Lock: the database
+// copy, the proxy volume and the data dir files as one moment of the panel.
+func (f *Flow) panelArchive(ctx context.Context, p Panel, w io.Writer, log io.Writer) error {
+	if p.Lock != nil {
+		p.Lock.Lock()
+		defer p.Lock.Unlock()
+	}
+	db := filepath.Join(f.Scratch, fmt.Sprintf("panel-%d.db", time.Now().UnixNano()))
+	defer func() { _ = os.Remove(db) }()
+	if err := p.Vacuum(ctx, db); err != nil {
+		return fmt.Errorf("vacuum into: %w", err)
+	}
+	caddy := f.panelCaddy(ctx, p, log)
+	defer func() { _ = os.Remove(caddy) }()
+	enc, err := encrypt(w, p.Passphrase, 0)
+	if err != nil {
+		return err
+	}
+	if err := panelTar(enc, db, caddy, p); err != nil {
+		return err
+	}
+	return enc.Close()
 }
 
 // panelCaddy spools the proxy volume's tar and returns its path, "" when

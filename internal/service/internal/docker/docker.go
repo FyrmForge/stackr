@@ -103,7 +103,9 @@ type Container struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Image string `json:"image"`
-	State string `json:"state"`
+	// ImageID is the id of the image it was created from, whatever Image says.
+	ImageID string `json:"-"`
+	State   string `json:"state"`
 	// Health is docker's own word (healthy | unhealthy | starting), "" when
 	// the container declares no HEALTHCHECK.
 	Health string            `json:"health"`
