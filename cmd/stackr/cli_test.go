@@ -697,6 +697,19 @@ func TestPromoteAsks(t *testing.T) {
 	}
 }
 
+// A pin move the blocker already quotes is not printed again as an impact.
+func TestPromoteDryRunSaysPinMoveOnce(t *testing.T) {
+	fake(t, map[string]string{
+		"/releases": `[{"id":"r7","number":7}]`,
+		"/plan/r7": `{"can_deploy":false,"plan":{"changes":[{"kind":"pin","new":"eu","impact":"moves shop/prod"}],` +
+			`"blockers":["pin eu moves shop/prod; confirm that move on the Placement tab"]}}`,
+	})
+	_, _, errw := cli(t, "promote", "7", "--stack", "shop", "--env", "prod", "--dry-run")
+	if n := strings.Count(errw, "moves shop/prod"); n != 1 {
+		t.Errorf("pin move said %d times:\n%s", n, errw)
+	}
+}
+
 // fake is a recorder that answers by the longest matching path suffix (""
 // answers the rest) and records the query too.
 func fake(t *testing.T, answers map[string]string) *recorder {

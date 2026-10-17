@@ -272,9 +272,13 @@ func cmpJoin(keys []string) string {
 // ticked.
 func (a *app) review(pl map[string]any) {
 	changes, _ := pl["changes"].([]any)
+	blockers, _ := pl["blockers"].([]any)
 	for _, c := range changes {
 		ch, _ := c.(map[string]any)
-		if s, _ := ch["impact"].(string); s != "" {
+		s, _ := ch["impact"].(string)
+		// A blocker that already quotes the impact (a pin move) says it once.
+		said := slices.ContainsFunc(blockers, func(b any) bool { return strings.Contains(cell(b), s) })
+		if s != "" && !said {
 			_, _ = fmt.Fprintf(a.errw, "impact: %s\n", s)
 		}
 		if k, _ := ch["key"].(string); k != "" && ch["optional"] == true {
