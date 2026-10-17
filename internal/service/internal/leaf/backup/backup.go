@@ -473,6 +473,27 @@ func (l *Leaf) Finish(
 	return r, l.runs.Update(ctx, r)
 }
 
+// SettleRestored closes the panel runs a restored database still has as
+// running: the archive was taken while its own run was writing it. They
+// finish done, with note, since that archive is the one restored.
+func (l *Leaf) SettleRestored(ctx context.Context, note string) error {
+	rs, err := l.runs.ListByKind(ctx, KindPanel)
+	if err != nil {
+		return err
+	}
+	for _, r := range rs {
+		if r.Status != Running {
+			continue
+		}
+		now := time.Now().UTC()
+		r.Status, r.Error, r.FinishedAt = Done, note, &now
+		if err := l.runs.Update(ctx, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (l *Leaf) GetRun(ctx context.Context, id string) (store.BackupRun, error) {
 	return l.runs.Get(ctx, id)
 }

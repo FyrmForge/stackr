@@ -38,6 +38,36 @@ func (o *Orchestrator) redeployRestored(ctx context.Context) {
 	}
 }
 
+// restoredNote closes the panel backup an archive was taken by.
+const restoredNote = "The panel was restored from this archive."
+
+// settleRestored runs before the job runner fails what a restart left
+// running, on the first boot after a restore. The archive was written by a
+// panel-backup job, so the restored database has that job and its run row
+// still running; both finish done with restoredNote instead of "stackrd
+// restarted". The marker stays for redeployRestored.
+func (o *Orchestrator) settleRestored(ctx context.Context) {
+	if _, err := os.Stat(filepath.Join(o.cfg.DataDir, installspec.RestoredMarker)); err != nil {
+		return
+	}
+	js, err := o.jobRows.List(ctx, job.Running)
+	if err != nil {
+		slog.Warn("restore: panel backup job not settled", "err", err)
+		return
+	}
+	for _, j := range js {
+		if j.Kind != string(kindPanelBackup) {
+			continue
+		}
+		if err := o.jobRows.Finish(ctx, j, job.Done, restoredNote); err != nil {
+			slog.Warn("restore: panel backup job not settled", "job", j.ID, "err", err)
+		}
+	}
+	if err := o.backups.SettleRestored(ctx, restoredNote); err != nil {
+		slog.Warn("restore: panel backup run not settled", "err", err)
+	}
+}
+
 func (o *Orchestrator) queueRestored(ctx context.Context) (int, error) {
 	ctl, err := o.controllerID(ctx)
 	if err != nil {

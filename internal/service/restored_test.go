@@ -22,6 +22,40 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// The panel-backup job and run that wrote the restored archive finish done
+// with a note on the first boot after a restore; other running jobs are
+// left for the runner, and with no marker nothing is touched.
+func TestSettleRestoredPanelBackup(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	running := func(kind jobs.Kind) store.Job {
+		j := store.Job{ID: uuid.NewString(), Kind: string(kind), State: job.Running, LockSet: store.StringList{"panel"}, Payload: "{}", CreatedAt: time.Now()}
+		must(t, w.st.Jobs.Create(ctx, j))
+		return j
+	}
+	local, err := w.orch.localDest(ctx)
+	must(t, err)
+	pb, other := running(kindPanelBackup), running(kindDeploy)
+	run, err := w.orch.backups.Start(ctx, backup.KindPanel, nil, nil, local.ID, "manual")
+	must(t, err)
+
+	w.orch.settleRestored(ctx) // no marker
+	if j, _ := w.st.Jobs.Get(ctx, pb.ID); j.State != job.Running {
+		t.Fatalf("no marker: panel backup job is %s", j.State)
+	}
+	must(t, os.WriteFile(filepath.Join(w.orch.cfg.DataDir, installspec.RestoredMarker), nil, 0o600))
+	w.orch.settleRestored(ctx)
+	if j, _ := w.st.Jobs.Get(ctx, pb.ID); j.State != job.Done || j.Error != restoredNote {
+		t.Errorf("panel backup job = %s %q", j.State, j.Error)
+	}
+	if j, _ := w.st.Jobs.Get(ctx, other.ID); j.State != job.Running {
+		t.Errorf("deploy job = %s, want it left running for the runner", j.State)
+	}
+	if r, _ := w.orch.backups.GetRun(ctx, run.ID); r.Status != backup.Done || r.Error != restoredNote {
+		t.Errorf("panel run = %s %q", r.Status, r.Error)
+	}
+}
+
 // The first boot after a restore deploys the controller's tiles that ran and
 // lost their containers, once: a running one, a stopped one, a never
 // deployed one and a worker's are left alone.

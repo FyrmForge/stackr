@@ -712,6 +712,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn("vip: boot rebuild failed", "err", err)
 	}
 	orch.vipLegacy(ctx)
+	orch.settleRestored(ctx)
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
