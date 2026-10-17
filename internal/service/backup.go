@@ -554,6 +554,10 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 	// while they are copied. Nothing here takes rolloverMu, so no lock order
 	// to keep; a revoke holds rollMu up to controllerAckBound, and the backup
 	// waits that out.
+	// ponytail: rollMu also keeps a tick from re-announcing or swapping the
+	// root mid-revoke, so it cannot drop over the wait. A shorter wait needs
+	// an inner lock for the file writes alone, losing the one-moment copy of
+	// the database and files during break glass.
 	var lock sync.Locker
 	if o.cluster != nil {
 		lock = &o.cluster.rollMu
