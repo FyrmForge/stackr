@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -706,6 +707,9 @@ type IngressOut struct {
 	Scope     string `json:"scope"`
 	Placement string `json:"placement"`
 	From      string `json:"from"` // the scope that set it, or "default"
+	// Moved are the hosts a set sent to another proxy: their DNS must point
+	// at it.
+	Moved []string `json:"moved,omitempty"`
 }
 
 // IngressGet is the effective ingress of a scope: the nearest pick up the
@@ -735,10 +739,19 @@ func (o *Orchestrator) IngressGet(ctx context.Context, kind, id string) (Ingress
 // IngressSet picks the ingress placement of a scope; ref "" clears the pick
 // so the scope inherits again.
 func (o *Orchestrator) IngressSet(ctx context.Context, by *Principal, kind, id, ref string) (IngressOut, error) {
-	if err := o.SetIngress(ctx, by, kind, id, ref); err != nil {
+	err := o.PickIngress(ctx, by, kind, id, ref, false)
+	var hm *IngressHostsMove
+	if errors.As(err, &hm) {
+		err = o.SetIngress(ctx, by, kind, id, ref)
+	}
+	if err != nil {
 		return IngressOut{}, err
 	}
-	return o.IngressGet(ctx, kind, id)
+	out, err := o.IngressGet(ctx, kind, id)
+	if hm != nil {
+		out.Moved = hm.Hosts
+	}
+	return out, err
 }
 
 // ExitRungOut is one exit in a scope's list.

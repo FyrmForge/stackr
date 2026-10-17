@@ -243,6 +243,13 @@ func (a *app) ingress() *cobra.Command {
 			} else {
 				a.say("%s: public traffic enters through %s", scopeName(p), name)
 			}
+			if moved, _ := asMap(v)["moved"].([]any); len(moved) > 0 {
+				hosts := make([]string, len(moved))
+				for i, h := range moved {
+					hosts[i] = cell(h)
+				}
+				_, _ = fmt.Fprintf(a.errw, "warning: %s now answer there; point their DNS at it\n", strings.Join(hosts, ", "))
+			}
 			return nil
 		})
 	set.Example = "  stackr ingress set eu-prod --tile admin --stack shop --env prod\n  stackr ingress set h4 --default"

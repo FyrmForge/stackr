@@ -452,6 +452,34 @@ func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 	}
 }
 
+// An ingress pick that sends a tile's hosts to another proxy asks first;
+// one that keeps them where they are, or a confirmed one, saves.
+func TestPickIngressAsksWhenHostsMove(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	n.placeW1(t, true)
+	mustTag(t, n, adm, "w1", "ingress")
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d1", TileID: n.devT.ID, Host: "shop.example.com", Path: "/", CreatedAt: time.Now()}))
+
+	var hm *IngressHostsMove
+	if err := n.orch.PickIngress(ctx, adm, ScopeEnv, n.dev.ID, "w1", false); !errors.As(err, &hm) || !slices.Equal(hm.Hosts, []string{"shop.example.com"}) || hm.To != "w1" {
+		t.Fatalf("pick that moves a host = %v", err)
+	}
+	if pick, _ := n.orch.ingressPick(ctx, ScopeEnv, n.dev.ID); pick != "" {
+		t.Fatal("a refused pick was written")
+	}
+	must(t, n.orch.PickIngress(ctx, adm, ScopeEnv, n.dev.ID, "w1", true))
+	// edge has no hosts: its pick moves nothing and saves
+	must(t, n.orch.PickIngress(ctx, adm, ScopeEnv, n.edge.ID, "w1", false))
+	// the API path saves and names the moved hosts
+	out, err := n.orch.IngressSet(ctx, adm, ScopeEnv, n.dev.ID, "")
+	must(t, err)
+	if !slices.Equal(out.Moved, []string{"shop.example.com"}) {
+		t.Errorf("IngressSet moved = %v", out.Moved)
+	}
+}
+
 // IngressFor: the nearest picked placement's node, then the env's own node
 // when it is tagged ingress, then "" (the cluster default).
 func TestIngressForOrder(t *testing.T) {

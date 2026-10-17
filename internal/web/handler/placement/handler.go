@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
+	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/authz"
@@ -222,6 +223,16 @@ func (h *handler) showWith(c echo.Context, status int, note, errMsg string, dial
 	return respond.HTML(c, status, ui.Placement(v))
 }
 
+// showIngressAsk is the tab with the ingress question open.
+func (h *handler) showIngressAsk(c echo.Context, d templ.Component) error {
+	v, err := h.build(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v.IngressAsk = d
+	return respond.HTML(c, http.StatusOK, ui.Placement(v))
+}
+
 // moveView is the plans of a pin change as the dialog shows them, one per
 // env it moves. Confirm posts the target placement and word, the scope's
 // slug, to action; the service checks it.
@@ -277,6 +288,12 @@ func (h *handler) act(note string, do func(echo.Context, string, string) error) 
 			if errors.As(err, &mv) {
 				return h.moved(c, kind, mv)
 			}
+			var hm *service.IngressHostsMove
+			if errors.As(err, &hm) {
+				vals, _ := json.Marshal(map[string]string{"placement": c.FormValue("placement"), "confirm": "yes"})
+				d := ui.IngressHosts(ui.IngressHostsView{Action: base(c) + "/ingress", To: hm.To, Vals: string(vals), Hosts: hm.Hosts})
+				return h.showIngressAsk(c, d)
+			}
 			msg, ok := refused(err)
 			if !ok {
 				return middleware.HTTPError(err)
@@ -294,8 +311,10 @@ func (h *handler) pin(c echo.Context, kind, id string) error {
 	return err
 }
 
+// ingress saves the scope's ingress pick; one that moves hosts to another
+// proxy asks first (*service.IngressHostsMove), confirm=yes answers it.
 func (h *handler) ingress(c echo.Context, kind, id string) error {
-	return h.orch.SetIngress(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"))
+	return h.orch.PickIngress(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"), c.FormValue("confirm") == "yes")
 }
 
 func (h *handler) reorder(c echo.Context, kind, id string) error {

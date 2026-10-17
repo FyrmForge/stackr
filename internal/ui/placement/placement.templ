@@ -56,7 +56,8 @@ type View struct {
 	// Ingress
 	Ingress     string
 	IngressFrom string
-	IngressOpts []Option // placements tagged ingress
+	IngressOpts []Option        // placements tagged ingress
+	IngressAsk  templ.Component // the question when a pick moves hosts
 
 	// Exits
 	Inherited bool
@@ -182,7 +183,40 @@ templ ingress(v View) {
 				{ " " + v.IngressFrom }
 			}
 		</p>
+		if v.IngressAsk != nil {
+			@v.IngressAsk
+		}
 	}
+}
+
+// IngressHostsView is the ingress save's question when the pick moves hosts
+// to another proxy. Vals posts the pick again with confirm.
+type IngressHostsView struct {
+	Action, To, Vals string
+	Hosts            []string
+}
+
+// IngressHosts asks before a pick moves hosts whose DNS points elsewhere.
+templ IngressHosts(v IngressHostsView) {
+	@c.Confirm(c.ConfirmView{
+		Open:    true,
+		Primary: true,
+		Button:  "Save",
+		Title:   "Serve these hosts from " + v.To + "?",
+		Warning: "They stop answering until their DNS points at " + v.To + ".",
+		Action:  v.Action,
+		Target:  target(),
+		Vals:    v.Vals,
+		Body:    hostList(v.Hosts),
+	})
+}
+
+templ hostList(hosts []string) {
+	<ul class="text-sm space-y-1 font-mono">
+		for _, h := range hosts {
+			<li class="text-rw-text">{ h }</li>
+		}
+	</ul>
 }
 
 templ exits(v View) {
