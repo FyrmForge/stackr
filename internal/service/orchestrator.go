@@ -713,6 +713,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	orch.vipLegacy(ctx)
 	orch.settleRestored(ctx)
+	if err := orch.backups.Interrupted(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("close interrupted backups: %w", err)
+	}
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)

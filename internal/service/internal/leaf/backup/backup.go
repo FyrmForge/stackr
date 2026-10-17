@@ -494,6 +494,28 @@ func (l *Leaf) SettleRestored(ctx context.Context, note string) error {
 	return nil
 }
 
+// Interrupted fails every run left running: its job died with the process
+// that ran it, so nothing else closes it. Boot calls it after SettleRestored.
+func (l *Leaf) Interrupted(ctx context.Context) error {
+	for _, kind := range []string{KindVolume, KindPanel} {
+		rs, err := l.runs.ListByKind(ctx, kind)
+		if err != nil {
+			return err
+		}
+		for _, r := range rs {
+			if r.Status != Running {
+				continue
+			}
+			now := time.Now().UTC()
+			r.Status, r.Error, r.FinishedAt = Failed, "stackrd restarted while this backup ran", &now
+			if err := l.runs.Update(ctx, r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (l *Leaf) GetRun(ctx context.Context, id string) (store.BackupRun, error) {
 	return l.runs.Get(ctx, id)
 }

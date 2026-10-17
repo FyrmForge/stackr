@@ -56,6 +56,27 @@ func TestSettleRestoredPanelBackup(t *testing.T) {
 	}
 }
 
+// A backup run a restart left running fails at boot; a finished one stays.
+func TestBackupRunsInterrupted(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	local, err := w.orch.localDest(ctx)
+	must(t, err)
+	open, err := w.orch.backups.Start(ctx, backup.KindPanel, nil, nil, local.ID, "manual")
+	must(t, err)
+	shut, err := w.orch.backups.Start(ctx, backup.KindPanel, nil, nil, local.ID, "manual")
+	must(t, err)
+	_, err = w.orch.backups.Finish(ctx, shut, "k", 1, nil)
+	must(t, err)
+	must(t, w.orch.backups.Interrupted(ctx))
+	if r, _ := w.orch.backups.GetRun(ctx, open.ID); r.Status != backup.Failed || r.FinishedAt == nil {
+		t.Errorf("left-running run = %s", r.Status)
+	}
+	if r, _ := w.orch.backups.GetRun(ctx, shut.ID); r.Status != backup.Done {
+		t.Errorf("finished run = %s", r.Status)
+	}
+}
+
 // The first boot after a restore deploys the controller's tiles that ran and
 // lost their containers, once: a running one, a stopped one, a never
 // deployed one and a worker's are left alone.
