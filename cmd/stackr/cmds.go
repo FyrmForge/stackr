@@ -750,11 +750,17 @@ func (a *app) domainResources() *cobra.Command {
 		},
 	)
 	add := leaf(
-		"add",
+		"add [host]",
 		"domain-resource.create,domain-resource.create-stack,admin.domain-resource-create",
-		"Add a host tiles get names under, at instance, org or stack level",
-		exact(0),
-		func(*cobra.Command, []string) error {
+		"Add a host tiles get names under, at instance, org or stack level; one the owner already has is kept",
+		upTo(1),
+		func(_ *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				if host != "" && host != args[0] {
+					return usage("give the host once: as the argument or as --host")
+				}
+				host = args[0]
+			}
 			p, err := a.resourceOwner(level, owner)
 			if err != nil {
 				return err
