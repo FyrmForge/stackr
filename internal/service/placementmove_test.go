@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -141,7 +143,7 @@ func TestPlacementMoveChecksFailAlone(t *testing.T) {
 		if got := failed(plan.Checks); !slices.Equal(got, []string{"mesh link", "source online"}) {
 			t.Fatalf("failed = %v\n%+v", got, plan.Checks)
 		}
-		if _, err := n.orch.MovePlacement(ctx, n.admin, "edge-pl", n.ctl.Name, "edge-pl"); !pmConflict(err) {
+		if _, err := n.orch.MovePlacement(ctx, n.admin, "edge-pl", n.ctl.Name, "edge-pl", false); !pmConflict(err) {
 			t.Errorf("a blocked move = %v, want a conflict", err)
 		}
 	})
@@ -152,13 +154,13 @@ func TestPlacementMoveChecksFailAlone(t *testing.T) {
 func TestMovePlacementHappyPath(t *testing.T) {
 	ctx := context.Background()
 	n := newPMFix(t)
-	if _, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "nope"); !pmInvalid(err) {
+	if _, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "nope", false); !pmInvalid(err) {
 		t.Fatalf("wrong confirm = %v", err)
 	}
-	if _, err := n.orch.MovePlacement(ctx, nil, "eu", "w1", "eu"); err == nil {
+	if _, err := n.orch.MovePlacement(ctx, nil, "eu", "w1", "eu", false); err == nil {
 		t.Fatal("moved with no principal")
 	}
-	j, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "eu")
+	j, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "eu", false)
 	must(t, err)
 	if j.ID == "" {
 		t.Fatal("no job came back")
@@ -181,7 +183,7 @@ func TestMovePlacementHappyPath(t *testing.T) {
 	if ms, _ := n.st.Moves.ListByEnv(ctx, n.dev.ID); len(ms) != 1 || ms[0].PlacementMoveID == nil {
 		t.Errorf("env moves = %+v", ms)
 	}
-	if _, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "eu"); !pmConflict(err) {
+	if _, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "eu", false); !pmConflict(err) {
 		t.Errorf("moving onto the node it is on = %v", err)
 	}
 	if evs := auditActions(t, n.orch, auditPlacementMove); len(evs) != 1 {
@@ -194,7 +196,7 @@ func TestMovePlacementNoEnvsRepointsAtOnce(t *testing.T) {
 	n := newPMFix(t)
 	n.placement(t, "empty", n.ctl.ID)
 	before := n.pushes.Load()
-	j, err := n.orch.MovePlacement(ctx, n.admin, "empty", "w1", "empty")
+	j, err := n.orch.MovePlacement(ctx, n.admin, "empty", "w1", "empty", false)
 	must(t, err)
 	if j.ID != "" {
 		t.Errorf("job = %+v, want none", j)
@@ -217,7 +219,7 @@ func TestMovePlacementFailureAndRetry(t *testing.T) {
 	ctx := context.Background()
 	n := newPMFix(t)
 	n.wFake.Err = map[string]error{"Run": context.DeadlineExceeded}
-	j, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "eu")
+	j, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "eu", false)
 	must(t, err)
 	if j = n.wait(t, j); j.State != job.Failed {
 		t.Fatalf("move job = %s", j.State)
@@ -267,7 +269,7 @@ func TestPlacementNodeSetDeploysWaitingEnvs(t *testing.T) {
 	if !plan.OK || len(plan.Envs) != 1 || !strings.Contains(plan.Envs[0].Downtime, "waiting") || plan.From != "" {
 		t.Fatalf("plan = %+v", plan)
 	}
-	if _, err := n.orch.MovePlacement(ctx, n.admin, "wait", "w1", "wait"); err != nil {
+	if _, err := n.orch.MovePlacement(ctx, n.admin, "wait", "w1", "wait", false); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := n.st.Placements.GetByName(ctx, "wait")
@@ -297,12 +299,15 @@ func TestMovePlacementRestoresAfterForget(t *testing.T) {
 	must(t, n.st.Environments.SetPlacement(ctx, n.edge.ID, lost.ID))
 	must(t, n.st.Volumes.Create(ctx, store.Volume{ID: "v-lost", ScopeKind: "env", ScopeID: n.edge.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}))
 	vid := "v-lost"
-	// no backup of data yet: the disk check fails and names it
+	// no backup of data yet: the disk check fails overridably and names it
 	plan, err := n.orch.PlanPlacementMove(ctx, "lost", "w1")
 	must(t, err)
-	if got := failed(plan.Checks); plan.OK || !slices.Equal(got, []string{"disk"}) ||
-		!strings.Contains(plan.Checks[3].Detail, "no backup to restore of data") {
+	if got := failed(plan.Checks); plan.OK || !slices.Equal(got, []string{"disk"}) || !plan.Checks[3].Overridable ||
+		!strings.Contains(plan.Checks[3].Detail, "no backup for data; it starts empty") {
 		t.Fatalf("restore with no backup: failed %v\n%+v", got, plan.Checks)
+	}
+	if _, err := n.orch.MovePlacement(ctx, n.admin, "lost", "w1", "lost", false); !pmInvalid(err) || !strings.Contains(err.Error(), "data") {
+		t.Fatalf("restore with no backup, not acknowledged: %v", err)
 	}
 	must(t, n.st.BackupDests.Create(ctx, store.BackupDest{ID: "d", Kind: "s3", Name: "d", Endpoint: "e", Bucket: "b", AccessKey: "a", SecretKey: "s", CreatedAt: time.Now()}))
 	must(t, n.st.BackupRuns.Create(ctx, store.BackupRun{ID: "r1", Kind: "volume", VolumeID: &vid, DestID: "d", Status: backup.Done, ObjectKey: "k.tar.age", CreatedAt: time.Now()}))
@@ -312,7 +317,7 @@ func TestMovePlacementRestoresAfterForget(t *testing.T) {
 	if !plan.Restore || !plan.OK || plan.From != "h3" || len(plan.Envs) != 1 || plan.Envs[0].Bytes != -1 {
 		t.Fatalf("plan = %+v", plan)
 	}
-	j, err := n.orch.MovePlacement(ctx, n.admin, "lost", "w1", "lost")
+	j, err := n.orch.MovePlacement(ctx, n.admin, "lost", "w1", "lost", false)
 	must(t, err)
 	if j.ID == "" {
 		t.Fatal("no deploy job")
@@ -342,6 +347,87 @@ func TestMovePlacementRestoresAfterForget(t *testing.T) {
 		t.Errorf("the deploy was queued before the restore")
 	case !slices.Contains(rs[ri].LockSet, n.edgeT.ID):
 		t.Errorf("restore locks %v, not the tile %s", rs[ri].LockSet, n.edgeT.ID)
+	}
+}
+
+// A restore whose volume has no backup goes on once acknowledged: the volume
+// starts empty, the deploy's job log and the security log say so. A short
+// disk is not overridable.
+func TestMovePlacementStartEmpty(t *testing.T) {
+	ctx := context.Background()
+	n := newPMFix(t)
+	must(t, n.st.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone", Name: "h3", ForgottenAt: time.Now()}))
+	lost := n.placement(t, "lost", "gone")
+	must(t, n.st.Environments.SetNode(ctx, n.edge.ID, "gone"))
+	must(t, n.st.Environments.SetPlacement(ctx, n.edge.ID, lost.ID))
+	must(t, n.st.Volumes.Create(ctx, store.Volume{ID: "v-lost", ScopeKind: "env", ScopeID: n.edge.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}))
+
+	// a second volume with a 10 GB backup that w1 has no room for
+	must(t, n.st.Volumes.Create(ctx, store.Volume{ID: "v-big", ScopeKind: "env", ScopeID: n.edge.ID, Slug: "big", Name: "big", CreatedAt: time.Now()}))
+	big := "v-big"
+	must(t, n.st.BackupDests.Create(ctx, store.BackupDest{ID: "d", Kind: "s3", Name: "d", Endpoint: "e", Bucket: "b", AccessKey: "a", SecretKey: "s", CreatedAt: time.Now()}))
+	must(t, n.st.BackupRuns.Create(ctx, store.BackupRun{ID: "r1", Kind: "volume", VolumeID: &big, DestID: "d", Status: backup.Done, ObjectKey: "k.tar.age", SizeBytes: 10 << 30, CreatedAt: time.Now()}))
+	n.m.facts["w1"] = worker.Facts{Arch: "amd64", DiskFree: 1 << 30, DiskTotal: 100 << 30, MemFree: 8 << 30}
+	plan, err := n.orch.PlanPlacementMove(ctx, "lost", "w1")
+	must(t, err)
+	if plan.Checks[3].OK || plan.Checks[3].Overridable {
+		t.Fatalf("a short disk is overridable: %+v", plan.Checks[3])
+	}
+	if _, err := n.orch.MovePlacement(ctx, n.admin, "lost", "w1", "lost", true); !pmConflict(err) {
+		t.Fatalf("short disk, acknowledged: %v", err)
+	}
+	n.m.facts["w1"] = worker.Facts{Arch: "amd64", DiskFree: 500 << 30, DiskTotal: 1000 << 30, MemFree: 8 << 30}
+
+	j, err := n.orch.MovePlacement(ctx, n.admin, "lost", "w1", "lost", true)
+	must(t, err)
+	if e, _ := n.orch.envs.Get(ctx, n.edge.ID); e.NodeID != "w1" || j.ID == "" {
+		t.Fatalf("env on %q, job %q", e.NodeID, j.ID)
+	}
+	js, err := n.st.Jobs.ListTouching(ctx, []string{n.edgeT.ID}, string(kindDeploy), 10)
+	must(t, err)
+	if len(js) != 1 {
+		t.Fatalf("deploy jobs = %d, want 1", len(js))
+	}
+	var p tileJob
+	must(t, json.Unmarshal([]byte(js[0].Payload), &p))
+	if !strings.Contains(p.Note, "no backup for data; it starts empty") {
+		t.Errorf("deploy note = %q", p.Note)
+	}
+	evs, err := n.orch.SecurityLog(ctx, SecurityFilter{Action: auditEnvRestore, TargetID: n.edge.ID})
+	must(t, err)
+	if !slices.ContainsFunc(evs, func(e SecurityEvent) bool { return strings.Contains(e.Detail, "no backup for data; it starts empty") }) {
+		t.Errorf("env security log = %+v", evs)
+	}
+	evs, err = n.orch.SecurityLog(ctx, SecurityFilter{Action: auditPlacementMove, TargetID: lost.ID})
+	must(t, err)
+	if len(evs) != 1 || !strings.Contains(evs[0].Detail, "acknowledged: no backup for data") {
+		t.Errorf("placement security log = %+v", evs)
+	}
+}
+
+// An env stuck on a forgotten node can be cleaned up: a tile's volumes edit
+// and a volume delete change the rows and send nothing to that node.
+func TestForgottenNodeEditsAreRecordOnly(t *testing.T) {
+	ctx := context.Background()
+	n := newPMFix(t)
+	must(t, n.st.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone", Name: "h3", ForgottenAt: time.Now()}))
+	must(t, n.st.Environments.SetNode(ctx, n.edge.ID, "gone"))
+	must(t, n.st.Volumes.Create(ctx, store.Volume{ID: "v-lost", ScopeKind: "env", ScopeID: n.edge.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}))
+	tl := n.edgeT
+	tl.Volumes = "data:/data"
+	must(t, n.st.Tiles.Update(ctx, tl))
+
+	if err := n.orch.DeleteVolume(ctx, "v-lost"); !pmConflict(err) {
+		t.Fatalf("deleted a mounted volume: %v", err)
+	}
+	if _, j, err := n.orch.UpdateTile(ctx, tl.ID, func(t *Tile) error { t.Volumes = ""; return nil }); err != nil || j != nil {
+		t.Fatalf("detach on a forgotten node: job %v, %v", j, err)
+	}
+	if err := n.orch.DeleteVolume(ctx, "v-lost"); err != nil {
+		t.Fatalf("delete on a forgotten node: %v", err)
+	}
+	if _, err := n.st.Volumes.Get(ctx, "v-lost"); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("volume row left: %v", err)
 	}
 }
 

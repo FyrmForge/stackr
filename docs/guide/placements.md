@@ -101,3 +101,5 @@ stackr env restore --placement eu-db --to h5
 ```
 
 Restore is a command-line action, and never part of a server file.
+
+A volume with no backup stops the restore. To go on with it empty, pass `--start-empty`; in the panel, the move's typed confirm names the volumes. While the node stays forgotten, tile and volume edits on its envs change only the records, so `stackr volume rm` can clear a volume first.

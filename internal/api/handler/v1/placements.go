@@ -46,6 +46,8 @@ type CheckOut struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"`
+	// Overridable: failed, but a repoint with start_empty goes on anyway
+	Overridable bool `json:"overridable,omitempty"`
 }
 
 // MoveEnvOut is one env a move takes along.
@@ -120,7 +122,7 @@ func movePlanOut(p service.PlacementMovePlan) MovePlanOut {
 		out.Envs = append(out.Envs, MoveEnvOut{Path: e.Path, Volumes: e.Volumes, Bytes: e.Bytes, Downtime: e.Downtime})
 	}
 	for _, ck := range p.Checks {
-		out.Checks = append(out.Checks, CheckOut{Name: ck.Name, OK: ck.OK, Detail: ck.Detail})
+		out.Checks = append(out.Checks, CheckOut{Name: ck.Name, OK: ck.OK, Detail: ck.Detail, Overridable: ck.Overridable})
 	}
 	return out
 }
@@ -221,17 +223,19 @@ func (h *H) PlacementMovePlan() Endpoint {
 	}).Q("to")
 }
 
-// PlacementMoveIn is a repoint: Confirm is the placement's name.
+// PlacementMoveIn is a repoint: Confirm is the placement's name. StartEmpty
+// acknowledges a restore's volumes with no backup: they start empty.
 type PlacementMoveIn struct {
-	To      string `json:"to"`
-	Confirm string `json:"confirm"`
+	To         string `json:"to"`
+	Confirm    string `json:"confirm"`
+	StartEmpty bool   `json:"start_empty,omitempty"`
 }
 
 // MovePlacement (server admin) repoints the placement and starts the env
 // moves; the job is not awaited.
 func (h *H) MovePlacement() Endpoint {
 	return Job(func(c echo.Context, in PlacementMoveIn) (service.Job, error) {
-		return h.Orch.MovePlacement(rc(c), middleware.Principal(c), c.Param("placement"), in.To, in.Confirm)
+		return h.Orch.MovePlacement(rc(c), middleware.Principal(c), c.Param("placement"), in.To, in.Confirm, in.StartEmpty)
 	})
 }
 

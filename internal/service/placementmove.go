@@ -112,6 +112,17 @@ func (o *Orchestrator) pmForgotten(ctx context.Context, id string) (bool, error)
 	return slices.ContainsFunc(fs, func(f store.ForgottenNode) bool { return f.ID == id }), err
 }
 
+// envForgotten: the env's node is forgotten, so nothing of it runs and a
+// Docker call for it can only fail; edits to it are record-only.
+func (o *Orchestrator) envForgotten(ctx context.Context, envID string) bool {
+	e, err := o.store.Environments.Get(ctx, envID)
+	if err != nil {
+		return false
+	}
+	f, _ := o.pmForgotten(ctx, e.NodeID)
+	return f
+}
+
 // moveChecks are the CI-style checks of moving the envs from one node to
 // another. fromNode "" is no node yet; a forgotten fromNode is a restore.
 func (o *Orchestrator) moveChecks(ctx context.Context, envIDs []string, fromNode, toNode string) ([]planfile.Check, error) {
@@ -217,11 +228,10 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 	}
 
 	// disk
-	ok, detail := o.pmDisk(ctx, from, to, from == "", forgotten, vols, nm)
-	add("disk", ok, detail)
+	out = append(out, o.pmDisk(ctx, from, to, from == "", forgotten, vols, nm))
 
 	// memory
-	ok, detail = pmMemory(toName, toFacts, tiles)
+	ok, detail := pmMemory(toName, toFacts, tiles)
 	add("memory", ok, detail)
 
 	// cpu arch
@@ -259,14 +269,19 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 }
 
 // pmDisk: the target's free disk against the volumes' sizes plus 10%. A
-// restore sizes each volume by its newest backup and fails on a volume that
-// has none. A size or a disk that cannot be read is a detail, never a failure.
-func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, restore bool, vols []store.Volume, nm pmNames) (bool, string) {
+// restore sizes each volume by its newest backup; a volume with none would
+// start empty, which fails the check overridably (MovePlacement's
+// startEmpty). A size or a disk that cannot be read is a detail, never a
+// failure.
+func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, restore bool, vols []store.Volume, nm pmNames) planfile.Check {
+	c := planfile.Check{Name: "disk", OK: true}
 	switch {
 	case len(vols) == 0:
-		return true, "no volumes"
+		c.Detail = "no volumes"
+		return c
 	case waiting:
-		return true, "no data yet: the envs wait for a node"
+		c.Detail = "no data yet: the envs wait for a node"
+		return c
 	}
 	var total uint64
 	unknown := 0
@@ -276,7 +291,8 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 			r, err := o.newestBackup(ctx, v.ID)
 			switch {
 			case err != nil:
-				return false, err.Error()
+				c.OK, c.Detail = false, err.Error()
+				return c
 			case r == nil:
 				bare = append(bare, v.Slug)
 			case r.SizeBytes > 0:
@@ -293,18 +309,25 @@ func (o *Orchestrator) pmDisk(ctx context.Context, from, to string, waiting, res
 		}
 		total += uint64(info.SizeBytes)
 	}
-	if len(bare) > 0 {
-		return false, "no backup to restore of " + strings.Join(bare, ", ")
-	}
 	free, disk := o.diskOf(ctx, to)
 	if free == 0 && disk == 0 {
-		return true, nm.label(to) + " does not report its disk"
+		c.Detail = nm.label(to) + " does not report its disk"
+	} else {
+		c.OK = free >= total+total/10
+		c.Detail = fmt.Sprintf("%s free %s, needs %s + 10%%", nm.label(to), gb(free), gb(total))
+		if unknown > 0 {
+			c.Detail += fmt.Sprintf(" (%d sizes unknown)", unknown)
+		}
 	}
-	detail := fmt.Sprintf("%s free %s, needs %s + 10%%", nm.label(to), gb(free), gb(total))
-	if unknown > 0 {
-		detail += fmt.Sprintf(" (%d sizes unknown)", unknown)
+	if len(bare) > 0 {
+		note := "no backup for " + strings.Join(bare, ", ") + "; they start empty"
+		if len(bare) == 1 {
+			note = "no backup for " + bare[0] + "; it starts empty"
+		}
+		c.Detail = note + " (" + c.Detail + ")"
+		c.Overridable, c.OK = c.OK, false // a short disk stays a hard fail
 	}
-	return free >= total+total/10, detail
+	return c
 }
 
 // pmMemory: the target's free memory against the tiles' limits. Tiles with
@@ -408,6 +431,22 @@ func pmOK(cs []planfile.Check) bool {
 	return !slices.ContainsFunc(cs, func(c planfile.Check) bool { return !c.OK })
 }
 
+// pmAcks are the details of the failed checks an acknowledgement overrides;
+// nil when another check failed too, or none did.
+func pmAcks(cs []planfile.Check) []string {
+	var out []string
+	for _, c := range cs {
+		switch {
+		case c.OK:
+		case !c.Overridable:
+			return nil
+		default:
+			out = append(out, c.Detail)
+		}
+	}
+	return out
+}
+
 // pmFailedChecks is the failed checks, one line.
 func pmFailedChecks(cs []planfile.Check) string {
 	var out []string
@@ -493,7 +532,9 @@ func (o *Orchestrator) pmOverrideNeeds(ctx context.Context, placementID string) 
 // run again; the job is not awaited. A placement with no node is given one
 // (its waiting envs deploy), one on a forgotten node is restored from
 // backups, one with no envs repoints at once; those return no job.
-func (o *Orchestrator) MovePlacement(ctx context.Context, by *Principal, placement, toNode, confirm string) (Job, error) {
+// startEmpty acknowledges a restore's volumes that have no backup: they
+// start empty. Without it such a restore is refused.
+func (o *Orchestrator) MovePlacement(ctx context.Context, by *Principal, placement, toNode, confirm string, startEmpty bool) (Job, error) {
 	if by == nil {
 		return Job{}, errs.ErrRefused
 	}
@@ -504,8 +545,13 @@ func (o *Orchestrator) MovePlacement(ctx context.Context, by *Principal, placeme
 	if err != nil {
 		return Job{}, err
 	}
-	if !plan.OK {
+	acks := pmAcks(plan.Checks)
+	switch {
+	case plan.OK:
+	case acks == nil:
 		return Job{}, errs.Conflictf("the checks failed: %s", pmFailedChecks(plan.Checks))
+	case !startEmpty:
+		return Job{}, errs.Invalidf("start_empty", "%s; acknowledge it to restore anyway", strings.Join(acks, "; "))
 	}
 	p, err := o.store.Placements.GetByName(ctx, placement)
 	if err != nil {
@@ -524,7 +570,7 @@ func (o *Orchestrator) MovePlacement(ctx context.Context, by *Principal, placeme
 		return Job{}, err
 	}
 	if plan.Restore {
-		return o.restorePlacement(ctx, by, p.ID, to.ID)
+		return o.restorePlacement(ctx, by, p.ID, to.ID, acks)
 	}
 	pm, err := o.pmBegin(ctx, by, p, to.ID, false)
 	if err != nil {
@@ -544,8 +590,9 @@ func (o *Orchestrator) pmBegin(ctx context.Context, by *Principal, p store.Place
 
 // restorePlacement is a repoint off a forgotten node (D8): MovePlacement
 // calls it when the source is in forgotten_nodes. Each env is rehomed,
-// deployed and restored from backups.
-func (o *Orchestrator) restorePlacement(ctx context.Context, by *Principal, placementID, toNodeID string) (Job, error) {
+// deployed and restored from backups. acks are the acknowledged checks (the
+// volumes that start empty), for the security log.
+func (o *Orchestrator) restorePlacement(ctx context.Context, by *Principal, placementID, toNodeID string, acks []string) (Job, error) {
 	p, err := o.store.Placements.Get(ctx, placementID)
 	if err != nil {
 		return Job{}, err
@@ -559,7 +606,11 @@ func (o *Orchestrator) restorePlacement(ctx context.Context, by *Principal, plac
 	if err != nil {
 		return Job{}, err
 	}
-	o.pmAudit(ctx, by, auditPlacementMove, "placement", p.ID, fmt.Sprintf("%s: restore onto %s", p.Name, o.nodeName(ctx, toNodeID)))
+	detail := fmt.Sprintf("%s: restore onto %s", p.Name, o.nodeName(ctx, toNodeID))
+	if len(acks) > 0 {
+		detail += "; acknowledged: " + strings.Join(acks, "; ")
+	}
+	o.pmAudit(ctx, by, auditPlacementMove, "placement", p.ID, detail)
 	return o.pmRun(ctx, by, pm)
 }
 
@@ -636,6 +687,9 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 		return Job{}, err
 	}
 	first, notes, err := o.restoreThenDeploy(ctx, e.ID, ts)
+	if len(notes) > 0 {
+		o.pmAudit(ctx, by, auditEnvRestore, "env", e.ID, "restore: "+strings.Join(notes, "; "))
+	}
 	for _, n := range notes {
 		*warn = append(*warn, errors.New(n))
 	}

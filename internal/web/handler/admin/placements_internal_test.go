@@ -88,6 +88,16 @@ func TestMoveChecksViewGatesApply(t *testing.T) {
 	if w := moveChecksView(&ui.MoveWizardView{}, plan(t, strings.Replace(ok, `"OK":true`, `"OK":false`, 1))); w.OK {
 		t.Errorf("OK=false offered Apply")
 	}
+	// only a volume with no backup failed: the typed confirm names it and acknowledges it
+	empty := strings.Replace(strings.Replace(ok, `"OK":true`, `"OK":false,"Restore":true`, 1),
+		`"ok":true,"detail":"h4 free 12 GB"`, `"ok":false,"overridable":true,"detail":"no backup for fresh; it starts empty"`, 1)
+	if w := moveChecksView(&ui.MoveWizardView{}, plan(t, empty)); !w.OK || !w.Checks[1].Ack ||
+		!strings.Contains(w.Confirm.Warning, "no backup for fresh; it starts empty") || !strings.Contains(w.Confirm.Vals, `"start_empty":"1"`) {
+		t.Errorf("start-empty wizard = %+v", w)
+	}
+	if w := moveChecksView(&ui.MoveWizardView{}, plan(t, ok)); strings.Contains(w.Confirm.Vals, "start_empty") {
+		t.Errorf("a plain move acknowledges empty volumes: %s", w.Confirm.Vals)
+	}
 }
 
 func TestMoveProgressView(t *testing.T) {

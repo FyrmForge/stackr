@@ -240,7 +240,7 @@ func (w *serverWalk) placementRow(by *Principal, c serverconfig.Change) error {
 	default: // placement-move
 		// The move job is not awaited: a context with no redeploy list keeps it
 		// out of the wait at the end of the apply.
-		_, err := w.o.MovePlacement(context.WithValue(w.ctx, redeploysKey{}, nil), by, c.Tile, c.New, c.Tile)
+		_, err := w.o.MovePlacement(context.WithValue(w.ctx, redeploysKey{}, nil), by, c.Tile, c.New, c.Tile, false)
 		return err
 	}
 }

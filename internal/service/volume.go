@@ -24,7 +24,8 @@ func (o *Orchestrator) DeclareVolume(ctx context.Context, s VolumeScope, slug st
 	return v, err
 }
 
-// DeleteVolume refuses while a tile mounts it (leaf/volume).
+// DeleteVolume refuses while a tile mounts it (leaf/volume). On a forgotten
+// node only the row goes: there is no Docker volume left to reach.
 func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
 	v, err := o.volumes.Get(ctx, id)
 	if err != nil {
@@ -37,6 +38,11 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
 	var by []string
 	for _, t := range ts {
 		by = append(by, t.Slug)
+	}
+	if gone, err := o.pmForgotten(ctx, o.volumeNode(ctx, v.ID)); err != nil {
+		return err
+	} else if gone {
+		return o.volumes.DeleteRow(ctx, v, by)
 	}
 	return o.volumes.Delete(ctx, v, by)
 }
