@@ -497,7 +497,8 @@ templ Backups(v View, b BackupsView) {
 // the kind carries one of its keys.
 var (
 	sourceKeys   = []string{"git_url", "branch", "image", "update_policy", "tag_policy"}
-	buildKeys    = []string{"dockerfile", "build_context", "watch_paths", "build_args", "volumes", "files"}
+	buildKeys    = []string{"dockerfile", "build_context", "watch_paths", "build_args"}
+	storageKeys  = []string{"volumes", "files"}
 	runKeys      = []string{"schedule", "trigger", "timeout_minutes"}
 	runtimeKeys  = []string{"command", "user", "shm_size_mb", "restart_policy", "replicas"}
 	networkKeys  = []string{"port", "endpoint_protocol"}
@@ -519,6 +520,7 @@ func jumps(s SettingsView) []jump {
 		{jump{"sec-build", "Build"}, buildKeys},
 		{jump{"sec-run", runTitle(s)}, runKeys},
 		{jump{"sec-runtime", "Runtime"}, runtimeKeys},
+		{jump{"sec-storage", "Storage"}, storageKeys},
 		{jump{"sec-network", "Networking"}, networkKeys},
 		{jump{"sec-elevated", "Elevated access"}, elevatedKeys},
 		{jump{"sec-resources", "Resources"}, resourceKeys},
@@ -577,8 +579,6 @@ templ Settings(v View, s SettingsView) {
 						@text(s, "build_context", "Build context", ".", false)
 						@area(s, "watch_paths", "Watch paths (regex per line, ! prefix ignores; empty = deploy on any push)", "^apps/web/\n!\\.md$")
 						@area(s, "build_args", "Build args (KEY=VALUE per line)", "ARG=value")
-						@area(s, "volumes", "Volumes (volume:/container/path[:ro] per line)", "pgdata:/var/lib/postgresql/data")
-						@area(s, "files", "Files (repo/path:/container/path[:template] per line, shipped from the git repo at deploy, read-only; :template resolves ${{ }} in the file)", "config/loki.yml:/etc/loki/config.yml")
 					}
 				}
 				if s.Any(runKeys...) {
@@ -616,6 +616,12 @@ templ Settings(v View, s SettingsView) {
 							}
 						</div>
 						@number(s, "replicas", "Replicas (a tile with a volume runs one: two writers on one volume corrupt it)", "1", "1")
+					}
+				}
+				if s.Any(storageKeys...) {
+					@c.PanelSection("sec-storage", "Storage", "Mounted into the container on the next deploy.") {
+						@area(s, "volumes", "Volumes (volume:/container/path[:ro] per line)", "pgdata:/var/lib/postgresql/data")
+						@area(s, "files", "Files (repo/path:/container/path[:template] per line, shipped from the git repo at deploy, read-only; :template resolves ${{ }} in the file)", "config/loki.yml:/etc/loki/config.yml")
 					}
 				}
 				if s.Any(networkKeys...) {
