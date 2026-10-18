@@ -67,6 +67,8 @@ Flags you may want:
 
 Running the installer again converges on the saved answers. A flag that disagrees with them is refused.
 
+The installer caps Docker's container logs at 3 files of 10 MB in `/etc/docker/daemon.json` and restarts Docker once, on the panel box and on every worker it joins. Other settings in the file stay. If the file already sets its own log driver or cap, the installer keeps it and warns.
+
 ## Check it
 
 1. Open `https://stkr.apps.example.com` (your own domain; `http://` with `--https=false`).

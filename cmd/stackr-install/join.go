@@ -244,6 +244,9 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.ensureWireGuard(ctx); err != nil {
 		return err
 	}
+	if _, err := r.ensureLogCap(ctx); err != nil { // a rejoin's old worker restarts with Docker
+		return err
+	}
 	r.conntrackAcct() // tile traffic on this node
 	if err := r.mkdir(*stateDir, 0o700); err != nil {
 		return err
