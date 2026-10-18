@@ -56,6 +56,7 @@ var contract = map[string][]string{
 		`"node-id"`,
 		"input[data-look]",
 		"[data-zoom]",
+		".graph-legend, [data-legend]",
 		`"data-marquee"`,
 		"--px",
 		"--py",

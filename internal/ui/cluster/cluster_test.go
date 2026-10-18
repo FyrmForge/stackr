@@ -112,6 +112,10 @@ func TestMapDraws(t *testing.T) {
 	if !strings.Contains(body, `hx-trigger="every 15s"`) {
 		t.Error("map refresh is not an every poll")
 	}
+	// The canvas fits the map above the legends it finds by this hook.
+	if !strings.Contains(body, `<div data-legend`) {
+		t.Error("the env health legend lacks data-legend")
+	}
 }
 
 // Cards never overlap each other, and every box holds its cards.
