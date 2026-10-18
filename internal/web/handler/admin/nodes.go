@@ -24,7 +24,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
-var nodeTabs = []string{"overview", "envs", "network", "tags", "security"}
+var nodeTabs = []string{"overview", "metrics", "envs", "network", "tags", "security"}
 
 const nodesBase = ui.Base + "/nodes"
 
@@ -457,7 +457,9 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	v := ui.NodeView{
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
+		MetricsRange: comp.MetricRange(c.QueryParam("range")), MetricsTab: base + "?tab=metrics",
 	}
+	v.MetricsSrc = "/api/v1/admin/nodes/" + url.PathEscape(d.ID) + "/metrics?range=" + v.MetricsRange
 	ctx := c.Request().Context()
 	live, err := h.orch.NodeLive(ctx, d.ID)
 	if err != nil {

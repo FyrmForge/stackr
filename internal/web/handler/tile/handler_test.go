@@ -19,6 +19,7 @@ func TestEveryTabServes(t *testing.T) {
 	for _, tab := range []string{
 		"status",
 		"logs",
+		"metrics",
 		"domains",
 		"env",
 		"access",

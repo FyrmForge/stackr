@@ -226,6 +226,17 @@ templ Terminal(v View, t TerminalView) {
 	</div>
 }
 
+// Metrics is the tile's live graphs, one line per replica.
+templ Metrics(v View, m MetricsView) {
+	<div class="space-y-4" id="tab-metrics">
+		@c.RangePicker(v.Base+"?tab=metrics", m.Range)
+		@c.Chart("CPU", m.Src, "cpu_pct", "", "pct")
+		@c.Chart("Memory", m.Src, "mem", "", "bytes")
+		@c.Chart("Network", m.Src, "net_rx_bps net_tx_bps", "in,out", "bps")
+		@c.Chart("Disk IO", m.Src, "io_read_bps io_write_bps", "read,write", "bps")
+	</div>
+}
+
 // Jobs is v0's Deployments: one panel row per job, newest first.
 templ Jobs(v View, j JobsView) {
 	<div id="tab-jobs">

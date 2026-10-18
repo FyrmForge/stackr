@@ -123,7 +123,7 @@ func (h *handler) Tunnel(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	a, b := c.QueryParam("a"), c.QueryParam("b")
-	d, ok := tunnelDrawer(cm, a, b)
+	d, ok := tunnelDrawer(cm, a, b, components.MetricRange(c.QueryParam("range")))
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "no such tunnel")
 	}
@@ -131,13 +131,13 @@ func (h *handler) Tunnel(c echo.Context) error {
 }
 
 // tunnelDrawer finds the pair in the map's Pairs, else its Links.
-func tunnelDrawer(cm service.ClusterMap, a, b string) (templ.Component, bool) {
+func tunnelDrawer(cm service.ClusterMap, a, b, rng string) (templ.Component, bool) {
 	for _, ls := range [][]service.ClusterLink{cm.Pairs, cm.Links} {
 		for _, l := range ls {
 			if l.A == a && l.B == b || l.A == b && l.B == a {
 				m, ul := mapMap(cm), mapLink(l)
 				f := components.DrawerView{Node: "tunnel:" + a + ":" + b, Title: cluster.TunnelNames(m, ul), Kind: "tunnel", Base: cluster.TunnelDrawer(a, b)}
-				return components.Drawer(f, cluster.TunnelBody(m, ul)), true
+				return components.Drawer(f, cluster.TunnelBody(m, ul, rng)), true
 			}
 		}
 	}

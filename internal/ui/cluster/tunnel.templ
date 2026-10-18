@@ -2,12 +2,15 @@ package cluster
 
 import (
 	"fmt"
+	"net/url"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-// TunnelBody is a tunnel's drawer: the pair, who dials, and what each end
-// reports.
-templ TunnelBody(m Map, l Link) {
+// TunnelBody is a tunnel's drawer: the pair, who dials, what each end
+// reports, and its ping over rng.
+templ TunnelBody(m Map, l Link, rng string) {
 	<section class="panel p-6 mb-6">
 		<h3 class="text-base font-semibold text-rw-text mb-2">Tunnel</h3>
 		<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
@@ -46,10 +49,16 @@ templ TunnelBody(m Map, l Link) {
 			</dl>
 		</section>
 	}
-	<section class="panel p-6 mb-6">
-		<h3 class="text-base font-semibold text-rw-text mb-2">Ping history</h3>
-		<p class="text-sm text-rw-muted">Comes with observability.</p>
-	</section>
+	<div class="space-y-4">
+		@components.RangePicker(TunnelDrawer(l.A, l.B), rng)
+		@components.Chart("Round trip", linkMetrics(l, rng), "rtt_ms", "round trip", "ms")
+		@components.Chart("Packet loss", linkMetrics(l, rng), "loss", "loss", "ratio")
+	</div>
+}
+
+// linkMetrics is the pair's metrics read.
+func linkMetrics(l Link, rng string) string {
+	return "/api/v1/admin/nodes/" + url.PathEscape(l.A) + "/link-metrics?peer=" + url.QueryEscape(l.B) + "&range=" + url.QueryEscape(rng)
 }
 
 // nodeLink opens a node's drawer in place of this one.

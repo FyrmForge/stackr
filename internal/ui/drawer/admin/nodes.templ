@@ -175,6 +175,9 @@ type NodeView struct {
 	Backups []BackupGroupRow
 	Job     *c.JobStatusView
 	Tunnels                        []TunnelRow
+	// Metrics: the node's metrics read for MetricsRange; MetricsTab reloads
+	// the tab
+	MetricsSrc, MetricsRange, MetricsTab string
 	// Envs
 	Envs []NodeEnvRow
 	// Network
@@ -569,6 +572,13 @@ templ NodeBody(tab string, v NodeView) {
 			<div class="mb-4">@c.JobStatus(*v.Job)</div>
 		}
 		switch tab {
+			case "metrics":
+				<div class="space-y-4">
+					@c.RangePicker(v.MetricsTab, v.MetricsRange)
+					@c.Chart("CPU", v.MetricsSrc, "cpu_pct", "", "pct")
+					@c.Chart("Memory", v.MetricsSrc, "mem_used mem_total", "used,total", "bytes")
+					@c.Chart("Disk", v.MetricsSrc, "disk_used disk_total", "used,total", "bytes")
+				</div>
 			case "envs":
 				@c.Section("Envs on this node", "", "Placements decide where envs run. Repoint a placement to move its envs.") {
 					if len(v.Envs) == 0 {

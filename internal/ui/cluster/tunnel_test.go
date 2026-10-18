@@ -18,11 +18,11 @@ func TestTunnelBody(t *testing.T) {
 		{Rx: -1, Tx: -1},
 	}}
 	var sb strings.Builder
-	if err := cluster.TunnelBody(m, l).Render(context.Background(), &sb); err != nil {
+	if err := cluster.TunnelBody(m, l, "1h").Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"home", "fsn1", `hx-get="/-/admin/nodes/f"`, "Internet", "21 ms", "203.0.113.5:51820",
-		"2 min ago", "2.0 MB", "0.5 KB", "waits to be dialled", "not reported", "Ping history", "Comes with observability."} {
+		"2 min ago", "2.0 MB", "0.5 KB", "waits to be dialled", "not reported", "Round trip", "Packet loss", `unit="ratio"`} {
 		if !strings.Contains(sb.String(), want) {
 			t.Errorf("tunnel drawer lacks %q", want)
 		}

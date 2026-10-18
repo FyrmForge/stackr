@@ -4,7 +4,8 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.0e39150339a4.css",
+	"css/output.css": "css/output.cc04bfec330a.css",
+	"css/uplot.min.css": "css/uplot.min.df630c6a8d6f.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
 	"images/favicon-32.png": "images/favicon-32.714289f559fa.png",
@@ -14,6 +15,7 @@ var StaticManifest = map[string]string{
 	"js/elements/graph-canvas.js": "js/elements/graph-canvas.68e78ab07b71.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.e76610db4e1b.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
+	"js/elements/metric-chart.js": "js/elements/metric-chart.07267f376764.js",
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",
 	"js/elements/side-drawer.js": "js/elements/side-drawer.54b9afdeea02.js",
 	"js/elements/tab-strip.js": "js/elements/tab-strip.54412ec96f2b.js",
@@ -22,6 +24,7 @@ var StaticManifest = map[string]string{
 	"js/main.js": "js/main.be124c9f8e8f.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
 	"js/vendor/sse.min.js": "js/vendor/sse.min.98a46496de0c.js",
+	"js/vendor/uplot.min.js": "js/vendor/uplot.min.19c8d4c6ad88.js",
 	"js/vendor/xterm-addon-fit.js": "js/vendor/xterm-addon-fit.ba3ea256ce06.js",
 	"js/vendor/xterm.js": "js/vendor/xterm.14903579ff54.js",
 }

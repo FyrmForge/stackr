@@ -24,7 +24,7 @@ func TestTunnelDrawer(t *testing.T) {
 		},
 	}
 	render := func(a, b string) (string, bool) {
-		d, ok := tunnelDrawer(cm, a, b)
+		d, ok := tunnelDrawer(cm, a, b, "1h")
 		if !ok {
 			return "", false
 		}
@@ -38,7 +38,7 @@ func TestTunnelDrawer(t *testing.T) {
 	if !ok {
 		t.Fatal("pair not found in reverse order")
 	}
-	for _, want := range []string{"ct109 and h4", "203.0.113.4:51820", "3 min ago", "1.0 MB", "2.0 MB", "waits to be dialled", "Ping history", "Comes with observability."} {
+	for _, want := range []string{"ct109 and h4", "203.0.113.4:51820", "3 min ago", "1.0 MB", "2.0 MB", "waits to be dialled", "Round trip", `/api/v1/admin/nodes/a/link-metrics?peer=b&amp;range=1h`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tunnel drawer lacks %q", want)
 		}

@@ -175,6 +175,8 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		body = ui.Logs(v, logsView(c, v.Base, *t, hd.status, last))
 	case "terminal":
 		body = ui.Terminal(v, terminalView(c, hd.status))
+	case "metrics":
+		body = ui.Metrics(v, metricsView(c))
 	case "env":
 		body = ui.Env(v, envView(t.EnvJSON))
 	case "access":

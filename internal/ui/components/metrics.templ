@@ -1,0 +1,57 @@
+package components
+
+import (
+	"net/url"
+	"slices"
+	"strconv"
+)
+
+// MetricRanges are the ranges a metrics view offers, the first the default.
+var MetricRanges = []string{"1h", "6h", "24h"}
+
+// MetricRange is the asked range when it is one on offer, else the default.
+func MetricRange(r string) string {
+	if slices.Contains(MetricRanges, r) {
+		return r
+	}
+	return MetricRanges[0]
+}
+
+// WithRange is u with ?range=r set.
+func WithRange(u, r string) string {
+	p, err := url.Parse(u)
+	if err != nil {
+		return u
+	}
+	q := p.Query()
+	q.Set("range", r)
+	p.RawQuery = q.Encode()
+	return p.String()
+}
+
+// RangePicker reloads the drawer view at reload with another ?range=; the
+// charts under it poll on their own.
+templ RangePicker(reload, cur string) {
+	<div class="flex items-center gap-1" role="group" aria-label="Time range">
+		for _, r := range MetricRanges {
+			<button
+				type="button"
+				hx-get={ WithRange(reload, r) }
+				hx-target={ "#" + DrawerRoot }
+				hx-swap="outerHTML"
+				aria-pressed={ strconv.FormatBool(r == cur) }
+				class={ "btn btn-sm", templ.KV("btn-primary", r == cur), templ.KV("btn-ghost", r != cur) }
+			>{ r }</button>
+		}
+	</div>
+}
+
+// Chart is one titled graph. src is a metrics read; measures the series it
+// draws (space separated), labels their names (comma separated), unit how
+// values read: pct, ratio, bytes, bps or ms.
+templ Chart(title, src, measures, labels, unit string) {
+	<section class="panel p-4">
+		<h3 class="text-sm font-medium text-rw-text mb-2">{ title }</h3>
+		<metric-chart class="block min-h-40" src={ src } measures={ measures } labels={ labels } unit={ unit }></metric-chart>
+	</section>
+}

@@ -115,6 +115,15 @@ func terminalView(c echo.Context, s service.TileStatus) ui.TerminalView {
 	return v
 }
 
+// metricsView points the Metrics tab's charts at the tile's metrics read
+// (tile.read, the drawer's own gate).
+func metricsView(c echo.Context) ui.MetricsView {
+	sc := middleware.ScopeOf(c)
+	r := comp.MetricRange(c.QueryParam("range"))
+	return ui.MetricsView{Range: r, Src: "/api/v1/orgs/" + sc.Org.Slug + "/stacks/" + sc.Stack.Slug + "/envs/" + sc.Env.Slug +
+		"/tiles/" + sc.Tile.Slug + "/metrics?range=" + r}
+}
+
 func domainRows(ds []service.Domain) []ui.DomainRow {
 	var out []ui.DomainRow
 	for _, d := range ds {

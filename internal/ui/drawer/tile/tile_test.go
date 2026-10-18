@@ -197,7 +197,7 @@ func TestEveryTabRenders(t *testing.T) {
 func TestTabsPerKind(t *testing.T) {
 	for kind, want := range map[string]string{
 		"cron":    "runs logs jobs env access settings placement backups",
-		"service": "status jobs logs env access settings placement backups",
+		"service": "status jobs logs metrics env access settings placement backups",
 	} {
 		if got := strings.Join(Tabs(kind), " "); got != want {
 			t.Errorf("%s tabs = %s", kind, got)
