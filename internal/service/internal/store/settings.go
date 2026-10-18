@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
 )
 
 // SettingStore is the install-wide key/value table. Keys are the settings
@@ -15,9 +16,31 @@ type SettingStore interface {
 	Set(ctx context.Context, key, value string) error
 	Delete(ctx context.Context, key string) error
 	All(ctx context.Context) (map[string]string, error)
+	// GetSealed and SetSealed are Get and Set for a value kept encrypted.
+	GetSealed(ctx context.Context, key string) (string, error)
+	SetSealed(ctx context.Context, key, value string) error
 }
 
-type settings struct{ q querier }
+type settings struct {
+	q   querier
+	box *secrets.Box
+}
+
+func (s settings) GetSealed(ctx context.Context, key string) (string, error) {
+	v, ok, err := s.Get(ctx, key)
+	if err != nil || !ok || v == "" {
+		return "", err
+	}
+	return s.box.Decrypt(v)
+}
+
+func (s settings) SetSealed(ctx context.Context, key, value string) error {
+	v, err := s.box.Encrypt(value)
+	if err != nil {
+		return err
+	}
+	return s.Set(ctx, key, v)
+}
 
 func (s settings) Get(ctx context.Context, key string) (string, bool, error) {
 	var v string

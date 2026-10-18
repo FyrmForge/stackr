@@ -349,6 +349,7 @@ func (o *Orchestrator) dailyChores(ctx context.Context) {
 	if err := o.rootRolloverTick(ctx); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 		slog.Warn("cluster: root rollover tick failed", "err", err)
 	}
+	o.certAlerts(ctx)
 	if err := o.store.RegistryTokens.DeleteExpiredBefore(ctx, time.Now().UTC().Add(-registryTokenKeep)); err != nil {
 		slog.Warn("registry: prune expired tokens", "err", err)
 	}

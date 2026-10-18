@@ -17,6 +17,12 @@ type (
 	ValueIn struct {
 		Value string `json:"value"`
 	}
+	// AlertsIn sets the alert webhook: url "" keeps the stored one, a
+	// missing secret keeps the stored one, "" clears it.
+	AlertsIn struct {
+		URL    string  `json:"url"`
+		Secret *string `json:"secret,omitempty"`
+	}
 	TagIn struct {
 		Tag string `json:"tag"`
 	}
@@ -105,6 +111,23 @@ func (h *H) PanelBackupNow() Endpoint {
 
 func (h *H) SyncProxy() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.SyncProxy(rc(c)) })
+}
+
+func (h *H) Alerts() Endpoint {
+	return Get(func(c echo.Context) (service.AlertSettings, error) { return h.Orch.AlertSettings(rc(c)) })
+}
+
+func (h *H) SetAlerts() Endpoint {
+	return Done(func(c echo.Context, in AlertsIn) error { return h.Orch.SetAlerts(rc(c), in.URL, in.Secret) })
+}
+
+func (h *H) ClearAlerts() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.ClearAlerts(rc(c)) })
+}
+
+// TestAlert posts a test alert now; a failed delivery is a 409 that says why.
+func (h *H) TestAlert() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.TestAlert(rc(c)) })
 }
 
 func (h *H) Setting() Endpoint {

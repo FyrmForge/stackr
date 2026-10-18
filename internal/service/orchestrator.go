@@ -255,6 +255,10 @@ type Orchestrator struct {
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
 	stopNodes chan struct{} // ends watchNodeClients
+	// alerts is the alert queue (alerts.go); alertsDone waits for its
+	// delivery goroutine.
+	alerts     chan Alert
+	alertsDone sync.WaitGroup
 	// helperReady puts the mesh's helper image in the cluster registry
 	// (rsyncSteps); tests swap it.
 	helperReady func(context.Context) error
@@ -412,6 +416,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
+		alerts:    make(chan Alert, 64),
 
 		stackrPublished: make(chan struct{}),
 	}
@@ -729,6 +734,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	orch.redeployRestored(ctx)
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
+	orch.startAlerts()
 	orch.detach(context.Background(), orch.dailyChores)
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
@@ -814,6 +820,7 @@ func (o *Orchestrator) Close() error {
 		}
 	})
 	o.trustAsync.Wait()
+	o.alertsDone.Wait()
 	o.sched.Stop()
 	o.jobs.Close()
 	return o.db.Close()

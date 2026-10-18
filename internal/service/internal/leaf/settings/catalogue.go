@@ -255,6 +255,13 @@ var Catalogue = []Knob{
 		Desc:   "global backup destination id for panel archives; empty is local",
 	},
 
+	{
+		Key:    "alert_webhook_url",
+		Type:   TStr,
+		Scopes: Flat,
+		Desc:   "where alerts are posted as JSON; empty is off (the Alerts tab)",
+	},
+
 	// The server file's binding (stackr-server.yml); written by
 	// BindServerConfig, shown on the admin Config tab.
 	{

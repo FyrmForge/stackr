@@ -1146,6 +1146,7 @@ func (a *app) admin() *cobra.Command {
 		defaults,
 		a.adminAudit(),
 		a.routes(),
+		a.alerts(),
 	)
 }
 

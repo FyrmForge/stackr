@@ -253,6 +253,10 @@ func CheckSetting(key, raw string) (string, error) {
 				}
 			}
 		}
+	case "alert_webhook_url":
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return "", fmt.Errorf("an http or https URL")
+		}
 	case "proxy_custom":
 		// ponytail: shape only (a JSON array of Caddy route objects); Caddy's load is the real check.
 		var routes []json.RawMessage

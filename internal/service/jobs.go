@@ -256,7 +256,17 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindStart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Start(ctx, t, r.Log) })
 		}),
-		kindBackup:  payload(o.runBackup),
+		kindBackup: payload(func(ctx context.Context, r *jobs.Run, p backupJob) error {
+			err := o.runBackup(ctx, r, p)
+			if p.ScheduleID != "" && err != nil {
+				subject := "volume " + p.VolumeID
+				if v, verr := o.store.Volumes.Get(ctx, p.VolumeID); verr == nil {
+					subject = "volume " + v.Slug
+				}
+				o.backupFailed(ctx, o.volumeNode(ctx, p.VolumeID), subject, err)
+			}
+			return err
+		}),
 		kindRestore: payload(o.runRestore),
 		kindOrphans: func(ctx context.Context, r *jobs.Run) error {
 			ctx, err := o.withController(ctx)
@@ -283,6 +293,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				trigger = "schedule"
 			}
 			_, err = o.panelBackup(ctx, r.Log, trigger, p.DestID)
+			if p.Scheduled {
+				o.backupFailed(ctx, "", "the panel database", err)
+			}
 			return err
 		}),
 		kindUpgrade: payload(func(ctx context.Context, r *jobs.Run, p upgradeJob) error {
