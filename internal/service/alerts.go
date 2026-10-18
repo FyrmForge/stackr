@@ -362,13 +362,13 @@ func (o *Orchestrator) diskAlert(ctx context.Context, n store.Node, free, total 
 	}
 }
 
-// controllerDiskAlert is diskAlert for the controller's data dir disk.
+// controllerDiskAlert is diskAlert for the controller, read as the deploy gate reads it.
 func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
 	n, err := o.nodeLeaf().Controller(ctx)
 	if err != nil {
 		return
 	}
-	free, total := o.dataDirDisk()
+	free, total := o.diskOf(ctx, n.ID)
 	o.diskAlert(ctx, n, free, total)
 }
 
