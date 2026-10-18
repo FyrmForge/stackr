@@ -150,9 +150,14 @@ func (o *Orchestrator) RevokeKey(ctx context.Context, by *Principal, keyID strin
 // Settings is the catalogue every surface enumerates.
 func (o *Orchestrator) Settings() []Knob { return settings.Catalogue }
 
-// Setting is a flat knob's effective value.
+// Setting is a flat knob's effective value; the alert webhook's is masked as
+// the Alerts tab shows it.
 func (o *Orchestrator) Setting(ctx context.Context, key string) (string, error) {
-	return o.settings.Get(ctx, key)
+	v, err := o.settings.Get(ctx, key)
+	if key == alertURLKey {
+		v = settings.MaskURL(v)
+	}
+	return v, err
 }
 
 // scheduleKnobs are the settings the cron table is built from.

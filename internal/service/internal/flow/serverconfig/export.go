@@ -38,6 +38,14 @@ func DestParamCollection(name string) string {
 // DestKeys are the param names under DestParamCollection, one per key.
 var DestKeys = []string{"access_key", "secret_key", "archive_key"}
 
+// AlertURLParam is the server param (collection.name) the exported file's
+// alert_webhook_url refers to: a webhook's path is often its token, so the
+// file holds a ref, never the URL. The orchestrator seeds it before export.
+const AlertURLParam = "alerts.webhook_url"
+
+// alertURLKey is the one setting the file gives as a ref.
+const alertURLKey = "alert_webhook_url"
+
 func destRef(name, key string) string {
 	return fmt.Sprintf("${{ server.params.%s.%s }}", DestParamCollection(name), key)
 }
@@ -130,6 +138,9 @@ func exportSettings(live Live) map[string]any {
 		// must parse, and a key the file leaves out is not touched.
 		if _, err := CheckSetting(k.Key, v); err != nil {
 			continue
+		}
+		if k.Key == alertURLKey {
+			v = "${{ server.params." + AlertURLParam + " }}"
 		}
 		switch n, err := strconv.Atoi(v); {
 		case k.Type == settings.TBool && v != "":

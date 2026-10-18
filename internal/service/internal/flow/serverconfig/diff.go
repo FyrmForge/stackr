@@ -447,6 +447,16 @@ func (d *differ) settings() {
 	for _, key := range slices.Sorted(maps.Keys(d.f.Settings)) {
 		want, _ := d.f.setting(key)
 		have := d.live.eff(key)
+		ref := ""
+		if key == alertURLKey && want != "" {
+			pk, _ := ServerRef(want)
+			v, set := d.param(pk)
+			if !set {
+				d.note("settings.%s waits for server.params.%s, which is not set", key, pk)
+				continue
+			}
+			ref, want = want, v
+		}
 		if key == "panel_backup_dest" {
 			have = d.destName(have)
 			if want == backup.Local {
@@ -478,6 +488,9 @@ func (d *differ) settings() {
 			d.block("settings.panel_domain: %s is already a tile domain or domain resource; the panel would shadow it", want)
 		}
 		c := Change{Kind: "settings", Field: key, Old: show(have), New: show(want), Impact: d.settingImpact(key, have, want)}
+		if key == alertURLKey { // the path is often a token: never in a plan row
+			c.Old, c.New = settings.MaskURL(have), ref
+		}
 		if want == "" {
 			c.Note = "back to the default"
 		}

@@ -163,7 +163,7 @@ func (o *Orchestrator) connectorsLive(ctx context.Context) ([]serverconfig.Conne
 // seedDestParams stores the keys of each global S3 destination as server
 // params (the names serverconfig.DestParamCollection and DestKeys give), for
 // the ones not stored yet: the exported file refers to them. An existing
-// param is the admin's and stays.
+// param is the admin's and stays. The alert webhook URL is seeded too.
 func (o *Orchestrator) seedDestParams(ctx context.Context) error {
 	ds, err := o.globalDestsWithKeys(ctx)
 	if err != nil {
@@ -187,6 +187,13 @@ func (o *Orchestrator) seedDestParams(ctx context.Context) error {
 				es = append(es, ParamEntry{Collection: coll, Name: key, Kind: params.Secret, Value: v})
 			}
 		}
+	}
+	// The alert webhook goes as a ref too (its path is often a token); the
+	// param follows the live URL, which is what the export writes.
+	if u, err := o.settings.Get(ctx, alertURLKey); err != nil {
+		return err
+	} else if coll, name, _ := strings.Cut(serverconfig.AlertURLParam, "."); u != "" && have[serverconfig.AlertURLParam].V != u {
+		es = append(es, ParamEntry{Collection: coll, Name: name, Kind: params.Secret, Value: u})
 	}
 	if len(es) == 0 {
 		return nil
@@ -406,6 +413,12 @@ func (w *serverWalk) settings() error {
 		}
 		w.say(c)
 		v, _ := w.f.Settings[c.Field].(string)
+		if c.Field == alertURLKey {
+			var err error
+			if v, err = w.o.ExpandServerRefs(w.ctx, v); err != nil {
+				return fmt.Errorf("settings.%s: %w", c.Field, err)
+			}
+		}
 		vals[c.Field] = v
 	}
 	if len(vals) == 0 {

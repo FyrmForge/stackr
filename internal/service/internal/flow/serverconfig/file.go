@@ -183,6 +183,13 @@ func (f *File) checkSettings() error {
 		if err != nil {
 			return fmt.Errorf("settings.%s: %w", key, err)
 		}
+		if key == alertURLKey && raw != "" {
+			if _, ok := ServerRef(raw); !ok {
+				return fmt.Errorf("settings.%s is a ${{ server.params.<collection>.<name> }} ref, never the URL (its path is often a token)", key)
+			}
+			f.Settings[key] = raw
+			continue
+		}
 		if raw, err = CheckSetting(key, raw); err != nil {
 			return fmt.Errorf("settings.%s: %w", key, err)
 		}
