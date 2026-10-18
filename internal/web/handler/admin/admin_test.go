@@ -416,7 +416,7 @@ func TestAdminUpdateUnderway(t *testing.T) {
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	ctx := context.Background()
 	j := service.Job{ID: uuid.NewString(), Kind: "upgrade", State: "running", Payload: "{}", CreatedAt: time.Now()}
-	if err := s.Env.Store.Jobs.Create(ctx, j); err != nil {
+	if err := s.Store.Jobs.Create(ctx, j); err != nil {
 		t.Fatal(err)
 	}
 	b := s.As(t, root, "GET", "/-/admin?tab=update", nil).Body.String()
@@ -430,7 +430,7 @@ func TestAdminUpdateUnderway(t *testing.T) {
 	}
 	now := time.Now()
 	j.State, j.FinishedAt = "failed", &now
-	if err := s.Env.Store.Jobs.Update(ctx, j); err != nil {
+	if err := s.Store.Jobs.Update(ctx, j); err != nil {
 		t.Fatal(err)
 	}
 	b = s.As(t, root, "GET", "/-/admin?tab=update", nil).Body.String()
