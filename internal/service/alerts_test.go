@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -274,9 +275,57 @@ func TestScheduledBackupFailureAlerts(t *testing.T) {
 	if got := h.events(t, o); len(got) != 1 || got[0] != AlertBackupFailed+":"+SevCritical {
 		t.Errorf("scheduled: %v", got)
 	}
-	o.backupFailed(ctx, "", "volume x", fmt.Errorf("%w: node offline", jobs.ErrSkipped))
-	o.backupFailed(ctx, "", "volume x", context.Canceled)
+	o.backupResult(ctx, "x", "", "volume x", fmt.Errorf("%w: node offline", jobs.ErrSkipped))
+	o.backupResult(ctx, "x", "", "volume x", context.Canceled)
 	if got := h.events(t, o); len(got) != 0 {
 		t.Errorf("skipped: %v", got)
+	}
+}
+
+// A failing schedule alerts once, then after backupRemind; a success resets
+// it and a skip changes nothing. The state is a row, so a restart keeps it.
+func TestBackupFailedDebounce(t *testing.T) {
+	ctx := context.Background()
+	o := newWorld(t).orch
+	h := newHook(t)
+	alertsTo(t, o, h, "")
+	fail := errors.New("s3 down")
+	step := func(name string, err error, want int) {
+		t.Helper()
+		o.backupResult(ctx, "schedule.s1", "", "volume x", err)
+		if got := h.events(t, o); len(got) != want {
+			t.Errorf("%s: %v, want %d", name, got, want)
+		}
+	}
+	step("first failure", fail, 1)
+	step("again", fail, 0)
+	step("skip", fmt.Errorf("%w: offline", jobs.ErrSkipped), 0)
+	step("still", fail, 0)
+	o.backupResult(ctx, "schedule.s2", "", "volume y", fail) // another schedule has its own state
+	if got := h.events(t, o); len(got) != 1 {
+		t.Errorf("other schedule: %v", got)
+	}
+	step("success", nil, 0)
+	step("fails again", fail, 1)
+	must(t, o.store.Settings.Set(ctx, "alert.backup.schedule.s1", time.Now().Add(-backupRemind-time.Hour).UTC().Format(time.RFC3339)))
+	o.backupResult(ctx, "schedule.s1", "", "volume x", fail)
+	if x := h.next(t); x.a.Event != AlertBackupFailed || !strings.Contains(x.a.Message, "still fails") {
+		t.Errorf("reminder: %+v", x.a)
+	}
+	step("after reminder", fail, 0)
+}
+
+// A long message keeps its head and its tail, at most 300 characters.
+func TestOneLineCutsTheMiddle(t *testing.T) {
+	s := "HEAD " + strings.Repeat("x ", 400) + "\n the real cause TAIL"
+	got := oneLine(s)
+	if n := len([]rune(got)); n > 300 {
+		t.Errorf("%d runes", n)
+	}
+	if !strings.HasPrefix(got, "HEAD ") || !strings.HasSuffix(got, "the real cause TAIL") || !strings.Contains(got, "…") {
+		t.Errorf("%q", got)
+	}
+	if short := "a\nb"; oneLine(short) != "a b" {
+		t.Errorf("short: %q", oneLine(short))
 	}
 }

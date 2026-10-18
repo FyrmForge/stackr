@@ -506,3 +506,51 @@ func TestSetSettingsTakesBackBadProxyCustom(t *testing.T) {
 		t.Errorf("a later push fails: %v", err)
 	}
 }
+
+// The alert webhook's path is a token: the generic settings read masks it,
+// the export writes a server param ref (seeded from the live URL) and plans
+// clean, a plan row never shows the path, the apply resolves the ref, and a
+// file that gives the URL itself is refused.
+func TestAlertWebhookURLNeverInFull(t *testing.T) {
+	ctx := context.Background()
+	r := newFileRig(t)
+	o := r.env.Orch
+	const token = "T0KEN-in-path"
+	if err := o.SetAlerts(ctx, "https://hooks.example.com/services/"+token, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := o.Setting(ctx, "alert_webhook_url"); err != nil || v != "https://hooks.example.com/…" {
+		t.Errorf("Setting = %q, %v; want masked", v, err)
+	}
+	out, err := o.ExportServerConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), token) || !strings.Contains(string(out), "${{ server.params.alerts.webhook_url }}") {
+		t.Fatalf("export holds the URL or no ref:\n%s", out)
+	}
+	if pv, err := o.PreviewServerConfig(ctx, out); err != nil || len(pv.Changes) > 0 || len(pv.Blockers) > 0 {
+		t.Fatalf("export previews %+v, %v; want clean\n%s", pv, err, out)
+	}
+	// The tab moves the URL; the old file takes it back, the row masked.
+	if err := o.SetAlerts(ctx, "https://other.example.com/x/y", nil); err != nil {
+		t.Fatal(err)
+	}
+	pl, err := o.PlanServerFile(ctx, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(pl.Plan, "alert_webhook_url") || strings.Contains(pl.Plan, token) || strings.Contains(pl.Plan, "/x/y") {
+		t.Fatalf("plan = %s; want a masked alert_webhook_url row", pl.Plan)
+	}
+	if _, err := o.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	if s, _ := o.AlertSettings(ctx); s.URL != "https://hooks.example.com/…" {
+		t.Errorf("after apply the webhook is %q", s.URL)
+	}
+	if _, err := o.PreviewServerConfig(ctx, []byte("version: 1\nsettings:\n  alert_webhook_url: https://hooks.example.com/"+token+"\n")); err == nil {
+		t.Error("a file with the URL itself previews; want refused")
+	}
+}

@@ -258,12 +258,15 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		}),
 		kindBackup: payload(func(ctx context.Context, r *jobs.Run, p backupJob) error {
 			err := o.runBackup(ctx, r, p)
-			if p.ScheduleID != "" && err != nil {
-				subject := "volume " + p.VolumeID
-				if v, verr := o.store.Volumes.Get(ctx, p.VolumeID); verr == nil {
-					subject = "volume " + v.Slug
+			if p.ScheduleID != "" {
+				subject, nodeID := "", ""
+				if err != nil { // a success only resets: no lookups
+					subject, nodeID = "volume "+p.VolumeID, o.volumeNode(ctx, p.VolumeID)
+					if v, verr := o.store.Volumes.Get(ctx, p.VolumeID); verr == nil {
+						subject = "volume " + v.Slug
+					}
 				}
-				o.backupFailed(ctx, o.volumeNode(ctx, p.VolumeID), subject, err)
+				o.backupResult(ctx, "schedule."+p.ScheduleID, nodeID, subject, err)
 			}
 			return err
 		}),
@@ -294,7 +297,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			_, err = o.panelBackup(ctx, r.Log, trigger, p.DestID)
 			if p.Scheduled {
-				o.backupFailed(ctx, "", "the panel database", err)
+				o.backupResult(ctx, "panel", "", "the panel database", err)
 			}
 			return err
 		}),

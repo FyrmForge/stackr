@@ -6,12 +6,14 @@ stackr posts to one webhook when something needs you:
 |---|---|
 | `node.offline` | A worker misses its health checks for about a minute. |
 | `node.online` | That worker answers again. |
-| `backup.failed` | A scheduled volume or panel backup fails. A backup skipped because its node is offline is not a failure. |
+| `backup.failed` | A backup schedule starts failing. It fires again every 24 hours while it keeps failing, and resets on the next success. A backup skipped because its node is offline is not a failure. |
 | `cert.expiring` | A node certificate, the controller certificate or the cluster root has under 14 days left, then again under 3. |
 | `disk.low` | A node's Docker disk drops under 10% or 1 GB free. |
 | `test` | You press Send test. |
 
-Each event fires once per crossing. It fires again only after the condition clears and comes back. Let's Encrypt certificates are not checked.
+Each event fires once per crossing. It fires again only after the condition clears and comes back, except the daily `backup.failed` reminder. A panel restart does not send again. Let's Encrypt certificates are not checked.
+
+A message is at most 300 characters. A longer one loses its middle, so the end of an error stays.
 
 ## Set it up
 
@@ -28,7 +30,20 @@ stackr admin alerts show
 stackr admin alerts clear
 ```
 
-The URL can also go in `stackr-server.yml` as `settings.alert_webhook_url`. The secret cannot.
+A webhook URL often carries a token in its path. The panel shows it as `https://host/…` everywhere: the Alerts tab, `alerts show` and `GET /admin/settings/alert_webhook_url`.
+
+In `stackr-server.yml` the URL is a server param ref, never the URL itself:
+
+```yaml
+settings:
+  alert_webhook_url: ${{ server.params.alerts.webhook_url }}
+params:
+  alerts:
+    webhook_url:
+      type: secret
+```
+
+The export writes it that way and stores the live URL in that param. On a new panel, set the param before you apply. The signing secret does not go in the file.
 
 ## The body
 

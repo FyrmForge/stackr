@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -145,4 +146,18 @@ func (l *Leaf) SetDefaults(ctx context.Context, vals map[string]string) error {
 		return errs.Invalidf("", "%s", err.Error())
 	}
 	return l.rows.Set(ctx, DefaultsKey, next.JSON())
+}
+
+// MaskURL is scheme://host/… for a URL with a path or query: a webhook's
+// path is often its token (alert_webhook_url).
+func MaskURL(u string) string {
+	p, err := url.Parse(u)
+	if err != nil || p.Host == "" {
+		return ""
+	}
+	m := p.Scheme + "://" + p.Host
+	if (p.Path != "" && p.Path != "/") || p.RawQuery != "" {
+		m += "/…"
+	}
+	return m
 }

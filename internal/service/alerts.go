@@ -20,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -27,7 +28,7 @@ import (
 // Every event goes through alert, which never blocks: a bounded queue and one
 // delivery goroutine (deliverAlerts). A later notifier subscribes there.
 // Each trigger fires once per crossing; the state that says "already sent"
-// is the node row (offline/online) or a settings row (disk, certs), so a
+// is the node row (offline/online) or a settings row (disk, certs, backups), so a
 // panel restart does not send again.
 
 const (
@@ -164,7 +165,7 @@ func (o *Orchestrator) sendAlert(ctx context.Context, a Alert, tries int) error 
 	}
 	o.recordDelivery(ctx, err)
 	if err != nil {
-		slog.Warn("alerts: delivery failed", "event", a.Event, "host", maskURL(u), "err", err)
+		slog.Warn("alerts: delivery failed", "event", a.Event, "host", settings.MaskURL(u), "err", err)
 	}
 	return err
 }
@@ -222,7 +223,7 @@ func (o *Orchestrator) AlertSettings(ctx context.Context) (AlertSettings, error)
 	if err != nil {
 		return s, err
 	}
-	s.URL = maskURL(u)
+	s.URL = settings.MaskURL(u)
 	sec, _, err := o.store.Settings.Get(ctx, alertSecretKey)
 	if err != nil {
 		return s, err
@@ -290,24 +291,12 @@ func (o *Orchestrator) TestAlert(ctx context.Context) error {
 	return errs.Conflictf("Test delivery failed: %s.", oneLine(err.Error()))
 }
 
-// maskURL is scheme://host/… for a URL with a path or query.
-func maskURL(u string) string {
-	p, err := url.Parse(u)
-	if err != nil || p.Host == "" {
-		return ""
-	}
-	m := p.Scheme + "://" + p.Host
-	if (p.Path != "" && p.Path != "/") || p.RawQuery != "" {
-		m += "/…"
-	}
-	return m
-}
-
-// oneLine is s on one line, at most 300 characters.
+// oneLine is s on one line, at most 300 characters. A longer s loses its
+// middle: an error's tail is usually the cause.
 func oneLine(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if r := []rune(s); len(r) > 300 {
-		s = string(r[:300]) + "…"
+		s = string(r[:150]) + "…" + string(r[len(r)-149:])
 	}
 	return s
 }
@@ -454,10 +443,37 @@ func (o *Orchestrator) certAlerts(ctx context.Context) {
 	}
 }
 
-// backupFailed alerts for a scheduled backup that failed. A skip (node
-// offline) or a cancel is not a failure.
-func (o *Orchestrator) backupFailed(ctx context.Context, nodeID, subject string, err error) {
-	if err == nil || errors.Is(err, context.Canceled) || ctx.Err() != nil || errors.Is(err, jobs.ErrSkipped) {
+// backupRemind is how long a schedule fails before backup.failed fires again.
+const backupRemind = 24 * time.Hour
+
+// backupResult takes a scheduled backup's outcome; key names the schedule.
+// The first failure alerts, then a reminder each backupRemind it keeps
+// failing; a success resets. A skip (node offline) or a cancel is neither.
+// The row alert.backup.<key> holds when the last alert went.
+func (o *Orchestrator) backupResult(ctx context.Context, key, nodeID, subject string, err error) {
+	if errors.Is(err, context.Canceled) || ctx.Err() != nil || errors.Is(err, jobs.ErrSkipped) {
+		return
+	}
+	key = "alert.backup." + key
+	last, was, gerr := o.store.Settings.Get(ctx, key)
+	if gerr != nil {
+		return
+	}
+	if err == nil {
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+		}
+		return
+	}
+	verb := "failed"
+	if was {
+		t, perr := time.Parse(time.RFC3339, last)
+		if perr == nil && time.Since(t) < backupRemind {
+			return
+		}
+		verb = "still fails"
+	}
+	if o.store.Settings.Set(ctx, key, time.Now().UTC().Format(time.RFC3339)) != nil {
 		return
 	}
 	name := "controller"
@@ -468,5 +484,5 @@ func (o *Orchestrator) backupFailed(ctx context.Context, nodeID, subject string,
 		name = n.Name
 	}
 	o.alert(Alert{Event: AlertBackupFailed, Severity: SevCritical, Node: name, Subject: subject,
-		Message: "Scheduled backup of " + subject + " failed: " + err.Error()})
+		Message: "Scheduled backup of " + subject + " " + verb + ": " + err.Error()})
 }
