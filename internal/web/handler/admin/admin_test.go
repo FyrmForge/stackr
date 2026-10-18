@@ -113,7 +113,22 @@ func TestAdminDrawer(t *testing.T) {
 	if rec.Code != http.StatusOK || m == nil {
 		t.Fatalf("backup now = %d %s", rec.Code, rec.Body)
 	}
-	cctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	// A finished job's stream ends by itself, so no deadline can cut the
+	// request short before its first event (one did, under a loaded run).
+	jobID := strings.TrimSuffix(strings.TrimPrefix(m[1], "/-/jobs/"), "/events")
+	for end := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		j, err := s.Orch.GetJob(ctx, jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if j.FinishedAt != nil {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatalf("backup job still %s", j.State)
+		}
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req := httptest.NewRequest("GET", m[1], nil).WithContext(cctx)
 	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
