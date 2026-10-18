@@ -7,6 +7,7 @@ One button upgrades the panel, then every worker, one at a time.
 3. Press **Upgrade to vX.Y.Z**.
    - The panel archives its database, then restarts on the new image.
    - Running apps keep running.
+   - A box without Docker's log cap gets it now, and Docker restarts once before the workers roll. Apps come back on their own.
 4. When the panel is back, it rolls the workers onto the new build. The Workers list on the same page shows each one as waiting, upgrading, done, failed or skipped.
    - One worker at a time. Nodes that other nodes route through go last.
    - A worker that does not come back on the new build rolls itself back, and the rollout stops.

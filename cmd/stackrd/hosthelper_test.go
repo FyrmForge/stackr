@@ -205,8 +205,8 @@ func TestHostRunUninstall(t *testing.T) {
 	}
 }
 
-// host-run docker-logcap puts the image's installer on the host and starts
-// its log cap in a delayed transient unit, after the panel swap is done.
+// host-run docker-logcap puts the image's installer on the host and runs its
+// log cap in a transient unit it waits for: no delay, the panel's boot waits.
 func TestHostRunLogCap(t *testing.T) {
 	src, host := swapDirs(t)
 	var got []string
@@ -220,7 +220,7 @@ func TestHostRunLogCap(t *testing.T) {
 	if b := read(t, filepath.Join(host, "usr/local/bin/stackr-install")); b != "new stackr-install" {
 		t.Fatalf("host installer = %q, want the image's", b)
 	}
-	want := []string{"chroot", host, "systemd-run", "--collect", "--unit", "stackr-docker-logcap", "--on-active=15",
+	want := []string{"chroot", host, "systemd-run", "--collect", "--wait", "--unit", "stackr-docker-logcap",
 		"/usr/local/bin/stackr-install", "docker-logcap"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("command = %v, want %v", got, want)

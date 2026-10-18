@@ -185,6 +185,19 @@ func (o *Orchestrator) markStackrPublished() {
 	}
 }
 
+// stackrIsPublished: the boot publish is over (or given up).
+func (o *Orchestrator) stackrIsPublished() bool {
+	if o.stackrPublished == nil {
+		return true
+	}
+	select {
+	case <-o.stackrPublished:
+		return true
+	default:
+		return false
+	}
+}
+
 // waitStackrPublished holds a node's pull of the stackr image until the boot
 // publish put the running version in the registry: right after an upgrade
 // the new tag is not there yet.

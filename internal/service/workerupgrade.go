@@ -173,9 +173,11 @@ func (o *Orchestrator) rolloutWanted(ctx context.Context) bool {
 }
 
 // rolloutAfterBoot queues the rollout the admin asked for before the panel
-// restarted into the target build.
+// restarted into the target build. Not before the boot publish, which calls
+// it: until then a worker reconnecting must not start one, as the boot's
+// Docker log cap (controllerLogCap) may still restart the controller's Docker.
 func (o *Orchestrator) rolloutAfterBoot(ctx context.Context) {
-	if !o.rolloutWanted(ctx) || o.rolloutActive(ctx) {
+	if !o.stackrIsPublished() || !o.rolloutWanted(ctx) || o.rolloutActive(ctx) {
 		return
 	}
 	if _, err := o.enqueueRollout(ctx); err != nil {
@@ -400,7 +402,16 @@ func (ro rollout) one(ctx context.Context, n store.Node, target string) error {
 		}
 	}
 	// stop ends the rollout on this node: rolledBack says the helper ran.
+	// A cancelled run is the panel going down (a controller Docker restart
+	// among the causes), not a failed node: nothing is recorded, and the next
+	// boot queues the rollout again (rolloutAfterBoot).
+	// ponytail: a controller Docker restart that stops the registry before
+	// this panel still fails the pull and stops the rollout (Retry); retry
+	// the pull when that shows.
 	stop := func(msg string, rolledBack bool) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		set(stateFailed, msg)
 		why := n.Name + " failed to upgrade"
 		if rolledBack {
@@ -421,6 +432,11 @@ func (ro rollout) one(ctx context.Context, n store.Node, target string) error {
 		set(stateSkipped, fmt.Sprintf("%s is %s; the stackr image is %s only", n.Name, f.Arch, ro.arch))
 		return nil
 	case sameVersion(f.Version, target):
+		// On the new build, maybe by a swap a panel restart left uncommitted:
+		// its helper still waits and would roll the node back at its deadline.
+		if err := ro.commitLeftover(docker.WithNode(ro.allowOld(ctx), n.ID)); err != nil {
+			return stop("the helper left by an earlier run could not be told to commit, so the node rolls back: "+err.Error(), true)
+		}
 		set(stateDone, "")
 		return nil
 	}
@@ -503,6 +519,27 @@ func (ro rollout) removeHelpers(nctx context.Context) error {
 		if err := ro.docker.StopRemove(nctx, c.ID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// commitLeftover commits and removes a helper still running on a node that
+// already reports the target build. A node whose helpers cannot be listed
+// keeps the old behaviour: it is done.
+func (ro rollout) commitLeftover(nctx context.Context) error {
+	cs, err := ro.docker.List(nctx, map[string]string{installspec.LabelRole: "host-helper"})
+	if err != nil {
+		ro.say("listing helpers: %v", err)
+		return nil
+	}
+	for _, c := range cs {
+		if c.State != "running" {
+			continue
+		}
+		if err := ro.commit(nctx, c.ID); err != nil {
+			return err
+		}
+		_ = ro.docker.StopRemove(nctx, c.ID)
 	}
 	return nil
 }
