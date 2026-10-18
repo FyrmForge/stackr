@@ -261,7 +261,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if p.ScheduleID != "" && err != nil {
 				subject := "volume " + p.VolumeID
 				if v, verr := o.store.Volumes.Get(ctx, p.VolumeID); verr == nil {
-					subject = "volume " + v.Name
+					subject = "volume " + v.Slug
 				}
 				o.backupFailed(ctx, o.volumeNode(ctx, p.VolumeID), subject, err)
 			}
