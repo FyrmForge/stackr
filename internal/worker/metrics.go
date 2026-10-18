@@ -113,7 +113,7 @@ func (s *Server) tileContainers(ctx context.Context) ([]dockerCtr, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var cs []dockerCtr
 	if err := json.NewDecoder(resp.Body).Decode(&cs); err != nil {
 		return nil, err

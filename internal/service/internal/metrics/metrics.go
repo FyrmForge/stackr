@@ -55,7 +55,8 @@ func (s *Memory) Write(_ context.Context, ps []Point) error {
 		if s.m[p.Key] == nil {
 			s.m[p.Key] = map[string][]Sample{}
 		}
-		xs := append(s.m[p.Key][p.Name], Sample{p.T, p.V})
+		s.m[p.Key][p.Name] = append(s.m[p.Key][p.Name], Sample{p.T, p.V})
+		xs := s.m[p.Key][p.Name]
 		cut := p.T.Add(-keep)
 		i := sort.Search(len(xs), func(i int) bool { return !xs[i].T.Before(cut) })
 		s.m[p.Key][p.Name] = xs[i:]

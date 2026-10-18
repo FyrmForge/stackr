@@ -18,6 +18,9 @@ import (
 // MetricsEvery is the metrics sample tick.
 const MetricsEvery = 30 * time.Second
 
+// MetricsKeep is the longest read: the in-memory store keeps 24 h.
+const MetricsKeep = 24 * time.Hour
+
 // metricsState is the last raw sample per node (counters become rates
 // between two) and the replicas each tile had in it.
 type metricsState struct {
@@ -124,9 +127,11 @@ func (o *Orchestrator) takeSample(nodeID string, cur worker.Metrics) []metrics.P
 }
 
 // Rates turns two raw samples of one node into points: host CPU %, memory and
-// disk; per replica CPU % of one core, memory and IO bytes/s; per tile the
-// same summed plus network bytes/s (its pause's namespace, which replicas
-// share). A counter that went backwards (a restart) yields nothing.
+// disk; per replica CPU % of one core, memory, IO and network bytes/s; per
+// tile the same summed. Each replica has its own network namespace on the env
+// network (the pause only holds the VIP the kernel forwards from), so pause
+// containers are left out. A counter that went backwards (a restart) yields
+// nothing.
 func Rates(nodeID string, prev, cur worker.Metrics) []metrics.Point {
 	dt := cur.At.Sub(prev.At).Seconds()
 	if dt <= 0 {
@@ -156,46 +161,39 @@ func Rates(nodeID string, prev, cur worker.Metrics) []metrics.Point {
 	for _, c := range prev.Containers {
 		before[c.Tile+"/"+c.Name] = c
 	}
-	type agg struct{ cpu, mem, ior, iow float64 }
-	tiles := map[string]*agg{}
+	names := []string{"cpu_pct", "mem", "io_read_bps", "io_write_bps", "net_rx_bps", "net_tx_bps"}
+	tiles := map[string]*[6]float64{}
+	var order []string
 	for _, c := range cur.Containers {
 		p, ok := before[c.Tile+"/"+c.Name]
-		if !ok {
-			continue
-		}
-		if c.Role == "pause" {
-			rx, ok1 := rate(p.NetRx, c.NetRx)
-			tx, ok2 := rate(p.NetTx, c.NetTx)
-			if ok1 && ok2 {
-				add(tileKey(c.Tile), "net_rx_bps", rx)
-				add(tileKey(c.Tile), "net_tx_bps", tx)
-			}
+		if !ok || c.Role == "pause" {
 			continue
 		}
 		cpu, ok1 := rate(p.CPUUsec, c.CPUUsec)
 		ior, ok2 := rate(p.IORead, c.IORead)
 		iow, ok3 := rate(p.IOWrite, c.IOWrite)
-		if !ok1 || !ok2 || !ok3 {
+		rx, ok4 := rate(p.NetRx, c.NetRx)
+		tx, ok5 := rate(p.NetTx, c.NetTx)
+		if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 {
 			continue
 		}
-		cpu /= 1e4 // usec per second -> % of one core
+		vs := [6]float64{cpu / 1e4, float64(c.Mem), ior, iow, rx, tx} // usec/s -> % of one core
 		k := ctrKey(c.Tile, c.Name)
-		add(k, "cpu_pct", cpu)
-		add(k, "mem", float64(c.Mem))
-		add(k, "io_read_bps", ior)
-		add(k, "io_write_bps", iow)
 		a := tiles[c.Tile]
 		if a == nil {
-			a = &agg{}
+			a = &[6]float64{}
 			tiles[c.Tile] = a
+			order = append(order, c.Tile)
 		}
-		a.cpu, a.mem, a.ior, a.iow = a.cpu+cpu, a.mem+float64(c.Mem), a.ior+ior, a.iow+iow
+		for i, n := range names {
+			add(k, n, vs[i])
+			a[i] += vs[i]
+		}
 	}
-	for id, a := range tiles {
-		add(tileKey(id), "cpu_pct", a.cpu)
-		add(tileKey(id), "mem", a.mem)
-		add(tileKey(id), "io_read_bps", a.ior)
-		add(tileKey(id), "io_write_bps", a.iow)
+	for _, id := range order {
+		for i, n := range names {
+			add(tileKey(id), n, tiles[id][i])
+		}
 	}
 	return out
 }
@@ -245,7 +243,7 @@ func (in MetricsIn) window() (time.Time, time.Time, time.Duration) {
 	if r <= 0 {
 		r = time.Hour
 	}
-	r = min(r, 30*24*time.Hour)
+	r = min(r, MetricsKeep)
 	step := in.Step
 	if step <= 0 {
 		step = max(r/120, MetricsEvery)

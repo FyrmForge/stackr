@@ -9,7 +9,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
-// metricsIn reads ?range= (default 1h, max 30 days) and ?step= (default
+// metricsIn reads ?range= (default 1h, max 24h, the in-memory store's keep) and ?step= (default
 // range/120), both Go durations like 15m or 24h.
 func metricsIn(c echo.Context) (service.MetricsIn, error) {
 	var in service.MetricsIn

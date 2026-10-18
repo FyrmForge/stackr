@@ -22,9 +22,9 @@ func TestMetricsIngest(t *testing.T) {
 		{Tile: "t1", Name: "pause", Role: "pause", NetRx: 0, NetTx: 0},
 	}}
 	b := worker.Metrics{At: t0.Add(10 * time.Second), Host: host(2000, 1400), Containers: []worker.ContainerSample{
-		{Tile: "t1", Name: "web-1", Role: "replica", CPUUsec: 5_000_000, Mem: 60, IORead: 1000, IOWrite: 2000},
-		{Tile: "t1", Name: "web-2", Role: "replica", CPUUsec: 1_000_000, Mem: 40},
-		{Tile: "t1", Name: "pause", Role: "pause", NetRx: 10_000, NetTx: 5_000},
+		{Tile: "t1", Name: "web-1", Role: "replica", CPUUsec: 5_000_000, Mem: 60, IORead: 1000, IOWrite: 2000, NetRx: 6_000, NetTx: 1_000},
+		{Tile: "t1", Name: "web-2", Role: "replica", CPUUsec: 1_000_000, Mem: 40, NetRx: 4_000},
+		{Tile: "t1", Name: "pause", Role: "pause", CPUUsec: 9_000_000, NetRx: 99_000, NetTx: 99_000},
 	}}
 	o := &Orchestrator{cfg: Config{Metrics: &metrics.Memory{}}}
 	if pts := o.takeSample("n1", a); pts != nil {
@@ -60,7 +60,10 @@ func TestMetricsIngest(t *testing.T) {
 	if v := get("tile:t1", "mem"); v != 100 {
 		t.Errorf("tile mem = %v", v)
 	}
-	if v := get("tile:t1", "net_rx_bps"); v != 1000 {
+	if v := get("ctr:t1/web-1", "net_rx_bps"); v != 600 {
+		t.Errorf("replica net = %v", v)
+	}
+	if v := get("tile:t1", "net_rx_bps"); v != 1000 { // replicas summed, the pause left out
 		t.Errorf("tile net = %v", v)
 	}
 	// A restarted replica's counters went back: no point for it.
@@ -77,5 +80,18 @@ func TestMetricsIngest(t *testing.T) {
 	}
 	if got := o.metrics.replicas["t1"]; len(got) != 2 {
 		t.Fatalf("replicas = %v", got)
+	}
+}
+
+// A read is clamped to what the store keeps; no range is an hour.
+func TestMetricsWindow(t *testing.T) {
+	for in, want := range map[time.Duration]time.Duration{0: time.Hour, 6 * time.Hour: 6 * time.Hour, 720 * time.Hour: MetricsKeep} {
+		from, to, step := MetricsIn{Range: in}.window()
+		if got := to.Sub(from); got != want {
+			t.Errorf("range %v reads %v, want %v", in, got, want)
+		}
+		if step != max(want/120, MetricsEvery) {
+			t.Errorf("range %v steps %v", in, step)
+		}
 	}
 }
