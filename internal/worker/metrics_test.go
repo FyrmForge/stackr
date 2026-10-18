@@ -53,4 +53,17 @@ func TestMetricsParse(t *testing.T) {
 	if containerCgroup(cg, "nope") != "" {
 		t.Fatal("missing container has a dir")
 	}
+
+	// In an LXC the cgroup root is the box's own and lxcfs's meminfo is the
+	// reader's: memory comes from the root's memory.current minus page cache.
+	write(t, filepath.Join(cg, "memory.current"), "1500000\n")
+	write(t, filepath.Join(cg, "memory.max"), "max\n")
+	write(t, filepath.Join(cg, "memory.stat"), "anon 400000\nfile 1000000\nshmem 10000\n")
+	if h := hostSample(root); h.MemTotal != 2048<<10 || h.MemAvail != 2048<<10-500000 {
+		t.Fatalf("lxc host = %+v", h)
+	}
+	write(t, filepath.Join(cg, "memory.max"), "1000000\n")
+	if h := hostSample(root); h.MemTotal != 1000000 || h.MemAvail != 500000 {
+		t.Fatalf("lxc host with a limit = %+v", h)
+	}
 }

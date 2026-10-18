@@ -222,6 +222,18 @@ func hostSample(root string) HostSample {
 	}
 	mem := readFile(filepath.Join(root, "/proc/meminfo"))
 	h.MemTotal, h.MemAvail = meminfoIn(mem, "MemTotal:"), meminfoIn(mem, "MemAvailable:")
+	// In an LXC, lxcfs answers /proc/meminfo for the reader's own cgroup, so
+	// the panel container sees only itself. The cgroup root it mounts is the
+	// LXC's, whose memory.current is the whole box; a bare host's true root
+	// has none and keeps meminfo. Used is that minus page cache, as free has it.
+	cg := filepath.Join(root, "/sys/fs/cgroup")
+	if cur, err := strconv.ParseUint(strings.TrimSpace(readFile(filepath.Join(cg, "memory.current"))), 10, 64); err == nil && cur > 0 {
+		if lim, err := strconv.ParseUint(strings.TrimSpace(readFile(filepath.Join(cg, "memory.max"))), 10, 64); err == nil && lim < h.MemTotal {
+			h.MemTotal = lim
+		}
+		used := cur - min(kv(readFile(filepath.Join(cg, "memory.stat")))["file"], cur)
+		h.MemAvail = h.MemTotal - min(used, h.MemTotal)
+	}
 	return h
 }
 
