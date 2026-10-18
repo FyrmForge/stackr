@@ -244,7 +244,10 @@ func TestCancel(t *testing.T) {
 	}
 
 	swapping := enqueue(t, r, "s", "t2")
-	started(t, s)
+	if got := started(t, s); got != swapping {
+		j, _ := l.Get(ctx, queued)
+		t.Fatalf("started %s, want %s; the cancelled queued job %s is %q", got, swapping, queued, j.State)
+	}
 	if _, ok := errs.IsConflict(r.Cancel(ctx, swapping)); !ok {
 		t.Fatal("cancelling mid-swap: want a Conflict")
 	}

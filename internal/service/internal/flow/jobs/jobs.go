@@ -252,12 +252,15 @@ func (r *Runner) pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Read under the lock Cancel and Enqueue finish queued rows under: a
+	// list read before it could start a job cancelled since, and Start's
+	// write would bring the row back to running.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	queued, err := r.jobs.List(ctx, job.Queued)
 	if err != nil {
 		return err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	var busy []string
 	for _, a := range r.running {
 		busy = append(busy, a.lock...)
@@ -292,9 +295,6 @@ func (r *Runner) start(j store.Job) error {
 		defer r.wg.Done()
 		defer cancel(nil)
 		r.run(cctx, j, a)
-		r.mu.Lock()
-		delete(r.running, j.ID)
-		r.mu.Unlock()
 		r.poke()
 	}()
 	return nil
@@ -311,15 +311,18 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 
 	// The run's context is dead exactly when there is something to record.
 	fresh := context.Background()
+	if state == job.Waiting && r.beforePark != nil {
+		r.beforePark()
+	}
+	// The row's write and the job leaving running are one step under the
+	// lock Cancel and Enqueue hold: a Cancel that reads the row finished or
+	// parked never finds the job still running and claims it stopped it.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.running, j.ID)
 	var err error
 	if state == job.Waiting {
-		if r.beforePark != nil {
-			r.beforePark()
-		}
-		// Cancel and Enqueue cancel the run under the lock; parking under it
-		// too means a job stopped since its handler returned is finished,
-		// never parked.
-		r.mu.Lock()
+		// A job stopped since its handler returned is finished, never parked.
 		switch cause := context.Cause(parent); {
 		case errors.Is(cause, ErrSuperseded):
 			state = job.Superseded
@@ -329,13 +332,10 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 			// rn.Job, not j: a handler may have rewritten its payload.
 			err = r.jobs.Park(fresh, rn.Job, param)
 		}
-		r.mu.Unlock()
 	}
 	if state != job.Waiting {
-		r.mu.Lock()
 		delete(r.parked, j.ID)
 		delete(r.deployed, j.ID)
-		r.mu.Unlock()
 		err = r.jobs.Finish(fresh, j, state, reason)
 	}
 	if err != nil {
@@ -444,8 +444,11 @@ func (r *Runner) Enqueue(
 
 // Skip records a job that never ran, finished at once as skipped with the
 // reason (a schedule that fired while its node was offline). It takes no
-// lock and supersedes nothing.
+// tile lock and supersedes nothing.
 func (r *Runner) Skip(ctx context.Context, kind Kind, lock []string, payload, reason string) (store.Job, error) {
+	// Under the lock pass lists under, so the row is never seen queued.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	j, err := r.jobs.Create(ctx, string(kind), lock, payload, nil, r.logDir)
 	if err != nil {
 		return j, err
