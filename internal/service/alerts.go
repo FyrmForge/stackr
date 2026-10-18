@@ -28,7 +28,7 @@ import (
 // Every event goes through alert, which never blocks: a bounded queue and one
 // delivery goroutine (deliverAlerts). A later notifier subscribes there.
 // Each trigger fires once per crossing; the state that says "already sent"
-// is the node row (offline/online) or a settings row (disk, certs), so a
+// is the node row (offline/online) or a settings row (disk, certs, backups), so a
 // panel restart does not send again.
 
 const (
