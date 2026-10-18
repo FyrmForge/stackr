@@ -67,6 +67,39 @@ func TestUpdateWorkers(t *testing.T) {
 	}
 }
 
+// A live tab polls itself into #tab-update (the poller on its own element,
+// so no button inherits it) and carries the hidden Reconnecting note main.js
+// shows; a settled tab has neither. Pending says why there is no button.
+func TestUpdateLive(t *testing.T) {
+	render := func(v UpdateView) string {
+		var b strings.Builder
+		if err := Update(v).Render(t.Context(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	out := render(UpdateView{Version: "1.0", Upgrading: true, Live: "/-/admin?tab=update",
+		Workers: &WorkersView{Pending: true, Rows: []WorkerRow{{Name: "h3", Current: "0.9", Behind: true}}}})
+	for _, want := range []string{
+		`data-live`, `<span hidden hx-get="/-/admin?tab=update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
+		`data-reconnecting hidden`, "Reconnecting...", "The rollout starts once the panel's image is published.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("live tab: no %q in\n%s", want, out)
+		}
+	}
+	out = render(UpdateView{Version: "1.0", Job: &c.JobStatusView{Kind: "upgrade", State: "running", Live: true, StreamURL: "/-/jobs/j/events", Refresh: "/-/admin?tab=update"}})
+	if !strings.Contains(out, "data-live") || !strings.Contains(out, "data-reconnecting") || strings.Contains(out, "every 3s") {
+		t.Errorf("job-stream tab: want data-live and the note, no poller\n%s", out)
+	}
+	out = render(UpdateView{Version: "1.0", Workers: &WorkersView{Rows: []WorkerRow{{Name: "h4", Current: "1.0"}}}})
+	for _, not := range []string{"data-live", "hx-trigger", "data-reconnecting"} {
+		if strings.Contains(out, not) {
+			t.Errorf("settled tab has %q\n%s", not, out)
+		}
+	}
+}
+
 func renderNode(t *testing.T, tab string, v NodeView) string {
 	t.Helper()
 	var b strings.Builder

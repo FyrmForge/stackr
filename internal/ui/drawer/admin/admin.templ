@@ -29,8 +29,12 @@ type User struct {
 type UpdateView struct {
 	Version  string
 	Checked  bool
-	// Upgrading: an upgrade was just queued; the tab reloads when its job ends.
+	// Upgrading: an upgrade is queued, running, or this panel is about to
+	// be swapped for the new one; no buttons until it is back.
 	Upgrading bool
+	// Live is the tab's GET, re-polled while something moves (an upgrade,
+	// a rollout) so a panel restart cannot leave it stale; "" = settled.
+	Live string
 	Latest   string // "" after a check = a dev build
 	Newer    bool
 	CheckErr string
@@ -43,6 +47,8 @@ type UpdateView struct {
 // Update workers button, or Retry after a stop; "" = nothing to offer.
 type WorkersView struct {
 	Stopped string // "h3 failed to upgrade, rolled back"; "" = not stopped
+	Running bool   // a rollout job is queued or running
+	Pending bool   // the panel starts the rollout itself once its image is published
 	Rows    []WorkerRow
 	Action  string
 	Button  string
@@ -54,6 +60,10 @@ type WorkerRow struct {
 	Name, Current, State, Error string
 	Behind                      bool
 }
+
+// live: the tab follows something, a poll or a job stream, that a panel
+// restart breaks; main.js shows Reconnecting and holds the buttons then.
+func live(v UpdateView) bool { return v.Live != "" || (v.Job != nil && v.Job.Live) }
 
 func workerTone(r WorkerRow) string {
 	switch r.State {
@@ -171,9 +181,15 @@ func promoteLabel(admin bool) string {
 }
 
 templ Update(v UpdateView) {
-	<div id="tab-update">
+	<div id="tab-update" data-live?={ live(v) }>
+		if v.Live != "" {
+			<span hidden hx-get={ v.Live } hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML"></span>
+		}
 		@c.Section("Update", "instance", "Backs up the panel, then restarts it on the new release.") {
 			<div class="space-y-3 text-sm">
+				if live(v) {
+					<p class="text-rw-warn" role="status" data-reconnecting hidden>Reconnecting...</p>
+				}
 				<p class="text-rw-text">Running <span class="font-mono">{ v.Version }</span></p>
 				if v.CheckErr != "" {
 					<p class="text-rw-danger" role="status">Could not check for an update: { v.CheckErr }</p>
@@ -207,6 +223,9 @@ templ Update(v UpdateView) {
 			@c.Section("Workers", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
 				if v.Workers.Stopped != "" {
 					<p class="mb-3 text-sm text-rw-danger" role="status">{ v.Workers.Stopped }</p>
+				}
+				if v.Workers.Pending {
+					<p class="mb-3 text-sm text-rw-muted" role="status">The rollout starts once the panel's image is published.</p>
 				}
 				<ul class="space-y-2 mb-3">
 					for _, r := range v.Workers.Rows {

@@ -230,9 +230,13 @@ type NodeUpgrade struct {
 
 // Rollout is where the worker rollout stands.
 type Rollout struct {
-	Target  string        `json:"target"`
-	Stopped string        `json:"stopped"` // "<node> failed to upgrade, rolled back"; "" = not stopped
-	Running bool          `json:"running"` // a rollout job is queued or running (rows left waiting by a stop are not)
+	Target  string `json:"target"`
+	Stopped string `json:"stopped"` // "<node> failed to upgrade, rolled back"; "" = not stopped
+	Running bool   `json:"running"` // a rollout job is queued or running (rows left waiting by a stop are not)
+	// Pending: the panel queues the rollout itself once its boot publish is
+	// in (rolloutAfterBoot), so nobody should press Update workers meanwhile.
+	// The publish bounds it: after, the rollout runs or a stop says why not.
+	Pending bool          `json:"pending"`
 	Nodes   []NodeUpgrade `json:"nodes"`
 }
 
@@ -242,6 +246,7 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 	out.Target, _, _ = o.store.Settings.Get(ctx, keyRolloutTarget)
 	out.Stopped, _, _ = o.store.Settings.Get(ctx, keyRolloutStopped)
 	out.Running = o.rolloutActive(ctx)
+	wait := !out.Running && !o.stackrIsPublished() && o.rolloutWanted(ctx)
 	ns, err := o.workerNodes(ctx)
 	if err != nil {
 		return out, err
@@ -257,6 +262,9 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 			// offline (no facts) or not
 			row.State, row.Behind = "", true
 		}
+		// a row already rolled for this build (skipped, failed) is not
+		// waiting on the boot: Update workers is its way on
+		out.Pending = out.Pending || (wait && row.Behind && !sameVersion(u.Version, o.cfg.Version))
 		out.Nodes = append(out.Nodes, row)
 	}
 	return out, nil

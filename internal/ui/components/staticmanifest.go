@@ -19,7 +19,7 @@ var StaticManifest = map[string]string{
 	"js/elements/tab-strip.js": "js/elements/tab-strip.54412ec96f2b.js",
 	"js/elements/term-pane.js": "js/elements/term-pane.70f08ef74b6d.js",
 	"js/elements/theme-toggle.js": "js/elements/theme-toggle.2b6c88b4c400.js",
-	"js/main.js": "js/main.a227b3c3614d.js",
+	"js/main.js": "js/main.be124c9f8e8f.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
 	"js/vendor/sse.min.js": "js/vendor/sse.min.98a46496de0c.js",
 	"js/vendor/xterm-addon-fit.js": "js/vendor/xterm-addon-fit.ba3ea256ce06.js",

@@ -271,6 +271,10 @@ type Orchestrator struct {
 	// pull waits on it after an upgrade (systemimages.go).
 	stackrPublished chan struct{}
 	stackrOnce      sync.Once
+	// upgradeLaunched is when this process launched the helper that swaps it
+	// for a new panel (unix nanos, 0 = never): process memory, so the new
+	// panel starts without it (UpgradeUnderway).
+	upgradeLaunched atomic.Int64
 	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
 	rotation        rotation       // mesh key rotation (rotate.go)
 	stopOnce        sync.Once

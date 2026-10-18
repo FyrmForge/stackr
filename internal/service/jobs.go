@@ -308,6 +308,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
 			if err == nil {
+				o.upgradeLaunched.Store(time.Now().UnixNano())
 				// The local destination is <data>/backups; the key is the path under it.
 				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n"+
 					"way back if the new panel misbehaves, on the host: stackr-install restore %s\n",

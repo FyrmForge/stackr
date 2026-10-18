@@ -12,9 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -489,6 +492,57 @@ func TestWorkerRolloutRunning(t *testing.T) {
 	must(t, err)
 	if v, _ := o.WorkerRollout(ctx); !v.Running {
 		t.Fatalf("queued rollout reads idle: %+v", v)
+	}
+}
+
+// Pending is the boot window only: a behind worker not yet rolled for this
+// build waits on the panel's own rollout, one already skipped for it does not
+// (Update workers is its way on), and the publish ends the window.
+func TestWorkerRolloutPending(t *testing.T) {
+	r := newRolloutRig(t)
+	ctx := context.Background()
+	o := r.n.orch
+	o.stackrPublished, o.stackrOnce = make(chan struct{}), sync.Once{} // a boot mid-publish
+	o.mesh.Report(ctx, "w1", worker.Facts{Version: "v9.8.0"})
+	if v, _ := o.WorkerRollout(ctx); v.Pending {
+		t.Fatalf("no rollout target reads pending: %+v", v)
+	}
+	must(t, o.store.Settings.Set(ctx, keyRolloutTarget, "v9.9.9"))
+	if v, _ := o.WorkerRollout(ctx); !v.Pending {
+		t.Fatalf("behind worker before the publish reads not pending: %+v", v)
+	}
+	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateSkipped, At: time.Now()})
+	if v, _ := o.WorkerRollout(ctx); v.Pending {
+		t.Fatalf("worker skipped for this build reads pending: %+v", v)
+	}
+	o.setUpgrade(ctx, "w1", nodeUpgrade{})
+	o.markStackrPublished()
+	if v, _ := o.WorkerRollout(ctx); v.Pending {
+		t.Fatalf("pending after the publish: %+v", v)
+	}
+}
+
+// UpgradeUnderway: a queued or running upgrade job, or a launched successor
+// within the swap window; a launch long ago is over.
+func TestUpgradeUnderway(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	if n.orch.UpgradeUnderway(ctx) {
+		t.Fatal("underway with nothing done")
+	}
+	n.orch.upgradeLaunched.Store(time.Now().UnixNano())
+	if !n.orch.UpgradeUnderway(ctx) {
+		t.Fatal("not underway just after the launch")
+	}
+	n.orch.upgradeLaunched.Store(time.Now().Add(-upgradeSwapWindow - time.Second).UnixNano())
+	if n.orch.UpgradeUnderway(ctx) {
+		t.Fatal("underway past the swap window")
+	}
+	must(t, n.st.Jobs.Create(ctx, store.Job{
+		ID: uuid.NewString(), Kind: string(kindUpgrade), State: job.Running, Payload: "{}", CreatedAt: time.Now(),
+	}))
+	if !n.orch.UpgradeUnderway(ctx) {
+		t.Fatal("not underway with an upgrade job running")
 	}
 }
 

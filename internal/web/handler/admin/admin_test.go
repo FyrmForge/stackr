@@ -400,7 +400,41 @@ func TestAdminUpdateWorkers(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Worker rollout queued.") {
 		t.Fatalf("update workers = %d\n%s", rec.Code, rec.Body)
 	}
+	// the queued rollout's stream refreshes the tab when it ends
+	if b := rec.Body.String(); !strings.Contains(b, "data-live") || !strings.Contains(b, `hx-trigger="sse:end"`) {
+		t.Errorf("update workers: no live tab or end refresh\n%s", b)
+	}
 	if rec := s.Do(t, "POST", "/-/admin/update/workers", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("owner update workers = %d, want 403", rec.Code)
+	}
+}
+
+// While an upgrade is underway the Update tab polls itself through the
+// panel's restart and offers no buttons; once over it settles.
+func TestAdminUpdateUnderway(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	ctx := context.Background()
+	j := service.Job{ID: uuid.NewString(), Kind: "upgrade", State: "running", Payload: "{}", CreatedAt: time.Now()}
+	if err := s.Env.Store.Jobs.Create(ctx, j); err != nil {
+		t.Fatal(err)
+	}
+	b := s.As(t, root, "GET", "/-/admin?tab=update", nil).Body.String()
+	for _, want := range []string{"data-live", `hx-trigger="every 3s"`, "Upgrading.", "Reconnecting..."} {
+		if !strings.Contains(b, want) {
+			t.Errorf("underway: no %q in\n%s", want, b)
+		}
+	}
+	if strings.Contains(b, "/-/admin/update/check") || strings.Contains(b, "/-/admin/update/workers") {
+		t.Errorf("underway tab offers a button\n%s", b)
+	}
+	now := time.Now()
+	j.State, j.FinishedAt = "failed", &now
+	if err := s.Env.Store.Jobs.Update(ctx, j); err != nil {
+		t.Fatal(err)
+	}
+	b = s.As(t, root, "GET", "/-/admin?tab=update", nil).Body.String()
+	if strings.Contains(b, "every 3s") || strings.Contains(b, "data-live") {
+		t.Errorf("settled tab still live\n%s", b)
 	}
 }
