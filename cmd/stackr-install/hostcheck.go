@@ -68,7 +68,7 @@ func gatherHost(ctx context.Context) hostFacts {
 	f.Kernel = strings.TrimSpace(string(b))
 	_, err = os.Stat("/sys/module/wireguard")
 	f.WGModule = err == nil
-	f.DockerPools = dockerPools("/etc/docker/daemon.json")
+	f.DockerPools = dockerPools(daemonJSON)
 	nets := dockerNetNames(ctx)
 	ifs, _ := net.Interfaces()
 	for _, i := range ifs {

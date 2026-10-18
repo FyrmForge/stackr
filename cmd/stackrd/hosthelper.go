@@ -208,7 +208,19 @@ func runWorkerSwap(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return hostSwap{src: filepath.Dir(self), host: *host, deadline: *deadline, restart: chrootSystemctl(*host)}.run(ctx)
+	if err := (hostSwap{src: filepath.Dir(self), host: *host, deadline: *deadline, restart: chrootSystemctl(*host)}).run(ctx); err != nil {
+		return err
+	}
+	// Committed: the new stackr-install sets Docker's log cap on the node. It
+	// runs in a transient unit on the host, as a Docker restart kills this
+	// container (and restarts the worker, which requires docker.service);
+	// the delay lets the controller finish with this helper first.
+	out, err := exec.Command("chroot", *host, "systemd-run", "--collect", "--on-active=15",
+		"/usr/local/bin/stackr-install", "docker-logcap").CombinedOutput()
+	if err != nil {
+		slog.Warn("worker-swap: docker log cap not started", "err", err, "out", string(out))
+	}
+	return nil
 }
 
 // hostRun is `stackrd host-run uninstall --yes`: the installer from the

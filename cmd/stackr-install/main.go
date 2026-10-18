@@ -49,6 +49,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "uninstall" {
 		return uninstall(ctx, args[1:], out, os.Stdin)
 	}
+	if len(args) > 0 && args[0] == "docker-logcap" {
+		return dockerLogCap(ctx, out)
+	}
 	fs := flag.NewFlagSet("stackr-install", flag.ContinueOnError)
 	in := installspec.Input{DataDir: "/var/lib/stackr"}
 	if d := os.Getenv("STACKR_DATA_DIR"); d != "" {
@@ -185,6 +188,17 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 
 	r.say("Installing stackr", ver)
+	// Before any container is made; on an existing box the restart bounces
+	// the running panel, which the upgrade's archive step needs back.
+	restarted, err := r.ensureLogCap(ctx)
+	if err != nil {
+		return err
+	}
+	if restarted && panelID != "" {
+		if err := waitHealthy(ctx, "http://"+net.JoinHostPort(in.Bind, installspec.PanelPort)+"/api/health"); err != nil {
+			return err
+		}
+	}
 	if err := r.mkdir(filepath.Join(in.DataDir, "keys"), 0o700); err != nil {
 		return err
 	}

@@ -40,7 +40,7 @@ It stops the worker service and removes stackr's containers, networks, firewall 
 sudo stackr-install uninstall --purge
 ```
 
-`--purge` also deletes the volumes, images, binaries and state. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
+`--purge` also deletes the volumes, images, binaries and state. `/etc/docker/daemon.json` stays, with the log cap the installer set. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
 
 It refuses to run on the controller box.
 
