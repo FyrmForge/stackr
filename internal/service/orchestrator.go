@@ -746,18 +746,23 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if w := ftraffic.Check(cfg.Conntrack); w != "" {
 		slog.Warn(w, "path", cfg.Conntrack)
 	}
-	go func() {
-		if err := orch.domains.ReopenIngress(context.Background()); err != nil {
+	// Detached: Close waits for it, so it never queries a closed database
+	// or holds a connection that outlives Close.
+	orch.detach(context.Background(), func(ctx context.Context) {
+		if err := orch.domains.ReopenIngress(ctx); err != nil {
 			slog.Warn("proxy: ingress rejoin failed", "err", err)
 		}
-		if err := orch.sync.Sync(context.Background()); err != nil {
+		if err := orch.sync.Sync(ctx); err != nil {
 			slog.Warn("proxy: boot push failed", "err", err)
 		}
-	}()
+	})
 	if orch.runMesh != nil {
 		orch.runMesh()
-		// A real host only: a fake host or a test has no registry to fill.
-		go func() {
+	}
+	// A real host only (MeshWG set): a fake host or a test has no registry
+	// to fill, and in a test this ran beside the test's own setup.
+	if orch.localWorker != nil {
+		orch.detach(context.Background(), func(context.Context) {
 			// An upgrade ran the old panel's EnsureRegistry: bring the
 			// registry to this build's spec before anything uses it.
 			cctx, err := orch.withController(orch.meshCtx)
@@ -771,7 +776,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			// restart for the cap must not land mid-rollout.
 			orch.controllerLogCap(orch.meshCtx)
 			orch.publishSystemImages(orch.meshCtx)
-		}()
+		})
 	} else {
 		orch.markStackrPublished() // no registry to fill
 	}
