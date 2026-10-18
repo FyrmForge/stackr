@@ -86,7 +86,7 @@ function draw(el, ls, unit, xs, ys) {
         width: el.clientWidth || 400,
         height: 160,
         cursor: { drag: { x: true, y: false } },
-        scales: { x: { time: true } },
+        scales: { x: { time: true }, y: { range: (_, _min, max) => [0, max > 0 ? max * 1.1 : 1] } },
         series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, value: (_, v) => fmt(v, unit) }))],
         axes: [axis, { ...axis, size: 70, values: (_, vs) => vs.map((v) => fmt(v, unit)) }],
     }, [xs, ...ys], el);

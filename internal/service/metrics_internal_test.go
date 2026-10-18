@@ -95,3 +95,17 @@ func TestMetricsWindow(t *testing.T) {
 		}
 	}
 }
+
+// A replica reads as its deploy and index; a name without the tile's prefix
+// stays whole.
+func TestReplicaLabel(t *testing.T) {
+	for name, want := range map[string]string{
+		"stackr-hello-b3d7aa59-7d8a55-1":  "7d8a55-1",
+		"/stackr-hello-b3d7aa59-7d8a55-2": "7d8a55-2",
+		"web-1":                           "web-1",
+	} {
+		if got := ReplicaLabel("b3d7aa59-c598-45e3", name); got != want {
+			t.Errorf("%s = %s, want %s", name, got, want)
+		}
+	}
+}

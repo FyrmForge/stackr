@@ -575,7 +575,7 @@ templ NodeBody(tab string, v NodeView) {
 			case "metrics":
 				<div class="space-y-4">
 					@c.RangePicker(v.MetricsTab, v.MetricsRange)
-					@c.Chart("CPU", v.MetricsSrc, "cpu_pct", "", "pct")
+					@c.Chart("CPU", v.MetricsSrc, "cpu_pct", "used", "pct")
 					@c.Chart("Memory", v.MetricsSrc, "mem_used mem_total", "used,total", "bytes")
 					@c.Chart("Disk", v.MetricsSrc, "disk_used disk_total", "used,total", "bytes")
 				</div>

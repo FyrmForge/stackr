@@ -112,7 +112,7 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
       width: el.clientWidth || 400,
       height: 160,
       cursor: { drag: { x: true, y: false } },
-      scales: { x: { time: true } },
+      scales: { x: { time: true }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
       series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
       axes: [axis, { ...axis, size: 70, values: (_: unknown, vs: number[]) => vs.map((v) => fmt(v, unit)) }],
     },

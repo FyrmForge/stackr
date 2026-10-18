@@ -309,9 +309,24 @@ func (o *Orchestrator) TileMetrics(ctx context.Context, tileID string, in Metric
 		if err != nil {
 			return TileMetricsOut{}, err
 		}
-		if len(s) > 0 {
-			out.Replicas[strings.TrimPrefix(n, "/")] = s
+		for _, xs := range s {
+			if len(xs) > 0 { // a replica gone longer than the range is left out
+				out.Replicas[ReplicaLabel(tileID, n)] = s
+				break
+			}
 		}
 	}
 	return out, nil
+}
+
+// ReplicaLabel is a replica's container name without the tile's prefix
+// ("stackr-hello-b3d7aa59-7d8a55-1" -> "7d8a55-1": its deploy and index).
+func ReplicaLabel(tileID, name string) string {
+	name = strings.TrimPrefix(name, "/")
+	if len(tileID) >= 8 {
+		if _, after, ok := strings.Cut(name, "-"+tileID[:8]+"-"); ok && after != "" {
+			return after
+		}
+	}
+	return name
 }

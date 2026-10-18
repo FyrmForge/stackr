@@ -1929,7 +1929,7 @@ func NodeBody(tab string, v NodeView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Chart("CPU", v.MetricsSrc, "cpu_pct", "", "pct").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Chart("CPU", v.MetricsSrc, "cpu_pct", "used", "pct").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
