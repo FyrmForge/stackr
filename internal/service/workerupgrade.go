@@ -246,7 +246,9 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 	out.Target, _, _ = o.store.Settings.Get(ctx, keyRolloutTarget)
 	out.Stopped, _, _ = o.store.Settings.Get(ctx, keyRolloutStopped)
 	out.Running = o.rolloutActive(ctx)
-	wait := !out.Running && !o.stackrIsPublished() && o.rolloutWanted(ctx)
+	// not per row: right after a restart no worker has reported yet, and the
+	// boot rolls every one anyway
+	out.Pending = !out.Running && !o.stackrIsPublished() && o.rolloutWanted(ctx)
 	ns, err := o.workerNodes(ctx)
 	if err != nil {
 		return out, err
@@ -262,9 +264,6 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 			// offline (no facts) or not
 			row.State, row.Behind = "", true
 		}
-		// a row already rolled for this build (skipped, failed) is not
-		// waiting on the boot: Update workers is its way on
-		out.Pending = out.Pending || (wait && row.Behind && !sameVersion(u.Version, o.cfg.Version))
 		out.Nodes = append(out.Nodes, row)
 	}
 	return out, nil

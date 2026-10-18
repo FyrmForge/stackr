@@ -495,27 +495,26 @@ func TestWorkerRolloutRunning(t *testing.T) {
 	}
 }
 
-// Pending is the boot window only: a behind worker not yet rolled for this
-// build waits on the panel's own rollout, one already skipped for it does not
-// (Update workers is its way on), and the publish ends the window.
+// Pending is the boot window only: a wanted rollout before the publish waits
+// on the panel's own rollout, whether or not a worker has reported yet (the
+// boot rolls them all), and the publish or a stop ends the window.
 func TestWorkerRolloutPending(t *testing.T) {
 	r := newRolloutRig(t)
 	ctx := context.Background()
 	o := r.n.orch
 	o.stackrPublished, o.stackrOnce = make(chan struct{}), sync.Once{} // a boot mid-publish
-	o.mesh.Report(ctx, "w1", worker.Facts{Version: "v9.8.0"})
 	if v, _ := o.WorkerRollout(ctx); v.Pending {
 		t.Fatalf("no rollout target reads pending: %+v", v)
 	}
 	must(t, o.store.Settings.Set(ctx, keyRolloutTarget, "v9.9.9"))
 	if v, _ := o.WorkerRollout(ctx); !v.Pending {
-		t.Fatalf("behind worker before the publish reads not pending: %+v", v)
+		t.Fatalf("wanted rollout before the publish, no facts yet, reads not pending: %+v", v)
 	}
-	o.setUpgrade(ctx, "w1", nodeUpgrade{Version: "v9.9.9", State: stateSkipped, At: time.Now()})
+	must(t, o.store.Settings.Set(ctx, keyRolloutStopped, "x"))
 	if v, _ := o.WorkerRollout(ctx); v.Pending {
-		t.Fatalf("worker skipped for this build reads pending: %+v", v)
+		t.Fatalf("stopped rollout reads pending: %+v", v)
 	}
-	o.setUpgrade(ctx, "w1", nodeUpgrade{})
+	must(t, o.store.Settings.Delete(ctx, keyRolloutStopped))
 	o.markStackrPublished()
 	if v, _ := o.WorkerRollout(ctx); v.Pending {
 		t.Fatalf("pending after the publish: %+v", v)
