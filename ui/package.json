@@ -4,7 +4,8 @@
   "scripts": {
     "css:build": "npx tailwindcss -i ./css/input.css -o ./static/css/output.css --minify",
     "ts:build": "tsc",
-    "ts:check": "tsc --noEmit"
+    "ts:check": "tsc --noEmit",
+    "test": "node --test test/"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.0",

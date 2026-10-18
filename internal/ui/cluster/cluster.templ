@@ -182,7 +182,7 @@ templ nodeCard(n Node) {
 // legend is what the env dots mean; the edge kinds are in the canvas's own
 // legend.
 templ legend() {
-	<div class="absolute bottom-4 left-4 z-10 panel px-3 py-2.5 text-xs text-rw-muted shadow-rw pointer-events-none">
+	<div data-legend class="absolute bottom-4 left-4 z-10 panel px-3 py-2.5 text-xs text-rw-muted shadow-rw pointer-events-none">
 		<p class="font-medium text-rw-text mb-1.5">Env health</p>
 		<ul class="flex flex-wrap gap-x-3 gap-y-1 max-w-[13rem]">
 			for _, h := range []string{"healthy", "degraded", "down", "stopped", "moving"} {

@@ -10,7 +10,7 @@
 // on nodes, "data-lit" on paths and lanes; fires "selection-changed"
 // (detail.ids). Look attributes follow [data-look] inputs (a checkbox, or
 // radios valued 1/0), kept in localStorage.
-const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP] = [0.3, 2.5, 24, 220, 96, 14];
+const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 96, 14, 0.05];
 const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
 
@@ -21,21 +21,30 @@ type Pt = [number, number];
 
 const NORMAL: Record<Side, Pt> = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 const OPPOSITE: Record<Side, Side> = { l: "r", r: "l", t: "b", b: "t" };
-const clamp = (s: number): number => Math.min(MAX, Math.max(MIN, s));
+const clamp = (s: number, min = MIN): number => Math.min(MAX, Math.max(min, s));
 const num = (el: Element, name: string): number => Number(el.getAttribute(name)) || 0;
 const idOf = (el: Element): string => el.getAttribute("node-id") ?? "";
 const across = (s: Side): boolean => s === "l" || s === "r";
 const touches = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 // Storage can throw (private mode, blocked site data); the look then lasts
-// until the next page load. Pan/zoom is per page and per tab (session).
-const stored = (key: string, tab = false): string | null => { try { return (tab ? sessionStorage : localStorage).getItem(`graph.${key}`); } catch { return null; } };
-const store = (key: string, v: string, tab = false): void => { try { (tab ? sessionStorage : localStorage).setItem(`graph.${key}`, v); } catch { /* not kept */ } };
+// until the next page load.
+const stored = (key: string): string | null => { try { return localStorage.getItem(`graph.${key}`); } catch { return null; } };
+const store = (key: string, v: string): void => { try { localStorage.setItem(`graph.${key}`, v); } catch { /* not kept */ } };
+// The camera [px, py, s] showing world box b whole and centred on a vw x vh screen, right/bottom
+// px kept clear (controls, legends); s within FLOOR..max (at FLOOR: from the top left).
+export const fitView = (b: Box, vw: number, vh: number, max: number, right = 0, bottom = 0): [number, number, number] => {
+  const [w, h] = [vw - 2 * MARGIN - right, vh - 2 * MARGIN - bottom];
+  const s = Math.max(FLOOR, Math.min(max, w / (b.w || 1), h / (b.h || 1)));
+  return [MARGIN + Math.max((w - b.w * s) / 2, 0) - b.x * s, MARGIN + Math.max((h - b.h * s) / 2, 0) - b.y * s, s];
+};
 
 class GraphCanvas extends HTMLElement {
   private s = 1;
   private px = 0;
   private py = 0;
+  private floor = MIN; // the zoom-out limit: down to the last fit
+  private touched = false; // panned or zoomed since the last fit: no refit on its own
   private pointers = new Map<number, Pt>();
   private pan: Pt | null = null;
   // Where the last pan began, and whether it moved past 3 px: the click that
@@ -69,9 +78,13 @@ class GraphCanvas extends HTMLElement {
     });
     this.wire(true);
     this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
-    const [px, py, s] = (stored(`view.${location.pathname}`, true) ?? "").split(",").map(Number);
-    if (s) { [this.px, this.py, this.s] = [px, py, s]; this.apply(); } else this.fit();
     this.repath();
+    // A swap in the parent (timer, note) adds this beside the old canvas: keep its camera, or refit
+    // if untouched and the cards changed, once it is gone (they share the height). A new page fits.
+    const old = [...(this.parentElement?.children ?? [])].find((c): c is GraphCanvas => c !== this && c instanceof GraphCanvas);
+    const refit = !old || (!old.touched && old.ids() !== this.ids());
+    if (old) [this.px, this.py, this.s, this.floor, this.touched] = [old.px, old.py, old.s, old.floor, old.touched];
+    if (old) requestAnimationFrame(() => (refit ? this.fit() : this.apply())); else this.fit();
     const focus = this.getAttribute("focus");
     if (focus) this.centre(focus);
   }
@@ -80,12 +93,14 @@ class GraphCanvas extends HTMLElement {
     cancelAnimationFrame(this.frame);
     this.wire(false);
   }
-  private onResize = (): void => this.apply();
+  private onResize = (): void => (this.touched ? this.apply() : this.fit());
   // The page refreshes #graph on a timer; skip a tick while someone types in a note.
   private onRefresh = (e: Event): void => {
     if ((e.target as Element | null)?.id === "graph" && this.querySelector("textarea:focus")) e.preventDefault();
   };
   private nodes = (): HTMLElement[] => [...this.querySelectorAll<HTMLElement>(":scope > graph-node")];
+  private cards = (): HTMLElement[] => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
+  private ids = (): string => this.cards().map(idOf).join(" ");
   private node = (id: string): HTMLElement | null => this.querySelector<HTMLElement>(`graph-node[node-id="${CSS.escape(id)}"]`);
   private paths = (): SVGPathElement[] => [...this.querySelectorAll<SVGPathElement>("svg[data-edges] path[data-from]")];
   private local(e: { clientX: number; clientY: number }): Pt {
@@ -106,9 +121,13 @@ class GraphCanvas extends HTMLElement {
     const k = tr.width / (t.w || 1) || 1;
     return { x: t.x + (r.left - tr.left) / k, y: t.y + (r.top - tr.top) / k, w: r.width / k, h: r.height / k };
   }
-  // The cards' extent (notes and boxes left out, as v0 did).
-  private bounds(): Box | null {
-    const boxes = this.nodes().filter((n) => !idOf(n).startsWith("note:")).map((n) => this.box(n));
+  // The cards' extent (notes left out, as v0 did); with edges, lines and labels too (0 x 0: undrawn).
+  private bounds(edges = false): Box | null {
+    const boxes = this.cards().map((n) => this.box(n));
+    for (const el of edges ? this.querySelectorAll<SVGGraphicsElement>("svg[data-edges] path[data-from], svg text") : []) {
+      const r = el.getBBox();
+      if (r.width || r.height) boxes.push({ x: r.x, y: r.y, w: r.width, h: r.height });
+    }
     if (boxes.length === 0) return null;
     const x = Math.min(...boxes.map((b) => b.x));
     const y = Math.min(...boxes.map((b) => b.y));
@@ -126,24 +145,21 @@ class GraphCanvas extends HTMLElement {
     this.style.setProperty("--px", `${this.px}px`);
     this.style.setProperty("--py", `${this.py}px`);
     this.style.setProperty("--s", String(this.s));
-    store(`view.${location.pathname}`, `${this.px},${this.py},${this.s}`, true);
   }
-  // Back to the initial scale, centred; content bigger than the screen
-  // starts a margin in from the top left instead of clipped.
+  // The whole graph, clear of the controls and legends; zooming out then goes as far as this.
   private fit(): void {
-    this.s = clamp(Number(this.getAttribute("scale")) || 0.8);
-    const b = this.bounds();
-    if (b) {
-      // Zoom out to show it all, but never below 0.5: still readable.
-      const all = Math.min((this.clientWidth - 2 * MARGIN) / (b.w || 1), (this.clientHeight - 2 * MARGIN) / (b.h || 1));
-      this.s = Math.max(Math.min(this.s, all), Math.min(this.s, 0.5));
-      this.px = Math.max((this.clientWidth - b.w * this.s) / 2 - b.x * this.s, MARGIN - b.x * this.s);
-      this.py = Math.max((this.clientHeight - b.h * this.s) / 2 - b.y * this.s, MARGIN - b.y * this.s);
-    }
+    const max = clamp(Number(this.getAttribute("scale")) || 0.8);
+    const b = this.bounds(true);
+    const ctrl = this.querySelector<HTMLElement>("[data-zoom]")?.parentElement;
+    const legends = [...this.querySelectorAll<HTMLElement>(".graph-legend, [data-legend]")].filter((l) => l.offsetParent);
+    const bottom = Math.max(0, ...legends.map((l) => this.clientHeight - l.offsetTop));
+    [this.px, this.py, this.s] = b ? fitView(b, this.clientWidth, this.clientHeight, max, ctrl ? this.clientWidth - ctrl.offsetLeft : 0, bottom) : [this.px, this.py, max];
+    [this.floor, this.touched] = [Math.min(MIN, this.s), false];
     this.apply();
   }
   private zoomAt([cx, cy]: Pt, factor: number): void {
-    const s = clamp(this.s * factor);
+    const s = clamp(this.s * factor, this.floor);
+    this.touched = true;
     [this.px, this.py] = [cx - ((cx - this.px) * s) / this.s, cy - ((cy - this.py) * s) / this.s];
     this.s = s;
     this.apply();
@@ -217,7 +233,7 @@ class GraphCanvas extends HTMLElement {
       this.zoomAt(now.mid, now.dist / (this.pinch.dist || 1));
       this.pinch = now;
     } else if (this.pan) {
-      if (Math.hypot(p[0] - this.panFrom[0], p[1] - this.panFrom[1]) > 3) this.moved = true;
+      if (Math.hypot(p[0] - this.panFrom[0], p[1] - this.panFrom[1]) > 3) this.moved = this.touched = true;
       this.px = p[0] - this.pan[0];
       this.py = p[1] - this.pan[1];
       this.apply();
@@ -269,6 +285,7 @@ class GraphCanvas extends HTMLElement {
     }
     this.px -= e.deltaX;
     this.py -= e.deltaY;
+    this.touched = true;
     this.apply();
   };
   private onClick = (e: Event): void => {

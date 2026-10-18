@@ -1,27 +1,34 @@
-const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP] = [0.3, 2.5, 24, 220, 96, 14];
+const [MIN, MAX, MARGIN, CARD_W, CARD_H, FAN_GAP, FLOOR] = [0.3, 2.5, 24, 220, 96, 14, 0.05];
 const TEXT = "input, textarea, select, [contenteditable]";
 const LOOKS = ["snap", "straight", "fan-out", "arrows", "hover-focus", "nooverlap", "badges", "boundary", "legend"];
 const NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 const OPPOSITE = { l: "r", r: "l", t: "b", b: "t" };
-const clamp = (s) => Math.min(MAX, Math.max(MIN, s));
+const clamp = (s, min = MIN) => Math.min(MAX, Math.max(min, s));
 const num = (el, name) => Number(el.getAttribute(name)) || 0;
 const idOf = (el) => el.getAttribute("node-id") ?? "";
 const across = (s) => s === "l" || s === "r";
 const touches = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-const stored = (key, tab = false) => { try {
-    return (tab ? sessionStorage : localStorage).getItem(`graph.${key}`);
+const stored = (key) => { try {
+    return localStorage.getItem(`graph.${key}`);
 }
 catch {
     return null;
 } };
-const store = (key, v, tab = false) => { try {
-    (tab ? sessionStorage : localStorage).setItem(`graph.${key}`, v);
+const store = (key, v) => { try {
+    localStorage.setItem(`graph.${key}`, v);
 }
 catch { } };
+export const fitView = (b, vw, vh, max, right = 0, bottom = 0) => {
+    const [w, h] = [vw - 2 * MARGIN - right, vh - 2 * MARGIN - bottom];
+    const s = Math.max(FLOOR, Math.min(max, w / (b.w || 1), h / (b.h || 1)));
+    return [MARGIN + Math.max((w - b.w * s) / 2, 0) - b.x * s, MARGIN + Math.max((h - b.h * s) / 2, 0) - b.y * s, s];
+};
 class GraphCanvas extends HTMLElement {
     s = 1;
     px = 0;
     py = 0;
+    floor = MIN;
+    touched = false;
     pointers = new Map();
     pan = null;
     panFrom = [0, 0];
@@ -56,14 +63,15 @@ class GraphCanvas extends HTMLElement {
         });
         this.wire(true);
         this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
-        const [px, py, s] = (stored(`view.${location.pathname}`, true) ?? "").split(",").map(Number);
-        if (s) {
-            [this.px, this.py, this.s] = [px, py, s];
-            this.apply();
-        }
+        this.repath();
+        const old = [...(this.parentElement?.children ?? [])].find((c) => c !== this && c instanceof GraphCanvas);
+        const refit = !old || (!old.touched && old.ids() !== this.ids());
+        if (old)
+            [this.px, this.py, this.s, this.floor, this.touched] = [old.px, old.py, old.s, old.floor, old.touched];
+        if (old)
+            requestAnimationFrame(() => (refit ? this.fit() : this.apply()));
         else
             this.fit();
-        this.repath();
         const focus = this.getAttribute("focus");
         if (focus)
             this.centre(focus);
@@ -73,12 +81,14 @@ class GraphCanvas extends HTMLElement {
         cancelAnimationFrame(this.frame);
         this.wire(false);
     }
-    onResize = () => this.apply();
+    onResize = () => (this.touched ? this.apply() : this.fit());
     onRefresh = (e) => {
         if (e.target?.id === "graph" && this.querySelector("textarea:focus"))
             e.preventDefault();
     };
     nodes = () => [...this.querySelectorAll(":scope > graph-node")];
+    cards = () => this.nodes().filter((n) => !idOf(n).startsWith("note:"));
+    ids = () => this.cards().map(idOf).join(" ");
     node = (id) => this.querySelector(`graph-node[node-id="${CSS.escape(id)}"]`);
     paths = () => [...this.querySelectorAll("svg[data-edges] path[data-from]")];
     local(e) {
@@ -99,8 +109,13 @@ class GraphCanvas extends HTMLElement {
         const k = tr.width / (t.w || 1) || 1;
         return { x: t.x + (r.left - tr.left) / k, y: t.y + (r.top - tr.top) / k, w: r.width / k, h: r.height / k };
     }
-    bounds() {
-        const boxes = this.nodes().filter((n) => !idOf(n).startsWith("note:")).map((n) => this.box(n));
+    bounds(edges = false) {
+        const boxes = this.cards().map((n) => this.box(n));
+        for (const el of edges ? this.querySelectorAll("svg[data-edges] path[data-from], svg text") : []) {
+            const r = el.getBBox();
+            if (r.width || r.height)
+                boxes.push({ x: r.x, y: r.y, w: r.width, h: r.height });
+        }
         if (boxes.length === 0)
             return null;
         const x = Math.min(...boxes.map((b) => b.x));
@@ -117,21 +132,20 @@ class GraphCanvas extends HTMLElement {
         this.style.setProperty("--px", `${this.px}px`);
         this.style.setProperty("--py", `${this.py}px`);
         this.style.setProperty("--s", String(this.s));
-        store(`view.${location.pathname}`, `${this.px},${this.py},${this.s}`, true);
     }
     fit() {
-        this.s = clamp(Number(this.getAttribute("scale")) || 0.8);
-        const b = this.bounds();
-        if (b) {
-            const all = Math.min((this.clientWidth - 2 * MARGIN) / (b.w || 1), (this.clientHeight - 2 * MARGIN) / (b.h || 1));
-            this.s = Math.max(Math.min(this.s, all), Math.min(this.s, 0.5));
-            this.px = Math.max((this.clientWidth - b.w * this.s) / 2 - b.x * this.s, MARGIN - b.x * this.s);
-            this.py = Math.max((this.clientHeight - b.h * this.s) / 2 - b.y * this.s, MARGIN - b.y * this.s);
-        }
+        const max = clamp(Number(this.getAttribute("scale")) || 0.8);
+        const b = this.bounds(true);
+        const ctrl = this.querySelector("[data-zoom]")?.parentElement;
+        const legends = [...this.querySelectorAll(".graph-legend, [data-legend]")].filter((l) => l.offsetParent);
+        const bottom = Math.max(0, ...legends.map((l) => this.clientHeight - l.offsetTop));
+        [this.px, this.py, this.s] = b ? fitView(b, this.clientWidth, this.clientHeight, max, ctrl ? this.clientWidth - ctrl.offsetLeft : 0, bottom) : [this.px, this.py, max];
+        [this.floor, this.touched] = [Math.min(MIN, this.s), false];
         this.apply();
     }
     zoomAt([cx, cy], factor) {
-        const s = clamp(this.s * factor);
+        const s = clamp(this.s * factor, this.floor);
+        this.touched = true;
         [this.px, this.py] = [cx - ((cx - this.px) * s) / this.s, cy - ((cy - this.py) * s) / this.s];
         this.s = s;
         this.apply();
@@ -210,7 +224,7 @@ class GraphCanvas extends HTMLElement {
         }
         else if (this.pan) {
             if (Math.hypot(p[0] - this.panFrom[0], p[1] - this.panFrom[1]) > 3)
-                this.moved = true;
+                this.moved = this.touched = true;
             this.px = p[0] - this.pan[0];
             this.py = p[1] - this.pan[1];
             this.apply();
@@ -268,6 +282,7 @@ class GraphCanvas extends HTMLElement {
         }
         this.px -= e.deltaX;
         this.py -= e.deltaY;
+        this.touched = true;
         this.apply();
     };
     onClick = (e) => {
@@ -432,4 +447,3 @@ class GraphCanvas extends HTMLElement {
     }
 }
 customElements.define("graph-canvas", GraphCanvas);
-export {};
