@@ -33,7 +33,7 @@ func New(rows store.SettingStore, boot map[string]string) *Leaf {
 func (l *Leaf) Get(ctx context.Context, key string) (string, error) {
 	k, ok := lookup(key)
 	if !ok || k.Scopes != Flat {
-		return "", fmt.Errorf("no install setting named %q", key)
+		return "", unknown(key)
 	}
 	v, set, err := l.rows.Get(ctx, key)
 	if err != nil || set {
@@ -44,6 +44,11 @@ func (l *Leaf) Get(ctx context.Context, key string) (string, error) {
 	}
 	return k.Default, nil
 }
+
+// unknown is a key the catalogue has no flat knob for: a 400 that names it,
+// never a 500. Internal bookkeeping rows (controller_logcap_version) answer
+// this too, as they are not settings.
+func unknown(key string) error { return errs.Invalidf("", "unknown setting %s", key) }
 
 // Int is Get for an int knob.
 func (l *Leaf) Int(ctx context.Context, key string) (int, error) {
@@ -75,7 +80,7 @@ func (l *Leaf) Set(ctx context.Context, key, raw string) error {
 func Check(key, raw string) error {
 	k, ok := lookup(key)
 	if !ok || k.Scopes != Flat {
-		return errs.Invalidf(key, "no install setting named %q", key)
+		return unknown(key)
 	}
 	if k.ReadOnly {
 		return errs.Invalidf(key, "%s comes from the installer and cannot be changed here", key)

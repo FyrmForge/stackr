@@ -61,6 +61,18 @@ func TestServerConfigAdminFlow(t *testing.T) {
 	}
 }
 
+// A key that is no setting (internal bookkeeping included) is a 400 naming
+// it, never a 500.
+func TestSettingUnknownKey(t *testing.T) {
+	w := newWorld(t)
+	for _, m := range []struct{ method, body string }{{"GET", ""}, {"PUT", `{"value":"x"}`}} {
+		code, out := w.do(t, w.admin, m.method, "/admin/settings/controller_logcap_version", m.body)
+		if code != 400 || !strings.Contains(out, "unknown setting controller_logcap_version") {
+			t.Errorf("%s controller_logcap_version = %d %s, want 400 unknown setting", m.method, code, out)
+		}
+	}
+}
+
 // The generic settings PUT does not write the server file's binding: bind
 // checks the connector, this would not.
 func TestSettingRefusesServerConfigKnobs(t *testing.T) {
