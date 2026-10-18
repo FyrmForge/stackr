@@ -435,7 +435,20 @@ func (h *handler) plan(c echo.Context) error {
 		return respond.Redirect(c, next(og, "config"))
 	}
 	job := c.QueryParam("job")
-	applying := pl.Status == "pending" && pl.DecidedAt != nil
+	var j service.Job
+	mine := false
+	if job != "" {
+		if j, err = h.orch.GetJob(ctx, job); err != nil {
+			return middleware.HTTPError(err)
+		}
+		// only this plan's apply speaks on its screen
+		mine = slices.Contains(j.LockSet, "orgplan:"+pl.ID)
+	}
+	// The apply records the plan's end a moment before its job row ends:
+	// until the row does, it is still applying, or the screen stops polling
+	// on a banner that says "Applying.".
+	applying := pl.Status == "pending" && pl.DecidedAt != nil ||
+		mine && (j.State == "queued" || j.State == "running")
 	// It ended without applying: stay on the plan, as a navigation rather
 	// than a banner swap, so the screen comes back carrying why.
 	if isHTMX(c) && pl.DecidedAt != nil && !applying {
@@ -452,15 +465,8 @@ func (h *handler) plan(c echo.Context) error {
 	if applying {
 		v.Work, v.Poll = "Applying.", planURL(og, pl.ID, job)
 	}
-	if job != "" {
-		j, err := h.orch.GetJob(ctx, job)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		// only this plan's apply speaks on its screen
-		if line := workLine(j); line != "" && slices.Contains(j.LockSet, "orgplan:"+pl.ID) {
-			v.Work, v.Failed = line, j.State == "failed"
-		}
+	if line := workLine(j); line != "" && mine {
+		v.Work, v.Failed = line, j.State == "failed"
 	}
 	var p service.OrgConfigPlan
 	if pl.Plan != "" {

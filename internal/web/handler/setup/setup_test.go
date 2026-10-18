@@ -386,12 +386,35 @@ func TestPlanApplyFails(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.Status == "error" {
+		// the job row ends a moment after the plan's status
+		j, err := s.Orch.GetJob(ctx, strings.TrimPrefix(wait, plan+"&job="))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Status == "error" && j.State == "failed" {
 			break
 		}
 		if p.Status == "applied" || time.Now().After(end) {
 			t.Fatalf("plan = %s", p.Status)
 		}
+	}
+	// The moment between the plan's end and its job row's: still applying,
+	// so the poll goes on rather than stopping on "Applying.".
+	row, err := s.Store.Jobs.Get(ctx, strings.TrimPrefix(wait, plan+"&job="))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := row.State
+	row.State = "running"
+	if err := s.Store.Jobs.Update(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if rec := s.As(t, sess, "GET", wait, nil); rec.Header().Get("HX-Redirect") != "" || !strings.Contains(rec.Body.String(), "every 2s") {
+		t.Errorf("a plan ended ahead of its job stopped polling:\n%s", rec.Body)
+	}
+	row.State = failed
+	if err := s.Store.Jobs.Update(ctx, row); err != nil {
+		t.Fatal(err)
 	}
 	if got := s.As(t, sess, "GET", wait, nil).Header().Get("HX-Redirect"); got != wait {
 		t.Errorf("failed apply's poll sent to %q, want %q", got, wait)

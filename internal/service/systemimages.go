@@ -221,12 +221,13 @@ func (o *Orchestrator) publishSystemImages(ctx context.Context) {
 	// The workers roll once the image they pull is in, and once only: a
 	// retry of the other copies publishes the stackr image again.
 	var rolled sync.Once
+	published := false
 	var err error
 	for i := range 5 {
 		p := o.systemPublisher()
 		p.published = func() {
 			o.markStackrPublished()
-			rolled.Do(func() { o.rolloutAfterBoot(ctx) })
+			rolled.Do(func() { published = true; o.rolloutAfterBoot(ctx) })
 		}
 		if err = p.publish(ctx); err == nil {
 			if err := o.SyncProxy(ctx); err != nil {
@@ -241,6 +242,23 @@ func (o *Orchestrator) publishSystemImages(ctx context.Context) {
 		}
 	}
 	slog.Warn("system images: not all published", "err", err)
+	if !published {
+		o.rolloutBlocked(ctx, err)
+	}
+}
+
+// rolloutBlocked records a stop on a wanted rollout the boot publish gave up
+// on: with no stackr image in the registry it never starts, and without a
+// stop the Update tab would show it neither running nor stopped.
+func (o *Orchestrator) rolloutBlocked(ctx context.Context, err error) {
+	if !o.rolloutWanted(ctx) {
+		return
+	}
+	why := "the stackr image could not be published to the cluster registry: " +
+		strings.ReplaceAll(err.Error(), "\n", "; ")
+	if err := o.store.Settings.Set(ctx, keyRolloutStopped, why); err != nil {
+		slog.Warn("worker upgrade: stop not saved", "err", err)
+	}
 }
 
 // stackrSpares is how many stackr image versions besides the running one the

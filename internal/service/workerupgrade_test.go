@@ -602,3 +602,26 @@ func TestControllerLogCap(t *testing.T) {
 		t.Fatal("the cap ran twice for one build")
 	}
 }
+
+// A boot publish that gives up on the stackr image stops a wanted rollout
+// with the reason, and leaves an unwanted or already stopped one alone.
+func TestRolloutBlockedByThePublish(t *testing.T) {
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v9.9.9"
+	ctx := context.Background()
+	stopped := func() string { v, _, _ := n.orch.store.Settings.Get(ctx, keyRolloutStopped); return v }
+
+	n.orch.rolloutBlocked(ctx, errors.New("push refused"))
+	if s := stopped(); s != "" {
+		t.Fatalf("no rollout wanted, yet stopped: %q", s)
+	}
+	must(t, n.orch.store.Settings.Set(ctx, keyRolloutTarget, "v9.9.9"))
+	n.orch.rolloutBlocked(ctx, errors.Join(errors.New("stackr image: push refused"), errors.New("alpine:3: timeout")))
+	if s := stopped(); !strings.Contains(s, "could not be published") || !strings.Contains(s, "push refused; alpine:3: timeout") {
+		t.Fatalf("stop = %q", s)
+	}
+	n.orch.rolloutBlocked(ctx, errors.New("later"))
+	if s := stopped(); strings.Contains(s, "later") {
+		t.Fatalf("an existing stop was overwritten: %q", s)
+	}
+}
