@@ -817,6 +817,17 @@ graph-canvas[focusing] svg[data-lanes] g:not([data-lit]) { opacity: 0.4; }
 }
 .graph-legend-row { @apply flex items-center gap-2 text-xs leading-none text-rw-muted whitespace-nowrap; }
 graph-canvas:not([legend]) .graph-legend { display: none; }
+/* Narrow screens: the cluster map's env legend and the line legend share the
+   bottom edge, so the line legend sits on top of the env legend instead. */
+@media (width < 40rem) {
+    [data-legend] { anchor-name: --env-legend; }
+    [data-legend] ~ .graph-legend {
+        position-anchor: --env-legend;
+        left: anchor(left);
+        right: auto;
+        bottom: calc(anchor(top) + 0.5rem);
+    }
+}
 .graph-legend-traffic { display: none; }
 graph-canvas:has(svg[data-lanes] g:not([hidden])) .graph-legend-traffic { display: flex; }
 .graph-legend-traffic line { stroke-dasharray: 4 8; animation: edgeflow-fwd 0.9s linear infinite; }
