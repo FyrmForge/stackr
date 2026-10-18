@@ -340,12 +340,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if cfg.Passphrase == "" {
 		cfg.Passphrase = cfg.SecretsKey
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	db, err := openDB(ctx, cfg.DBPath)
+	// The migrations take no context, so the boot's budget starts after them:
+	// on a slow disk they could spend it all and fail the boot, migrated, on
+	// its first query.
+	db, err := openDB(context.Background(), cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
 	if o.docker == nil {
 		c, err := docker.New()
