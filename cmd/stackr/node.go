@@ -96,7 +96,7 @@ func (a *app) nodeNames() (map[string]string, error) {
 
 func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
-		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(),
+		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(), a.nodeMetrics(),
 		a.nodeTag(true), a.nodeTag(false), a.nodeExit(),
 		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget(), a.nodeBackup(), a.nodeBackups())
 }

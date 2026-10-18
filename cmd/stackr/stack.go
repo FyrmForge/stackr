@@ -134,6 +134,7 @@ func (a *app) stackCommands() []*cobra.Command {
 		a.deploy(),
 		a.restart(),
 		a.logs(),
+		a.tileMetrics(),
 		a.managed(),
 		a.sliceTiles(),
 		a.params(),
@@ -1067,6 +1068,7 @@ func (a *app) tiles() *cobra.Command {
 				return a.show(m, "word", "replicas", "last_job", "last_run", "next_run", "paused")
 			})),
 		a.logs(),
+		a.tileMetrics(),
 		a.forward(),
 		exec,
 		a.ssh(),
