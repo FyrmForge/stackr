@@ -79,8 +79,9 @@ ship() {
 # install makes the rig's admin on a fresh DB (an upgrade keeps the one it
 # has). The password is the rig's fixed test login, so passing it inline is fine.
 install() {
-	rig "umask 077;" docker run --rm --privileged --net=host --pid=host -v /:/host -e STACKR_ADMIN_PASSWORD="$ADMIN_PASSWORD" alpine \
-		chroot /host "$INSTALLER" --domain "$DOMAIN" --panel-host "$DOMAIN" --email "$EMAIL" --proxy "$FRONT_PROXY" \
+	# Straight over ssh, not from a container: the installer may restart
+	# Docker (the log cap), which would kill a container it ran in.
+	rig "umask 077;" STACKR_ADMIN_PASSWORD="$(printf %q "$ADMIN_PASSWORD")" "$INSTALLER" --domain "$DOMAIN" --panel-host "$DOMAIN" --email "$EMAIL" --proxy "$FRONT_PROXY" \
 		--admin-email "$ADMIN_EMAIL" '>/root/rig-install.log' '2>&1' ||
 		{ echo "installer failed; see /root/rig-install.log on the rig (it holds the recovery passphrase)" >&2; exit 1; }
 	rig docker ps --format "'{{.Names}} {{.Image}} {{.Status}}'"
