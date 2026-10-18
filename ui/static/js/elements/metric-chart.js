@@ -109,22 +109,27 @@ class MetricChart extends HTMLElement {
     timer = 0;
     plot = null;
     shape = "";
-    dark = document.documentElement.classList.contains("dark");
-    theme = new MutationObserver(() => {
-        const dark = document.documentElement.classList.contains("dark");
-        if (dark === this.dark)
+    bg = "";
+    onTheme = () => {
+        const bg = token("--rw-bg");
+        if (bg === this.bg)
             return;
-        this.dark = dark;
+        this.bg = bg;
         this.rebuild();
-    });
+    };
+    theme = new MutationObserver(this.onTheme);
+    os = matchMedia("(prefers-color-scheme: dark)");
     connectedCallback() {
+        this.bg = token("--rw-bg");
         this.timer = window.setInterval(() => this.refresh(), POLL);
         this.theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+        this.os.addEventListener("change", this.onTheme);
         this.refresh();
     }
     disconnectedCallback() {
         clearInterval(this.timer);
         this.theme.disconnect();
+        this.os.removeEventListener("change", this.onTheme);
         this.plot?.destroy();
         this.plot = null;
     }

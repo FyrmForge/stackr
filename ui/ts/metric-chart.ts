@@ -141,23 +141,30 @@ class MetricChart extends HTMLElement {
   private timer = 0;
   private plot: Plot | null = null;
   private shape = ""; // the line labels the plot was built for
-  private dark = document.documentElement.classList.contains("dark");
-  private theme = new MutationObserver(() => {
-    const dark = document.documentElement.classList.contains("dark");
-    if (dark === this.dark) return;
-    this.dark = dark;
+  // The theme is a class on <html> or, with none, the OS's: either way the
+  // resolved background tells a switch.
+  private bg = "";
+  private onTheme = (): void => {
+    const bg = token("--rw-bg");
+    if (bg === this.bg) return;
+    this.bg = bg;
     this.rebuild();
-  });
+  };
+  private theme = new MutationObserver(this.onTheme);
+  private os = matchMedia("(prefers-color-scheme: dark)");
 
   connectedCallback(): void {
+    this.bg = token("--rw-bg");
     this.timer = window.setInterval(() => this.refresh(), POLL);
     this.theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    this.os.addEventListener("change", this.onTheme);
     this.refresh();
   }
 
   disconnectedCallback(): void {
     clearInterval(this.timer);
     this.theme.disconnect();
+    this.os.removeEventListener("change", this.onTheme);
     this.plot?.destroy();
     this.plot = null;
   }
