@@ -405,6 +405,9 @@ func (ro rollout) one(ctx context.Context, n store.Node, target string) error {
 	// A cancelled run is the panel going down (a controller Docker restart
 	// among the causes), not a failed node: nothing is recorded, and the next
 	// boot queues the rollout again (rolloutAfterBoot).
+	// ponytail: a controller Docker restart that stops the registry before
+	// this panel still fails the pull and stops the rollout (Retry); retry
+	// the pull when that shows.
 	stop := func(msg string, rolledBack bool) error {
 		if err := ctx.Err(); err != nil {
 			return err
