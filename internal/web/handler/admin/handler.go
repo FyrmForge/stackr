@@ -285,10 +285,11 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			v.Latest, v.Newer, v.Checked = h.orch.LastUpgradeCheck(ctx)
 		}
 		v.Version, v.Job = h.orch.Version(), job
-		if v.Upgrading && job != nil {
+		v.Upgrading = v.Upgrading || h.orch.UpgradeUnderway(ctx)
+		if job != nil {
 			job.Refresh = ui.Base + "?tab=update"
 		}
-		if v.Newer {
+		if v.Newer && !v.Upgrading {
 			v.Run = comp.ConfirmView{
 				Button:  "Upgrade to " + v.Latest,
 				Title:   "Upgrade stackr to " + v.Latest,
@@ -298,7 +299,17 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			}
 		}
 		w, err := h.workersView(c)
+		if w != nil && v.Upgrading {
+			w.Action = ""
+		}
 		v.Workers = w
+		// A live job stream refreshes the tab when it ends; otherwise the
+		// tab polls itself while the upgrade or the rollout moves, through
+		// the panel's restart.
+		moving := v.Upgrading || (w != nil && (w.Running || w.Pending))
+		if moving && (job == nil || !job.Live) {
+			v.Live = ui.Base + "?tab=update"
+		}
 		return ui.Update(v), err
 	case "config":
 		return h.configTab(c, job)
@@ -461,13 +472,13 @@ func (h *handler) workersView(c echo.Context) (*ui.WorkersView, error) {
 	if err != nil || len(r.Nodes) == 0 {
 		return nil, err
 	}
-	w := &ui.WorkersView{Stopped: r.Stopped}
+	w := &ui.WorkersView{Stopped: r.Stopped, Running: r.Running, Pending: r.Pending}
 	behind := false
 	for _, n := range r.Nodes {
 		w.Rows = append(w.Rows, ui.WorkerRow{Name: n.Name, Current: n.Current, State: n.State, Error: n.Error, Behind: n.Behind})
 		behind = behind || n.Behind
 	}
-	if (behind || r.Stopped != "") && !r.Running {
+	if (behind || r.Stopped != "") && !r.Running && !r.Pending {
 		w.Action, w.Button = ui.Base+"/update/workers", "Update workers"
 		if r.Stopped != "" {
 			w.Button = "Retry"

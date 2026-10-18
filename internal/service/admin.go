@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -415,6 +416,23 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 		return Job{}, err
 	}
 	return o.enqueue(ctx, kindUpgrade, upgradeJob{Tag: tag}, "panel")
+}
+
+// upgradeSwapWindow is how long after launching its successor a panel still
+// says it is being replaced.
+// ponytail: a fixed window, as the helper's gate reports nothing back here;
+// a helper that rolls back leaves the old panel saying so until it passes.
+const upgradeSwapWindow = 10 * time.Minute
+
+// UpgradeUnderway: an upgrade job is queued or running, or this panel launched
+// the helper that replaces it moments ago and is still serving. The Update tab
+// keeps itself live through the restart on it, and offers no buttons.
+func (o *Orchestrator) UpgradeUnderway(ctx context.Context) bool {
+	if at := o.upgradeLaunched.Load(); at != 0 && time.Since(time.Unix(0, at)) < upgradeSwapWindow {
+		return true
+	}
+	js, err := o.store.Jobs.ListByState(ctx, "queued", "running")
+	return err == nil && slices.ContainsFunc(js, func(j store.Job) bool { return j.Kind == string(kindUpgrade) })
 }
 
 // splitList reads a comma, space or newline separated setting.

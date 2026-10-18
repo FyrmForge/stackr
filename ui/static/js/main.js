@@ -20,6 +20,23 @@ document.addEventListener('htmx:sendError', function(evt) {
     console.error('HTMX network error for:', evt.detail.elt);
 });
 
+// A live tab ([data-live]: it polls itself or follows a job stream) that
+// loses the panel, as during an upgrade's restart, says Reconnecting and holds
+// its buttons. The poll keeps going and the stream reconnects with backoff;
+// the next good poll swaps the whole tab back in, a reopened stream lifts it.
+(function () {
+    function mark(evt, lost) {
+        var live = evt.target.closest && evt.target.closest('[data-live]');
+        if (!live) return;
+        live.querySelectorAll('[data-reconnecting]').forEach(function (n) { n.hidden = !lost; });
+        live.querySelectorAll('button').forEach(function (b) { b.disabled = lost; });
+    }
+    ['htmx:sendError', 'htmx:responseError', 'htmx:sseError'].forEach(function (name) {
+        document.addEventListener(name, function (evt) { mark(evt, true); });
+    });
+    document.addEventListener('htmx:sseOpen', function (evt) { mark(evt, false); });
+})();
+
 // Re-validate a field while typing, but only once it is already showing an
 // error. Pairs with hx-trigger="blur, hamr:revalidate" on the input. The
 // condition lives here rather than in an hx-trigger [...] filter because htmx
