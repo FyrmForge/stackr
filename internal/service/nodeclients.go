@@ -498,7 +498,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		}
 		fails := c.fails[n.ID]
 		c.mu.Unlock()
-		status := n.Status
+		status, prev := n.Status, n.Status
 		switch {
 		case cd.up && status != node.StatusOnline:
 			status = node.StatusOnline
@@ -512,6 +512,9 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 				continue
 			}
 			slog.Info("nodes: status changed", "node", n.Name, "status", status)
+			if a, ok := nodeEvent(n.Name, prev, status); ok {
+				o.alert(a)
+			}
 			if status == node.StatusOffline {
 				o.markSeen(ctx, n.ID)
 			}
@@ -522,6 +525,9 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		}
 		if status != node.StatusOnline {
 			continue
+		}
+		if cd.up {
+			o.diskAlert(ctx, n, cd.f.DiskFree, cd.f.DiskTotal)
 		}
 		want[n.ID] = cd.addr
 		c.mu.Lock()
@@ -589,6 +595,7 @@ func (o *Orchestrator) watchNodeClients() {
 		case <-day.C:
 			o.dailyChores(context.Background())
 		case <-t.C:
+			o.controllerDiskAlert(context.Background())
 			if err := o.refreshNodeClients(context.Background()); err != nil {
 				slog.Warn("nodes: client refresh failed", "err", err)
 			}

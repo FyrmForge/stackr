@@ -56,12 +56,7 @@ const certWarnDays = 14
 // the whole days left, a part of a day counting as one. Nothing live (all
 // revoked, or none) says nothing: that node is mid-rejoin, not expired.
 func certNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
-	var newest time.Time
-	for _, c := range certs {
-		if c.RevokedAt == nil && c.NotAfter.After(newest) {
-			newest = c.NotAfter
-		}
-	}
+	newest := newestCert(certs)
 	switch {
 	case newest.IsZero():
 		return false, 0
@@ -72,6 +67,17 @@ func certNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
 		return false, d
 	}
 	return false, 0
+}
+
+// newestCert is the latest end of a cert not revoked; zero = none.
+func newestCert(certs []store.NodeCert) time.Time {
+	var newest time.Time
+	for _, c := range certs {
+		if c.RevokedAt == nil && c.NotAfter.After(newest) {
+			newest = c.NotAfter
+		}
+	}
+	return newest
 }
 
 // NodeIface is one address of a node. Group is public, lan, cluster, docker

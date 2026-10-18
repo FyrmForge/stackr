@@ -1,0 +1,62 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// AlertsView is the alert webhook. URL is the current one, masked; "" = off.
+type AlertsView struct {
+	Action    string // POST url, secret
+	Test      string // POST; "" = no URL yet
+	Clear     c.ConfirmView
+	URL       string
+	SecretSet bool
+	Last      string // "" = none yet
+	LastOK    bool
+}
+
+templ Alerts(v AlertsView) {
+	<div id="tab-alerts">
+		@c.Section("Alerts", "instance", "One webhook gets node offline, failed backups, expiring certificates and low disk.") {
+			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+				@c.Field(c.FieldView{Name: "url", Label: "Webhook URL", Type: "url", Placeholder: alertsPlaceholder(v.URL), Help: alertsURLHelp(v.URL)})
+				@c.Field(c.FieldView{Name: "secret", Label: "Signing secret", Type: "password", Autocomplete: "new-password", Help: alertsSecretHelp(v.SecretSet)})
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			</form>
+			<div class="mt-5 pt-5 border-t border-rw-border space-y-3">
+				if v.Last == "" {
+					<p class="text-sm text-rw-muted">Last delivery: none yet.</p>
+				} else if v.LastOK {
+					<p class="text-sm text-rw-muted">Last delivery: { v.Last }</p>
+				} else {
+					<p class="text-sm text-rw-danger">Last delivery: { v.Last }</p>
+				}
+				if v.Test != "" {
+					<div class="flex flex-wrap items-center gap-2">
+						@c.PostButton("Send test", v.Test)
+						@c.Confirm(v.Clear)
+					</div>
+				}
+			</div>
+		}
+	</div>
+}
+
+func alertsPlaceholder(u string) string {
+	if u == "" {
+		return "https://"
+	}
+	return u
+}
+
+func alertsURLHelp(u string) string {
+	if u == "" {
+		return "Alerts are off until you set one."
+	}
+	return "Empty keeps the current one."
+}
+
+func alertsSecretHelp(set bool) string {
+	if set {
+		return "Set. Empty keeps it."
+	}
+	return "Optional. Signs each post in X-Stackr-Signature."
+}

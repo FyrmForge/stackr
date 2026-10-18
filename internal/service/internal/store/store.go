@@ -101,7 +101,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Tiles:            tiles{crud[Tile]{q, box, tilesT}},
 		Images:           images{crud[Image]{q, box, imagesT}},
 		Params:           params{crud[Param]{q, box, paramsT}},
-		Settings:         settings{q},
+		Settings:         settings{q, box},
 		Volumes:          volumes{crud[Volume]{q, box, volumesT}},
 		Domains:          domains{crud[Domain]{q, box, domainsT}},
 		DomainResources:  domainResources{crud[DomainResource]{q, box, domainResourcesT}},
