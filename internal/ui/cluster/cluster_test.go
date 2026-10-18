@@ -119,16 +119,16 @@ func TestMapDraws(t *testing.T) {
 // node's drawer; a cert near its end counts the days.
 func TestCardNotes(t *testing.T) {
 	m := sample()
-	m.Nodes[1].Behind = true
-	m.Nodes[2].CertExpired = true
-	m.Nodes[3].CertDays = 9
-	m.Nodes[3].Behind, m.Nodes[3].TooOld = true, true
+	m.Nodes[1].Warnings = []cluster.Warning{{Kind: "version", Label: "behind"}}
+	m.Nodes[2].Warnings = []cluster.Warning{{Kind: "cert", Label: "Cert expired, rejoin needed", Critical: true}}
+	m.Nodes[3].Warnings = []cluster.Warning{{Kind: "version", Label: "too old", Critical: true}, {Kind: "cert", Label: "Cert expires in 9 days"},
+		{Kind: "clock", Label: "Clock 2m ahead", Detail: "Its clock is 2m ahead of the panel."}}
 	var sb strings.Builder
 	if err := cluster.Page(cluster.Build(m, cluster.Base, nil, nil), m).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	body := sb.String()
-	for _, want := range []string{">behind<", ">too old<", "Cert expired, rejoin needed", "Cert expires in 9 days"} {
+	for _, want := range []string{">behind<", ">too old<", "Cert expired, rejoin needed", "Cert expires in 9 days", ">Clock 2m ahead<", `title="Its clock is 2m ahead of the panel."`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}

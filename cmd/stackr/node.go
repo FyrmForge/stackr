@@ -225,6 +225,15 @@ func stateWord(s string) string {
 	return s
 }
 
+// warnings is one field of each of a node's warnings.
+func warnings(n map[string]any, field string) []string {
+	var out []string
+	for _, w := range asList(n["warnings"]) {
+		out = append(out, cell(asMap(w)[field]))
+	}
+	return out
+}
+
 func (a *app) nodeLs() *cobra.Command {
 	var state string
 	var pend bool
@@ -256,8 +265,12 @@ func (a *app) nodeLs() *cobra.Command {
 			if cell(m["docker"]) == "(none)" {
 				m["docker"] = "-"
 			}
+			m["warn"] = "-"
+			if ws := warnings(m, "label"); len(ws) > 0 {
+				m["warn"] = strings.Join(ws, ", ")
+			}
 		}
-		return a.show(rows, "name", "role", "state", "tags", "envs", "cpu", "mem", "disk_free", "docker")
+		return a.show(rows, "name", "role", "state", "tags", "envs", "cpu", "mem", "disk_free", "docker", "warn")
 	})
 	c.Example = "  stackr node ls\n  stackr node ls --pending"
 	c.Flags().StringVar(&state, "state", "", "only nodes in this state (online, pending, ...)")
@@ -357,6 +370,9 @@ func (a *app) nodeShow() *cobra.Command {
 			if cert := asMap(n["certificate"]); cert != nil {
 				rows = append(rows, []string{"certificate", fmt.Sprintf("valid until %s, renews on %s",
 					cell(cert["not_after"])[:10], cell(cert["renews_on"])[:10])})
+			}
+			for _, w := range warnings(n, "detail") {
+				rows = append(rows, []string{"warning", w})
 			}
 			a.table(nil, rows)
 			return nil

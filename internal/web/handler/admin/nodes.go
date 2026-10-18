@@ -463,7 +463,10 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	if err != nil {
 		return v, err
 	}
-	v.Behind, v.TooOld, v.CertExpired, v.CertDays = live.Behind, live.TooOld, live.CertExpired, live.CertDays
+	v.Behind, v.TooOld, v.CertExpired = live.Behind, live.TooOld, live.CertExpired
+	for _, w := range live.Warnings {
+		v.Warnings = append(v.Warnings, ui.WarningRow{Detail: w.Detail, Critical: w.Severity == service.SevCritical})
+	}
 	if j, ok := c.Get("job").(service.Job); ok {
 		jv := render.JobView("", j)
 		v.Job = &jv

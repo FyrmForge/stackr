@@ -125,15 +125,13 @@ templ nodeCard(n Node) {
 			</div>
 			if hasNote(n) {
 				<div class="mb-[4px] flex items-center gap-[8px] text-[12px] leading-[16px] min-w-0 h-[16px] overflow-hidden whitespace-nowrap">
-					if n.TooOld {
-						<span class="shrink-0 rounded-md border border-rw-danger/40 px-[6px] leading-[14px] text-rw-danger">too old</span>
-					} else if n.Behind {
-						<span class="shrink-0 rounded-md border border-rw-warn/40 px-[6px] leading-[14px] text-rw-warn">behind</span>
-					}
-					if n.CertExpired {
-						<button type="button" class="truncate text-rw-danger underline" hx-get={ NodeDrawer(n.ID, "") } hx-target="#drawer-body" hx-push-url={ NodePush(n.ID, "") } hx-trigger="click consume">Cert expired, rejoin needed</button>
-					} else if n.CertDays > 0 {
-						<span class="truncate text-rw-warn">Cert expires in { plural(n.CertDays, "day") }</span>
+					for _, w := range n.Warnings {
+						<span
+							class={ "node-warning truncate", templ.KV("shrink-0 rounded-md border px-[6px] leading-[14px]", w.Kind == "version"),
+								templ.KV("border-rw-danger/40", w.Kind == "version" && w.Critical), templ.KV("border-rw-warn/40", w.Kind == "version" && !w.Critical),
+								templ.KV("text-rw-danger", w.Critical), templ.KV("text-rw-warn", !w.Critical) }
+							title={ w.Detail }
+						>{ w.Label }</span>
 					}
 				</div>
 			}

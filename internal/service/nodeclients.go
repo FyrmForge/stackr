@@ -81,6 +81,10 @@ type clusterPKI struct {
 	// Docker calls for (id -> that version, "" = none reported). In memory
 	// only; the next probe fills it.
 	old map[string]string
+	// skew: how far each worker's clock is from the controller's, as its
+	// last probe measured (positive = ahead). In memory only; a worker that
+	// does not report its time, or did not answer, has none.
+	skew map[string]time.Duration
 }
 
 // tooOldVersion is the version of a worker the gate refuses, and whether it does.
@@ -248,7 +252,7 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	}
 	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, prev: loadPrev(dataDir, own), st: st, rev: map[string]revAns{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
-		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}, old: map[string]string{}}, nil
+		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}, old: map[string]string{}, skew: map[string]time.Duration{}}, nil
 }
 
 // controllerCert loads the controller's cert and key, or issues a new pair.
@@ -421,6 +425,9 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		up   bool
 		ver  string // the version its facts reported
 		f    worker.Facts
+		skew time.Duration
+		// skewOK: the worker reported its time, so skew is known
+		skewOK bool
 	}
 	var cands []*cand
 	seen := map[string]bool{}
@@ -449,8 +456,12 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			defer wg.Done()
 			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+			sent := time.Now()
 			f, err := cd.ext.Facts(pctx)
 			cd.up, cd.ver, cd.f = err == nil, f.Version, f
+			if cd.up {
+				cd.skew, cd.skewOK = clockSkew(sent, time.Now(), f.TimeMS)
+			}
 			alive := false
 			if !cd.up && o.mesh != nil {
 				// Its own deadline: a dead tunnel spends all of pctx on Facts.
@@ -475,6 +486,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			delete(c.fails, id)
 			delete(c.alive, id)
 			delete(c.old, id)
+			delete(c.skew, id)
 		}
 	}
 	c.mu.Unlock()
@@ -486,6 +498,11 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		n := cd.n
 		allowed := !cd.up || o.versionAllowed(ctx, cd.ver)
 		c.mu.Lock()
+		if cd.skewOK {
+			c.skew[n.ID] = cd.skew
+		} else {
+			delete(c.skew, n.ID)
+		}
 		if cd.up {
 			c.fails[n.ID] = 0
 			if allowed {
@@ -528,6 +545,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 		}
 		if cd.up {
 			o.diskAlert(ctx, n, cd.f.DiskFree, cd.f.DiskTotal)
+			o.clockAlert(ctx, n, cd.skew, cd.skewOK)
 		}
 		want[n.ID] = cd.addr
 		c.mu.Lock()
@@ -614,6 +632,27 @@ func (o *Orchestrator) nodeExtras(nodeID string) (*workerclient.Client, error) {
 		}
 	}
 	return nil, o.nodeDown(context.Background(), nodeID)
+}
+
+// clockSkew is how far a worker's clock (ms, unix milliseconds it put in
+// its facts) is from ours, taken at the midpoint of the request: sent before
+// it, got after. ms 0 is an older worker that does not say: unknown.
+func clockSkew(sent, got time.Time, ms int64) (time.Duration, bool) {
+	if ms == 0 {
+		return 0, false
+	}
+	return time.UnixMilli(ms).Sub(sent.Add(got.Sub(sent) / 2)), true
+}
+
+// skewOf is a worker's last measured clock skew; false = not known.
+func (o *Orchestrator) skewOf(nodeID string) (time.Duration, bool) {
+	if o.cluster == nil {
+		return 0, false
+	}
+	o.cluster.mu.Lock()
+	defer o.cluster.mu.Unlock()
+	d, ok := o.cluster.skew[nodeID]
+	return d, ok
 }
 
 // HostAlive reports a worker the tunnel cannot reach that still answers its

@@ -14,7 +14,7 @@ func (n NodeOut) Redacted() NodeOut {
 	n.Range, n.WGAddress = "", ""
 	n.Placements, n.DefaultExit = []string{}, []string{}
 	n.Version, n.Arch, n.Docker = "", "", ""
-	n.Behind, n.TooOld = false, false
+	n.Behind, n.TooOld, n.Warnings = false, false, []NodeWarning{}
 	n.CPU, n.MemTotal, n.DiskFree, n.DiskTotal = 0, 0, 0, 0
 	return n
 }

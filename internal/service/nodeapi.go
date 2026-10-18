@@ -58,6 +58,8 @@ type NodeOut struct {
 	Version string `json:"version"`
 	Behind  bool   `json:"behind"`
 	TooOld  bool   `json:"too_old"`
+	// Warnings are what is off on the node that stops nothing.
+	Warnings []NodeWarning `json:"warnings"`
 	// DefaultExit is the exit node names of the node's own ladder; empty
 	// for an egress node.
 	DefaultExit []string `json:"default_exit"`
@@ -284,7 +286,9 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 			}
 		}
 	}
-	if f := o.reportedFacts(ctx, n); f != nil {
+	f := o.reportedFacts(ctx, n)
+	out.Warnings = o.nodeWarnings(ctx, n, f)
+	if f != nil {
 		out.CPU, out.MemTotal, out.DiskFree, out.DiskTotal, out.Docker, out.Arch = f.CPUs, f.MemBytes, f.DiskFree, f.DiskTotal, f.Docker, f.Arch
 		out.Version, out.Behind = f.Version, o.workerBehind(n, f)
 		out.TooOld = n.Role == node.Worker && !o.versionAllowed(ctx, f.Version)

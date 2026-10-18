@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/netip"
 	"runtime"
@@ -45,6 +46,7 @@ type NodeLive struct {
 	// CertDays: the live certificate ends in that many days, under 14 (0 = not).
 	Behind, TooOld, CertExpired bool
 	CertDays                    int
+	Warnings                    []NodeWarning
 }
 
 // certWarnDays is how close to its end a certificate gets a note.
@@ -67,6 +69,96 @@ func certNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
 		return false, d
 	}
 	return false, 0
+}
+
+// NodeWarning is something off on a node that stops nothing: the map card's
+// badge (Label), the drawer's and `node show`'s line (Detail), `node ls`'s
+// WARN column. Offline is not one: the status says it.
+type NodeWarning struct {
+	Kind     string `json:"kind"`     // clock | disk | cert | version
+	Severity string `json:"severity"` // warning | critical
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+}
+
+// Warning kinds.
+const (
+	WarnClock   = "clock"
+	WarnDisk    = "disk"
+	WarnCert    = "cert"
+	WarnVersion = "version"
+)
+
+// warnIn is what warningsOf judges; nodeWarnings gathers it.
+type warnIn struct {
+	Version             string // the build the node reported
+	Panel               string // the panel's build
+	Behind, TooOld      bool
+	CertExpired         bool
+	CertDays            int
+	Skew                time.Duration
+	SkewOK              bool
+	DiskFree, DiskTotal uint64
+}
+
+// warningsOf is the one rule for a node's warnings, on the same lines as the
+// alerts: skewed, diskLow, certNote, workerBehind.
+func warningsOf(w warnIn) []NodeWarning {
+	out := []NodeWarning{}
+	ver := w.Version
+	if ver == "" {
+		ver = "an older build"
+	}
+	switch {
+	case w.TooOld:
+		out = append(out, NodeWarning{WarnVersion, SevCritical, "too old",
+			"Runs " + ver + ", which the panel no longer drives. Update it under Admin, Update."})
+	case w.Behind:
+		out = append(out, NodeWarning{WarnVersion, SevWarning, "behind",
+			"Runs " + ver + ", the panel runs " + w.Panel + "."})
+	}
+	switch {
+	case w.CertExpired:
+		out = append(out, NodeWarning{WarnCert, SevCritical, "Cert expired, rejoin needed",
+			"Its certificate expired. Rejoin it."})
+	case w.CertDays > 0:
+		d := fmt.Sprintf("%d days", w.CertDays)
+		if w.CertDays == 1 {
+			d = "1 day"
+		}
+		out = append(out, NodeWarning{WarnCert, SevWarning, "Cert expires in " + d,
+			"Its certificate expires in " + d + "."})
+	}
+	if w.SkewOK && skewed(w.Skew) {
+		out = append(out, NodeWarning{WarnClock, SevWarning, "Clock " + skewWords(w.Skew),
+			"Its clock is " + skewWords(w.Skew) + " of the panel. Check time sync on the node."})
+	}
+	if (w.DiskFree != 0 || w.DiskTotal != 0) && diskLow(w.DiskFree, w.DiskTotal) {
+		pct := uint64(0)
+		if w.DiskTotal > 0 {
+			pct = w.DiskFree * 100 / w.DiskTotal
+		}
+		out = append(out, NodeWarning{WarnDisk, SevWarning, "Disk low",
+			fmt.Sprintf("%s (%d%%) free on its Docker disk.", gb(w.DiskFree), pct)})
+	}
+	return out
+}
+
+// nodeWarnings is a node's warnings; f is its facts (nil = none known).
+func (o *Orchestrator) nodeWarnings(ctx context.Context, n store.Node, f *worker.Facts) []NodeWarning {
+	w := warnIn{Panel: o.cfg.Version}
+	if f != nil {
+		w.Version, w.DiskFree, w.DiskTotal = f.Version, f.DiskFree, f.DiskTotal
+		w.Behind = o.workerBehind(n, f)
+		w.TooOld = w.Behind && !o.versionAllowed(ctx, f.Version)
+	}
+	if n.Role == node.Worker {
+		if cs, err := o.store.NodeCerts.ListByNode(ctx, n.ID); err == nil {
+			w.CertExpired, w.CertDays = certNote(cs, time.Now())
+		}
+		w.Skew, w.SkewOK = o.skewOf(n.ID)
+	}
+	return warningsOf(w)
 }
 
 // newestCert is the latest end of a cert not revoked; zero = none.
@@ -99,6 +191,7 @@ func (o *Orchestrator) NodeLive(ctx context.Context, id string) (NodeLive, error
 		return NodeLive{}, err
 	}
 	out := NodeLive{Facts: o.reportedFacts(ctx, n)}
+	out.Warnings = o.nodeWarnings(ctx, n, out.Facts)
 	if n.Role == node.Controller {
 		out.LastSeen = time.Now()
 	} else {

@@ -9,6 +9,7 @@ stackr posts to one webhook when something needs you:
 | `backup.failed` | A backup schedule starts failing. It fires again every 24 hours while it keeps failing, and resets on the next success. A backup skipped because its node is offline is not a failure. |
 | `cert.expiring` | A node certificate, the controller certificate or the cluster root has under 14 days left, then again under 3. |
 | `disk.low` | A node's Docker disk drops under 10% or 1 GB free. |
+| `clock.skew` | A worker's clock is more than 30 seconds off the controller's. Nothing is refused; check time sync on the node. |
 | `test` | You press Send test. |
 
 Each event fires once per crossing. It fires again only after the condition clears and comes back, except the daily `backup.failed` reminder. A panel restart does not send again. Let's Encrypt certificates are not checked.
