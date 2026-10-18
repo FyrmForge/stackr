@@ -205,6 +205,11 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 				return errs.Invalidf(key, "%s", err.Error())
 			}
 		}
+		// The masked form reads back as a valid URL; saving it would drop the
+		// real webhook.
+		if key == "alert_webhook_url" && strings.HasSuffix(raw, "/…") {
+			return errs.Invalidf(key, "That is the masked URL. Paste the full webhook URL.")
+		}
 		if key == "trusted_proxies" {
 			for _, r := range splitList(raw) {
 				if strings.EqualFold(r, domain.CloudflareKeyword) {

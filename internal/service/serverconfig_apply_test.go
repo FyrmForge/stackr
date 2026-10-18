@@ -522,6 +522,9 @@ func TestAlertWebhookURLNeverInFull(t *testing.T) {
 	if v, err := o.Setting(ctx, "alert_webhook_url"); err != nil || v != "https://hooks.example.com/…" {
 		t.Errorf("Setting = %q, %v; want masked", v, err)
 	}
+	if err := o.SetAlerts(ctx, "https://hooks.example.com/…", nil); err == nil {
+		t.Error("the masked URL saved over the real one")
+	}
 	out, err := o.ExportServerConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
