@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -511,5 +512,31 @@ func RunPanelSwap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return panel.New(d).Swap(ctx, spec)
+	if err := panel.New(d).Swap(ctx, spec); err != nil {
+		return err
+	}
+	controllerLogCap(ctx, d, spec.Image)
+	return nil
+}
+
+// controllerLogCap runs `stackrd host-run docker-logcap` on this host once
+// the new panel is healthy, so a panel upgrade sets Docker's log cap as the
+// installer and a worker upgrade do. It only warns: the swap is done.
+// ponytail: when daemon.json changes, the Docker restart 15 s later bounces
+// the new panel, and a worker rollout it started meanwhile rolls back and
+// stops (Retry). Only the first upgrade of a box without the cap.
+func controllerLogCap(ctx context.Context, d *docker.Client, image string) {
+	_ = d.StopRemove(ctx, hostHelperName) // a leftover of an earlier run
+	id, err := d.Run(ctx, hostHelperSpec(image, "host-run", "docker-logcap"))
+	if err != nil {
+		slog.Warn("upgrade: docker log cap not started", "err", err)
+		return
+	}
+	defer func() { _ = d.StopRemove(context.WithoutCancel(ctx), id) }()
+	wctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if code, err := d.Wait(wctx, id); err != nil || code != 0 {
+		out, _ := d.Logs(ctx, id, 20)
+		slog.Warn("upgrade: docker log cap not started", "code", code, "err", err, "out", out)
+	}
 }

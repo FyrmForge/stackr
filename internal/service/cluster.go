@@ -86,11 +86,8 @@ type ClusterNode struct {
 	// ViaDown are the ReachedVia hops that are not online: the node is cut
 	// off because its router is down.
 	ViaDown []string
-	// Behind: the worker runs another build than the panel; TooOld: one the
-	// panel refuses to drive. CertExpired and CertDays (0 = not under 14
-	// days) are the cert note on its card.
-	Behind, TooOld, CertExpired bool
-	CertDays                    int
+	// Warnings are the badges on its card (nodeWarnings).
+	Warnings []NodeWarning
 }
 
 type ClusterEnv struct {
@@ -147,9 +144,7 @@ type clusterNodeIn struct {
 	Up          bool          // answered just now
 	Alive       bool          // not Up, but its public liveness port answered
 	Expired     bool          // a worker whose newest cert ran out
-	CertDays    int           // days left on its newest cert when under 14; 0 = more, or expired
-	Behind      bool          // a worker running another build than the panel
-	TooOld      bool          // a worker on a build the panel refuses
+	Warnings    []NodeWarning
 	NotRejoined bool          // break glass revoked it and its rejoin is not used yet
 	Envs        []ClusterEnv
 	Domains     []string
@@ -194,7 +189,7 @@ func buildClusterMap(in []clusterNodeIn) ClusterMap {
 		cn := ClusterNode{
 			ID: n.Node.ID, Name: n.Node.Name, Role: n.Node.Role, Tags: node.Tags(n.Node),
 			Envs: n.Envs, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitOwn: n.ExitOwn, ExitOthers: n.ExitOthers, Status: n.Node.Status,
-			Behind: n.Behind, TooOld: n.TooOld, CertExpired: n.Expired, CertDays: n.CertDays,
+			Warnings: n.Warnings,
 		}
 		switch {
 		case n.NotRejoined:
@@ -338,13 +333,8 @@ func (o *Orchestrator) ClusterMap(ctx context.Context) (ClusterMap, error) {
 			in[i].Mem = o.loadMemory(ctx, n.ID)
 			in[i].Alive = !in[i].Up && o.HostAlive(n.ID)
 			in[i].NotRejoined = o.notRejoined(n)
-			in[i].Behind = o.workerBehind(n, in[i].Facts)
-			in[i].TooOld = in[i].Behind && in[i].Facts != nil && !o.versionAllowed(ctx, in[i].Facts.Version)
-			if n.Role == node.Worker {
-				if cs, err := o.store.NodeCerts.ListByNode(ctx, n.ID); err == nil {
-					in[i].Expired, in[i].CertDays = certNote(cs, time.Now())
-				}
-			}
+			in[i].Warnings = o.nodeWarnings(ctx, n, in[i].Facts)
+			in[i].Expired = slices.ContainsFunc(in[i].Warnings, func(w NodeWarning) bool { return w.Kind == WarnCert && w.Severity == SevCritical })
 		}()
 	}
 	wg.Wait()

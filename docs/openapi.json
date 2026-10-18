@@ -716,6 +716,12 @@
           "version": {
             "type": "string"
           },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/NodeWarning"
+            },
+            "type": "array"
+          },
           "wg_address": {
             "type": "string"
           }
@@ -739,6 +745,7 @@
           "version",
           "behind",
           "too_old",
+          "warnings",
           "default_exit",
           "public"
         ],
@@ -1848,6 +1855,9 @@
               "type": "string"
             },
             "type": "object"
+          },
+          "time_ms": {
+            "type": "integer"
           },
           "tx": {
             "additionalProperties": {
@@ -3552,6 +3562,12 @@
           "version": {
             "type": "string"
           },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/NodeWarning"
+            },
+            "type": "array"
+          },
           "wg_address": {
             "type": "string"
           }
@@ -3575,6 +3591,7 @@
           "version",
           "behind",
           "too_old",
+          "warnings",
           "default_exit",
           "env_list",
           "exit_for",
@@ -3647,6 +3664,12 @@
           "version": {
             "type": "string"
           },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/NodeWarning"
+            },
+            "type": "array"
+          },
           "wg_address": {
             "type": "string"
           }
@@ -3670,6 +3693,7 @@
           "version",
           "behind",
           "too_old",
+          "warnings",
           "default_exit"
         ],
         "type": "object"
@@ -3700,6 +3724,29 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "NodeWarning": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "severity",
+          "label",
+          "detail"
         ],
         "type": "object"
       },

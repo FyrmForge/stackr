@@ -66,6 +66,9 @@ type Facts struct {
 	// Busy are the ingress ports (80, 443) something already listens on; the
 	// controller reads them before it starts a proxy there.
 	Busy []int `json:"busy,omitempty"`
+	// TimeMS is the node's clock when the facts were read, unix ms (0 from
+	// an older worker: unknown). The controller reads its skew from it.
+	TimeMS int64 `json:"time_ms,omitempty"`
 }
 
 // IngressPorts are what a node's ingress proxy binds on the host.
@@ -298,6 +301,7 @@ func (s *Server) Facts(ctx context.Context) Facts {
 		}
 		f.Ping = s.pingPeers(ctx)
 	}
+	f.TimeMS = time.Now().UnixMilli() // last: closest to the reply
 	return f
 }
 

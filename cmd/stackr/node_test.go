@@ -141,6 +141,25 @@ func TestNodeShow(t *testing.T) {
 	}
 }
 
+// ls has a WARN column of short labels; show lists each warning in full.
+func TestNodeWarnings(t *testing.T) {
+	warned := strings.Replace(nodeJSON, `"behind":true,`, `"behind":true,"warnings":[`+
+		`{"kind":"clock","severity":"warning","label":"Clock 2m ahead","detail":"Its clock is 2m ahead of the panel."},`+
+		`{"kind":"disk","severity":"warning","label":"Disk low","detail":"0.5 GB (3%) free on its Docker disk."}],`, 1)
+	fake(t, map[string]string{"/nodes": `[` + nodeJSON + `]`})
+	if _, out, _ := cli(t, "node", "ls"); !strings.Contains(out, "29.9.0\t-") {
+		t.Errorf("no warnings ls = %q", out)
+	}
+	fake(t, map[string]string{"/nodes": `[` + warned + `]`, "/nodes/vps-fsn1": warned})
+	if _, out, _ := cli(t, "node", "ls"); !strings.Contains(out, "29.9.0\tClock 2m ahead, Disk low") {
+		t.Errorf("ls = %q", out)
+	}
+	code, out, errw := cli(t, "node", "show", "vps-fsn1")
+	if code != 0 || !strings.Contains(out, "warning\tIts clock is 2m ahead of the panel.") || !strings.Contains(out, "warning\t0.5 GB (3%) free") {
+		t.Errorf("no name = %d %q", code, errw)
+	}
+}
+
 // tag sends the adds; untag of an exit asks first, naming what loses it.
 func TestNodeTagUntag(t *testing.T) {
 	r := fake(t, map[string]string{"/tags": `{"tags":["ingress","egress","builder"]}`, "/nodes/vps-fsn1": nodeJSON})

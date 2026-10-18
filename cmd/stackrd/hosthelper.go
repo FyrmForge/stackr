@@ -232,32 +232,53 @@ type hostRun struct {
 	run       func(ctx context.Context, argv ...string) error
 }
 
-func (h hostRun) uninstall(ctx context.Context) error {
+// stage puts the image's stackr-install on the host.
+func (h hostRun) stage() error {
 	dst := filepath.Join(h.host, hostBinDir, "stackr-install")
 	if err := copyExec(filepath.Join(h.src, "stackr-install"), dst+".new"); err != nil {
 		return fmt.Errorf("stage stackr-install: %w", err)
 	}
-	if err := os.Rename(dst+".new", dst); err != nil {
+	return os.Rename(dst+".new", dst)
+}
+
+func (h hostRun) uninstall(ctx context.Context) error {
+	if err := h.stage(); err != nil {
 		return err
 	}
 	return h.run(ctx, "chroot", h.host, "systemd-run", "--collect", "--unit", "stackr-uninstall",
 		"/usr/local/bin/stackr-install", "uninstall", "--yes")
 }
 
-// runHostRun is `stackrd host-run <command>`; only uninstall exists.
+// logCap sets Docker's log cap on the controller after a panel upgrade, as
+// worker-swap does on a worker: delayed, so the swap helper is done before a
+// Docker restart.
+func (h hostRun) logCap(ctx context.Context) error {
+	if err := h.stage(); err != nil {
+		return err
+	}
+	return h.run(ctx, "chroot", h.host, "systemd-run", "--collect", "--unit", "stackr-docker-logcap", "--on-active=15",
+		"/usr/local/bin/stackr-install", "docker-logcap")
+}
+
+// runHostRun is `stackrd host-run uninstall --yes` or `host-run docker-logcap`.
 func runHostRun(args []string) error {
-	if len(args) < 2 || args[0] != "uninstall" || args[1] != "--yes" {
-		return errors.New("usage: host-run uninstall --yes")
+	uninstall := len(args) == 2 && args[0] == "uninstall" && args[1] == "--yes"
+	if !uninstall && (len(args) != 1 || args[0] != "docker-logcap") {
+		return errors.New("usage: host-run uninstall --yes | host-run docker-logcap")
 	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return hostRun{src: filepath.Dir(self), host: "/host", run: func(ctx context.Context, argv ...string) error {
+	h := hostRun{src: filepath.Dir(self), host: "/host", run: func(ctx context.Context, argv ...string) error {
 		out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%s: %w: %s", argv[0], err, out)
 		}
 		return nil
-	}}.uninstall(context.Background())
+	}}
+	if uninstall {
+		return h.uninstall(context.Background())
+	}
+	return h.logCap(context.Background())
 }

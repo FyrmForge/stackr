@@ -168,7 +168,7 @@ type NodeView struct {
 	Cores                          int
 	HasFacts                       bool
 	Behind, TooOld, CertExpired    bool // the build is not the panel's; not one it allows; no live certificate
-	CertDays                       int  // the certificate ends in this many days, under 14; 0 = not
+	Warnings                       []WarningRow // what is off on the node, said in full
 	// Backup is the Back up node POST; Backups its groups, newest first; Job
 	// the job an action just queued.
 	Backup  string
@@ -217,6 +217,12 @@ type IfaceRow struct{ Group, Name, Addr, Label string }
 type TunnelRow struct{ Name, Dials, Ping, Open string }
 
 type CertRow struct{ Serial, Issued, Expires, RenewFrom, State string }
+
+// WarningRow is one of the node's warnings, said in full.
+type WarningRow struct {
+	Detail   string
+	Critical bool
+}
 
 // ForgetBody is the list inside the forget dialog.
 type ForgetBody struct {
@@ -662,10 +668,14 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 			default:
-				if v.CertExpired {
-					<div class="panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="alert">
-						<span class="text-rw-danger">Cert expired, rejoin needed</span>
-						if v.Rejoin != "" {
+				if v.CertExpired || len(v.Warnings) > 0 {
+					<div class="node-warnings panel px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-3" role="alert">
+						<ul class="space-y-1">
+							for _, w := range v.Warnings {
+								<li class={ templ.KV("text-rw-danger", w.Critical), templ.KV("text-rw-warn", !w.Critical) }>{ w.Detail }</li>
+							}
+						</ul>
+						if v.CertExpired && v.Rejoin != "" {
 							<form hx-post={ v.Rejoin } hx-target={ target() } hx-swap="outerHTML" class="ml-auto">
 								<button type="submit" class="btn btn-primary btn-sm">Rejoin</button>
 							</form>
@@ -698,9 +708,6 @@ templ NodeBody(tab string, v NodeView) {
 							<dt class="text-rw-muted">Certificate</dt>
 							<dd class="text-rw-text">
 								expires { v.CertExpiry }
-								if v.CertDays > 0 {
-									<p class="text-rw-warn">Cert expires in { plural(v.CertDays, "day") }</p>
-								}
 							</dd>
 						}
 					</dl>

@@ -46,6 +46,7 @@ const (
 	AlertBackupFailed = "backup.failed"
 	AlertCertExpiring = "cert.expiring"
 	AlertDiskLow      = "disk.low"
+	AlertClockSkew    = "clock.skew"
 	AlertTest         = "test"
 )
 
@@ -347,6 +348,53 @@ func (o *Orchestrator) diskAlert(ctx context.Context, n store.Node, free, total 
 		o.alert(Alert{Event: AlertDiskLow, Severity: SevWarning, Node: n.Name, Subject: n.Name,
 			Message: fmt.Sprintf("%s has %s (%d%%) free on its Docker disk.", n.Name, gb(free), pct)})
 	case !low && was:
+		_ = o.store.Settings.Delete(ctx, key)
+	}
+}
+
+// maxSkew is how far a worker's clock may be from the controller's before
+// it gets a warning. Nothing is refused over it.
+const maxSkew = 30 * time.Second
+
+// skewed: a clock skew past maxSkew either way.
+func skewed(d time.Duration) bool { return d > maxSkew || d < -maxSkew }
+
+// skewWords reads a skew as "2m ahead" or "45s behind".
+func skewWords(d time.Duration) string {
+	dir := "ahead"
+	if d < 0 {
+		d, dir = -d, "behind"
+	}
+	switch {
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh %s", d.Round(time.Hour)/time.Hour, dir)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm %s", d.Round(time.Minute)/time.Minute, dir)
+	}
+	return fmt.Sprintf("%ds %s", d.Round(time.Second)/time.Second, dir)
+}
+
+func clockAlertKey(nodeID string) string { return "alert.clock." + nodeID }
+
+// clockAlert fires once when a worker's clock goes past maxSkew and resets
+// when it is back. An unknown skew (an older worker) changes nothing.
+func (o *Orchestrator) clockAlert(ctx context.Context, n store.Node, skew time.Duration, known bool) {
+	if !known {
+		return
+	}
+	key := clockAlertKey(n.ID)
+	_, was, err := o.store.Settings.Get(ctx, key)
+	if err != nil {
+		return
+	}
+	switch off := skewed(skew); {
+	case off && !was:
+		if err := o.store.Settings.Set(ctx, key, "1"); err != nil {
+			return
+		}
+		o.alert(Alert{Event: AlertClockSkew, Severity: SevWarning, Node: n.Name, Subject: n.Name,
+			Message: fmt.Sprintf("The clock of %s is %s of the panel. Check time sync on the node.", n.Name, skewWords(skew))})
+	case !off && was:
 		_ = o.store.Settings.Delete(ctx, key)
 	}
 }

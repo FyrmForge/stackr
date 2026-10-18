@@ -222,7 +222,9 @@ func mapMap(cm service.ClusterMap) cluster.Map {
 		u := cluster.Node{
 			ID: n.ID, Name: n.Name, Role: n.Role, Status: n.Status, Docker: n.Docker, Arch: n.Arch, Net: n.Net,
 			Tags: n.Tags, Public: n.Public, Domains: n.Domains, DomainEnvs: n.DomainEnvs, ExitOwn: n.ExitOwn, ExitOthers: n.ExitOthers, NoForward: n.NoForward, ReachedVia: n.ReachedVia, ViaDown: n.ViaDown,
-			Behind: n.Behind, TooOld: n.TooOld, CertExpired: n.CertExpired, CertDays: n.CertDays,
+		}
+		for _, w := range n.Warnings {
+			u.Warnings = append(u.Warnings, cluster.Warning{Kind: w.Kind, Label: w.Label, Detail: w.Detail, Critical: w.Severity == service.SevCritical})
 		}
 		for _, e := range n.Envs {
 			u.Envs = append(u.Envs, cluster.Env{Name: e.Path, Href: e.Href, Health: e.Health})
