@@ -249,14 +249,15 @@ func (h hostRun) uninstall(ctx context.Context) error {
 		"/usr/local/bin/stackr-install", "uninstall", "--yes")
 }
 
-// logCap sets Docker's log cap on the controller after a panel upgrade, as
-// worker-swap does on a worker: delayed, so the swap helper is done before a
-// Docker restart.
+// logCap sets Docker's log cap on the controller, for the panel's boot
+// after an upgrade (service controllerLogCap), and waits for it: the panel
+// goes on only once the cap is in place. The unit outlives this helper when
+// the Docker restart kills it (and the panel, which boots again).
 func (h hostRun) logCap(ctx context.Context) error {
 	if err := h.stage(); err != nil {
 		return err
 	}
-	return h.run(ctx, "chroot", h.host, "systemd-run", "--collect", "--unit", "stackr-docker-logcap", "--on-active=15",
+	return h.run(ctx, "chroot", h.host, "systemd-run", "--collect", "--wait", "--unit", "stackr-docker-logcap",
 		"/usr/local/bin/stackr-install", "docker-logcap")
 }
 

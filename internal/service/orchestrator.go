@@ -764,6 +764,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			if err != nil {
 				slog.Warn("registry: not ensured", "err", err)
 			}
+			// Before the publish, which starts the worker rollout: a Docker
+			// restart for the cap must not land mid-rollout.
+			orch.controllerLogCap(orch.meshCtx)
 			orch.publishSystemImages(orch.meshCtx)
 		}()
 	} else {

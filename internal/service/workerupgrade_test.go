@@ -491,3 +491,114 @@ func TestWorkerRolloutRunning(t *testing.T) {
 		t.Fatalf("queued rollout reads idle: %+v", v)
 	}
 }
+
+// Before the boot publish (which runs after the boot's Docker log cap) no
+// rollout is queued, by the boot or by a worker reconnecting; after it, it is.
+func TestRolloutWaitsForTheBootPublish(t *testing.T) {
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v9.9.9"
+	n.orch.stackrPublished, n.orch.stackrOnce = make(chan struct{}), sync.Once{} // a boot mid-publish
+	ctx := context.Background()
+	must(t, n.orch.store.Settings.Set(ctx, keyRolloutTarget, "v9.9.9"))
+	w, err := n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+
+	n.orch.rolloutAfterBoot(ctx)
+	n.orch.workerBack(ctx, w, &worker.Facts{Version: "v9.8.0"})
+	if n.orch.rolloutActive(ctx) {
+		t.Fatal("a rollout was queued before the boot publish")
+	}
+	n.orch.markStackrPublished()
+	n.orch.rolloutAfterBoot(ctx)
+	if !n.orch.rolloutActive(ctx) {
+		t.Fatal("no rollout after the boot publish")
+	}
+}
+
+// A run cancelled mid-node (the panel going down with its Docker) records no
+// failure and no stop, so the next boot queues it again.
+func TestRolloutCancelledIsNotAStop(t *testing.T) {
+	r := newRolloutRig(t)
+	must(t, r.n.orch.store.Settings.Set(context.Background(), keyRolloutTarget, "v9.9.9"))
+	var log bytes.Buffer
+	r.ro.log = &log
+	ctx, cancel := context.WithCancel(context.Background())
+	r.ro.image = func(ctx context.Context) (string, error) { cancel(); return "", ctx.Err() }
+	if err := r.ro.run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation", err)
+	}
+	if strings.Contains(log.String(), stateFailed) || r.setting(keyRolloutStopped) != "" {
+		t.Fatalf("a cancelled run was recorded as a failure: %q", log.String())
+	}
+	if !r.n.orch.rolloutWanted(context.Background()) {
+		t.Fatal("the rollout is no longer wanted after a cancel")
+	}
+}
+
+// A node already on the target with a swap helper still running (a panel
+// restart cut the last run short) gets that helper committed, not left to
+// roll it back at its deadline.
+func TestRolloutCommitsALeftoverHelper(t *testing.T) {
+	r := newRolloutRig(t)
+	r.facts["w1"] = func() *worker.Facts { return &worker.Facts{Version: "v9.9.9", Arch: "amd64"} }
+	f := r.fakes["w1"]
+	f.Containers = []docker.Container{
+		{ID: "left", Name: hostHelperName, State: "running", Labels: map[string]string{"stackr.role": "host-helper"}},
+		{ID: "gone", State: "exited", Labels: map[string]string{"stackr.role": "host-helper"}},
+	}
+	if err := r.ro.run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !sawCall(f, "Exec(left, /stackrd, worker-swap, --commit") || !sawCall(f, "StopRemove(left") {
+		t.Fatalf("the leftover helper was not committed and removed: %v", callNames(f))
+	}
+	if sawCall(f, "Exec(gone") || len(f.Specs) != 0 {
+		t.Fatalf("an exited helper was told to commit, or a new swap ran: %v", callNames(f))
+	}
+	if got := r.state(t, "w1"); got.State != stateDone {
+		t.Fatalf("w1 = %+v", got)
+	}
+}
+
+// The boot's Docker log cap waits for the upgrade helper, runs the host
+// helper from the panel's own image and waits for it, once per build.
+func TestControllerLogCap(t *testing.T) {
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v9.9.9"
+	n.orch.cfg.PanelSpec = func(image string) ContainerSpec { return ContainerSpec{Image: image} }
+	ctx := context.Background()
+	f := n.ctlFake
+	f.RunID = "cap"
+	panel := docker.Container{ID: "p", State: "running", Image: "ghcr.io/fyrmforge/stackr:9.9.9", Labels: map[string]string{"stackr.role": "panel"}}
+	upgrader := docker.Container{ID: "u", State: "running", Labels: map[string]string{"stackr.role": "upgrader"}}
+	oldWait, oldPoll := logCapWait, logCapPoll
+	logCapWait, logCapPoll = 20*time.Millisecond, time.Millisecond
+	t.Cleanup(func() { logCapWait, logCapPoll = oldWait, oldPoll })
+
+	// The swap is still running: no cap now, and the build is not recorded.
+	f.Containers = []docker.Container{panel, upgrader}
+	n.orch.controllerLogCap(ctx)
+	if len(f.Specs) != 0 {
+		t.Fatal("the cap ran while the upgrade helper still ran")
+	}
+	if v, _, _ := n.orch.store.Settings.Get(ctx, keyLogCapVersion); v != "" {
+		t.Fatalf("build recorded without a run: %q", v)
+	}
+
+	upgrader.State = "exited"
+	f.Containers = []docker.Container{panel, upgrader}
+	n.orch.controllerLogCap(ctx)
+	if len(f.Specs) != 1 {
+		t.Fatalf("helper runs = %d, want 1", len(f.Specs))
+	}
+	if s := f.Specs[0]; s.Image != panel.Image || !slices.Equal(s.Cmd, []string{"host-run", "docker-logcap"}) || !s.Privileged {
+		t.Fatalf("helper spec = %+v", s)
+	}
+	if !sawCall(f, "Wait(cap") || !sawCall(f, "StopRemove(cap") {
+		t.Fatalf("the helper was not waited for and removed: %v", callNames(f))
+	}
+	n.orch.controllerLogCap(ctx) // the boot after Docker's restart
+	if len(f.Specs) != 1 {
+		t.Fatal("the cap ran twice for one build")
+	}
+}

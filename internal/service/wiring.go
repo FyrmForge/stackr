@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -512,31 +513,94 @@ func RunPanelSwap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := panel.New(d).Swap(ctx, spec); err != nil {
-		return err
-	}
-	controllerLogCap(ctx, d, spec.Image)
-	return nil
+	return panel.New(d).Swap(ctx, spec)
 }
 
-// controllerLogCap runs `stackrd host-run docker-logcap` on this host once
-// the new panel is healthy, so a panel upgrade sets Docker's log cap as the
-// installer and a worker upgrade do. It only warns: the swap is done.
-// ponytail: when daemon.json changes, the Docker restart 15 s later bounces
-// the new panel, and a worker rollout it started meanwhile rolls back and
-// stops (Retry). Only the first upgrade of a box without the cap.
-func controllerLogCap(ctx context.Context, d *docker.Client, image string) {
-	_ = d.StopRemove(ctx, hostHelperName) // a leftover of an earlier run
-	id, err := d.Run(ctx, hostHelperSpec(image, "host-run", "docker-logcap"))
-	if err != nil {
-		slog.Warn("upgrade: docker log cap not started", "err", err)
+// keyLogCapVersion is the build whose boot last ran controllerLogCap.
+const keyLogCapVersion = "controller_logcap_version"
+
+// How long controllerLogCap waits for the upgrade helper, and how often it looks.
+var logCapWait, logCapPoll = 5 * time.Minute, 2 * time.Second
+
+// controllerLogCap sets Docker's log cap on the controller once per build,
+// as the installer and a worker upgrade do; the panel's own Update reaches
+// it this way. It runs at boot before the system images are published, and
+// a worker rollout starts only after that publish (rolloutAfterBoot), so
+// when daemon.json changes the Docker restart bounces this panel before any
+// rollout exists; the next boot finds the build recorded and goes on. The
+// upgrade helper is waited for first: a Docker restart mid-swap would leave
+// the old panel behind. The build is recorded before the run, so a Docker
+// that refuses the cap is not restarted at every boot. It only warns.
+func (o *Orchestrator) controllerLogCap(ctx context.Context) {
+	if o.cfg.PanelSpec == nil || o.cfg.FakeHost != "" || o.cfg.Version == "" {
+		return // not an installed panel: no host to touch
+	}
+	if v, _, _ := o.store.Settings.Get(ctx, keyLogCapVersion); v == o.cfg.Version {
 		return
 	}
-	defer func() { _ = d.StopRemove(context.WithoutCancel(ctx), id) }()
-	wctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	if code, err := d.Wait(wctx, id); err != nil || code != 0 {
-		out, _ := d.Logs(ctx, id, 20)
-		slog.Warn("upgrade: docker log cap not started", "code", code, "err", err, "out", out)
+	ctx, err := o.withController(ctx)
+	if err == nil {
+		var image string
+		if image, err = o.runningPanelImage(ctx); err == nil {
+			if err = o.store.Settings.Set(ctx, keyLogCapVersion, o.cfg.Version); err == nil {
+				err = o.runLogCap(ctx, image)
+			}
+		}
 	}
+	if err != nil {
+		slog.Warn("docker log cap: not set", "err", err)
+	}
+}
+
+// runLogCap runs `stackrd host-run docker-logcap` from image on this host and
+// waits for it: the helper waits for the cap's unit, Docker's restart included.
+func (o *Orchestrator) runLogCap(ctx context.Context, image string) error {
+	_ = o.docker.StopRemove(ctx, hostHelperName) // a leftover of an earlier run
+	id, err := o.docker.Run(ctx, hostHelperSpec(image, "host-run", "docker-logcap"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = o.docker.StopRemove(context.WithoutCancel(ctx), id) }()
+	wctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	defer cancel()
+	code, err := o.docker.Wait(wctx, id)
+	if err == nil && code != 0 {
+		out, _ := o.docker.Logs(ctx, id, 20)
+		err = fmt.Errorf("host helper exited %d: %s", code, out)
+	}
+	return err
+}
+
+// runningPanelImage is this panel's own image, once the upgrade helper that
+// started it is done (the proxy's image may still be the old build's).
+func (o *Orchestrator) runningPanelImage(ctx context.Context) (string, error) {
+	running := func(role string) ([]docker.Container, error) {
+		cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: role})
+		return slices.DeleteFunc(cs, func(c docker.Container) bool { return c.State != "running" }), err
+	}
+	for deadline := time.Now().Add(logCapWait); ; {
+		busy, err := running("upgrader")
+		if err != nil {
+			return "", err
+		}
+		if len(busy) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			return "", errors.New("the upgrade helper is still running")
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(logCapPoll):
+		}
+	}
+	ps, err := running("panel")
+	if err != nil {
+		return "", err
+	}
+	if len(ps) != 1 {
+		return "", fmt.Errorf("%d running panel containers, want 1", len(ps))
+	}
+	return ps[0].Image, nil
 }
