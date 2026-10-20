@@ -27,6 +27,10 @@ type metricsState struct {
 	mu       sync.Mutex
 	prev     map[string]worker.Metrics
 	replicas map[string][]string // tile id -> container names, last sample
+	// seq counts sampler rounds; last is the newest round's points, which
+	// the panel's open graphs append (MetricsAfter).
+	seq  int64
+	last []metrics.Point
 }
 
 // Series keys. A link's is its node ids in order, so either end finds it.
@@ -101,7 +105,87 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 	if len(pts) == 0 {
 		return nil
 	}
-	return o.metricsStore().Write(ctx, pts)
+	if err := o.metricsStore().Write(ctx, pts); err != nil {
+		return err
+	}
+	o.metrics.mu.Lock()
+	o.metrics.seq, o.metrics.last = o.metrics.seq+1, pts
+	o.metrics.mu.Unlock()
+	return nil
+}
+
+// MetricsScope is the series one open graph follows: a node's, a link's or
+// a tile's (with its replicas). Make it with NodeScope, LinkScope or
+// TileScope, which check that the thing exists.
+type MetricsScope struct{ key, tile string }
+
+func (o *Orchestrator) NodeScope(ctx context.Context, ref string) (MetricsScope, error) {
+	n, err := o.nodeByRef(ctx, ref)
+	if err != nil {
+		return MetricsScope{}, err
+	}
+	return MetricsScope{key: nodeKey(n.ID)}, nil
+}
+
+func (o *Orchestrator) LinkScope(ctx context.Context, refA, refB string) (MetricsScope, error) {
+	a, err := o.nodeByRef(ctx, refA)
+	if err != nil {
+		return MetricsScope{}, err
+	}
+	b, err := o.nodeByRef(ctx, refB)
+	if err != nil {
+		return MetricsScope{}, err
+	}
+	return MetricsScope{key: LinkKey(a.ID, b.ID)}, nil
+}
+
+func (o *Orchestrator) TileScope(ctx context.Context, tileID string) (MetricsScope, error) {
+	if _, err := o.store.Tiles.Get(ctx, tileID); err != nil {
+		return MetricsScope{}, err
+	}
+	return MetricsScope{key: tileKey(tileID), tile: tileID}, nil
+}
+
+// MetricsSeq is the newest sampler round's number.
+func (o *Orchestrator) MetricsSeq() int64 {
+	o.metrics.mu.Lock()
+	defer o.metrics.mu.Unlock()
+	return o.metrics.seq
+}
+
+// MetricsAfter is the newest round's points in scope, shaped like the
+// read (a Series, or a TileMetricsOut for a tile), when that round is
+// later than seq; nil when there is none or it has nothing in scope. The
+// second value is the newest round's number.
+func (o *Orchestrator) MetricsAfter(s MetricsScope, seq int64) (any, int64) {
+	o.metrics.mu.Lock()
+	cur, pts := o.metrics.seq, o.metrics.last
+	o.metrics.mu.Unlock()
+	if cur <= seq {
+		return nil, cur
+	}
+	own, reps := Series{}, map[string]Series{}
+	ctr := "ctr:" + s.tile + "/"
+	for _, p := range pts {
+		x := metrics.Sample{T: p.T, V: p.V}
+		switch {
+		case p.Key == s.key:
+			own[p.Name] = append(own[p.Name], x)
+		case s.tile != "" && strings.HasPrefix(p.Key, ctr):
+			r := ReplicaLabel(s.tile, strings.TrimPrefix(p.Key, ctr))
+			if reps[r] == nil {
+				reps[r] = Series{}
+			}
+			reps[r][p.Name] = append(reps[r][p.Name], x)
+		}
+	}
+	switch {
+	case s.tile != "" && len(own)+len(reps) > 0:
+		return TileMetricsOut{Tile: own, Replicas: reps}, cur
+	case s.tile == "" && len(own) > 0:
+		return own, cur
+	}
+	return nil, cur
 }
 
 // takeSample keeps cur as the node's last sample and returns the points
