@@ -93,14 +93,10 @@ var contract = map[string][]string{
 		`"drawer"`,
 	},
 	"term-pane":       {`"url"`, `"resize"`, `"exit"`},
-	"metric-chart":    {`"src"`, `"measures"`, `"labels"`, `"unit"`, "No data yet."},
+	"metric-chart":    {`"measures"`, `"labels"`, `"unit"`, `"range"`, `"sse:points"`, `"metrics-refill"`, `script[type="application/json"]`, "No data yet."},
 	"theme-toggle":    {`"theme"`},
 	"password-toggle": {"[data-toggle]", `"aria-pressed"`},
 }
-
-// allowed lifts a ban for one element: metric-chart reads the metrics JSON
-// API itself (observability.md), the one element that fetches.
-var allowed = map[string][]string{"metric-chart": {"fetch("}}
 
 func TestElementWhitelist(t *testing.T) {
 	files, err := filepath.Glob("../../../ui/ts/*.ts")
@@ -125,7 +121,7 @@ func TestElementWhitelist(t *testing.T) {
 		if n := strings.Count(src, "\n"); n >= elements[tag] {
 			t.Errorf("%s: %d lines, the budget is under %d", f, n, elements[tag])
 		}
-		for _, banned := range slices.DeleteFunc([]string{
+		for _, banned := range []string{
 			"import ",
 			"import(",
 			"fetch(",
@@ -134,7 +130,7 @@ func TestElementWhitelist(t *testing.T) {
 			"innerHTML",
 			"outerHTML",
 			"eval(",
-		}, func(b string) bool { return slices.Contains(allowed[tag], b) }) {
+		} {
 			if strings.Contains(src, banned) {
 				t.Errorf("%s contains %q", f, banned)
 			}

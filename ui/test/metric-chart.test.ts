@@ -6,9 +6,24 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { lines, align, fmt } = await import("../ts/metric-chart.ts");
+const { lines, align, fmt, merge } = await import("../ts/metric-chart.ts");
 
 const at = (s: number, v: number) => ({ t: new Date(s * 1000).toISOString(), v });
+
+test("a round appends its new points, drops what is out of range, keeps the rest", () => {
+  const node = { cpu_pct: [at(0, 1), at(30, 2)], mem_used: [at(0, 5)] };
+  const got = merge(node, { cpu_pct: [at(30, 9), at(60, 3)] }, 10_000) as Record<string, { v: number }[]>;
+  assert.deepEqual(got.cpu_pct.map((p) => p.v), [2, 3]); // 0 s trimmed, 30 s not doubled
+  assert.deepEqual(got.mem_used, []);
+  const tile = { tile: { mem: [at(0, 1)] }, replicas: { "a-1": { mem: [at(0, 1)] } } };
+  const t = merge(tile, { tile: { mem: [at(30, 2)] }, replicas: { "a-1": { mem: [at(30, 3)] }, "b-1": { mem: [at(30, 4)] } } }, 0) as {
+    tile: Record<string, { v: number }[]>;
+    replicas: Record<string, Record<string, { v: number }[]>>;
+  };
+  assert.deepEqual(t.tile.mem.map((p) => p.v), [1, 2]);
+  assert.deepEqual(t.replicas["a-1"].mem.map((p) => p.v), [1, 3]);
+  assert.deepEqual(t.replicas["b-1"].mem.map((p) => p.v), [4]);
+});
 
 test("a tile body draws one line per replica, its total when no replica has the measure", () => {
   const body = { tile: { cpu_pct: [at(0, 3)], net_rx_bps: [at(0, 9)] }, replicas: { "web-2": { cpu_pct: [at(0, 2)] }, "web-1": { cpu_pct: [at(0, 1)] } } };

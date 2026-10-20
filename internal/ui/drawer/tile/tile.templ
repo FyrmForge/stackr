@@ -227,13 +227,14 @@ templ Terminal(v View, t TerminalView) {
 }
 
 // Metrics is the tile's live graphs, one line per replica.
-templ Metrics(v View, m MetricsView) {
-	<div class="space-y-4" id="tab-metrics">
-		@c.RangePicker(v.Base+"?tab=metrics", m.Range)
-		@c.Chart("CPU", m.Src, "cpu_pct", "", "pct")
-		@c.Chart("Memory", m.Src, "mem", "", "bytes")
-		@c.Chart("Network", m.Src, "net_rx_bps net_tx_bps", "in,out", "bps")
-		@c.Chart("Disk IO", m.Src, "io_read_bps io_write_bps", "read,write", "bps")
+templ Metrics(v View, m c.MetricsView) {
+	<div id="tab-metrics">
+		@c.Metrics(m) {
+			@c.Chart(m, "CPU", "cpu_pct", "", "pct")
+			@c.Chart(m, "Memory", "mem", "", "bytes")
+			@c.Chart(m, "Network", "net_rx_bps net_tx_bps", "in,out", "bps")
+			@c.Chart(m, "Disk IO", "io_read_bps io_write_bps", "read,write", "bps")
+		}
 	</div>
 }
 

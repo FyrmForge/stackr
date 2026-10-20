@@ -1,25 +1,31 @@
-// <metric-chart src="/api/v1/.../metrics?range=1h" measures="cpu_pct"
-// labels="CPU" unit="pct" label="CPU"> is one live graph. It reads the
-// metrics JSON (a plain {measure: [{t, v}]} or a tile's {tile, replicas}),
+// <metric-chart measures="cpu_pct" labels="CPU" unit="pct" range="3600"
+// hx-trigger="sse:points"> is one live graph. The page writes its window
+// into a <script type="application/json"> child (a plain {measure: [{t, v}]}
+// or a tile's {tile, replicas}); the enclosing [sse-connect] stream's
+// "points" events carry each sampler round's new points in the same shape,
+// which the chart appends, dropping what is older than range seconds. It
 // draws one line per replica and measure (the tile's own series when no
-// replica has the measure), and polls every 30 s. Pages only ever write these
-// attributes: the chart library lives behind draw() below, the one place
-// that knows it, so swapping it touches this file and the vendored files only.
-// Colours come from the theme's --rw-* tokens and follow a theme switch.
+// replica has the measure). When the stream drops and comes back it asks
+// for a fresh window with a bubbling "metrics-refill". Pages only ever write
+// these attributes: the chart library lives behind draw() below, the one
+// place that knows it, so swapping it touches this file and the vendored
+// files only. Colours come from the theme's --rw-* tokens and follow a
+// theme switch.
 type Sample = { t: string; v: number };
 type Series = Record<string, Sample[]>;
 type Body = Series | { tile: Series; replicas: Record<string, Series> };
 export type Line = { label: string; points: Sample[] };
-type Plot = { update(xs: number[], ys: (number | null)[][]): void; destroy(): void };
+type Plot = { append(xs: number[], ys: (number | null)[][]): void; destroy(): void };
 
-const POLL = 30_000;
 const PALETTE = ["--rw-accent", "--rw-teal", "--rw-amber", "--rw-tunnel-lan", "--rw-danger", "--rw-tunnel-net", "--rw-edge-connector", "--rw-success"];
+
+const isTile = (b: Body): b is { tile: Series; replicas: Record<string, Series> } => "replicas" in b || "tile" in b;
 
 // lines picks what to draw from a body: per replica when any has the measure.
 export function lines(body: Body, measures: string[], labels: string[]): Line[] {
   const name = (i: number): string => labels[i] ?? measures[i];
-  const reps = "replicas" in body && body.replicas ? body.replicas : {};
-  const own: Series = "replicas" in body ? (body.tile as Series) ?? {} : (body as Series);
+  const reps = isTile(body) ? body.replicas ?? {} : {};
+  const own: Series = isTile(body) ? body.tile ?? {} : body;
   const out: Line[] = [];
   for (const [r, s] of Object.entries(reps).sort(([a], [b]) => a.localeCompare(b))) {
     measures.forEach((m, i) => s[m]?.length && out.push({ label: measures.length > 1 ? `${r} ${name(i)}` : r, points: s[m] }));
@@ -27,6 +33,28 @@ export function lines(body: Body, measures: string[], labels: string[]): Line[] 
   if (out.length) return out;
   measures.forEach((m, i) => own[m]?.length && out.push({ label: name(i), points: own[m] }));
   return out;
+}
+
+// merge appends add's points to body (newer than each series' last only)
+// and drops every point before cut (ms).
+export function merge(body: Body, add: Body, cut: number): Body {
+  const one = (dst: Series = {}, src: Series = {}): Series => {
+    for (const [m, xs] of Object.entries(src)) {
+      const last = dst[m]?.length ? Date.parse(dst[m][dst[m].length - 1].t) : -Infinity;
+      dst[m] = (dst[m] ?? []).concat(xs.filter((p) => Date.parse(p.t) > last));
+    }
+    for (const m of Object.keys(dst)) dst[m] = (dst[m] ?? []).filter((p) => Date.parse(p.t) >= cut);
+    return dst;
+  };
+  if (!isTile(body) && !isTile(add)) return one(body, add);
+  const b = isTile(body) ? body : { tile: {}, replicas: {} };
+  const a = isTile(add) ? add : { tile: {}, replicas: {} };
+  b.tile = one(b.tile, a.tile);
+  b.replicas ??= {};
+  for (const r of new Set([...Object.keys(b.replicas), ...Object.keys(a.replicas ?? {})])) {
+    b.replicas[r] = one(b.replicas[r], a.replicas?.[r]);
+  }
+  return b;
 }
 
 // align puts every line on one time axis (seconds), null where a line has no
@@ -72,19 +100,6 @@ function token(name: string): string {
   return /^\d/.test(v) ? `rgb(${v.split(/\s+/).join(",")})` : v || "gray";
 }
 
-// One request per src at a time: a tab's charts often share one.
-const inflight = new Map<string, Promise<Body>>();
-function load(src: string): Promise<Body> {
-  let p = inflight.get(src);
-  if (!p) {
-    p = fetch(src, { credentials: "same-origin", headers: { Accept: "application/json" } })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .finally(() => inflight.delete(src));
-    inflight.set(src, p);
-  }
-  return p;
-}
-
 // ---- the chart library: uPlot, a classic script the element loads itself.
 type UPlot = { setData(d: unknown, reset?: boolean): void; setSize(s: { width: number; height: number }): void; destroy(): void; scales: { x: { min?: number; max?: number } } };
 declare const uPlot: new (opts: object, data: unknown, el: HTMLElement) => UPlot;
@@ -122,8 +137,9 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
   const watch = new ResizeObserver(() => u.setSize({ width: el.clientWidth, height: 160 }));
   watch.observe(el);
   return {
-    update(nx, ny) {
-      // Keep a drag-zoom across a poll; otherwise follow the new data.
+    // append takes the whole window after new points: setData in place,
+    // a drag-zoom kept (hidden lines stay hidden on their own).
+    append(nx, ny) {
       const { min, max } = u.scales.x;
       const zoomed = xs.length > 0 && min != null && max != null && (min > xs[0] || max < xs[xs.length - 1]);
       xs = nx;
@@ -138,9 +154,11 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
 // ---- end of the chart library.
 
 class MetricChart extends HTMLElement {
-  private timer = 0;
+  private body: Body = {};
   private plot: Plot | null = null;
   private shape = ""; // the line labels the plot was built for
+  private stream: Element | null = null;
+  private dropped = false;
   // The theme is a class on <html> or, with none, the OS's: either way the
   // resolved background tells a switch.
   private bg = "";
@@ -148,56 +166,70 @@ class MetricChart extends HTMLElement {
     const bg = token("--rw-bg");
     if (bg === this.bg) return;
     this.bg = bg;
-    this.rebuild();
+    this.plot?.destroy();
+    this.plot = null;
+    this.render();
   };
   private theme = new MutationObserver(this.onTheme);
   private os = matchMedia("(prefers-color-scheme: dark)");
 
+  private onPoints = (e: Event): void => {
+    const data = (e as CustomEvent<MessageEvent>).detail?.data;
+    if (typeof data !== "string") return;
+    this.body = merge(this.body, JSON.parse(data) as Body, Date.now() - Number(this.getAttribute("range") ?? 3600) * 1000);
+    this.render();
+  };
+  private onDrop = (): void => {
+    this.dropped = true;
+  };
+  private onOpen = (): void => {
+    if (this.dropped) this.dispatchEvent(new CustomEvent("metrics-refill", { bubbles: true }));
+  };
+
   connectedCallback(): void {
+    const data = this.querySelector('script[type="application/json"]');
+    if (data) this.body = JSON.parse(data.textContent || "{}") as Body;
     this.bg = token("--rw-bg");
-    this.timer = window.setInterval(() => this.refresh(), POLL);
     this.theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     this.os.addEventListener("change", this.onTheme);
-    this.refresh();
+    this.addEventListener("sse:points", this.onPoints);
+    this.stream = this.closest("[sse-connect]");
+    this.stream?.addEventListener("htmx:sseError", this.onDrop);
+    this.stream?.addEventListener("htmx:sseOpen", this.onOpen);
+    this.render();
   }
 
   disconnectedCallback(): void {
-    clearInterval(this.timer);
     this.theme.disconnect();
     this.os.removeEventListener("change", this.onTheme);
+    this.removeEventListener("sse:points", this.onPoints);
+    this.stream?.removeEventListener("htmx:sseError", this.onDrop);
+    this.stream?.removeEventListener("htmx:sseOpen", this.onOpen);
     this.plot?.destroy();
     this.plot = null;
   }
 
-  private rebuild(): void {
-    this.plot?.destroy();
-    this.plot = null;
-    this.refresh();
-  }
-
-  private async refresh(): Promise<void> {
+  private async render(): Promise<void> {
     const words = (a: string): string[] => (this.getAttribute(a) ?? "").split(a === "labels" ? "," : /\s+/).map((s) => s.trim()).filter(Boolean);
-    const unit = this.getAttribute("unit") ?? "";
-    let ls: Line[];
-    try {
-      [ls] = await Promise.all([load(this.getAttribute("src") ?? "").then((b) => lines(b, words("measures"), words("labels"))), loadLib()]);
-    } catch {
-      if (!this.plot) this.empty("Could not load metrics.");
-      return;
-    }
-    if (!this.isConnected) return;
+    const ls = lines(this.body, words("measures"), words("labels"));
     if (!ls.length) {
       this.plot?.destroy();
       this.plot = null;
       return this.empty("No data yet.");
     }
+    try {
+      await loadLib();
+    } catch {
+      return this.empty("Could not load the chart.");
+    }
+    if (!this.isConnected) return;
     const [xs, ys] = align(ls);
     const shape = ls.map((l) => l.label).join("\n");
-    if (this.plot && shape === this.shape) return this.plot.update(xs, ys);
+    if (this.plot && shape === this.shape) return this.plot.append(xs, ys);
     this.plot?.destroy();
     this.replaceChildren();
     this.shape = shape;
-    this.plot = draw(this, ls, unit, xs, ys);
+    this.plot = draw(this, ls, this.getAttribute("unit") ?? "", xs, ys);
   }
 
   private empty(msg: string): void {

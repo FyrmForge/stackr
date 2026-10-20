@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/ui/cluster"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 // The tunnel drawer finds a pair in either order, a routed pair that draws
@@ -24,7 +26,7 @@ func TestTunnelDrawer(t *testing.T) {
 		},
 	}
 	render := func(a, b string) (string, bool) {
-		d, ok := tunnelDrawer(cm, a, b, "1h")
+		d, ok := tunnelDrawer(cm, a, b, components.MetricsView{Range: "1h", Reload: cluster.TunnelDrawer(a, b), Events: cluster.TunnelEvents(a, b), Pick: func(string) any { return service.Series{} }})
 		if !ok {
 			return "", false
 		}
@@ -38,7 +40,7 @@ func TestTunnelDrawer(t *testing.T) {
 	if !ok {
 		t.Fatal("pair not found in reverse order")
 	}
-	for _, want := range []string{"ct109 and h4", "203.0.113.4:51820", "3 min ago", "1.0 MB", "2.0 MB", "waits to be dialled", "Round trip", `/api/v1/admin/nodes/a/link-metrics?peer=b&amp;range=1h`} {
+	for _, want := range []string{"ct109 and h4", "203.0.113.4:51820", "3 min ago", "1.0 MB", "2.0 MB", "waits to be dialled", "Round trip", `sse-connect="/-/cluster/tunnel/events?a=a&amp;b=b"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tunnel drawer lacks %q", want)
 		}

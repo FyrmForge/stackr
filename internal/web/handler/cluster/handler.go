@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
@@ -36,6 +37,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(cluster.Base+"/map", h.Map, admin)
 	g.GET(cluster.Base+"/internet", h.Internet, admin)
 	g.GET(cluster.Base+"/tunnel", h.Tunnel, admin)
+	g.GET(cluster.Base+"/tunnel/events", h.TunnelEvents, admin)
 	g.POST(cluster.Base+"/-/positions", h.Positions, admin)
 	g.POST(cluster.Base+"/-/reset", h.Reset, admin)
 	g.POST(cluster.Base+"/-/notes", h.Notes, admin)
@@ -123,21 +125,38 @@ func (h *handler) Tunnel(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	a, b := c.QueryParam("a"), c.QueryParam("b")
-	d, ok := tunnelDrawer(cm, a, b, components.MetricRange(c.QueryParam("range")))
+	r := components.MetricRange(c.QueryParam("range"))
+	in := service.MetricsIn{}
+	in.Range, _ = time.ParseDuration(r)
+	s, err := h.orch.LinkMetrics(c.Request().Context(), a, b, in)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	mv := render.MetricsLive(h.orch, s, r, cluster.TunnelDrawer(a, b), cluster.TunnelEvents(a, b))
+	d, ok := tunnelDrawer(cm, a, b, mv)
 	if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "no such tunnel")
 	}
 	return respond.HTML(c, http.StatusOK, d)
 }
 
+// GET /-/cluster/tunnel/events?a=&b=: the tunnel drawer's new ping points.
+func (h *handler) TunnelEvents(c echo.Context) error {
+	s, err := h.orch.LinkScope(c.Request().Context(), c.QueryParam("a"), c.QueryParam("b"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return render.MetricsEvents(c, h.orch, s)
+}
+
 // tunnelDrawer finds the pair in the map's Pairs, else its Links.
-func tunnelDrawer(cm service.ClusterMap, a, b, rng string) (templ.Component, bool) {
+func tunnelDrawer(cm service.ClusterMap, a, b string, mv components.MetricsView) (templ.Component, bool) {
 	for _, ls := range [][]service.ClusterLink{cm.Pairs, cm.Links} {
 		for _, l := range ls {
 			if l.A == a && l.B == b || l.A == b && l.B == a {
 				m, ul := mapMap(cm), mapLink(l)
 				f := components.DrawerView{Node: "tunnel:" + a + ":" + b, Title: cluster.TunnelNames(m, ul), Kind: "tunnel", Base: cluster.TunnelDrawer(a, b)}
-				return components.Drawer(f, cluster.TunnelBody(m, ul, rng)), true
+				return components.Drawer(f, cluster.TunnelBody(m, ul, mv)), true
 			}
 		}
 	}

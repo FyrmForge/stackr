@@ -56,6 +56,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		return "Rejected.", nil, h.orch.RejectJoin(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)
 	g.GET(nodesBase+"/:node", h.nodeDrawer, m)
+	g.GET(nodesBase+"/:node/metrics/events", h.nodeMetricsEvents, m)
 	g.POST(nodesBase+"/:node/tags", h.nodeAct("tags", "Saved.", func(c echo.Context) error {
 		f, err := c.FormParams()
 		if err != nil {
@@ -416,6 +417,15 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 }
 
 // GET /-/admin/nodes/:node?tab=
+// GET …/nodes/:node/metrics/events: the Metrics tab's new points.
+func (h *handler) nodeMetricsEvents(c echo.Context) error {
+	s, err := h.orch.NodeScope(c.Request().Context(), c.Param("node"))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return render.MetricsEvents(c, h.orch, s)
+}
+
 func (h *handler) nodeDrawer(c echo.Context) error {
 	return h.nodeAnswer(c, c.QueryParam("tab"), "", nil)
 }
@@ -457,10 +467,18 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	v := ui.NodeView{
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
-		MetricsRange: comp.MetricRange(c.QueryParam("range")), MetricsTab: base + "?tab=metrics",
 	}
-	v.MetricsSrc = "/api/v1/admin/nodes/" + url.PathEscape(d.ID) + "/metrics?range=" + v.MetricsRange
 	ctx := c.Request().Context()
+	if c.QueryParam("tab") == "metrics" {
+		r := comp.MetricRange(c.QueryParam("range"))
+		in := service.MetricsIn{}
+		in.Range, _ = time.ParseDuration(r)
+		s, err := h.orch.NodeMetrics(ctx, d.ID, in)
+		if err != nil {
+			return v, err
+		}
+		v.Metrics = render.MetricsLive(h.orch, s, r, base+"?tab=metrics", base+"/metrics/events")
+	}
 	live, err := h.orch.NodeLive(ctx, d.ID)
 	if err != nil {
 		return v, err

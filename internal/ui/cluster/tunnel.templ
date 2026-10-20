@@ -9,8 +9,8 @@ import (
 )
 
 // TunnelBody is a tunnel's drawer: the pair, who dials, what each end
-// reports, and its ping over rng.
-templ TunnelBody(m Map, l Link, rng string) {
+// reports, and its live ping graphs.
+templ TunnelBody(m Map, l Link, mv components.MetricsView) {
 	<section class="panel p-6 mb-6">
 		<h3 class="text-base font-semibold text-rw-text mb-2">Tunnel</h3>
 		<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
@@ -49,16 +49,16 @@ templ TunnelBody(m Map, l Link, rng string) {
 			</dl>
 		</section>
 	}
-	<div class="space-y-4">
-		@components.RangePicker(TunnelDrawer(l.A, l.B), rng)
-		@components.Chart("Round trip", linkMetrics(l, rng), "rtt_ms", "round trip", "ms")
-		@components.Chart("Packet loss", linkMetrics(l, rng), "loss", "loss", "ratio")
-	</div>
+	@components.Metrics(mv) {
+		@components.Chart(mv, "Round trip", "rtt_ms", "round trip", "ms")
+		@components.Chart(mv, "Packet loss", "loss", "loss", "ratio")
+	}
 }
 
-// linkMetrics is the pair's metrics read.
-func linkMetrics(l Link, rng string) string {
-	return "/api/v1/admin/nodes/" + url.PathEscape(l.A) + "/link-metrics?peer=" + url.QueryEscape(l.B) + "&range=" + url.QueryEscape(rng)
+// TunnelEvents is a tunnel's metrics stream.
+func TunnelEvents(a, b string) string {
+	a, b = pairOrder(a, b)
+	return Base + "/tunnel/events?a=" + url.QueryEscape(a) + "&b=" + url.QueryEscape(b)
 }
 
 // nodeLink opens a node's drawer in place of this one.

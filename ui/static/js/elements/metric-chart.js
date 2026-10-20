@@ -1,9 +1,9 @@
-const POLL = 30_000;
 const PALETTE = ["--rw-accent", "--rw-teal", "--rw-amber", "--rw-tunnel-lan", "--rw-danger", "--rw-tunnel-net", "--rw-edge-connector", "--rw-success"];
+const isTile = (b) => "replicas" in b || "tile" in b;
 export function lines(body, measures, labels) {
     const name = (i) => labels[i] ?? measures[i];
-    const reps = "replicas" in body && body.replicas ? body.replicas : {};
-    const own = "replicas" in body ? body.tile ?? {} : body;
+    const reps = isTile(body) ? body.replicas ?? {} : {};
+    const own = isTile(body) ? body.tile ?? {} : body;
     const out = [];
     for (const [r, s] of Object.entries(reps).sort(([a], [b]) => a.localeCompare(b))) {
         measures.forEach((m, i) => s[m]?.length && out.push({ label: measures.length > 1 ? `${r} ${name(i)}` : r, points: s[m] }));
@@ -12,6 +12,27 @@ export function lines(body, measures, labels) {
         return out;
     measures.forEach((m, i) => own[m]?.length && out.push({ label: name(i), points: own[m] }));
     return out;
+}
+export function merge(body, add, cut) {
+    const one = (dst = {}, src = {}) => {
+        for (const [m, xs] of Object.entries(src)) {
+            const last = dst[m]?.length ? Date.parse(dst[m][dst[m].length - 1].t) : -Infinity;
+            dst[m] = (dst[m] ?? []).concat(xs.filter((p) => Date.parse(p.t) > last));
+        }
+        for (const m of Object.keys(dst))
+            dst[m] = (dst[m] ?? []).filter((p) => Date.parse(p.t) >= cut);
+        return dst;
+    };
+    if (!isTile(body) && !isTile(add))
+        return one(body, add);
+    const b = isTile(body) ? body : { tile: {}, replicas: {} };
+    const a = isTile(add) ? add : { tile: {}, replicas: {} };
+    b.tile = one(b.tile, a.tile);
+    b.replicas ??= {};
+    for (const r of new Set([...Object.keys(b.replicas), ...Object.keys(a.replicas ?? {})])) {
+        b.replicas[r] = one(b.replicas[r], a.replicas?.[r]);
+    }
+    return b;
 }
 export function align(ls) {
     const xs = [...new Set(ls.flatMap((l) => l.points.map((p) => Date.parse(p.t) / 1000)))].sort((a, b) => a - b);
@@ -52,17 +73,6 @@ function token(name) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return /^\d/.test(v) ? `rgb(${v.split(/\s+/).join(",")})` : v || "gray";
 }
-const inflight = new Map();
-function load(src) {
-    let p = inflight.get(src);
-    if (!p) {
-        p = fetch(src, { credentials: "same-origin", headers: { Accept: "application/json" } })
-            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-            .finally(() => inflight.delete(src));
-        inflight.set(src, p);
-    }
-    return p;
-}
 let lib = null;
 function loadLib() {
     if (typeof uPlot !== "undefined")
@@ -93,7 +103,7 @@ function draw(el, ls, unit, xs, ys) {
     const watch = new ResizeObserver(() => u.setSize({ width: el.clientWidth, height: 160 }));
     watch.observe(el);
     return {
-        update(nx, ny) {
+        append(nx, ny) {
             const { min, max } = u.scales.x;
             const zoomed = xs.length > 0 && min != null && max != null && (min > xs[0] || max < xs[xs.length - 1]);
             xs = nx;
@@ -106,65 +116,83 @@ function draw(el, ls, unit, xs, ys) {
     };
 }
 class MetricChart extends HTMLElement {
-    timer = 0;
+    body = {};
     plot = null;
     shape = "";
+    stream = null;
+    dropped = false;
     bg = "";
     onTheme = () => {
         const bg = token("--rw-bg");
         if (bg === this.bg)
             return;
         this.bg = bg;
-        this.rebuild();
+        this.plot?.destroy();
+        this.plot = null;
+        this.render();
     };
     theme = new MutationObserver(this.onTheme);
     os = matchMedia("(prefers-color-scheme: dark)");
+    onPoints = (e) => {
+        const data = e.detail?.data;
+        if (typeof data !== "string")
+            return;
+        this.body = merge(this.body, JSON.parse(data), Date.now() - Number(this.getAttribute("range") ?? 3600) * 1000);
+        this.render();
+    };
+    onDrop = () => {
+        this.dropped = true;
+    };
+    onOpen = () => {
+        if (this.dropped)
+            this.dispatchEvent(new CustomEvent("metrics-refill", { bubbles: true }));
+    };
     connectedCallback() {
+        const data = this.querySelector('script[type="application/json"]');
+        if (data)
+            this.body = JSON.parse(data.textContent || "{}");
         this.bg = token("--rw-bg");
-        this.timer = window.setInterval(() => this.refresh(), POLL);
         this.theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
         this.os.addEventListener("change", this.onTheme);
-        this.refresh();
+        this.addEventListener("sse:points", this.onPoints);
+        this.stream = this.closest("[sse-connect]");
+        this.stream?.addEventListener("htmx:sseError", this.onDrop);
+        this.stream?.addEventListener("htmx:sseOpen", this.onOpen);
+        this.render();
     }
     disconnectedCallback() {
-        clearInterval(this.timer);
         this.theme.disconnect();
         this.os.removeEventListener("change", this.onTheme);
+        this.removeEventListener("sse:points", this.onPoints);
+        this.stream?.removeEventListener("htmx:sseError", this.onDrop);
+        this.stream?.removeEventListener("htmx:sseOpen", this.onOpen);
         this.plot?.destroy();
         this.plot = null;
     }
-    rebuild() {
-        this.plot?.destroy();
-        this.plot = null;
-        this.refresh();
-    }
-    async refresh() {
+    async render() {
         const words = (a) => (this.getAttribute(a) ?? "").split(a === "labels" ? "," : /\s+/).map((s) => s.trim()).filter(Boolean);
-        const unit = this.getAttribute("unit") ?? "";
-        let ls;
-        try {
-            [ls] = await Promise.all([load(this.getAttribute("src") ?? "").then((b) => lines(b, words("measures"), words("labels"))), loadLib()]);
-        }
-        catch {
-            if (!this.plot)
-                this.empty("Could not load metrics.");
-            return;
-        }
-        if (!this.isConnected)
-            return;
+        const ls = lines(this.body, words("measures"), words("labels"));
         if (!ls.length) {
             this.plot?.destroy();
             this.plot = null;
             return this.empty("No data yet.");
         }
+        try {
+            await loadLib();
+        }
+        catch {
+            return this.empty("Could not load the chart.");
+        }
+        if (!this.isConnected)
+            return;
         const [xs, ys] = align(ls);
         const shape = ls.map((l) => l.label).join("\n");
         if (this.plot && shape === this.shape)
-            return this.plot.update(xs, ys);
+            return this.plot.append(xs, ys);
         this.plot?.destroy();
         this.replaceChildren();
         this.shape = shape;
-        this.plot = draw(this, ls, unit, xs, ys);
+        this.plot = draw(this, ls, this.getAttribute("unit") ?? "", xs, ys);
     }
     empty(msg) {
         const p = document.createElement("p");

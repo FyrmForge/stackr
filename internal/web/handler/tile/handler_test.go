@@ -38,6 +38,21 @@ func TestEveryTabServes(t *testing.T) {
 	}
 }
 
+// The Metrics tab writes each chart's window into the page and follows its
+// tile's own stream; no chart reads the JSON API.
+func TestMetricsTab(t *testing.T) {
+	s := webtest.New(t)
+	body := s.Do(t, "GET", drawer+"?tab=metrics&range=6h", nil).Body.String()
+	for _, want := range []string{`sse-connect="` + drawer + `/metrics/events?after=`, `type="application/json"`, `range="21600"`, `hx-trigger="sse:points"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics tab lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "/api/v1/") {
+		t.Error("metrics tab points a chart at the API")
+	}
+}
+
 // An action runs its verb and answers its tab; a refusal shows over the
 // tab with 422 so htmx still swaps it.
 func TestActions(t *testing.T) {

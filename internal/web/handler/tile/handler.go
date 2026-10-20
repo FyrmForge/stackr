@@ -39,6 +39,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	read, write := require("tile.read"), require("tile.write")
 	g.GET(d, h.Drawer, read)
 	g.GET(d+"/logs/stream", h.LogStream, read)
+	g.GET(d+"/metrics/events", h.MetricsEvents, read)
 	for verb, f := range map[string]func(context.Context, string) (service.Job, error){
 		"deploy":  h.orch.Deploy,
 		"restart": h.orch.RestartTile,
@@ -176,7 +177,14 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 	case "terminal":
 		body = ui.Terminal(v, terminalView(c, hd.status))
 	case "metrics":
-		body = ui.Metrics(v, metricsView(c))
+		r := comp.MetricRange(c.QueryParam("range"))
+		in := service.MetricsIn{}
+		in.Range, _ = time.ParseDuration(r)
+		m, err := h.orch.TileMetrics(ctx, t.ID, in)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = ui.Metrics(v, render.MetricsLive(h.orch, m, r, v.Base+"?tab=metrics", v.Base+"/metrics/events"))
 	case "env":
 		body = ui.Env(v, envView(t.EnvJSON))
 	case "access":
@@ -221,6 +229,16 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		body = ui.Backups(v, backupsView(render.EnvURL(c), vs))
 	}
 	return respond.HTML(c, status, ui.Drawer(v, body))
+}
+
+// GET …/-/tiles/:tile/metrics/events: the Metrics tab's new points
+// (tile.read, as the tab).
+func (h *handler) MetricsEvents(c echo.Context) error {
+	s, err := h.orch.TileScope(c.Request().Context(), tileOf(c).ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return render.MetricsEvents(c, h.orch, s)
 }
 
 // settings is the Settings tab: the form over the row, the domains of a

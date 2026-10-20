@@ -120,9 +120,6 @@ type StatusView struct {
 
 type ReplicaView struct{ ID, Name, State, Health string }
 
-// MetricsView is the Metrics tab: Src is the tile's metrics read for Range.
-type MetricsView struct{ Src, Range string }
-
 type LogsView struct {
 	Replicas  []ReplicaView
 	Container string // the replica followed; "" = the first

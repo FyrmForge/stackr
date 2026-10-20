@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/ui/cluster"
+	"github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 // The tunnel drawer names both ends, who dials and what each reports.
@@ -18,7 +19,7 @@ func TestTunnelBody(t *testing.T) {
 		{Rx: -1, Tx: -1},
 	}}
 	var sb strings.Builder
-	if err := cluster.TunnelBody(m, l, "1h").Render(context.Background(), &sb); err != nil {
+	if err := cluster.TunnelBody(m, l, components.MetricsView{Range: "1h", Pick: func(string) any { return map[string]any{} }}).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"home", "fsn1", `hx-get="/-/admin/nodes/f"`, "Internet", "21 ms", "203.0.113.5:51820",
