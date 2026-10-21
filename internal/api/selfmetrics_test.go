@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"compress/gzip"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,9 +17,18 @@ func TestSelfMetrics(t *testing.T) {
 		if key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
+		req.Header.Set("Accept-Encoding", "gzip") // as every scraper sends it
 		rec := httptest.NewRecorder()
 		w.h.ServeHTTP(rec, req)
-		b, _ := io.ReadAll(rec.Body)
+		var r io.Reader = rec.Body
+		if rec.Header().Get("Content-Encoding") == "gzip" {
+			zr, err := gzip.NewReader(rec.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r = zr
+		}
+		b, _ := io.ReadAll(r)
 		return rec.Code, string(b)
 	}
 	if code, _ := get(""); code != http.StatusUnauthorized {

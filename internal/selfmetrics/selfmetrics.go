@@ -43,8 +43,11 @@ func init() {
 		httpDur, jobDur, buildDur)
 }
 
-// Handler serves the registry in the Prometheus text format.
-func Handler() http.Handler { return promhttp.HandlerFor(registry, promhttp.HandlerOpts{}) }
+// Handler serves the registry in the Prometheus text format, uncompressed:
+// the server's own gzip compresses it once.
+func Handler() http.Handler {
+	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{DisableCompression: true})
+}
 
 // Middleware times each request by its route pattern; skip leaves out the
 // long-lived ones (event streams, terminals), which would swamp the latency.
