@@ -42,7 +42,7 @@ func (h *handler) registryTab(c echo.Context, job *comp.JobStatusView) (templ.Co
 		v.Orgs = append(v.Orgs, ui.RegistryOrg{Org: u.Org, Versions: strconv.Itoa(u.Versions), Size: render.Size(u.Bytes)})
 	}
 	if l := o.Last; l != nil {
-		v.Last = l.At.Local().Format("Jan 2 15:04") + ", " + strconv.Itoa(l.Deleted) + " versions deleted, " + render.Size(l.Freed) + " freed."
+		v.Last, v.LastAt = strconv.Itoa(l.Deleted)+" versions deleted, "+render.Size(l.Freed)+" freed.", l.At
 		for _, e := range l.Errors {
 			v.LastErrors = append(v.LastErrors, strings.TrimSpace(e))
 		}

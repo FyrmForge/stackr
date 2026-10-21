@@ -5,7 +5,11 @@
 // instance's drawer has them).
 package slice
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // Root is the id every drawer answer replaces (outerHTML).
 const Root = c.DrawerRoot
@@ -37,7 +41,8 @@ type View struct {
 
 // Consumer is one tile holding a cred on the slice.
 type Consumer struct {
-	Slug, Link, Kind, Access, User, Since string
+	Slug, Link, Kind, Access, User string
+	Since                          time.Time
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
@@ -152,7 +157,7 @@ func consumerRows(v View) [][]templ.Component {
 			c.Text(cs.Kind),
 			accessCell(v, cs),
 			c.Text(cs.User),
-			c.Text(cs.Since),
+			c.Time(cs.Since, "Jan 2 15:04"),
 		})
 	}
 	return rows

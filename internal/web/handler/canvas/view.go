@@ -218,14 +218,14 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 	}
 	switch r := n.LastRun; {
 	case r != nil && r.Status == "running":
-		f.LastRun = "running · since " + r.CreatedAt.Local().Format("15:04")
+		f.LastRun, f.LastAt, f.LastFmt = "running · since ", r.CreatedAt, "15:04"
 	case r != nil:
-		f.LastRun = r.Status + " · " + r.CreatedAt.Local().Format("Jan 2 15:04")
+		f.LastRun, f.LastAt, f.LastFmt = r.Status+" · ", r.CreatedAt, "Jan 2 15:04"
 	case n.Kind == "cron" || n.Kind == "function":
 		f.LastRun = "never run"
 	}
 	if n.NextRun != nil {
-		f.NextRun = "next " + n.NextRun.Local().Format("15:04")
+		f.NextRun = *n.NextRun
 	}
 	if len(n.Domains) > 0 {
 		f.Domain, f.More = n.Domains[0], len(n.Domains)-1

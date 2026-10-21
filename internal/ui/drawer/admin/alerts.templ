@@ -1,6 +1,10 @@
 package admin
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // AlertsView is the alert webhook. URL is the current one, masked; "" = off.
 type AlertsView struct {
@@ -9,7 +13,8 @@ type AlertsView struct {
 	Clear     c.ConfirmView
 	URL       string
 	SecretSet bool
-	Last      string // "" = none yet
+	Last      string    // "ok" or "failed, <why>"; "" = none yet
+	LastAt    time.Time // when it went
 	LastOK    bool
 }
 
@@ -25,9 +30,15 @@ templ Alerts(v AlertsView) {
 				if v.Last == "" {
 					<p class="text-sm text-rw-muted">Last delivery: none yet.</p>
 				} else if v.LastOK {
-					<p class="text-sm text-rw-muted">Last delivery: { v.Last }</p>
+					<p class="text-sm text-rw-muted">
+						{ "Last delivery: " + v.Last + ", " }
+						@c.Time(v.LastAt, "Jan 2 15:04")
+					</p>
 				} else {
-					<p class="text-sm text-rw-danger">Last delivery: { v.Last }</p>
+					<p class="text-sm text-rw-danger">
+						{ "Last delivery: " + v.Last + ", " }
+						@c.Time(v.LastAt, "Jan 2 15:04")
+					</p>
 				}
 				if v.Test != "" {
 					<div class="flex flex-wrap items-center gap-2">

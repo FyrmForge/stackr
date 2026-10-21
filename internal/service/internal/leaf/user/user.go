@@ -136,6 +136,17 @@ func (l *Leaf) SetTheme(ctx context.Context, id, theme string) error {
 	return l.update(ctx, id, func(u *store.User) { u.Theme = theme })
 }
 
+// SetTimeZone is the zone the user reads times in, empty for the browser's.
+// else an IANA name. "Local" would be the server's zone, so it is refused.
+func (l *Leaf) SetTimeZone(ctx context.Context, id, zone string) error {
+	if zone != "" {
+		if _, err := time.LoadLocation(zone); err != nil || zone == "Local" {
+			return errs.Invalidf("time_zone", "unknown time zone %s", zone)
+		}
+	}
+	return l.update(ctx, id, func(u *store.User) { u.TimeZone = zone })
+}
+
 // Authenticate checks the password of an active user.
 func (l *Leaf) Authenticate(ctx context.Context, email, password string) (store.User, error) {
 	u, err := l.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))

@@ -310,7 +310,7 @@ func (h *handler) access(c echo.Context, t service.Tile) (ui.AccessView, error) 
 			Link:   link(b.SliceID),
 			Access: b.Access,
 			User:   b.User,
-			Since:  when(&b.Since),
+			Since:  b.Since,
 		})
 	}
 	return a, nil
@@ -565,8 +565,8 @@ func logLine(l string) comp.LogLineView {
 	}
 	if ts, msg, ok := strings.Cut(rest, " "); ok {
 		if at, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			return comp.NewLogLine(at.Format("15:04:05"), msg)
+			return comp.NewLogLine(at, msg)
 		}
 	}
-	return comp.NewLogLine("", l)
+	return comp.NewLogLine(time.Time{}, l)
 }

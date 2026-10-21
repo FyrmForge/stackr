@@ -96,3 +96,36 @@ func TestAppearance(t *testing.T) {
 		t.Errorf("signed out page has a theme class:\n%s", body)
 	}
 }
+
+// The time zone is per user: empty is the browser's, a name time.LoadLocation
+// does not know is refused and the saved one kept, a good one lands on
+// <body data-tz> of every page and stays picked.
+func TestTimeZone(t *testing.T) {
+	s := webtest.New(t)
+	u := s.User(t, "me@x.test", false)
+	sess := s.Session(t, u)
+	page := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/account?tab=appearance", nil)
+		req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: sess})
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	if body := page(); !strings.Contains(body, `data-tz=""`) || !strings.Contains(body, `<option value="" selected>Browser</option>`) {
+		t.Fatalf("browser zone page:\n%s", body)
+	}
+	rec := s.As(t, sess, "POST", "/account/time-zone", url.Values{"time_zone": {"Europe/Berlin"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/account?tab=appearance" {
+		t.Fatalf("Europe/Berlin = %d %v", rec.Code, rec.Header())
+	}
+	for _, bad := range []string{"Mars/Base", "Local"} {
+		if rec := s.As(t, sess, "POST", "/account/time-zone", url.Values{"time_zone": {bad}}); rec.Code != http.StatusBadRequest ||
+			!strings.Contains(rec.Body.String(), "unknown time zone") {
+			t.Errorf("%s = %d %s, want 400", bad, rec.Code, rec.Body)
+		}
+	}
+	if body := page(); !strings.Contains(body, `data-tz="Europe/Berlin"`) ||
+		!strings.Contains(body, `<option value="Europe/Berlin" selected>Europe/Berlin</option>`) {
+		t.Errorf("Europe/Berlin page:\n%s", body)
+	}
+}

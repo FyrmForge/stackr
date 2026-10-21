@@ -71,11 +71,12 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/logs", h.Logs, a.Require("tile.read"))
 }
 
-func when(t *time.Time) string {
+// when is a moment a drawer shows, zero for none.
+func when(t *time.Time) time.Time {
 	if t == nil {
-		return ""
+		return time.Time{}
 	}
-	return t.Local().Format("Jan 2 15:04")
+	return *t
 }
 
 // refused is an action's error as the drawer shows it; a real failure
@@ -536,7 +537,7 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 			Kind:   b.Kind,
 			Access: b.Access,
 			User:   b.User,
-			Since:  when(&b.Since),
+			Since:  b.Since,
 		})
 	}
 	return respond.HTML(c, status, slice.Drawer(v, slice.Overview(v)))
@@ -686,7 +687,7 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 	default:
 		o := volume.OverviewView{
 			Docker:   vol.Name,
-			Created:  when(&vol.CreatedAt),
+			Created:  vol.CreatedAt,
 			Orphaned: when(vol.OrphanedAt),
 		}
 		if vol.MaxSizeMB > 0 {
@@ -799,7 +800,7 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 			ID:         r.ID,
 			Status:     r.Status,
 			Trigger:    r.Trigger,
-			When:       when(&r.CreatedAt),
+			When:       r.CreatedAt,
 			Size:       render.Size(r.SizeBytes),
 			Error:      r.Error,
 			Dest:       cmp.Or(names[r.DestID], r.Dest),

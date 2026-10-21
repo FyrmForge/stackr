@@ -15,6 +15,7 @@ type User struct {
 	Active       bool      `db:"active" json:"active"`
 	AvatarPath   string    `db:"avatar_path" json:"avatar_path"`
 	Theme        string    `db:"theme" json:"theme"`
+	TimeZone     string    `db:"time_zone" json:"time_zone"` // empty is the browser's
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }

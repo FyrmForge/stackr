@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -57,8 +56,7 @@ func (a *app) logSearch() *cobra.Command {
 			var rows [][]string
 			for _, l := range asList(v) {
 				m := asMap(l)
-				t, _ := time.Parse(time.RFC3339Nano, cell(m["time"]))
-				rows = append(rows, []string{t.Local().Format("Jan 02 15:04:05"), cell(m["tile"]), cell(m["source"]), cell(m["stream"]), logLineText(m)})
+				rows = append(rows, []string{a.stamp(cell(m["time"]), "Jan 02 15:04:05"), cell(m["tile"]), cell(m["source"]), cell(m["stream"]), logLineText(m)})
 			}
 			a.table([]string{"time", "tile", "source", "stream", "line"}, rows)
 			if len(rows) == 500 {

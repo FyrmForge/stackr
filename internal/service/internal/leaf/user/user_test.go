@@ -164,6 +164,27 @@ func TestSetTheme(t *testing.T) {
 	}
 }
 
+// A time zone is empty (the browser's) or an IANA name; anything else,
+// "Local" included, is refused and the stored one kept.
+func TestSetTimeZone(t *testing.T) {
+	st := servicetest.Store(t)
+	l := user.New(st.Users, st.Sessions, st.APIKeys)
+	u := seed(t, st, "a@x.io", false)
+	for _, good := range []string{"UTC", "", "Europe/Berlin"} {
+		if err := l.SetTimeZone(ctx, u.ID, good); err != nil {
+			t.Fatalf("SetTimeZone(%q): %v", good, err)
+		}
+	}
+	for _, bad := range []string{"Mars/Base", "Local", "europe/berlin "} {
+		if _, ok := errs.IsInvalid(l.SetTimeZone(ctx, u.ID, bad)); !ok {
+			t.Errorf("SetTimeZone(%q) not refused as invalid", bad)
+		}
+	}
+	if got, _ := l.Get(ctx, u.ID); got.TimeZone != "Europe/Berlin" {
+		t.Errorf("time zone = %q, want Europe/Berlin", got.TimeZone)
+	}
+}
+
 // B16: one "loses powers" rule for demote and disable. Both close every
 // session and key; the last admin cannot lose them.
 func TestLosePowers(t *testing.T) {

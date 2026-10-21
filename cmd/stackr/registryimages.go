@@ -117,7 +117,7 @@ func (a *app) registryAdmin(clean *cobra.Command) *cobra.Command {
 			}
 			a.say("Total: %s versions, %s bytes.", cell(m["versions"]), cell(m["bytes"]))
 			if last := asMap(m["last_clean"]); len(last) > 0 {
-				a.say("Last cleanup: %s, %s versions deleted, %s bytes freed.", cell(last["at"]), cell(last["deleted"]), cell(last["freed"]))
+				a.say("Last cleanup: %s, %s versions deleted, %s bytes freed.", a.stamp(cell(last["at"]), stampLayout), cell(last["deleted"]), cell(last["freed"]))
 			} else {
 				a.say("No cleanup has run yet.")
 			}

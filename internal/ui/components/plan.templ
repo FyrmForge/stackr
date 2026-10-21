@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"slices"
+	"time"
 )
 
 // PlanView is a promote or rollback dry run (service.PromotePlan), or a
@@ -87,7 +88,7 @@ type PlanReviewView struct {
 type PlanRow struct {
 	Status  string
 	Summary string
-	When    string
+	When    time.Time
 	Commit  string // short
 	Source  string // "local" = a file posted from a machine, not the repo
 	Error   string
@@ -304,7 +305,7 @@ templ PlanLine(r PlanRow) {
 		if r.Commit != "" {
 			<span class="text-xs text-rw-faint font-mono">{ r.Commit }</span>
 		}
-		<span class="text-xs text-rw-faint ml-auto">{ r.When }</span>
+		<span class="text-xs text-rw-faint ml-auto">@Time(r.When, "Jan 2 15:04")</span>
 	</div>
 }
 

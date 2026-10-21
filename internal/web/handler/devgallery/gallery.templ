@@ -1,6 +1,8 @@
 package devgallery
 
 import (
+	"time"
+
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/graph"
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
@@ -116,7 +118,7 @@ templ gallery() {
 		}
 		@section("Log pane") {
 			@c.LogPane(c.LogPaneView{StreamURL: "/dev/components/nowhere", Level: "info"})
-			@c.LogLine(c.LogLineView{Time: "12:00:01", Level: "info", Text: "listening on :80"})
+			@c.LogLine(c.LogLineView{Time: time.Date(2026, 1, 1, 12, 0, 1, 0, time.UTC), Level: "info", Text: "listening on :80"})
 		}
 		@section("Job status") {
 			@c.JobStatus(c.JobStatusView{Kind: "deploy", State: "failed", Error: "health check timed out after 60s", Href: "/dev/components"})

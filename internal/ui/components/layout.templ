@@ -33,6 +33,7 @@ templ Layout(s Shell, body templ.Component) {
 			<script type="module" src={ StaticURL("js/elements/flash-toast.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/graph-canvas.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/graph-node.js") }></script>
+			<script type="module" src={ StaticURL("js/elements/local-time.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/log-pane.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/metric-chart.js") }></script>
 			<script type="module" src={ StaticURL("js/elements/password-toggle.js") }></script>
@@ -40,7 +41,7 @@ templ Layout(s Shell, body templ.Component) {
 			<script type="module" src={ StaticURL("js/elements/tab-strip.js") }></script>
 			<script src={ StaticURL("js/main.js") } defer></script>
 		</head>
-		<body class="bg-rw-bg text-rw-text min-h-screen font-sans antialiased" hx-headers={ csrfHeaders(s.CSRF) }>
+		<body class="bg-rw-bg text-rw-text min-h-screen font-sans antialiased" hx-headers={ csrfHeaders(s.CSRF) } data-tz={ s.TimeZone }>
 			<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-rw-surface focus:px-3 focus:py-2 focus:text-sm focus:text-rw-text">Skip to content</a>
 			@flash(s.Flash, false)
 			if s.User != "" {

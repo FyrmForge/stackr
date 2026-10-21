@@ -31,7 +31,7 @@ func (h *handler) Page(c echo.Context) error {
 	v := PageView{Tab: "profile", Name: me(c).Name, Email: me(c).Email}
 	switch c.QueryParam("tab") {
 	case "appearance":
-		v.Tab, v.Theme = "appearance", me(c).Theme
+		v.Tab, v.Theme, v.Zone = "appearance", me(c).Theme, me(c).TimeZone
 	case "keys":
 		keys, err := h.keys(c)
 		if err != nil {
@@ -49,6 +49,16 @@ func (h *handler) Appearance(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	hamrmw.SetFlash(c, "Theme saved.", hamrmw.FlashSuccess)
+	return respond.Redirect(c, "/account?tab=appearance")
+}
+
+// POST /account/time-zone (time_zone) saves and reloads the page, so the
+// new zone lands on <body data-tz>.
+func (h *handler) TimeZone(c echo.Context) error {
+	if err := h.orch.SetTimeZone(c.Request().Context(), me(c).ID, c.FormValue("time_zone")); err != nil {
+		return middleware.HTTPError(err)
+	}
+	hamrmw.SetFlash(c, "Time zone saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, "/account?tab=appearance")
 }
 

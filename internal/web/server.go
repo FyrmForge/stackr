@@ -112,6 +112,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.GET("/account", acct.Page, page, authed)
 	site.POST("/account/password", acct.Password, authed)
 	site.POST("/account/appearance", acct.Appearance, authed)
+	site.POST("/account/time-zone", acct.TimeZone, authed)
 	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
 
 	// The admin drawer, opened from the nav on any page.

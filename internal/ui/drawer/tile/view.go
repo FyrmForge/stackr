@@ -8,6 +8,7 @@ package tile
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 
@@ -112,7 +113,7 @@ type StatusView struct {
 	Word     string
 	Replicas []ReplicaView
 	Job      *c.JobStatusView // the newest job; nil = none yet
-	JobWhen  string
+	JobWhen  time.Time
 	URLs     []DomainRow
 	Port     string        // the container port; "" = none
 	Ports    []string      // published host:container pairs
@@ -182,15 +183,22 @@ type AccessView struct {
 // AccessEntry is one slice_access entry; Link "" = no such slice tile.
 type AccessEntry struct{ Slice, Link, Access string }
 
-type AccessBinding struct{ Slice, Link, Access, User, Since string }
+type AccessBinding struct {
+	Slice, Link, Access, User string
+	Since                     time.Time
+}
 
 type JobsView struct{ Rows []JobRow }
 
 // Cancel is the cancel action's URL; "" = no button (finished, or no verb).
-type JobRow struct{ Kind, State, When, Error, Cancel string }
+type JobRow struct {
+	Kind, State, Error, Cancel string
+	When                       time.Time
+}
 
 type ImageView struct {
-	Ref, Digest, LastDigest, LastTag, Checked, LastError string
+	Ref, Digest, LastDigest, LastTag, LastError string
+	Checked                                     time.Time // zero = never
 }
 
 // SettingsView is the one settings form (v0's sections) plus what saves on
@@ -225,15 +233,16 @@ func (s SettingsView) Keys() string {
 }
 
 type RunsView struct {
-	Next string // cron: the next tick; "" = paused or none
+	Next time.Time // cron: the next tick; zero = paused or none
 	Rows []RunRow
 	Poll string // re-fetched every 2 s while a run is live; "" = idle
 }
 
 type RunRow struct {
-	ID, Status, Trigger, Started, Took, Exit string
-	Mem, CPU                                 string // peak memory and CPU time; "" = not measured
-	Live                                     bool   // offer stop
+	ID, Status, Trigger, Took, Exit string
+	Started                         time.Time
+	Mem, CPU                        string // peak memory and CPU time; "" = not measured
+	Live                            bool   // offer stop
 }
 
 type BackupsView struct{ Rows []VolumeRow }

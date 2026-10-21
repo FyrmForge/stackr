@@ -4,11 +4,13 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The env viewer has the tile picker and an Older button when a page is full;
 // a tile viewer has no picker, keeps its tile in a hidden field and offers
-// Live; stderr and access lines are marked.
+// Live; stderr and access lines are marked. A line's time is a <time> in UTC
+// that <local-time> rewrites in the viewer's zone.
 func TestLogHistory(t *testing.T) {
 	render := func(v LogHistoryView) string {
 		var b strings.Builder
@@ -18,8 +20,8 @@ func TestLogHistory(t *testing.T) {
 		return b.String()
 	}
 	lines := []LogHistoryLine{
-		{Time: "Oct 21 10:00:00", Tile: "api", Source: "access", Text: "GET /a 200 12ms"},
-		{Time: "Oct 21 09:59:59", Tile: "api", Source: "app", Text: "boom", Err: true},
+		{Time: time.Date(2026, 10, 21, 12, 0, 0, 0, time.FixedZone("CEST", 2*3600)), Tile: "api", Source: "access", Text: "GET /a 200 12ms"},
+		{Time: time.Date(2026, 10, 21, 9, 59, 59, 0, time.UTC), Tile: "api", Source: "app", Text: "boom", Err: true},
 	}
 	env := render(LogHistoryView{
 		Action: "/a/s/e/-/logs", Range: "1h", Lines: lines, Older: "/a/s/e/-/logs?before=x",
@@ -27,7 +29,8 @@ func TestLogHistory(t *testing.T) {
 	})
 	for _, w := range []string{
 		`hx-get="/a/s/e/-/logs"`, `name="tile"`, `name="kind"`, `name="since"`, `<option value="1h" selected>`,
-		`GET /a 200 12ms`, `text-rw-danger`, `id="log-older"`, `hx-get="/a/s/e/-/logs?before=x"`,
+		`GET /a 200 12ms`, `text-rw-danger`, `Times in <local-time zone>UTC</local-time>`,
+		`<local-time fmt="Jan 02 15:04:05"><time datetime="2026-10-21T10:00:00Z" title="2026-10-21T10:00:00Z">Oct 21 10:00:00</time></local-time>`, `id="log-older"`, `hx-get="/a/s/e/-/logs?before=x"`,
 	} {
 		if !strings.Contains(env, w) {
 			t.Errorf("env viewer lacks %s\n%s", w, env)

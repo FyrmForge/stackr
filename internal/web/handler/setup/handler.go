@@ -458,7 +458,7 @@ func (h *handler) plan(c echo.Context) error {
 		Frame:   frame(og, "config", "Review the plan", "This is what applying the config file does to this organization."),
 		Summary: pl.Summary,
 		Commit:  pl.Commit[:min(8, len(pl.Commit))],
-		When:    pl.CreatedAt.Local().Format("Jan 2 15:04:05"),
+		When:    pl.CreatedAt,
 		Error:   pl.Error,
 		Replan:  base(og) + "/config",
 	}

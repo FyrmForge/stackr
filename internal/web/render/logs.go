@@ -55,7 +55,7 @@ func LogHistory(c echo.Context, orch *service.Orchestrator, s service.Scope) (co
 	}
 	for _, l := range ls {
 		v.Lines = append(v.Lines, components.LogHistoryLine{
-			Time: l.Time.UTC().Format("Jan 02 15:04:05"), Tile: l.Tile, Source: l.Source,
+			Time: l.Time, Tile: l.Tile, Source: l.Source,
 			Text: logText(l), Err: l.Stream == "stderr",
 		})
 	}
@@ -87,4 +87,3 @@ func logText(l service.LogLine) string {
 	}
 	return s
 }
-

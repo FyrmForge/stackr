@@ -1,6 +1,10 @@
 package admin
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // SecurityView is the Security log tab: filters, then one row per audited
 // act, newest first. A row opens to the detail the act recorded.
@@ -18,9 +22,10 @@ type SecurityFilter struct{ Action, Actor, Window string }
 
 // SecurityRow is one event. Refused marks an act that was turned away.
 type SecurityRow struct {
-	When, Actor, Action, Target string
-	Refused                     bool
-	Details                     []SecurityDetail
+	When                  time.Time
+	Actor, Action, Target string
+	Refused               bool
+	Details               []SecurityDetail
 }
 
 type SecurityDetail struct{ Label, Value string }
@@ -42,7 +47,7 @@ templ Security(v SecurityView) {
 						<li class="panel text-sm">
 							<details>
 								<summary class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-									<span class="w-28 shrink-0 text-xs text-rw-faint">{ r.When }</span>
+									<span class="w-28 shrink-0 text-xs text-rw-faint">@c.Time(r.When, "Jan 2, 15:04")</span>
 									<span class="text-rw-text">{ r.Actor }</span>
 									<span class="text-rw-muted">{ r.Action }</span>
 									<span class="font-mono text-xs text-rw-muted">{ r.Target }</span>
@@ -66,6 +71,7 @@ templ Security(v SecurityView) {
 						</li>
 					}
 				</ul>
+				@c.ZoneNote()
 				if v.More != "" {
 					<button type="button" hx-get={ v.More } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm mt-3">Show older</button>
 				}

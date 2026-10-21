@@ -77,6 +77,7 @@ Environment (each beats the config file; nothing here is written to disk):
 		RunE:          group,
 	}
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON; errors go to stderr as {error, status, code}")
+	root.PersistentFlags().BoolVar(&a.utc, "utc", false, "print times in UTC, not this machine's zone")
 	root.PersistentFlags().BoolVarP(&a.yes, "yes", "y", false, "skip confirmation prompts (never overrides a server refusal)")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageErr{err.Error()} })
 	root.AddCommand(a.commands()...)

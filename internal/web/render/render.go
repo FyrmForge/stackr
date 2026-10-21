@@ -77,7 +77,7 @@ func Shell(c echo.Context, title string) components.Shell {
 	path := c.Request().URL.Path
 	if p := middleware.Principal(c); p != nil {
 		s.User = p.User.Email
-		s.Theme = p.User.Theme
+		s.Theme, s.TimeZone = p.User.Theme, p.User.TimeZone
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
 		s.Admin = p.Access.Admin
 		if s.Admin { // the Cluster map is the admin's

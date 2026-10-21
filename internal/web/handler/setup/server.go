@@ -223,7 +223,7 @@ func (h *handler) serverPlan(c echo.Context) error {
 		Frame:   serverFrame("Review the plan", "This is what applying the server file does."),
 		Summary: pl.Summary,
 		Commit:  pl.Commit[:min(8, len(pl.Commit))],
-		When:    pl.CreatedAt.Local().Format("Jan 2 15:04:05"),
+		When:    pl.CreatedAt,
 		Error:   pl.Error,
 	}
 	applying := pl.Status == "pending" && pl.DecidedAt != nil

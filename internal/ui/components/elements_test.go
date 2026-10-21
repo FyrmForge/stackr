@@ -17,6 +17,7 @@ var elements = map[string]int{
 	"flash-toast":     150,
 	"graph-canvas":    450,
 	"graph-node":      150,
+	"local-time":      150,
 	"log-pane":        150,
 	"metric-chart":    250,
 	"password-toggle": 150,
@@ -81,7 +82,8 @@ var contract = map[string][]string{
 		"--x",
 		"--y",
 	},
-	"log-pane": {`"level"`, `"search"`, "[data-lines]"},
+	"local-time": {`"fmt"`, `"zone"`, "time[datetime]", "dataset.tz"},
+	"log-pane":   {`"level"`, `"search"`, "[data-lines]"},
 	"side-drawer": {
 		`"drawer-closed"`,
 		`"open"`,

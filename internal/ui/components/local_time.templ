@@ -1,0 +1,27 @@
+package components
+
+import "time"
+
+// Time is a moment the viewer reads, laid out like Go's time.Format (Jan
+// 2006 02 2 15 04 05 only). The text is UTC; <local-time> rewrites it in the
+// viewer's zone (<body data-tz>) and the title keeps the full UTC time.
+// Children follow the time (a log line's gap); a zero t draws neither.
+templ Time(t time.Time, layout string) {
+	if !t.IsZero() {
+		<local-time fmt={ layout }><time datetime={ t.UTC().Format(time.RFC3339) } title={ t.UTC().Format(time.RFC3339) }>{ t.UTC().Format(layout) }</time></local-time>{ children... }
+	}
+}
+
+// Zone is the viewer's zone's short name ("CEST"); it reads UTC until
+// <local-time> runs, as the Time text does.
+templ Zone() {
+	<local-time zone>UTC</local-time>
+}
+
+// ZoneNote names the zone once under a list of times.
+templ ZoneNote() {
+	<p class="text-xs text-rw-faint">
+		{ "Times in " }
+		@Zone()
+	</p>
+}

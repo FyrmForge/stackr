@@ -44,6 +44,11 @@ func (o *Orchestrator) SetTheme(ctx context.Context, userID, theme string) error
 	return o.users.SetTheme(ctx, userID, theme)
 }
 
+// SetTimeZone is the zone the user reads times in, empty for the browser's.
+func (o *Orchestrator) SetTimeZone(ctx context.Context, userID, zone string) error {
+	return o.users.SetTimeZone(ctx, userID, zone)
+}
+
 // SetPassword is the admin reset.
 func (o *Orchestrator) SetPassword(ctx context.Context, userID, next string) error {
 	return o.users.SetPassword(ctx, userID, next)
