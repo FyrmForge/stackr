@@ -71,7 +71,7 @@ type View struct {
 // kind lacks falls back to its first tab.
 func Tabs(kind string) []string {
 	if kind == "cron" || kind == "function" {
-		return []string{"runs", "logs", "jobs", "env", "access", "settings", "placement", "backups"}
+		return []string{"runs", "logs", "metrics", "jobs", "env", "access", "settings", "placement", "backups"}
 	}
 	return []string{"status", "jobs", "logs", "metrics", "env", "access", "settings", "placement", "backups"}
 }

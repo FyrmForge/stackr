@@ -31,6 +31,10 @@ var metricMeasures = []struct{ name, unit string }{
 	{"4xx_s", "rps"},
 	{"5xx_s", "rps"},
 	{"latency_ms", "ms"},
+	{"run_s", "s"},
+	{"run_mem_peak", "bytes"},
+	{"run_cpu_s", "s"},
+	{"run_failed", "count"},
 }
 
 var metricCols = []string{"series", "measure", "latest", "min", "avg", "max"}
@@ -69,7 +73,12 @@ func metricText(v float64, unit string) string {
 	case "rps":
 		return fmt.Sprintf("%.2f/s", v)
 	case "s":
+		if v < 10 {
+			return fmt.Sprintf("%.1f s", v)
+		}
 		return fmt.Sprintf("%.0f s", v)
+	case "count":
+		return fmt.Sprintf("%.1f", v)
 	}
 	suffix := map[string]string{"bps": "/s"}[unit]
 	for _, u := range []struct {
@@ -130,7 +139,7 @@ func (a *app) linkMetrics() *cobra.Command {
 // tileMetrics is a tile's series, the total then each replica, as a table.
 func (a *app) tileMetrics() *cobra.Command {
 	var rng string
-	c := leaf("metrics [tile]", "tile.metrics", "Show a tile's CPU, memory, network, disk IO and requests over --range", upTo(1),
+	c := leaf("metrics [tile]", "tile.metrics", "Show a tile's CPU, memory, network, disk IO and requests (a cron or function's runs) over --range", upTo(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/metrics?range="+url.QueryEscape(rng), nil)
 			if err != nil || a.json {

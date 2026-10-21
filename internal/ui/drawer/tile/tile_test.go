@@ -196,7 +196,7 @@ func TestEveryTabRenders(t *testing.T) {
 // Settings, a key the kind lacks opens its first tab.
 func TestTabsPerKind(t *testing.T) {
 	for kind, want := range map[string]string{
-		"cron":    "runs logs jobs env access settings placement backups",
+		"cron":    "runs logs metrics jobs env access settings placement backups",
 		"service": "status jobs logs metrics env access settings placement backups",
 	} {
 		if got := strings.Join(Tabs(kind), " "); got != want {
@@ -266,6 +266,28 @@ func TestMetricsRequestChartsNeedDomain(t *testing.T) {
 		}
 		if !strings.Contains(sb.String(), "CPU") {
 			t.Errorf("domained %v: CPU chart missing", domained)
+		}
+	}
+}
+
+// A cron or function tile graphs its runs, not replicas or requests.
+func TestMetricsRunKinds(t *testing.T) {
+	m := c.MetricsView{Range: "1h", Pick: func(string) any { return map[string]any{} }}
+	for _, kind := range []string{"cron", "function"} {
+		var sb strings.Builder
+		if err := Metrics(View{Kind: kind, Domained: true}, m).Render(context.Background(), &sb); err != nil {
+			t.Fatal(err)
+		}
+		got := sb.String()
+		for _, want := range []string{"Run duration", `measures="run_s"`, "Peak memory", `measures="run_mem_peak"`, "CPU", `measures="run_cpu_s"`, "Failed runs", `measures="run_failed"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: metrics tab lacks %q", kind, want)
+			}
+		}
+		for _, not := range []string{"Memory<", "Network", "Disk IO", "Requests", "cpu_pct"} {
+			if strings.Contains(got, not) {
+				t.Errorf("%s: metrics tab has %q", kind, not)
+			}
 		}
 	}
 }

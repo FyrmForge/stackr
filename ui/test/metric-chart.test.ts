@@ -48,4 +48,5 @@ test("values read in their unit", () => {
   assert.equal(fmt(0.5, "rps"), "0.50/s");
   assert.equal(fmt(120.4, "rps"), "120/s");
   assert.equal(fmt(42.6, "s"), "43 s");
+  assert.equal(fmt(0.42, "s"), "0.4 s");
 });

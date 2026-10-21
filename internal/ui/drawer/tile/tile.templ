@@ -12,28 +12,28 @@ import (
 // deploys.
 templ actions(v View) {
 	if !v.ReadOnly {
-	switch v.Kind {
-		case "cron":
-			@c.PrimaryPost("Run now", v.Base+"/run")
-			<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/pause" } hx-vals={ pauseVals(!v.Paused) } hx-target={ "#" + Root } hx-swap="outerHTML">
-				if v.Paused {
-					Resume
+		switch v.Kind {
+			case "cron":
+				@c.PrimaryPost("Run now", v.Base+"/run")
+				<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/pause" } hx-vals={ pauseVals(!v.Paused) } hx-target={ "#" + Root } hx-swap="outerHTML">
+					if v.Paused {
+						Resume
+					} else {
+						Pause
+					}
+				</button>
+			case "function":
+				@c.PrimaryPost("Run now", v.Base+"/run")
+				@c.PostButton("Deploy", v.Base+"/deploy")
+			default:
+				if v.Stopped {
+					@c.PostButton("Start", v.Base+"/start")
 				} else {
-					Pause
+					@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
+					@c.PostButton("Restart", v.Base+"/restart")
 				}
-			</button>
-		case "function":
-			@c.PrimaryPost("Run now", v.Base+"/run")
-			@c.PostButton("Deploy", v.Base+"/deploy")
-		default:
-			if v.Stopped {
-				@c.PostButton("Start", v.Base+"/start")
-			} else {
-				@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
-				@c.PostButton("Restart", v.Base+"/restart")
-			}
-			@c.PrimaryPost("Deploy", v.Base+"/deploy")
-	}
+				@c.PrimaryPost("Deploy", v.Base+"/deploy")
+		}
 	}
 }
 
@@ -112,7 +112,8 @@ templ Status(v View, s StatusView) {
 		<div>
 			<div class="label">URLs</div>
 			if len(s.URLs) == 0 {
-				<p class="text-sm text-rw-faint">No domains attached.
+				<p class="text-sm text-rw-faint">
+					No domains attached.
 					if !v.ReadOnly {
 						{ " Add one in Settings." }
 					}
@@ -226,17 +227,25 @@ templ Terminal(v View, t TerminalView) {
 	</div>
 }
 
-// Metrics is the tile's live graphs, one line per replica.
+// Metrics is the tile's live graphs, one line per replica; a cron or
+// function tile has one point per run instead.
 templ Metrics(v View, m c.MetricsView) {
 	<div id="tab-metrics">
 		@c.Metrics(m) {
-			@c.Chart(m, "CPU", "cpu_pct", "", "pct")
-			@c.Chart(m, "Memory", "mem", "", "bytes")
-			@c.Chart(m, "Network", "net_rx_bps net_tx_bps", "in,out", "bps")
-			@c.Chart(m, "Disk IO", "io_read_bps io_write_bps", "read,write", "bps")
-			if v.Domained {
-				@c.Chart(m, "Requests", "req_s 4xx_s 5xx_s", "all,4xx,5xx", "rps")
-				@c.Chart(m, "Response time", "latency_ms", "average", "ms")
+			if v.Kind == "cron" || v.Kind == "function" {
+				@c.Chart(m, "Run duration", "run_s", "", "s")
+				@c.Chart(m, "Peak memory", "run_mem_peak", "", "bytes")
+				@c.Chart(m, "CPU", "run_cpu_s", "", "s")
+				@c.Chart(m, "Failed runs", "run_failed", "", "count")
+			} else {
+				@c.Chart(m, "CPU", "cpu_pct", "", "pct")
+				@c.Chart(m, "Memory", "mem", "", "bytes")
+				@c.Chart(m, "Network", "net_rx_bps net_tx_bps", "in,out", "bps")
+				@c.Chart(m, "Disk IO", "io_read_bps io_write_bps", "read,write", "bps")
+				if v.Domained {
+					@c.Chart(m, "Requests", "req_s 4xx_s 5xx_s", "all,4xx,5xx", "rps")
+					@c.Chart(m, "Response time", "latency_ms", "average", "ms")
+				}
 			}
 		}
 	</div>
@@ -298,31 +307,31 @@ templ Env(v View, e EnvView) {
 						if r.Ref {
 							@c.Chip("reference", "accent")
 						}
-if !v.ReadOnly {
-						<button type="button" class="text-rw-faint hover:text-rw-danger shrink-0" aria-label={ "Delete " + r.Name } hx-post={ v.Base + "/env" } hx-vals={ dropVals(r.Name) } hx-target={ "#" + Root } hx-swap="outerHTML">×</button>
-}
+						if !v.ReadOnly {
+							<button type="button" class="text-rw-faint hover:text-rw-danger shrink-0" aria-label={ "Delete " + r.Name } hx-post={ v.Base + "/env" } hx-vals={ dropVals(r.Name) } hx-target={ "#" + Root } hx-swap="outerHTML">×</button>
+						}
 					</li>
 				}
 			</ul>
 		}
-if !v.ReadOnly {
-		<details class="group mt-4">
-			<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden">Edit variables</summary>
-			<form novalidate hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
-				<div>
-					<label class="label" for="env-text">Environment variables (KEY=VALUE per line)</label>
-					<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nDB=${{ tile.db.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
-					if len(e.Kept) > 0 {
-						<p class="settings-help">Kept as they are, a value on more than one line: { strings.Join(e.Kept, ", ") }.</p>
-					}
-				</div>
-				<div class="flex gap-2">
-					<button type="submit" class="btn btn-primary">Save variables</button>
-					<button type="button" class="btn btn-ghost" hx-get={ v.Base + "?tab=env" } hx-target={ "#" + Root } hx-swap="outerHTML">Cancel</button>
-				</div>
-			</form>
-		</details>
-}
+		if !v.ReadOnly {
+			<details class="group mt-4">
+				<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden">Edit variables</summary>
+				<form novalidate hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+					<div>
+						<label class="label" for="env-text">Environment variables (KEY=VALUE per line)</label>
+						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nDB=${{ tile.db.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
+						if len(e.Kept) > 0 {
+							<p class="settings-help">Kept as they are, a value on more than one line: { strings.Join(e.Kept, ", ") }.</p>
+						}
+					</div>
+					<div class="flex gap-2">
+						<button type="submit" class="btn btn-primary">Save variables</button>
+						<button type="button" class="btn btn-ghost" hx-get={ v.Base + "?tab=env" } hx-target={ "#" + Root } hx-swap="outerHTML">Cancel</button>
+					</div>
+				</form>
+			</details>
+		}
 	</div>
 }
 

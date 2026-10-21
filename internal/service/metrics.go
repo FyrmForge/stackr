@@ -32,6 +32,9 @@ type metricsState struct {
 	// the panel's open graphs append (MetricsAfter).
 	seq  int64
 	last []metrics.Point
+	// runs are the points finished runs wrote since the last round; the
+	// next round hands them to the open graphs with its own.
+	runs []metrics.Point
 	// caddy is each ingress node's last Caddy sample, panel the panel's
 	// HTTP totals (metrics_traffic.go).
 	caddy map[string]caddySample
@@ -70,7 +73,7 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 		return err
 	}
 	var (
-		mu  sync.Mutex
+		mu   sync.Mutex
 		pts  []metrics.Point
 		pair = map[string][2]worker.Metrics{} // a node's last two samples, for its wg peers
 		wg   sync.WaitGroup
@@ -115,16 +118,28 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 	pts = append(pts, wgPoints(pair, o.meshPeers, now)...)
 	pts = append(pts, o.trafficPoints(ctx, now)...)
 	pts = append(pts, o.panelPoints(now)...)
-	if len(pts) == 0 {
-		return nil
-	}
-	if err := o.metricsStore().Write(ctx, pts); err != nil {
-		return err
+	if len(pts) > 0 {
+		if err := o.metricsStore().Write(ctx, pts); err != nil {
+			return err
+		}
 	}
 	o.metrics.mu.Lock()
+	defer o.metrics.mu.Unlock()
+	if pts = append(pts, o.metrics.runs...); len(pts) == 0 {
+		return nil
+	}
+	o.metrics.runs = nil
 	o.metrics.seq, o.metrics.last = o.metrics.seq+1, pts
-	o.metrics.mu.Unlock()
 	return nil
+}
+
+// writeRunPoints stores what finished runs measured (tile:<id> run_s,
+// run_failed, run_mem_peak, run_cpu_s) and queues them for the open graphs.
+func (o *Orchestrator) writeRunPoints(ctx context.Context, ps []metrics.Point) {
+	_ = o.metricsStore().Write(ctx, ps)
+	o.metrics.mu.Lock()
+	o.metrics.runs = append(o.metrics.runs, ps...)
+	o.metrics.mu.Unlock()
 }
 
 // MetricsScope is the series one open graph follows: a node's, a link's or

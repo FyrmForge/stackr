@@ -93,9 +93,9 @@ export function fmt(v: number | null, unit: string): string {
     case "rps":
       return `${v < 10 ? v.toFixed(2) : Math.round(v)}/s`;
     case "s":
-      return `${Math.round(v)} s`;
+      return `${v < 10 ? v.toFixed(1) : Math.round(v)} s`;
   }
-  return String(v);
+  return v.toFixed(1);
 }
 
 // A theme token is "R G B" or a hex colour.
@@ -123,6 +123,8 @@ function loadLib(): Promise<void> {
   return lib;
 }
 
+const sparse = (u: { data: (number | null)[][] }, i: number): boolean => u.data[i].filter((v) => v != null).length <= 100; // few points get a dot each (a run's one shows)
+
 function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (number | null)[][]): Plot {
   const text = token("--rw-faint"), grid = token("--rw-border");
   const axis = { stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
@@ -132,7 +134,7 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
       height: 160,
       cursor: { drag: { x: true, y: false } },
       scales: { x: { time: true }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
-      series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
+      series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
       axes: [axis, { ...axis, size: 70, values: (_: unknown, vs: number[]) => vs.map((v) => fmt(v, unit)) }],
     },
     [xs, ...ys],

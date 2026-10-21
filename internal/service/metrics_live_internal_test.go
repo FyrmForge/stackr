@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -38,5 +39,18 @@ func TestMetricsAfterScope(t *testing.T) {
 	}
 	if body, _ := o.MetricsAfter(MetricsScope{key: "node:zzz"}, 6); body != nil {
 		t.Fatalf("empty scope sent %v", body)
+	}
+}
+
+// A finished run's points are stored and wait for the next round's graphs.
+func TestRunPointsReachGraphs(t *testing.T) {
+	o := &Orchestrator{}
+	o.writeRunPoints(context.Background(), []metrics.Point{{Key: "tile:t1", Name: "run_s", T: time.Now(), V: 3}})
+	if len(o.metrics.runs) != 1 {
+		t.Fatalf("queued = %v", o.metrics.runs)
+	}
+	got, err := o.metricsStore().Query(context.Background(), "tile:t1", time.Now().Add(-time.Hour), time.Now().Add(time.Minute), time.Minute)
+	if err != nil || len(got["run_s"]) != 1 {
+		t.Fatalf("stored = %v %v", got, err)
 	}
 }
