@@ -107,6 +107,26 @@ func (a *app) nodeMetrics() *cobra.Command {
 	return c
 }
 
+// linkMetrics is the tunnel between two nodes as a table (server admin).
+func (a *app) linkMetrics() *cobra.Command {
+	var rng string
+	c := leaf("link-metrics <node> <peer>", "admin.link-metrics", "Show the tunnel between two nodes: ping, loss, traffic and handshake age over --range (server admin)", exact(2),
+		func(_ *cobra.Command, args []string) error {
+			v, err := a.call(GET, "/admin/nodes/"+url.PathEscape(args[0])+"/link-metrics?peer="+url.QueryEscape(args[1])+"&range="+url.QueryEscape(rng), nil)
+			if err != nil || a.json {
+				if err == nil {
+					err = a.show(v)
+				}
+				return err
+			}
+			a.table(metricCols, metricRows(args[0]+"-"+args[1], v))
+			return nil
+		})
+	rangeFlag(c, &rng)
+	c.Example = "  stackr node link-metrics ct110 ct111 --range 6h"
+	return c
+}
+
 // tileMetrics is a tile's series, the total then each replica, as a table.
 func (a *app) tileMetrics() *cobra.Command {
 	var rng string

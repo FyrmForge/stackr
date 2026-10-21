@@ -41,3 +41,18 @@ func TestMetricsTables(t *testing.T) {
 		t.Errorf("default range: %v", r.reqs)
 	}
 }
+
+// node link-metrics prints the tunnel's series for the node and its peer.
+func TestLinkMetricsTable(t *testing.T) {
+	r := fake(t, map[string]string{"/admin/nodes/ct110/link-metrics": `{"rtt_ms":[{"t":"2026-10-18T10:00:00Z","v":4}],"loss":[{"t":"2026-10-18T10:00:00Z","v":0.5}]}`})
+	code, out, errw := cli(t, "node", "link-metrics", "ct110", "ct111", "--range", "6h")
+	if code != 0 {
+		t.Fatalf("link-metrics = %d %q", code, errw)
+	}
+	if !strings.Contains(out, "ct110-ct111\trtt_ms\t4.0 ms") || !strings.Contains(out, "ct110-ct111\tloss\t50.0%") {
+		t.Errorf("table:\n%s", out)
+	}
+	if len(r.reqs) != 1 || !strings.HasPrefix(r.reqs[0], "GET /api/v1/admin/nodes/ct110/link-metrics?peer=ct111&range=6h ") {
+		t.Errorf("reqs = %v", r.reqs)
+	}
+}
