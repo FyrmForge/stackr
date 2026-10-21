@@ -83,7 +83,10 @@ func (a *app) logPurge() *cobra.Command {
 			if err := a.confirm("Delete all kept logs of " + last(p) + "? Live logs of running tiles are not touched."); err != nil {
 				return err
 			}
-			_, err := a.call(DELETE, p+"/logs", nil)
-			return err
+			if _, err := a.call(DELETE, p+"/logs", nil); err != nil {
+				return err
+			}
+			a.say("deleted the kept logs of %s", last(p))
+			return nil
 		}))
 }
