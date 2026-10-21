@@ -68,6 +68,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/restore", h.Restore, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
 	g.GET(e+"/proxy", h.Proxy, a.Require("tile.read"))
+	g.GET(e+"/logs", h.Logs, a.Require("tile.read"))
 }
 
 func when(t *time.Time) string {
@@ -542,6 +543,22 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 }
 
 // ---- proxy ----
+
+// GET …/-/logs: the log viewer over the kept lines (tile.read); with
+// ?before= only the next page of lines. Absent while log history is off.
+func (h *handler) Logs(c echo.Context) error {
+	if !h.orch.LogsOn() {
+		return echo.ErrNotFound
+	}
+	v, err := render.LogHistory(c, h.orch, scope(c))
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if c.QueryParam("before") != "" {
+		return respond.HTML(c, http.StatusOK, comp.LogHistoryMore(v))
+	}
+	return respond.HTML(c, http.StatusOK, comp.LogHistory(v))
+}
 
 // GET …/-/proxy
 func (h *handler) Proxy(c echo.Context) error {

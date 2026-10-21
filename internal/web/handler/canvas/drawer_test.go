@@ -128,7 +128,7 @@ func TestDrawerTabs(t *testing.T) {
 	for path, tabs := range map[string][]string{
 		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "shares", "backups"},
 		"/acme/shop/-/drawer":     {"settings", "params", "releases"},
-		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order", "logs"},
+		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order"},
 		"/acme/-/vars":            {"editor"},
 		"/acme/shop/-/vars":       {"editor"},
 	} {
@@ -153,6 +153,19 @@ func TestDrawerTabs(t *testing.T) {
 	}
 	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer"`) {
 		t.Error("the stack canvas's Settings does not open the stack drawer")
+	}
+}
+
+// With log history off the env drawer has no Logs tab (asking for it lands on
+// Settings) and the viewer route is gone.
+func TestLogsTabOffWhenHistoryOff(t *testing.T) {
+	s := webtest.New(t)
+	body := get(t, s, "/acme/shop/dev/-/drawer?tab=logs")
+	if strings.Contains(body, `tab=logs`) || !strings.Contains(body, `id="tab-settings"`) {
+		t.Errorf("env drawer offers Logs:\n%s", body)
+	}
+	if rec := s.Do(t, "GET", "/acme/shop/dev/-/logs", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("viewer = %d", rec.Code)
 	}
 }
 

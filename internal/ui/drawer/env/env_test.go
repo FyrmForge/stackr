@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
 func TestTabs(t *testing.T) {
@@ -22,7 +24,7 @@ func TestTabs(t *testing.T) {
 			{ID: "b", Name: "prod", Down: []string{"b", "a"}},
 		},
 	}).Render(context.Background(), &ob)
-	_ = Logs().Render(context.Background(), &b)
+	_ = Logs(c.LogHistoryView{Action: "/e/-/logs"}).Render(context.Background(), &b)
 	got := b.String() + ob.String()
 	for _, w := range []string{
 		`value="promote" checked`,

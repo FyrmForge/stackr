@@ -133,7 +133,7 @@ func (a *app) stackCommands() []*cobra.Command {
 		a.tiles(),
 		a.deploy(),
 		a.restart(),
-		a.logs(),
+		a.logsWithSearch(),
 		a.tileMetrics(),
 		a.managed(),
 		a.sliceTiles(),
