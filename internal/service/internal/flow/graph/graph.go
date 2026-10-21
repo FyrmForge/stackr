@@ -681,6 +681,9 @@ func RunWord(rs []store.Run) string {
 // other kind leaves the word alone. A run kind's run jobs speak through
 // RunWord, not here.
 func LayerJob(word string, up int, runKind bool, j store.Job) string {
+	if runKind && j.Kind == "run" { // service's kindRun
+		return word
+	}
 	switch j.State {
 	case job.Queued:
 		return "queued"
@@ -693,7 +696,6 @@ func LayerJob(word string, up int, runKind bool, j store.Job) string {
 		return "waiting"
 	case job.Failed:
 		switch {
-		case runKind && j.Kind == "run": // service's kindRun
 		case up == 0:
 			return "error"
 		case rollout[j.Kind]:
@@ -703,12 +705,11 @@ func LayerJob(word string, up int, runKind bool, j store.Job) string {
 	return word
 }
 
-// rollout are the job kinds that put a version on a tile (service's
-// kindDeploy, kindPromote, kindEnvSync, kindPR, kindStart, kindRestart). A
-// backup or an image watch failing says nothing of the tile's health.
-var rollout = map[string]bool{
-	"deploy": true, "promote": true, "env-sync": true, "pr": true, "start": true, "restart": true,
-}
+// rollout are the one-tile job kinds that put a version on it (service's
+// kindDeploy, kindStart, kindRestart). A backup or an image watch failing
+// says nothing of the tile's health; a promote, env sync or PR job locks
+// every tile of the env, so its failure would paint the neighbours too.
+var rollout = map[string]bool{"deploy": true, "start": true, "restart": true}
 
 // ---- env -------------------------------------------------------------------
 

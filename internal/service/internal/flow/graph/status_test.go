@@ -24,6 +24,7 @@ func TestServiceWord(t *testing.T) {
 		{"failed deploy, nothing runs", "stopped", 0, deployFailed, "error"},
 		{"failed deploy, never ran", "none", 0, deployFailed, "error"},
 		{"failed backup over a healthy tile", "running", 1, &store.Job{Kind: "backup", State: "failed"}, "running"},
+		{"failed env-wide promote over a running tile", "running", 1, &store.Job{Kind: "promote", State: "failed"}, "running"},
 		{"deploy in flight", "running", 1, &store.Job{Kind: "deploy", State: "running"}, "building"},
 		{"deploy done", "running", 1, &store.Job{Kind: "deploy", State: "done"}, "running"},
 	} {
@@ -77,6 +78,7 @@ func TestRunKindJob(t *testing.T) {
 		want string
 	}{
 		{"its failed run job defers to the runs", "degraded", 1, store.Job{Kind: "run", State: "failed"}, "degraded"},
+		{"its live run job defers to the runs", "running", 1, store.Job{Kind: "run", State: "running"}, "running"},
 		{"failed redeploy, an older build fires", "done", 1, store.Job{Kind: "deploy", State: "failed"}, "degraded"},
 		{"failed first deploy", "none", 0, store.Job{Kind: "deploy", State: "failed"}, "error"},
 	} {
