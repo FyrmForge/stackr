@@ -388,7 +388,10 @@ type caddyAccess struct {
 	Status   int     `json:"status"`
 	Duration float64 `json:"duration"` // seconds
 	Size     int64   `json:"size"`
-	Request  struct {
+	// UserAgent is added by Caddy's log_append; request.headers is absent
+	// unless observe_access_headers is on.
+	UserAgent string `json:"user_agent"`
+	Request   struct {
 		RemoteIP string              `json:"remote_ip"`
 		ClientIP string              `json:"client_ip"`
 		Method   string              `json:"method"`
@@ -429,7 +432,11 @@ func parseAccess(msg string) (host string, f map[string]string, ok bool) {
 	if a.Request.ClientIP != "" {
 		set("ip", a.Request.ClientIP)
 	}
+	set("ua", a.UserAgent)
 	for k, v := range a.Request.Headers {
+		if a.UserAgent != "" {
+			break
+		}
 		if strings.EqualFold(k, "User-Agent") && len(v) > 0 {
 			set("ua", v[0])
 		}

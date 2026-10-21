@@ -166,14 +166,12 @@ func TestLogshipBounded(t *testing.T) {
 	}
 }
 
-const caddyLine = `{"level":"info","ts":1792576800.5,"logger":"http.log.access.log0","msg":"handled request",` +
-	`"request":{"remote_ip":"203.0.113.9","client_ip":"203.0.113.9","proto":"HTTP/2.0","method":"GET","host":"App.Example.com:443",` +
-	`"uri":"/items?x=1","headers":{"User-Agent":["curl/8"]}},"bytes_read":0,"duration":0.0123,"size":512,"status":404}`
+const caddyLine = `{"level":"info","ts":1729500000.1,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"127.0.0.1","remote_port":"39678","client_ip":"127.0.0.1","proto":"HTTP/1.1","method":"GET","host":"app.example.com","uri":"/x"},"bytes_read":0,"user_id":"","duration":0.0013,"size":2,"status":200,"user_agent":"tester/1"}`
 
 func TestParseAccess(t *testing.T) {
 	host, f, ok := parseAccess(caddyLine)
-	want := map[string]string{"http.method": "GET", "http.path": "/items?x=1", "http.status": "404",
-		"http.duration_ms": "12.3", "http.bytes": "512", "http.ua": "curl/8", "http.ip": "203.0.113.9"}
+	want := map[string]string{"http.method": "GET", "http.path": "/x", "http.status": "200",
+		"http.duration_ms": "1.3", "http.bytes": "2", "http.ua": "tester/1", "http.ip": "127.0.0.1"}
 	if !ok || host != "app.example.com" || len(f) != len(want) {
 		t.Fatalf("host %q fields %v ok %v", host, f, ok)
 	}
@@ -186,6 +184,12 @@ func TestParseAccess(t *testing.T) {
 		if _, _, ok := parseAccess(s); ok {
 			t.Errorf("%q taken for an access line", s)
 		}
+	}
+	// Headers on and no top-level user_agent: the header gives the ua. Ip off:
+	// no ip fields.
+	_, f, _ = parseAccess(`{"logger":"http.log.access","request":{"host":"a.b","headers":{"User-Agent":["curl/8"]}},"status":200}`)
+	if f["http.ua"] != "curl/8" || f["http.ip"] != "" {
+		t.Errorf("header ua: %v", f)
 	}
 	// A line with fewer fields gives fewer.
 	if _, f, ok := parseAccess(`{"logger":"http.log.access","request":{"host":"a.b"},"status":200}`); !ok || len(f) != 1 || f["http.status"] != "200" {
@@ -210,7 +214,7 @@ func TestShipAccessAndRun(t *testing.T) {
 		t.Fatalf("buffered %d lines", o.bufLen())
 	}
 	l := o.logship.buf[0]
-	if l.Source != logs.SourceAccess || l.TileID != tl.ID || l.Org != "acme" || l.HTTP["http.status"] != "404" || l.Node != "edge" || l.Container != "stackr-proxy" {
+	if l.Source != logs.SourceAccess || l.TileID != tl.ID || l.Org != "acme" || l.HTTP["http.status"] != "200" || l.Node != "edge" || l.Container != "stackr-proxy" {
 		t.Errorf("line %+v", l)
 	}
 
