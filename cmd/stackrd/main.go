@@ -29,6 +29,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	appmw "github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/selfmetrics"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/web"
@@ -195,6 +196,7 @@ func run(log *slog.Logger, generate bool) error {
 	}
 	// open event streams end on shutdown instead of holding it to its timeout
 	srv.Echo().Server.RegisterOnShutdown(stream.Stop)
+	srv.Echo().Use(selfmetrics.Middleware(api.Gzip.Skipper))
 
 	if baseOrigin != "" {
 		srv.Echo().Use(middleware.CORSWithConfig(middleware.CORSConfig{

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/selfmetrics"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -307,6 +308,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	}
 	defer cancel()
 	rn := &Run{Job: j, a: a, r: r}
+	start := time.Now()
 	state, reason, param := r.call(ctx, rn)
 
 	// The run's context is dead exactly when there is something to record.
@@ -337,6 +339,7 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 		delete(r.parked, j.ID)
 		delete(r.deployed, j.ID)
 		err = r.jobs.Finish(fresh, j, state, reason)
+		selfmetrics.Job(j.Kind, state, time.Since(start))
 	}
 	if err != nil {
 		slog.Error("recording job result failed", "job", j.ID, "state", state, "error", err)
