@@ -38,7 +38,7 @@ func (h *H) NodeMetrics() Endpoint {
 }
 
 // LinkMetrics (server admin) is the tunnel between the node and ?peer=:
-// rtt_ms, loss.
+// rtt_ms, loss, rx_bps, tx_bps, handshake_age_s.
 func (h *H) LinkMetrics() Endpoint {
 	return Get(func(c echo.Context) (service.Series, error) {
 		in, err := metricsIn(c)
@@ -50,7 +50,9 @@ func (h *H) LinkMetrics() Endpoint {
 }
 
 // TileMetrics is a tile's series summed over its replicas (cpu_pct, mem,
-// io_read_bps, io_write_bps, net_rx_bps, net_tx_bps) and each replica's.
+// io_read_bps, io_write_bps, net_rx_bps, net_tx_bps) and each replica's,
+// plus its HTTP traffic over every ingress node (req_s, 4xx_s, 5xx_s,
+// latency_ms).
 func (h *H) TileMetrics() Endpoint {
 	return Get(func(c echo.Context) (service.TileMetricsOut, error) {
 		in, err := metricsIn(c)

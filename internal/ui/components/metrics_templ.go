@@ -249,7 +249,7 @@ func RangePicker(reload, cur string) templ.Component {
 
 // Chart is one titled graph inside Metrics: measures the series it draws
 // (space separated), labels their names (comma separated), unit how values
-// read: pct, ratio, bytes, bps or ms.
+// read: pct, ratio, bytes, bps, rps (per second), ms or s.
 func Chart(v MetricsView, title, measures, labels, unit string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

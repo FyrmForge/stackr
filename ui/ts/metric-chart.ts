@@ -90,6 +90,10 @@ export function fmt(v: number | null, unit: string): string {
       return human(v, "");
     case "bps":
       return human(v, "/s");
+    case "rps":
+      return `${v < 10 ? v.toFixed(2) : Math.round(v)}/s`;
+    case "s":
+      return `${Math.round(v)} s`;
   }
   return String(v);
 }

@@ -27,10 +27,10 @@ func TestMetricsIngest(t *testing.T) {
 		{Tile: "t1", Name: "pause", Role: "pause", CPUUsec: 9_000_000, NetRx: 99_000, NetTx: 99_000},
 	}}
 	o := &Orchestrator{cfg: Config{Metrics: &metrics.Memory{}}}
-	if pts := o.takeSample("n1", a); pts != nil {
+	if pts, _, _ := o.takeSample("n1", a); pts != nil {
 		t.Fatalf("first sample made points: %v", pts)
 	}
-	pts := o.takeSample("n1", b)
+	pts, _, _ := o.takeSample("n1", b)
 	if err := o.metricsStore().Write(context.Background(), pts); err != nil {
 		t.Fatal(err)
 	}

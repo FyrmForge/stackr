@@ -24,6 +24,13 @@ var metricMeasures = []struct{ name, unit string }{
 	{"io_write_bps", "bps"},
 	{"rtt_ms", "ms"},
 	{"loss", "ratio"},
+	{"rx_bps", "bps"},
+	{"tx_bps", "bps"},
+	{"handshake_age_s", "s"},
+	{"req_s", "rps"},
+	{"4xx_s", "rps"},
+	{"5xx_s", "rps"},
+	{"latency_ms", "ms"},
 }
 
 var metricCols = []string{"series", "measure", "latest", "min", "avg", "max"}
@@ -59,6 +66,10 @@ func metricText(v float64, unit string) string {
 		return fmt.Sprintf("%.1f%%", v*100)
 	case "ms":
 		return fmt.Sprintf("%.1f ms", v)
+	case "rps":
+		return fmt.Sprintf("%.2f/s", v)
+	case "s":
+		return fmt.Sprintf("%.0f s", v)
 	}
 	suffix := map[string]string{"bps": "/s"}[unit]
 	for _, u := range []struct {
@@ -99,7 +110,7 @@ func (a *app) nodeMetrics() *cobra.Command {
 // tileMetrics is a tile's series, the total then each replica, as a table.
 func (a *app) tileMetrics() *cobra.Command {
 	var rng string
-	c := leaf("metrics [tile]", "tile.metrics", "Show a tile's CPU, memory, network and disk IO over --range", upTo(1),
+	c := leaf("metrics [tile]", "tile.metrics", "Show a tile's CPU, memory, network, disk IO and requests over --range", upTo(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/metrics?range="+url.QueryEscape(rng), nil)
 			if err != nil || a.json {

@@ -159,8 +159,10 @@ type options struct {
 	docker Docker
 	vip    tile.VIP
 	push   func(context.Context, json.RawMessage) error
-	build  BuildFunc
-	gitEnv []string
+	// caddyMetrics reads the controller's Caddy /metrics; nil with WithProxy.
+	caddyMetrics func(context.Context) ([]byte, error)
+	build        BuildFunc
+	gitEnv       []string
 }
 
 // BuildFunc builds one git tile at a commit and returns the image row id.
@@ -282,8 +284,9 @@ type Orchestrator struct {
 	// panel starts without it (UpgradeUnderway).
 	upgradeLaunched atomic.Int64
 	metrics         metricsState
-	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
-	rotation        rotation       // mesh key rotation (rotate.go)
+	caddyMetrics    func(context.Context) ([]byte, error) // the controller's Caddy /metrics, nil in tests
+	localWorker     *worker.Server                        // the controller's own node in the mesh, nil on a fake host
+	rotation        rotation                              // mesh key rotation (rotate.go)
 	stopOnce        sync.Once
 }
 
@@ -377,7 +380,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		if admin == "" {
 			admin = "http://" + ProxyContainer + ":2019"
 		}
-		o.push = proxy.New(admin).Push
+		pc := proxy.New(admin)
+		o.push, o.caddyMetrics = pc.Push, pc.Metrics
 	}
 	d := o.docker
 
@@ -427,6 +431,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		docker: d,
 		vip:    o.vip,
 		gitEnv: o.gitEnv,
+
+		caddyMetrics: o.caddyMetrics,
 
 		cluster:   cl,
 		stopNodes: make(chan struct{}),
