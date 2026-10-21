@@ -153,15 +153,19 @@ func KindLabel(kind string) string {
 	return ""
 }
 
-// run is the colour a last-run line reads in, by its first word.
-func run(line string) string {
+// run is the colour a last-run line reads in, by its first word. A failed
+// run is red only once the tile word is error (three in a row); one
+// failure is amber, as the tile is degraded.
+func run(line, status string) string {
 	switch {
 	case strings.HasPrefix(line, "running"):
 		return "warn"
 	case strings.HasPrefix(line, "ok"):
 		return "success"
-	case strings.HasPrefix(line, "failed"):
+	case strings.HasPrefix(line, "failed") && status == "error":
 		return "danger"
+	case strings.HasPrefix(line, "failed"):
+		return "warn"
 	}
 	return "faint"
 }
@@ -175,6 +179,8 @@ func word(status, waiting string) (tone, text string) {
 		return "danger", "Crashed"
 	case "unhealthy":
 		return "warn", "Unhealthy"
+	case "degraded":
+		return "warn", "Degraded"
 	case "offline":
 		return "danger", "Placement offline"
 	case "waiting":

@@ -28,7 +28,7 @@ type Image = store.Image
 // TileStatus is the box's word for a tile plus its newest job (DECIDE 8).
 // A cron or function adds its newest run; a cron its next tick and pause.
 type TileStatus struct {
-	Word     string      `json:"word"` // running | stopped | partial | … (leaf/tile)
+	Word     string      `json:"word"` // running | stopped | partial | … (leaf/tile); a cron or function: its card's word, idle before its first run
 	Replicas []Container `json:"replicas"`
 	LastJob  *Job        `json:"last_job"`
 	LastRun  *Run        `json:"last_run,omitempty"`
@@ -71,6 +71,13 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 		return out, err
 	} else if ok {
 		out.LastRun = &r
+	}
+	// No container to read: its runs' word, as its card has it.
+	if out.Word, err = o.graph.TileWord(ctx, t); err != nil {
+		return out, err
+	}
+	if out.Word == "none" {
+		out.Word = "idle"
 	}
 	out.Paused = t.Paused
 	if t.Kind == tile.Cron && !t.Paused {

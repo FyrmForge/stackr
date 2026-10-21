@@ -83,7 +83,7 @@ templ Footer(id string, f FooterView) {
 	>
 		switch f.Kind {
 			case "cron", "function":
-				@line(run(f.LastRun), f.LastRun)
+				@line(run(f.LastRun, f.Status), f.LastRun)
 				if f.NextRun != "" {
 					<span class="text-xs text-rw-faint shrink-0">{ f.NextRun }</span>
 				} else if f.Kind == "function" {
@@ -109,9 +109,9 @@ templ Footer(id string, f FooterView) {
 					<span class="truncate">open settings</span>
 				</span>
 			default:
-				if f.Want > 1 && f.Up < f.Want {
+				if f.Want > 1 && f.Up > 0 && f.Up < f.Want {
 					@line("warn", "degraded · "+itoa(f.Up)+"/"+itoa(f.Want))
-				} else if f.Want > 1 {
+				} else if f.Want > 1 && f.Status == "running" {
 					@line("success", "running · "+itoa(f.Up)+"/"+itoa(f.Want))
 				} else {
 					@Status(f.Status, f.Waiting)
