@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -259,6 +260,43 @@ func (v *Victoria) Delete(ctx context.Context, f Filter) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	_, err = v.do(req)
-	return err
+	b, err := v.do(req)
+	if err != nil {
+		return err
+	}
+	var task vlTask
+	if json.Unmarshal(b, &task) != nil || task.ID == "" {
+		return nil
+	}
+	return v.waitTask(ctx, task.ID)
+}
+
+// vlTask is a VictoriaLogs delete task as run_task and active_tasks name it.
+type vlTask struct {
+	ID string `json:"task_id"`
+}
+
+// waitTask waits for a delete task to finish, so a view reloaded after the
+// delete no longer shows its lines (run_task only starts it).
+// ponytail: polls every 250 ms for up to 30 s; past that the task keeps
+// running and the caller is answered early.
+func (v *Victoria) waitTask(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.URL+"/delete/active_tasks", nil)
+		if err != nil {
+			return err
+		}
+		b, err := v.do(req)
+		var active []vlTask
+		if err != nil || json.Unmarshal(b, &active) != nil || !slices.Contains(active, vlTask{id}) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }

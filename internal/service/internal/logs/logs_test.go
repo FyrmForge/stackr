@@ -105,7 +105,17 @@ func TestVictoriaNewest(t *testing.T) {
 func TestVictoriaDelete(t *testing.T) {
 	var calls int
 	var path, filter string
+	polls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/delete/active_tasks" {
+			// the task runs for two polls, beside another one
+			if polls++; polls <= 2 {
+				_, _ = io.WriteString(w, `[{"task_id":"0"},{"task_id":"1"}]`)
+			} else {
+				_, _ = io.WriteString(w, `[{"task_id":"0"}]`)
+			}
+			return
+		}
 		_ = r.ParseForm()
 		calls++
 		path, filter = r.URL.Path, r.PostForm.Get("filter")
@@ -130,5 +140,9 @@ func TestVictoriaDelete(t *testing.T) {
 	}
 	if path != "/delete/run_task" || filter != `org_id:="o1" env_id:="e\"1"` {
 		t.Errorf("path %q filter %q", path, filter)
+	}
+	// it answers once the task is done, not when it starts
+	if polls != 3 {
+		t.Errorf("returned after %d polls of active_tasks, want 3", polls)
 	}
 }
