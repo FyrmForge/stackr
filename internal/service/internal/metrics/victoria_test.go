@@ -23,7 +23,8 @@ func TestVictoria(t *testing.T) {
 			imported = strings.Split(strings.TrimSpace(string(b)), "\n")
 			w.WriteHeader(http.StatusNoContent)
 		case "/api/v1/query_range":
-			query = r.URL.Query().Get("query") + " " + r.URL.Query().Get("step")
+			q := r.URL.Query()
+			query = q.Get("query") + " " + q.Get("step") + " nocache=" + q.Get("nocache") + " " + q.Get("start") + "-" + q.Get("end")
 			_, _ = io.WriteString(w, `{"status":"success","data":{"resultType":"matrix","result":[`+
 				`{"metric":{"__name__":"stackr_cpu_pct","key":"node:abc","node":"abc"},"values":[[1792579060,"10"],[1792579120,"25"]]},`+
 				`{"metric":{"__name__":"stackr_4xx_s","key":"node:abc","node":"abc"},"values":[[1792579060,"100"],[1792579120,"NaN"]]}]}}`)
@@ -60,11 +61,12 @@ func TestVictoria(t *testing.T) {
 		t.Errorf("line %+v", l)
 	}
 
-	got, err := v.Query(ctx, "node:abc", t0, t0.Add(3*time.Minute), time.Minute)
+	got, err := v.Query(ctx, "node:abc", t0, t0.Add(90*time.Second), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if query != `avg_over_time({key="node:abc"}[60s]) keep_metric_names 60s` {
+	// start moves to a whole number of steps before end (90s -> 60s).
+	if query != `avg_over_time({key="node:abc"}[60s]) keep_metric_names 60s nocache=1 1792579030-1792579090` {
 		t.Errorf("query %q", query)
 	}
 	cpu := got["cpu_pct"]

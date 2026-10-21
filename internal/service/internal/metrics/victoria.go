@@ -111,12 +111,18 @@ func (v *Victoria) Query(ctx context.Context, key string, from, to time.Time, st
 	if step < time.Second {
 		step = time.Second
 	}
+	step = step.Truncate(time.Second)
 	s := strconv.FormatInt(int64(step/time.Second), 10) + "s"
+	// VictoriaMetrics rounds start and end to the step for its cache, which
+	// drops the newest bucket; nocache keeps them, and start sits a whole
+	// number of steps before end so the last bucket ends now.
+	from = to.Add(-to.Sub(from).Truncate(step))
 	q := url.Values{
-		"query": {"avg_over_time({key=" + strconv.Quote(key) + "}[" + s + "]) keep_metric_names"},
-		"start": {strconv.FormatInt(from.Unix(), 10)},
-		"end":   {strconv.FormatInt(to.Unix(), 10)},
-		"step":  {s},
+		"query":   {"avg_over_time({key=" + strconv.Quote(key) + "}[" + s + "]) keep_metric_names"},
+		"start":   {strconv.FormatInt(from.Unix(), 10)},
+		"end":     {strconv.FormatInt(to.Unix(), 10)},
+		"step":    {s},
+		"nocache": {"1"},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.URL+"/api/v1/query_range?"+q.Encode(), nil)
 	if err != nil {
