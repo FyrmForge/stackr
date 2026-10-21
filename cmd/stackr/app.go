@@ -381,13 +381,17 @@ func (a *app) show(v any, cols ...string) error {
 	return nil
 }
 
-// cell is a column's value as shown: a *_at time on this machine's clock.
+// cell is a column's value as shown: a time (*_at, next_run) on this
+// machine's clock.
 func (a *app) cell(col string, v any) string {
-	if strings.HasSuffix(col, "_at") {
-		return a.stamp(cell(v), "2006-01-02 15:04:05 MST")
+	if strings.HasSuffix(col, "_at") || col == "next_run" {
+		return a.stamp(cell(v), stampLayout)
 	}
 	return cell(v)
 }
+
+// stampLayout is how a table spells a time: the zone named.
+const stampLayout = "2006-01-02 15:04:05 MST"
 
 // stamp is an API time (RFC 3339) in layout, in this machine's zone or in
 // UTC under --utc; anything else comes back as it is.

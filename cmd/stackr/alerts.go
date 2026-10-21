@@ -32,7 +32,7 @@ func (a *app) alerts() *cobra.Command {
 			if d["ok"] == true {
 				s = "ok"
 			}
-			out["last delivery"] = s + " " + cell(d["at"])
+			out["last delivery"] = s + " " + a.stamp(cell(d["at"]), stampLayout)
 		}
 		return a.show(out, "url", "secret", "last delivery")
 	})
