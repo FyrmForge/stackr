@@ -297,6 +297,27 @@ var Catalogue = []Knob{
 		Scopes:  Flat,
 		Desc:    "GB of disk the logs may use; the oldest days go first",
 	},
+	{
+		Key:     "observe_access_query",
+		Type:    TBool,
+		Default: "false",
+		Scopes:  Flat,
+		Desc:    "keep the query string in access logs",
+	},
+	{
+		Key:     "observe_access_ip",
+		Type:    TBool,
+		Default: "true",
+		Scopes:  Flat,
+		Desc:    "keep the client address in access logs",
+	},
+	{
+		Key:     "observe_access_headers",
+		Type:    TBool,
+		Default: "false",
+		Scopes:  Flat,
+		Desc:    "keep all request headers in access logs, cookies and Authorization included; off keeps User-Agent only",
+	},
 
 	{
 		Key:    "alert_webhook_url",

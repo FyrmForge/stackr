@@ -22,6 +22,12 @@ func (h *handler) mountObserve(g *echo.Group, a *middleware.Access) {
 		if c.FormValue("observe_logs_enabled") != "" {
 			logs = "true"
 		}
+		flag := func(k string) string {
+			if c.FormValue(k) != "" {
+				return "true"
+			}
+			return "false"
+		}
 		return "Saved.", nil, h.orch.SetSettings(c.Request().Context(), map[string]string{
 			"observe_enabled":           on,
 			"observe_metrics_retention": c.FormValue("observe_metrics_retention"),
@@ -29,6 +35,9 @@ func (h *handler) mountObserve(g *echo.Group, a *middleware.Access) {
 			"observe_logs_enabled":      logs,
 			"observe_logs_retention":    c.FormValue("observe_logs_retention"),
 			"observe_logs_max_size":     c.FormValue("observe_logs_max_size"),
+			"observe_access_query":      flag("observe_access_query"),
+			"observe_access_ip":         flag("observe_access_ip"),
+			"observe_access_headers":    flag("observe_access_headers"),
 		})
 	}), a.Require("serverdefaults.set"))
 }
@@ -49,6 +58,8 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 		LogsEnabled: s.LogsEnabled,
 		LogsDays:    strconv.Itoa(s.LogsDays),
 		LogsMax:     strconv.FormatUint(s.LogsMaxBytes>>30, 10),
+
+		AccessQuery: s.AccessQuery, AccessIP: s.AccessIP, AccessHeaders: s.AccessHeaders,
 	}
 	switch {
 	case s.Container == "running":

@@ -95,6 +95,11 @@ func goldens() []golden {
 		},
 	}}
 
+	logged := install
+	logged.AccessLog, logged.AccessIP = true, true
+	everything := logged
+	everything.AccessQuery, everything.AccessHeaders = true, true
+
 	fa := &domain.ForwardAuth{URL: "https://auth.example.com/api/verify"}
 	return []golden{
 		{"forward_auth", install, one(row("app.example.com", domain.Extras{ForwardAuth: fa}))},
@@ -102,6 +107,8 @@ func goldens() []golden {
 			ForwardAuth: &domain.ForwardAuth{URL: "http://authelia:9091", CopyHeaders: []string{"X-User"}},
 			BasicAuth:   &domain.BasicAuth{User: "u", Password: "${{ secrets.web.pw }}"},
 		}))},
+		{"access_log", logged, one(row("app.example.com", domain.Extras{}))},
+		{"access_log_all", everything, one(row("app.example.com", domain.Extras{}))},
 		{"plain", install, one(row("app.example.com", domain.Extras{}))},
 		{"basic_auth", install, one(row("app.example.com", domain.Extras{
 			BasicAuth: &domain.BasicAuth{User: "u", Password: "${{ secrets.web.pw }}"},
@@ -230,4 +237,56 @@ func TestBrokenTileLeftOut(t *testing.T) {
 	if _, err := domain.Build(domain.Install{}, nil, nil, nil); err == nil {
 		t.Error("a config without the admin listener built")
 	}
+}
+
+// Access logs are off unless asked for; by default they drop the query
+// string, every request header (User-Agent returns as its own field) and
+// keep the client address; each flag flips its own part.
+func TestAccessLogFilters(t *testing.T) {
+	build := func(mod func(*domain.Install)) string {
+		in := install
+		in.AccessLog, in.AccessIP = true, true
+		mod(&in)
+		cfg, err := domain.Build(in, one(row("app.example.com", domain.Extras{})), nil, expand)
+		must(t, err)
+		return strings.ReplaceAll(string(cfg), `\u003e`, ">") // json escapes >
+	}
+	has := func(t *testing.T, cfg, s string, want bool) {
+		t.Helper()
+		if strings.Contains(cfg, s) != want {
+			t.Errorf("contains %s = %v, want %v", s, !want, want)
+		}
+	}
+	const (
+		query   = `"request>uri":{"filter":"regexp"`
+		headers = `"request>headers":{"filter":"delete"}`
+		ip      = `"request>client_ip":{"filter":"delete"}`
+		ua      = `"key":"user_agent"`
+	)
+	t.Run("off", func(t *testing.T) {
+		cfg, err := domain.Build(install, one(row("app.example.com", domain.Extras{})), nil, expand)
+		must(t, err)
+		has(t, string(cfg), `"logging"`, false)
+		has(t, string(cfg), `"logs"`, false)
+	})
+	t.Run("defaults", func(t *testing.T) {
+		cfg := build(func(*domain.Install) {})
+		has(t, cfg, `"include":["http.log.access"]`, true)
+		has(t, cfg, query, true)
+		has(t, cfg, headers, true)
+		has(t, cfg, ua, true)
+		has(t, cfg, ip, false)
+		has(t, cfg, `"logs":{}`, true)
+	})
+	t.Run("query", func(t *testing.T) {
+		has(t, build(func(in *domain.Install) { in.AccessQuery = true }), query, false)
+	})
+	t.Run("headers", func(t *testing.T) {
+		cfg := build(func(in *domain.Install) { in.AccessHeaders = true })
+		has(t, cfg, headers, false)
+		has(t, cfg, ua, false)
+	})
+	t.Run("no ip", func(t *testing.T) {
+		has(t, build(func(in *domain.Install) { in.AccessIP = false }), ip, true)
+	})
 }

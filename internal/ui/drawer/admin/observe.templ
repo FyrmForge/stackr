@@ -13,6 +13,7 @@ type ObserveView struct {
 	LogsEnabled        bool
 	LogsDays, LogsMax  string // days, GB
 	LogsData           string // "" = unknown
+	AccessQuery, AccessIP, AccessHeaders bool
 	Err                string
 }
 
@@ -27,6 +28,9 @@ templ Observe(v ObserveView) {
 					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_logs_enabled" name="observe_logs_enabled" value="1" checked?={ v.LogsEnabled } class="accent-rw-accent"/> Keep logs</label>
 					@c.Field(c.FieldView{Name: "observe_logs_retention", Label: "Logs retention (days)", Type: "number", Value: v.LogsDays, Help: "Older lines are deleted."})
 					@c.Field(c.FieldView{Name: "observe_logs_max_size", Label: "Logs size cap (GB)", Type: "number", Value: v.LogsMax, Help: "The oldest days go first."})
+					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_access_ip" name="observe_access_ip" value="1" checked?={ v.AccessIP } class="accent-rw-accent"/> Access logs: client IP</label>
+					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_access_query" name="observe_access_query" value="1" checked?={ v.AccessQuery } class="accent-rw-accent"/> Access logs: query string</label>
+					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_access_headers" name="observe_access_headers" value="1" checked?={ v.AccessHeaders } class="accent-rw-accent"/> Access logs: all headers</label>
 					<button type="submit" class="btn btn-primary btn-sm">Save</button>
 				</form>
 			}

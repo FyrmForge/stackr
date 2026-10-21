@@ -3752,6 +3752,15 @@
       },
       "ObserveStatus": {
         "properties": {
+          "access_headers": {
+            "type": "boolean"
+          },
+          "access_ip": {
+            "type": "boolean"
+          },
+          "access_query": {
+            "type": "boolean"
+          },
           "container": {
             "type": "string"
           },
@@ -3796,6 +3805,9 @@
           "logs_enabled",
           "logs_retention_days",
           "logs_max_bytes",
+          "access_query",
+          "access_ip",
+          "access_headers",
           "container",
           "data_bytes",
           "logs_bytes",

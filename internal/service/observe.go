@@ -42,6 +42,8 @@ type observeKnobs struct {
 	logs     bool   // logs are kept too (needs on)
 	logsDays int
 	logsMax  uint64 // bytes
+
+	accessQuery, accessIP, accessHeaders bool // what access logs keep
 }
 
 func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
@@ -70,6 +72,11 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 	}
 	gb, err = o.settings.Int(ctx, "observe_logs_max_size")
 	k.logsMax = uint64(gb) << 30
+	for key, p := range map[string]*bool{"observe_access_query": &k.accessQuery,
+		"observe_access_ip": &k.accessIP, "observe_access_headers": &k.accessHeaders} {
+		v, _ := o.settings.Get(ctx, key)
+		*p, _ = strconv.ParseBool(v)
+	}
 	return k, err
 }
 
@@ -246,7 +253,10 @@ type ObserveStatus struct {
 	LogsEnabled   bool   `json:"logs_enabled"`
 	LogsDays      int    `json:"logs_retention_days"`
 	LogsMaxBytes  uint64 `json:"logs_max_bytes"`
-	Container     string `json:"container"` // docker state, "" = none
+	AccessQuery   bool   `json:"access_query"`   // access logs keep the query string
+	AccessIP      bool   `json:"access_ip"`      // ... the client address
+	AccessHeaders bool   `json:"access_headers"` // ... every request header
+	Container     string `json:"container"`      // docker state, "" = none
 	DataBytes     uint64 `json:"data_bytes"`
 	LogsBytes     uint64 `json:"logs_bytes"`
 	DiskFree      uint64 `json:"disk_free"`
@@ -262,7 +272,8 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 		return ObserveStatus{}, err
 	}
 	s := ObserveStatus{Enabled: k.on, RetentionDays: k.days, MinFreeBytes: k.minFree,
-		LogsEnabled: k.logs, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax}
+		LogsEnabled: k.logs, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax,
+		AccessQuery: k.accessQuery, AccessIP: k.accessIP, AccessHeaders: k.accessHeaders}
 	if p := o.observe.lastErr.Load(); p != nil {
 		s.Error = *p
 	}

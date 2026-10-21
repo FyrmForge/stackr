@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,9 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 		TrustedProxies: splitList(get("trusted_proxies")),
 		Custom:         get("proxy_custom"),
 	}
+	on := func(k string) bool { b, _ := strconv.ParseBool(get(k)); return b }
+	in.AccessLog = on("observe_enabled") && on("observe_logs_enabled")
+	in.AccessQuery, in.AccessIP, in.AccessHeaders = on("observe_access_query"), on("observe_access_ip"), on("observe_access_headers")
 	rs, err := o.domainres.ListAll(ctx)
 	if err != nil {
 		return nil, err

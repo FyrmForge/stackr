@@ -50,6 +50,12 @@ type Install struct {
 	// HTTPS, it answers ProbeID (BuildNode sets it to the node's id), so a
 	// request from outside tells which node a NAT forwards to. "" = none.
 	Probe, ProbeID string
+	// AccessLog turns on JSON access logs to stdout (logger http.log.access)
+	// for the tile-serving servers. By default the line carries no query
+	// string, no headers but User-Agent, and the client address; the three
+	// flags below put those parts back or take the address away.
+	AccessLog                            bool
+	AccessQuery, AccessIP, AccessHeaders bool
 }
 
 // Account is a domain resource that names its own ACME email. A host
@@ -178,12 +184,12 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		}
 	}
 
-	servers := route{"http": server(":80", plain, in.TrustedProxies, httpTail)}
+	servers := route{"http": server(":80", plain, in.TrustedProxies, httpTail, in)}
 	// per_host: requests, status codes and latency per host on the admin
 	// API's /metrics, which the panel's sampler turns into tile traffic.
 	apps := route{"http": route{"servers": servers, "metrics": route{"per_host": true}}}
 	if tlsOn {
-		servers["https"] = server(":443", secure, in.TrustedProxies, custom)
+		servers["https"] = server(":443", secure, in.TrustedProxies, custom, in)
 		servers["https"].(route)["automatic_https"] = route{"disable_redirects": true}
 		if wrapper != nil {
 			// The layer4 wrapper reads the SNI before TLS terminates; the
@@ -194,7 +200,11 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 	} else {
 		servers["http"].(route)["automatic_https"] = route{"disable": true}
 	}
-	out, err := json.Marshal(route{"admin": route{"listen": in.AdminListen}, "apps": apps})
+	cfg := route{"admin": route{"listen": in.AdminListen}, "apps": apps}
+	if in.AccessLog {
+		cfg["logging"] = accessLogging(in)
+	}
+	out, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +275,7 @@ func BuildAll(in Install, tiles []TileRoute, routes []NodeRoute, expand Expand) 
 
 // server orders routes the way Caddy needs them (it takes the first match):
 // the panel first, exact hosts before wildcards, longer paths first.
-func server(listen string, rs []placed, trusted []string, tail []json.RawMessage) route {
+func server(listen string, rs []placed, trusted []string, tail []json.RawMessage, in Install) route {
 	sort.SliceStable(rs, func(i, j int) bool {
 		a, b := rs[i], rs[j]
 		if (a.host == "") != (b.host == "") {
@@ -282,9 +292,15 @@ func server(listen string, rs []placed, trusted []string, tail []json.RawMessage
 		}
 		return a.path < b.path
 	})
-	routes := make([]any, len(rs))
-	for i, r := range rs {
-		routes[i] = r.r
+	var routes []any
+	if in.AccessLog && !in.AccessHeaders {
+		// The filter below drops every request header; User-Agent comes back
+		// as its own field.
+		routes = append(routes, route{"handle": []route{{"handler": "log_append", "key": "user_agent",
+			"value": "{http.request.header.User-Agent}", "early": true}}})
+	}
+	for _, r := range rs {
+		routes = append(routes, r.r)
 	}
 	for _, r := range tail {
 		routes = append(routes, r) // after ours: the first match wins
@@ -293,10 +309,37 @@ func server(listen string, rs []placed, trusted []string, tail []json.RawMessage
 	// challenges are answered before the routes run.
 	routes = append(routes, route{"handle": []route{{"handler": "static_response", "status_code": 404}}})
 	s := route{"listen": []string{listen}, "routes": routes}
+	if in.AccessLog {
+		s["logs"] = route{} // switches the server's access log on
+	}
 	if ranges := dedup(ExpandProxies(trusted, false)); len(ranges) > 0 {
 		s["trusted_proxies"] = route{"source": "static", "ranges": ranges}
 	}
 	return s
+}
+
+// accessLogging is the logging config: the access log to stdout as JSON,
+// through a filter that strips what the Install does not keep. Cookie,
+// Authorization and the like are headers, so they go with them.
+func accessLogging(in Install) route {
+	fields := route{}
+	if !in.AccessQuery {
+		fields["request>uri"] = route{"filter": "regexp", "regexp": `\?.*$`, "value": ""}
+	}
+	if !in.AccessHeaders {
+		fields["request>headers"] = route{"filter": "delete"}
+		fields["resp_headers"] = route{"filter": "delete"}
+	}
+	if !in.AccessIP {
+		for _, k := range []string{"remote_ip", "remote_port", "client_ip"} {
+			fields["request>"+k] = route{"filter": "delete"}
+		}
+	}
+	return route{"logs": route{"default": route{"exclude": []string{"http.log.access"}}, "access": route{
+		"writer":  route{"output": "stdout"},
+		"encoder": route{"format": "filter", "wrap": route{"format": "json"}, "fields": fields},
+		"include": []string{"http.log.access"},
+	}}}
 }
 
 // customRoutes is proxy_custom as routes. "" is none; anything but a JSON
