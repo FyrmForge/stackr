@@ -55,23 +55,15 @@ function human(v, unit, more = 0) {
 export function fmt(v, unit, more = 0) {
     if (v == null)
         return "-";
-    switch (unit) {
-        case "pct":
-            return `${v.toFixed(1 + more)}%`;
-        case "ratio":
-            return `${(v * 100).toFixed(1 + more)}%`;
-        case "ms":
-            return `${v.toFixed(1 + more)} ms`;
-        case "bytes":
-            return human(v, "", more);
-        case "bps":
-            return human(v, "/s", more);
-        case "rps":
-            return `${v < 10 || more ? v.toFixed(2 + more) : Math.round(v)}/s`;
-        case "s":
-            return `${v < 10 || more ? v.toFixed(1 + more) : Math.round(v)} s`;
-    }
-    return v.toFixed(1 + more);
+    const d = (n) => v.toFixed(n + more);
+    const big = v >= 10 && !more;
+    if (unit === "bytes" || unit === "bps")
+        return human(v, unit === "bps" ? "/s" : "", more);
+    if (unit === "rps")
+        return `${big ? Math.round(v) : d(2)}/s`;
+    if (unit === "s")
+        return `${big ? Math.round(v) : d(1)} s`;
+    return { pct: `${d(1)}%`, ratio: `${(v * 100).toFixed(1 + more)}%`, ms: `${d(1)} ms` }[unit] ?? d(1);
 }
 export function ticks(vs, unit) {
     let out = vs.map((v) => fmt(v, unit));

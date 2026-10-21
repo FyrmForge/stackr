@@ -81,23 +81,12 @@ function human(v: number, unit: string, more = 0): string {
 // otherwise read the same).
 export function fmt(v: number | null, unit: string, more = 0): string {
   if (v == null) return "-";
-  switch (unit) {
-    case "pct":
-      return `${v.toFixed(1 + more)}%`;
-    case "ratio":
-      return `${(v * 100).toFixed(1 + more)}%`;
-    case "ms":
-      return `${v.toFixed(1 + more)} ms`;
-    case "bytes":
-      return human(v, "", more);
-    case "bps":
-      return human(v, "/s", more);
-    case "rps":
-      return `${v < 10 || more ? v.toFixed(2 + more) : Math.round(v)}/s`;
-    case "s":
-      return `${v < 10 || more ? v.toFixed(1 + more) : Math.round(v)} s`;
-  }
-  return v.toFixed(1 + more);
+  const d = (n: number): string => v.toFixed(n + more);
+  const big = v >= 10 && !more;
+  if (unit === "bytes" || unit === "bps") return human(v, unit === "bps" ? "/s" : "", more);
+  if (unit === "rps") return `${big ? Math.round(v) : d(2)}/s`;
+  if (unit === "s") return `${big ? Math.round(v) : d(1)} s`;
+  return ({ pct: `${d(1)}%`, ratio: `${(v * 100).toFixed(1 + more)}%`, ms: `${d(1)} ms` } as Record<string, string>)[unit] ?? d(1);
 }
 
 // ticks are an axis's labels: as few decimals as keep every tick distinct.
