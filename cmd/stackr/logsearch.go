@@ -71,7 +71,7 @@ func (a *app) logSearch() *cobra.Command {
 	c.Flags().StringVar(&source, "source", "", "app, access, run or build")
 	c.Flags().StringVar(&stream, "stream", "", "stdout or stderr")
 	c.Flags().StringVar(&run, "run", "", "a cron or function run's id")
-	c.Flags().StringVar(&since, "since", "1h", "how far back, up to 168h (like 15m, 6h, 24h)")
+	c.Flags().StringVar(&since, "since", "1h", "how far back, up to 7d (like 15m, 6h, 24h, 7d)")
 	c.Example = "  stackr logs search --env prod --tile api --source access 500"
 	return c
 }
@@ -83,7 +83,10 @@ func (a *app) logPurge() *cobra.Command {
 			if err := a.confirm("Delete all kept logs of " + last(p) + "? Live logs of running tiles are not touched."); err != nil {
 				return err
 			}
-			_, err := a.call(DELETE, p+"/logs", nil)
-			return err
+			if _, err := a.call(DELETE, p+"/logs", nil); err != nil {
+				return err
+			}
+			a.say("deleted the kept logs of %s", last(p))
+			return nil
 		}))
 }

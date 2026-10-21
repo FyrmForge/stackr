@@ -18,7 +18,8 @@ import (
 
 // Observability: the optional stackr-observe container (VictoriaMetrics)
 // keeps metrics history past the in-memory 24 h. The sampler writes to
-// memory always and to it when on; reads past 24 h go to it.
+// memory always and to it when on; reads past 24 h go to it, and so does a
+// read from before memory began (a restarted panel holds no older points).
 
 type observeState struct {
 	on      atomic.Bool
@@ -30,6 +31,7 @@ type observeState struct {
 	vl      *metrics.Victoria // VictoriaLogs, data size only until the log store lands
 	vlOnce  sync.Once
 	labels  sync.Map // tile id -> its labels
+	memFrom atomic.Int64 // unix ns of memory's first write; 0 = none yet
 }
 
 // ObserveOn says whether metrics history is on (observe_enabled).
@@ -206,6 +208,7 @@ func (s tieredStore) Write(ctx context.Context, ps []metrics.Point) error {
 	if err := s.mem.Write(ctx, ps); err != nil {
 		return err
 	}
+	s.o.observe.memFrom.CompareAndSwap(0, time.Now().UnixNano())
 	if !s.o.ObserveOn() {
 		return nil
 	}
@@ -225,7 +228,7 @@ func (s tieredStore) Write(ctx context.Context, ps []metrics.Point) error {
 }
 
 func (s tieredStore) Query(ctx context.Context, key string, from, to time.Time, step time.Duration) (map[string][]metrics.Sample, error) {
-	if s.o.ObserveOn() && to.Sub(from) > MetricsKeep {
+	if s.o.ObserveOn() && (to.Sub(from) > MetricsKeep || from.UnixNano() < s.o.observe.memFrom.Load()) {
 		if out, err := s.o.victoria().Query(ctx, key, from, to, step); err == nil {
 			return out, nil
 		}

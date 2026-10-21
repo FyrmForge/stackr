@@ -12,8 +12,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// With history on, writes reach both stores, a read past 24 h goes to
-// VictoriaMetrics and falls back to memory when it fails, and the longest
+// With history on, writes reach both stores, a read past 24 h or from
+// before memory began (a restarted panel) goes to VictoriaMetrics and falls
+// back to memory when it fails, and the longest
 // read is the retention. observe.disk fires once per crossing of twice the
 // free-space floor.
 func TestObserveRouting(t *testing.T) {
@@ -55,8 +56,12 @@ func TestObserveRouting(t *testing.T) {
 		}
 		return s["cpu_pct"][0].V
 	}
+	if v := read(time.Hour); v != 7 {
+		t.Errorf("1h read on a panel up for seconds from %v, want victoria", v)
+	}
+	o.observe.memFrom.Store(now.Add(-2 * time.Hour).UnixNano())
 	if v := read(time.Hour); v != 3 {
-		t.Errorf("1h read from %v, want memory", v)
+		t.Errorf("1h read on a panel up for 2h from %v, want memory", v)
 	}
 	if v := read(7 * 24 * time.Hour); v != 7 {
 		t.Errorf("7d read from %v, want victoria", v)

@@ -239,10 +239,10 @@ templ Metrics(v View, m c.MetricsView) {
 	<div id="tab-metrics">
 		@c.Metrics(m) {
 			if v.Kind == "cron" || v.Kind == "function" {
-				@c.Chart(m, "Run duration", "run_s", "", "s")
-				@c.Chart(m, "Peak memory", "run_mem_peak", "", "bytes")
-				@c.Chart(m, "CPU", "run_cpu_s", "", "s")
-				@c.Chart(m, "Failure rate", "run_failed", "", "ratio")
+				@c.Chart(m, "Run duration", "run_s", "duration", "s")
+				@c.Chart(m, "Peak memory", "run_mem_peak", "peak", "bytes")
+				@c.Chart(m, "CPU", "run_cpu_s", "cpu time", "s")
+				@c.Chart(m, "Failure rate", "run_failed", "failed", "ratio")
 			} else {
 				@c.Chart(m, "CPU", "cpu_pct", "", "pct")
 				@c.Chart(m, "Memory", "mem", "", "bytes")

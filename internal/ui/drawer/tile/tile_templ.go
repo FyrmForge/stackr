@@ -1060,7 +1060,7 @@ func Metrics(v View, m c.MetricsView) templ.Component {
 			}
 			ctx = templ.InitializeContext(ctx)
 			if v.Kind == "cron" || v.Kind == "function" {
-				templ_7745c5c3_Err = c.Chart(m, "Run duration", "run_s", "", "s").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Chart(m, "Run duration", "run_s", "duration", "s").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1068,7 +1068,7 @@ func Metrics(v View, m c.MetricsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Chart(m, "Peak memory", "run_mem_peak", "", "bytes").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Chart(m, "Peak memory", "run_mem_peak", "peak", "bytes").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1076,7 +1076,7 @@ func Metrics(v View, m c.MetricsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Chart(m, "CPU", "run_cpu_s", "", "s").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Chart(m, "CPU", "run_cpu_s", "cpu time", "s").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1084,7 +1084,7 @@ func Metrics(v View, m c.MetricsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Chart(m, "Failure rate", "run_failed", "", "ratio").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Chart(m, "Failure rate", "run_failed", "failed", "ratio").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
