@@ -29,13 +29,17 @@ func (d *Client) Logs(ctx context.Context, id string, tail int) (string, error) 
 }
 
 func (d *Client) logs(ctx context.Context, id string, tail int, follow bool) (io.ReadCloser, error) {
-	rc, err := d.cli.ContainerLogs(ctx, id, container.LogsOptions{
+	opts := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     follow,
 		Timestamps: follow,
 		Tail:       strconv.Itoa(tail),
-	})
+	}
+	if t, ok := ctx.Value(logsSinceKey{}).(time.Time); ok {
+		opts.Since, opts.Tail = t.UTC().Format(time.RFC3339Nano), "all"
+	}
+	rc, err := d.cli.ContainerLogs(ctx, id, opts)
 	return rc, wrap(err)
 }
 

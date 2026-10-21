@@ -285,6 +285,7 @@ type Orchestrator struct {
 	upgradeLaunched atomic.Int64
 	metrics         metricsState
 	observe         observeState                          // stackr-observe, metrics history (observe.go)
+	logship         logShip                               // container, access and run logs to the log store (logship.go)
 	caddyMetrics    func(context.Context) ([]byte, error) // the controller's Caddy /metrics, nil in tests
 	localWorker     *worker.Server                        // the controller's own node in the mesh, nil on a fake host
 	rotation        rotation                              // mesh key rotation (rotate.go)
@@ -504,6 +505,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles.Early = orch.earlyLan
 	orch.tiles.Node = orch.envNode
 	orch.tiles.Pin = orch.pinVIP
+	orch.tiles.Ship = orch.shipRun
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.regs = build("leaf/registry", func() *registry.Leaf { return registry.New(st.RegistryImages, installspec.RegistrySocket(cfg.DataDir)) })
 	orch.conns = build("leaf/connector", func() *connector.Leaf {
@@ -717,6 +719,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Cron:     orch.scheduleCron,
 			Traffic:  orch.trafficTick,
 			Metrics:  orch.metricsTick,
+			Logs:     orch.logshipTick,
 		})
 	})
 

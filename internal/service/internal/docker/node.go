@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"time"
 )
 
 type nodeKey struct{}
@@ -104,4 +105,12 @@ func EnsureReserved(
 		tried = append(tried, p)
 	}
 	return netip.Prefix{}, taken
+}
+
+type logsSinceKey struct{}
+
+// WithLogsSince makes a log read start at t (and take every line from there,
+// whatever its tail). It rides in ctx so the Docker interface stays as it is.
+func WithLogsSince(ctx context.Context, t time.Time) context.Context {
+	return context.WithValue(ctx, logsSinceKey{}, t)
 }

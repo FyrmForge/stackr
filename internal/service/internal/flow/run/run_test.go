@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -182,6 +183,27 @@ func TestRunMeasured(t *testing.T) {
 	}
 	if len(got["run_s"]) != 1 {
 		t.Errorf("run_s = %v", got["run_s"])
+	}
+}
+
+// Each line of a run goes to the log shipper with the run's id.
+func TestRunShipsLines(t *testing.T) {
+	f, fake, sweep := setup(t)
+	fake.StreamOut = []string{"O 2026-10-21T10:00:00Z hello", "E 2026-10-21T10:00:01Z boom"}
+	var mu sync.Mutex
+	var got []string
+	f.Tiles.Ship = func(tl store.Tile, runID, line string) {
+		mu.Lock()
+		got = append(got, tl.ID+"|"+runID+"|"+line)
+		mu.Unlock()
+	}
+	r := queue(t, f, sweep.ID)
+	must(t, f.Do(ctx, r.ID, io.Discard))
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{sweep.ID + "|" + r.ID + "|O 2026-10-21T10:00:00Z hello", sweep.ID + "|" + r.ID + "|E 2026-10-21T10:00:01Z boom"}
+	if !slices.Equal(got, want) {
+		t.Errorf("shipped %q, want %q", got, want)
 	}
 }
 

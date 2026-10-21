@@ -200,6 +200,9 @@ func (l *Leaf) RunOnce(
 		defer close(copied)
 		for s := range lines {
 			_, _ = io.WriteString(log, s+"\n")
+			if l.Ship != nil {
+				l.Ship(t, runID, s)
+			}
 		}
 	}()
 	var use docker.Usage
