@@ -86,7 +86,7 @@ func TestMetricsIngest(t *testing.T) {
 // A read is clamped to what the store keeps; no range is an hour.
 func TestMetricsWindow(t *testing.T) {
 	for in, want := range map[time.Duration]time.Duration{0: time.Hour, 6 * time.Hour: 6 * time.Hour, 720 * time.Hour: MetricsKeep} {
-		from, to, step := MetricsIn{Range: in}.window()
+		from, to, step := MetricsIn{Range: in}.window(MetricsKeep)
 		if got := to.Sub(from); got != want {
 			t.Errorf("range %v reads %v, want %v", in, got, want)
 		}

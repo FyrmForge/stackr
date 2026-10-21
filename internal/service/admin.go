@@ -274,6 +274,12 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 	if reload {
 		o.sched.Reload(ctx)
 	}
+	if slices.ContainsFunc(keys, func(k string) bool { return strings.HasPrefix(k, "observe_") }) {
+		if k, err := o.observeKnobs(ctx); err == nil {
+			o.observe.on.Store(k.on)
+		}
+		o.startSyncObserve() // a first pull takes a while; the tab shows how it went
+	}
 	err := o.sync.Sync(ctx)
 	if p, ok := vals["panel_domain"]; ok && p != panelWas {
 		// GitHub Apps keep the webhook URL they were made with; a failure is

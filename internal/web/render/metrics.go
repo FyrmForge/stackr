@@ -22,6 +22,7 @@ func MetricsLive(orch *service.Orchestrator, body any, rng, reload, events strin
 		Reload: reload,
 		Events: events + "?after=" + strconv.FormatInt(orch.MetricsSeq(), 10),
 		Pick:   func(measures string) any { return pick(body, strings.Fields(measures)) },
+		Long:   orch.ObserveOn(),
 	}
 }
 

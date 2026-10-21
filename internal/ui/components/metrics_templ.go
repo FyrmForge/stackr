@@ -19,12 +19,33 @@ import (
 // MetricRanges are the ranges a metrics view offers, the first the default.
 var MetricRanges = []string{"1h", "6h", "24h"}
 
+// LongRanges are offered too while metrics history is on (Go durations, so
+// every reader parses them; rangeLabel names them).
+var LongRanges = []string{"168h", "720h"}
+
 // MetricRange is the asked range when it is one on offer, else the default.
 func MetricRange(r string) string {
-	if slices.Contains(MetricRanges, r) {
+	if slices.Contains(MetricRanges, r) || slices.Contains(LongRanges, r) {
 		return r
 	}
 	return MetricRanges[0]
+}
+
+func ranges(long bool) []string {
+	if long {
+		return append(slices.Clone(MetricRanges), LongRanges...)
+	}
+	return MetricRanges
+}
+
+func rangeLabel(r string) string {
+	switch r {
+	case "168h":
+		return "7d"
+	case "720h":
+		return "30d"
+	}
+	return r
 }
 
 // WithRange is u with ?range=r set.
@@ -42,9 +63,11 @@ func WithRange(u, r string) string {
 // MetricsView is a live metrics view. Pick is one chart's window (its
 // measures, space separated), written into the page; Events streams each
 // sampler round's new points; Reload is the view's GET without ?range=.
+// Long offers LongRanges (metrics history is on).
 type MetricsView struct {
 	Range, Reload, Events string
 	Pick                  func(measures string) any
+	Long                  bool
 }
 
 // seconds is the range for the charts' trim.
@@ -85,7 +108,7 @@ func Metrics(v MetricsView) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(v.Events)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 56, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 79, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -98,7 +121,7 @@ func Metrics(v MetricsView) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(WithRange(v.Reload, v.Range))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 57, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 80, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -111,7 +134,7 @@ func Metrics(v MetricsView) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs("#" + DrawerRoot)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 58, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 81, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -121,7 +144,7 @@ func Metrics(v MetricsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = RangePicker(v.Reload, v.Range).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = RangePicker(v.Reload, v.Range, v.Long).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -138,7 +161,7 @@ func Metrics(v MetricsView) templ.Component {
 }
 
 // RangePicker reloads the drawer view at reload with another ?range=.
-func RangePicker(reload, cur string) templ.Component {
+func RangePicker(reload, cur string, long bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -163,7 +186,7 @@ func RangePicker(reload, cur string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, r := range MetricRanges {
+		for _, r := range ranges(long) {
 			var templ_7745c5c3_Var6 = []any{"btn btn-sm", templ.KV("btn-primary", r == cur), templ.KV("btn-ghost", r != cur)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var6...)
 			if templ_7745c5c3_Err != nil {
@@ -176,7 +199,7 @@ func RangePicker(reload, cur string) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(WithRange(reload, r))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 73, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 96, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -189,7 +212,7 @@ func RangePicker(reload, cur string) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs("#" + DrawerRoot)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 74, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 97, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -202,7 +225,7 @@ func RangePicker(reload, cur string) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(r == cur))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 76, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 99, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -226,9 +249,9 @@ func RangePicker(reload, cur string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(r)
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(rangeLabel(r))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 78, Col: 7}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 101, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -278,7 +301,7 @@ func Chart(v MetricsView, title, measures, labels, unit string) templ.Component 
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 88, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 111, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -291,7 +314,7 @@ func Chart(v MetricsView, title, measures, labels, unit string) templ.Component 
 		var templ_7745c5c3_Var14 string
 		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(measures)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 89, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 112, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
@@ -304,7 +327,7 @@ func Chart(v MetricsView, title, measures, labels, unit string) templ.Component 
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(labels)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 89, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 112, Col: 76}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -317,7 +340,7 @@ func Chart(v MetricsView, title, measures, labels, unit string) templ.Component 
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(unit)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 89, Col: 90}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 112, Col: 90}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -330,7 +353,7 @@ func Chart(v MetricsView, title, measures, labels, unit string) templ.Component 
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(v.seconds())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 89, Col: 112}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/metrics.templ`, Line: 112, Col: 112}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {

@@ -11,12 +11,33 @@ import (
 // MetricRanges are the ranges a metrics view offers, the first the default.
 var MetricRanges = []string{"1h", "6h", "24h"}
 
+// LongRanges are offered too while metrics history is on (Go durations, so
+// every reader parses them; rangeLabel names them).
+var LongRanges = []string{"168h", "720h"}
+
 // MetricRange is the asked range when it is one on offer, else the default.
 func MetricRange(r string) string {
-	if slices.Contains(MetricRanges, r) {
+	if slices.Contains(MetricRanges, r) || slices.Contains(LongRanges, r) {
 		return r
 	}
 	return MetricRanges[0]
+}
+
+func ranges(long bool) []string {
+	if long {
+		return append(slices.Clone(MetricRanges), LongRanges...)
+	}
+	return MetricRanges
+}
+
+func rangeLabel(r string) string {
+	switch r {
+	case "168h":
+		return "7d"
+	case "720h":
+		return "30d"
+	}
+	return r
 }
 
 // WithRange is u with ?range=r set.
@@ -34,9 +55,11 @@ func WithRange(u, r string) string {
 // MetricsView is a live metrics view. Pick is one chart's window (its
 // measures, space separated), written into the page; Events streams each
 // sampler round's new points; Reload is the view's GET without ?range=.
+// Long offers LongRanges (metrics history is on).
 type MetricsView struct {
 	Range, Reload, Events string
 	Pick                  func(measures string) any
+	Long                  bool
 }
 
 // seconds is the range for the charts' trim.
@@ -59,15 +82,15 @@ templ Metrics(v MetricsView) {
 		hx-swap="outerHTML"
 		hx-trigger="metrics-refill once"
 	>
-		@RangePicker(v.Reload, v.Range)
+		@RangePicker(v.Reload, v.Range, v.Long)
 		{ children... }
 	</div>
 }
 
 // RangePicker reloads the drawer view at reload with another ?range=.
-templ RangePicker(reload, cur string) {
+templ RangePicker(reload, cur string, long bool) {
 	<div class="flex items-center gap-1" role="group" aria-label="Time range">
-		for _, r := range MetricRanges {
+		for _, r := range ranges(long) {
 			<button
 				type="button"
 				hx-get={ WithRange(reload, r) }
@@ -75,7 +98,7 @@ templ RangePicker(reload, cur string) {
 				hx-swap="outerHTML"
 				aria-pressed={ strconv.FormatBool(r == cur) }
 				class={ "btn btn-sm", templ.KV("btn-primary", r == cur), templ.KV("btn-ghost", r != cur) }
-			>{ r }</button>
+			>{ rangeLabel(r) }</button>
 		}
 	</div>
 }

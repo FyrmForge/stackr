@@ -18,7 +18,8 @@ import (
 // MetricsEvery is the metrics sample tick.
 const MetricsEvery = 30 * time.Second
 
-// MetricsKeep is the longest read: the in-memory store keeps 24 h.
+// MetricsKeep is what the in-memory store keeps; reads past it go to
+// stackr-observe when it is on (metricsKeep).
 const MetricsKeep = 24 * time.Hour
 
 // metricsState is the last raw sample per node (counters become rates
@@ -54,7 +55,7 @@ func (o *Orchestrator) metricsStore() metrics.Store {
 	if o.cfg.Metrics == nil {
 		o.cfg.Metrics = &metrics.Memory{}
 	}
-	return o.cfg.Metrics
+	return tieredStore{o, o.cfg.Metrics}
 }
 
 // metricsTick samples every node (8 at a time) and writes the rates, plus the
@@ -322,12 +323,12 @@ type MetricsIn struct {
 	Step  time.Duration
 }
 
-func (in MetricsIn) window() (time.Time, time.Time, time.Duration) {
+func (in MetricsIn) window(keep time.Duration) (time.Time, time.Time, time.Duration) {
 	r := in.Range
 	if r <= 0 {
 		r = time.Hour
 	}
-	r = min(r, MetricsKeep)
+	r = min(r, keep)
 	step := in.Step
 	if step <= 0 {
 		step = max(r/120, MetricsEvery)
@@ -345,7 +346,7 @@ func (o *Orchestrator) NodeMetrics(ctx context.Context, ref string, in MetricsIn
 	if err != nil {
 		return nil, err
 	}
-	from, to, step := in.window()
+	from, to, step := in.window(o.metricsKeep(ctx))
 	return o.metricsStore().Query(ctx, nodeKey(n.ID), from, to, step)
 }
 
@@ -362,7 +363,7 @@ func (o *Orchestrator) LinkMetrics(ctx context.Context, refA, refB string, in Me
 	if a.ID == b.ID {
 		return nil, errs.Invalidf("node", "a link joins two different nodes")
 	}
-	from, to, step := in.window()
+	from, to, step := in.window(o.metricsKeep(ctx))
 	return o.metricsStore().Query(ctx, LinkKey(a.ID, b.ID), from, to, step)
 }
 
@@ -377,7 +378,7 @@ func (o *Orchestrator) TileMetrics(ctx context.Context, tileID string, in Metric
 	if _, err := o.store.Tiles.Get(ctx, tileID); err != nil {
 		return TileMetricsOut{}, err
 	}
-	from, to, step := in.window()
+	from, to, step := in.window(o.metricsKeep(ctx))
 	st := o.metricsStore()
 	t, err := st.Query(ctx, tileKey(tileID), from, to, step)
 	if err != nil {

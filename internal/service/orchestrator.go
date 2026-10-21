@@ -282,6 +282,7 @@ type Orchestrator struct {
 	// panel starts without it (UpgradeUnderway).
 	upgradeLaunched atomic.Int64
 	metrics         metricsState
+	observe         observeState   // stackr-observe, metrics history (observe.go)
 	localWorker     *worker.Server // the controller's own node in the mesh, nil on a fake host
 	rotation        rotation       // mesh key rotation (rotate.go)
 	stopOnce        sync.Once
@@ -789,8 +790,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			orch.controllerLogCap(orch.meshCtx)
 			orch.publishSystemImages(orch.meshCtx)
 		})
+		orch.startSyncObserve() // brings it to this build's version
 	} else {
 		orch.markStackrPublished() // no registry to fill
+		if k, err := orch.observeKnobs(ctx); err == nil {
+			orch.observe.on.Store(k.on)
+		}
 	}
 	return orch, nil
 }

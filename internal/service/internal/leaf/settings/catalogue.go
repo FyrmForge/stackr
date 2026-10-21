@@ -256,6 +256,28 @@ var Catalogue = []Knob{
 	},
 
 	{
+		Key:     "observe_enabled",
+		Type:    TBool,
+		Default: "false",
+		Scopes:  Flat,
+		Desc:    "keep metrics history in the stackr-observe container",
+	},
+	{
+		Key:     "observe_metrics_retention",
+		Type:    TInt,
+		Default: "30",
+		Scopes:  Flat,
+		Desc:    "days of metrics history kept",
+	},
+	{
+		Key:     "observe_min_free",
+		Type:    TInt,
+		Default: "5",
+		Scopes:  Flat,
+		Desc:    "GB of free disk below which metrics stop being written",
+	},
+
+	{
 		Key:    "alert_webhook_url",
 		Type:   TStr,
 		Scopes: Flat,

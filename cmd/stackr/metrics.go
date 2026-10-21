@@ -73,7 +73,7 @@ func metricText(v float64, unit string) string {
 }
 
 func rangeFlag(c *cobra.Command, r *string) {
-	c.Flags().StringVar(r, "range", "1h", "how far back, up to 24h (like 15m, 6h)")
+	c.Flags().StringVar(r, "range", "1h", "how far back, up to 24h, or the history retention when on (like 15m, 6h, 168h)")
 }
 
 // nodeMetrics is a node's host series as a table (server admin).

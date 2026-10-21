@@ -47,6 +47,7 @@ const (
 	AlertCertExpiring = "cert.expiring"
 	AlertDiskLow      = "disk.low"
 	AlertClockSkew    = "clock.skew"
+	AlertObserveDisk  = "observe.disk"
 	AlertTest         = "test"
 )
 
@@ -407,6 +408,36 @@ func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
 	}
 	free, total := o.diskOf(ctx, n.ID)
 	o.diskAlert(ctx, n, free, total)
+	o.observeDiskAlert(ctx, n, free)
+}
+
+const observeAlertKey = "alert.observe.disk"
+
+// observeDiskAlert fires once when observability is on and the controller's
+// free disk falls under twice observe_min_free (VictoriaMetrics stops writing
+// at the floor), and resets when it recovers.
+func (o *Orchestrator) observeDiskAlert(ctx context.Context, n store.Node, free uint64) {
+	if !o.ObserveOn() || free == 0 {
+		return
+	}
+	k, err := o.observeKnobs(ctx)
+	if err != nil {
+		return
+	}
+	_, was, err := o.store.Settings.Get(ctx, observeAlertKey)
+	if err != nil {
+		return
+	}
+	switch low := free < 2*k.minFree; {
+	case low && !was:
+		if err := o.store.Settings.Set(ctx, observeAlertKey, "1"); err != nil {
+			return
+		}
+		o.alert(Alert{Event: AlertObserveDisk, Severity: SevWarning, Node: n.Name, Subject: n.Name,
+			Message: fmt.Sprintf("%s has %s free. Metrics history stops at %s.", n.Name, gb(free), gb(k.minFree))})
+	case !low && was:
+		_ = o.store.Settings.Delete(ctx, observeAlertKey)
+	}
 }
 
 // certStage is "3" under 3 days left (or expired), "14" under 14, "" else.
