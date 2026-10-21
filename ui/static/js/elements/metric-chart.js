@@ -45,33 +45,39 @@ export function align(ls) {
     });
     return [xs, ys];
 }
-function human(v, unit) {
+function human(v, unit, more = 0) {
     for (const [n, s] of [[2 ** 30, "GB"], [2 ** 20, "MB"], [2 ** 10, "KB"]]) {
         if (Math.abs(v) >= n)
-            return `${(v / n).toFixed(1)} ${s}${unit}`;
+            return `${(v / n).toFixed(1 + more)} ${s}${unit}`;
     }
-    return `${Math.round(v)} B${unit}`;
+    return `${v.toFixed(more)} B${unit}`;
 }
-export function fmt(v, unit) {
+export function fmt(v, unit, more = 0) {
     if (v == null)
         return "-";
     switch (unit) {
         case "pct":
-            return `${v.toFixed(1)}%`;
+            return `${v.toFixed(1 + more)}%`;
         case "ratio":
-            return `${(v * 100).toFixed(1)}%`;
+            return `${(v * 100).toFixed(1 + more)}%`;
         case "ms":
-            return `${v.toFixed(1)} ms`;
+            return `${v.toFixed(1 + more)} ms`;
         case "bytes":
-            return human(v, "");
+            return human(v, "", more);
         case "bps":
-            return human(v, "/s");
+            return human(v, "/s", more);
         case "rps":
-            return `${v < 10 ? v.toFixed(2) : Math.round(v)}/s`;
+            return `${v < 10 || more ? v.toFixed(2 + more) : Math.round(v)}/s`;
         case "s":
-            return `${v < 10 ? v.toFixed(1) : Math.round(v)} s`;
+            return `${v < 10 || more ? v.toFixed(1 + more) : Math.round(v)} s`;
     }
-    return v.toFixed(1);
+    return v.toFixed(1 + more);
+}
+export function ticks(vs, unit) {
+    let out = vs.map((v) => fmt(v, unit));
+    for (let more = 1; more <= 3 && new Set(out).size < out.length; more++)
+        out = vs.map((v) => fmt(v, unit, more));
+    return out;
 }
 function token(name) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -103,7 +109,7 @@ function draw(el, ls, unit, xs, ys) {
         cursor: { drag: { x: true, y: false } },
         scales: { x: { time: true }, y: { range: (_, _min, max) => [0, max > 0 ? max * 1.1 : 1] } },
         series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_, v) => fmt(v, unit) }))],
-        axes: [axis, { ...axis, size: 70, values: (_, vs) => vs.map((v) => fmt(v, unit)) }],
+        axes: [axis, { ...axis, size: 70, values: (_, vs) => ticks(vs, unit) }],
     }, [xs, ...ys], el);
     const watch = new ResizeObserver(() => u.setSize({ width: el.clientWidth, height: 160 }));
     watch.observe(el);

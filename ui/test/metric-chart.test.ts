@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { lines, align, fmt, merge } = await import("../ts/metric-chart.ts");
+const { lines, align, fmt, merge, ticks } = await import("../ts/metric-chart.ts");
 
 const at = (s: number, v: number) => ({ t: new Date(s * 1000).toISOString(), v });
 
@@ -49,4 +49,8 @@ test("values read in their unit", () => {
   assert.equal(fmt(120.4, "rps"), "120/s");
   assert.equal(fmt(42.6, "s"), "43 s");
   assert.equal(fmt(0.42, "s"), "0.4 s");
+  // an axis never repeats a label: 0.05% and 0.1% both read 0.1% at one decimal
+  assert.deepEqual(ticks([0, 0.05, 0.1], "pct"), ["0.00%", "0.05%", "0.10%"]);
+  assert.deepEqual(ticks([0, 0.5, 1], "bps"), ["0.0 B/s", "0.5 B/s", "1.0 B/s"]);
+  assert.deepEqual(ticks([0, 20, 40], "s"), ["0.0 s", "20 s", "40 s"]);
 });
