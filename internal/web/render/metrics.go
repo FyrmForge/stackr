@@ -20,10 +20,20 @@ func MetricsLive(orch *service.Orchestrator, body any, rng, reload, events strin
 	return components.MetricsView{
 		Range:  rng,
 		Reload: reload,
-		Events: events + "?after=" + strconv.FormatInt(orch.MetricsSeq(), 10),
+		Events: withAfter(events, orch.MetricsSeq()),
 		Pick:   func(measures string) any { return pick(body, strings.Fields(measures)) },
 		Long:   orch.ObserveOn(),
 	}
+}
+
+// withAfter is the events URL with after= set, next to any query it has
+// (the tunnel's ?a=&b=).
+func withAfter(events string, seq int64) string {
+	sep := "?"
+	if strings.Contains(events, "?") {
+		sep = "&"
+	}
+	return events + sep + "after=" + strconv.FormatInt(seq, 10)
 }
 
 // pick is body with only the measures one chart draws.
