@@ -1,6 +1,7 @@
 // Package metrics is the metrics store behind a narrow interface: the panel
-// writes points and reads series, and knows nothing of the backend. Memory is
-// the interim store (and the tests' fake) until the real backend lands.
+// writes points and reads series, and knows nothing of the backend. Memory
+// keeps the last 24 h for the live graphs (and is the tests' fake); Victoria
+// keeps the history when observability is on.
 package metrics
 
 import (
