@@ -127,6 +127,7 @@ type LogsView struct {
 	Run       string // a run's log instead of a replica's
 	Runs      bool   // a cron or function: its logs are its runs'
 	Pane      c.LogPaneView
+	History   string // the log viewer's URL; "" = log history is off
 }
 
 // TerminalView is the Terminal tab: the shell endpoint for the chosen

@@ -7,6 +7,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -173,7 +174,11 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 				last = rs[0].ID
 			}
 		}
-		body = ui.Logs(v, logsView(c, v.Base, *t, hd.status, last))
+		lv := logsView(c, v.Base, *t, hd.status, last)
+		if h.orch.LogsOn() {
+			lv.History = render.EnvURL(c) + "/-/logs?from=tile&tile=" + url.QueryEscape(t.Slug)
+		}
+		body = ui.Logs(v, lv)
 	case "terminal":
 		body = ui.Terminal(v, terminalView(c, hd.status))
 	case "metrics":

@@ -173,6 +173,12 @@ func scheme(https bool) string {
 
 templ Logs(v View, l LogsView) {
 	<div class="space-y-3" id="tab-logs">
+		if l.History != "" {
+			<div class="flex items-center gap-2">
+				<span class="btn btn-sm btn-primary pointer-events-none" aria-current="true">Live</span>
+				<button type="button" class="btn btn-ghost btn-sm" hx-get={ l.History } hx-target="#tab-logs" hx-swap="innerHTML">History</button>
+			</div>
+		}
 		if l.Run != "" {
 			<p class="text-xs text-rw-faint">
 				Run <span class="font-mono text-rw-muted">{ l.Run }</span> ·

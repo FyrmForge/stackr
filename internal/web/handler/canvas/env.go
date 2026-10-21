@@ -24,6 +24,13 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	if ms, err := h.orch.EnvMoveStatus(ctx, e.ID); err == nil && ms != nil && (ms.Active || f.Tab == "moving") {
 		f.Tabs = append(slices.Clone(f.Tabs), "moving")
 	}
+	// the Logs tab needs the kept history, and the verb that reads it
+	if !h.orch.LogsOn() || !can(c, cd.s, "tile.read") {
+		f.Tabs = slices.DeleteFunc(slices.Clone(f.Tabs), func(t string) bool { return t == "logs" })
+		if f.Tab == "logs" {
+			f.Tab = f.Tabs[0]
+		}
+	}
 	switch f.Tab {
 	case "placement":
 		return placementui.Load(urlOf(cd.s) + "/-/placement"), nil
@@ -32,7 +39,11 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	case "params":
 		return h.vars(c, cd.s, "", "")
 	case "logs":
-		return envui.Logs(), nil
+		v, err := render.LogHistory(c, h.orch, cd.s)
+		if err != nil {
+			return nil, err
+		}
+		return envui.Logs(v), nil
 	case "releases":
 		return h.releasesTab(c, cd, f)
 	case "sync":
