@@ -32,6 +32,7 @@ import (
 // whether it may ask.
 type app struct {
 	json, yes bool
+	utc       bool // --utc: times in UTC, not this machine's zone
 	tty       bool // stdin and stdout are a terminal: prompts and borders
 	in        *bufio.Reader
 	out, errw io.Writer
@@ -349,7 +350,7 @@ func (a *app) show(v any, cols ...string) error {
 			row := make([]string, len(cols))
 			for i, c := range cols {
 				if x, ok := m[c]; ok {
-					row[i] = cell(x)
+					row[i] = a.cell(c, x)
 				} else {
 					row[i] = "n/a" // this kind has no such field
 				}
@@ -370,7 +371,7 @@ func (a *app) show(v any, cols ...string) error {
 		}
 		rows := make([][]string, 0, len(cols))
 		for _, c := range cols {
-			rows = append(rows, []string{c, cell(v[c])})
+			rows = append(rows, []string{c, a.cell(c, v[c])})
 		}
 		a.table(nil, rows)
 	case nil:
@@ -378,6 +379,27 @@ func (a *app) show(v any, cols ...string) error {
 		_, _ = fmt.Fprintln(a.out, cell(v))
 	}
 	return nil
+}
+
+// cell is a column's value as shown: a *_at time on this machine's clock.
+func (a *app) cell(col string, v any) string {
+	if strings.HasSuffix(col, "_at") {
+		return a.stamp(cell(v), "2006-01-02 15:04:05 MST")
+	}
+	return cell(v)
+}
+
+// stamp is an API time (RFC 3339) in layout, in this machine's zone or in
+// UTC under --utc; anything else comes back as it is.
+func (a *app) stamp(s, layout string) string {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return s
+	}
+	if a.utc {
+		return t.UTC().Format(layout)
+	}
+	return t.Local().Format(layout)
 }
 
 func cell(v any) string {

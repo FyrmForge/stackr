@@ -794,9 +794,7 @@ func (a *app) adminAudit() *cobra.Command {
 			}
 			for _, r := range rows {
 				m := asMap(r)
-				if t, err := time.Parse(time.RFC3339, cell(m["at"])); err == nil {
-					m["time"] = t.Local().Format("Jan 02 15:04:05")
-				}
+				m["time"] = a.stamp(cell(m["at"]), "Jan 02 15:04:05")
 			}
 			return a.show(rows, "time", "actor", "action", "target", "outcome")
 		})

@@ -2,20 +2,12 @@ package main
 
 import (
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
 
 // The cluster trust commands: the root, planned rollover, break glass and the
 // controller certificate. Per-node rejoin commands are `stackr node rejoin`.
-
-func day(s string) string {
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.Local().Format("Jan 2, 2006")
-	}
-	return s
-}
 
 func names(v any) string {
 	var out []string
@@ -37,10 +29,10 @@ func (a *app) clusterTrust() *cobra.Command {
 			}
 			m := asMap(v)
 			a.say("Root     %s", cell(m["fingerprint"]))
-			a.say("Created  %s", day(cell(m["created_at"])))
-			a.say("Expires  %s", day(cell(m["expires_at"])))
+			a.say("Created  %s", a.stamp(cell(m["created_at"]), "Jan 2, 2006"))
+			a.say("Expires  %s", a.stamp(cell(m["expires_at"]), "Jan 2, 2006"))
 			if b, _ := m["rolling_over"].(bool); b {
-				a.say("Rollover running since %s; on the old root: %s", day(cell(m["rollover_started_at"])), orNone(names(m["on_old_root"])))
+				a.say("Rollover running since %s; on the old root: %s", a.stamp(cell(m["rollover_started_at"]), "Jan 2, 2006"), orNone(names(m["on_old_root"])))
 			} else {
 				a.say("Rollover none running")
 			}

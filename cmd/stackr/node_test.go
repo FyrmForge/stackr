@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeErr is a server that answers every request with status and body.
@@ -100,12 +101,15 @@ func TestNodeLs(t *testing.T) {
 	// /nodes never lists a pending node: a waiting worker is a join request.
 	pend := `[{"node_id":"n2","name":"nas","tags":["builder"],"facts":{"cpus":4,"mem_bytes":8589934592},"requested_at":"2026-10-16T10:00:00Z"}]`
 	fake(t, map[string]string{"/nodes": `[` + nodeJSON + `]`, "/admin/join-requests": pend})
+	was := time.Local
+	time.Local = time.UTC // requested_at reads on this machine's clock
+	t.Cleanup(func() { time.Local = was })
 	code, out, errw := cli(t, "node", "ls")
 	if code != 0 || !strings.Contains(out, "vps-fsn1\tworker\tonline\tingress,egress\t2\t2\t4.0 GB\t71 GB\t29.9.0") || strings.Contains(out, "nas") {
 		t.Fatalf("ls = %d %q %q", code, out, errw)
 	}
 	for _, args := range [][]string{{"node", "ls", "--pending"}, {"node", "ls", "--state", "pending"}} {
-		if _, out, _ = cli(t, args...); strings.Contains(out, "vps-fsn1") || !strings.Contains(out, "nas\tbuilder\t4\t8.0 GB\t2026-10-16T10:00:00Z") {
+		if _, out, _ = cli(t, args...); strings.Contains(out, "vps-fsn1") || !strings.Contains(out, "nas\tbuilder\t4\t8.0 GB\t2026-10-16 10:00:00 UTC") {
 			t.Errorf("%v = %q", args, out)
 		}
 	}
