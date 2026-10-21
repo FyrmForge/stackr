@@ -261,8 +261,10 @@ func badge(word, tone string) templ.Component {
 var tileTone = map[string]string{
 	"running":     "ok",
 	"provisioned": "ok",
+	"done":        "ok",
 	"degraded":    "warn",
-	"unhealthy":   "bad",
+	"unhealthy":   "warn",
+	"error":       "bad",
 	"offline":     "bad",
 }
 
@@ -366,7 +368,7 @@ func EnvSwatch(color string, checked bool) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(color)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 104, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 106, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -379,7 +381,7 @@ func EnvSwatch(color string, checked bool) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(color)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 105, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 107, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -402,7 +404,7 @@ func EnvSwatch(color string, checked bool) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(color)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 105, Col: 106}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 107, Col: 106}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {

@@ -583,29 +583,26 @@ type status struct {
 	replicas []Sub
 }
 
-// status is one tile's word: a live job wins, then a failed one over a
-// box that is not running, then the containers. A cron or function has no
-// standing container: its last run speaks.
+// status is one tile's word: a live job wins, then a failed one (LayerJob),
+// then the containers. A cron or function has no standing container: its
+// runs speak (RunWord).
 func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	var s status
 	j, hasJob, err := f.Jobs.Last(ctx, t.ID)
 	if err != nil {
 		return s, err
 	}
+	up := 0
 	switch {
 	case tile.RunToCompletion(t.Kind):
-		s.word = "none"
-		if r, ok, err := f.Runs.Last(ctx, t.ID); err != nil {
+		rs, err := f.Runs.List(ctx, t.ID, 0)
+		if err != nil {
 			return s, err
-		} else if ok {
-			s.lastRun = &r
-			s.word = map[string]string{
-				"queued":  "queued",
-				"running": "running",
-				"ok":      "done",
-				"failed":  "error",
-			}[r.Status]
 		}
+		if len(rs) > 0 {
+			s.lastRun, up = &rs[0], 1
+		}
+		s.word = RunWord(rs)
 	case t.Kind == tile.Slice && f.Slice != nil:
 		// no container of its own: its instance's word once provisioned
 		if s.word, err = f.Slice(ctx, t); err != nil {
@@ -624,11 +621,11 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		s.word = s.state.Word
 		// v0 deals replicas 2 to 4 under the card (the card is replica 1).
 		for i, c := range s.state.Replicas {
-			if i == 0 {
-				continue
+			if c.State == "running" {
+				up++
 			}
-			if i >= 4 {
-				break
+			if i == 0 || i >= 4 {
+				continue
 			}
 			s.replicas = append(s.replicas, Sub{
 				ID:     fmt.Sprintf("replica:%s:%d", t.ID, i+1),
@@ -638,24 +635,81 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			})
 		}
 	}
-	switch {
-	case hasJob && j.State == job.Queued:
-		s.word = "queued"
-	case hasJob && j.State == job.Running:
-		s.word = "building"
-		if j.Kind == "delete" {
-			s.word = "removing"
-		}
-	case hasJob && j.State == job.Waiting:
-		s.word = "waiting"
-		if j.WaitingParam != nil {
+	if hasJob {
+		if j.State == job.Waiting && j.WaitingParam != nil {
 			s.waiting = *j.WaitingParam
 		}
-	case hasJob && j.State == job.Failed && s.word != "running":
-		s.word = "error"
+		s.word = LayerJob(s.word, up, tile.RunToCompletion(t.Kind), j)
 	}
 	return s, nil
 }
+
+// RunWord is a cron's or function's word from its runs, newest first: the
+// newest run's state while it is live, done after a success, none before
+// the first. A failure is degraded; three in a row are error. A cancelled
+// run is someone pressing stop: it neither breaks nor extends a streak.
+func RunWord(rs []store.Run) string {
+	failed := 0
+	for _, r := range rs {
+		switch r.Status {
+		case lrun.Cancelled:
+			continue
+		case lrun.Failed:
+			if failed++; failed == 3 {
+				return "error"
+			}
+			continue
+		}
+		if failed > 0 {
+			return "degraded"
+		}
+		if r.Status == lrun.OK {
+			return "done"
+		}
+		return r.Status // queued, running
+	}
+	if failed > 0 {
+		return "degraded"
+	}
+	return "none"
+}
+
+// LayerJob puts the tile's last job over its word; up is how many replicas
+// run (for a run kind, 1 once it has run: an older build is in place). A
+// live job wins. A failed one is error only when nothing runs; over a tile
+// still up, a failed rollout is degraded (the old version serves) and any
+// other kind leaves the word alone. A run kind's run jobs speak through
+// RunWord, not here.
+func LayerJob(word string, up int, runKind bool, j store.Job) string {
+	if runKind && j.Kind == "run" { // service's kindRun
+		return word
+	}
+	switch j.State {
+	case job.Queued:
+		return "queued"
+	case job.Running:
+		if j.Kind == "delete" {
+			return "removing"
+		}
+		return "building"
+	case job.Waiting:
+		return "waiting"
+	case job.Failed:
+		switch {
+		case up == 0:
+			return "error"
+		case rollout[j.Kind]:
+			return worse(word, "degraded")
+		}
+	}
+	return word
+}
+
+// rollout are the one-tile job kinds that put a version on it (service's
+// kindDeploy, kindStart, kindRestart). A backup or an image watch failing
+// says nothing of the tile's health; a promote, env sync or PR job locks
+// every tile of the env, so its failure would paint the neighbours too.
+var rollout = map[string]bool{"deploy": true, "start": true, "restart": true}
 
 // ---- env -------------------------------------------------------------------
 

@@ -428,7 +428,7 @@ func Footer(id string, f FooterView) templ.Component {
 		}
 		switch f.Kind {
 		case "cron", "function":
-			templ_7745c5c3_Err = line(run(f.LastRun), f.LastRun).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = line(run(f.LastRun, f.Status), f.LastRun).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -519,12 +519,12 @@ func Footer(id string, f FooterView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		default:
-			if f.Want > 1 && f.Up < f.Want {
+			if f.Want > 1 && f.Up > 0 && f.Up < f.Want {
 				templ_7745c5c3_Err = line("warn", "degraded · "+itoa(f.Up)+"/"+itoa(f.Want)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-			} else if f.Want > 1 {
+			} else if f.Want > 1 && f.Status == "running" {
 				templ_7745c5c3_Err = line("success", "running · "+itoa(f.Up)+"/"+itoa(f.Want)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

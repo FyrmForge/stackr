@@ -41,8 +41,10 @@ templ badge(word, tone string) {
 var tileTone = map[string]string{
 	"running":     "ok",
 	"provisioned": "ok",
+	"done":        "ok",
 	"degraded":    "warn",
-	"unhealthy":   "bad",
+	"unhealthy":   "warn",
+	"error":       "bad",
 	"offline":     "bad",
 }
 
