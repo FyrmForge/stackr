@@ -27,6 +27,8 @@ type observeState struct {
 	lastErr atomic.Pointer[string]
 	vm      *metrics.Victoria
 	vmOnce  sync.Once
+	vl      *metrics.Victoria // VictoriaLogs, data size only until the log store lands
+	vlOnce  sync.Once
 	labels  sync.Map // tile id -> its labels
 }
 
@@ -34,9 +36,12 @@ type observeState struct {
 func (o *Orchestrator) ObserveOn() bool { return o.observe.on.Load() }
 
 type observeKnobs struct {
-	on      bool
-	days    int
-	minFree uint64 // bytes
+	on       bool
+	days     int
+	minFree  uint64 // bytes
+	logs     bool   // logs are kept too (needs on)
+	logsDays int
+	logsMax  uint64 // bytes
 }
 
 func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
@@ -50,7 +55,21 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 		return k, err
 	}
 	gb, err := o.settings.Int(ctx, "observe_min_free")
+	if err != nil {
+		return k, err
+	}
 	k.minFree = uint64(gb) << 30
+	lon, err := o.settings.Get(ctx, "observe_logs_enabled")
+	if err != nil {
+		return k, err
+	}
+	k.logs, _ = strconv.ParseBool(lon)
+	k.logs = k.logs && k.on
+	if k.logsDays, err = o.settings.Int(ctx, "observe_logs_retention"); err != nil {
+		return k, err
+	}
+	gb, err = o.settings.Int(ctx, "observe_logs_max_size")
+	k.logsMax = uint64(gb) << 30
 	return k, err
 }
 
@@ -63,7 +82,10 @@ func (o *Orchestrator) syncObserve(ctx context.Context) {
 	if err == nil {
 		o.observe.on.Store(k.on)
 		if k.on {
-			err = o.upgrade.EnsureObserve(ctx, strconv.Itoa(k.days)+"d", k.minFree)
+			err = o.upgrade.EnsureObserve(ctx, installspec.ObserveOpts{
+				Retention: strconv.Itoa(k.days) + "d", MinFree: k.minFree,
+				Logs: k.logs, LogsRetention: strconv.Itoa(k.logsDays) + "d", LogsMax: k.logsMax,
+			})
 		} else {
 			err = o.upgrade.RemoveObserve(ctx)
 			_ = o.store.Settings.Delete(ctx, observeAlertKey)
@@ -93,21 +115,37 @@ func (o *Orchestrator) startSyncObserve() {
 	})
 }
 
-// victoria is the client of stackr-observe's socket.
+// observeClient is an HTTP client of one of stackr-observe's sockets.
+func observeClient(sock string) *http.Client {
+	return &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		},
+	}}
+}
+
+// victoria is the client of stackr-observe's metrics socket.
 func (o *Orchestrator) victoria() *metrics.Victoria {
 	o.observe.vmOnce.Do(func() {
-		sock := installspec.ObserveMetricsSocket(o.cfg.DataDir)
 		o.observe.vm = &metrics.Victoria{
-			URL: "http://observe",
-			Client: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
-				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					return (&net.Dialer{}).DialContext(ctx, "unix", sock)
-				},
-			}},
+			URL:    "http://observe",
+			Client: observeClient(installspec.ObserveMetricsSocket(o.cfg.DataDir)),
 			Labels: o.seriesLabels,
 		}
 	})
 	return o.observe.vm
+}
+
+// victoriaLogs is the client of stackr-observe's logs socket.
+func (o *Orchestrator) victoriaLogs() *metrics.Victoria {
+	o.observe.vlOnce.Do(func() {
+		o.observe.vl = &metrics.Victoria{
+			URL:        "http://observe",
+			Client:     observeClient(installspec.ObserveLogsSocket(o.cfg.DataDir)),
+			SizeMetric: "vl_data_size_bytes",
+		}
+	})
+	return o.observe.vl
 }
 
 // seriesLabels are a series key's labels: the node, or the tile with its
@@ -199,13 +237,18 @@ func (o *Orchestrator) metricsKeep(ctx context.Context) time.Duration {
 }
 
 // ObserveStatus is the Observability tab: the knobs, the container and the
-// disk. DataBytes is VictoriaMetrics' own count, 0 when it does not answer.
+// disk. DataBytes and LogsBytes are the stores' own counts, 0 when one does
+// not answer.
 type ObserveStatus struct {
 	Enabled       bool   `json:"enabled"`
 	RetentionDays int    `json:"retention_days"`
 	MinFreeBytes  uint64 `json:"min_free_bytes"`
+	LogsEnabled   bool   `json:"logs_enabled"`
+	LogsDays      int    `json:"logs_retention_days"`
+	LogsMaxBytes  uint64 `json:"logs_max_bytes"`
 	Container     string `json:"container"` // docker state, "" = none
 	DataBytes     uint64 `json:"data_bytes"`
+	LogsBytes     uint64 `json:"logs_bytes"`
 	DiskFree      uint64 `json:"disk_free"`
 	DiskTotal     uint64 `json:"disk_total"`
 	Error         string `json:"error,omitempty"` // the last ensure's failure
@@ -218,7 +261,8 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 	if err != nil {
 		return ObserveStatus{}, err
 	}
-	s := ObserveStatus{Enabled: k.on, RetentionDays: k.days, MinFreeBytes: k.minFree}
+	s := ObserveStatus{Enabled: k.on, RetentionDays: k.days, MinFreeBytes: k.minFree,
+		LogsEnabled: k.logs, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax}
 	if p := o.observe.lastErr.Load(); p != nil {
 		s.Error = *p
 	}
@@ -232,6 +276,9 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		s.DataBytes, _ = o.victoria().DataSize(cctx)
+		if k.logs {
+			s.LogsBytes, _ = o.victoriaLogs().DataSize(cctx)
+		}
 	}
 	return s, nil
 }

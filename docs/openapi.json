@@ -3770,6 +3770,18 @@
           "error": {
             "type": "string"
           },
+          "logs_bytes": {
+            "type": "integer"
+          },
+          "logs_enabled": {
+            "type": "boolean"
+          },
+          "logs_max_bytes": {
+            "type": "integer"
+          },
+          "logs_retention_days": {
+            "type": "integer"
+          },
           "min_free_bytes": {
             "type": "integer"
           },
@@ -3781,8 +3793,12 @@
           "enabled",
           "retention_days",
           "min_free_bytes",
+          "logs_enabled",
+          "logs_retention_days",
+          "logs_max_bytes",
           "container",
           "data_bytes",
+          "logs_bytes",
           "disk_free",
           "disk_total"
         ],

@@ -17,14 +17,14 @@ func (f *Flow) ObserveOff() bool {
 }
 
 // EnsureObserve runs stackr-observe at this build's version with the given
-// retention and free-space floor: created when missing, recreated when its
+// knobs: created when missing, recreated when its
 // spec stamp differs (a new version or a changed knob). The data lives on
 // the named volume, so a recreate keeps it.
-func (f *Flow) EnsureObserve(ctx context.Context, retention string, minFree uint64) error {
+func (f *Flow) EnsureObserve(ctx context.Context, o installspec.ObserveOpts) error {
 	if f.ObserveOff() {
 		return nil
 	}
-	want := installspec.Observe(f.Version, f.DataDir, retention, minFree)
+	want := installspec.Observe(f.Version, f.DataDir, o)
 	cs, err := f.Docker.List(ctx, map[string]string{installspec.LabelRole: "observe"})
 	if err != nil {
 		return err

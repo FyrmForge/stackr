@@ -16,7 +16,8 @@ import (
 func TestEnsureObserve(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	cur := installspec.Observe("v0.8.3", dir, "30d", 5<<30).Labels
+	opts := installspec.ObserveOpts{Retention: "30d", MinFree: 5 << 30, Logs: true, LogsRetention: "7d", LogsMax: 10 << 30}
+	cur := installspec.Observe("v0.8.3", dir, opts).Labels
 	for _, tc := range []struct {
 		name    string
 		version string
@@ -33,7 +34,7 @@ func TestEnsureObserve(t *testing.T) {
 			fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: tc.have}}
 		}
 		f := &Flow{Docker: fake, Panel: panel.New(fake), DataDir: dir, Version: tc.version}
-		if err := f.EnsureObserve(ctx, "30d", 5<<30); err != nil {
+		if err := f.EnsureObserve(ctx, opts); err != nil {
 			t.Fatal(tc.name, err)
 		}
 		if got := len(fake.Specs) == 1; got != tc.wantRun {

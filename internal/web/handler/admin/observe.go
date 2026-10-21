@@ -18,10 +18,17 @@ func (h *handler) mountObserve(g *echo.Group, a *middleware.Access) {
 		if c.FormValue("observe_enabled") != "" {
 			on = "true"
 		}
+		logs := "false"
+		if c.FormValue("observe_logs_enabled") != "" {
+			logs = "true"
+		}
 		return "Saved.", nil, h.orch.SetSettings(c.Request().Context(), map[string]string{
 			"observe_enabled":           on,
 			"observe_metrics_retention": c.FormValue("observe_metrics_retention"),
 			"observe_min_free":          c.FormValue("observe_min_free"),
+			"observe_logs_enabled":      logs,
+			"observe_logs_retention":    c.FormValue("observe_logs_retention"),
+			"observe_logs_max_size":     c.FormValue("observe_logs_max_size"),
 		})
 	}), a.Require("serverdefaults.set"))
 }
@@ -38,6 +45,10 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 		Retention: strconv.Itoa(s.RetentionDays),
 		MinFree:   strconv.FormatUint(s.MinFreeBytes>>30, 10),
 		Err:       s.Error,
+
+		LogsEnabled: s.LogsEnabled,
+		LogsDays:    strconv.Itoa(s.LogsDays),
+		LogsMax:     strconv.FormatUint(s.LogsMaxBytes>>30, 10),
 	}
 	switch {
 	case s.Container == "running":
@@ -51,6 +62,9 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 	}
 	if s.DataBytes > 0 {
 		v.Data = render.Size(int64(s.DataBytes)) + "."
+	}
+	if s.LogsBytes > 0 {
+		v.LogsData = render.Size(int64(s.LogsBytes)) + " of " + render.Size(int64(s.LogsMaxBytes)) + "."
 	}
 	if s.DiskTotal > 0 {
 		v.Free = render.Size(int64(s.DiskFree)) + " of " + render.Size(int64(s.DiskTotal)) + "."
