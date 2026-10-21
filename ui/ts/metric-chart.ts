@@ -131,8 +131,8 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
       width: el.clientWidth || 400,
       height: 160,
       cursor: { drag: { x: true, y: false } },
-      // one point alone spans the picked range, not years around it
-      scales: { x: { time: true, range: (_: unknown, min: number, max: number) => (min < max ? [min, max] : [max - Number(el.getAttribute("range") ?? 3600), max]) }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
+      // one time alone spans the picked range (uPlot pads it by 1000 days)
+      scales: { x: { time: true, range: (u: { data: number[][] }, min: number, max: number) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
       series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
       axes: [axis, { ...axis, size: 70, values: (_: unknown, vs: number[]) => ticks(vs, unit) }],
     },
