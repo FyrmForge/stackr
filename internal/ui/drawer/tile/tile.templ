@@ -236,7 +236,7 @@ templ Metrics(v View, m c.MetricsView) {
 				@c.Chart(m, "Run duration", "run_s", "", "s")
 				@c.Chart(m, "Peak memory", "run_mem_peak", "", "bytes")
 				@c.Chart(m, "CPU", "run_cpu_s", "", "s")
-				@c.Chart(m, "Failed runs", "run_failed", "", "count")
+				@c.Chart(m, "Failure rate", "run_failed", "", "ratio")
 			} else {
 				@c.Chart(m, "CPU", "cpu_pct", "", "pct")
 				@c.Chart(m, "Memory", "mem", "", "bytes")

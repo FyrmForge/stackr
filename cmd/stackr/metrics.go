@@ -34,7 +34,7 @@ var metricMeasures = []struct{ name, unit string }{
 	{"run_s", "s"},
 	{"run_mem_peak", "bytes"},
 	{"run_cpu_s", "s"},
-	{"run_failed", "count"},
+	{"run_failed", "ratio"},
 }
 
 var metricCols = []string{"series", "measure", "latest", "min", "avg", "max"}

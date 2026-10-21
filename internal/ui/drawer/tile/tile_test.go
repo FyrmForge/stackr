@@ -279,7 +279,7 @@ func TestMetricsRunKinds(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := sb.String()
-		for _, want := range []string{"Run duration", `measures="run_s"`, "Peak memory", `measures="run_mem_peak"`, "CPU", `measures="run_cpu_s"`, "Failed runs", `measures="run_failed"`} {
+		for _, want := range []string{"Run duration", `measures="run_s"`, "Peak memory", `measures="run_mem_peak"`, "CPU", `measures="run_cpu_s"`, "Failure rate", `measures="run_failed"`} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: metrics tab lacks %q", kind, want)
 			}
