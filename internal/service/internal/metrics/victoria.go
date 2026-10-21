@@ -3,6 +3,7 @@ package metrics
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,9 @@ type Victoria struct {
 	Client *http.Client // nil = http.DefaultClient
 	// Labels are a key's extra labels; nil = the key only.
 	Labels func(ctx context.Context, key string) map[string]string
+	// SizeMetric is the /metrics gauge DataSize sums; "" = vm_data_size_bytes
+	// (VictoriaLogs: vl_data_size_bytes).
+	SizeMetric string
 }
 
 func (v *Victoria) client() *http.Client {
@@ -164,8 +168,8 @@ func (v *Victoria) Query(ctx context.Context, key string, from, to time.Time, st
 	return out, nil
 }
 
-// DataSize is the bytes VictoriaMetrics holds, its own vm_data_size_bytes
-// summed over every part.
+// DataSize is the bytes the store holds, its own data-size gauge
+// (SizeMetric) summed over every part.
 func (v *Victoria) DataSize(ctx context.Context) (uint64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.URL+"/metrics", nil)
 	if err != nil {
@@ -175,11 +179,12 @@ func (v *Victoria) DataSize(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	name := cmp.Or(v.SizeMetric, "vm_data_size_bytes")
 	var sum float64
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	for sc.Scan() {
 		l := sc.Text()
-		if !strings.HasPrefix(l, "vm_data_size_bytes{") && !strings.HasPrefix(l, "vm_data_size_bytes ") {
+		if !strings.HasPrefix(l, name+"{") && !strings.HasPrefix(l, name+" ") {
 			continue
 		}
 		if f, err := strconv.ParseFloat(l[strings.LastIndexByte(l, ' ')+1:], 64); err == nil {

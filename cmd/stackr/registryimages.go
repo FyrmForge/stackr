@@ -129,7 +129,7 @@ func (a *app) registryAdmin(clean *cobra.Command) *cobra.Command {
 // observeStatus is `admin observe`: the Observability tab's status. The knobs
 // are `admin setting observe_*`.
 func (a *app) observeStatus() *cobra.Command {
-	return leaf("observe", "admin.observe", "Show metrics history: on or off, retention, data size and free disk", exact(0),
+	return leaf("observe", "admin.observe", "Show metrics history and logs: on or off, retention, data size and free disk", exact(0),
 		func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/admin/observe", nil)
 			if err != nil {
@@ -145,6 +145,11 @@ func (a *app) observeStatus() *cobra.Command {
 				on = "on"
 			}
 			a.say("Metrics history: %s, %s days kept, writes stop under %s free.", on, cell(m["retention_days"]), size("min_free_bytes"))
+			ln := "off"
+			if m["logs_enabled"] == true {
+				ln = "on"
+			}
+			a.say("Logs: %s, %s days kept, capped at %s. Data: %s.", ln, cell(m["logs_retention_days"]), size("logs_max_bytes"), size("logs_bytes"))
 			a.say("Container: %s. Data: %s. Free disk: %s of %s.", cell(m["container"]), size("data_bytes"), size("disk_free"), size("disk_total"))
 			if e, _ := m["error"].(string); e != "" {
 				a.say("Last error: %s", e)

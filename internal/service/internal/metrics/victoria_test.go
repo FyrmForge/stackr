@@ -29,7 +29,7 @@ func TestVictoria(t *testing.T) {
 				`{"metric":{"__name__":"stackr_cpu_pct","key":"node:abc","node":"abc"},"values":[[1792579060,"10"],[1792579120,"25"]]},`+
 				`{"metric":{"__name__":"stackr_4xx_s","key":"node:abc","node":"abc"},"values":[[1792579060,"100"],[1792579120,"NaN"]]}]}}`)
 		case "/metrics":
-			_, _ = io.WriteString(w, "vm_data_size_bytes{type=\"storage/inmemory\"} 16384\nvm_data_size_bytes{type=\"indexdb/file\"} 72\nvm_rows 9\n")
+			_, _ = io.WriteString(w, "vm_data_size_bytes{type=\"storage/inmemory\"} 16384\nvm_data_size_bytes{type=\"indexdb/file\"} 72\nvm_rows 9\nvl_data_size_bytes{type=\"storage\"} 5\n")
 		default:
 			http.NotFound(w, r)
 		}
@@ -80,6 +80,10 @@ func TestVictoria(t *testing.T) {
 	n, err := v.DataSize(ctx)
 	if err != nil || n != 16384+72 {
 		t.Errorf("size %d %v", n, err)
+	}
+
+	if n, err := (&Victoria{URL: srv.URL, SizeMetric: "vl_data_size_bytes"}).DataSize(ctx); err != nil || n != 5 {
+		t.Errorf("logs size %d %v", n, err)
 	}
 
 	bad := &Victoria{URL: srv.URL + "/nope"}

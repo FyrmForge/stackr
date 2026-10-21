@@ -276,6 +276,27 @@ var Catalogue = []Knob{
 		Scopes:  Flat,
 		Desc:    "GB of free disk below which metrics stop being written",
 	},
+	{
+		Key:     "observe_logs_enabled",
+		Type:    TBool,
+		Default: "true",
+		Scopes:  Flat,
+		Desc:    "keep logs in the stackr-observe container (with observe_enabled)",
+	},
+	{
+		Key:     "observe_logs_retention",
+		Type:    TInt,
+		Default: "7",
+		Scopes:  Flat,
+		Desc:    "days of logs kept",
+	},
+	{
+		Key:     "observe_logs_max_size",
+		Type:    TInt,
+		Default: "10",
+		Scopes:  Flat,
+		Desc:    "GB of disk the logs may use; the oldest days go first",
+	},
 
 	{
 		Key:    "alert_webhook_url",

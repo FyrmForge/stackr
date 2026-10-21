@@ -26,6 +26,7 @@ func main() {
 		minFree   = flag.String("min-free", "5GB", "free disk below which metrics stop being written")
 		logs      = flag.Bool("logs", false, "also run VictoriaLogs")
 		logsKeep  = flag.String("logs-retention", "7d", "logs retention")
+		logsMax   = flag.String("logs-max-size", "10GB", "logs disk use above which the oldest days are dropped")
 	)
 	flag.Parse()
 	children := [][]string{{
@@ -41,6 +42,7 @@ func main() {
 			"-httpListenAddr=unix:" + *run + "/logs.sock",
 			"-storageDataPath=" + *data + "/logs",
 			"-retentionPeriod=" + *logsKeep,
+			"-retention.maxDiskSpaceUsageBytes=" + *logsMax,
 		})
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

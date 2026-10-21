@@ -414,8 +414,9 @@ func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
 const observeAlertKey = "alert.observe.disk"
 
 // observeDiskAlert fires once when observability is on and the controller's
-// free disk falls under twice observe_min_free (VictoriaMetrics stops writing
-// at the floor), and resets when it recovers.
+// free disk, less what the logs may still grow to, falls under twice
+// observe_min_free (VictoriaMetrics stops writing at the floor), and resets
+// when it recovers.
 func (o *Orchestrator) observeDiskAlert(ctx context.Context, n store.Node, free uint64) {
 	if !o.ObserveOn() || free == 0 {
 		return
@@ -428,7 +429,14 @@ func (o *Orchestrator) observeDiskAlert(ctx context.Context, n store.Node, free 
 	if err != nil {
 		return
 	}
-	switch low := free < 2*k.minFree; {
+	var room uint64 // the logs' growth to their cap
+	if k.logs {
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		used, _ := o.victoriaLogs().DataSize(cctx)
+		cancel()
+		room = k.logsMax - min(used, k.logsMax)
+	}
+	switch low := free < 2*k.minFree+room; {
 	case low && !was:
 		if err := o.store.Settings.Set(ctx, observeAlertKey, "1"); err != nil {
 			return
