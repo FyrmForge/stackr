@@ -9,6 +9,7 @@ type PageView struct {
 	Name  string
 	Email string
 	Theme string // system | light | dark
+	Zone  string // users.time_zone: "" = the browser's
 	Pw    PasswordView
 	Keys  KeysView
 }
@@ -32,6 +33,16 @@ var tabs = []struct{ Key, Label, Sub string }{
 	{"profile", "Profile", "Your details and sign-in credentials."},
 	{"keys", "API keys", "Programmatic access for the CLI and CI."},
 	{"appearance", "Appearance", "How stackr looks for you."},
+}
+
+// zones are the time zone picker's options: Browser, UTC and the saved zone
+// when it is neither. <local-time> adds every other zone the browser knows.
+func zones(zone string) []struct{ Value, Label string } {
+	opts := []struct{ Value, Label string }{{"", "Browser"}, {"UTC", "UTC"}}
+	if zone != "" && zone != "UTC" {
+		opts = append(opts, struct{ Value, Label string }{zone, zone})
+	}
+	return opts
 }
 
 // themes are v0's three choices, in its order and words.
@@ -71,6 +82,9 @@ templ page(v PageView) {
 				if v.Tab == "appearance" {
 					@c.Section("Theme", "you", "Applies wherever you sign in.") {
 						@appearance(v.Theme)
+					}
+					@c.Section("Time zone", "you", "Times in the panel show in this zone.") {
+						@timeZone(v.Zone)
 					}
 				} else if v.Tab == "keys" {
 					@c.Section("Your keys", "you", "Mint a key from an organization's drawer (keys tab) or with stackr login. A key is bound to that organization.") {
@@ -129,6 +143,20 @@ templ appearance(theme string) {
 				</label>
 			}
 		</div>
+		<button type="submit" class="btn btn-primary btn-sm">Save</button>
+	</form>
+}
+
+// timeZone saves and reloads, as the theme does: the zone is on <body>.
+templ timeZone(zone string) {
+	<form hx-post="/account/time-zone" class="space-y-4">
+		<local-time>
+			<select name="time_zone" class="input !w-auto" aria-label="Time zone">
+				for _, o := range zones(zone) {
+					<option value={ o.Value } selected?={ o.Value == zone }>{ o.Label }</option>
+				}
+			</select>
+		</local-time>
 		<button type="submit" class="btn btn-primary btn-sm">Save</button>
 	</form>
 }

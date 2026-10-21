@@ -105,7 +105,7 @@ templ Status(v View, s StatusView) {
 					<span class="text-sm text-rw-faint">never deployed</span>
 				} else {
 					@c.JobStatus(*s.Job)
-					<div class="text-xs text-rw-faint mt-1.5">{ s.JobWhen }</div>
+					<div class="text-xs text-rw-faint mt-1.5">@c.Time(s.JobWhen, "Jan 2 15:04")</div>
 				}
 			</div>
 		</div>
@@ -267,7 +267,7 @@ templ Jobs(v View, j JobsView) {
 				for _, r := range j.Rows {
 					<li class="panel px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
 						<span class="text-sm text-rw-text font-mono">{ r.Kind }</span>
-						<span class="text-xs text-rw-faint whitespace-nowrap">{ r.When }</span>
+						<span class="text-xs text-rw-faint whitespace-nowrap">@c.Time(r.When, "Jan 2 15:04")</span>
 						<span class="ml-auto flex items-center gap-2">
 							if r.Cancel != "" {
 								@c.Confirm(c.ConfirmView{
@@ -424,7 +424,7 @@ func bindingRows(a AccessView) [][]templ.Component {
 			sliceLink(b.Slice, b.Link),
 			c.Text(b.Access),
 			c.Text(b.User),
-			c.Text(b.Since),
+			c.Time(b.Since, "Jan 2 15:04"),
 		})
 	}
 	return rows
@@ -440,8 +440,11 @@ templ Runs(v View, r RunsView) {
 		if r.Poll != "" {
 			<span hidden hx-get={ r.Poll } hx-trigger="every 2s" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
 		}
-		if r.Next != "" {
-			<p class="text-xs text-rw-faint">next run { r.Next }</p>
+		if !r.Next.IsZero() {
+			<p class="text-xs text-rw-faint">
+				{ "next run " }
+				@c.Time(r.Next, "Jan 2 15:04")
+			</p>
 		}
 		if len(r.Rows) == 0 {
 			<p class="text-rw-muted text-sm">No runs yet.</p>
@@ -453,7 +456,7 @@ templ Runs(v View, r RunsView) {
 							<summary class="flex items-center gap-3 text-sm cursor-pointer list-none">
 								<span class={ "shrink-0", runTone(x) }>{ runWord(x) }</span>
 								<span class="text-rw-faint text-xs font-mono">{ shortID(x.ID) }</span>
-								<span class="text-rw-faint text-xs">{ x.Started }</span>
+								<span class="text-rw-faint text-xs">@c.Time(x.Started, "Jan 2 15:04")</span>
 								<span class="text-rw-muted text-xs">{ x.Trigger }</span>
 								<span class="text-rw-faint text-xs ml-auto">{ x.Took }</span>
 								if x.Mem != "" {
@@ -854,7 +857,13 @@ templ image(v View, i ImageView) {
 			<dt class="text-rw-faint">Latest seen</dt>
 			<dd class="truncate font-mono text-rw-text" title={ i.LastDigest }>{ orNone(shortDigest(i.LastDigest)) } { i.LastTag }</dd>
 			<dt class="text-rw-faint">Checked</dt>
-			<dd class="text-rw-text">{ orNone(i.Checked) }</dd>
+			<dd class="text-rw-text">
+				if i.Checked.IsZero() {
+					none
+				} else {
+					@c.Time(i.Checked, "Jan 2 15:04")
+				}
+			</dd>
 		</dl>
 		if i.LastError != "" {
 			<p class="text-xs text-rw-danger">{ i.LastError }</p>

@@ -7176,6 +7176,9 @@
           "theme": {
             "type": "string"
           },
+          "time_zone": {
+            "type": "string"
+          },
           "updated_at": {
             "format": "date-time",
             "type": "string"
@@ -7189,6 +7192,7 @@
           "active",
           "avatar_path",
           "theme",
+          "time_zone",
           "created_at",
           "updated_at"
         ],

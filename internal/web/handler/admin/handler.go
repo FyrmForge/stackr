@@ -363,7 +363,7 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			v.Rows = append(v.Rows, ui.Backup{
 				Status:  r.Status,
 				Trigger: r.Trigger,
-				When:    r.CreatedAt.Local().Format("Jan 2 15:04"),
+				When:    r.CreatedAt,
 				Size:    render.Size(r.SizeBytes),
 				Error:   r.Error,
 				Dest:    cmp.Or(destName[r.DestID], "a removed destination"),

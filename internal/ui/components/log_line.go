@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // logLevels is v0 logs.js's plain-text detection, first match wins.
@@ -30,8 +31,8 @@ var jsonLevels = map[string]string{
 // key, else the first level word in the text, which is also drawn bold.
 // ponytail: JSON lines keep their raw text; v0's key=value expand is not
 // ported.
-func NewLogLine(time, text string) LogLineView {
-	l := LogLineView{Time: time}
+func NewLogLine(at time.Time, text string) LogLineView {
+	l := LogLineView{Time: at}
 	l.Text, l.Segs = ansiSegs(text)
 	text = l.Text
 	if i := strings.IndexByte(text, '{'); i >= 0 && strings.HasSuffix(text, "}") {

@@ -6,6 +6,7 @@ package placement
 
 import (
 	"strconv"
+	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -401,7 +402,7 @@ type StepView struct{ Label, State, Detail string }
 // ProgressView is the move progress tab. Refresh, while set, polls it.
 type ProgressView struct {
 	Env, From, To string
-	Started       string
+	Started       time.Time
 	State         string // running | done | rolled_back
 	Error         string
 	Steps         []StepView
@@ -428,7 +429,8 @@ templ Progress(v ProgressView) {
 				if v.From != "" {
 					from { v.From } ·
 				}
-				started { v.Started }
+				{ "started " }
+				@c.Time(v.Started, "15:04")
 			</p>
 		</div>
 		<ol class="space-y-2">

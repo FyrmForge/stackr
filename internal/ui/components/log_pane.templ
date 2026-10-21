@@ -1,6 +1,9 @@
 package components
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // LogPaneView is a followed log. The SSE stream sends "line" events, each
 // one rendered LogLine, and "end" when the source is done. Level and
@@ -51,7 +54,7 @@ templ LogPane(v LogPaneView) {
 // edge by it. Tok is the level word as Text spells it, drawn bold. Segs is
 // a line that came with terminal colours: Text without them, Segs drawn.
 type LogLineView struct {
-	Time  string
+	Time  time.Time // zero = the line had no stamp
 	Level string
 	Text  string
 	Tok   string
@@ -62,9 +65,9 @@ type LogLineView struct {
 // templ's spacing around statements would show.
 templ LogLine(l LogLineView) {
 	if l.Segs != nil {
-		<div data-level={ l.Level }><span data-ts>{ l.stamp() }</span>@logSegs(l.Segs)</div>
+		<div data-level={ l.Level }><span data-ts>@Time(l.Time, "15:04:05") { { " " } }</span>@logSegs(l.Segs)</div>
 	} else {
-		<div data-level={ l.Level }><span data-ts>{ l.stamp() }</span>{ l.part(0) }<span data-tok>{ l.part(1) }</span>{ l.part(2) }</div>
+		<div data-level={ l.Level }><span data-ts>@Time(l.Time, "15:04:05") { { " " } }</span>{ l.part(0) }<span data-tok>{ l.part(1) }</span>{ l.part(2) }</div>
 	}
 }
 
@@ -79,13 +82,6 @@ templ logSegs(segs []LogSeg) {
 			data-d?={ g.Dim }
 		>{ g.Text }</span>
 	}
-}
-
-func (l LogLineView) stamp() string {
-	if l.Time == "" {
-		return ""
-	}
-	return l.Time + " "
 }
 
 // part is Text split around its first Tok: before, the token, after.

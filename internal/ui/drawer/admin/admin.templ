@@ -3,7 +3,11 @@
 // self-upgrade, raw Caddy and the panel's own backups.
 package admin
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 var Tabs = []string{"settings", "users", "nodes", "placements", "access", "security", "routes", "update", "caddy", "backups", "alerts", "config", "params", "connectors", "registry", "observability"}
 
@@ -116,7 +120,10 @@ type PanelSchedule struct {
 
 type DestOption struct{ Value, Label string }
 
-type Backup struct{ Status, Trigger, When, Size, Error, Dest string }
+type Backup struct {
+	Status, Trigger, Size, Error, Dest string
+	When                              time.Time
+}
 
 func target() string { return "#" + c.DrawerRoot }
 
@@ -355,7 +362,11 @@ templ Backups(v BackupsView) {
 				if len(v.Rows) == 0 {
 					<p class="text-sm text-rw-muted">Last run: none yet.</p>
 				} else {
-					<p class="text-sm text-rw-muted">Last run: { v.Rows[0].When }, { v.Rows[0].Status }, to { v.Rows[0].Dest }.</p>
+					<p class="text-sm text-rw-muted">
+						{ "Last run: " }
+						@c.Time(v.Rows[0].When, "Jan 2 15:04")
+						{ ", " + v.Rows[0].Status + ", to " + v.Rows[0].Dest + "." }
+					</p>
 				}
 				if v.Now != "" {
 					<form hx-post={ v.Now } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
@@ -379,7 +390,7 @@ templ Backups(v BackupsView) {
 						for _, b := range v.Rows {
 							<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
 								@c.JobBadge(b.Status)
-								<span class="text-rw-text">{ b.When }</span>
+								<span class="text-rw-text">@c.Time(b.When, "Jan 2 15:04")</span>
 								<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>
 								if b.Error != "" {
 									<span class="text-xs text-rw-danger">{ b.Error }</span>

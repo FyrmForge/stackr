@@ -71,7 +71,7 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 		"sub-tile":      `data-kind="replica"`,
 		"slice footer":  "2 consumers",
 		"host chip":     ">host<",
-		"cron footer":   "next Jul 25 03:00",
+		"cron footer":   `next <local-time fmt="15:04"><time datetime="2026-07-25T03:00:00Z"`,
 		"lane":          `data-edge-kind="traffic"`,
 		"lane rate":     "2.2 MB/s",
 	} {

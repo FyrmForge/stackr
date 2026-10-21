@@ -1,5 +1,7 @@
 package cards
 
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
 // Card is an env card's face (v0 nodeCardFace): a volume is its bottom
 // strip, anything else the head and the live footer. A card with a drawer
 // opens it on click and pushes ?drawer=&tab=.
@@ -83,9 +85,14 @@ templ Footer(id string, f FooterView) {
 	>
 		switch f.Kind {
 			case "cron", "function":
-				@line(run(f.LastRun, f.Status), f.LastRun)
-				if f.NextRun != "" {
-					<span class="text-xs text-rw-faint shrink-0">{ f.NextRun }</span>
+				@line(run(f.LastRun, f.Status), f.LastRun) {
+					@c.Time(f.LastAt, f.LastFmt)
+				}
+				if !f.NextRun.IsZero() {
+					<span class="text-xs text-rw-faint shrink-0">
+						{ "next " }
+						@c.Time(f.NextRun, "15:04")
+					</span>
 				} else if f.Kind == "function" {
 					<span class="text-xs text-rw-faint shrink-0">{ f.Trigger }</span>
 				} else {
@@ -132,7 +139,7 @@ templ Status(status, waiting string) {
 templ line(tone, text string) {
 	<span class={ "node-status flex items-center gap-2 text-xs", toneText(tone) }>
 		<span class={ "h-1.5 w-1.5 rounded-full shrink-0", toneDot(tone) }></span>
-		<span class="truncate">{ text }</span>
+		<span class="truncate">{ text }{ children... }</span>
 	</span>
 }
 

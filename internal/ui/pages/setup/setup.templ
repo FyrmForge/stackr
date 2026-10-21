@@ -6,6 +6,7 @@ package setup
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
@@ -76,7 +77,7 @@ type PlanView struct {
 	Frame
 	Summary  string
 	Commit   string
-	When     string
+	When     time.Time
 	Error    string // the plan row's own error
 	Work     string // the apply's banner line; "" = no apply
 	Failed   bool   // the banner is a failure
@@ -505,8 +506,8 @@ templ Plan(v PlanView) {
 			if v.Commit != "" {
 				<span class="text-rw-faint font-mono">{ v.Commit }</span>
 			}
-			if v.When != "" {
-				<span class="text-rw-faint">{ v.When }</span>
+			if !v.When.IsZero() {
+				<span class="text-rw-faint">@c.Time(v.When, "Jan 2 15:04:05")</span>
 			}
 			if v.Replan != "" {
 				<form novalidate hx-post={ v.Replan } class="ml-auto">

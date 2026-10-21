@@ -1,5 +1,7 @@
 package components
 
+import "time"
+
 // LogHistoryView is the log viewer over the kept lines. Action is its own
 // fragment URL (the form and Older send the filters there); Tiles is the tile
 // picker, empty when the scope is one tile (then Live goes back to its live
@@ -27,7 +29,7 @@ type LogOption struct{ Value, Label string }
 // LogHistoryLine is one stored line: Text is ready to show (an access line
 // reads "GET /path 200 12ms"); Err marks stderr.
 type LogHistoryLine struct {
-	Time   string
+	Time   time.Time
 	Tile   string
 	Source string
 	Text   string
@@ -75,7 +77,10 @@ templ LogHistory(v LogHistoryView) {
 		<div class="panel p-3 h-[65vh] overflow-y-auto font-mono text-xs leading-5" role="log">
 			@LogHistoryMore(v)
 		</div>
-		<p class="text-xs text-rw-faint">Newest first. Times are UTC.</p>
+		<p class="text-xs text-rw-faint">
+			{ "Newest first. Times in " }
+			@Zone()
+		</p>
 	</div>
 }
 
@@ -84,7 +89,7 @@ templ LogHistory(v LogHistoryView) {
 templ LogHistoryMore(v LogHistoryView) {
 	for _, l := range v.Lines {
 		<div class="flex gap-2" data-source={ l.Source }>
-			<span class="shrink-0 text-rw-faint">{ l.Time }</span>
+			<span class="shrink-0 text-rw-faint">@Time(l.Time, "Jan 02 15:04:05")</span>
 			if len(v.Tiles) > 0 {
 				<span class="shrink-0 text-rw-muted">{ l.Tile }</span>
 			}

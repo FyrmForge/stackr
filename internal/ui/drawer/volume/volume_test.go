@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 )
@@ -30,7 +31,7 @@ func TestEveryTabRenders(t *testing.T) {
 		Runs: []Run{{
 			ID:         "r1",
 			Status:     "done",
-			When:       "Jul 1 02:00",
+			When:       time.Date(2026, 7, 1, 2, 0, 0, 0, time.UTC),
 			Size:       "1.2 MB",
 			Restorable: true,
 		}},
@@ -46,8 +47,8 @@ func TestEveryTabRenders(t *testing.T) {
 		want []string
 	}{
 		"overview": {
-			Overview(OverviewView{Docker: "stackr-vol-v1", Mounts: []Mount{{Tile: "web", Path: "/data"}}, Orphaned: "Jul 2 10:00"}),
-			[]string{"stackr-vol-v1", "/data", "Orphaned since Jul 2 10:00"},
+			Overview(OverviewView{Docker: "stackr-vol-v1", Mounts: []Mount{{Tile: "web", Path: "/data"}}, Orphaned: time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)}),
+			[]string{"stackr-vol-v1", "/data", "Orphaned since <local-time fmt=\"Jan 2 15:04\"><time datetime=\"2026-07-02T10:00:00Z\" title=\"2026-07-02T10:00:00Z\">Jul 2 10:00</time></local-time>: no tile mounts it."},
 		},
 		"backups": {
 			Backups(b),

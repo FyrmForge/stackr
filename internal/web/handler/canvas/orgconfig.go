@@ -112,7 +112,7 @@ func planRow(p service.OrgPlan) comp.PlanRow {
 	return comp.PlanRow{
 		Status:  p.Status,
 		Summary: p.Summary,
-		When:    p.CreatedAt.Local().Format("Jan 2 15:04"),
+		When:    p.CreatedAt,
 		Commit:  p.Commit[:min(8, len(p.Commit))],
 		Error:   p.Error,
 	}

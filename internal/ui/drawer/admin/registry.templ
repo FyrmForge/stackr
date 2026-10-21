@@ -1,6 +1,10 @@
 package admin
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // RegistryView is the admin's Registry tab: what every org holds, and the
 // last cleanup. Clean "" = may not run one. Err is the registry's own
@@ -8,7 +12,8 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 type RegistryView struct {
 	Total, Versions string
 	Orgs            []RegistryOrg
-	Last            string // "" = never ran
+	Last            string    // what it did: "3 versions deleted, 1 GB freed."; "" = never ran
+	LastAt          time.Time // when it ran
 	LastErrors      []string
 	Clean           c.ConfirmView
 	Job             *c.JobStatusView
@@ -51,7 +56,11 @@ templ Registry(v RegistryView) {
 				if v.Last == "" {
 					<p class="text-rw-muted">Last cleanup: none yet.</p>
 				} else {
-					<p class="text-rw-muted">Last cleanup: { v.Last }</p>
+					<p class="text-rw-muted">
+						{ "Last cleanup: " }
+						@c.Time(v.LastAt, "Jan 2 15:04")
+						{ ", " + v.Last }
+					</p>
 				}
 				for _, e := range v.LastErrors {
 					<p class="text-xs text-rw-danger">{ e }</p>

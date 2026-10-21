@@ -20,12 +20,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
-// when is how the drawer spells a moment.
-func when(t *time.Time) string {
+// when is a moment the drawer shows, zero for none.
+func when(t *time.Time) time.Time {
 	if t == nil {
-		return ""
+		return time.Time{}
 	}
-	return t.Local().Format("Jan 2 15:04")
+	return *t
 }
 
 // runKind: a cron or function keeps no container up; its runs are its life.
@@ -75,7 +75,7 @@ func statusView(env string, t service.Tile, s service.TileStatus, ds []service.D
 	if s.LastJob != nil {
 		j := render.JobView(env, *s.LastJob)
 		v.Job = &j
-		v.JobWhen = when(&s.LastJob.CreatedAt)
+		v.JobWhen = s.LastJob.CreatedAt
 	}
 	return v
 }
@@ -210,7 +210,7 @@ func jobsView(base string, js []service.Job) ui.JobsView {
 		r := ui.JobRow{
 			Kind:  j.Kind,
 			State: j.State,
-			When:  when(&j.CreatedAt),
+			When:  j.CreatedAt,
 			Error: j.Error,
 		}
 		if base != "" && j.FinishedAt == nil {

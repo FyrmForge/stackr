@@ -1,6 +1,10 @@
 package devgallery
 
-import "github.com/FyrmForge/stackr/internal/ui/graph/cards"
+import (
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
+)
 
 // placed is a sample card and where the fake env canvas puts it; h
 // counts 30 px per sub-tile, as the graph service's does.
@@ -87,8 +91,8 @@ func envCards() []placed {
 		},
 		{
 			sample("t-nightly", "cron", "nightly", "0 3 * * *", "runs", cards.FooterView{
-				LastRun: "ok · Jul 24 03:00",
-				NextRun: "next Jul 25 03:00",
+				LastRun: "ok · ", LastAt: time.Date(2026, 7, 24, 3, 0, 0, 0, time.UTC), LastFmt: "Jan 2 15:04",
+				NextRun: time.Date(2026, 7, 25, 3, 0, 0, 0, time.UTC),
 			}),
 			"580",
 			"20",

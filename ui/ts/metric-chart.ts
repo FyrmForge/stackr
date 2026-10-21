@@ -104,7 +104,7 @@ function token(name: string): string {
 
 // ---- the chart library: uPlot, a classic script the element loads itself.
 type UPlot = { setData(d: unknown, reset?: boolean): void; setSize(s: { width: number; height: number }): void; destroy(): void; scales: { x: { min?: number; max?: number } } };
-declare const uPlot: new (opts: object, data: unknown, el: HTMLElement) => UPlot;
+declare const uPlot: { new (opts: object, data: unknown, el: HTMLElement): UPlot; tzDate(d: Date, zone: string): Date };
 let lib: Promise<void> | null = null;
 function loadLib(): Promise<void> {
   if (typeof uPlot !== "undefined") return Promise.resolve();
@@ -126,14 +126,15 @@ const sparse = (u: { data: (number | null)[][] }, i: number): boolean => u.data[
 function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (number | null)[][]): Plot {
   const text = token("--rw-faint"), grid = token("--rw-border");
   const axis = { stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
+  const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value; // the viewer's zone, as <local-time> reads it
   const u = new uPlot(
     {
-      width: el.clientWidth || 400,
+      width: el.clientWidth || 400, ...(zone ? { tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1e3), zone) } : {}), // "" is the browser's, uPlot's default
       height: 160,
       cursor: { drag: { x: true, y: false } },
       // one time alone spans the picked range (uPlot pads it by 1000 days)
       scales: { x: { time: true, range: (u: { data: number[][] }, min: number, max: number) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
-      series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
+      series: [{ label: `Time (${zoneName})` }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
       axes: [axis, { ...axis, size: 70, values: (_: unknown, vs: number[]) => ticks(vs, unit) }],
     },
     [xs, ...ys],

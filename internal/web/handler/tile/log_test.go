@@ -1,6 +1,9 @@
 package tile
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // A container line carries docker's stream mark and timestamp; both come
 // off, the time kept apart. A line without them stays whole.
@@ -12,8 +15,12 @@ func TestLogLine(t *testing.T) {
 		"O not a time":                           {"", "O not a time"},
 	} {
 		l := logLine(in)
-		if l.Time != want[0] || l.Text != want[1] {
-			t.Errorf("logLine(%q) = %q %q, want %q", in, l.Time, l.Text, want)
+		at := ""
+		if !l.Time.IsZero() {
+			at = l.Time.In(time.UTC).Format(time.TimeOnly)
+		}
+		if at != want[0] || l.Text != want[1] {
+			t.Errorf("logLine(%q) = %q %q, want %q", in, at, l.Text, want)
 		}
 	}
 }

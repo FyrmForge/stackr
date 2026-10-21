@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 
@@ -119,7 +120,7 @@ func TestEveryTabRenders(t *testing.T) {
 		"runs": {
 			cron,
 			Runs(cron, RunsView{
-				Next: "Jul 25 03:00",
+				Next: time.Date(2026, 7, 25, 3, 0, 0, 0, time.UTC),
 				Rows: []RunRow{
 					{ID: "r1", Status: "running", Live: true},
 				},
@@ -128,7 +129,7 @@ func TestEveryTabRenders(t *testing.T) {
 				"/run\"",
 				">Pause",
 				`{&#34;paused&#34;:&#34;true&#34;}`,
-				"next run Jul 25 03:00",
+				"next run <local-time fmt=\"Jan 2 15:04\"><time datetime=\"2026-07-25T03:00:00Z\"",
 				"/runs/r1/stop",
 				"tab=logs&amp;run=r1",
 			},

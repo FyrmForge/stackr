@@ -13,6 +13,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CardView is one card on the env canvas. ID is its node id: the tile id
@@ -50,18 +51,20 @@ type Access struct {
 // stream re-sends it as event "footer:<card id>" whenever one of its facts
 // moves.
 type FooterView struct {
-	Kind      string // the card's kind: which strip it is
-	Status    string // tile word (running, degraded, waiting, ...); "" = idle
-	Waiting   string // the param a "waiting" tile misses
-	Up, Want  int    // replica roll-up, drawn when Want > 1
-	LastRun   string // cron/function: "ok · Jul 24 13:16", "never run", "running · since 13:02"
-	NextRun   string // cron: "next 14:00"; "" = paused
-	Trigger   string // function: "manual" / "on deploy", where a cron's next run goes
-	Domain    string // exposure: the first domain
-	More      int    // exposure: how many other domains
-	Domains   int    // org canvas: "N domains" in place of the hosts (v0 DomainCount)
-	Nav       bool   // the card is itself a link: the host is text, never a nested <a>
-	Consumers int    // slice: the tiles that reach it
+	Kind      string    // the card's kind: which strip it is
+	Status    string    // tile word (running, degraded, waiting, ...); "" = idle
+	Waiting   string    // the param a "waiting" tile misses
+	Up, Want  int       // replica roll-up, drawn when Want > 1
+	LastRun   string    // cron/function: "ok · ", "never run", "running · since ", LastAt follows
+	LastAt    time.Time // the last run's start; zero = none
+	LastFmt   string    // LastAt's layout: "15:04" while running, else "Jan 2 15:04"
+	NextRun   time.Time // cron: the next tick; zero = paused
+	Trigger   string    // function: "manual" / "on deploy", where a cron's next run goes
+	Domain    string    // exposure: the first domain
+	More      int       // exposure: how many other domains
+	Domains   int       // org canvas: "N domains" in place of the hosts (v0 DomainCount)
+	Nav       bool      // the card is itself a link: the host is text, never a nested <a>
+	Consumers int       // slice: the tiles that reach it
 }
 
 // SubView is a sub-tile: the strip of a card dealt under its card, with

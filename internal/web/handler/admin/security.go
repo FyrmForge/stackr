@@ -125,7 +125,7 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 			actor = cmp.Or(who[e.ActorID], "a removed user")
 		}
 		r := ui.SecurityRow{
-			When:    e.At.Local().Format("Jan 2, 15:04"),
+			When:    e.At,
 			Actor:   actor,
 			Action:  cmp.Or(label[e.Action], e.Action),
 			Target:  target(e),

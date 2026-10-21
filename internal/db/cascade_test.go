@@ -52,7 +52,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
-		{`INSERT INTO users VALUES ('u1','a@b.c','h','n','user',1,'','system',?,?)`, []any{now, now}},
+		{`INSERT INTO users VALUES ('u1','a@b.c','h','n','user',1,'','system',?,?,'')`, []any{now, now}},
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
 		{`INSERT INTO org_members VALUES ('m1','o1','u1','owner',?)`, []any{now}},
 		{`INSERT INTO invites VALUES ('i1','o1','x@y.z','owner','u1',?,?,NULL)`, []any{now, now}},

@@ -44,6 +44,9 @@ type Shell struct {
 	// Theme is the viewer's users.theme: light or dark pin the look, system
 	// leaves it to the OS. "" = read it off the context (the error page).
 	Theme string
+	// TimeZone is the viewer's users.time_zone, <body data-tz> for <local-time>:
+	// "" = the browser's, else an IANA name.
+	TimeZone string
 }
 
 type themeKey struct{}

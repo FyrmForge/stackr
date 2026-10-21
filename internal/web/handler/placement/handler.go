@@ -374,7 +374,7 @@ func (h *handler) Status(c echo.Context) error {
 	}
 	v := ui.ProgressView{
 		Env:     s.Env.Name,
-		Started: ms.Move.StartedAt.Local().Format("15:04"),
+		Started: ms.Move.StartedAt,
 		State:   "running", Error: ms.Move.Error,
 	}
 	if admin(c) { // node names are an admin's

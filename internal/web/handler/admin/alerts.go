@@ -45,10 +45,9 @@ func (h *handler) alertsTab(c echo.Context) (templ.Component, error) {
 	}
 	if d := s.Last; d != nil {
 		v.LastOK = d.OK
-		when := d.At.Local().Format("Jan 2 15:04")
-		v.Last = "ok, " + when
+		v.Last, v.LastAt = "ok", d.At
 		if !d.OK {
-			v.Last = "failed, " + d.Reason + ", " + when
+			v.Last = "failed, " + d.Reason
 		}
 	}
 	return ui.Alerts(v), err

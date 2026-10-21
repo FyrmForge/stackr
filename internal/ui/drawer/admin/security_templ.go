@@ -8,7 +8,11 @@ package admin
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // SecurityView is the Security log tab: filters, then one row per audited
 // act, newest first. A row opens to the detail the act recorded.
@@ -26,9 +30,10 @@ type SecurityFilter struct{ Action, Actor, Window string }
 
 // SecurityRow is one event. Refused marks an act that was turned away.
 type SecurityRow struct {
-	When, Actor, Action, Target string
-	Refused                     bool
-	Details                     []SecurityDetail
+	When                  time.Time
+	Actor, Action, Target string
+	Refused               bool
+	Details               []SecurityDetail
 }
 
 type SecurityDetail struct{ Label, Value string }
@@ -77,7 +82,7 @@ func Security(v SecurityView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(Base)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 31, Col: 22}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 36, Col: 22}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -90,7 +95,7 @@ func Security(v SecurityView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(target())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 31, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 36, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -131,12 +136,7 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var5 string
-					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(r.When)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 45, Col: 67}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+					templ_7745c5c3_Err = c.Time(r.When, "Jan 2, 15:04").Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -144,12 +144,12 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var6 string
-					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(r.Actor)
+					var templ_7745c5c3_Var5 string
+					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(r.Actor)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 46, Col: 45}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 51, Col: 45}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -157,12 +157,12 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var7 string
-					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(r.Action)
+					var templ_7745c5c3_Var6 string
+					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(r.Action)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 47, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 52, Col: 47}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -170,12 +170,12 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var8 string
-					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(r.Target)
+					var templ_7745c5c3_Var7 string
+					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(r.Target)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 48, Col: 65}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 53, Col: 65}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -208,12 +208,12 @@ func Security(v SecurityView) templ.Component {
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							var templ_7745c5c3_Var9 string
-							templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(d.Label)
+							var templ_7745c5c3_Var8 string
+							templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(d.Label)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 60, Col: 46}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 65, Col: 46}
 							}
-							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -221,12 +221,12 @@ func Security(v SecurityView) templ.Component {
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							var templ_7745c5c3_Var10 string
-							templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(d.Value)
+							var templ_7745c5c3_Var9 string
+							templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(d.Value)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 61, Col: 86}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 66, Col: 86}
 							}
-							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -254,12 +254,12 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var11 string
-					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(v.More)
+					var templ_7745c5c3_Var10 string
+					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(v.More)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 70, Col: 42}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 75, Col: 42}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -267,12 +267,12 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var12 string
-					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(target())
+					var templ_7745c5c3_Var11 string
+					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(target())
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 70, Col: 65}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 75, Col: 65}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -312,21 +312,21 @@ func securityPicker(name, label, any string, opts []AccessOption, cur string) te
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var13 == nil {
-			templ_7745c5c3_Var13 = templ.NopComponent
+		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var12 == nil {
+			templ_7745c5c3_Var12 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<select name=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var14 string
-		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(name)
+		var templ_7745c5c3_Var13 string
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 78, Col: 20}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 83, Col: 20}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -334,12 +334,12 @@ func securityPicker(name, label, any string, opts []AccessOption, cur string) te
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var15 string
-		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+		var templ_7745c5c3_Var14 string
+		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 78, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 83, Col: 62}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -347,12 +347,12 @@ func securityPicker(name, label, any string, opts []AccessOption, cur string) te
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var16 string
-		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(any)
+		var templ_7745c5c3_Var15 string
+		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(any)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 79, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 84, Col: 24}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -365,12 +365,12 @@ func securityPicker(name, label, any string, opts []AccessOption, cur string) te
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var17 string
-			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(o.Value)
+			var templ_7745c5c3_Var16 string
+			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(o.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 81, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 86, Col: 26}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -388,12 +388,12 @@ func securityPicker(name, label, any string, opts []AccessOption, cur string) te
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var18 string
-			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
+			var templ_7745c5c3_Var17 string
+			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(o.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 81, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/security.templ`, Line: 86, Col: 67}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
