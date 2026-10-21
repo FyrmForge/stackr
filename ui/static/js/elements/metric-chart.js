@@ -99,7 +99,7 @@ function draw(el, ls, unit, xs, ys) {
         width: el.clientWidth || 400,
         height: 160,
         cursor: { drag: { x: true, y: false } },
-        scales: { x: { time: true }, y: { range: (_, _min, max) => [0, max > 0 ? max * 1.1 : 1] } },
+        scales: { x: { time: true, range: (_, min, max) => (min < max ? [min, max] : [max - Number(el.getAttribute("range") ?? 3600), max]) }, y: { range: (_, _min, max) => [0, max > 0 ? max * 1.1 : 1] } },
         series: [{}, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_, v) => fmt(v, unit) }))],
         axes: [axis, { ...axis, size: 70, values: (_, vs) => ticks(vs, unit) }],
     }, [xs, ...ys], el);
