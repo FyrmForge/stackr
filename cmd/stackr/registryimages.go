@@ -139,7 +139,7 @@ func (a *app) observeStatus() *cobra.Command {
 				return a.show(v)
 			}
 			m := asMap(v)
-			size := func(k string) string { f, _ := m[k].(float64); return metricText(f, "bytes") }
+			size := func(k string) string { return metricText(num(m[k]), "bytes") }
 			on := "off"
 			if m["enabled"] == true {
 				on = "on"
