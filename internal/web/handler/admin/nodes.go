@@ -478,6 +478,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 			return v, err
 		}
 		v.Metrics = render.MetricsLive(h.orch, s, r, base+"?tab=metrics", base+"/metrics/events")
+		v.MemTotal, v.DiskTotal = lastBytes(s, "mem_total"), lastBytes(s, "disk_total")
 	}
 	live, err := h.orch.NodeLive(ctx, d.ID)
 	if err != nil {
@@ -657,4 +658,13 @@ func uptime(d time.Duration) string {
 		return fmt.Sprintf("%d h %d min", int(d/time.Hour), int(d%time.Hour/time.Minute))
 	}
 	return fmt.Sprintf("%d min", int(d/time.Minute))
+}
+
+// lastBytes is measure m's newest value in s as bytes, "" when it has none.
+func lastBytes(s service.Series, m string) string {
+	xs := s[m]
+	if len(xs) == 0 {
+		return ""
+	}
+	return service.HumanBytes(int64(xs[len(xs)-1].V))
 }
