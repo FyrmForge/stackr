@@ -421,7 +421,7 @@ func (f *File) checkOrgs() error {
 	seen := map[string]bool{}
 	for i, o := range f.Orgs {
 		switch {
-		case !slug.Valid(o.Slug) || slug.Reserved(o.Slug):
+		case !slug.Valid(o.Slug) || slug.Reserved(o.Slug) || slug.RouteReserved(o.Slug):
 			return fmt.Errorf("orgs: %q is not an org slug", o.Slug)
 		case seen[o.Slug]:
 			return fmt.Errorf("orgs: %s declared twice", o.Slug)

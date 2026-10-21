@@ -46,6 +46,19 @@ func Reserved(s string) bool {
 	return s == "params" || s == "all"
 }
 
+// routeReserved is every top-level path segment the panel and API register
+// (a test walks the routes, so a new one cannot collide silently), plus
+// static, which the file server owns.
+var routeReserved = map[string]bool{
+	"metrics": true, "admin": true, "login": true, "logout": true, "api": true,
+	"hooks": true, "join": true, "invite": true, "cli": true, "account": true,
+	"static": true, "dev": true, "settings": true, "setup": true, "-": true,
+}
+
+// RouteReserved is a slug that would lose its org home URL (/<slug>) to a
+// panel or API route.
+func RouteReserved(s string) bool { return routeReserved[s] }
+
 // ValidName reports whether s is a param collection or param name.
 func ValidName(s string) bool {
 	return nameRe.MatchString(s)

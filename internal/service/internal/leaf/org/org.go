@@ -177,7 +177,7 @@ func (l *Leaf) Rename(ctx context.Context, o store.Org, name string, claims []Cl
 	if s == "" {
 		return o, errs.Invalidf("name", "That name needs at least one letter or digit, since it becomes the URL.")
 	}
-	if slug.Reserved(s) {
+	if slug.Reserved(s) || slug.RouteReserved(s) {
 		return o, errs.Invalidf("name", "%q is a reserved word, so this name is not available.", s)
 	}
 	if holder, err := l.orgs.GetBySlug(ctx, s); err == nil && holder.ID != o.ID {
