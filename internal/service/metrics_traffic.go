@@ -39,7 +39,10 @@ type caddySample struct {
 
 // parseCaddy reads Caddy's /metrics text (per_host on) into per host totals
 // of caddy_http_request_duration_seconds. Hosts are lower case without a
-// port; Caddy's "_other" (hosts it routes none of) is left out.
+// port; Caddy's "_other" (hosts it routes none of) is left out. Caddy times a
+// request once in every handler of its route (log_append, then
+// reverse_proxy), so each request is counted from the handler that saw the
+// most of them, never once per handler.
 func parseCaddy(r io.Reader) (map[string]hostCount, error) {
 	p := expfmt.NewTextParser(model.UTF8Validation)
 	fams, err := p.TextToMetricFamilies(r)
@@ -51,32 +54,45 @@ func parseCaddy(r io.Reader) (map[string]hostCount, error) {
 	if f == nil {
 		return out, nil
 	}
+	// one series per request kind: every label but handler
+	type kind struct{ host, code, method, server string }
+	type count struct{ n, sum float64 }
+	best := map[kind]count{}
 	for _, m := range f.GetMetric() {
-		host, code := "", ""
+		var k kind
 		for _, l := range m.GetLabel() {
 			switch l.GetName() {
 			case "host":
-				host = strings.ToLower(l.GetValue())
+				k.host = l.GetValue()
 			case "code":
-				code = l.GetValue()
+				k.code = l.GetValue()
+			case "method":
+				k.method = l.GetValue()
+			case "server":
+				k.server = l.GetValue()
 			}
 		}
+		h := m.GetHistogram()
+		if n := float64(h.GetSampleCount()); n > best[k].n {
+			best[k] = count{n, h.GetSampleSum()}
+		}
+	}
+	for k, b := range best {
+		host := strings.ToLower(k.host)
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h
 		}
 		if host == "" || host == "_other" {
 			continue
 		}
-		h := m.GetHistogram()
-		n := float64(h.GetSampleCount())
 		c := out[host]
-		c.n += n
-		c.sum += h.GetSampleSum()
+		c.n += b.n
+		c.sum += b.sum
 		switch {
-		case strings.HasPrefix(code, "4"):
-			c.e4 += n
-		case strings.HasPrefix(code, "5"):
-			c.e5 += n
+		case strings.HasPrefix(k.code, "4"):
+			c.e4 += b.n
+		case strings.HasPrefix(k.code, "5"):
+			c.e5 += b.n
 		}
 		out[host] = c
 	}

@@ -25,6 +25,9 @@ caddy_http_request_duration_seconds_count{code="404",handler="static_response",h
 caddy_http_request_duration_seconds_bucket{code="200",handler="static_response",host="_other",method="GET",server="http",le="+Inf"} 7
 caddy_http_request_duration_seconds_sum{code="200",handler="static_response",host="_other",method="GET",server="http"} 1
 caddy_http_request_duration_seconds_count{code="200",handler="static_response",host="_other",method="GET",server="http"} 7
+caddy_http_request_duration_seconds_bucket{code="200",handler="log_append",host="shop.example.com",method="GET",server="https",le="+Inf"} %[1]d
+caddy_http_request_duration_seconds_sum{code="200",handler="log_append",host="shop.example.com",method="GET",server="https"} %[2]s
+caddy_http_request_duration_seconds_count{code="200",handler="log_append",host="shop.example.com",method="GET",server="https"} %[1]d
 `
 
 func caddyAt(t *testing.T, ok int, sum string, bad, wild int) map[string]hostCount {
@@ -38,7 +41,8 @@ func caddyAt(t *testing.T, ok int, sum string, bad, wild int) map[string]hostCou
 }
 
 // Caddy's per host histogram becomes requests, 4xx, 5xx and seconds per
-// host (port and case dropped, _other left out), and two samples become each
+// host (port and case dropped, _other left out, a request counted once
+// though every handler of its route times it), and two samples become each
 // tile's rates summed over hosts and the average latency.
 func TestCaddyTraffic(t *testing.T) {
 	a := caddyAt(t, 100, "10", 0, 5)
