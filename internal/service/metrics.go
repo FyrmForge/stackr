@@ -213,7 +213,7 @@ func (o *Orchestrator) takeSample(nodeID string, cur worker.Metrics) ([]metrics.
 	prev, had := s.prev[nodeID]
 	s.prev[nodeID] = cur
 	for _, c := range cur.Containers {
-		if c.Role != "pause" && !slices.Contains(s.replicas[c.Tile], c.Name) {
+		if !skipCtr(c.Role) && !slices.Contains(s.replicas[c.Tile], c.Name) {
 			s.replicas[c.Tile] = append(s.replicas[c.Tile], c.Name)
 		}
 	}
@@ -263,7 +263,7 @@ func Rates(nodeID string, prev, cur worker.Metrics) []metrics.Point {
 	var order []string
 	for _, c := range cur.Containers {
 		p, ok := before[c.Tile+"/"+c.Name]
-		if !ok || c.Role == "pause" {
+		if !ok || skipCtr(c.Role) {
 			continue
 		}
 		cpu, ok1 := rate(p.CPUUsec, c.CPUUsec)
@@ -428,3 +428,8 @@ func ReplicaLabel(tileID, name string) string {
 	}
 	return name
 }
+
+// skipCtr is a container the graphs leave out: a pause (its net is the
+// replicas') or a cron/function run, whose fresh name per run would pile up
+// as replicas; a run's numbers belong to the run, not the tile's graphs.
+func skipCtr(role string) bool { return role == "pause" || role == "run" }

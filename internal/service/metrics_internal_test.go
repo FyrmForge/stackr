@@ -20,11 +20,13 @@ func TestMetricsIngest(t *testing.T) {
 		{Tile: "t1", Name: "web-1", Role: "replica", CPUUsec: 0, Mem: 50, IORead: 0, IOWrite: 0},
 		{Tile: "t1", Name: "web-2", Role: "replica", CPUUsec: 0, Mem: 30},
 		{Tile: "t1", Name: "pause", Role: "pause", NetRx: 0, NetTx: 0},
+		{Tile: "t1", Name: "job-x1", Role: "run"},
 	}}
 	b := worker.Metrics{At: t0.Add(10 * time.Second), Host: host(2000, 1400), Containers: []worker.ContainerSample{
 		{Tile: "t1", Name: "web-1", Role: "replica", CPUUsec: 5_000_000, Mem: 60, IORead: 1000, IOWrite: 2000, NetRx: 6_000, NetTx: 1_000},
 		{Tile: "t1", Name: "web-2", Role: "replica", CPUUsec: 1_000_000, Mem: 40, NetRx: 4_000},
 		{Tile: "t1", Name: "pause", Role: "pause", CPUUsec: 9_000_000, NetRx: 99_000, NetTx: 99_000},
+		{Tile: "t1", Name: "job-x1", Role: "run", CPUUsec: 9_000_000, Mem: 500},
 	}}
 	o := &Orchestrator{cfg: Config{Metrics: &metrics.Memory{}}}
 	if pts, _, _ := o.takeSample("n1", a); pts != nil {
@@ -55,7 +57,7 @@ func TestMetricsIngest(t *testing.T) {
 		t.Errorf("replica io = %v", v)
 	}
 	if v := get("tile:t1", "cpu_pct"); v != 60 {
-		t.Errorf("tile cpu = %v", v)
+		t.Errorf("tile cpu = %v", v) // a run container counts for its run, not the tile
 	}
 	if v := get("tile:t1", "mem"); v != 100 {
 		t.Errorf("tile mem = %v", v)
