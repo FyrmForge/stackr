@@ -26,6 +26,8 @@ type Leaf struct {
 	vip    VIP
 	// Gate is the health gate's timing; tests shorten it.
 	Gate Gate
+	// RunPoll is how often a run's stats are read; 0 = 2 s. Tests shorten it.
+	RunPoll time.Duration
 	// Early, when set, is told when a replica or run container is up (on) and
 	// when it is gone or failed its gate (!on), so the tile's lan rules can
 	// exist before the replica is routed.

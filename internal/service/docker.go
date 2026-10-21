@@ -29,6 +29,7 @@ type Docker interface {
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
 	Wait(ctx context.Context, id string) (exitCode int, err error)
+	Stats(ctx context.Context, id string) (docker.Usage, error)
 
 	// Networks.
 	// EnsureNetwork makes a bridge network on the subnet the caller reserved

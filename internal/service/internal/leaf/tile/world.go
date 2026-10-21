@@ -54,6 +54,7 @@ type Docker interface {
 	Unpause(ctx context.Context, id string) error
 	StreamLogs(ctx context.Context, id string, tail int) (<-chan string, func(), error)
 	Wait(ctx context.Context, id string) (int, error)
+	Stats(ctx context.Context, id string) (docker.Usage, error)
 	// The config file volumes (files.go).
 	HostInfo(ctx context.Context) (docker.HostInfo, error)
 	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
@@ -162,14 +163,16 @@ func (l *Leaf) lastWords(ctx context.Context, id string, err error, log io.Write
 // RunOnce runs one run-to-completion container: no health gate, no restart,
 // its log lines copied into log. It waits for the exit and removes the
 // container on every path (docker run --rm). ctx ending (timeout, cancel)
-// stops it and returns ctx.Err().
+// stops it and returns ctx.Err(). The Usage is the run's peak memory and last
+// CPU total, read from docker stats every RunPoll while it ran.
+// ponytail: a run shorter than one poll may record none (zero Usage).
 func (l *Leaf) RunOnce(
 	ctx context.Context,
 	t store.Tile,
 	spec docker.ContainerSpec,
 	runID string,
 	log io.Writer,
-) (int, error) {
+) (int, docker.Usage, error) {
 	spec.Labels = maps.Clone(spec.Labels)
 	if spec.Labels == nil {
 		spec.Labels = map[string]string{}
@@ -178,18 +181,18 @@ func (l *Leaf) RunOnce(
 	spec.Restart = "no"
 	ctx, err := l.at(ctx, t.EnvironmentID)
 	if err != nil {
-		return -1, err
+		return -1, docker.Usage{}, err
 	}
 	id, err := l.docker.Run(ctx, spec)
 	if err != nil {
-		return -1, err
+		return -1, docker.Usage{}, err
 	}
 	defer func() { _ = l.docker.StopRemove(context.WithoutCancel(ctx), id) }()
 	l.early(ctx, t, id, true)
 	defer l.early(context.WithoutCancel(ctx), t, id, false)
 	lines, stop, err := l.docker.StreamLogs(context.WithoutCancel(ctx), id, -1)
 	if err != nil {
-		return -1, err
+		return -1, docker.Usage{}, err
 	}
 	defer stop()
 	copied := make(chan struct{})
@@ -199,15 +202,46 @@ func (l *Leaf) RunOnce(
 			_, _ = io.WriteString(log, s+"\n")
 		}
 	}()
+	var use docker.Usage
+	sampled := make(chan struct{})
+	sctx, stopSample := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		defer close(sampled)
+		l.sample(sctx, id, &use)
+	}()
 	code, err := l.docker.Wait(ctx, id)
+	stopSample()
+	<-sampled
 	if ctx.Err() != nil {
-		return -1, ctx.Err()
+		return -1, use, ctx.Err()
 	}
 	select { // the stream ends with the container; don't hang on a stuck one
 	case <-copied:
 	case <-time.After(5 * time.Second):
 	}
-	return code, err
+	return code, use, err
+}
+
+// sample reads the container's stats every RunPoll until ctx ends, keeping
+// the peak memory and the latest CPU total in use. The caller reads use
+// after the sampler has returned.
+func (l *Leaf) sample(ctx context.Context, id string, use *docker.Usage) {
+	every := l.RunPoll
+	if every <= 0 {
+		every = 2 * time.Second
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		if u, err := l.docker.Stats(ctx, id); err == nil {
+			use.MemBytes, use.CPUNs = max(use.MemBytes, u.MemBytes), max(use.CPUNs, u.CPUNs)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // gate is docker.Healthy with the tile's timings; the start period is

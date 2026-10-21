@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -26,6 +28,8 @@ type Flow struct {
 	Runs   *lrun.Leaf
 	Jobs   *job.Leaf
 	Deploy *deploy.Flow
+	// Points, when set, takes the points a finished run writes.
+	Points func(ctx context.Context, ps []metrics.Point)
 	// Minute is one timeout_minutes unit; tests shorten it. 0 = a minute.
 	Minute time.Duration
 }
@@ -77,6 +81,34 @@ func (f *Flow) busy(ctx context.Context, tileID string) (bool, error) {
 		return false, err
 	}
 	return err == nil, err
+}
+
+// measure stores what the run's container used on its row and writes the
+// run's points under the tile: how long it took, whether it failed, peak
+// memory and CPU seconds. It runs before the row is closed, so the duration
+// is up to now.
+func (f *Flow) measure(ctx context.Context, r store.Run, use docker.Usage, failed bool) {
+	ctx = context.WithoutCancel(ctx)
+	now := time.Now().UTC()
+	name := func(n string, v float64) metrics.Point {
+		return metrics.Point{Key: "tile:" + r.TileID, Name: n, T: now, V: v}
+	}
+	var ps []metrics.Point
+	if r.StartedAt != nil {
+		ps = append(ps, name("run_s", now.Sub(*r.StartedAt).Seconds()))
+	}
+	fail := 0.0
+	if failed {
+		fail = 1
+	}
+	ps = append(ps, name("run_failed", fail))
+	if use != (docker.Usage{}) {
+		_ = f.Runs.Measure(ctx, r.ID, int64(use.MemBytes), int64(use.CPUNs/1e6))
+		ps = append(ps, name("run_mem_peak", float64(use.MemBytes)), name("run_cpu_s", float64(use.CPUNs)/1e9))
+	}
+	if f.Points != nil {
+		f.Points(ctx, ps)
+	}
 }
 
 // Do is the job body for run runID: build the spec on the image the env's
@@ -137,7 +169,8 @@ func (f *Flow) Do(ctx context.Context, runID string, log io.Writer) error {
 	}
 	defer cancel()
 	_, _ = fmt.Fprintf(log, "running %s on %s\n", t.Slug, ref)
-	code, err := f.Tiles.RunOnce(rctx, t, spec, r.ID, out)
+	code, use, err := f.Tiles.RunOnce(rctx, t, spec, r.ID, out)
+	f.measure(ctx, r, use, err != nil || code != 0)
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil:
 		return fail(lrun.Failed, fmt.Sprintf("timed out after %d minutes", t.TimeoutMinutes), nil)

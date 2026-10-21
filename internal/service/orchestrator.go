@@ -631,6 +631,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Runs:   orch.runs,
 			Jobs:   orch.jobRows,
 			Deploy: orch.deploy,
+			Points: func(ctx context.Context, ps []metrics.Point) { _ = orch.metricsStore().Write(ctx, ps) },
 		}
 	})
 	orch.sample = build("flow/traffic", func() *ftraffic.Flow {

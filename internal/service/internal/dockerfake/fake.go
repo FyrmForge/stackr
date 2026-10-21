@@ -72,6 +72,8 @@ type Fake struct {
 	StreamOut     []string             // the lines StreamLogs sends
 	ExitCode      int                  // what Wait answers
 	WaitBlock     bool                 // Wait blocks until its ctx ends
+	WaitFor       time.Duration        // Wait takes this long first (ctx ends it early)
+	Usages        []docker.Usage       // what Stats answers, one per call; the last repeats
 	Host          docker.HostInfo      // what HostInfo answers; zero = unknown, no ceiling
 	Addrs         map[string][2]string // network -> what MemberAddr answers (ip, cidr)
 }
@@ -206,7 +208,28 @@ func (f *Fake) Wait(ctx context.Context, id string) (int, error) {
 		<-ctx.Done()
 		return -1, ctx.Err()
 	}
+	if f.WaitFor > 0 {
+		select {
+		case <-time.After(f.WaitFor):
+		case <-ctx.Done():
+			return -1, ctx.Err()
+		}
+	}
 	return f.ExitCode, nil
+}
+
+func (f *Fake) Stats(_ context.Context, id string) (docker.Usage, error) {
+	err := f.rec("Stats", id)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.Usages) == 0 {
+		return docker.Usage{}, err
+	}
+	u := f.Usages[0]
+	if len(f.Usages) > 1 {
+		f.Usages = f.Usages[1:]
+	}
+	return u, err
 }
 
 func (f *Fake) Inspect(_ context.Context, id string) (docker.Detail, error) {

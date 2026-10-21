@@ -231,7 +231,8 @@ type RunsView struct {
 
 type RunRow struct {
 	ID, Status, Trigger, Started, Took, Exit string
-	Live                                     bool // offer stop
+	Mem, CPU                                 string // peak memory and CPU time; "" = not measured
+	Live                                     bool   // offer stop
 }
 
 type BackupsView struct{ Rows []VolumeRow }
