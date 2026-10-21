@@ -9,6 +9,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/api/handler/health"
 	"github.com/FyrmForge/stackr/internal/api/handler/v1"
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/selfmetrics"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -33,6 +34,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// no login redirect ever lands an HTML page in sh.
 	srv.Echo().GET("/join/:token", h.JoinScript, middleware.Logging())
 	srv.Echo().GET("/join/:token/stackr-install", h.JoinInstaller, middleware.Logging())
+
+	// stackr's own Prometheus metrics, for an admin key or session.
+	srv.Echo().GET("/metrics", echo.WrapHandler(selfmetrics.Handler()), deps.Access.Load(), deps.Access.Require("admin.read"))
 
 	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
 	for _, r := range Routes(h) {

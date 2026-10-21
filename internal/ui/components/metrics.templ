@@ -105,7 +105,7 @@ templ RangePicker(reload, cur string, long bool) {
 
 // Chart is one titled graph inside Metrics: measures the series it draws
 // (space separated), labels their names (comma separated), unit how values
-// read: pct, ratio, bytes, bps or ms.
+// read: pct, ratio, bytes, bps, rps (per second), ms or s.
 templ Chart(v MetricsView, title, measures, labels, unit string) {
 	<section class="panel p-4">
 		<h3 class="text-sm font-medium text-rw-text mb-2">{ title }</h3>

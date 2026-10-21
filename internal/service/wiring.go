@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
+	"github.com/FyrmForge/stackr/internal/selfmetrics"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
@@ -404,7 +405,8 @@ func (o *Orchestrator) buildTile(
 	t store.Tile,
 	commit string,
 	log io.Writer,
-) (string, error) {
+) (_ string, err error) {
+	defer func(start time.Time) { selfmetrics.Build(err, time.Since(start)) }(time.Now())
 	og, err := o.orgs.Get(ctx, st.OrgID)
 	if err != nil {
 		return "", err

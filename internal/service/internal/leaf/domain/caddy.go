@@ -179,7 +179,9 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 	}
 
 	servers := route{"http": server(":80", plain, in.TrustedProxies, httpTail)}
-	apps := route{"http": route{"servers": servers}}
+	// per_host: requests, status codes and latency per host on the admin
+	// API's /metrics, which the panel's sampler turns into tile traffic.
+	apps := route{"http": route{"servers": servers, "metrics": route{"per_host": true}}}
 	if tlsOn {
 		servers["https"] = server(":443", secure, in.TrustedProxies, custom)
 		servers["https"].(route)["automatic_https"] = route{"disable_redirects": true}

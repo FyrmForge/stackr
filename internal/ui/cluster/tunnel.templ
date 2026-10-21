@@ -52,6 +52,8 @@ templ TunnelBody(m Map, l Link, mv components.MetricsView) {
 	@components.Metrics(mv) {
 		@components.Chart(mv, "Round trip", "rtt_ms", "round trip", "ms")
 		@components.Chart(mv, "Packet loss", "loss", "loss", "ratio")
+		@components.Chart(mv, "Traffic", "rx_bps tx_bps", "in,out", "bps")
+		@components.Chart(mv, "Last handshake", "handshake_age_s", "age", "s")
 	}
 }
 

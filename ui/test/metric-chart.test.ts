@@ -45,4 +45,7 @@ test("values read in their unit", () => {
   assert.equal(fmt(1536, "bytes"), "1.5 KB");
   assert.equal(fmt(3 * 2 ** 20, "bps"), "3.0 MB/s");
   assert.equal(fmt(null, "ms"), "-");
+  assert.equal(fmt(0.5, "rps"), "0.50/s");
+  assert.equal(fmt(120.4, "rps"), "120/s");
+  assert.equal(fmt(42.6, "s"), "43 s");
 });

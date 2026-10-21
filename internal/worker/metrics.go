@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 // Metrics is GET /v1/metrics: raw counters of this host and its tile
@@ -24,6 +26,16 @@ type Metrics struct {
 	Containers []ContainerSample `json:"containers"`
 	// NoCgroup: the host is not on cgroup v2, so no container samples.
 	NoCgroup bool `json:"no_cgroup,omitempty"`
+	// Peers is each mesh wg peer's counters, by public key; none without a mesh.
+	Peers map[string]PeerSample `json:"peers,omitempty"`
+}
+
+// PeerSample is one wg peer: bytes received from it and sent to it
+// (cumulative), and its last handshake (unix seconds, 0 = never).
+type PeerSample struct {
+	Rx        int64 `json:"rx"`
+	Tx        int64 `json:"tx"`
+	Handshake int64 `json:"handshake,omitempty"`
 }
 
 // HostSample: CPU jiffies (cumulative), memory and the Docker root's disk.
@@ -71,6 +83,18 @@ func (s *Server) Metrics(ctx context.Context) (Metrics, error) {
 	m := Metrics{At: time.Now()}
 	m.Host = hostSample(root)
 	m.Host.DiskTotal, m.Host.DiskFree = diskOf(s.cfg.DiskPath)
+	if s.cfg.Mesh.WG != nil {
+		if st, err := s.cfg.Mesh.WG.Stats(mesh.Iface); err == nil && len(st) > 0 {
+			m.Peers = map[string]PeerSample{}
+			for k, p := range st {
+				ps := PeerSample{Rx: p.Rx, Tx: p.Tx}
+				if !p.Handshake.IsZero() {
+					ps.Handshake = p.Handshake.Unix()
+				}
+				m.Peers[k] = ps
+			}
+		}
+	}
 	cg := filepath.Join(root, "/sys/fs/cgroup")
 	if _, err := os.Stat(filepath.Join(cg, "cgroup.controllers")); err != nil {
 		m.NoCgroup = true

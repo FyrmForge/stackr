@@ -32,6 +32,10 @@ type metricsState struct {
 	// the panel's open graphs append (MetricsAfter).
 	seq  int64
 	last []metrics.Point
+	// caddy is each ingress node's last Caddy sample, panel the panel's
+	// HTTP totals (metrics_traffic.go).
+	caddy map[string]caddySample
+	panel panelSample
 }
 
 // Series keys. A link's is its node ids in order, so either end finds it.
@@ -67,8 +71,9 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 	}
 	var (
 		mu  sync.Mutex
-		pts []metrics.Point
-		wg  sync.WaitGroup
+		pts  []metrics.Point
+		pair = map[string][2]worker.Metrics{} // a node's last two samples, for its wg peers
+		wg   sync.WaitGroup
 	)
 	sem := make(chan struct{}, 8)
 	for _, n := range ns {
@@ -95,14 +100,21 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 			if err != nil {
 				return
 			}
-			p := o.takeSample(n.ID, cur)
+			p, prev, had := o.takeSample(n.ID, cur)
 			mu.Lock()
 			pts = append(pts, p...)
+			if had {
+				pair[n.ID] = [2]worker.Metrics{prev, cur}
+			}
 			mu.Unlock()
 		}()
 	}
 	wg.Wait()
-	pts = append(pts, o.linkPoints(ns, time.Now())...)
+	now := time.Now()
+	pts = append(pts, o.linkPoints(ns, now)...)
+	pts = append(pts, wgPoints(pair, o.meshPeers, now)...)
+	pts = append(pts, o.trafficPoints(ctx, now)...)
+	pts = append(pts, o.panelPoints(now)...)
 	if len(pts) == 0 {
 		return nil
 	}
@@ -190,8 +202,8 @@ func (o *Orchestrator) MetricsAfter(s MetricsScope, seq int64) (any, int64) {
 }
 
 // takeSample keeps cur as the node's last sample and returns the points
-// between it and the one before.
-func (o *Orchestrator) takeSample(nodeID string, cur worker.Metrics) []metrics.Point {
+// between it and the one before, and that one (had: there was one).
+func (o *Orchestrator) takeSample(nodeID string, cur worker.Metrics) ([]metrics.Point, worker.Metrics, bool) {
 	s := &o.metrics
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -206,9 +218,9 @@ func (o *Orchestrator) takeSample(nodeID string, cur worker.Metrics) []metrics.P
 		}
 	}
 	if !had {
-		return nil
+		return nil, prev, false
 	}
-	return Rates(nodeID, prev, cur)
+	return Rates(nodeID, prev, cur), prev, true
 }
 
 // Rates turns two raw samples of one node into points: host CPU %, memory and
@@ -350,7 +362,8 @@ func (o *Orchestrator) NodeMetrics(ctx context.Context, ref string, in MetricsIn
 	return o.metricsStore().Query(ctx, nodeKey(n.ID), from, to, step)
 }
 
-// LinkMetrics is the tunnel between two nodes: rtt_ms and loss (admin).
+// LinkMetrics is the tunnel between two nodes: rtt_ms, loss, rx_bps,
+// tx_bps and handshake_age_s (admin).
 func (o *Orchestrator) LinkMetrics(ctx context.Context, refA, refB string, in MetricsIn) (Series, error) {
 	a, err := o.nodeByRef(ctx, refA)
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/standard"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
+	_ "github.com/caddyserver/caddy/v2/modules/metrics" // the admin API's /metrics
 	_ "github.com/mholt/caddy-l4"
 
 	"github.com/FyrmForge/stackr/internal/service"
