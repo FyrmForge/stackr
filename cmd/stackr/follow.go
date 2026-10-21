@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -185,7 +186,8 @@ func (a *app) browserLogin(server, name string) (string, error) {
 				http.Error(w, "this login is not the one the CLI started", http.StatusBadRequest)
 				return
 			}
-			_, _ = io.WriteString(w, "stackr CLI is logged in. You can close this tab.\n")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = fmt.Fprintf(w, loggedInPage, html.EscapeString(strings.TrimRight(server, "/")))
 			select {
 			case got <- q.Get("code"):
 			default:
@@ -221,3 +223,34 @@ func openBrowser(u string) {
 	}
 	_ = exec.Command(cmd, strings.Fields(u)...).Start()
 }
+
+// loggedInPage is what the browser lands on once the CLI has its code: the
+// panel's sign-in card (tokens from ui/css/input.css), self-contained since
+// the CLI serves it. %[1]s is the server, for the logo.
+const loggedInPage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logged in - stackr</title>
+<link rel="icon" href="%[1]s/static/images/favicon-32.png">
+<style>
+:root{--bg:10 10 12;--surface:19 19 23;--border:38 38 46;--text:237 236 242;--muted:207 206 213;--success:63 179 127;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:246 245 250;--surface:255 255 255;--border:226 224 234;--text:27 26 34;--muted:94 91 109;color-scheme:light}}
+body{margin:0;background:rgb(var(--bg));color:rgb(var(--text));font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}
+main{max-width:28rem;margin:0 auto;padding:6rem 1.5rem 0}
+.brand{display:flex;gap:.625rem;align-items:center;justify-content:center;margin-bottom:2rem;font-size:1.25rem;font-weight:600}
+.brand img{width:2.5rem;height:2.5rem}
+.card{background:rgb(var(--surface));border:1px solid rgb(var(--border));border-radius:.75rem;padding:2rem;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,.4),0 4px 16px rgba(0,0,0,.25)}
+.ok{width:2.5rem;height:2.5rem;margin:0 auto 1rem;border-radius:999px;display:grid;place-items:center;background:rgb(var(--success)/.15);color:rgb(var(--success))}
+h1{font-size:1.125rem;font-weight:600;margin:0 0 .25rem}
+p{margin:0;color:rgb(var(--muted))}
+@media (prefers-color-scheme:light){.card{box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.06)}}
+</style></head>
+<body><main>
+<div class="brand"><img src="%[1]s/static/images/logo-mark.png" alt="">stackr</div>
+<section class="card">
+<div class="ok"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
+<h1>The CLI is logged in</h1>
+<p>You can close this tab and go back to your terminal.</p>
+</section>
+</main></body></html>
+`
