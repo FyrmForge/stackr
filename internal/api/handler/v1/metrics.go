@@ -62,3 +62,30 @@ func (h *H) TileMetrics() Endpoint {
 		return h.Orch.TileMetrics(rc(c), tileID(c), in)
 	}).Q("range", "step")
 }
+
+// LogSearch is the env's stored log lines (the whole env, or one tile with
+// ?tile=), newest first, 500 at most. ?kind=, ?source= (app, access, run,
+// build), ?stream= (stdout, stderr), ?run= and ?text= narrow it; ?since= is a
+// duration up to 168h (default 1h); ?before= is an RFC 3339 time, to page
+// past the oldest line of the last answer.
+func (h *H) LogSearch() Endpoint {
+	return Get(func(c echo.Context) ([]service.LogLine, error) {
+		q := c.QueryParam
+		in := service.LogsIn{Tile: q("tile"), Kind: q("kind"), Source: q("source"), Stream: q("stream"), Run: q("run"), Text: q("text")}
+		if v := q("since"); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return nil, errs.Invalidf("since", "must be a duration like 15m or 24h")
+			}
+			in.Since = d
+		}
+		if v := q("before"); v != "" {
+			t, err := time.Parse(time.RFC3339Nano, v)
+			if err != nil {
+				return nil, errs.Invalidf("before", "must be an RFC 3339 time")
+			}
+			in.Before = t
+		}
+		return list(h.Orch.SearchLogs(rc(c), scope(c), in))
+	}).Q("tile", "kind", "source", "stream", "run", "text", "since", "before")
+}
