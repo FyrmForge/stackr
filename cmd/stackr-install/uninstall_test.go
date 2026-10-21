@@ -142,13 +142,14 @@ type uninstallRig struct {
 func newUninstallRig(t *testing.T) *uninstallRig {
 	t.Helper()
 	r := &uninstallRig{state: t.TempDir(), install: t.TempDir(), reads: map[string]string{
-		"docker ps -aq --filter label=stackr.managed=true":                  "c1\nc2\n",
-		"docker ps -aq --filter name=^buildx_buildkit_stackr-builder":       "b1\n",
-		"docker volume ls -q --filter name=^buildx_buildkit_stackr-builder": "b1_state\n",
-		"docker network ls -q --filter label=stackr.managed=true":           "n1\n",
-		"docker volume ls -q --filter label=stackr.managed=true":            "v1\nv2\n",
-		"docker image ls -q --filter label=stackr.managed=true":             "i1\n",
-		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr":    "i2\n",
+		"docker ps -aq --filter label=stackr.managed=true":                       "c1\nc2\n",
+		"docker ps -aq --filter name=^buildx_buildkit_stackr-builder":            "b1\n",
+		"docker volume ls -q --filter name=^buildx_buildkit_stackr-builder":      "b1_state\n",
+		"docker network ls -q --filter label=stackr.managed=true":                "n1\n",
+		"docker volume ls -q --filter label=stackr.managed=true":                 "v1\nv2\n",
+		"docker image ls -q --filter label=stackr.managed=true":                  "i1\n",
+		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr":         "i2\n",
+		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr-observe": "i6\n",
 		"docker image ls --format {{.Repository}} {{.ID}}": "localhost:5000/stackr.system/stackr i3\nlocalhost:5000/stackr.system/tools/rsync i4\n" +
 			"localhost:5000/acme/docker.io/library/nginx i5\nghcr.io/fyrmforge/stackr i2\npostgres i9\n",
 		"iptables-save": cannedSave,
@@ -294,7 +295,7 @@ func TestUninstallPurgeAsksTheName(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"docker volume rm v1 v2", "docker volume rm stackr-caddy", "docker volume rm b1_state", "docker image rm -f i1 i2 i3 i4 i5", "rm -rf " + r.state,
+	for _, want := range []string{"docker volume rm v1 v2", "docker volume rm stackr-caddy", "docker volume rm stackr-observe-data", "docker volume rm b1_state", "docker image rm -f i1 i2 i6 i3 i4 i5", "rm -rf " + r.state,
 		"rm -f /usr/local/bin/.stackr-swap /usr/local/bin/stackrd /usr/local/bin/stackrd.prev /usr/local/bin/stackr-install /usr/local/bin/stackr-install.prev"} {
 		if !strings.Contains(flat(out), want) {
 			t.Errorf("purge lacks %q:\n%s", want, out)

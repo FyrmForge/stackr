@@ -2,7 +2,7 @@
 # The test rig: save what a pave must not lose, pave, restore.
 #
 #   scripts/rig.sh save                    snapshot connectors, master key, install.json, Caddy certs
-#   scripts/rig.sh ship <version>          load the image and installer of a `make release` onto the rig
+#   scripts/rig.sh ship <version>          load the images and installer of a `make release` onto the rig
 #   scripts/rig.sh pave <version>          save, wipe the DB and tiles, install <version> fresh
 #   scripts/rig.sh upgrade <version>       ship, then replace the stackr and proxy containers, DB kept
 #   scripts/rig.sh restore [--org <slug>] [<snapshot>]
@@ -71,7 +71,7 @@ PY
 
 ship() {
 	local v="$1"
-	docker save "$IMAGE:$v" | rig docker load
+	docker save "$IMAGE:$v" "$IMAGE-observe:$v" | rig docker load
 	scp -q "$PROJECT_ROOT/bin/stackr-install-linux-amd64" "$RIG:$INSTALLER"
 	echo "shipped $v"
 }

@@ -68,7 +68,7 @@ installcli:
 installer:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackr-install ./cmd/stackr-install
 
-## release: stackrd image + stackr-install for linux/amd64, e.g. make release RELEASE=v0.1.0
+## release: stackrd and stackr-observe images + stackr-install for linux/amd64, e.g. make release RELEASE=v0.1.0
 ## Rig test builds are vX.Y.Z-dev.N after the latest tag (v0.6.0-dev.1): never
 ## a git tag, and a -dev build is never offered a self-upgrade.
 ## The image is tagged without the v (ghcr.io/fyrmforge/stackr:0.1.0), as
@@ -77,6 +77,7 @@ release:
 	@[[ "$(RELEASE)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?$$ ]] || { echo "usage: make release RELEASE=vX.Y.Z or vX.Y.Z-dev.N" >&2; exit 1; }
 	$(MAKE) build
 	docker build --platform linux/amd64 --build-arg VERSION=$(RELEASE) -f cmd/stackrd/Dockerfile -t ghcr.io/fyrmforge/stackr:$(RELEASE:v%=%) .
+	docker build --platform linux/amd64 -f cmd/stackr-observe/Dockerfile -t ghcr.io/fyrmforge/stackr-observe:$(RELEASE:v%=%) .
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$(RELEASE)" -o bin/stackr-install-linux-amd64 ./cmd/stackr-install
 
 ## generate: Generate static pages

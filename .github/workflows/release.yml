@@ -77,6 +77,7 @@ jobs:
           docker tag ghcr.io/fyrmforge/stackr:${VERSION} ghcr.io/fyrmforge/stackr:latest
           docker push ghcr.io/fyrmforge/stackr:${VERSION}
           docker push ghcr.io/fyrmforge/stackr:latest
+          docker push ghcr.io/fyrmforge/stackr-observe:${VERSION}
 
       - name: Upload release asset
         env:

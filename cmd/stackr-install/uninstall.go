@@ -146,6 +146,7 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	r.say("Purging volumes, images and state")
 	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", managedLabel}, []string{"volume", "rm"}, fail)
 	try("docker", "volume", "rm", installspec.ProxyVolume) // an ingress node's only
+	try("docker", "volume", "rm", installspec.ObserveVolume)
 	e.removeAll(ctx, "docker", []string{"volume", "ls", "-q", "--filter", builderName}, []string{"volume", "rm"}, fail)
 	e.removeImages(ctx, fail)
 	fail(r.run(ctx, "rm", "-rf", e.stateDir))
@@ -186,7 +187,7 @@ func (e uninstallEnv) removeImages(ctx context.Context, fail func(error)) {
 			ids = append(ids, id)
 		}
 	}
-	for _, f := range []string{managedLabel, "reference=" + installspec.Repo} {
+	for _, f := range []string{managedLabel, "reference=" + installspec.Repo, "reference=" + installspec.ObserveRepo} {
 		out, err := e.read(ctx, "docker", "image", "ls", "-q", "--filter", f)
 		if err != nil {
 			fail(fmt.Errorf("docker image ls: %w", err))
