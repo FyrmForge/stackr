@@ -60,6 +60,7 @@ type View struct {
 	ReadOnly bool   // the viewer may not write: no action buttons, no Access or Settings tab
 	Location string // "stack / env"
 	EnvColor string
+	Domained bool // the tile has a domain: only then does it see requests (Metrics tab)
 
 	NewDigest  string // a newer image than the one running; "" = none
 	AutoUpdate bool   // the watcher deploys it by itself

@@ -234,8 +234,10 @@ templ Metrics(v View, m c.MetricsView) {
 			@c.Chart(m, "Memory", "mem", "", "bytes")
 			@c.Chart(m, "Network", "net_rx_bps net_tx_bps", "in,out", "bps")
 			@c.Chart(m, "Disk IO", "io_read_bps io_write_bps", "read,write", "bps")
-			@c.Chart(m, "Requests", "req_s 4xx_s 5xx_s", "all,4xx,5xx", "rps")
-			@c.Chart(m, "Response time", "latency_ms", "average", "ms")
+			if v.Domained {
+				@c.Chart(m, "Requests", "req_s 4xx_s 5xx_s", "all,4xx,5xx", "rps")
+				@c.Chart(m, "Response time", "latency_ms", "average", "ms")
+			}
 		}
 	</div>
 }
