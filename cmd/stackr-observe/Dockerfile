@@ -11,6 +11,7 @@ COPY cmd/stackr-observe ./cmd/stackr-observe
 RUN CGO_ENABLED=0 go build -o /stackr-observe ./cmd/stackr-observe
 
 FROM scratch
+LABEL org.opencontainers.image.source=https://github.com/FyrmForge/stackr
 COPY --from=vm /victoria-metrics-prod /victoria-metrics-prod
 COPY --from=vl /victoria-logs-prod /victoria-logs-prod
 COPY --from=builder /stackr-observe /stackr-observe

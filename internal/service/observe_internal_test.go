@@ -34,7 +34,7 @@ func TestObserveRouting(t *testing.T) {
 		case r.URL.Path == "/api/v1/import":
 			writes++
 		default:
-			_, _ = io.WriteString(w, `{"data":{"result":[{"metric":{"__name__":"cpu_pct"},"values":[[1792579060,"7"]]}]}}`)
+			_, _ = io.WriteString(w, `{"data":{"result":[{"metric":{"__name__":"stackr_cpu_pct"},"values":[[1792579060,"7"]]}]}}`)
 		}
 	}))
 	defer srv.Close()

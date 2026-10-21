@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,8 +25,8 @@ func TestVictoria(t *testing.T) {
 		case "/api/v1/query_range":
 			query = r.URL.Query().Get("query") + " " + r.URL.Query().Get("step")
 			_, _ = io.WriteString(w, `{"status":"success","data":{"resultType":"matrix","result":[`+
-				`{"metric":{"__name__":"cpu_pct","key":"node:abc","node":"abc"},"values":[[1792579060,"10"],[1792579120,"25"]]},`+
-				`{"metric":{"__name__":"mem_used","key":"node:abc","node":"abc"},"values":[[1792579060,"100"],[1792579120,"NaN"]]}]}}`)
+				`{"metric":{"__name__":"stackr_cpu_pct","key":"node:abc","node":"abc"},"values":[[1792579060,"10"],[1792579120,"25"]]},`+
+				`{"metric":{"__name__":"stackr_4xx_s","key":"node:abc","node":"abc"},"values":[[1792579060,"100"],[1792579120,"NaN"]]}]}}`)
 		case "/metrics":
 			_, _ = io.WriteString(w, "vm_data_size_bytes{type=\"storage/inmemory\"} 16384\nvm_data_size_bytes{type=\"indexdb/file\"} 72\nvm_rows 9\n")
 		default:
@@ -40,8 +41,9 @@ func TestVictoria(t *testing.T) {
 	t0 := time.UnixMilli(1792579000000)
 	err := v.Write(ctx, []Point{
 		{Key: "node:abc", Name: "cpu_pct", T: t0, V: 10},
-		{Key: "node:abc", Name: "mem_used", T: t0, V: 100},
+		{Key: "node:abc", Name: "4xx_s", T: t0, V: 100},
 		{Key: "node:abc", Name: "cpu_pct", T: t0.Add(30 * time.Second), V: 20},
+		{Key: "node:abc", Name: "cpu_pct", T: t0.Add(time.Minute), V: math.NaN()},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +55,7 @@ func TestVictoria(t *testing.T) {
 	if err := json.Unmarshal([]byte(imported[0]), &l); err != nil {
 		t.Fatal(err)
 	}
-	if l.Metric["__name__"] != "cpu_pct" || l.Metric["key"] != "node:abc" || l.Metric["node"] != "abc" ||
+	if l.Metric["__name__"] != "stackr_cpu_pct" || l.Metric["key"] != "node:abc" || l.Metric["node"] != "abc" ||
 		len(l.Values) != 2 || l.Timestamps[1] != 1792579030000 {
 		t.Errorf("line %+v", l)
 	}
@@ -69,8 +71,8 @@ func TestVictoria(t *testing.T) {
 	if len(cpu) != 2 || cpu[1].V != 25 || !cpu[0].T.Equal(time.Unix(1792579000, 0)) {
 		t.Errorf("cpu %+v", cpu)
 	}
-	if len(got["mem_used"]) != 1 { // NaN left out
-		t.Errorf("mem %+v", got["mem_used"])
+	if len(got["4xx_s"]) != 1 { // NaN left out
+		t.Errorf("4xx %+v", got["4xx_s"])
 	}
 
 	n, err := v.DataSize(ctx)

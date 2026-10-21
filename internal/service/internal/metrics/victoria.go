@@ -16,8 +16,9 @@ import (
 )
 
 // Victoria is a VictoriaMetrics single node: points go to its JSON import
-// API, a series is named after the measure and labelled with its key plus
-// what Labels adds (node, org, stack, env, tile).
+// API, a series is named NamePrefix plus the measure (a measure like 4xx_s is
+// no valid metric name on its own) and labelled with its key plus what
+// Labels adds (node, org, stack, env, tile).
 type Victoria struct {
 	URL    string       // base URL, e.g. http://observe
 	Client *http.Client // nil = http.DefaultClient
@@ -48,6 +49,9 @@ func (v *Victoria) do(req *http.Request) ([]byte, error) {
 	return b, nil
 }
 
+// NamePrefix starts every series name stackr writes.
+const NamePrefix = "stackr_"
+
 type vmLine struct {
 	Metric     map[string]string `json:"metric"`
 	Values     []float64         `json:"values"`
@@ -62,6 +66,9 @@ func (v *Victoria) Write(ctx context.Context, ps []Point) error {
 	var order [][2]string
 	extra := map[string]map[string]string{}
 	for _, p := range ps {
+		if math.IsNaN(p.V) || math.IsInf(p.V, 0) { // JSON has none; one would fail the batch
+			continue
+		}
 		id := [2]string{p.Key, p.Name}
 		l := lines[id]
 		if l == nil {
@@ -72,13 +79,16 @@ func (v *Victoria) Write(ctx context.Context, ps []Point) error {
 			for k, x := range extra[p.Key] {
 				m[k] = x
 			}
-			m["__name__"], m["key"] = p.Name, p.Key
+			m["__name__"], m["key"] = NamePrefix+p.Name, p.Key
 			l = &vmLine{Metric: m}
 			lines[id] = l
 			order = append(order, id)
 		}
 		l.Values = append(l.Values, p.V)
 		l.Timestamps = append(l.Timestamps, p.T.UnixMilli())
+	}
+	if len(order) == 0 {
+		return nil
 	}
 	var body bytes.Buffer
 	enc := json.NewEncoder(&body)
@@ -129,7 +139,10 @@ func (v *Victoria) Query(ctx context.Context, key string, from, to time.Time, st
 	}
 	out := map[string][]Sample{}
 	for _, r := range res.Data.Result {
-		name := r.Metric["__name__"]
+		name, ok := strings.CutPrefix(r.Metric["__name__"], NamePrefix)
+		if !ok {
+			continue
+		}
 		for _, p := range r.Values {
 			ts, _ := p[0].(float64)
 			x, _ := p[1].(string)
