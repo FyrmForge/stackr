@@ -1,7 +1,8 @@
 // Package cliauth is the browser half of `stackr login`: the CLI opens
-// /cli/authorize with a loopback port and a state, the signed-in user picks
-// an org, and the page sends a one-time code to the CLI's listener. The key
-// itself never passes through the browser (ExchangeCLICode).
+// /cli/authorize with a loopback port and a state, the signed-in user
+// approves, and the page sends a one-time code to the CLI's listener. The
+// key is the account's, bound to no org; it never passes through the
+// browser (ExchangeCLICode).
 package cliauth
 
 import (
@@ -36,30 +37,18 @@ func (h *handler) Page(c echo.Context) error {
 		v.Error = "This link is not one the stackr CLI made. Run stackr login again."
 		return render.Page(c, http.StatusBadRequest, "CLI login", page(v))
 	}
-	orgs, err := h.orch.Orgs(c.Request().Context(), middleware.Principal(c).User.ID)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	for _, o := range orgs {
-		v.Orgs = append(v.Orgs, Org{Name: o.Name, Action: "/cli/authorize/" + o.Slug})
-	}
 	return render.Page(c, http.StatusOK, "CLI login", page(v))
 }
 
-// POST /cli/authorize/:org (org.read): mint the code and send the browser
-// to the CLI's listener on this machine, never anywhere else.
+// POST /cli/authorize (signed in): mint the code and send the browser to
+// the CLI's listener on this machine, never anywhere else.
 func (h *handler) Approve(c echo.Context) error {
 	p := port(c.FormValue("port"))
 	state := c.FormValue("state")
 	if p == "" || state == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "not a CLI login")
 	}
-	code, err := h.orch.CLICode(
-		c.Request().Context(),
-		middleware.Principal(c),
-		middleware.ScopeOf(c).Org.ID,
-		c.FormValue("name"),
-	)
+	code, err := h.orch.CLICode(c.Request().Context(), middleware.Principal(c), c.FormValue("name"))
 	if err != nil {
 		return middleware.HTTPError(err)
 	}

@@ -11216,6 +11216,45 @@
         "x-verb": "@self"
       }
     },
+    "/api/v1/me/cli-codes": {
+      "post": {
+        "operationId": "key.cli_code",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeIn"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "@self"
+      }
+    },
     "/api/v1/me/keys": {
       "get": {
         "operationId": "key.list",
@@ -11775,54 +11814,6 @@
           }
         },
         "x-verb": "destination.write"
-      }
-    },
-    "/api/v1/orgs/{org}/cli-codes": {
-      "post": {
-        "operationId": "key.cli_code",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NameIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeIn"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "org.read"
       }
     },
     "/api/v1/orgs/{org}/config-repo": {

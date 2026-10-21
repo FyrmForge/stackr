@@ -106,7 +106,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	cli := cliauth.NewHandler(deps.Orch)
 	site.GET("/cli/authorize", cli.Page, page, authed)
-	site.POST("/cli/authorize/:org", cli.Approve, deps.Access.Require("org.read"))
+	site.POST("/cli/authorize", cli.Approve, authed)
 
 	acct := account.NewHandler(deps.Orch)
 	site.GET("/account", acct.Page, page, authed)

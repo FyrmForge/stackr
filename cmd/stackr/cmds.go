@@ -98,7 +98,6 @@ func (a *app) login() *cobra.Command {
 			if key == "" {
 				key = os.Getenv("STACKR_KEY")
 			}
-			keyOrg := ""
 			if key == "" {
 				code, err := a.browserLogin(server, name)
 				if err != nil {
@@ -111,8 +110,6 @@ func (a *app) login() *cobra.Command {
 				}
 				m, _ := v.(map[string]any)
 				a.cfg.Key, _ = m["token"].(string)
-				k, _ := m["key"].(map[string]any)
-				keyOrg, _ = k["org_id"].(string)
 			} else {
 				a.cfg.Key = key
 			}
@@ -124,16 +121,16 @@ func (a *app) login() *cobra.Command {
 			a.cfg.Org = ""
 			for _, o := range orgs {
 				m, _ := o.(map[string]any)
-				if slug := cell(m["slug"]); slug == org || m["id"] == keyOrg ||
-					(org == "" && keyOrg == "" && len(orgs) == 1) {
+				if slug := cell(m["slug"]); slug == org || (org == "" && len(orgs) == 1) {
 					a.cfg.Org = slug
 				}
 			}
-			if a.cfg.Org == "" && (org != "" || len(orgs) > 0) {
-				return usage("which org? pass --org <slug> (stackr org ls after login lists them)")
-			}
+			// the key is saved either way: a browser login minted it already
 			if err := a.save(); err != nil {
 				return err
+			}
+			if a.cfg.Org == "" && (org != "" || len(orgs) > 0) {
+				return usage("logged in, which org? stackr org use <slug> (stackr org ls lists them)")
 			}
 			a.say("logged in to %s, org %s", server, cell(a.cfg.Org))
 			return nil

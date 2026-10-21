@@ -50,13 +50,16 @@ func (o *Orchestrator) SetPassword(ctx context.Context, userID, next string) err
 }
 
 // MintKey makes an API key bound to orgID with the minter's live role
-// there (B36); orgID "" is an unbound, admin-only key. level is the optional
+// there (B36); orgID "" is an unbound key, which only a stackr admin mints
+// here (anyone gets one from stackr login, ExchangeCLICode). level is the optional
 // ceiling (viewer|member|owner|admin) and stack an optional stack slug in the
 // org; the ceiling may not exceed the minter's role. The token is shown once.
 func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, level, stack string) (string, APIKey, error) {
 	// a stack key mints nothing; a capped key cannot mint past its own
 	// ceiling (no level = no ceiling)
-	if acc := by.Access; acc.KeyStack != "" {
+	if acc := by.Access; orgID == "" && (!acc.Admin || acc.KeyOrg != "") {
+		return "", APIKey{}, errs.Refusedf("only a stackr admin can mint a key bound to no organization")
+	} else if acc.KeyStack != "" {
 		return "", APIKey{}, errs.Refusedf("a stack key cannot mint keys")
 	} else if acc.KeyCapped {
 		if l, ok := authz.ParseLevel(level); !ok || l > acc.KeyLevel {

@@ -281,11 +281,17 @@ func TestJobEvents(t *testing.T) {
 	}
 }
 
-// CLI login: the approving caller gets a code, the CLI swaps it once for an
-// org-bound key; a used code is refused.
+// CLI login: the approving account gets a code, the CLI swaps it once for
+// the account's key, bound to no org; an org's key may not ask (B36), and a
+// used code is refused.
 func TestCLILogin(t *testing.T) {
 	w := newWorld(t)
-	code, body := w.do(t, w.owner, "POST", "/orgs/acme/cli-codes", `{"name":"laptop"}`)
+	if code, _ := w.do(t, w.owner, "POST", "/me/cli-codes", `{"name":"laptop"}`); code != 403 {
+		t.Errorf("org key asking for a CLI code = %d, want 403", code)
+	}
+	u := w.env.User(t, "cli@x", false)
+	w.env.Member(t, w.acme, u, "member")
+	code, body := w.do(t, w.env.APIKey(t, u, ""), "POST", "/me/cli-codes", `{"name":"laptop"}`)
 	var c v1.CodeIn
 	if err := json.Unmarshal([]byte(body), &c); err != nil || code != 201 || c.Code == "" {
 		t.Fatalf("code = %d %s", code, body)
@@ -295,11 +301,16 @@ func TestCLILogin(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &k); err != nil || code != 201 || k.Token == "" {
 		t.Fatalf("exchange = %d %s", code, body)
 	}
-	if k.Key.OrgID == nil || *k.Key.OrgID != w.acme {
-		t.Errorf("key org = %v, want acme", k.Key.OrgID)
+	if k.Key.OrgID != nil {
+		t.Errorf("key org = %v, want none", *k.Key.OrgID)
 	}
-	if code, _ := w.do(t, k.Token, "GET", "/orgs/acme", ""); code != 200 {
-		t.Errorf("new key on acme = %d", code)
+	for path, want := range map[string]int{"/me": 200, "/orgs/acme": 200, "/orgs/other": 404, "/admin/users": 403} {
+		if code, _ := w.do(t, k.Token, "GET", path, ""); code != want {
+			t.Errorf("new key on %s = %d, want %d", path, code, want)
+		}
+	}
+	if code, body := w.do(t, k.Token, "GET", "/admin/users", ""); !strings.Contains(body, "stackr admin account") {
+		t.Errorf("admin refusal = %d %s, want it to say why", code, body)
 	}
 	if code, body := w.do(t, "", "POST", "/auth/exchange", `{"code":"`+c.Code+`"}`); code != 400 {
 		t.Errorf("used code = %d %s, want 400", code, body)

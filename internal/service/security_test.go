@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -122,7 +123,7 @@ func TestKeyMintAndRevokeWriteOneRow(t *testing.T) {
 	}
 
 	// the CLI browser exchange mints through the same place
-	code, err := w.orch.CLICode(ctx, adm, "", "cli")
+	code, err := w.orch.CLICode(ctx, adm, "cli")
 	must(t, err)
 	_, k2, err := w.orch.ExchangeCLICode(ctx, code)
 	must(t, err)
@@ -134,6 +135,31 @@ func TestKeyMintAndRevokeWriteOneRow(t *testing.T) {
 	must(t, w.orch.RevokeKey(ctx, adm, k.ID))
 	if e := one(t, w, securitylog.KeyRevoke); e.TargetID != k.ID || e.ActorID != adm.User.ID {
 		t.Errorf("key.revoke = %+v", e)
+	}
+}
+
+// An unbound key is minted directly only by an admin on a session or an
+// unbound key; anyone else gets one through stackr login, which an org's
+// key may not start (B36).
+func TestUnboundKeyGates(t *testing.T) {
+	w, adm := secWorld(t)
+	ctx := context.Background()
+	plain := *adm
+	plain.Access.Admin = false
+	bound := *adm
+	bound.Access.Key, bound.Access.KeyOrg = true, "o1"
+	for name, p := range map[string]*Principal{"non-admin": &plain, "org-bound admin key": &bound} {
+		if _, _, err := w.orch.MintKey(ctx, p, "", "x", "", ""); !errors.Is(err, errs.ErrRefused) {
+			t.Errorf("%s mints an unbound key: %v", name, err)
+		}
+	}
+	if _, err := w.orch.CLICode(ctx, &bound, "x"); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("org key approves a CLI login: %v", err)
+	}
+	code, err := w.orch.CLICode(ctx, &plain, "x")
+	must(t, err)
+	if _, k, err := w.orch.ExchangeCLICode(ctx, code); err != nil || k.OrgID != nil {
+		t.Errorf("CLI login key = %+v %v, want no org", k, err)
 	}
 }
 

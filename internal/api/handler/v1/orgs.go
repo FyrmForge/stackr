@@ -221,10 +221,10 @@ type CodeIn struct {
 }
 
 // CLICode answers the browser that approved a CLI login with the one-time
-// code it hands to the CLI's loopback listener.
+// code it hands to the CLI's loopback listener; the key is the account's.
 func (h *H) CLICode() Endpoint {
 	return JSON(201, func(c echo.Context, in NameIn) (CodeIn, error) {
-		code, err := h.Orch.CLICode(rc(c), middleware.Principal(c), orgID(c), in.Name)
+		code, err := h.Orch.CLICode(rc(c), middleware.Principal(c), in.Name)
 		return CodeIn{code}, err
 	})
 }

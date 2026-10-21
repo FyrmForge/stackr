@@ -14,8 +14,8 @@ import (
 const CLICodeTTL = 2 * time.Minute
 
 type cliCode struct {
-	userID, orgID, name string
-	exp                 time.Time
+	userID, name string
+	exp          time.Time
 }
 
 // cliCodes are the pending CLI logins.
@@ -29,10 +29,11 @@ type cliCodes struct {
 // CLICode is the browser half of CLI login: the signed-in user approves,
 // and gets a one-time code for the CLI to exchange. The code, not the key,
 // passes through the browser.
-func (o *Orchestrator) CLICode(ctx context.Context, by *Principal, orgID, name string) (string, error) {
-	// the code buys an uncapped key, so a limited key may not ask for one
-	if by.Access.KeyCapped || by.Access.KeyStack != "" {
-		return "", errs.Refusedf("a key with a role or stack limit cannot approve a CLI login")
+func (o *Orchestrator) CLICode(ctx context.Context, by *Principal, name string) (string, error) {
+	// the code buys the account's key, so a limited key may not ask for one:
+	// an org's key would otherwise trade itself for every org (B36)
+	if a := by.Access; a.KeyCapped || a.KeyStack != "" || a.KeyOrg != "" {
+		return "", errs.Refusedf("only a signed-in account or a stackr login key can approve a CLI login")
 	}
 	userID := by.User.ID
 	b := make([]byte, 32)
@@ -54,7 +55,6 @@ func (o *Orchestrator) CLICode(ctx context.Context, by *Principal, orgID, name s
 	}
 	c.m[code] = cliCode{
 		userID: userID,
-		orgID:  orgID,
 		name:   name,
 		exp:    now.Add(CLICodeTTL),
 	}
@@ -62,8 +62,8 @@ func (o *Orchestrator) CLICode(ctx context.Context, by *Principal, orgID, name s
 }
 
 // ExchangeCLICode is the CLI half: a code works once, before it expires,
-// and becomes a key bound to the code's org with the user's live role
-// (MintKey, B36).
+// and becomes the account's key, bound to no org: it acts with the user's
+// live role in every org they are in, and as admin for a stackr admin.
 func (o *Orchestrator) ExchangeCLICode(ctx context.Context, code string) (string, APIKey, error) {
 	c := &o.cli
 	c.mu.Lock()
@@ -73,5 +73,5 @@ func (o *Orchestrator) ExchangeCLICode(ctx context.Context, code string) (string
 	if !ok || time.Now().After(v.exp) {
 		return "", APIKey{}, errs.Invalidf("code", "login code is unknown, used or expired")
 	}
-	return o.mintKey(ctx, v.userID, "", v.orgID, v.name, "", "") // a CLI login: no ceiling, no stack
+	return o.mintKey(ctx, v.userID, "", "", v.name, "", "") // a CLI login: no org, no ceiling, no stack
 }

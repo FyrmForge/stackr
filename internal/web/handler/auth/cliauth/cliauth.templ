@@ -2,42 +2,31 @@ package cliauth
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-// View is the CLI login approval: one button per org the key may be bound
-// to. Error = the link is not one the CLI made.
+// View is the CLI login approval: one button, the key is the account's.
+// Error = the link is not one the CLI made.
 type View struct {
 	Name  string // what the CLI calls the key
 	Port  string
 	State string
-	Orgs  []Org
 	Error string
 }
-
-type Org struct{ Name, Action string }
 
 templ page(v View) {
 	@c.AuthCard("Authorize the stackr CLI", asking(v.Name)) {
 		if v.Error != "" {
 			@c.FormError(v.Error)
-		} else if len(v.Orgs) == 0 {
-			<p class="text-sm text-rw-muted text-center">You are in no organization yet, so there is nothing to bind a CLI key to.</p>
 		} else {
-			<p class="text-sm text-rw-muted">Pick the organization it works on; the key gets your role there. Only approve a login you started from a terminal just now.</p>
-			<ul class="space-y-2">
-				for _, o := range v.Orgs {
-					<li>
-						<form hx-post={ o.Action } hx-swap="none">
-							<input type="hidden" name="port" value={ v.Port }/>
-							<input type="hidden" name="state" value={ v.State }/>
-							<input type="hidden" name="name" value={ v.Name }/>
-							<button type="submit" class="btn btn-primary w-full">Approve for { o.Name }</button>
-						</form>
-					</li>
-				}
-			</ul>
+			<p class="text-sm text-rw-muted">The key acts as you, in every organization you are in. Only approve a login you started from a terminal just now.</p>
+			<form hx-post="/cli/authorize" hx-swap="none">
+				<input type="hidden" name="port" value={ v.Port }/>
+				<input type="hidden" name="state" value={ v.State }/>
+				<input type="hidden" name="name" value={ v.Name }/>
+				<button type="submit" class="btn btn-primary w-full">Approve</button>
+			</form>
 		}
 	}
 }
 
 templ asking(name string) {
-	A CLI is requesting an API key named <span class="font-medium text-rw-text">{ name }</span>. Choose what it may do.
+	A CLI is requesting an API key named <span class="font-medium text-rw-text">{ name }</span>.
 }

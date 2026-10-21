@@ -109,7 +109,7 @@ func (h *handler) keys(c echo.Context) (KeysView, error) {
 	}
 	var v KeysView
 	for _, k := range ks {
-		org := "any (admin)"
+		org := "All your orgs"
 		if k.OrgID != nil {
 			org = names[*k.OrgID]
 		}

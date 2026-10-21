@@ -244,6 +244,35 @@ func TestUsageExitsTwo(t *testing.T) {
 	}
 }
 
+// A stackr login key is the account's: with two orgs, login keeps the key
+// and asks which one, and org use moves between them on the same key.
+func TestAccountKeyLogin(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New(server.WithDevMode(true), server.WithGzipConfig(api.Gzip))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	ts := httptest.NewServer(srv.Echo())
+	t.Cleanup(ts.Close)
+	u := env.User(t, "o@x", false)
+	env.Member(t, env.Org(t, "acme"), u, "member")
+	env.Member(t, env.Org(t, "beta"), u, "viewer")
+	t.Setenv("STACKR_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+
+	if code, _, errw := cli(t, "login", ts.URL, "--with-key", env.APIKey(t, u, "")); code != 2 || !strings.Contains(errw, "which org") {
+		t.Fatalf("login with two orgs = %d %s", code, errw)
+	}
+	for _, slug := range []string{"acme", "beta"} {
+		if code, _, errw := cli(t, "org", "use", slug); code != 0 {
+			t.Fatalf("org use %s = %d %s", slug, code, errw)
+		}
+		if code, out, errw := cli(t, "org", "get"); code != 0 || !strings.Contains(out, slug) {
+			t.Errorf("org get in %s = %d %s %s", slug, code, out, errw)
+		}
+	}
+}
+
 // End to end against a real server: log in with a key, deploy, follow
 // the job's events over real HTTP to its end.
 func TestDeployFollows(t *testing.T) {

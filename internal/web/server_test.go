@@ -38,7 +38,7 @@ func TestWebRefusesKeys(t *testing.T) {
 	u := s.User(t, "viewer@acme.test", false)
 	s.Member(t, s.Org, u, "viewer")
 	key := s.APIKey(t, u, s.Org)
-	for _, path := range []string{"/acme/-/drawer/keys", "/cli/authorize/acme"} {
+	for _, path := range []string{"/acme/-/drawer/keys", "/cli/authorize"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("name=x&port=1&state=s"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Authorization", "Bearer "+key)
