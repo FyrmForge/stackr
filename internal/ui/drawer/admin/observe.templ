@@ -14,6 +14,7 @@ type ObserveView struct {
 	LogsDays, LogsMax  string // days, GB
 	LogsData           string // "" = unknown
 	AccessQuery, AccessIP, AccessHeaders bool
+	LogsDropped        string // lines dropped for a full buffer; "" = none
 	Err                string
 }
 
@@ -43,6 +44,9 @@ templ Observe(v ObserveView) {
 				}
 				if v.LogsData != "" {
 					<p class="text-rw-muted">Logs data: { v.LogsData }</p>
+				}
+				if v.LogsDropped != "" {
+					<p class="text-rw-muted">Logs dropped: { v.LogsDropped }</p>
 				}
 				if v.Free != "" {
 					<p class="text-rw-muted">Free disk: { v.Free }</p>

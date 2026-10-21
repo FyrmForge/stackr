@@ -77,6 +77,9 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 	if s.LogsBytes > 0 {
 		v.LogsData = render.Size(int64(s.LogsBytes)) + " of " + render.Size(int64(s.LogsMaxBytes)) + "."
 	}
+	if s.LogsDropped > 0 {
+		v.LogsDropped = strconv.FormatUint(s.LogsDropped, 10) + " since the panel started."
+	}
 	if s.DiskTotal > 0 {
 		v.Free = render.Size(int64(s.DiskFree)) + " of " + render.Size(int64(s.DiskTotal)) + "."
 	}

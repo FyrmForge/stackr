@@ -3782,6 +3782,9 @@
           "logs_bytes": {
             "type": "integer"
           },
+          "logs_dropped": {
+            "type": "integer"
+          },
           "logs_enabled": {
             "type": "boolean"
           },
@@ -3811,6 +3814,7 @@
           "container",
           "data_bytes",
           "logs_bytes",
+          "logs_dropped",
           "disk_free",
           "disk_total"
         ],

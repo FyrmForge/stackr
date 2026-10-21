@@ -88,6 +88,7 @@ func (o *Orchestrator) syncObserve(ctx context.Context) {
 	k, err := o.observeKnobs(ctx)
 	if err == nil {
 		o.observe.on.Store(k.on)
+		o.logship.on.Store(k.logs)
 		if k.on {
 			err = o.upgrade.EnsureObserve(ctx, installspec.ObserveOpts{
 				Retention: strconv.Itoa(k.days) + "d", MinFree: k.minFree,
@@ -259,6 +260,7 @@ type ObserveStatus struct {
 	Container     string `json:"container"`      // docker state, "" = none
 	DataBytes     uint64 `json:"data_bytes"`
 	LogsBytes     uint64 `json:"logs_bytes"`
+	LogsDropped   uint64 `json:"logs_dropped"` // lines the shipper's buffer dropped since the panel started
 	DiskFree      uint64 `json:"disk_free"`
 	DiskTotal     uint64 `json:"disk_total"`
 	Error         string `json:"error,omitempty"` // the last ensure's failure
@@ -273,7 +275,7 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 	}
 	s := ObserveStatus{Enabled: k.on, RetentionDays: k.days, MinFreeBytes: k.minFree,
 		LogsEnabled: k.logs, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax,
-		AccessQuery: k.accessQuery, AccessIP: k.accessIP, AccessHeaders: k.accessHeaders}
+		AccessQuery: k.accessQuery, AccessIP: k.accessIP, AccessHeaders: k.accessHeaders, LogsDropped: o.LogsDropped()}
 	if p := o.observe.lastErr.Load(); p != nil {
 		s.Error = *p
 	}
