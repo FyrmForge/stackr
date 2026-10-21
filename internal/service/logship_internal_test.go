@@ -220,15 +220,32 @@ func TestShipAccessAndRun(t *testing.T) {
 		t.Errorf("line %+v", l)
 	}
 
-	o.shipRun(store.Tile{ID: tl.ID}, "run-1", "O 2026-10-21T10:00:00Z step 1")
+	o.shipRun(ctx, store.Tile{ID: tl.ID}, "run-1", "stackr-api-run", "O 2026-10-21T10:00:00Z step 1")
 	if o.bufLen() != 1 {
 		t.Error("a run line was taken with logs off")
 	}
 	o.logship.on.Store(true)
-	o.shipRun(store.Tile{ID: tl.ID}, "run-1", "E 2026-10-21T10:00:00Z step 1")
+	o.logship.nodes = map[string]string{"n-2": "ct110"}
+	o.shipRun(docker.WithNode(ctx, "n-2"), store.Tile{ID: tl.ID}, "run-1", "stackr-api-run", "E 2026-10-21T10:00:00Z step 1")
 	r := o.logship.buf[1]
-	if r.Source != logs.SourceRun || r.RunID != "run-1" || r.Msg != "step 1" || r.Stream != "stderr" || r.TileID != tl.ID {
+	if r.Source != logs.SourceRun || r.RunID != "run-1" || r.Msg != "step 1" || r.Stream != "stderr" || r.TileID != tl.ID ||
+		r.Node != "ct110" || r.Container != "stackr-api-run" {
 		t.Errorf("run line %+v", r)
+	}
+}
+
+// A host added since the last tick is found by re-reading the domains
+// (at most once per tileOfReload), so its first requests are not dropped.
+func TestShipAccessNewDomain(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	o := w.orch
+	tl := w.tile(t, "api", false)
+	o.logship.tileOf = tileOfHost(nil)
+	must(t, o.store.Domains.Create(ctx, domainRow(tl.ID, "app.example.com", nil)))
+	o.shipAccess(ctx, store.Node{Name: "edge"}, docker.Container{Name: "stackr-proxy"}, time.Now(), caddyLine)
+	if o.bufLen() != 1 || o.logship.buf[0].TileID != tl.ID {
+		t.Fatalf("buffered %d lines", o.bufLen())
 	}
 }
 

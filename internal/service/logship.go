@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -47,6 +48,8 @@ type logShip struct {
 	last   map[string]time.Time          // key -> the newest time shipped (or started at)
 	tickAt time.Time
 	tileOf func(host string) string // host -> tile id, from the domain rows
+	tileAt time.Time                // when tileOf was last read
+	nodes  map[string]string        // node id -> name ("" = the controller), for run lines
 	meta   map[string]logMeta
 }
 
@@ -166,15 +169,21 @@ func (o *Orchestrator) logshipTick(ctx context.Context) error {
 		return nil
 	}
 	base := o.logBase()
-	if ds, err := o.store.Domains.List(ctx); err == nil {
-		s.mu.Lock()
-		s.tileOf = tileOfHost(ds)
-		s.mu.Unlock()
-	}
+	o.loadTileOf(ctx)
 	ns, err := o.nodeLeaf().List(ctx)
 	if err != nil {
 		return err
 	}
+	names := map[string]string{}
+	for _, n := range ns {
+		names[n.ID] = n.Name
+		if n.Role == node.Controller {
+			names[""] = n.Name
+		}
+	}
+	s.mu.Lock()
+	s.nodes = names
+	s.mu.Unlock()
 	now := time.Now()
 	s.mu.Lock()
 	prev := s.tickAt
@@ -232,6 +241,23 @@ func (o *Orchestrator) logshipTick(ctx context.Context) error {
 	s.mu.Unlock()
 	return nil
 }
+
+// loadTileOf reads the host -> tile map from the domain rows.
+func (o *Orchestrator) loadTileOf(ctx context.Context) {
+	ds, err := o.store.Domains.List(ctx)
+	if err != nil {
+		return
+	}
+	s := &o.logship
+	s.mu.Lock()
+	s.tileOf, s.tileAt = tileOfHost(ds), time.Now()
+	s.mu.Unlock()
+}
+
+// tileOfReload is how often a host that maps to no tile may re-read the
+// domains: a domain added since the last tick is found within it, and the
+// panel's own host (never a tile) costs one read per period, not per request.
+const tileOfReload = 5 * time.Second
 
 // logResumeMax caps how far back a restart replays.
 const logResumeMax = 24 * time.Hour
@@ -368,17 +394,22 @@ func (o *Orchestrator) logMeta(ctx context.Context, tileID string) (logs.Line, b
 	return l, true
 }
 
-// shipRun hands one line of a run (as RunOnce copies it) to the shipper.
-func (o *Orchestrator) shipRun(t store.Tile, runID, raw string) {
+// shipRun hands one line of a run (as RunOnce copies it) to the shipper;
+// ctx carries the node the run is on.
+func (o *Orchestrator) shipRun(ctx context.Context, t store.Tile, runID, container, raw string) {
 	if !o.logship.on.Load() {
 		return
 	}
-	l, ok := o.logMeta(context.Background(), t.ID)
+	l, ok := o.logMeta(context.WithoutCancel(ctx), t.ID)
 	if !ok {
 		return
 	}
 	l.Stream, l.Time, l.Msg = parseDockerLine(raw)
-	l.Source, l.RunID = logs.SourceRun, runID
+	l.Source, l.RunID, l.Container = logs.SourceRun, runID, container
+	id, _ := docker.NodeFrom(ctx)
+	o.logship.mu.Lock()
+	l.Node = cmp.Or(o.logship.nodes[id], id)
+	o.logship.mu.Unlock()
 	o.logship.add(l)
 }
 
@@ -459,12 +490,27 @@ func (o *Orchestrator) shipAccess(ctx context.Context, n store.Node, c docker.Co
 	s.mu.Lock()
 	tileOf := s.tileOf
 	s.mu.Unlock()
-	if tileOf == nil {
-		return
+	id := ""
+	if tileOf != nil {
+		id = tileOf(host)
 	}
-	id := tileOf(host)
 	if id == "" {
-		return
+		s.mu.Lock()
+		stale := time.Since(s.tileAt) >= tileOfReload
+		s.mu.Unlock()
+		if !stale {
+			return
+		}
+		o.loadTileOf(ctx)
+		s.mu.Lock()
+		tileOf = s.tileOf
+		s.mu.Unlock()
+		if tileOf == nil {
+			return
+		}
+		if id = tileOf(host); id == "" {
+			return
+		}
 	}
 	l, ok := o.logMeta(ctx, id)
 	if !ok {

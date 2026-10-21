@@ -191,10 +191,11 @@ func TestRunShipsLines(t *testing.T) {
 	f, fake, sweep := setup(t)
 	fake.StreamOut = []string{"O 2026-10-21T10:00:00Z hello", "E 2026-10-21T10:00:01Z boom"}
 	var mu sync.Mutex
-	var got []string
-	f.Tiles.Ship = func(tl store.Tile, runID, line string) {
+	var got, ctrs []string
+	f.Tiles.Ship = func(_ context.Context, tl store.Tile, runID, container, line string) {
 		mu.Lock()
 		got = append(got, tl.ID+"|"+runID+"|"+line)
+		ctrs = append(ctrs, container)
 		mu.Unlock()
 	}
 	r := queue(t, f, sweep.ID)
@@ -204,6 +205,9 @@ func TestRunShipsLines(t *testing.T) {
 	want := []string{sweep.ID + "|" + r.ID + "|O 2026-10-21T10:00:00Z hello", sweep.ID + "|" + r.ID + "|E 2026-10-21T10:00:01Z boom"}
 	if !slices.Equal(got, want) {
 		t.Errorf("shipped %q, want %q", got, want)
+	}
+	if len(ctrs) == 0 || ctrs[0] == "" {
+		t.Errorf("run lines name no container: %q", ctrs)
 	}
 }
 

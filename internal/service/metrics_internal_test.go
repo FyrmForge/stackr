@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -109,5 +113,20 @@ func TestReplicaLabel(t *testing.T) {
 		if got := ReplicaLabel("b3d7aa59-c598-45e3", name); got != want {
 			t.Errorf("%s = %s, want %s", name, got, want)
 		}
+	}
+}
+
+// An unknown peer is named in the error: a bare 404 read as the first node
+// missing.
+func TestLinkMetricsUnknownPeer(t *testing.T) {
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	must(t, o.store.Nodes.Create(ctx, store.Node{
+		ID: "w9", Name: "w9", Slug: "w9", Role: node.Worker, Tags: "[]", RangeCIDR: "pending:w9",
+		Status: node.StatusPending, CreatedAt: time.Now(),
+	}))
+	_, err := o.LinkMetrics(ctx, "w9", "nope", MetricsIn{})
+	if inv, ok := errs.IsInvalid(err); !ok || inv.Field != "peer" || !strings.Contains(inv.Msg, `"nope"`) {
+		t.Fatalf("err = %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sort"
 	"strings"
@@ -385,6 +386,9 @@ func (o *Orchestrator) LinkMetrics(ctx context.Context, refA, refB string, in Me
 		return nil, err
 	}
 	b, err := o.nodeByRef(ctx, refB)
+	if errors.Is(err, errs.ErrNotFound) { // a bare 404 reads as the first node missing
+		return nil, errs.Invalidf("peer", "no node %q", refB)
+	}
 	if err != nil {
 		return nil, err
 	}
