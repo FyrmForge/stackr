@@ -451,7 +451,7 @@ func parseAccess(msg string) (host string, f map[string]string, ok bool) {
 		set("status", strconv.Itoa(a.Status))
 	}
 	if a.Duration != 0 {
-		set("duration_ms", strconv.FormatFloat(a.Duration*1000, 'f', -1, 64))
+		set("duration_ms", strconv.FormatFloat(a.Duration*1000, 'f', 1, 64))
 	}
 	if a.Size != 0 {
 		set("bytes", strconv.FormatInt(a.Size, 10))

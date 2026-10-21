@@ -168,12 +168,12 @@ func TestLogshipBounded(t *testing.T) {
 	}
 }
 
-const caddyLine = `{"level":"info","ts":1729500000.1,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"127.0.0.1","remote_port":"39678","client_ip":"127.0.0.1","proto":"HTTP/1.1","method":"GET","host":"app.example.com","uri":"/x"},"bytes_read":0,"user_id":"","duration":0.0013,"size":2,"status":200,"user_agent":"tester/1"}`
+const caddyLine = `{"level":"info","ts":1729500000.1,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"127.0.0.1","remote_port":"39678","client_ip":"127.0.0.1","proto":"HTTP/1.1","method":"GET","host":"app.example.com","uri":"/x"},"bytes_read":0,"user_id":"","duration":0.035774924999999996,"size":2,"status":200,"user_agent":"tester/1"}`
 
 func TestParseAccess(t *testing.T) {
 	host, f, ok := parseAccess(caddyLine)
 	want := map[string]string{"http.method": "GET", "http.path": "/x", "http.status": "200",
-		"http.duration_ms": "1.3", "http.bytes": "2", "http.ua": "tester/1", "http.ip": "127.0.0.1"}
+		"http.duration_ms": "35.8", "http.bytes": "2", "http.ua": "tester/1", "http.ip": "127.0.0.1"}
 	if !ok || host != "app.example.com" || len(f) != len(want) {
 		t.Fatalf("host %q fields %v ok %v", host, f, ok)
 	}
