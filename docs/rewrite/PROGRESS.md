@@ -253,7 +253,7 @@ session started by darhvader from the START HERE line, no Fable.
 - [x] [F+O] step 4 API + CLI
   - Routes: one table in `internal/api/routes.go` (op, verb or Self/Public); spec from `stackrd --dump-openapi` in `docs/openapi.json`, diffed by `make lint`.
   - Webhook is `POST /hooks/connectors/:connector`, not `/hooks/github/:org` (DECIDE 40).
-  - CLI login: `/cli/authorize?port&state&name` (step 6 page) POSTs `/api/v1/orgs/:org/cli-codes` with session + `X-CSRF-Token`, redirects to `http://127.0.0.1:<port>/?code&state`; the CLI swaps the code at `POST /auth/exchange` (DECIDE 44).
+  - CLI login: `/cli/authorize?port&state&name` (step 6 page) POSTs `/cli/authorize` with the session (the API twin is `POST /api/v1/me/cli-codes`), redirects to `http://127.0.0.1:<port>/?code&state`; the CLI swaps the code at `POST /auth/exchange` (DECIDE 44).
   - Not mounted, step 6 owns it: `GET /settings/github/callback` -> `CompleteConnector`.
   - Harness: servicetest now stubs the VIP table by default and has `Healthy`, `Image`, `Connector`, `NewWith`.
   - Backup dest: an empty access key keeps the stored one (as the secret key did).

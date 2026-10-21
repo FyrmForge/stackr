@@ -174,7 +174,8 @@ func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKe
 // MintKey creates an API key and returns its bearer token, shown once; only
 // the hash is stored. A key never holds more than its minter (B36): it is
 // bound to orgID, where the minter must hold roleInOrg (the caller reads the
-// membership); an unbound key (orgID "") is admin-only (DECIDE 13). level is
+// membership); an unbound key (orgID "") is the account's, its user's live
+// roles in every org (stackr login; the service gates who mints one). level is
 // the key's ceiling ("" = none, else viewer|member|owner|admin) and may not
 // exceed the minter's rung in that org; stackID narrows it to one stack
 // (the caller checked it is in the org).
@@ -186,8 +187,6 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 		return "", store.APIKey{}, errs.ErrRefused
 	case name == "":
 		return "", store.APIKey{}, errs.Invalidf("name", "a name is required")
-	case orgID == "" && !admin:
-		return "", store.APIKey{}, errs.Refusedf("only a stackr admin can mint a key bound to no organization")
 	case orgID != "" && roleInOrg == "" && !admin:
 		return "", store.APIKey{}, errs.ErrNotFound
 	}

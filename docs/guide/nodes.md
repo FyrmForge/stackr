@@ -118,7 +118,9 @@ On the controller, `stackr` runs inside the panel container, so the browser logi
 
 The first install logs the CLI on the controller in as the admin for you, with a key bound to no org, so it runs server admin commands too. The key is stored in `/var/lib/stackr/cli.json` and never printed. It works once the panel's DNS and certificate do.
 
-For an admin key elsewhere, mint one with `stackr admin key <name>` on the controller and log in with it:
+From a laptop, `stackr login <url>` opens the browser. The key it gets acts as you in every org you are in, and runs server admin commands if you are a stackr admin. `stackr org use <slug>` switches org.
+
+For an admin key with no browser, mint one with `stackr admin key <name>` on the controller and log in with it:
 
 ```bash
 stackr login https://stkr.apps.example.com --with-key "$KEY"

@@ -64,8 +64,8 @@ func TestMintKey(t *testing.T) {
 	u, admin := seed(t, st, "u@x.io", false), seed(t, st, "a@x.io", true)
 	org := seedOrg(t, st)
 
-	if _, _, err := l.MintKey(ctx, u, "", "", "k", "", ""); !errors.Is(err, errs.ErrRefused) {
-		t.Errorf("non-admin unbound key = %v, want refused", err)
+	if _, k, err := l.MintKey(ctx, u, "", "", "k", "", ""); err != nil || k.OrgID != nil {
+		t.Errorf("non-admin account key = %+v, %v", k, err)
 	}
 	if _, _, err := l.MintKey(ctx, u, org, "", "k", "", ""); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("mint into an org the minter is not in = %v", err)

@@ -112,7 +112,8 @@ func TestAccess(t *testing.T) {
 		{"disabled", "acme", 303, 401},
 		{"removed", "acme", 303, 401},
 		{"drifted", "acme", 404, 404},
-		{"unbound", "acme", 0, 403},
+		{"unbound", "acme", 0, 200}, // the account key reaches its user's orgs
+		{"unbound", "other", 0, 404},
 		{"anonymous", "acme", 303, 401},
 	}
 	for _, tt := range tests {
@@ -135,11 +136,11 @@ func TestAccess(t *testing.T) {
 	if got := do(t, h, cookie, "/api/v1/orgs/acme", cred{session: creds["owner"].session}); got != 200 {
 		t.Errorf("owner session on api = %d, want 200", got)
 	}
-	// The caller-only routes: any live principal, an unbound key only for an admin.
+	// The caller-only routes: any live principal, by session or any key.
 	for who, want := range map[string]int{
 		"owner":     200,
 		"admin":     200,
-		"unbound":   403,
+		"unbound":   200,
 		"anonymous": 401,
 		"disabled":  401,
 	} {

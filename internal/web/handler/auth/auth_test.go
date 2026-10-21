@@ -117,25 +117,25 @@ func TestInvite(t *testing.T) {
 func TestCLIAuthorize(t *testing.T) {
 	s := webtest.New(t)
 	body := s.Do(t, "GET", "/cli/authorize?port=4711&state=abc&name=laptop", nil).Body.String()
-	if !strings.Contains(body, `hx-post="/cli/authorize/acme"`) || !strings.Contains(body, "laptop") {
+	if !strings.Contains(body, `hx-post="/cli/authorize"`) || !strings.Contains(body, "laptop") {
 		t.Fatalf("authorize page:\n%s", body)
 	}
 	if rec := s.Do(t, "GET", "/cli/authorize?port=evil.test&state=abc", nil); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad port page = %d", rec.Code)
 	}
-	if rec := s.Do(t, "POST", "/cli/authorize/acme", url.Values{
+	if rec := s.Do(t, "POST", "/cli/authorize", url.Values{
 		"port":  {"80@evil.test"},
 		"state": {"abc"},
 	}); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad port approve = %d", rec.Code)
 	}
-	rec := s.Do(t, "POST", "/cli/authorize/acme", url.Values{"port": {"4711"}, "state": {"a&b"}, "name": {"laptop"}})
+	rec := s.Do(t, "POST", "/cli/authorize", url.Values{"port": {"4711"}, "state": {"a&b"}, "name": {"laptop"}})
 	to, err := url.Parse(rec.Header().Get("HX-Redirect"))
 	if err != nil || to.Host != "127.0.0.1:4711" || to.Query().Get("state") != "a&b" {
 		t.Fatalf("approve = %d %q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
-	if _, _, err := s.Orch.ExchangeCLICode(context.Background(), to.Query().Get("code")); err != nil {
-		t.Errorf("the code does not exchange: %v", err)
+	if _, k, err := s.Orch.ExchangeCLICode(context.Background(), to.Query().Get("code")); err != nil || k.OrgID != nil {
+		t.Errorf("the code does not exchange for an account key: %+v %v", k, err)
 	}
 }
 

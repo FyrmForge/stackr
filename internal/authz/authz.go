@@ -90,7 +90,7 @@ type User struct {
 	Active bool              // a disabled account may do nothing
 	Roles  map[string]string // org id -> role
 	Key    bool              // authenticated by an API key
-	KeyOrg string            // the org the key is bound to, "" = unbound
+	KeyOrg string            // the org the key is bound to, "" = the account's key (stackr login)
 	// KeyCapped: the key has a ceiling, KeyLevel. A key does the lower of its
 	// ceiling and its user's live rights.
 	KeyCapped bool
@@ -112,12 +112,21 @@ func Can(u User, v Verb, r Resource) error {
 	need := LevelOf(v)
 	if need == LevelAdmin {
 		// a key capped below admin, or bound to an org, never passes an admin verb, whoever mints it
-		if !u.Admin || u.KeyOrg != "" || u.KeyStack != "" || (u.KeyCapped && u.KeyLevel < LevelAdmin) {
-			return errs.ErrRefused
+		switch {
+		case !u.Admin:
+			return errs.Refusedf("admin commands need a stackr admin account")
+		case u.KeyOrg != "":
+			return errs.Refusedf("this key is limited to one org; admin commands need a key from stackr login")
+		case u.KeyStack != "":
+			return errs.Refusedf("this key is limited to one stack")
+		case u.KeyCapped && u.KeyLevel < LevelAdmin:
+			return errs.Refusedf("this key is capped below admin")
 		}
 		return nil
 	}
-	// B36: a key is bound to the org it was minted in and does not travel.
+	// B36: an org's key is bound to the org it was minted in and does not
+	// travel. An unbound key (stackr login) is the account's: every org the
+	// user is in, at their live role there.
 	if u.KeyOrg != "" && u.KeyOrg != r.OrgID {
 		return errs.ErrNotFound
 	}
@@ -132,7 +141,7 @@ func Can(u User, v Verb, r Resource) error {
 		// Inside the key's org, so a refusal reveals nothing for an org-wide
 		// resource (ErrRefused); another stack's id is ErrNotFound as ever.
 		if r.StackID == "" {
-			return errs.ErrRefused
+			return errs.Refusedf("this key is limited to one stack")
 		}
 		if r.StackID != u.KeyStack {
 			return errs.ErrNotFound
@@ -145,13 +154,9 @@ func Can(u User, v Verb, r Resource) error {
 }
 
 // Self gates the routes about the caller alone (/me, their org list): a
-// live, active account, and an unbound key only for a stackr admin
-// (DECIDE 13).
+// live, active account, by session or any of its keys.
 func Self(u User) error {
 	if u.ID == "" || !u.Active {
-		return errs.ErrRefused
-	}
-	if u.Key && u.KeyOrg == "" && !u.Admin {
 		return errs.ErrRefused
 	}
 	return nil

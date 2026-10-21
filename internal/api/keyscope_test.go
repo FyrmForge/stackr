@@ -34,7 +34,7 @@ func TestKeyScope(t *testing.T) {
 	if code, _ := mint(w.owner, `{"name":"x","level":"admin"}`); code != 403 {
 		t.Errorf("admin ceiling from an owner = %d, want 403", code)
 	}
-	if code, _ := w.do(t, viewer, "POST", "/orgs/acme/cli-codes", `{"name":"x"}`); code != 403 {
+	if code, _ := w.do(t, viewer, "POST", "/me/cli-codes", `{"name":"x"}`); code != 403 {
 		t.Errorf("capped key asking for a CLI code = %d, want 403", code)
 	}
 	if code, _ := mint(viewer, `{"name":"x","level":"member"}`); code != 403 {

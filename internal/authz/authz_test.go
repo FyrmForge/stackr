@@ -95,14 +95,35 @@ func TestCan(t *testing.T) {
 
 		{"key in its org", ownerKey, "tile.write", nil},
 		{"key does not travel", otherKey, "org.read", errs.ErrNotFound},
-		{"unbound key, non-admin", unbound, "org.read", errs.ErrRefused},
+		{"unbound key, non-admin, own org reads", unbound, "org.read", nil},
+		{"unbound key, non-admin, own org owns", unbound, "member.manage", nil},
+		{"unbound key, non-admin, admin verb", unbound, "user.admin", errs.ErrRefused},
 		{"unbound key, admin", adminKey, "user.admin", nil},
+		{"org-bound key, admin, admin verb", func() User { u := adminKey; u.KeyOrg = "o1"; return u }(), "user.admin", errs.ErrRefused},
 		{"anonymous", anonymous, "org.read", errs.ErrRefused},
 	}
 	for _, tt := range tests {
 		if got := Can(tt.u, tt.v, o1); !errors.Is(got, tt.want) || (tt.want == nil && got != nil) {
 			t.Errorf("%s: Can = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+// A stackr login key is the account's: it reaches every org its user is in,
+// no other, and /me for anyone active.
+func TestUnboundKey(t *testing.T) {
+	u := User{ID: "u", Active: true, Roles: map[string]string{"o1": "viewer", "o2": "member"}, Key: true}
+	if err := Self(u); err != nil {
+		t.Errorf("Self = %v", err)
+	}
+	if err := Can(u, "tile.write", Resource{OrgID: "o2"}); err != nil {
+		t.Errorf("member org write = %v", err)
+	}
+	if err := Can(u, "tile.write", Resource{OrgID: "o1"}); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("viewer org write = %v, want refused", err)
+	}
+	if err := Can(u, "org.read", Resource{OrgID: "o3"}); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("other org = %v, want not found", err)
 	}
 }
 
