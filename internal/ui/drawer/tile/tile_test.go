@@ -252,3 +252,20 @@ func TestSkippedRunIsFaint(t *testing.T) {
 		t.Errorf("tone = %q", got)
 	}
 }
+
+// Requests and Response time need a domain to ever have data.
+func TestMetricsRequestChartsNeedDomain(t *testing.T) {
+	m := c.MetricsView{Range: "1h", Pick: func(string) any { return map[string]any{} }}
+	for _, domained := range []bool{false, true} {
+		var sb strings.Builder
+		if err := Metrics(View{Domained: domained}, m).Render(context.Background(), &sb); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(sb.String(), "Response time"); got != domained {
+			t.Errorf("domained %v: Response time chart = %v", domained, got)
+		}
+		if !strings.Contains(sb.String(), "CPU") {
+			t.Errorf("domained %v: CPU chart missing", domained)
+		}
+	}
+}

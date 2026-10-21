@@ -184,6 +184,11 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
+		ds, err := h.orch.Domains(ctx, t.ID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		v.Domained = len(ds) > 0
 		body = ui.Metrics(v, render.MetricsLive(h.orch, m, r, v.Base+"?tab=metrics", v.Base+"/metrics/events"))
 	case "env":
 		body = ui.Env(v, envView(t.EnvJSON))

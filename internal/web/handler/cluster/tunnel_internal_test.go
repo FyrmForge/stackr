@@ -49,6 +49,9 @@ func TestTunnelDrawer(t *testing.T) {
 	if !ok || !strings.Contains(routed, "Via h4") {
 		t.Errorf("routed pair: ok %v, drawer lacks the hop", ok)
 	}
+	if !strings.Contains(body, "Traffic") || strings.Contains(routed, "Traffic") {
+		t.Error("Traffic chart: want it on a direct tunnel, not on a routed one")
+	}
 	if _, ok := render("a", "zzz"); ok {
 		t.Error("an unknown pair has a drawer")
 	}
