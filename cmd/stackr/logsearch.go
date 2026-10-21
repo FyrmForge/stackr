@@ -71,7 +71,7 @@ func (a *app) logSearch() *cobra.Command {
 	c.Flags().StringVar(&source, "source", "", "app, access, run or build")
 	c.Flags().StringVar(&stream, "stream", "", "stdout or stderr")
 	c.Flags().StringVar(&run, "run", "", "a cron or function run's id")
-	c.Flags().StringVar(&since, "since", "1h", "how far back, up to 168h (like 15m, 6h, 24h)")
+	c.Flags().StringVar(&since, "since", "1h", "how far back, up to 7d (like 15m, 6h, 24h, 7d)")
 	c.Example = "  stackr logs search --env prod --tile api --source access 500"
 	return c
 }

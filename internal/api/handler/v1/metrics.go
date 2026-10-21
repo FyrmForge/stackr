@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -9,15 +11,25 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
+// span is a duration like 15m or 24h, or whole days like 7d.
+func span(v string) (time.Duration, error) {
+	if n, ok := strings.CutSuffix(v, "d"); ok {
+		if d, err := strconv.Atoi(n); err == nil && d >= 0 {
+			return time.Duration(d) * 24 * time.Hour, nil
+		}
+	}
+	return time.ParseDuration(v)
+}
+
 // metricsIn reads ?range= (default 1h, max 24h, or the history retention when on) and ?step= (default
-// range/120), both Go durations like 15m or 24h.
+// range/120), both durations like 15m, 24h or 7d.
 func metricsIn(c echo.Context) (service.MetricsIn, error) {
 	var in service.MetricsIn
 	for name, d := range map[string]*time.Duration{"range": &in.Range, "step": &in.Step} {
 		if v := c.QueryParam(name); v != "" {
-			x, err := time.ParseDuration(v)
+			x, err := span(v)
 			if err != nil || x < 0 {
-				return in, errs.Invalidf(name, "must be a duration like 15m or 24h")
+				return in, errs.Invalidf(name, "must be a duration like 15m, 24h or 7d")
 			}
 			*d = x
 		}
@@ -66,16 +78,16 @@ func (h *H) TileMetrics() Endpoint {
 // LogSearch is the env's stored log lines (the whole env, or one tile with
 // ?tile=), newest first, 500 at most. ?kind=, ?source= (app, access, run,
 // build), ?stream= (stdout, stderr), ?run= and ?text= narrow it; ?since= is a
-// duration up to 168h (default 1h); ?before= is an RFC 3339 time, to page
+// duration up to 168h or 7d (default 1h); ?before= is an RFC 3339 time, to page
 // past the oldest line of the last answer.
 func (h *H) LogSearch() Endpoint {
 	return Get(func(c echo.Context) ([]service.LogLine, error) {
 		q := c.QueryParam
 		in := service.LogsIn{Tile: q("tile"), Kind: q("kind"), Source: q("source"), Stream: q("stream"), Run: q("run"), Text: q("text")}
 		if v := q("since"); v != "" {
-			d, err := time.ParseDuration(v)
+			d, err := span(v)
 			if err != nil {
-				return nil, errs.Invalidf("since", "must be a duration like 15m or 24h")
+				return nil, errs.Invalidf("since", "must be a duration like 15m, 24h or 7d")
 			}
 			in.Since = d
 		}
