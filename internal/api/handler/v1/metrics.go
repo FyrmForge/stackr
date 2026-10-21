@@ -89,3 +89,8 @@ func (h *H) LogSearch() Endpoint {
 		return list(h.Orch.SearchLogs(rc(c), scope(c), in))
 	}).Q("tile", "kind", "source", "stream", "run", "text", "since", "before")
 }
+
+// PurgeLogs deletes every stored log line of the env. Owners and admins only.
+func (h *H) PurgeLogs() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.PurgeLogs(rc(c), scope(c)) })
+}

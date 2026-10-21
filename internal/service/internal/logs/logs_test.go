@@ -101,3 +101,34 @@ func TestVictoriaNewest(t *testing.T) {
 		t.Errorf("empty store: %v %v", got, err)
 	}
 }
+
+func TestVictoriaDelete(t *testing.T) {
+	var calls int
+	var path, filter string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		calls++
+		path, filter = r.URL.Path, r.PostForm.Get("filter")
+		_, _ = io.WriteString(w, `{"task_id":"1"}`)
+	}))
+	defer srv.Close()
+	v := &Victoria{URL: srv.URL}
+	ctx := context.Background()
+	// never without both the org and the env
+	if err := v.Delete(ctx, Filter{Env: "e1"}); !errors.Is(err, ErrNoOrg) {
+		t.Errorf("no org: %v", err)
+	}
+	if err := v.Delete(ctx, Filter{Org: "o1", Tile: "t"}); !errors.Is(err, ErrNoEnv) {
+		t.Errorf("no env: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("%d requests went out for an unscoped delete", calls)
+	}
+	// other fields never widen or narrow it; the values are quoted
+	if err := v.Delete(ctx, Filter{Org: "o1", Env: `e"1`, Tile: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/delete/run_task" || filter != `org_id:="o1" env_id:="e\"1"` {
+		t.Errorf("path %q filter %q", path, filter)
+	}
+}

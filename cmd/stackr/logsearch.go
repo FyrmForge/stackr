@@ -27,7 +27,7 @@ func logLineText(m map[string]any) string {
 // search verb for the kept history.
 func (a *app) logsWithSearch() *cobra.Command {
 	c := a.logs()
-	c.AddCommand(scoped(a.logSearch(), false))
+	c.AddCommand(scoped(a.logSearch(), false), scoped(a.logPurge(), false))
 	return c
 }
 
@@ -74,4 +74,16 @@ func (a *app) logSearch() *cobra.Command {
 	c.Flags().StringVar(&since, "since", "1h", "how far back, up to 168h (like 15m, 6h, 24h)")
 	c.Example = "  stackr logs search --env prod --tile api --source access 500"
 	return c
+}
+
+// logPurge is stackr logs purge: delete the env's kept log lines.
+func (a *app) logPurge() *cobra.Command {
+	return leaf("purge", "env.logs.purge", "Delete every kept log line of an environment", cobra.NoArgs,
+		a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
+			if err := a.confirm("Delete all kept logs of " + last(p) + "? Live logs of running tiles are not touched."); err != nil {
+				return err
+			}
+			_, err := a.call(DELETE, p+"/logs", nil)
+			return err
+		}))
 }

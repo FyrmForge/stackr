@@ -62,6 +62,7 @@ var verbLevels = map[Verb]Level{
 	"org.setup.connector":       LevelOwner,
 	"share.write":               LevelOwner,
 	"tier.write":                LevelOwner, // tiers: add, rename, order, delete, lock
+	"env.logs.purge":            LevelOwner, // delete an env's kept log lines
 	"placement.write":           LevelOwner, // pins, ingress and exits (an env pin that moves the env included)
 
 	"admin.read":         LevelAdmin,

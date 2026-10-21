@@ -17,6 +17,7 @@ type LogHistoryView struct {
 	Text   string
 	Lines  []LogHistoryLine
 	Older  string
+	Purge  *ConfirmView // the owner's Delete logs; nil = not offered (env tab only)
 	Error  string
 }
 

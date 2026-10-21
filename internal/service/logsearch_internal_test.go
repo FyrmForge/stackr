@@ -97,3 +97,40 @@ func TestSearchLogs(t *testing.T) {
 		}
 	}
 }
+
+// delLogs records the filters it was asked to delete.
+type delLogs struct {
+	memLogs
+	got []logs.Filter
+}
+
+func (d *delLogs) Delete(_ context.Context, f logs.Filter) error {
+	d.got = append(d.got, f)
+	return nil
+}
+
+// A purge deletes the scope's own org and env, and nothing without an env.
+func TestPurgeLogs(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	o := w.orch
+	st := &delLogs{}
+	o.logship.store = st
+	sc, err := o.Resolve(ctx, "acme", "shop", "dev", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.PurgeLogs(ctx, sc); err == nil {
+		t.Fatal("a purge with logs off ran")
+	}
+	o.logship.on.Store(true)
+	if err := o.PurgeLogs(ctx, Scope{Org: sc.Org}); err == nil || len(st.got) != 0 {
+		t.Fatalf("a purge without an env ran: %v %v", err, st.got)
+	}
+	if err := o.PurgeLogs(ctx, sc); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.got) != 1 || st.got[0].Org != sc.Org.ID || st.got[0].Env != sc.Env.ID {
+		t.Errorf("deleted %+v", st.got)
+	}
+}

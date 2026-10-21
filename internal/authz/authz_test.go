@@ -166,3 +166,17 @@ func TestStandingChanged(t *testing.T) {
 		}
 	}
 }
+
+// Deleting an env's logs is for owners and admins; a member is refused.
+func TestCanPurgeLogs(t *testing.T) {
+	r := Resource{OrgID: "o1"}
+	for role, want := range map[string]bool{"viewer": false, "member": false, "owner": true} {
+		u := User{ID: "u", Active: true, Roles: map[string]string{"o1": role}}
+		if got := Can(u, "env.logs.purge", r) == nil; got != want {
+			t.Errorf("%s: allowed=%v, want %v", role, got, want)
+		}
+	}
+	if err := Can(User{ID: "a", Active: true, Admin: true}, "env.logs.purge", r); err != nil {
+		t.Errorf("admin: %v", err)
+	}
+}

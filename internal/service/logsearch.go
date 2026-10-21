@@ -110,3 +110,15 @@ func (o *Orchestrator) SearchLogs(ctx context.Context, s Scope, in LogsIn) ([]Lo
 	}
 	return out, nil
 }
+
+// PurgeLogs deletes every stored log line of the scope's env. The verb that
+// gates it (env.logs.purge) is the caller's to check.
+func (o *Orchestrator) PurgeLogs(ctx context.Context, s Scope) error {
+	if s.Org == nil || s.Env == nil {
+		return logs.ErrNoEnv
+	}
+	if !o.LogsOn() {
+		return errs.Refusedf("log history is off")
+	}
+	return o.logStore().Delete(ctx, logs.Filter{Org: s.Org.ID, Env: s.Env.ID})
+}

@@ -43,6 +43,10 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		if err != nil {
 			return nil, err
 		}
+		if can(c, cd.s, "env.logs.purge") {
+			p := dialog.PurgeLogs(e.Name, f.Base+"/logs/purge", "#"+comp.DrawerRoot)
+			v.Purge = &p
+		}
 		return envui.Logs(v), nil
 	case "releases":
 		return h.releasesTab(c, cd, f)
@@ -217,6 +221,9 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 			return err
 		},
 	), write)
+	site.POST(e+"/logs/purge", h.envAction("logs", func(c echo.Context, cd card) (string, error) {
+		return "Logs deleted.", h.orch.PurgeLogs(c.Request().Context(), cd.s)
+	}), a.Require("env.logs.purge"))
 	site.POST(e+"/delete", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		if err := h.orch.DeleteEnv(c.Request().Context(), cd.s.Env.ID); err != nil {
 			return "", err

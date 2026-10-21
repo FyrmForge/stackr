@@ -48,6 +48,18 @@ func DeleteEnv(name, action, target string) c.ConfirmView {
 	}
 }
 
+// PurgeLogs asks before an env's kept log lines go.
+func PurgeLogs(env, action, target string) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Delete this env's logs",
+		Title:   "Delete the logs of " + env + "?",
+		Warning: "Every kept log line of this environment goes.",
+		Kept:    []string{"live logs of running tiles", "logs of other environments"},
+		Action:  action,
+		Target:  target,
+	}
+}
+
 func DeleteConnector(name, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete connector",

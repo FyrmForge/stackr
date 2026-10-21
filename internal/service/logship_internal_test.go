@@ -28,6 +28,8 @@ func (m *memLogs) Write(_ context.Context, ls []logs.Line) error {
 	return nil
 }
 
+func (m *memLogs) Delete(context.Context, logs.Filter) error { return nil }
+
 func (m *memLogs) Newest(context.Context, time.Time) (time.Time, error) {
 	return m.newest, m.newestErr
 }

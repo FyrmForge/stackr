@@ -43,6 +43,7 @@ func main() {
 			"-storageDataPath=" + *data + "/logs",
 			"-retentionPeriod=" + *logsKeep,
 			"-retention.maxDiskSpaceUsageBytes=" + *logsMax,
+			"-delete.enable", // the logs socket is the panel's alone; it purges an env's logs
 		})
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

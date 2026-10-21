@@ -97,6 +97,9 @@ type Filter struct {
 // ErrNoOrg is a query without an org.
 var ErrNoOrg = errors.New("logs: a query needs an org")
 
+// ErrNoEnv is a delete without an env: a purge never reaches past one env.
+var ErrNoEnv = errors.New("logs: a delete needs an env")
+
 // quote is s as a LogsQL quoted string: nothing inside can end it.
 func quote(s string) string { return strconv.Quote(s) }
 
@@ -129,6 +132,9 @@ type Store interface {
 	// Newest is the time of the newest line since from; zero when there is none.
 	// Not scoped to an org: the shipper uses it to resume after an outage.
 	Newest(ctx context.Context, from time.Time) (time.Time, error)
+	// Delete drops every stored line of f.Org's f.Env. Both are required; the
+	// other fields are ignored.
+	Delete(ctx context.Context, f Filter) error
 }
 
 // Victoria is a VictoriaLogs single node.
@@ -236,4 +242,23 @@ func (v *Victoria) Query(ctx context.Context, f Filter, from, to time.Time, limi
 		out = append(out, lineOf(m))
 	}
 	return out, nil
+}
+
+// Delete starts a VictoriaLogs delete task for the env's lines (needs the
+// server's -delete.enable); the lines go in the background.
+func (v *Victoria) Delete(ctx context.Context, f Filter) error {
+	if f.Org == "" {
+		return ErrNoOrg
+	}
+	if f.Env == "" {
+		return ErrNoEnv
+	}
+	form := url.Values{"filter": {"org_id:=" + quote(f.Org) + " env_id:=" + quote(f.Env)}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.URL+"/delete/run_task", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	_, err = v.do(req)
+	return err
 }
