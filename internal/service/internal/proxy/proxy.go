@@ -58,6 +58,11 @@ func (c *Client) Get(ctx context.Context) (json.RawMessage, error) {
 	return c.do(ctx, http.MethodGet, "/config/", nil)
 }
 
+// Metrics is Caddy's Prometheus text (GET /metrics).
+func (c *Client) Metrics(ctx context.Context) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, "/metrics", nil)
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body []byte) (json.RawMessage, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.Addr+path, bytes.NewReader(body))
 	if err != nil {

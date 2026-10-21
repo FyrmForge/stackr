@@ -1,10 +1,30 @@
 package worker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/wgapply"
 )
+
+// A node's sample carries each wg peer's counters and handshake.
+func TestMetricsPeers(t *testing.T) {
+	rec := &wgapply.Recorder{}
+	rec.AddRx("K", 300)
+	rec.SetTx("K", 200)
+	rec.SetHandshake("K", time.Unix(1_000, 0))
+	s := &Server{cfg: Config{HostRoot: t.TempDir(), Mesh: MeshConfig{WG: rec}}}
+	m, err := s.Metrics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := m.Peers["K"]; p.Rx != 300 || p.Tx != 200 || p.Handshake != 1_000 {
+		t.Fatalf("peer = %+v", p)
+	}
+}
 
 func write(t *testing.T, p, s string) {
 	t.Helper()

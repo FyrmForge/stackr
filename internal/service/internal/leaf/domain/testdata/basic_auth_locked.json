@@ -4,6 +4,9 @@
   },
   "apps": {
     "http": {
+      "metrics": {
+        "per_host": true
+      },
       "servers": {
         "http": {
           "listen": [
