@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -14,8 +15,10 @@ import (
 )
 
 type memLogs struct {
-	mu sync.Mutex
-	ls []logs.Line
+	mu        sync.Mutex
+	ls        []logs.Line
+	newest    time.Time
+	newestErr error
 }
 
 func (m *memLogs) Write(_ context.Context, ls []logs.Line) error {
@@ -23,6 +26,10 @@ func (m *memLogs) Write(_ context.Context, ls []logs.Line) error {
 	defer m.mu.Unlock()
 	m.ls = append(m.ls, ls...)
 	return nil
+}
+
+func (m *memLogs) Newest(context.Context, time.Time) (time.Time, error) {
+	return m.newest, m.newestErr
 }
 
 func (m *memLogs) Query(context.Context, logs.Filter, time.Time, time.Time, int) ([]logs.Line, error) {
@@ -35,12 +42,16 @@ type streamDocker struct {
 	*dockerfake.Fake
 	mu      sync.Mutex
 	started map[string]int
+	since   map[string]time.Time
 	ended   chan string
 }
 
 func (d *streamDocker) StreamLogs(ctx context.Context, id string, _ int) (<-chan string, func(), error) {
 	d.mu.Lock()
 	d.started[id]++
+	if t, ok := docker.LogsSinceFrom(ctx); ok {
+		d.since[id] = t
+	}
 	d.mu.Unlock()
 	ch := make(chan string, 4)
 	ch <- "O 2026-10-21T10:00:00.5Z hello"
@@ -84,7 +95,7 @@ func TestLogshipFollow(t *testing.T) {
 	o := w.orch
 	mem := &memLogs{}
 	o.logship.store = mem
-	sd := &streamDocker{Fake: w.fake, started: map[string]int{}, ended: make(chan string, 8)}
+	sd := &streamDocker{Fake: w.fake, started: map[string]int{}, since: map[string]time.Time{}, ended: make(chan string, 8)}
 	o.docker = sd
 	must(t, o.SetSettings(ctx, map[string]string{"observe_enabled": "true", "observe_logs_enabled": "true"}))
 
@@ -212,5 +223,40 @@ func TestShipAccessAndRun(t *testing.T) {
 	r := o.logship.buf[1]
 	if r.Source != logs.SourceRun || r.RunID != "run-1" || r.Msg != "step 1" || r.Stream != "stderr" || r.TileID != tl.ID {
 		t.Errorf("run line %+v", r)
+	}
+}
+
+// The first tick after a start follows from the newest line the store has
+// (Docker is the buffer across a panel outage); an empty or unreachable
+// store means from now.
+func TestLogshipResume(t *testing.T) {
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		newest time.Time
+		err    error
+		want   bool
+	}{
+		"newest line": {newest: time.Now().Add(-time.Hour).Truncate(time.Second), want: true},
+		"empty store": {},
+		"unreachable": {err: errors.New("down")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			o := w.orch
+			o.logship.store = &memLogs{newest: c.newest, newestErr: c.err}
+			sd := &streamDocker{Fake: w.fake, started: map[string]int{}, since: map[string]time.Time{}, ended: make(chan string, 8)}
+			o.docker = sd
+			must(t, o.SetSettings(ctx, map[string]string{"observe_enabled": "true", "observe_logs_enabled": "true"}))
+			w.tile(t, "api", true)
+			w.fake.Containers[0].Labels[docker.LabelManaged] = "true"
+			must(t, o.logshipTick(ctx))
+			waitFor(t, "a stream", func() bool { return sd.count("c-api") == 1 })
+			sd.mu.Lock()
+			got, ok := sd.since["c-api"]
+			sd.mu.Unlock()
+			if ok != c.want || (ok && !got.Equal(c.newest)) {
+				t.Errorf("since %v (set %v), want %v (set %v)", got, ok, c.newest, c.want)
+			}
+		})
 	}
 }

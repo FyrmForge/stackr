@@ -126,6 +126,9 @@ type Store interface {
 	Write(ctx context.Context, ls []Line) error
 	// Query is f's lines in [from, to), newest first.
 	Query(ctx context.Context, f Filter, from, to time.Time, limit int) ([]Line, error)
+	// Newest is the time of the newest line since from; zero when there is none.
+	// Not scoped to an org: the shipper uses it to resume after an outage.
+	Newest(ctx context.Context, from time.Time) (time.Time, error)
 }
 
 // Victoria is a VictoriaLogs single node.
@@ -179,6 +182,27 @@ func (v *Victoria) Write(ctx context.Context, ls []Line) error {
 	}
 	_, err = v.do(req)
 	return err
+}
+
+func (v *Victoria) Newest(ctx context.Context, from time.Time) (time.Time, error) {
+	form := url.Values{
+		"query": {"* | sort by (_time desc) | limit 1"},
+		"start": {from.UTC().Format(time.RFC3339Nano)},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.URL+"/select/logsql/query", strings.NewReader(form.Encode()))
+	if err != nil {
+		return time.Time{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	b, err := v.do(req)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var m map[string]any
+	if len(bytes.TrimSpace(b)) == 0 || json.Unmarshal(bytes.SplitN(b, []byte("\n"), 2)[0], &m) != nil {
+		return time.Time{}, nil
+	}
+	return lineOf(m).Time, nil
 }
 
 func (v *Victoria) Query(ctx context.Context, f Filter, from, to time.Time, limit int) ([]Line, error) {

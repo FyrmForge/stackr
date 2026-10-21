@@ -36,7 +36,7 @@ func (d *Client) logs(ctx context.Context, id string, tail int, follow bool) (io
 		Timestamps: follow,
 		Tail:       strconv.Itoa(tail),
 	}
-	if t, ok := ctx.Value(logsSinceKey{}).(time.Time); ok {
+	if t, ok := LogsSinceFrom(ctx); ok {
 		opts.Since, opts.Tail = t.UTC().Format(time.RFC3339Nano), "all"
 	}
 	rc, err := d.cli.ContainerLogs(ctx, id, opts)

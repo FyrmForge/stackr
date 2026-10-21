@@ -114,3 +114,9 @@ type logsSinceKey struct{}
 func WithLogsSince(ctx context.Context, t time.Time) context.Context {
 	return context.WithValue(ctx, logsSinceKey{}, t)
 }
+
+// LogsSinceFrom is the time WithLogsSince set; ok is false when none was.
+func LogsSinceFrom(ctx context.Context) (time.Time, bool) {
+	t, ok := ctx.Value(logsSinceKey{}).(time.Time)
+	return t, ok
+}

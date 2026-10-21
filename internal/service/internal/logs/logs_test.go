@@ -76,3 +76,28 @@ func TestVictoria(t *testing.T) {
 		t.Errorf("no org: %v", err)
 	}
 }
+
+func TestVictoriaNewest(t *testing.T) {
+	body := ""
+	var q, start string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		q, start = r.PostForm.Get("query"), r.PostForm.Get("start")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	v := &Victoria{URL: srv.URL}
+	from := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	body = `{"_time":"2026-10-21T10:00:00.5Z","_msg":"x"}` + "\n"
+	got, err := v.Newest(context.Background(), from)
+	if err != nil || !got.Equal(time.Date(2026, 10, 21, 10, 0, 0, 500_000_000, time.UTC)) {
+		t.Fatalf("newest %v %v", got, err)
+	}
+	if q != "* | sort by (_time desc) | limit 1" || start != "2026-10-20T00:00:00Z" {
+		t.Errorf("query %q start %q", q, start)
+	}
+	body = ""
+	if got, err := v.Newest(context.Background(), from); err != nil || !got.IsZero() {
+		t.Errorf("empty store: %v %v", got, err)
+	}
+}

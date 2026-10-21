@@ -178,11 +178,17 @@ func (o *Orchestrator) logshipTick(ctx context.Context) error {
 	now := time.Now()
 	s.mu.Lock()
 	prev := s.tickAt
+	first := prev.IsZero()
 	if s.follow == nil {
 		s.follow, s.last = map[string]context.CancelFunc{}, map[string]time.Time{}
 	}
 	s.mu.Unlock()
 
+	if first {
+		// Docker is the buffer: resume from the newest line the store has,
+		// so what was logged while the panel was down is still collected.
+		prev = o.logResume(ctx, now)
+	}
 	seen := map[string]bool{}
 	unlisted := map[string]bool{} // nodes that did not answer: their followers stay
 	for _, n := range ns {
@@ -225,6 +231,22 @@ func (o *Orchestrator) logshipTick(ctx context.Context) error {
 	s.tickAt = now
 	s.mu.Unlock()
 	return nil
+}
+
+// logResumeMax caps how far back a restart replays.
+const logResumeMax = 24 * time.Hour
+
+// logResume is where the first tick starts following: the store's newest
+// line within logResumeMax, else zero (follow from now).
+func (o *Orchestrator) logResume(ctx context.Context, now time.Time) time.Time {
+	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	t, err := o.logStore().Newest(rctx, now.Add(-logResumeMax))
+	if err != nil {
+		slog.Warn("observe: log resume point unknown, following from now", "err", err)
+		return time.Time{}
+	}
+	return t
 }
 
 // followLog starts a follower of container c unless it has one. A container
