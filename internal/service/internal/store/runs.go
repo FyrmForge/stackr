@@ -18,6 +18,10 @@ type Run struct {
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 	StartedAt  *time.Time `db:"started_at" json:"started_at"`
 	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
+	// What the run's container used: peak memory and CPU time. Nil when no
+	// reading was taken (a run shorter than one poll).
+	PeakMemBytes *int64 `db:"peak_mem_bytes" json:"peak_mem_bytes"`
+	CPUMs        *int64 `db:"cpu_ms" json:"cpu_ms"`
 }
 
 type RunStore interface {

@@ -248,6 +248,12 @@ func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
 		if r.ExitCode != nil {
 			row.Exit = strconv.Itoa(*r.ExitCode)
 		}
+		if r.PeakMemBytes != nil {
+			row.Mem = service.HumanBytes(*r.PeakMemBytes)
+		}
+		if r.CPUMs != nil {
+			row.CPU = (time.Duration(*r.CPUMs) * time.Millisecond).Round(10 * time.Millisecond).String()
+		}
 		v.Rows = append(v.Rows, row)
 		if row.Live {
 			v.Poll = base + "?tab=runs"

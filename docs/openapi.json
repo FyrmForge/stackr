@@ -4846,6 +4846,16 @@
       },
       "Run": {
         "properties": {
+          "cpu_ms": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -4876,6 +4886,16 @@
           },
           "job_id": {
             "type": "string"
+          },
+          "peak_mem_bytes": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reason": {
             "type": "string"

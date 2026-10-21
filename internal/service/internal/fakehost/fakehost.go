@@ -1306,3 +1306,8 @@ type VIP struct{}
 
 func (VIP) Set(context.Context, string, []string, []string) error { return nil }
 func (VIP) Remove(context.Context, string) error                  { return nil }
+
+// Stats answers zero: the fake host has no resources to meter.
+func (d *Docker) Stats(ctx context.Context, id string) (docker.Usage, error) {
+	return docker.Usage{}, d.chaos.hit(ctx, "containers", "Stats")
+}

@@ -112,6 +112,18 @@ func (l *Leaf) Finish(ctx context.Context, id string, exit *int, status, reason 
 	return r, l.runs.Update(ctx, r)
 }
 
+// Measure records what the run's container used; call it before Finish.
+func (l *Leaf) Measure(ctx context.Context, id string, peakMem, cpuMs int64) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	r, err := l.runs.Get(ctx, id)
+	if err != nil || Done(r) {
+		return err
+	}
+	r.PeakMemBytes, r.CPUMs = &peakMem, &cpuMs
+	return l.runs.Update(ctx, r)
+}
+
 // Done: the run is closed.
 func Done(r store.Run) bool { return r.Status != Queued && r.Status != Running }
 

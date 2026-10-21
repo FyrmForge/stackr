@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
 	"strings"
@@ -330,4 +331,30 @@ func (d *Client) Inspect(ctx context.Context, id string) (Detail, error) {
 		det.Mounts = append(det.Mounts, src+" -> "+m.Destination)
 	}
 	return det, nil
+}
+
+// Usage is one reading of a container's resources: memory in bytes (the
+// cache docker counts as used is taken out) and the CPU time it has used in
+// nanoseconds since it started.
+type Usage struct{ MemBytes, CPUNs uint64 }
+
+// Stats is one-shot stats: a single reading, no stream.
+func (d *Client) Stats(ctx context.Context, id string) (Usage, error) {
+	r, err := d.cli.ContainerStatsOneShot(ctx, id)
+	if err != nil {
+		return Usage{}, wrap(err)
+	}
+	defer func() { _ = r.Body.Close() }()
+	var s container.StatsResponse
+	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+		return Usage{}, err
+	}
+	mem := s.MemoryStats.Usage
+	for _, k := range []string{"inactive_file", "total_inactive_file"} { // cgroup v2, v1
+		if c, ok := s.MemoryStats.Stats[k]; ok && c < mem {
+			mem -= c
+			break
+		}
+	}
+	return Usage{MemBytes: mem, CPUNs: s.CPUStats.CPUUsage.TotalUsage}, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/run"
@@ -29,6 +30,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
@@ -155,6 +157,31 @@ func TestRunOK(t *testing.T) {
 	}
 	if !called(fake, "StopRemove") {
 		t.Error("the run container was not removed")
+	}
+}
+
+// A run's peak memory and last CPU total land on the row and as points.
+func TestRunMeasured(t *testing.T) {
+	f, fake, sweep := setup(t)
+	mem := &metrics.Memory{}
+	f.Points = func(ctx context.Context, ps []metrics.Point) { _ = mem.Write(ctx, ps) }
+	f.Tiles.RunPoll = 5 * time.Millisecond
+	fake.WaitFor = 80 * time.Millisecond
+	fake.Usages = []docker.Usage{{MemBytes: 100 << 20, CPUNs: 1e9}, {MemBytes: 300 << 20, CPUNs: 2e9}, {MemBytes: 200 << 20, CPUNs: 3e9}}
+	r := queue(t, f, sweep.ID)
+	must(t, f.Do(ctx, r.ID, io.Discard))
+	r, _ = f.Runs.Get(ctx, sweep.ID, r.ID)
+	if r.PeakMemBytes == nil || *r.PeakMemBytes != 300<<20 || r.CPUMs == nil || *r.CPUMs != 3000 {
+		t.Fatalf("run = %+v", r)
+	}
+	got, _ := mem.Query(ctx, "tile:"+sweep.ID, time.Now().Add(-time.Minute), time.Now().Add(time.Minute), 0)
+	for name, want := range map[string]float64{"run_mem_peak": 300 << 20, "run_cpu_s": 3, "run_failed": 0} {
+		if xs := got[name]; len(xs) != 1 || xs[0].V != want {
+			t.Errorf("%s = %v, want %v", name, xs, want)
+		}
+	}
+	if len(got["run_s"]) != 1 {
+		t.Errorf("run_s = %v", got["run_s"])
 	}
 }
 

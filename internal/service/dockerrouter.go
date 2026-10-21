@@ -387,3 +387,7 @@ func (r *DockerRouter) ExecTTY(ctx context.Context, id string, cmd []string) (
 	}
 	return c.ExecTTY(ctx, id, cmd)
 }
+
+func (r *DockerRouter) Stats(ctx context.Context, id string) (docker.Usage, error) {
+	return via(r, ctx, func(c Docker) (docker.Usage, error) { return c.Stats(ctx, id) })
+}
