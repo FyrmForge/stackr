@@ -44,3 +44,10 @@ func (h *H) RegistryOverview() Endpoint {
 func (h *H) CleanRegistry() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) { return h.Orch.CleanRegistryNow(rc(c), who(c)) })
 }
+
+// ObserveStatus (server admin) is metrics history: on or off, its knobs, the
+// container, its data size and the controller's free disk. The knobs are
+// settings (observe_*).
+func (h *H) ObserveStatus() Endpoint {
+	return Get(func(c echo.Context) (service.ObserveStatus, error) { return h.Orch.ObserveStatus(rc(c)) })
+}

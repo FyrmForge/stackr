@@ -3750,6 +3750,44 @@
         ],
         "type": "object"
       },
+      "ObserveStatus": {
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "data_bytes": {
+            "type": "integer"
+          },
+          "disk_free": {
+            "type": "integer"
+          },
+          "disk_total": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "min_free_bytes": {
+            "type": "integer"
+          },
+          "retention_days": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "retention_days",
+          "min_free_bytes",
+          "container",
+          "data_bytes",
+          "disk_free",
+          "disk_total"
+        ],
+        "type": "object"
+      },
       "OfferOut": {
         "properties": {
           "has_node": {
@@ -9578,6 +9616,35 @@
           }
         },
         "x-verb": "node.manage"
+      }
+    },
+    "/api/v1/admin/observe": {
+      "get": {
+        "operationId": "admin.observe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObserveStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
       }
     },
     "/api/v1/admin/orgs": {

@@ -16,7 +16,7 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-var Tabs = []string{"settings", "users", "nodes", "placements", "access", "security", "routes", "update", "caddy", "backups", "alerts", "config", "params", "connectors", "registry"}
+var Tabs = []string{"settings", "users", "nodes", "placements", "access", "security", "routes", "update", "caddy", "backups", "alerts", "config", "params", "connectors", "registry", "observability"}
 
 // Base is where every tab and action lives.
 const Base = "/-/admin"

@@ -1065,6 +1065,7 @@ func (a *app) admin() *cobra.Command {
 			}),
 		list("host-grants", "admin.host-grants", "List every stack's elevated access and what waits for approval", "/admin/host-grants", "stack_id", "lines", "approved_by", "pending"),
 		list("images", "admin.images", "List the images stackr knows", "/admin/images", imageCols...),
+		a.observeStatus(),
 		a.registryAdmin(adminJob(
 			"clean",
 			"admin.registry-clean",

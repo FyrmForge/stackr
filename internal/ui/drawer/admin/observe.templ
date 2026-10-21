@@ -1,0 +1,43 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// ObserveView is the admin's Observability tab: metrics history on or off,
+// its knobs, and what it holds against the disk. Action "" = may not save.
+type ObserveView struct {
+	Action             string
+	Enabled            bool
+	Retention, MinFree string // days, GB
+	State              string // the container, in words
+	Data, Free         string // "" = unknown
+	Err                string
+}
+
+templ Observe(v ObserveView) {
+	<div id="tab-observability">
+		@c.Section("Metrics history", "instance", "Keeps graphs past 24 hours in the stackr-observe container.") {
+			if v.Action != "" {
+				<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_enabled" name="observe_enabled" value="1" checked?={ v.Enabled } class="accent-rw-accent"/> Keep metrics history</label>
+					@c.Field(c.FieldView{Name: "observe_metrics_retention", Label: "Retention (days)", Type: "number", Value: v.Retention, Help: "Older points are deleted."})
+					@c.Field(c.FieldView{Name: "observe_min_free", Label: "Free disk floor (GB)", Type: "number", Value: v.MinFree, Help: "Writes stop below this much free disk."})
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</form>
+			}
+		}
+		@c.Section("Storage", "instance", "Turning history off keeps the data for later.") {
+			<div class="space-y-1 text-sm">
+				<p class="text-rw-muted">Container: { v.State }</p>
+				if v.Data != "" {
+					<p class="text-rw-muted">Metrics data: { v.Data }</p>
+				}
+				if v.Free != "" {
+					<p class="text-rw-muted">Free disk: { v.Free }</p>
+				}
+				if v.Err != "" {
+					<p class="text-xs text-rw-danger">{ v.Err }</p>
+				}
+			</div>
+		}
+	</div>
+}

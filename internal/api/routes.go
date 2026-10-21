@@ -265,6 +265,7 @@ func routes(h *v1.H) []Route {
 		{POST, "/admin/image-check", "admin.image-check", "container.admin", h.CheckAllImages()},
 		{GET, "/admin/registry", "admin.registry", "admin.read", h.RegistryOverview()},
 		{POST, "/admin/registry/clean", "admin.registry-clean", "container.admin", h.CleanRegistry()},
+		{GET, "/admin/observe", "admin.observe", "admin.read", h.ObserveStatus()},
 		{GET, "/admin/jobs", "admin.jobs", "admin.read", h.Jobs()},
 		{GET, "/admin/jobs/:job", "admin.job-get", "admin.read", h.GetJob()},
 		{GET, "/admin/jobs/:job/log", "admin.job-log", "admin.read", h.PollJob()},

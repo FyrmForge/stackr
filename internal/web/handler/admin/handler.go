@@ -108,6 +108,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	h.mountConnectors(g, a)
 	h.mountNodes(g, a)
 	h.mountRegistry(g, a)
+	h.mountObserve(g, a)
 	g.POST(b+"/dests/:dest/delete", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
 	}), dests)
@@ -325,6 +326,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		return h.alertsTab(c)
 	case "registry":
 		return h.registryTab(c, job)
+	case "observability":
+		return h.observeTab(c)
 	case "backups":
 		ds, err := h.orch.GlobalBackupDests(ctx)
 		if err != nil {
