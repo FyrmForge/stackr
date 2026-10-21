@@ -41,6 +41,7 @@ import (
 // proxyConfigs is the Syncer's BuildAll: one Caddy config per ingress node,
 // keyed by node id. The controller is the default ingress node.
 func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMessage, error) {
+	o.logship.tileStale.Store(true) // the hosts below may be new to the log shipper
 	get := func(k string) string {
 		v, _ := o.settings.Get(ctx, k)
 		return v

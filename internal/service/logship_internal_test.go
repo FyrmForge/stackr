@@ -234,15 +234,22 @@ func TestShipAccessAndRun(t *testing.T) {
 	}
 }
 
-// A host added since the last tick is found by re-reading the domains
-// (at most once per tileOfReload), so its first requests are not dropped.
+// A host added since the last tick is found by re-reading the domains once
+// after a proxy sync, so its first requests are not dropped; without a sync
+// an unknown host reads nothing.
 func TestShipAccessNewDomain(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
 	tl := w.tile(t, "api", false)
 	o.logship.tileOf = tileOfHost(nil)
+	o.logship.tileStale.Store(false) // the setup's syncs are behind us
 	must(t, o.store.Domains.Create(ctx, domainRow(tl.ID, "app.example.com", nil)))
+	o.shipAccess(ctx, store.Node{Name: "edge"}, docker.Container{Name: "stackr-proxy"}, time.Now(), caddyLine)
+	if o.bufLen() != 0 {
+		t.Fatal("an unknown host re-read the domains with no sync since")
+	}
+	o.logship.tileStale.Store(true) // what proxyConfigs does
 	o.shipAccess(ctx, store.Node{Name: "edge"}, docker.Container{Name: "stackr-proxy"}, time.Now(), caddyLine)
 	if o.bufLen() != 1 || o.logship.buf[0].TileID != tl.ID {
 		t.Fatalf("buffered %d lines", o.bufLen())

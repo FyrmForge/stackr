@@ -36,6 +36,9 @@ type logShip struct {
 	on      atomic.Bool   // logs are kept (observe and observe_logs_enabled)
 	dropped atomic.Uint64 // lines dropped for a full buffer since the panel started
 	down    atomic.Bool   // the last write failed (logged once per change)
+	// tileStale is set by each proxy sync: a host Caddy was just given may
+	// be missing from tileOf, so the next unknown host re-reads the domains.
+	tileStale atomic.Bool
 
 	baseOnce sync.Once
 	base     context.Context // followers and the flush loop; ends with the panel
@@ -48,7 +51,6 @@ type logShip struct {
 	last   map[string]time.Time          // key -> the newest time shipped (or started at)
 	tickAt time.Time
 	tileOf func(host string) string // host -> tile id, from the domain rows
-	tileAt time.Time                // when tileOf was last read
 	nodes  map[string]string        // node id -> name ("" = the controller), for run lines
 	meta   map[string]logMeta
 }
@@ -250,14 +252,9 @@ func (o *Orchestrator) loadTileOf(ctx context.Context) {
 	}
 	s := &o.logship
 	s.mu.Lock()
-	s.tileOf, s.tileAt = tileOfHost(ds), time.Now()
+	s.tileOf = tileOfHost(ds)
 	s.mu.Unlock()
 }
-
-// tileOfReload is how often a host that maps to no tile may re-read the
-// domains: a domain added since the last tick is found within it, and the
-// panel's own host (never a tile) costs one read per period, not per request.
-const tileOfReload = 5 * time.Second
 
 // logResumeMax caps how far back a restart replays.
 const logResumeMax = 24 * time.Hour
@@ -495,10 +492,9 @@ func (o *Orchestrator) shipAccess(ctx context.Context, n store.Node, c docker.Co
 		id = tileOf(host)
 	}
 	if id == "" {
-		s.mu.Lock()
-		stale := time.Since(s.tileAt) >= tileOfReload
-		s.mu.Unlock()
-		if !stale {
+		// Once per proxy sync: the panel's own host (never a tile) must
+		// not cost a domain read per request.
+		if !s.tileStale.Swap(false) {
 			return
 		}
 		o.loadTileOf(ctx)
