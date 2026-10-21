@@ -17,3 +17,11 @@ templ Time(t time.Time, layout string) {
 templ Zone() {
 	<local-time zone>UTC</local-time>
 }
+
+// ZoneNote names the zone once under a list of times.
+templ ZoneNote() {
+	<p class="text-xs text-rw-faint">
+		{ "Times in " }
+		@Zone()
+	</p>
+}

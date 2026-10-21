@@ -71,6 +71,7 @@ templ Security(v SecurityView) {
 						</li>
 					}
 				</ul>
+				@c.ZoneNote()
 				if v.More != "" {
 					<button type="button" hx-get={ v.More } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm mt-3">Show older</button>
 				}

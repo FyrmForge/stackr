@@ -95,7 +95,7 @@ const sparse = (u, i) => u.data[i].filter((v) => v != null).length <= 100;
 function draw(el, ls, unit, xs, ys) {
     const text = token("--rw-faint"), grid = token("--rw-border");
     const axis = { stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
-    const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value;
+    const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value ?? "";
     const u = new uPlot({
         width: el.clientWidth || 400, ...(zone ? { tzDate: (ts) => uPlot.tzDate(new Date(ts * 1e3), zone) } : {}),
         height: 160,

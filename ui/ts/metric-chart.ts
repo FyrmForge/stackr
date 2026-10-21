@@ -126,7 +126,7 @@ const sparse = (u: { data: (number | null)[][] }, i: number): boolean => u.data[
 function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (number | null)[][]): Plot {
   const text = token("--rw-faint"), grid = token("--rw-border");
   const axis = { stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
-  const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value; // the viewer's zone, as <local-time> reads it
+  const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value ?? ""; // the viewer's zone, as <local-time> reads it
   const u = new uPlot(
     {
       width: el.clientWidth || 400, ...(zone ? { tzDate: (ts: number) => uPlot.tzDate(new Date(ts * 1e3), zone) } : {}), // "" is the browser's, uPlot's default
