@@ -49,9 +49,8 @@ type HostSample struct {
 	DiskFree  uint64 `json:"disk_free"`
 }
 
-// ContainerSample is one tile container. CPU, IO and net are cumulative.
-// Replicas share their pause container's network namespace, so a tile's
-// network is its pause's counters.
+// ContainerSample is one tile container. CPU, IO and net are cumulative; net
+// is the container's own network namespace.
 type ContainerSample struct {
 	Tile    string `json:"tile"`
 	Name    string `json:"name"`
@@ -111,8 +110,8 @@ func (s *Server) Metrics(ctx context.Context) (Metrics, error) {
 		}
 		smp := ContainerSample{Tile: c.Labels[labelTile], Name: strings.TrimPrefix(firstOr(c.Names), "/"), Role: c.Labels[labelRole]}
 		readCgroup(dir, &smp)
-		if pid := firstPid(dir); pid != "" {
-			smp.NetRx, smp.NetTx = netDev(readFile(filepath.Join(root, "/proc", pid, "net/dev")))
+		if c.Pid > 0 {
+			smp.NetRx, smp.NetTx = netDev(readFile(filepath.Join(root, "/proc", strconv.Itoa(c.Pid), "net/dev")))
 		}
 		m.Containers = append(m.Containers, smp)
 	}
@@ -123,6 +122,7 @@ type dockerCtr struct {
 	ID     string
 	Names  []string
 	Labels map[string]string
+	Pid    int // Docker's (the host's) pid; 0 for a pause, whose net is unused
 }
 
 func (s *Server) tileContainers(ctx context.Context) ([]dockerCtr, error) {
@@ -144,11 +144,29 @@ func (s *Server) tileContainers(ctx context.Context) ([]dockerCtr, error) {
 	}
 	out := cs[:0]
 	for _, c := range cs {
-		if c.Labels[labelTile] != "" {
-			out = append(out, c)
+		if c.Labels[labelTile] == "" {
+			continue
 		}
+		// The pid comes from Docker, not cgroup.procs: the panel container
+		// has its own pid namespace, where the host's pids read as 0.
+		if c.Labels[labelRole] != "pause" {
+			c.Pid = inspectPid(ctx, hc, c.ID)
+		}
+		out = append(out, c)
 	}
 	return out, nil
+}
+
+func inspectPid(ctx context.Context, hc *http.Client, id string) int {
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://local/containers/"+id+"/json", nil)
+	resp, err := hc.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var v struct{ State struct{ Pid int } }
+	_ = json.NewDecoder(resp.Body).Decode(&v)
+	return v.State.Pid
 }
 
 func firstOr(s []string) string {
@@ -202,11 +220,6 @@ func kv(s string) map[string]uint64 {
 		}
 	}
 	return out
-}
-
-func firstPid(dir string) string {
-	p, _, _ := strings.Cut(readFile(filepath.Join(dir, "cgroup.procs")), "\n")
-	return strings.TrimSpace(p)
 }
 
 // netDev sums /proc/<pid>/net/dev bytes over every interface but lo.
