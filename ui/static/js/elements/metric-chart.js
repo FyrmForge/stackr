@@ -66,10 +66,27 @@ export function fmt(v, unit, more = 0) {
     return { pct: `${d(1)}%`, ratio: `${(v * 100).toFixed(1 + more)}%`, ms: `${d(1)} ms` }[unit] ?? d(1);
 }
 export function ticks(vs, unit) {
-    let out = vs.map((v) => fmt(v, unit));
-    for (let more = 1; more <= 3 && new Set(out).size < out.length; more++)
+    let more = 0, out = vs.map((v) => fmt(v, unit));
+    while (more < 3 && new Set(out).size < out.length) {
+        more++;
         out = vs.map((v) => fmt(v, unit, more));
+    }
+    if (!more && (unit === "bytes" || unit === "bps")) {
+        const lean = out.map((s) => s.replace(".0 ", " "));
+        if (new Set(lean).size === lean.length)
+            out = lean;
+    }
     return out;
+}
+export function yScale(max, unit) {
+    const want = (max > 0 ? max : 1) / 4;
+    const bin = unit === "bytes" || unit === "bps";
+    const base = (bin && [2 ** 30, 2 ** 20, 2 ** 10].find((b) => want >= b)) || 1;
+    const r = want / base, e = 10 ** Math.floor(Math.log10(r));
+    let step = [1, 2, 5, 10].find((m) => m * e >= r * (1 - 1e-9)) * e * base;
+    if (bin && step >= 1000 * base)
+        step = 1024 * base;
+    return { step, top: Math.ceil((max > 0 ? max : 1) / step - 1e-9) * step };
 }
 export function when(ts, zone, step = 3 * 3600) {
     const p = {};
@@ -101,14 +118,15 @@ const sparse = (u, i) => u.data[i].filter((v) => v != null).length <= 100;
 function draw(el, ls, unit, xs, ys) {
     const text = token("--rw-faint"), grid = token("--rw-border");
     const axis = { stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
+    let y = yScale(0, unit);
     const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value ?? "";
     const u = new uPlot({
         width: el.clientWidth || 400, ...(zone ? { tzDate: (ts) => uPlot.tzDate(new Date(ts * 1e3), zone) } : {}),
         height: 160,
         cursor: { drag: { x: true, y: false } },
-        scales: { x: { time: true, range: (u, min, max) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_, _min, max) => [0, max > 0 ? max * 1.1 : 1] } },
+        scales: { x: { time: true, range: (u, min, max) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_, _min, max) => { y = yScale(max, unit); return [0, y.top]; } } },
         series: [{ label: `Time (${zoneName})`, value: (_, ts) => (ts == null ? "" : when(ts, zone)) }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_, v) => fmt(v, unit) }))],
-        axes: [{ ...axis, space: 80, values: (_, vs, _a, _s, incr) => vs.map((v) => when(v, zone, incr)) }, { ...axis, size: 70, values: (_, vs) => ticks(vs, unit) }],
+        axes: [{ ...axis, space: 80, values: (_, vs, _a, _s, incr) => vs.map((v) => when(v, zone, incr)) }, { ...axis, size: 70, splits: () => Array.from({ length: Math.round(y.top / y.step) + 1 }, (_, i) => i * y.step), values: (_, vs) => ticks(vs, unit) }],
     }, [xs, ...ys], el);
     const watch = new ResizeObserver(() => u.setSize({ width: el.clientWidth, height: 160 }));
     watch.observe(el);

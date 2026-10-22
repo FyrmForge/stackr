@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { lines, align, fmt, merge, ticks, when } = await import("../ts/metric-chart.ts");
+const { lines, align, fmt, merge, ticks, when, yScale } = await import("../ts/metric-chart.ts");
 
 const at = (s: number, v: number) => ({ t: new Date(s * 1000).toISOString(), v });
 
@@ -53,6 +53,19 @@ test("values read in their unit", () => {
   assert.deepEqual(ticks([0, 0.05, 0.1], "pct"), ["0.00%", "0.05%", "0.10%"]);
   assert.deepEqual(ticks([0, 0.5, 1], "bps"), ["0.0 B/s", "0.5 B/s", "1.0 B/s"]);
   assert.deepEqual(ticks([0, 20, 40], "s"), ["0.0 s", "20 s", "40 s"]);
+});
+
+test("the value axis steps round and ends on a tick at or above the top value", () => {
+  const MB = 2 ** 20;
+  assert.deepEqual(yScale(190.7 * MB, "bytes"), { step: 50 * MB, top: 200 * MB });
+  assert.deepEqual(yScale(3.2 * MB, "bps"), { step: 1024 * 1024, top: 4 * MB }); // not 1000 KB
+  assert.deepEqual(yScale(600, "bytes"), { step: 200, top: 600 });
+  assert.deepEqual(yScale(37, "pct"), { step: 10, top: 40 });
+  assert.deepEqual(yScale(0.35, "s"), { step: 0.1, top: 0.4 });
+  assert.deepEqual(yScale(0, "pct"), { step: 0.5, top: 1 });
+  const s = yScale(190.7 * MB, "bytes");
+  assert.deepEqual(ticks([0, 1, 2, 3, 4].map((i) => i * s.step), "bytes"), ["0 B", "50 MB", "100 MB", "150 MB", "200 MB"]);
+  assert.deepEqual(ticks([0, 512 * 1024, MB, 1.5 * MB], "bytes"), ["0 B", "512 KB", "1 MB", "1.5 MB"]);
 });
 
 test("the time axis and legend read 24-hour in the viewer's zone, the day once ticks are hours apart", () => {

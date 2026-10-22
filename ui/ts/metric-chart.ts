@@ -89,11 +89,32 @@ export function fmt(v: number | null, unit: string, more = 0): string {
   return ({ pct: `${d(1)}%`, ratio: `${(v * 100).toFixed(1 + more)}%`, ms: `${d(1)} ms` } as Record<string, string>)[unit] ?? d(1);
 }
 
-// ticks are an axis's labels: as few decimals as keep every tick distinct.
+// ticks are an axis's labels: as few decimals as keep every tick distinct
+// (a byte axis's round ticks drop their ".0").
 export function ticks(vs: number[], unit: string): string[] {
-  let out = vs.map((v) => fmt(v, unit));
-  for (let more = 1; more <= 3 && new Set(out).size < out.length; more++) out = vs.map((v) => fmt(v, unit, more));
+  let more = 0, out = vs.map((v) => fmt(v, unit));
+  while (more < 3 && new Set(out).size < out.length) {
+    more++;
+    out = vs.map((v) => fmt(v, unit, more));
+  }
+  if (!more && (unit === "bytes" || unit === "bps")) {
+    const lean = out.map((s) => s.replace(".0 ", " "));
+    if (new Set(lean).size === lean.length) out = lean;
+  }
   return out;
+}
+
+// yScale is the value axis for a top value: about four round steps (1, 2, 5
+// times a power of ten; for bytes, of the KB, MB or GB fmt shows) from 0 to
+// the first step at or above max, so the top is a labelled tick.
+export function yScale(max: number, unit: string): { step: number; top: number } {
+  const want = (max > 0 ? max : 1) / 4;
+  const bin = unit === "bytes" || unit === "bps";
+  const base = (bin && [2 ** 30, 2 ** 20, 2 ** 10].find((b) => want >= b)) || 1;
+  const r = want / base, e = 10 ** Math.floor(Math.log10(r));
+  let step = [1, 2, 5, 10].find((m) => m * e >= r * (1 - 1e-9))! * e * base;
+  if (bin && step >= 1000 * base) step = 1024 * base; // 1000 KB reads as the next unit's 1
+  return { step, top: Math.ceil((max > 0 ? max : 1) / step - 1e-9) * step };
 }
 
 // when is unix seconds in zone ("" = the browser's), 24-hour like <local-time>, for a tick step in
@@ -134,6 +155,7 @@ const sparse = (u: { data: (number | null)[][] }, i: number): boolean => u.data[
 function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (number | null)[][]): Plot {
   const text = token("--rw-faint"), grid = token("--rw-border");
   const axis = { stroke: text, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
+  let y = yScale(0, unit); // the value axis, set by its range on each redraw and read by its splits
   const zone = document.body.dataset.tz ?? "", zoneName = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" }).formatToParts().find((x) => x.type === "timeZoneName")?.value ?? ""; // the viewer's zone, as <local-time> reads it
   const u = new uPlot(
     {
@@ -141,10 +163,10 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
       height: 160,
       cursor: { drag: { x: true, y: false } },
       // one time alone spans the picked range (uPlot pads it by 1000 days)
-      scales: { x: { time: true, range: (u: { data: number[][] }, min: number, max: number) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
+      scales: { x: { time: true, range: (u: { data: number[][] }, min: number, max: number) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_: unknown, _min: number, max: number) => { y = yScale(max, unit); return [0, y.top]; } } },
       series: [{ label: `Time (${zoneName})`, value: (_: unknown, ts: number | null) => (ts == null ? "" : when(ts, zone)) }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
       // space: px between time ticks, room for "Jan 2 15:04" (uPlot's 50 let labels touch)
-      axes: [{ ...axis, space: 80, values: (_: unknown, vs: number[], _a: number, _s: number, incr: number) => vs.map((v) => when(v, zone, incr)) }, { ...axis, size: 70, values: (_: unknown, vs: number[]) => ticks(vs, unit) }],
+      axes: [{ ...axis, space: 80, values: (_: unknown, vs: number[], _a: number, _s: number, incr: number) => vs.map((v) => when(v, zone, incr)) }, { ...axis, size: 70, splits: () => Array.from({ length: Math.round(y.top / y.step) + 1 }, (_, i) => i * y.step), values: (_: unknown, vs: number[]) => ticks(vs, unit) }],
     },
     [xs, ...ys],
     el,
