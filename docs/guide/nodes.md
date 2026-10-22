@@ -8,7 +8,7 @@ The `stackr` commands below run on the controller and need a login first. See [L
 
 Needs a Linux box, root, Docker 26.0 or newer, systemd, WireGuard in the kernel, UDP 51871 and TCP 7443 and 7444. The [README](../../README.md#system-requirements) has the rest.
 
-The box needs its own way out to the internet while it joins: the join line fetches from the panel's URL and pulls the stackr image from `ghcr.io`. A box with only a private address gets NAT from its network first. Exits through other nodes take over once it has joined.
+The box needs its own way out to the internet while it joins: the join line fetches from the panel's URL and pulls the stackr image from `ghcr.io`. A box with only a private address needs NAT from its network first.
 
 1. In the panel, open Admin, Nodes, Add node. Give it a name: lowercase letters, digits and dashes.
    - **Tags:** every new node has `egress`. Tick `ingress`, `builder` or `storage` for more roles. Envs with volumes or managed databases only run on `storage` nodes.
