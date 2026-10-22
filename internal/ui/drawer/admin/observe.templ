@@ -34,7 +34,7 @@ templ Observe(v ObserveView) {
 						}
 					</div>
 				}
-				@c.Section("Logs", "instance", "Keeps container and run logs for search.") {
+				@c.Section("Logs", "instance", "Keeps container and run logs for search. Needs metrics history on.") {
 					<div class="space-y-3">
 						@observeCheck("observe_logs_enabled", "Keep logs", v.LogsEnabled)
 						@c.Field(c.FieldView{Name: "observe_logs_retention", Label: "Retention (days)", Type: "number", Value: v.LogsDays, Help: "Older lines are deleted."})
