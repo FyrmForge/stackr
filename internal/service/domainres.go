@@ -475,7 +475,7 @@ func (o *Orchestrator) checkRootDomain(ctx context.Context, raw string) error {
 	oldBare, bare := strings.TrimPrefix(installspec.CleanHost(old), "*."), strings.TrimPrefix(root, "*.")
 	switch {
 	case raw == "" && oldBare != "":
-		return errs.Invalidf("root_domain", "Name the new root domain; the instance domain is removed from the domains list.")
+		return errs.Invalidf("root_domain", "A root domain is required.")
 	case bare == oldBare:
 		return nil
 	}
