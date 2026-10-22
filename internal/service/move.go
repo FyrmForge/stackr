@@ -50,8 +50,8 @@ func (o *Orchestrator) moveFlow() *move.Flow {
 
 // rsyncDockerfile is the live-move helper. The controller builds it once
 // (its own internet only) and pushes it to the cluster registry; nodes pull
-// it loaded from there.
-const rsyncDockerfile = "FROM alpine:3\nRUN apk add --no-cache rsync\n"
+// it loaded from there. The label is how uninstall --purge finds it.
+const rsyncDockerfile = "FROM alpine:3\nLABEL stackr.image=rsync\nRUN apk add --no-cache rsync\n"
 
 // rsyncSteps puts move.RsyncImage in the registry: there already = done,
 // else push the controller's local copy, building it first if missing.

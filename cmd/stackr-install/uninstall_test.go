@@ -142,17 +142,22 @@ type uninstallRig struct {
 func newUninstallRig(t *testing.T) *uninstallRig {
 	t.Helper()
 	r := &uninstallRig{state: t.TempDir(), install: t.TempDir(), reads: map[string]string{
+		"docker ps -aq --filter label=stackr.role=panel":                         "",
+		"docker ps -aq --filter label=stackr.role":                               "p1\np2\n",
 		"docker ps -aq --filter label=stackr.managed=true":                       "c1\nc2\n",
 		"docker ps -aq --filter name=^buildx_buildkit_stackr-builder":            "b1\n",
-		"docker volume ls -q --filter name=^buildx_buildkit_stackr-builder":      "b1_state\n",
 		"docker network ls -q --filter label=stackr.managed=true":                "n1\n",
 		"docker volume ls -q --filter label=stackr.managed=true":                 "v1\nv2\n",
+		"docker volume ls -q":                                                    "v1\nv2\nstackr-caddy\nbuildx_buildkit_stackr-builder0_state\nstackr-registry-data\nadmins-own\n",
+		"docker image ls -q --filter label=stackr.image":                         "i7\n",
 		"docker image ls -q --filter label=stackr.managed=true":                  "i1\n",
 		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr":         "i2\n",
 		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr-observe": "i6\n",
-		"docker image ls --format {{.Repository}} {{.ID}}": "localhost:5000/stackr.system/stackr i3\nlocalhost:5000/stackr.system/tools/rsync i4\n" +
-			"localhost:5000/acme/docker.io/library/nginx i5\nghcr.io/fyrmforge/stackr i2\npostgres i9\n",
-		"iptables-save": cannedSave,
+		"docker image ls --format {{.Repository}}:{{.Tag}} {{.ID}}": "localhost:5000/stackr.system/stackr:0.8.4 i3\nlocalhost:5000/stackr.system/tools/rsync:1 i4\n" +
+			"localhost:5000/acme/docker.io/library/nginx:1 i5\nghcr.io/fyrmforge/stackr:0.8.4 i2\npostgres:17 i9\n" +
+			"registry:3 i10\nregistry:2 i11\nmoby/buildkit:buildx-stable-1 i12\nalpine:3 i13\nregistry.stkr.example.com/acme/web:1 i14\n<none>:<none> i15\n",
+		"iptables-save":  cannedSave,
+		"ip6tables-save": "*filter\n:INPUT ACCEPT [0:0]\n:STACKR-IN - [0:0]\n-A INPUT -j STACKR-IN\n-A INPUT -p tcp -j ACCEPT\nCOMMIT\n",
 	}}
 	mesh := `{"Links":[{"Iface":"wgx-aaaaaaaaaa","Table":1001}],"Serves":[{"Iface":"wgx-bbbbbbbbbb","Table":1301,"Pref":20002}],` +
 		`"Ladders":[{"Subject":{"Sources":["10.208.1.0/24"],"PrefBase":10000}}]}`
@@ -200,12 +205,14 @@ func TestUninstallCommands(t *testing.T) {
 		"systemctl disable --now stackr-worker.service",
 		"rm -f " + joinUnitPath,
 		"systemctl daemon-reload",
-		"docker rm -f c1 c2",
-		"docker rm -f -v stackr-proxy stackr-host-helper",
-		"docker rm -f b1",
+		"docker rm -f -v p1 p2",
+		"docker rm -f -v c1 c2",
+		"docker rm -f -v b1",
 		"docker network rm n1",
 		"iptables-restore --noflush",
 		"-D DOCKER-USER -j STACKR-FENCE",
+		"ip6tables-restore --noflush",
+		"-D INPUT -j STACKR-IN",
 		"ip link del stackr0",
 		"ip link del wgx-aaaaaaaaaa",
 		"ip link del wgx-bbbbbbbbbb",
@@ -236,6 +243,17 @@ func TestUninstallFormerNode(t *testing.T) {
 	out := flat(r.out.String())
 	if !strings.Contains(out, "docker volume rm stackr-caddy") {
 		t.Errorf("former node kept stackr-caddy:\n%s", out)
+	}
+	// A node that never had the proxy runs no volume rm, so prints no error.
+	r2 := newUninstallRig(t)
+	r2.reads["docker volume ls -q"] = "v1\nadmins-own\n"
+	e = r2.env(true, "")
+	e.formerNode = true
+	if err := e.run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(r2.out.String(), "volume rm") {
+		t.Errorf("removed a volume the box does not have:\n%s", r2.out.String())
 	}
 	for _, bad := range []string{"Done", "volume rm v1", "image rm", "rm -rf"} {
 		if strings.Contains(out, bad) {
@@ -294,15 +312,52 @@ func TestUninstallPurgeAsksTheName(t *testing.T) {
 	if err := r.env(true, "h3\n").run(ctx, true); err != nil {
 		t.Fatal(err)
 	}
-	out := r.out.String()
-	for _, want := range []string{"docker volume rm v1 v2", "docker volume rm stackr-caddy", "docker volume rm stackr-observe-data", "docker volume rm b1_state", "docker image rm -f i1 i2 i6 i3 i4 i5", "rm -rf " + r.state,
+	out := flat(r.out.String())
+	for _, want := range []string{
+		// Only the volumes the box has: no stackr-observe-data here, so no rm of it.
+		"docker volume rm v1 v2 stackr-caddy buildx_buildkit_stackr-builder0_state stackr-registry-data ",
+		"docker image rm -f i7 i1 i2 i6 i3 i4 i5 ",
+		"docker image rm moby/buildkit:buildx-stable-1 ",
+		"rm -rf " + r.state,
 		"rm -f /usr/local/bin/.stackr-swap /usr/local/bin/stackrd /usr/local/bin/stackrd.prev /usr/local/bin/stackr-install /usr/local/bin/stackr-install.prev"} {
-		if !strings.Contains(flat(out), want) {
+		if !strings.Contains(out, want) {
 			t.Errorf("purge lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "i9") {
-		t.Errorf("purge removed an image stackr did not pull:\n%s", out)
+	// Images and volumes stackr did not make or pull stay; a worker has no
+	// panel registry to log out of.
+	for _, kept := range []string{"i9", "i11", "i13", "i14", "i15", "registry:3", "admins-own", "stackr-observe-data", "logout"} {
+		if strings.Contains(out, kept) {
+			t.Errorf("purge touched %q:\n%s", kept, out)
+		}
+	}
+}
+
+// stackrImages picks only stackr's images out of a box's list.
+func TestStackrImages(t *testing.T) {
+	ls := "localhost:5000/stackr.system/stackr:0.8.4 a\nregistry.stkr.example.com/acme/web:1 b\nregistry:3 c\n" +
+		"moby/buildkit:buildx-stable-1 d\nregistry:2 e\nalpine:3 f\npostgres:17 g\n<none>:<none> h\nregistry.other.example.com/x:1 i\n"
+	ids, refs := stackrImages(ls, "stkr.example.com")
+	if strings.Join(ids, " ") != "a b" || strings.Join(refs, " ") != "registry:3 moby/buildkit:buildx-stable-1" {
+		t.Errorf("with a panel host: ids %v, refs %v", ids, refs)
+	}
+	// A worker runs no registry: a registry:3 there is the admin's.
+	if ids, refs := stackrImages(ls, ""); strings.Join(ids, " ") != "a" || strings.Join(refs, " ") != "moby/buildkit:buildx-stable-1" {
+		t.Errorf("a worker: ids %v, refs %v", ids, refs)
+	}
+}
+
+// A panel container with its install.json elsewhere is not taken for a
+// worker: nothing runs.
+func TestUninstallRefusesAStrayPanel(t *testing.T) {
+	r := newUninstallRig(t)
+	r.reads["docker ps -aq --filter label=stackr.role=panel"] = "p0\n"
+	err := r.env(true, "").run(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "runs the panel") {
+		t.Fatalf("uninstall beside a panel = %v", err)
+	}
+	if strings.Contains(r.out.String(), "would run") {
+		t.Fatalf("something ran:\n%s", r.out.String())
 	}
 }
 
@@ -335,21 +390,73 @@ func TestUninstallPurgeFallsBackToTheCertID(t *testing.T) {
 	}
 }
 
-// A controller keeps its panel: uninstall is for workers.
-func TestUninstallRefusesAController(t *testing.T) {
+// controllerRig is a controller box: an install.json, no worker state, the
+// controller node's mesh state under the data dir.
+func controllerRig(t *testing.T) *uninstallRig {
+	t.Helper()
 	r := newUninstallRig(t)
-	if err := os.WriteFile(filepath.Join(r.install, "install.json"), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(r.install, "install.json"), []byte(`{"panel_host":"stkr.example.com"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"node.name", "mesh.json"} {
-		_ = os.Remove(filepath.Join(r.state, f))
+	if err := os.MkdirAll(filepath.Join(r.install, "keys"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	err := r.env(true, "").run(context.Background(), false)
-	if err == nil || !strings.Contains(err.Error(), "runs the panel") {
-		t.Fatalf("controller uninstall = %v", err)
+	if err := os.Rename(filepath.Join(r.state, "mesh.json"), filepath.Join(r.install, "keys", "mesh.json")); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(r.out.String(), "would run") {
-		t.Fatal("something ran on a controller")
+	_ = os.Remove(filepath.Join(r.state, "node.name"))
+	r.reads["docker ps -aq --filter label=stackr.role=panel"] = "p0\n"
+	return r
+}
+
+// A controller comes off only with --purge and its panel's host name typed:
+// --yes (the node remove's host helper) and a join never take a panel off.
+func TestUninstallControllerAsksTheHost(t *testing.T) {
+	ctx := context.Background()
+	for name, run := range map[string]func(e uninstallEnv) error{
+		"plain":       func(e uninstallEnv) error { return e.run(ctx, false) },
+		"yes":         func(e uninstallEnv) error { e.yes = true; return e.run(ctx, true) },
+		"wrong host":  func(e uninstallEnv) error { e.in = strings.NewReader("stkr.other.com\n"); return e.run(ctx, true) },
+		"former node": func(e uninstallEnv) error { e.formerNode = true; return e.run(ctx, true) },
+	} {
+		r := controllerRig(t)
+		if err := run(r.env(true, "")); err == nil {
+			t.Errorf("%s: a controller uninstall went on", name)
+		}
+		if strings.Contains(r.out.String(), "would run") {
+			t.Errorf("%s: something ran on a controller:\n%s", name, r.out.String())
+		}
+	}
+}
+
+// The purge takes the panel off first, then everything a worker purge does,
+// plus the registry volume and login, the data dir and the CLI wrapper.
+func TestUninstallControllerPurge(t *testing.T) {
+	r := controllerRig(t)
+	if err := r.env(true, "stkr.example.com\n").run(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	out := flat(r.out.String())
+	at := 0
+	for _, step := range []string{
+		"docker rm -f -v p0",
+		"docker rm -f -v p1 p2",
+		"docker rm -f -v c1 c2",
+		"docker network rm n1",
+		"iptables-restore --noflush",
+		"ip link del stackr0",
+		"ip link del wgx-aaaaaaaaaa",
+		"docker volume rm v1 v2 stackr-caddy buildx_buildkit_stackr-builder0_state stackr-registry-data ",
+		"docker image rm -f i7 i1 i2 i6 i3 i4 i5 i14 ",
+		"docker image rm registry:3 moby/buildkit:buildx-stable-1 ",
+		"docker logout registry.stkr.example.com",
+		"rm -rf " + r.install,
+		"/usr/local/bin/stackr-install.prev /usr/local/bin/stackr",
+	} {
+		at = index(t, out, step, at)
+	}
+	if strings.Contains(out, "systemctl") {
+		t.Errorf("a controller has no worker service:\n%s", out)
 	}
 }
 

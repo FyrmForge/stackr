@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { lines, align, fmt, merge, ticks } = await import("../ts/metric-chart.ts");
+const { lines, align, fmt, merge, ticks, when } = await import("../ts/metric-chart.ts");
 
 const at = (s: number, v: number) => ({ t: new Date(s * 1000).toISOString(), v });
 
@@ -53,4 +53,13 @@ test("values read in their unit", () => {
   assert.deepEqual(ticks([0, 0.05, 0.1], "pct"), ["0.00%", "0.05%", "0.10%"]);
   assert.deepEqual(ticks([0, 0.5, 1], "bps"), ["0.0 B/s", "0.5 B/s", "1.0 B/s"]);
   assert.deepEqual(ticks([0, 20, 40], "s"), ["0.0 s", "20 s", "40 s"]);
+});
+
+test("the time axis and legend read 24-hour in the viewer's zone, the day once ticks are hours apart", () => {
+  const t = Date.UTC(2026, 9, 22, 15, 42) / 1000; // Oct 22 15:42 UTC
+  assert.equal(when(t, "UTC"), "Oct 22 15:42"); // the legend
+  assert.equal(when(t, "Europe/Berlin", 60), "17:42");
+  assert.equal(when(Date.UTC(2026, 0, 5, 0, 30) / 1000, "UTC", 60), "00:30"); // never 24:30
+  assert.equal(when(t, "UTC", 6 * 3600), "Oct 22 15:42");
+  assert.equal(when(t, "UTC", 86400), "Oct 22");
 });

@@ -71,6 +71,12 @@ export function ticks(vs, unit) {
         out = vs.map((v) => fmt(v, unit, more));
     return out;
 }
+export function when(ts, zone, step = 3 * 3600) {
+    const p = {};
+    for (const x of new Intl.DateTimeFormat("en-US", { timeZone: zone || undefined, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ts * 1e3)))
+        p[x.type] = x.value;
+    return step >= 86400 ? `${p.month} ${p.day}` : step >= 3 * 3600 ? `${p.month} ${p.day} ${p.hour}:${p.minute}` : `${p.hour}:${p.minute}`;
+}
 function token(name) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return /^\d/.test(v) ? `rgb(${v.split(/\s+/).join(",")})` : v || "gray";
@@ -101,8 +107,8 @@ function draw(el, ls, unit, xs, ys) {
         height: 160,
         cursor: { drag: { x: true, y: false } },
         scales: { x: { time: true, range: (u, min, max) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_, _min, max) => [0, max > 0 ? max * 1.1 : 1] } },
-        series: [{ label: `Time (${zoneName})` }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_, v) => fmt(v, unit) }))],
-        axes: [axis, { ...axis, size: 70, values: (_, vs) => ticks(vs, unit) }],
+        series: [{ label: `Time (${zoneName})`, value: (_, ts) => (ts == null ? "" : when(ts, zone)) }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_, v) => fmt(v, unit) }))],
+        axes: [{ ...axis, space: 80, values: (_, vs, _a, _s, incr) => vs.map((v) => when(v, zone, incr)) }, { ...axis, size: 70, values: (_, vs) => ticks(vs, unit) }],
     }, [xs, ...ys], el);
     const watch = new ResizeObserver(() => u.setSize({ width: el.clientWidth, height: 160 }));
     watch.observe(el);

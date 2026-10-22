@@ -799,6 +799,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			// restart for the cap must not land mid-rollout.
 			orch.controllerLogCap(orch.meshCtx)
 			orch.publishSystemImages(orch.meshCtx)
+			orch.clearUpgrader(orch.meshCtx) // the Update that started this panel left it
 		})
 		orch.startSyncObserve() // brings it to this build's version
 	} else {

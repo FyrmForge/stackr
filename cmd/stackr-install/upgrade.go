@@ -140,7 +140,9 @@ func (r runner) swapPanel(ctx context.Context, in installspec.Input, ver string)
 		installspec.Image(ver), "upgrade-swap"); err != nil {
 		return fmt.Errorf("%w; the old panel runs again, see docker logs %s", err, upgraderName)
 	}
-	return r.docker(ctx, "rm", upgraderName)
+	// The new panel's boot may have removed it already (service clearUpgrader).
+	_ = r.docker(ctx, "rm", "-f", upgraderName)
+	return nil
 }
 
 // panelCLI runs the stackr CLI inside panel id with this box's login,

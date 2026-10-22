@@ -40,28 +40,16 @@ It stops the worker service and removes stackr's containers, networks, firewall 
 sudo stackr-install uninstall --purge
 ```
 
-`--purge` also deletes the volumes, images, binaries and state. `/etc/docker/daemon.json` stays, with the log cap the installer set. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
-
-It refuses to run on the controller box.
+`--purge` also deletes the volumes, the images stackr built or pulled, the binaries and the state. Other images stay. `/etc/docker/daemon.json` stays, with the log cap the installer set. It asks you to type the node's name. `--yes` skips the first question but not that one. `--dry-run` shows what would change.
 
 ## Remove the panel
 
-`stackr-install uninstall` refuses on the controller, so a panel comes off by hand. Remove the workers first, or they keep calling back. If you may want this install again, keep a panel backup and its recovery passphrase off the box.
+Remove the workers first, or they keep calling back. If you may want this install again, keep a panel backup and its recovery passphrase off the box.
 
 On the controller, as root:
 
 ```bash
-docker ps -aq --filter label=stackr.managed=true | xargs -r docker rm -f
-docker ps -aq --filter label=stackr.role=panel | xargs -r docker rm -f
-docker rm -f stackr-proxy stackr-registry
-docker ps -aq --filter name=^buildx_buildkit_stackr-builder | xargs -r docker rm -f
-docker volume ls -q --filter label=stackr.managed=true | xargs -r docker volume rm
-docker volume ls -q --filter name=^buildx_buildkit_stackr-builder | xargs -r docker volume rm
-docker rm -f stackr-observe
-docker volume rm stackr-caddy stackr-registry-data stackr-observe-data
-docker network ls -q --filter label=stackr.managed=true | xargs -r docker network rm
-rm -rf /var/lib/stackr
-rm -f /usr/local/bin/stackr /usr/local/bin/stackr-install
+sudo stackr-install uninstall --purge
 ```
 
-Images stay; `docker image ls` shows them. stackr's firewall rules and the `stackr0` interface go at the next reboot.
+It asks you to type the panel's host name. Then it removes the panel and every app on the box with their volumes, the images stackr built or pulled, the docker login for the panel's registry, the firewall rules, `stackr0` and the mesh, `/var/lib/stackr`, and `stackr` and `stackr-install` in `/usr/local/bin`. `/etc/docker/daemon.json` stays. Without `--purge` it refuses on the controller.

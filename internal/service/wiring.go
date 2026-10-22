@@ -581,28 +581,11 @@ func (o *Orchestrator) runLogCap(ctx context.Context, image string) error {
 // runningPanelImage is this panel's own image, once the upgrade helper that
 // started it is done (the proxy's image may still be the old build's).
 func (o *Orchestrator) runningPanelImage(ctx context.Context) (string, error) {
-	running := func(role string) ([]docker.Container, error) {
-		cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: role})
-		return slices.DeleteFunc(cs, func(c docker.Container) bool { return c.State != "running" }), err
+	if _, err := o.upgraderDone(ctx); err != nil {
+		return "", err
 	}
-	for deadline := time.Now().Add(logCapWait); ; {
-		busy, err := running("upgrader")
-		if err != nil {
-			return "", err
-		}
-		if len(busy) == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			return "", errors.New("the upgrade helper is still running")
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(logCapPoll):
-		}
-	}
-	ps, err := running("panel")
+	ps, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "panel"})
+	ps = slices.DeleteFunc(ps, func(c docker.Container) bool { return c.State != "running" })
 	if err != nil {
 		return "", err
 	}
@@ -610,4 +593,46 @@ func (o *Orchestrator) runningPanelImage(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%d running panel containers, want 1", len(ps))
 	}
 	return ps[0].Image, nil
+}
+
+// upgraderDone waits until no upgrade helper runs and returns the helpers
+// left behind.
+func (o *Orchestrator) upgraderDone(ctx context.Context) ([]docker.Container, error) {
+	for deadline := time.Now().Add(logCapWait); ; {
+		cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
+		if err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
+			return cs, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, errors.New("the upgrade helper is still running")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(logCapPoll):
+		}
+	}
+}
+
+// clearUpgrader removes the panel Update's helper once it is done: one that
+// exited 0 swapped this panel in. A failed one stays for its logs; the next
+// Update's Launch removes it.
+func (o *Orchestrator) clearUpgrader(ctx context.Context) {
+	ctx, err := o.withController(ctx)
+	if err != nil {
+		slog.Warn("upgrade helper: not removed", "err", err)
+		return
+	}
+	cs, err := o.upgraderDone(ctx)
+	for _, c := range cs {
+		if d, ierr := o.docker.Inspect(ctx, c.ID); ierr == nil && d.State == "exited" && d.ExitCode == 0 {
+			err = errors.Join(err, o.docker.StopRemove(ctx, c.ID))
+		}
+	}
+	if err != nil {
+		slog.Warn("upgrade helper: not removed", "err", err)
+	}
 }

@@ -96,6 +96,14 @@ export function ticks(vs: number[], unit: string): string[] {
   return out;
 }
 
+// when is unix seconds in zone ("" = the browser's), 24-hour like <local-time>, for a tick step in
+// seconds: "15:04", from 3 h "Jan 2 15:04" (the legend's), from a day "Jan 2".
+export function when(ts: number, zone: string, step = 3 * 3600): string {
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat("en-US", { timeZone: zone || undefined, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(ts * 1e3))) p[x.type] = x.value;
+  return step >= 86400 ? `${p.month} ${p.day}` : step >= 3 * 3600 ? `${p.month} ${p.day} ${p.hour}:${p.minute}` : `${p.hour}:${p.minute}`;
+}
+
 // A theme token is "R G B" or a hex colour.
 function token(name: string): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -134,8 +142,9 @@ function draw(el: HTMLElement, ls: Line[], unit: string, xs: number[], ys: (numb
       cursor: { drag: { x: true, y: false } },
       // one time alone spans the picked range (uPlot pads it by 1000 days)
       scales: { x: { time: true, range: (u: { data: number[][] }, min: number, max: number) => { const x = u.data[0]; return x.length && x[0] === x[x.length - 1] ? [x[0] - Number(el.getAttribute("range") ?? 3600), x[0]] : [min, max]; } }, y: { range: (_: unknown, _min: number, max: number) => [0, max > 0 ? max * 1.1 : 1] } },
-      series: [{ label: `Time (${zoneName})` }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
-      axes: [axis, { ...axis, size: 70, values: (_: unknown, vs: number[]) => ticks(vs, unit) }],
+      series: [{ label: `Time (${zoneName})`, value: (_: unknown, ts: number | null) => (ts == null ? "" : when(ts, zone)) }, ...ls.map((l, i) => ({ label: l.label, stroke: token(PALETTE[i % PALETTE.length]), width: 1.5, spanGaps: false, points: { show: sparse, size: 6, fill: token(PALETTE[i % PALETTE.length]) }, value: (_: unknown, v: number | null) => fmt(v, unit) }))],
+      // space: px between time ticks, room for "Jan 2 15:04" (uPlot's 50 let labels touch)
+      axes: [{ ...axis, space: 80, values: (_: unknown, vs: number[], _a: number, _s: number, incr: number) => vs.map((v) => when(v, zone, incr)) }, { ...axis, size: 70, values: (_: unknown, vs: number[]) => ticks(vs, unit) }],
     },
     [xs, ...ys],
     el,
