@@ -139,7 +139,7 @@ const (
 	faceH      = 164 // a node card without envs: head, tags, IP row and footer come to about 158, plus the border
 	envRowH    = 22
 	maxEnvs    = 3 // env rows on a card; more becomes "+N more"
-	natW, natH = 104, 48
+	natW, natH = 120, 48
 	sideW      = 168 // the internet and backup cards
 	sideH      = 52
 	padX       = 32 // a box's inside, left and right
