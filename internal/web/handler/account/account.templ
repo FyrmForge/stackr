@@ -87,7 +87,7 @@ templ page(v PageView) {
 						@timeZone(v.Zone)
 					}
 				} else if v.Tab == "keys" {
-					@c.Section("Your keys", "you", "Mint a key from an organization's drawer (keys tab) or with stackr login. A key is bound to that organization.") {
+					@c.Section("Your keys", "you", "A stackr login key works in all your orgs; one from an org's keys tab, in that org only.") {
 						@keyList(v.Keys)
 					}
 				} else {

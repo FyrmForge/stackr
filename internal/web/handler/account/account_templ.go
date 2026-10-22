@@ -246,7 +246,7 @@ func page(v PageView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.Section("Your keys", "you", "Mint a key from an organization's drawer (keys tab) or with stackr login. A key is bound to that organization.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Section("Your keys", "you", "A stackr login key works in all your orgs; one from an org's keys tab, in that org only.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
