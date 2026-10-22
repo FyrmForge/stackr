@@ -305,7 +305,7 @@ func (o *Orchestrator) ListNodes(ctx context.Context) ([]NodeOut, error) {
 	if err != nil {
 		return nil, err
 	}
-	ns = slices.DeleteFunc(ns, func(n store.Node) bool { return n.Status == node.StatusPending })
+	ns = slices.DeleteFunc(ns, func(n store.Node) bool { return n.Status == node.StatusPending && !rejoin(n) })
 	slices.SortFunc(ns, func(a, b store.Node) int {
 		if (a.Role == node.Controller) != (b.Role == node.Controller) {
 			if a.Role == node.Controller {
