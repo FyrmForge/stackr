@@ -142,13 +142,13 @@ type uninstallRig struct {
 func newUninstallRig(t *testing.T) *uninstallRig {
 	t.Helper()
 	r := &uninstallRig{state: t.TempDir(), install: t.TempDir(), reads: map[string]string{
-		"docker ps -aq --filter label=stackr.role=panel":                         "p0\n",
+		"docker ps -aq --filter label=stackr.role=panel":                         "",
 		"docker ps -aq --filter label=stackr.role":                               "p1\np2\n",
 		"docker ps -aq --filter label=stackr.managed=true":                       "c1\nc2\n",
 		"docker ps -aq --filter name=^buildx_buildkit_stackr-builder":            "b1\n",
 		"docker network ls -q --filter label=stackr.managed=true":                "n1\n",
 		"docker volume ls -q --filter label=stackr.managed=true":                 "v1\nv2\n",
-		"docker volume ls -q": "v1\nv2\nstackr-caddy\nbuildx_buildkit_stackr-builder0_state\nstackr-registry-data\nadmins-own\n",
+		"docker volume ls -q":                                                    "v1\nv2\nstackr-caddy\nbuildx_buildkit_stackr-builder0_state\nstackr-registry-data\nadmins-own\n",
 		"docker image ls -q --filter label=stackr.image":                         "i7\n",
 		"docker image ls -q --filter label=stackr.managed=true":                  "i1\n",
 		"docker image ls -q --filter reference=ghcr.io/fyrmforge/stackr":         "i2\n",
@@ -317,7 +317,7 @@ func TestUninstallPurgeAsksTheName(t *testing.T) {
 		// Only the volumes the box has: no stackr-observe-data here, so no rm of it.
 		"docker volume rm v1 v2 stackr-caddy buildx_buildkit_stackr-builder0_state stackr-registry-data ",
 		"docker image rm -f i7 i1 i2 i6 i3 i4 i5 ",
-		"docker image rm registry:3 moby/buildkit:buildx-stable-1 ",
+		"docker image rm moby/buildkit:buildx-stable-1 ",
 		"rm -rf " + r.state,
 		"rm -f /usr/local/bin/.stackr-swap /usr/local/bin/stackrd /usr/local/bin/stackrd.prev /usr/local/bin/stackr-install /usr/local/bin/stackr-install.prev"} {
 		if !strings.Contains(out, want) {
@@ -326,7 +326,7 @@ func TestUninstallPurgeAsksTheName(t *testing.T) {
 	}
 	// Images and volumes stackr did not make or pull stay; a worker has no
 	// panel registry to log out of.
-	for _, kept := range []string{"i9", "i11", "i13", "i14", "i15", "admins-own", "stackr-observe-data", "logout"} {
+	for _, kept := range []string{"i9", "i11", "i13", "i14", "i15", "registry:3", "admins-own", "stackr-observe-data", "logout"} {
 		if strings.Contains(out, kept) {
 			t.Errorf("purge touched %q:\n%s", kept, out)
 		}
@@ -341,8 +341,23 @@ func TestStackrImages(t *testing.T) {
 	if strings.Join(ids, " ") != "a b" || strings.Join(refs, " ") != "registry:3 moby/buildkit:buildx-stable-1" {
 		t.Errorf("with a panel host: ids %v, refs %v", ids, refs)
 	}
-	if ids, _ := stackrImages(ls, ""); strings.Join(ids, " ") != "a" {
-		t.Errorf("a worker: ids %v", ids)
+	// A worker runs no registry: a registry:3 there is the admin's.
+	if ids, refs := stackrImages(ls, ""); strings.Join(ids, " ") != "a" || strings.Join(refs, " ") != "moby/buildkit:buildx-stable-1" {
+		t.Errorf("a worker: ids %v, refs %v", ids, refs)
+	}
+}
+
+// A panel container with its install.json elsewhere is not taken for a
+// worker: nothing runs.
+func TestUninstallRefusesAStrayPanel(t *testing.T) {
+	r := newUninstallRig(t)
+	r.reads["docker ps -aq --filter label=stackr.role=panel"] = "p0\n"
+	err := r.env(true, "").run(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "runs the panel") {
+		t.Fatalf("uninstall beside a panel = %v", err)
+	}
+	if strings.Contains(r.out.String(), "would run") {
+		t.Fatalf("something ran:\n%s", r.out.String())
 	}
 }
 
@@ -390,6 +405,7 @@ func controllerRig(t *testing.T) *uninstallRig {
 		t.Fatal(err)
 	}
 	_ = os.Remove(filepath.Join(r.state, "node.name"))
+	r.reads["docker ps -aq --filter label=stackr.role=panel"] = "p0\n"
 	return r
 }
 

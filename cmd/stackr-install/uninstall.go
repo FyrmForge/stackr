@@ -108,6 +108,11 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	if ctrl && (!purge || e.formerNode) {
 		return errors.New("this box runs the panel; uninstall --purge removes the panel and all its data")
 	}
+	// A panel whose install.json is elsewhere (another STACKR_DATA_DIR) would
+	// go with the role-labelled containers below, unasked.
+	if p, _ := e.read(ctx, "docker", "ps", "-aq", "--filter", roleLabel+"=panel"); !ctrl && strings.TrimSpace(p) != "" {
+		return errors.New("this box runs the panel; set STACKR_DATA_DIR to its data dir and run uninstall --purge")
+	}
 	// A worker keeps its mesh state in the state dir; the controller's own
 	// node keeps it under the data dir (service localMesh).
 	meshDir, gone, host := e.stateDir, e.stateDir, ""
@@ -306,7 +311,7 @@ func stackrImages(ls, panelHost string) (ids, refs []string) {
 		case !ok:
 		case slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(ref, p) }):
 			ids = append(ids, id)
-		case ref == installspec.RegistryImage, ref == buildkitImage:
+		case ref == buildkitImage, ref == installspec.RegistryImage && panelHost != "": // only the controller runs the registry
 			refs = append(refs, ref)
 		}
 	}
