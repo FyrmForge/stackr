@@ -8,9 +8,11 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/metrics"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
+	"github.com/google/uuid"
 )
 
 // Two raw samples 10 s apart become rates; the first sample of a node
@@ -129,4 +131,39 @@ func TestLinkMetricsUnknownPeer(t *testing.T) {
 	if inv, ok := errs.IsInvalid(err); !ok || inv.Field != "peer" || !strings.Contains(inv.Msg, `"nope"`) {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+// A cron's failure rate is a share of runs per wide bucket, not each run's
+// 0 or 1; live rounds leave run_failed to the read.
+func TestFailureRateBuckets(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	cron := store.Tile{
+		ID: uuid.NewString(), StackID: w.stack, EnvironmentID: w.env, Name: "nightly", Slug: "nightly",
+		Kind: tile.Cron, Schedule: "* * * * *", Command: "./x", EnvJSON: "{}", BuildArgs: "{}",
+		Replicas: 1, UpdatePolicy: "manual", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	must(t, w.st.Tiles.Create(ctx, cron))
+	now := time.Now()
+	var ps []metrics.Point
+	for i := range 30 { // one run a minute, every third failed
+		v := 0.0
+		if i%3 == 0 {
+			v = 1
+		}
+		ps = append(ps, metrics.Point{Key: tileKey(cron.ID), Name: "run_failed", T: now.Add(-time.Duration(i)*time.Minute - time.Second), V: v})
+	}
+	w.orch.writeRunPoints(ctx, ps)
+	out, err := w.orch.TileMetrics(ctx, cron.ID, MetricsIn{Range: time.Hour})
+	must(t, err)
+	xs := out.Tile["run_failed"]
+	if len(xs) == 0 || len(xs) > 21 {
+		t.Fatalf("buckets = %d", len(xs))
+	}
+	for _, x := range xs {
+		if x.V > 0 && x.V < 1 {
+			return
+		}
+	}
+	t.Fatalf("no bucket reads a rate: %v", xs)
 }

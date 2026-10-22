@@ -198,6 +198,7 @@ func (o *Orchestrator) MetricsAfter(s MetricsScope, seq int64) (any, int64) {
 	for _, p := range pts {
 		x := metrics.Sample{T: p.T, V: p.V}
 		switch {
+		case p.Name == "run_failed": // one run is 0 or 1, not a rate: the read buckets it
 		case p.Key == s.key:
 			own[p.Name] = append(own[p.Name], x)
 		case s.tile != "" && strings.HasPrefix(p.Key, ctr):
@@ -415,6 +416,14 @@ func (o *Orchestrator) TileMetrics(ctx context.Context, tileID string, in Metric
 	t, err := st.Query(ctx, tileKey(tileID), from, to, step)
 	if err != nil {
 		return TileMetricsOut{}, err
+	}
+	if len(t["run_failed"]) > 0 {
+		// a bucket of one run reads 0 or 100%; 20 buckets per range make it a rate
+		wide, err := st.Query(ctx, tileKey(tileID), from, to, max(step, to.Sub(from)/20))
+		if err != nil {
+			return TileMetricsOut{}, err
+		}
+		t["run_failed"] = wide["run_failed"]
 	}
 	out := TileMetricsOut{Tile: t, Replicas: map[string]Series{}}
 	o.metrics.mu.Lock()
