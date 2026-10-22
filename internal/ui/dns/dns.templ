@@ -1,0 +1,180 @@
+// Package dns is the DNS connector section, the same in the admin drawer's
+// Connectors tab (server connectors) and the org drawer's Connectors tab
+// (the org's own): the Namecheap form and each connector's domains.
+package dns
+
+import (
+	"encoding/json"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// View is the section. Add "" = may not add one.
+type View struct {
+	Scope  string // the Section badge: instance, organization
+	Help   string
+	Add    string // POST user, key, ip
+	User   string // kept on a refused add; the key never is
+	IP     string // prefilled with stackr's public IPv4
+	Errors map[string]string
+	Rows   []Row
+}
+
+// Row is one connector; Domains answers its domain list as it loads.
+type Row struct {
+	ID, Name, Domains string
+	Delete            c.ConfirmView
+}
+
+// DomainsView is a connector's account: every domain and its state.
+type DomainsView struct {
+	ID     string // the connector, for the swap target
+	Error  string
+	Note   string
+	Shared bool // a server connector: managed domains say who may use them
+	Rows   []DomainRow
+}
+
+// DomainRow is one domain. State is managed, not_managed or
+// dns_elsewhere; the action URLs post domain (and org, confirm).
+type DomainRow struct {
+	Name, State                string
+	Manage, Unmanage, TakeOver string
+	All                        bool
+	Orgs                       []Org
+}
+
+// Org is an organization and whether a domain is available to it.
+type Org struct {
+	ID, Name string
+	On       bool
+}
+
+func listID(id string) string { return "dns-domains-" + id }
+
+func vals(m map[string]string) string {
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+templ Connectors(v View) {
+	if v.Add != "" {
+		@c.Section("Add a DNS connector: Namecheap", v.Scope, "stackr manages DNS records for the domains you choose.") {
+			<ol class="text-sm text-rw-muted mb-4 list-decimal pl-5 space-y-1">
+				<li>In Namecheap open Profile, Tools, Business & Dev Tools, Namecheap API Access.</li>
+				<li>Turn API access on and copy the API key.</li>
+				<li>Add the server IPv4 below to the allow list.</li>
+			</ol>
+			@c.Form("dns-namecheap", v.Add) {
+				@c.FormError(c.GetError(v.Errors, "general"))
+				@c.Field(c.FieldView{Name: "user", Label: "Namecheap username", Value: v.User, Required: true, Error: c.GetError(v.Errors, "user"), Autocomplete: "off"})
+				@c.Field(c.FieldView{Name: "key", Label: "API key", Type: "password", Required: true, Help: "Controls your whole Namecheap account.", Error: c.GetError(v.Errors, "key"), Autocomplete: "off"})
+				@c.Field(c.FieldView{Name: "ip", Label: "Server IPv4", Value: v.IP, Required: true, Placeholder: "203.0.113.7", Help: "Add this IP to Namecheap's API allow list.", Error: c.GetError(v.Errors, "ip")})
+				<button type="submit" class="btn btn-primary btn-sm">Connect</button>
+			}
+		}
+	}
+	@c.Section("DNS connectors", v.Scope, v.Help) {
+		if len(v.Rows) == 0 {
+			<p class="text-sm text-rw-faint">No DNS connectors yet.</p>
+		} else {
+			<ul class="space-y-3">
+				for _, r := range v.Rows {
+					<li class="panel px-4 py-3 text-sm space-y-3">
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="text-rw-text">{ r.Name }</span>
+							@c.Chip("dns", "")
+							if r.Delete.Action != "" {
+								<span class="ml-auto">
+									@c.Confirm(r.Delete)
+								</span>
+							}
+						</div>
+						<div id={ listID(r.ID) } hx-post={ r.Domains } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Asking Namecheap…</div>
+					</li>
+				}
+			</ul>
+		}
+	}
+}
+
+func stateWord(s string) (string, string) {
+	switch s {
+	case "managed":
+		return "Managed", "success"
+	case "dns_elsewhere":
+		return "DNS elsewhere", "warn"
+	}
+	return "Not managed", ""
+}
+
+// Domains is a connector's domain list; every action answers it again.
+templ Domains(v DomainsView) {
+	<div id={ listID(v.ID) } class="space-y-2">
+		if v.Error != "" {
+			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+		}
+		if v.Note != "" {
+			<p class="text-sm text-rw-success" role="status">{ v.Note }</p>
+		}
+		if len(v.Rows) == 0 && v.Error == "" {
+			<p class="text-sm text-rw-faint">No domains on this account.</p>
+		}
+		<ul class="space-y-2">
+			for _, d := range v.Rows {
+				<li class="border-t border-rw-border pt-2 space-y-2">
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="font-mono text-xs text-rw-text">{ d.Name }</span>
+						@stateChip(d.State)
+						<span class="ml-auto flex gap-2">
+							if d.Manage != "" && d.State == "not_managed" {
+								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Manage } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
+							}
+							if d.Unmanage != "" && d.State == "managed" {
+								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "Its records stay as they are.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
+							}
+							if d.TakeOver != "" && d.State == "dns_elsewhere" {
+								@c.Confirm(c.ConfirmView{
+									Button:  "Take over DNS",
+									Quiet:   true,
+									Title:   "Switch " + d.Name + " to Namecheap DNS?",
+									Warning: "Records at its current DNS host stop applying. Copy any you need first.",
+									Kept:    []string{"The domain stays registered to you."},
+									Word:    d.Name,
+									Action:  d.TakeOver,
+									Target:  "#" + listID(v.ID),
+									Vals:    vals(map[string]string{"domain": d.Name, "confirm": d.Name}),
+								})
+							}
+						</span>
+					</div>
+					if v.Shared && d.State == "managed" && d.Manage != "" {
+						<form hx-post={ d.Manage } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML" class="space-y-1">
+							<input type="hidden" name="domain" value={ d.Name }/>
+							<fieldset class="space-y-1">
+								<legend class="label">Available to</legend>
+								for _, o := range d.Orgs {
+									<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
+								}
+								<p class="text-xs text-rw-faint">None ticked: every organization.</p>
+							</fieldset>
+							<button type="submit" class="btn btn-ghost btn-sm">Save</button>
+						</form>
+					}
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+templ stateChip(state string) {
+	{{ word, tone := stateWord(state) }}
+	@c.Chip(word, tone)
+}
+
+// Tab is the org drawer's Connectors tab.
+templ Tab(v View) {
+	<div id="tab-connectors">
+		@Connectors(v)
+	</div>
+}

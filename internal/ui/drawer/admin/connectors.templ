@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/dns"
 )
 
 // ConnectorsView is the server's git connectors: GitHub Apps the admin owns
@@ -13,6 +14,7 @@ type ConnectorsView struct {
 	Action   string // GitHub's manifest URL once begun; "" = step one
 	Manifest string
 	Rows     []ServerConnector
+	DNS      dns.View // the server's DNS connectors
 }
 
 // ServerConnector is one row. InstallURL "" = the handshake has not finished.
@@ -99,6 +101,7 @@ templ Connectors(v ConnectorsView) {
 				</ul>
 			}
 		}
+		@dns.Connectors(v.DNS)
 	</div>
 }
 

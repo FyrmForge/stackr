@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
+	"github.com/FyrmForge/stackr/internal/web/dnspanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -44,6 +45,49 @@ func (h *handler) mountConnectors(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/:connector/delete", h.act("connectors", func(c echo.Context) (string, *service.Job, error) {
 		return "Connector removed.", nil, h.orch.DeleteServerConnector(c.Request().Context(), c.Param("connector"))
 	}), admin)
+	g.POST(dnsBase+"/namecheap", h.addNamecheap, admin)
+	h.dns().Mount(g, dnsBase, admin)
+}
+
+// dnsBase is where the server DNS connectors' actions hang.
+const dnsBase = ui.Base + "/dns"
+
+// dns is the server level of the DNS connector section.
+func (h *handler) dns() dnspanel.Panel {
+	return dnspanel.Panel{
+		Orch: h.orch,
+		Org:  func(echo.Context) *string { return nil },
+		Base: func(echo.Context) string { return dnsBase },
+		Delete: func(_ echo.Context, k service.Connector) comp.ConfirmView {
+			return comp.ConfirmView{
+				Button:  "Remove",
+				Title:   "Remove " + k.Name + "?",
+				Warning: "stackr stops managing its domains. Their records stay as they are.",
+				Action:  ui.Base + "/connectors/" + k.ID + "/delete",
+				Target:  "#" + comp.DrawerRoot,
+			}
+		},
+	}
+}
+
+// POST /-/admin/dns/namecheap: check the account and save it; a refusal
+// shows the form again with the user and IP kept, the key blank.
+func (h *handler) addNamecheap(c echo.Context) error {
+	f, err := h.dns().Add(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	fr, status := frame("connectors"), http.StatusOK
+	if f != nil {
+		status = http.StatusUnprocessableEntity
+	} else {
+		fr.Note = "Connected. Pick the domains stackr manages below."
+	}
+	body, err := h.connectorsTabWith(c, nil, f)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.HTML(c, status, comp.Drawer(fr, body))
 }
 
 // POST /-/admin/connectors: the pending server connector, answered with the
@@ -89,6 +133,10 @@ func (h *handler) checkConnector(c echo.Context) error {
 }
 
 func (h *handler) connectorsTab(c echo.Context, b *begun) (templ.Component, error) {
+	return h.connectorsTabWith(c, b, nil)
+}
+
+func (h *handler) connectorsTabWith(c echo.Context, b *begun, f *dnspanel.Form) (templ.Component, error) {
 	ctx := c.Request().Context()
 	cs, err := h.orch.ServerConnectors(ctx)
 	if err != nil {
@@ -99,6 +147,9 @@ func (h *handler) connectorsTab(c echo.Context, b *begun) (templ.Component, erro
 		return nil, err
 	}
 	v := ui.ConnectorsView{Begin: ui.Base + "/connectors"}
+	if v.DNS, err = h.dns().View(c, f, "Each managed domain says which organizations may use it."); err != nil {
+		return nil, err
+	}
 	if b != nil {
 		v.Action, v.Manifest = b.action, b.manifest
 	}
