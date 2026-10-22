@@ -45,6 +45,7 @@ func newSrvSite(t *testing.T) srvSite {
 	site.Use(render.Theme)
 	site.Use(setup.ServerPending(env.Orch))
 	site.GET("/", func(c echo.Context) error { return c.String(http.StatusOK, "home") })
+	site.GET("/settings/github/installed/:id", func(c echo.Context) error { return c.String(http.StatusOK, "installed") })
 	setup.NewHandler(env.Orch).MountServer(site, a)
 	return srvSite{env, srv.Echo()}
 }
@@ -79,6 +80,10 @@ func TestServerPendingGate(t *testing.T) {
 	}
 	if rec := s.do(adm, "GET", "/", nil, true); rec.Code != http.StatusOK {
 		t.Errorf("admin htmx / = %d, want it passed", rec.Code)
+	}
+	// GitHub hands the browser back mid-wizard
+	if rec := s.do(adm, "GET", "/settings/github/installed/x", nil, false); rec.Code != http.StatusOK {
+		t.Errorf("admin GitHub return = %d, want it passed", rec.Code)
 	}
 	if rec := s.do(owner, "GET", "/", nil, false); rec.Code != http.StatusOK {
 		t.Errorf("owner / = %d, want it passed", rec.Code)

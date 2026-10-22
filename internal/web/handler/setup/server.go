@@ -51,8 +51,9 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 }
 
 // ServerPending sends an admin's page requests to the wizard until it is
-// finished. Anyone else, an htmx or API call, a write and the wizard's own
-// paths pass. Mount after Load, before the org gate.
+// finished. Anyone else, an htmx or API call, a write, the wizard's own
+// paths and GitHub's returns from the wizard's App flow pass. Mount after
+// Load, before the org gate.
 func ServerPending(orch *service.Orchestrator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -60,6 +61,7 @@ func ServerPending(orch *service.Orchestrator) echo.MiddlewareFunc {
 			p := middleware.Principal(c)
 			if p == nil || !p.Access.Admin || r.Method != http.MethodGet || isHTMX(c) ||
 				strings.HasPrefix(r.URL.Path, ServerBase) || strings.HasPrefix(r.URL.Path, "/api/") ||
+				strings.HasPrefix(r.URL.Path, "/settings/github/") ||
 				strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/logout" {
 				return next(c)
 			}
