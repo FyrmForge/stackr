@@ -50,7 +50,22 @@ type NodeCard struct {
 	Placements                    []string // names of the placements standing on it
 	Envs                          int
 	Controller                    bool
+	// Stalled: confirmed over joinSeenWait ago and never seen online, so
+	// the join on the box most likely stopped; running it again resumes it.
+	Stalled bool
 }
+
+// NodeRejoining is a worker whose rejoin request waits for a confirm: it
+// stays listed, as the node it was.
+const NodeRejoining = "rejoining"
+
+// joinSeenWait is how long a confirmed node may take to come online before
+// its card says to run the join again (a var for tests).
+var joinSeenWait = 2 * time.Minute
+
+// rejoin says whether a pending node is a rejoin: it has had its transit
+// address since its first confirm.
+func rejoin(n store.Node) bool { return n.Status == node.StatusPending && n.WGAddress != "" }
 
 // NodeEnv is an env on a node.
 type NodeEnv struct {
@@ -91,6 +106,9 @@ func nodeAdmin(by *Principal) error {
 // shownStatus is the node's status as the panel, API and CLI show it: an
 // offline worker that still answers its liveness port is "tunnel-down".
 func (o *Orchestrator) shownStatus(n store.Node) string {
+	if rejoin(n) {
+		return NodeRejoining
+	}
 	if o.notRejoined(n) {
 		return NodeNotRejoined
 	}
@@ -114,10 +132,25 @@ func (o *Orchestrator) card(ctx context.Context, n store.Node) (NodeCard, error)
 		names = append(names, p.Name)
 	}
 	slices.Sort(names)
-	return NodeCard{
+	c := NodeCard{
 		ID: n.ID, Name: n.Name, Role: n.Role, Status: o.shownStatus(n), Range: envNets(es),
 		Tags: node.Tags(n), Placements: names, Envs: len(es), Controller: n.Role == node.Controller,
-	}, err
+	}
+	if err == nil && c.Status == node.StatusJoined {
+		c.Stalled, err = o.joinStalled(ctx, n.ID)
+	}
+	return c, err
+}
+
+// joinStalled: the node's newest certificate, issued at its confirm, is
+// older than joinSeenWait and the node has still not been seen.
+func (o *Orchestrator) joinStalled(ctx context.Context, id string) (bool, error) {
+	certs, err := o.store.NodeCerts.ListByNode(ctx, id)
+	if err != nil || len(certs) == 0 {
+		return false, err
+	}
+	newest := slices.MaxFunc(certs, func(a, b store.NodeCert) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	return time.Since(newest.CreatedAt) > joinSeenWait, nil
 }
 
 // Nodes (server admin) lists the nodes that have joined, the controller first.
@@ -140,7 +173,7 @@ func (o *Orchestrator) Nodes(ctx context.Context) ([]NodeCard, error) {
 	})
 	var out []NodeCard
 	for _, n := range ns {
-		if n.Status == node.StatusPending {
+		if n.Status == node.StatusPending && !rejoin(n) {
 			continue
 		}
 		c, err := o.card(ctx, n)
@@ -158,7 +191,7 @@ func (o *Orchestrator) NodeDetail(ctx context.Context, id string) (NodeDetail, e
 	if err != nil {
 		return NodeDetail{}, err
 	}
-	if n.Status == node.StatusPending {
+	if n.Status == node.StatusPending && !rejoin(n) {
 		return NodeDetail{}, errs.ErrNotFound
 	}
 	c, err := o.card(ctx, n)

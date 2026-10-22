@@ -24,6 +24,64 @@ func TestNewRejoinExpiresThePreviousCommand(t *testing.T) {
 	}
 }
 
+// A node mid rejoin stays listed and its drawer opens, waiting to rejoin
+// both before and after the box called in.
+func TestRejoinStaysListed(t *testing.T) {
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	adm := adminP()
+	id, _ := joinW1(t, o, adm)
+	out, err := o.RejoinNode(ctx, adm, "w1")
+	must(t, err)
+	shown := func() string {
+		t.Helper()
+		d, err := o.NodeDetail(ctx, id)
+		must(t, err)
+		ns, err := o.Nodes(ctx)
+		must(t, err)
+		for _, n := range ns {
+			if n.ID == id && n.Status == d.Status {
+				return n.Status
+			}
+		}
+		t.Fatalf("w1 is not listed: %+v", ns)
+		return ""
+	}
+	if s := shown(); s != StateNeedsRejoin {
+		t.Errorf("before the call in = %q", s)
+	}
+	_, err = o.RequestJoin(ctx, httpsMeta, joinReq(t, out.Token))
+	must(t, err)
+	if s := shown(); s != NodeRejoining {
+		t.Errorf("after the call in = %q, want %q", s, NodeRejoining)
+	}
+}
+
+// A confirmed node not seen within the wait says the join stopped.
+func TestJoinedNotSeenStalls(t *testing.T) {
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	id, _ := joinW1(t, o, adminP())
+	stalled := func() bool {
+		t.Helper()
+		d, err := o.NodeDetail(ctx, id)
+		must(t, err)
+		if d.Status != "joined" {
+			t.Fatalf("status = %q, want joined", d.Status)
+		}
+		return d.Stalled
+	}
+	if stalled() {
+		t.Error("stalled right after the confirm")
+	}
+	old := joinSeenWait
+	joinSeenWait = -time.Minute
+	defer func() { joinSeenWait = old }()
+	if !stalled() {
+		t.Error("not stalled past the wait")
+	}
+}
+
 // Another node's pending command is left alone.
 func TestRejoinKeepsOtherNodesCommands(t *testing.T) {
 	ctx := context.Background()

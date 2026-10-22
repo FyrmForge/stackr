@@ -330,7 +330,7 @@ func (h *handler) nodesPanel(ctx context.Context, adder *admin.AddNodeView, skip
 		return v, err
 	}
 	for _, n := range ns {
-		v.Nodes = append(v.Nodes, pages.NodeLine{Name: n.Name, Role: n.Role, Status: admin.StatusWord(n.Status)})
+		v.Nodes = append(v.Nodes, pages.NodeLine{Name: n.Name, Role: n.Role, Status: admin.StatusWord(n.Status), Hint: admin.NodeHint(n.Status, n.Stalled)})
 	}
 	ps, err := h.orch.PendingNodes(ctx)
 	if err != nil {

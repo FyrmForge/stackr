@@ -111,6 +111,7 @@ templ ingressPreview(p IngressPreview) {
 // NodeRow is one node card. Open is a GET that answers the node drawer.
 type NodeRow struct {
 	Name, Role, Status, Open string
+	Hint                     string // what to do about Status, NodeHint's
 	Tags                     []string
 	Envs                     int
 	Disk                     string // "34 GB free", "" = not reported
@@ -168,6 +169,7 @@ type PendingRow struct {
 // NodeView is the node drawer's body. Only the active tab's fields are set.
 type NodeView struct {
 	ID, Name, Role, Status string
+	Hint                   string // what to do about Status, NodeHint's
 	Controller             bool
 	Tags                   []string
 	// Overview
@@ -270,7 +272,7 @@ func statusTone(s string) string {
 	switch s {
 	case "online":
 		return "success"
-	case "joined", "tunnel-down", "not-rejoined":
+	case "joined", "tunnel-down", "not-rejoined", "needs-rejoin", "rejoining":
 		return "warn"
 	}
 	return "danger"
@@ -309,6 +311,20 @@ func ifaces(rows []IfaceRow, group string) []IfaceRow {
 	return out
 }
 
+// NodeHint is what to do about a node's status, "" for nothing. stalled is
+// a joined node never seen past the wait (service NodeCard.Stalled).
+func NodeHint(status string, stalled bool) string {
+	switch {
+	case status == "joined" && stalled:
+		return "Run the join again on the box. It picks up where it stopped."
+	case status == "needs-rejoin":
+		return "Run the join command on the box. Lost it? Get a new one under Security."
+	case status == "rejoining":
+		return "It called in. Add it under Waiting to join."
+	}
+	return ""
+}
+
 // StatusWord is a node status as people read it.
 func StatusWord(s string) string {
 	switch s {
@@ -322,6 +338,8 @@ func StatusWord(s string) string {
 		return "Certificate expired: rejoin"
 	case "not-rejoined":
 		return "Not rejoined"
+	case "needs-rejoin", "rejoining":
+		return "Waiting to rejoin"
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
@@ -409,6 +427,9 @@ templ Nodes(v NodesView) {
 							}
 							<span class="ml-auto">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
 						</div>
+						if r.Hint != "" {
+							<p class="mt-2 text-xs text-rw-warn">{ r.Hint }</p>
+						}
 						<p class="mt-2 text-xs text-rw-muted">
 							{ plural(r.Envs, "env") }
 							if r.Cores != "" {
@@ -718,6 +739,10 @@ templ NodeBody(tab string, v NodeView) {
 							<span class={ "inline-block size-2 rounded-full", statusDot(v.Status) } aria-hidden="true"></span>
 							<span class={ statusText(v.Status) }>{ StatusWord(v.Status) }</span>
 						</dd>
+						if v.Hint != "" {
+							<dt class="sr-only">What to do</dt>
+							<dd class="col-start-2 text-xs text-rw-warn">{ v.Hint }</dd>
+						}
 						<dt class="text-rw-muted">Role</dt>
 						<dd class="text-rw-text">{ v.Role }</dd>
 						<dt class="text-rw-muted">Tags</dt>

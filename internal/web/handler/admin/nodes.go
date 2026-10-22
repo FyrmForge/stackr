@@ -297,7 +297,7 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 	for _, n := range ns {
 		v.Rows = append(v.Rows, ui.NodeRow{
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
-			Open: nodesBase + "/" + n.ID,
+			Open: nodesBase + "/" + n.ID, Hint: ui.NodeHint(n.Status, n.Stalled),
 		})
 	}
 	if len(ns) > 1 {
@@ -465,7 +465,7 @@ func (h *handler) nodeAnswer(c echo.Context, tab, note string, actErr error) err
 
 func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (ui.NodeView, error) {
 	v := ui.NodeView{
-		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Controller: d.Controller, Tags: d.Tags,
+		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Hint: ui.NodeHint(d.Status, d.Stalled), Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
 	}
 	ctx := c.Request().Context()
