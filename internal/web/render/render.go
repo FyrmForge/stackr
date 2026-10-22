@@ -4,6 +4,7 @@
 package render
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -208,6 +209,22 @@ func DrawerTab(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		return next(c)
 	}
+}
+
+// ToShell answers a plain load of a drawer route (its link opened in a new
+// tab), which would be a bare fragment, with a redirect to the page under
+// "/-/" that opens drawer node there: ?drawer=&tab=. ok false = an htmx
+// request, for the route itself.
+func ToShell(c echo.Context, node string) (ok bool, err error) {
+	if htmx.IsHTMX(c.Request()) {
+		return false, nil
+	}
+	page, _, _ := strings.Cut(c.Request().URL.Path, "/-/")
+	q := url.Values{"drawer": {node}}
+	if t := c.QueryParam("tab"); t != "" {
+		q.Set("tab", t)
+	}
+	return true, c.Redirect(http.StatusSeeOther, cmp.Or(page, "/")+"?"+q.Encode())
 }
 
 // link is active when the URL is its page or below it; "/" only on itself.

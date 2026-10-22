@@ -22,6 +22,7 @@ import (
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	stackui "github.com/FyrmForge/stackr/internal/ui/drawer/stack"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // A card's drawer lives at the card's own path, so the access middleware
@@ -120,7 +121,11 @@ func (h *handler) drawerRoute(kind string) echo.HandlerFunc {
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		return h.show(c, http.StatusOK, cd, cd.frame(c.QueryParam("tab")))
+		f := cd.frame(c.QueryParam("tab"))
+		if ok, err := render.ToShell(c, f.Node); ok {
+			return err
+		}
+		return h.show(c, http.StatusOK, cd, f)
 	}
 }
 

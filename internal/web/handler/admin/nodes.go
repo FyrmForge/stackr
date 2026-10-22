@@ -427,6 +427,9 @@ func (h *handler) nodeMetricsEvents(c echo.Context) error {
 }
 
 func (h *handler) nodeDrawer(c echo.Context) error {
+	if ok, err := render.ToShell(c, "node:"+c.Param("node")); ok {
+		return err
+	}
 	return h.nodeAnswer(c, c.QueryParam("tab"), "", nil)
 }
 

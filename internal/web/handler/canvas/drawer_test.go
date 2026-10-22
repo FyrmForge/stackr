@@ -59,6 +59,32 @@ func (b browser) do(t *testing.T, method, path string, form url.Values, htmx boo
 	return rec
 }
 
+// A drawer route loaded without htmx (its link opened in a new tab) sends
+// the browser to the page that opens it, so it never draws a bare fragment.
+func TestDrawerRouteLoadsInShell(t *testing.T) {
+	b := newBrowser(t, "admin")
+	if err := b.env.Orch.FinishServerSetup(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		"/-/admin?tab=settings":    "/?drawer=admin&tab=settings",
+		"/-/admin/nodes/n1":        "/?drawer=node%3An1",
+		"/acme/-/drawer?tab=audit": "/acme?drawer=org%3A" + b.org + "&tab=audit",
+	} {
+		rec := b.do(t, "GET", path, nil, false)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
+			t.Errorf("%s = %d %q, want %q", path, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+	body := b.do(t, "GET", "/?drawer=admin&tab=settings", nil, false).Body.String()
+	if !strings.Contains(body, `<side-drawer open tab="settings">`) || !strings.Contains(body, `hx-get="/-/admin?tab=settings"`) {
+		t.Errorf("the shell form does not open the admin drawer:\n%s", body)
+	}
+	if rec := b.do(t, "GET", "/-/admin?tab=settings", nil, true); rec.Code != http.StatusOK {
+		t.Errorf("htmx admin drawer = %d", rec.Code)
+	}
+}
+
 // A fresh load of ?drawer=&tab= renders the page with that drawer open and
 // its tab inside; a tab the role may not see opens with the refusal, and
 // an id not on the canvas leaves the drawer closed.

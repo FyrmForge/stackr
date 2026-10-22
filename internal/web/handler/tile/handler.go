@@ -136,6 +136,9 @@ func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
 
 // GET …/-/tiles/:tile?tab=
 func (h *handler) Drawer(c echo.Context) error {
+	if ok, err := render.ToShell(c, tileOf(c).ID); ok {
+		return err
+	}
 	v, hd, err := h.view(c, c.QueryParam("tab"))
 	if err != nil {
 		return middleware.HTTPError(err)
