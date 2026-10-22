@@ -344,20 +344,9 @@ func (c *Client) api(ctx context.Context, method, path, bearer string, out any) 
 // base64url(header).base64url(claims) signed with the app key. iat = now-60
 // absorbs clock skew; exp = now+540 stays under GitHub's 10-minute ceiling.
 func signJWT(appID, pemKey string) (string, error) {
-	block, _ := pem.Decode([]byte(pemKey))
-	if block == nil {
-		return "", errors.New("invalid app private key")
-	}
-	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	key, err := ParseKey(pemKey)
 	if err != nil {
-		k, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err2 != nil {
-			return "", err
-		}
-		var ok bool
-		if key, ok = k.(*rsa.PrivateKey); !ok {
-			return "", errors.New("app key is not RSA")
-		}
+		return "", err
 	}
 	enc := func(v any) string {
 		b, _ := json.Marshal(v)
@@ -372,6 +361,28 @@ func signJWT(appID, pemKey string) (string, error) {
 		return "", err
 	}
 	return unsigned + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+// ParseKey reads an App private key as GitHub hands it out: a PEM RSA key,
+// PKCS#1 or PKCS#8.
+func ParseKey(pemKey string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemKey))
+	if block == nil {
+		return nil, errors.New("invalid app private key")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err == nil {
+		return key, nil
+	}
+	k, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err2 != nil {
+		return nil, err
+	}
+	rk, ok := k.(*rsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("app key is not RSA")
+	}
+	return rk, nil
 }
 
 // RepoURL is the one stored spelling of a repo: owner/name becomes

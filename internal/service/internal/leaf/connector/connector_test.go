@@ -67,6 +67,8 @@ func (f *fakeApp) SetHookURL(_ context.Context, id string, _ githubapp.App) erro
 	return nil
 }
 
+func (f *fakeApp) HookURL(id string) string { return "https://panel.test/hooks/connectors/" + id }
+
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
 	id := uuid.NewString()
