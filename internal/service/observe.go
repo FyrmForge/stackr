@@ -30,7 +30,7 @@ type observeState struct {
 	vmOnce  sync.Once
 	vl      *metrics.Victoria // VictoriaLogs, data size only until the log store lands
 	vlOnce  sync.Once
-	labels  sync.Map // tile id -> its labels
+	labels  sync.Map     // tile id -> its labels
 	memFrom atomic.Int64 // unix ns of memory's first write; 0 = none yet
 }
 
@@ -42,6 +42,7 @@ type observeKnobs struct {
 	days     int
 	minFree  uint64 // bytes
 	logs     bool   // logs are kept too (needs on)
+	logsSet  bool   // the stored observe_logs_enabled, on or off
 	logsDays int
 	logsMax  uint64 // bytes
 
@@ -67,8 +68,8 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 	if err != nil {
 		return k, err
 	}
-	k.logs, _ = strconv.ParseBool(lon)
-	k.logs = k.logs && k.on
+	k.logsSet, _ = strconv.ParseBool(lon)
+	k.logs = k.logsSet && k.on
 	if k.logsDays, err = o.settings.Int(ctx, "observe_logs_retention"); err != nil {
 		return k, err
 	}
@@ -255,6 +256,7 @@ type ObserveStatus struct {
 	RetentionDays int    `json:"retention_days"`
 	MinFreeBytes  uint64 `json:"min_free_bytes"`
 	LogsEnabled   bool   `json:"logs_enabled"`
+	LogsSet       bool   `json:"-"` // the stored switch, which the form saves back
 	LogsDays      int    `json:"logs_retention_days"`
 	LogsMaxBytes  uint64 `json:"logs_max_bytes"`
 	AccessQuery   bool   `json:"access_query"`   // access logs keep the query string
@@ -277,7 +279,7 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 		return ObserveStatus{}, err
 	}
 	s := ObserveStatus{Enabled: k.on, RetentionDays: k.days, MinFreeBytes: k.minFree,
-		LogsEnabled: k.logs, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax,
+		LogsEnabled: k.logs, LogsSet: k.logsSet, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax,
 		AccessQuery: k.accessQuery, AccessIP: k.accessIP, AccessHeaders: k.accessHeaders, LogsDropped: o.LogsDropped()}
 	if p := o.observe.lastErr.Load(); p != nil {
 		s.Error = *p
