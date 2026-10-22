@@ -367,7 +367,7 @@ class GraphCanvas extends HTMLElement {
         const placed = [];
         for (const p of this.paths()) {
             let label = this.labels.get(p) ?? null;
-            for (let sib = p.nextElementSibling; sib && !sib.hasAttribute("data-from"); sib = sib.nextElementSibling) {
+            for (let sib = p.nextElementSibling; sib && !sib.matches("[data-from], [data-moved]"); sib = sib.nextElementSibling) {
                 if (sib.matches("[data-edge-core], [data-edge-hit]"))
                     sib.setAttribute("d", p.getAttribute("d") ?? "");
                 else if (sib instanceof SVGTextElement && sib.matches("[data-edge-label]"))
@@ -377,6 +377,7 @@ class GraphCanvas extends HTMLElement {
                 continue;
             if (!this.labels.has(p)) {
                 this.labels.set(p, label);
+                label.setAttribute("data-moved", "");
                 label.parentNode?.appendChild(label);
             }
             const m = p.getPointAtLength(p.getTotalLength() / 2);

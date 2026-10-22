@@ -366,7 +366,7 @@ class GraphCanvas extends HTMLElement {
       // Up to the next edge: a pipe's core and a clickable line's hit path
       // follow the edge's d; the label is the text among them.
       let label: SVGTextElement | null = this.labels.get(p) ?? null;
-      for (let sib = p.nextElementSibling; sib && !sib.hasAttribute("data-from"); sib = sib.nextElementSibling) {
+      for (let sib = p.nextElementSibling; sib && !sib.matches("[data-from], [data-moved]"); sib = sib.nextElementSibling) {
         if (sib.matches("[data-edge-core], [data-edge-hit]")) sib.setAttribute("d", p.getAttribute("d") ?? "");
         else if (sib instanceof SVGTextElement && sib.matches("[data-edge-label]")) label = sib;
       }
@@ -374,6 +374,7 @@ class GraphCanvas extends HTMLElement {
       // Labels move to the end of the svg once, so no later line covers them.
       if (!this.labels.has(p)) {
         this.labels.set(p, label);
+        label.setAttribute("data-moved", ""); // the last path's walk must not claim it
         label.parentNode?.appendChild(label);
       }
       const m = p.getPointAtLength(p.getTotalLength() / 2);
