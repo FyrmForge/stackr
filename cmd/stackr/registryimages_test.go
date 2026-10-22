@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+// admin observe names what access logs keep.
+func TestObserveStatusAccessSwitches(t *testing.T) {
+	fake(t, map[string]string{"/admin/observe": `{"enabled":true,"logs_enabled":true,"access_query":true,"access_ip":false}`})
+	code, out, errw := cli(t, "admin", "observe")
+	if code != 0 || !strings.Contains(out, "Access logs: query string kept, client IP dropped, headers dropped.") {
+		t.Errorf("admin observe = %d %q\n%s", code, errw, out)
+	}
+}
+
 // registry ls reads the repos, or one repo's versions.
 func TestRegistryLs(t *testing.T) {
 	r := fake(t, map[string]string{
