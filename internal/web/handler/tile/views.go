@@ -243,7 +243,7 @@ func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
 			Live:    r.Status == "queued" || r.Status == "running",
 		}
 		if r.StartedAt != nil && r.FinishedAt != nil {
-			row.Took = r.FinishedAt.Sub(*r.StartedAt).Round(time.Second).String()
+			row.Took = service.HumanDuration(r.FinishedAt.Sub(*r.StartedAt))
 		}
 		if r.ExitCode != nil {
 			row.Exit = strconv.Itoa(*r.ExitCode)
@@ -252,7 +252,7 @@ func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
 			row.Mem = service.HumanBytes(*r.PeakMemBytes)
 		}
 		if r.CPUMs != nil {
-			row.CPU = (time.Duration(*r.CPUMs) * time.Millisecond).Round(10 * time.Millisecond).String()
+			row.CPU = service.HumanDuration(time.Duration(*r.CPUMs) * time.Millisecond)
 		}
 		v.Rows = append(v.Rows, row)
 		if row.Live {
