@@ -45,4 +45,12 @@ func TestLogHistory(t *testing.T) {
 	if strings.Contains(tile, `name="kind"`) || strings.Contains(tile, `log-older`) {
 		t.Error("tile viewer has the env's filters or an Older button")
 	}
+	if f := render(LogHistoryView{Action: "/a/s/e/-/logs", Source: "access", Filtered: true}); !strings.Contains(f, "No lines match these filters.") {
+		t.Errorf("a filtered empty page reads\n%s", f)
+	}
+	// the live tail names its zone as History does
+	var b strings.Builder
+	if err := LogPane(LogPaneView{StreamURL: "/s"}).Render(context.Background(), &b); err != nil || !strings.Contains(b.String(), `Times in <local-time zone>UTC</local-time>`) {
+		t.Errorf("live tail = %v\n%s", err, b.String())
+	}
 }
