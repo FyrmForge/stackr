@@ -211,6 +211,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	wgPort := fs.Int("wg-port", mesh.DefaultPort, "UDP port of this node's mesh WireGuard")
 	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
+	verbose := fs.Bool("verbose", false, "show each command's own output: image pulls, container ids")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -232,7 +233,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	r := runner{dry: *dry, out: out}
+	r := runner{dry: *dry, out: out, verbose: *verbose}
 	if !r.dry && os.Geteuid() != 0 {
 		return errors.New("run as root: joining installs packages and a system service")
 	}
@@ -469,9 +470,7 @@ func (r runner) run(ctx context.Context, name string, args ...string) error {
 		return nil
 	}
 	r.say(" ", name, strings.Join(args[:min(2, len(args))], " "))
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout, cmd.Stderr = r.out, r.out
-	if err := cmd.Run(); err != nil {
+	if err := r.exec(ctx, name, args...); err != nil {
 		return fmt.Errorf("%s %s: %w", name, strings.Join(args[:min(2, len(args))], " "), err)
 	}
 	return nil
@@ -500,19 +499,22 @@ func (r runner) fetchWorker(ctx context.Context, image string) error {
 	if err := r.pull(ctx, image); err != nil {
 		return err
 	}
-	_ = r.run(ctx, "docker", "rm", "-f", tmp)
-	if err := r.docker(ctx, "create", "--name", tmp, image); err != nil {
+	r.say("  taking stackrd out of the image")
+	if r.exists(ctx, "container", tmp) { // a run that died halfway left it
+		_ = r.quietDocker(ctx, "rm", "-f", tmp)
+	}
+	if err := r.quietDocker(ctx, "create", "--name", tmp, image); err != nil {
 		return err
 	}
 	// stackrd is required. The installer is best effort: an image from
 	// before releases carried it has none, and uninstall then comes from
 	// the installer the admin already has.
-	err := r.docker(ctx, "cp", tmp+":/stackrd", joinBinary+".new")
+	err := r.quietDocker(ctx, "cp", tmp+":/stackrd", joinBinary+".new")
 	instErr := errors.New("skipped")
 	if err == nil {
-		instErr = r.docker(ctx, "cp", tmp+":/stackr-install", joinInstaller+".new")
+		instErr = r.quietDocker(ctx, "cp", tmp+":/stackr-install", joinInstaller+".new")
 	}
-	_ = r.run(ctx, "docker", "rm", "-f", tmp)
+	_ = r.quietDocker(ctx, "rm", "-f", tmp)
 	if err != nil {
 		return err
 	}

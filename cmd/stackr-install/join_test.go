@@ -312,6 +312,23 @@ func TestStaleMembership(t *testing.T) {
 
 // A join takes the installer out of the panel image next to stackrd; both
 // are staged and renamed in.
+// A command's own output (pull progress, container ids) shows only with
+// --verbose; without it a failure still says what the command said.
+func TestRunnerKeepsCommandOutputBack(t *testing.T) {
+	ctx := context.Background()
+	var out strings.Builder
+	if err := (runner{out: &out}).exec(ctx, "sh", "-c", "echo noisy"); err != nil || out.Len() != 0 {
+		t.Errorf("quiet run printed %q, %v", out.String(), err)
+	}
+	err := (runner{out: &out}).exec(ctx, "sh", "-c", "echo why >&2; exit 3")
+	if err == nil || !strings.Contains(err.Error(), "why") || out.Len() != 0 {
+		t.Errorf("failed run = %v, printed %q", err, out.String())
+	}
+	if err := (runner{out: &out, verbose: true}).exec(ctx, "sh", "-c", "echo noisy"); err != nil || !strings.Contains(out.String(), "noisy") {
+		t.Errorf("verbose run printed %q, %v", out.String(), err)
+	}
+}
+
 func TestFetchWorkerExtractsBothBinaries(t *testing.T) {
 	var out strings.Builder
 	r := runner{dry: true, out: &out}
