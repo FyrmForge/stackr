@@ -88,7 +88,7 @@ func LogHistory(v LogHistoryView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" hx-target=\"#log-history\" hx-swap=\"outerHTML\" hx-trigger=\"change, submit, input[target.type=='search'] delay:400ms\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" hx-target=\"#log-history\" hx-swap=\"outerHTML\" hx-trigger=\"change, submit, input delay:400ms from:#log-run, input delay:400ms from:#log-text\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

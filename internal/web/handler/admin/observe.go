@@ -55,7 +55,7 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 		MinFree:   strconv.FormatUint(s.MinFreeBytes>>30, 10),
 		Err:       s.Error,
 
-		LogsEnabled: s.LogsEnabled,
+		LogsEnabled: s.LogsSet, // not s.LogsEnabled: with metrics off a save would turn logs off
 		LogsDays:    strconv.Itoa(s.LogsDays),
 		LogsMax:     strconv.FormatUint(s.LogsMaxBytes>>30, 10),
 

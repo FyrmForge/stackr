@@ -95,3 +95,20 @@ func TestObserveRouting(t *testing.T) {
 		t.Errorf("off: on %v keep %v", o.ObserveOn(), o.metricsKeep(ctx))
 	}
 }
+
+// With metrics history off no logs are kept, but the stored Logs switch
+// still reads on, so saving the Observability form keeps it.
+func TestObserveLogsSwitchSurvivesMetricsOff(t *testing.T) {
+	ctx := context.Background()
+	o := newWorld(t).orch
+	if err := o.SetSettings(ctx, map[string]string{"observe_enabled": "false", "observe_logs_enabled": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := o.ObserveStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.LogsEnabled || !s.LogsSet {
+		t.Errorf("logs enabled %v set %v, want false true", s.LogsEnabled, s.LogsSet)
+	}
+}
