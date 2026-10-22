@@ -92,29 +92,21 @@ export function fmt(v: number | null, unit: string, more = 0): string {
 // ticks are an axis's labels: as few decimals as keep every tick distinct
 // (a byte axis's round ticks drop their ".0").
 export function ticks(vs: number[], unit: string): string[] {
-  let more = 0, out = vs.map((v) => fmt(v, unit));
-  while (more < 3 && new Set(out).size < out.length) {
-    more++;
-    out = vs.map((v) => fmt(v, unit, more));
-  }
-  if (!more && (unit === "bytes" || unit === "bps")) {
-    const lean = out.map((s) => s.replace(".0 ", " "));
-    if (new Set(lean).size === lean.length) out = lean;
-  }
+  let out = vs.map((v) => fmt(v, unit));
+  const lean = out.map((s) => s.replace(".0 ", " "));
+  if ((unit === "bytes" || unit === "bps") && new Set(lean).size === lean.length) return lean;
+  for (let more = 1; more <= 3 && new Set(out).size < out.length; more++) out = vs.map((v) => fmt(v, unit, more));
   return out;
 }
 
-// yScale is the value axis for a top value: about four round steps (1, 2, 5
-// times a power of ten; for bytes, of the KB, MB or GB fmt shows) from 0 to
-// the first step at or above max, so the top is a labelled tick.
+// yScale is the value axis up to max: about four round steps (1, 2, 5 times a
+// power of ten; for bytes, of the KB, MB or GB fmt shows) to a top on a step.
 export function yScale(max: number, unit: string): { step: number; top: number } {
-  const want = (max > 0 ? max : 1) / 4;
-  const bin = unit === "bytes" || unit === "bps";
-  const base = (bin && [2 ** 30, 2 ** 20, 2 ** 10].find((b) => want >= b)) || 1;
-  const r = want / base, e = 10 ** Math.floor(Math.log10(r));
+  const hi = max > 0 ? max : 1, bin = unit === "bytes" || unit === "bps";
+  const base = (bin && [2 ** 30, 2 ** 20, 2 ** 10].find((b) => hi / 4 >= b)) || 1, r = hi / 4 / base, e = 10 ** Math.floor(Math.log10(r));
   let step = [1, 2, 5, 10].find((m) => m * e >= r * (1 - 1e-9))! * e * base;
   if (bin && step >= 1000 * base) step = 1024 * base; // 1000 KB reads as the next unit's 1
-  return { step, top: Math.ceil((max > 0 ? max : 1) / step - 1e-9) * step };
+  return { step, top: Math.ceil(hi / step - 1e-9) * step };
 }
 
 // when is unix seconds in zone ("" = the browser's), 24-hour like <local-time>, for a tick step in

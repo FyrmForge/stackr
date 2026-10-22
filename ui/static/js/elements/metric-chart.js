@@ -66,27 +66,21 @@ export function fmt(v, unit, more = 0) {
     return { pct: `${d(1)}%`, ratio: `${(v * 100).toFixed(1 + more)}%`, ms: `${d(1)} ms` }[unit] ?? d(1);
 }
 export function ticks(vs, unit) {
-    let more = 0, out = vs.map((v) => fmt(v, unit));
-    while (more < 3 && new Set(out).size < out.length) {
-        more++;
+    let out = vs.map((v) => fmt(v, unit));
+    const lean = out.map((s) => s.replace(".0 ", " "));
+    if ((unit === "bytes" || unit === "bps") && new Set(lean).size === lean.length)
+        return lean;
+    for (let more = 1; more <= 3 && new Set(out).size < out.length; more++)
         out = vs.map((v) => fmt(v, unit, more));
-    }
-    if (!more && (unit === "bytes" || unit === "bps")) {
-        const lean = out.map((s) => s.replace(".0 ", " "));
-        if (new Set(lean).size === lean.length)
-            out = lean;
-    }
     return out;
 }
 export function yScale(max, unit) {
-    const want = (max > 0 ? max : 1) / 4;
-    const bin = unit === "bytes" || unit === "bps";
-    const base = (bin && [2 ** 30, 2 ** 20, 2 ** 10].find((b) => want >= b)) || 1;
-    const r = want / base, e = 10 ** Math.floor(Math.log10(r));
+    const hi = max > 0 ? max : 1, bin = unit === "bytes" || unit === "bps";
+    const base = (bin && [2 ** 30, 2 ** 20, 2 ** 10].find((b) => hi / 4 >= b)) || 1, r = hi / 4 / base, e = 10 ** Math.floor(Math.log10(r));
     let step = [1, 2, 5, 10].find((m) => m * e >= r * (1 - 1e-9)) * e * base;
     if (bin && step >= 1000 * base)
         step = 1024 * base;
-    return { step, top: Math.ceil((max > 0 ? max : 1) / step - 1e-9) * step };
+    return { step, top: Math.ceil(hi / step - 1e-9) * step };
 }
 export function when(ts, zone, step = 3 * 3600) {
     const p = {};
