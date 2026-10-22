@@ -19,7 +19,7 @@ var elements = map[string]int{
 	"graph-node":      150,
 	"local-time":      150,
 	"log-pane":        150,
-	"metric-chart":    250,
+	"metric-chart":    260, // its own 24-hour time format: local-time.ts cannot be imported
 	"password-toggle": 150,
 	"side-drawer":     150,
 	"tab-strip":       150,
