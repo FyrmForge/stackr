@@ -53,7 +53,7 @@ templ LogHistory(v LogHistoryView) {
 			hx-get={ v.Action }
 			hx-target="#log-history"
 			hx-swap="outerHTML"
-			hx-trigger="change, submit, input[target.type=='search'] delay:400ms"
+			hx-trigger="change, submit, input delay:400ms from:#log-run, input delay:400ms from:#log-text"
 		>
 			if len(v.Tiles) > 0 {
 				@logSelect("tile", "Tile", v.Tile, v.Tiles)
