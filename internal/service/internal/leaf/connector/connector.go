@@ -40,6 +40,7 @@ type App interface {
 	Branches(ctx context.Context, token, repo string) ([]string, error)
 	YAMLFiles(ctx context.Context, token, repo, ref string) ([]string, error)
 	SetHookURL(ctx context.Context, connectorID string, app githubapp.App) error
+	HookURL(connectorID string) string
 }
 
 type Leaf struct {
@@ -271,6 +272,40 @@ func (l *Leaf) begin(ctx context.Context, orgID *string, userID, ghOrg string) (
 	}
 	return c, action, manifest, l.conns.Create(ctx, c)
 }
+
+// AddServer saves a GitHub App made outside stackr as a server connector
+// shared with every org. The key must parse: a bad one would only fail at
+// the first clone.
+func (l *Leaf) AddServer(ctx context.Context, app githubapp.App) (store.Connector, error) {
+	app.Slug, app.WebhookSecret = strings.TrimSpace(app.Slug), strings.TrimSpace(app.WebhookSecret)
+	switch {
+	case app.ID <= 0:
+		return store.Connector{}, errs.Invalidf("app_id", "the App ID is the number on the App's page")
+	case app.Slug == "":
+		return store.Connector{}, errs.Invalidf("slug", "the App's slug is required")
+	case app.WebhookSecret == "":
+		return store.Connector{}, errs.Invalidf("webhook_secret", "the webhook secret is required")
+	}
+	if _, err := githubapp.ParseKey(app.PEM); err != nil {
+		return store.Connector{}, errs.Invalidf("private_key", "the private key does not parse; paste the whole .pem file")
+	}
+	b, _ := json.Marshal(config{App: &app})
+	c := store.Connector{
+		ID:        uuid.NewString(),
+		Provider:  GitHub,
+		Name:      "GitHub · " + app.Slug,
+		Host:      GitHubHost,
+		Config:    string(b),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := l.conns.Create(ctx, c); err != nil {
+		return store.Connector{}, err
+	}
+	return l.SetShares(ctx, c.ID, nil, true)
+}
+
+// HookURL is where GitHub must send connector id's webhooks.
+func (l *Leaf) HookURL(id string) string { return l.app.HookURL(id) }
 
 // Complete takes GitHub's callback. The state must match the pending row's
 // nonce and the caller must be the user who began, or a stray callback could

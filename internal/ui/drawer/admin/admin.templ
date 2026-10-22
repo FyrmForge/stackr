@@ -9,7 +9,7 @@ import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-var Tabs = []string{"settings", "users", "nodes", "placements", "access", "security", "routes", "update", "caddy", "backups", "alerts", "config", "params", "connectors", "registry", "observability"}
+var Tabs = []string{"settings", "users", "nodes", "placements", "access", "security", "routes", "update", "caddy", "backups", "alerts", "config", "params", "connectors", "registry", "observability", "guide"}
 
 // Base is where every tab and action lives.
 const Base = "/-/admin"
@@ -333,6 +333,15 @@ templ Caddy(v CaddyView) {
 					@c.PostButton("Re-push the proxy config", v.Sync)
 				</div>
 			}
+		}
+	</div>
+}
+
+// Guide reopens the server setup screens; the server stays set up.
+templ Guide(href string) {
+	<div id="tab-guide">
+		@c.Section("Setup guide", "instance", "Walks through domains, GitHub, observability, backups and nodes again.") {
+			<a href={ templ.SafeURL(href) } class="btn btn-primary btn-sm">Open the setup guide</a>
 		}
 	</div>
 }

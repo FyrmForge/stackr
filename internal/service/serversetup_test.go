@@ -8,6 +8,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
+// A fresh install keeps metrics history on, wizard or not.
+func TestObserveOnByDefault(t *testing.T) {
+	orch := servicetest.New(t).Orch
+	if v, err := orch.Setting(context.Background(), "observe_enabled"); err != nil || v != "true" {
+		t.Errorf("observe_enabled = %q, %v; want true", v, err)
+	}
+}
+
 // A fresh server is pending; a branch is picked, then finishing stamps it.
 func TestServerSetup(t *testing.T) {
 	orch, ctx := servicetest.New(t).Orch, context.Background()

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -26,7 +28,7 @@ type ServerSetup struct {
 // serverSetupSteps are the wizard's screens per branch.
 var serverSetupSteps = map[string][]string{
 	"":       {"mode"},
-	"ui":     {"domains", "backup", "placements"},
+	"ui":     ServerSetupSteps,
 	"config": {"file", "plan"},
 }
 
@@ -55,6 +57,79 @@ func (o *Orchestrator) SetServerSetupMode(ctx context.Context, by *Principal, mo
 		return ServerSetup{}, err
 	}
 	return o.ServerSetupState(ctx)
+}
+
+// ServerSetupSteps are the by-hand branch's screens, in order. The URL is
+// the position: nothing records how far an admin got.
+var ServerSetupSteps = []string{"domains", "certificates", "github", "observability", "backups", "nodes", "summary"}
+
+// SetupLine is one summary row: State is "on", "off" or "skipped", read
+// from what is live now (skipped = nothing set up; off = set up, switched off).
+type SetupLine struct {
+	Step, State, Detail string
+}
+
+// ServerSetupSummary is the wizard's last screen, one line per step that
+// sets something.
+func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, error) {
+	var out []SetupLine
+	panel, err := o.settings.Get(ctx, "panel_domain")
+	if err != nil {
+		return nil, err
+	}
+	root, err := o.settings.Get(ctx, "root_domain")
+	if err != nil {
+		return nil, err
+	}
+	l := SetupLine{Step: "domains", State: "skipped"}
+	if panel != "" || root != "" {
+		l.State, l.Detail = "on", strings.Trim(panel+", "+root, ", ")
+	}
+	out = append(out, l, SetupLine{Step: "certificates", State: "on", Detail: "one per domain, automatic"})
+
+	cs, err := o.conns.ListServer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l = SetupLine{Step: "github", State: "skipped"}
+	if len(cs) > 0 {
+		l.State, l.Detail = "on", plural(len(cs), "App")
+	}
+	out = append(out, l)
+
+	ob, err := o.settings.Get(ctx, "observe_enabled")
+	if err != nil {
+		return nil, err
+	}
+	l = SetupLine{Step: "observability", State: "off", Detail: "24 hours of live graphs"}
+	if ob == "true" {
+		l.State, l.Detail = "on", "history and log search"
+	}
+	out = append(out, l)
+
+	ds, err := o.backups.Global(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l = SetupLine{Step: "backups", State: "skipped", Detail: "local only"}
+	if n := len(slices.DeleteFunc(ds, func(d BackupDest) bool { return d.Kind == "local" })); n > 0 {
+		l.State, l.Detail = "on", plural(n, "destination")
+	}
+	pb, err := o.settings.Get(ctx, "panel_backup_enabled")
+	if err != nil {
+		return nil, err
+	}
+	if pb != "true" {
+		l.Detail += ", panel backup off"
+	}
+	out = append(out, l)
+
+	ns, err := o.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, SetupLine{Step: "nodes", State: "on", Detail: plural(len(ns), "node")})
+	return out, nil
 }
 
 // FinishServerSetup stamps server_setup_done_at.

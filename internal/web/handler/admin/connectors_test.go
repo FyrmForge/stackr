@@ -87,6 +87,10 @@ func TestAdminConnectors(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "pending") {
 		t.Errorf("a pending connector is not marked:\n%s", rec.Body)
 	}
+	// set up server: GitHub's install return lands on the Connectors tab
+	if rec := s.As(t, root, "GET", "/settings/github/installed/"+cs[1].ID, nil); rec.Header().Get("Location") != "/?drawer=admin&tab=connectors" {
+		t.Errorf("installed = %d %q", rec.Code, rec.Header().Get("Location"))
+	}
 
 	rec = s.As(t, root, "POST", base+srv+"/delete", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Connector removed.") {

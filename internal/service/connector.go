@@ -78,6 +78,36 @@ func (o *Orchestrator) BeginServerConnector(
 	return o.conns.BeginServer(ctx, userID, ghOrg)
 }
 
+// BeginSetupConnector is BeginServerConnector for the setup wizard: the App
+// is shared with every org from the start.
+func (o *Orchestrator) BeginSetupConnector(ctx context.Context, userID, ghOrg string) (action, manifest string, err error) {
+	c, action, manifest, err := o.conns.BeginServer(ctx, userID, ghOrg)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := o.conns.SetShares(ctx, c.ID, nil, true); err != nil {
+		return "", "", err
+	}
+	return action, manifest, nil
+}
+
+// GitHubApp is a GitHub App made outside stackr: its ID, slug, private key
+// (PEM) and webhook secret.
+type GitHubApp = githubapp.App
+
+// AddServerConnector saves an existing GitHub App as a server connector
+// shared with every org.
+func (o *Orchestrator) AddServerConnector(ctx context.Context, app GitHubApp) (ServerConnector, error) {
+	c, err := o.conns.AddServer(ctx, app)
+	if err != nil {
+		return ServerConnector{}, err
+	}
+	return o.serverConnector(ctx, c)
+}
+
+// ConnectorHookURL is where GitHub must send connector id's webhooks.
+func (o *Orchestrator) ConnectorHookURL(id string) string { return o.conns.HookURL(id) }
+
 // RenameServerConnector renames a server connector (names are unique among
 // them: the server file names its connectors).
 func (o *Orchestrator) RenameServerConnector(ctx context.Context, id, name string) (ServerConnector, error) {
