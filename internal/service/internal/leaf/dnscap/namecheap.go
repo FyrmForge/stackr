@@ -79,7 +79,7 @@ func (n *namecheap) call(ctx context.Context, command string, extra url.Values) 
 	if err != nil {
 		return out, fmt.Errorf("namecheap: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return out, fmt.Errorf("namecheap: %w", err)
