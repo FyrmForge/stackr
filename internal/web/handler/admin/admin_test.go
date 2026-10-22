@@ -36,6 +36,7 @@ func TestAdminDrawer(t *testing.T) {
 		"caddy":    `name="proxy_custom"`,
 		"backups":  "No panel backups yet",
 		"config":   `id="tab-config"`,
+		"guide":    `href="/-/setup/server/ui/domains"`,
 	} {
 		rec := s.As(t, root, "GET", "/-/admin?tab="+tab, nil)
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {

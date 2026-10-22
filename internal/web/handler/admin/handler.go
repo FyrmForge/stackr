@@ -149,7 +149,7 @@ func frame(tab string) comp.DrawerView {
 		Tabs:  ui.Tabs,
 		Tab:   tab,
 		// "access" would read "Access", which is the tile's own word
-		Labels: map[string]string{"access": "Elevated access", "security": "Security log"},
+		Labels: map[string]string{"access": "Elevated access", "security": "Security log", "guide": "Setup guide"},
 	}
 	if !slices.Contains(ui.Tabs, tab) {
 		f.Tab = ui.Tabs[0]
@@ -317,6 +317,8 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 	case "params":
 		body, err := h.params(c, "", "")
 		return body, err
+	case "guide":
+		return ui.Guide("/-/setup/server/ui/domains"), nil
 	case "caddy":
 		val, err := h.orch.Setting(ctx, "proxy_custom")
 		return ui.Caddy(ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}), err

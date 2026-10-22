@@ -184,7 +184,8 @@ func (h *handler) githubCallback(c echo.Context) error {
 
 // GET /settings/github/installed/:connector?setup_action=: GitHub's setup_url,
 // after an install or a change of its repos. Back to where the install shows:
-// the admin drawer's Connectors tab for a server connector, the setup
+// the server wizard's GitHub step while the server is unfinished, else the
+// admin drawer's Connectors tab for a server connector, the setup
 // wizard's connector step while the org is unfinished (only the wizard
 // reaches it), else the connector drawer's Repos tab. Each of those checks
 // access itself; an org the user is not in goes home.
@@ -200,6 +201,13 @@ func (h *handler) githubInstalled(c echo.Context) error {
 	}
 	hamrmw.SetFlash(c, "GitHub App installed.", hamrmw.FlashSuccess)
 	if orgID == nil {
+		s, err := h.orch.ServerSetupState(ctx)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		if !s.Done {
+			return c.Redirect(http.StatusSeeOther, "/-/setup/server/ui/github")
+		}
 		return c.Redirect(http.StatusSeeOther, "/?drawer=admin&tab=connectors")
 	}
 	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)

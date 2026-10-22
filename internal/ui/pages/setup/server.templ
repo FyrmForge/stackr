@@ -1,8 +1,9 @@
 package setup
 
 // The server's first-run wizard: a branch question, then either the by-hand
-// page (domains, a backup destination, a placements summary) or the file page
-// (connector and repo, then the plan). Both end on Finish, then org setup.
+// screens (domains, certificates, GitHub, observability, backups, nodes, a
+// summary) or the file page (connector and repo, then the plan). Both end on
+// Finish, then org setup. Admin's Setup guide reopens the by-hand screens.
 
 // ServerBranchView is the branch question.
 type ServerBranchView struct{ Base string }
@@ -10,16 +11,66 @@ type ServerBranchView struct{ Base string }
 // ServerDests is one global backup destination, as a row.
 type ServerDest struct{ Name, Detail string }
 
-// ServerHandView is the by-hand branch.
-type ServerHandView struct {
+// ServerStep is what every by-hand screen carries.
+type ServerStep struct {
 	Frame
-	Base       string
-	Root       string
-	Panel      string
-	Email      string
-	Dests      []ServerDest
-	Placements []string // "default: ctl" lines, admin eyes only
-	AdminURL   string   // the placements admin page
+	Base string // /-/setup/server
+	Next string // the next screen; Skip and Continue go here
+}
+
+// ServerDomainsView is the first screen.
+type ServerDomainsView struct {
+	ServerStep
+	Root, Panel, Email string
+}
+
+// ServerApp is one server GitHub App.
+type ServerApp struct {
+	Name       string
+	HookURL    string // where its webhook must point
+	InstallURL string // "" while GitHub has not made it yet
+}
+
+// ServerGitHubView is the GitHub screen.
+type ServerGitHubView struct {
+	ServerStep
+	CSRF string // the native manifest form's token
+	Apps []ServerApp
+}
+
+// ServerObserveView is the observability screen, prefilled from the settings.
+type ServerObserveView struct {
+	ServerStep
+	Enabled                             bool
+	Retention, MinFree, LogsDays, LogsMax string
+}
+
+// ServerBackupsView is the backups screen.
+type ServerBackupsView struct {
+	ServerStep
+	Dests       []ServerDest
+	PanelOn     bool
+	Schedule    string
+	PanelDests  []Option // the global destinations, the current one picked
+}
+
+// ServerNodesView is the nodes screen.
+type ServerNodesView struct {
+	ServerStep
+	Nodes      []string
+	Placements []string // "default: ctl" lines
+	AdminURL   string   // Admin, Nodes; "" while setup is unfinished (the gate would bounce it)
+}
+
+// SummaryRow is one step on the last screen.
+type SummaryRow struct {
+	Label, State, Detail, Href string
+}
+
+// ServerSummaryView is the last screen.
+type ServerSummaryView struct {
+	ServerStep
+	Rows []SummaryRow
 }
 
 // ServerFileView is the file branch's first screen.
@@ -44,7 +95,7 @@ templ ServerBranch(v ServerBranchView) {
 			</button>
 			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">By hand</span>
-				<span class="block mt-0.5 text-xs text-rw-muted">Set the domains and a backup destination here.</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">Go through each choice here, one screen at a time.</span>
 			</button>
 		</form>
 		<form novalidate hx-post={ v.Base + "/done" } class="mt-4 text-center">
@@ -53,11 +104,10 @@ templ ServerBranch(v ServerBranchView) {
 	}
 }
 
-// ServerHand is the by-hand branch: one page, three sections.
-templ ServerHand(v ServerHandView) {
+// ServerDomains is the first by-hand screen; the only one with no Skip.
+templ ServerDomains(v ServerDomainsView) {
 	@shell(v.Frame) {
 		<form novalidate hx-post={ v.Base + "/domains" } class="space-y-4">
-			<h3 class="text-sm font-semibold text-rw-text">Domains</h3>
 			<div>
 				<label class="label" for="srv-root">Root domain</label>
 				<input type="text" id="srv-root" name="root_domain" value={ v.Root } placeholder="example.com" class="input font-mono"/>
@@ -72,11 +122,137 @@ templ ServerHand(v ServerHandView) {
 				<input type="email" id="srv-acme" name="acme_email" value={ v.Email } placeholder="you@example.com" class="input"/>
 				<p class="mt-1.5 text-xs text-rw-faint">Certificate notices go here.</p>
 			</div>
-			<button type="submit" class="btn btn-primary w-full">Save domains</button>
+			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
 		</form>
+		<p class="mt-3 text-center"><a href={ templ.SafeURL(v.Base + "?pick=1") } class="text-xs text-rw-faint hover:text-rw-text transition-colors">Set up from a file instead</a></p>
+	}
+}
+
+// ServerCertificates says how certificates work; nothing to set yet.
+templ ServerCertificates(v ServerStep) {
+	@shell(v.Frame) {
+		<div class="space-y-3 text-sm text-rw-muted">
+			<p>Each domain gets its own certificate from Let's Encrypt, automatically.</p>
+			<p>A wildcard certificate needs a DNS provider. DNS providers are coming.</p>
+		</div>
+		<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full mt-6">Continue</a>
+	}
+}
+
+// ServerGitHub creates a server App or takes an existing one; either is
+// shared with every organization.
+templ ServerGitHub(v ServerGitHubView) {
+	@shell(v.Frame) {
+		if len(v.Apps) > 0 {
+			<ul class="space-y-2 mb-6">
+				for _, a := range v.Apps {
+					<li class="panel px-3 py-2 space-y-1">
+						<p class="text-sm text-rw-text">{ a.Name }</p>
+						<p class="text-xs text-rw-faint">Webhook URL</p>
+						<p class="font-mono text-xs text-rw-muted break-all">{ a.HookURL }</p>
+						if a.InstallURL != "" {
+							<a href={ templ.SafeURL(a.InstallURL) } target="_blank" rel="noopener" class="text-xs text-rw-accent hover:underline">Install it on GitHub</a>
+						}
+					</li>
+				}
+			</ul>
+		}
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-rw-text">Create a GitHub App</h3>
+			<p class="text-xs text-rw-faint">Shared with every organization. GitHub asks you to approve it.</p>
+			// templint:ignore no-native-form-actions -- the answer is the page that posts the manifest to GitHub; it must replace the document
+			<form novalidate method="post" action={ templ.SafeURL(v.Base + "/github") } class="space-y-3">
+				<input type="hidden" name="csrf_token" value={ v.CSRF }/>
+				<div>
+					<label class="label" for="srv-gh-org">GitHub organization (optional)</label>
+					<input type="text" id="srv-gh-org" name="gh_org" placeholder="my-github-org" class="input"/>
+					<p class="mt-1.5 text-xs text-rw-faint">Leave empty to use your personal account.</p>
+				</div>
+				<button type="submit" class="btn btn-primary w-full">Create on GitHub</button>
+			</form>
+		</div>
 		<hr class="my-6 border-rw-border"/>
 		<div class="space-y-4">
-			<h3 class="text-sm font-semibold text-rw-text">Backup destination</h3>
+			<h3 class="text-sm font-semibold text-rw-text">Use an existing App</h3>
+			<p class="text-xs text-rw-faint">Shared with every organization. The webhook URL shows here once saved.</p>
+			<form novalidate hx-post={ v.Base + "/github/app" } class="space-y-3">
+				<div>
+					<label class="label" for="srv-app-id">App ID</label>
+					<input type="text" inputmode="numeric" id="srv-app-id" name="app_id" class="input font-mono"/>
+				</div>
+				<div>
+					<label class="label" for="srv-app-slug">Slug</label>
+					<input type="text" id="srv-app-slug" name="slug" placeholder="my-stackr-app" class="input font-mono"/>
+					<p class="mt-1.5 text-xs text-rw-faint">The last part of the App's github.com/apps/ address.</p>
+				</div>
+				<div>
+					<label class="label" for="srv-app-key">Private key</label>
+					<textarea id="srv-app-key" name="private_key" rows="5" autocomplete="off" placeholder="-----BEGIN RSA PRIVATE KEY-----" class="input font-mono text-xs"></textarea>
+				</div>
+				<div>
+					<label class="label" for="srv-app-secret">Webhook secret</label>
+					<input type="password" id="srv-app-secret" name="webhook_secret" autocomplete="off" class="input font-mono"/>
+				</div>
+				<button type="submit" class="btn btn-ghost w-full">Save App</button>
+			</form>
+		</div>
+		@serverNext(v.Next, len(v.Apps) > 0, "Without one, each organization connects its own GitHub later.")
+	}
+}
+
+// ServerObserve is the stackr-observe switch, with what each side gives.
+templ ServerObserve(v ServerObserveView) {
+	@shell(v.Frame) {
+		<div class="grid sm:grid-cols-2 gap-3 mb-6">
+			<div class="panel px-3 py-2.5">
+				<p class="text-sm font-semibold text-rw-text mb-1">With it</p>
+				<ul class="list-disc pl-4 space-y-0.5 text-xs text-rw-muted">
+					<li>{ v.Retention } days of graphs.</li>
+					<li>Log search and access logs.</li>
+					<li>Uses memory, and disk up to the caps below.</li>
+				</ul>
+			</div>
+			<div class="panel px-3 py-2.5">
+				<p class="text-sm font-semibold text-rw-text mb-1">Without it</p>
+				<ul class="list-disc pl-4 space-y-0.5 text-xs text-rw-muted">
+					<li>24 hours of live graphs.</li>
+					<li>No log search.</li>
+				</ul>
+			</div>
+		</div>
+		<form novalidate hx-post={ v.Base + "/observe" } class="space-y-4">
+			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-observe" name="observe_enabled" value="1" checked?={ v.Enabled } class="accent-rw-accent"/> Run the stackr-observe container</label>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label class="label" for="srv-ob-days">Graph history (days)</label>
+					<input type="number" min="1" id="srv-ob-days" name="observe_metrics_retention" value={ v.Retention } class="input"/>
+				</div>
+				<div>
+					<label class="label" for="srv-ob-free">Free disk floor (GB)</label>
+					<input type="number" min="0" id="srv-ob-free" name="observe_min_free" value={ v.MinFree } class="input"/>
+				</div>
+				<div>
+					<label class="label" for="srv-ob-logs">Log history (days)</label>
+					<input type="number" min="1" id="srv-ob-logs" name="observe_logs_retention" value={ v.LogsDays } class="input"/>
+				</div>
+				<div>
+					<label class="label" for="srv-ob-cap">Log size cap (GB)</label>
+					<input type="number" min="1" id="srv-ob-cap" name="observe_logs_max_size" value={ v.LogsMax } class="input"/>
+				</div>
+			</div>
+			<p class="text-xs text-rw-faint">Writes stop below the free disk floor.</p>
+			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
+		</form>
+		@nav(v.Next, "Skip")
+	}
+}
+
+// ServerBackups adds an S3 destination and points the panel's own backup at it.
+templ ServerBackups(v ServerBackupsView) {
+	@shell(v.Frame) {
+		<p class="text-sm text-rw-muted mb-5">Without an off-box destination, backups stay on this box and die with it.</p>
+		<div class="space-y-4">
+			<h3 class="text-sm font-semibold text-rw-text">S3 destination</h3>
 			for _, d := range v.Dests {
 				<p class="text-sm text-rw-muted"><span class="text-rw-text">{ d.Name }</span> <span class="font-mono text-rw-faint">{ d.Detail }</span></p>
 			}
@@ -87,7 +263,8 @@ templ ServerHand(v ServerHandView) {
 				</div>
 				<div>
 					<label class="label" for="srv-dest-endpoint">S3 endpoint</label>
-					<input type="text" id="srv-dest-endpoint" name="endpoint" placeholder="s3.example.com" class="input font-mono"/>
+					<input type="text" id="srv-dest-endpoint" name="endpoint" placeholder="https://s3.example.com" class="input font-mono"/>
+					<p class="mt-1.5 text-xs text-rw-faint">Empty for AWS.</p>
 				</div>
 				<div>
 					<label class="label" for="srv-dest-bucket">Bucket</label>
@@ -105,19 +282,103 @@ templ ServerHand(v ServerHandView) {
 					<label class="label" for="srv-dest-secret">Secret key</label>
 					<input type="password" id="srv-dest-secret" name="secret_key" autocomplete="off" class="input font-mono"/>
 				</div>
+				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-dest-shared" name="shared" value="1" checked class="accent-rw-accent"/> Let orgs use it</label>
+				<p class="text-xs text-rw-faint">Organizations can send their volume backups here too.</p>
 				<button type="submit" class="btn btn-ghost w-full">Add destination</button>
 			</form>
 		</div>
 		<hr class="my-6 border-rw-border"/>
-		<div class="space-y-2">
-			<h3 class="text-sm font-semibold text-rw-text">Placements</h3>
+		<form novalidate hx-post={ v.Base + "/panel-backup" } class="space-y-4">
+			<h3 class="text-sm font-semibold text-rw-text">Panel backup</h3>
+			<p class="text-xs text-rw-faint">A copy of stackr's own database, with the key to its secrets.</p>
+			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-pb-on" name="panel_backup_enabled" value="1" checked?={ v.PanelOn } class="accent-rw-accent"/> Back up the panel on a schedule</label>
+			<div>
+				<label class="label" for="srv-pb-cron">Schedule</label>
+				<input type="text" id="srv-pb-cron" name="panel_backup_schedule" value={ v.Schedule } placeholder="0 3 * * *" class="input font-mono"/>
+				<p class="mt-1.5 text-xs text-rw-faint">A cron line. Empty is 03:00 every day.</p>
+			</div>
+			<div>
+				<label class="label" for="srv-pb-dest">Destination</label>
+				<select id="srv-pb-dest" name="panel_backup_dest" class="input">
+					<option value="">This box</option>
+					for _, o := range v.PanelDests {
+						<option value={ o.Value } selected?={ o.Picked }>{ o.Label }</option>
+					}
+				</select>
+			</div>
+			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
+		</form>
+		@nav(v.Next, "Skip")
+	}
+}
+
+// ServerNodes explains workers and placements; adding one is Admin's.
+templ ServerNodes(v ServerNodesView) {
+	@shell(v.Frame) {
+		<div class="space-y-3 text-sm text-rw-muted">
+			<p>One box works alone. Add a worker when you want more room.</p>
+			<p>Admin, Nodes, Add node gives a one-line command to run on the new box.</p>
+			<p>A placement names where an environment runs. Each points at a node.</p>
+		</div>
+		if len(v.Nodes) > 0 {
+			<h3 class="mt-5 mb-2 text-sm font-semibold text-rw-text">Nodes</h3>
+			for _, n := range v.Nodes {
+				<p class="text-sm font-mono text-rw-muted">{ n }</p>
+			}
+		}
+		if len(v.Placements) > 0 {
+			<h3 class="mt-5 mb-2 text-sm font-semibold text-rw-text">Placements</h3>
 			for _, p := range v.Placements {
 				<p class="text-sm font-mono text-rw-muted">{ p }</p>
 			}
-			<p class="text-xs text-rw-faint">Which node each placement runs on is set on the admin page.</p>
-			<a href={ templ.SafeURL(v.AdminURL) } class="btn btn-ghost btn-sm w-full">Open placements</a>
-		</div>
-		@serverFinish(v.Base)
+		}
+		if v.AdminURL != "" {
+			<a href={ templ.SafeURL(v.AdminURL) } class="btn btn-ghost btn-sm w-full mt-5">Open Admin, Nodes</a>
+		} else {
+			<p class="mt-5 text-xs text-rw-faint">Admin opens once you finish.</p>
+		}
+		<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full mt-3">Continue</a>
+	}
+}
+
+// ServerSummary is each step's state; Finish stamps the wizard done.
+templ ServerSummary(v ServerSummaryView) {
+	@shell(v.Frame) {
+		<ul class="space-y-2">
+			for _, r := range v.Rows {
+				<li>
+					<a href={ templ.SafeURL(r.Href) } class="panel px-3 py-2 flex items-center justify-between gap-3 hover:border-rw-accent transition-colors">
+						<span>
+							<span class="block text-sm text-rw-text">{ r.Label }</span>
+							<span class="block text-xs text-rw-faint">{ r.Detail }</span>
+						</span>
+						<span class={ "text-xs font-semibold " + stateClass(r.State) }>{ r.State }</span>
+					</a>
+				</li>
+			}
+		</ul>
+		<p class="mt-3 text-xs text-rw-faint">All of it can be changed later in Admin.</p>
+		<form novalidate hx-post={ v.Base + "/done" } class="mt-6">
+			<button type="submit" class="btn btn-primary w-full">Finish</button>
+		</form>
+	}
+}
+
+func stateClass(s string) string {
+	if s == "on" {
+		return "text-rw-accent"
+	}
+	return "text-rw-faint"
+}
+
+// serverNext is Continue once something is set, else Skip with what
+// skipping means.
+templ serverNext(next string, done bool, without string) {
+	if done {
+		<a href={ templ.SafeURL(next) } class="btn btn-primary w-full mt-6">Continue</a>
+	} else {
+		@nav(next, "Skip")
+		<p class="mt-1 text-center text-xs text-rw-faint">{ without }</p>
 	}
 }
 
