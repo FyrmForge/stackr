@@ -53,7 +53,7 @@ templ LogHistory(v LogHistoryView) {
 			hx-get={ v.Action }
 			hx-target="#log-history"
 			hx-swap="outerHTML"
-			hx-trigger="change, submit"
+			hx-trigger="change, submit, input[target.type=='search'] delay:400ms"
 		>
 			if len(v.Tiles) > 0 {
 				@logSelect("tile", "Tile", v.Tile, v.Tiles)
@@ -65,8 +65,8 @@ templ LogHistory(v LogHistoryView) {
 			@logSelect("source", "Source", v.Source, logSources)
 			@logSelect("stream", "Stream", v.Stream, logStreams)
 			@logSelect("since", "Time range", v.Range, LogRanges)
-			<input type="search" name="run" value={ v.Run } class="input !w-40 !py-1.5 text-sm font-mono" placeholder="Run id" aria-label="Run id"/>
-			<input type="search" name="text" value={ v.Text } class="input !w-56 !py-1.5 text-sm font-mono" placeholder="Search text" aria-label="Search text"/>
+			<input type="search" id="log-run" name="run" value={ v.Run } class="input !w-40 !py-1.5 text-sm font-mono" placeholder="Run id" aria-label="Run id"/>
+			<input type="search" id="log-text" name="text" value={ v.Text } class="input !w-56 !py-1.5 text-sm font-mono" placeholder="Search text" aria-label="Search text"/>
 			if v.Live != "" {
 				<button type="button" class="btn btn-ghost btn-sm" hx-get={ v.Live } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Live</button>
 			}
