@@ -21,7 +21,7 @@ func TestDNSConnectorVerbs(t *testing.T) {
 		{"server connectors add namecheap --user jo --key-stdin --ip 203.0.113.7",
 			"POST " + s + `/namecheap {"client_ip":"203.0.113.7","key":"s3cret","user":"jo"}`},
 		{"server connectors domains c1", "GET " + s + "/c1/domains "},
-		{"server connectors manage c1 acme.dev", "PUT " + s + `/c1/domains/acme.dev {"org_ids":[]}`},
+		{"server connectors manage c1 acme.dev -y", "PUT " + s + `/c1/domains/acme.dev {"org_ids":[]}`},
 		{"server connectors manage c1 acme.dev --org o1 --org o2", "PUT " + s + `/c1/domains/acme.dev {"org_ids":["o1","o2"]}`},
 		{"server connectors unmanage c1 acme.dev", "DELETE " + s + "/c1/domains/acme.dev "},
 		{"server connectors takeover c1 acme.dev --confirm acme.dev", "POST " + s + `/c1/domains/acme.dev/takeover {"confirm":"acme.dev"}`},
@@ -49,6 +49,7 @@ func TestDNSConnectorVerbs(t *testing.T) {
 		"server connectors takeover c1 acme.dev -y",
 		"org connectors takeover c1 acme.dev -y",
 		"server connectors add namecheap --key-stdin",
+		"server connectors manage c1 acme.dev",
 	} {
 		r.reqs = nil
 		if code, _, _ := cli(t, strings.Fields(args)...); code == 0 || len(r.reqs) != 0 {

@@ -89,6 +89,11 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			if err != nil {
 				return err
 			}
+			if server && len(orgs) == 0 {
+				if err := a.confirm("Make " + args[1] + " available to every organization?"); err != nil {
+					return err
+				}
+			}
 			body := map[string]any{"org_ids": append([]string{}, orgs...)}
 			v, err := a.call(PUT, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1]), body)
 			if err != nil {
