@@ -45,6 +45,7 @@ type observeKnobs struct {
 	logsSet  bool   // the stored observe_logs_enabled, on or off
 	logsDays int
 	logsMax  uint64 // bytes
+	memoryMB int    // the container's memory limit
 
 	accessQuery, accessIP, accessHeaders bool // what access logs keep
 }
@@ -73,8 +74,11 @@ func (o *Orchestrator) observeKnobs(ctx context.Context) (observeKnobs, error) {
 	if k.logsDays, err = o.settings.Int(ctx, "observe_logs_retention"); err != nil {
 		return k, err
 	}
-	gb, err = o.settings.Int(ctx, "observe_logs_max_size")
+	if gb, err = o.settings.Int(ctx, "observe_logs_max_size"); err != nil {
+		return k, err
+	}
 	k.logsMax = uint64(gb) << 30
+	k.memoryMB, err = o.settings.Int(ctx, "observe_max_memory")
 	for key, p := range map[string]*bool{"observe_access_query": &k.accessQuery,
 		"observe_access_ip": &k.accessIP, "observe_access_headers": &k.accessHeaders} {
 		v, _ := o.settings.Get(ctx, key)
@@ -96,6 +100,7 @@ func (o *Orchestrator) syncObserve(ctx context.Context) {
 			err = o.upgrade.EnsureObserve(ctx, installspec.ObserveOpts{
 				Retention: strconv.Itoa(k.days) + "d", MinFree: k.minFree,
 				Logs: k.logs, LogsRetention: strconv.Itoa(k.logsDays) + "d", LogsMax: k.logsMax,
+				MemoryMB: k.memoryMB,
 			})
 		} else {
 			err = o.upgrade.RemoveObserve(ctx)
@@ -259,6 +264,7 @@ type ObserveStatus struct {
 	LogsSet       bool   `json:"-"` // the stored switch, which the form saves back
 	LogsDays      int    `json:"logs_retention_days"`
 	LogsMaxBytes  uint64 `json:"logs_max_bytes"`
+	MemoryBytes   uint64 `json:"memory_bytes"`   // the container's memory limit
 	AccessQuery   bool   `json:"access_query"`   // access logs keep the query string
 	AccessIP      bool   `json:"access_ip"`      // ... the client address
 	AccessHeaders bool   `json:"access_headers"` // ... every request header
@@ -280,6 +286,7 @@ func (o *Orchestrator) ObserveStatus(ctx context.Context) (ObserveStatus, error)
 	}
 	s := ObserveStatus{Enabled: k.on, RetentionDays: k.days, MinFreeBytes: k.minFree,
 		LogsEnabled: k.logs, LogsSet: k.logsSet, LogsDays: k.logsDays, LogsMaxBytes: k.logsMax,
+		MemoryBytes: uint64(k.memoryMB) << 20,
 		AccessQuery: k.accessQuery, AccessIP: k.accessIP, AccessHeaders: k.accessHeaders, LogsDropped: o.LogsDropped()}
 	if p := o.observe.lastErr.Load(); p != nil {
 		s.Error = *p

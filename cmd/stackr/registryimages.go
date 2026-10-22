@@ -153,7 +153,7 @@ func (a *app) observeStatus() *cobra.Command {
 			if d := num(m["logs_dropped"]); d > 0 {
 				a.say("Logs dropped: %s since the panel started.", cell(m["logs_dropped"]))
 			}
-			a.say("Container: %s. Data: %s. Free disk: %s of %s.", cell(m["container"]), size("data_bytes"), size("disk_free"), size("disk_total"))
+			a.say("Container: %s, memory capped at %s. Data: %s. Free disk: %s of %s.", cell(m["container"]), size("memory_bytes"), size("data_bytes"), size("disk_free"), size("disk_total"))
 			if e, _ := m["error"].(string); e != "" {
 				a.say("Last error: %s", e)
 			}

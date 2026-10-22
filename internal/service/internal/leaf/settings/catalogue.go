@@ -298,6 +298,13 @@ var Catalogue = []Knob{
 		Desc:    "GB of disk the logs may use; the oldest days go first",
 	},
 	{
+		Key:     "observe_max_memory",
+		Type:    TInt,
+		Default: "1024",
+		Scopes:  Flat,
+		Desc:    "MB of memory the stackr-observe container may use, at least 256",
+	},
+	{
 		Key:     "observe_access_query",
 		Type:    TBool,
 		Default: "false",

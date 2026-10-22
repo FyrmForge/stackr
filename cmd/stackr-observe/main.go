@@ -27,6 +27,8 @@ func main() {
 		logs      = flag.Bool("logs", false, "also run VictoriaLogs")
 		logsKeep  = flag.String("logs-retention", "7d", "logs retention")
 		logsMax   = flag.String("logs-max-size", "10GB", "logs disk use above which the oldest days are dropped")
+		mem       = flag.String("memory", "0", "bytes of cache VictoriaMetrics may use; 0 = its own share of what it sees")
+		logsMem   = flag.String("logs-memory", "0", "bytes of cache VictoriaLogs may use; 0 = its own share of what it sees")
 	)
 	flag.Parse()
 	children := [][]string{{
@@ -35,6 +37,7 @@ func main() {
 		"-storageDataPath=" + *data + "/metrics",
 		"-retentionPeriod=" + *retention,
 		"-storage.minFreeDiskSpaceBytes=" + *minFree,
+		"-memory.allowedBytes=" + *mem,
 	}}
 	if *logs {
 		children = append(children, []string{
@@ -43,6 +46,7 @@ func main() {
 			"-storageDataPath=" + *data + "/logs",
 			"-retentionPeriod=" + *logsKeep,
 			"-retention.maxDiskSpaceUsageBytes=" + *logsMax,
+			"-memory.allowedBytes=" + *logsMem,
 			"-delete.enable", // the logs socket is the panel's alone; it purges an env's logs
 		})
 	}
