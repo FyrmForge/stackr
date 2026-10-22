@@ -299,7 +299,7 @@ templ Env(v View, e EnvView) {
 		<p class="text-xs text-rw-faint mb-3">
 			Values may reference params or another tile:
 			<span class="font-mono text-rw-muted">{ "${{ params.app.key }}" }</span>,
-			<span class="font-mono text-rw-muted">{ "${{ tile.db.url }}" }</span>.
+			<span class="font-mono text-rw-muted">{ "${{ tile.api.url }}" }</span>.
 			References resolve at deploy time.
 		</p>
 		if len(e.Rows) == 0 {
@@ -327,7 +327,7 @@ templ Env(v View, e EnvView) {
 				<form novalidate hx-post={ v.Base + "/env" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 					<div>
 						<label class="label" for="env-text">Environment variables (KEY=VALUE per line)</label>
-						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nDB=${{ tile.db.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
+						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nAPI=${{ tile.api.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
 						if len(e.Kept) > 0 {
 							<p class="settings-help">Kept as they are, a value on more than one line: { strings.Join(e.Kept, ", ") }.</p>
 						}

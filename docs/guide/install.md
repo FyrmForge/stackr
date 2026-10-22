@@ -78,12 +78,17 @@ Until DNS is live there is no way in, because the panel publishes no port. The `
 
 ## First login and onboarding
 
-1. With no organization yet, the panel sends you to `/setup`. Pick a path.
+1. The first login opens **Set up this server**. Pick a path, or Skip for now.
+   - **By hand:** check the domains, add a backup destination, see the placements. Press Finish.
+   - **From a server file:** one `stackr-server.yml` in a GitHub repo declares the server.
+
+   A destination added here is the server's. Orgs can back up to it once it is shared: Admin, Backups, press Not shared on its row.
+2. You land on Organizations. Press **Create organization** and pick a path.
    - **Fill it in here:** name the org, connect GitHub, add a domain, invite people.
    - **Describe it in a config file:** one file in a GitHub repo declares the org. You connect GitHub, pick the repo, review the plan and approve it.
-2. Connect GitHub. The panel takes you to GitHub to create its app.
-3. Add a domain (fill-in path). A config-file org gets its domains from the file.
-4. Invite people on the Team step. You can do it later from the org's Members tab.
-5. Press the finish button. The org is ready.
+3. Connect GitHub. The panel takes you to GitHub to create its app. A GitHub App a server admin shared with every org is already connected here.
+4. Add a domain (fill-in path). A config-file org gets its domains from the file.
+5. Invite people on the Team step. You can do it later from the org's Members tab. The server sends no mail: copy each invite link and send it yourself.
+6. Press the finish button. The org is ready.
 
 Next: [add a worker node](nodes.md), [back up](backups.md), [upgrade](upgrade.md).

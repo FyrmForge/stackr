@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -214,5 +216,14 @@ func TestWrapperPassesStackrEnv(t *testing.T) {
 	got := strings.TrimSpace(string(out))
 	if want := "exec -i -e STACKR_KEY -e STACKR_CONFIG=/data/cli.json c1 /stackr org ls"; got != want {
 		t.Fatalf("docker got %q, want %q", got, want)
+	}
+}
+
+// A stray word (stackr-install version) is refused before any check runs,
+// instead of starting an install.
+func TestRunRefusesUnknownCommand(t *testing.T) {
+	err := run(context.Background(), []string{"version"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), `unknown command "version"`) {
+		t.Fatalf("got %v", err)
 	}
 }

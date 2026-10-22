@@ -57,7 +57,8 @@ docker rm -f stackr-proxy stackr-registry
 docker ps -aq --filter name=^buildx_buildkit_stackr-builder | xargs -r docker rm -f
 docker volume ls -q --filter label=stackr.managed=true | xargs -r docker volume rm
 docker volume ls -q --filter name=^buildx_buildkit_stackr-builder | xargs -r docker volume rm
-docker volume rm stackr-caddy stackr-registry-data
+docker rm -f stackr-observe
+docker volume rm stackr-caddy stackr-registry-data stackr-observe-data
 docker network ls -q --filter label=stackr.managed=true | xargs -r docker network rm
 rm -rf /var/lib/stackr
 rm -f /usr/local/bin/stackr /usr/local/bin/stackr-install
