@@ -859,6 +859,12 @@
       },
       "Connector": {
         "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -899,6 +905,7 @@
           "host",
           "created_at",
           "share_all",
+          "capabilities",
           "shared"
         ],
         "type": "object"
@@ -1047,6 +1054,24 @@
         ],
         "type": "object"
       },
+      "DNSConnector": {
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/Connector"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/Domain"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "connector",
+          "domains"
+        ],
+        "type": "object"
+      },
       "DefaultIngressIn": {
         "properties": {
           "confirm": {
@@ -1114,71 +1139,27 @@
       },
       "Domain": {
         "properties": {
-          "auto": {
+          "name": {
+            "type": "string"
+          },
+          "org_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "share_all": {
             "type": "boolean"
           },
-          "container_port": {
-            "type": "integer"
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "force_https": {
-            "type": "boolean"
-          },
-          "host": {
-            "type": "string"
-          },
-          "https": {
-            "type": "boolean"
-          },
-          "id": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "position": {
-            "type": "integer"
-          },
-          "proxy_json": {
-            "type": "string"
-          },
-          "raw_caddy": {
-            "type": "string"
-          },
-          "redirect_to": {
-            "type": "string"
-          },
-          "resource_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tile_id": {
+          "state": {
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "tile_id",
-          "host",
-          "path",
-          "container_port",
-          "https",
-          "force_https",
-          "redirect_to",
-          "auto",
-          "position",
-          "proxy_json",
-          "raw_caddy",
-          "created_at"
+          "name",
+          "state",
+          "share_all",
+          "org_ids"
         ],
         "type": "object"
       },
@@ -2755,6 +2736,20 @@
         ],
         "type": "object"
       },
+      "ManageIn": {
+        "properties": {
+          "org_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "org_ids"
+        ],
+        "type": "object"
+      },
       "ManagedIn": {
         "properties": {
           "build_args": {
@@ -3449,6 +3444,25 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "NamecheapIn": {
+        "properties": {
+          "client_ip": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "key",
+          "client_ip"
         ],
         "type": "object"
       },
@@ -5314,6 +5328,12 @@
       },
       "ServerConnector": {
         "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -5360,6 +5380,7 @@
           "host",
           "created_at",
           "share_all",
+          "capabilities",
           "shared",
           "org_ids"
         ],
@@ -5954,6 +5975,17 @@
         "required": [
           "add",
           "remove"
+        ],
+        "type": "object"
+      },
+      "TakeOverIn": {
+        "properties": {
+          "confirm": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
         ],
         "type": "object"
       },
@@ -7428,6 +7460,76 @@
           "changes"
         ],
         "type": "object"
+      },
+      "store.Domain": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "container_port": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "force_https": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "proxy_json": {
+            "type": "string"
+          },
+          "raw_caddy": {
+            "type": "string"
+          },
+          "redirect_to": {
+            "type": "string"
+          },
+          "resource_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tile_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tile_id",
+          "host",
+          "path",
+          "container_port",
+          "https",
+          "force_https",
+          "redirect_to",
+          "auto",
+          "position",
+          "proxy_json",
+          "raw_caddy",
+          "created_at"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -8524,6 +8626,260 @@
           }
         },
         "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/dns-connectors": {
+      "get": {
+        "operationId": "admin.dns-list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Connector"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/dns-connectors/namecheap": {
+      "post": {
+        "operationId": "admin.dns-add-namecheap",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamecheapIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSConnector"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/dns-connectors/{connector}/domains": {
+      "get": {
+        "operationId": "admin.dns-domains",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Domain"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/dns-connectors/{connector}/domains/{zone}": {
+      "delete": {
+        "operationId": "admin.dns-unmanage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      },
+      "put": {
+        "operationId": "admin.dns-manage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManageIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/dns-connectors/{connector}/domains/{zone}/takeover": {
+      "post": {
+        "operationId": "admin.dns-takeover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeOverIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
       }
     },
     "/api/v1/admin/domain-resources": {
@@ -12545,6 +12901,349 @@
           }
         },
         "x-verb": "registry.credential.write"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors": {
+      "get": {
+        "operationId": "dns.list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Connector"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors/namecheap": {
+      "post": {
+        "operationId": "dns.add-namecheap",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamecheapIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSConnector"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors/{connector}": {
+      "delete": {
+        "operationId": "dns.delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors/{connector}/domains": {
+      "get": {
+        "operationId": "dns.domains",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Domain"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}": {
+      "delete": {
+        "operationId": "dns.unmanage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      },
+      "put": {
+        "operationId": "dns.manage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManageIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}/takeover": {
+      "post": {
+        "operationId": "dns.takeover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeOverIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
       }
     },
     "/api/v1/orgs/{org}/domain-resources": {
@@ -17321,7 +18020,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Domain"
+                    "$ref": "#/components/schemas/store.Domain"
                   },
                   "type": "array"
                 }
@@ -17393,7 +18092,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Domain"
+                  "$ref": "#/components/schemas/store.Domain"
                 }
               }
             },
@@ -17534,7 +18233,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Domain"
+                  "$ref": "#/components/schemas/store.Domain"
                 }
               }
             },
@@ -17614,7 +18313,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Domain"
+                  "$ref": "#/components/schemas/store.Domain"
                 }
               }
             },

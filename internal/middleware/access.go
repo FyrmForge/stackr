@@ -241,6 +241,7 @@ var byVerb = map[string]bool{
 	"invite":     true, // the verb takes the org and refuses another org's invite
 	"from":       true, // an env slug the service resolves inside the env's own stack
 	"tier":       true, // a tier slug the service resolves inside the route's org
+	"zone":       true, // a DNS connector's domain; the verb takes the connector and its level
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;

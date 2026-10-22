@@ -43,15 +43,26 @@ func (a *app) serverConnectors() *cobra.Command {
 	share.Flags().StringArrayVar(&orgs, "org", nil, "share with this organization id (repeatable)")
 	share.Flags().BoolVar(&all, "all", false, "share with every organization")
 
-	return noun("connectors", "Git connectors the server owns, and who they are shared with (admin)",
-		leaf("ls", "admin.connector-list", "List the server's connectors", exact(0),
-			func(*cobra.Command, []string) error {
-				v, err := a.call(GET, "/admin/connectors", nil)
+	var dns bool
+	ls := leaf("ls", "admin.connector-list,admin.dns-list", "List the server's git connectors; --dns its DNS ones", exact(0),
+		func(*cobra.Command, []string) error {
+			if dns {
+				v, err := a.call(GET, "/admin/dns-connectors", nil)
 				if err != nil {
 					return err
 				}
-				return a.show(v, serverConnectorCols...)
-			}),
+				return a.show(v, dnsConnCols...)
+			}
+			v, err := a.call(GET, "/admin/connectors", nil)
+			if err != nil {
+				return err
+			}
+			return a.show(v, serverConnectorCols...)
+		})
+	ls.Flags().BoolVar(&dns, "dns", false, "list the DNS connectors")
+
+	n := noun("connectors", "Git and DNS connectors the server owns (admin)",
+		ls,
 		leaf("rename <id> <name>", "admin.connector-rename", "Rename a server connector", exact(2),
 			func(_ *cobra.Command, args []string) error {
 				v, err := a.call(PUT, "/admin/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
@@ -70,6 +81,8 @@ func (a *app) serverConnectors() *cobra.Command {
 				return err
 			}),
 	)
+	n.AddCommand(a.dnsVerbs(true, func(*cobra.Command) (string, error) { return "/admin/dns-connectors", nil })...)
+	return n
 }
 
 var serverConnectorCols = []string{"id", "name", "host", "share_all", "org_ids"}
