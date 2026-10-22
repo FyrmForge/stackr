@@ -128,6 +128,20 @@ func TestProxyCustomChecked(t *testing.T) {
 	}
 }
 
+// observe_max_memory refuses a cap under the 256 MB floor.
+func TestObserveMaxMemoryFloor(t *testing.T) {
+	for _, bad := range []string{"0", "255", "-1", "1g"} {
+		if err := settings.Check("observe_max_memory", bad); err == nil {
+			t.Errorf("observe_max_memory %q accepted", bad)
+		}
+	}
+	for _, ok := range []string{"", "256", "1024"} {
+		if err := settings.Check("observe_max_memory", ok); err != nil {
+			t.Errorf("observe_max_memory %q refused: %v", ok, err)
+		}
+	}
+}
+
 // The registry cleanup knobs: the schedule defaults to 04:15, a write of ""
 // keeps it off instead of bringing the default back, a bad cron line and a
 // keep of 0 are refused.

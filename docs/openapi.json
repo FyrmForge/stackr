@@ -3859,6 +3859,9 @@
           "logs_retention_days": {
             "type": "integer"
           },
+          "memory_bytes": {
+            "type": "integer"
+          },
           "min_free_bytes": {
             "type": "integer"
           },
@@ -3873,6 +3876,7 @@
           "logs_enabled",
           "logs_retention_days",
           "logs_max_bytes",
+          "memory_bytes",
           "access_query",
           "access_ip",
           "access_headers",

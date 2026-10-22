@@ -116,6 +116,9 @@ func validate(k Knob, raw string) error {
 		if err != nil {
 			return fmt.Errorf("%q is not a whole number", raw)
 		}
+		if k.Key == "observe_max_memory" && v < 256 {
+			return fmt.Errorf("%s: %d MB is under the 256 MB floor", k.Key, v)
+		}
 		return usable(k, v)
 	case TFloat:
 		v, err := strconv.ParseFloat(raw, 64)

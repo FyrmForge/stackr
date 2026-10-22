@@ -8,6 +8,7 @@ type ObserveView struct {
 	Action                               string
 	Enabled                              bool
 	Retention, MinFree                   string // days, GB
+	Memory                               string // MB
 	State                                string // the container, in words
 	Data, Free                           string // "" = unknown
 	LogsEnabled                          bool
@@ -27,6 +28,7 @@ templ Observe(v ObserveView) {
 						@observeCheck("observe_enabled", "Keep metrics history", v.Enabled)
 						@c.Field(c.FieldView{Name: "observe_metrics_retention", Label: "Retention (days)", Type: "number", Value: v.Retention, Help: "Older points are deleted."})
 						@c.Field(c.FieldView{Name: "observe_min_free", Label: "Free disk floor (GB)", Type: "number", Value: v.MinFree, Help: "Writes stop below this much free disk."})
+						@c.Field(c.FieldView{Name: "observe_max_memory", Label: "Memory cap (MB)", Type: "number", Value: v.Memory, Help: "Shared with logs. At least 256."})
 						if v.Data != "" {
 							<p class="text-sm text-rw-muted">Using { v.Data }</p>
 						}

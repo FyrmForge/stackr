@@ -32,6 +32,7 @@ func (h *handler) mountObserve(g *echo.Group, a *middleware.Access) {
 			"observe_enabled":           on,
 			"observe_metrics_retention": c.FormValue("observe_metrics_retention"),
 			"observe_min_free":          c.FormValue("observe_min_free"),
+			"observe_max_memory":        c.FormValue("observe_max_memory"),
 			"observe_logs_enabled":      logs,
 			"observe_logs_retention":    c.FormValue("observe_logs_retention"),
 			"observe_logs_max_size":     c.FormValue("observe_logs_max_size"),
@@ -53,6 +54,7 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 		Enabled:   s.Enabled,
 		Retention: strconv.Itoa(s.RetentionDays),
 		MinFree:   strconv.FormatUint(s.MinFreeBytes>>30, 10),
+		Memory:    strconv.FormatUint(s.MemoryBytes>>20, 10),
 		Err:       s.Error,
 
 		LogsEnabled: s.LogsSet, // not s.LogsEnabled: with metrics off a save would turn logs off

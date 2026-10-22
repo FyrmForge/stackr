@@ -189,7 +189,8 @@ type Container struct {
 	HostNetwork bool              `json:"host_network,omitempty"`
 	Network     string            `json:"network,omitempty"` // a docker network mode ("none"); ignored with HostNetwork
 	CapAdd      []string          `json:"cap_add,omitempty"`
-	LogOpts     []string          `json:"log_opts,omitempty"` // docker --log-opt values
+	LogOpts     []string          `json:"log_opts,omitempty"`  // docker --log-opt values
+	MemoryMB    int               `json:"memory_mb,omitempty"` // docker --memory; 0 = none
 	Restart     string            `json:"restart"`
 }
 
@@ -341,6 +342,9 @@ func (c Container) RunArgs() []string {
 	}
 	for _, v := range c.LogOpts {
 		a = append(a, "--log-opt", v)
+	}
+	if c.MemoryMB > 0 {
+		a = append(a, "--memory", strconv.Itoa(c.MemoryMB)+"m")
 	}
 	for _, v := range c.Volumes {
 		a = append(a, "-v", v)

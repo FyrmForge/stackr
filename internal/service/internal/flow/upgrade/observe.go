@@ -50,6 +50,7 @@ func (f *Flow) EnsureObserve(ctx context.Context, o installspec.ObserveOpts) err
 	_, err = f.Docker.Run(ctx, docker.ContainerSpec{
 		Name: want.Name, Image: want.Image, Cmd: want.Cmd, Env: want.Env, Labels: want.Labels,
 		Volumes: want.Volumes, Networks: []docker.NetAttach{{Name: want.Network}}, Restart: want.Restart,
+		MemLimitMB: want.MemoryMB,
 	})
 	return err
 }
