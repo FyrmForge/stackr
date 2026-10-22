@@ -50,7 +50,9 @@ func (s Scope) String() string {
 }
 
 type Knob struct {
-	Key       string `json:"key"`
+	Key string `json:"key"`
+	// Label is the knob's name on a form; refusals say it instead of Key.
+	Label     string `json:"label"`
 	Type      Type   `json:"type"`
 	Default   string `json:"default"`
 	Scopes    Scope  `json:"scopes"`
@@ -77,6 +79,7 @@ var Catalogue = []Knob{
 	// The cascade.
 	{
 		Key:       "cpu_limit",
+		Label:     "CPU limit (cores)",
 		Type:      TFloat,
 		Default:   "0",
 		Scopes:    All | Tile,
@@ -85,6 +88,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:       "mem_limit_mb",
+		Label:     "Memory limit (MB)",
 		Type:      TInt,
 		Default:   "0",
 		Scopes:    All | Tile,
@@ -93,6 +97,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "protect",
+		Label:   "Password protect URLs",
 		Type:    TBool,
 		Default: "false",
 		Scopes:  All,
@@ -100,12 +105,14 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:    "protect_user",
+		Label:  "Protect user",
 		Type:   TStr,
 		Scopes: All,
 		Desc:   "basic auth user",
 	},
 	{
 		Key:    "protect_password",
+		Label:  "Protect password",
 		Type:   TStr,
 		Scopes: All,
 		Desc:   "plain text or a ${{ }} ref",
@@ -114,6 +121,7 @@ var Catalogue = []Knob{
 	// Install-wide rows.
 	{
 		Key:     "workers",
+		Label:   "Job workers",
 		Type:    TInt,
 		Default: "2",
 		Scopes:  Flat,
@@ -121,6 +129,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:       "image_check_interval",
+		Label:     "Image check interval (minutes)",
 		Type:      TInt,
 		Default:   "60",
 		Scopes:    Flat,
@@ -129,6 +138,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "orphan_retention_days",
+		Label:   "Orphan retention (days)",
 		Type:    TInt,
 		Default: "30",
 		Scopes:  Flat,
@@ -136,6 +146,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "backup_run_concurrency",
+		Label:   "Backups at once",
 		Type:    TInt,
 		Default: "2",
 		Scopes:  Flat,
@@ -143,6 +154,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "backup_restore_concurrency",
+		Label:   "Restores at once",
 		Type:    TInt,
 		Default: "1",
 		Scopes:  Flat,
@@ -150,42 +162,49 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:    "panel_domain",
+		Label:  "Panel domain",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "the domain the panel answers on",
 	},
 	{
 		Key:    "root_domain",
+		Label:  "Root domain",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "the root domain; tiles get names under it",
 	},
 	{
 		Key:    "acme_email",
+		Label:  "ACME email",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "contact address for certificates",
 	},
 	{
 		Key:    "trusted_proxies",
+		Label:  "Trusted proxies",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "CIDRs whose X-Forwarded-For is trusted",
 	},
 	{
 		Key:    "dns_provider",
+		Label:  "DNS provider",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "DNS-01 provider for the wildcard certificate",
 	},
 	{
 		Key:    "proxy_custom",
+		Label:  "Custom Caddy config",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "admin-only extra Caddy config",
 	},
 	{
 		Key:     "cleanup_enabled",
+		Label:   "Nightly cleanup",
 		Type:    TBool,
 		Default: "false",
 		Scopes:  Flat,
@@ -193,6 +212,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "cleanup_schedule",
+		Label:   "Cleanup schedule",
 		Type:    TStr,
 		Default: "30 4 * * *",
 		Scopes:  Flat,
@@ -200,6 +220,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:      "registry_cleanup_schedule",
+		Label:    "Registry cleanup schedule",
 		Type:     TStr,
 		Default:  "15 4 * * *",
 		Scopes:   Flat,
@@ -208,6 +229,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "registry_keep",
+		Label:   "Registry versions kept",
 		Type:    TInt,
 		Default: "3",
 		Scopes:  Flat,
@@ -215,6 +237,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "orphans_enabled",
+		Label:   "Orphan sweep",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
@@ -222,6 +245,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "orphans_schedule",
+		Label:   "Orphan sweep schedule",
 		Type:    TStr,
 		Default: "@daily",
 		Scopes:  Flat,
@@ -229,6 +253,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "panel_backup_enabled",
+		Label:   "Panel backups",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
@@ -236,6 +261,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "panel_backup_schedule",
+		Label:   "Panel backup schedule",
 		Type:    TStr,
 		Default: "0 3 * * *",
 		Scopes:  Flat,
@@ -243,6 +269,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "panel_backup_keep",
+		Label:   "Panel backups kept",
 		Type:    TInt,
 		Default: "14",
 		Scopes:  Flat,
@@ -250,6 +277,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:    "panel_backup_dest",
+		Label:  "Panel backup destination id",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "global backup destination id for panel archives; empty is local",
@@ -257,6 +285,7 @@ var Catalogue = []Knob{
 
 	{
 		Key:     "observe_enabled",
+		Label:   "Metrics",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
@@ -264,6 +293,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_metrics_retention",
+		Label:   "Metrics retention (days)",
 		Type:    TInt,
 		Default: "30",
 		Scopes:  Flat,
@@ -271,6 +301,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_min_free",
+		Label:   "Free disk floor (GB)",
 		Type:    TInt,
 		Default: "5",
 		Scopes:  Flat,
@@ -278,6 +309,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_logs_enabled",
+		Label:   "Logs",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
@@ -285,6 +317,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_logs_retention",
+		Label:   "Logs retention (days)",
 		Type:    TInt,
 		Default: "7",
 		Scopes:  Flat,
@@ -292,6 +325,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_logs_max_size",
+		Label:   "Logs size cap (GB)",
 		Type:    TInt,
 		Default: "10",
 		Scopes:  Flat,
@@ -299,6 +333,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_max_memory",
+		Label:   "Memory cap (MB)",
 		Type:    TInt,
 		Default: "1024",
 		Scopes:  Flat,
@@ -306,6 +341,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_access_query",
+		Label:   "Access log query string",
 		Type:    TBool,
 		Default: "false",
 		Scopes:  Flat,
@@ -313,6 +349,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_access_ip",
+		Label:   "Access log client IP",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
@@ -320,6 +357,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_access_headers",
+		Label:   "Access log headers",
 		Type:    TBool,
 		Default: "false",
 		Scopes:  Flat,
@@ -328,6 +366,7 @@ var Catalogue = []Knob{
 
 	{
 		Key:    "alert_webhook_url",
+		Label:  "Alert webhook URL",
 		Type:   TStr,
 		Scopes: Flat,
 		Desc:   "where alerts are posted as JSON; empty is off (the Alerts tab)",
@@ -337,6 +376,7 @@ var Catalogue = []Knob{
 	// BindServerConfig, shown on the admin Config tab.
 	{
 		Key:        "server_config_connector",
+		Label:      "Server file connector",
 		Type:       TStr,
 		Scopes:     Flat,
 		ConfigOnly: true,
@@ -344,6 +384,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:        "server_config_repo",
+		Label:      "Server file repo",
 		Type:       TStr,
 		Scopes:     Flat,
 		ConfigOnly: true,
@@ -351,6 +392,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:        "server_config_branch",
+		Label:      "Server file branch",
 		Type:       TStr,
 		Scopes:     Flat,
 		ConfigOnly: true,
@@ -358,6 +400,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:        "server_config_path",
+		Label:      "Server file path",
 		Type:       TStr,
 		Scopes:     Flat,
 		ConfigOnly: true,
@@ -365,6 +408,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:        "server_config_auto",
+		Label:      "Server file auto apply",
 		Type:       TBool,
 		Default:    "false",
 		Scopes:     Flat,

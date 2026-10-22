@@ -423,6 +423,7 @@ func (h *handler) settings(c echo.Context, refused error) (comp.SettingsFormView
 	for _, s := range ss {
 		r := comp.SettingRowView{
 			Key:       s.Key,
+			Label:     s.Label,
 			Desc:      s.Desc,
 			Type:      string(s.Type),
 			Value:     s.Value,
