@@ -47,8 +47,8 @@ templ Dests(v DestsView) {
 				if v.Share {
 					<div>
 						<span class="label">Sharing</span>
-						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="shared" value="1" class="accent-rw-accent"/> Offer it to every organization</label>
-						<p class="mt-1.5 text-xs text-rw-faint">The bucket credentials go with it, so this is off unless you say otherwise.</p>
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="shared" value="1" checked class="accent-rw-accent"/> Offer it to every organization</label>
+						<p class="mt-1.5 text-xs text-rw-faint">Organizations can send their backups here. Untick to keep it for the panel alone.</p>
 					</div>
 				}
 				<button type="submit" class="btn btn-primary btn-sm">Add destination</button>

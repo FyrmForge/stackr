@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"errors"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -16,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -44,6 +48,12 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	site.POST(ServerBase+"/dest", h.serverDest, set)
 	site.POST(ServerBase+"/panel-backup", h.serverPanelBackup, set)
 	site.POST(ServerBase+"/bind", h.serverBind, bind)
+	node := a.Require("node.manage")
+	site.GET(nodesBase, h.serverNodes, node)
+	site.POST(nodesBase+"/add", h.serverMintNode, node)
+	site.GET(nodesBase+"/add/poll", h.serverPollNode, node)
+	site.POST(nodesBase+"/pending/:node/confirm", h.serverJoin(true), node)
+	site.POST(nodesBase+"/pending/:node/reject", h.serverJoin(false), node)
 	approve := a.Require("serverplan.approve")
 	site.POST(ServerBase+"/config/plan/:plan/approve", h.serverApprove, approve)
 	site.POST(ServerBase+"/config/plan/:plan/reject", h.serverReject, approve)
@@ -132,8 +142,10 @@ var serverStepTitles = map[string][2]string{
 
 // GET /-/setup/server/ui/:step: one by-hand screen. A finished server still
 // gets it: Admin's Setup guide links here.
-func (h *handler) serverStep(c echo.Context) error {
-	ctx, step := c.Request().Context(), c.Param("step")
+func (h *handler) serverStep(c echo.Context) error { return h.showServerStep(c, c.Param("step")) }
+
+func (h *handler) showServerStep(c echo.Context, step string) error {
+	ctx := c.Request().Context()
 	steps := service.ServerSetupSteps
 	i := slices.Index(steps, step)
 	if i < 0 {
@@ -141,7 +153,7 @@ func (h *handler) serverStep(c echo.Context) error {
 	}
 	t := serverStepTitles[step]
 	s := pages.ServerStep{
-		Frame: pages.Frame{Title: t[0], Subtitle: t[1], Step: i + 1, Total: len(steps)},
+		Frame: pages.Frame{Title: t[0], Subtitle: t[1], Step: i + 1, Steps: serverSteps()},
 		Base:  ServerBase,
 	}
 	if i+1 < len(steps) {
@@ -176,7 +188,7 @@ func (h *handler) serverStep(c echo.Context) error {
 		})
 	case "backups":
 		var v pages.ServerBackupsView
-		v, err = h.backupsStep(ctx, s)
+		v, err = h.backupsStep(ctx, s, c.QueryParam("dest"))
 		body = pages.ServerBackups(v)
 	case "nodes":
 		var v pages.ServerNodesView
@@ -199,7 +211,21 @@ func (h *handler) serverStep(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return render.Bare(c, http.StatusOK, "Setup: "+t[0], body)
+	return render.Bare(c, status(c), "Setup: "+t[0], body)
+}
+
+// serverSteps is the by-hand branch's stepper; any done step reopens.
+func serverSteps() []pages.StepLink {
+	var out []pages.StepLink
+	for _, s := range service.ServerSetupSteps {
+		out = append(out, pages.StepLink{Name: serverStepTitles[s][0], Href: stepURL(s)})
+	}
+	return out
+}
+
+// refillStep answers a refused save with its by-hand step, as posted.
+func (h *handler) refillStep(c echo.Context, err error, step string) error {
+	return refill(c, err, func() error { return h.showServerStep(c, step) })
 }
 
 // summaryTab is the Admin tab each summary line lives on.
@@ -232,15 +258,22 @@ func (h *handler) githubStep(c echo.Context, s pages.ServerStep) (pages.ServerGi
 			return v, err
 		}
 		v.Apps = append(v.Apps, pages.ServerApp{Name: k.Name, HookURL: h.orch.ConnectorHookURL(k.ID), InstallURL: install})
+		// one GitHub has not confirmed yet is no App: Skip stays Skip
+		v.Done = v.Done || install != ""
 	}
 	return v, nil
 }
 
-func (h *handler) backupsStep(ctx context.Context, s pages.ServerStep) (pages.ServerBackupsView, error) {
+// backupsStep: added is the destination just added, which the panel backup
+// form picks while the panel still backs up to this box.
+func (h *handler) backupsStep(ctx context.Context, s pages.ServerStep, added string) (pages.ServerBackupsView, error) {
 	v := pages.ServerBackupsView{ServerStep: s}
 	var on, dest string
 	if err := h.settings(ctx, map[string]*string{"panel_backup_enabled": &on, "panel_backup_schedule": &v.Schedule, "panel_backup_dest": &dest}); err != nil {
 		return v, err
+	}
+	if dest == "" {
+		dest = added
 	}
 	v.PanelOn = on == "true"
 	ds, err := h.orch.GlobalBackupDests(ctx)
@@ -262,12 +295,9 @@ func (h *handler) nodesStep(ctx context.Context, s pages.ServerStep, done bool) 
 	if done {
 		v.AdminURL = adminURL("nodes")
 	}
-	ns, err := h.orch.Nodes(ctx)
-	if err != nil {
+	var err error
+	if v.Panel, err = h.nodesPanel(ctx, nil, ""); err != nil {
 		return v, err
-	}
-	for _, n := range ns {
-		v.Nodes = append(v.Nodes, n.Name+": "+n.Role)
 	}
 	ps, err := h.orch.Placements(ctx)
 	if err != nil {
@@ -285,6 +315,132 @@ func (h *handler) nodesStep(ctx context.Context, s pages.ServerStep, done bool) 
 	return v, nil
 }
 
+const nodesBase = ServerBase + "/nodes"
+
+// nodesPanel is the Nodes step's live part; adder is the open add-node
+// steps (nil = closed). skip is the machine they wait for, which the list
+// leaves to them.
+func (h *handler) nodesPanel(ctx context.Context, adder *admin.AddNodeView, skip string) (pages.NodesPanel, error) {
+	v := pages.NodesPanel{Base: ServerBase, Adder: adder, Poll: nodesBase}
+	if skip != "" {
+		v.Poll += "?skip=" + url.QueryEscape(skip)
+	}
+	ns, err := h.orch.Nodes(ctx)
+	if err != nil {
+		return v, err
+	}
+	for _, n := range ns {
+		v.Nodes = append(v.Nodes, pages.NodeLine{Name: n.Name, Role: n.Role, Status: admin.StatusWord(n.Status), Hint: admin.NodeHint(n.Status, n.Stalled)})
+	}
+	ps, err := h.orch.PendingNodes(ctx)
+	if err != nil {
+		return v, err
+	}
+	for _, p := range ps {
+		if p.Name != skip {
+			v.Pending = append(v.Pending, pendingRow(p))
+		}
+	}
+	return v, nil
+}
+
+// pendingRow is a machine that called in, with the step's own confirm and
+// reject.
+func pendingRow(p service.PendingNode) admin.PendingRow {
+	return admin.PendingRow{
+		Name: p.Name, Addresses: p.Addresses, Tags: p.Tags,
+		Confirm: nodesBase + "/pending/" + p.ID + "/confirm",
+		Reject:  nodesBase + "/pending/" + p.ID + "/reject",
+	}
+}
+
+// adderStep1 is Admin's first add-node step, answering into the panel.
+func adderStep1(name string, picked []string, msg string) *admin.AddNodeView {
+	return &admin.AddNodeView{
+		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
+		Create: nodesBase + "/add", Cancel: nodesBase, Target: "#" + pages.NodesPanelID,
+	}
+}
+
+// answerNodes is the panel, the add-node steps as adder leaves them.
+func (h *handler) answerNodes(c echo.Context, adder *admin.AddNodeView, skip string) error {
+	v, err := h.nodesPanel(c.Request().Context(), adder, skip)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.HTML(c, http.StatusOK, pages.ServerNodesPanel(v))
+}
+
+// GET /-/setup/server/nodes (add=1 opens the add-node steps; skip= is the
+// machine open steps wait for): the panel, which the list polls.
+func (h *handler) serverNodes(c echo.Context) error {
+	var adder *admin.AddNodeView
+	if c.QueryParam("add") != "" {
+		adder = adderStep1("", nil, "")
+	}
+	return h.answerNodes(c, adder, c.QueryParam("skip"))
+}
+
+// POST /-/setup/server/nodes/add (name, tag): Admin's mint, step two in
+// the panel.
+func (h *handler) serverMintNode(c echo.Context) error {
+	f, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	name := strings.TrimSpace(f.Get("name"))
+	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, Tags: f["tag"]})
+	if err != nil {
+		msg, ok := render.Refused(err)
+		if !ok {
+			return middleware.HTTPError(err)
+		}
+		return h.answerNodes(c, adderStep1(name, f["tag"], msg), "")
+	}
+	return h.answerNodes(c, &admin.AddNodeView{
+		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
+		Expires: "in " + strconv.Itoa(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes",
+		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName),
+		Cancel:  nodesBase, Target: "#" + pages.NodesPanelID,
+	}, out.NodeName)
+}
+
+// GET /-/setup/server/nodes/add/poll (name): 204 until the machine calls
+// in, then step three.
+func (h *handler) serverPollNode(c echo.Context) error {
+	p, err := h.orch.PendingNodeByName(c.Request().Context(), c.QueryParam("name"))
+	if errors.Is(err, errs.ErrNotFound) {
+		return c.NoContent(http.StatusNoContent)
+	}
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	r := pendingRow(p)
+	return respond.HTML(c, http.StatusOK, admin.AddNode(admin.AddNodeView{Step: 3, Name: p.Name, Pending: &r, Target: "#" + pages.NodesPanelID}))
+}
+
+// POST /-/setup/server/nodes/pending/:node/confirm and …/reject: the
+// panel again, the steps closed; a refusal shows over a reopened step one.
+func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx, by, id := c.Request().Context(), middleware.Principal(c), c.Param("node")
+		var err error
+		if confirm {
+			_, err = h.orch.ConfirmJoin(ctx, by, id)
+		} else {
+			err = h.orch.RejectJoin(ctx, by, id)
+		}
+		if err != nil {
+			msg, ok := render.Refused(err)
+			if !ok {
+				return middleware.HTTPError(err)
+			}
+			return h.answerNodes(c, adderStep1("", nil, msg), "")
+		}
+		return h.answerNodes(c, nil, "")
+	}
+}
+
 // POST /-/setup/server/domains (root_domain, panel_domain, acme_email).
 func (h *handler) serverDomains(c echo.Context) error {
 	vals := map[string]string{}
@@ -292,7 +448,7 @@ func (h *handler) serverDomains(c echo.Context) error {
 		vals[k] = strings.TrimSpace(c.FormValue(k))
 	}
 	if err := h.orch.SetSettings(c.Request().Context(), vals); err != nil {
-		return back(c, err, stepURL("domains"))
+		return h.refillStep(c, err, "domains")
 	}
 	hamrmw.SetFlash(c, "Domains saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("certificates"))
@@ -303,7 +459,7 @@ func (h *handler) serverDomains(c echo.Context) error {
 // page that posts the manifest to GitHub. GitHub's setup_url brings the
 // browser back to the GitHub step while setup is unfinished.
 func (h *handler) serverGitHub(c echo.Context) error {
-	action, manifest, err := h.orch.BeginSetupConnector(
+	_, action, manifest, err := h.orch.BeginServerConnector(
 		c.Request().Context(), middleware.Principal(c).User.ID, strings.TrimSpace(c.FormValue("gh_org")),
 	)
 	if err != nil {
@@ -319,12 +475,12 @@ func (h *handler) serverApp(c echo.Context) error {
 	f := c.FormValue
 	id, err := strconv.ParseInt(strings.TrimSpace(f("app_id")), 10, 64)
 	if err != nil {
-		return back(c, errs.Invalidf("app_id", "the App ID is the number on the App's page"), stepURL("github"))
+		return h.refillStep(c, errs.Invalidf("app_id", "the App ID is the number on the App's page"), "github")
 	}
 	if _, err := h.orch.AddServerConnector(c.Request().Context(), service.GitHubApp{
 		ID: id, Slug: f("slug"), PEM: f("private_key"), WebhookSecret: f("webhook_secret"),
 	}); err != nil {
-		return back(c, err, stepURL("github"))
+		return h.refillStep(c, err, "github")
 	}
 	hamrmw.SetFlash(c, "App saved. Point its webhook at the URL below.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("github"))
@@ -344,7 +500,7 @@ func (h *handler) serverObserve(c echo.Context) error {
 		"observe_logs_retention":    f("observe_logs_retention"),
 		"observe_logs_max_size":     f("observe_logs_max_size"),
 	}); err != nil {
-		return back(c, err, stepURL("observability"))
+		return h.refillStep(c, err, "observability")
 	}
 	hamrmw.SetFlash(c, "Saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("backups"))
@@ -354,16 +510,20 @@ func (h *handler) serverObserve(c echo.Context) error {
 // org when shared is ticked (the form ticks it).
 func (h *handler) serverDest(c echo.Context) error {
 	f := c.FormValue
-	_, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
+	d, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
 		Name: f("dest_name"), Endpoint: f("endpoint"), Region: f("region"),
 		Bucket: f("bucket"), AccessKey: f("access_key"), SecretKey: f("secret_key"),
 		Shared: f("shared") != "",
 	})
 	if err != nil {
-		return back(c, err, stepURL("backups"))
+		// the form calls the destination's name dest_name
+		if inv, ok := errs.IsInvalid(err); ok && inv.Field == "name" {
+			inv.Field, err = "dest_name", inv
+		}
+		return h.refillStep(c, err, "backups")
 	}
 	hamrmw.SetFlash(c, "Destination added.", hamrmw.FlashSuccess)
-	return respond.Redirect(c, stepURL("backups"))
+	return respond.Redirect(c, stepURL("backups")+"?dest="+url.QueryEscape(d.ID))
 }
 
 // POST /-/setup/server/panel-backup: the panel's own backup switch,
@@ -378,7 +538,7 @@ func (h *handler) serverPanelBackup(c echo.Context) error {
 		"panel_backup_schedule": strings.TrimSpace(f("panel_backup_schedule")),
 		"panel_backup_dest":     f("panel_backup_dest"),
 	}); err != nil {
-		return back(c, err, stepURL("backups"))
+		return h.refillStep(c, err, "backups")
 	}
 	hamrmw.SetFlash(c, "Saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("nodes"))
@@ -413,7 +573,7 @@ func (h *handler) serverFile(c echo.Context) error {
 			v.PlanURL = ServerBase + "/config/plan"
 		}
 	}
-	return render.Bare(c, http.StatusOK, "Setup: This server", pages.ServerFile(v))
+	return render.Bare(c, status(c), "Setup: This server", pages.ServerFile(v))
 }
 
 // POST /-/setup/server/bind (connector_id, repo, branch, path): bind and plan.
@@ -421,10 +581,10 @@ func (h *handler) serverBind(c echo.Context) error {
 	f := c.FormValue
 	repo := strings.TrimSpace(f("repo"))
 	if repo == "" {
-		return back(c, errs.Invalidf("repo", "a repository is required"), ServerBase+"/config")
+		return refill(c, errs.Invalidf("repo", "a repository is required"), func() error { return h.serverFile(c) })
 	}
 	if _, err := h.orch.BindServerConfig(c.Request().Context(), f("connector_id"), repo, f("branch"), f("path"), false); err != nil {
-		return back(c, err, ServerBase+"/config")
+		return refill(c, err, func() error { return h.serverFile(c) })
 	}
 	hamrmw.SetFlash(c, "Planned.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, ServerBase+"/config/plan")

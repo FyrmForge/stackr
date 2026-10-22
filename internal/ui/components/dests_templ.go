@@ -131,7 +131,7 @@ func Dests(v DestsView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if v.Share {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div><span class=\"label\">Sharing</span> <label class=\"flex items-center gap-2 text-sm text-rw-text\"><input type=\"checkbox\" name=\"shared\" value=\"1\" class=\"accent-rw-accent\"> Offer it to every organization</label><p class=\"mt-1.5 text-xs text-rw-faint\">The bucket credentials go with it, so this is off unless you say otherwise.</p></div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div><span class=\"label\">Sharing</span> <label class=\"flex items-center gap-2 text-sm text-rw-text\"><input type=\"checkbox\" name=\"shared\" value=\"1\" checked class=\"accent-rw-accent\"> Offer it to every organization</label><p class=\"mt-1.5 text-xs text-rw-faint\">Organizations can send their backups here. Untick to keep it for the panel alone.</p></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

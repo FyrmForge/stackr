@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 // Settings is one level's overrides. nil = inherit; a pointer is what lets
@@ -129,9 +131,15 @@ func parseOpt[T any](k Knob, raw string, parse func(string) (T, error)) (*T, err
 	}
 	v, err := parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %q is not a valid %s", k.Key, raw, k.Type)
+		return nil, invalid(k, "%q is not a valid %s", raw, k.Type)
 	}
 	return &v, nil
+}
+
+// invalid is a knob's refusal: Field is its key, for the form to put the
+// message under, and the message names its label, never the key.
+func invalid(k Knob, format string, a ...any) error {
+	return errs.Invalid{Field: k.Key, Label: k.Label, Msg: fmt.Sprintf(format, a...)}
 }
 
 // parseNum is parseOpt plus the usable check, for the numeric knobs.
@@ -149,8 +157,13 @@ func parseNum[T int | float64](k Knob, raw string, parse func(string) (T, error)
 // usable refuses a negative number, and zero where the knob has no
 // meaningful zero.
 func usable[T int | float64](k Knob, v T) error {
-	if v < 0 || (v == 0 && !k.AllowZero) {
-		return fmt.Errorf("%s: %v is not a usable value", k.Key, v)
+	switch {
+	case v < 0 && k.AllowZero:
+		return invalid(k, "must be 0 or more")
+	case v < 1 && k.Type == TInt && !k.AllowZero:
+		return invalid(k, "must be at least 1")
+	case v <= 0 && !k.AllowZero:
+		return invalid(k, "must be more than 0")
 	}
 	return nil
 }
@@ -165,7 +178,7 @@ func Merge(s Settings, vals map[string]string, at Scope) (Settings, error) {
 			continue
 		}
 		if k.Scopes&at == 0 {
-			return s, fmt.Errorf("%s cannot be set on a %s", k.Key, at)
+			return s, invalid(k, "cannot be set on a %s", at)
 		}
 		if err := Set(&out, k.Key, raw); err != nil {
 			return s, err

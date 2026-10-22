@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -76,8 +77,12 @@ func normalizeFP(s string) (string, error) {
 	return s, nil
 }
 
-// errBusy is the panel turning a call away for its rate limit.
-var errBusy = errors.New("panel busy")
+// errBusy is the panel turning a call away for its rate limit; errUnknown
+// is its 404 for a token it has nothing for (never spent, or past use).
+var (
+	errBusy    = errors.New("panel busy")
+	errUnknown = errors.New("the panel does not know this join command")
+)
 
 func (j joinCall) post(ctx context.Context, path string, in any) (joinStatus, error) {
 	body, _ := json.Marshal(in)
@@ -92,8 +97,11 @@ func (j joinCall) post(ctx context.Context, path string, in any) (joinStatus, er
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode == http.StatusTooManyRequests {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests:
 		return joinStatus{}, errBusy
+	case http.StatusNotFound:
+		return joinStatus{}, errUnknown
 	}
 	if resp.StatusCode/100 != 2 {
 		return joinStatus{}, fmt.Errorf("panel answered %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
@@ -102,12 +110,27 @@ func (j joinCall) post(ctx context.Context, path string, in any) (joinStatus, er
 	return st, json.Unmarshal(b, &st)
 }
 
-// run posts the request and waits for an admin. A confirmed answer is
-// accepted only when its CA matches the fingerprint and signed the cert.
-func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts any) (joinStatus, error) {
-	st, err := j.post(ctx, "/join", map[string]any{
-		"token": j.token, "csr": string(csrPEM), "wg_public_key": wgPub, "facts": facts,
-	})
+// run posts the request and waits for an admin. resume is a re-run of a
+// command whose request may already be in: it asks where that stands first
+// and posts only when the panel has none. A confirmed answer is accepted
+// only when its CA matches the fingerprint and signed the cert.
+func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts any, resume bool) (joinStatus, error) {
+	var st joinStatus
+	err := errUnknown
+	if resume {
+		st, err = j.post(ctx, "/join/status", map[string]string{"token": j.token})
+		if err == nil {
+			j.say("  picking up the join this command started before")
+		}
+	}
+	if errors.Is(err, errUnknown) {
+		st, err = j.post(ctx, "/join", map[string]any{
+			"token": j.token, "csr": string(csrPEM), "wg_public_key": wgPub, "facts": facts,
+		})
+	}
+	if errors.Is(err, errUnknown) {
+		return st, errors.New("the panel does not know this join command: it expired or was used up. Get a new one in the panel (Nodes, Add node, or Rejoin on the node)")
+	}
 	if err != nil {
 		return st, fmt.Errorf("join request: %w", err)
 	}
@@ -188,6 +211,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	wgPort := fs.Int("wg-port", mesh.DefaultPort, "UDP port of this node's mesh WireGuard")
 	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
+	verbose := fs.Bool("verbose", false, "show each command's own output: image pulls, container ids")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -209,7 +233,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	r := runner{dry: *dry, out: out}
+	r := runner{dry: *dry, out: out, verbose: *verbose}
 	if !r.dry && os.Geteuid() != 0 {
 		return errors.New("run as root: joining installs packages and a system service")
 	}
@@ -260,7 +284,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		return nil
 	}
 
-	key, err := clusterca.NewKey()
+	key, kb, resume, err := joinKey(*stateDir, *token)
 	if err != nil {
 		return err
 	}
@@ -268,11 +292,8 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	kb, err := clusterca.KeyPEM(key)
-	if err != nil {
-		return err
-	}
-	if !fresh {
+	// a resumed join already sent its WireGuard key: keep it
+	if !fresh && !resume {
 		if err := dropWGKeys(*stateDir); err != nil {
 			return err
 		}
@@ -289,7 +310,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 		"kernel": hf.Kernel, "cpus": hf.CPUs, "mem_bytes": hf.MemBytes, "arch": hf.Arch,
 		"interfaces": worker.Interfaces(), "wg_port": *wgPort, "stackr_bridges": stackrBridges(ctx),
 		"docker_networks": dockerNetNames(ctx), // so a refusal names the network, not its bridge
-	})
+	}, resume)
 	if err != nil {
 		return err
 	}
@@ -319,10 +340,40 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
+	if err := os.Remove(filepath.Join(*stateDir, pendingFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	r.say("This node is a worker now.")
 	r.say("Continue setup in the panel:")
 	r.say(" ", nodeLink(u.String(), st.NodeID))
 	return nil
+}
+
+// pendingFile, in the state dir, keeps a join that has not finished: the
+// hash of its token and the node key its request carried, so the same
+// command run again resumes it instead of failing on a spent token.
+const pendingFile = "join.pending"
+
+// joinKey is this join's node key: the one an earlier run of the same
+// command made and sent (resume), else a new one, kept before it is sent.
+func joinKey(stateDir, token string) (key crypto.Signer, keyPEM []byte, resume bool, err error) {
+	h := sha256.Sum256([]byte(token))
+	tag, path := hex.EncodeToString(h[:]), filepath.Join(stateDir, pendingFile)
+	if b, err := os.ReadFile(path); err == nil {
+		if first, rest, ok := strings.Cut(string(b), "\n"); ok && first == tag {
+			if k, err := clusterca.ParseKeyPEM([]byte(rest)); err == nil {
+				return k, []byte(rest), true, nil
+			}
+		}
+	}
+	k, err := clusterca.NewKey()
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if keyPEM, err = clusterca.KeyPEM(k); err != nil {
+		return nil, nil, false, err
+	}
+	return k, keyPEM, false, os.WriteFile(path, append([]byte(tag+"\n"), keyPEM...), 0o600)
 }
 
 // oldNodeID is the node id in the box's old node cert, "" when there is none.
@@ -419,9 +470,7 @@ func (r runner) run(ctx context.Context, name string, args ...string) error {
 		return nil
 	}
 	r.say(" ", name, strings.Join(args[:min(2, len(args))], " "))
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout, cmd.Stderr = r.out, r.out
-	if err := cmd.Run(); err != nil {
+	if err := r.exec(ctx, name, args...); err != nil {
 		return fmt.Errorf("%s %s: %w", name, strings.Join(args[:min(2, len(args))], " "), err)
 	}
 	return nil
@@ -450,19 +499,22 @@ func (r runner) fetchWorker(ctx context.Context, image string) error {
 	if err := r.pull(ctx, image); err != nil {
 		return err
 	}
-	_ = r.run(ctx, "docker", "rm", "-f", tmp)
-	if err := r.docker(ctx, "create", "--name", tmp, image); err != nil {
+	r.say("  taking stackrd out of the image")
+	if r.exists(ctx, "container", tmp) { // a run that died halfway left it
+		_ = r.quietDocker(ctx, "rm", "-f", tmp)
+	}
+	if err := r.quietDocker(ctx, "create", "--name", tmp, image); err != nil {
 		return err
 	}
 	// stackrd is required. The installer is best effort: an image from
 	// before releases carried it has none, and uninstall then comes from
 	// the installer the admin already has.
-	err := r.docker(ctx, "cp", tmp+":/stackrd", joinBinary+".new")
+	err := r.quietDocker(ctx, "cp", tmp+":/stackrd", joinBinary+".new")
 	instErr := errors.New("skipped")
 	if err == nil {
-		instErr = r.docker(ctx, "cp", tmp+":/stackr-install", joinInstaller+".new")
+		instErr = r.quietDocker(ctx, "cp", tmp+":/stackr-install", joinInstaller+".new")
 	}
-	_ = r.run(ctx, "docker", "rm", "-f", tmp)
+	_ = r.quietDocker(ctx, "rm", "-f", tmp)
 	if err != nil {
 		return err
 	}

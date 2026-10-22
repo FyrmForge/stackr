@@ -18,9 +18,13 @@ import (
 type Frame struct {
 	Title    string
 	Subtitle string
-	Step     int
-	Total    int
+	Step     int        // 1-based, into Steps
+	Steps    []StepLink // the stepper, every step of the branch
 }
+
+// StepLink is one stepper step: its name, and where a done one goes back
+// to ("" = it cannot be reopened, as the org's branch question).
+type StepLink struct{ Name, Href string }
 
 // Option is one connector in the config step's select.
 type Option struct {
@@ -153,13 +157,13 @@ type DoneView struct {
 
 // shell is the bare centred page every step shares.
 templ shell(f Frame) {
-	<div class="w-full max-w-xl mx-auto mt-16 px-6 pb-16">
+	<div id={ ShellID } class="w-full max-w-xl mx-auto mt-16 px-6 pb-16">
 		<div class="flex items-center gap-2.5 justify-center mb-7">
 			<img src={ c.StaticURL("images/logo-mark.png") } alt="" class="h-9 w-9"/>
 			<span class="text-xl font-semibold text-rw-text">stackr</span>
 		</div>
 		if f.Step > 0 {
-			@stepper(f.Step, f.Total)
+			@stepper(f.Step, f.Steps)
 		}
 		<div class="panel p-8 shadow-rw">
 			if f.Subtitle == "" {
@@ -173,25 +177,35 @@ templ shell(f Frame) {
 	</div>
 }
 
-// The dots are a picture of where you are, so they carry one label for the
-// whole group and are hidden from screen readers individually.
-templ stepper(step, total int) {
-	<div class="flex items-center justify-center gap-2 mb-6" role="group" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(total) }>
-		for i := 1; i <= total; i++ {
-			if i > 1 {
-				<span class="w-6 h-px bg-rw-border" aria-hidden="true"></span>
+// stepper is each step by name under its number; a done one that can be
+// reopened is a link back to it.
+templ stepper(step int, steps []StepLink) {
+	<nav class="mb-6" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(len(steps)) }>
+		<ol class="flex items-start justify-center">
+			for i, s := range steps {
+				<li
+					class="flex-1 min-w-0 flex flex-col items-center gap-1.5"
+					if i+1 == step {
+						aria-current="step"
+					}
+				>
+					if i+1 < step && s.Href != "" {
+						<a href={ templ.SafeURL(s.Href) } class="group flex flex-col items-center gap-1.5 min-w-0 max-w-full focus:outline-none">
+							@stepDot(i+1, step)
+							<span class="text-[11px] leading-tight text-rw-muted group-hover:text-rw-text group-focus-visible:underline truncate max-w-full">{ s.Name }</span>
+						</a>
+					} else {
+						@stepDot(i+1, step)
+						<span class={ "text-[11px] leading-tight truncate max-w-full", templ.KV("text-rw-text font-medium", i+1 == step), templ.KV("text-rw-faint", i+1 != step) }>{ s.Name }</span>
+					}
+				</li>
 			}
-			<span
-				class={ "h-6 w-6 rounded-full text-xs font-semibold flex items-center justify-center " + dotClass(i, step) }
-				aria-hidden="true"
-				if i == step {
-					aria-current="step"
-				}
-			>
-				{ strconv.Itoa(i) }
-			</span>
-		}
-	</div>
+		</ol>
+	</nav>
+}
+
+templ stepDot(i, step int) {
+	<span class={ "h-6 w-6 shrink-0 rounded-full text-xs font-semibold flex items-center justify-center " + dotClass(i, step) } aria-hidden="true">{ strconv.Itoa(i) }</span>
 }
 
 func dotClass(i, step int) string {
@@ -202,6 +216,21 @@ func dotClass(i, step int) string {
 		return "bg-rw-inset text-rw-muted"
 	}
 	return "border border-rw-border text-rw-faint"
+}
+
+// fieldError is a refused save's message under input name.
+templ fieldError(name string) {
+	if fieldMsg(ctx, name) != "" {
+		<p id={ errID(name) } class="mt-1.5 text-xs text-rw-danger" role="alert">{ fieldMsg(ctx, name) }</p>
+	}
+}
+
+// formError is a refused save's message over the form posting to action,
+// when it names none of the form's fields.
+templ formError(action string) {
+	if formMsg(ctx, action) != "" {
+		<p class="text-sm text-rw-danger" role="alert">{ formMsg(ctx, action) }</p>
+	}
 }
 
 // nav is the one secondary action every step carries: "Skip for now", or
@@ -659,13 +688,15 @@ templ Domain(v DomainView) {
 			@nav(v.Next, "Continue")
 		} else {
 			<form novalidate hx-post={ v.Base + "/domain" } class="space-y-5">
+				@formError(v.Base + "/domain")
 				<div>
 					<label class="label" for="setup-host">Host</label>
-					<input type="text" id="setup-host" name="host" required value={ v.Prefill } placeholder="example.com" class="input font-mono"/>
+					<input type="text" id="setup-host" name="host" required value={ val(ctx, "host", v.Prefill) } placeholder="example.com" class="input font-mono" { invalid(ctx, "host")... }/>
+					@fieldError("host")
 					<p class="mt-1.5 text-xs text-rw-faint">A bare lowercase hostname, unique across the server.</p>
 				</div>
 				<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
-					<input type="checkbox" name="include_env_on_default" value="1" class="accent-rw-accent"/>
+					<input type="checkbox" name="include_env_on_default" value="1" checked?={ ticked(ctx, v.Base+"/domain", "include_env_on_default", false) } class="accent-rw-accent"/>
 					Include env slug on the default env (api.prod.stack instead of api.stack)
 				</label>
 				<button type="submit" class="btn btn-primary w-full">Add domain</button>
@@ -723,9 +754,11 @@ templ peoplePanel(v TeamView) {
 		</div>
 	}
 	<form novalidate hx-post={ v.Base + "/team/members" } class="people-add space-y-4">
+		@formError(v.Base + "/team/members")
 		<div>
 			<label class="label" for="people-email">Email address</label>
-			<input type="email" id="people-email" name="email" required placeholder="person@example.com" class="input"/>
+			<input type="email" id="people-email" name="email" required value={ val(ctx, "email", "") } placeholder="person@example.com" class="input" { invalid(ctx, "email")... }/>
+			@fieldError("email")
 			<p class="mt-1.5 text-xs text-rw-faint">They get an invitation to accept. This server sends no mail, so the link is yours to send.</p>
 		</div>
 		@roleButtons(v.Roles)
@@ -801,7 +834,7 @@ templ roleButtons(roles []string) {
 		<div class="flex gap-2">
 			for _, r := range roles {
 				<label class="flex-1 cursor-pointer">
-					<input type="radio" name="role" value={ r } checked?={ r == "member" } class="peer sr-only"/>
+					<input type="radio" name="role" value={ r } checked?={ picked(ctx, "role", r, r == "member") } class="peer sr-only"/>
 					<span class="block text-center rounded-lg border border-rw-border bg-rw-inset px-3 py-1.5 text-sm text-rw-muted transition-colors hover:text-rw-text peer-checked:border-rw-accent peer-checked:bg-rw-accent/10 peer-checked:text-rw-text peer-focus-visible:ring-2 peer-focus-visible:ring-rw-accent/40">
 						{ r }
 						<span class="block text-xs text-rw-faint">{ roleHelp(r) }</span>

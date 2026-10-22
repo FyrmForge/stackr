@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
@@ -68,27 +69,29 @@ func (o *Orchestrator) ConnectorOrgID(ctx context.Context, id string) (*string, 
 	return o.conns.OrgOf(ctx, id)
 }
 
-// BeginServerConnector makes the pending server connector; the browser POSTs
-// manifest to action. userID is the admin who started it; only they can
-// complete it.
+// BeginServerConnector makes the pending server connector, shared with
+// every org from the start (the admin can narrow it after); the browser
+// POSTs manifest to action. userID is the admin who started it; only they
+// can complete it.
 func (o *Orchestrator) BeginServerConnector(
 	ctx context.Context,
 	userID, ghOrg string,
 ) (c Connector, action, manifest string, err error) {
-	return o.conns.BeginServer(ctx, userID, ghOrg)
+	if c, action, manifest, err = o.conns.BeginServer(ctx, userID, ghOrg); err != nil {
+		return c, "", "", err
+	}
+	c, err = o.conns.SetShares(ctx, c.ID, nil, true)
+	return c, action, manifest, err
 }
 
-// BeginSetupConnector is BeginServerConnector for the setup wizard: the App
-// is shared with every org from the start.
-func (o *Orchestrator) BeginSetupConnector(ctx context.Context, userID, ghOrg string) (action, manifest string, err error) {
-	c, action, manifest, err := o.conns.BeginServer(ctx, userID, ghOrg)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := o.conns.SetShares(ctx, c.ID, nil, true); err != nil {
-		return "", "", err
-	}
-	return action, manifest, nil
+// pendingConnectorTTL is how long a "Create on GitHub" may wait for
+// GitHub before the half-made connector is swept.
+const pendingConnectorTTL = time.Hour
+
+// SweepPendingConnectors deletes the connectors GitHub never confirmed
+// within pendingConnectorTTL of their start. The node clients' tick runs it.
+func (o *Orchestrator) SweepPendingConnectors(ctx context.Context, now time.Time) (int, error) {
+	return o.conns.SweepPending(ctx, now.Add(-pendingConnectorTTL))
 }
 
 // GitHubApp is a GitHub App made outside stackr: its ID, slug, private key

@@ -105,6 +105,7 @@ func (h *handler) cascadeForm(c echo.Context, cd card, own string) (comp.Setting
 		}
 		r := comp.SettingRowView{
 			Key:    k.Key,
+			Label:  k.Label,
 			Desc:   k.Desc,
 			Type:   string(k.Type),
 			Secret: k.Key == "protect_password",

@@ -111,6 +111,7 @@ templ ingressPreview(p IngressPreview) {
 // NodeRow is one node card. Open is a GET that answers the node drawer.
 type NodeRow struct {
 	Name, Role, Status, Open string
+	Hint                     string // what to do about Status, NodeHint's
 	Tags                     []string
 	Envs                     int
 	Disk                     string // "34 GB free", "" = not reported
@@ -145,6 +146,16 @@ type AddNodeView struct {
 	Poll    string // GET, 204 until the node has called in
 	// Step 3
 	Pending *PendingRow
+	// Target is what the steps' answers replace; "" = the drawer (the
+	// setup wizard's Nodes step puts its own here).
+	Target string
+}
+
+func (v AddNodeView) target() string {
+	if v.Target != "" {
+		return v.Target
+	}
+	return target()
 }
 
 // PendingRow is a machine that called in and waits for a confirm. System
@@ -158,6 +169,7 @@ type PendingRow struct {
 // NodeView is the node drawer's body. Only the active tab's fields are set.
 type NodeView struct {
 	ID, Name, Role, Status string
+	Hint                   string // what to do about Status, NodeHint's
 	Controller             bool
 	Tags                   []string
 	// Overview
@@ -260,7 +272,7 @@ func statusTone(s string) string {
 	switch s {
 	case "online":
 		return "success"
-	case "joined", "tunnel-down", "not-rejoined":
+	case "joined", "tunnel-down", "not-rejoined", "needs-rejoin", "rejoining":
 		return "warn"
 	}
 	return "danger"
@@ -299,7 +311,22 @@ func ifaces(rows []IfaceRow, group string) []IfaceRow {
 	return out
 }
 
-func statusWord(s string) string {
+// NodeHint is what to do about a node's status, "" for nothing. stalled is
+// a joined node never seen past the wait (service NodeCard.Stalled).
+func NodeHint(status string, stalled bool) string {
+	switch {
+	case status == "joined" && stalled:
+		return "Run the join again on the box. It picks up where it stopped."
+	case status == "needs-rejoin":
+		return "Run the join command on the box. Lost it? Get a new one under Security."
+	case status == "rejoining":
+		return "It called in. Add it under Waiting to join."
+	}
+	return ""
+}
+
+// StatusWord is a node status as people read it.
+func StatusWord(s string) string {
 	switch s {
 	case "online":
 		return "Online"
@@ -311,6 +338,8 @@ func statusWord(s string) string {
 		return "Certificate expired: rejoin"
 	case "not-rejoined":
 		return "Not rejoined"
+	case "needs-rejoin", "rejoining":
+		return "Waiting to rejoin"
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
@@ -396,8 +425,11 @@ templ Nodes(v NodesView) {
 							if len(r.Tags) == 0 {
 								<span class="text-xs text-rw-faint">no tags</span>
 							}
-							<span class="ml-auto">@c.Chip(statusWord(r.Status), statusTone(r.Status))</span>
+							<span class="ml-auto">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
 						</div>
+						if r.Hint != "" {
+							<p class="mt-2 text-xs text-rw-warn">{ r.Hint }</p>
+						}
 						<p class="mt-2 text-xs text-rw-muted">
 							{ plural(r.Envs, "env") }
 							if r.Cores != "" {
@@ -503,7 +535,7 @@ templ AddNode(v AddNodeView) {
 		}
 		switch v.Step {
 			case 1:
-				<form hx-post={ v.Create } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+				<form hx-post={ v.Create } hx-target={ v.target() } hx-swap="outerHTML" class="space-y-4">
 					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Placeholder: "vps-fsn1", Help: "Lowercase, used in placements and the CLI."})
 					<fieldset class="space-y-1">
 						<legend class="label">Tags</legend>
@@ -515,7 +547,7 @@ templ AddNode(v AddNodeView) {
 						<p class="text-xs text-rw-faint">You can change these later.</p>
 					</fieldset>
 					<div class="flex gap-2">
-						<button type="button" hx-get={ v.Cancel } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
+						<button type="button" hx-get={ v.Cancel } hx-target={ v.target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
 						<button type="submit" class="btn btn-primary btn-sm">Get join command</button>
 					</div>
 				</form>
@@ -523,7 +555,7 @@ templ AddNode(v AddNodeView) {
 				<p class="text-sm text-rw-muted">Run this on the new machine as root. It works once and expires { v.Expires }.</p>
 				@joinCommand(v.Command, v.TwoStep)
 				<p class="text-sm text-rw-muted" aria-live="polite">Waiting for { v.Name } to call in…</p>
-				<button type="button" hx-get={ v.Cancel } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
+				<button type="button" hx-get={ v.Cancel } hx-target={ v.target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
 			case 3:
 				if v.Pending != nil {
 					<p class="text-sm text-rw-muted">{ v.Pending.Name } called in. Check it is the machine you expect.</p>
@@ -538,10 +570,10 @@ templ AddNode(v AddNodeView) {
 						}
 					</dl>
 					<div class="flex gap-2">
-						<form hx-post={ v.Pending.Reject } hx-target={ target() } hx-swap="outerHTML">
+						<form hx-post={ v.Pending.Reject } hx-target={ v.target() } hx-swap="outerHTML">
 							<button type="submit" class="btn btn-ghost btn-sm">Reject</button>
 						</form>
-						<form hx-post={ v.Pending.Confirm } hx-target={ target() } hx-swap="outerHTML">
+						<form hx-post={ v.Pending.Confirm } hx-target={ v.target() } hx-swap="outerHTML">
 							<button type="submit" class="btn btn-primary btn-sm">Add { v.Pending.Name }</button>
 						</form>
 					</div>
@@ -705,8 +737,12 @@ templ NodeBody(tab string, v NodeView) {
 						<dt class="text-rw-muted">Status</dt>
 						<dd class="text-rw-text flex items-center gap-2">
 							<span class={ "inline-block size-2 rounded-full", statusDot(v.Status) } aria-hidden="true"></span>
-							<span class={ statusText(v.Status) }>{ statusWord(v.Status) }</span>
+							<span class={ statusText(v.Status) }>{ StatusWord(v.Status) }</span>
 						</dd>
+						if v.Hint != "" {
+							<dt class="sr-only">What to do</dt>
+							<dd class="col-start-2 text-xs text-rw-warn">{ v.Hint }</dd>
+						}
 						<dt class="text-rw-muted">Role</dt>
 						<dd class="text-rw-text">{ v.Role }</dd>
 						<dt class="text-rw-muted">Tags</dt>

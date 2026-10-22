@@ -18,8 +18,10 @@ import (
 )
 
 // fakePanel answers /join pending, then /join/status pending once, then the
-// final answer. It returns the CA's real fingerprint.
-func fakePanel(t *testing.T, final string, tamper ...func(*joinStatus)) (*httptest.Server, string, *atomic.Int32) {
+// final answer. It returns the CA's real fingerprint and the count of
+// /join posts. final "fresh" is a token never spent: /join/status is a 404
+// until /join comes; "gone" is one used up: both are 404s.
+func fakePanel(t *testing.T, final string, tamper ...func(*joinStatus)) (*httptest.Server, string, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
 	ca, err := clusterca.NewCA(time.Now())
 	if err != nil {
@@ -32,12 +34,17 @@ func fakePanel(t *testing.T, final string, tamper ...func(*joinStatus)) (*httpte
 		t.Fatal(err)
 	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert.Raw})
-	var polls atomic.Int32
+	var polls, joins atomic.Int32
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&in)
+		if final == "gone" || final == "fresh" && r.URL.Path == "/api/v1/join/status" && joins.Load() == 0 {
+			http.NotFound(w, r)
+			return
+		}
 		switch r.URL.Path {
 		case "/api/v1/join":
+			joins.Add(1)
 			if in["token"] != "tok" || in["wg_public_key"] != "pub" || in["facts"] == nil || !strings.Contains(in["csr"].(string), "CERTIFICATE REQUEST") {
 				http.Error(w, "bad request body", 400)
 				return
@@ -72,7 +79,7 @@ func fakePanel(t *testing.T, final string, tamper ...func(*joinStatus)) (*httpte
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ts, fp, &polls
+	return ts, fp, &polls, &joins
 }
 
 func callTo(ts *httptest.Server, fp string) joinCall {
@@ -80,10 +87,10 @@ func callTo(ts *httptest.Server, fp string) joinCall {
 }
 
 func TestJoinConfirmed(t *testing.T) {
-	ts, fp, polls := fakePanel(t, "confirmed")
+	ts, fp, polls, _ := fakePanel(t, "confirmed")
 	key, _ := clusterca.NewKey()
 	csr, _ := clusterca.NewCSR(key)
-	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{"interfaces": []any{}})
+	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{"interfaces": []any{}}, false)
 	if err != nil || st.WGAddress != "10.207.255.2" || polls.Load() != 3 || len(st.Mesh) == 0 {
 		t.Fatalf("%+v %v polls=%d", st, err, polls.Load())
 	}
@@ -96,12 +103,12 @@ func TestJoinDropsRootAfterPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts, fp, _ := fakePanel(t, "confirmed", func(st *joinStatus) {
+	ts, fp, _, _ := fakePanel(t, "confirmed", func(st *joinStatus) {
 		st.CAPEM += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: evil.Cert.Raw}))
 	})
 	key, _ := clusterca.NewKey()
 	csr, _ := clusterca.NewCSR(key)
-	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{})
+	st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,14 +147,62 @@ func TestPinnedRootsDropsUnpinned(t *testing.T) {
 func TestJoinRefusals(t *testing.T) {
 	key, _ := clusterca.NewKey()
 	csr, _ := clusterca.NewCSR(key)
-	ts, fp, _ := fakePanel(t, "confirmed")
+	ts, fp, _, _ := fakePanel(t, "confirmed")
 	bad := callTo(ts, strings.Repeat("0", len(fp)))
-	if _, err := bad.run(context.Background(), csr, "pub", map[string]any{}); err == nil || !strings.Contains(err.Error(), "refusing to trust") {
+	if _, err := bad.run(context.Background(), csr, "pub", map[string]any{}, false); err == nil || !strings.Contains(err.Error(), "refusing to trust") {
 		t.Fatalf("wrong fingerprint was accepted: %v", err)
 	}
-	ts, fp, _ = fakePanel(t, "rejected")
-	if _, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{}); err == nil || !strings.Contains(err.Error(), "rejected") {
+	ts, fp, _, _ = fakePanel(t, "rejected")
+	if _, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{}, false); err == nil || !strings.Contains(err.Error(), "rejected") {
 		t.Fatalf("rejected = %v", err)
+	}
+}
+
+// The same command run again after a dead session picks up where it
+// stopped: the request already in is waited on, not posted again; one that
+// never reached the panel is posted; a used-up one says to get a new one.
+func TestJoinResumes(t *testing.T) {
+	key, _ := clusterca.NewKey()
+	csr, _ := clusterca.NewCSR(key)
+	for _, c := range []struct {
+		final string
+		posts int32
+		fails string
+	}{
+		{"confirmed", 0, ""},
+		{"fresh", 1, ""},
+		{"gone", 0, "Get a new one"}, // its post is turned away before it counts
+	} {
+		ts, fp, _, joins := fakePanel(t, c.final)
+		st, err := callTo(ts, fp).run(context.Background(), csr, "pub", map[string]any{}, true)
+		switch {
+		case c.fails != "" && (err == nil || !strings.Contains(err.Error(), c.fails)):
+			t.Errorf("%s: %v, want %q", c.final, err, c.fails)
+		case c.fails == "" && (err != nil || st.Status != "confirmed"):
+			t.Errorf("%s: %+v %v", c.final, st, err)
+		case joins.Load() != c.posts:
+			t.Errorf("%s: %d join posts, want %d", c.final, joins.Load(), c.posts)
+		}
+	}
+}
+
+// joinKey keeps the key a command sent, for that command only.
+func TestJoinKeyResumesTheSameCommand(t *testing.T) {
+	dir := t.TempDir()
+	_, first, resume, err := joinKey(dir, "tok")
+	if err != nil || resume {
+		t.Fatalf("first run: resume %v, %v", resume, err)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, pendingFile)); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("pending file: %v %v", fi, err)
+	}
+	_, again, resume, err := joinKey(dir, "tok")
+	if err != nil || !resume || string(again) != string(first) {
+		t.Fatalf("same command: resume %v, same key %v, %v", resume, string(again) == string(first), err)
+	}
+	_, other, resume, err := joinKey(dir, "tok2")
+	if err != nil || resume || string(other) == string(first) {
+		t.Fatalf("another command: resume %v, same key %v, %v", resume, string(other) == string(first), err)
 	}
 }
 
@@ -257,6 +312,23 @@ func TestStaleMembership(t *testing.T) {
 
 // A join takes the installer out of the panel image next to stackrd; both
 // are staged and renamed in.
+// A command's own output (pull progress, container ids) shows only with
+// --verbose; without it a failure still says what the command said.
+func TestRunnerKeepsCommandOutputBack(t *testing.T) {
+	ctx := context.Background()
+	var out strings.Builder
+	if err := (runner{out: &out}).exec(ctx, "sh", "-c", "echo noisy"); err != nil || out.Len() != 0 {
+		t.Errorf("quiet run printed %q, %v", out.String(), err)
+	}
+	err := (runner{out: &out}).exec(ctx, "sh", "-c", "echo why >&2; exit 3")
+	if err == nil || !strings.Contains(err.Error(), "why") || out.Len() != 0 {
+		t.Errorf("failed run = %v, printed %q", err, out.String())
+	}
+	if err := (runner{out: &out, verbose: true}).exec(ctx, "sh", "-c", "echo noisy"); err != nil || !strings.Contains(out.String(), "noisy") {
+		t.Errorf("verbose run printed %q, %v", out.String(), err)
+	}
+}
+
 func TestFetchWorkerExtractsBothBinaries(t *testing.T) {
 	var out strings.Builder
 	r := runner{dry: true, out: &out}

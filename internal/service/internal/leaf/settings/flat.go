@@ -83,13 +83,16 @@ func Check(key, raw string) error {
 		return unknown(key)
 	}
 	if k.ReadOnly {
-		return errs.Invalidf(key, "%s comes from the installer and cannot be changed here", key)
+		return invalid(k, "comes from the installer and cannot be changed here")
 	}
 	if raw = strings.TrimSpace(raw); raw == "" {
 		return nil
 	}
 	if err := validate(k, raw); err != nil {
-		return errs.Invalidf(key, "%s", err.Error())
+		if _, ok := errs.IsInvalid(err); ok {
+			return err
+		}
+		return invalid(k, "%s", err.Error())
 	}
 	return nil
 }
@@ -117,7 +120,7 @@ func validate(k Knob, raw string) error {
 			return fmt.Errorf("%q is not a whole number", raw)
 		}
 		if k.Key == "observe_max_memory" && v < 256 {
-			return fmt.Errorf("%s: %d MB is under the 256 MB floor", k.Key, v)
+			return fmt.Errorf("%d MB is under the 256 MB floor", v)
 		}
 		return usable(k, v)
 	case TFloat:
@@ -150,8 +153,11 @@ func (l *Leaf) SetDefaults(ctx context.Context, vals map[string]string) error {
 		return err
 	}
 	next, err := Merge(cur, vals, Server)
-	if err != nil {
+	if _, ok := errs.IsInvalid(err); err != nil && !ok {
 		return errs.Invalidf("", "%s", err.Error())
+	}
+	if err != nil {
+		return err
 	}
 	return l.rows.Set(ctx, DefaultsKey, next.JSON())
 }

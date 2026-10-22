@@ -614,6 +614,9 @@ func (o *Orchestrator) watchNodeClients() {
 			o.dailyChores(context.Background())
 		case <-t.C:
 			o.controllerDiskAlert(context.Background())
+			if _, err := o.SweepPendingConnectors(context.Background(), time.Now()); err != nil {
+				slog.Warn("connectors: pending sweep failed", "err", err)
+			}
 			if err := o.refreshNodeClients(context.Background()); err != nil {
 				slog.Warn("nodes: client refresh failed", "err", err)
 			}

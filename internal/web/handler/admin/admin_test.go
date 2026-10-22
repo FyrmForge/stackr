@@ -173,6 +173,9 @@ func TestAdminBackupSchedule(t *testing.T) {
 			t.Errorf("backups tab has no %s", want)
 		}
 	}
+	if !regexp.MustCompile(`name="shared"[^>]*checked`).MatchString(tab) {
+		t.Error("a new destination is not offered to every org by default")
+	}
 	if !regexp.MustCompile(`name="panel_backup_enabled"[^>]*checked`).MatchString(tab) {
 		t.Error("the switch is not on by default")
 	}
@@ -206,6 +209,15 @@ func TestAdminBackupSchedule(t *testing.T) {
 	}
 	if v, _ := s.Orch.Setting(ctx, "panel_backup_schedule"); v != "0 3 * * *" {
 		t.Errorf("an empty schedule = %q, want the default time", v)
+	}
+
+	// A destination just added is the panel backup form's pick.
+	rec := s.As(t, root, "POST", "/-/admin/dests", url.Values{
+		"dest_name": {"offsite"}, "endpoint": {"https://s3.example.test"}, "bucket": {"b"}, "region": {"r"},
+		"access_key": {"ak"}, "secret_key": {"sk"},
+	})
+	if !regexp.MustCompile(`<option value="[^"]+" selected>offsite</option>`).MatchString(rec.Body.String()) {
+		t.Errorf("the new destination is not picked for the panel backup:\n%s", rec.Body)
 	}
 
 	// Run one: the last-run line says where it went.

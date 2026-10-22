@@ -48,13 +48,19 @@ func (e Refused) Is(target error) bool {
 
 // Invalid is a rejected input. Field is the request key the caller can fix,
 // empty when the fault is the request as a whole.
+// Label, when set, is how a person knows the field ("Retention (days)"):
+// the message says it in place of Field.
 type Invalid struct {
 	Field string
+	Label string
 	Msg   string
 }
 
 func (e Invalid) Error() string {
-	if e.Field == "" {
+	switch {
+	case e.Label != "":
+		return e.Label + ": " + e.Msg
+	case e.Field == "":
 		return e.Msg
 	}
 	return e.Field + ": " + e.Msg

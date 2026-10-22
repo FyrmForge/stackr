@@ -28,6 +28,7 @@ type SettingsFormView struct {
 // SettingRowView mirrors a settings.Knob plus the cascade's answer.
 type SettingRowView struct {
 	Key       string
+	Label     string // the catalogue's; "" shows Key
 	Desc      string
 	Type      string // int | float | bool | string
 	Value     string // this rung's value; "" = inherit
@@ -38,55 +39,54 @@ type SettingRowView struct {
 	Error     string
 }
 
-// knob is how v0 spells a catalogue key and the section it sits in.
-type knob struct{ label, section string }
-
-var knobs = map[string]knob{
-	"cpu_limit":                  {"CPU limit (cores)", "Resources"},
-	"mem_limit_mb":               {"Memory limit (MB)", "Resources"},
-	"protect":                    {"Password protect URLs", "Protect"},
-	"protect_user":               {"Protect user", "Protect"},
-	"protect_password":           {"Protect password", "Protect"},
-	"workers":                    {"Job workers", "Jobs"},
-	"backup_run_concurrency":     {"Backups at once", "Jobs"},
-	"backup_restore_concurrency": {"Restores at once", "Jobs"},
-	"image_check_interval":       {"Image check interval (minutes)", "Images"},
-	"cleanup_enabled":            {"Nightly cleanup", "Images"},
-	"orphan_retention_days":      {"Orphan retention (days)", "Volumes"},
-	"orphans_enabled":            {"Orphan sweep", "Volumes"},
-	"orphans_schedule":           {"Orphan sweep schedule", "Volumes"},
-	"cleanup_schedule":           {"Cleanup schedule", "Images"},
-	"registry_cleanup_schedule":  {"Registry cleanup schedule", "Images"},
-	"registry_keep":              {"Registry versions kept", "Images"},
-	"panel_backup_enabled":       {"Panel backups", "Backups"},
-	"panel_backup_schedule":      {"Panel backup schedule", "Backups"},
-	"panel_backup_keep":          {"Panel backups kept", "Backups"},
-	"panel_backup_dest":          {"Panel backup destination id", "Backups"},
-	"observe_enabled":            {"Metrics", "Observability"},
-	"observe_metrics_retention":  {"Metrics retention (days)", "Observability"},
-	"observe_min_free":           {"Free disk floor (GB)", "Observability"},
-	"observe_logs_enabled":       {"Logs", "Observability"},
-	"observe_logs_retention":     {"Logs retention (days)", "Observability"},
-	"observe_logs_max_size":      {"Logs size cap (GB)", "Observability"},
-	"observe_max_memory":         {"Memory cap (MB)", "Observability"},
-	"observe_access_query":       {"Access log query string", "Observability"},
-	"observe_access_ip":          {"Access log client IP", "Observability"},
-	"observe_access_headers":     {"Access log headers", "Observability"},
-	"panel_domain":               {"Panel domain", "Panel and proxy"},
-	"acme_email":                 {"ACME email", "Panel and proxy"},
-	"trusted_proxies":            {"Trusted proxies", "Panel and proxy"},
-	"dns_provider":               {"DNS provider", "Panel and proxy"},
-	"proxy_custom":               {"Custom Caddy config", "Panel and proxy"},
-	"root_domain":                {"Root domain", "Panel and proxy"},
+// knobSection is the v0 section each catalogue key sits in; the label is
+// the catalogue's (SettingRowView.Label).
+var knobSection = map[string]string{
+	"cpu_limit":                  "Resources",
+	"mem_limit_mb":               "Resources",
+	"protect":                    "Protect",
+	"protect_user":               "Protect",
+	"protect_password":           "Protect",
+	"workers":                    "Jobs",
+	"backup_run_concurrency":     "Jobs",
+	"backup_restore_concurrency": "Jobs",
+	"image_check_interval":       "Images",
+	"cleanup_enabled":            "Images",
+	"orphan_retention_days":      "Volumes",
+	"orphans_enabled":            "Volumes",
+	"orphans_schedule":           "Volumes",
+	"cleanup_schedule":           "Images",
+	"registry_cleanup_schedule":  "Images",
+	"registry_keep":              "Images",
+	"panel_backup_enabled":       "Backups",
+	"panel_backup_schedule":      "Backups",
+	"panel_backup_keep":          "Backups",
+	"panel_backup_dest":          "Backups",
+	"observe_enabled":            "Observability",
+	"observe_metrics_retention":  "Observability",
+	"observe_min_free":           "Observability",
+	"observe_logs_enabled":       "Observability",
+	"observe_logs_retention":     "Observability",
+	"observe_logs_max_size":      "Observability",
+	"observe_max_memory":         "Observability",
+	"observe_access_query":       "Observability",
+	"observe_access_ip":          "Observability",
+	"observe_access_headers":     "Observability",
+	"panel_domain":               "Panel and proxy",
+	"acme_email":                 "Panel and proxy",
+	"trusted_proxies":            "Panel and proxy",
+	"dns_provider":               "Panel and proxy",
+	"proxy_custom":               "Panel and proxy",
+	"root_domain":                "Panel and proxy",
 }
 
 var knobSections = []string{"Resources", "Protect", "Jobs", "Images", "Volumes", "Backups", "Observability", "Panel and proxy", "Other"}
 
-func knobLabel(key string) string {
-	if k, ok := knobs[key]; ok {
-		return k.label
+func knobLabel(r SettingRowView) string {
+	if r.Label != "" {
+		return r.Label
 	}
-	return key
+	return r.Key
 }
 
 // sectioned groups the rows by v0 section, in section order; a key the
@@ -95,8 +95,8 @@ func sectioned(rows []SettingRowView) [][]SettingRowView {
 	by := map[string][]SettingRowView{}
 	for _, r := range rows {
 		s := "Other"
-		if k, ok := knobs[r.Key]; ok {
-			s = k.section
+		if k, ok := knobSection[r.Key]; ok {
+			s = k
 		}
 		by[s] = append(by[s], r)
 	}
@@ -110,8 +110,8 @@ func sectioned(rows []SettingRowView) [][]SettingRowView {
 }
 
 func sectionOf(rows []SettingRowView) string {
-	if k, ok := knobs[rows[0].Key]; ok {
-		return k.section
+	if k, ok := knobSection[rows[0].Key]; ok {
+		return k
 	}
 	return "Other"
 }
@@ -400,9 +400,9 @@ func readOnlyRow(r SettingRowView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var11 string
-		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(knobLabel(r.Key))
+		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(knobLabel(r))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/settings_form.templ`, Line: 188, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/settings_form.templ`, Line: 188, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -502,9 +502,9 @@ func editRow(form string, r SettingRowView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var16 string
-		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(knobLabel(r.Key))
+		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(knobLabel(r))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/settings_form.templ`, Line: 202, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/settings_form.templ`, Line: 202, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {

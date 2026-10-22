@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -71,6 +72,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	fs.IntVar(&in.WGPort, "wg-port", 0, fmt.Sprintf("UDP port of the controller's mesh WireGuard (default %d)", mesh.DefaultPort))
 	allowDown := fs.Bool("allow-downgrade", false, "move the panel to an older release than it runs (migrations may not reverse)")
 	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
+	verbose := fs.Bool("verbose", false, "show each command's own output: image pulls, container ids")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -89,7 +91,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	image := installspec.Image(ver)
-	r := runner{dry: *dry, out: out}
+	r := runner{dry: *dry, out: out, verbose: *verbose}
 
 	if !r.dry {
 		if err := preflight(ctx, r, *yes); err != nil {
@@ -501,19 +503,46 @@ func portBusy(port string) bool {
 type runner struct {
 	dry bool
 	out io.Writer
+	// verbose shows each command's own output (pull progress, container
+	// ids); without it a step is its one line, and only a failure shows
+	// what the command said.
+	verbose bool
 }
 
 func (r runner) say(a ...any) { _, _ = fmt.Fprintln(r.out, a...) }
 
+// docker runs one docker command as one line of output.
 func (r runner) docker(ctx context.Context, args ...string) error {
+	if !r.dry {
+		r.say("  docker", strings.Join(args[:min(2, len(args))], " "))
+	}
+	return r.quietDocker(ctx, args...)
+}
+
+// quietDocker is docker inside a step that said its own line.
+func (r runner) quietDocker(ctx context.Context, args ...string) error {
 	if r.dry {
 		r.say("  would run: docker", quote(maskToken(args)))
 		return nil
 	}
-	r.say("  docker", strings.Join(args[:min(2, len(args))], " "))
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Stdout, cmd.Stderr = r.out, r.out
-	return cmd.Run()
+	return r.exec(ctx, "docker", args...)
+}
+
+// exec runs a command; its output shows with --verbose, else it is kept
+// and its last lines go into the error when the command fails.
+func (r runner) exec(ctx context.Context, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	if r.verbose {
+		cmd.Stdout, cmd.Stderr = r.out, r.out
+	}
+	err := cmd.Run()
+	if out := strings.TrimSpace(buf.String()); err != nil && out != "" {
+		lines := strings.Split(out, "\n")
+		return fmt.Errorf("%w: %s", err, strings.Join(lines[max(0, len(lines)-5):], "\n"))
+	}
+	return err
 }
 
 func (r runner) write(path string, do func() error) error {
