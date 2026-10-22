@@ -135,6 +135,12 @@ func TestByHand(t *testing.T) {
 		`name="role" value="member" checked`,
 		"Add to organization",
 	)
+	// a refused invite comes back as typed, the message under the address
+	rec = s.As(t, sess, "POST", b+"/team/members", url.Values{"email": {"  "}, "role": {"viewer"}})
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `value="  "`) ||
+		!strings.Contains(rec.Body.String(), `id="error-email"`) || !strings.Contains(rec.Body.String(), `name="role" value="viewer" checked`) {
+		t.Fatalf("refused invite = %d\n%s", rec.Code, rec.Body)
+	}
 	redirect(t, s, sess, b+"/team/members", url.Values{"email": {"new@x.test"}, "role": {"owner"}}, b+"/team")
 	page(t, s, sess, b+"/team", "new@x.test", "Invited, expires", "Copy invite", `data-copy="/invite/`)
 	// every role the page offers is one the org takes

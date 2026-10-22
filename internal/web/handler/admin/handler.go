@@ -93,7 +93,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	dests := a.Require("serverdefaults.set")
 	g.POST(b+"/dests", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		f := c.FormValue
-		_, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
+		d, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
 			Name:      f("dest_name"),
 			Endpoint:  f("endpoint"),
 			Region:    f("region"),
@@ -102,6 +102,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 			SecretKey: f("secret_key"),
 			Shared:    f("shared") != "",
 		})
+		c.Set(addedDestKey, d.ID) // the panel backup form picks it
 		return "Destination added.", nil, err
 	}), dests)
 	g.POST(b+"/dests/:dest/share", h.act("backups", h.share), dests)
@@ -113,6 +114,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
 	}), dests)
 }
+
+// addedDestKey carries a destination just added to the Backups tab render.
+const addedDestKey = "admin_added_dest"
 
 // share flips a global destination's sharing; blank keys keep the stored
 // ones, so no key leaves the service.
@@ -352,6 +356,9 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			return nil, serr
 		}
 		v.Sched.Enabled = on == "true"
+		if added, _ := c.Get(addedDestKey).(string); v.Sched.Dest == "" {
+			v.Sched.Dest = added
+		}
 		destName := map[string]string{}
 		for _, d := range ds {
 			destName[d.ID] = d.Name

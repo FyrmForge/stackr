@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 )
 
 // Server setup: the first-run wizard an admin lands on while the
@@ -95,8 +96,9 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 		return nil, err
 	}
 	l = SetupLine{Step: "github", State: "skipped"}
-	if len(cs) > 0 {
-		l.State, l.Detail = "on", plural(len(cs), "App")
+	// one GitHub never confirmed is not set up
+	if n := len(slices.DeleteFunc(cs, func(c Connector) bool { return !connector.Connected(c) })); n > 0 {
+		l.State, l.Detail = "on", plural(n, "App")
 	}
 	out = append(out, l)
 

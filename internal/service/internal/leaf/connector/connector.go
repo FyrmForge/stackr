@@ -364,6 +364,27 @@ func (l *Leaf) Delete(ctx context.Context, orgID, id string) error {
 	return l.conns.Delete(ctx, id)
 }
 
+// SweepPending deletes the GitHub connectors whose handshake began before
+// cutoff and GitHub never finished: a "Create on GitHub" walked away from.
+// Nothing binds one: a pending connector has no App to bind.
+func (l *Leaf) SweepPending(ctx context.Context, cutoff time.Time) (int, error) {
+	cs, err := l.conns.ListAll(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range cs {
+		if cfg := parse(c); c.Provider != GitHub || cfg.App != nil || cfg.State == "" || !c.CreatedAt.Before(cutoff) {
+			continue
+		}
+		if err := l.conns.Delete(ctx, c.ID); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // DeleteServer deletes a server connector and, by cascade, its shares. The
 // caller has checked nothing binds it.
 func (l *Leaf) DeleteServer(ctx context.Context, id string) error {

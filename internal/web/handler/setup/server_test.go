@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
@@ -161,9 +163,21 @@ func TestServerWizardDomains(t *testing.T) {
 	if !strings.Contains(s.do(adm, "GET", setup.ServerBase+"/ui/domains", nil, false).Body.String(), `value="example.test"`) {
 		t.Error("saved domain is not shown again")
 	}
-	rec = s.do(adm, "POST", setup.ServerBase+"/domains", url.Values{"acme_email": {"not an email"}}, true)
-	if got := rec.Header().Get("HX-Redirect"); got != setup.ServerBase+"/ui/domains" {
-		t.Errorf("bad email = %q, want back on domains", got)
+	rec = s.do(adm, "POST", setup.ServerBase+"/domains", url.Values{"root_domain": {"kept.test"}, "acme_email": {"not an email"}}, true)
+	refused(t, rec, `value="kept.test"`, `value="not an email"`, `id="error-acme_email"`)
+}
+
+// refused checks a refused save came back as its step, swapped into the
+// shell: 422, what was typed still there, the message where it belongs.
+func refused(t *testing.T, rec *httptest.ResponseRecorder, want ...string) {
+	t.Helper()
+	if rec.Code != http.StatusUnprocessableEntity || rec.Header().Get("HX-Retarget") != "#setup-shell" {
+		t.Errorf("refused save = %d, retarget %q; want 422 into the shell", rec.Code, rec.Header().Get("HX-Retarget"))
+	}
+	for _, w := range want {
+		if !strings.Contains(rec.Body.String(), w) {
+			t.Errorf("refused save lacks %s", w)
+		}
 	}
 }
 
@@ -239,9 +253,7 @@ func TestServerWizardObserve(t *testing.T) {
 		}
 	}
 	rec = s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"1"}, "observe_metrics_retention": {"lots"}}, true)
-	if got := rec.Header().Get("HX-Redirect"); got != setup.ServerBase+"/ui/observability" {
-		t.Errorf("bad number = %q, want back on observability", got)
-	}
+	refused(t, rec, `value="lots"`, `id="error-observe_metrics_retention"`, "is not a whole number")
 	if v, _ := s.env.Orch.Setting(ctx, "observe_enabled"); v != "false" {
 		t.Errorf("a refused save wrote observe_enabled = %q", v)
 	}
@@ -260,9 +272,7 @@ func TestServerWizardBackups(t *testing.T) {
 		"dest_name": {"offsite"}, "endpoint": {"https://s3.example.test"}, "bucket": {"b"}, "region": {"r"},
 		"access_key": {"ak"}, "secret_key": {"sk"}, "shared": {"1"},
 	}, true)
-	if got := rec.Header().Get("HX-Redirect"); got != setup.ServerBase+"/ui/backups" {
-		t.Fatalf("dest = %d %q", rec.Code, got)
-	}
+	back := rec.Header().Get("HX-Redirect")
 	ds, _ := s.env.Orch.GlobalBackupDests(ctx)
 	var id string
 	for _, d := range ds {
@@ -276,6 +286,13 @@ func TestServerWizardBackups(t *testing.T) {
 	if id == "" {
 		t.Fatal("destination not saved")
 	}
+	if back != setup.ServerBase+"/ui/backups?dest="+id {
+		t.Fatalf("dest = %d %q", rec.Code, back)
+	}
+	// the panel backup form picks what was just added, not This box
+	if body := s.do(adm, "GET", back, nil, false).Body.String(); !strings.Contains(body, `<option value="`+id+`" selected>`) {
+		t.Error("the new destination is not picked for the panel backup")
+	}
 	rec = s.do(adm, "POST", setup.ServerBase+"/panel-backup", url.Values{"panel_backup_enabled": {"1"}, "panel_backup_schedule": {"0 4 * * *"}, "panel_backup_dest": {id}}, true)
 	if got := rec.Header().Get("HX-Redirect"); got != setup.ServerBase+"/ui/nodes" {
 		t.Fatalf("panel backup = %d %q", rec.Code, got)
@@ -286,8 +303,17 @@ func TestServerWizardBackups(t *testing.T) {
 		}
 	}
 	rec = s.do(adm, "POST", setup.ServerBase+"/panel-backup", url.Values{"panel_backup_schedule": {"whenever"}}, true)
-	if got := rec.Header().Get("HX-Redirect"); got != setup.ServerBase+"/ui/backups" {
-		t.Errorf("bad cron = %q, want back on backups", got)
+	refused(t, rec, `value="whenever"`, `id="error-panel_backup_schedule"`)
+	if regexp.MustCompile(`name="panel_backup_enabled"[^>]*checked`).MatchString(rec.Body.String()) {
+		t.Error("the switch posted off came back on")
+	}
+	// a refused destination keeps every field, the secret key too
+	rec = s.do(adm, "POST", setup.ServerBase+"/dest", url.Values{
+		"dest_name": {"second"}, "endpoint": {"ftp://nope"}, "bucket": {"b2"}, "access_key": {"ak2"}, "secret_key": {"sk2"},
+	}, true)
+	refused(t, rec, `value="second"`, `value="ftp://nope"`, `value="sk2"`, `id="error-endpoint"`)
+	if regexp.MustCompile(`name="shared"[^>]*checked`).MatchString(rec.Body.String()) {
+		t.Error("Let orgs use it, posted off, came back on")
 	}
 }
 
@@ -300,9 +326,7 @@ func TestServerWizardGitHub(t *testing.T) {
 	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
 	form := url.Values{"app_id": {"42"}, "slug": {"my-app"}, "webhook_secret": {"whsec"}, "private_key": {"not a key"}}
 	rec := s.do(adm, "POST", setup.ServerBase+"/github/app", form, true)
-	if got := rec.Header().Get("HX-Redirect"); got != setup.ServerBase+"/ui/github" {
-		t.Fatalf("bad key = %d %q", rec.Code, got)
-	}
+	refused(t, rec, `value="my-app"`, `value="whsec"`, ">not a key</textarea>", `id="error-private_key"`)
 	if cs, _ := s.env.Orch.ServerConnectors(ctx); len(cs) != 0 {
 		t.Fatalf("a bad key was saved: %+v", cs)
 	}
@@ -333,5 +357,27 @@ func TestServerWizardGitHub(t *testing.T) {
 	cs, _ = s.env.Orch.ServerConnectors(ctx)
 	if len(cs) != 2 || !cs[0].ShareAll || !cs[1].ShareAll {
 		t.Errorf("manifest connector is not shared with all: %+v", cs)
+	}
+}
+
+// A Create on GitHub walked away from is no App: the step keeps Skip, and
+// the sweep removes the half-made connector after an hour.
+func TestServerWizardPendingApp(t *testing.T) {
+	s := newSrvSite(t)
+	ctx := context.Background()
+	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
+	s.do(adm, "POST", setup.ServerBase+"/github", url.Values{}, false)
+	body := s.do(adm, "GET", setup.ServerBase+"/ui/github", nil, false).Body.String()
+	if !strings.Contains(body, ">Skip</a>") || strings.Contains(body, ">Continue</a>") {
+		t.Errorf("a pending App turned Skip into Continue:\n%s", body)
+	}
+	if n, err := s.env.Orch.SweepPendingConnectors(ctx, time.Now()); err != nil || n != 0 {
+		t.Errorf("fresh sweep = %d, %v; want none", n, err)
+	}
+	if n, err := s.env.Orch.SweepPendingConnectors(ctx, time.Now().Add(2*time.Hour)); err != nil || n != 1 {
+		t.Errorf("sweep after two hours = %d, %v; want 1", n, err)
+	}
+	if cs, _ := s.env.Orch.ServerConnectors(ctx); len(cs) != 0 {
+		t.Errorf("connectors after the sweep = %+v", cs)
 	}
 }

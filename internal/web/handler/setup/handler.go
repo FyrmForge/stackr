@@ -117,8 +117,10 @@ func (h *handler) create(c echo.Context) error {
 // GET /:org/-/setup/:step. A finished org's step is a stale copy of a
 // drawer tab, so it goes there, said out loud; a step the other branch
 // owns lands on the summary.
-func (h *handler) step(c echo.Context) error {
-	og, st := middleware.ScopeOf(c).Org, c.Param("step")
+func (h *handler) step(c echo.Context) error { return h.showStep(c, c.Param("step")) }
+
+func (h *handler) showStep(c echo.Context, st string) error {
+	og := middleware.ScopeOf(c).Org
 	if og.SetupDoneAt != nil {
 		hamrmw.SetFlash(c, "Setup is already finished.", hamrmw.FlashInfo)
 		return respond.Redirect(c, settingsTab(og, st))
@@ -149,7 +151,7 @@ func (h *handler) step(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return render.Bare(c, http.StatusOK, "Setup: "+f.Title, body)
+	return render.Bare(c, status(c), "Setup: "+f.Title, body)
 }
 
 // github is the connector and config steps. Their body hangs on GitHub's
@@ -707,7 +709,7 @@ func (h *handler) domain(c echo.Context) error {
 		"",
 	)
 	if err != nil {
-		return back(c, err, base(og)+"/domain")
+		return refill(c, err, func() error { return h.showStep(c, "domain") })
 	}
 	hamrmw.SetFlash(c, "Domain "+r.Host+" added. This organization's tiles can now claim auto hostnames under it.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, next(og, "domain"))
@@ -725,7 +727,7 @@ func (h *handler) invite(c echo.Context) error {
 		middleware.Principal(c).User.ID,
 	)
 	if err != nil {
-		return back(c, err, base(og)+"/team")
+		return refill(c, err, func() error { return h.showStep(c, "team") })
 	}
 	hamrmw.SetFlash(c, "Invite created for "+i.Email+". This server sends no mail, so use Copy invite on their row and send the link yourself.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, base(og)+"/team")
@@ -782,6 +784,40 @@ func back(c echo.Context, err error, url string) error {
 	}
 	hamrmw.SetFlash(c, msg, hamrmw.FlashError)
 	return respond.Redirect(c, url)
+}
+
+// refill answers a refused save with its step again, in both wizards: what
+// was posted stays in the form (secrets too: they came from this browser)
+// and the message sits under the field it names, else over the form. show
+// renders the step; htmx swaps its shell in place of the old one. Anything
+// but a refusal is the error page.
+func refill(c echo.Context, err error, show func() error) error {
+	msg, ok := render.Refused(err)
+	if !ok {
+		return middleware.HTTPError(err)
+	}
+	r := pages.Refill{Action: c.Request().URL.Path, Msg: msg}
+	if inv, ok := errs.IsInvalid(err); ok {
+		r.Field, r.Msg = inv.Field, inv.Msg
+	}
+	if r.Form, err = c.FormParams(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	req := c.Request()
+	c.SetRequest(req.WithContext(pages.WithRefill(req.Context(), r)))
+	h := c.Response().Header()
+	h.Set("HX-Retarget", "#"+pages.ShellID)
+	h.Set("HX-Reselect", "#"+pages.ShellID)
+	h.Set("HX-Reswap", "outerHTML")
+	return show()
+}
+
+// status is a step page's: 422 when it answers a refused save.
+func status(c echo.Context) int {
+	if pages.Refilled(c.Request().Context()) {
+		return http.StatusUnprocessableEntity
+	}
+	return http.StatusOK
 }
 
 // flow is the steps the org's branch walks after the branch question: a

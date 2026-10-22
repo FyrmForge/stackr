@@ -83,6 +83,11 @@ func TestAdminConnectors(t *testing.T) {
 	if len(cs) != 2 {
 		t.Fatalf("connectors after begin = %+v", cs)
 	}
+	for _, k := range cs {
+		if k.ID != srv && !k.ShareAll {
+			t.Errorf("a connector begun in Admin is not shared with every org: %+v", k)
+		}
+	}
 	rec = s.As(t, root, "GET", "/-/admin?tab=connectors", nil)
 	if !strings.Contains(rec.Body.String(), "pending") {
 		t.Errorf("a pending connector is not marked:\n%s", rec.Body)

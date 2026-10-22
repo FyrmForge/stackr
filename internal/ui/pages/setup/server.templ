@@ -36,6 +36,7 @@ type ServerGitHubView struct {
 	ServerStep
 	CSRF string // the native manifest form's token
 	Apps []ServerApp
+	Done bool // an App GitHub confirmed: Continue, not Skip
 }
 
 // ServerObserveView is the observability screen, prefilled from the settings.
@@ -108,18 +109,22 @@ templ ServerBranch(v ServerBranchView) {
 templ ServerDomains(v ServerDomainsView) {
 	@shell(v.Frame) {
 		<form novalidate hx-post={ v.Base + "/domains" } class="space-y-4">
+			@formError(v.Base + "/domains")
 			<div>
 				<label class="label" for="srv-root">Root domain</label>
-				<input type="text" id="srv-root" name="root_domain" value={ v.Root } placeholder="example.com" class="input font-mono"/>
+				<input type="text" id="srv-root" name="root_domain" value={ val(ctx, "root_domain", v.Root) } placeholder="example.com" class="input font-mono" { invalid(ctx, "root_domain")... }/>
+				@fieldError("root_domain")
 				<p class="mt-1.5 text-xs text-rw-faint">Stacks get their hostnames under it.</p>
 			</div>
 			<div>
 				<label class="label" for="srv-panel">Panel domain</label>
-				<input type="text" id="srv-panel" name="panel_domain" value={ v.Panel } placeholder="stackr.example.com" class="input font-mono"/>
+				<input type="text" id="srv-panel" name="panel_domain" value={ val(ctx, "panel_domain", v.Panel) } placeholder="stackr.example.com" class="input font-mono" { invalid(ctx, "panel_domain")... }/>
+				@fieldError("panel_domain")
 			</div>
 			<div>
 				<label class="label" for="srv-acme">ACME email</label>
-				<input type="email" id="srv-acme" name="acme_email" value={ v.Email } placeholder="you@example.com" class="input"/>
+				<input type="email" id="srv-acme" name="acme_email" value={ val(ctx, "acme_email", v.Email) } placeholder="you@example.com" class="input" { invalid(ctx, "acme_email")... }/>
+				@fieldError("acme_email")
 				<p class="mt-1.5 text-xs text-rw-faint">Certificate notices go here.</p>
 			</div>
 			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
@@ -152,6 +157,8 @@ templ ServerGitHub(v ServerGitHubView) {
 						<p class="font-mono text-xs text-rw-muted break-all">{ a.HookURL }</p>
 						if a.InstallURL != "" {
 							<a href={ templ.SafeURL(a.InstallURL) } target="_blank" rel="noopener" class="text-xs text-rw-accent hover:underline">Install it on GitHub</a>
+						} else {
+							<p class="text-xs text-rw-faint">GitHub has not confirmed it. It goes away after an hour.</p>
 						}
 					</li>
 				}
@@ -176,27 +183,32 @@ templ ServerGitHub(v ServerGitHubView) {
 			<h3 class="text-sm font-semibold text-rw-text">Use an existing App</h3>
 			<p class="text-xs text-rw-faint">Shared with every organization. The webhook URL shows here once saved.</p>
 			<form novalidate hx-post={ v.Base + "/github/app" } class="space-y-3">
+				@formError(v.Base + "/github/app")
 				<div>
 					<label class="label" for="srv-app-id">App ID</label>
-					<input type="text" inputmode="numeric" id="srv-app-id" name="app_id" class="input font-mono"/>
+					<input type="text" inputmode="numeric" id="srv-app-id" name="app_id" value={ val(ctx, "app_id", "") } class="input font-mono" { invalid(ctx, "app_id")... }/>
+					@fieldError("app_id")
 				</div>
 				<div>
 					<label class="label" for="srv-app-slug">Slug</label>
-					<input type="text" id="srv-app-slug" name="slug" placeholder="my-stackr-app" class="input font-mono"/>
+					<input type="text" id="srv-app-slug" name="slug" value={ val(ctx, "slug", "") } placeholder="my-stackr-app" class="input font-mono" { invalid(ctx, "slug")... }/>
+					@fieldError("slug")
 					<p class="mt-1.5 text-xs text-rw-faint">The last part of the App's github.com/apps/ address.</p>
 				</div>
 				<div>
 					<label class="label" for="srv-app-key">Private key</label>
-					<textarea id="srv-app-key" name="private_key" rows="5" autocomplete="off" placeholder="-----BEGIN RSA PRIVATE KEY-----" class="input font-mono text-xs"></textarea>
+					<textarea id="srv-app-key" name="private_key" rows="5" autocomplete="off" placeholder="-----BEGIN RSA PRIVATE KEY-----" class="input font-mono text-xs" { invalid(ctx, "private_key")... }>{ val(ctx, "private_key", "") }</textarea>
+					@fieldError("private_key")
 				</div>
 				<div>
 					<label class="label" for="srv-app-secret">Webhook secret</label>
-					<input type="password" id="srv-app-secret" name="webhook_secret" autocomplete="off" class="input font-mono"/>
+					<input type="password" id="srv-app-secret" name="webhook_secret" value={ val(ctx, "webhook_secret", "") } autocomplete="off" class="input font-mono" { invalid(ctx, "webhook_secret")... }/>
+					@fieldError("webhook_secret")
 				</div>
 				<button type="submit" class="btn btn-ghost w-full">Save App</button>
 			</form>
 		</div>
-		@serverNext(v.Next, len(v.Apps) > 0, "Without one, each organization connects its own GitHub later.")
+		@serverNext(v.Next, v.Done, "Without one, each organization connects its own GitHub later.")
 	}
 }
 
@@ -221,23 +233,28 @@ templ ServerObserve(v ServerObserveView) {
 			</div>
 		</div>
 		<form novalidate hx-post={ v.Base + "/observe" } class="space-y-4">
-			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-observe" name="observe_enabled" value="1" checked?={ v.Enabled } class="accent-rw-accent"/> Run the stackr-observe container</label>
+			@formError(v.Base + "/observe")
+			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-observe" name="observe_enabled" value="1" checked?={ ticked(ctx, v.Base+"/observe", "observe_enabled", v.Enabled) } class="accent-rw-accent"/> Run the stackr-observe container</label>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
 					<label class="label" for="srv-ob-days">Graph history (days)</label>
-					<input type="number" min="1" id="srv-ob-days" name="observe_metrics_retention" value={ v.Retention } class="input"/>
+					<input type="number" min="1" id="srv-ob-days" name="observe_metrics_retention" value={ val(ctx, "observe_metrics_retention", v.Retention) } class="input" { invalid(ctx, "observe_metrics_retention")... }/>
+					@fieldError("observe_metrics_retention")
 				</div>
 				<div>
 					<label class="label" for="srv-ob-free">Free disk floor (GB)</label>
-					<input type="number" min="0" id="srv-ob-free" name="observe_min_free" value={ v.MinFree } class="input"/>
+					<input type="number" min="0" id="srv-ob-free" name="observe_min_free" value={ val(ctx, "observe_min_free", v.MinFree) } class="input" { invalid(ctx, "observe_min_free")... }/>
+					@fieldError("observe_min_free")
 				</div>
 				<div>
 					<label class="label" for="srv-ob-logs">Log history (days)</label>
-					<input type="number" min="1" id="srv-ob-logs" name="observe_logs_retention" value={ v.LogsDays } class="input"/>
+					<input type="number" min="1" id="srv-ob-logs" name="observe_logs_retention" value={ val(ctx, "observe_logs_retention", v.LogsDays) } class="input" { invalid(ctx, "observe_logs_retention")... }/>
+					@fieldError("observe_logs_retention")
 				</div>
 				<div>
 					<label class="label" for="srv-ob-cap">Log size cap (GB)</label>
-					<input type="number" min="1" id="srv-ob-cap" name="observe_logs_max_size" value={ v.LogsMax } class="input"/>
+					<input type="number" min="1" id="srv-ob-cap" name="observe_logs_max_size" value={ val(ctx, "observe_logs_max_size", v.LogsMax) } class="input" { invalid(ctx, "observe_logs_max_size")... }/>
+					@fieldError("observe_logs_max_size")
 				</div>
 			</div>
 			<p class="text-xs text-rw-faint">Writes stop below the free disk floor.</p>
@@ -257,32 +274,14 @@ templ ServerBackups(v ServerBackupsView) {
 				<p class="text-sm text-rw-muted"><span class="text-rw-text">{ d.Name }</span> <span class="font-mono text-rw-faint">{ d.Detail }</span></p>
 			}
 			<form novalidate hx-post={ v.Base + "/dest" } class="space-y-3">
-				<div>
-					<label class="label" for="srv-dest-name">Name</label>
-					<input type="text" id="srv-dest-name" name="dest_name" class="input"/>
-				</div>
-				<div>
-					<label class="label" for="srv-dest-endpoint">S3 endpoint</label>
-					<input type="text" id="srv-dest-endpoint" name="endpoint" placeholder="https://s3.example.com" class="input font-mono"/>
-					<p class="mt-1.5 text-xs text-rw-faint">Empty for AWS.</p>
-				</div>
-				<div>
-					<label class="label" for="srv-dest-bucket">Bucket</label>
-					<input type="text" id="srv-dest-bucket" name="bucket" class="input font-mono"/>
-				</div>
-				<div>
-					<label class="label" for="srv-dest-region">Region</label>
-					<input type="text" id="srv-dest-region" name="region" class="input font-mono"/>
-				</div>
-				<div>
-					<label class="label" for="srv-dest-key">Access key</label>
-					<input type="text" id="srv-dest-key" name="access_key" autocomplete="off" class="input font-mono"/>
-				</div>
-				<div>
-					<label class="label" for="srv-dest-secret">Secret key</label>
-					<input type="password" id="srv-dest-secret" name="secret_key" autocomplete="off" class="input font-mono"/>
-				</div>
-				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-dest-shared" name="shared" value="1" checked class="accent-rw-accent"/> Let orgs use it</label>
+				@formError(v.Base + "/dest")
+				@destField("dest_name", "Name", "text", "", "")
+				@destField("endpoint", "S3 endpoint", "text", "https://s3.example.com", "Empty for AWS.")
+				@destField("bucket", "Bucket", "text", "", "")
+				@destField("region", "Region", "text", "", "")
+				@destField("access_key", "Access key", "text", "", "")
+				@destField("secret_key", "Secret key", "password", "", "")
+				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-dest-shared" name="shared" value="1" checked?={ ticked(ctx, v.Base+"/dest", "shared", true) } class="accent-rw-accent"/> Let orgs use it</label>
 				<p class="text-xs text-rw-faint">Organizations can send their volume backups here too.</p>
 				<button type="submit" class="btn btn-ghost w-full">Add destination</button>
 			</form>
@@ -291,25 +290,49 @@ templ ServerBackups(v ServerBackupsView) {
 		<form novalidate hx-post={ v.Base + "/panel-backup" } class="space-y-4">
 			<h3 class="text-sm font-semibold text-rw-text">Panel backup</h3>
 			<p class="text-xs text-rw-faint">A copy of stackr's own database, with the key to its secrets.</p>
-			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-pb-on" name="panel_backup_enabled" value="1" checked?={ v.PanelOn } class="accent-rw-accent"/> Back up the panel on a schedule</label>
+			@formError(v.Base + "/panel-backup")
+			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-pb-on" name="panel_backup_enabled" value="1" checked?={ ticked(ctx, v.Base+"/panel-backup", "panel_backup_enabled", v.PanelOn) } class="accent-rw-accent"/> Back up the panel on a schedule</label>
 			<div>
 				<label class="label" for="srv-pb-cron">Schedule</label>
-				<input type="text" id="srv-pb-cron" name="panel_backup_schedule" value={ v.Schedule } placeholder="0 3 * * *" class="input font-mono"/>
+				<input type="text" id="srv-pb-cron" name="panel_backup_schedule" value={ val(ctx, "panel_backup_schedule", v.Schedule) } placeholder="0 3 * * *" class="input font-mono" { invalid(ctx, "panel_backup_schedule")... }/>
+				@fieldError("panel_backup_schedule")
 				<p class="mt-1.5 text-xs text-rw-faint">A cron line. Empty is 03:00 every day.</p>
 			</div>
 			<div>
 				<label class="label" for="srv-pb-dest">Destination</label>
-				<select id="srv-pb-dest" name="panel_backup_dest" class="input">
+				<select id="srv-pb-dest" name="panel_backup_dest" class="input" { invalid(ctx, "panel_backup_dest")... }>
 					<option value="">This box</option>
 					for _, o := range v.PanelDests {
-						<option value={ o.Value } selected?={ o.Picked }>{ o.Label }</option>
+						<option value={ o.Value } selected?={ picked(ctx, "panel_backup_dest", o.Value, o.Picked) }>{ o.Label }</option>
 					}
 				</select>
+				@fieldError("panel_backup_dest")
 			</div>
 			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
 		</form>
 		@nav(v.Next, "Skip")
 	}
+}
+
+// destField is one input of the destination form, refilled on a refused save.
+templ destField(name, label, typ, placeholder, help string) {
+	<div>
+		<label class="label" for={ "srv-dest-" + name }>{ label }</label>
+		<input
+			type={ typ }
+			id={ "srv-dest-" + name }
+			name={ name }
+			value={ val(ctx, name, "") }
+			placeholder={ placeholder }
+			autocomplete="off"
+			class={ "input", templ.KV("font-mono", name != "dest_name") }
+			{ invalid(ctx, name)... }
+		/>
+		@fieldError(name)
+		if help != "" {
+			<p class="mt-1.5 text-xs text-rw-faint">{ help }</p>
+		}
+	</div>
 }
 
 // ServerNodes explains workers and placements; adding one is Admin's.
@@ -386,28 +409,33 @@ templ serverNext(next string, done bool, without string) {
 templ ServerFile(v ServerFileView) {
 	@shell(v.Frame) {
 		<form novalidate hx-post={ v.Base + "/bind" } class="space-y-4">
+			@formError(v.Base + "/bind")
 			<div>
 				<label class="label" for="srv-conn">Connector</label>
-				<select id="srv-conn" name="connector_id" class="input">
+				<select id="srv-conn" name="connector_id" class="input" { invalid(ctx, "connector_id")... }>
 					for _, o := range v.Connectors {
-						<option value={ o.Value } selected?={ o.Picked }>{ o.Label }</option>
+						<option value={ o.Value } selected?={ picked(ctx, "connector_id", o.Value, o.Picked) }>{ o.Label }</option>
 					}
 				</select>
+				@fieldError("connector_id")
 				if len(v.Connectors) == 0 {
 					<p class="mt-1.5 text-xs text-rw-faint">No server connector yet. Add one under admin, connectors.</p>
 				}
 			</div>
 			<div>
 				<label class="label" for="srv-repo">Repository</label>
-				<input type="text" id="srv-repo" name="repo" value={ v.Repo } placeholder="owner/name" class="input font-mono"/>
+				<input type="text" id="srv-repo" name="repo" value={ val(ctx, "repo", v.Repo) } placeholder="owner/name" class="input font-mono" { invalid(ctx, "repo")... }/>
+				@fieldError("repo")
 			</div>
 			<div>
 				<label class="label" for="srv-branch">Branch</label>
-				<input type="text" id="srv-branch" name="branch" value={ v.Branch } placeholder="default" class="input font-mono"/>
+				<input type="text" id="srv-branch" name="branch" value={ val(ctx, "branch", v.Branch) } placeholder="default" class="input font-mono" { invalid(ctx, "branch")... }/>
+				@fieldError("branch")
 			</div>
 			<div>
 				<label class="label" for="srv-path">File</label>
-				<input type="text" id="srv-path" name="path" value={ v.Path } placeholder="stackr-server.yml" class="input font-mono"/>
+				<input type="text" id="srv-path" name="path" value={ val(ctx, "path", v.Path) } placeholder="stackr-server.yml" class="input font-mono" { invalid(ctx, "path")... }/>
+				@fieldError("path")
 			</div>
 			<button type="submit" class="btn btn-primary w-full">Save and plan</button>
 		</form>

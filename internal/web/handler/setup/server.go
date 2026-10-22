@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -132,8 +133,10 @@ var serverStepTitles = map[string][2]string{
 
 // GET /-/setup/server/ui/:step: one by-hand screen. A finished server still
 // gets it: Admin's Setup guide links here.
-func (h *handler) serverStep(c echo.Context) error {
-	ctx, step := c.Request().Context(), c.Param("step")
+func (h *handler) serverStep(c echo.Context) error { return h.showServerStep(c, c.Param("step")) }
+
+func (h *handler) showServerStep(c echo.Context, step string) error {
+	ctx := c.Request().Context()
 	steps := service.ServerSetupSteps
 	i := slices.Index(steps, step)
 	if i < 0 {
@@ -176,7 +179,7 @@ func (h *handler) serverStep(c echo.Context) error {
 		})
 	case "backups":
 		var v pages.ServerBackupsView
-		v, err = h.backupsStep(ctx, s)
+		v, err = h.backupsStep(ctx, s, c.QueryParam("dest"))
 		body = pages.ServerBackups(v)
 	case "nodes":
 		var v pages.ServerNodesView
@@ -199,7 +202,12 @@ func (h *handler) serverStep(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return render.Bare(c, http.StatusOK, "Setup: "+t[0], body)
+	return render.Bare(c, status(c), "Setup: "+t[0], body)
+}
+
+// refillStep answers a refused save with its by-hand step, as posted.
+func (h *handler) refillStep(c echo.Context, err error, step string) error {
+	return refill(c, err, func() error { return h.showServerStep(c, step) })
 }
 
 // summaryTab is the Admin tab each summary line lives on.
@@ -232,15 +240,22 @@ func (h *handler) githubStep(c echo.Context, s pages.ServerStep) (pages.ServerGi
 			return v, err
 		}
 		v.Apps = append(v.Apps, pages.ServerApp{Name: k.Name, HookURL: h.orch.ConnectorHookURL(k.ID), InstallURL: install})
+		// one GitHub has not confirmed yet is no App: Skip stays Skip
+		v.Done = v.Done || install != ""
 	}
 	return v, nil
 }
 
-func (h *handler) backupsStep(ctx context.Context, s pages.ServerStep) (pages.ServerBackupsView, error) {
+// backupsStep: added is the destination just added, which the panel backup
+// form picks while the panel still backs up to this box.
+func (h *handler) backupsStep(ctx context.Context, s pages.ServerStep, added string) (pages.ServerBackupsView, error) {
 	v := pages.ServerBackupsView{ServerStep: s}
 	var on, dest string
 	if err := h.settings(ctx, map[string]*string{"panel_backup_enabled": &on, "panel_backup_schedule": &v.Schedule, "panel_backup_dest": &dest}); err != nil {
 		return v, err
+	}
+	if dest == "" {
+		dest = added
 	}
 	v.PanelOn = on == "true"
 	ds, err := h.orch.GlobalBackupDests(ctx)
@@ -292,7 +307,7 @@ func (h *handler) serverDomains(c echo.Context) error {
 		vals[k] = strings.TrimSpace(c.FormValue(k))
 	}
 	if err := h.orch.SetSettings(c.Request().Context(), vals); err != nil {
-		return back(c, err, stepURL("domains"))
+		return h.refillStep(c, err, "domains")
 	}
 	hamrmw.SetFlash(c, "Domains saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("certificates"))
@@ -303,7 +318,7 @@ func (h *handler) serverDomains(c echo.Context) error {
 // page that posts the manifest to GitHub. GitHub's setup_url brings the
 // browser back to the GitHub step while setup is unfinished.
 func (h *handler) serverGitHub(c echo.Context) error {
-	action, manifest, err := h.orch.BeginSetupConnector(
+	_, action, manifest, err := h.orch.BeginServerConnector(
 		c.Request().Context(), middleware.Principal(c).User.ID, strings.TrimSpace(c.FormValue("gh_org")),
 	)
 	if err != nil {
@@ -319,12 +334,12 @@ func (h *handler) serverApp(c echo.Context) error {
 	f := c.FormValue
 	id, err := strconv.ParseInt(strings.TrimSpace(f("app_id")), 10, 64)
 	if err != nil {
-		return back(c, errs.Invalidf("app_id", "the App ID is the number on the App's page"), stepURL("github"))
+		return h.refillStep(c, errs.Invalidf("app_id", "the App ID is the number on the App's page"), "github")
 	}
 	if _, err := h.orch.AddServerConnector(c.Request().Context(), service.GitHubApp{
 		ID: id, Slug: f("slug"), PEM: f("private_key"), WebhookSecret: f("webhook_secret"),
 	}); err != nil {
-		return back(c, err, stepURL("github"))
+		return h.refillStep(c, err, "github")
 	}
 	hamrmw.SetFlash(c, "App saved. Point its webhook at the URL below.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("github"))
@@ -344,7 +359,7 @@ func (h *handler) serverObserve(c echo.Context) error {
 		"observe_logs_retention":    f("observe_logs_retention"),
 		"observe_logs_max_size":     f("observe_logs_max_size"),
 	}); err != nil {
-		return back(c, err, stepURL("observability"))
+		return h.refillStep(c, err, "observability")
 	}
 	hamrmw.SetFlash(c, "Saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("backups"))
@@ -354,16 +369,20 @@ func (h *handler) serverObserve(c echo.Context) error {
 // org when shared is ticked (the form ticks it).
 func (h *handler) serverDest(c echo.Context) error {
 	f := c.FormValue
-	_, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
+	d, err := h.orch.CreateBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
 		Name: f("dest_name"), Endpoint: f("endpoint"), Region: f("region"),
 		Bucket: f("bucket"), AccessKey: f("access_key"), SecretKey: f("secret_key"),
 		Shared: f("shared") != "",
 	})
 	if err != nil {
-		return back(c, err, stepURL("backups"))
+		// the form calls the destination's name dest_name
+		if inv, ok := errs.IsInvalid(err); ok && inv.Field == "name" {
+			inv.Field, err = "dest_name", inv
+		}
+		return h.refillStep(c, err, "backups")
 	}
 	hamrmw.SetFlash(c, "Destination added.", hamrmw.FlashSuccess)
-	return respond.Redirect(c, stepURL("backups"))
+	return respond.Redirect(c, stepURL("backups")+"?dest="+url.QueryEscape(d.ID))
 }
 
 // POST /-/setup/server/panel-backup: the panel's own backup switch,
@@ -378,7 +397,7 @@ func (h *handler) serverPanelBackup(c echo.Context) error {
 		"panel_backup_schedule": strings.TrimSpace(f("panel_backup_schedule")),
 		"panel_backup_dest":     f("panel_backup_dest"),
 	}); err != nil {
-		return back(c, err, stepURL("backups"))
+		return h.refillStep(c, err, "backups")
 	}
 	hamrmw.SetFlash(c, "Saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("nodes"))
@@ -413,7 +432,7 @@ func (h *handler) serverFile(c echo.Context) error {
 			v.PlanURL = ServerBase + "/config/plan"
 		}
 	}
-	return render.Bare(c, http.StatusOK, "Setup: This server", pages.ServerFile(v))
+	return render.Bare(c, status(c), "Setup: This server", pages.ServerFile(v))
 }
 
 // POST /-/setup/server/bind (connector_id, repo, branch, path): bind and plan.
@@ -421,10 +440,10 @@ func (h *handler) serverBind(c echo.Context) error {
 	f := c.FormValue
 	repo := strings.TrimSpace(f("repo"))
 	if repo == "" {
-		return back(c, errs.Invalidf("repo", "a repository is required"), ServerBase+"/config")
+		return refill(c, errs.Invalidf("repo", "a repository is required"), func() error { return h.serverFile(c) })
 	}
 	if _, err := h.orch.BindServerConfig(c.Request().Context(), f("connector_id"), repo, f("branch"), f("path"), false); err != nil {
-		return back(c, err, ServerBase+"/config")
+		return refill(c, err, func() error { return h.serverFile(c) })
 	}
 	hamrmw.SetFlash(c, "Planned.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, ServerBase+"/config/plan")
