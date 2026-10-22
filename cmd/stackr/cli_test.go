@@ -271,6 +271,17 @@ func TestAccountKeyLogin(t *testing.T) {
 			t.Errorf("org get in %s = %d %s %s", slug, code, out, errw)
 		}
 	}
+	// an org that does not exist, or one the user is not in, is refused and
+	// the current org stays
+	env.Org(t, "gamma")
+	for _, slug := range []string{"nosuchorg", "gamma"} {
+		if code, _, errw := cli(t, "org", "use", slug); code == 0 || !strings.Contains(errw, "no org") {
+			t.Errorf("org use %s = %d %s", slug, code, errw)
+		}
+	}
+	if code, out, errw := cli(t, "org", "get"); code != 0 || !strings.Contains(out, "beta") {
+		t.Errorf("org get after refused uses = %d %s %s", code, out, errw)
+	}
 }
 
 // End to end against a real server: log in with a key, deploy, follow
