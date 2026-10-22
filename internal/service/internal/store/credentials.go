@@ -34,7 +34,8 @@ func (s credentials) ListByOrg(ctx context.Context, orgID string) ([]Credential,
 
 // Connector is a row of connectors: one git App per org and host, or a
 // server connector (OrgID nil) the admin shares with named orgs
-// (connector_shares) or all of them (ShareAll).
+// (connector_shares) or all of them (ShareAll). A DNS connector
+// (Capabilities "dns") is a DNS provider account, an org's or the server's.
 type Connector struct {
 	ID        string    `db:"id" json:"id"`
 	OrgID     *string   `db:"org_id" json:"org_id"`
@@ -44,6 +45,8 @@ type Connector struct {
 	Config    string    `db:"config" json:"-"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	ShareAll  bool      `db:"share_all" json:"share_all"`
+	// Capabilities is what the connector does: "git", "dns".
+	Capabilities StringList `db:"capabilities" json:"capabilities"`
 	// Shared marks a server connector in an org's list; not a column.
 	Shared bool `db:"-" json:"shared"`
 }

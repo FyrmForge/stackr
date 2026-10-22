@@ -37,6 +37,7 @@ type Env struct {
 	Docker *dockerfake.Fake
 	Store  *store.Store // for seeding and for asserting rows
 	Config service.Config
+	DNS    *DNS // the fake DNS accounts
 }
 
 // New builds a fresh orchestrator. edit, if given, adjusts the config.
@@ -61,8 +62,10 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		f(&cfg)
 	}
 	fake := dockerfake.New()
+	dns := &DNS{}
 	orch, err := service.New(cfg, append([]service.Option{
 		service.WithDocker(fake),
+		service.WithDNS(dns.open),
 		service.WithVIP(noVIP{}),
 		service.WithProxy(func(context.Context, json.RawMessage) error { return nil }),
 	}, opts...)...)
@@ -78,6 +81,7 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		Docker: fake,
 		Store:  open(t, cfg.DBPath),
 		Config: cfg,
+		DNS:    dns,
 	}
 }
 

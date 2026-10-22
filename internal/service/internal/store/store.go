@@ -55,6 +55,7 @@ type Tables struct {
 	HostGrants       HostGrantStore
 	Credentials      CredentialStore
 	Connectors       ConnectorStore
+	DNSDomains       DNSDomainStore
 	ManagedInstances ManagedInstanceStore
 	Provisions       ProvisionStore
 	Bindings         BindingStore
@@ -110,6 +111,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		HostGrants:       hostGrants{crud[HostGrant]{q, box, hostGrantsT}},
 		Credentials:      credentials{crud[Credential]{q, box, credentialsT}},
 		Connectors:       connectors{crud[Connector]{q, box, connectorsT}},
+		DNSDomains:       dnsDomains{crud[DNSDomain]{q, box, dnsDomainsT}},
 		ManagedInstances: managedInstances{crud[ManagedInstance]{q, box, managedInstancesT}},
 		Provisions:       provisions{crud[Provision]{q, box, provisionsT}},
 		Bindings:         bindings{crud[Binding]{q, box, bindingsT}},

@@ -73,6 +73,7 @@ type config struct {
 	State string         `json:"state,omitempty"`
 	User  string         `json:"user,omitempty"`
 	App   *githubapp.App `json:"app,omitempty"`
+	DNS   *DNS           `json:"dns,omitempty"`
 }
 
 func parse(c store.Connector) config {
@@ -122,7 +123,11 @@ func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, erro
 		return c, err
 	}
 	// A server connector (nil OrgID) is never an org's to write through
-	// Get: orgs only read it, through Usable, ListConnected and For.
+	// Get: orgs only read it, through Usable, ListConnected and For. A DNS
+	// connector is an owner's, reached through DNSConnector only.
+	if IsDNS(c) {
+		return store.Connector{}, errs.ErrNotFound
+	}
 	if c.OrgID == nil || *c.OrgID != orgID {
 		owner := "server"
 		if c.OrgID != nil {
@@ -156,7 +161,7 @@ func (l *Leaf) list(ctx context.Context, orgID string, connected bool) ([]store.
 	if err != nil {
 		return nil, err
 	}
-	cs := slices.Concat(own, shared)
+	cs := gitOnly(slices.Concat(own, shared))
 	if connected {
 		cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !Connected(c) })
 	}
@@ -173,6 +178,9 @@ func (l *Leaf) Usable(ctx context.Context, orgID, id string) (store.Connector, e
 	c, err := l.conns.Get(ctx, id)
 	if err != nil {
 		return c, err
+	}
+	if IsDNS(c) {
+		return store.Connector{}, errs.ErrNotFound
 	}
 	if c.OrgID != nil && *c.OrgID == orgID {
 		return c, nil
@@ -202,9 +210,11 @@ func (l *Leaf) Server(ctx context.Context, id string) (store.Connector, error) {
 	return c, nil
 }
 
-// ListServer is the server connectors, config stripped.
+// ListServer is the server's git connectors, config stripped (DNS ones:
+// ListDNS).
 func (l *Leaf) ListServer(ctx context.Context) ([]store.Connector, error) {
 	cs, err := l.conns.ListServer(ctx)
+	cs = gitOnly(cs)
 	for i := range cs {
 		cs[i].Config = ""
 	}
@@ -223,6 +233,9 @@ func (l *Leaf) SetShares(ctx context.Context, id string, orgIDs []string, all bo
 	c, err := l.Server(ctx, id)
 	if err != nil {
 		return c, err
+	}
+	if IsDNS(c) {
+		return store.Connector{}, errs.Refusedf("a DNS connector is not shared; each managed domain says who may use it")
 	}
 	if all {
 		orgIDs = nil
@@ -263,6 +276,8 @@ func (l *Leaf) begin(ctx context.Context, orgID *string, userID, ghOrg string) (
 		Host:      GitHubHost,
 		Config:    string(cfg),
 		CreatedAt: time.Now().UTC(),
+
+		Capabilities: store.StringList{CapGit},
 	}
 	if orgID == nil {
 		c.Name = "GitHub (connecting… " + c.ID[:8] + ")"
@@ -297,6 +312,8 @@ func (l *Leaf) AddServer(ctx context.Context, app githubapp.App) (store.Connecto
 		Host:      GitHubHost,
 		Config:    string(b),
 		CreatedAt: time.Now().UTC(),
+
+		Capabilities: store.StringList{CapGit},
 	}
 	if err := l.conns.Create(ctx, c); err != nil {
 		return store.Connector{}, err

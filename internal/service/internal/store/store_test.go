@@ -575,6 +575,8 @@ func TestRoundTrip(t *testing.T) {
 		Host:      "github.com",
 		Config:    `{"key":"PEM"}`,
 		CreatedAt: t0,
+
+		Capabilities: store.StringList{"git"},
 	}, func(c *store.Connector) { c.Config, c.OrgID, c.ShareAll = "{}", nil, true })
 	roundTrip(t, s.BackupDests, store.BackupDest{
 		ID:         "bd1",
