@@ -656,6 +656,30 @@ func TestControllerLogCap(t *testing.T) {
 	}
 }
 
+// The boot after an Update removes the helper that swapped it in, once it
+// exited 0; a failed one stays for its logs.
+func TestClearUpgrader(t *testing.T) {
+	n := newTwoNodes(t)
+	f := n.ctlFake
+	oldWait, oldPoll := logCapWait, logCapPoll
+	logCapWait, logCapPoll = 20*time.Millisecond, time.Millisecond
+	t.Cleanup(func() { logCapWait, logCapPoll = oldWait, oldPoll })
+	up := map[string]string{"stackr.role": "upgrader"}
+
+	f.Containers = []docker.Container{{ID: "busy", State: "running", Labels: up}}
+	n.orch.clearUpgrader(context.Background())
+	if sawCall(f, "StopRemove(") {
+		t.Fatal("a running helper was removed")
+	}
+
+	f.Containers = []docker.Container{{ID: "ok", State: "exited", Labels: up}, {ID: "bad", State: "exited", Labels: up}}
+	f.Details = map[string]docker.Detail{"ok": {State: "exited"}, "bad": {State: "exited", ExitCode: 1}}
+	n.orch.clearUpgrader(context.Background())
+	if !sawCall(f, "StopRemove(ok") || sawCall(f, "StopRemove(bad") {
+		t.Fatalf("removed: %v", callNames(f))
+	}
+}
+
 // A boot publish that gives up on the stackr image stops a wanted rollout
 // with the reason, and leaves an unwanted or already stopped one alone.
 func TestRolloutBlockedByThePublish(t *testing.T) {

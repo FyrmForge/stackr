@@ -303,7 +303,7 @@ func (d *Client) Inspect(ctx context.Context, id string) (Detail, error) {
 		}
 	}
 	if st := info.State; st != nil {
-		det.State, det.Started, det.Running = st.Status, st.StartedAt, st.Running
+		det.State, det.Started, det.Running, det.ExitCode = st.Status, st.StartedAt, st.Running, st.ExitCode
 		if st.Health != nil {
 			det.Health = st.Health.Status
 		}
