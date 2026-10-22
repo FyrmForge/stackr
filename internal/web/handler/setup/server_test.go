@@ -213,6 +213,9 @@ func TestServerWizardSteps(t *testing.T) {
 	if rec := s.do(adm, "GET", "/", nil, false); rec.Code != http.StatusOK {
 		t.Errorf("finished admin / = %d", rec.Code)
 	}
+	if rec := s.do(adm, "GET", setup.ServerBase+"?pick=1", nil, false); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "From a server file") {
+		t.Errorf("finished ?pick=1 = %d, want the branch question", rec.Code)
+	}
 }
 
 // Observability saves the switch and its knobs, and refuses a bad number.

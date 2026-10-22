@@ -88,10 +88,13 @@ func (h *handler) serverStart(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	if s.Done {
+	pick := c.QueryParam("pick") != ""
+	// a finished server still gets the branch question when asked for it:
+	// the Setup guide's domains screen links here to switch to a file
+	if s.Done && !pick {
 		return respond.Redirect(c, "/")
 	}
-	if s.Mode != "" && c.QueryParam("pick") == "" {
+	if s.Mode != "" && !pick {
 		return respond.Redirect(c, ServerBase+"/"+s.Mode)
 	}
 	return render.Bare(c, http.StatusOK, "Setup: This server", pages.ServerBranch(pages.ServerBranchView{Base: ServerBase}))
