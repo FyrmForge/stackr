@@ -82,6 +82,9 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 		return nil, err
 	}
 	l := SetupLine{Step: "domains", State: "skipped"}
+	if root == panel {
+		root = ""
+	}
 	if panel != "" || root != "" {
 		l.State, l.Detail = "on", strings.Trim(panel+", "+root, ", ")
 	}

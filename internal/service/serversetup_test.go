@@ -39,3 +39,21 @@ func TestServerSetup(t *testing.T) {
 		t.Errorf("after finish = %+v, %v; want done", s, err)
 	}
 }
+
+// The summary names a domain once when the panel sits on the root domain.
+func TestServerSetupSummaryDomains(t *testing.T) {
+	orch, ctx := servicetest.New(t).Orch, context.Background()
+	for _, c := range []struct{ panel, root, want string }{
+		{"x.test", "x.test", "x.test"},
+		{"stkr.x.test", "x.test", "stkr.x.test, x.test"},
+		{"", "x.test", "x.test"},
+	} {
+		if err := orch.SetSettings(ctx, map[string]string{"panel_domain": c.panel, "root_domain": c.root}); err != nil {
+			t.Fatal(err)
+		}
+		ls, err := orch.ServerSetupSummary(ctx)
+		if err != nil || ls[0].Detail != c.want {
+			t.Errorf("panel %q root %q: %+v, %v; want %q", c.panel, c.root, ls[0], err, c.want)
+		}
+	}
+}
