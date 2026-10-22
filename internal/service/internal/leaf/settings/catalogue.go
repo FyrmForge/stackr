@@ -258,7 +258,7 @@ var Catalogue = []Knob{
 	{
 		Key:     "observe_enabled",
 		Type:    TBool,
-		Default: "false",
+		Default: "true",
 		Scopes:  Flat,
 		Desc:    "keep metrics history in the stackr-observe container",
 	},
