@@ -96,7 +96,11 @@ For a worker that broke, was reinstalled, or shows `certificate expired` or `not
    stackr node rejoin vps-fsn1
    ```
 
-2. Run the command it prints on that machine, as root. You do not confirm it again. The node keeps its name, range and envs.
+2. Run the command it prints on that machine, as root. The node keeps its name, range and envs.
+
+3. Confirm it like a new node: Admin, Nodes, Waiting to join, Add, or `stackr node confirm vps-fsn1`.
+
+In the panel, the node's Security tab has the same Rejoin button.
 
 ## Break glass
 
@@ -108,7 +112,7 @@ Use it when keys or the cluster root may be exposed. It replaces the root and ev
    stackr cluster break-glass
    ```
 
-2. For each node it lists, run `stackr node rejoin <name>`, then the printed command on that machine.
+2. For each node it lists, run `stackr node rejoin <name>`, then the printed command on that machine, then confirm it under Admin, Nodes, Waiting to join.
 
 3. Check with `stackr cluster trust`.
 
