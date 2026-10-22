@@ -12,6 +12,8 @@ RUN CGO_ENABLED=0 go build -o /stackr-observe ./cmd/stackr-observe
 
 FROM scratch
 LABEL org.opencontainers.image.source=https://github.com/FyrmForge/stackr
+# stackr-install uninstall --purge finds stackr's images by this label.
+LABEL stackr.image=observe
 COPY --from=vm /victoria-metrics-prod /victoria-metrics-prod
 COPY --from=vl /victoria-logs-prod /victoria-logs-prod
 COPY --from=builder /stackr-observe /stackr-observe

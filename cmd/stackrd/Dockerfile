@@ -11,6 +11,9 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr ./cm
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr-install ./cmd/stackr-install
 
 FROM alpine:3.21
+# stackr-install uninstall --purge finds stackr's images by this label,
+# an old release's too once a newer one took its tag.
+LABEL stackr.image=stackrd
 # iptables for the VIP rules, git for clones, docker-cli + buildx for builds,
 # conntrack-tools for tile traffic on kernels without /proc/net/nf_conntrack,
 # iproute2 because busybox ip refuses routing tables above 255 (exit links).
