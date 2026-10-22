@@ -21,6 +21,9 @@ type LogHistoryView struct {
 	Older  string
 	Purge  *ConfirmView // the owner's Delete logs; nil = not offered (env tab only)
 	Error  string
+	// Filtered: a filter besides the time range is set, so an empty page
+	// says the filters, not the range, came up empty.
+	Filtered bool
 }
 
 // LogOption is one choice of a viewer filter.
@@ -88,16 +91,20 @@ templ LogHistory(v LogHistoryView) {
 // button swaps itself for the next page.
 templ LogHistoryMore(v LogHistoryView) {
 	for _, l := range v.Lines {
-		<div class="flex gap-2" data-source={ l.Source }>
+		<div class="flex flex-wrap sm:flex-nowrap gap-x-2" data-source={ l.Source }>
 			<span class="shrink-0 text-rw-faint">@Time(l.Time, "Jan 02 15:04:05")</span>
 			if len(v.Tiles) > 0 {
 				<span class="shrink-0 text-rw-muted">{ l.Tile }</span>
 			}
-			<span class={ "min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Err), templ.KV("text-rw-muted", l.Source == "access") }>{ l.Text }</span>
+			<span class={ "basis-full sm:basis-auto min-w-0 whitespace-pre-wrap break-all", templ.KV("text-rw-danger", l.Err), templ.KV("text-rw-muted", l.Source == "access") }>{ l.Text }</span>
 		</div>
 	}
 	if len(v.Lines) == 0 && v.Error == "" {
-		<p class="text-rw-muted">No lines in this range.</p>
+		if v.Filtered {
+			<p class="text-rw-muted">No lines match these filters.</p>
+		} else {
+			<p class="text-rw-muted">No lines in this range.</p>
+		}
 	}
 	if v.Older != "" {
 		<button type="button" id="log-older" class="btn btn-ghost btn-sm mt-2" hx-get={ v.Older } hx-target="this" hx-swap="outerHTML">Older</button>

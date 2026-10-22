@@ -42,6 +42,8 @@ func LogHistory(c echo.Context, orch *service.Orchestrator, s service.Scope) (co
 		}
 		slices.SortFunc(v.Tiles[1:], func(a, b components.LogOption) int { return strings.Compare(a.Label, b.Label) })
 	}
+	// a tile viewer's tile is its scope, not a filter
+	v.Filtered = v.Kind+v.Source+v.Stream+v.Run+v.Text != "" || (v.Live == "" && v.Tile != "")
 	in := service.LogsIn{Tile: v.Tile, Kind: v.Kind, Source: v.Source, Stream: v.Stream, Run: v.Run, Text: v.Text}
 	in.Since, _ = time.ParseDuration(v.Range)
 	in.Before, _ = time.Parse(time.RFC3339Nano, q("before"))
