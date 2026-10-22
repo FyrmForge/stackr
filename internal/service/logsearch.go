@@ -65,6 +65,9 @@ func (o *Orchestrator) SearchLogs(ctx context.Context, s Scope, in LogsIn) ([]Lo
 	if err != nil {
 		return nil, err
 	}
+	// the viewer's longest range (7 days) always works; past the retention
+	// it finds only what is kept
+	days = max(days, 7)
 	since := in.Since
 	switch {
 	case since == 0:

@@ -101,6 +101,11 @@ func TestSearchLogs(t *testing.T) {
 	if _, err := o.SearchLogs(ctx, sc, LogsIn{Since: 30 * 24 * time.Hour}); err != nil {
 		t.Errorf("30d under a 30 day retention = %v", err)
 	}
+	// ... and never less than the viewer's 7 days
+	must(t, o.settings.Set(ctx, "observe_logs_retention", "2"))
+	if _, err := o.SearchLogs(ctx, sc, LogsIn{Since: 7 * 24 * time.Hour}); err != nil {
+		t.Errorf("7d under a 2 day retention = %v", err)
+	}
 }
 
 // delLogs records the filters it was asked to delete.
