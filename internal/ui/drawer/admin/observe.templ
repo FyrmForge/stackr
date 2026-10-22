@@ -5,49 +5,59 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 // ObserveView is the admin's Observability tab: metrics history and logs on
 // or off, their knobs, and what it holds against the disk. Action "" = may not save.
 type ObserveView struct {
-	Action             string
-	Enabled            bool
-	Retention, MinFree string // days, GB
-	State              string // the container, in words
-	Data, Free         string // "" = unknown
-	LogsEnabled        bool
-	LogsDays, LogsMax  string // days, GB
-	LogsData           string // "" = unknown
+	Action                               string
+	Enabled                              bool
+	Retention, MinFree                   string // days, GB
+	State                                string // the container, in words
+	Data, Free                           string // "" = unknown
+	LogsEnabled                          bool
+	LogsDays, LogsMax                    string // days, GB
+	LogsData                             string // "" = unknown
 	AccessQuery, AccessIP, AccessHeaders bool
-	LogsDropped        string // lines dropped for a full buffer; "" = none
-	Err                string
+	LogsDropped                          string // lines dropped for a full buffer; "" = none
+	Err                                  string
 }
 
 templ Observe(v ObserveView) {
 	<div id="tab-observability">
-		@c.Section("Metrics history", "instance", "Keeps graphs past 24 hours in the stackr-observe container.") {
-			if v.Action != "" {
-				<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_enabled" name="observe_enabled" value="1" checked?={ v.Enabled } class="accent-rw-accent"/> Keep metrics history</label>
-					@c.Field(c.FieldView{Name: "observe_metrics_retention", Label: "Retention (days)", Type: "number", Value: v.Retention, Help: "Older points are deleted."})
-					@c.Field(c.FieldView{Name: "observe_min_free", Label: "Free disk floor (GB)", Type: "number", Value: v.MinFree, Help: "Writes stop below this much free disk."})
-					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_logs_enabled" name="observe_logs_enabled" value="1" checked?={ v.LogsEnabled } class="accent-rw-accent"/> Keep logs</label>
-					@c.Field(c.FieldView{Name: "observe_logs_retention", Label: "Logs retention (days)", Type: "number", Value: v.LogsDays, Help: "Older lines are deleted."})
-					@c.Field(c.FieldView{Name: "observe_logs_max_size", Label: "Logs size cap (GB)", Type: "number", Value: v.LogsMax, Help: "The oldest days go first."})
-					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_access_ip" name="observe_access_ip" value="1" checked?={ v.AccessIP } class="accent-rw-accent"/> Access logs: client IP</label>
-					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_access_query" name="observe_access_query" value="1" checked?={ v.AccessQuery } class="accent-rw-accent"/> Access logs: query string</label>
-					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="observe_access_headers" name="observe_access_headers" value="1" checked?={ v.AccessHeaders } class="accent-rw-accent"/> Access logs: all headers</label>
-					<button type="submit" class="btn btn-primary btn-sm">Save</button>
-				</form>
-			}
+		if v.Action != "" {
+			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+				@c.Section("Metrics", "instance", "Keeps graphs past 24 hours in the stackr-observe container.") {
+					<div class="space-y-3">
+						@observeCheck("observe_enabled", "Keep metrics history", v.Enabled)
+						@c.Field(c.FieldView{Name: "observe_metrics_retention", Label: "Retention (days)", Type: "number", Value: v.Retention, Help: "Older points are deleted."})
+						@c.Field(c.FieldView{Name: "observe_min_free", Label: "Free disk floor (GB)", Type: "number", Value: v.MinFree, Help: "Writes stop below this much free disk."})
+						if v.Data != "" {
+							<p class="text-sm text-rw-muted">Using { v.Data }</p>
+						}
+					</div>
+				}
+				@c.Section("Logs", "instance", "Keeps container and run logs for search.") {
+					<div class="space-y-3">
+						@observeCheck("observe_logs_enabled", "Keep logs", v.LogsEnabled)
+						@c.Field(c.FieldView{Name: "observe_logs_retention", Label: "Retention (days)", Type: "number", Value: v.LogsDays, Help: "Older lines are deleted."})
+						@c.Field(c.FieldView{Name: "observe_logs_max_size", Label: "Size cap (GB)", Type: "number", Value: v.LogsMax, Help: "The oldest days go first."})
+						if v.LogsData != "" {
+							<p class="text-sm text-rw-muted">Using { v.LogsData }</p>
+						}
+						if v.LogsDropped != "" {
+							<p class="text-sm text-rw-muted">Dropped: { v.LogsDropped }</p>
+						}
+					</div>
+				}
+				@c.Section("Access logs", "instance", "What the proxy keeps of each request. Kept with logs.") {
+					<div class="space-y-3">
+						@observeCheck("observe_access_ip", "Client IP", v.AccessIP)
+						@observeCheck("observe_access_query", "Query string", v.AccessQuery)
+						@observeCheck("observe_access_headers", "All headers", v.AccessHeaders)
+					</div>
+				}
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			</form>
 		}
 		@c.Section("Storage", "instance", "Turning history off keeps the data for later.") {
 			<div class="space-y-1 text-sm">
 				<p class="text-rw-muted">Container: { v.State }</p>
-				if v.Data != "" {
-					<p class="text-rw-muted">Metrics data: { v.Data }</p>
-				}
-				if v.LogsData != "" {
-					<p class="text-rw-muted">Logs data: { v.LogsData }</p>
-				}
-				if v.LogsDropped != "" {
-					<p class="text-rw-muted">Logs dropped: { v.LogsDropped }</p>
-				}
 				if v.Free != "" {
 					<p class="text-rw-muted">Free disk: { v.Free }</p>
 				}
@@ -57,4 +67,8 @@ templ Observe(v ObserveView) {
 			</div>
 		}
 	</div>
+}
+
+templ observeCheck(name, label string, on bool) {
+	<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id={ name } name={ name } value="1" checked?={ on } class="accent-rw-accent"/> { label }</label>
 }
