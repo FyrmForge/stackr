@@ -194,7 +194,11 @@ func (h *handler) github(c echo.Context, og *service.Org, st string) error {
 		}
 	}
 	if st == "connector" {
-		v.Frame = frame(og, st, "Connect GitHub", "A private GitHub App for this organization, so there are no tokens to copy around.")
+		sub := "A private GitHub App for this organization, so there are no tokens to copy around."
+		if v.Connected && !slices.ContainsFunc(conns, func(k service.Connector) bool { return k.OrgID != nil }) {
+			sub = "A server admin shared a GitHub App with this organization, so there are no tokens to copy around."
+		}
+		v.Frame = frame(og, st, "Connect GitHub", sub)
 		if body {
 			return respond.HTML(c, http.StatusOK, pages.ConnectorBody(v))
 		}
