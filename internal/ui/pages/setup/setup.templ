@@ -18,9 +18,13 @@ import (
 type Frame struct {
 	Title    string
 	Subtitle string
-	Step     int
-	Total    int
+	Step     int        // 1-based, into Steps
+	Steps    []StepLink // the stepper, every step of the branch
 }
+
+// StepLink is one stepper step: its name, and where a done one goes back
+// to ("" = it cannot be reopened, as the org's branch question).
+type StepLink struct{ Name, Href string }
 
 // Option is one connector in the config step's select.
 type Option struct {
@@ -159,7 +163,7 @@ templ shell(f Frame) {
 			<span class="text-xl font-semibold text-rw-text">stackr</span>
 		</div>
 		if f.Step > 0 {
-			@stepper(f.Step, f.Total)
+			@stepper(f.Step, f.Steps)
 		}
 		<div class="panel p-8 shadow-rw">
 			if f.Subtitle == "" {
@@ -173,25 +177,35 @@ templ shell(f Frame) {
 	</div>
 }
 
-// The dots are a picture of where you are, so they carry one label for the
-// whole group and are hidden from screen readers individually.
-templ stepper(step, total int) {
-	<div class="flex items-center justify-center gap-2 mb-6" role="group" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(total) }>
-		for i := 1; i <= total; i++ {
-			if i > 1 {
-				<span class="w-6 h-px bg-rw-border" aria-hidden="true"></span>
+// stepper is each step by name under its number; a done one that can be
+// reopened is a link back to it.
+templ stepper(step int, steps []StepLink) {
+	<nav class="mb-6" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(len(steps)) }>
+		<ol class="flex items-start justify-center">
+			for i, s := range steps {
+				<li
+					class="flex-1 min-w-0 flex flex-col items-center gap-1.5"
+					if i+1 == step {
+						aria-current="step"
+					}
+				>
+					if i+1 < step && s.Href != "" {
+						<a href={ templ.SafeURL(s.Href) } class="group flex flex-col items-center gap-1.5 min-w-0 max-w-full focus:outline-none">
+							@stepDot(i+1, step)
+							<span class="text-[11px] leading-tight text-rw-muted group-hover:text-rw-text group-focus-visible:underline truncate max-w-full">{ s.Name }</span>
+						</a>
+					} else {
+						@stepDot(i+1, step)
+						<span class={ "text-[11px] leading-tight truncate max-w-full", templ.KV("text-rw-text font-medium", i+1 == step), templ.KV("text-rw-faint", i+1 != step) }>{ s.Name }</span>
+					}
+				</li>
 			}
-			<span
-				class={ "h-6 w-6 rounded-full text-xs font-semibold flex items-center justify-center " + dotClass(i, step) }
-				aria-hidden="true"
-				if i == step {
-					aria-current="step"
-				}
-			>
-				{ strconv.Itoa(i) }
-			</span>
-		}
-	</div>
+		</ol>
+	</nav>
+}
+
+templ stepDot(i, step int) {
+	<span class={ "h-6 w-6 shrink-0 rounded-full text-xs font-semibold flex items-center justify-center " + dotClass(i, step) } aria-hidden="true">{ strconv.Itoa(i) }</span>
 }
 
 func dotClass(i, step int) string {

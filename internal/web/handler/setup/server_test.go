@@ -167,6 +167,26 @@ func TestServerWizardDomains(t *testing.T) {
 	refused(t, rec, `value="kept.test"`, `value="not an email"`, `id="error-acme_email"`)
 }
 
+// The stepper names every step; a done one links back, the rest do not.
+func TestServerWizardStepper(t *testing.T) {
+	s := newSrvSite(t)
+	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
+	body := s.do(adm, "GET", setup.ServerBase+"/ui/backups", nil, false).Body.String()
+	if i, j := strings.Index(body, "<nav"), strings.Index(body, "</nav>"); i >= 0 && j > i {
+		body = body[i:j]
+	}
+	for _, w := range []string{
+		`href="/-/setup/server/ui/domains"`, `href="/-/setup/server/ui/observability"`, ">Observability</span>", ">Nodes</span>", `aria-current="step"`,
+	} {
+		if !strings.Contains(body, w) {
+			t.Errorf("stepper lacks %s", w)
+		}
+	}
+	if strings.Contains(body, `href="/-/setup/server/ui/nodes"`) {
+		t.Error("a step not reached yet is a link")
+	}
+}
+
 // refused checks a refused save came back as its step, swapped into the
 // shell: 422, what was typed still there, the message where it belongs.
 func refused(t *testing.T, rec *httptest.ResponseRecorder, want ...string) {

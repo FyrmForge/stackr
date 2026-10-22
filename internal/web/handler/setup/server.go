@@ -144,7 +144,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 	}
 	t := serverStepTitles[step]
 	s := pages.ServerStep{
-		Frame: pages.Frame{Title: t[0], Subtitle: t[1], Step: i + 1, Total: len(steps)},
+		Frame: pages.Frame{Title: t[0], Subtitle: t[1], Step: i + 1, Steps: serverSteps()},
 		Base:  ServerBase,
 	}
 	if i+1 < len(steps) {
@@ -203,6 +203,15 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		return middleware.HTTPError(err)
 	}
 	return render.Bare(c, status(c), "Setup: "+t[0], body)
+}
+
+// serverSteps is the by-hand branch's stepper; any done step reopens.
+func serverSteps() []pages.StepLink {
+	var out []pages.StepLink
+	for _, s := range service.ServerSetupSteps {
+		out = append(out, pages.StepLink{Name: serverStepTitles[s][0], Href: stepURL(s)})
+	}
+	return out
 }
 
 // refillStep answers a refused save with its by-hand step, as posted.

@@ -841,12 +841,22 @@ func stepNo(og *service.Org, step string) int {
 }
 
 func frame(og *service.Org, step, title, subtitle string) pages.Frame {
+	// the branch question is not reopened: posting it makes a new draft
+	steps := []pages.StepLink{{Name: "Start"}}
+	for _, s := range flow(og) {
+		steps = append(steps, pages.StepLink{Name: stepNames[s], Href: base(og) + "/" + s})
+	}
 	return pages.Frame{
 		Title:    title,
 		Subtitle: subtitle,
 		Step:     stepNo(og, step),
-		Total:    len(flow(og)) + 1,
+		Steps:    steps,
 	}
+}
+
+// stepNames are the org steps as the stepper names them.
+var stepNames = map[string]string{
+	"name": "Name", "connector": "GitHub", "config": "Config", "domain": "Domain", "team": "People", "done": "Summary",
 }
 
 func first(og *service.Org) string { return base(og) + "/" + flow(og)[0] }
