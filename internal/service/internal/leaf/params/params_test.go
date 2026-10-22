@@ -182,6 +182,7 @@ func snap() params.Snapshot {
 			"api": {
 				Outputs: params.Endpoint{Alias: "api", Port: 80}.Outputs(),
 			},
+			"pg": {Managed: true},
 		},
 	}
 }
@@ -207,6 +208,7 @@ func TestResolve(t *testing.T) {
 		{params.InEnv, "${{ tile.api.url }}", "http://api:80", ""},
 		{params.InEnv, "${{ tile.api.public_url }}", "", "no output"},
 		{params.InEnv, "${{ tile.ghost.url }}", "", "no tile"},
+		{params.InEnv, "${{ tile.pg.DATABASE_URL }}", "", "pg is a managed tile; refs read a slice cut from it"},
 		{params.InEnv, "${{ stack.cache.host }}", "", "stack.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ org.cache.host }}", "", "org.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ stackr.PROXY_IP }}", "10.0.0.1", ""},

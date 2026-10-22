@@ -247,6 +247,7 @@ type Block struct {
 type Source struct {
 	Outputs  map[string]string
 	Slice    bool
+	Managed  bool   // a managed tile: no outputs of its own, refs read a slice cut from it
 	Attached bool   // slice only: a binding exists for this consumer
 	Network  string // network the consumer must join; "" on its own env network
 	Host     string // "name:ip" ExtraHosts line instead of Network: the instance is on another node
@@ -406,6 +407,9 @@ func (rr *Resolver) tile(r Ref) (string, error) {
 	src, ok := rr.snap.Tiles[r.Slug]
 	if !ok {
 		return "", fmt.Errorf("%s: no tile or slice in this environment named %q", r.Source, r.Slug)
+	}
+	if src.Managed {
+		return "", fmt.Errorf("%s: %s is a managed tile; refs read a slice cut from it (a slice tile with provision_from <stack>:<env>:%s)", r.Source, r.Slug, r.Slug)
 	}
 	// Referencing is not access: the consumer's deploy mints its binding.
 	if src.Slice && !src.Attached {

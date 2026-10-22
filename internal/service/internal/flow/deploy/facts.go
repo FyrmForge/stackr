@@ -46,6 +46,7 @@ func (f *Flow) snapshot(
 	for _, x := range tiles {
 		switch x.Kind {
 		case tile.Managed:
+			s.Tiles[x.Slug] = params.Source{Managed: true}
 			continue
 		case tile.Slice:
 			src, err := f.sliceSource(ctx, bound, x, e)
