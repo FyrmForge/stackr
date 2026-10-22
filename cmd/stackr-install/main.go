@@ -74,6 +74,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unknown command %q: run with flags only, or one of restore, join, uninstall", fs.Arg(0))
+	}
 	if in.WGPort != 0 {
 		if err := checkWGPort(in.WGPort); err != nil {
 			return err
