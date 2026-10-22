@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -61,6 +62,22 @@ func (o *Orchestrator) EnvMoveStatus(ctx context.Context, envID string) (*MoveSt
 		s.Steps = append(s.Steps, st)
 	}
 	return s, nil
+}
+
+// HumanDuration reads like the panel's other spans: "0.4 s", "42 s",
+// "1 min 1 s", "3 h 20 min".
+func HumanDuration(d time.Duration) string {
+	switch {
+	case d < 10*time.Second:
+		return fmt.Sprintf("%.1f s", d.Seconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%.0f s", d.Seconds())
+	case d < time.Hour:
+		d = d.Round(time.Second)
+		return fmt.Sprintf("%d min %d s", int(d/time.Minute), int(d%time.Minute/time.Second))
+	}
+	d = d.Round(time.Minute)
+	return fmt.Sprintf("%d h %d min", int(d/time.Hour), int(d%time.Hour/time.Minute))
 }
 
 // HumanBytes is n in the largest decimal unit that keeps it above 1.

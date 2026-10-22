@@ -387,7 +387,29 @@ func (a *app) cell(col string, v any) string {
 	if strings.HasSuffix(col, "_at") || col == "next_run" {
 		return a.stamp(cell(v), stampLayout)
 	}
+	if v != nil {
+		switch col {
+		case "cpu_ms":
+			return span(time.Duration(num(v)) * time.Millisecond)
+		case "peak_mem_bytes":
+			return metricText(num(v), "bytes")
+		}
+	}
 	return cell(v)
+}
+
+// span is a duration as the panel spells one (service.HumanDuration):
+// "0.4 s", "42 s", "1 min 1 s", "3 h 20 min".
+func span(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return metricText(d.Seconds(), "s")
+	case d < time.Hour:
+		d = d.Round(time.Second)
+		return fmt.Sprintf("%d min %d s", int(d/time.Minute), int(d%time.Minute/time.Second))
+	}
+	d = d.Round(time.Minute)
+	return fmt.Sprintf("%d h %d min", int(d/time.Hour), int(d%time.Hour/time.Minute))
 }
 
 // stampLayout is how a table spells a time: the zone named.

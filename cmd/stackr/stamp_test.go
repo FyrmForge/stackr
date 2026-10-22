@@ -34,3 +34,12 @@ func TestTimesFollowTheLocalZone(t *testing.T) {
 		}
 	}
 }
+
+// A run's CPU time and peak memory read like the panel's, not raw numbers.
+func TestRunsReadCPUAndMemory(t *testing.T) {
+	fake(t, map[string]string{"/tiles/nightly/runs": `[{"id":"r1","status":"ok","cpu_ms":60680,"peak_mem_bytes":52428800}]`})
+	code, out, errw := cli(t, "tile", "runs", "nightly", "--stack", "shop", "--env", "dev")
+	if code != 0 || !strings.Contains(out, "50.0 MB\t1 min 1 s") {
+		t.Errorf("tile runs = %d %q\n%s", code, errw, out)
+	}
+}

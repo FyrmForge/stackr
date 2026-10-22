@@ -325,7 +325,7 @@ func (a *app) orgs() *cobra.Command {
 		})
 	invitesLs.Flags().BoolVar(&allInvites, "all", false, "add used and expired invites")
 	// Each verb has its own role: one shared var let set's flag wipe add's default.
-	var inviteRole, setRoleTo, email, url, user string
+	var inviteRole, setRoleTo, email, regURL, user string
 	invite := leaf("add", "invite.create", "Invite someone; the link is a credential", exact(0),
 		func(*cobra.Command, []string) error {
 			return org(func(p string) error {
@@ -359,7 +359,7 @@ func (a *app) orgs() *cobra.Command {
 				}
 				v, err := a.call(POST, p+"/credentials", map[string]string{
 					"name":     args[0],
-					"url":      url,
+					"url":      regURL,
 					"username": user,
 					"password": pw,
 				})
@@ -410,7 +410,7 @@ func (a *app) orgs() *cobra.Command {
 		},
 	)
 	for _, c := range []*cobra.Command{credAdd, credSet} {
-		c.Flags().StringVar(&url, "url", "", "the registry host, e.g. ghcr.io")
+		c.Flags().StringVar(&regURL, "url", "", "the registry host, e.g. ghcr.io")
 		c.Flags().StringVar(&user, "username", "", "the registry user")
 		c.Flags().String("password", "", "the password (prefer the prompt or STACKR_REGISTRY_PASSWORD)")
 	}
@@ -441,9 +441,20 @@ func (a *app) orgs() *cobra.Command {
 		leaf("get", "org.get", "Show this org", exact(0), get("", orgCols...)),
 		create,
 		a.orgSettings(),
-		leaf("use <slug>", "", "Work in another org (the key must reach it)", exact(1),
+		leaf("use <slug>", "org.get", "Work in another org (the key must reach it)", exact(1),
 			func(_ *cobra.Command, args []string) error {
+				v, err := a.call(GET, "/orgs/"+url.PathEscape(args[0]), nil)
+				var e *apiErr
+				if errors.As(err, &e) && e.Status == http.StatusNotFound {
+					return fmt.Errorf("no org %q you are a member of; stackr org ls lists yours", args[0])
+				}
+				if err != nil {
+					return err
+				}
 				a.cfg.Org = args[0]
+				if s, _ := asMap(v)["slug"].(string); s != "" {
+					a.cfg.Org = s
+				}
 				return a.save()
 			}),
 		leaf("rename <name>", "org.rename", "Rename this org", exact(1), func(_ *cobra.Command, args []string) error {

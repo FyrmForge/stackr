@@ -168,6 +168,9 @@ type extra struct {
 
 // GET /-/admin?tab=
 func (h *handler) Drawer(c echo.Context) error {
+	if ok, err := render.ToShell(c, "admin"); ok {
+		return err
+	}
 	return h.answer(c, c.QueryParam("tab"), "", extra{}, nil)
 }
 

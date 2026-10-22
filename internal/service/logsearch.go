@@ -6,15 +6,13 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/logs"
 )
 
-// LogsPage is how many lines one search returns; LogsMaxSince is how far back
-// a search may reach (the longest range the viewer offers).
-const (
-	LogsPage     = 500
-	LogsMaxSince = 7 * 24 * time.Hour
-)
+// LogsPage is how many lines one search returns. A search reaches back as
+// far as observe_logs_retention.
+const LogsPage = 500
 
 // LogsOn says whether log history is kept (observe and observe_logs_enabled).
 func (o *Orchestrator) LogsOn() bool { return o.logship.on.Load() }
@@ -54,6 +52,29 @@ func (o *Orchestrator) SearchLogs(ctx context.Context, s Scope, in LogsIn) ([]Lo
 	if s.Org == nil {
 		return nil, logs.ErrNoOrg
 	}
+	if in.Kind != "" && !slices.Contains([]string{tile.Service, tile.Image, tile.Managed, tile.Cron, tile.Function}, in.Kind) {
+		return nil, errs.Invalidf("kind", "must be service, image, managed, cron or function")
+	}
+	if in.Source != "" && !slices.Contains([]string{logs.SourceApp, logs.SourceAccess, logs.SourceRun, logs.SourceBuild}, in.Source) {
+		return nil, errs.Invalidf("source", "must be app, access, run or build")
+	}
+	if in.Stream != "" && in.Stream != "stdout" && in.Stream != "stderr" {
+		return nil, errs.Invalidf("stream", "must be stdout or stderr")
+	}
+	days, err := o.settings.Int(ctx, "observe_logs_retention")
+	if err != nil {
+		return nil, err
+	}
+	// the viewer's longest range (7 days) always works; past the retention
+	// it finds only what is kept
+	days = max(days, 7)
+	since := in.Since
+	switch {
+	case since == 0:
+		since = time.Hour
+	case since < 0 || since > time.Duration(days)*24*time.Hour:
+		return nil, errs.Invalidf("since", "must be up to %dd, the log retention", days)
+	}
 	if !o.LogsOn() {
 		return nil, errs.Refusedf("log history is off")
 	}
@@ -75,19 +96,6 @@ func (o *Orchestrator) SearchLogs(ctx context.Context, s Scope, in LogsIn) ([]Lo
 			}
 		}
 		f.Tile = t.ID
-	}
-	if in.Source != "" && !slices.Contains([]string{logs.SourceApp, logs.SourceAccess, logs.SourceRun, logs.SourceBuild}, in.Source) {
-		return nil, errs.Invalidf("source", "must be app, access, run or build")
-	}
-	if in.Stream != "" && in.Stream != "stdout" && in.Stream != "stderr" {
-		return nil, errs.Invalidf("stream", "must be stdout or stderr")
-	}
-	since := in.Since
-	switch {
-	case since == 0:
-		since = time.Hour
-	case since < 0 || since > LogsMaxSince:
-		return nil, errs.Invalidf("since", "must be up to 168h (7d)")
 	}
 	now := time.Now()
 	from, to := now.Add(-since), now.Add(time.Second)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 )
@@ -119,6 +120,17 @@ func TestEnvMoveStatus(t *testing.T) {
 	must(t, err)
 	if ms == nil || ms.To != "w1" || len(ms.Steps) != 5 || ms.Steps[0].Label != "Copy while running" {
 		t.Errorf("status = %+v", ms)
+	}
+}
+
+func TestHumanDuration(t *testing.T) {
+	for in, want := range map[time.Duration]string{
+		420 * time.Millisecond: "0.4 s", 42600 * time.Millisecond: "43 s",
+		60680 * time.Millisecond: "1 min 1 s", 200 * time.Minute: "3 h 20 min",
+	} {
+		if got := HumanDuration(in); got != want {
+			t.Errorf("HumanDuration(%v) = %q, want %q", in, got, want)
+		}
 	}
 }
 

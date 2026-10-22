@@ -91,10 +91,20 @@ func TestSearchLogs(t *testing.T) {
 		t.Errorf("tile %q", st.got.Tile)
 	}
 
-	for _, in := range []LogsIn{{Source: "nope"}, {Stream: "x"}, {Since: 8 * 24 * time.Hour}, {Since: -time.Second}} {
+	for _, in := range []LogsIn{{Kind: "x"}, {Source: "nope"}, {Stream: "x"}, {Since: 8 * 24 * time.Hour}, {Since: -time.Second}} {
 		if _, err := o.SearchLogs(ctx, sc, in); err == nil {
 			t.Errorf("%+v was accepted", in)
 		}
+	}
+	// a search reaches as far back as the logs are kept
+	must(t, o.settings.Set(ctx, "observe_logs_retention", "30"))
+	if _, err := o.SearchLogs(ctx, sc, LogsIn{Since: 30 * 24 * time.Hour}); err != nil {
+		t.Errorf("30d under a 30 day retention = %v", err)
+	}
+	// ... and never less than the viewer's 7 days
+	must(t, o.settings.Set(ctx, "observe_logs_retention", "2"))
+	if _, err := o.SearchLogs(ctx, sc, LogsIn{Since: 7 * 24 * time.Hour}); err != nil {
+		t.Errorf("7d under a 2 day retention = %v", err)
 	}
 }
 
