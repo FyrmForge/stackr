@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"errors"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -17,6 +19,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -45,6 +48,12 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	site.POST(ServerBase+"/dest", h.serverDest, set)
 	site.POST(ServerBase+"/panel-backup", h.serverPanelBackup, set)
 	site.POST(ServerBase+"/bind", h.serverBind, bind)
+	node := a.Require("node.manage")
+	site.GET(nodesBase, h.serverNodes, node)
+	site.POST(nodesBase+"/add", h.serverMintNode, node)
+	site.GET(nodesBase+"/add/poll", h.serverPollNode, node)
+	site.POST(nodesBase+"/pending/:node/confirm", h.serverJoin(true), node)
+	site.POST(nodesBase+"/pending/:node/reject", h.serverJoin(false), node)
 	approve := a.Require("serverplan.approve")
 	site.POST(ServerBase+"/config/plan/:plan/approve", h.serverApprove, approve)
 	site.POST(ServerBase+"/config/plan/:plan/reject", h.serverReject, approve)
@@ -286,12 +295,9 @@ func (h *handler) nodesStep(ctx context.Context, s pages.ServerStep, done bool) 
 	if done {
 		v.AdminURL = adminURL("nodes")
 	}
-	ns, err := h.orch.Nodes(ctx)
-	if err != nil {
+	var err error
+	if v.Panel, err = h.nodesPanel(ctx, nil, ""); err != nil {
 		return v, err
-	}
-	for _, n := range ns {
-		v.Nodes = append(v.Nodes, n.Name+": "+n.Role)
 	}
 	ps, err := h.orch.Placements(ctx)
 	if err != nil {
@@ -307,6 +313,132 @@ func (h *handler) nodesStep(ctx context.Context, s pages.ServerStep, done bool) 
 		v.Placements = append(v.Placements, line)
 	}
 	return v, nil
+}
+
+const nodesBase = ServerBase + "/nodes"
+
+// nodesPanel is the Nodes step's live part; adder is the open add-node
+// steps (nil = closed). skip is the machine they wait for, which the list
+// leaves to them.
+func (h *handler) nodesPanel(ctx context.Context, adder *admin.AddNodeView, skip string) (pages.NodesPanel, error) {
+	v := pages.NodesPanel{Base: ServerBase, Adder: adder, Poll: nodesBase}
+	if skip != "" {
+		v.Poll += "?skip=" + url.QueryEscape(skip)
+	}
+	ns, err := h.orch.Nodes(ctx)
+	if err != nil {
+		return v, err
+	}
+	for _, n := range ns {
+		v.Nodes = append(v.Nodes, pages.NodeLine{Name: n.Name, Role: n.Role, Status: admin.StatusWord(n.Status)})
+	}
+	ps, err := h.orch.PendingNodes(ctx)
+	if err != nil {
+		return v, err
+	}
+	for _, p := range ps {
+		if p.Name != skip {
+			v.Pending = append(v.Pending, pendingRow(p))
+		}
+	}
+	return v, nil
+}
+
+// pendingRow is a machine that called in, with the step's own confirm and
+// reject.
+func pendingRow(p service.PendingNode) admin.PendingRow {
+	return admin.PendingRow{
+		Name: p.Name, Addresses: p.Addresses, Tags: p.Tags,
+		Confirm: nodesBase + "/pending/" + p.ID + "/confirm",
+		Reject:  nodesBase + "/pending/" + p.ID + "/reject",
+	}
+}
+
+// adderStep1 is Admin's first add-node step, answering into the panel.
+func adderStep1(name string, picked []string, msg string) *admin.AddNodeView {
+	return &admin.AddNodeView{
+		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
+		Create: nodesBase + "/add", Cancel: nodesBase, Target: "#" + pages.NodesPanelID,
+	}
+}
+
+// answerNodes is the panel, the add-node steps as adder leaves them.
+func (h *handler) answerNodes(c echo.Context, adder *admin.AddNodeView, skip string) error {
+	v, err := h.nodesPanel(c.Request().Context(), adder, skip)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.HTML(c, http.StatusOK, pages.ServerNodesPanel(v))
+}
+
+// GET /-/setup/server/nodes (add=1 opens the add-node steps; skip= is the
+// machine open steps wait for): the panel, which the list polls.
+func (h *handler) serverNodes(c echo.Context) error {
+	var adder *admin.AddNodeView
+	if c.QueryParam("add") != "" {
+		adder = adderStep1("", nil, "")
+	}
+	return h.answerNodes(c, adder, c.QueryParam("skip"))
+}
+
+// POST /-/setup/server/nodes/add (name, tag): Admin's mint, step two in
+// the panel.
+func (h *handler) serverMintNode(c echo.Context) error {
+	f, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	name := strings.TrimSpace(f.Get("name"))
+	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, Tags: f["tag"]})
+	if err != nil {
+		msg, ok := render.Refused(err)
+		if !ok {
+			return middleware.HTTPError(err)
+		}
+		return h.answerNodes(c, adderStep1(name, f["tag"], msg), "")
+	}
+	return h.answerNodes(c, &admin.AddNodeView{
+		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
+		Expires: "in " + strconv.Itoa(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes",
+		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName),
+		Cancel:  nodesBase, Target: "#" + pages.NodesPanelID,
+	}, out.NodeName)
+}
+
+// GET /-/setup/server/nodes/add/poll (name): 204 until the machine calls
+// in, then step three.
+func (h *handler) serverPollNode(c echo.Context) error {
+	p, err := h.orch.PendingNodeByName(c.Request().Context(), c.QueryParam("name"))
+	if errors.Is(err, errs.ErrNotFound) {
+		return c.NoContent(http.StatusNoContent)
+	}
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	r := pendingRow(p)
+	return respond.HTML(c, http.StatusOK, admin.AddNode(admin.AddNodeView{Step: 3, Name: p.Name, Pending: &r, Target: "#" + pages.NodesPanelID}))
+}
+
+// POST /-/setup/server/nodes/pending/:node/confirm and …/reject: the
+// panel again, the steps closed; a refusal shows over a reopened step one.
+func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx, by, id := c.Request().Context(), middleware.Principal(c), c.Param("node")
+		var err error
+		if confirm {
+			_, err = h.orch.ConfirmJoin(ctx, by, id)
+		} else {
+			err = h.orch.RejectJoin(ctx, by, id)
+		}
+		if err != nil {
+			msg, ok := render.Refused(err)
+			if !ok {
+				return middleware.HTTPError(err)
+			}
+			return h.answerNodes(c, adderStep1("", nil, msg), "")
+		}
+		return h.answerNodes(c, nil, "")
+	}
 }
 
 // POST /-/setup/server/domains (root_domain, panel_domain, acme_email).

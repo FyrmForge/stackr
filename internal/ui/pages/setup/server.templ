@@ -5,6 +5,12 @@ package setup
 // summary) or the file page (connector and repo, then the plan). Both end on
 // Finish, then org setup. Admin's Setup guide reopens the by-hand screens.
 
+import (
+	"strings"
+
+	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
+)
+
 // ServerBranchView is the branch question.
 type ServerBranchView struct{ Base string }
 
@@ -58,10 +64,27 @@ type ServerBackupsView struct {
 // ServerNodesView is the nodes screen.
 type ServerNodesView struct {
 	ServerStep
-	Nodes      []string
+	Panel      NodesPanel
 	Placements []string // "default: ctl" lines
 	AdminURL   string   // Admin, Nodes; "" while setup is unfinished (the gate would bounce it)
 }
+
+// NodesPanel is the nodes screen's live part: Admin's add-node steps, the
+// machines waiting for a confirm and the nodes, polled while it is open.
+type NodesPanel struct {
+	Base    string              // /-/setup/server
+	Adder   *admin.AddNodeView  // nil = closed
+	Pending []admin.PendingRow
+	Nodes   []NodeLine
+	Poll    string // the list's own URL
+}
+
+// NodeLine is one node: Status as the node drawer words it, Hint what to
+// do about it ("" = nothing).
+type NodeLine struct{ Name, Role, Status, Hint string }
+
+// NodesPanelID is the panel's element, what its answers replace.
+const NodesPanelID = "setup-nodes"
 
 // SummaryRow is one step on the last screen.
 type SummaryRow struct {
@@ -335,20 +358,16 @@ templ destField(name, label, typ, placeholder, help string) {
 	</div>
 }
 
-// ServerNodes explains workers and placements; adding one is Admin's.
+// ServerNodes adds workers with Admin's add-node steps and explains
+// placements.
 templ ServerNodes(v ServerNodesView) {
 	@shell(v.Frame) {
 		<div class="space-y-3 text-sm text-rw-muted">
 			<p>One box works alone. Add a worker when you want more room.</p>
-			<p>Admin, Nodes, Add node gives a one-line command to run on the new box.</p>
+			<p>Add node gives a one-line command to run on the new box.</p>
 			<p>A placement names where an environment runs. Each points at a node.</p>
 		</div>
-		if len(v.Nodes) > 0 {
-			<h3 class="mt-5 mb-2 text-sm font-semibold text-rw-text">Nodes</h3>
-			for _, n := range v.Nodes {
-				<p class="text-sm font-mono text-rw-muted">{ n }</p>
-			}
-		}
+		@ServerNodesPanel(v.Panel)
 		if len(v.Placements) > 0 {
 			<h3 class="mt-5 mb-2 text-sm font-semibold text-rw-text">Placements</h3>
 			for _, p := range v.Placements {
@@ -362,6 +381,49 @@ templ ServerNodes(v ServerNodesView) {
 		}
 		<a href={ templ.SafeURL(v.Next) } class="btn btn-primary w-full mt-3">Continue</a>
 	}
+}
+
+// ServerNodesPanel is the add-node steps over the node list; the list
+// polls itself, so a node going from pending to online shows as it does.
+templ ServerNodesPanel(v NodesPanel) {
+	<div id={ NodesPanelID } class="mt-5 space-y-4">
+		if v.Adder != nil {
+			@admin.AddNode(*v.Adder)
+		} else {
+			<button type="button" hx-get={ v.Base + "/nodes?add=1" } hx-target={ "#" + NodesPanelID } hx-swap="outerHTML" class="btn btn-ghost btn-sm w-full">Add node</button>
+		}
+		<div id="setup-node-list" hx-get={ v.Poll } hx-trigger="every 5s" hx-select="#setup-node-list" hx-target="this" hx-swap="outerHTML" aria-live="polite">
+			for _, p := range v.Pending {
+				<div class="panel px-3 py-2 mb-2 text-sm space-y-2">
+					<p><span class="text-rw-text font-medium">{ p.Name }</span> <span class="text-xs text-rw-warn">called in, waiting for you</span></p>
+					if len(p.Addresses) > 0 {
+						<p class="font-mono text-xs text-rw-muted break-all">{ strings.Join(p.Addresses, ", ") }</p>
+					}
+					<div class="flex gap-2">
+						<form novalidate hx-post={ p.Reject } hx-target={ "#" + NodesPanelID } hx-swap="outerHTML">
+							<button type="submit" class="btn btn-ghost btn-sm">Reject</button>
+						</form>
+						<form novalidate hx-post={ p.Confirm } hx-target={ "#" + NodesPanelID } hx-swap="outerHTML">
+							<button type="submit" class="btn btn-primary btn-sm">Add { p.Name }</button>
+						</form>
+					</div>
+				</div>
+			}
+			<h3 class="mb-2 text-sm font-semibold text-rw-text">Nodes</h3>
+			<ul class="space-y-1">
+				for _, n := range v.Nodes {
+					<li class="text-sm">
+						<span class="font-mono text-rw-text">{ n.Name }</span>
+						<span class="text-xs text-rw-faint">{ n.Role }</span>
+						<span class="text-xs text-rw-muted">{ n.Status }</span>
+						if n.Hint != "" {
+							<p class="text-xs text-rw-faint">{ n.Hint }</p>
+						}
+					</li>
+				}
+			</ul>
+		</div>
+	</div>
 }
 
 // ServerSummary is each step's state; Finish stamps the wizard done.
