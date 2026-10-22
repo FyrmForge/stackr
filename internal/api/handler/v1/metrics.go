@@ -78,7 +78,7 @@ func (h *H) TileMetrics() Endpoint {
 // LogSearch is the env's stored log lines (the whole env, or one tile with
 // ?tile=), newest first, 500 at most. ?kind=, ?source= (app, access, run,
 // build), ?stream= (stdout, stderr), ?run= and ?text= narrow it; ?since= is a
-// duration up to 168h or 7d (default 1h); ?before= is an RFC 3339 time, to page
+// duration like 24h or 7d, up to the log retention (default 1h); ?before= is an RFC 3339 time, to page
 // past the oldest line of the last answer.
 func (h *H) LogSearch() Endpoint {
 	return Get(func(c echo.Context) ([]service.LogLine, error) {

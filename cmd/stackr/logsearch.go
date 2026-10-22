@@ -65,11 +65,11 @@ func (a *app) logSearch() *cobra.Command {
 			return nil
 		}))
 	c.Flags().String("tile", "", "only this tile")
-	c.Flags().StringVar(&kind, "kind", "", "only this tile kind (service, image, cron, function)")
+	c.Flags().StringVar(&kind, "kind", "", "only this tile kind (service, image, managed, cron, function)")
 	c.Flags().StringVar(&source, "source", "", "app, access, run or build")
 	c.Flags().StringVar(&stream, "stream", "", "stdout or stderr")
 	c.Flags().StringVar(&run, "run", "", "a cron or function run's id")
-	c.Flags().StringVar(&since, "since", "1h", "how far back, up to 7d (like 15m, 6h, 24h, 7d)")
+	c.Flags().StringVar(&since, "since", "1h", "how far back, up to the log retention (like 15m, 6h, 24h, 7d)")
 	c.Example = "  stackr logs search --env prod --tile api --source access 500"
 	return c
 }
