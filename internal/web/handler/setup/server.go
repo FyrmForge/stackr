@@ -44,13 +44,12 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	site.POST(ServerBase+"/mode", h.serverMode, bind)
 	set := a.Require("serverdefaults.set")
 	site.POST(ServerBase+"/domains", h.serverDomains, set)
-	site.POST(ServerBase+"/github", h.serverGitHub, a.Require("connector.admin"))
-	site.POST(ServerBase+"/github/app", h.serverApp, a.Require("connector.admin"))
 	conn := a.Require("connector.admin")
-	site.GET(connBase+"/new", h.newDNSConnector, conn)
-	site.GET(connBase+"/:connector/settings", h.dnsPanel().Settings, conn)
-	h.dnsPanel().Mount(site, connBase, conn)
+	site.GET(connBase+"/new", newConnector(h.dnsPanel(), "Add a DNS connector"), conn)
+	h.dnsPanel().Mount(site, connBase, conn, nil)
 	h.dnsPanel().MountDNS(site, dnsBase, conn)
+	site.GET(gitBase+"/new", newConnector(h.gitPanel(), "Add a git connector"), conn)
+	h.gitPanel().Mount(site, gitBase, conn, nil)
 	site.POST(ServerBase+"/observe", h.serverObserve, set)
 	site.POST(ServerBase+"/dest", h.serverDest, set)
 	site.POST(ServerBase+"/panel-backup", h.serverPanelBackup, set)
@@ -69,7 +68,7 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 
 // ServerPending sends an admin's page requests to the wizard until it is
 // finished. Anyone else, an htmx or API call, a write, the wizard's own
-// paths and GitHub's returns from the wizard's App flow pass. Mount after
+// paths and a provider's returns from a connector's setup pass. Mount after
 // Load, before the org gate.
 func ServerPending(orch *service.Orchestrator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -78,7 +77,7 @@ func ServerPending(orch *service.Orchestrator) echo.MiddlewareFunc {
 			p := middleware.Principal(c)
 			if p == nil || !p.Access.Admin || r.Method != http.MethodGet || isHTMX(c) ||
 				strings.HasPrefix(r.URL.Path, ServerBase) || strings.HasPrefix(r.URL.Path, "/api/") ||
-				strings.HasPrefix(r.URL.Path, "/settings/github/") ||
+				strings.HasPrefix(r.URL.Path, "/settings/") || r.URL.Path == service.ConnectorCallbackPath ||
 				strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/logout" {
 				return next(c)
 			}
@@ -140,11 +139,18 @@ func adminURL(tab string) string { return "/?drawer=admin&tab=" + tab }
 var serverStepTitles = map[string][2]string{
 	"domains":       {"Domains", "Where the panel and your stacks are reached."},
 	"certificates":  {"Certificates", "HTTPS for every domain, wildcards where stackr runs the DNS."},
-	"github":        {"GitHub", "One App for the whole server, so organizations need none of their own."},
 	"observability": {"Observability", "Graphs and logs, kept past today."},
 	"backups":       {"Backups", "Where backups go, and the panel's own."},
 	"nodes":         {"Nodes", "The boxes stacks run on."},
 	"summary":       {"Summary", "What is set up. Change any of it now or later."},
+}
+
+// stepTitle is step's title and subtitle; the git step's names the git kind.
+func (h *handler) stepTitle(step string) [2]string {
+	if step == service.ServerSetupGit {
+		return [2]string{gitLabel(h.gitPanel()), "One connector for the whole server, so organizations need none of their own."}
+	}
+	return serverStepTitles[step]
 }
 
 // GET /-/setup/server/ui/:step: one by-hand screen. A finished server still
@@ -158,9 +164,9 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 	if i < 0 {
 		return echo.ErrNotFound
 	}
-	t := serverStepTitles[step]
+	t := h.stepTitle(step)
 	s := pages.ServerStep{
-		Frame: pages.Frame{Title: t[0], Subtitle: t[1], Step: i + 1, Steps: serverSteps()},
+		Frame: pages.Frame{Title: t[0], Subtitle: t[1], Step: i + 1, Steps: h.serverSteps()},
 		Base:  ServerBase,
 	}
 	if i+1 < len(steps) {
@@ -182,7 +188,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 			Title: "DNS connectors", Scope: "instance",
 			Help:     "Pick the domains and who may use them in a connector's settings.",
 			Add:      connBase + "/new",
-			AddLabel: h.addLabel(),
+			AddLabel: addLabel(h.dnsPanel()),
 		}
 		v.List.Rows, err = h.dnsPanel().Rows(c)
 		v.Done = len(v.List.Rows) > 0
@@ -193,10 +199,10 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 			}
 		}
 		body = pages.ServerCertificates(v)
-	case "github":
-		var v pages.ServerGitHubView
-		v, err = h.githubStep(c, s)
-		body = pages.ServerGitHub(v)
+	case service.ServerSetupGit:
+		var v pages.ServerGitView
+		v, err = h.gitStep(c, s)
+		body = pages.ServerGit(v)
 	case "observability":
 		var o service.ObserveStatus
 		o, err = h.orch.ObserveStatus(ctx)
@@ -226,7 +232,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 			if st.Done {
 				href = adminURL(summaryTab[l.Step])
 			}
-			v.Rows = append(v.Rows, pages.SummaryRow{Label: serverStepTitles[l.Step][0], State: l.State, Detail: l.Detail, Href: href})
+			v.Rows = append(v.Rows, pages.SummaryRow{Label: h.stepTitle(l.Step)[0], State: l.State, Detail: l.Detail, Href: href})
 		}
 		body = pages.ServerSummary(v)
 	}
@@ -237,10 +243,10 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 }
 
 // serverSteps is the by-hand branch's stepper; any done step reopens.
-func serverSteps() []pages.StepLink {
+func (h *handler) serverSteps() []pages.StepLink {
 	var out []pages.StepLink
 	for _, s := range service.ServerSetupSteps {
-		out = append(out, pages.StepLink{Name: serverStepTitles[s][0], Href: stepURL(s)})
+		out = append(out, pages.StepLink{Name: h.stepTitle(s)[0], Href: stepURL(s)})
 	}
 	return out
 }
@@ -252,7 +258,7 @@ func (h *handler) refillStep(c echo.Context, err error, step string) error {
 
 // summaryTab is the Admin tab each summary line lives on.
 var summaryTab = map[string]string{
-	"domains": "settings", "certificates": "connectors", "github": "connectors",
+	"domains": "settings", "certificates": "connectors", service.ServerSetupGit: "connectors",
 	"observability": "observability", "backups": "backups", "nodes": "nodes",
 }
 
@@ -267,21 +273,24 @@ func (h *handler) settings(ctx context.Context, keys map[string]*string) error {
 	return nil
 }
 
-func (h *handler) githubStep(c echo.Context, s pages.ServerStep) (pages.ServerGitHubView, error) {
-	ctx := c.Request().Context()
-	v := pages.ServerGitHubView{ServerStep: s, CSRF: render.Shell(c, "").CSRF}
-	cs, err := h.orch.ServerConnectors(ctx)
-	if err != nil {
+// gitStep is the server's git connections, each with where its provider
+// delivers events and its install page, and the add dialog; Done once one
+// is connected (one its provider never confirmed is no connector).
+func (h *handler) gitStep(c echo.Context, s pages.ServerStep) (pages.ServerGitView, error) {
+	p := h.gitPanel()
+	v := pages.ServerGitView{ServerStep: s, Label: gitLabel(p)}
+	v.List = connectors.ListView{
+		Title: v.Label + " connectors", Scope: "instance",
+		Help:     "Shared with every organization. Pick who may use one in its settings.",
+		Add:      gitBase + "/new",
+		AddLabel: addLabel(p),
+	}
+	var err error
+	if v.List.Rows, err = p.Rows(c); err != nil {
 		return v, err
 	}
-	for _, k := range cs {
-		install, err := h.orch.ServerConnectorInstallURL(ctx, k.ID)
-		if err != nil {
-			return v, err
-		}
-		v.Apps = append(v.Apps, pages.ServerApp{Name: k.Name, HookURL: h.orch.ConnectorHookURL(k.ID), InstallURL: install})
-		// one GitHub has not confirmed yet is no App: Skip stays Skip
-		v.Done = v.Done || install != ""
+	for _, r := range v.List.Rows {
+		v.Done = v.Done || !r.Pending
 	}
 	return v, nil
 }
@@ -463,62 +472,72 @@ func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
 	}
 }
 
-// connBase and dnsBase are where the certificates screen's connector
-// screens and DNS actions hang.
+// The certificates and git screens each list the server's connectors of
+// one capability, under their own base, the add dialog opened straight on
+// the kind when there is one. Removing one is Admin's: the screens have no
+// drawer to answer into.
 const (
 	connBase = ServerBase + "/connectors"
 	dnsBase  = ServerBase + "/dns"
+	gitBase  = ServerBase + "/git"
 )
 
-// dnsPanel is Admin's server DNS connectors on the certificates screen,
-// its add dialog opened straight on the DNS kind when there is one.
-// Removing one is Admin's: the screen has no drawer to answer into.
-func (h *handler) dnsPanel() connpanel.Panel {
+// stepPanel is the server's connectors with capability cp on step, its
+// screens under base.
+func (h *handler) stepPanel(cp, base, step string) connpanel.Panel {
 	p := connpanel.Panel{
 		Orch:    h.orch,
 		Org:     func(echo.Context) *string { return nil },
-		Base:    func(echo.Context) string { return connBase },
+		Base:    func(echo.Context) string { return base },
 		DNSBase: func(echo.Context) string { return dnsBase },
-		Refresh: func(echo.Context) string { return stepURL("certificates") },
-		Only:    service.CapDNS,
+		Refresh: func(echo.Context) string { return stepURL(step) },
+		Only:    cp,
 	}
-	if len(h.dnsKinds()) > 1 {
-		p.Back = func(echo.Context) string { return connBase + "/new?pick=1" }
+	if len(p.KindsWith(cp)) > 1 {
+		p.Back = func(echo.Context) string { return base + "/new?pick=1" }
 	}
 	return p
 }
 
-// dnsKinds is the registered kinds with the DNS capability.
-func (h *handler) dnsKinds() []service.ConnectorKind {
-	var out []service.ConnectorKind
-	for _, k := range h.orch.ConnectorKinds() {
-		if slices.Contains(k.Caps, service.CapDNS) {
-			out = append(out, k)
+func (h *handler) dnsPanel() connpanel.Panel {
+	return h.stepPanel(service.CapDNS, connBase, "certificates")
+}
+
+func (h *handler) gitPanel() connpanel.Panel {
+	return h.stepPanel(service.CapGit, gitBase, service.ServerSetupGit)
+}
+
+// newConnector is GET <base>/new: the add dialog of p's capability,
+// straight on its kind when there is one, else on a picker of them
+// (?pick=1: the picker alone, into the open dialog).
+func newConnector(p connpanel.Panel, title string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ks := p.KindsWith(p.Only)
+		switch {
+		case len(ks) == 1:
+			return respond.HTML(c, http.StatusOK, p.Open(c, ks[0]))
+		case c.QueryParam("pick") != "":
+			return respond.HTML(c, http.StatusOK, connectors.Picker(p.Kinds(c, p.Only)))
 		}
+		return respond.HTML(c, http.StatusOK, connectors.Modal(title, p.Refresh(c), connectors.Picker(p.Kinds(c, p.Only))))
 	}
-	return out
 }
 
-// GET /-/setup/server/connectors/new: the add dialog, straight on the DNS
-// kind when there is one, else on a picker of them (?pick=1: the picker
-// alone, into the open dialog).
-func (h *handler) newDNSConnector(c echo.Context) error {
-	p, ks := h.dnsPanel(), h.dnsKinds()
-	switch {
-	case len(ks) == 1:
-		return respond.HTML(c, http.StatusOK, p.Open(c, ks[0]))
-	case c.QueryParam("pick") != "":
-		return respond.HTML(c, http.StatusOK, connectors.Picker(p.Kinds(c, service.CapDNS)))
-	}
-	return respond.HTML(c, http.StatusOK, connectors.Modal("Add a DNS connector", p.Refresh(c), connectors.Picker(p.Kinds(c, service.CapDNS))))
-}
-
-// addLabel is the certificates screen's add button.
-func (h *handler) addLabel() string {
-	if ks := h.dnsKinds(); len(ks) == 1 {
+// addLabel is a screen's add button for p's capability.
+func addLabel(p connpanel.Panel) string {
+	if ks := p.KindsWith(p.Only); len(ks) == 1 {
 		return "+ Add " + ks[0].Label
 	}
 	return "+ Add connector"
+}
+
+// gitLabel is how the screens name the git kinds: the one there is, else
+// "Git".
+func gitLabel(p connpanel.Panel) string {
+	if ks := p.KindsWith(service.CapGit); len(ks) == 1 {
+		return ks[0].Label
+	}
+	return "Git"
 }
 
 // POST /-/setup/server/domains (root_domain, panel_domain, acme_email).
@@ -532,38 +551,6 @@ func (h *handler) serverDomains(c echo.Context) error {
 	}
 	hamrmw.SetFlash(c, "Domains saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("certificates"))
-}
-
-// POST /-/setup/server/github (gh_org): a server GitHub App shared with
-// every org, by GitHub's manifest flow. A native form: the answer is the
-// page that posts the manifest to GitHub. GitHub's setup_url brings the
-// browser back to the GitHub step while setup is unfinished.
-func (h *handler) serverGitHub(c echo.Context) error {
-	_, action, manifest, err := h.orch.BeginServerConnector(
-		c.Request().Context(), middleware.Principal(c).User.ID, strings.TrimSpace(c.FormValue("gh_org")),
-	)
-	if err != nil {
-		return back(c, err, stepURL("github"))
-	}
-	return render.Bare(c, http.StatusOK, "Taking you to GitHub", pages.GitHubRedirect(action, manifest))
-}
-
-// POST /-/setup/server/github/app (app_id, slug, private_key,
-// webhook_secret): an existing App, shared with every org. The service
-// checks the key parses.
-func (h *handler) serverApp(c echo.Context) error {
-	f := c.FormValue
-	id, err := strconv.ParseInt(strings.TrimSpace(f("app_id")), 10, 64)
-	if err != nil {
-		return h.refillStep(c, errs.Invalidf("app_id", "The App ID is the number on the App's page"), "github")
-	}
-	if _, err := h.orch.AddServerConnector(c.Request().Context(), service.GitHubApp{
-		ID: id, Slug: f("slug"), PEM: f("private_key"), WebhookSecret: f("webhook_secret"),
-	}); err != nil {
-		return h.refillStep(c, err, "github")
-	}
-	hamrmw.SetFlash(c, "App saved. Point its webhook at the URL below.", hamrmw.FlashSuccess)
-	return respond.Redirect(c, stepURL("github"))
 }
 
 // POST /-/setup/server/observe: the switch and the knobs shown, nothing else
@@ -638,7 +625,7 @@ func (h *handler) serverFile(c echo.Context) error {
 	v := pages.ServerFileView{
 		Frame:  serverFrame("Set up from a file", "Bind the repo that holds stackr-server.yml, then approve its plan."),
 		Base:   ServerBase,
-		Repo:   strings.TrimPrefix(b.Repo, "https://github.com/"),
+		Repo:   b.Repo,
 		Branch: b.Branch, Path: b.Path, Bound: b.Repo != "",
 	}
 	for _, k := range cs {

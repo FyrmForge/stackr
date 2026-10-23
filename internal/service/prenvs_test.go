@@ -32,7 +32,7 @@ func TestPREnvsOptIn(t *testing.T) {
 		t.Helper()
 		mac := hmac.New(sha256.New, []byte("whsec"))
 		mac.Write([]byte(body))
-		if err := env.Orch.Webhook(ctx, conn, event, "sha256="+hex.EncodeToString(mac.Sum(nil)), []byte(body)); err != nil {
+		if err := env.Orch.Webhook(ctx, conn, hook(event, "sha256="+hex.EncodeToString(mac.Sum(nil))), []byte(body)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -110,7 +110,7 @@ func TestPREnvsBadFileSaysWhy(t *testing.T) {
 		`"pull_request":{"head":{"ref":"feat","sha":"def5678"},"base":{"ref":"main"}}}`
 	mac := hmac.New(sha256.New, []byte("whsec"))
 	mac.Write([]byte(body))
-	if err := env.Orch.Webhook(ctx, conn, "pull_request", "sha256="+hex.EncodeToString(mac.Sum(nil)), []byte(body)); err != nil {
+	if err := env.Orch.Webhook(ctx, conn, hook("pull_request", "sha256="+hex.EncodeToString(mac.Sum(nil))), []byte(body)); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "the job log names the file error", func() bool {
@@ -145,7 +145,7 @@ func TestPREnvsForks(t *testing.T) {
 		t.Helper()
 		mac := hmac.New(sha256.New, []byte("whsec"))
 		mac.Write([]byte(body))
-		if err := env.Orch.Webhook(ctx, conn, event, "sha256="+hex.EncodeToString(mac.Sum(nil)), []byte(body)); err != nil {
+		if err := env.Orch.Webhook(ctx, conn, hook(event, "sha256="+hex.EncodeToString(mac.Sum(nil))), []byte(body)); err != nil {
 			t.Fatal(err)
 		}
 	}

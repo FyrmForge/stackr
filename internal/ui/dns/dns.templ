@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/connectors"
 )
 
 // Title is the add dialog's step this capability adds after connecting.
@@ -21,6 +22,7 @@ type DomainsView struct {
 	Error    string
 	Note     string
 	Shared   bool // a server connector: managed domains say who may use them
+	InUse    templ.Component // a refusal that lists where a domain is used, linked; nil = Error alone
 	Rows     []DomainRow
 }
 
@@ -40,6 +42,19 @@ type Org struct {
 }
 
 func listID(id string) string { return "dns-domains-" + id }
+
+// share is a managed domain's "Available to": every org when none is
+// ticked, as the service reads an empty list.
+func share(v DomainsView, d DomainRow) connectors.ShareView {
+	sv := connectors.ShareView{ID: listID(v.ID) + "-" + d.Name, Action: d.Manage, Target: "#" + listID(v.ID), Hidden: map[string]string{"domain": d.Name}, All: true}
+	for _, o := range d.Orgs {
+		sv.Orgs = append(sv.Orgs, connectors.ShareOrg{ID: o.ID, Name: o.Name, On: o.On})
+		if o.On {
+			sv.All = false
+		}
+	}
+	return sv
+}
 
 func vals(m map[string]string) string {
 	b, _ := json.Marshal(m)
@@ -71,7 +86,9 @@ func stateWord(s string) (string, string) {
 // Domains is a connector's domain list; every action answers it again.
 templ Domains(v DomainsView) {
 	<div id={ listID(v.ID) } class="space-y-2">
-		if v.Error != "" {
+		if v.InUse != nil {
+			@v.InUse
+		} else if v.Error != "" {
 			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
 		}
 		if v.Note != "" {
@@ -108,21 +125,8 @@ templ Domains(v DomainsView) {
 							}
 						</span>
 					</div>
-					if v.Shared && d.State == "managed" && d.Manage != "" && len(d.Orgs) == 0 {
-						<p class="text-xs text-rw-faint">Available to every organization.</p>
-					}
-					if v.Shared && d.State == "managed" && d.Manage != "" && len(d.Orgs) > 0 {
-						<form hx-post={ d.Manage } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML" class="space-y-1">
-							<input type="hidden" name="domain" value={ d.Name }/>
-							<fieldset class="space-y-1">
-								<legend class="label">Available to</legend>
-								for _, o := range d.Orgs {
-									<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
-								}
-								<p class="text-xs text-rw-faint">None ticked: every organization.</p>
-							</fieldset>
-							<button type="submit" class="btn btn-ghost btn-sm">Save</button>
-						</form>
+					if v.Shared && d.State == "managed" && d.Manage != "" {
+						@connectors.Share(share(v, d))
 					}
 				</li>
 			}

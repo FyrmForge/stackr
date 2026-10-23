@@ -190,7 +190,7 @@ func (h *handler) act(tab string, do func(echo.Context) (string, *service.Job, e
 	}
 }
 
-// POST /-/admin/update/check reaches GitHub; a failure is the tab's text,
+// POST /-/admin/update/check reaches the release host; a failure is the tab's text,
 // not an error page (a panel may have no way out).
 func (h *handler) Check(c echo.Context) error {
 	v := ui.UpdateView{Checked: true}

@@ -39,7 +39,7 @@ type User struct {
 }
 
 // UpdateView is the self-upgrade. Checked says a check has run (this
-// answer, or the last one remembered); the check reaches GitHub, so a tab
+// answer, or the last one remembered); the check reaches the release host, so a tab
 // open never runs one.
 type UpdateView struct {
 	Version string
@@ -1038,7 +1038,7 @@ func Guide(href string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.Section("Setup guide", "instance", "Walks through domains, GitHub, observability, backups and nodes again.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var30), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Section("Setup guide", "instance", "Walks through domains, git, observability, backups and nodes again.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var30), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -13,6 +13,7 @@ func TestTabs(t *testing.T) {
 	_ = Settings(SettingsView{
 		Base:       "/o/-/connectors/k1",
 		Name:       "gh",
+		Label:      "GitHub",
 		Host:       "github.com",
 		InstallURL: "https://github.com/apps/stackr-x/installations/new",
 		Delete:     c.ConfirmView{Action: "/o/-/connectors/k1/delete"},
@@ -42,16 +43,16 @@ func TestCheckStates(t *testing.T) {
 		return b.String()
 	}
 	install := "https://github.com/apps/stackr-x/installations/new"
-	if got := render(ReposView{Check: "/c", InstallURL: install, Checked: true}); !strings.Contains(got, "Install it on GitHub") || !strings.Contains(got, "check again") {
+	if got := render(ReposView{Label: "GitHub", Check: "/c", InstallURL: install, Checked: true}); !strings.Contains(got, "Install it on GitHub") || !strings.Contains(got, "check again") {
 		t.Errorf("not installed:\n%s", got)
 	}
-	got := render(ReposView{Check: "/c", InstallURL: install, Checked: true, Repos: []string{"acme/api", "acme/web"}})
+	got := render(ReposView{Label: "GitHub", Check: "/c", InstallURL: install, Checked: true, Repos: []string{"acme/api", "acme/web"}})
 	for _, w := range []string{"installed on 2 repositories", "acme/api", "acme/web", "Change which repositories"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("no %s in\n%s", w, got)
 		}
 	}
-	if got := render(ReposView{Check: "/c", InstallURL: install, Checked: true, Repos: []string{"acme/api"}}); !strings.Contains(got, "installed on 1 repository.") {
+	if got := render(ReposView{Label: "GitHub", Check: "/c", InstallURL: install, Checked: true, Repos: []string{"acme/api"}}); !strings.Contains(got, "installed on 1 repository.") {
 		t.Errorf("singular:\n%s", got)
 	}
 	if got := render(ReposView{Check: "/c"}); !strings.Contains(got, "did not finish") || strings.Contains(got, "Check installation") {

@@ -1,12 +1,13 @@
-package githubapp
+package github
 
 import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"strings"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 )
 
 // Repository is the part of a delivery's repository object a tile is matched on.
@@ -81,11 +82,43 @@ type Event struct {
 	Push *Push
 }
 
-// ErrBadSignature → 401, ErrBadPayload → 400.
+// ErrBadSignature → 401, ErrBadPayload → 400: the contract's.
 var (
-	ErrBadSignature = errors.New("bad signature")
-	ErrBadPayload   = errors.New("bad payload")
+	ErrBadSignature = connectors.ErrBadSignature
+	ErrBadPayload   = connectors.ErrBadPayload
 )
+
+// neutral is ev as the contract says it: a push to a branch, or a pull
+// request; a branch deletion or a tag push is nothing.
+func neutral(ev Event) connectors.Event {
+	switch {
+	case ev.Push != nil:
+		p := ev.Push
+		if p.Deleted || !strings.HasPrefix(p.Ref, "refs/heads/") {
+			return connectors.Event{}
+		}
+		return connectors.Event{Push: &connectors.Push{
+			Repo:          p.Repository.CloneURL,
+			Branch:        strings.TrimPrefix(p.Ref, "refs/heads/"),
+			Commit:        p.After,
+			Message:       p.HeadCommit.Message,
+			DefaultBranch: p.Repository.DefaultBranch,
+			Changed:       p.ChangedFiles(),
+		}}
+	case ev.PR != nil:
+		pr := ev.PR
+		return connectors.Event{PR: &connectors.PullRequest{
+			Repo:   pr.Repository.CloneURL,
+			Action: pr.Action,
+			Number: pr.Number,
+			Head:   pr.PullRequest.Head.Ref,
+			SHA:    pr.PullRequest.Head.SHA,
+			Base:   pr.PullRequest.Base.Ref,
+			Fork:   pr.IsFork(),
+		}}
+	}
+	return connectors.Event{}
+}
 
 // Receive verifies a delivery against the connector's webhook secret, then
 // decodes it. event is X-GitHub-Event, signature is X-Hub-Signature-256, body

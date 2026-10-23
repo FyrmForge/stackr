@@ -40,7 +40,6 @@ var skipped = map[string]string{
 	"key.cli_code":                 "the panel's CLI authorize page calls it; stackr login waits for its code",
 	"invite.get":                   "an invite link is opened in a browser",
 	"invite.accept":                "an invite link is accepted in a browser",
-	"connector.begin":              "the GitHub App handshake runs in a browser (the manifest form posts to GitHub)",
 	"env.events":                   "the env canvas's live stream; stackr env traffic reads the same lanes",
 	"domain-resource.update":       "v0's domain noun is ls, add, rm (cli-ref.md); a stack file's domains: edits its rows",
 	"admin.domain-resource-update": "v0's domain noun is ls, add, rm (cli-ref.md)",
@@ -548,7 +547,7 @@ func (a *app) orgs() *cobra.Command {
 	return n
 }
 
-// orgConnectors is `stackr org connectors`: git connectors (GitHub Apps),
+// orgConnectors is `stackr org connectors`: git connectors,
 // and the org's DNS connectors (owner; --dns on ls and rm).
 func (a *app) orgConnectors(org func(func(p string) error) error) *cobra.Command {
 	var dns bool
@@ -566,7 +565,7 @@ func (a *app) orgConnectors(org func(func(p string) error) error) *cobra.Command
 				if err != nil {
 					return err
 				}
-				return a.show(v, "id", "name", "kind", "host", "shared")
+				return a.show(v, "id", "name", "kind", "host", "shared", "pending", "check_error")
 			})
 		})
 	ls.Flags().BoolVar(&dns, "dns", false, "list the org's DNS connectors")
@@ -594,7 +593,7 @@ func (a *app) orgConnectors(org func(func(p string) error) error) *cobra.Command
 		return p + "/dns-connectors", err
 	})
 	a.orgFlag(append([]*cobra.Command{ls, rm}, dnsVerbs...)...)
-	n := noun("connectors", "Git connectors (GitHub Apps) and the org's DNS connectors",
+	n := noun("connectors", "Git connectors and the org's DNS connectors",
 		ls,
 		leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2),
 			func(_ *cobra.Command, args []string) error {

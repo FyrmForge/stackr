@@ -14,7 +14,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -87,7 +86,7 @@ func (o *Orchestrator) BindServerConfig(
 	connectorID, repo, branch, path string,
 	auto bool,
 ) (ServerBinding, error) {
-	repo = githubapp.RepoURL(repo)
+	repo = o.repoURL(ctx, repo)
 	if repo == "" {
 		connectorID, branch, path, auto = "", "", "", false
 	} else if _, err := o.conns.Server(ctx, connectorID); err != nil {
@@ -122,7 +121,7 @@ func (o *Orchestrator) PlanServerConfig(ctx context.Context) (ServerPlan, error)
 
 // PreviewServerConfig diffs file against the server and stores nothing.
 func (o *Orchestrator) PreviewServerConfig(ctx context.Context, file []byte) (ServerConfigPlan, error) {
-	f, err := serverconfig.Parse(file)
+	f, err := o.parseServerFile(ctx, file)
 	if err != nil {
 		return ServerConfigPlan{}, errs.Invalidf("file", "%s", err.Error())
 	}
@@ -134,7 +133,7 @@ func (o *Orchestrator) PreviewServerConfig(ctx context.Context, file []byte) (Se
 // a repo is bound. A file that does not parse is refused, not stored: the
 // sender has it in hand.
 func (o *Orchestrator) PlanServerFile(ctx context.Context, file []byte) (ServerPlan, error) {
-	f, err := serverconfig.Parse(file)
+	f, err := o.parseServerFile(ctx, file)
 	if err != nil {
 		return ServerPlan{}, errs.Invalidf("file", "%s", err.Error())
 	}
@@ -238,7 +237,7 @@ func (o *Orchestrator) queueServerPlan(
 		return Job{}, err
 	}
 	if b.Repo == "" || b.ConnectorID != connectorID ||
-		promote.NormalizeRepo(b.Repo) != promote.NormalizeRepo(repo) ||
+		promote.NormalizeRepo(o.repoURL(ctx, b.Repo)) != promote.NormalizeRepo(o.repoURL(ctx, repo)) ||
 		branch != cmp.Or(b.Branch, defaultBranch) {
 		return Job{}, nil
 	}
@@ -301,7 +300,7 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 	data, sha, err := o.serverFile(ctx, "", log)
 	var f *serverconfig.File
 	if err == nil {
-		f, err = serverconfig.Parse(data)
+		f, err = o.parseServerFile(ctx, data)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "server config: %v\n", err)

@@ -58,7 +58,7 @@ func (o *Orchestrator) SetOrgConfigRepo(
 			return og, err // another org's connector is not there
 		}
 	}
-	if og, err = o.orgs.SetConfigRepo(ctx, og, connectorID, repo, branch, path, auto); err != nil {
+	if og, err = o.orgs.SetConfigRepo(ctx, og, connectorID, o.repoURL(ctx, repo), branch, path, auto); err != nil {
 		return og, err
 	}
 	if og.ConfigRepo == "" {
@@ -83,7 +83,7 @@ func (o *Orchestrator) PreviewOrgConfig(ctx context.Context, orgID string, file 
 	if og.ConfigRepo == "" {
 		return OrgConfigPlan{}, errs.Conflictf("This organization has no config repo; bind one first.")
 	}
-	f, err := orgconfig.Parse(file)
+	f, err := o.parseOrgFile(ctx, file)
 	if err != nil {
 		return OrgConfigPlan{}, errs.Invalidf("file", "%s", err.Error())
 	}
@@ -167,7 +167,7 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 	data, sha, err := o.orgFile(ctx, og, "", log)
 	var f *orgconfig.File
 	if err == nil {
-		f, err = orgconfig.Parse(data)
+		f, err = o.parseOrgFile(ctx, data)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "org config: %v\n", err)
@@ -356,7 +356,7 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 	if err != nil {
 		return err
 	}
-	f, err := orgconfig.Parse(data)
+	f, err := o.parseOrgFile(ctx, data)
 	if err != nil {
 		return err
 	}

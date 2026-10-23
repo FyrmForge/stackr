@@ -83,7 +83,7 @@ func TestPushSkipsLockedTierEnv(t *testing.T) {
 		`"commits":[{"modified":["stackr-compose.yml"]}]}`)
 	mac := hmac.New(sha256.New, []byte("whsec"))
 	mac.Write(body)
-	if err := env.Orch.Webhook(ctx, conn, "push", "sha256="+hex.EncodeToString(mac.Sum(nil)), body); err != nil {
+	if err := env.Orch.Webhook(ctx, conn, hook("push", "sha256="+hex.EncodeToString(mac.Sum(nil))), body); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "dev made", func() bool {

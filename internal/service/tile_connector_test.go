@@ -41,13 +41,14 @@ func TestTileConnectorFallsBackToStack(t *testing.T) {
 	mk := func(id, name, host string) {
 		t.Helper()
 		if err := orch.store.Connectors.Create(ctx, store.Connector{
-			ID:        id,
-			Kind:      "github",
-			Name:      name,
-			Host:      host,
-			Settings:  `{"app":{"id":1,"slug":"` + name + `","webhook_secret":"s"}}`,
-			CreatedAt: time.Now(),
-			ShareAll:  true,
+			ID:           id,
+			Kind:         "github",
+			Capabilities: store.StringList{"git"},
+			Name:         name,
+			Host:         host,
+			Settings:     `{"app":{"id":1,"slug":"` + name + `","webhook_secret":"s"}}`,
+			CreatedAt:    time.Now(),
+			ShareAll:     true,
 		}); err != nil {
 			t.Fatal(err)
 		}

@@ -70,7 +70,7 @@ templ Settings(v SettingsView) {
 								<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
 							}
 						</select>
-						<p class="mt-1.5 text-xs text-rw-faint">Which GitHub App supplies the credentials.</p>
+						<p class="mt-1.5 text-xs text-rw-faint">Which connector supplies the credentials.</p>
 					</div>
 					@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/infra", Help: "owner/name or the https URL, either works."})
 					@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})

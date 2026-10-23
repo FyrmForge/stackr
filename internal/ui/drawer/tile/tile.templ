@@ -599,7 +599,7 @@ templ Settings(v View, s SettingsView) {
 			<div class="pt-6">
 				if s.Any(sourceKeys...) {
 					@c.PanelSection("sec-source", "Source", "Where this tile's image comes from.") {
-						@text(s, "git_url", "Git URL", "https://github.com/owner/repo", false)
+						@text(s, "git_url", "Git URL", "https://git.example.com/owner/repo", false)
 						@text(s, "branch", "Branch", "main", false)
 						@text(s, "image", "Image", "nginx:1", true)
 						if s.Has("update_policy") {

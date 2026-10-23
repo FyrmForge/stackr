@@ -10,24 +10,36 @@ import (
 // SetupView is a kind's setup in the add dialog, drawn from the steps it
 // declares: every form step is one form posted at the last, so a secret
 // never comes back from the server. Done set: connected, the capability's
-// screen after; Out set: the browser goes to the provider.
+// screen after; Out set: the browser goes to the provider. Alt is the
+// kind's second way to set up ("" = none), Alt the link text; Hidden is
+// posted with the form (the way picked, where to come back to).
 type SetupView struct {
-	Back    string // GET the picker; "" = opened straight on the kind
-	Post    string // POST every step's values
-	Steps   []Step
-	Total   int               // every step, the capability's after connecting too
-	Errors  map[string]string // by field; "general" over the steps
-	Connect string            // the last step's button
-	Done    *DoneView
-	Out     *OutView
+	Back     string // GET the picker; "" = opened straight on the kind
+	Post     string // POST every step's values
+	Steps    []Step
+	Total    int               // every step, the capability's after connecting too
+	Errors   map[string]string // by field; "general" over the steps
+	Connect  string            // the last step's button
+	Done     *DoneView
+	Out      *OutView
+	Alt      string // GET the other way's screens; "" = none
+	AltLabel string
+	Hidden   map[string]string
 }
 
 // Step is one form screen. Field values: never a secret's.
 type Step struct {
 	Title, Intro string
 	List         []string
-	Fields       []c.FieldView
+	Fields       []Field
 	Note         string
+}
+
+// Field is a step's input; Multiline: a text area (a pasted key), never
+// prefilled when secret.
+type Field struct {
+	c.FieldView
+	Multiline bool
 }
 
 // DoneView is the screen after connecting, at step Step: a capability's
@@ -85,6 +97,22 @@ templ stepLine(n, total int, title string) {
 	<p class="text-xs text-rw-faint">Step { strconv.Itoa(n) } of { strconv.Itoa(total) }: { title }</p>
 }
 
+// field is one input: a text area for a multiline one.
+templ field(f Field) {
+	if f.Multiline {
+		<div>
+			<label for={ f.Name } class="label">{ f.Label }</label>
+			<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" class="input font-mono text-xs" required?={ f.Required }>{ f.Value }</textarea>
+			if f.Help != "" {
+				<p class="mt-1.5 text-xs text-rw-faint">{ f.Help }</p>
+			}
+			@c.FieldError(f.Name, f.Error)
+		</div>
+	} else {
+		@c.Field(f.FieldView)
+	}
+}
+
 // Setup is a kind's screens.
 templ Setup(v SetupView) {
 	<div id={ BodyID }>
@@ -104,6 +132,9 @@ templ Setup(v SetupView) {
 			@out(v.Total, *v.Out)
 		} else {
 			<form hx-post={ v.Post } hx-target={ "#" + BodyID } hx-swap="outerHTML" novalidate>
+				for k, val := range v.Hidden {
+					<input type="hidden" name={ k } value={ val }/>
+				}
 				if v.Missing() != "" || v.Errors["general"] != "" {
 					<div class="px-5 pt-4 space-y-2">
 						@c.FormError(v.Missing())
@@ -126,10 +157,13 @@ templ Setup(v SetupView) {
 									</ol>
 								}
 								for _, f := range s.Fields {
-									@c.Field(f)
+									@field(f)
 								}
 								if s.Note != "" {
 									<p class="text-xs text-rw-faint">{ s.Note }</p>
+								}
+								if i == 0 && v.Alt != "" {
+									<p class="border-t border-rw-border pt-3"><button type="button" class="link text-xs" hx-get={ v.Alt } hx-target={ "#" + BodyID } hx-swap="outerHTML">{ v.AltLabel }</button></p>
 								}
 							</div>
 							<div class="modal-foot">
@@ -155,7 +189,7 @@ templ Setup(v SetupView) {
 templ out(total int, o OutView) {
 	if o.Method == "POST" {
 		// templint:ignore no-native-form-actions -- a provider's sign-in takes a browser form POST
-		<form method="post" action={ templ.SafeURL(o.URL) }>
+		<form id="connector-out" method="post" action={ templ.SafeURL(o.URL) }>
 			for k, val := range o.Values {
 				<input type="hidden" name={ k } value={ val }/>
 			}
@@ -177,32 +211,7 @@ templ out(total int, o OutView) {
 			}
 		</div>
 		<div class="modal-foot">
-			<a href={ templ.SafeURL(o.URL) } class="btn btn-primary btn-sm">Continue on { o.Label }</a>
+			<a id="connector-out" href={ templ.SafeURL(o.URL) } class="btn btn-primary btn-sm">Continue on { o.Label }</a>
 		</div>
 	}
-}
-
-// SettingsView is a connection's settings dialog: one section per
-// capability it has, and Remove (Delete.Action "" = none).
-type SettingsView struct {
-	Sections []templ.Component
-	Delete   c.ConfirmView
-}
-
-templ Settings(v SettingsView) {
-	<div id={ BodyID }>
-		<div class="modal-body">
-			for _, s := range v.Sections {
-				@s
-			}
-		</div>
-		<div class="modal-foot">
-			if v.Delete.Action != "" {
-				<span class="mr-auto">
-					@c.Confirm(v.Delete)
-				</span>
-			}
-			<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
-		</div>
-	</div>
 }

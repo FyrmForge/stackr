@@ -1,4 +1,4 @@
-package githubapp
+package github
 
 import (
 	"context"
@@ -77,11 +77,11 @@ func TestToken(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c := New("https://stackr.example.com")
+	c := New()
 	c.apiURL = srv.URL
 	app := App{ID: 1, Slug: "s", PEM: pemKey}
 	for range 2 {
-		if tok, err := c.Token(context.Background(), "conn1", app); err != nil || tok != "ghs_x" {
+		if tok, err := c.Token(context.Background(), app); err != nil || tok != "ghs_x" {
 			t.Fatalf("token: %q %v", tok, err)
 		}
 	}
@@ -107,9 +107,9 @@ func TestNotInstalledAndRepos(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c := New("https://stackr.example.com")
+	c := New()
 	c.apiURL = srv.URL
-	if _, err := c.Token(context.Background(), "conn1", App{ID: 1, Slug: "s", PEM: pemKey}); !errors.Is(err, ErrNotInstalled) {
+	if _, err := c.Token(context.Background(), App{ID: 1, Slug: "s", PEM: pemKey}); !errors.Is(err, ErrNotInstalled) {
 		t.Fatalf("no installations = %v, want ErrNotInstalled", err)
 	}
 	rs, err := c.Repos(context.Background(), "ghs_x")
@@ -130,7 +130,7 @@ func TestBranchesAndYAMLFiles(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c := New("https://stackr.example.com")
+	c := New()
 	c.apiURL = srv.URL
 	ctx := context.Background()
 	if bs, err := c.Branches(ctx, "t", "acme/cfg"); err != nil || strings.Join(bs, ",") != "main,dev" {
@@ -147,25 +147,6 @@ func TestBranchesAndYAMLFiles(t *testing.T) {
 	}
 }
 
-// An App made after the panel moved registers the new host (port kept).
-func TestManifestFollowsPanelHost(t *testing.T) {
-	for _, c := range []struct{ base, panel, want string }{
-		{"https://old.example.com", "new.example.com", "https://new.example.com/hooks/connectors/abcdef12"},
-		{"https://old.example.com:8443", "new.example.com", "https://new.example.com:8443/hooks/connectors/abcdef12"},
-		{"https://old.example.com", "", "https://old.example.com/hooks/connectors/abcdef12"},
-	} {
-		cl := New(c.base).WithPanelHost(func() string { return c.panel })
-		_, m, err := cl.Manifest("abcdef12", "", "s")
-		var got struct {
-			URL  string
-			Hook struct{ URL string } `json:"hook_attributes"`
-		}
-		if err != nil || json.Unmarshal([]byte(m), &got) != nil || got.Hook.URL != c.want || !strings.HasPrefix(c.want, got.URL) {
-			t.Errorf("%s + %q: manifest %+v %v, want hook %s", c.base, c.panel, got, err, c.want)
-		}
-	}
-}
-
 func TestSetHookURL(t *testing.T) {
 	_, pemKey := testKey(t)
 	var got struct{ URL string }
@@ -178,17 +159,17 @@ func TestSetHookURL(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&got)
 	}))
 	defer srv.Close()
-	c := New("https://old.example.com").WithPanelHost(func() string { return "new.example.com" })
+	c := New()
 	c.apiURL = srv.URL
-	if err := c.SetHookURL(context.Background(), "abcdef12", App{ID: 1, PEM: pemKey}); err != nil ||
+	if err := c.SetHookURL(context.Background(), "https://new.example.com/hooks/connectors/abcdef12", App{ID: 1, PEM: pemKey}); err != nil ||
 		got.URL != "https://new.example.com/hooks/connectors/abcdef12" {
 		t.Fatalf("patch: %q %v", got.URL, err)
 	}
 }
 
 func TestManifestAndConvert(t *testing.T) {
-	c := New("https://stackr.example.com/")
-	action, m, err := c.Manifest("abcdef12", "acme", "abcdef12.nonce")
+	c := New()
+	action, m, err := Manifest("https://stackr.example.com/", "https://stackr.example.com/-/connectors/callback", "abcdef12", "acme", "abcdef12.nonce")
 	if err != nil || action != "https://github.com/organizations/acme/settings/apps/new?state=abcdef12.nonce" {
 		t.Fatalf("action: %q %v", action, err)
 	}
@@ -201,7 +182,7 @@ func TestManifestAndConvert(t *testing.T) {
 		got.Hook.URL != "https://stackr.example.com/hooks/connectors/abcdef12" || len(got.Evts) != 2 {
 		t.Fatalf("manifest: %+v %v", got, err)
 	}
-	if _, _, err := c.Manifest("ab", "", "x"); err == nil {
+	if _, _, err := Manifest("https://stackr.example.com", "", "ab", "", "x"); err == nil {
 		t.Fatal("short connector id accepted")
 	}
 

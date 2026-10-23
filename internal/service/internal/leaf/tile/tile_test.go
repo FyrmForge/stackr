@@ -137,7 +137,8 @@ func TestKindWhitelist(t *testing.T) {
 	}{
 		{"service ok", func(*store.Tile) {}, ""},
 		{"service without git", func(t *store.Tile) { t.GitURL = "" }, "git_url"},
-		{"service with a gitlab url", func(t *store.Tile) { t.GitURL = "https://gitlab.com/a/b" }, "git_url"},
+		{"service on another host", func(t *store.Tile) { t.GitURL = "https://gitlab.com/a/b" }, ""},
+		{"service with no repository path", func(t *store.Tile) { t.GitURL = "https://gitlab.com/a" }, "git_url"},
 		{"service with an image", func(t *store.Tile) { t.ImageRef = "nginx:1" }, "image"},
 		{"service on auto update", func(t *store.Tile) { t.UpdatePolicy = "auto" }, "update_policy"},
 		{"image ok", func(t *store.Tile) {

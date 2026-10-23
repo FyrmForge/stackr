@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -153,7 +153,7 @@ func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo,
 			return st, err // another org's connector is not there
 		}
 	}
-	return o.stacks.SetConfigRepo(ctx, st, connectorID, repo, branch, path)
+	return o.stacks.SetConfigRepo(ctx, st, connectorID, o.repoURL(ctx, repo), branch, path)
 }
 
 // SetStackSettings writes the stack's settings blob and redeploys its
@@ -178,34 +178,29 @@ func (o *Orchestrator) SetStackSettings(ctx context.Context, id, blob string) (S
 
 // Webhook delivery errors, re-exported for handlers.
 var (
-	ErrBadSignature = githubapp.ErrBadSignature
-	ErrBadPayload   = githubapp.ErrBadPayload
+	ErrBadSignature = connectors.ErrBadSignature
+	ErrBadPayload   = connectors.ErrBadPayload
 )
 
-// Webhook takes one GitHub delivery for a connector: a push queues a push
-// job per stack of the org that uses the repo, and a plan of the org's
-// config file when it lands on the org's binding; a pull_request queues a
-// PR-env job. A server connector's delivery queues the server plan when it
-// lands on the server file's binding, then does the same for every org the
-// connector is shared with (serverWebhook).
+// Webhook takes one provider delivery for a connection, its Git source
+// checking and decoding it: a push queues a push job per stack of the org
+// that uses the repo, and a plan of the org's config file when it lands on
+// the org's binding; a pull request queues a PR-env job. A server
+// connector's delivery queues the server plan when it lands on the server
+// file's binding, then does the same for every org the connector is shared
+// with (serverWebhook).
 // The caller maps ErrBadSignature to 401 and ErrBadPayload to 400.
-func (o *Orchestrator) Webhook(ctx context.Context, connectorID, event, signature string, body []byte) error {
-	c, secret, err := o.conns.WebhookSecret(ctx, connectorID)
-	if err != nil {
-		return err
-	}
-	ev, err := githubapp.Receive(event, signature, body, secret)
+func (o *Orchestrator) Webhook(ctx context.Context, connectorID string, header http.Header, body []byte) error {
+	c, ev, err := o.conns.Hook(ctx, connectorID, header, body)
 	if err != nil {
 		return err
 	}
 	d := delivery{ev: ev}
 	switch {
-	case ev.Push != nil && !ev.Push.Deleted && strings.HasPrefix(ev.Push.Ref, "refs/heads/"):
-		d.repo = ev.Push.Repository.CloneURL
-		d.branch = strings.TrimPrefix(ev.Push.Ref, "refs/heads/")
-		d.defaultBranch = ev.Push.Repository.DefaultBranch
+	case ev.Push != nil:
+		d.repo, d.branch, d.defaultBranch = ev.Push.Repo, ev.Push.Branch, ev.Push.DefaultBranch
 	case ev.PR != nil:
-		d.repo = ev.PR.Repository.CloneURL
+		d.repo = ev.PR.Repo
 	default:
 		return nil
 	}

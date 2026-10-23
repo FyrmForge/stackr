@@ -25,7 +25,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -46,7 +48,6 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	site.POST(s+"/mode", h.mode, step)
 	site.POST(s+"/done", h.done, step)
 	site.POST(s+"/discard", h.discard, step)
-	site.POST(s+"/connector", h.connector, a.Require("org.setup.connector"))
 	site.POST(s+"/domain", h.domain, a.Require("org.setup.domain"))
 	site.POST(s+"/config", h.bind, a.Require("org.config.bind"))
 	site.GET(s+"/config/connector/:connector/branches", h.branches, step)
@@ -58,6 +59,37 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	site.POST(s+"/team/members", h.invite, manage)
 	site.POST(s+"/team/members/:user/role", h.role, manage)
 	site.POST(s+"/team/members/:user/remove", h.remove, manage)
+	// the connector step's add dialog: the org's git connectors, under the
+	// wizard's own path while the rest of the org waits for it
+	site.GET(s+"/connectors/new", h.newGitConnector, step)
+	h.orgGitPanel().Mount(site, s+"/connectors", step, nil)
+}
+
+// orgGitPanel is the org's git connectors on the connector step: a redirect
+// setup comes back to the step.
+func (h *handler) orgGitPanel() connpanel.Panel {
+	p := connpanel.Panel{
+		Orch: h.orch,
+		Org: func(c echo.Context) *string {
+			id := middleware.ScopeOf(c).Org.ID
+			return &id
+		},
+		Base:    func(c echo.Context) string { return base(middleware.ScopeOf(c).Org) + "/connectors" },
+		DNSBase: func(c echo.Context) string { return base(middleware.ScopeOf(c).Org) + "/connectors" },
+		Refresh: func(c echo.Context) string { return base(middleware.ScopeOf(c).Org) + "/connector" },
+		Only:    service.CapGit,
+	}
+	return p
+}
+
+// GET /:org/-/setup/connectors/new: the add dialog, straight on the git
+// kind when there is one, else on a picker of them.
+func (h *handler) newGitConnector(c echo.Context) error {
+	p := h.orgGitPanel()
+	if ks := p.KindsWith(service.CapGit); len(ks) == 1 {
+		return respond.HTML(c, http.StatusOK, p.Open(c, ks[0]))
+	}
+	return respond.HTML(c, http.StatusOK, connectors.Modal("Add a connector", "", connectors.Picker(p.Kinds(c, service.CapGit))))
 }
 
 // Pending answers Require's SetupPending (v0 setupPending): the owner goes
@@ -140,7 +172,7 @@ func (h *handler) showStep(c echo.Context, st string) error {
 		}
 		body = pages.Name(v)
 	case "connector", "config":
-		return h.github(c, og, st)
+		return h.git(c, og, st)
 	case "domain":
 		f, body, err = h.domainPage(c, og)
 	case "team":
@@ -154,23 +186,25 @@ func (h *handler) showStep(c echo.Context, st string) error {
 	return render.Bare(c, status(c), "Setup: "+f.Title, body)
 }
 
-// github is the connector and config steps. Their body hangs on GitHub's
-// repo list, so the frame renders at once and the body loads into it
-// (?body=1); no connector means no GitHub call, and the body is inline.
-func (h *handler) github(c echo.Context, og *service.Org, st string) error {
+// git is the connector and config steps. Their body hangs on the
+// provider's repo list, so the frame renders at once and the body loads
+// into it (?body=1); no connector means no provider call, and the body is
+// inline.
+func (h *handler) git(c echo.Context, og *service.Org, st string) error {
 	ctx := c.Request().Context()
 	conns, err := h.orch.ConnectedConnectors(ctx, og.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	body := c.QueryParam("body") == "1"
-	v := pages.GitHubView{
+	v := pages.GitView{
 		Base:      base(og),
 		Next:      next(og, st),
-		CSRF:      render.Shell(c, "").CSRF,
+		Label:     h.gitLabel(),
+		Add:       base(og) + "/connectors/new",
 		Connected: len(conns) > 0,
 		Loaded:    len(conns) == 0 || body,
-		Repo:      strings.TrimPrefix(og.ConfigRepo, "https://github.com/"),
+		Repo:      og.ConfigRepo,
 		Branch:    og.ConfigBranch,
 		Path:      og.ConfigPath,
 	}
@@ -188,19 +222,20 @@ func (h *handler) github(c echo.Context, og *service.Org, st string) error {
 				DefaultBranch: r.DefaultBranch,
 			})
 		}
-		// installing a shared server App is the admin's job: no link for it
+		// installing a shared server connector is the admin's job: no link
+		// for it; the install comes back to this step
 		if i := slices.IndexFunc(conns, func(k service.Connector) bool { return k.OrgID != nil }); i >= 0 {
-			if v.InstallURL, err = h.orch.ConnectorInstallURL(ctx, og.ID, conns[i].ID); err != nil {
+			if v.InstallURL, err = h.orch.ConnectorInstallBack(ctx, &og.ID, conns[i].ID, base(og)+"/"+st); err != nil {
 				return middleware.HTTPError(err)
 			}
 		}
 	}
 	if st == "connector" {
-		sub := "A private GitHub App for this organization, so there are no tokens to copy around."
+		sub := "A " + v.Label + " connector for this organization, so there are no tokens to copy around."
 		if v.Connected && !slices.ContainsFunc(conns, func(k service.Connector) bool { return k.OrgID != nil }) {
-			sub = "A server admin shared a GitHub App with this organization, so there are no tokens to copy around."
+			sub = "A server admin shared a " + v.Label + " connector with this organization, so there are no tokens to copy around."
 		}
-		v.Frame = frame(og, st, "Connect GitHub", sub)
+		v.Frame = frame(og, st, "Connect "+v.Label, sub)
 		if body {
 			return respond.HTML(c, http.StatusOK, pages.ConnectorBody(v))
 		}
@@ -341,7 +376,7 @@ func (h *handler) summary(c echo.Context, og *service.Org) (pages.Frame, templ.C
 	}
 	v.Rows = []pages.Row{
 		{Label: "Organization created", Done: true},
-		{Label: "GitHub connector", Href: b + "connector", Done: len(conns) > 0},
+		{Label: h.gitLabel() + " connector", Href: b + "connector", Done: len(conns) > 0},
 	}
 	if v.Config {
 		// a waiting plan is what someone has to act on
@@ -612,20 +647,6 @@ func (h *handler) mode(c echo.Context) error {
 	return respond.Redirect(c, first(&og))
 }
 
-// POST /:org/-/setup/connector (gh_org): a native form, since the answer
-// is the page that posts the app manifest to GitHub. GitHub's callback
-// brings the owner back to this step.
-func (h *handler) connector(c echo.Context) error {
-	og := middleware.ScopeOf(c).Org
-	_, action, manifest, err := h.orch.BeginConnector(
-		c.Request().Context(), og.ID, middleware.Principal(c).User.ID, c.FormValue("gh_org"),
-	)
-	if err != nil {
-		return back(c, err, base(og)+"/connector")
-	}
-	return render.Bare(c, http.StatusOK, "Taking you to GitHub", pages.GitHubRedirect(action, manifest))
-}
-
 // POST /:org/-/setup/config: bind the file and plan it (connector_id, repo,
 // branch, path), or plan the bound file again (plan_only). The plan is the
 // decision, so it goes straight to it.
@@ -856,7 +877,7 @@ func frame(og *service.Org, step, title, subtitle string) pages.Frame {
 
 // stepNames are the org steps as the stepper names them.
 var stepNames = map[string]string{
-	"name": "Name", "connector": "GitHub", "config": "Config", "domain": "Domain", "team": "People", "done": "Summary",
+	"name": "Name", "connector": "Git", "config": "Config", "domain": "Domain", "team": "People", "done": "Summary",
 }
 
 func first(og *service.Org) string { return base(og) + "/" + flow(og)[0] }
@@ -883,4 +904,19 @@ func settingsTab(og *service.Org, step string) string {
 		return "/" + og.Slug
 	}
 	return "/" + og.Slug + "?drawer=org:" + og.ID + "&tab=" + tab
+}
+
+// gitLabel is how the steps name the git kind: the one there is, else
+// "git".
+func (h *handler) gitLabel() string {
+	var ls []string
+	for _, k := range h.orch.ConnectorKinds() {
+		if slices.Contains(k.Caps, service.CapGit) {
+			ls = append(ls, k.Label)
+		}
+	}
+	if len(ls) == 1 {
+		return ls[0]
+	}
+	return "git"
 }

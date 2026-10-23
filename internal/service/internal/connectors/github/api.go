@@ -1,8 +1,8 @@
-// Package githubapp is the GitHub App wrapper: app JWT, installation tokens,
-// the manifest the connect flow POSTs to GitHub, clone credentials, and
-// webhook verify + decode. Every function takes its credentials as arguments;
-// nothing here touches the store, checks a session, or decides a status.
-package githubapp
+package github
+
+// api.go is the GitHub App wrapper: app JWT, installation tokens, the
+// manifest the setup POSTs to GitHub, clone credentials. Every function
+// takes its credentials as arguments.
 
 import (
 	"bytes"
@@ -23,12 +23,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 )
 
 const apiBase = "https://api.github.com"
 
-// App is one connector's GitHub App credentials, already decoded.
-// extract: decoding a connector row's config column belongs in leaf/connector.
+// host is where every repository of a GitHub connection lives.
+const host = "github.com"
+
+// App is one GitHub App's credentials: a connection's settings blob, in
+// the shape GitHub's manifest conversion answers.
 type App struct {
 	ID            int64  `json:"id"`
 	Slug          string `json:"slug"`
@@ -52,68 +57,45 @@ type Repo struct {
 	DefaultBranch string `json:"default_branch"`
 }
 
+// Client calls GitHub's API.
 type Client struct {
-	baseURL string        // stackr's own public URL, for the manifest's callback URLs
-	panel   func() string // the panel_domain setting; "" keeps baseURL's host
-	apiURL  string        // GitHub's API; a field so tests can point it at a fake
-	http    *http.Client
+	apiURL string // GitHub's API; a field so tests can point it at a fake
+	http   *http.Client
 
 	mu     sync.Mutex
-	tokens map[string]cachedToken // connector id → installation token
+	tokens map[int64]cachedToken // App id → installation token
 }
 
-func New(baseURL string) *Client {
+// api is the one client every connection uses, so their tokens share a
+// cache. ponytail: package state; a kind with dependencies passed in when
+// a second client is ever needed.
+var api = New()
+
+func New() *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiURL:  apiBase,
-		http:    &http.Client{Timeout: 15 * time.Second},
-		tokens:  map[string]cachedToken{},
+		apiURL: apiBase,
+		http:   &http.Client{Timeout: 15 * time.Second},
+		tokens: map[int64]cachedToken{},
 	}
-}
-
-// WithPanelHost makes the manifest's URLs follow the panel_domain setting
-// (host only; the scheme and port stay baseURL's), so an App made after the
-// panel moved does not register the old host.
-func (c *Client) WithPanelHost(f func() string) *Client {
-	c.panel = f
-	return c
-}
-
-// base is baseURL with its host swapped for the panel's, when one is set.
-func (c *Client) base() string {
-	if c.panel == nil {
-		return c.baseURL
-	}
-	host := c.panel()
-	u, err := url.Parse(c.baseURL)
-	if host == "" || err != nil || u.Host == "" {
-		return c.baseURL
-	}
-	if p := u.Port(); p != "" {
-		host += ":" + p
-	}
-	u.Host = host
-	return strings.TrimRight(u.String(), "/")
 }
 
 // Manifest returns the GitHub form action and the manifest JSON to POST there.
-// state is "<connectorID>.<nonce>" and comes back on the callback. A non-empty
+// base is the panel's URL, back the URL GitHub sends the browser to with the
+// code, state "<connectorID>.<nonce>", which comes back with it. A non-empty
 // ghOrg creates the app under that GitHub org (needs org admin): private apps
 // install only on their owning account, so org repos need an org-owned app.
-// extract: the nonce and the pending connector row belong in leaf/connector,
-// which hands state in and checks it on the callback.
-func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest string, err error) {
+func Manifest(base, back, connectorID, ghOrg, state string) (action, manifest string, err error) {
 	if len(connectorID) < 4 {
-		return "", "", fmt.Errorf("githubapp: connector id %q too short", connectorID)
+		return "", "", fmt.Errorf("github: connector id %q too short", connectorID)
 	}
-	base := c.base()
-	host := base
+	base = strings.TrimRight(base, "/")
+	h := base
 	if u, e := url.Parse(base); e == nil && u.Host != "" {
-		host = u.Host
+		h = u.Host
 	}
 	// App names are globally unique on GitHub; the suffix avoids clashes
 	// between connectors and between installs on the same domain.
-	name := "stackr-" + strings.SplitN(host, ":", 2)[0]
+	name := "stackr-" + strings.SplitN(h, ":", 2)[0]
 	if len(name) > 29 {
 		name = name[:29]
 	}
@@ -122,13 +104,13 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 		"name":         name,
 		"url":          base,
 		"public":       false,
-		"redirect_url": base + "/settings/github/callback",
+		"redirect_url": back,
 		// where GitHub sends the browser after an install, and after a
 		// later change of repos (setup_on_update)
-		"setup_url":       base + "/settings/github/installed/" + connectorID,
+		"setup_url":       base + connectors.ReturnPath(kindName, connectorID),
 		"setup_on_update": true,
 		"hook_attributes": map[string]any{
-			"url": c.HookURL(connectorID),
+			"url": base + connectors.HookPath + connectorID,
 		},
 		// Fixed at app creation: widening later makes every owner re-approve
 		// by hand, so checks/pull_requests/statuses are asked for up front.
@@ -152,20 +134,15 @@ func (c *Client) Manifest(connectorID, ghOrg, state string) (action, manifest st
 	return action + "?state=" + url.QueryEscape(state), string(b), nil
 }
 
-// HookURL is where GitHub delivers a connector's webhooks: the panel host now.
-func (c *Client) HookURL(connectorID string) string {
-	return c.base() + "/hooks/connectors/" + connectorID
-}
-
-// SetHookURL points the App's webhook at HookURL(connectorID) with the app
-// JWT (PATCH /app/hook/config): an App made before the panel moved keeps the
-// URL it was registered with otherwise.
-func (c *Client) SetHookURL(ctx context.Context, connectorID string, app App) error {
+// SetHookURL points the App's webhook at hook with the app JWT (PATCH
+// /app/hook/config): an App made before the panel moved keeps the URL it
+// was registered with otherwise.
+func (c *Client) SetHookURL(ctx context.Context, hook string, app App) error {
 	jwt, err := signJWT(fmt.Sprint(app.ID), app.PEM)
 	if err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string]string{"url": c.HookURL(connectorID)})
+	body, _ := json.Marshal(map[string]string{"url": hook})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.apiURL+"/app/hook/config", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -207,14 +184,14 @@ func (c *Client) ConvertManifest(ctx context.Context, code string) (App, error) 
 }
 
 // Token returns a cached installation access token, minting one when missing
-// or under 2 minutes from GitHub's own expires_at. key is the connector id.
-// The lock guards only the map; minting runs unlocked so a slow GitHub call
-// never blocks other connectors (worst case two goroutines mint at once,
-// harmless). Uses the app's first installation: a private app installs only
-// on its owning account.
-func (c *Client) Token(ctx context.Context, key string, app App) (string, error) {
+// or under 2 minutes from GitHub's own expires_at. The lock guards only the
+// map; minting runs unlocked so a slow GitHub call never blocks other
+// connectors (worst case two goroutines mint at once, harmless). Uses the
+// app's first installation: a private app installs only on its owning
+// account.
+func (c *Client) Token(ctx context.Context, app App) (string, error) {
 	c.mu.Lock()
-	t, ok := c.tokens[key]
+	t, ok := c.tokens[app.ID]
 	c.mu.Unlock()
 	if ok && time.Until(t.exp) > 2*time.Minute {
 		return t.token, nil
@@ -241,7 +218,7 @@ func (c *Client) Token(ctx context.Context, key string, app App) (string, error)
 		return "", err
 	}
 	c.mu.Lock()
-	c.tokens[key] = cachedToken{tok.Token, tok.ExpiresAt}
+	c.tokens[app.ID] = cachedToken{tok.Token, tok.ExpiresAt}
 	c.mu.Unlock()
 	return tok.Token, nil
 }
@@ -400,8 +377,6 @@ func RepoURL(repo string) string {
 // CloneAuth returns GIT_CONFIG_* environment lines that authenticate an HTTPS
 // github.com fetch: env, not -c flags, so the token never lands in
 // /proc/*/cmdline or in .git/config.
-// extract: which connector a tile clones with (and refusing another org's
-// connector named in a stack file) belongs in leaf/connector.
 func CloneAuth(gitURL, token string) []string {
 	if token == "" || !strings.HasPrefix(gitURL, "https://github.com/") {
 		return nil

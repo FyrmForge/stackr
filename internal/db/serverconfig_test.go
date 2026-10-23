@@ -120,8 +120,8 @@ func TestConnectorSharesCascade(t *testing.T) {
 	execAll(t, db, []stmt{
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
 		{`INSERT INTO orgs VALUES ('o2','Globex','globex','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
-		{`INSERT INTO connectors VALUES ('g1',NULL,'github','srv','github.com','enc1:x',?,0,'["git"]')`, []any{now}},
-		{`INSERT INTO connectors VALUES ('g2',NULL,'github','srv2','github.com','enc1:x',?,0,'["git"]')`, []any{now}},
+		{`INSERT INTO connectors VALUES ('g1',NULL,'github','srv','github.com','enc1:x',?,0,'["git"]',NULL,'')`, []any{now}},
+		{`INSERT INTO connectors VALUES ('g2',NULL,'github','srv2','github.com','enc1:x',?,0,'["git"]',NULL,'')`, []any{now}},
 		{`INSERT INTO connector_shares VALUES ('g1','o1'), ('g1','o2'), ('g2','o1')`, nil},
 	})
 	if _, err := db.Exec(`DELETE FROM orgs WHERE id = 'o2'`); err != nil {

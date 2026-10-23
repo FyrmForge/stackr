@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
@@ -47,14 +48,18 @@ func (p Panel) Synced(c echo.Context) string {
 // POST <dns>/:connector/domains: the list, asked of the provider.
 func (p Panel) domains(c echo.Context) error { return p.answer(c, "", nil) }
 
-// POST <dns>/:connector/manage (domain, org...): manage it, or set who
-// may use it.
+// POST <dns>/:connector/manage (domain, scope=all|only, org...): manage
+// it, or set who may use it (all: every org, as none ticked is).
 func (p Panel) manage(c echo.Context) error {
 	form, err := c.FormParams()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	_, err = p.Orch.ManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), form["org"])
+	orgs := form["org"]
+	if form.Get("scope") == "all" {
+		orgs = nil
+	}
+	_, err = p.Orch.ManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), orgs)
 	return p.answer(c, "Saved.", err)
 }
 
@@ -79,7 +84,7 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 		return middleware.HTTPError(err)
 	}
 	label := p.label(k)
-	if note != "" {
+	if strings.Contains(note, "%s") {
 		note = fmt.Sprintf(note, label)
 	}
 	base := p.DNSBase(c) + "/" + id
@@ -91,6 +96,7 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 			return middleware.HTTPError(actErr)
 		}
 		v.Error, v.Note, status = msg, "", http.StatusUnprocessableEntity
+		v.InUse = InUse(actErr)
 	}
 	ds, err := p.Orch.DNSDomains(ctx, org, id)
 	if err != nil {
@@ -107,6 +113,10 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 			return middleware.HTTPError(err)
 		}
 	}
+	// managed first, as stable as the provider's own order
+	slices.SortStableFunc(ds, func(a, b service.DNSDomain) int {
+		return cmpBool(b.State == service.DNSManaged, a.State == service.DNSManaged)
+	})
 	for _, d := range ds {
 		r := ui.DomainRow{
 			Name:     d.Name,
@@ -122,4 +132,15 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 		v.Rows = append(v.Rows, r)
 	}
 	return respond.HTML(c, status, ui.Domains(v))
+}
+
+// cmpBool orders true before false.
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }

@@ -44,7 +44,7 @@ func (r serverRig) push(t *testing.T, repo, sha string) {
 	mac := hmac.New(sha256.New, []byte("srvsec"))
 	mac.Write(body)
 	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if err := r.env.Orch.Webhook(context.Background(), r.srv, "push", sig, body); err != nil {
+	if err := r.env.Orch.Webhook(context.Background(), r.srv, hook("push", sig), body); err != nil {
 		t.Fatal(err)
 	}
 }

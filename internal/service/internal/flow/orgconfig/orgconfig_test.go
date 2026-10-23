@@ -17,6 +17,15 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+// spell stands in for the connection that owns a repo: owner/name is a
+// github.com repo, as the orchestrator's RepoURLs call spells it.
+func spell(raw string) string {
+	if o, n, ok := strings.Cut(raw, "/"); ok && o != "" && n != "" && !strings.ContainsAny(o, ":") && !strings.Contains(n, "/") {
+		return "https://github.com/" + raw
+	}
+	return raw
+}
+
 const v1 = "version: 1\norg: Acme\n"
 
 // live is org acme: stack shop (bound) and a hand-made unbound stack
@@ -538,6 +547,7 @@ stacks:
 			if err != nil {
 				t.Fatal(err)
 			}
+			f.RepoURLs(spell)
 			l := live()
 			if c.live != nil {
 				c.live(&l)

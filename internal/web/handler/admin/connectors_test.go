@@ -33,7 +33,7 @@ func TestAdminConnectors(t *testing.T) {
 			t.Fatalf("connectors tab = %d, no %q in\n%s", rec.Code, want, body)
 		}
 	}
-	if strings.Contains(body, "Every owner of every organization") || strings.Contains(body, `name="github_org"`) {
+	if strings.Contains(body, `name="scope"`) || strings.Contains(body, `name="owner"`) {
 		t.Errorf("the list carries a form:\n%s", body)
 	}
 
@@ -42,7 +42,7 @@ func TestAdminConnectors(t *testing.T) {
 	body = rec.Body.String()
 	for _, want := range []string{
 		"<confirm-dialog open>", "https://github.com/apps/stackr-main/installations/new",
-		"All organizations", "Every owner of every organization", `name="org" value="` + s.Org + `"`,
+		"All organizations", "Only these", `name="org" value="` + s.Org + `"`,
 		`hx-post="/-/admin/connectors/` + srv + `/delete"`, `hx-trigger="close from:#connector-dialog"`,
 	} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
@@ -60,8 +60,8 @@ func TestAdminConnectors(t *testing.T) {
 		t.Errorf("Back to the picker:\n%s", body)
 	}
 	rec = s.As(t, root, "GET", base+"new/github", nil)
-	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="github_org"`) ||
-		!strings.Contains(body, `hx-post="/-/admin/connectors"`) || !strings.Contains(body, "Step 1 of 2") {
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="owner"`) ||
+		!strings.Contains(body, `hx-post="/-/admin/connectors/new/github"`) || !strings.Contains(body, "Step 1 of 3") {
 		t.Fatalf("GitHub step = %d\n%s", rec.Code, body)
 	}
 
@@ -71,9 +71,9 @@ func TestAdminConnectors(t *testing.T) {
 		{"GET", base + "new"},
 		{"GET", base + "new/github"},
 		{"GET", base + srv + "/settings"},
-		{"POST", "/-/admin/connectors"},
+		{"POST", base + "new/github"},
 		{"POST", base + srv + "/share"},
-		{"POST", base + srv + "/name"},
+		{"POST", base + srv + "/rename"},
 		{"POST", base + srv + "/delete"},
 	} {
 		if rec := s.Do(t, c.method, c.path, url.Values{"all": {"1"}, "name": {"x"}}); rec.Code != http.StatusForbidden {
@@ -86,7 +86,7 @@ func TestAdminConnectors(t *testing.T) {
 
 	rec = s.As(t, root, "POST", base+srv+"/share", url.Values{"org": {s.Org}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") ||
-		!strings.Contains(rec.Body.String(), "Shared with 1 organization") {
+		!strings.Contains(rec.Body.String(), `value="`+s.Org+`" checked`) {
 		t.Fatalf("share with an org = %d\n%s", rec.Code, rec.Body)
 	}
 	if cs, _ := s.Orch.ServerConnectors(ctx); !slices.Equal(cs[0].OrgIDs, []string{s.Org}) {
@@ -100,18 +100,18 @@ func TestAdminConnectors(t *testing.T) {
 		t.Errorf("share with an unknown org = %d, want 422", rec.Code)
 	}
 
-	rec = s.As(t, root, "POST", base+srv+"/name", url.Values{"name": {"primary"}})
+	rec = s.As(t, root, "POST", base+srv+"/rename", url.Values{"name": {"primary"}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Renamed.") || !strings.Contains(rec.Body.String(), "primary") {
 		t.Errorf("rename = %d\n%s", rec.Code, rec.Body)
 	}
-	if rec := s.As(t, root, "POST", base+srv+"/name", url.Values{"name": {" "}}); rec.Code != http.StatusUnprocessableEntity {
+	if rec := s.As(t, root, "POST", base+srv+"/rename", url.Values{"name": {" "}}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("blank rename = %d, want 422", rec.Code)
 	}
 
 	// begin: the manifest form that posts to GitHub
-	rec = s.As(t, root, "POST", "/-/admin/connectors", url.Values{"github_org": {"acme-inc"}})
+	rec = s.As(t, root, "POST", base+"new/github", url.Values{"owner": {"acme-inc"}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Continue on GitHub") ||
-		!strings.Contains(rec.Body.String(), `name="manifest"`) || !strings.Contains(rec.Body.String(), "Step 2 of 2") ||
+		!strings.Contains(rec.Body.String(), `name="manifest"`) || !strings.Contains(rec.Body.String(), "Step 2 of 3") ||
 		strings.Contains(rec.Body.String(), `id="drawer-view"`) {
 		t.Fatalf("begin = %d\n%s", rec.Code, rec.Body)
 	}

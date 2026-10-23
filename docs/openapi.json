@@ -869,6 +869,20 @@
             },
             "type": "array"
           },
+          "check_error": {
+            "type": "string"
+          },
+          "checked_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -895,6 +909,9 @@
               }
             ]
           },
+          "pending": {
+            "type": "boolean"
+          },
           "share_all": {
             "type": "boolean"
           },
@@ -910,37 +927,9 @@
           "created_at",
           "share_all",
           "capabilities",
-          "shared"
-        ],
-        "type": "object"
-      },
-      "ConnectorBegun": {
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "connector": {
-            "$ref": "#/components/schemas/Connector"
-          },
-          "manifest": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "connector",
-          "action",
-          "manifest"
-        ],
-        "type": "object"
-      },
-      "ConnectorIn": {
-        "properties": {
-          "github_org": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "github_org"
+          "check_error",
+          "shared",
+          "pending"
         ],
         "type": "object"
       },
@@ -5329,6 +5318,20 @@
             },
             "type": "array"
           },
+          "check_error": {
+            "type": "string"
+          },
+          "checked_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -5361,6 +5364,9 @@
             },
             "type": "array"
           },
+          "pending": {
+            "type": "boolean"
+          },
           "share_all": {
             "type": "boolean"
           },
@@ -5376,7 +5382,9 @@
           "created_at",
           "share_all",
           "capabilities",
+          "check_error",
           "shared",
+          "pending",
           "org_ids"
         ],
         "type": "object"
@@ -8288,43 +8296,6 @@
           }
         },
         "x-verb": "admin.read"
-      },
-      "post": {
-        "operationId": "admin.connector-begin",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConnectorIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorBegun"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "connector.admin"
       }
     },
     "/api/v1/admin/connectors/{connector}": {
@@ -12584,52 +12555,6 @@
           }
         },
         "x-verb": "org.read"
-      },
-      "post": {
-        "operationId": "connector.begin",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConnectorIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorBegun"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "connector.write"
       }
     },
     "/api/v1/orgs/{org}/connectors/{connector}": {

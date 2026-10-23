@@ -2187,14 +2187,14 @@ func Config(v ConfigView) templ.Component {
 			}
 			ctx = templ.InitializeContext(ctx)
 			if len(v.Connectors) == 0 && v.Repo == "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "<p class=\"text-sm text-rw-muted\">Connect GitHub first. The org file is fetched through a connector. <a href=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "<p class=\"text-sm text-rw-muted\">Connect a git host first. The org file is fetched through a connector. <a href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var91 templ.SafeURL
 				templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(v.Canvas))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/org/org.templ`, Line: 556, Col: 137}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/org/org.templ`, Line: 556, Col: 141}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 				if templ_7745c5c3_Err != nil {

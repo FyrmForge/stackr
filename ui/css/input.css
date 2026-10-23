@@ -371,6 +371,24 @@ html.light {
   .modal-panel {
     @apply w-full max-w-lg rounded-xl border border-rw-border bg-rw-surface shadow-xl my-auto;
   }
+  /* a connector dialog: at most 80vh, head and foot fixed, the body
+     between them scrolls (connectors.Settings) */
+  .modal-tall[open] {
+    @apply flex max-h-[80vh] flex-col;
+  }
+  .modal-tall[open] > div:not(.modal-head) {
+    @apply flex min-h-0 flex-1 flex-col overflow-y-auto;
+  }
+  .modal-tall .modal-body {
+    @apply min-h-0 overflow-y-auto;
+  }
+  /* the sharing control: the orgs show only while "Only these" is picked */
+  .share-orgs {
+    display: none;
+  }
+  .share-form:has(input[value="only"]:checked) .share-orgs {
+    display: block;
+  }
   .modal-head {
     @apply flex items-start gap-3 border-b border-rw-border px-5 py-4;
   }

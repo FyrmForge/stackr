@@ -9,14 +9,13 @@ import (
 )
 
 // The server connector routes are an admin's: an owner is 403 on every one;
-// an admin lists (no config), begins, renames, shares and deletes, and an
+// an admin lists (no config), renames, shares and deletes, and an
 // org key never reaches a server connector through the org routes.
 func TestServerConnectorRoutes(t *testing.T) {
 	w := newWorld(t)
 	srv := w.env.ServerConnector(t, "main", "sec")
 	for _, c := range []struct{ method, path, body string }{
 		{"GET", "/admin/connectors", ""},
-		{"POST", "/admin/connectors", `{"github_org":""}`},
 		{"PUT", "/admin/connectors/" + srv + "/name", `{"name":"x"}`},
 		{"PUT", "/admin/connectors/" + srv + "/shares", `{"all":true}`},
 		{"DELETE", "/admin/connectors/" + srv, ""},
@@ -58,10 +57,6 @@ func TestServerConnectorRoutes(t *testing.T) {
 		t.Errorf("org rename of a server connector = %d, want 404", code)
 	}
 
-	code, out = w.do(t, w.admin, "POST", "/admin/connectors", `{"github_org":"acme-inc"}`)
-	if code != 201 || !strings.Contains(out, `"manifest"`) || !strings.Contains(out, "github.com") {
-		t.Fatalf("begin = %d %s", code, out)
-	}
 	if code, _ = w.do(t, w.admin, "DELETE", "/admin/connectors/"+srv, ""); code != 204 {
 		t.Errorf("delete = %d, want 204", code)
 	}

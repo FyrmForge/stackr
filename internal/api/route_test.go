@@ -71,7 +71,6 @@ func TestServerConfigRouteContract(t *testing.T) {
 		{"POST", "/orgs/:org/domain-resources/:resource/rename"}: {"domain-resource.rename", "domain.resource"},
 		{"POST", "/admin/domain-resources/:resource/rename"}:     {"admin.domain-resource-rename", "serverdefaults.set"},
 		{"GET", "/admin/connectors"}:                             {"admin.connector-list", "admin.read"},
-		{"POST", "/admin/connectors"}:                            {"admin.connector-begin", "connector.admin"},
 		{"PUT", "/admin/connectors/:connector/name"}:             {"admin.connector-rename", "connector.admin"},
 		{"PUT", "/admin/connectors/:connector/shares"}:           {"admin.connector-share", "connector.admin"},
 		{"DELETE", "/admin/connectors/:connector"}:               {"admin.connector-delete", "connector.admin"},

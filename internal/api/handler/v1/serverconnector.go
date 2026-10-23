@@ -17,13 +17,6 @@ func (h *H) ServerConnectors() Endpoint {
 	})
 }
 
-func (h *H) BeginServerConnector() Endpoint {
-	return JSON(201, func(c echo.Context, in ConnectorIn) (ConnectorBegun, error) {
-		conn, action, manifest, err := h.Orch.BeginServerConnector(rc(c), who(c), in.GitHubOrg)
-		return ConnectorBegun{conn, action, manifest}, err
-	})
-}
-
 func (h *H) RenameServerConnector() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.ServerConnector, error) {
 		return h.Orch.RenameServerConnector(rc(c), c.Param("connector"), in.Name)

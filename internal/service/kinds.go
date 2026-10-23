@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"slices"
 	"strings"
@@ -15,6 +19,8 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/orgconfig"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -22,15 +28,16 @@ import (
 
 // kinds.go is the connectors core: the registered kinds (connectors/all),
 // a connection's setup drawn from its kind's steps, its settings blob, and
-// the redirect out to a provider and back through ConnectorCallbackPath.
-// Features ask for a capability (dnsOf), never a kind. GitHub stays on
-// connector.go and org.go until it moves onto the Git source capability.
+// the redirect out to a provider and back through ConnectorCallbackPath,
+// then on through the provider's install and back to ConnectorReturnPath.
+// Features ask for a capability (dnsOf, the git verbs), never a kind.
 
 // A kind's setup, as the panel's add dialog and the wizard draw it.
 type (
 	ConnectorStep  = connectors.Step
 	ConnectorField = connectors.Field
 	ConnectorOut   = connectors.Out
+	ConnectorAlt   = connectors.Alt
 )
 
 // Capabilities, as a connection lists them.
@@ -40,10 +47,20 @@ const (
 )
 
 // ConnectorCallbackPath is the one route a redirect setup comes back to.
-const ConnectorCallbackPath = "/-/connectors/callback"
+const ConnectorCallbackPath = connectors.CallbackPath
+
+// ConnectorReturnPath is the route pattern a provider sends the browser
+// back to after a step on its own site (connectors.ReturnPath);
+// ConnectorLegacyBack the callback path a kind's apps were registered
+// with before the core had one, which hands off to the core's.
+const (
+	ConnectorReturnPath = "/settings/:kind/installed/:connector"
+	ConnectorLegacyBack = "/settings/:kind/callback"
+)
 
 // ConnectorKind is a registered kind. Redirects: its setup signs in at the
-// provider, so only the panel can add one.
+// provider, so only the panel can add one. Alt: its second way to set up
+// (nil = none).
 type ConnectorKind struct {
 	Name      string          `json:"name"`
 	Label     string          `json:"label"`
@@ -51,13 +68,19 @@ type ConnectorKind struct {
 	Caps      []string        `json:"capabilities"`
 	Steps     []ConnectorStep `json:"steps"`
 	Redirects bool            `json:"redirects"`
+	Alt       *ConnectorAlt   `json:"alt,omitempty"`
 }
 
 func kindOf(k connectors.Kind) ConnectorKind {
-	return ConnectorKind{
+	out := ConnectorKind{
 		Name: k.Name(), Label: k.Label(), Hint: k.Hint(),
 		Caps: connectors.Caps(k), Steps: k.Steps(), Redirects: connectors.Redirects(k),
 	}
+	if a, ok := k.(connectors.Alter); ok {
+		alt := a.Alt()
+		out.Alt = &alt
+	}
+	return out
 }
 
 // ConnectorKinds is every registered kind, in the add dialog's order.
@@ -96,17 +119,19 @@ func (o *Orchestrator) ConnectorPrefill(ctx context.Context, f ConnectorField) s
 }
 
 // ConnectorAdd is a setup's form values for a connection of Kind, of OrgID
-// (nil = the server's). A redirect setup also needs User, who must be the
-// one to come back, and Return, the panel path it comes back to.
+// (nil = the server's); Alt: the values are the kind's second way's. A
+// redirect setup also needs User, who must be the one to come back, and
+// Return, the panel path it comes back to.
 type ConnectorAdd struct {
 	OrgID        *string
 	Kind         string
+	Alt          bool
 	Values       map[string]string
 	User, Return string
 }
 
 // ConnectorAdded is a saved connection and, for a DNS one, its account's
-// domains. Out set: nothing is saved yet, the browser goes there.
+// domains. Out set: the connection waits pending, the browser goes there.
 type ConnectorAdded struct {
 	Connector Connector     `json:"connector"`
 	Domains   []DNSDomain   `json:"domains,omitempty"`
@@ -115,15 +140,25 @@ type ConnectorAdded struct {
 
 // AddConnector checks a setup's values by its kind's rules (a DNS one's
 // account must list its domains) and saves the connection, or for a
-// redirect setup sends the browser to the provider. An empty field that
-// asks for a prefill takes it.
+// redirect setup saves it pending and sends the browser to the provider.
+// An empty field that asks for a prefill takes it. A server git
+// connection is shared with every org from the start (the admin narrows
+// it after).
 func (o *Orchestrator) AddConnector(ctx context.Context, in ConnectorAdd) (ConnectorAdded, error) {
 	k, err := o.kind(in.Kind)
 	if err != nil {
 		return ConnectorAdded{}, err
 	}
+	steps := k.Steps()
+	if in.Alt {
+		a, ok := k.(connectors.Alter)
+		if !ok {
+			return ConnectorAdded{}, errs.ErrNotFound
+		}
+		steps = a.Alt().Steps
+	}
 	vals := map[string]string{}
-	for _, s := range k.Steps() {
+	for _, s := range steps {
 		for _, f := range s.Fields {
 			if vals[f.Name] = in.Values[f.Name]; vals[f.Name] == "" {
 				vals[f.Name] = o.ConnectorPrefill(ctx, f)
@@ -134,9 +169,9 @@ func (o *Orchestrator) AddConnector(ctx context.Context, in ConnectorAdd) (Conne
 	if err := conn.Setup(vals); err != nil {
 		return ConnectorAdded{}, err
 	}
-	if connectors.Redirects(k) {
-		out, err := o.beginSetup(ctx, in, k, conn)
-		return ConnectorAdded{Out: out}, err
+	if s, ok := conn.(connectors.Settled); connectors.Redirects(k) && !(ok && s.Settled()) {
+		c, out, err := o.beginSetup(ctx, in, k, conn)
+		return ConnectorAdded{Connector: c, Out: out}, err
 	}
 	var zones []dnscap.Zone
 	if slices.Contains(connectors.Caps(k), CapDNS) {
@@ -152,8 +187,11 @@ func (o *Orchestrator) AddConnector(ctx context.Context, in ConnectorAdd) (Conne
 	if err != nil {
 		return ConnectorAdded{}, err
 	}
-	c, err := o.conns.Add(ctx, in.OrgID, k.Name(), k.Label(), conn.Name(), connectors.Caps(k), string(b))
+	c, err := o.conns.Add(ctx, in.OrgID, k.Name(), k.Label(), conn.Name(), hostOf(conn), connectors.Caps(k), string(b))
 	if err != nil {
+		return ConnectorAdded{}, err
+	}
+	if c, err = o.shareNew(ctx, c); err != nil {
 		return ConnectorAdded{}, err
 	}
 	out := ConnectorAdded{Connector: c}
@@ -163,81 +201,172 @@ func (o *Orchestrator) AddConnector(ctx context.Context, in ConnectorAdd) (Conne
 	return out, nil
 }
 
-// pendingTTL is how long a redirect setup waits for the provider.
-const pendingTTL = time.Hour
-
-// pendingSetup is a redirect setup out at its provider. ponytail: in
-// memory, so a restart mid-redirect loses it (the callback is refused and
-// the admin starts again); a row with a sweep if that bites.
-type pendingSetup struct {
-	orgID            *string
-	kind             connectors.Kind
-	conn             connectors.Conn
-	nonce, user, ret string
-	at               time.Time
+// hostOf is the host a git connection serves; "" (the kind) for others.
+func hostOf(conn connectors.Conn) string {
+	if g, ok := conn.(connectors.GitSource); ok {
+		return g.Host()
+	}
+	return ""
 }
 
-func (o *Orchestrator) beginSetup(ctx context.Context, in ConnectorAdd, k connectors.Kind, conn connectors.Conn) (*ConnectorOut, error) {
-	if in.User == "" || !strings.HasPrefix(in.Return, "/") || strings.HasPrefix(in.Return, "//") {
-		return nil, errs.Refusedf("%s signs in on its own site: add it in the panel", k.Label())
+// shareNew shares a new server git connection with every org.
+func (o *Orchestrator) shareNew(ctx context.Context, c store.Connector) (store.Connector, error) {
+	if c.OrgID != nil || !connector.IsGit(c) {
+		return c, nil
+	}
+	pending := c.Pending
+	c, err := o.conns.SetShares(ctx, c.ID, nil, true)
+	c.Pending, c.Settings = pending, ""
+	return c, err
+}
+
+// pendingTTL is how long a redirect setup waits for the provider; the
+// sweep removes one older.
+const pendingTTL = time.Hour
+
+// beginSetup saves conn pending, named "<kind> (connecting…)" until the
+// provider answers, and returns where the browser goes.
+func (o *Orchestrator) beginSetup(ctx context.Context, in ConnectorAdd, k connectors.Kind, conn connectors.Conn) (Connector, *ConnectorOut, error) {
+	if in.User == "" || !local(in.Return) {
+		return Connector{}, nil, errs.Refusedf("%s signs in on its own site: add it in the panel", k.Label())
 	}
 	nonce := make([]byte, 16)
 	_, _ = rand.Read(nonce)
+	p := connector.Pending{Nonce: hex.EncodeToString(nonce), User: in.User, Return: in.Return}
 	id := uuid.NewString()
-	p := &pendingSetup{orgID: in.OrgID, kind: k, conn: conn, nonce: hex.EncodeToString(nonce), user: in.User, ret: in.Return, at: time.Now()}
-	out, err := conn.(connectors.Redirector).Out(ctx, id, o.panelURL()+ConnectorCallbackPath, id+"."+p.nonce)
+	out, err := conn.(connectors.Redirector).Out(ctx, id, o.appBase(ctx)+ConnectorCallbackPath, id+"."+p.Nonce)
 	if err != nil {
-		return nil, err
+		return Connector{}, nil, err
 	}
-	o.setupMu.Lock()
-	defer o.setupMu.Unlock()
-	if o.setups == nil {
-		o.setups = map[string]*pendingSetup{}
+	b, err := json.Marshal(conn)
+	if err != nil {
+		return Connector{}, nil, err
 	}
-	for id, s := range o.setups {
-		if time.Since(s.at) > pendingTTL {
-			delete(o.setups, id)
-		}
+	c := store.Connector{
+		ID: id, OrgID: in.OrgID, Kind: k.Name(), Name: k.Label() + " (connecting…)", Host: hostOf(conn),
+		CreatedAt: time.Now().UTC(), Capabilities: connectors.Caps(k),
 	}
-	o.setups[id] = p
-	return &out, nil
+	if in.OrgID == nil { // server connection names are unique
+		c.Name = k.Label() + " (connecting… " + id[:8] + ")"
+	}
+	if c, err = o.conns.Pend(ctx, c, k.Label(), p, string(b)); err != nil {
+		return Connector{}, nil, err
+	}
+	c, err = o.shareNew(ctx, c)
+	return c, &out, err
+}
+
+// local: a panel path, never another site.
+func local(p string) bool {
+	return strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") && !strings.HasPrefix(p, "/\\")
 }
 
 // ConnectorBack takes a provider's callback: the state must match a
 // pending setup's and userID must be who began it, or a stray callback
-// could finish someone else's. It saves the connection and returns the
-// panel path to send the browser back to.
+// could finish someone else's. It saves the connection and returns where
+// the browser goes: the provider's install page for a kind installed
+// there (which brings it on to the panel path the setup began on), else
+// that path ("" for a setup begun before one was kept).
 func (o *Orchestrator) ConnectorBack(ctx context.Context, userID string, q url.Values) (string, error) {
 	id, nonce, _ := strings.Cut(q.Get("state"), ".")
-	o.setupMu.Lock()
-	p := o.setups[id]
-	ok := p != nil && time.Since(p.at) <= pendingTTL && p.user == userID &&
-		subtle.ConstantTimeCompare([]byte(p.nonce), []byte(nonce)) == 1
-	if ok {
-		delete(o.setups, id) // one go: the provider's code is single use
+	refused := errs.Refusedf("this callback does not match a connector being set up; start again")
+	c, p, blob, err := o.conns.Pending(ctx, id)
+	if errors.Is(err, errs.ErrNotFound) {
+		return "", refused
 	}
-	o.setupMu.Unlock()
-	if !ok {
-		return "", errs.Refusedf("this callback does not match a connector being set up; start again")
-	}
-	if err := p.conn.(connectors.Redirector).Back(ctx, q); err != nil {
-		return "", err
-	}
-	b, err := json.Marshal(p.conn)
 	if err != nil {
 		return "", err
 	}
-	_, err = o.conns.Create(ctx, store.Connector{
-		ID: id, OrgID: p.orgID, Kind: p.kind.Name(), Name: p.conn.Name(), Settings: string(b),
-		CreatedAt: time.Now().UTC(), Capabilities: connectors.Caps(p.kind),
-	}, p.kind.Label())
-	return p.ret, err
+	if p.User != userID || time.Since(c.CreatedAt) > pendingTTL || subtle.ConstantTimeCompare([]byte(p.Nonce), []byte(nonce)) != 1 {
+		return "", refused
+	}
+	k, err := o.kind(c.Kind)
+	if err != nil {
+		return "", err
+	}
+	conn := k.New()
+	if err := json.Unmarshal([]byte(blob), conn); err != nil {
+		return "", err
+	}
+	r, ok := conn.(connectors.Redirector)
+	if !ok {
+		return "", refused
+	}
+	if err := r.Back(ctx, q); err != nil {
+		return "", err
+	}
+	b, err := json.Marshal(conn)
+	if err != nil {
+		return "", err
+	}
+	if err := o.conns.Settle(ctx, id, conn.Name(), string(b)); err != nil {
+		return "", err
+	}
+	if i, ok := conn.(connectors.Installer); ok {
+		return i.Install(o.ReturnState(p.Return)), nil
+	}
+	return p.Return, nil
+}
+
+// ReturnState is the state a provider carries back to ConnectorReturnPath
+// so the browser lands on path: path and its MAC, so a link cannot send
+// it elsewhere. "" for no path.
+func (o *Orchestrator) ReturnState(path string) string {
+	if !local(path) {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(path)) + "." + o.returnMAC(path)
+}
+
+// ReturnTo is the panel path a ReturnState stands for; false when it is
+// none (a provider's later visit carries none).
+func (o *Orchestrator) ReturnTo(state string) (string, bool) {
+	enc, mac, _ := strings.Cut(state, ".")
+	b, err := base64.RawURLEncoding.DecodeString(enc)
+	if err != nil || !local(string(b)) || !hmac.Equal([]byte(mac), []byte(o.returnMAC(string(b)))) {
+		return "", false
+	}
+	return string(b), true
+}
+
+func (o *Orchestrator) returnMAC(path string) string {
+	m := hmac.New(sha256.New, []byte(o.cfg.SecretsKey))
+	m.Write([]byte("connector-return\x00" + path))
+	return hex.EncodeToString(m.Sum(nil))[:32]
+}
+
+// appBase is the panel's URL as a provider must reach it: BaseURL with its
+// host swapped for the panel_domain setting when one is set (scheme and
+// port kept), so a connection made after the panel moved does not register
+// the old host.
+func (o *Orchestrator) appBase(ctx context.Context) string {
+	host, _ := o.settings.Get(ctx, "panel_domain")
+	return withHost(o.cfg.BaseURL, host)
+}
+
+func withHost(base, host string) string {
+	base = strings.TrimRight(base, "/")
+	u, err := url.Parse(base)
+	if host == "" || err != nil || u.Host == "" {
+		return base
+	}
+	if p := u.Port(); p != "" {
+		host += ":" + p
+	}
+	u.Host = host
+	return strings.TrimRight(u.String(), "/")
 }
 
 // ConnectorsAt is orgID's connections of registered kinds (nil = the
-// server's), settings stripped.
+// server's), settings stripped; none still pending.
 func (o *Orchestrator) ConnectorsAt(ctx context.Context, orgID *string) ([]Connector, error) {
-	return o.conns.ListOf(ctx, orgID, "")
+	return o.conns.ListOf(ctx, orgID, "", false)
+}
+
+// ConnectorRows is ConnectorsAt with the pending ones (Pending set), for
+// a list that shows them waiting.
+func (o *Orchestrator) ConnectorRows(ctx context.Context, orgID *string) ([]Connector, error) {
+	return o.conns.ListOf(ctx, orgID, "", true)
 }
 
 // ConnectorAt is one of them, settings stripped.
@@ -249,11 +378,17 @@ func (o *Orchestrator) ConnectorAt(ctx context.Context, orgID *string, id string
 
 // RemoveConnector removes one of them, each capability cleaning up after
 // itself first: a DNS one's managed domains as UnmanageDNSDomain does,
-// refused while a tile uses one.
+// refused while a tile uses one; a server git one refused while a binding
+// names it.
 func (o *Orchestrator) RemoveConnector(ctx context.Context, orgID *string, id string) error {
 	c, err := o.conns.Of(ctx, orgID, id)
 	if err != nil {
 		return err
+	}
+	if connector.Has(c, CapGit) && orgID == nil {
+		if err := o.unbound(ctx, id); err != nil {
+			return err
+		}
 	}
 	if connector.Has(c, CapDNS) {
 		if err := o.forgetAll(ctx, c); err != nil {
@@ -307,4 +442,46 @@ func (o *Orchestrator) label(kind string) string {
 		return k.Label()
 	}
 	return kind
+}
+
+// repoURL is raw in the one stored spelling of a repo: the spelling of the
+// connection that owns it, else of a kind that would; raw trimmed when
+// none does. A repo no connection owns is refused where it is cloned.
+func (o *Orchestrator) repoURL(ctx context.Context, raw string) string {
+	cs, _ := o.conns.Gits(ctx)
+	if u := o.conns.RepoURL(cs, raw); u != strings.TrimSpace(raw) {
+		return u
+	}
+	for _, k := range o.kinds {
+		if g, ok := k.New().(connectors.GitSource); ok {
+			if u, ok := g.RepoURL(strings.TrimSpace(raw)); ok {
+				return u
+			}
+		}
+	}
+	return strings.TrimSpace(raw)
+}
+
+// spell is repoURL for a file's flows, which run without a context.
+func (o *Orchestrator) spell(ctx context.Context) func(string) string {
+	return func(raw string) string { return o.repoURL(ctx, raw) }
+}
+
+// parseOrgFile is an org config file parsed, its repos spelled by the
+// connections that own them.
+func (o *Orchestrator) parseOrgFile(ctx context.Context, data []byte) (*orgconfig.File, error) {
+	f, err := orgconfig.Parse(data)
+	if err == nil {
+		f.RepoURLs(o.spell(ctx))
+	}
+	return f, err
+}
+
+// parseServerFile is parseOrgFile for the server config file.
+func (o *Orchestrator) parseServerFile(ctx context.Context, data []byte) (*serverconfig.File, error) {
+	f, err := serverconfig.Parse(data)
+	if err == nil {
+		f.RepoURLs(o.spell(ctx))
+	}
+	return f, err
 }

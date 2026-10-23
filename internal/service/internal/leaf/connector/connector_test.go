@@ -2,7 +2,10 @@ package connector_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
@@ -20,54 +23,111 @@ var ctx = context.Background()
 
 const user = "u1"
 
+// fakeApp is the provider behind every fakeConn of a test: whether its App
+// is installed, and the hook updates it took (the first fails).
 type fakeApp struct {
-	state        string
 	notInstalled bool
-	hooked       []string // SetHookURL calls; the first fails
+	hooked       []string
 }
 
-func (f *fakeApp) Manifest(id, _, state string) (string, string, error) {
-	f.state = state
-	return "https://github.com/settings/apps/new?state=" + state, "{}", nil
+// fakeKind is a git kind whose connections are fakeConns of app.
+type fakeKind struct{ app *fakeApp }
+
+func (fakeKind) Name() string             { return "github" }
+func (fakeKind) Label() string            { return "GitHub" }
+func (fakeKind) Hint() string             { return "" }
+func (fakeKind) Steps() []connectors.Step { return []connectors.Step{{Title: "Out", Out: true}} }
+func (k fakeKind) New() connectors.Conn   { return &fakeConn{app: k.app} }
+
+// fakeConn is one App: its blob is the slug and the secret.
+type fakeConn struct {
+	Slug   string `json:"slug"`
+	Secret string `json:"secret"`
+	app    *fakeApp
 }
 
-func (f *fakeApp) ConvertManifest(context.Context, string) (githubapp.App, error) {
-	return githubapp.App{
-		ID:            7,
-		Slug:          "stackr-x",
-		PEM:           "pem",
-		WebhookSecret: "whsec",
-	}, nil
+func (c *fakeConn) Setup(map[string]string) error { return nil }
+func (c *fakeConn) Name() string                  { return "GitHub · " + c.Slug }
+func (c *fakeConn) Out(context.Context, string, string, string) (connectors.Out, error) {
+	return connectors.Out{}, nil
 }
-
-func (f *fakeApp) Token(_ context.Context, key string, app githubapp.App) (string, error) {
-	if f.notInstalled {
-		return "", githubapp.ErrNotInstalled
+func (c *fakeConn) Back(context.Context, url.Values) error { return nil }
+func (c *fakeConn) Install(string) string {
+	return "https://github.com/apps/" + c.Slug + "/installations/new"
+}
+func (c *fakeConn) Host() string { return "github.com" }
+func (c *fakeConn) RepoURL(raw string) (string, bool) {
+	return raw, strings.HasPrefix(raw, "https://github.com/")
+}
+func (c *fakeConn) Repos(context.Context) ([]connectors.Repo, error) {
+	if c.app.notInstalled {
+		return nil, nil
 	}
-	return "tok-" + app.Slug, nil
+	return []connectors.Repo{{FullName: "acme/api", DefaultBranch: "main"}}, nil
 }
-
-func (f *fakeApp) Repos(_ context.Context, token string) ([]githubapp.Repo, error) {
-	return []githubapp.Repo{{FullName: "acme/api", DefaultBranch: "main"}}, nil
+func (c *fakeConn) Branches(context.Context, string) ([]string, error)          { return []string{"main"}, nil }
+func (c *fakeConn) YAMLFiles(context.Context, string, string) ([]string, error) { return nil, nil }
+func (c *fakeConn) CloneEnv(context.Context, string) ([]string, error) {
+	return []string{"A=1", "B=2", "C=" + c.Slug}, nil
 }
-
-func (f *fakeApp) Branches(context.Context, string, string) ([]string, error) {
-	return []string{"main"}, nil
+func (c *fakeConn) Hook(_ context.Context, h http.Header, _ []byte) (connectors.Event, error) {
+	if c.Secret == "" || h.Get("Secret") != c.Secret {
+		return connectors.Event{}, connectors.ErrBadSignature
+	}
+	return connectors.Event{}, nil
 }
-
-func (f *fakeApp) YAMLFiles(context.Context, string, string, string) ([]string, error) {
-	return []string{"stackr-org.yml"}, nil
-}
-
-func (f *fakeApp) SetHookURL(_ context.Context, id string, _ githubapp.App) error {
-	f.hooked = append(f.hooked, id)
-	if len(f.hooked) == 1 {
+func (c *fakeConn) SetHook(_ context.Context, u string) error {
+	c.app.hooked = append(c.app.hooked, u)
+	if len(c.app.hooked) == 1 {
 		return errors.New("boom")
 	}
 	return nil
 }
 
-func (f *fakeApp) HookURL(id string) string { return "https://panel.test/hooks/connectors/" + id }
+func newLeaf(conns store.ConnectorStore, f *fakeApp) *connector.Leaf {
+	return connector.New(conns, []connectors.Kind{fakeKind{f}})
+}
+
+// begin is the core's redirect setup at the leaf: a pending row whose
+// state is "<id>.n"; complete is its callback, refused for another user
+// or nonce, saving the App the provider made.
+func begin(l *connector.Leaf, org *string) (store.Connector, string, error) {
+	id := uuid.NewString()
+	c := store.Connector{
+		ID: id, OrgID: org, Kind: "github", Name: "GitHub (connecting…)", Host: "github.com",
+		CreatedAt: time.Now().UTC(), Capabilities: store.StringList{"git"},
+	}
+	if org == nil {
+		c.Name += " " + id[:8]
+	}
+	c, err := l.Pend(ctx, c, "GitHub", connector.Pending{Nonce: "n", User: user}, "{}")
+	return c, id + ".n", err
+}
+
+func complete(l *connector.Leaf, userID, state string) (store.Connector, error) {
+	id, nonce, _ := strings.Cut(state, ".")
+	c, p, _, err := l.Pending(ctx, id)
+	if err != nil || p.User != userID || p.Nonce != nonce {
+		return c, errs.Refusedf("this callback does not match a pending connector")
+	}
+	b, _ := json.Marshal(fakeConn{Slug: "stackr-x", Secret: "whsec"})
+	if err := l.Settle(ctx, id, "GitHub · stackr-x", string(b)); err != nil {
+		return c, err
+	}
+	c.Name, c.Pending, c.Settings = "GitHub · stackr-x", false, ""
+	return c, nil
+}
+
+// hookSecret is the secret Hook verifies connection id's delivery with:
+// "" when none verifies.
+func hookSecret(l *connector.Leaf, id string) string {
+	if _, _, err := l.Hook(ctx, id, http.Header{"Secret": {"whsec"}}, nil); err == nil {
+		return "whsec"
+	}
+	return ""
+}
+
+func hookURL(id string) string { return "https://panel.test/hooks/connectors/" + id }
 
 func seedOrg(t *testing.T, st *store.Store) string {
 	t.Helper()
@@ -85,12 +145,13 @@ func seedOrg(t *testing.T, st *store.Store) string {
 	return id
 }
 
-func connect(t *testing.T, l *connector.Leaf, f *fakeApp, org string) store.Connector {
+func connect(t *testing.T, l *connector.Leaf, _ *fakeApp, org string) store.Connector {
 	t.Helper()
-	if _, _, _, err := l.Begin(ctx, org, user, ""); err != nil {
+	_, state, err := begin(l, &org)
+	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := l.Complete(ctx, user, f.state, "code")
+	c, err := complete(l, user, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +161,12 @@ func connect(t *testing.T, l *connector.Leaf, f *fakeApp, org string) store.Conn
 func TestHandshake(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
+	l := newLeaf(st.Connectors, f)
 	org := seedOrg(t, st)
 
-	c, action, _, err := l.Begin(ctx, org, user, "")
-	if err != nil || !strings.Contains(action, c.ID+".") || connector.Connected(c) {
-		t.Fatalf("begin = %+v %s %v", c, action, err)
+	c, state, err := begin(l, &org)
+	if err != nil || !strings.Contains(state, c.ID+".") || connector.Connected(c) {
+		t.Fatalf("begin = %+v %s %v", c, state, err)
 	}
 	if u, err := l.InstallURL(ctx, org, c.ID); err != nil || u != "" {
 		t.Errorf("pending connector install url = %q %v", u, err)
@@ -113,16 +174,16 @@ func TestHandshake(t *testing.T) {
 	if _, err := l.For(ctx, org, "https://github.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
 		t.Errorf("pending connector resolved: %v", err)
 	}
-	if _, secret, _ := l.WebhookSecret(ctx, c.ID); secret != "" {
+	if secret := hookSecret(l, c.ID); secret != "" {
 		t.Error("pending connector has a webhook secret")
 	}
-	if _, err := l.Complete(ctx, user, c.ID+".wrong", "code"); !errors.Is(err, errs.ErrRefused) {
+	if _, err := complete(l, user, c.ID+".wrong"); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("wrong nonce = %v", err)
 	}
-	if _, err := l.Complete(ctx, "u2", f.state, "code"); !errors.Is(err, errs.ErrRefused) {
+	if _, err := complete(l, "u2", state); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("another user's callback = %v", err)
 	}
-	c, err = l.Complete(ctx, user, f.state, "code")
+	c, err = complete(l, user, state)
 	if err != nil || !connector.Connected(c) || c.Name != "GitHub · stackr-x" {
 		t.Fatalf("complete = %+v %v", c, err)
 	}
@@ -140,10 +201,10 @@ func TestHandshake(t *testing.T) {
 	if rs, err := l.Repos(ctx, org, c.ID); err != nil || len(rs) != 1 || rs[0].FullName != "acme/api" {
 		t.Errorf("installed repos = %v %v", rs, err)
 	}
-	if _, err := l.Complete(ctx, user, f.state, "code"); !errors.Is(err, errs.ErrRefused) {
+	if _, err := complete(l, user, state); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("replayed callback = %v", err)
 	}
-	if _, _, _, err := l.Begin(ctx, org, user, ""); err == nil {
+	if _, _, err := begin(l, &org); err == nil {
 		t.Error("second github connector in one org")
 	}
 
@@ -155,7 +216,7 @@ func TestHandshake(t *testing.T) {
 	if err != nil || len(env) != 3 {
 		t.Errorf("clone env = %v %v", env, err)
 	}
-	if _, secret, _ := l.WebhookSecret(ctx, c.ID); secret != "whsec" {
+	if secret := hookSecret(l, c.ID); secret != "whsec" {
 		t.Errorf("secret = %q", secret)
 	}
 	if _, err := l.For(ctx, org, "https://gitlab.com/acme/api"); !errors.As(err, &connector.NoConnector{}) {
@@ -172,7 +233,7 @@ func TestHandshake(t *testing.T) {
 func TestConnectorScope(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
+	l := newLeaf(st.Connectors, f)
 	mine, theirs := seedOrg(t, st), seedOrg(t, st)
 	c := connect(t, l, f, theirs)
 
@@ -194,10 +255,10 @@ func TestConnectorScope(t *testing.T) {
 func TestSyncHooksContinuesPastFailure(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
+	l := newLeaf(st.Connectors, f)
 	connect(t, l, f, seedOrg(t, st))
 	connect(t, l, f, seedOrg(t, st))
-	if err := l.SyncHooks(ctx); err == nil || !strings.Contains(err.Error(), "boom") {
+	if err := l.SyncHooks(ctx, hookURL); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("sync = %v, want the joined failure", err)
 	}
 	if len(f.hooked) != 2 {
@@ -205,12 +266,13 @@ func TestSyncHooksContinuesPastFailure(t *testing.T) {
 	}
 }
 
-func connectServer(t *testing.T, l *connector.Leaf, f *fakeApp) store.Connector {
+func connectServer(t *testing.T, l *connector.Leaf, _ *fakeApp) store.Connector {
 	t.Helper()
-	if _, _, _, err := l.BeginServer(ctx, user, ""); err != nil {
+	_, state, err := begin(l, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := l.Complete(ctx, user, f.state, "code")
+	c, err := complete(l, user, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +284,7 @@ func connectServer(t *testing.T, l *connector.Leaf, f *fakeApp) store.Connector 
 func TestServerConnectorReadsWidenWritesDoNot(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
+	l := newLeaf(st.Connectors, f)
 	acme, other := seedOrg(t, st), seedOrg(t, st)
 	srv := connectServer(t, l, f)
 
@@ -288,7 +350,7 @@ func TestServerConnectorReadsWidenWritesDoNot(t *testing.T) {
 func TestResolveHost(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
+	l := newLeaf(st.Connectors, f)
 	acme := seedOrg(t, st)
 	url := "https://github.com/acme/api"
 
@@ -333,10 +395,10 @@ func TestResolveHost(t *testing.T) {
 func TestServerConnectorNames(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
+	l := newLeaf(st.Connectors, f)
 
 	for range 2 {
-		if _, _, _, err := l.BeginServer(ctx, user, ""); err != nil {
+		if _, _, err := begin(l, nil); err != nil {
 			t.Fatalf("second pending server connector: %v", err)
 		}
 	}
@@ -344,7 +406,7 @@ func TestServerConnectorNames(t *testing.T) {
 	if _, err := l.RenameServer(ctx, a.ID, "  "); !errors.As(err, &errs.Invalid{}) {
 		t.Errorf("blank name = %v", err)
 	}
-	b, _, _, _ := l.BeginServer(ctx, user, "")
+	b, _, _ := begin(l, nil)
 	if _, err := l.RenameServer(ctx, b.ID, a.Name); !errors.As(err, &errs.Conflict{}) {
 		t.Errorf("duplicate name = %v", err)
 	}
@@ -372,18 +434,18 @@ func TestServerConnectorNames(t *testing.T) {
 func TestServerHandshakeUser(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	l := connector.New(st.Connectors, f)
-	c, _, _, err := l.BeginServer(ctx, user, "")
+	l := newLeaf(st.Connectors, f)
+	c, state, err := begin(l, nil)
 	if err != nil || c.OrgID != nil {
 		t.Fatalf("begin = %+v %v", c, err)
 	}
-	if _, err := l.Complete(ctx, "u2", f.state, "code"); !errors.Is(err, errs.ErrRefused) {
+	if _, err := complete(l, "u2", state); !errors.Is(err, errs.ErrRefused) {
 		t.Errorf("another user completed it: %v", err)
 	}
 	if u, _ := l.ServerInstallURL(ctx, c.ID); u != "" {
 		t.Errorf("pending install url = %q", u)
 	}
-	if _, err := l.Complete(ctx, user, f.state, "code"); err != nil {
+	if _, err := complete(l, user, state); err != nil {
 		t.Fatal(err)
 	}
 	if u, _ := l.ServerInstallURL(ctx, c.ID); u != "https://github.com/apps/stackr-x/installations/new" {
@@ -422,18 +484,18 @@ func TestShareRenameKeepCompletedConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			st := servicetest.Store(t)
 			f := &fakeApp{}
-			plain := connector.New(st.Connectors, f)
-			pending, _, _, err := plain.BeginServer(ctx, user, "")
+			plain := newLeaf(st.Connectors, f)
+			pending, state, err := begin(plain, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r := &racy{ConnectorStore: st.Connectors}
 			r.after = func() {
-				if _, err := plain.Complete(ctx, user, f.state, "code"); err != nil {
+				if _, err := complete(plain, user, state); err != nil {
 					t.Error(err)
 				}
 			}
-			if err := act(connector.New(r, f), pending.ID); err != nil {
+			if err := act(newLeaf(r, f), pending.ID); err != nil {
 				t.Fatal(err)
 			}
 			got, err := plain.Server(ctx, pending.ID)
@@ -448,8 +510,8 @@ func TestShareRenameKeepCompletedConfig(t *testing.T) {
 func TestCompleteKeepsShares(t *testing.T) {
 	st := servicetest.Store(t)
 	f := &fakeApp{}
-	plain := connector.New(st.Connectors, f)
-	pending, _, _, err := plain.BeginServer(ctx, user, "")
+	plain := newLeaf(st.Connectors, f)
+	pending, state, err := begin(plain, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +521,7 @@ func TestCompleteKeepsShares(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if _, err := connector.New(r, f).Complete(ctx, user, f.state, "code"); err != nil {
+	if _, err := complete(newLeaf(r, f), user, state); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := plain.Server(ctx, pending.ID); !got.ShareAll || !connector.Connected(got) {

@@ -133,10 +133,10 @@ func TestConnectorsMigration(t *testing.T) {
 		body := []byte(`{"zen":"hi"}`)
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write(body)
-		if err := env.Orch.Webhook(ctx, id, "ping", "sha256="+hex.EncodeToString(mac.Sum(nil)), body); err != nil {
+		if err := env.Orch.Webhook(ctx, id, hook("ping", "sha256="+hex.EncodeToString(mac.Sum(nil))), body); err != nil {
 			t.Errorf("%s webhook: %v", id, err)
 		}
-		if err := env.Orch.Webhook(ctx, id, "ping", "sha256=00", body); err == nil {
+		if err := env.Orch.Webhook(ctx, id, hook("ping", "sha256=00"), body); err == nil {
 			t.Errorf("%s webhook verified a wrong signature", id)
 		}
 	}

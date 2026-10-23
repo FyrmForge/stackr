@@ -40,14 +40,14 @@ func TestOrgDNSConnectors(t *testing.T) {
 	if body := s.Do(t, "GET", "/acme/-/drawer/connectors/new/namecheap", nil).Body.String(); !strings.Contains(body, `hx-get="/acme/-/drawer/connectors/new?pick=1"`) {
 		t.Errorf("Namecheap screens:\n%s", body)
 	}
-	if body := s.Do(t, "GET", "/acme/-/drawer/connectors/new/github", nil).Body.String(); !strings.Contains(body, `hx-post="/acme/-/drawer/connectors/github"`) {
+	if body := s.Do(t, "GET", "/acme/-/drawer/connectors/new/github", nil).Body.String(); !strings.Contains(body, `hx-post="/acme/-/drawer/connectors/new/github"`) {
 		t.Errorf("GitHub screen:\n%s", body)
 	}
-	rec := s.Do(t, "POST", "/acme/-/drawer/connectors/github", url.Values{"github_org": {"acme-inc"}})
+	rec := s.Do(t, "POST", "/acme/-/drawer/connectors/new/github", url.Values{"owner": {"acme-inc"}})
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Continue on GitHub") || !strings.Contains(body, `name="manifest"`) {
 		t.Fatalf("GitHub begin = %d\n%s", rec.Code, body)
 	}
-	rec = s.Do(t, "POST", "/acme/-/drawer/connectors/github", url.Values{"github_org": {"acme-inc"}})
+	rec = s.Do(t, "POST", "/acme/-/drawer/connectors/new/github", url.Values{"owner": {"acme-inc"}})
 	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, ">This org already has a github.com connector<") {
 		t.Errorf("second GitHub begin = %d\n%s", rec.Code, body)
 	}
@@ -65,7 +65,7 @@ func TestOrgDNSConnectors(t *testing.T) {
 	}
 	// the tab: the pending GitHub connector opens its drawer, the DNS one its
 	// dialog; a server App the admin has not finished is not listed
-	if _, _, _, err := s.Orch.BeginServerConnector(ctx, s.User(t, "root@x.test", true), "half-done"); err != nil {
+	if _, err := s.Orch.AddConnector(ctx, service.ConnectorAdd{Kind: "github", Values: map[string]string{"owner": "half-done"}, User: s.User(t, "root@x.test", true), Return: "/"}); err != nil {
 		t.Fatal(err)
 	}
 	body := s.Do(t, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String()

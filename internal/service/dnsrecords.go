@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -231,22 +230,26 @@ func (o *Orchestrator) TileDNSDomains(ctx context.Context, tileID string) ([]str
 	return o.UsableDNSDomains(ctx, org)
 }
 
-// domainUsers names the tiles whose domains sit in zone, for the refusal
-// that keeps a domain in use managed.
-func (o *Orchestrator) domainUsers(ctx context.Context, zone string) ([]string, error) {
+// domainUsers is the tile domains that sit in zone, for the refusal that
+// keeps a domain in use managed.
+func (o *Orchestrator) domainUsers(ctx context.Context, zone string) ([]Usage, error) {
 	ds, err := o.domains.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	var out []Usage
 	for _, d := range ds {
 		if dnscap.Name(d.Host, zone) == "" {
 			continue
 		}
-		out = append(out, fmt.Sprintf("%s (%s)", o.scopePath(ctx, ScopeTile, d.TileID), d.Host))
+		u, err := o.usageOf(ctx, ScopeTile, d.TileID, d.Host)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
 	}
-	slices.Sort(out)
-	return slices.Compact(out), nil
+	slices.SortFunc(out, func(a, b Usage) int { return strings.Compare(a.Path+a.What, b.Path+b.What) })
+	return out, nil
 }
 
 // forgetDomain deletes the records stackr made in a managed domain, the
@@ -258,7 +261,7 @@ func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, p dnscap.P
 		return err
 	}
 	if len(users) > 0 {
-		return errs.Conflictf("%s is in use by %s; remove those domains first", dnscap.Normal(name), strings.Join(users, ", "))
+		return &InUse{Msg: dnscap.Normal(name) + " is in use by", Tail: "; remove those domains first", Usages: users}
 	}
 	if err := o.dns.Forget(ctx, p, dnscap.Normal(name)); err != nil {
 		return err

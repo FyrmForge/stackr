@@ -1,7 +1,7 @@
 package setup
 
 // The server's first-run wizard: a branch question, then either the by-hand
-// screens (domains, certificates, GitHub, observability, backups, nodes, a
+// screens (domains, certificates, git, observability, backups, nodes, a
 // summary) or the file page (connector and repo, then the plan). Both end on
 // Finish, then org setup. Admin's Setup guide reopens the by-hand screens.
 
@@ -38,19 +38,14 @@ type ServerCertsView struct {
 	Done bool // a DNS connector is added: Continue, not Skip
 }
 
-// ServerApp is one server GitHub App.
-type ServerApp struct {
-	Name       string
-	HookURL    string // where its webhook must point
-	InstallURL string // "" while GitHub has not made it yet
-}
-
-// ServerGitHubView is the GitHub screen.
-type ServerGitHubView struct {
+// ServerGitView is the git screen: the server's git connectors, each with
+// where its provider delivers events and its install page. Label names the
+// git kind.
+type ServerGitView struct {
 	ServerStep
-	CSRF string // the native manifest form's token
-	Apps []ServerApp
-	Done bool // an App GitHub confirmed: Continue, not Skip
+	Label string
+	List  connectors.ListView
+	Done  bool // one is connected: Continue, not Skip
 }
 
 // ServerObserveView is the observability screen, prefilled from the settings.
@@ -123,7 +118,7 @@ templ ServerBranch(v ServerBranchView) {
 		<form novalidate hx-post={ v.Base + "/mode" } class="space-y-3">
 			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">From a server file</span>
-				<span class="block mt-0.5 text-xs text-rw-muted">stackr-server.yml in a GitHub repo declares the server.</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">stackr-server.yml in a git repo declares the server.</span>
 			</button>
 			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">By hand</span>
@@ -174,72 +169,13 @@ templ ServerCertificates(v ServerCertsView) {
 	}
 }
 
-// ServerGitHub creates a server App or takes an existing one; either is
-// shared with every organization.
-templ ServerGitHub(v ServerGitHubView) {
+// ServerGit adds a git connector shared with every organization: made at
+// the provider by the kind's own setup, or an existing one pasted in.
+templ ServerGit(v ServerGitView) {
 	@shell(v.Frame) {
-		if len(v.Apps) > 0 {
-			<ul class="space-y-2 mb-6">
-				for _, a := range v.Apps {
-					<li class="panel px-3 py-2 space-y-1">
-						<p class="text-sm text-rw-text">{ a.Name }</p>
-						<p class="text-xs text-rw-faint">Webhook URL</p>
-						<p class="font-mono text-xs text-rw-muted break-all">{ a.HookURL }</p>
-						if a.InstallURL != "" {
-							<a href={ templ.SafeURL(a.InstallURL) } target="_blank" rel="noopener" class="text-xs text-rw-accent hover:underline">Install it on GitHub</a>
-						} else {
-							<p class="text-xs text-rw-faint">GitHub has not confirmed it. It goes away after an hour.</p>
-						}
-					</li>
-				}
-			</ul>
-		}
-		<div class="space-y-4">
-			<h3 class="text-sm font-semibold text-rw-text">Create a GitHub App</h3>
-			<p class="text-xs text-rw-faint">Shared with every organization. GitHub asks you to approve it.</p>
-			// templint:ignore no-native-form-actions -- the answer is the page that posts the manifest to GitHub; it must replace the document
-			<form novalidate method="post" action={ templ.SafeURL(v.Base + "/github") } class="space-y-3">
-				<input type="hidden" name="csrf_token" value={ v.CSRF }/>
-				<div>
-					<label class="label" for="srv-gh-org">GitHub organization (optional)</label>
-					<input type="text" id="srv-gh-org" name="gh_org" placeholder="my-github-org" class="input"/>
-					<p class="mt-1.5 text-xs text-rw-faint">Leave empty to use your personal account.</p>
-				</div>
-				<button type="submit" class="btn btn-primary w-full">Create on GitHub</button>
-			</form>
-		</div>
-		<hr class="my-6 border-rw-border"/>
-		<div class="space-y-4">
-			<h3 class="text-sm font-semibold text-rw-text">Use an existing App</h3>
-			<p class="text-xs text-rw-faint">Shared with every organization. The webhook URL shows here once saved.</p>
-			<form novalidate hx-post={ v.Base + "/github/app" } class="space-y-3">
-				@formError(v.Base + "/github/app")
-				<div>
-					<label class="label" for="srv-app-id">App ID</label>
-					<input type="text" inputmode="numeric" id="srv-app-id" name="app_id" value={ val(ctx, "app_id", "") } class="input font-mono" { invalid(ctx, "app_id")... }/>
-					@fieldError("app_id")
-				</div>
-				<div>
-					<label class="label" for="srv-app-slug">Slug</label>
-					<input type="text" id="srv-app-slug" name="slug" value={ val(ctx, "slug", "") } placeholder="my-stackr-app" class="input font-mono" { invalid(ctx, "slug")... }/>
-					@fieldError("slug")
-					<p class="mt-1.5 text-xs text-rw-faint">The last part of the App's github.com/apps/ address.</p>
-				</div>
-				<div>
-					<label class="label" for="srv-app-key">Private key</label>
-					<textarea id="srv-app-key" name="private_key" rows="5" autocomplete="off" placeholder="-----BEGIN RSA PRIVATE KEY-----" class="input font-mono text-xs" { invalid(ctx, "private_key")... }>{ val(ctx, "private_key", "") }</textarea>
-					@fieldError("private_key")
-				</div>
-				<div>
-					<label class="label" for="srv-app-secret">Webhook secret</label>
-					<input type="password" id="srv-app-secret" name="webhook_secret" value={ val(ctx, "webhook_secret", "") } autocomplete="off" class="input font-mono" { invalid(ctx, "webhook_secret")... }/>
-					@fieldError("webhook_secret")
-				</div>
-				<button type="submit" class="btn btn-ghost w-full">Save App</button>
-			</form>
-		</div>
-		<hr class="mt-6 border-rw-border"/>
-		@serverNext(v.Next, v.Done, "Without one, each organization connects its own GitHub later.")
+		<p class="text-sm text-rw-muted mb-6">stackr clones your repositories through it and deploys on push.</p>
+		{{ v.List.Foot = serverNext(v.Next, v.Done, "Without one, each organization connects its own "+v.Label+" later.") }}
+		@connectors.Tab(v.List, nil)
 	}
 }
 

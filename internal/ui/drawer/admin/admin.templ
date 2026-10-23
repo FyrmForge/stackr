@@ -28,7 +28,7 @@ type User struct {
 }
 
 // UpdateView is the self-upgrade. Checked says a check has run (this
-// answer, or the last one remembered); the check reaches GitHub, so a tab
+// answer, or the last one remembered); the check reaches the release host, so a tab
 // open never runs one.
 type UpdateView struct {
 	Version  string
@@ -340,7 +340,7 @@ templ Caddy(v CaddyView) {
 // Guide reopens the server setup screens; the server stays set up.
 templ Guide(href string) {
 	<div id="tab-guide">
-		@c.Section("Setup guide", "instance", "Walks through domains, GitHub, observability, backups and nodes again.") {
+		@c.Section("Setup guide", "instance", "Walks through domains, git, observability, backups and nodes again.") {
 			<a href={ templ.SafeURL(href) } class="btn btn-primary btn-sm">Open the setup guide</a>
 		}
 	</div>

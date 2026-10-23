@@ -164,7 +164,7 @@ func CreateTile(v CreateTileView) templ.Component {
 		}
 		switch v.Source {
 		case "service":
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "git_url", Label: "Repo URL", Value: v.GitURL, Placeholder: "https://github.com/acme/api", Required: true, Help: hostsHelp(v.Hosts), Error: v.Errors["git_url"]}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "git_url", Label: "Repo URL", Value: v.GitURL, Placeholder: "https://git.example.com/acme/api", Required: true, Help: hostsHelp(v.Hosts), Error: v.Errors["git_url"]}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -290,10 +290,10 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 	}
 	err := o.sync.Sync(ctx)
 	if p, ok := vals["panel_domain"]; ok && p != panelWas {
-		// GitHub Apps keep the webhook URL they were made with; a failure is
+		// connectors keep the webhook URL they were made with; a failure is
 		// logged per App and does not fail the save. Runs even after a failed
 		// push: the row is written, and a re-save of it would not get here.
-		_ = o.SyncGitHubHooks(ctx)
+		_ = o.SyncConnectorHooks(ctx)
 	}
 	if err != nil && custom {
 		// Caddy checks proxy_custom only at the push, after the row is
@@ -391,7 +391,7 @@ func (o *Orchestrator) Version() string { return o.cfg.Version }
 // row, not a knob): the Update tab shows it after a restart.
 const keyUpgradeLatest = "upgrade_latest"
 
-// CheckUpgrade asks GitHub for the latest release and remembers it; newer
+// CheckUpgrade asks the release host for the latest release and remembers it; newer
 // says whether it is newer than this build (false on a dev build).
 func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer bool, err error) {
 	if latest, err = o.upgrade.Check(ctx); err != nil {

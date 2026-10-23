@@ -62,7 +62,10 @@ func (o *Orchestrator) SetServerSetupMode(ctx context.Context, by *Principal, mo
 
 // ServerSetupSteps are the by-hand branch's screens, in order. The URL is
 // the position: nothing records how far an admin got.
-var ServerSetupSteps = []string{"domains", "certificates", "github", "observability", "backups", "nodes", "summary"}
+var ServerSetupSteps = []string{"domains", "certificates", ServerSetupGit, "observability", "backups", "nodes", "summary"}
+
+// ServerSetupGit is the step that connects a git host for every org.
+const ServerSetupGit = "git"
 
 // SetupLine is one summary row: State is "on", "off" or "skipped", read
 // from what is live now (skipped = nothing set up; off = set up, switched off).
@@ -99,10 +102,10 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 	if err != nil {
 		return nil, err
 	}
-	l = SetupLine{Step: "github", State: "skipped"}
-	// one GitHub never confirmed is not set up
+	l = SetupLine{Step: ServerSetupGit, State: "skipped"}
+	// one its provider never confirmed is not set up
 	if n := len(slices.DeleteFunc(cs, func(c Connector) bool { return !connector.Connected(c) })); n > 0 {
-		l.State, l.Detail = "on", plural(n, "App")
+		l.State, l.Detail = "on", plural(n, "connector")
 	}
 	out = append(out, l)
 

@@ -218,7 +218,7 @@ func (o *Orchestrator) applyServerPlan(ctx context.Context, job serverApplyJob, 
 			return err
 		}
 	}
-	f, err := serverconfig.Parse(data)
+	f, err := o.parseServerFile(ctx, data)
 	if err != nil {
 		return err
 	}

@@ -4,12 +4,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The GitHub App handshake of a server connector runs in the admin panel
-// (the manifest form posts to GitHub); everything else about one is here.
-func init() {
-	skipped["admin.connector-begin"] = "the GitHub App handshake runs in a browser (the manifest form posts to GitHub)"
-}
-
 // serverConnectors is `stackr server connectors`: the connectors the server
 // owns and who they are shared with.
 func (a *app) serverConnectors() *cobra.Command {
@@ -85,4 +79,4 @@ func (a *app) serverConnectors() *cobra.Command {
 	return n
 }
 
-var serverConnectorCols = []string{"id", "name", "host", "share_all", "org_ids"}
+var serverConnectorCols = []string{"id", "name", "host", "share_all", "org_ids", "pending", "check_error"}

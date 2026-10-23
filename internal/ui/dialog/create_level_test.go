@@ -15,10 +15,6 @@ func TestCreateLevel(t *testing.T) {
 		Errors: map[string]string{"name": "taken"},
 	}).Render(context.Background(), &b)
 	_ = CreateLevel(CreateLevelView{Kind: "stack", Action: "/o/-/new-stack"}).Render(context.Background(), &b)
-	_ = InstallConnector(InstallConnectorView{
-		Action:   "https://github.com/settings/apps/new",
-		Manifest: `{"a":1}`,
-	}).Render(context.Background(), &b)
 	got := b.String()
 	for _, w := range []string{
 		`id="create-env"`,
@@ -26,8 +22,6 @@ func TestCreateLevel(t *testing.T) {
 		"taken",
 		`name="from"`,
 		`id="create-stack"`,
-		`action="https://github.com/settings/apps/new"`,
-		`name="manifest"`,
 	} {
 		if !strings.Contains(got, w) {
 			t.Errorf("no %s in\n%s", w, got)

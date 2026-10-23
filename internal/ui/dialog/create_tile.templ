@@ -53,7 +53,7 @@ templ CreateTile(v CreateTileView) {
 			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Error: v.Errors["name"]})
 			switch v.Source {
 				case "service":
-					@c.Field(c.FieldView{Name: "git_url", Label: "Repo URL", Value: v.GitURL, Placeholder: "https://github.com/acme/api", Required: true, Help: hostsHelp(v.Hosts), Error: v.Errors["git_url"]})
+					@c.Field(c.FieldView{Name: "git_url", Label: "Repo URL", Value: v.GitURL, Placeholder: "https://git.example.com/acme/api", Required: true, Help: hostsHelp(v.Hosts), Error: v.Errors["git_url"]})
 				case "managed":
 					<div>
 						<label for="engine" class="label">Engine</label>

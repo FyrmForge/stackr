@@ -109,16 +109,15 @@ func TestByHand(t *testing.T) {
 	redirect(t, s, sess, b+"/name", url.Values{"name": {"Globex"}}, "/globex/-/setup/connector")
 	b = "/globex/-/setup"
 
-	page(t, s, sess, b+"/connector", "Connect GitHub", `name="gh_org"`, `name="csrf_token"`)
-	// the connector form is a native post: its token rides in the form
-	req := httptest.NewRequest("POST", b+"/connector", strings.NewReader("csrf_token=tok&gh_org="))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
-	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: sess})
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="github-manifest"`) {
-		t.Errorf("native connector post = %d\n%s", rec.Code, rec.Body)
+	page(t, s, sess, b+"/connector", "Connect GitHub", `hx-get="/globex/-/setup/connectors/new"`)
+	// Connect opens the kind's add dialog; its setup comes back to the step
+	if body := s.As(t, sess, "GET", "/globex/-/setup/connectors/new", nil).Body.String(); !strings.Contains(body, `name="owner"`) ||
+		!strings.Contains(body, `name="return" value="/globex/-/setup/connector"`) {
+		t.Errorf("connector dialog:\n%s", body)
+	}
+	rec := s.As(t, sess, "POST", "/globex/-/setup/connectors/new/github", url.Values{"owner": {""}, "return": {b + "/connector"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="connector-out"`) {
+		t.Errorf("connector begin = %d\n%s", rec.Code, rec.Body)
 	}
 	page(t, s, sess, b+"/domain", "Add a domain", `name="host"`)
 	redirect(t, s, sess, b+"/domain", url.Values{"host": {"globex.example.com"}}, b+"/team")
@@ -439,7 +438,7 @@ func TestPlanApplyFails(t *testing.T) {
 // The config step's repository combobox is v0's markup: main.js reads
 // these hooks.
 func TestRepoPicker(t *testing.T) {
-	v := pages.GitHubView{
+	v := pages.GitView{
 		Base:      "/globex/-/setup",
 		Connected: true,
 		Repos: []pages.Repo{

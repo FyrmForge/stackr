@@ -24,14 +24,6 @@ type (
 		Username string `json:"username"`
 		Password string `json:"password"` // "" keeps the stored one on update
 	}
-	ConnectorIn struct {
-		GitHubOrg string `json:"github_org"`
-	}
-	ConnectorBegun struct {
-		Connector service.Connector `json:"connector"`
-		Action    string            `json:"action"`   // the browser POSTs Manifest here
-		Manifest  string            `json:"manifest"` // the GitHub App manifest
-	}
 	KeyOut struct {
 		Token string         `json:"token"` // shown once
 		Key   service.APIKey `json:"key"`
@@ -162,13 +154,6 @@ func (h *H) DeleteCredential() Endpoint {
 
 func (h *H) Connectors() Endpoint {
 	return Get(func(c echo.Context) ([]service.Connector, error) { return list(h.Orch.Connectors(rc(c), orgID(c))) })
-}
-
-func (h *H) BeginConnector() Endpoint {
-	return JSON(201, func(c echo.Context, in ConnectorIn) (ConnectorBegun, error) {
-		conn, action, manifest, err := h.Orch.BeginConnector(rc(c), orgID(c), who(c), in.GitHubOrg)
-		return ConnectorBegun{conn, action, manifest}, err
-	})
 }
 
 func (h *H) RenameConnector() Endpoint {

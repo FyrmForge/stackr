@@ -194,7 +194,8 @@ func (f *Flow) candidates(
 	return out, nil
 }
 
-// NormalizeRepo folds the spellings of one GitHub repo to owner/name.
+// NormalizeRepo folds the spellings of one repo (https, ssh, scp-like,
+// .git or not, any case) to host/owner/name.
 func NormalizeRepo(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.TrimSuffix(strings.TrimSuffix(s, "/"), ".git")
@@ -203,7 +204,6 @@ func NormalizeRepo(s string) string {
 	}
 	s = strings.TrimPrefix(s, "git@")
 	s = strings.Replace(s, ":", "/", 1)
-	s = strings.TrimPrefix(s, "github.com/")
 	return strings.Trim(s, "/")
 }
 

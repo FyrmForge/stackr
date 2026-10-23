@@ -1,12 +1,9 @@
 package canvas
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 	"slices"
 
-	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
@@ -14,8 +11,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	ui "github.com/FyrmForge/stackr/internal/ui/graph"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 )
 
 // creates are the level's create dialogs the viewer may open, by kind of
@@ -50,8 +49,8 @@ func createButtons(c echo.Context, l level) []ui.Create {
 			out = append(out, ui.Create{Label: cr.label, URL: "/setup", Nav: true})
 			continue
 		}
-		// an owner gets the Connectors tab's add dialog (GitHub or DNS);
-		// a writer, who has no such tab, GitHub's install in the drawer
+		// an owner gets the Connectors tab's add dialog (every kind); a
+		// writer, who has no such tab, the git kinds' add dialog
 		if cr.kind == "connector" && authz.Can(p.Access, "dns.manage", r) == nil {
 			out = append(out, ui.Create{Label: cr.label, URL: l.base + "/-/drawer?tab=connectors&add=1"})
 			continue
@@ -129,107 +128,51 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 	}
 }
 
-// GET /:org/-/new-connector, then POST it: the pending connector, and the
-// form that hands its manifest to GitHub.
+// GET /:org/-/new-connector: a writer's add dialog, on the git kinds (an
+// owner's opens the Connectors tab's, every kind): straight on the one
+// there is, else its picker. A redirect setup comes back to the org page.
 func (h *handler) newConnector(c echo.Context) error {
-	return respond.HTML(
-		c,
-		http.StatusOK,
-		dialog.InstallConnector(dialog.InstallConnectorView{Begin: where(c).base + "/-/new-connector"}),
-	)
-}
-
-func (h *handler) beginConnector(c echo.Context) error {
-	v := dialog.InstallConnectorView{Begin: where(c).base + "/-/new-connector"}
-	_, action, manifest, err := h.orch.BeginConnector(
-		c.Request().Context(),
-		middleware.ScopeOf(c).Org.ID,
-		middleware.Principal(c).User.ID,
-		c.FormValue("github_org"),
-	)
-	if err != nil {
-		msg, ok := refused(err)
-		if !ok {
-			return middleware.HTTPError(err)
-		}
-		v.Error = msg
-		return respond.HTML(c, http.StatusUnprocessableEntity, dialog.InstallConnector(v))
+	p := h.panel()
+	p.Back = nil
+	p.Return = func(c echo.Context) string { return orgSlug(c) }
+	ks := p.KindsWith(service.CapGit)
+	if len(ks) == 1 {
+		return respond.HTML(c, http.StatusOK, p.Open(c, ks[0]))
 	}
-	v.Action, v.Manifest = action, manifest
-	return respond.HTML(c, http.StatusOK, dialog.InstallConnector(v))
+	return respond.HTML(c, http.StatusOK, connectors.Modal("Add a connector", "", connectors.Picker(p.Kinds(c, service.CapGit))))
 }
 
-// GET /settings/github/callback?code=&state=: GitHub made the app. The
-// state's nonce, and the signed-in user matching who began, prove the
-// caller began this install. Making the app is not installing it, so the
-// browser goes straight on to GitHub's install page; the app's setup_url
-// brings it back to githubInstalled. A refused handshake is v0's flash on
-// the home canvas; a real failure is the error page.
-func (h *handler) githubCallback(c echo.Context) error {
+// installedBack is where a provider's return with no state lands (a change
+// made at the provider): the server wizard's git step while the server is
+// unfinished, else Admin's Connectors tab, for a server connection; the
+// setup wizard's connector step while the org is unfinished, else the
+// connector drawer's Repos tab. An org the user is not in goes home.
+func (h *handler) installedBack(c echo.Context, orgID *string, id string) (string, error) {
 	ctx := c.Request().Context()
-	k, err := h.orch.CompleteConnector(ctx, middleware.Principal(c).User.ID, c.QueryParam("state"), c.QueryParam("code"))
-	if err != nil {
-		var he *echo.HTTPError
-		if !errors.As(middleware.HTTPError(err), &he) {
-			return err
-		}
-		hamrmw.SetFlash(c, "GitHub connection failed: "+fmt.Sprint(he.Message), hamrmw.FlashError)
-		return c.Redirect(http.StatusSeeOther, "/")
-	}
-	var install string
-	if k.OrgID == nil {
-		install, err = h.orch.ServerConnectorInstallURL(ctx, k.ID)
-	} else {
-		install, err = h.orch.ConnectorInstallURL(ctx, *k.OrgID, k.ID)
-	}
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	return c.Redirect(http.StatusSeeOther, install)
-}
-
-// GET /settings/github/installed/:connector?setup_action=: GitHub's setup_url,
-// after an install or a change of its repos. Back to where the install shows:
-// the server wizard's GitHub step while the server is unfinished, else the
-// admin drawer's Connectors tab for a server connector, the setup
-// wizard's connector step while the org is unfinished (only the wizard
-// reaches it), else the connector drawer's Repos tab. Each of those checks
-// access itself; an org the user is not in goes home.
-func (h *handler) githubInstalled(c echo.Context) error {
-	ctx := c.Request().Context()
-	id := c.Param("connector")
-	orgID, err := h.orch.ConnectorOrgID(ctx, id)
-	if errors.Is(err, errs.ErrNotFound) {
-		return c.Redirect(http.StatusSeeOther, "/")
-	}
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	hamrmw.SetFlash(c, "GitHub App installed.", hamrmw.FlashSuccess)
 	if orgID == nil {
 		s, err := h.orch.ServerSetupState(ctx)
 		if err != nil {
-			return middleware.HTTPError(err)
+			return "", err
 		}
 		if !s.Done {
-			return c.Redirect(http.StatusSeeOther, "/-/setup/server/ui/github")
+			return "/-/setup/server/ui/" + service.ServerSetupGit, nil
 		}
-		return c.Redirect(http.StatusSeeOther, "/?drawer=admin&tab=connectors")
+		return "/?drawer=admin&tab=connectors", nil
 	}
 	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)
 	if err != nil {
-		return middleware.HTTPError(err)
+		return "", err
 	}
 	for _, o := range orgs {
 		if o.ID != *orgID {
 			continue
 		}
 		if o.SetupDoneAt == nil {
-			return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"/-/setup/connector")
+			return "/" + o.Slug + "/-/setup/connector", nil
 		}
-		return c.Redirect(http.StatusSeeOther, "/"+o.Slug+"?drawer=connector:"+id+"&tab=repos")
+		return "/" + o.Slug + "?drawer=connector:" + id + "&tab=repos", nil
 	}
-	return c.Redirect(http.StatusSeeOther, "/")
+	return "/", nil
 }
 
 // Mount registers the drawers and create dialogs of the home, org and
@@ -255,7 +198,8 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 		site.POST(cr.page+"/-/new-"+cr.kind, h.createLevel(cr.kind), a.Require(cr.verb))
 	}
 	site.GET("/:org/-/new-connector", h.newConnector, a.Require("connector.write"))
-	site.POST("/:org/-/new-connector", h.beginConnector, a.Require("connector.write"))
-	site.GET("/settings/github/callback", h.githubCallback, a.LoginFirst(), a.Authed())
-	site.GET("/settings/github/installed/:connector", h.githubInstalled, a.LoginFirst(), a.Authed())
+	// a provider's returns: the callback paths its apps were registered
+	// with before the core had one, and its later visits (an install)
+	site.GET(service.ConnectorLegacyBack, connpanel.Callback(h.orch), a.LoginFirst(), a.Authed())
+	site.GET(service.ConnectorReturnPath, connpanel.Installed(h.orch, h.installedBack), a.LoginFirst(), a.Authed())
 }

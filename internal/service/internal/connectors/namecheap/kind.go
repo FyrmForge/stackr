@@ -66,6 +66,11 @@ var _ connectors.DNS = (*Account)(nil)
 
 func (a *Account) Name() string { return "Namecheap · " + a.User }
 
+// Values are the setup fields, for an update in place.
+func (a *Account) Values() map[string]string {
+	return map[string]string{"user": a.User, "key": a.Key, "client_ip": a.ClientIP}
+}
+
 // Setup takes user, key and client_ip; every missing one is named at once.
 func (a *Account) Setup(v map[string]string) error {
 	a.User, a.Key, a.ClientIP = strings.TrimSpace(v["user"]), v["key"], strings.TrimSpace(v["client_ip"])

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 )
 
@@ -40,21 +41,23 @@ type NameView struct {
 	Error string
 }
 
-// Repo is one repository the org's GitHub apps can read.
+// Repo is one repository the org's git connectors can read.
 type Repo struct {
 	FullName      string // owner/name
 	DefaultBranch string
 }
 
-// GitHubView is the connector step and the config step: both hang on the
-// org's GitHub apps and what they can read.
-type GitHubView struct {
+// GitView is the connector step and the config step: both hang on the
+// org's git connectors and what they can read. Label names the git kind;
+// Add opens the add dialog into the page's dialog slot.
+type GitView struct {
 	Frame
 	Base       string // /<org>/-/setup
 	Next       string // the step after this one
-	CSRF       string // the native connector form's token
-	Loaded     bool   // false = the frame, its body loads into it
-	Connected  bool   // a GitHub app exists
+	Label      string
+	Add        string
+	Loaded     bool // false = the frame, its body loads into it
+	Connected  bool // a git connector exists
 	InstallURL string
 	Repos      []Repo
 	Connectors []Option
@@ -239,13 +242,13 @@ templ nav(href, label string) {
 	<a href={ templ.SafeURL(href) } class="btn btn-ghost btn-sm w-full mt-3">{ label }</a>
 }
 
-// install is the GitHub install link; an org whose only connector is a
-// shared server App has none, since installing that App is the admin's job.
-templ install(href string) {
+// install is the provider's install link; an org whose only connector is a
+// shared server one has none, since installing that is the admin's job.
+templ install(href, label string) {
 	if href != "" {
-		<a href={ templ.SafeURL(href) } target="_blank" rel="noopener" class="btn btn-primary w-full">Install it on GitHub</a>
+		<a href={ templ.SafeURL(href) } class="btn btn-primary w-full">Install it on { label }</a>
 	} else {
-		<p class="text-sm text-rw-muted">Ask a server admin to install the shared GitHub App on your repositories.</p>
+		<p class="text-sm text-rw-muted">Ask a server admin to install the shared { label } connector on your repositories.</p>
 	}
 }
 
@@ -256,11 +259,11 @@ templ Branch() {
 		<form novalidate hx-post="/setup" class="space-y-3">
 			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Describe it in a config file</span>
-				<span class="block mt-0.5 text-xs text-rw-muted">One file in a GitHub repo declares the whole organization, its name included.</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">One file in a git repo declares the whole organization, its name included.</span>
 			</button>
 			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Fill it in here</span>
-				<span class="block mt-0.5 text-xs text-rw-muted">Name it, connect GitHub and add a domain, step by step.</span>
+				<span class="block mt-0.5 text-xs text-rw-muted">Name it, connect a git host and add a domain, step by step.</span>
 			</button>
 		</form>
 		<div class="mt-6 text-center">
@@ -319,16 +322,16 @@ templ switchTo(base, mode, label string) {
 		<input type="hidden" name="mode" value={ mode }/>
 		<button type="submit" class="btn btn-ghost btn-sm w-full">{ label }</button>
 		if mode == "ui" {
-			<p class="mt-1 text-center text-xs text-rw-faint">No config file: you enter the name, GitHub and domain here, step by step.</p>
+			<p class="mt-1 text-center text-xs text-rw-faint">No config file: you enter the name, git host and domain here, step by step.</p>
 		} else {
-			<p class="mt-1 text-center text-xs text-rw-faint">One file in a GitHub repo declares the whole organization instead.</p>
+			<p class="mt-1 text-center text-xs text-rw-faint">One file in a git repo declares the whole organization instead.</p>
 		}
 	</form>
 }
 
-// Connector is the frame; the body hangs on GitHub's repo list, so it loads
-// into it (?body=1).
-templ Connector(v GitHubView) {
+// Connector is the frame; the body hangs on the provider's repo list, so it
+// loads into it (?body=1).
+templ Connector(v GitView) {
 	@shell(v.Frame) {
 		if v.Loaded {
 			@ConnectorBody(v)
@@ -344,25 +347,17 @@ templ loading(url string) {
 	</div>
 }
 
-// ConnectorBody: a GitHub App manifest has to be posted by the browser to
-// github.com, so the connect form stays a native one.
-templ ConnectorBody(v GitHubView) {
+// ConnectorBody: Connect opens the kind's add dialog; a redirect setup
+// comes back to this step.
+templ ConnectorBody(v GitView) {
 	<div>
 		if !v.Connected {
-			// templint:ignore no-native-form-actions -- the answer is the page that posts the manifest to GitHub; it must replace the document
-			<form novalidate method="post" action={ templ.SafeURL(v.Base + "/connector") } class="space-y-5">
-				<input type="hidden" name="csrf_token" value={ v.CSRF }/>
-				<div>
-					<label class="label" for="setup-gh-org">GitHub organization (optional)</label>
-					<input type="text" id="setup-gh-org" name="gh_org" placeholder="my-github-org" class="input"/>
-					<p class="mt-1.5 text-xs text-rw-faint">Leave empty to use your personal account.</p>
-				</div>
-				<button type="submit" class="btn btn-primary w-full">Connect GitHub</button>
-			</form>
+			<button type="button" class="btn btn-primary w-full" hx-get={ v.Add } hx-target={ "#" + connectors.SlotID }>Connect { v.Label }</button>
+			@connectors.Slot(nil)
 			@nav(v.Next, "Skip for now")
 		} else if len(v.Repos) == 0 {
-			<p class="text-sm text-rw-muted mb-5">The app is created. Now choose the repositories it may access, otherwise stackr cannot read any of them.</p>
-			@install(v.InstallURL)
+			<p class="text-sm text-rw-muted mb-5">The connector is made. Now choose the repositories it may access, otherwise stackr cannot read any of them.</p>
+			@install(v.InstallURL, v.Label)
 			@nav(v.Base+"/connector", "I installed it, check again")
 		} else {
 			<p class="text-sm text-rw-muted mb-3">Connected and installed on { repoCount(len(v.Repos)) }.</p>
@@ -394,36 +389,8 @@ func repoCount(n int) string {
 	return strconv.Itoa(n) + " repositories"
 }
 
-// GitHubRedirect auto-submits the app manifest to GitHub's create-app form
-// (the manifest flow requires a browser form POST, not a redirect).
-templ GitHubRedirect(action, manifest string) {
-	<div class="max-w-md mx-auto pt-24 px-6">
-		<div class="flex items-center gap-2.5 justify-center mb-8">
-			<img src={ c.StaticURL("images/logo-mark.png") } alt="" class="h-10 w-10"/>
-			<span class="text-xl font-semibold text-rw-text">stackr</span>
-		</div>
-		<div class="panel p-8 shadow-rw text-center">
-			<h1 class="text-lg font-semibold text-rw-text mb-1">Taking you to GitHub</h1>
-			<p class="text-sm text-rw-muted mb-6">GitHub creates the app from the manifest we just built. Approve it there and you land back here.</p>
-			<div class="mx-auto h-6 w-6 rounded-full border-2 border-rw-border border-t-rw-accent animate-spin" role="status" aria-label="Redirecting"></div>
-			// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
-			<form novalidate id="github-manifest" method="post" action={ templ.SafeURL(action) }>
-				<input type="hidden" name="manifest" value={ manifest }/>
-				// The page submits itself; the button is only for browsers
-				// with scripts off.
-				<noscript>
-					<button type="submit" class="btn btn-primary w-full mt-6">Continue to GitHub</button>
-				</noscript>
-			</form>
-		</div>
-	</div>
-	<script>
-		document.getElementById("github-manifest").submit();
-	</script>
-}
-
 // Config is the config step's frame; its body loads as the connector's.
-templ Config(v GitHubView) {
+templ Config(v GitView) {
 	@shell(v.Frame) {
 		if v.Loaded {
 			@ConfigBody(v)
@@ -433,15 +400,15 @@ templ Config(v GitHubView) {
 	}
 }
 
-templ ConfigBody(v GitHubView) {
+templ ConfigBody(v GitView) {
 	<div>
 		if !v.Connected {
-			<p class="text-sm text-rw-muted mb-5">This needs a GitHub connector, and this organization has none yet.</p>
-			<a href={ templ.SafeURL(v.Base + "/connector") } class="btn btn-primary w-full">Connect GitHub</a>
+			<p class="text-sm text-rw-muted mb-5">This needs a { v.Label } connector, and this organization has none yet.</p>
+			<a href={ templ.SafeURL(v.Base + "/connector") } class="btn btn-primary w-full">Connect { v.Label }</a>
 			@switchTo(v.Base, "ui", "Fill it in here instead")
 		} else if len(v.Repos) == 0 {
-			<p class="text-sm text-rw-muted mb-5">The GitHub app for this organization is not installed on any repository yet, so there is nothing for it to read. Install it, then come back.</p>
-			@install(v.InstallURL)
+			<p class="text-sm text-rw-muted mb-5">The { v.Label } connector of this organization is not installed on any repository yet, so there is nothing for it to read. Install it, then come back.</p>
+			@install(v.InstallURL, v.Label)
 			@nav(v.Base+"/config", "I installed it, check again")
 			@switchTo(v.Base, "ui", "Fill it in here instead")
 		} else {
@@ -468,7 +435,7 @@ templ ConfigBody(v GitHubView) {
 // list nothing yet, and a plan that says "repo not found" beats refusing
 // it. The branch list and the repo's YAML files come from
 // data-picker-base/<connector>, so the path field filters like the repo one.
-templ repoPicker(v GitHubView) {
+templ repoPicker(v GitView) {
 	<div data-repo-picker data-picker-base={ v.Base + "/config/connector" } class="space-y-5">
 		<div>
 			<label class="label" for="setup-repo">Repository (owner/name)</label>

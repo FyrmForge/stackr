@@ -425,8 +425,8 @@ func TestFileBlockers(t *testing.T) {
 }
 
 func TestPushHelpers(t *testing.T) {
-	for _, s := range []string{"https://github.com/Acme/Shop.git", "git@github.com:acme/shop.git", "acme/shop/"} {
-		if got := NormalizeRepo(s); got != "acme/shop" {
+	for _, s := range []string{"https://github.com/Acme/Shop.git", "git@github.com:acme/shop.git", "github.com/acme/shop/"} {
+		if got := NormalizeRepo(s); got != "github.com/acme/shop" {
 			t.Errorf("NormalizeRepo(%q) = %q", s, got)
 		}
 	}

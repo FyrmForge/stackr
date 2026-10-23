@@ -27,7 +27,7 @@ type Repo struct {
 	Branch string // "" = the remote's default
 
 	// Auth returns extra environment lines (GIT_CONFIG_COUNT/KEY/VALUE…) that
-	// authenticate the fetch, e.g. githubapp.CloneAuth. Environment, never
+	// authenticate the fetch, a connection's clone access. Environment, never
 	// argv or the URL: argv is world-readable in /proc and the URL is echoed
 	// into the job log.
 	Auth func(ctx context.Context) []string

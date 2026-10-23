@@ -240,23 +240,24 @@ func (e *Env) Image(t *testing.T, ref string) string {
 	return id
 }
 
-// Connector seeds a connected GitHub connector whose webhook secret is
+// Connector seeds a connected git connector whose webhook secret is
 // secret and returns its id.
 func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 	t.Helper()
 	id := uuid.NewString()
 	cfg, err := json.Marshal(map[string]any{
-		"app": map[string]any{"id": 1, "slug": "stackr-test", "webhook_secret": secret},
+		"id": 1, "slug": "stackr-test", "webhook_secret": secret,
 	})
 	must(t, err)
 	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
-		ID:        id,
-		OrgID:     &orgID,
-		Kind:      "github",
-		Name:      "github",
-		Host:      "github.com",
-		Settings:  string(cfg),
-		CreatedAt: now,
+		ID:           id,
+		OrgID:        &orgID,
+		Kind:         "github",
+		Capabilities: store.StringList{"git"},
+		Name:         "github",
+		Host:         "github.com",
+		Settings:     string(cfg),
+		CreatedAt:    now,
 	}))
 	return id
 }
@@ -267,16 +268,17 @@ func (e *Env) ServerConnector(t *testing.T, name, secret string) string {
 	t.Helper()
 	id := uuid.NewString()
 	cfg, err := json.Marshal(map[string]any{
-		"app": map[string]any{"id": 2, "slug": "stackr-" + name, "webhook_secret": secret},
+		"id": 2, "slug": "stackr-" + name, "webhook_secret": secret,
 	})
 	must(t, err)
 	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
-		ID:        id,
-		Kind:      "github",
-		Name:      name,
-		Host:      "github.com",
-		Settings:  string(cfg),
-		CreatedAt: now,
+		ID:           id,
+		Kind:         "github",
+		Capabilities: store.StringList{"git"},
+		Name:         name,
+		Host:         "github.com",
+		Settings:     string(cfg),
+		CreatedAt:    now,
 	}))
 	return id
 }

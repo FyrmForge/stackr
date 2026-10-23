@@ -30,11 +30,16 @@ type ListView struct {
 }
 
 // Row is one connector. Settings opens its dialog into the Slot; Drawer
-// instead opens a drawer (an org's GitHub connector has its own).
+// instead opens a drawer (an org's git connector has its own). Status is
+// its last check gone wrong ("" = fine); Detail a line under it (where
+// the provider delivers events), Link a page at the provider.
 type Row struct {
 	ID, Kind, Name, Summary string
 	Check                   string // POST answering an install-status chip as the row loads
 	Pending                 bool
+	Status                  string
+	Detail                  string
+	Link, LinkLabel         string
 	Settings                string
 	Drawer, Push            string // GET into #drawer-body, and the URL it pushes
 }
@@ -104,6 +109,9 @@ templ row(r Row) {
 		if r.Summary != "" {
 			<span class="text-xs text-rw-faint">{ r.Summary }</span>
 		}
+		if r.Status != "" {
+			@c.Chip("not working", "danger")
+		}
 		<span class="ml-auto">
 			if r.Settings != "" {
 				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Settings } hx-target={ "#" + SlotID } aria-label={ "Settings for " + r.Name } title="Settings">
@@ -115,6 +123,16 @@ templ row(r Row) {
 				</button>
 			}
 		</span>
+		if r.Detail != "" || r.Link != "" {
+			<span class="basis-full space-y-0.5">
+				if r.Detail != "" {
+					<span class="block font-mono text-xs text-rw-faint break-all">{ r.Detail }</span>
+				}
+				if r.Link != "" {
+					<a href={ templ.SafeURL(r.Link) } target="_blank" rel="noopener noreferrer" class="text-xs text-rw-accent hover:underline">{ r.LinkLabel }</a>
+				}
+			</span>
+		}
 	</li>
 }
 
@@ -129,7 +147,7 @@ templ cogIcon() {
 // set, is fetched as it closes, its list swapped over the one behind.
 templ Modal(title, refresh string, body templ.Component) {
 	<confirm-dialog open>
-		<dialog id={ dialogID } class="modal-panel text-rw-text" aria-labelledby={ dialogID + "-title" }>
+		<dialog id={ dialogID } class="modal-panel modal-tall text-rw-text" aria-labelledby={ dialogID + "-title" }>
 			<div class="modal-head">
 				<div class="min-w-0">
 					<h2 id={ dialogID + "-title" } class="modal-title">{ title }</h2>
@@ -204,53 +222,3 @@ templ back(url string) {
 	}
 }
 
-// GitHubView is GitHub's screens: the GitHub org, then (Action set) the
-// form that posts the app manifest to GitHub, which calls stackr back.
-type GitHubView struct {
-	Back     string // GET the picker; "" = none
-	Again    string // GET this kind's first screen
-	Begin    string // POST github_org
-	Org      string
-	Error    string
-	Action   string
-	Manifest string
-	Help     string // who the app is for
-}
-
-var githubSteps = []string{"GitHub org", "Create on GitHub"}
-
-templ GitHub(v GitHubView) {
-	<div id={ BodyID }>
-		if v.Action == "" {
-			<form hx-post={ v.Begin } hx-target={ "#" + BodyID } hx-swap="outerHTML" novalidate>
-				<div class="modal-body">
-					@steps(githubSteps, 1)
-					@c.FormError(v.Error)
-					if v.Help != "" {
-						<p>{ v.Help }</p>
-					}
-					@c.Field(c.FieldView{Name: "github_org", Label: "GitHub org", Value: v.Org, Help: "Leave empty for your personal account."})
-				</div>
-				<div class="modal-foot">
-					if v.Back != "" {
-						@back(v.Back)
-					}
-					<button type="submit" class="btn btn-primary btn-sm">Next</button>
-				</div>
-			</form>
-		} else {
-			// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
-			<form method="post" action={ templ.SafeURL(v.Action) }>
-				<input type="hidden" name="manifest" value={ v.Manifest }/>
-				<div class="modal-body">
-					@steps(githubSteps, 2)
-					<p>GitHub creates the app, then sends you back here.</p>
-				</div>
-				<div class="modal-foot">
-					@back(v.Again)
-					<button type="submit" class="btn btn-primary btn-sm">Continue on GitHub</button>
-				</div>
-			</form>
-		}
-	</div>
-}

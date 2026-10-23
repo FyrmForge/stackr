@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/netip"
 	"slices"
-	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
@@ -72,7 +71,7 @@ func natIPv4(m ClusterMap, id string) string {
 
 // DNSConnectors is orgID's DNS connectors (nil = the server's).
 func (o *Orchestrator) DNSConnectors(ctx context.Context, orgID *string) ([]Connector, error) {
-	return o.conns.ListOf(ctx, orgID, CapDNS)
+	return o.conns.ListOf(ctx, orgID, CapDNS, false)
 }
 
 // DNSManaged is how many domains each of orgID's DNS connectors manages
@@ -113,7 +112,9 @@ func (o *Orchestrator) DNSDomains(ctx context.Context, orgID *string, id string)
 	if err != nil {
 		return nil, err
 	}
-	return o.dns.Domains(ctx, c.ID, p)
+	ds, err := o.dns.Domains(ctx, c.ID, p)
+	o.failed(ctx, c.ID, err)
+	return ds, err
 }
 
 // ManageDNSDomain makes stackr manage domain, or sets who may use a managed
@@ -225,7 +226,7 @@ func (o *Orchestrator) forgetAll(ctx context.Context, c store.Connector) error {
 	if err != nil {
 		return err
 	}
-	var users []string
+	var users []Usage
 	for _, d := range ds {
 		u, err := o.domainUsers(ctx, d.Name)
 		if err != nil {
@@ -234,7 +235,7 @@ func (o *Orchestrator) forgetAll(ctx context.Context, c store.Connector) error {
 		users = append(users, u...)
 	}
 	if len(users) > 0 {
-		return errs.Conflictf("The connector's domains are in use by %s. Remove those domains first", strings.Join(users, ", "))
+		return &InUse{Msg: "The connector's domains are in use by", Tail: ". Remove those domains first", Usages: users}
 	}
 	for _, d := range ds {
 		if err := o.forgetDomain(ctx, c, p, d.Name); err != nil {

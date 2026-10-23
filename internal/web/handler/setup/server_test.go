@@ -208,7 +208,7 @@ func refused(t *testing.T, rec *httptest.ResponseRecorder, want ...string) {
 func TestServerWizardSteps(t *testing.T) {
 	s := newSrvSite(t)
 	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
-	steps := []string{"domains", "certificates", "github", "observability", "backups", "nodes", "summary"}
+	steps := []string{"domains", "certificates", "git", "observability", "backups", "nodes", "summary"}
 	check := func() {
 		t.Helper()
 		for i, step := range steps {
@@ -225,7 +225,7 @@ func TestServerWizardSteps(t *testing.T) {
 			if step != "domains" && i+1 < len(steps) && !strings.Contains(body, `href="`+setup.ServerBase+"/ui/"+steps[i+1]+`"`) {
 				t.Errorf("%s has no way on to %s", step, steps[i+1])
 			}
-			if (step == "certificates" || step == "github" || step == "observability" || step == "backups") && !skip {
+			if (step == "certificates" || step == "git" || step == "observability" || step == "backups") && !skip {
 				t.Errorf("%s offers no Skip", step)
 			}
 		}
@@ -338,16 +338,21 @@ func TestServerWizardBackups(t *testing.T) {
 	}
 }
 
-// An existing App needs a key that parses; saved, it is a server connector
-// shared with every org and the page shows its webhook URL. Creating one
-// starts GitHub's manifest flow, shared from the start.
+// An existing App needs a key that parses, and a refusal never shows a
+// secret back; saved, it is a server connector shared with every org and
+// the step shows its webhook URL and install page. Creating one starts
+// GitHub's manifest flow, shared from the start.
 func TestServerWizardGitHub(t *testing.T) {
 	s := newSrvSite(t)
 	ctx := context.Background()
 	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
-	form := url.Values{"app_id": {"42"}, "slug": {"my-app"}, "webhook_secret": {"whsec"}, "private_key": {"not a key"}}
-	rec := s.do(adm, "POST", setup.ServerBase+"/github/app", form, true)
-	refused(t, rec, `value="my-app"`, `value="whsec"`, ">not a key</textarea>", `id="error-private_key"`)
+	add := setup.ServerBase + "/git/new/github"
+	form := url.Values{"alt": {"1"}, "app_id": {"42"}, "slug": {"my-app"}, "webhook_secret": {"whsec"}, "private_key": {"not a key"}}
+	rec := s.do(adm, "POST", add, form, true)
+	if b := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(b, `value="my-app"`) ||
+		!strings.Contains(b, `id="error-private_key"`) || strings.Contains(b, "whsec") || strings.Contains(b, "not a key") {
+		t.Errorf("refused save = %d\n%s", rec.Code, b)
+	}
 	if cs, _ := s.env.Orch.ServerConnectors(ctx); len(cs) != 0 {
 		t.Fatalf("a bad key was saved: %+v", cs)
 	}
@@ -356,23 +361,25 @@ func TestServerWizardGitHub(t *testing.T) {
 		t.Fatal(err)
 	}
 	form.Set("private_key", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})))
-	s.do(adm, "POST", setup.ServerBase+"/github/app", form, true)
+	if rec := s.do(adm, "POST", add, form, true); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "PRIVATE KEY-----") {
+		t.Fatalf("save = %d\n%s", rec.Code, rec.Body)
+	}
 	cs, _ := s.env.Orch.ServerConnectors(ctx)
 	if len(cs) != 1 || !cs[0].ShareAll || cs[0].Name != "GitHub · my-app" {
 		t.Fatalf("connectors = %+v, want one shared with all", cs)
 	}
-	body := s.do(adm, "GET", setup.ServerBase+"/ui/github", nil, false).Body.String()
-	for _, w := range []string{"/hooks/connectors/" + cs[0].ID, "github.com/apps/my-app/installations/new"} {
+	body := s.do(adm, "GET", setup.ServerBase+"/ui/git", nil, false).Body.String()
+	for _, w := range []string{"/hooks/connectors/" + cs[0].ID, "github.com/apps/my-app/installations/new?state="} {
 		if !strings.Contains(body, w) {
-			t.Errorf("github step lacks %s", w)
+			t.Errorf("git step lacks %s", w)
 		}
 	}
 	if strings.Contains(body, "PRIVATE KEY-----\n") || strings.Contains(body, "whsec") {
 		t.Error("the step shows a secret back")
 	}
 
-	rec = s.do(adm, "POST", setup.ServerBase+"/github", url.Values{}, false)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="github-manifest"`) {
+	rec = s.do(adm, "POST", add, url.Values{"owner": {""}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="connector-out"`) {
 		t.Fatalf("begin = %d\n%s", rec.Code, rec.Body)
 	}
 	cs, _ = s.env.Orch.ServerConnectors(ctx)
@@ -387,8 +394,8 @@ func TestServerWizardPendingApp(t *testing.T) {
 	s := newSrvSite(t)
 	ctx := context.Background()
 	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
-	s.do(adm, "POST", setup.ServerBase+"/github", url.Values{}, false)
-	body := s.do(adm, "GET", setup.ServerBase+"/ui/github", nil, false).Body.String()
+	s.do(adm, "POST", setup.ServerBase+"/git/new/github", url.Values{"owner": {""}}, true)
+	body := s.do(adm, "GET", setup.ServerBase+"/ui/git", nil, false).Body.String()
 	if !strings.Contains(body, ">Skip</a>") || strings.Contains(body, ">Continue</a>") {
 		t.Errorf("a pending App turned Skip into Continue:\n%s", body)
 	}
@@ -463,7 +470,7 @@ func TestServerWizardCertificates(t *testing.T) {
 		t.Errorf("settings:\n%s", body)
 	}
 	rec = s.do(adm, "POST", base+"/manage", url.Values{"domain": {"acme.dev"}}, true)
-	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Available to every organization.") || strings.Contains(b, "<fieldset") {
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, `name="scope" value="all" checked`) || !strings.Contains(b, "No organizations yet.") {
 		t.Fatalf("manage = %d\n%s", rec.Code, b)
 	}
 	if strings.Contains(s.do(adm, "GET", step, nil, false).Body.String(), "No domains managed yet.") {

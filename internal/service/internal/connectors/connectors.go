@@ -11,6 +11,8 @@ package connectors
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"net/url"
 
 	"github.com/libdns/libdns"
@@ -21,6 +23,19 @@ const (
 	CapDNS = "dns"
 	CapGit = "git"
 )
+
+// The panel routes the core owns. A provider reaches a connection on them.
+const (
+	// CallbackPath is the one route a redirect setup comes back to.
+	CallbackPath = "/-/connectors/callback"
+	// HookPath + a connection's id is where its provider delivers events.
+	HookPath = "/hooks/connectors/"
+)
+
+// ReturnPath is where a provider sends the browser back to connection id
+// of kind after a step on its own site (an install), with the state it
+// was given.
+func ReturnPath(kind, id string) string { return "/settings/" + kind + "/installed/" + id }
 
 // Kind is one connector kind.
 type Kind interface {
@@ -63,6 +78,8 @@ type Field struct {
 	// Prefill is a fact the core fills in: the form starts with it and an
 	// empty value on add takes it. "" = none.
 	Prefill string `json:"prefill,omitempty"`
+	// Multiline: a text area (a pasted key).
+	Multiline bool `json:"multiline,omitempty"`
 }
 
 // Prefills a Field may ask for.
@@ -72,6 +89,18 @@ const (
 	ServerIPv4 = "server_ipv4"
 )
 
+// Alter is a kind with a second way to set up, a plain form (GitHub: an
+// App made outside stackr). Its values go to the same Setup.
+type Alter interface {
+	Alt() Alt
+}
+
+// Alt is that second way: the link to it and its steps.
+type Alt struct {
+	Label string `json:"label"`
+	Steps []Step `json:"steps"`
+}
+
 // Redirector is a connection whose setup leaves for the provider and comes
 // back through the core callback route.
 type Redirector interface {
@@ -80,6 +109,27 @@ type Redirector interface {
 	Out(ctx context.Context, id, back, state string) (Out, error)
 	// Back completes the connection from the callback's query.
 	Back(ctx context.Context, q url.Values) error
+}
+
+// Settled is a redirect kind's connection that its Setup completed
+// outright (the Alt form): it is saved without going out.
+type Settled interface {
+	Settled() bool
+}
+
+// Valuer is a connection that says its setup fields' values (secrets too,
+// which the core never shows), so its credentials can be updated in
+// place: a secret left empty keeps the stored one. A Redirector updates
+// through its Alt form.
+type Valuer interface {
+	Values() map[string]string
+}
+
+// Installer is a connection installed on the provider's side once saved.
+// Install is the page that installs or manages it; state comes back with
+// the browser to ReturnPath.
+type Installer interface {
+	Install(state string) string
 }
 
 // Out sends the browser to URL: a GET, or with Method POST a form posting
@@ -110,25 +160,68 @@ type DNS interface {
 	TakeOver(ctx context.Context, zone string) error
 }
 
-// GitSource is the Git source capability: a git host account. Declared for
-// phase 2, when GitHub moves onto it; nothing implements it yet.
+// GitSource is the Git source capability: a git host account.
 type GitSource interface {
-	// Repos is the repositories the account may read (the picker).
-	Repos(ctx context.Context) ([]Repo, error)
-	// RepoURL normalises a URL this account serves; false when it is not one.
+	// Host is the host its repositories are on; a repository URL on it
+	// is this account's to clone.
+	Host() string
+	// RepoURL is raw in the one stored spelling of a repository this
+	// account serves (a short form or a URL); false when it is not one.
 	RepoURL(raw string) (string, bool)
-	// CloneEnv is the environment a fetch of repoURL authenticates with.
+	// Repos is the repositories the account may read (the picker); none,
+	// no error, while it is installed nowhere.
+	Repos(ctx context.Context) ([]Repo, error)
+	// Branches and YAMLFiles are a repository's, for the config picker.
+	Branches(ctx context.Context, repo string) ([]string, error)
+	YAMLFiles(ctx context.Context, repo, ref string) ([]string, error)
+	// CloneEnv is the environment a fetch of repoURL authenticates with:
+	// environment, never argv, so a token never lands in a process list.
 	CloneEnv(ctx context.Context, repoURL string) ([]string, error)
-	// Push decodes a provider webhook into the push it reports; nil for
-	// another event.
-	Push(ctx context.Context, header map[string][]string, body []byte) (*Push, error)
+	// Hook checks and decodes an event delivered to HookPath:
+	// ErrBadSignature when it does not prove it is the provider's,
+	// ErrBadPayload when it is not what it says. One nobody acts on is
+	// the zero Event.
+	Hook(ctx context.Context, header http.Header, body []byte) (Event, error)
+	// SetHook points the provider's deliveries at url.
+	SetHook(ctx context.Context, url string) error
 }
 
-// Repo is a repository on a git account.
-type Repo struct{ Name, URL, DefaultBranch string }
+// Hook's refusals: 401 and 400.
+var (
+	ErrBadSignature = errors.New("bad signature")
+	ErrBadPayload   = errors.New("bad payload")
+)
 
-// Push is "repo X, branch Y, commit Z".
-type Push struct{ Repo, Branch, Commit string }
+// Repo is a repository on a git account: FullName is owner/name, URL its
+// stored spelling.
+type Repo struct {
+	FullName      string `json:"full_name"`
+	URL           string `json:"url"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch"`
+}
+
+// Event is what a delivery reports: at most one of Push and PR.
+type Event struct {
+	Push *Push
+	PR   *PullRequest
+}
+
+// Push is "repo X, branch Y, commit Z". Changed is every path it touched;
+// nil when the provider did not say, which means anything may have changed.
+type Push struct {
+	Repo, Branch, Commit, Message, DefaultBranch string
+	Changed                                      []string
+}
+
+// PullRequest is one opened, reopened, synchronize(d) or closed: Head at
+// SHA onto Base. Fork: the head lives in another repository.
+type PullRequest struct {
+	Repo, Action    string
+	Number          int
+	Head, SHA, Base string
+	Fork            bool
+}
 
 // Caps is the capabilities k offers: the ones its connection implements.
 func Caps(k Kind) []string {

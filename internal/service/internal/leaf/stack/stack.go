@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -89,7 +88,7 @@ func (l *Leaf) SetConfigRepo(
 	connectorID, repo, branch, path string,
 ) (store.Stack, error) {
 	s.ConfigConnectorID = connectorID
-	s.ConfigRepo = githubapp.RepoURL(repo)
+	s.ConfigRepo = strings.TrimSpace(repo)
 	s.ConfigBranch = branch
 	s.ConfigPath = path
 	if s.ConfigRepo == "" {

@@ -1,0 +1,335 @@
+package connectors
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// InstallStatus is what the provider answered for a git row: the repos it
+// may read, none (not installed, or installed on nothing), or no answer.
+templ InstallStatus(repos int, failed bool) {
+	switch {
+		case failed:
+			@c.Chip("did not answer", "danger")
+		case repos == 0:
+			@c.Chip("not installed", "warn")
+		case repos == 1:
+			@c.Chip("installed · 1 repo", "success")
+		default:
+			@c.Chip("installed · "+strconv.Itoa(repos)+" repos", "success")
+	}
+}
+
+// SettingsView is a connection's settings dialog: a tab per section (the
+// core's Connection and Used by, each capability's own), the open tab's
+// body, and Remove (Delete.Action "" = none). The body scrolls between the
+// fixed head and foot.
+type SettingsView struct {
+	Tabs   []TabLink
+	Body   templ.Component
+	Delete c.ConfirmView
+}
+
+// TabLink is one tab: URL answers the dialog's body on it.
+type TabLink struct {
+	Label, URL string
+	On         bool
+}
+
+templ Settings(v SettingsView) {
+	<div id={ BodyID } class="flex min-h-0 flex-1 flex-col">
+		if len(v.Tabs) > 1 {
+			<tab-strip class="relative block border-b border-rw-border">
+				<nav class="flex gap-1 overflow-x-auto px-5" role="tablist" data-row>
+					for _, t := range v.Tabs {
+						<button
+							type="button"
+							role="tab"
+							aria-selected={ boolStr(t.On) }
+							if t.On {
+								aria-current="page"
+							}
+							class={ "shrink-0 border-b-2 px-2 py-2 text-xs", templ.KV("border-rw-accent text-rw-text font-medium", t.On), templ.KV("border-transparent text-rw-faint hover:text-rw-text", !t.On) }
+							hx-get={ t.URL }
+							hx-target={ "#" + BodyID }
+							hx-swap="outerHTML"
+						>{ t.Label }</button>
+					}
+				</nav>
+			</tab-strip>
+		}
+		<div class="modal-body min-h-0 flex-1 overflow-y-auto" role="tabpanel">
+			@v.Body
+		</div>
+		<div class="modal-foot">
+			if v.Delete.Action != "" {
+				<span class="mr-auto">
+					@c.Confirm(v.Delete)
+				</span>
+			}
+			<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
+		</div>
+	</div>
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+// ConnectionView is the core's Connection tab: the account, its last
+// check, Check now, Rename and the credentials form (Fields nil = the
+// kind's credentials are not updated here). A secret field is never
+// filled; left empty it keeps the stored one.
+type ConnectionView struct {
+	ID, Name, Kind  string
+	Status, Tone    string // the check's line and its chip tone
+	Pending         string // "" = connected; else what it waits for
+	Check, Rename   string // POST URLs; "" = none
+	Update          string
+	Fields          []Field
+	Error, Note     string
+}
+
+func connID(id string) string { return "connector-conn-" + id }
+
+templ Connection(v ConnectionView) {
+	<div id={ connID(v.ID) } class="space-y-4">
+		if v.Error != "" {
+			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+		}
+		if v.Note != "" {
+			<p class="text-sm text-rw-success" role="status">{ v.Note }</p>
+		}
+		<div class="space-y-1">
+			<p class="label">Account</p>
+			<p class="text-rw-text">{ v.Name } <span class="text-xs text-rw-faint">{ v.Kind }</span></p>
+			if v.Pending != "" {
+				<p class="text-xs text-rw-warn">{ v.Pending }</p>
+			} else {
+				<p class="flex flex-wrap items-center gap-2">
+					@c.Chip(v.Status, v.Tone)
+					if v.Check != "" {
+						<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Check } hx-target={ "#" + connID(v.ID) } hx-swap="outerHTML">Check now</button>
+					}
+				</p>
+			}
+		</div>
+		if v.Rename != "" {
+			<form hx-post={ v.Rename } hx-target={ "#" + connID(v.ID) } hx-swap="outerHTML" class="flex items-end gap-2" novalidate>
+				<div class="flex-1">
+					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true})
+				</div>
+				<button type="submit" class="btn btn-ghost btn-sm mb-0.5">Rename</button>
+			</form>
+		}
+		if len(v.Fields) > 0 && v.Update != "" {
+			<details class="border-t border-rw-border pt-3">
+				<summary class="cursor-pointer text-xs text-rw-muted">Update credentials</summary>
+				<form hx-post={ v.Update } hx-target={ "#" + connID(v.ID) } hx-swap="outerHTML" class="mt-3 space-y-3" novalidate>
+					for _, f := range v.Fields {
+						@field(f)
+					}
+					<p class="text-xs text-rw-faint">A secret left empty keeps the one stored. stackr checks the new ones first.</p>
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</form>
+			</details>
+		}
+	</div>
+}
+
+// ShareView is who may use something of the server's: all organizations,
+// or only the ticked ones, which show only then. It saves on change:
+// Action gets scope=all|only, org=<id>... and Hidden. While All, every box
+// starts ticked, so a switch to Only these takes nobody away until one is
+// unticked.
+type ShareView struct {
+	ID     string // unique on the page
+	Action string
+	Target string
+	Hidden map[string]string
+	All    bool
+	Orgs   []ShareOrg
+}
+
+// ShareOrg is an org and whether it is ticked.
+type ShareOrg struct {
+	ID, Name string
+	On       bool
+}
+
+templ Share(v ShareView) {
+	<form class="share-form space-y-1" hx-post={ v.Action } hx-trigger="change" hx-target={ v.Target } hx-swap="outerHTML">
+		for k, val := range v.Hidden {
+			<input type="hidden" name={ k } value={ val }/>
+		}
+		<fieldset class="space-y-1">
+			<legend class="label">Available to</legend>
+			<label class="flex items-center gap-2 text-rw-text"><input type="radio" name="scope" value="all" checked?={ v.All } class="accent-rw-accent"/> All organizations</label>
+			<label class="flex items-center gap-2 text-rw-text"><input type="radio" name="scope" value="only" checked?={ !v.All } class="accent-rw-accent"/> Only these</label>
+			<div class="share-orgs space-y-1 pl-6">
+				for _, o := range v.Orgs {
+					<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ v.All || o.On } class="accent-rw-accent"/> { o.Name }</label>
+				}
+				if len(v.Orgs) == 0 {
+					<p class="text-xs text-rw-faint">No organizations yet.</p>
+				}
+			</div>
+		</fieldset>
+	</form>
+}
+
+// GitView is the Git source capability's tab: where the provider must
+// deliver events, its install page, who may use a server one, and the
+// repositories it may read (Repos answers them as the tab opens).
+type GitView struct {
+	ID, Label        string
+	HookURL, Install string
+	Share            *ShareView
+	Repos            string
+	Error, Note      string
+}
+
+func gitID(id string) string { return "connector-git-" + id }
+
+templ Git(v GitView) {
+	<div id={ gitID(v.ID) } class="space-y-4">
+		if v.Error != "" {
+			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+		}
+		if v.Note != "" {
+			<p class="text-sm text-rw-success" role="status">{ v.Note }</p>
+		}
+		if v.HookURL != "" {
+			<div>
+				<p class="label">Webhook URL</p>
+				<p class="font-mono text-xs text-rw-muted break-all">{ v.HookURL }</p>
+			</div>
+		}
+		if v.Install != "" {
+			<a href={ templ.SafeURL(v.Install) } target="_blank" rel="noopener noreferrer" class="text-xs text-rw-accent hover:underline">Manage on { v.Label }</a>
+		}
+		if v.Share != nil {
+			@Share(*v.Share)
+		}
+		if v.Repos != "" {
+			<div>
+				<p class="label">Repositories</p>
+				<div hx-post={ v.Repos } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Asking { v.Label }…</div>
+			</div>
+		}
+	</div>
+}
+
+// Repos is the repositories a git connection may read, or why not.
+templ Repos(names []string, failed string) {
+	if failed != "" {
+		<p class="text-sm text-rw-danger" role="alert">{ failed }</p>
+	} else if len(names) == 0 {
+		<p class="text-xs text-rw-faint">None yet: install it on the repositories stackr may read.</p>
+	} else {
+		<ul class="modal-list">
+			for _, n := range names {
+				<li class="modal-list-row font-mono">{ n }</li>
+			}
+		</ul>
+	}
+}
+
+// UsageRow is one place a connection is used: Path (org / stack / env /
+// tile) linked to its drawer.
+type UsageRow struct {
+	Path, What, Href string
+}
+
+templ usage(u UsageRow) {
+	if u.Href != "" {
+		<a href={ templ.SafeURL(u.Href) } class="link">{ u.Path }</a>
+	} else {
+		<span>{ u.Path }</span>
+	}
+}
+
+// Used is the core's Used by tab.
+templ Used(rows []UsageRow) {
+	if len(rows) == 0 {
+		<p class="text-sm text-rw-faint">Nothing uses this connector.</p>
+	} else {
+		<ul class="divide-y divide-rw-border">
+			for _, u := range rows {
+				<li class="py-2 space-y-0.5">
+					<p class="text-xs">
+						@usage(u)
+					</p>
+					<p class="text-xs text-rw-faint">{ u.What }</p>
+				</li>
+			}
+		</ul>
+	}
+}
+
+// InUse is a refusal that lists where something is used.
+templ InUse(msg string, rows []UsageRow) {
+	<div class="text-sm text-rw-danger space-y-1" role="alert">
+		<p>{ msg }</p>
+		<ul class="list-disc pl-5">
+			for _, u := range rows {
+				<li>
+					@usage(u)
+					<span class="text-xs">{ u.What }</span>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+// RecordGroup is a managed domain's records stackr made.
+type RecordGroup struct {
+	Domain string
+	Rows   []RecordRow
+}
+
+// RecordRow is one record: the tile domain it serves, its tile (Usage,
+// Path "" = no tile wants it now) and the ingress node it points at.
+type RecordRow struct {
+	Name, Type, Value, Host, Node string
+	Usage                         UsageRow
+}
+
+// Records is the DNS capability's Records tab: stackr's own records only.
+templ Records(groups []RecordGroup) {
+	if len(groups) == 0 {
+		<p class="text-sm text-rw-faint">stackr has made no records here yet. A tile domain in a managed domain gets one.</p>
+	} else {
+		for _, g := range groups {
+			<section class="space-y-1">
+				<h3 class="font-mono text-xs text-rw-text">{ g.Domain }</h3>
+				<ul class="divide-y divide-rw-border border-y border-rw-border">
+					for _, r := range g.Rows {
+						<li class="py-2 text-xs space-y-0.5">
+							<p class="flex flex-wrap gap-x-2">
+								<span class="font-mono text-rw-text">{ r.Name }</span>
+								<span>{ r.Type }</span>
+								<span class="font-mono">{ r.Value }</span>
+								if r.Node != "" {
+									<span class="text-rw-faint">on { r.Node }</span>
+								}
+							</p>
+							if r.Usage.Path != "" {
+								<p class="text-rw-faint">
+									{ r.Host } ·
+									@usage(r.Usage)
+								</p>
+							} else {
+								<p class="text-rw-faint">No tile domain wants it now; the next sync deletes it.</p>
+							}
+						</li>
+					}
+				</ul>
+			</section>
+		}
+	}
+}

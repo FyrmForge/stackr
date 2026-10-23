@@ -38,7 +38,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/schedule"
 	ftraffic "github.com/FyrmForge/stackr/internal/service/internal/flow/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
@@ -107,7 +106,7 @@ type Config struct {
 	CookieDomain string
 
 	Version       string // the running build: a release tag, or "dev"
-	BaseURL       string // the panel's public URL (GitHub App callbacks)
+	BaseURL       string // the panel's public URL (provider callbacks)
 	InstallID     string // names the panel archives
 	Passphrase    string // age passphrase on the panel archive; "" = the secrets key
 	TLSOff        bool   // STACKR_TLS=off: plain HTTP only
@@ -193,14 +192,14 @@ func WithKinds(ks ...connectors.Kind) Option {
 type BuildFunc func(ctx context.Context, st Stack, t Tile, commit string, log io.Writer) (string, error)
 
 // WithBuild replaces the clone-and-build of git tiles, so a push lands a
-// release without GitHub or a daemon.
+// release without a provider or a daemon.
 func WithBuild(f BuildFunc) Option {
 	return func(o *options) { o.build = f }
 }
 
-// WithGit clones with env instead of a connector's token: no connector
-// lookup, no GitHub. Tests point https://github.com/ at local bare repos
-// with it (servicetest.Git).
+// WithGit clones with env instead of a connection's clone access: no
+// connector lookup. Tests point a host at local bare repos with it
+// (servicetest.Git).
 func WithGit(env ...string) Option {
 	return func(o *options) { o.gitEnv = env }
 }
@@ -256,8 +255,6 @@ type Orchestrator struct {
 	dns         *dnscap.Leaf
 	kinds       []connectors.Kind // registered connector kinds (connectors/all)
 	dnsOpen     func(kind string, c DNSCreds) (DNSProvider, error)
-	setupMu     sync.Mutex
-	setups      map[string]*pendingSetup // redirect setups out at their provider, by connection id
 	managed     *managed.Leaf
 	releases    *release.Leaf
 	jobRows     *job.Leaf
@@ -541,15 +538,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles.Ship = orch.shipRun
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.regs = build("leaf/registry", func() *registry.Leaf { return registry.New(st.RegistryImages, installspec.RegistrySocket(cfg.DataDir)) })
-	orch.conns = build("leaf/connector", func() *connector.Leaf {
-		app := githubapp.New(cfg.BaseURL).WithPanelHost(func() string {
-			v, _ := orch.settings.Get(context.Background(), "panel_domain")
-			return v
-		})
-		return connector.New(st.Connectors, app)
-	})
-	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
 	orch.kinds, orch.dnsOpen = append(all.Kinds(), o.kinds...), o.dnsOpen
+	orch.conns = build("leaf/connector", func() *connector.Leaf { return connector.New(st.Connectors, orch.kinds) })
+	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
 	orch.managed = build("leaf/managed",
 		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })

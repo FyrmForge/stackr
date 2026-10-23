@@ -132,7 +132,7 @@ func TestApplySharesFieldNotValue(t *testing.T) {
 	ctx := context.Background()
 	conn := uuid.NewString()
 	must(t, w.st.Connectors.Create(ctx, store.Connector{
-		ID: conn, Kind: "github", Name: "gh", Host: "github.com",
+		ID: conn, Kind: "github", Name: "gh", Host: "github.com", Capabilities: store.StringList{"git"},
 		Settings: `{"app":{"id":2,"slug":"stackr-gh","webhook_secret":"s"}}`, CreatedAt: time.Now(),
 	}))
 	allOrg := uuid.NewString()

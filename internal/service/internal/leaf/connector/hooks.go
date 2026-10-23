@@ -7,22 +7,22 @@ import (
 	"log/slog"
 )
 
-// SyncHooks points every connected connector's GitHub App webhook at the
-// current panel URL. A failing App is logged and skipped; the errors come
-// back joined.
-func (l *Leaf) SyncHooks(ctx context.Context) error {
-	cs, err := l.conns.ListAll(ctx)
+// SyncHooks points every connected git connection's provider deliveries at
+// hook(id), the current panel URL's. A failing one is logged and skipped;
+// the errors come back joined.
+func (l *Leaf) SyncHooks(ctx context.Context, hook func(id string) string) error {
+	cs, err := l.Gits(ctx)
 	if err != nil {
 		return err
 	}
 	var errs []error
 	for _, c := range cs {
-		app := parse(c).App
-		if app == nil {
-			continue
+		g, err := l.git(c)
+		if err == nil {
+			err = g.SetHook(ctx, hook(c.ID))
 		}
-		if err := l.app.SetHookURL(ctx, c.ID, *app); err != nil {
-			slog.Warn("github webhook url sync", "connector", c.Name, "err", err)
+		if err != nil {
+			slog.Warn("connector webhook url sync", "connector", c.Name, "err", err)
 			errs = append(errs, fmt.Errorf("connector %s: %w", c.Name, err))
 		}
 	}

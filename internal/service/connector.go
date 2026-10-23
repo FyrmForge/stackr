@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -53,64 +53,62 @@ func (o *Orchestrator) ServerConnectors(ctx context.Context) ([]ServerConnector,
 	return out, nil
 }
 
-// ServerConnectorInstallURL is GitHub's install page for a server
-// connector's App; "" while pending.
+// ServerConnectorInstallURL is the provider's install page for a server
+// connection; "" while pending or for a kind with none.
 func (o *Orchestrator) ServerConnectorInstallURL(ctx context.Context, id string) (string, error) {
 	return o.conns.ServerInstallURL(ctx, id)
 }
 
+// ConnectorInstallBack is connection id's install page (orgID nil = a
+// server one) whose return lands the browser on back, the panel path it
+// is opened from; "" while pending or for a kind with none.
+func (o *Orchestrator) ConnectorInstallBack(ctx context.Context, orgID *string, id, back string) (string, error) {
+	var c store.Connector
+	var err error
+	if orgID == nil {
+		c, err = o.conns.Server(ctx, id)
+	} else {
+		c, err = o.conns.Get(ctx, *orgID, id)
+	}
+	if err != nil {
+		return "", err
+	}
+	return o.conns.Install(c, o.ReturnState(back)), nil
+}
+
 // ServerConnectorRepos is ConnectorRepos for a server connector.
 func (o *Orchestrator) ServerConnectorRepos(ctx context.Context, id string) ([]Repo, error) {
-	return o.conns.ServerRepos(ctx, id)
+	rs, err := o.conns.ServerRepos(ctx, id)
+	o.failed(ctx, id, err)
+	return rs, err
 }
 
 // ConnectorOrgID is the org owning connector id, nil for a server
-// connector: where to send a browser back from GitHub. Not an access check.
+// connector: where to send a browser back from a provider. Not an access
+// check.
 func (o *Orchestrator) ConnectorOrgID(ctx context.Context, id string) (*string, error) {
 	return o.conns.OrgOf(ctx, id)
 }
 
-// BeginServerConnector makes the pending server connector, shared with
-// every org from the start (the admin can narrow it after); the browser
-// POSTs manifest to action. userID is the admin who started it; only they
-// can complete it.
-func (o *Orchestrator) BeginServerConnector(
-	ctx context.Context,
-	userID, ghOrg string,
-) (c Connector, action, manifest string, err error) {
-	if c, action, manifest, err = o.conns.BeginServer(ctx, userID, ghOrg); err != nil {
-		return c, "", "", err
-	}
-	c, err = o.conns.SetShares(ctx, c.ID, nil, true)
-	return c, action, manifest, err
-}
-
-// pendingConnectorTTL is how long a "Create on GitHub" may wait for
-// GitHub before the half-made connector is swept.
-const pendingConnectorTTL = time.Hour
-
-// SweepPendingConnectors deletes the connectors GitHub never confirmed
-// within pendingConnectorTTL of their start. The node clients' tick runs it.
+// SweepPendingConnectors deletes the connections whose provider never
+// answered their setup within pendingTTL of its start. The node clients'
+// tick runs it.
 func (o *Orchestrator) SweepPendingConnectors(ctx context.Context, now time.Time) (int, error) {
-	return o.conns.SweepPending(ctx, now.Add(-pendingConnectorTTL))
+	return o.conns.SweepPending(ctx, now.Add(-pendingTTL))
 }
 
-// GitHubApp is a GitHub App made outside stackr: its ID, slug, private key
-// (PEM) and webhook secret.
-type GitHubApp = githubapp.App
-
-// AddServerConnector saves an existing GitHub App as a server connector
-// shared with every org.
-func (o *Orchestrator) AddServerConnector(ctx context.Context, app GitHubApp) (ServerConnector, error) {
-	c, err := o.conns.AddServer(ctx, app)
-	if err != nil {
-		return ServerConnector{}, err
-	}
-	return o.serverConnector(ctx, c)
+// ConnectorHookURL is where a provider must deliver connection id's events.
+func (o *Orchestrator) ConnectorHookURL(ctx context.Context, id string) string {
+	return o.appBase(ctx) + connectors.HookPath + id
 }
 
-// ConnectorHookURL is where GitHub must send connector id's webhooks.
-func (o *Orchestrator) ConnectorHookURL(id string) string { return o.conns.HookURL(id) }
+// SyncConnectorHooks repoints every git connection's provider deliveries
+// at the current panel URL, so ones made before a panel_domain change keep
+// working. A failing one is logged and skipped; the errors come back
+// joined.
+func (o *Orchestrator) SyncConnectorHooks(ctx context.Context) error {
+	return o.conns.SyncHooks(ctx, func(id string) string { return o.ConnectorHookURL(ctx, id) })
+}
 
 // RenameServerConnector renames a server connector (names are unique among
 // them: the server file names its connectors).
@@ -133,14 +131,37 @@ func (o *Orchestrator) DeleteServerConnector(ctx context.Context, id string) err
 	if !connector.IsGit(c) {
 		return o.RemoveConnector(ctx, nil, id)
 	}
+	if err := o.unbound(ctx, id); err != nil {
+		return err
+	}
+	return o.conns.DeleteServer(ctx, id)
+}
+
+// unbound refuses while a binding names connector id.
+func (o *Orchestrator) unbound(ctx context.Context, id string) error {
 	bs, err := o.connectorBindings(ctx, id)
 	if err != nil {
 		return err
 	}
-	if len(bs) > 0 {
+	switch {
+	case len(bs) == 0:
+		return nil
+	case bs[0].orgID == "":
 		return errs.Conflictf("%s binds to this connector; unbind it first.", bs[0].what)
 	}
-	return o.conns.DeleteServer(ctx, id)
+	c, err := o.store.Connectors.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	us, err := o.gitUsages(ctx, c)
+	if err != nil {
+		return err
+	}
+	us = slices.DeleteFunc(us, func(u Usage) bool { return u.Level == ScopeTile })
+	if len(us) == 0 { // a binding whose org cannot read the connector any more
+		return errs.Conflictf("%s binds to this connector; unbind it first.", bs[0].what)
+	}
+	return &InUse{Msg: "This connector is bound by", Tail: "; unbind it first.", Usages: us}
 }
 
 // ShareConnector sets who may use a server connector: none (orgIDs empty,
@@ -253,7 +274,7 @@ func (o *Orchestrator) sharedOrgIDs(ctx context.Context, c store.Connector) ([]s
 // delivery is a webhook event reduced to what the fan-out matches on. A PR
 // has no branch or default branch; only a push plans a config file.
 type delivery struct {
-	ev                          githubapp.Event
+	ev                          connectors.Event
 	repo, branch, defaultBranch string
 }
 
@@ -287,11 +308,11 @@ func (o *Orchestrator) orgWebhook(ctx context.Context, orgID string, d delivery)
 				Event: promote.Event{
 					Repo:    d.repo,
 					Branch:  d.branch,
-					Commit:  p.After,
-					Message: p.HeadCommit.Message,
-					Changed: p.ChangedFiles(),
+					Commit:  p.Commit,
+					Message: p.Message,
+					Changed: p.Changed,
 				},
-				DefaultBranch: p.Repository.DefaultBranch,
+				DefaultBranch: p.DefaultBranch,
 			})
 		} else {
 			pr := d.ev.PR
@@ -303,10 +324,10 @@ func (o *Orchestrator) orgWebhook(ctx context.Context, orgID string, d delivery)
 					Action:  pr.Action,
 					Number:  pr.Number,
 					Repo:    d.repo,
-					Head:    pr.PullRequest.Head.Ref,
-					SHA:     pr.PullRequest.Head.SHA,
-					Base:    pr.PullRequest.Base.Ref,
-					Fork:    pr.IsFork(),
+					Head:    pr.Head,
+					SHA:     pr.SHA,
+					Base:    pr.Base,
+					Fork:    pr.Fork,
 				},
 				"push:"+st.ID,
 				"pr:"+st.ID+":"+strconv.Itoa(pr.Number),

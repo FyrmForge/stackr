@@ -553,7 +553,7 @@ templ Config(v ConfigView) {
 		}
 		@c.Section("Config as code", "organization", "One file declares the whole organization. Its plans wait for an owner's approve unless Auto apply is on.") {
 			if len(v.Connectors) == 0 && v.Repo == "" {
-				<p class="text-sm text-rw-muted">Connect GitHub first. The org file is fetched through a connector. <a href={ templ.SafeURL(v.Canvas) } class="link">Connectors</a></p>
+				<p class="text-sm text-rw-muted">Connect a git host first. The org file is fetched through a connector. <a href={ templ.SafeURL(v.Canvas) } class="link">Connectors</a></p>
 			} else {
 				<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
 					<fieldset disabled?={ v.Base == "" } class="space-y-4">

@@ -13,7 +13,6 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/route"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
@@ -83,7 +82,7 @@ type Domain struct {
 }
 
 // Connector names a server connector the file shares. It never creates one
-// (a GitHub App is made in the panel's browser flow). A nil Share says
+// (a connector is made in the panel's browser flow). A nil Share says
 // nothing about the shares.
 type Connector struct {
 	Name  string `yaml:"name"`
@@ -412,6 +411,16 @@ func (f *File) checkConnectors() error {
 	return nil
 }
 
+// RepoURLs spells every org repo the way spell does (the connection that
+// owns it), before a Diff compares it with the stored one.
+func (f *File) RepoURLs(spell func(string) string) {
+	for i, o := range f.Orgs {
+		if o.Repo != "" {
+			f.Orgs[i].Repo = spell(o.Repo)
+		}
+	}
+}
+
 func (f *File) checkOrgs() error {
 	seen := map[string]bool{}
 	for i, o := range f.Orgs {
@@ -424,7 +433,7 @@ func (f *File) checkOrgs() error {
 			return fmt.Errorf("orgs.%s: branch, path, connector and auto go with repo", o.Slug)
 		}
 		seen[o.Slug] = true
-		f.Orgs[i].Repo = githubapp.RepoURL(o.Repo)
+		f.Orgs[i].Repo = strings.TrimSpace(o.Repo)
 	}
 	return nil
 }

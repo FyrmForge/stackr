@@ -11,7 +11,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -224,6 +223,17 @@ type Binding struct {
 	Path        string
 }
 
+// RepoURLs spells every stack repo the way spell does (the connection that
+// owns it), before a Diff compares it with the stored one.
+func (f *File) RepoURLs(spell func(string) string) {
+	for s, r := range f.Stacks {
+		if r.Repo != "" {
+			r.Repo = spell(r.Repo)
+			f.Stacks[s] = r
+		}
+	}
+}
+
 // Binding is what the stack's config repo columns should hold. A path-alone
 // entry is a file in the org repo, so it takes the org's binding.
 func (r StackRef) Binding(org store.Org) Binding {
@@ -237,7 +247,7 @@ func (r StackRef) Binding(org store.Org) Binding {
 	}
 	return Binding{
 		ConnectorID: r.Connector,
-		Repo:        githubapp.RepoURL(r.Repo),
+		Repo:        strings.TrimSpace(r.Repo),
 		Branch:      r.Branch,
 		Path:        r.Path,
 	}

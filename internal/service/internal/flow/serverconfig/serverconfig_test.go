@@ -74,12 +74,22 @@ func live() serverconfig.Live {
 	}
 }
 
+// spell stands in for the connection that owns a repo: owner/name is a
+// github.com repo, as the orchestrator's RepoURLs call spells it.
+func spell(raw string) string {
+	if o, n, ok := strings.Cut(raw, "/"); ok && o != "" && n != "" && !strings.ContainsAny(o, ":") && !strings.Contains(n, "/") {
+		return "https://github.com/" + raw
+	}
+	return raw
+}
+
 func parse(t *testing.T, body string) *serverconfig.File {
 	t.Helper()
 	f, err := serverconfig.Parse([]byte(v1 + body))
 	if err != nil {
 		t.Fatalf("parse: %v\n%s", err, body)
 	}
+	f.RepoURLs(spell)
 	return f
 }
 

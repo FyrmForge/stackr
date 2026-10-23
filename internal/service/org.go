@@ -10,7 +10,7 @@ import (
 	"github.com/FyrmForge/hamr/pkg/auth"
 
 	"github.com/FyrmForge/stackr/internal/authz"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -23,7 +23,7 @@ type (
 	Credential     = store.Credential
 	CredentialSpec = credential.Spec
 	Connector      = store.Connector
-	Repo           = githubapp.Repo
+	Repo           = connectors.Repo
 )
 
 // DraftOrgName is what an org is called until setup names it; SetupConfig
@@ -331,29 +331,18 @@ func (o *Orchestrator) Connectors(ctx context.Context, orgID string) ([]Connecto
 	return o.conns.List(ctx, orgID)
 }
 
-// BeginConnector makes the pending row; the browser POSTs manifest to action.
-func (o *Orchestrator) BeginConnector(
-	ctx context.Context,
-	orgID, userID, ghOrg string,
-) (c Connector, action, manifest string, err error) {
-	return o.conns.Begin(ctx, orgID, userID, ghOrg)
-}
-
-// CompleteConnector takes GitHub's manifest callback; userID must be the user
-// who began it.
-func (o *Orchestrator) CompleteConnector(ctx context.Context, userID, state, code string) (Connector, error) {
-	return o.conns.Complete(ctx, userID, state, code)
-}
-
-// ConnectorInstallURL is GitHub's install page for the app; "" while pending.
+// ConnectorInstallURL is the provider's install page for the connection;
+// "" while pending.
 func (o *Orchestrator) ConnectorInstallURL(ctx context.Context, orgID, id string) (string, error) {
 	return o.conns.InstallURL(ctx, orgID, id)
 }
 
-// ConnectorRepos asks GitHub what the app may read (the install check):
-// empty means not installed yet, or installed on no repos.
+// ConnectorRepos asks the provider what the connection may read (the
+// install check): empty means not installed yet, or installed on no repos.
 func (o *Orchestrator) ConnectorRepos(ctx context.Context, orgID, id string) ([]Repo, error) {
-	return o.conns.Repos(ctx, orgID, id)
+	rs, err := o.conns.Repos(ctx, orgID, id)
+	o.failed(ctx, id, err)
+	return rs, err
 }
 
 // ConnectorBranches is repo's branches as connector id sees them.
@@ -366,15 +355,15 @@ func (o *Orchestrator) ConnectorYAMLFiles(ctx context.Context, orgID, id, repo, 
 	return o.conns.RepoYAMLFiles(ctx, orgID, id, repo, ref)
 }
 
-// ConnectedConnectors is the org's connectors past GitHub's handshake.
+// ConnectedConnectors is the org's git connectors whose setup finished.
 func (o *Orchestrator) ConnectedConnectors(ctx context.Context, orgID string) ([]Connector, error) {
 	return o.conns.ListConnected(ctx, orgID)
 }
 
-// OrgRepos is every repo the org's connected apps can read, for the setup
-// wizard's install check and repo list. Two apps on one repo list it once,
-// and an app GitHub will not answer for is skipped, as v0 did: the step
-// then asks for an install rather than failing.
+// OrgRepos is every repo the org's connected git connections can read, for
+// the setup wizard's install check and repo list. Two on one repo list it
+// once, and one its provider will not answer for is skipped, as v0 did: the
+// step then asks for an install rather than failing.
 func (o *Orchestrator) OrgRepos(ctx context.Context, orgID string) ([]Repo, error) {
 	cs, err := o.conns.ListConnected(ctx, orgID)
 	if err != nil {
@@ -385,7 +374,7 @@ func (o *Orchestrator) OrgRepos(ctx context.Context, orgID string) ([]Repo, erro
 	for _, c := range cs {
 		rs, err := o.conns.Repos(ctx, orgID, c.ID)
 		if err != nil {
-			slog.Warn("github repo list", "connector", c.Name, "err", err)
+			slog.Warn("connector repo list", "connector", c.Name, "err", err)
 			continue
 		}
 		for _, r := range rs {

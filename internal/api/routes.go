@@ -81,7 +81,6 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/registry/versions", "registry.versions", "registry.image.list", h.RegistryVersions()},
 		{DELETE, org + "/registry/versions", "registry.delete", "registry.tag.delete", h.DeleteRegistryVersion()},
 		{GET, org + "/connectors", "connector.list", "org.read", h.Connectors()},
-		{POST, org + "/connectors", "connector.begin", "connector.write", h.BeginConnector()},
 		{PUT, org + "/connectors/:connector/name", "connector.rename", "connector.write", h.RenameConnector()},
 		{DELETE, org + "/connectors/:connector", "connector.delete", "connector.write", h.DeleteConnector()},
 		// DNS connectors: an owner's own provider account, that org only
@@ -325,7 +324,6 @@ func routes(h *v1.H) []Route {
 
 		// server connectors: no org, shared with named orgs or all of them
 		{GET, "/admin/connectors", "admin.connector-list", "admin.read", h.ServerConnectors()},
-		{POST, "/admin/connectors", "admin.connector-begin", "connector.admin", h.BeginServerConnector()},
 		{PUT, "/admin/connectors/:connector/name", "admin.connector-rename", "connector.admin", h.RenameServerConnector()},
 		{PUT, "/admin/connectors/:connector/shares", "admin.connector-share", "connector.admin", h.ShareConnector()},
 		{DELETE, "/admin/connectors/:connector", "admin.connector-delete", "connector.admin", h.DeleteServerConnector()},

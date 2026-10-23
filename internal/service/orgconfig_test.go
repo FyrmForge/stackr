@@ -73,7 +73,7 @@ func (r orgRig) push(t *testing.T, repo, sha string) {
 	mac := hmac.New(sha256.New, []byte("whsec"))
 	mac.Write(body)
 	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if err := r.env.Orch.Webhook(context.Background(), r.conn, "push", sig, body); err != nil {
+	if err := r.env.Orch.Webhook(context.Background(), r.conn, hook("push", sig), body); err != nil {
 		t.Fatal(err)
 	}
 }

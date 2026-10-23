@@ -61,7 +61,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("rename = %+v, %v", s, err)
 	}
 
-	if s, err = l.SetConfigRepo(ctx, s, "c1", "acme/infra", "main", "stackr.yml"); err != nil {
+	if s, err = l.SetConfigRepo(ctx, s, "c1", "https://github.com/acme/infra", "main", "stackr.yml"); err != nil {
 		t.Fatal(err)
 	}
 	if s, err = l.SetSettings(ctx, s, `{"cpu":1}`); err != nil {
@@ -72,9 +72,10 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil || got.ConfigRepo != "https://github.com/acme/infra" || got.ConfigPath != "stackr.yml" || got.Settings != `{"cpu":1}` {
 		t.Fatalf("get = %+v, %v", got, err)
 	}
-	// Both spellings store the URL the connector lookup reads the host off.
+	// The orchestrator spells the repo (its connection's spelling); the leaf
+	// stores it trimmed.
 	for _, repo := range []string{
-		" acme/infra ",
+		" https://github.com/acme/infra ",
 		"https://github.com/acme/infra",
 	} {
 		if got, err = l.SetConfigRepo(ctx, got, "c1", repo, "main", "stackr.yml"); err != nil || got.ConfigRepo != "https://github.com/acme/infra" {

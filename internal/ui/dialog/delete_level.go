@@ -60,11 +60,12 @@ func PurgeLogs(env, action, target string) c.ConfirmView {
 	}
 }
 
-func DeleteConnector(name, action, target string) c.ConfirmView {
+// DeleteConnector is a connector's delete; label names its provider.
+func DeleteConnector(name, label, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete connector",
 		Title:   "Delete " + name + "?",
-		Warning: "stackr forgets the app; uninstall it on GitHub too.",
+		Warning: "stackr forgets it; uninstall it on " + label + " too.",
 		Action:  action,
 		Target:  target,
 	}

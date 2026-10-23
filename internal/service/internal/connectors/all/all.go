@@ -4,10 +4,11 @@ package all
 
 import (
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors/github"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors/namecheap"
 )
 
 // Kinds is every built-in kind, in the add dialog's order.
 func Kinds() []connectors.Kind {
-	return []connectors.Kind{namecheap.Kind{}}
+	return []connectors.Kind{github.Kind{}, namecheap.Kind{}}
 }

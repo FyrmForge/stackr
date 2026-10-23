@@ -39,34 +39,3 @@ templ CreateLevel(v CreateLevelView) {
 	</form>
 }
 
-// InstallConnectorView is the two-step GitHub App install: the org to
-// install on, then (Action set) a form that posts the app manifest to
-// GitHub, which calls stackr back.
-type InstallConnectorView struct {
-	Begin    string // POST github_org
-	Error    string
-	Action   string // GitHub's manifest URL; "" = step one
-	Manifest string
-}
-
-templ InstallConnector(v InstallConnectorView) {
-	<div id="install-connector">
-		@c.DrawerHead("Install a GitHub connector", "")
-		<div class="p-6 space-y-4">
-			@c.FormError(v.Error)
-			if v.Action == "" {
-				<form hx-post={ v.Begin } hx-target="#install-connector" hx-swap="outerHTML" class="space-y-4">
-					@c.Field(c.FieldView{Name: "github_org", Label: "GitHub org", Placeholder: "acme", Help: "Empty = your personal account."})
-					@c.Submit("Continue")
-				</form>
-			} else {
-				// templint:ignore no-native-form-actions -- GitHub's manifest flow requires a browser form POST
-				<form method="post" action={ templ.SafeURL(v.Action) } class="space-y-4">
-					<input type="hidden" name="manifest" value={ v.Manifest }/>
-					<p class="text-sm text-rw-muted">GitHub creates the app, then sends you back here.</p>
-					@c.Submit("Continue on GitHub")
-				</form>
-			}
-		</div>
-	</div>
-}

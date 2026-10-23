@@ -1,14 +1,15 @@
 // Package connpanel is the connector screens' handlers, shared by the
-// admin drawer (server connectors), the org drawer (the org's own) and the
-// setup wizard's Certificates step. The add dialog is drawn from the kind's
-// declared steps; the settings dialog has one section per capability (the
-// DNS one in dns.go). A level mounts them under its own base and gate; Org
-// says whose connectors a request reaches. GitHub stays on its own screens
-// until it moves onto the Git source capability.
+// admin drawer (server connectors), the org drawer (the org's own), the
+// canvas's create button and the setup wizards. The add dialog is drawn
+// from the kind's declared steps; the settings dialog has the core's tabs
+// (Connection, Used by) and one per capability section (DNS in dns.go, Git
+// in git.go). A level mounts them under its own base and gates; Org says
+// whose connectors a request reaches.
 package connpanel
 
 import (
 	"net/http"
+	"net/url"
 	"slices"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -27,9 +28,11 @@ import (
 // Panel is one level. Base is where the add dialog's kind screens and a
 // connector's settings hang, DNSBase the DNS section's actions; Back is
 // the add dialog's kind picker (nil = opened straight on a kind); Refresh
-// a GET whose answer holds the connectors list, fetched as a dialog closes
-// and where a redirect setup comes back to; Delete a connector's Remove
-// (Action "" = none).
+// a GET whose answer holds the connectors list, fetched as a dialog
+// closes; Return the page a redirect setup comes back to (nil = Refresh);
+// Delete a connector's Remove (Action "" = none); Drawer, set, is where a
+// row of a git connection opens instead of the settings dialog (the org's
+// connector drawer).
 type Panel struct {
 	Orch    *service.Orchestrator
 	Org     func(c echo.Context) *string
@@ -37,16 +40,30 @@ type Panel struct {
 	DNSBase func(c echo.Context) string
 	Back    func(c echo.Context) string
 	Refresh func(c echo.Context) string
+	Return  func(c echo.Context) string
 	Delete  func(c echo.Context, conn service.Connector) comp.ConfirmView
+	Drawer  func(c echo.Context, conn service.Connector) string
 	Only    string // the capability the level lists ("" = every connector)
 }
 
-// Mount adds the kind screens under prefix (the level's base pattern)
-// behind gate; MountDNS the DNS section. Settings and Remove
-// are the level's to mount: Admin shares those paths with GitHub.
-func (p Panel) Mount(g *echo.Group, prefix string, gate echo.MiddlewareFunc) {
-	g.GET(prefix+"/new/:kind", p.form, gate)
-	g.POST(prefix+"/new/:kind", p.add, gate)
+// Mount adds the kind screens under prefix (the level's base pattern),
+// each kind behind add(kind) (nil = gate), and the settings dialog and its
+// actions behind gate; MountDNS the DNS section. Remove is the level's to
+// mount.
+func (p Panel) Mount(g *echo.Group, prefix string, gate echo.MiddlewareFunc, add func(service.ConnectorKind) echo.MiddlewareFunc) {
+	for _, k := range p.Orch.ConnectorKinds() {
+		kg := gate
+		if add != nil {
+			kg = add(k)
+		}
+		g.GET(prefix+"/new/"+k.Name, p.form(k.Name), kg)
+		g.POST(prefix+"/new/"+k.Name, p.add(k.Name), kg)
+	}
+	g.GET(prefix+"/:connector/settings", p.Settings, gate)
+	g.POST(prefix+"/:connector/check", p.check, gate)
+	g.POST(prefix+"/:connector/rename", p.rename, gate)
+	g.POST(prefix+"/:connector/credentials", p.update, gate)
+	p.mountGit(g, prefix, gate)
 }
 
 // Kinds is the add dialog's picker entries for the registered kinds, those
@@ -61,116 +78,195 @@ func (p Panel) Kinds(c echo.Context, cp string) []connectors.Kind {
 	return out
 }
 
+// KindsWith is the registered kinds with capability cp.
+func (p Panel) KindsWith(cp string) []service.ConnectorKind {
+	var out []service.ConnectorKind
+	for _, k := range p.Orch.ConnectorKinds() {
+		if slices.Contains(k.Caps, cp) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 func hasDNS(k service.ConnectorKind) bool { return slices.Contains(k.Caps, service.CapDNS) }
 
+// formSteps is what the add dialog's form shows: the kind's steps up to
+// its first redirect (the screen that sends the browser out), or its Alt
+// form's.
+func formSteps(k service.ConnectorKind, alt bool) []service.ConnectorStep {
+	if alt && k.Alt != nil {
+		return k.Alt.Steps
+	}
+	for i, s := range k.Steps {
+		if s.Out {
+			return k.Steps[:i+1]
+		}
+	}
+	return k.Steps
+}
+
 // total is every step of k's setup: its own, then each capability's.
-func total(k service.ConnectorKind) int {
+func total(k service.ConnectorKind, alt bool) int {
 	n := len(k.Steps)
+	if alt && k.Alt != nil {
+		n = len(k.Alt.Steps)
+	}
 	if hasDNS(k) {
 		n++
 	}
 	return n
 }
 
+// ret is where a redirect setup begun from this request comes back to: the
+// page that opened the dialog (?return=, a panel path), else the level's.
+func (p Panel) ret(c echo.Context) string {
+	if r := c.QueryParam("return"); r != "" {
+		return r
+	}
+	if r := c.FormValue("return"); r != "" {
+		return r
+	}
+	if p.Return != nil {
+		return p.Return(c)
+	}
+	return p.Refresh(c)
+}
+
+// fieldsOf is a step's fields as inputs, vals in them (nil = each one's
+// prefill); a secret is never filled.
+func (p Panel) fieldsOf(c echo.Context, fs []service.ConnectorField, vals, errs map[string]string) []connectors.Field {
+	var out []connectors.Field
+	for _, f := range fs {
+		fv := comp.FieldView{
+			Name: f.Name, Label: f.Label, Help: f.Help, Required: !f.Optional,
+			Error: comp.GetError(errs, f.Name), Autocomplete: "off",
+		}
+		switch {
+		case f.Secret && !f.Multiline:
+			fv.Type = "password"
+		case f.Secret:
+		case vals == nil:
+			fv.Value = p.Orch.ConnectorPrefill(c.Request().Context(), f)
+		default:
+			fv.Value = vals[f.Name]
+		}
+		out = append(out, connectors.Field{FieldView: fv, Multiline: f.Multiline})
+	}
+	return out
+}
+
 // view is k's screens with vals in the fields (nil = each one's prefill)
-// and the refusals in errs. A secret field is never filled.
-func (p Panel) view(c echo.Context, k service.ConnectorKind, vals, errs map[string]string) connectors.SetupView {
-	v := connectors.SetupView{Post: p.Base(c) + "/new/" + k.Name, Total: total(k), Errors: errs, Connect: "Connect"}
-	if k.Redirects {
+// and the refusals in errs.
+func (p Panel) view(c echo.Context, k service.ConnectorKind, alt bool, vals, errs map[string]string) connectors.SetupView {
+	post := p.Base(c) + "/new/" + k.Name
+	v := connectors.SetupView{
+		Post: post, Total: total(k, alt), Errors: errs, Connect: "Connect",
+		Hidden: map[string]string{"return": p.ret(c)},
+	}
+	if k.Redirects && !alt {
 		v.Connect = "Next"
 	}
 	if p.Back != nil {
 		v.Back = p.Back(c)
 	}
-	for _, s := range k.Steps {
-		st := connectors.Step{Title: s.Title, Intro: s.Intro, List: s.List, Note: s.Note}
-		for _, f := range s.Fields {
-			fv := comp.FieldView{
-				Name: f.Name, Label: f.Label, Help: f.Help, Required: !f.Optional,
-				Error: comp.GetError(errs, f.Name), Autocomplete: "off",
-			}
-			switch {
-			case f.Secret:
-				fv.Type = "password"
-			case vals == nil:
-				fv.Value = p.Orch.ConnectorPrefill(c.Request().Context(), f)
-			default:
-				fv.Value = vals[f.Name]
-			}
-			st.Fields = append(st.Fields, fv)
-		}
-		v.Steps = append(v.Steps, st)
+	back := "?return=" + url.QueryEscape(v.Hidden["return"])
+	switch {
+	case alt:
+		v.Hidden["alt"] = "1"
+		v.Back = post + back
+	case k.Alt != nil:
+		v.Alt, v.AltLabel = post+back+"&alt=1", k.Alt.Label
+	}
+	for _, s := range formSteps(k, alt) {
+		v.Steps = append(v.Steps, connectors.Step{
+			Title: s.Title, Intro: s.Intro, List: s.List, Note: s.Note,
+			Fields: p.fieldsOf(c, s.Fields, vals, errs),
+		})
 	}
 	return v
 }
 
-func (p Panel) kind(c echo.Context) (service.ConnectorKind, error) {
-	return p.Orch.ConnectorKindOf(c.Param("kind"))
-}
-
-// Open is the add dialog opened straight on kind (the wizard's).
+// Open is the add dialog opened straight on kind (a wizard's, the canvas's).
 func (p Panel) Open(c echo.Context, k service.ConnectorKind) templ.Component {
-	return connectors.Modal("Add a "+k.Label+" connector", p.Refresh(c), connectors.Setup(p.view(c, k, nil, nil)))
+	return connectors.Modal("Add a "+k.Label+" connector", p.Refresh(c), connectors.Setup(p.view(c, k, false, nil, nil)))
 }
 
-// GET <base>/new/:kind: the kind's screens, into the add dialog.
-func (p Panel) form(c echo.Context) error {
-	k, err := p.kind(c)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	return respond.HTML(c, http.StatusOK, connectors.Setup(p.view(c, k, nil, nil)))
-}
-
-// POST <base>/new/:kind (the kind's fields): check and save it, then its
-// capability's screen; or for a redirect setup the screen that sends the
-// browser to the provider. A refusal shows the screens again on the step
-// with the first error, every value kept but a secret's.
-func (p Panel) add(c echo.Context) error {
-	k, err := p.kind(c)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	form, err := c.FormParams()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
-	}
-	vals := map[string]string{}
-	for _, s := range k.Steps {
-		for _, f := range s.Fields {
-			vals[f.Name] = form.Get(f.Name)
-		}
-	}
-	a, err := p.Orch.AddConnector(c.Request().Context(), service.ConnectorAdd{
-		OrgID: p.Org(c), Kind: k.Name, Values: vals,
-		User: middleware.Principal(c).User.ID, Return: p.Refresh(c),
-	})
-	if err == nil {
-		v := connectors.SetupView{Total: total(k)}
-		switch {
-		case a.Out != nil:
-			last := k.Steps[len(k.Steps)-1]
-			v.Out = &connectors.OutView{
-				Step: len(k.Steps), Title: last.Title, Intro: last.Intro,
-				Method: a.Out.Method, URL: a.Out.URL, Values: a.Out.Values, Label: k.Label,
-			}
-		case hasDNS(k):
-			id := a.Connector.ID
-			v.Done = &connectors.DoneView{Step: v.Total, Title: dnsui.Title, Body: dnsui.Connected(id, p.DNSBase(c)+"/"+id+"/domains", k.Label)}
-		default:
-			v.Done = &connectors.DoneView{Step: v.Total, Title: k.Steps[len(k.Steps)-1].Title}
-		}
-		return respond.HTML(c, http.StatusOK, connectors.Setup(v))
-	}
-	errs := fields(err, vals)
-	if len(errs) == 0 {
-		msg, ok := render.Refusal(err)
-		if !ok {
+// GET <base>/new/<kind> (?alt=1 its second way, ?modal=1 a whole dialog,
+// ?return= where a redirect setup comes back to): the kind's screens.
+func (p Panel) form(kind string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		k, err := p.Orch.ConnectorKindOf(kind)
+		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		errs["general"] = msg
+		body := connectors.Setup(p.view(c, k, c.QueryParam("alt") != "", nil, nil))
+		if c.QueryParam("modal") != "" {
+			return respond.HTML(c, http.StatusOK, connectors.Modal("Add a "+k.Label+" connector", p.Refresh(c), body))
+		}
+		return respond.HTML(c, http.StatusOK, body)
 	}
-	return respond.HTML(c, http.StatusUnprocessableEntity, connectors.Setup(p.view(c, k, vals, errs)))
+}
+
+// POST <base>/new/<kind> (the kind's fields, alt, return): check and save
+// it, then its capability's screen; or for a redirect setup the screen
+// that sends the browser to the provider. A refusal shows the screens
+// again on the step with the first error, every value kept but a secret's.
+func (p Panel) add(kind string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		k, err := p.Orch.ConnectorKindOf(kind)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		form, err := c.FormParams()
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+		}
+		alt := form.Get("alt") != "" && k.Alt != nil
+		vals := map[string]string{}
+		for _, s := range formSteps(k, alt) {
+			for _, f := range s.Fields {
+				vals[f.Name] = form.Get(f.Name)
+			}
+		}
+		ctx := c.Request().Context()
+		a, err := p.Orch.AddConnector(ctx, service.ConnectorAdd{
+			OrgID: p.Org(c), Kind: k.Name, Alt: alt, Values: vals,
+			User: middleware.Principal(c).User.ID, Return: p.ret(c),
+		})
+		if err == nil {
+			v := connectors.SetupView{Total: total(k, alt)}
+			id := a.Connector.ID
+			switch {
+			case a.Out != nil:
+				i := len(formSteps(k, false)) - 1
+				v.Out = &connectors.OutView{
+					Step: i + 1, Title: k.Steps[i].Title, Intro: k.Steps[i].Intro,
+					Method: a.Out.Method, URL: a.Out.URL, Values: a.Out.Values, Label: k.Label,
+				}
+			case hasDNS(k):
+				v.Done = &connectors.DoneView{Step: v.Total, Title: dnsui.Title, Body: dnsui.Connected(id, p.DNSBase(c)+"/"+id+"/domains", k.Label)}
+			case slices.Contains(k.Caps, service.CapGit):
+				gv, err := p.gitView(c, a.Connector)
+				if err != nil {
+					return middleware.HTTPError(err)
+				}
+				v.Done = &connectors.DoneView{Step: v.Total, Title: "Connected", Body: connectors.Git(gv)}
+			default:
+				v.Done = &connectors.DoneView{Step: v.Total, Title: k.Steps[len(k.Steps)-1].Title}
+			}
+			return respond.HTML(c, http.StatusOK, connectors.Setup(v))
+		}
+		errs := fields(err, vals)
+		if len(errs) == 0 {
+			msg, ok := render.Refusal(err)
+			if !ok {
+				return middleware.HTTPError(err)
+			}
+			errs["general"] = msg
+		}
+		return respond.HTML(c, http.StatusUnprocessableEntity, connectors.Setup(p.view(c, k, alt, vals, errs)))
+	}
 }
 
 // fields is every field error in err, which may join several; one on a
@@ -197,23 +293,6 @@ func fields(err error, form map[string]string) map[string]string {
 	return out
 }
 
-// Settings (GET <base>/:connector/settings): the settings dialog, a section
-// per capability and Remove.
-func (p Panel) Settings(c echo.Context) error {
-	k, err := p.Orch.ConnectorAt(c.Request().Context(), p.Org(c), c.Param("connector"))
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	v := connectors.SettingsView{}
-	if p.Delete != nil {
-		v.Delete = p.Delete(c, k)
-	}
-	if slices.Contains(k.Capabilities, service.CapDNS) {
-		v.Sections = append(v.Sections, dnsui.Load(k.ID, p.DNSBase(c)+"/"+k.ID+"/domains", p.label(k)))
-	}
-	return respond.HTML(c, http.StatusOK, connectors.Modal(k.Name, p.Refresh(c), connectors.Settings(v)))
-}
-
 func (p Panel) label(k service.Connector) string {
 	if kd, err := p.Orch.ConnectorKindOf(k.Kind); err == nil {
 		return kd.Label
@@ -222,14 +301,18 @@ func (p Panel) label(k service.Connector) string {
 }
 
 // Rows is the level's connectors in the list, each summed up by its
-// capabilities.
+// capabilities: a pending one waits, one whose last check failed says so.
 func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 	ctx, org := c.Request().Context(), p.Org(c)
-	cs, err := p.Orch.ConnectorsAt(ctx, org)
+	cs, err := p.Orch.ConnectorRows(ctx, org)
 	if err != nil {
 		return nil, err
 	}
 	n, err := p.Orch.DNSManaged(ctx, org)
+	if err != nil {
+		return nil, err
+	}
+	shares, err := p.shares(c)
 	if err != nil {
 		return nil, err
 	}
@@ -238,9 +321,17 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 		if p.Only != "" && !slices.Contains(k.Capabilities, p.Only) {
 			continue
 		}
-		r := connectors.Row{ID: k.ID, Kind: p.label(k), Name: k.Name, Settings: p.Base(c) + "/" + k.ID + "/settings"}
+		r := connectors.Row{
+			ID: k.ID, Kind: p.label(k), Name: k.Name, Pending: k.Pending, Status: k.CheckError,
+			Settings: p.Base(c) + "/" + k.ID + "/settings",
+		}
 		if slices.Contains(k.Capabilities, service.CapDNS) {
 			r.Summary = managed(n[k.ID])
+		}
+		if slices.Contains(k.Capabilities, service.CapGit) {
+			if err := p.gitRow(c, k, shares, &r); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, r)
 	}
@@ -249,8 +340,11 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 
 // Warning is what removing connection k does, by its capabilities.
 func Warning(k service.Connector) string {
-	if slices.Contains(k.Capabilities, service.CapDNS) {
+	switch {
+	case slices.Contains(k.Capabilities, service.CapDNS):
 		return "stackr deletes the DNS records it made and stops managing its domains. Refused while a tile uses one."
+	case slices.Contains(k.Capabilities, service.CapGit):
+		return "Organizations and stacks bound to it must be unbound first. It stays installed at the provider; uninstall it there too."
 	}
 	return "stackr forgets the account. Nothing changes at the provider."
 }

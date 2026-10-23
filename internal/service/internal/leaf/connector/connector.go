@@ -1,54 +1,37 @@
-// Package connector owns git connectors: one GitHub App per org and host,
-// or a server connector (no org) the admin shares with named orgs or all.
-// It runs the connect handshake (pending row, state check, manifest
-// conversion), resolves a git_url to a connector, and mints the clone
-// credential. Reads widen to the server connectors shared with the org;
-// writes never do: Get, Rename and Delete reach an org's own rows only.
+// Package connector owns connections: one row of a registered kind (an
+// org's or the server's) and the provider account it stands for, opened
+// through the kind. A git connection (the Git source capability) is one
+// per org and host, or a server one (no org) the admin shares with named
+// orgs or all; reads widen to the server ones shared with the org, writes
+// never do: Get, Rename and Delete reach an org's own rows only. A redirect
+// setup's row is pending until its provider calls back.
 package connector
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-const (
-	GitHub     = "github"
-	GitHubHost = "github.com"
-)
-
-// App is the slice of the GitHub App wrapper this leaf needs.
-type App interface {
-	Manifest(connectorID, ghOrg, state string) (action, manifest string, err error)
-	ConvertManifest(ctx context.Context, code string) (githubapp.App, error)
-	Token(ctx context.Context, key string, app githubapp.App) (string, error)
-	Repos(ctx context.Context, token string) ([]githubapp.Repo, error)
-	Branches(ctx context.Context, token, repo string) ([]string, error)
-	YAMLFiles(ctx context.Context, token, repo, ref string) ([]string, error)
-	SetHookURL(ctx context.Context, connectorID string, app githubapp.App) error
-	HookURL(connectorID string) string
-}
-
 type Leaf struct {
 	conns store.ConnectorStore
-	app   App
+	kinds []connectors.Kind
 }
 
-func New(conns store.ConnectorStore, app App) *Leaf { return &Leaf{conns: conns, app: app} }
+// New is the leaf over conns, opening connections of kinds.
+func New(conns store.ConnectorStore, kinds []connectors.Kind) *Leaf {
+	return &Leaf{conns: conns, kinds: kinds}
+}
 
 // NoConnector is a git_url whose host has no connected connector in the org:
 // a typed error the promote diff shows.
@@ -67,33 +50,80 @@ func (e Ambiguous) Error() string {
 	return "several shared git connectors serve " + e.Host + " (" + strings.Join(e.Names, ", ") + "); name the connector to use"
 }
 
-// config is the encrypted connectors.config: the nonce and the user who
-// began while pending, the App once connected.
-type config struct {
-	State string         `json:"state,omitempty"`
-	User  string         `json:"user,omitempty"`
-	App   *githubapp.App `json:"app,omitempty"`
+// Pending is a redirect setup out at its provider: the nonce its state
+// carries, the user who began (only they may finish), and the panel path
+// the browser goes back to.
+type Pending struct {
+	Nonce  string `json:"nonce"`
+	User   string `json:"user"`
+	Return string `json:"return,omitempty"`
 }
 
-func parse(c store.Connector) config {
-	var cfg config
-	_ = json.Unmarshal([]byte(c.Settings), &cfg)
-	return cfg
+// envelope is a pending row's settings: the setup, and the kind's blob as
+// it stood when the browser left.
+type envelope struct {
+	Pending *Pending        `json:"pending"`
+	Conn    json.RawMessage `json:"conn"`
 }
 
-// Connected says whether the handshake finished.
-func Connected(c store.Connector) bool { return parse(c).App != nil }
+// pendingOf is c's setup while it is pending, nil once connected.
+func pendingOf(c store.Connector) (*Pending, json.RawMessage) {
+	var env envelope
+	if json.Unmarshal([]byte(c.Settings), &env) != nil || env.Pending == nil {
+		return nil, nil
+	}
+	return env.Pending, env.Conn
+}
 
-// InstallURL is GitHub's page for installing the app on an account and
-// picking its repos; "" while the handshake is pending. Creating the app is
-// not installing it: without an install there is no token to clone with.
-// Reads the row itself, List strips the config that holds the slug.
+// mark sets c.Pending from its settings, before a list strips them.
+func mark(c store.Connector) store.Connector {
+	p, _ := pendingOf(c)
+	c.Pending = p != nil
+	return c
+}
+
+// Connected says whether a connection's setup finished.
+func Connected(c store.Connector) bool { p, _ := pendingOf(c); return p == nil && !c.Pending }
+
+// open is c's kind and its connection, decoded from the settings.
+func (l *Leaf) open(c store.Connector) (connectors.Kind, connectors.Conn, error) {
+	i := slices.IndexFunc(l.kinds, func(k connectors.Kind) bool { return k.Name() == c.Kind })
+	if i < 0 {
+		return nil, nil, errs.ErrNotFound
+	}
+	conn := l.kinds[i].New()
+	if p, _ := pendingOf(c); p != nil {
+		return nil, nil, NoConnector{Host: c.Host}
+	}
+	if err := json.Unmarshal([]byte(c.Settings), conn); err != nil {
+		return nil, nil, err
+	}
+	return l.kinds[i], conn, nil
+}
+
+// git is c's Git source capability.
+func (l *Leaf) git(c store.Connector) (connectors.GitSource, error) {
+	_, conn, err := l.open(c)
+	if err != nil {
+		return nil, err
+	}
+	g, ok := conn.(connectors.GitSource)
+	if !ok {
+		return nil, NoConnector{Host: c.Host}
+	}
+	return g, nil
+}
+
+// InstallURL is the provider's page for installing c on an account and
+// picking its repos; "" while pending, or for a kind with none. Creating
+// the app is not installing it: without an install there is no token to
+// clone with. Reads the row itself, List strips the settings that hold it.
 func (l *Leaf) InstallURL(ctx context.Context, orgID, id string) (string, error) {
 	c, err := l.Get(ctx, orgID, id)
 	if err != nil {
 		return "", err
 	}
-	return installURL(c), nil
+	return l.Install(c, ""), nil
 }
 
 // ServerInstallURL is InstallURL for a server connector.
@@ -102,20 +132,26 @@ func (l *Leaf) ServerInstallURL(ctx context.Context, id string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return installURL(c), nil
+	return l.Install(c, ""), nil
 }
 
-func installURL(c store.Connector) string {
-	app := parse(c).App
-	if app == nil {
+// Install is c's install page, state carried back to its return path;
+// "" while pending or for a kind with none.
+func (l *Leaf) Install(c store.Connector, state string) string {
+	_, conn, err := l.open(c)
+	if err != nil {
 		return ""
 	}
-	return "https://github.com/apps/" + app.Slug + "/installations/new"
+	if i, ok := conn.(connectors.Installer); ok {
+		return i.Install(state)
+	}
+	return ""
 }
 
-// Get refuses a connector of another org (as not found). The id can come from a stack row
-// or a request, and without this a file naming another org's connector
-// would clone that org's private repos with that org's token.
+// Get refuses a connector of another org (as not found). The id can come
+// from a stack row or a request, and without this a file naming another
+// org's connector would clone that org's private repos with that org's
+// token.
 func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, error) {
 	c, err := l.conns.Get(ctx, id)
 	if err != nil {
@@ -123,7 +159,7 @@ func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, erro
 	}
 	// A server connector (nil OrgID) is never an org's to write through
 	// Get: orgs only read it, through Usable, ListConnected and For. A
-	// connection of a registered kind is reached through Of only.
+	// connection without the git capability is reached through Of only.
 	if !IsGit(c) {
 		return store.Connector{}, errs.ErrNotFound
 	}
@@ -135,18 +171,17 @@ func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, erro
 		slog.Error("connector requested by another org", "connector", id, "owner", owner, "org", orgID)
 		return store.Connector{}, errs.ErrNotFound // not yours = not there
 	}
-	return c, nil
+	return mark(c), nil
 }
 
-// List is the org's connectors, its own first, then the server connectors
-// shared with it (Shared set: writes through Get still refuse them),
-// config stripped.
+// List is the org's git connectors, its own first, then the server
+// connectors shared with it (Shared set: writes through Get still refuse
+// them), settings stripped.
 func (l *Leaf) List(ctx context.Context, orgID string) ([]store.Connector, error) {
 	return l.list(ctx, orgID, false)
 }
 
-// ListConnected is List less the connectors that have not finished
-// GitHub's handshake.
+// ListConnected is List less the connectors whose setup has not finished.
 func (l *Leaf) ListConnected(ctx context.Context, orgID string) ([]store.Connector, error) {
 	return l.list(ctx, orgID, true)
 }
@@ -162,13 +197,22 @@ func (l *Leaf) list(ctx context.Context, orgID string, connected bool) ([]store.
 	}
 	cs := gitOnly(slices.Concat(own, shared))
 	if connected {
-		cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !Connected(c) })
+		cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return c.Pending })
 	}
 	for i := range cs {
 		cs[i].Settings = ""
 		cs[i].Shared = cs[i].OrgID == nil
 	}
 	return cs, nil
+}
+
+// gitOnly is the git connections of cs, marked.
+func gitOnly(cs []store.Connector) []store.Connector {
+	cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !IsGit(c) })
+	for i := range cs {
+		cs[i] = mark(cs[i])
+	}
+	return cs
 }
 
 // Usable is Get for reads: the org's own connector, or a server connector
@@ -182,7 +226,7 @@ func (l *Leaf) Usable(ctx context.Context, orgID, id string) (store.Connector, e
 		return store.Connector{}, errs.ErrNotFound
 	}
 	if c.OrgID != nil && *c.OrgID == orgID {
-		return c, nil
+		return mark(c), nil
 	}
 	if c.OrgID == nil {
 		shared, err := l.conns.ListSharedWith(ctx, orgID)
@@ -190,7 +234,7 @@ func (l *Leaf) Usable(ctx context.Context, orgID, id string) (store.Connector, e
 			return store.Connector{}, err
 		}
 		if slices.ContainsFunc(shared, func(s store.Connector) bool { return s.ID == id }) {
-			return c, nil
+			return mark(c), nil
 		}
 	}
 	slog.Error("connector requested by another org", "connector", id, "org", orgID)
@@ -206,7 +250,7 @@ func (l *Leaf) Server(ctx context.Context, id string) (store.Connector, error) {
 	if c.OrgID != nil {
 		return store.Connector{}, errs.ErrNotFound
 	}
-	return c, nil
+	return mark(c), nil
 }
 
 // ListServer is the server's git connectors, settings stripped (other
@@ -246,105 +290,6 @@ func (l *Leaf) SetShares(ctx context.Context, id string, orgIDs []string, all bo
 	return c, l.conns.SetShareAll(ctx, id, all)
 }
 
-// Begin makes the pending row and returns where to POST the manifest.
-// ghOrg: create the App under that GitHub org instead of the user. userID is
-// who started it; only they can complete it.
-func (l *Leaf) Begin(ctx context.Context, orgID, userID, ghOrg string) (c store.Connector, action, manifest string, err error) {
-	if _, err := l.conns.GetByHost(ctx, orgID, GitHubHost); err == nil {
-		return c, "", "", errs.Conflictf("This org already has a %s connector", GitHubHost)
-	}
-	return l.begin(ctx, &orgID, userID, ghOrg)
-}
-
-// BeginServer is Begin for a server connector. A server may hold several
-// per host, so there is no host check; the pending name carries the id
-// because server connector names are unique.
-func (l *Leaf) BeginServer(ctx context.Context, userID, ghOrg string) (store.Connector, string, string, error) {
-	return l.begin(ctx, nil, userID, ghOrg)
-}
-
-func (l *Leaf) begin(ctx context.Context, orgID *string, userID, ghOrg string) (c store.Connector, action, manifest string, err error) {
-	nonce := make([]byte, 16)
-	_, _ = rand.Read(nonce)
-	cfg, _ := json.Marshal(config{State: hex.EncodeToString(nonce), User: userID})
-	c = store.Connector{
-		ID:        uuid.NewString(),
-		OrgID:     orgID,
-		Kind:      GitHub,
-		Name:      "GitHub (connecting…)",
-		Host:      GitHubHost,
-		Settings:  string(cfg),
-		CreatedAt: time.Now().UTC(),
-
-		Capabilities: store.StringList{CapGit},
-	}
-	if orgID == nil {
-		c.Name = "GitHub (connecting… " + c.ID[:8] + ")"
-	}
-	if action, manifest, err = l.app.Manifest(c.ID, ghOrg, c.ID+"."+hex.EncodeToString(nonce)); err != nil {
-		return c, "", "", err
-	}
-	return c, action, manifest, l.conns.Create(ctx, c)
-}
-
-// AddServer saves a GitHub App made outside stackr as a server connector
-// shared with every org. The key must parse: a bad one would only fail at
-// the first clone.
-func (l *Leaf) AddServer(ctx context.Context, app githubapp.App) (store.Connector, error) {
-	app.Slug, app.WebhookSecret = strings.TrimSpace(app.Slug), strings.TrimSpace(app.WebhookSecret)
-	switch {
-	case app.ID <= 0:
-		return store.Connector{}, errs.Invalidf("app_id", "The App ID is the number on the App's page")
-	case app.Slug == "":
-		return store.Connector{}, errs.Invalidf("slug", "The App's slug is required")
-	case app.WebhookSecret == "":
-		return store.Connector{}, errs.Invalidf("webhook_secret", "The webhook secret is required")
-	}
-	if _, err := githubapp.ParseKey(app.PEM); err != nil {
-		return store.Connector{}, errs.Invalidf("private_key", "The private key does not parse. Paste the whole .pem file")
-	}
-	b, _ := json.Marshal(config{App: &app})
-	c := store.Connector{
-		ID:        uuid.NewString(),
-		Kind:      GitHub,
-		Name:      "GitHub · " + app.Slug,
-		Host:      GitHubHost,
-		Settings:  string(b),
-		CreatedAt: time.Now().UTC(),
-
-		Capabilities: store.StringList{CapGit},
-	}
-	if err := l.conns.Create(ctx, c); err != nil {
-		return store.Connector{}, err
-	}
-	return l.SetShares(ctx, c.ID, nil, true)
-}
-
-// HookURL is where GitHub must send connector id's webhooks.
-func (l *Leaf) HookURL(id string) string { return l.app.HookURL(id) }
-
-// Complete takes GitHub's callback. The state must match the pending row's
-// nonce and the caller must be the user who began, or a stray callback could
-// fill in someone else's row.
-func (l *Leaf) Complete(ctx context.Context, userID, state, code string) (store.Connector, error) {
-	id, nonce, _ := strings.Cut(state, ".")
-	c, err := l.conns.Get(ctx, id)
-	if err != nil {
-		return c, err
-	}
-	cfg := parse(c)
-	if cfg.App != nil || cfg.State == "" || cfg.User != userID || subtle.ConstantTimeCompare([]byte(cfg.State), []byte(nonce)) != 1 {
-		return store.Connector{}, errs.Refusedf("this GitHub callback does not match a pending connector")
-	}
-	app, err := l.app.ConvertManifest(ctx, code)
-	if err != nil {
-		return c, err
-	}
-	b, _ := json.Marshal(config{App: &app})
-	c.Settings, c.Name = string(b), "GitHub · "+app.Slug
-	return c, l.conns.SetApp(ctx, c.ID, c.Name, c.Settings)
-}
-
 func (l *Leaf) Rename(ctx context.Context, orgID, id, name string) (store.Connector, error) {
 	c, err := l.Get(ctx, orgID, id)
 	if err != nil {
@@ -360,6 +305,15 @@ func (l *Leaf) RenameServer(ctx context.Context, id, name string) (store.Connect
 		return c, err
 	}
 	return l.rename(ctx, c, name)
+}
+
+// RenameAny renames connection id; the caller has checked its scope.
+func (l *Leaf) RenameAny(ctx context.Context, id, name string) (store.Connector, error) {
+	c, err := l.conns.Get(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	return l.rename(ctx, mark(c), name)
 }
 
 func (l *Leaf) rename(ctx context.Context, c store.Connector, name string) (store.Connector, error) {
@@ -380,9 +334,9 @@ func (l *Leaf) Delete(ctx context.Context, orgID, id string) error {
 	return l.conns.Delete(ctx, id)
 }
 
-// SweepPending deletes the GitHub connectors whose handshake began before
-// cutoff and GitHub never finished: a "Create on GitHub" walked away from.
-// Nothing binds one: a pending connector has no App to bind.
+// SweepPending deletes the connections whose redirect setup began before
+// cutoff and the provider never finished: a provider's sign-in walked
+// away from. Nothing binds one: a pending connection has nothing to bind.
 func (l *Leaf) SweepPending(ctx context.Context, cutoff time.Time) (int, error) {
 	cs, err := l.conns.ListAll(ctx)
 	if err != nil {
@@ -390,7 +344,7 @@ func (l *Leaf) SweepPending(ctx context.Context, cutoff time.Time) (int, error) 
 	}
 	n := 0
 	for _, c := range cs {
-		if cfg := parse(c); c.Kind != GitHub || cfg.App != nil || cfg.State == "" || !c.CreatedAt.Before(cutoff) {
+		if p, _ := pendingOf(c); p == nil || !c.CreatedAt.Before(cutoff) {
 			continue
 		}
 		if err := l.conns.Delete(ctx, c.ID); err != nil {
@@ -430,14 +384,15 @@ func (l *Leaf) For(ctx context.Context, orgID, gitURL string) (store.Connector, 
 	if err != nil {
 		return store.Connector{}, err
 	}
-	// ListConnected strips the config the token mint needs.
+	// ListConnected strips the settings the clone access needs.
 	return l.conns.Get(ctx, c.ID)
 }
 
 // Resolve picks the connector a clone of a repo on host uses, from conns (an
 // org's ListConnected: its connected ones, then the server connectors shared
-// with it): the one named by id wins; else the org's own for the host; else exactly one
-// shared server connector. None is NoConnector, several Ambiguous.
+// with it): the one named by id wins; else the org's own for the host; else
+// exactly one shared server connector. None is NoConnector, several
+// Ambiguous. A connection's host is the one its Git source serves.
 func Resolve(conns []store.Connector, named, host string) (store.Connector, error) {
 	if named != "" {
 		if i := slices.IndexFunc(conns, func(c store.Connector) bool { return c.ID == named }); i >= 0 {
@@ -467,27 +422,49 @@ func Resolve(conns []store.Connector, named, host string) (store.Connector, erro
 	}
 }
 
-// CloneEnv is the GIT_CONFIG_* environment that authenticates a fetch of
-// gitURL through c. The token never lands in argv or .git/config.
+// CloneEnv is the environment that authenticates a fetch of gitURL
+// through c. The credential never lands in argv or .git/config.
 func (l *Leaf) CloneEnv(ctx context.Context, c store.Connector, gitURL string) ([]string, error) {
-	tok, err := l.Token(ctx, c)
+	g, err := l.git(c)
 	if err != nil {
 		return nil, err
 	}
-	return githubapp.CloneAuth(gitURL, tok), nil
+	return g.CloneEnv(ctx, gitURL)
+}
+
+// RepoURL is raw as the first of cs whose Git source owns it spells it;
+// raw trimmed when none does.
+func (l *Leaf) RepoURL(cs []store.Connector, raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, c := range cs {
+		if g, err := l.git(c); err == nil {
+			if u, ok := g.RepoURL(raw); ok {
+				return u
+			}
+		}
+	}
+	return raw
+}
+
+// Gits is every connected git connection, settings kept: what a repo's
+// spelling is asked of.
+func (l *Leaf) Gits(ctx context.Context) ([]store.Connector, error) {
+	cs, err := l.conns.ListAll(ctx)
+	return slices.DeleteFunc(gitOnly(cs), func(c store.Connector) bool { return c.Pending }), err
 }
 
 // OrgOf is who owns connector id: its org, or nil for a server connector.
-// For routing a browser GitHub sent back; never an access check.
+// For routing a browser a provider sent back; never an access check.
 func (l *Leaf) OrgOf(ctx context.Context, id string) (*string, error) {
 	c, err := l.conns.Get(ctx, id)
 	return c.OrgID, err
 }
 
-// Repos asks GitHub which repositories the app may read: the install check.
-// Empty (no error) when the app is not installed anywhere yet, or installed
-// with no repos picked; either way nothing can be cloned through it.
-func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]githubapp.Repo, error) {
+// Repos asks the provider which repositories the connection may read: the
+// install check. Empty (no error) when it is not installed anywhere yet, or
+// installed with no repos picked; either way nothing can be cloned through
+// it.
+func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]connectors.Repo, error) {
 	c, err := l.Usable(ctx, orgID, id)
 	if err != nil {
 		return nil, err
@@ -496,7 +473,7 @@ func (l *Leaf) Repos(ctx context.Context, orgID, id string) ([]githubapp.Repo, e
 }
 
 // ServerRepos is Repos for a server connector.
-func (l *Leaf) ServerRepos(ctx context.Context, id string) ([]githubapp.Repo, error) {
+func (l *Leaf) ServerRepos(ctx context.Context, id string) ([]connectors.Repo, error) {
 	c, err := l.Server(ctx, id)
 	if err != nil {
 		return nil, err
@@ -504,15 +481,15 @@ func (l *Leaf) ServerRepos(ctx context.Context, id string) ([]githubapp.Repo, er
 	return l.repos(ctx, c)
 }
 
-func (l *Leaf) repos(ctx context.Context, c store.Connector) ([]githubapp.Repo, error) {
-	tok, err := l.Token(ctx, c)
-	if errors.Is(err, githubapp.ErrNotInstalled) {
+func (l *Leaf) repos(ctx context.Context, c store.Connector) ([]connectors.Repo, error) {
+	if c.Pending {
 		return nil, nil
 	}
+	g, err := l.git(c)
 	if err != nil {
 		return nil, err
 	}
-	return l.app.Repos(ctx, tok)
+	return g.Repos(ctx)
 }
 
 // RepoBranches lists repo's branches through connector id, for the config
@@ -522,11 +499,11 @@ func (l *Leaf) RepoBranches(ctx context.Context, orgID, id, repo string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	tok, err := l.Token(ctx, c)
+	g, err := l.git(c)
 	if err != nil {
 		return nil, err
 	}
-	return l.app.Branches(ctx, tok, repo)
+	return g.Branches(ctx, repo)
 }
 
 // RepoYAMLFiles lists repo's YAML files at ref through connector id, for
@@ -536,31 +513,27 @@ func (l *Leaf) RepoYAMLFiles(ctx context.Context, orgID, id, repo, ref string) (
 	if err != nil {
 		return nil, err
 	}
-	tok, err := l.Token(ctx, c)
+	g, err := l.git(c)
 	if err != nil {
 		return nil, err
 	}
-	return l.app.YAMLFiles(ctx, tok, repo, ref)
+	return g.YAMLFiles(ctx, repo, ref)
 }
 
-// Token is c's installation token (cached by the wrapper).
-func (l *Leaf) Token(ctx context.Context, c store.Connector) (string, error) {
-	app := parse(c).App
-	if app == nil {
-		return "", NoConnector{Host: c.Host}
-	}
-	return l.app.Token(ctx, c.ID, *app)
-}
-
-// WebhookSecret is the HMAC key for /hooks/connectors/<id>; "" (not
-// connected) means the receiver answers 404 before reading the body.
-func (l *Leaf) WebhookSecret(ctx context.Context, id string) (store.Connector, string, error) {
+// Hook checks and decodes a delivery to connection id. One that is not
+// connected, or has no Git source, proves nothing: ErrBadSignature.
+func (l *Leaf) Hook(ctx context.Context, id string, h http.Header, body []byte) (store.Connector, connectors.Event, error) {
 	c, err := l.conns.Get(ctx, id)
 	if err != nil {
-		return c, "", err
+		return c, connectors.Event{}, err
 	}
-	if app := parse(c).App; app != nil {
-		return c, app.WebhookSecret, nil
+	g, err := l.git(c)
+	if errors.As(err, &NoConnector{}) || errors.Is(err, errs.ErrNotFound) {
+		return c, connectors.Event{}, connectors.ErrBadSignature
 	}
-	return c, "", nil
+	if err != nil {
+		return c, connectors.Event{}, err
+	}
+	ev, err := g.Hook(ctx, h, body)
+	return c, ev, err
 }

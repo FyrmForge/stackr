@@ -245,7 +245,7 @@ func Validate(t *store.Tile) error {
 			return errs.Invalidf("git_url", "a git source needs a git_url")
 		}
 		if !gitURL.MatchString(t.GitURL) {
-			return errs.Invalidf("git_url", "use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
+			return errs.Invalidf("git_url", badGitURL)
 		}
 	case Image:
 		if t.ImageRef == "" {
@@ -342,7 +342,7 @@ func checkRun(t *store.Tile) error {
 	case t.GitURL == "" && t.ImageRef == "":
 		return errs.Invalidf("git_url", "a %s needs a git_url or an image", t.Kind)
 	case t.GitURL != "" && !gitURL.MatchString(t.GitURL):
-		return errs.Invalidf("git_url", "use a GitHub URL: https://github.com/owner/repo or git@github.com:owner/repo")
+		return errs.Invalidf("git_url", badGitURL)
 	}
 	if t.TimeoutMinutes == 0 {
 		t.TimeoutMinutes = DefaultTimeout
@@ -393,7 +393,11 @@ func checkSlice(t *store.Tile) error {
 	return nil
 }
 
-var gitURL = regexp.MustCompile(`^(https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+// gitURL is a repository on any host, https or scp-like ssh: which
+// connection clones it is the clone's to say.
+var gitURL = regexp.MustCompile(`^(https://[A-Za-z0-9.-]+(:[0-9]+)?/|[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+:)[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$`)
+
+const badGitURL = "use a repository URL: https://host/owner/repo or user@host:owner/repo"
 
 // canonRestart folds the spellings of the same policy: "", always and
 // unless-stopped are all "always".

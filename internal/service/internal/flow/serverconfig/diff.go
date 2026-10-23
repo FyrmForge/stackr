@@ -352,7 +352,7 @@ func shareText(c ConnectorLive, orgs []store.Org) string {
 }
 
 // connectors shares the server connectors the file names. It never creates
-// one: a GitHub App is made in the panel. Turning "all orgs" on carries an
+// one: a connector is made in the panel. Turning "all orgs" on carries an
 // impact line; a share that is gone from a present list is a removal row,
 // unless a binding uses it (then a note).
 func (d *differ) connectors() {
@@ -519,7 +519,7 @@ func (d *differ) settingImpact(key, have, want string) string {
 		}
 		s += "; point DNS at this box first."
 		if have != "" {
-			s += " CLI logins, API keys and GitHub webhooks still point at " + have
+			s += " CLI logins, API keys and connector webhooks still point at " + have
 		}
 		return s
 	case "root_domain":

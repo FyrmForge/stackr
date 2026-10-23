@@ -35,8 +35,8 @@ func (s credentials) ListByOrg(ctx context.Context, orgID string) ([]Credential,
 // Connector is a row of connectors: one connection of a kind, an org's or
 // the server's (OrgID nil), which the admin shares with named orgs
 // (connector_shares) or all of them (ShareAll). Settings is the kind's
-// sealed blob. Host is a git connector's host until the git kind owns it
-// (phase 2); any other kind holds its kind there.
+// sealed blob. Host is the host a git connection serves (its Git source
+// says); any other kind holds its kind there.
 type Connector struct {
 	ID        string    `db:"id" json:"id"`
 	OrgID     *string   `db:"org_id" json:"org_id"`
@@ -48,8 +48,14 @@ type Connector struct {
 	ShareAll  bool      `db:"share_all" json:"share_all"`
 	// Capabilities is what the connector does: "git", "dns".
 	Capabilities StringList `db:"capabilities" json:"capabilities"`
+	// CheckedAt is when the core last asked the provider (nil = never),
+	// CheckError what it refused then ("" = working).
+	CheckedAt  *time.Time `db:"checked_at" json:"checked_at"`
+	CheckError string     `db:"check_error" json:"check_error"`
 	// Shared marks a server connector in an org's list; not a column.
 	Shared bool `db:"-" json:"shared"`
+	// Pending: its setup is out at the provider; not a column.
+	Pending bool `db:"-" json:"pending"`
 }
 
 type ConnectorStore interface {
@@ -77,6 +83,8 @@ type ConnectorStore interface {
 	SetApp(ctx context.Context, id, name, settings string) error
 	// SetSettings rewrites the settings blob only.
 	SetSettings(ctx context.Context, id, settings string) error
+	// SetCheck records a check of the provider: when, and its refusal.
+	SetCheck(ctx context.Context, id string, at time.Time, refusal string) error
 	Update(ctx context.Context, c Connector) error
 	Delete(ctx context.Context, id string) error
 }
@@ -114,6 +122,11 @@ func (s connectors) SetSettings(ctx context.Context, id, settings string) error 
 		return err
 	}
 	res, err := s.q.ExecContext(ctx, "UPDATE connectors SET settings = ? WHERE id = ?", row.Settings, id)
+	return affected(res, err)
+}
+
+func (s connectors) SetCheck(ctx context.Context, id string, at time.Time, refusal string) error {
+	res, err := s.q.ExecContext(ctx, "UPDATE connectors SET checked_at = ?, check_error = ? WHERE id = ?", at, refusal, id)
 	return affected(res, err)
 }
 

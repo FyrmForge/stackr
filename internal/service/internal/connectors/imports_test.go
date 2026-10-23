@@ -58,4 +58,20 @@ func TestKindImports(t *testing.T) {
 	if seen < 100 {
 		t.Fatalf("walked %d files from %s: the root is wrong", seen, root)
 	}
+	// the kinds the walk keeps everyone else away from are the registered
+	// ones, GitHub's and Namecheap's among them
+	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(inside, "all", "all.go"), nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, im := range f.Imports {
+		p, _ := strconv.Unquote(im.Path.Value)
+		kinds[p] = true
+	}
+	for _, k := range []string{"github", "namecheap"} {
+		if !kinds[tree+"/"+k] {
+			t.Errorf("connectors/all does not register %s", k)
+		}
+	}
 }

@@ -2634,7 +2634,7 @@ func Settings(v View, s SettingsView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = text(s, "git_url", "Git URL", "https://github.com/owner/repo", false).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = text(s, "git_url", "Git URL", "https://git.example.com/owner/repo", false).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
