@@ -20,6 +20,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/web/handler/setup"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -224,7 +225,7 @@ func TestServerWizardSteps(t *testing.T) {
 			if step != "domains" && i+1 < len(steps) && !strings.Contains(body, `href="`+setup.ServerBase+"/ui/"+steps[i+1]+`"`) {
 				t.Errorf("%s has no way on to %s", step, steps[i+1])
 			}
-			if (step == "github" || step == "observability" || step == "backups") && !skip {
+			if (step == "certificates" || step == "github" || step == "observability" || step == "backups") && !skip {
 				t.Errorf("%s offers no Skip", step)
 			}
 		}
@@ -399,5 +400,49 @@ func TestServerWizardPendingApp(t *testing.T) {
 	}
 	if cs, _ := s.env.Orch.ServerConnectors(ctx); len(cs) != 0 {
 		t.Errorf("connectors after the sweep = %+v", cs)
+	}
+}
+
+// Certificates adds a Namecheap connector (a refusal keeps the user and IP,
+// never the key), lists its domains, manages one for every org (no org
+// exists yet), and the summary names it. Skip until a connector is added.
+func TestServerWizardCertificates(t *testing.T) {
+	s := newSrvSite(t)
+	ctx := context.Background()
+	s.env.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}, {Name: "away.com"}}
+	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
+	step := setup.ServerBase + "/ui/certificates"
+
+	body := s.do(adm, "GET", step, nil, false).Body.String()
+	for _, w := range []string{`hx-post="/-/setup/server/dns/namecheap"`, "Controls your whole Namecheap account.", ">Skip</a>", "you point its DNS yourself"} {
+		if !strings.Contains(body, w) {
+			t.Fatalf("step lacks %s\n%s", w, body)
+		}
+	}
+	bad := url.Values{"user": {"jo"}, "key": {servicetest.BadKey}, "ip": {"203.0.113.7"}}
+	rec := s.do(adm, "POST", setup.ServerBase+"/dns/namecheap", bad, true)
+	refused(t, rec, `value="jo"`, `value="203.0.113.7"`, "refused the API key")
+	if strings.Contains(rec.Body.String(), servicetest.BadKey) {
+		t.Error("the refused key came back")
+	}
+	rec = s.do(adm, "POST", setup.ServerBase+"/dns/namecheap", url.Values{"user": {"jo"}, "key": {"good-key"}, "ip": {"203.0.113.7"}}, true)
+	if got := rec.Header().Get("HX-Redirect"); got != step {
+		t.Fatalf("add = %d %q\n%s", rec.Code, got, rec.Body)
+	}
+	cs, _ := s.env.Orch.DNSConnectors(ctx, nil)
+	if len(cs) != 1 {
+		t.Fatalf("connectors = %v", cs)
+	}
+	base := setup.ServerBase + "/dns/" + cs[0].ID
+	body = s.do(adm, "GET", step, nil, false).Body.String()
+	if !strings.Contains(body, `hx-post="`+base+`/domains"`) || !strings.Contains(body, ">Continue</a>") || strings.Contains(body, "/delete") {
+		t.Errorf("step after add:\n%s", body)
+	}
+	rec = s.do(adm, "POST", base+"/manage", url.Values{"domain": {"acme.dev"}}, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Available to every organization.") || strings.Contains(b, "<fieldset") {
+		t.Fatalf("manage = %d\n%s", rec.Code, b)
+	}
+	if !strings.Contains(s.do(adm, "GET", setup.ServerBase+"/ui/summary", nil, false).Body.String(), "wildcards and DNS records for acme.dev") {
+		t.Error("summary does not name the managed domain")
 	}
 }

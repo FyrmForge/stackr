@@ -89,7 +89,11 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 	if panel != "" || root != "" {
 		l.State, l.Detail = "on", strings.Trim(panel+", "+root, ", ")
 	}
-	out = append(out, l, SetupLine{Step: "certificates", State: "on", Detail: "one per domain, automatic"})
+	certs := SetupLine{Step: "certificates", State: "on", Detail: "one per domain, automatic"}
+	if ms := o.managedDomains(ctx); len(ms) > 0 {
+		certs.Detail = "wildcards and DNS records for " + strings.Join(ms, ", ")
+	}
+	out = append(out, l, certs)
 
 	cs, err := o.conns.ListServer(ctx)
 	if err != nil {

@@ -19,8 +19,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
+	"github.com/FyrmForge/stackr/internal/web/dnspanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -44,6 +46,8 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	site.POST(ServerBase+"/domains", h.serverDomains, set)
 	site.POST(ServerBase+"/github", h.serverGitHub, a.Require("connector.admin"))
 	site.POST(ServerBase+"/github/app", h.serverApp, a.Require("connector.admin"))
+	site.POST(dnsBase+"/namecheap", h.serverNamecheap, a.Require("connector.admin"))
+	h.dnsPanel().Mount(site, dnsBase, a.Require("connector.admin"))
 	site.POST(ServerBase+"/observe", h.serverObserve, set)
 	site.POST(ServerBase+"/dest", h.serverDest, set)
 	site.POST(ServerBase+"/panel-backup", h.serverPanelBackup, set)
@@ -132,7 +136,7 @@ func adminURL(tab string) string { return "/?drawer=admin&tab=" + tab }
 // serverSteps' titles and subtitles, by step.
 var serverStepTitles = map[string][2]string{
 	"domains":       {"Domains", "Where the panel and your stacks are reached."},
-	"certificates":  {"Certificates", "HTTPS for every domain, with nothing to set."},
+	"certificates":  {"Certificates", "HTTPS for every domain, wildcards where stackr runs the DNS."},
 	"github":        {"GitHub", "One App for the whole server, so organizations need none of their own."},
 	"observability": {"Observability", "Graphs and logs, kept past today."},
 	"backups":       {"Backups", "Where backups go, and the panel's own."},
@@ -145,6 +149,12 @@ var serverStepTitles = map[string][2]string{
 func (h *handler) serverStep(c echo.Context) error { return h.showServerStep(c, c.Param("step")) }
 
 func (h *handler) showServerStep(c echo.Context, step string) error {
+	return h.showServerStepWith(c, step, nil)
+}
+
+// showServerStepWith is the screen; f is a refused Namecheap form to show
+// again on the certificates screen (nil = none).
+func (h *handler) showServerStepWith(c echo.Context, step string, f *dnspanel.Form) error {
 	ctx := c.Request().Context()
 	steps := service.ServerSetupSteps
 	i := slices.Index(steps, step)
@@ -170,7 +180,10 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		err = h.settings(ctx, map[string]*string{"root_domain": &v.Root, "panel_domain": &v.Panel, "acme_email": &v.Email})
 		body = pages.ServerDomains(v)
 	case "certificates":
-		body = pages.ServerCertificates(s)
+		v := pages.ServerCertsView{ServerStep: s}
+		v.DNS, err = h.dnsPanel().View(c, f, "Each managed domain is available to every organization. Admin, Connectors narrows that.")
+		v.Done = len(v.DNS.Rows) > 0
+		body = pages.ServerCertificates(v)
 	case "github":
 		var v pages.ServerGitHubView
 		v, err = h.githubStep(c, s)
@@ -211,7 +224,11 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return render.Bare(c, status(c), "Setup: "+t[0], body)
+	code := status(c)
+	if f != nil {
+		code = http.StatusUnprocessableEntity
+	}
+	return render.Bare(c, code, "Setup: "+t[0], body)
 }
 
 // serverSteps is the by-hand branch's stepper; any done step reopens.
@@ -230,7 +247,7 @@ func (h *handler) refillStep(c echo.Context, err error, step string) error {
 
 // summaryTab is the Admin tab each summary line lives on.
 var summaryTab = map[string]string{
-	"domains": "settings", "certificates": "settings", "github": "connectors",
+	"domains": "settings", "certificates": "connectors", "github": "connectors",
 	"observability": "observability", "backups": "backups", "nodes": "nodes",
 }
 
@@ -439,6 +456,39 @@ func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
 		}
 		return h.answerNodes(c, nil, "")
 	}
+}
+
+// dnsBase is where the certificates screen's DNS connector actions hang.
+const dnsBase = ServerBase + "/dns"
+
+// dnsPanel is Admin's server DNS connector section on the certificates
+// screen. Removing one is Admin's: the screen has no drawer to answer into.
+func (h *handler) dnsPanel() dnspanel.Panel {
+	return dnspanel.Panel{
+		Orch:   h.orch,
+		Org:    func(echo.Context) *string { return nil },
+		Base:   func(echo.Context) string { return dnsBase },
+		Delete: func(echo.Context, service.Connector) comp.ConfirmView { return comp.ConfirmView{} },
+	}
+}
+
+// POST /-/setup/server/dns/namecheap (user, key, ip): check the account and
+// save it, then the screen again to pick domains. A refusal shows the
+// screen with the user and IP kept, the key blank.
+func (h *handler) serverNamecheap(c echo.Context) error {
+	f, err := h.dnsPanel().Add(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if f != nil {
+		hd := c.Response().Header()
+		hd.Set("HX-Retarget", "#"+pages.ShellID)
+		hd.Set("HX-Reselect", "#"+pages.ShellID)
+		hd.Set("HX-Reswap", "outerHTML")
+		return h.showServerStepWith(c, "certificates", f)
+	}
+	hamrmw.SetFlash(c, "Connected. Pick the domains stackr manages.", hamrmw.FlashSuccess)
+	return respond.Redirect(c, stepURL("certificates"))
 }
 
 // POST /-/setup/server/domains (root_domain, panel_domain, acme_email).
