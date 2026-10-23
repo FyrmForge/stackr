@@ -15,7 +15,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
-	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 )
@@ -83,11 +82,10 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.orgDomains(c, cd, f.Base)
 	case "connectors":
 		if !can(c, cd.s, "dns.manage") {
-			f.Error = "Only an owner of this organization manages its DNS connectors."
+			f.Error = "Only an owner of this organization manages its connectors."
 			return templ.NopComponent, nil
 		}
-		v, err := h.dns().View(c, nil, orgDNSHelp)
-		return dnsui.Tab(v), err
+		return h.connectorsTab(c, og)
 	case "registry":
 		return h.orgRegistry(c, cd)
 	case "shares":

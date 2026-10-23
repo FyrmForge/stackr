@@ -414,20 +414,34 @@ func TestServerWizardCertificates(t *testing.T) {
 	step := setup.ServerBase + "/ui/certificates"
 
 	body := s.do(adm, "GET", step, nil, false).Body.String()
-	for _, w := range []string{`hx-post="/-/setup/server/dns/namecheap"`, "Controls your whole Namecheap account.", ">Skip</a>", "you point its DNS yourself"} {
+	for _, w := range []string{`hx-get="/-/setup/server/dns/new"`, "+ Add Namecheap", ">Skip</a>", "you point its DNS yourself"} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("step lacks %s\n%s", w, body)
 		}
 	}
+	// the add dialog opens straight on Namecheap: no kind picker, no Back to one
+	body = s.do(adm, "GET", setup.ServerBase+"/dns/new", nil, true).Body.String()
+	for _, w := range []string{"<confirm-dialog open>", `hx-post="/-/setup/server/dns/namecheap"`, "Controls your whole Namecheap account.", `hx-get="` + step + `"`} {
+		if !strings.Contains(body, w) {
+			t.Fatalf("dialog lacks %s\n%s", w, body)
+		}
+	}
+	if strings.Contains(body, "?pick=1") {
+		t.Errorf("the wizard's dialog goes back to a picker:\n%s", body)
+	}
 	bad := url.Values{"user": {"jo"}, "key": {servicetest.BadKey}, "ip": {"203.0.113.7"}}
 	rec := s.do(adm, "POST", setup.ServerBase+"/dns/namecheap", bad, true)
-	refused(t, rec, `value="jo"`, `value="203.0.113.7"`, "refused the API key")
+	// a refusal answers into the open dialog, not the shell
+	if b := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || rec.Header().Get("HX-Retarget") != "" ||
+		!strings.Contains(b, `value="jo"`) || !strings.Contains(b, `value="203.0.113.7"`) || !strings.Contains(b, "refused the API key") {
+		t.Errorf("refused add = %d\n%s", rec.Code, b)
+	}
 	if strings.Contains(rec.Body.String(), servicetest.BadKey) {
 		t.Error("the refused key came back")
 	}
 	rec = s.do(adm, "POST", setup.ServerBase+"/dns/namecheap", url.Values{"user": {"jo"}, "key": {"good-key"}, "ip": {"203.0.113.7"}}, true)
-	if got := rec.Header().Get("HX-Redirect"); got != step {
-		t.Fatalf("add = %d %q\n%s", rec.Code, got, rec.Body)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Step 5 of 5: Domains") {
+		t.Fatalf("add = %d\n%s", rec.Code, rec.Body)
 	}
 	cs, _ := s.env.Orch.DNSConnectors(ctx, nil)
 	if len(cs) != 1 {
@@ -435,8 +449,12 @@ func TestServerWizardCertificates(t *testing.T) {
 	}
 	base := setup.ServerBase + "/dns/" + cs[0].ID
 	body = s.do(adm, "GET", step, nil, false).Body.String()
-	if !strings.Contains(body, `hx-post="`+base+`/domains"`) || !strings.Contains(body, ">Continue</a>") || strings.Contains(body, "/delete") {
+	if !strings.Contains(body, `hx-get="`+base+`/settings"`) || !strings.Contains(body, ">Continue</a>") {
 		t.Errorf("step after add:\n%s", body)
+	}
+	body = s.do(adm, "GET", base+"/settings", nil, true).Body.String()
+	if !strings.Contains(body, `hx-post="`+base+`/domains"`) || strings.Contains(body, "/delete") {
+		t.Errorf("settings:\n%s", body)
 	}
 	rec = s.do(adm, "POST", base+"/manage", url.Values{"domain": {"acme.dev"}}, true)
 	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Available to every organization.") || strings.Contains(b, "<fieldset") {

@@ -1,88 +1,174 @@
-// Package dnspanel is the DNS connector section's handlers, shared by the
-// admin drawer (server connectors) and the org drawer (the org's own). A
-// handler mounts them under its own base and gate; Level says whose
-// connectors a request reaches.
+// Package dnspanel is the DNS connector handlers, shared by the admin
+// drawer (server connectors), the org drawer (the org's own) and the setup
+// wizard's Certificates step. A handler mounts them under its own base and
+// gate; Org says whose connectors a request reaches.
 package dnspanel
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
+	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	ui "github.com/FyrmForge/stackr/internal/ui/dns"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // Panel is one level. Org gives the request's org (nil = the server's);
-// Base is where the routes below hang; Delete is a row's remove action.
+// Base is where the routes below hang; Delete is a connector's remove
+// action (Action "" = none); Back is the add dialog's kind picker (nil =
+// the dialog opens straight on Namecheap); Refresh is a GET whose answer
+// holds the connectors list, fetched as a dialog closes.
 type Panel struct {
-	Orch   *service.Orchestrator
-	Org    func(c echo.Context) *string
-	Base   func(c echo.Context) string
-	Delete func(c echo.Context, conn service.Connector) comp.ConfirmView
+	Orch    *service.Orchestrator
+	Org     func(c echo.Context) *string
+	Base    func(c echo.Context) string
+	Delete  func(c echo.Context, conn service.Connector) comp.ConfirmView
+	Back    func(c echo.Context) string
+	Refresh func(c echo.Context) string
 }
 
 // Mount adds the routes under prefix (the level's base pattern) behind gate.
 func (p Panel) Mount(g *echo.Group, prefix string, gate echo.MiddlewareFunc) {
+	g.GET(prefix+"/namecheap", p.form, gate)
+	g.POST(prefix+"/namecheap", p.add, gate)
+	g.GET(prefix+"/:connector/settings", p.settings, gate)
 	g.POST(prefix+"/:connector/domains", p.domains, gate)
 	g.POST(prefix+"/:connector/manage", p.manage, gate)
 	g.POST(prefix+"/:connector/unmanage", p.unmanage, gate)
 	g.POST(prefix+"/:connector/takeover", p.takeover, gate)
 }
 
-// Form is a refused add, to show again: the user and IP, never the key.
-type Form struct {
-	User, IP string
-	Errors   map[string]string
+// Form is Namecheap's first screen in the add dialog.
+func (p Panel) Form(c echo.Context) ui.AddView {
+	v := ui.AddView{Add: p.Base(c) + "/namecheap", IP: p.Orch.DNSClientIP(c.Request().Context())}
+	if p.Back != nil {
+		v.Back = p.Back(c)
+	}
+	return v
 }
 
-// Add runs the Namecheap form. A refusal comes back as a Form; err is
-// only what the page cannot show.
-func (p Panel) Add(c echo.Context) (*Form, error) {
+// Open is the add dialog opened straight on Namecheap (the wizard's).
+func (p Panel) Open(c echo.Context) templ.Component {
+	return connectors.Modal("Add a Namecheap connector", p.Refresh(c), ui.Add(p.Form(c)))
+}
+
+// GET <base>/namecheap: Namecheap's screens, into the add dialog.
+func (p Panel) form(c echo.Context) error {
+	return respond.HTML(c, http.StatusOK, ui.Add(p.Form(c)))
+}
+
+// POST <base>/namecheap (user, key, ip): check the account and save it,
+// then pick its domains. A refusal shows the screens again on the step
+// with the first error, the user and IP kept, never the key.
+func (p Panel) add(c echo.Context) error {
 	a := service.DNSAccount{User: c.FormValue("user"), Key: c.FormValue("key"), ClientIP: c.FormValue("ip")}
-	_, err := p.Orch.AddDNSConnector(c.Request().Context(), p.Org(c), service.DNSNamecheap, a)
+	k, err := p.Orch.AddDNSConnector(c.Request().Context(), p.Org(c), service.DNSNamecheap, a)
 	if err == nil {
-		return nil, nil
+		v := ui.AddView{ID: k.Connector.ID, Domains: p.Base(c) + "/" + k.Connector.ID + "/domains"}
+		return respond.HTML(c, http.StatusOK, ui.Add(v))
 	}
-	f := &Form{User: a.User, IP: a.ClientIP, Errors: map[string]string{}}
-	if inv, ok := errs.IsInvalid(err); ok && inv.Field != "" {
-		f.Errors[inv.Field] = inv.Msg
-		return f, nil
+	v := p.Form(c)
+	v.User, v.IP, v.Errors = a.User, a.ClientIP, fields(err)
+	if len(v.Errors) == 0 {
+		msg, ok := render.Refused(err)
+		if !ok {
+			return middleware.HTTPError(err)
+		}
+		v.Errors["general"] = msg
 	}
-	msg, ok := render.Refused(err)
-	if !ok {
-		return nil, err
-	}
-	f.Errors["general"] = msg
-	return f, nil
+	return respond.HTML(c, http.StatusUnprocessableEntity, ui.Add(v))
 }
 
-// View is the section: the form (refused values kept) and the rows.
-func (p Panel) View(c echo.Context, f *Form, help string) (ui.View, error) {
-	ctx := c.Request().Context()
-	org := p.Org(c)
-	v := ui.View{Scope: "organization", Help: help, Add: p.Base(c) + "/namecheap", IP: p.Orch.DNSClientIP(ctx)}
-	if org == nil {
-		// the failure can name any org's hosts: the server level only
-		v.Scope, v.Synced = "instance", p.Orch.DNSSyncError()
+// fields is every field error in err, which may join several.
+func fields(err error) map[string]string {
+	out := map[string]string{}
+	var walk func(error)
+	walk = func(e error) {
+		if j, ok := e.(interface{ Unwrap() []error }); ok {
+			for _, x := range j.Unwrap() {
+				walk(x)
+			}
+			return
+		}
+		if inv, ok := errs.IsInvalid(e); ok && inv.Field != "" {
+			out[inv.Field] = inv.Msg
+		}
 	}
-	if f != nil {
-		v.User, v.IP, v.Errors = f.User, f.IP, f.Errors
+	walk(err)
+	return out
+}
+
+// connector is the request's connector of this level.
+func (p Panel) connector(c echo.Context) (service.Connector, error) {
+	cs, err := p.Orch.DNSConnectors(c.Request().Context(), p.Org(c))
+	if err != nil {
+		return service.Connector{}, err
 	}
+	i := slices.IndexFunc(cs, func(k service.Connector) bool { return k.ID == c.Param("connector") })
+	if i < 0 {
+		return service.Connector{}, errs.ErrNotFound
+	}
+	return cs[i], nil
+}
+
+// GET <base>/:connector/settings: the settings dialog, its domains and
+// Remove.
+func (p Panel) settings(c echo.Context) error {
+	k, err := p.connector(c)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v := ui.SettingsView{ID: k.ID, Domains: p.Base(c) + "/" + k.ID + "/domains", Delete: p.Delete(c, k)}
+	return respond.HTML(c, http.StatusOK, connectors.Modal(k.Name, p.Refresh(c), ui.Settings(v)))
+}
+
+// Rows is the level's DNS connectors in the list.
+func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
+	ctx, org := c.Request().Context(), p.Org(c)
 	cs, err := p.Orch.DNSConnectors(ctx, org)
 	if err != nil {
-		return v, err
+		return nil, err
 	}
+	n, err := p.Orch.DNSManaged(ctx, org)
+	if err != nil {
+		return nil, err
+	}
+	var out []connectors.Row
 	for _, k := range cs {
-		v.Rows = append(v.Rows, ui.Row{ID: k.ID, Name: k.Name, Domains: p.Base(c) + "/" + k.ID + "/domains", Delete: p.Delete(c, k)})
+		out = append(out, connectors.Row{
+			ID: k.ID, Kind: "DNS", Name: k.Name, Summary: managed(n[k.ID]),
+			Settings: p.Base(c) + "/" + k.ID + "/settings",
+		})
 	}
-	return v, nil
+	return out, nil
+}
+
+func managed(n int) string {
+	switch n {
+	case 0:
+		return "No managed domains"
+	case 1:
+		return "1 managed domain"
+	}
+	return fmt.Sprintf("%d managed domains", n)
+}
+
+// Synced is the last records sync's failure; it can name any org's
+// hosts, so only the server level shows it.
+func (p Panel) Synced(c echo.Context) string {
+	if p.Org(c) != nil {
+		return ""
+	}
+	return p.Orch.DNSSyncError()
 }
 
 // POST <base>/:connector/domains: the list, asked of the provider.
@@ -155,3 +241,4 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 	}
 	return respond.HTML(c, status, ui.Domains(v))
 }
+

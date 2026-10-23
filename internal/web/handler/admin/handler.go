@@ -330,7 +330,7 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 		val, err := h.orch.Setting(ctx, "proxy_custom")
 		return ui.Caddy(ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}), err
 	case "connectors":
-		return h.connectorsTab(c, nil)
+		return h.connectorsTab(c)
 	case "alerts":
 		return h.alertsTab(c)
 	case "registry":

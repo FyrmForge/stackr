@@ -50,6 +50,12 @@ func createButtons(c echo.Context, l level) []ui.Create {
 			out = append(out, ui.Create{Label: cr.label, URL: "/setup", Nav: true})
 			continue
 		}
+		// an owner gets the Connectors tab's add dialog (GitHub or DNS);
+		// a writer, who has no such tab, GitHub's install in the drawer
+		if cr.kind == "connector" && authz.Can(p.Access, "dns.manage", r) == nil {
+			out = append(out, ui.Create{Label: cr.label, URL: l.base + "/-/drawer?tab=connectors&add=1"})
+			continue
+		}
 		out = append(out, ui.Create{Label: cr.label, URL: l.base + "/-/new-" + cr.kind})
 	}
 	return out

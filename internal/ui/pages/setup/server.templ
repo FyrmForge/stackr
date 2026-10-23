@@ -8,7 +8,7 @@ package setup
 import (
 	"strings"
 
-	"github.com/FyrmForge/stackr/internal/ui/dns"
+	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 )
 
@@ -34,7 +34,7 @@ type ServerDomainsView struct {
 // ServerCertsView is the certificates screen: the server DNS connectors.
 type ServerCertsView struct {
 	ServerStep
-	DNS  dns.View
+	List connectors.ListView
 	Done bool // a DNS connector is added: Continue, not Skip
 }
 
@@ -172,8 +172,8 @@ templ ServerCertificates(v ServerCertsView) {
 			<p>Each domain gets its own certificate from Let's Encrypt, automatically.</p>
 			<p>Connect Namecheap and pick domains: stackr sets their DNS records and gets wildcard certificates for them.</p>
 		</div>
-		@dns.Connectors(v.DNS)
-		@serverNext(v.Next, v.Done, "Without one, each host gets its own certificate and you point its DNS yourself.")
+		{{ v.List.Foot = serverNext(v.Next, v.Done, "Without one, each host gets its own certificate and you point its DNS yourself.") }}
+		@connectors.Tab(v.List, nil)
 	}
 }
 

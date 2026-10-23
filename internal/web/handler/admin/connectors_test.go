@@ -21,21 +21,56 @@ func TestAdminConnectors(t *testing.T) {
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	const base = "/-/admin/connectors/"
 
+	// the list: one row, its summary and cogwheel, and the add button
 	rec := s.As(t, root, "GET", "/-/admin?tab=connectors", nil)
 	body := rec.Body.String()
 	for _, want := range []string{
-		`id="tab-connectors"`, "main", "https://github.com/apps/stackr-main/installations/new",
-		"All organizations", "Every owner of every organization", `name="org" value="` + s.Org + `"`,
-		`hx-post="/-/admin/connectors"`,
+		`id="tab-connectors"`, `id="connectors-list"`, "main", "Not shared yet",
+		`hx-get="/-/admin/connectors/` + srv + `/settings"`, `aria-label="Settings for main"`,
+		`hx-get="/-/admin/connectors/new"`, "+ Add connector",
 	} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
 			t.Fatalf("connectors tab = %d, no %q in\n%s", rec.Code, want, body)
 		}
 	}
+	if strings.Contains(body, "Every owner of every organization") || strings.Contains(body, `name="github_org"`) {
+		t.Errorf("the list carries a form:\n%s", body)
+	}
+
+	// the cogwheel: sharing, the GitHub link, Remove
+	rec = s.As(t, root, "GET", base+srv+"/settings", nil)
+	body = rec.Body.String()
+	for _, want := range []string{
+		"<confirm-dialog open>", "https://github.com/apps/stackr-main/installations/new",
+		"All organizations", "Every owner of every organization", `name="org" value="` + s.Org + `"`,
+		`hx-post="/-/admin/connectors/` + srv + `/delete"`, `hx-trigger="close from:#connector-dialog"`,
+	} {
+		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("settings = %d, no %q in\n%s", rec.Code, want, body)
+		}
+	}
+
+	// the add dialog: the kind picker, then GitHub's first screen
+	rec = s.As(t, root, "GET", base+"new", nil)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "<confirm-dialog open>") ||
+		!strings.Contains(body, `hx-get="/-/admin/connectors/new/github"`) || !strings.Contains(body, `hx-get="/-/admin/dns/namecheap"`) {
+		t.Fatalf("add dialog = %d\n%s", rec.Code, body)
+	}
+	if body := s.As(t, root, "GET", base+"new?pick=1", nil).Body.String(); strings.Contains(body, "<confirm-dialog") || !strings.Contains(body, "Namecheap") {
+		t.Errorf("Back to the picker:\n%s", body)
+	}
+	rec = s.As(t, root, "GET", base+"new/github", nil)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="github_org"`) ||
+		!strings.Contains(body, `hx-post="/-/admin/connectors"`) || !strings.Contains(body, "Step 1 of 2") {
+		t.Fatalf("GitHub step = %d\n%s", rec.Code, body)
+	}
 
 	// the owner of an org is no admin
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/-/admin?tab=connectors"},
+		{"GET", base + "new"},
+		{"GET", base + "new/github"},
+		{"GET", base + srv + "/settings"},
 		{"POST", "/-/admin/connectors"},
 		{"POST", base + srv + "/share"},
 		{"POST", base + srv + "/name"},
@@ -51,7 +86,7 @@ func TestAdminConnectors(t *testing.T) {
 
 	rec = s.As(t, root, "POST", base+srv+"/share", url.Values{"org": {s.Org}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") ||
-		!strings.Contains(rec.Body.String(), `value="`+s.Org+`" checked`) {
+		!strings.Contains(rec.Body.String(), "Shared with 1 organization") {
 		t.Fatalf("share with an org = %d\n%s", rec.Code, rec.Body)
 	}
 	if cs, _ := s.Orch.ServerConnectors(ctx); !slices.Equal(cs[0].OrgIDs, []string{s.Org}) {
@@ -76,7 +111,8 @@ func TestAdminConnectors(t *testing.T) {
 	// begin: the manifest form that posts to GitHub
 	rec = s.As(t, root, "POST", "/-/admin/connectors", url.Values{"github_org": {"acme-inc"}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Continue on GitHub") ||
-		!strings.Contains(rec.Body.String(), `name="manifest"`) {
+		!strings.Contains(rec.Body.String(), `name="manifest"`) || !strings.Contains(rec.Body.String(), "Step 2 of 2") ||
+		strings.Contains(rec.Body.String(), `id="drawer-view"`) {
 		t.Fatalf("begin = %d\n%s", rec.Code, rec.Body)
 	}
 	cs, _ := s.Orch.ServerConnectors(ctx)
