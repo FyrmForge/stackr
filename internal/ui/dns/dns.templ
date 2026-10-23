@@ -140,7 +140,7 @@ templ Domains(v DomainsView) {
 								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Manage } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
 							}
 							if d.Unmanage != "" && d.State == "managed" {
-								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "Its records stay as they are.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
+								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the records it made. Other records stay.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
 							}
 							if d.TakeOver != "" && d.State == "dns_elsewhere" {
 								@c.Confirm(c.ConfirmView{

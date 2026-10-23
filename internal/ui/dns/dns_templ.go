@@ -456,7 +456,7 @@ func Domains(v DomainsView) templ.Component {
 				}
 			}
 			if d.Unmanage != "" && d.State == "managed" {
-				templ_7745c5c3_Err = c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "Its records stay as they are.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the records it made. Other records stay.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

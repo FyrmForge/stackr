@@ -62,7 +62,7 @@ func (h *handler) dns() dnspanel.Panel {
 			return comp.ConfirmView{
 				Button:  "Remove",
 				Title:   "Remove " + k.Name + "?",
-				Warning: "stackr stops managing its domains. Their records stay as they are.",
+				Warning: "stackr deletes the DNS records it made and stops managing its domains. Refused while a tile uses one.",
 				Action:  ui.Base + "/connectors/" + k.ID + "/delete",
 				Target:  "#" + comp.DrawerRoot,
 			}
