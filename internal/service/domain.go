@@ -157,8 +157,19 @@ func dnsErrFor(err error, zone, host string) error {
 	walk = func(e error) {
 		var ze *dnscap.ZoneError
 		var rt *RecordTaken
+		var np *NoPublicIP
+		if j, ok := e.(interface{ Unwrap() []error }); ok { // a join: each part on its own
+			for _, x := range j.Unwrap() {
+				walk(x)
+			}
+			return
+		}
 		switch {
 		case e == nil:
+		case errors.As(e, &np):
+			if slices.Contains(np.Hosts, host) {
+				out = append(out, &NoPublicIP{NodeID: np.NodeID, Node: np.Node, Hosts: []string{host}})
+			}
 		case errors.As(e, &rt):
 			if slices.Contains(rt.Hosts, host) {
 				out = append(out, &RecordTaken{Hosts: []string{host}})
@@ -168,12 +179,6 @@ func dnsErrFor(err error, zone, host string) error {
 				out = append(out, e)
 			}
 		default:
-			if j, ok := e.(interface{ Unwrap() []error }); ok {
-				for _, x := range j.Unwrap() {
-					walk(x)
-				}
-				return
-			}
 			out = append(out, e)
 		}
 	}

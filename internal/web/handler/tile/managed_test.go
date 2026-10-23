@@ -52,3 +52,63 @@ func TestManagedDomainForm(t *testing.T) {
 		t.Errorf("zone = %v", z)
 	}
 }
+
+// A Replace it offer keeps the add form open with what was typed and says
+// why, so a Cancel loses nothing.
+func TestManagedDomainReplaceKeepsForm(t *testing.T) {
+	s := managedSite(t, "198.51.100.1")
+	s.DNS.Put("acme.dev", libdns.RR{Name: "shop", Type: "A", Data: "203.0.113.9"})
+	rec := s.Do(t, "POST", drawer+"/domains", url.Values{"domain": {"acme.dev"}, "sub": {"shop"}, "path": {"/api"}})
+	body := rec.Body.String()
+	for _, want := range []string{`<details class="mb-4" open`, `name="sub" value="shop"`, `name="path" value="/api"`, `<option value="acme.dev" selected>`, "shop.acme.dev already has a DNS record."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("offer = %d, no %q", rec.Code, want)
+		}
+	}
+}
+
+// An add on a managed domain whose ingress node has no public IP is
+// refused naming the node; a server admin gets a link to its Network tab.
+func TestManagedDomainNoPublicIP(t *testing.T) {
+	s := managedSite(t, "")
+	ns, err := s.Store.Nodes.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := "Node " + ns[0].Name + " has no public IP address"
+	link := `href="/-/cluster?drawer=node:` + ns[0].ID + `&amp;tab=network"`
+	rec := s.Do(t, "POST", drawer+"/domains", url.Values{"domain": {"acme.dev"}, "sub": {"app"}, "https": {"1"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, named) || strings.Contains(body, link) {
+		t.Fatalf("owner: no IP = %d, want %q and no link", rec.Code, named)
+	}
+	admin := s.Session(t, s.User(t, "admin@acme.test", true))
+	rec = s.As(t, admin, "POST", drawer+"/domains", url.Values{"domain": {"acme.dev"}, "sub": {"web"}, "https": {"1"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, named) || !strings.Contains(body, link) {
+		t.Fatalf("admin: no IP = %d, want %q and %s", rec.Code, named, link)
+	}
+}
+
+// managedSite has acme.dev managed through a DNS connector, the node's
+// public IP set to ip ("" = none).
+func managedSite(t *testing.T, ip string) *webtest.Site {
+	t.Helper()
+	s := webtest.New(t)
+	ctx := context.Background()
+	s.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}}
+	ns, err := s.Store.Nodes.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns[0].PublicIP = ip
+	if err := s.Store.Nodes.Update(ctx, ns[0]); err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, service.DNSAccount{User: "u", Key: "k", ClientIP: "203.0.113.7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Orch.ManageDNSDomain(ctx, nil, c.Connector.ID, "acme.dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}

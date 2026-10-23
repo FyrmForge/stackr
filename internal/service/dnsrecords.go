@@ -26,6 +26,20 @@ import (
 // did not create; attaching again with replace takes the record over.
 type RecordTaken = dnscap.RecordTaken
 
+// NoPublicIP refuses records for Hosts: their ingress node has no public
+// address, detected or set. The panel links the node's Network tab.
+type NoPublicIP struct {
+	NodeID, Node string
+	Hosts        []string
+}
+
+func (e *NoPublicIP) Error() string {
+	return "Node " + e.Node + " has no public IP address for DNS records; set one on the node"
+}
+
+// Is makes errors.Is(err, errs.ErrRefused) true.
+func (e *NoPublicIP) Is(target error) bool { return target == errs.ErrRefused }
+
 // ManagedHost is the host a tile domain gets from a managed domain and a
 // subdomain ("" = the domain itself).
 func ManagedHost(domain, sub string) string {
@@ -99,7 +113,7 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 	tiles := map[string]tileFacts{}
 	var out []dnscap.Want
 	var bad []error
-	noIP := map[string]bool{}
+	noIP := map[string]*NoPublicIP{}
 	for _, d := range ds {
 		if strings.HasPrefix(d.Host, "*.") {
 			continue
@@ -135,10 +149,11 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 			return nil, err
 		}
 		if !v4.IsValid() && !v6.IsValid() {
-			if !noIP[name] {
-				noIP[name] = true
-				bad = append(bad, errs.Refusedf("%s has no public IP address for DNS records; set one on the node", name))
+			if noIP[f.node] == nil {
+				noIP[f.node] = &NoPublicIP{NodeID: f.node, Node: name}
+				bad = append(bad, noIP[f.node])
 			}
+			noIP[f.node].Hosts = append(noIP[f.node].Hosts, d.Host)
 			out = append(out, dnscap.Want{Zone: z.Name, Name: dnscap.Name(d.Host, z.Name), Hold: true})
 			continue
 		}

@@ -144,12 +144,29 @@ type DomainsView struct {
 	Admin   bool          // raw Caddy snippets are an admin's
 	Managed []string      // the managed domains the tile may use: the add form's list
 	Replace *ReplaceOffer // an add refused on a record stackr did not create
+	NoIP    *NoIPRefusal  // an add refused on an ingress node with no public IP
 }
 
 // ReplaceOffer is the "Replace it" question: Vals is the refused add's
-// form, replace on, posted again on yes.
+// form, replace on, posted again on yes; Form is that form, drawn again
+// open so a Cancel keeps what was typed.
 type ReplaceOffer struct {
 	Host, Vals string
+	Form       map[string]string
+}
+
+// NoIPRefusal names the ingress node with no public IP; Link opens its
+// Network tab ("" = the viewer is not a server admin).
+type NoIPRefusal struct {
+	Node, Link string
+}
+
+// typed is the refused add's value of form key k, "" with none.
+func (d DomainsView) typed(k string) string {
+	if d.Replace == nil {
+		return ""
+	}
+	return d.Replace.Form[k]
 }
 
 type DomainRow struct {

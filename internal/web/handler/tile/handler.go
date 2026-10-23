@@ -26,6 +26,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
+	clusterui "github.com/FyrmForge/stackr/internal/ui/cluster"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/tile"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -97,6 +98,7 @@ type head struct {
 type typed struct {
 	vals, errors map[string]string
 	replace      *ui.ReplaceOffer // the Settings tab asks "Replace it"
+	noIP         *ui.NoIPRefusal  // the ingress node has no public IP
 }
 
 // view is the drawer frame for tab: v0's header (status, source, where it
@@ -218,7 +220,7 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 			maps.Copy(sv.Vals, ty.vals)
 			sv.Errors = ty.errors
 			if sv.Domains != nil {
-				sv.Domains.Replace = ty.replace
+				sv.Domains.Replace, sv.Domains.NoIP = ty.replace, ty.noIP
 			}
 		}
 		body = ui.Settings(v, sv)
@@ -425,18 +427,37 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	if errors.As(err, new(*service.RecordTaken)) {
 		return h.offerReplace(c, s.Host)
 	}
+	if np := new(service.NoPublicIP); errors.As(err, &np) {
+		return h.refuseNoIP(c, np)
+	}
 	return h.after(c, "settings", "attached "+s.Host, err)
+}
+
+// refuseNoIP answers an add refused on an ingress node with no public IP:
+// the node named, and for a server admin a link to its Network tab.
+func (h *handler) refuseNoIP(c echo.Context, np *service.NoPublicIP) error {
+	v, hd, err := h.view(c, "settings")
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	r := &ui.NoIPRefusal{Node: np.Node}
+	if p := middleware.Principal(c); p != nil && p.Access.Admin {
+		r.Link = clusterui.Base + clusterui.NodePush(np.NodeID, "network")
+	}
+	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{noIP: r})
 }
 
 // offerReplace answers an add refused on a record stackr did not create:
 // the Settings tab asking whether to replace it, the form kept.
 func (h *handler) offerReplace(c echo.Context, host string) error {
-	vals := map[string]string{"replace": "1"}
+	form := map[string]string{}
 	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
 		if v := c.FormValue(k); v != "" {
-			vals[k] = v
+			form[k] = v
 		}
 	}
+	vals := maps.Clone(form)
+	vals["replace"] = "1"
 	b, err := json.Marshal(vals)
 	if err != nil {
 		return err
@@ -445,7 +466,7 @@ func (h *handler) offerReplace(c echo.Context, host string) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{replace: &ui.ReplaceOffer{Host: host, Vals: string(b)}})
+	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{replace: &ui.ReplaceOffer{Host: host, Vals: string(b), Form: form}})
 }
 
 // autoRefusal drops the field off a refused auto attach: its form is one
