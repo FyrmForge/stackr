@@ -57,7 +57,7 @@ stackr ingress set eu-prod --stack shop --env prod
 stackr ingress get --stack shop --env prod
 ```
 
-A pick covers its org, stack, env or tile and everything below it. `stackr ingress set --clear --stack shop` goes back to inheriting. Point DNS at the node a host enters through.
+A pick covers its org, stack, env or tile and everything below it. `stackr ingress set --clear --stack shop` goes back to inheriting. Point DNS at the node a host enters through. Hosts in a domain stackr manages need nothing: their records follow the ingress. See [Domains and DNS](domains.md).
 
 The default ingress serves the panel and every route without a pick. Moving it lists where each host points today, then asks you to type the node's name.
 
@@ -65,7 +65,7 @@ The default ingress serves the panel and every route without a pick. Moving it l
 stackr ingress set vps-fsn1 --default
 ```
 
-Point DNS at the new default ingress.
+Point DNS at the new default ingress. Hosts in a managed domain are left out of the list: stackr repoints them.
 
 **Egress.** A node with the `egress` tag sends traffic out its own uplink. To send a scope's traffic out another placement's node, give it an ordered exit list of placements (or `own`).
 

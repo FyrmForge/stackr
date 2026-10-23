@@ -11,6 +11,7 @@ Step-by-step guides, in the order you need them:
 3. [Upgrade](docs/guide/upgrade.md): the panel and every worker
 4. [Backups](docs/guide/backups.md), including Back up node
 5. [Remove a node](docs/guide/remove.md) and `stackr-install uninstall`
+6. [Domains and DNS](docs/guide/domains.md): Namecheap, managed domains, records that follow ingress
 
 ## System requirements
 
