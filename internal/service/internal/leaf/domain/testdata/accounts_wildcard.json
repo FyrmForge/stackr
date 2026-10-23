@@ -231,6 +231,24 @@
           {
             "issuers": [
               {
+                "challenges": {
+                  "dns": {
+                    "provider": {
+                      "name": "stackr"
+                    }
+                  }
+                },
+                "email": "shop@example.com",
+                "module": "acme"
+              }
+            ],
+            "subjects": [
+              "*.shop.example.com"
+            ]
+          },
+          {
+            "issuers": [
+              {
                 "email": "a@example.com",
                 "module": "acme"
               }
@@ -262,7 +280,7 @@
       },
       "certificates": {
         "automate": [
-          "*.example.com"
+          "*.shop.example.com"
         ]
       }
     }

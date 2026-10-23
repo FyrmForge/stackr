@@ -26,6 +26,9 @@ type Syncer struct {
 	// instead of failing the run: one ingress worker down must not fail a
 	// deploy or rollback it does not serve.
 	Soft func(node string) bool
+	// After runs at the end of every run, under its lock: the DNS records
+	// follow what was just pushed.
+	After func(context.Context)
 
 	run  sync.Mutex      // held for a whole run
 	mu   sync.Mutex      // guards the counters
@@ -59,6 +62,9 @@ func (s *Syncer) Sync(ctx context.Context) error {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), Timeout)
 	defer cancel()
 	err := s.once(rctx)
+	if s.After != nil {
+		s.After(rctx)
+	}
 	s.mu.Lock()
 	s.done, s.err = covers, err
 	s.mu.Unlock()

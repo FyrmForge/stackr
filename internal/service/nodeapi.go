@@ -47,12 +47,14 @@ type NodeOut struct {
 	Placements []string `json:"placements"`
 	Range      string   `json:"range"`
 	WGAddress  string   `json:"wg_address"`
-	CPU        int      `json:"cpu"`
-	MemTotal   uint64   `json:"mem_total"`
-	DiskFree   uint64   `json:"disk_free"`
-	DiskTotal  uint64   `json:"disk_total"`
-	Docker     string   `json:"docker"`
-	Arch       string   `json:"arch"`
+	// PublicIP is the address DNS records point at, "" = the detected one.
+	PublicIP  string `json:"public_ip"`
+	CPU       int    `json:"cpu"`
+	MemTotal  uint64 `json:"mem_total"`
+	DiskFree  uint64 `json:"disk_free"`
+	DiskTotal uint64 `json:"disk_total"`
+	Docker    string `json:"docker"`
+	Arch      string `json:"arch"`
 	// Version is the stackr build the node reported; Behind is a worker
 	// whose build is not the panel's, TooOld one the panel refuses to drive.
 	Version string `json:"version"`
@@ -273,7 +275,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	slices.Sort(names)
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{},
+		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{}, PublicIP: n.PublicIP,
 	}
 	if !hasEgress(n) {
 		ids, err := scopeLadder(ctx, o.store, scopeNode, n.ID)

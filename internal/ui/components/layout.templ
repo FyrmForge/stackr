@@ -214,7 +214,12 @@ templ topBar(s Shell, oob bool) {
 			</div>
 		}
 		if s.NodeDown != "" {
-			<div id="node-down" role="alert" class="border-b border-rw-warn/40 bg-rw-warn/10 px-4 sm:px-6 py-2 text-sm text-rw-warn">{ s.NodeDown }</div>
+			<div id="node-down" role="alert" class="border-b border-rw-warn/40 bg-rw-warn/10 px-4 sm:px-6 py-2 text-sm text-rw-warn">
+				{ s.NodeDown }
+				if s.MoveIngress != "" {
+					<a href={ templ.SafeURL(s.MoveIngress) } class="underline hover:text-rw-text ml-1">Move ingress</a>
+				}
+			</div>
 		}
 	</header>
 }

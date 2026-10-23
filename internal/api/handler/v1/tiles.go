@@ -96,6 +96,13 @@ type (
 		RedirectTo string               `json:"redirect_to"`
 		Extras     service.DomainExtras `json:"proxy"`
 		Auto       bool                 `json:"auto,omitempty"` // attach only: the generated name under the nearest domain resource; Host is ignored
+		// Domain and Sub name the host in a managed domain (Sub "" = the
+		// domain itself); Host is ignored when Domain is set.
+		Domain string `json:"domain,omitempty"`
+		Sub    string `json:"sub,omitempty"`
+		// Replace takes over a DNS record stackr did not create on the
+		// host's name (a 409 says when one is there).
+		Replace bool `json:"replace,omitempty"`
 	}
 	RawCaddyIn struct {
 		RawCaddy string `json:"raw_caddy"`
@@ -121,6 +128,9 @@ type (
 )
 
 func (in DomainIn) spec() service.DomainSpec {
+	if in.Domain != "" {
+		in.Host = service.ManagedHost(in.Domain, in.Sub)
+	}
 	return service.DomainSpec{
 		Host:       in.Host,
 		Path:       in.Path,
@@ -296,15 +306,20 @@ func (h *H) Domains() Endpoint {
 	return Get(func(c echo.Context) ([]service.Domain, error) { return list(h.Orch.Domains(rc(c), tileID(c))) })
 }
 
+// TileDNSDomains is the managed domains the tile's domains may sit in.
+func (h *H) TileDNSDomains() Endpoint {
+	return Get(func(c echo.Context) ([]string, error) { return list(h.Orch.TileDNSDomains(rc(c), tileID(c))) })
+}
+
 func (h *H) AttachDomain() Endpoint {
 	return JSON(201, func(c echo.Context, in DomainIn) (service.Domain, error) {
-		return h.Orch.AttachDomain(rc(c), tileID(c), in.spec())
+		return h.Orch.AttachDomainReplace(rc(c), tileID(c), in.spec(), in.Replace)
 	})
 }
 
 func (h *H) UpdateDomain() Endpoint {
 	return JSON(200, func(c echo.Context, in DomainIn) (service.Domain, error) {
-		return h.Orch.UpdateDomain(rc(c), c.Param("domain"), in.spec())
+		return h.Orch.UpdateDomainReplace(rc(c), c.Param("domain"), in.spec(), in.Replace)
 	})
 }
 

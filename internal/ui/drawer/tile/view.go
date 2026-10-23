@@ -140,8 +140,16 @@ type TerminalView struct {
 }
 
 type DomainsView struct {
-	Rows  []DomainRow
-	Admin bool // raw Caddy snippets are an admin's
+	Rows    []DomainRow
+	Admin   bool          // raw Caddy snippets are an admin's
+	Managed []string      // the managed domains the tile may use: the add form's list
+	Replace *ReplaceOffer // an add refused on a record stackr did not create
+}
+
+// ReplaceOffer is the "Replace it" question: Vals is the refused add's
+// form, replace on, posted again on yes.
+type ReplaceOffer struct {
+	Host, Vals string
 }
 
 type DomainRow struct {

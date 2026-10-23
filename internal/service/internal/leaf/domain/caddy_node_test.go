@@ -81,13 +81,14 @@ func TestBuildAllTrustedProxiesOnControllerOnly(t *testing.T) {
 }
 
 // Every ingress node solves DNS-01 the same way, through stackrd (a worker's
-// stackrd worker passes the call to the controller), with no token anywhere.
+// stackrd worker passes the call to the controller), with no token anywhere,
+// and issues only the wildcards of the hosts it serves.
 func TestBuildAllDNSChallengeOnEveryIngress(t *testing.T) {
 	in := install
 	in.DefaultIngress, in.Controller, in.Managed = "ctl", "ctl", []string{"example.com"}
-	ctl := one(row("*.a.example.com", domain.Extras{}))[0]
+	ctl := one(row("api.a.example.com", domain.Extras{}))[0]
 	ctl.IngressNode = "ctl"
-	w := one(row("*.b.example.com", domain.Extras{}))[0]
+	w := one(row("web.b.example.com", domain.Extras{}))[0]
 	w.IngressNode = "w1"
 	all, err := domain.BuildAll(in, []domain.TileRoute{ctl, w}, nil, nil)
 	if err != nil {
@@ -95,15 +96,29 @@ func TestBuildAllDNSChallengeOnEveryIngress(t *testing.T) {
 	}
 	for n, wild := range map[string]string{"ctl": "*.a.example.com", "w1": "*.b.example.com"} {
 		cfg := string(all[n])
-		if !strings.Contains(cfg, `"provider":{"name":"stackr"}`) || !strings.Contains(cfg, `"automate":["*.example.com"]`) {
-			t.Errorf("%s: no stackr DNS-01 policy: %s", n, cfg)
-		}
-		if !strings.Contains(cfg, `"subjects":["`+wild+`","*.example.com"]`) {
-			t.Errorf("%s: %s is not on the DNS-01 policy: %s", n, wild, cfg)
+		if !strings.Contains(cfg, `"provider":{"name":"stackr"}`) || !strings.Contains(cfg, `"automate":["`+wild+`"]`) {
+			t.Errorf("%s: want its own wildcard %s alone on DNS-01: %s", n, wild, cfg)
 		}
 		if strings.Contains(cfg, "{env.") || strings.Contains(cfg, "token") {
 			t.Errorf("%s: a secret in the config", n)
 		}
+	}
+}
+
+// The panel never rides a wildcard: under a managed domain it is automated
+// on its own certificate (HTTP-01), and alone it makes no wildcard.
+func TestPanelKeepsItsOwnCertificate(t *testing.T) {
+	in := install
+	in.Managed, in.PanelHost, in.PanelUpstream = []string{"example.com"}, "panel.example.com", "stackrd:8080"
+	cfg, err := domain.Build(in, nil, nil, nil)
+	must(t, err)
+	if strings.Contains(string(cfg), `"automate"`) {
+		t.Errorf("panel alone: %s", cfg)
+	}
+	cfg, err = domain.Build(in, one(row("shop.example.com", domain.Extras{})), nil, nil)
+	must(t, err)
+	if !strings.Contains(string(cfg), `"automate":["*.example.com","panel.example.com","registry.panel.example.com"]`) {
+		t.Errorf("panel beside a wildcard: %s", cfg)
 	}
 }
 

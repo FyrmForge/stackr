@@ -15,11 +15,15 @@ type DNSDomain struct {
 	Name        string     `db:"name" json:"name"`
 	ShareAll    bool       `db:"share_all" json:"share_all"`
 	OrgIDs      StringList `db:"org_ids" json:"org_ids"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
+	// ResourceID is the domain resource stackr made for the domain; nil
+	// when one already held its host.
+	ResourceID *string   `db:"resource_id" json:"resource_id"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type DNSDomainStore interface {
 	Create(ctx context.Context, d DNSDomain) error
+	Get(ctx context.Context, id string) (DNSDomain, error)
 	Update(ctx context.Context, d DNSDomain) error
 	Delete(ctx context.Context, id string) error
 	ListByConnector(ctx context.Context, connectorID string) ([]DNSDomain, error)

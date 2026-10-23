@@ -93,6 +93,13 @@ func Shell(c echo.Context, title string) components.Shell {
 		if down, ok := c.Get(nodeDownKey).(func(envID string) string); ok {
 			s.NodeDown = down(sc.Env.ID)
 		}
+		if s.NodeDown == "" && sc.Org != nil && sc.Stack != nil {
+			if d, ok := c.Get(ingressDownKey).(func(envID string) string); ok {
+				if s.NodeDown = d(sc.Env.ID); s.NodeDown != "" {
+					s.MoveIngress = "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug + "/-/drawer?tab=placement"
+				}
+			}
+		}
 	}
 	href := ""
 	if sc.Org != nil {
@@ -129,6 +136,7 @@ func Shell(c echo.Context, title string) components.Shell {
 
 const waitingKey = "host_waiting"
 const nodeDownKey = "env_node_down"
+const ingressDownKey = "env_ingress_down"
 
 // NodeDown lets the shell show the offline banner on env and tile pages. It
 // leaves a lazy func, which Shell calls only when the URL has an env; the
@@ -151,6 +159,17 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 				}
 				// members get the placement, never the node (D3)
 				return "Placement " + d.Placement + " is offline, " + down.Since() + tail
+			})
+			c.Set(ingressDownKey, func(envID string) string {
+				d, ok := orch.EnvIngressDown(c.Request().Context(), envID)
+				if !ok {
+					return ""
+				}
+				hosts := strings.Join(d.Hosts, ", ")
+				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
+					return "Ingress node " + d.Node + " is down: " + hosts + " stop answering."
+				}
+				return "The ingress serving " + hosts + " is offline."
 			})
 			return next(c)
 		}

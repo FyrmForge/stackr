@@ -26,6 +26,7 @@ import (
 // Node action names in the security log.
 const (
 	auditNodeTags   = "node.tags"
+	auditNodeIP     = "node.public_ip"
 	auditNodeRemove = "node.remove"
 	auditNodeForget = "node.forget"
 	auditEnvRestore = "env.restore"
@@ -88,6 +89,7 @@ type NodeCertInfo struct {
 type NodeDetail struct {
 	NodeCard
 	WGAddress string
+	PublicIP  string        // the DNS records' address override, "" = detected
 	Facts     *worker.Facts // nil until the node has answered
 	EnvList   []NodeEnv
 	Certs     []NodeCertInfo
@@ -198,7 +200,7 @@ func (o *Orchestrator) NodeDetail(ctx context.Context, id string) (NodeDetail, e
 	if err != nil {
 		return NodeDetail{}, err
 	}
-	d := NodeDetail{NodeCard: c, WGAddress: n.WGAddress}
+	d := NodeDetail{NodeCard: c, WGAddress: n.WGAddress, PublicIP: n.PublicIP}
 	if m := o.meshSvc(); m != nil {
 		if f, ok := m.factsOf(id); ok {
 			d.Facts = &f

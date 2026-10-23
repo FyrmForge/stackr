@@ -2,6 +2,7 @@ package servicetest
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,6 +22,8 @@ type DNS struct {
 	Zones    []service.DNSZone
 	TookOver []string
 	Opened   []service.DNSCreds
+	Records  map[string][]libdns.RR // zone -> records
+	Calls    int                    // record calls made
 	Appended []string
 	Deleted  []string
 	Overlap  bool
@@ -73,17 +76,81 @@ func (a fakeAccount) Zones(context.Context) ([]service.DNSZone, error) {
 	return append([]service.DNSZone(nil), a.d.Zones...), nil
 }
 
-func (fakeAccount) Get(context.Context, string) ([]libdns.Record, error) { return nil, nil }
+// Get is the zone's records as set by the test (Records) and the writes.
+func (a fakeAccount) Get(_ context.Context, zone string) ([]libdns.Record, error) {
+	a.d.mu.Lock()
+	defer a.d.mu.Unlock()
+	a.d.Calls++
+	var out []libdns.Record
+	for _, r := range a.d.Records[zone] {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
 func (a fakeAccount) Append(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	a.d.record(zone, rs, &a.d.Appended)
+	a.d.mu.Lock()
+	defer a.d.mu.Unlock()
+	a.d.Calls++
+	if a.d.Records == nil {
+		a.d.Records = map[string][]libdns.RR{}
+	}
+	for _, r := range rs {
+		if !slices.Contains(a.d.Records[zone], r.RR()) {
+			a.d.Records[zone] = append(a.d.Records[zone], r.RR())
+		}
+	}
 	return rs, nil
 }
-func (fakeAccount) Set(_ context.Context, _ string, rs []libdns.Record) ([]libdns.Record, error) {
+
+func (a fakeAccount) Set(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+	a.d.mu.Lock()
+	defer a.d.mu.Unlock()
+	a.d.Calls++
+	if a.d.Records == nil {
+		a.d.Records = map[string][]libdns.RR{}
+	}
+	for _, r := range rs {
+		rr := r.RR()
+		a.d.Records[zone] = slices.DeleteFunc(a.d.Records[zone], func(x libdns.RR) bool { return x.Name == rr.Name && x.Type == rr.Type })
+	}
+	for _, r := range rs {
+		a.d.Records[zone] = append(a.d.Records[zone], r.RR())
+	}
 	return rs, nil
 }
+
+// Delete removes records by name, type and value.
 func (a fakeAccount) Delete(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	a.d.record(zone, rs, &a.d.Deleted)
+	a.d.mu.Lock()
+	defer a.d.mu.Unlock()
+	a.d.Calls++
+	a.d.Records[zone] = slices.DeleteFunc(a.d.Records[zone], func(x libdns.RR) bool {
+		return slices.ContainsFunc(rs, func(r libdns.Record) bool {
+			rr := r.RR()
+			return rr.Name == x.Name && rr.Type == x.Type && rr.Data == x.Data
+		})
+	})
 	return rs, nil
+}
+
+// Zone is zone's records now, for a test to read.
+func (d *DNS) Zone(zone string) []libdns.RR {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.Records[zone])
+}
+
+// Put sets zone's records, someone else's: what was there before stackr.
+func (d *DNS) Put(zone string, rs ...libdns.RR) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.Records == nil {
+		d.Records = map[string][]libdns.RR{}
+	}
+	d.Records[zone] = append(d.Records[zone], rs...)
 }
 
 func (a fakeAccount) TakeOver(_ context.Context, zone string) error {

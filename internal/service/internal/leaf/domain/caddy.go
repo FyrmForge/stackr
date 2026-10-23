@@ -194,13 +194,22 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 			servers["https"].(route)["listener_wrappers"] = []route{wrapper, {"wrapper": "tls"}}
 		}
 		hosts := slices.Sorted(maps.Keys(httpsHosts))
-		wild := WildcardSubjects(in.Managed, hosts)
+		// The panel (and its registry front) never rides a wildcard: a
+		// failing DNS-01 must not take its certificate down. Beside a
+		// wildcard it is automated on its own certificate.
+		panel := func(h string) bool { return in.PanelHost != "" && (h == in.PanelHost || h == "registry."+in.PanelHost) }
+		wild := WildcardSubjects(in.Managed, slices.DeleteFunc(slices.Clone(hosts), panel))
 		tlsApp := route{"automation": route{"policies": policies(in, hosts, wild)}}
 		if len(wild) > 0 {
 			// Managed, so hosts a wildcard covers get no certificate of their own.
 			subj := make([]string, len(wild))
 			for i, w := range wild {
 				subj[i] = w.Subject
+			}
+			for _, h := range hosts {
+				if panel(h) && ManagedOf(h, in.Managed) != "" {
+					subj = append(subj, h)
+				}
 			}
 			tlsApp["certificates"] = route{"automate": subj}
 		}
@@ -520,15 +529,31 @@ func upstream(d store.Domain, t TileRoute, e Extras) route {
 // DNS answers its DNS-01 challenge.
 type Wildcard struct{ Subject, Domain string }
 
-// WildcardSubjects is the wildcard certificates stackr gets for the managed
-// domains, given the hosts in use (sorted). ponytail: one *.<domain> per
-// managed domain; D3 makes it a wildcard per level in use.
+// WildcardSubjects is the wildcards the hosts in managed domains need, one
+// per level in use: a * covers one label, so each host is covered by
+// *.<its parent> when that parent is the managed domain or under it. Auto
+// names (tile.stack.org.<root>) share *.stack.org.<root>; typed one-level
+// names share *.<domain>. An apex, a host in no managed domain and a
+// wildcard host get none (the apex keeps its own certificate). hosts are
+// one node's, so each ingress node issues only the wildcards it serves.
 func WildcardSubjects(managed, hosts []string) []Wildcard {
-	_ = hosts
-	out := make([]Wildcard, 0, len(managed))
-	for _, m := range slices.Sorted(slices.Values(managed)) {
-		out = append(out, Wildcard{Subject: "*." + m, Domain: m})
+	var out []Wildcard
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSuffix(h, "."))
+		if strings.HasPrefix(h, "*.") {
+			continue
+		}
+		_, parent, ok := strings.Cut(h, ".")
+		if !ok {
+			continue
+		}
+		if m := ManagedOf(parent, managed); m != "" {
+			if w := (Wildcard{Subject: "*." + parent, Domain: m}); !slices.Contains(out, w) {
+				out = append(out, w)
+			}
+		}
 	}
+	slices.SortFunc(out, func(a, b Wildcard) int { return strings.Compare(a.Subject, b.Subject) })
 	return out
 }
 

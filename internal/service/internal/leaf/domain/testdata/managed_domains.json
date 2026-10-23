@@ -105,8 +105,7 @@
               }
             ],
             "subjects": [
-              "*.example.com",
-              "*.other.io"
+              "*.example.com"
             ]
           },
           {
@@ -121,8 +120,7 @@
       },
       "certificates": {
         "automate": [
-          "*.example.com",
-          "*.other.io"
+          "*.example.com"
         ]
       }
     }

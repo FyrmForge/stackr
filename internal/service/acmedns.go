@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -109,8 +111,16 @@ func (o *Orchestrator) meshDNS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker cert required", http.StatusForbidden)
 		return
 	}
-	if _, err := clusterca.Verify(o.cluster.roots(), r.TLS.PeerCertificates, clusterca.RoleWorker, "", time.Now()); err != nil {
+	peer, err := clusterca.Verify(o.cluster.roots(), r.TLS.PeerCertificates, clusterca.RoleWorker, "", time.Now())
+	if err != nil {
 		http.Error(w, "worker cert required", http.StatusForbidden)
+		return
+	}
+	// Only a node that runs a proxy asks for certificates: any other
+	// worker's cert must not be able to write records in a managed domain.
+	n, err := o.store.Nodes.Get(r.Context(), peer.NodeID)
+	if err != nil || n.Status == node.StatusPending || !slices.Contains(node.Tags(n), node.TagIngress) {
+		http.Error(w, "only an ingress node may answer a DNS challenge", http.StatusForbidden)
 		return
 	}
 	o.dnsHandler(w, r)

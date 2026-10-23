@@ -197,6 +197,10 @@ type NodeView struct {
 	Ifaces []IfaceRow
 	// Tags
 	TagsAction  string // POST tag=, exit=
+	// PublicIP is the DNS records' address override ("" = detected);
+	// DownDomains the domains it serves while it is down.
+	PublicIP, PublicIPAction string
+	DownDomains              []DownDomainRow
 	Exits       [3]string // default exit picks by node name, "" = none
 	ExitNodes   []Option  // nodes tagged egress, Value = name
 	AllTags     []string
@@ -225,6 +229,10 @@ type NodeEnvRow struct {
 	Path, Pin string
 	Tiles     int
 }
+
+// DownDomainRow is a domain a down ingress node serves; Move opens its
+// env's Placement tab, where the ingress moves.
+type DownDomainRow struct{ Host, Env, Move string }
 
 // IfaceRow is one address; Group is a service.Iface* constant.
 type IfaceRow struct{ Group, Name, Addr, Label string }
@@ -612,6 +620,19 @@ templ NodeBody(tab string, v NodeView) {
 		if v.Job != nil {
 			<div class="mb-4">@c.JobStatus(*v.Job)</div>
 		}
+		if len(v.DownDomains) > 0 {
+			@c.Section("Domains on this node", "", "This ingress is down, so these stop answering. Move each env's ingress to another node.") {
+				<ul class="space-y-2 mb-4">
+					for _, d := range v.DownDomains {
+						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+							<span class="text-rw-text">{ d.Host }</span>
+							<span class="text-xs text-rw-faint">{ d.Env }</span>
+							<a href={ templ.SafeURL(d.Move) } class="btn btn-ghost btn-sm ml-auto">Move ingress</a>
+						</li>
+					}
+				</ul>
+			}
+		}
 		switch tab {
 			case "metrics":
 				@c.Metrics(v.Metrics) {
@@ -636,6 +657,12 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 			case "network":
+				@c.Section("Public IP", "", "DNS records of managed domains point here. Empty uses the detected address.") {
+					<form hx-post={ v.PublicIPAction } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center mb-6">
+						<input type="text" name="public_ip" value={ v.PublicIP } aria-label="Public IP" placeholder="detected" class="input !w-48 font-mono"/>
+						<button type="submit" class="btn btn-primary btn-sm">Save</button>
+					</form>
+				}
 				if len(v.Ifaces) == 0 {
 					@c.Section("Interfaces", "", "Reported by the node.") {
 						<p class="text-sm text-rw-faint">Nothing reported yet.</p>

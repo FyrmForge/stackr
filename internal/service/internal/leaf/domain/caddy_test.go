@@ -186,10 +186,10 @@ func TestUnmanagedWildcardNoDNS(t *testing.T) {
 	}
 	must(t, json.Unmarshal(cfg, &c))
 	ps := c.Apps.TLS.Automation.Policies
-	if len(ps) != 2 || strings.Join(ps[0].Subjects, ",") != "*.example.com" || len(ps[1].Subjects) != 0 {
+	if len(ps) != 1 || len(ps[0].Subjects) != 0 {
 		t.Errorf("policies = %+v", ps)
 	}
-	if got := strings.Join(c.Apps.TLS.Certificates.Automate, ","); got != "*.example.com" {
+	if got := strings.Join(c.Apps.TLS.Certificates.Automate, ","); got != "" {
 		t.Errorf("automate = %q", got)
 	}
 }
