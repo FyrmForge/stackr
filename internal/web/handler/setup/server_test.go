@@ -414,7 +414,7 @@ func TestServerWizardCertificates(t *testing.T) {
 	step := setup.ServerBase + "/ui/certificates"
 
 	body := s.do(adm, "GET", step, nil, false).Body.String()
-	for _, w := range []string{`hx-get="/-/setup/server/dns/new"`, "+ Add Namecheap", ">Skip</a>", "you point its DNS yourself"} {
+	for _, w := range []string{`hx-get="/-/setup/server/dns/new"`, "+ Add Namecheap", "No connectors yet.", ">Skip</a>", "you point its DNS yourself"} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("step lacks %s\n%s", w, body)
 		}
@@ -451,6 +451,12 @@ func TestServerWizardCertificates(t *testing.T) {
 	body = s.do(adm, "GET", step, nil, false).Body.String()
 	if !strings.Contains(body, `hx-get="`+base+`/settings"`) || !strings.Contains(body, ">Continue</a>") {
 		t.Errorf("step after add:\n%s", body)
+	}
+	// a closing dialog refreshes the list from the step, Continue with it
+	body = s.do(adm, "GET", step, nil, true).Body.String()
+	list := strings.Index(body, `id="connectors-list"`)
+	if list < 0 || strings.Index(body, ">Continue</a>") < list || strings.Index(body, `id="connector-modal"`) < strings.Index(body, ">Continue</a>") {
+		t.Errorf("the step's list does not carry Continue:\n%s", body)
 	}
 	body = s.do(adm, "GET", base+"/settings", nil, true).Body.String()
 	if !strings.Contains(body, `hx-post="`+base+`/domains"`) || strings.Contains(body, "/delete") {

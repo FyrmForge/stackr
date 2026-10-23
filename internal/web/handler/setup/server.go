@@ -507,7 +507,7 @@ func (h *handler) serverApp(c echo.Context) error {
 	f := c.FormValue
 	id, err := strconv.ParseInt(strings.TrimSpace(f("app_id")), 10, 64)
 	if err != nil {
-		return h.refillStep(c, errs.Invalidf("app_id", "the App ID is the number on the App's page"), "github")
+		return h.refillStep(c, errs.Invalidf("app_id", "The App ID is the number on the App's page"), "github")
 	}
 	if _, err := h.orch.AddServerConnector(c.Request().Context(), service.GitHubApp{
 		ID: id, Slug: f("slug"), PEM: f("private_key"), WebhookSecret: f("webhook_secret"),

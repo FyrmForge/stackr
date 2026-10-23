@@ -144,7 +144,8 @@ templ Add(v AddView) {
 					<section data-step hidden?={ v.start() != 3 }>
 						<div class="modal-body">
 							@stepLine(3)
-							@c.Field(c.FieldView{Name: "ip", Label: "Server IPv4", Value: v.IP, Required: true, Help: "Add this IP to Namecheap's API allow list. Behind NAT, use your router's public IPv4.", Error: c.GetError(v.Errors, "ip")})
+							@c.Field(c.FieldView{Name: "ip", Label: "Server IPv4", Value: v.IP, Required: true, Help: "Add this IP to Namecheap's API allow list.", Error: c.GetError(v.Errors, "ip")})
+							<p class="text-xs text-rw-faint">Behind NAT, use your router's public IPv4.</p>
 						</div>
 						@nav()
 					</section>

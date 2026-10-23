@@ -115,7 +115,7 @@ func (h *handler) beginConnector(c echo.Context) error {
 	v.Org = strings.TrimSpace(c.FormValue("github_org"))
 	_, action, manifest, err := h.orch.BeginServerConnector(c.Request().Context(), middleware.Principal(c).User.ID, v.Org)
 	if err != nil {
-		msg, ok := render.Refused(err)
+		msg, ok := render.Refusal(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}

@@ -13,6 +13,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/web/dnspanel"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // The org drawer's Connectors tab (owner): the org's GitHub connectors and
@@ -105,7 +106,7 @@ func (h *handler) beginOrgConnector(c echo.Context) error {
 	v.Org = strings.TrimSpace(c.FormValue("github_org"))
 	_, action, manifest, err := h.orch.BeginConnector(c.Request().Context(), middleware.ScopeOf(c).Org.ID, middleware.Principal(c).User.ID, v.Org)
 	if err != nil {
-		msg, ok := refused(err)
+		msg, ok := render.Refusal(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}
@@ -123,13 +124,25 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 	if err != nil {
 		return nil, err
 	}
+	done, err := h.orch.ConnectedConnectors(c.Request().Context(), og.ID)
+	if err != nil {
+		return nil, err
+	}
+	connected := map[string]bool{}
+	for _, k := range done {
+		connected[k.ID] = true
+	}
 	v := connectors.ListView{
 		Title: "Connectors", Scope: "organization",
 		Help: "GitHub Apps and DNS accounts this organization uses.",
 		Add:  connBase(c) + "/new",
 	}
 	for _, k := range cs {
-		r := connectors.Row{ID: k.ID, Kind: "GitHub", Name: k.Name, Drawer: orgSlug(c) + "/-/connectors/" + k.ID, Push: "?drawer=connector:" + k.ID}
+		// a server App the admin has not finished is the admin's, not here
+		if k.Shared && !connected[k.ID] {
+			continue
+		}
+		r := connectors.Row{ID: k.ID, Kind: "GitHub", Name: k.Name, Pending: !connected[k.ID], Drawer: orgSlug(c) + "/-/connectors/" + k.ID, Push: "?drawer=connector:" + k.ID}
 		if k.Shared {
 			r.Summary = "Shared by the server"
 		}

@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/ui/cluster"
 	"github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -271,6 +272,15 @@ func Event(ctx context.Context, body templ.Component) (stream.HTML, error) {
 	var b strings.Builder
 	err := body.Render(ctx, &b)
 	return stream.HTML(b.String()), err
+}
+
+// Refusal is Refused with an invalid field's own sentence, no field name
+// in front: for a form that already marks the field, or a dialog.
+func Refusal(err error) (msg string, ok bool) {
+	if inv, ok := errs.IsInvalid(err); ok {
+		return inv.Msg, true
+	}
+	return Refused(err)
 }
 
 // Refused is the message of an error the user can act on (a 4xx other

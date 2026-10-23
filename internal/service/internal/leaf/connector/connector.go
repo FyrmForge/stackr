@@ -252,7 +252,7 @@ func (l *Leaf) SetShares(ctx context.Context, id string, orgIDs []string, all bo
 // who started it; only they can complete it.
 func (l *Leaf) Begin(ctx context.Context, orgID, userID, ghOrg string) (c store.Connector, action, manifest string, err error) {
 	if _, err := l.conns.GetByHost(ctx, orgID, GitHubHost); err == nil {
-		return c, "", "", errs.Conflictf("this org already has a %s connector", GitHubHost)
+		return c, "", "", errs.Conflictf("This org already has a %s connector", GitHubHost)
 	}
 	return l.begin(ctx, &orgID, userID, ghOrg)
 }
@@ -295,14 +295,14 @@ func (l *Leaf) AddServer(ctx context.Context, app githubapp.App) (store.Connecto
 	app.Slug, app.WebhookSecret = strings.TrimSpace(app.Slug), strings.TrimSpace(app.WebhookSecret)
 	switch {
 	case app.ID <= 0:
-		return store.Connector{}, errs.Invalidf("app_id", "the App ID is the number on the App's page")
+		return store.Connector{}, errs.Invalidf("app_id", "The App ID is the number on the App's page")
 	case app.Slug == "":
-		return store.Connector{}, errs.Invalidf("slug", "the App's slug is required")
+		return store.Connector{}, errs.Invalidf("slug", "The App's slug is required")
 	case app.WebhookSecret == "":
-		return store.Connector{}, errs.Invalidf("webhook_secret", "the webhook secret is required")
+		return store.Connector{}, errs.Invalidf("webhook_secret", "The webhook secret is required")
 	}
 	if _, err := githubapp.ParseKey(app.PEM); err != nil {
-		return store.Connector{}, errs.Invalidf("private_key", "the private key does not parse; paste the whole .pem file")
+		return store.Connector{}, errs.Invalidf("private_key", "The private key does not parse. Paste the whole .pem file")
 	}
 	b, _ := json.Marshal(config{App: &app})
 	c := store.Connector{
@@ -365,7 +365,7 @@ func (l *Leaf) RenameServer(ctx context.Context, id, name string) (store.Connect
 
 func (l *Leaf) rename(ctx context.Context, c store.Connector, name string) (store.Connector, error) {
 	if c.Name = strings.TrimSpace(name); c.Name == "" {
-		return c, errs.Invalidf("name", "a connector needs a name")
+		return c, errs.Invalidf("name", "A connector needs a name")
 	}
 	if err := l.conns.SetName(ctx, c.ID, c.Name); err != nil {
 		return c, err

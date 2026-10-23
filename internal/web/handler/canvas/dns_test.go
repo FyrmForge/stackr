@@ -47,6 +47,10 @@ func TestOrgDNSConnectors(t *testing.T) {
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Continue on GitHub") || !strings.Contains(body, `name="manifest"`) {
 		t.Fatalf("GitHub begin = %d\n%s", rec.Code, body)
 	}
+	rec = s.Do(t, "POST", "/acme/-/drawer/connectors/github", url.Values{"github_org": {"acme-inc"}})
+	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, ">This org already has a github.com connector<") {
+		t.Errorf("second GitHub begin = %d\n%s", rec.Code, body)
+	}
 	if rec := s.As(t, member, "GET", "/acme/-/drawer/connectors/new", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("member add dialog = %d, want 403", rec.Code)
 	}
@@ -59,8 +63,15 @@ func TestOrgDNSConnectors(t *testing.T) {
 	if len(cs) != 1 {
 		t.Fatalf("connectors = %v", cs)
 	}
-	// the tab: the pending GitHub connector opens its drawer, the DNS one its dialog
+	// the tab: the pending GitHub connector opens its drawer, the DNS one its
+	// dialog; a server App the admin has not finished is not listed
+	if _, _, _, err := s.Orch.BeginServerConnector(ctx, s.User(t, "root@x.test", true), "half-done"); err != nil {
+		t.Fatal(err)
+	}
 	body := s.Do(t, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String()
+	if strings.Count(body, `hx-push-url="?drawer=connector:`) != 1 || !strings.Contains(body, ">pending<") {
+		t.Errorf("GitHub rows: want the org's own pending one only\n%s", body)
+	}
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
 		!strings.Contains(body, `hx-get="/acme/-/drawer/dns/`+cs[0].ID+`/settings"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
 		t.Fatalf("tab:\n%s", body)
