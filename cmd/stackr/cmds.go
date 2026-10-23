@@ -542,34 +542,70 @@ func (a *app) orgs() *cobra.Command {
 					})
 				}),
 		),
-		noun("connectors", "Git connectors (GitHub Apps)",
-			leaf(
-				"ls",
-				"connector.list",
-				"List connectors",
-				exact(0),
-				get("/connectors", "id", "name", "provider", "host", "shared"),
-			),
-			leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2),
-				func(_ *cobra.Command, args []string) error {
-					return org(func(p string) error {
-						_, err := a.call(PUT, p+"/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
-						return err
-					})
-				}),
-			leaf("rm <id>", "connector.delete", "Remove a connector", exact(1),
-				func(_ *cobra.Command, args []string) error {
-					return org(func(p string) error {
-						if err := a.confirm("Remove connector " + args[0] + "? Stacks cloning through it stop getting pushes."); err != nil {
-							return err
-						}
-						_, err := a.call(DELETE, p+"/connectors/"+args[0], nil)
-						return err
-					})
-				}),
-		),
+		a.orgConnectors(org),
 	)
 	n.AddCommand(a.orgConfig(org)...)
+	return n
+}
+
+// orgConnectors is `stackr org connectors`: git connectors (GitHub Apps),
+// and the org's DNS connectors (owner; --dns on ls and rm).
+func (a *app) orgConnectors(org func(func(p string) error) error) *cobra.Command {
+	var dns bool
+	ls := leaf("ls", "connector.list,dns.list", "List git connectors; --dns the org's DNS connectors (owner)", exact(0),
+		func(*cobra.Command, []string) error {
+			return org(func(p string) error {
+				if dns {
+					v, err := a.call(GET, p+"/dns-connectors", nil)
+					if err != nil {
+						return err
+					}
+					return a.show(v, dnsConnCols...)
+				}
+				v, err := a.call(GET, p+"/connectors", nil)
+				if err != nil {
+					return err
+				}
+				return a.show(v, "id", "name", "provider", "host", "shared")
+			})
+		})
+	ls.Flags().BoolVar(&dns, "dns", false, "list the org's DNS connectors")
+	var rmDNS bool
+	rm := leaf("rm <id>", "connector.delete,dns.delete", "Remove a connector; --dns a DNS one (owner)", exact(1),
+		func(_ *cobra.Command, args []string) error {
+			return org(func(p string) error {
+				if rmDNS {
+					if err := a.confirm("Remove DNS connector " + args[0] + "? stackr stops managing its domains."); err != nil {
+						return err
+					}
+					_, err := a.call(DELETE, p+"/dns-connectors/"+args[0], nil)
+					return err
+				}
+				if err := a.confirm("Remove connector " + args[0] + "? Stacks cloning through it stop getting pushes."); err != nil {
+					return err
+				}
+				_, err := a.call(DELETE, p+"/connectors/"+args[0], nil)
+				return err
+			})
+		})
+	rm.Flags().BoolVar(&rmDNS, "dns", false, "the connector is a DNS one")
+	dnsVerbs := a.dnsVerbs(false, func(*cobra.Command) (string, error) {
+		p, err := a.orgPath()
+		return p + "/dns-connectors", err
+	})
+	a.orgFlag(append([]*cobra.Command{ls, rm}, dnsVerbs...)...)
+	n := noun("connectors", "Git connectors (GitHub Apps) and the org's DNS connectors",
+		ls,
+		leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2),
+			func(_ *cobra.Command, args []string) error {
+				return org(func(p string) error {
+					_, err := a.call(PUT, p+"/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
+					return err
+				})
+			}),
+		rm,
+	)
+	n.AddCommand(dnsVerbs...)
 	return n
 }
 

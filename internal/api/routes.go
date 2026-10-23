@@ -84,6 +84,14 @@ func routes(h *v1.H) []Route {
 		{POST, org + "/connectors", "connector.begin", "connector.write", h.BeginConnector()},
 		{PUT, org + "/connectors/:connector/name", "connector.rename", "connector.write", h.RenameConnector()},
 		{DELETE, org + "/connectors/:connector", "connector.delete", "connector.write", h.DeleteConnector()},
+		// DNS connectors: an owner's own provider account, that org only
+		{GET, org + "/dns-connectors", "dns.list", "dns.manage", h.DNSConnectors(v1.OrgLevel)},
+		{POST, org + "/dns-connectors/namecheap", "dns.add-namecheap", "dns.manage", h.AddNamecheap(v1.OrgLevel)},
+		{DELETE, org + "/dns-connectors/:connector", "dns.delete", "dns.manage", h.DeleteDNSConnector(v1.OrgLevel)},
+		{GET, org + "/dns-connectors/:connector/domains", "dns.domains", "dns.manage", h.DNSDomains(v1.OrgLevel)},
+		{PUT, org + "/dns-connectors/:connector/domains/:zone", "dns.manage", "dns.manage", h.ManageDNSDomain(v1.OrgLevel)},
+		{DELETE, org + "/dns-connectors/:connector/domains/:zone", "dns.unmanage", "dns.manage", h.UnmanageDNSDomain(v1.OrgLevel)},
+		{POST, org + "/dns-connectors/:connector/domains/:zone/takeover", "dns.takeover", "dns.manage", h.TakeOverDNSDomain(v1.OrgLevel)},
 		{GET, org + "/backup-dests", "dest.list", "org.read", h.BackupDests()},
 		{POST, org + "/backup-dests", "dest.create", "destination.write", h.CreateBackupDest()},
 		{PUT, org + "/backup-dests/:dest", "dest.update", "destination.write", h.UpdateBackupDest()},
@@ -320,6 +328,14 @@ func routes(h *v1.H) []Route {
 		{PUT, "/admin/connectors/:connector/name", "admin.connector-rename", "connector.admin", h.RenameServerConnector()},
 		{PUT, "/admin/connectors/:connector/shares", "admin.connector-share", "connector.admin", h.ShareConnector()},
 		{DELETE, "/admin/connectors/:connector", "admin.connector-delete", "connector.admin", h.DeleteServerConnector()},
+		// server DNS connectors: each managed domain says which orgs may use it;
+		// one is removed like any server connector (DELETE /admin/connectors/:connector)
+		{GET, "/admin/dns-connectors", "admin.dns-list", "connector.admin", h.DNSConnectors(v1.ServerLevel)},
+		{POST, "/admin/dns-connectors/namecheap", "admin.dns-add-namecheap", "connector.admin", h.AddNamecheap(v1.ServerLevel)},
+		{GET, "/admin/dns-connectors/:connector/domains", "admin.dns-domains", "connector.admin", h.DNSDomains(v1.ServerLevel)},
+		{PUT, "/admin/dns-connectors/:connector/domains/:zone", "admin.dns-manage", "connector.admin", h.ManageDNSDomain(v1.ServerLevel)},
+		{DELETE, "/admin/dns-connectors/:connector/domains/:zone", "admin.dns-unmanage", "connector.admin", h.UnmanageDNSDomain(v1.ServerLevel)},
+		{POST, "/admin/dns-connectors/:connector/domains/:zone/takeover", "admin.dns-takeover", "connector.admin", h.TakeOverDNSDomain(v1.ServerLevel)},
 	}
 }
 

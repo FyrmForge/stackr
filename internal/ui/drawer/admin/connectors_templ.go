@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/dns"
 )
 
 // ConnectorsView is the server's git connectors: GitHub Apps the admin owns
@@ -21,6 +22,7 @@ type ConnectorsView struct {
 	Action   string // GitHub's manifest URL once begun; "" = step one
 	Manifest string
 	Rows     []ServerConnector
+	DNS      dns.View // the server's DNS connectors
 }
 
 // ServerConnector is one row. InstallURL "" = the handshake has not finished.
@@ -85,7 +87,7 @@ func Connectors(v ConnectorsView) templ.Component {
 					var templ_7745c5c3_Var3 string
 					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.Begin)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 39, Col: 28}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 41, Col: 28}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 					if templ_7745c5c3_Err != nil {
@@ -98,7 +100,7 @@ func Connectors(v ConnectorsView) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(target())
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 39, Col: 51}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 41, Col: 51}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -124,7 +126,7 @@ func Connectors(v ConnectorsView) templ.Component {
 					var templ_7745c5c3_Var5 templ.SafeURL
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(v.Action))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 45, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 47, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -137,7 +139,7 @@ func Connectors(v ConnectorsView) templ.Component {
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Manifest)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 46, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 48, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -185,7 +187,7 @@ func Connectors(v ConnectorsView) templ.Component {
 					var templ_7745c5c3_Var8 string
 					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(r.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 61, Col: 43}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 63, Col: 43}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 					if templ_7745c5c3_Err != nil {
@@ -212,7 +214,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var9 string
 						templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(r.Check)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 66, Col: 32}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 68, Col: 32}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 						if templ_7745c5c3_Err != nil {
@@ -225,7 +227,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var10 templ.SafeURL
 						templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(r.InstallURL))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 67, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 69, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 						if templ_7745c5c3_Err != nil {
@@ -262,7 +264,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var11 string
 						templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(r.Rename)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 76, Col: 32}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 78, Col: 32}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 						if templ_7745c5c3_Err != nil {
@@ -275,7 +277,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var12 string
 						templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(target())
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 76, Col: 55}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 78, Col: 55}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 						if templ_7745c5c3_Err != nil {
@@ -288,7 +290,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var13 string
 						templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs("conn-name-" + r.ID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 78, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 80, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 						if templ_7745c5c3_Err != nil {
@@ -301,7 +303,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var14 string
 						templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs("conn-name-" + r.ID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 79, Col: 41}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 81, Col: 41}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 						if templ_7745c5c3_Err != nil {
@@ -314,7 +316,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var15 string
 						templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(r.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 79, Col: 70}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 81, Col: 70}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 						if templ_7745c5c3_Err != nil {
@@ -333,7 +335,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(r.Share)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 85, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 87, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 						if templ_7745c5c3_Err != nil {
@@ -346,7 +348,7 @@ func Connectors(v ConnectorsView) templ.Component {
 						var templ_7745c5c3_Var17 string
 						templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(target())
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 85, Col: 54}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 87, Col: 54}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 						if templ_7745c5c3_Err != nil {
@@ -374,7 +376,7 @@ func Connectors(v ConnectorsView) templ.Component {
 							var templ_7745c5c3_Var18 string
 							templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(o.ID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 91, Col: 109}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 93, Col: 109}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 							if templ_7745c5c3_Err != nil {
@@ -397,7 +399,7 @@ func Connectors(v ConnectorsView) templ.Component {
 							var templ_7745c5c3_Var19 string
 							templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(o.Name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 91, Col: 165}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/connectors.templ`, Line: 93, Col: 165}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 							if templ_7745c5c3_Err != nil {
@@ -426,6 +428,10 @@ func Connectors(v ConnectorsView) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = c.Section("Server connectors", "instance", "Not shared with anyone until you choose.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = dns.Connectors(v.DNS).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 )
@@ -80,6 +81,13 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 			return templ.NopComponent, nil
 		}
 		return h.orgDomains(c, cd, f.Base)
+	case "connectors":
+		if !can(c, cd.s, "dns.manage") {
+			f.Error = "Only an owner of this organization manages its DNS connectors."
+			return templ.NopComponent, nil
+		}
+		v, err := h.dns().View(c, nil, orgDNSHelp)
+		return dnsui.Tab(v), err
 	case "registry":
 		return h.orgRegistry(c, cd)
 	case "shares":
@@ -460,6 +468,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		return "Lock saved.", err
 	}), tw)
 	h.mountOrgConfig(site, a)
+	h.mountDNS(site, a)
 	h.mountRegistry(site, a)
 	site.POST(o+"/settings", h.saveRung(
 		"org",

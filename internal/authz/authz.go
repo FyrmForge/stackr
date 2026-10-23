@@ -64,6 +64,7 @@ var verbLevels = map[Verb]Level{
 	"tier.write":                LevelOwner, // tiers: add, rename, order, delete, lock
 	"env.logs.purge":            LevelOwner, // delete an env's kept log lines
 	"placement.write":           LevelOwner, // pins, ingress and exits (an env pin that moves the env included)
+	"dns.manage":                LevelOwner, // the org's DNS connectors and their domains
 
 	"admin.read":         LevelAdmin,
 	"serverdefaults.set": LevelAdmin,

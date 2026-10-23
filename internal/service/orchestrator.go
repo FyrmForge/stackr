@@ -41,6 +41,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/canvas"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
@@ -163,6 +164,20 @@ type options struct {
 	caddyMetrics func(context.Context) ([]byte, error)
 	build        BuildFunc
 	gitEnv       []string
+	dnsOpen      dnscap.Opener
+}
+
+// DNSProvider is one DNS account (dnscap.Provider): what WithDNS fakes.
+type (
+	DNSProvider = dnscap.Provider
+	DNSZone     = dnscap.Zone
+	DNSCreds    = dnscap.Creds
+)
+
+// WithDNS replaces the built-in DNS providers (Namecheap's API), with a
+// fake in tests.
+func WithDNS(open func(kind string, c DNSCreds) (DNSProvider, error)) Option {
+	return func(o *options) { o.dnsOpen = open }
 }
 
 // BuildFunc builds one git tile at a commit and returns the image row id.
@@ -227,6 +242,7 @@ type Orchestrator struct {
 	regs        *registry.Leaf
 	regCleaned  lastRegistryClean
 	conns       *connector.Leaf
+	dns         *dnscap.Leaf
 	managed     *managed.Leaf
 	releases    *release.Leaf
 	jobRows     *job.Leaf
@@ -515,6 +531,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		})
 		return connector.New(st.Connectors, app)
 	})
+	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, o.dnsOpen) })
 	orch.managed = build("leaf/managed",
 		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })

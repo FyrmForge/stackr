@@ -84,3 +84,28 @@ func TestServerConfigRouteContract(t *testing.T) {
 		}
 	}
 }
+
+// The DNS connector routes: server ones admin-level, an org's owner-level.
+func TestDNSRouteContract(t *testing.T) {
+	type key struct{ method, path string }
+	got := map[key][2]string{}
+	for _, r := range api.Routes(&v1.H{}) {
+		got[key{r.Method, r.Path}] = [2]string{r.Op, string(r.Verb)}
+	}
+	for k, want := range map[key][2]string{
+		{"GET", "/admin/dns-connectors"}:                                    {"admin.dns-list", "connector.admin"},
+		{"POST", "/admin/dns-connectors/namecheap"}:                         {"admin.dns-add-namecheap", "connector.admin"},
+		{"PUT", "/admin/dns-connectors/:connector/domains/:zone"}:           {"admin.dns-manage", "connector.admin"},
+		{"POST", "/admin/dns-connectors/:connector/domains/:zone/takeover"}: {"admin.dns-takeover", "connector.admin"},
+		{"GET", "/orgs/:org/dns-connectors"}:                                {"dns.list", "dns.manage"},
+		{"POST", "/orgs/:org/dns-connectors/namecheap"}:                     {"dns.add-namecheap", "dns.manage"},
+		{"PUT", "/orgs/:org/dns-connectors/:connector/domains/:zone"}:       {"dns.manage", "dns.manage"},
+	} {
+		if got[k] != want {
+			t.Errorf("%s %s = %v, want %v", k.method, k.path, got[k], want)
+		}
+	}
+	if authz.LevelOf("dns.manage") != authz.LevelOwner {
+		t.Error("dns.manage is an owner's")
+	}
+}
