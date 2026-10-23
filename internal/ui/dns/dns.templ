@@ -66,13 +66,15 @@ templ Connectors(v View) {
 				<li>Turn API access on and copy the API key.</li>
 				<li>Add the server IPv4 below to the allow list.</li>
 			</ol>
-			@c.Form("dns-namecheap", v.Add) {
+			// the answer is the whole drawer (or, in the setup wizard, a redirect
+			// or the screen retargeted), never this form alone
+			<form id="dns-namecheap" hx-post={ v.Add } hx-target={ "#" + c.DrawerRoot } hx-swap="outerHTML" class="space-y-4" novalidate>
 				@c.FormError(c.GetError(v.Errors, "general"))
 				@c.Field(c.FieldView{Name: "user", Label: "Namecheap username", Value: v.User, Required: true, Error: c.GetError(v.Errors, "user"), Autocomplete: "off"})
 				@c.Field(c.FieldView{Name: "key", Label: "API key", Type: "password", Required: true, Help: "Controls your whole Namecheap account.", Error: c.GetError(v.Errors, "key"), Autocomplete: "off"})
-				@c.Field(c.FieldView{Name: "ip", Label: "Server IPv4", Value: v.IP, Required: true, Placeholder: "203.0.113.7", Help: "Add this IP to Namecheap's API allow list.", Error: c.GetError(v.Errors, "ip")})
+				@c.Field(c.FieldView{Name: "ip", Label: "Server IPv4", Value: v.IP, Required: true, Placeholder: "203.0.113.7", Help: "Add this IP to Namecheap's API allow list. Behind NAT, your router's public IPv4.", Error: c.GetError(v.Errors, "ip")})
 				<button type="submit" class="btn btn-primary btn-sm">Connect</button>
-			}
+			</form>
 		}
 	}
 	@c.Section("DNS connectors", v.Scope, v.Help) {

@@ -26,7 +26,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 
 	rec := s.As(t, root, "GET", "/-/admin?tab=connectors", nil)
 	for _, want := range []string{"Add a DNS connector: Namecheap", "Controls your whole Namecheap account.",
-		"Add this IP to Namecheap&#39;s API allow list.", "Namecheap API Access", `hx-post="/-/admin/dns/namecheap"`} {
+		"Add this IP to Namecheap&#39;s API allow list.", "Namecheap API Access", `hx-post="/-/admin/dns/namecheap" hx-target="#drawer-view"`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("tab has no %q\n%s", want, rec.Body)
 		}

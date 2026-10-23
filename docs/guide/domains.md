@@ -20,7 +20,7 @@ The key controls the whole Namecheap account: domains, contacts, renewals. Treat
 
 ## Add the connector
 
-In the panel, open Admin, Connectors, Add a DNS connector: Namecheap. Fill in the username and API key. The server IPv4 is filled in with the address stackr detects; it is the one to allow list. Connect checks the key and lists the account's domains. The setup wizard's Certificates step has the same form.
+In the panel, open Admin, Connectors, Add a DNS connector: Namecheap. Fill in the username and API key. The server IPv4 is the one to allow list. It is filled in when the panel's box has a public IPv4 of its own; behind NAT, enter your router's public address. Connect checks the key and lists the account's domains. The setup wizard's Certificates step has the same form.
 
 An org owner can add the org's own Namecheap account under the org's Connectors tab. Its domains are only ever that org's.
 
