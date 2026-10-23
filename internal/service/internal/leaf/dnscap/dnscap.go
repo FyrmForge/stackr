@@ -99,15 +99,21 @@ func New(rows store.DNSDomainStore, recs store.DNSRecordStore, open Opener) *Lea
 }
 
 // Check validates an account and asks for its domains: what saving a
-// connector runs. A refusal names its cause.
+// connector runs. A refusal names its cause; missing fields are all named
+// at once (errors.Join of Invalids).
 func (l *Leaf) Check(ctx context.Context, kind string, c Creds) ([]Zone, error) {
-	switch ip, err := netip.ParseAddr(c.ClientIP); {
-	case strings.TrimSpace(c.User) == "":
-		return nil, errs.Invalidf("user", "the Namecheap username is required")
-	case c.Key == "":
-		return nil, errs.Invalidf("key", "the API key is required")
-	case err != nil || !ip.Is4():
-		return nil, errs.Invalidf("ip", "Namecheap needs this server's public IPv4 address")
+	var bad []error
+	if strings.TrimSpace(c.User) == "" {
+		bad = append(bad, errs.Invalidf("user", "Enter the Namecheap username"))
+	}
+	if c.Key == "" {
+		bad = append(bad, errs.Invalidf("key", "Enter the API key"))
+	}
+	if ip, err := netip.ParseAddr(c.ClientIP); err != nil || !ip.Is4() {
+		bad = append(bad, errs.Invalidf("ip", "Namecheap needs this server's public IPv4 address"))
+	}
+	if len(bad) > 0 {
+		return nil, errors.Join(bad...)
 	}
 	p, err := l.Provider(kind, c)
 	if err != nil {
@@ -211,6 +217,13 @@ func (l *Leaf) Domains(ctx context.Context, id, kind string, c Creds) ([]Domain,
 		return nil, err
 	}
 	return merge(zs, rows), nil
+}
+
+// Managed is how many domains connector id manages, from stackr's own
+// rows: no provider call.
+func (l *Leaf) Managed(ctx context.Context, id string) (int, error) {
+	rows, err := l.rows.ListByConnector(ctx, id)
+	return len(rows), err
 }
 
 // States is a new connector's list: zs, none managed yet.

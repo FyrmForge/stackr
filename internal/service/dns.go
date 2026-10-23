@@ -84,6 +84,22 @@ func (o *Orchestrator) DNSConnectors(ctx context.Context, orgID *string) ([]Conn
 	return o.conns.ListDNS(ctx, orgID)
 }
 
+// DNSManaged is how many domains each of orgID's DNS connectors manages
+// (nil = the server's), by connector id. No provider call.
+func (o *Orchestrator) DNSManaged(ctx context.Context, orgID *string) (map[string]int, error) {
+	cs, err := o.conns.ListDNS(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int, len(cs))
+	for _, c := range cs {
+		if out[c.ID], err = o.dns.Managed(ctx, c.ID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // dnsAccount is connector id of orgID and its account.
 func (o *Orchestrator) dnsAccount(ctx context.Context, orgID *string, id string) (Connector, dnscap.Creds, error) {
 	c, err := o.conns.DNSConnector(ctx, orgID, id)

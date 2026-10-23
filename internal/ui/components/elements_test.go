@@ -31,7 +31,7 @@ var elements = map[string]int{
 // event and selector names the source must carry. Session C's templ
 // renders against these (step-6.md "Element contract").
 var contract = map[string][]string{
-	"confirm-dialog": {`"confirmed"`, `"word"`, `"open"`, "[data-open]", "[data-cancel]", "[data-confirm]", "[data-word]"},
+	"confirm-dialog": {`"confirmed"`, `"word"`, `"open"`, "[data-open]", "[data-cancel]", "[data-confirm]", "[data-word]", "[data-next]", "[data-back]", "[data-step]"},
 	"flash-toast":    {`"kind"`, "htmx:responseError"},
 	"graph-canvas": {
 		`"selection-changed"`,

@@ -2,11 +2,16 @@
 // <dialog> from [data-open], closes on [data-cancel], and on [data-confirm]
 // fires a bubbling "confirmed" event; the wrapper's hx-trigger does the post.
 // With a word set, [data-confirm] stays disabled until [data-word] matches.
+// As a guided dialog (the add connector one), [data-next]/[data-back] show
+// the next or previous [data-step] sibling; the server renders which one
+// starts visible. A confirm nested inside keeps its clicks to itself.
 class ConfirmDialog extends HTMLElement {
   private onClick = (e: Event): void => {
     const target = e.target as Element;
     const dialog = this.querySelector("dialog");
-    if (!dialog) return;
+    if (!dialog || target.closest("confirm-dialog") !== this) return;
+    const move = target.closest("[data-next], [data-back]");
+    if (move) return this.step(move);
     if (target.closest("[data-open]")) {
       this.reset();
       dialog.showModal();
@@ -22,7 +27,7 @@ class ConfirmDialog extends HTMLElement {
 
   private onInput = (e: Event): void => {
     const input = e.target as HTMLInputElement;
-    if (!input.matches("[data-word]")) return;
+    if (!input.matches("[data-word]") || input.closest("confirm-dialog") !== this) return;
     const button = this.confirmButton();
     if (button) button.disabled = input.value !== this.word();
   };
@@ -40,6 +45,15 @@ class ConfirmDialog extends HTMLElement {
   disconnectedCallback(): void {
     this.removeEventListener("click", this.onClick);
     this.removeEventListener("input", this.onInput);
+  }
+
+  private step(button: Element): void {
+    const at = button.closest<HTMLElement>("[data-step]");
+    const to = button.hasAttribute("data-next") ? at?.nextElementSibling : at?.previousElementSibling;
+    if (!at || !(to instanceof HTMLElement) || !to.hasAttribute("data-step")) return;
+    at.hidden = true;
+    to.hidden = false;
+    to.querySelector<HTMLElement>("input:not([type=hidden]), button")?.focus();
   }
 
   private word(): string {

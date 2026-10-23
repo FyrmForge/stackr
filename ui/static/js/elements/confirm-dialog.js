@@ -2,8 +2,11 @@ class ConfirmDialog extends HTMLElement {
     onClick = (e) => {
         const target = e.target;
         const dialog = this.querySelector("dialog");
-        if (!dialog)
+        if (!dialog || target.closest("confirm-dialog") !== this)
             return;
+        const move = target.closest("[data-next], [data-back]");
+        if (move)
+            return this.step(move);
         if (target.closest("[data-open]")) {
             this.reset();
             dialog.showModal();
@@ -21,7 +24,7 @@ class ConfirmDialog extends HTMLElement {
     };
     onInput = (e) => {
         const input = e.target;
-        if (!input.matches("[data-word]"))
+        if (!input.matches("[data-word]") || input.closest("confirm-dialog") !== this)
             return;
         const button = this.confirmButton();
         if (button)
@@ -38,6 +41,15 @@ class ConfirmDialog extends HTMLElement {
     disconnectedCallback() {
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("input", this.onInput);
+    }
+    step(button) {
+        const at = button.closest("[data-step]");
+        const to = button.hasAttribute("data-next") ? at?.nextElementSibling : at?.previousElementSibling;
+        if (!at || !(to instanceof HTMLElement) || !to.hasAttribute("data-step"))
+            return;
+        at.hidden = true;
+        to.hidden = false;
+        to.querySelector("input:not([type=hidden]), button")?.focus();
     }
     word() {
         return this.getAttribute("word") ?? "";
