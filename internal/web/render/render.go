@@ -235,15 +235,29 @@ func DrawerTab(next echo.HandlerFunc) echo.HandlerFunc {
 // "/-/" that opens drawer node there: ?drawer=&tab=. ok false = an htmx
 // request, for the route itself.
 func ToShell(c echo.Context, node string) (ok bool, err error) {
+	return ToShellTab(c, node, c.QueryParam("tab"))
+}
+
+// ToShellTab is ToShell opening tab, for a route that is one tab of a
+// drawer (placement, log history). node "" is the page alone: a dialog
+// with no link of its own.
+func ToShellTab(c echo.Context, node, tab string) (ok bool, err error) {
 	if htmx.IsHTMX(c.Request()) {
 		return false, nil
 	}
 	page, _, _ := strings.Cut(c.Request().URL.Path, "/-/")
-	q := url.Values{"drawer": {node}}
-	if t := c.QueryParam("tab"); t != "" {
-		q.Set("tab", t)
+	q := url.Values{}
+	if node != "" {
+		q.Set("drawer", node)
+		if tab != "" {
+			q.Set("tab", tab)
+		}
 	}
-	return true, c.Redirect(http.StatusSeeOther, cmp.Or(page, "/")+"?"+q.Encode())
+	to := cmp.Or(page, "/")
+	if len(q) > 0 {
+		to += "?" + q.Encode()
+	}
+	return true, c.Redirect(http.StatusSeeOther, to)
 }
 
 // link is active when the URL is its page or below it; "/" only on itself.

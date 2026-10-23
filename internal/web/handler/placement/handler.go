@@ -20,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	ui "github.com/FyrmForge/stackr/internal/ui/placement"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 type handler struct{ orch *service.Orchestrator }
@@ -277,7 +278,22 @@ func count(n int, noun string) string {
 }
 
 // Get is the tab.
-func (h *handler) Get(c echo.Context) error { return h.show(c, http.StatusOK, "", "") }
+func (h *handler) Get(c echo.Context) error {
+	if ok, err := render.ToShellTab(c, drawerNode(c), "placement"); ok {
+		return err
+	}
+	return h.show(c, http.StatusOK, "", "")
+}
+
+// drawerNode is the canvas node whose drawer holds the scope's tab: a
+// tile's id, else "<kind>:<id>".
+func drawerNode(c echo.Context) string {
+	kind, id := scopeOf(c)
+	if kind == service.ScopeTile {
+		return id
+	}
+	return kind + ":" + id
+}
 
 // act answers an action with the tab: a refusal shows over it (422).
 func (h *handler) act(note string, do func(echo.Context, string, string) error) echo.HandlerFunc {
@@ -364,6 +380,9 @@ func (h *handler) Move(c echo.Context) error {
 
 // Status is the progress tab; it polls itself while the move runs.
 func (h *handler) Status(c echo.Context) error {
+	if ok, err := render.ToShellTab(c, drawerNode(c), "moving"); ok {
+		return err
+	}
 	s := middleware.ScopeOf(c)
 	ms, err := h.orch.EnvMoveStatus(c.Request().Context(), s.Env.ID)
 	if err != nil {
