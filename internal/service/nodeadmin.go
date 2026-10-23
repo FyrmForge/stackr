@@ -26,6 +26,7 @@ import (
 // Node action names in the security log.
 const (
 	auditNodeTags   = "node.tags"
+	auditNodeIP     = "node.public_ip"
 	auditNodeRemove = "node.remove"
 	auditNodeForget = "node.forget"
 	auditEnvRestore = "env.restore"

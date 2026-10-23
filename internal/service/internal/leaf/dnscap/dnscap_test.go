@@ -67,7 +67,7 @@ var creds = Creds{User: "u", Key: "k", ClientIP: "203.0.113.7"}
 
 func leafWith(t *testing.T, f *fake) *Leaf {
 	st := storetest.Store(t)
-	return New(st.DNSDomains, func(string, Creds) (Provider, error) { return f, nil })
+	return New(st.DNSDomains, st.DNSRecords, func(string, Creds) (Provider, error) { return f, nil })
 }
 
 // Two writers on one zone never interleave, through two Provider values
@@ -128,7 +128,7 @@ func TestCheckErrors(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(answer(tc.number, "nope")))
 		}))
-		l := New(nil, func(string, Creds) (Provider, error) { return newNamecheap(creds, srv.URL), nil })
+		l := New(nil, nil, func(string, Creds) (Provider, error) { return newNamecheap(creds, srv.URL), nil })
 		_, err := l.Check(context.Background(), Namecheap, creds)
 		srv.Close()
 		inv, ok := errs.IsInvalid(err)
@@ -141,7 +141,7 @@ func TestCheckErrors(t *testing.T) {
 		_, _ = w.Write([]byte(answer("2030166", "Domain is invalid")))
 	}))
 	defer srv.Close()
-	l := New(nil, func(string, Creds) (Provider, error) { return newNamecheap(creds, srv.URL), nil })
+	l := New(nil, nil, func(string, Creds) (Provider, error) { return newNamecheap(creds, srv.URL), nil })
 	if _, err := l.Check(context.Background(), Namecheap, creds); !errors.Is(err, errs.ErrRefused) || !strings.Contains(err.Error(), "Domain is invalid") {
 		t.Errorf("unknown error = %v", err)
 	}

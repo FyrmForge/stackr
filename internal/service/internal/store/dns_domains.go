@@ -15,13 +15,18 @@ type DNSDomain struct {
 	Name        string     `db:"name" json:"name"`
 	ShareAll    bool       `db:"share_all" json:"share_all"`
 	OrgIDs      StringList `db:"org_ids" json:"org_ids"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
+	// ResourceID is the domain resource stackr made for the domain; nil
+	// when one already held its host.
+	ResourceID *string   `db:"resource_id" json:"resource_id"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type DNSDomainStore interface {
 	Create(ctx context.Context, d DNSDomain) error
+	Get(ctx context.Context, id string) (DNSDomain, error)
 	Update(ctx context.Context, d DNSDomain) error
 	Delete(ctx context.Context, id string) error
+	List(ctx context.Context) ([]DNSDomain, error)
 	ListByConnector(ctx context.Context, connectorID string) ([]DNSDomain, error)
 	// ListFor is the domains orgID may use: its own connectors', and the
 	// server connectors' shared with it.
@@ -31,6 +36,10 @@ type DNSDomainStore interface {
 var dnsDomainsT = newTable[DNSDomain]("dns_domains", nil)
 
 type dnsDomains struct{ crud[DNSDomain] }
+
+func (s dnsDomains) List(ctx context.Context) ([]DNSDomain, error) {
+	return s.many(ctx, "1 = 1 ORDER BY name")
+}
 
 func (s dnsDomains) ListByConnector(ctx context.Context, connectorID string) ([]DNSDomain, error) {
 	return s.many(ctx, "connector_id = ? ORDER BY name", connectorID)

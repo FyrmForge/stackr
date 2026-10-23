@@ -7,27 +7,28 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/libdns/libdns"
-	ncdns "github.com/libdns/namecheap"
+	"golang.org/x/net/publicsuffix"
 )
 
 // namecheapAPI is Namecheap's production endpoint. The sandbox one
 // (api.sandbox.namecheap.com) is a test's to pass.
 const namecheapAPI = "https://api.namecheap.com/xml.response"
 
-// namecheap is a Namecheap account. Records go through libdns/namecheap;
-// the domain list and the switch to Namecheap DNS, which it lacks, go
-// through call, which keeps Namecheap's error numbers. ClientIP is always
-// set, so the library never asks a third party for this machine's address.
+// namecheap is a Namecheap account. Every command goes through call,
+// which keeps Namecheap's error numbers and the key out of URLs. Not
+// libdns/namecheap: it splits a zone at the first TLD whose letters it ends
+// in (x.eco as x.e + co), drops the zone's mail setting on every write and
+// loses the error numbers.
 type namecheap struct {
 	c        Creds
 	endpoint string
 	http     *http.Client
-	lib      *ncdns.Provider
 }
 
 func newNamecheap(c Creds, endpoint string) *namecheap {
@@ -38,7 +39,6 @@ func newNamecheap(c Creds, endpoint string) *namecheap {
 		c:        c,
 		endpoint: endpoint,
 		http:     &http.Client{Timeout: 30 * time.Second},
-		lib:      &ncdns.Provider{APIKey: c.Key, User: c.User, APIEndpoint: endpoint, ClientIP: c.ClientIP},
 	}
 }
 
@@ -53,7 +53,8 @@ type ncResponse struct {
 		Name     string `xml:"Name,attr"`
 		IsOurDNS bool   `xml:"IsOurDNS,attr"`
 	} `xml:"CommandResponse>DomainGetListResult>Domain"`
-	Total int `xml:"CommandResponse>Paging>TotalItems"`
+	Total int       `xml:"CommandResponse>Paging>TotalItems"`
+	Hosts zoneHosts `xml:"CommandResponse>DomainDNSGetHostsResult"`
 }
 
 // call runs one API command. The key goes in the POST body, never the URL,
@@ -122,29 +123,182 @@ func (n *namecheap) Zones(ctx context.Context) ([]Zone, error) {
 }
 
 // TakeOver points the domain at Namecheap's own DNS
-// (namecheap.domains.dns.setDefault). A Namecheap domain is a registered
-// one: the first label is the SLD, the rest the TLD (co.uk included).
+// (namecheap.domains.dns.setDefault).
 func (n *namecheap) TakeOver(ctx context.Context, zone string) error {
-	sld, tld, ok := strings.Cut(Normal(zone), ".")
-	if !ok {
-		return fmt.Errorf("namecheap: %q is not a domain", zone)
+	sld, tld, err := Split(zone)
+	if err != nil {
+		return err
 	}
-	_, err := n.call(ctx, "namecheap.domains.dns.setDefault", url.Values{"SLD": {sld}, "TLD": {tld}})
+	_, err = n.call(ctx, "namecheap.domains.dns.setDefault", url.Values{"SLD": {sld}, "TLD": {tld}})
 	return err
 }
 
+// Split is a registered domain's SLD and TLD as Namecheap takes them, the
+// TLD by the public suffix list (fyrmforge.co.uk is fyrmforge + co.uk). A
+// name under a registered domain (shop.example.com) is refused: Namecheap's
+// zones are whole domains.
+func Split(zone string) (sld, tld string, err error) {
+	zone = Normal(zone)
+	tld, _ = publicsuffix.PublicSuffix(zone)
+	sld, ok := strings.CutSuffix(zone, "."+tld)
+	if !ok || sld == "" || strings.Contains(sld, ".") {
+		return "", "", fmt.Errorf("namecheap: %q is not a registered domain", zone)
+	}
+	return sld, tld, nil
+}
+
+// host is one record as getHosts returns it and setHosts takes it back.
+// Every field is sent back as read, so a record stackr does not touch keeps
+// its TTL and MX preference.
+type host struct {
+	Name    string `xml:"Name,attr"`
+	Type    string `xml:"Type,attr"`
+	Address string `xml:"Address,attr"`
+	MXPref  string `xml:"MXPref,attr"`
+	TTL     string `xml:"TTL,attr"`
+}
+
+// zoneHosts is a zone's records and its mail setting (EmailType: FWD is
+// Namecheap's forwarding, whose MX records getHosts does not list).
+// setHosts without it would turn the mail off.
+type zoneHosts struct {
+	EmailType string `xml:"EmailType,attr"`
+	Hosts     []host `xml:"host"`
+}
+
+func (n *namecheap) getHosts(ctx context.Context, zone string) (zoneHosts, error) {
+	sld, tld, err := Split(zone)
+	if err != nil {
+		return zoneHosts{}, err
+	}
+	r, err := n.call(ctx, "namecheap.domains.dns.getHosts", url.Values{"SLD": {sld}, "TLD": {tld}})
+	return r.Hosts, err
+}
+
+// setHosts replaces the zone's records with z: Namecheap has no call for
+// one record, so every change is a read, an edit and this, under the zone's
+// lock.
+func (n *namecheap) setHosts(ctx context.Context, zone string, z zoneHosts) error {
+	sld, tld, err := Split(zone)
+	if err != nil {
+		return err
+	}
+	q := url.Values{"SLD": {sld}, "TLD": {tld}}
+	if z.EmailType != "" {
+		q.Set("EmailType", z.EmailType)
+	}
+	for i, h := range z.Hosts {
+		k := strconv.Itoa(i + 1)
+		addr := h.Address
+		if h.Type == "CAA" { // read as "0 issue ca.example", written as three fields
+			if f := strings.SplitN(addr, " ", 3); len(f) == 3 {
+				q.Set("Flag"+k, f[0])
+				q.Set("Tag"+k, f[1])
+				addr = f[2]
+			}
+		}
+		q.Set("HostName"+k, h.Name)
+		q.Set("RecordType"+k, h.Type)
+		q.Set("Address"+k, addr)
+		if h.TTL != "" {
+			q.Set("TTL"+k, h.TTL)
+		}
+		if h.MXPref != "" && h.Type == "MX" {
+			q.Set("MXPref"+k, h.MXPref)
+		}
+	}
+	_, err = n.call(ctx, "namecheap.domains.dns.setHosts", q)
+	return err
+}
+
+func toHost(r libdns.Record) host {
+	rr := r.RR()
+	h := host{Name: rr.Name, Type: rr.Type, Address: rr.Data, TTL: strconv.Itoa(int(rr.TTL.Seconds()))}
+	if rr.TTL == 0 {
+		h.TTL = ""
+	}
+	if mx, ok := r.(libdns.MX); ok {
+		h.MXPref, h.Address = strconv.Itoa(int(mx.Preference)), mx.Target
+	}
+	return h
+}
+
+func (h host) record() libdns.Record {
+	ttl, _ := strconv.Atoi(h.TTL)
+	return libdns.RR{Name: h.Name, Type: h.Type, Data: h.Address, TTL: time.Duration(ttl) * time.Second}
+}
+
+// same: one record, by name, type and value.
+func (h host) same(o host) bool {
+	return strings.EqualFold(h.Name, o.Name) && strings.EqualFold(h.Type, o.Type) && h.Address == o.Address
+}
+
 func (n *namecheap) Get(ctx context.Context, zone string) ([]libdns.Record, error) {
-	return n.lib.GetRecords(ctx, zone)
+	z, err := n.getHosts(ctx, zone)
+	out := make([]libdns.Record, 0, len(z.Hosts))
+	for _, h := range z.Hosts {
+		out = append(out, h.record())
+	}
+	return out, err
 }
 
+// edit is a read, fn on the records, and a write when fn changed them.
+func (n *namecheap) edit(ctx context.Context, zone string, fn func([]host) ([]host, bool)) error {
+	z, err := n.getHosts(ctx, zone)
+	if err != nil {
+		return err
+	}
+	hs, changed := fn(z.Hosts)
+	if !changed {
+		return nil
+	}
+	z.Hosts = hs
+	return n.setHosts(ctx, zone, z)
+}
+
+// Append adds rs; a record already there (name, type, value) stays one.
 func (n *namecheap) Append(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
-	return n.lib.AppendRecords(ctx, zone, rs)
+	return rs, n.edit(ctx, zone, func(hs []host) ([]host, bool) {
+		changed := false
+		for _, r := range rs {
+			h := toHost(r)
+			if !slices.ContainsFunc(hs, h.same) {
+				hs, changed = append(hs, h), true
+			}
+		}
+		return hs, changed
+	})
 }
 
+// Set makes rs the only records of their names and types.
 func (n *namecheap) Set(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
-	return n.lib.SetRecords(ctx, zone, rs)
+	return rs, n.edit(ctx, zone, func(hs []host) ([]host, bool) {
+		var add []host
+		for _, r := range rs {
+			add = append(add, toHost(r))
+		}
+		hs = slices.DeleteFunc(hs, func(h host) bool {
+			return slices.ContainsFunc(add, func(a host) bool {
+				return strings.EqualFold(a.Name, h.Name) && strings.EqualFold(a.Type, h.Type)
+			})
+		})
+		return append(hs, add...), true
+	})
 }
 
+// Delete removes the records matching rs by name, type and value; others
+// of the same name are left.
 func (n *namecheap) Delete(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
-	return n.lib.DeleteRecords(ctx, zone, rs)
+	var gone []libdns.Record
+	err := n.edit(ctx, zone, func(hs []host) ([]host, bool) {
+		out := slices.DeleteFunc(hs, func(h host) bool {
+			hit := slices.ContainsFunc(rs, func(r libdns.Record) bool { return toHost(r).same(h) })
+			if hit {
+				gone = append(gone, h.record())
+			}
+			return hit
+		})
+		return out, len(gone) > 0
+	})
+	return gone, err
 }

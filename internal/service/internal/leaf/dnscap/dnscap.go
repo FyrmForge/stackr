@@ -85,15 +85,17 @@ type Domain struct {
 
 type Leaf struct {
 	rows  store.DNSDomainStore
+	recs  store.DNSRecordStore
 	open  Opener
-	locks sync.Map // zone -> *sync.Mutex
+	locks sync.Map   // zone -> *sync.Mutex
+	recMu sync.Mutex // one reconcile at a time: the table and the zones agree
 }
 
-func New(rows store.DNSDomainStore, open Opener) *Leaf {
+func New(rows store.DNSDomainStore, recs store.DNSRecordStore, open Opener) *Leaf {
 	if open == nil {
 		open = Open
 	}
-	return &Leaf{rows: rows, open: open}
+	return &Leaf{rows: rows, recs: recs, open: open}
 }
 
 // Check validates an account and asks for its domains: what saving a
@@ -298,19 +300,51 @@ func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, kind string
 	return d, err
 }
 
-// Unmanage forgets a managed domain. ponytail: D3 refuses it while tiles
-// use the domain and deletes the records stackr made first.
-func (l *Leaf) Unmanage(ctx context.Context, id, name string) error {
+// Unmanage forgets a managed domain and returns its row. The caller has
+// refused it while tiles use the domain and deleted stackr's records
+// (Forget) first.
+func (l *Leaf) Unmanage(ctx context.Context, id, name string) (store.DNSDomain, error) {
 	name = Normal(name)
+	rows, err := l.rows.ListByConnector(ctx, id)
+	if err != nil {
+		return store.DNSDomain{}, err
+	}
+	i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == name })
+	if i < 0 {
+		return store.DNSDomain{}, errs.ErrNotFound
+	}
+	return rows[i], l.rows.Delete(ctx, rows[i].ID)
+}
+
+// ByConnector is the domains connector id manages.
+func (l *Leaf) ByConnector(ctx context.Context, id string) ([]store.DNSDomain, error) {
+	return l.rows.ListByConnector(ctx, id)
+}
+
+// Linked records the domain resource stackr made for managed domain name.
+func (l *Leaf) Linked(ctx context.Context, id, name, resourceID string) error {
 	rows, err := l.rows.ListByConnector(ctx, id)
 	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == name })
+	i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == Normal(name) })
 	if i < 0 {
 		return errs.ErrNotFound
 	}
-	return l.rows.Delete(ctx, rows[i].ID)
+	rows[i].ResourceID = &resourceID
+	return l.rows.Update(ctx, rows[i])
+}
+
+// All is every managed domain on the server.
+func (l *Leaf) All(ctx context.Context) ([]store.DNSDomain, error) { return l.rows.List(ctx) }
+
+// MayUse says whether orgID may put tiles under managed domain d: an org
+// connector's only its org, a server one its "Available to" orgs.
+func MayUse(d store.DNSDomain, orgID string) bool {
+	if d.OrgID != nil {
+		return *d.OrgID == orgID
+	}
+	return d.ShareAll || slices.Contains(d.OrgIDs, orgID)
 }
 
 // TakeOver switches name to the provider's DNS. confirm must be the domain

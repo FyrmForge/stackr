@@ -80,6 +80,22 @@ func (l *Leaf) Create(ctx context.Context, s Spec, ownOrgID string, orgs []store
 	return r, errs.Conflictf("%s is already a domain resource.", r.Host)
 }
 
+// Adopt makes the resource a managed domain stands for (a DNS connector's
+// domain). Undeclared: stackr made it, so in Visible it never outranks a
+// declared row, nor the older root.
+func (l *Leaf) Adopt(ctx context.Context, s Spec, ownOrgID string, orgs []store.Org) (store.DomainResource, error) {
+	r, err := Prepare(s, ownOrgID, orgs)
+	if err != nil {
+		return r, err
+	}
+	r.Declared = false
+	err = l.rows.Create(ctx, r)
+	if _, taken := errs.IsConflict(err); taken {
+		return r, errs.Conflictf("%s is already a domain resource.", r.Host)
+	}
+	return r, err
+}
+
 // sameOwner is the row holding r's host when it sits at r's level under
 // r's owner.
 func (l *Leaf) sameOwner(ctx context.Context, r store.DomainResource) (store.DomainResource, bool) {

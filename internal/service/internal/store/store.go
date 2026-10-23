@@ -56,6 +56,7 @@ type Tables struct {
 	Credentials      CredentialStore
 	Connectors       ConnectorStore
 	DNSDomains       DNSDomainStore
+	DNSRecords       DNSRecordStore
 	ManagedInstances ManagedInstanceStore
 	Provisions       ProvisionStore
 	Bindings         BindingStore
@@ -112,6 +113,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		Credentials:      credentials{crud[Credential]{q, box, credentialsT}},
 		Connectors:       connectors{crud[Connector]{q, box, connectorsT}},
 		DNSDomains:       dnsDomains{crud[DNSDomain]{q, box, dnsDomainsT}},
+		DNSRecords:       dnsRecords{crud[DNSRecord]{q, box, dnsRecordsT}},
 		ManagedInstances: managedInstances{crud[ManagedInstance]{q, box, managedInstancesT}},
 		Provisions:       provisions{crud[Provision]{q, box, provisionsT}},
 		Bindings:         bindings{crud[Binding]{q, box, bindingsT}},

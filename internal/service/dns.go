@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 )
 
 // dns.go holds the DNS connector verbs. orgID nil is the server's own
@@ -120,16 +122,57 @@ func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, d
 			return DNSDomain{}, err
 		}
 	}
-	return o.dns.Manage(ctx, c.ID, c.OrgID, c.Provider, creds, domain, orgIDs)
+	res, made, err := o.managedResource(ctx, c.OrgID, domain)
+	if err != nil {
+		return DNSDomain{}, err
+	}
+	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, c.Provider, creds, domain, orgIDs)
+	if err != nil || !made {
+		return d, err
+	}
+	r, err := o.domainres.Adopt(ctx, res, ownerOf(DomainResource{OrgID: c.OrgID}), nil)
+	if err != nil {
+		return d, err
+	}
+	return d, o.dns.Linked(ctx, c.ID, domain, r.ID)
 }
 
-// UnmanageDNSDomain stops managing domain.
+// managedResource is the domain resource a managed domain stands for. The
+// host may already be one at the connector's level (the server's root for a
+// server connector, the org's own row for an org connector): that row is
+// used as is. Anywhere else is refused. made: none yet, res is the row to
+// make (instance level for a server connector, org level for an org's).
+func (o *Orchestrator) managedResource(ctx context.Context, orgID *string, domain string) (res domainres.Spec, made bool, err error) {
+	host := dnscap.Normal(domain)
+	all, err := o.domainres.ListAll(ctx)
+	if err != nil {
+		return res, false, err
+	}
+	res = domainres.Spec{Level: domainres.Instance, Host: host}
+	if orgID != nil {
+		res = domainres.Spec{Level: domainres.Org, OwnerID: *orgID, Host: host}
+	}
+	i := slices.IndexFunc(all, func(r DomainResource) bool { return r.Host == host })
+	if i < 0 {
+		return res, true, nil
+	}
+	r := all[i]
+	mine := r.Level == res.Level && (orgID == nil || r.OrgID != nil && *r.OrgID == *orgID)
+	if !mine {
+		return res, false, errs.Conflictf("%s is already a domain resource of another level or organization", host)
+	}
+	return res, false, nil
+}
+
+// UnmanageDNSDomain stops managing domain: refused while tiles use it
+// (the error names them); else the records stackr made are deleted, then
+// the domain is forgotten.
 func (o *Orchestrator) UnmanageDNSDomain(ctx context.Context, orgID *string, id, domain string) error {
-	c, _, err := o.dnsAccount(ctx, orgID, id)
+	c, creds, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
-	return o.dns.Unmanage(ctx, c.ID, domain)
+	return o.forgetDomain(ctx, c, creds, domain)
 }
 
 // TakeOverDNSDomain switches domain to the provider's own DNS; confirm is
@@ -142,8 +185,33 @@ func (o *Orchestrator) TakeOverDNSDomain(ctx context.Context, orgID *string, id,
 	return o.dns.TakeOver(ctx, c.Provider, creds, domain, confirm)
 }
 
-// DeleteDNSConnector deletes a DNS connector and the domains it manages.
+// DeleteDNSConnector deletes a DNS connector and the domains it manages,
+// each as UnmanageDNSDomain does. Refused while a tile uses any of them.
 func (o *Orchestrator) DeleteDNSConnector(ctx context.Context, orgID *string, id string) error {
+	c, creds, err := o.dnsAccount(ctx, orgID, id)
+	if err != nil {
+		return err
+	}
+	ds, err := o.dns.ByConnector(ctx, c.ID)
+	if err != nil {
+		return err
+	}
+	var users []string
+	for _, d := range ds {
+		u, err := o.domainUsers(ctx, d.Name)
+		if err != nil {
+			return err
+		}
+		users = append(users, u...)
+	}
+	if len(users) > 0 {
+		return errs.Conflictf("the connector's domains are in use by %s; remove those domains first", strings.Join(users, ", "))
+	}
+	for _, d := range ds {
+		if err := o.forgetDomain(ctx, c, creds, d.Name); err != nil {
+			return err
+		}
+	}
 	return o.conns.DeleteDNS(ctx, orgID, id)
 }
 

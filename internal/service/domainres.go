@@ -89,6 +89,9 @@ func (o *Orchestrator) DeleteDomainResource(ctx context.Context, id string) erro
 	if err != nil {
 		return err
 	}
+	if err := o.checkNotManaged(ctx, r); err != nil {
+		return err
+	}
 	ds, err := o.domains.List(ctx)
 	if err != nil {
 		return err
@@ -222,6 +225,9 @@ func (o *Orchestrator) DomainResourceImpact(ctx context.Context, id string) (Ren
 // external routes, the panel host and the other rows that hold a name.
 func (o *Orchestrator) planRename(ctx context.Context, r DomainResource, host string) (renamePlan, error) {
 	var p renamePlan
+	if err := o.checkNotManaged(ctx, r); err != nil {
+		return p, err
+	}
 	set, orgs, err := o.renameSet(ctx, r)
 	if err != nil {
 		return p, err

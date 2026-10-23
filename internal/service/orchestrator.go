@@ -531,7 +531,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		})
 		return connector.New(st.Connectors, app)
 	})
-	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, o.dnsOpen) })
+	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords, o.dnsOpen) })
 	orch.managed = build("leaf/managed",
 		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
@@ -558,7 +558,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
-		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor, func(ctx context.Context, id string) error { return orch.nodeDown(ctx, id) })), Soft: orch.isWorker}
+		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor, func(ctx context.Context, id string) error { return orch.nodeDown(ctx, id) })), Soft: orch.isWorker, After: orch.syncDNS}
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{

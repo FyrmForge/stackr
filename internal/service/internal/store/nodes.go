@@ -17,6 +17,7 @@ type Node struct {
 	WGPublicKey string    `db:"wg_public_key" json:"wg_public_key"`
 	WGAddress   string    `db:"wg_address" json:"wg_address"`
 	Status      string    `db:"status" json:"status"`
+	PublicIP    string    `db:"public_ip" json:"public_ip"` // records point here; "" = the detected address
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 }
 

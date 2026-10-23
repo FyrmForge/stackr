@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -50,7 +53,17 @@ func redact(d Domain) Domain {
 // ignored. Otherwise the host is a literal: no resource named it, and it
 // takes the squat check (a generated name's first label is the tile's
 // slug, which may be another org's).
+//
+// A host in a managed domain the tile's org may use gets its DNS records;
+// one whose name already has a record stackr did not create is refused
+// (*RecordTaken) unless AttachDomainReplace, which takes that record over.
 func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s DomainSpec) (Domain, error) {
+	return o.AttachDomainReplace(ctx, tileID, s, false)
+}
+
+// AttachDomainReplace is AttachDomain; replace takes over a record stackr
+// did not create on the host's name.
+func (o *Orchestrator) AttachDomainReplace(ctx context.Context, tileID string, s DomainSpec, replace bool) (Domain, error) {
 	s.RawCaddy = ""
 	s.ResourceID = nil
 	t, err := o.tiles.Get(ctx, tileID)
@@ -73,6 +86,10 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	} else if err := o.checkSquat(ctx, t, s.Host); err != nil {
 		return Domain{}, err
 	}
+	zone, err := o.checkManagedHost(ctx, t, s.Host, s.Auto, replace)
+	if err != nil {
+		return Domain{}, err
+	}
 	if s.Port == 0 {
 		s.Port = t.ContainerPort
 	}
@@ -93,7 +110,75 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	if err != nil {
 		return d, err
 	}
-	return redact(d), o.sync.Sync(ctx)
+	return redact(d), o.syncWithDNS(ctx, zone, d.Host, replace)
+}
+
+// checkManagedHost is the managed domain host sits in ("" = none) when the
+// tile's org may use it, refusing a literal host in one it may not and a
+// name whose record stackr did not create (unless replace). An auto name in
+// a domain its org may not use is not managed: no records, no refusal.
+func (o *Orchestrator) checkManagedHost(ctx context.Context, t Tile, host string, auto, replace bool) (string, error) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if strings.HasPrefix(host, "*.") {
+		return "", nil
+	}
+	org, err := o.tileOrg(ctx, t)
+	if err != nil {
+		return "", err
+	}
+	z, ok, err := o.managedZone(ctx, org, host)
+	if _, refused := errs.IsConflict(err); refused && auto {
+		return "", nil
+	}
+	if err != nil || !ok {
+		return "", err
+	}
+	return z.Name, o.checkRecordFree(ctx, z, host, replace)
+}
+
+// syncWithDNS pushes the proxy and, for a host in managed zone, writes its
+// records first so a refusal or a provider error on that zone reaches the
+// caller (another zone's trouble is the log's).
+func (o *Orchestrator) syncWithDNS(ctx context.Context, zone, host string, replace bool) error {
+	if zone == "" {
+		return o.sync.Sync(ctx)
+	}
+	err := dnsErrFor(o.reconcileDNS(ctx, map[string]bool{host: replace}), zone, host)
+	if serr := o.sync.Sync(ctx); err == nil {
+		err = serr
+	}
+	return err
+}
+
+// dnsErrFor keeps the parts of a reconcile's error about zone and host.
+func dnsErrFor(err error, zone, host string) error {
+	var out []error
+	var walk func(error)
+	walk = func(e error) {
+		var ze *dnscap.ZoneError
+		var rt *RecordTaken
+		switch {
+		case e == nil:
+		case errors.As(e, &rt):
+			if slices.Contains(rt.Hosts, host) {
+				out = append(out, &RecordTaken{Hosts: []string{host}})
+			}
+		case errors.As(e, &ze):
+			if ze.Zone == zone {
+				out = append(out, e)
+			}
+		default:
+			if j, ok := e.(interface{ Unwrap() []error }); ok {
+				for _, x := range j.Unwrap() {
+					walk(x)
+				}
+				return
+			}
+			out = append(out, e)
+		}
+	}
+	walk(err)
+	return errors.Join(out...)
 }
 
 // UpdateDomain replaces the domain's spec; the stored raw Caddy route stays
@@ -101,6 +186,12 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 // named the host and its auto mark while the host stays. Only a new host
 // takes the squat check: a kept one passed it, or was generated.
 func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec) (Domain, error) {
+	return o.UpdateDomainReplace(ctx, id, s, false)
+}
+
+// UpdateDomainReplace is UpdateDomain; replace takes over a record stackr
+// did not create on a new host's name.
+func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s DomainSpec, replace bool) (Domain, error) {
 	d, err := o.domains.Get(ctx, id)
 	if err != nil {
 		return d, err
@@ -110,8 +201,12 @@ func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec
 		return d, err
 	}
 	sameHost := strings.EqualFold(strings.TrimSpace(s.Host), d.Host)
+	zone := ""
 	if !sameHost {
 		if err := o.checkSquat(ctx, t, s.Host); err != nil {
+			return d, err
+		}
+		if zone, err = o.checkManagedHost(ctx, t, s.Host, false, replace); err != nil {
 			return d, err
 		}
 	}
@@ -134,7 +229,7 @@ func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
 		return d, err
 	}
-	return redact(d), o.sync.Sync(ctx)
+	return redact(d), o.syncWithDNS(ctx, zone, d.Host, replace)
 }
 
 // SetRawCaddy replaces the domain's generated route with raw, verbatim; ""
