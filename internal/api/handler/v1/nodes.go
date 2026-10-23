@@ -44,6 +44,19 @@ func (h *H) SetNodeExit() Endpoint {
 	})
 }
 
+// NodePublicIPIn is the address a node's DNS records point at, "" = the
+// detected one.
+type NodePublicIPIn struct {
+	PublicIP string `json:"public_ip"`
+}
+
+// SetNodePublicIP (server admin) sets a node's public IP override.
+func (h *H) SetNodePublicIP() Endpoint {
+	return JSON(200, func(c echo.Context, in NodePublicIPIn) (service.NodeOut, error) {
+		return h.Orch.SetNodePublicIP(rc(c), middleware.Principal(c), c.Param("node"), in.PublicIP)
+	})
+}
+
 // RejoinNode (server admin) answers a new join command for a broken worker.
 func (h *H) RejoinNode() Endpoint {
 	return JSON(201, func(c echo.Context, _ None) (service.JoinTokenOut, error) {

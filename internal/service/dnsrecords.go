@@ -323,3 +323,88 @@ func (o *Orchestrator) SetNodePublicIP(ctx context.Context, by *Principal, ref, 
 	return out, o.reconcileDNS(ctx, nil) // saved either way; a provider error is the caller's to see
 
 }
+
+// IngressDomain is a tile domain an ingress node serves: Org, Stack and
+// Env are slugs, for the "Move ingress" link to the env's Placement tab.
+type IngressDomain struct {
+	Host, Org, Stack, Env string
+}
+
+// servedBy is every tile domain whose ingress node is nodeID ("" = any),
+// with that node.
+func (o *Orchestrator) servedBy(ctx context.Context, nodeID string, envID string) ([]IngressDomain, []string, error) {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	def, err := o.DefaultIngress(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	var out []IngressDomain
+	var nodes []string
+	for _, d := range ds {
+		t, err := o.tiles.Get(ctx, d.TileID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if envID != "" && t.EnvironmentID != envID {
+			continue
+		}
+		in, err := o.IngressFor(ctx, t.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		in = cmp.Or(in, def)
+		if nodeID != "" && in != nodeID {
+			continue
+		}
+		ch, og, err := o.chain(ctx, ScopeTile, t.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		st, err1 := o.store.Stacks.Get(ctx, ch[2].id)
+		e, err2 := o.store.Environments.Get(ctx, ch[1].id)
+		if err := errors.Join(err1, err2); err != nil {
+			return nil, nil, err
+		}
+		out = append(out, IngressDomain{Host: d.Host, Org: og.Slug, Stack: st.Slug, Env: e.Slug})
+		nodes = append(nodes, in)
+	}
+	return out, nodes, nil
+}
+
+// DownIngressDomains is the domains node id serves while it is down (none
+// while it is up): the node page lists them, each with Move ingress.
+func (o *Orchestrator) DownIngressDomains(ctx context.Context, id string) ([]IngressDomain, error) {
+	if o.nodeUp(ctx, id) == nil {
+		return nil, nil
+	}
+	ds, _, err := o.servedBy(ctx, id, "")
+	return ds, err
+}
+
+// IngressDown is an env's domains whose ingress node is down.
+type IngressDown struct {
+	Node  string
+	Hosts []string
+}
+
+// EnvIngressDown reports the env's domains served by a down ingress node.
+func (o *Orchestrator) EnvIngressDown(ctx context.Context, envID string) (IngressDown, bool) {
+	ds, nodes, err := o.servedBy(ctx, "", envID)
+	if err != nil {
+		return IngressDown{}, false
+	}
+	var out IngressDown
+	for i, d := range ds {
+		var down *NodeDownError
+		if errors.As(o.nodeUp(ctx, nodes[i]), &down) {
+			out.Node = down.Name
+			out.Hosts = append(out.Hosts, d.Host)
+		}
+	}
+	slices.Sort(out.Hosts)
+	out.Hosts = slices.Compact(out.Hosts)
+	return out, len(out.Hosts) > 0
+}

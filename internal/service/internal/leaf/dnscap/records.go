@@ -49,7 +49,7 @@ type Accounts func(ctx context.Context, connectorID string, orgID *string) (Acco
 type RecordTaken struct{ Hosts []string }
 
 func (e *RecordTaken) Error() string {
-	return strings.Join(e.Hosts, ", ") + " already has a DNS record stackr did not create"
+	return strings.Join(e.Hosts, ", ") + " already has a DNS record stackr did not create; replace it to take it over"
 }
 
 // ZoneError is one zone's failed reconcile.

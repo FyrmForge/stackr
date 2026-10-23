@@ -97,7 +97,7 @@ func (a *app) nodeNames() (map[string]string, error) {
 func (a *app) nodes() *cobra.Command {
 	return noun("node", "The cluster's machines: the controller and its workers",
 		a.nodeAdd(), a.nodeConfirm(), a.nodeReject(), a.nodeLs(), a.nodeShow(), a.nodeMetrics(), a.linkMetrics(),
-		a.nodeTag(true), a.nodeTag(false), a.nodeExit(),
+		a.nodeTag(true), a.nodeTag(false), a.nodeExit(), a.nodeSet(),
 		a.nodeRejoin(), a.nodeRotate(), a.nodeRemove(), a.nodeForget(), a.nodeBackup(), a.nodeBackups())
 }
 
@@ -443,6 +443,34 @@ func (a *app) nodeExit() *cobra.Command {
 			return nil
 		})
 	c.Example = "  stackr node exit vps-home vps-fsn1 vps-hel1"
+	return c
+}
+
+// nodeSet sets a node's public IP override: the address the DNS records of
+// the managed domains it serves point at.
+func (a *app) nodeSet() *cobra.Command {
+	var ip string
+	c := leaf("set <name>", "admin.node-public-ip", "Set the public IP a node's DNS records point at (server admin)", exact(1),
+		func(c *cobra.Command, args []string) error {
+			if !c.Flags().Changed("public-ip") {
+				return usage("nothing to set; pass --public-ip")
+			}
+			v, err := a.call(PUT, "/admin/nodes/"+url.PathEscape(args[0])+"/public-ip", map[string]string{"public_ip": ip})
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			if ip == "" {
+				a.say("%s: DNS records point at its detected address", args[0])
+				return nil
+			}
+			a.say("%s: DNS records point at %s", args[0], ip)
+			return nil
+		})
+	c.Flags().StringVar(&ip, "public-ip", "", "a floating IP or load balancer address; empty goes back to the detected one")
+	c.Example = "  stackr node set vps-fsn1 --public-ip 203.0.113.10"
 	return c
 }
 

@@ -5,6 +5,8 @@ package tile
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"maps"
 	"net/http"
 	"net/url"
@@ -94,6 +96,7 @@ type head struct {
 // the stored row.
 type typed struct {
 	vals, errors map[string]string
+	replace      *ui.ReplaceOffer // the Settings tab asks "Replace it"
 }
 
 // view is the drawer frame for tab: v0's header (status, source, where it
@@ -214,6 +217,9 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		if ty != nil {
 			maps.Copy(sv.Vals, ty.vals)
 			sv.Errors = ty.errors
+			if sv.Domains != nil {
+				sv.Domains.Replace = ty.replace
+			}
 		}
 		body = ui.Settings(v, sv)
 	case "jobs":
@@ -263,8 +269,12 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		if err != nil {
 			return sv, err
 		}
+		managed, err := h.orch.TileDNSDomains(c.Request().Context(), t.ID)
+		if err != nil {
+			return sv, err
+		}
 		p := middleware.Principal(c)
-		sv.Domains = &ui.DomainsView{Rows: domainRows(ds), Admin: p != nil && p.Access.Admin}
+		sv.Domains = &ui.DomainsView{Rows: domainRows(ds), Admin: p != nil && p.Access.Admin, Managed: managed}
 	}
 	if pulls(t) {
 		iv := imageView(t, hd.image)
@@ -382,15 +392,21 @@ func (h *handler) StopRun(c echo.Context) error {
 }
 
 // AttachDomain takes the literal form, or the auto one: the orchestrator
-// names an auto host.
+// names an auto host. A managed domain picked from the list plus its
+// subdomain is the host; "Other" (no domain) keeps the typed one. A host
+// whose name has a DNS record stackr did not create asks "Replace it".
 func (h *handler) AttachDomain(c echo.Context) error {
 	if c.FormValue("auto") != "" {
 		d, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, service.DomainSpec{Auto: true})
 		return h.after(c, "settings", "attached "+d.Host, autoRefusal(err))
 	}
 	https := c.FormValue("https") != ""
+	host := strings.TrimSpace(c.FormValue("host"))
+	if d := c.FormValue("domain"); d != "" {
+		host = service.ManagedHost(d, c.FormValue("sub"))
+	}
 	s := service.DomainSpec{
-		Host:       strings.TrimSpace(c.FormValue("host")),
+		Host:       host,
 		Path:       c.FormValue("path"),
 		RedirectTo: strings.TrimSpace(c.FormValue("redirect_to")),
 		HTTPS:      &https,
@@ -405,8 +421,31 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		}
 		s.Port = n
 	}
-	_, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, s)
+	_, err := h.orch.AttachDomainReplace(c.Request().Context(), tileOf(c).ID, s, c.FormValue("replace") != "")
+	if errors.As(err, new(*service.RecordTaken)) {
+		return h.offerReplace(c, s.Host)
+	}
 	return h.after(c, "settings", "attached "+s.Host, err)
+}
+
+// offerReplace answers an add refused on a record stackr did not create:
+// the Settings tab asking whether to replace it, the form kept.
+func (h *handler) offerReplace(c echo.Context, host string) error {
+	vals := map[string]string{"replace": "1"}
+	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
+		if v := c.FormValue(k); v != "" {
+			vals[k] = v
+		}
+	}
+	b, err := json.Marshal(vals)
+	if err != nil {
+		return err
+	}
+	v, hd, err := h.view(c, "settings")
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{replace: &ui.ReplaceOffer{Host: host, Vals: string(b)}})
 }
 
 // autoRefusal drops the field off a refused auto attach: its form is one

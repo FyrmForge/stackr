@@ -70,6 +70,10 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		return h.orch.SaveNodeTags(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["tag"], exits)
 	}), m)
+	g.POST(nodesBase+"/:node/public-ip", h.nodeAct("network", "Saved.", func(c echo.Context) error {
+		_, err := h.orch.SetNodePublicIP(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("public_ip"))
+		return err
+	}), m)
 	g.POST(nodesBase+"/default-ingress/preview", h.previewIngress, m)
 	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
 		_, err := h.orch.SetDefaultIngress(c.Request().Context(), middleware.Principal(c), c.FormValue("node"), c.FormValue("confirm"))
@@ -470,8 +474,19 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	v := ui.NodeView{
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Hint: ui.NodeHint(d.Status, d.Stalled), Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
+		PublicIP: d.PublicIP, PublicIPAction: base + "/public-ip",
 	}
 	ctx := c.Request().Context()
+	down, err := h.orch.DownIngressDomains(ctx, d.ID)
+	if err != nil {
+		return v, err
+	}
+	for _, x := range down {
+		v.DownDomains = append(v.DownDomains, ui.DownDomainRow{
+			Host: x.Host, Env: x.Org + "/" + x.Stack + "/" + x.Env,
+			Move: "/" + x.Org + "/" + x.Stack + "/" + x.Env + "/-/drawer?tab=placement",
+		})
+	}
 	if c.QueryParam("tab") == "metrics" {
 		r := comp.MetricRange(c.QueryParam("range"))
 		in := service.MetricsIn{}

@@ -1099,13 +1099,24 @@ func (a *app) domains() *cobra.Command {
 			"redirect-to": "redirect_to",
 		}
 	}
-	add := leaf("add [host]", "domain.attach", "Route a host to the tile; --auto names one under the nearest domain resource", upTo(1), nil)
+	add := leaf("add [host]", "domain.attach", "Route a host to the tile; --auto names one under the nearest domain resource, --domain one in a managed domain", upTo(1), nil)
 	addKeys := domainFlags(add)
+	addKeys["replace"] = "replace"
 	var auto bool
+	var managed, sub string
 	add.Flags().BoolVar(&auto, "auto", false, "take the generated name under the nearest domain resource, like the panel's Add auto domain")
+	add.Flags().StringVar(&managed, "domain", "", "a managed domain (stackr tile domain managed lists them); stackr sets its DNS")
+	add.Flags().StringVar(&sub, "sub", "", "the subdomain in --domain (none: the domain itself)")
+	add.Flags().Bool("replace", false, "take over a DNS record stackr did not create on the name")
 	add.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
-		if auto == (len(args) == 1) {
-			return usage("give a host, or --auto for a generated one")
+		ways := 0
+		for _, on := range []bool{auto, len(args) == 1, managed != ""} {
+			if on {
+				ways++
+			}
+		}
+		if ways != 1 || sub != "" && managed == "" {
+			return usage("give a host, --domain (and --sub) for a managed domain, or --auto for a generated one")
 		}
 		body, err := changed(c, addKeys)
 		if err != nil {
@@ -1114,9 +1125,12 @@ func (a *app) domains() *cobra.Command {
 		if body == nil {
 			body = map[string]any{}
 		}
-		if auto {
+		switch {
+		case auto:
 			body["auto"] = true
-		} else {
+		case managed != "":
+			body["domain"], body["sub"] = managed, sub
+		default:
 			body["host"] = args[0]
 		}
 		v, err := a.call(POST, p+"/domains", body)
@@ -1133,6 +1147,9 @@ func (a *app) domains() *cobra.Command {
 		nil,
 	)
 	setKeys := domainFlags(set)
+	set.Flags().String("host", "", "move the domain to this host")
+	set.Flags().Bool("replace", false, "take over a DNS record stackr did not create on the new host's name")
+	setKeys["host"], setKeys["replace"] = "host", "replace"
 	set.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
 		ch, err := changed(c, setKeys)
 		if err != nil || ch == nil {
@@ -1194,6 +1211,7 @@ func (a *app) domains() *cobra.Command {
 	caddy.Flags().StringVarP(&file, "file", "f", "", "the Caddy JSON (\"-\" for stdin; empty clears)")
 	return noun("domain", "The tile's domains",
 		a.get("ls [tile]", "domain.list", "List the tile's domains", atTile, "/domains", domainCols...),
+		a.get("managed [tile]", "domain.managed", "List the managed domains the tile's domains may sit in", atTile, "/managed-domains"),
 		add,
 		set,
 		caddy,
