@@ -22,7 +22,11 @@ var allowProtocol = "https:ssh"
 
 // Repo is one working clone on disk.
 type Repo struct {
-	Dir    string // the clone, e.g. <dataDir>/repos/<tile-id>
+	Dir string // the clone, e.g. <dataDir>/repos/tile-<stack>-<slug>-<hash>
+	// Root is the folder every clone sits in (<dataDir>/repos). Checkout
+	// refuses a Dir that is not one folder directly inside it: a half-written
+	// clone is deleted, and a Dir of Root itself would delete every clone.
+	Root   string
 	URL    string
 	Branch string // "" = the remote's default
 
@@ -55,6 +59,9 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 		ref = "HEAD"
 	}
 	if err := refOK(ref); err != nil {
+		return "", err
+	}
+	if err := r.inRoot(); err != nil {
 		return "", err
 	}
 	env := r.env(ctx)
@@ -93,6 +100,19 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 	}
 	out, err := r.git(ctx, "rev-parse", "HEAD")
 	return strings.TrimSpace(string(out)), err
+}
+
+// inRoot: Dir is exactly one folder inside Root, never Root itself (an
+// empty path element) nor anything outside or deeper.
+func (r Repo) inRoot() error {
+	if r.Root == "" || r.Dir == "" {
+		return fmt.Errorf("git: clone %q has no repos root", r.Dir)
+	}
+	rel, err := filepath.Rel(filepath.Clean(r.Root), filepath.Clean(r.Dir))
+	if err != nil || rel == "." || rel == ".." || strings.ContainsRune(rel, filepath.Separator) {
+		return fmt.Errorf("git: clone %q is not a folder directly inside %q", r.Dir, r.Root)
+	}
+	return nil
 }
 
 // dropLocks removes the *.lock files a killed git left in a clone (a

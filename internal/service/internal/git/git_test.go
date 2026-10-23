@@ -87,8 +87,10 @@ func TestCheckoutReadDiff(t *testing.T) {
 	bare, first, second := fixture(t)
 	ctx := context.Background()
 	var authCalled bool
+	root := t.TempDir()
 	r := Repo{
-		Dir:    filepath.Join(t.TempDir(), "clone"),
+		Dir:    filepath.Join(root, "clone"),
+		Root:   root,
 		URL:    bare,
 		Branch: "main",
 		Auth: func(context.Context) []string {
@@ -154,7 +156,7 @@ func TestCheckoutReadDiff(t *testing.T) {
 	}
 
 	// A half-written clone (no .git) is thrown away and redone.
-	broken := Repo{Dir: filepath.Join(t.TempDir(), "broken"), URL: bare}
+	broken := Repo{Dir: filepath.Join(root, "broken"), Root: root, URL: bare}
 	if err := os.MkdirAll(broken.Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +179,8 @@ func TestCheckoutReadDiff(t *testing.T) {
 func TestProtocolAllowlist(t *testing.T) {
 	bare, _, _ := fixture(t)
 	allowProtocol = "https:ssh"
-	r := Repo{Dir: filepath.Join(t.TempDir(), "c"), URL: "file://" + bare}
+	root := t.TempDir()
+	r := Repo{Dir: filepath.Join(root, "c"), Root: root, URL: "file://" + bare}
 	if _, err := r.Checkout(context.Background(), "", &strings.Builder{}); err == nil {
 		t.Fatal("file:// clone allowed under https:ssh")
 	}
@@ -188,5 +191,36 @@ func TestIsDirError(t *testing.T) {
 	r := Repo{Dir: filepath.Join(t.TempDir(), "no-clone")}
 	if _, err := r.IsDir(context.Background(), strings.Repeat("a", 40), "app"); err == nil {
 		t.Fatal("a missing clone read as not a folder")
+	}
+}
+
+// A clone whose folder is the repos root itself (an empty path element, as
+// a tile with no id once made), outside it or deeper is refused before
+// anything is deleted: the other clones in the root survive.
+func TestCheckoutRefusesOutsideRoot(t *testing.T) {
+	bare, _, _ := fixture(t)
+	root := filepath.Join(t.TempDir(), "repos")
+	keep := filepath.Join(root, "config-s1", ".git", "HEAD")
+	if err := os.MkdirAll(filepath.Dir(keep), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keep, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{
+		root, filepath.Join(root, ""), root + "/", filepath.Join(root, "x", ".."),
+		filepath.Dir(root), filepath.Join(root, "..", "elsewhere"), filepath.Join(root, "config-s1", "sub"), "",
+	} {
+		r := Repo{Dir: d, Root: root, URL: bare}
+		if _, err := r.Checkout(context.Background(), "", &strings.Builder{}); err == nil {
+			t.Errorf("clone into %q allowed", d)
+		}
+		if _, err := os.Stat(keep); err != nil {
+			t.Fatalf("clone into %q wiped the other clones: %v", d, err)
+		}
+	}
+	noRoot := Repo{Dir: filepath.Join(root, "t1"), URL: bare}
+	if _, err := noRoot.Checkout(context.Background(), "", &strings.Builder{}); err == nil {
+		t.Error("clone with no root allowed")
 	}
 }
