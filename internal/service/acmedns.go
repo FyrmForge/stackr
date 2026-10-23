@@ -138,6 +138,11 @@ func (o *Orchestrator) startDNSSocket() {
 		slog.Error("acme dns: socket", "sock", sock, "err", err)
 		return
 	}
+	// A self-upgrade runs the new panel next to the old one: the old one's
+	// exit must not unlink the socket the new one now serves.
+	// ponytail: a new panel that fails leaves the old one without its socket
+	// until it restarts.
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
 	srv := &http.Server{Handler: http.HandlerFunc(o.dnsHandler), ReadHeaderTimeout: 10 * time.Second}
 	go func() { <-o.stopNodes; _ = srv.Close() }()
 	go func() {
