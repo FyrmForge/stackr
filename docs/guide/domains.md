@@ -20,18 +20,19 @@ The key controls the whole Namecheap account: domains, contacts, renewals. Treat
 
 ## Add the connector
 
-In the panel, open Admin, Connectors, Add a DNS connector: Namecheap. Fill in the username and API key. The server IPv4 is the one to allow list. It is filled in when the panel's box has a public IPv4 of its own; behind NAT, enter your router's public address. Connect checks the key and lists the account's domains. The setup wizard's Certificates step has the same form.
+In the panel, open Admin, Connectors, Add a DNS connector: Namecheap. Fill in the username and API key. The server IPv4 is the one to allow list. It is filled in when the panel's box has a public IPv4 of its own, or behind NAT when an outside worker has seen the router's address. Otherwise enter your router's public address. Connect checks the key and lists the account's domains. The setup wizard's Certificates step has the same form.
 
 An org owner can add the org's own Namecheap account under the org's Connectors tab. Its domains are only ever that org's.
 
 From the CLI:
 
 ```bash
-pass show namecheap | stackr server connectors add namecheap --user jo --key-stdin --ip 203.0.113.7
+pass show namecheap | stackr server connectors add namecheap --set user=jo --set client_ip=203.0.113.7 --stdin key
+stackr server connectors kinds
 stackr server connectors domains <connector>
 ```
 
-An org owner uses `stackr org connectors` with the same verbs.
+`kinds` lists each kind and the fields `--set` takes. A secret field never goes on the command line: pipe it with `--stdin <field>`, or set `STACKR_<KIND>_<FIELD>` (`STACKR_NAMECHEAP_KEY`), else the CLI asks for it. Leave out `client_ip` and stackr fills in the address it knows. An org owner uses `stackr org connectors` with the same verbs.
 
 ## Pick the domains stackr manages
 
