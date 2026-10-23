@@ -42,10 +42,10 @@ func TestTileConnectorFallsBackToStack(t *testing.T) {
 		t.Helper()
 		if err := orch.store.Connectors.Create(ctx, store.Connector{
 			ID:        id,
-			Provider:  "github",
+			Kind:      "github",
 			Name:      name,
 			Host:      host,
-			Config:    `{"app":{"id":1,"slug":"` + name + `","webhook_secret":"s"}}`,
+			Settings:  `{"app":{"id":1,"slug":"` + name + `","webhook_secret":"s"}}`,
 			CreatedAt: time.Now(),
 			ShareAll:  true,
 		}); err != nil {

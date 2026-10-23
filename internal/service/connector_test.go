@@ -87,7 +87,7 @@ func TestServerConnectorSharing(t *testing.T) {
 	}
 
 	sc, err := o.ShareConnector(ctx, r.srv, []string{r.acme}, false)
-	if err != nil || !slices.Equal(sc.OrgIDs, []string{r.acme}) || sc.ShareAll || sc.Config != "" {
+	if err != nil || !slices.Equal(sc.OrgIDs, []string{r.acme}) || sc.ShareAll || sc.Settings != "" {
 		t.Fatalf("share = %+v %v", sc, err)
 	}
 	if cs, _ := o.ConnectedConnectors(ctx, r.acme); len(cs) != 1 || cs[0].ID != r.srv {
@@ -181,7 +181,7 @@ func TestShareConnectorRefusals(t *testing.T) {
 		t.Errorf("duplicates = %+v %v", sc, err)
 	}
 	all, err := o.ServerConnectors(ctx)
-	if err != nil || len(all) != 1 || all[0].ID != r.srv || all[0].Config != "" || len(all[0].OrgIDs) != 2 {
+	if err != nil || len(all) != 1 || all[0].ID != r.srv || all[0].Settings != "" || len(all[0].OrgIDs) != 2 {
 		t.Errorf("list = %+v %v", all, err)
 	}
 	if got, err := o.RenameServerConnector(ctx, r.srv, "primary"); err != nil || got.Name != "primary" || len(got.OrgIDs) != 2 {

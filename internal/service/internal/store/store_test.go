@@ -570,14 +570,14 @@ func TestRoundTrip(t *testing.T) {
 	roundTrip(t, s.Connectors, store.Connector{
 		ID:        "cn1",
 		OrgID:     ptr("o1"),
-		Provider:  "github",
+		Kind:      "github",
 		Name:      "gh",
 		Host:      "github.com",
-		Config:    `{"key":"PEM"}`,
+		Settings:  `{"key":"PEM"}`,
 		CreatedAt: t0,
 
 		Capabilities: store.StringList{"git"},
-	}, func(c *store.Connector) { c.Config, c.OrgID, c.ShareAll = "{}", nil, true })
+	}, func(c *store.Connector) { c.Settings, c.OrgID, c.ShareAll = "{}", nil, true })
 	roundTrip(t, s.BackupDests, store.BackupDest{
 		ID:         "bd1",
 		OrgID:      ptr("o1"),

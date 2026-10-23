@@ -162,7 +162,7 @@ func TestHandshake(t *testing.T) {
 		t.Errorf("gitlab = %v", err)
 	}
 	list, _ := l.List(ctx, org)
-	if len(list) != 1 || list[0].Config != "" {
+	if len(list) != 1 || list[0].Settings != "" {
 		t.Errorf("list = %+v", list)
 	}
 }
@@ -236,13 +236,13 @@ func TestServerConnectorReadsWidenWritesDoNot(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs, err := l.ListConnected(ctx, acme)
-	if err != nil || len(cs) != 1 || cs[0].ID != srv.ID || cs[0].Config != "" {
+	if err != nil || len(cs) != 1 || cs[0].ID != srv.ID || cs[0].Settings != "" {
 		t.Fatalf("shared ListConnected = %+v %v", cs, err)
 	}
 	if cs, _ := l.ListConnected(ctx, other); len(cs) != 0 {
 		t.Errorf("an unnamed org sees it: %+v", cs)
 	}
-	if cs, _ := l.List(ctx, acme); len(cs) != 1 || !cs[0].Shared || cs[0].Config != "" {
+	if cs, _ := l.List(ctx, acme); len(cs) != 1 || !cs[0].Shared || cs[0].Settings != "" {
 		t.Errorf("List lacks the shared connector, marked and stripped: %+v", cs)
 	}
 	if _, err := l.Usable(ctx, acme, srv.ID); err != nil {
@@ -348,7 +348,7 @@ func TestServerConnectorNames(t *testing.T) {
 	if _, err := l.RenameServer(ctx, b.ID, a.Name); !errors.As(err, &errs.Conflict{}) {
 		t.Errorf("duplicate name = %v", err)
 	}
-	if c, err := l.RenameServer(ctx, a.ID, "main"); err != nil || c.Name != "main" || c.Config != "" {
+	if c, err := l.RenameServer(ctx, a.ID, "main"); err != nil || c.Name != "main" || c.Settings != "" {
 		t.Errorf("rename = %+v %v", c, err)
 	}
 	// an org may reuse a server connector's name

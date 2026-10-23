@@ -32,17 +32,18 @@ func (s credentials) ListByOrg(ctx context.Context, orgID string) ([]Credential,
 	return s.many(ctx, "org_id = ?", orgID)
 }
 
-// Connector is a row of connectors: one git App per org and host, or a
-// server connector (OrgID nil) the admin shares with named orgs
-// (connector_shares) or all of them (ShareAll). A DNS connector
-// (Capabilities "dns") is a DNS provider account, an org's or the server's.
+// Connector is a row of connectors: one connection of a kind, an org's or
+// the server's (OrgID nil), which the admin shares with named orgs
+// (connector_shares) or all of them (ShareAll). Settings is the kind's
+// sealed blob. Host is a git connector's host until the git kind owns it
+// (phase 2); any other kind holds its kind there.
 type Connector struct {
 	ID        string    `db:"id" json:"id"`
 	OrgID     *string   `db:"org_id" json:"org_id"`
-	Provider  string    `db:"provider" json:"provider"`
+	Kind      string    `db:"kind" json:"kind"`
 	Name      string    `db:"name" json:"name"`
 	Host      string    `db:"host" json:"host"`
-	Config    string    `db:"config" json:"-"`
+	Settings  string    `db:"settings" json:"-"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	ShareAll  bool      `db:"share_all" json:"share_all"`
 	// Capabilities is what the connector does: "git", "dns".
@@ -72,13 +73,15 @@ type ConnectorStore interface {
 	// a stale read cannot put back columns another writer just set.
 	SetShareAll(ctx context.Context, id string, all bool) error
 	SetName(ctx context.Context, id, name string) error
-	// SetApp is the finished handshake: the name and the (sealed) config.
-	SetApp(ctx context.Context, id, name, config string) error
+	// SetApp is the finished handshake: the name and the (sealed) settings.
+	SetApp(ctx context.Context, id, name, settings string) error
+	// SetSettings rewrites the settings blob only.
+	SetSettings(ctx context.Context, id, settings string) error
 	Update(ctx context.Context, c Connector) error
 	Delete(ctx context.Context, id string) error
 }
 
-var connectorsT = newTable("connectors", func(c *Connector) []*string { return []*string{&c.Config} })
+var connectorsT = newTable("connectors", func(c *Connector) []*string { return []*string{&c.Settings} })
 
 type connectors struct{ crud[Connector] }
 
@@ -96,12 +99,21 @@ func (s connectors) SetName(ctx context.Context, id, name string) error {
 	return affected(res, err)
 }
 
-func (s connectors) SetApp(ctx context.Context, id, name, config string) error {
-	row := Connector{Config: config}
+func (s connectors) SetApp(ctx context.Context, id, name, settings string) error {
+	row := Connector{Settings: settings}
 	if err := s.seal(&row); err != nil {
 		return err
 	}
-	res, err := s.q.ExecContext(ctx, "UPDATE connectors SET name = ?, config = ? WHERE id = ?", name, row.Config, id)
+	res, err := s.q.ExecContext(ctx, "UPDATE connectors SET name = ?, settings = ? WHERE id = ?", name, row.Settings, id)
+	return affected(res, err)
+}
+
+func (s connectors) SetSettings(ctx context.Context, id, settings string) error {
+	row := Connector{Settings: settings}
+	if err := s.seal(&row); err != nil {
+		return err
+	}
+	res, err := s.q.ExecContext(ctx, "UPDATE connectors SET settings = ? WHERE id = ?", row.Settings, id)
 	return affected(res, err)
 }
 

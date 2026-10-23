@@ -31,7 +31,7 @@ func (o *Orchestrator) serverConnector(ctx context.Context, c store.Connector) (
 	if ids == nil {
 		ids = []string{}
 	}
-	c.Config = ""
+	c.Settings = ""
 	return ServerConnector{Connector: c, OrgIDs: ids}, err
 }
 

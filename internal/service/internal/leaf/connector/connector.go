@@ -78,7 +78,7 @@ type config struct {
 
 func parse(c store.Connector) config {
 	var cfg config
-	_ = json.Unmarshal([]byte(c.Config), &cfg)
+	_ = json.Unmarshal([]byte(c.Settings), &cfg)
 	return cfg
 }
 
@@ -166,7 +166,7 @@ func (l *Leaf) list(ctx context.Context, orgID string, connected bool) ([]store.
 		cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !Connected(c) })
 	}
 	for i := range cs {
-		cs[i].Config = ""
+		cs[i].Settings = ""
 		cs[i].Shared = cs[i].OrgID == nil
 	}
 	return cs, nil
@@ -216,7 +216,7 @@ func (l *Leaf) ListServer(ctx context.Context) ([]store.Connector, error) {
 	cs, err := l.conns.ListServer(ctx)
 	cs = gitOnly(cs)
 	for i := range cs {
-		cs[i].Config = ""
+		cs[i].Settings = ""
 	}
 	return cs, err
 }
@@ -271,10 +271,10 @@ func (l *Leaf) begin(ctx context.Context, orgID *string, userID, ghOrg string) (
 	c = store.Connector{
 		ID:        uuid.NewString(),
 		OrgID:     orgID,
-		Provider:  GitHub,
+		Kind:      GitHub,
 		Name:      "GitHub (connecting…)",
 		Host:      GitHubHost,
-		Config:    string(cfg),
+		Settings:  string(cfg),
 		CreatedAt: time.Now().UTC(),
 
 		Capabilities: store.StringList{CapGit},
@@ -307,10 +307,10 @@ func (l *Leaf) AddServer(ctx context.Context, app githubapp.App) (store.Connecto
 	b, _ := json.Marshal(config{App: &app})
 	c := store.Connector{
 		ID:        uuid.NewString(),
-		Provider:  GitHub,
+		Kind:      GitHub,
 		Name:      "GitHub · " + app.Slug,
 		Host:      GitHubHost,
-		Config:    string(b),
+		Settings:  string(b),
 		CreatedAt: time.Now().UTC(),
 
 		Capabilities: store.StringList{CapGit},
@@ -342,8 +342,8 @@ func (l *Leaf) Complete(ctx context.Context, userID, state, code string) (store.
 		return c, err
 	}
 	b, _ := json.Marshal(config{App: &app})
-	c.Config, c.Name = string(b), "GitHub · "+app.Slug
-	return c, l.conns.SetApp(ctx, c.ID, c.Name, c.Config)
+	c.Settings, c.Name = string(b), "GitHub · "+app.Slug
+	return c, l.conns.SetApp(ctx, c.ID, c.Name, c.Settings)
 }
 
 func (l *Leaf) Rename(ctx context.Context, orgID, id, name string) (store.Connector, error) {
@@ -370,7 +370,7 @@ func (l *Leaf) rename(ctx context.Context, c store.Connector, name string) (stor
 	if err := l.conns.SetName(ctx, c.ID, c.Name); err != nil {
 		return c, err
 	}
-	c.Config = ""
+	c.Settings = ""
 	return c, nil
 }
 
@@ -391,7 +391,7 @@ func (l *Leaf) SweepPending(ctx context.Context, cutoff time.Time) (int, error) 
 	}
 	n := 0
 	for _, c := range cs {
-		if cfg := parse(c); c.Provider != GitHub || cfg.App != nil || cfg.State == "" || !c.CreatedAt.Before(cutoff) {
+		if cfg := parse(c); c.Kind != GitHub || cfg.App != nil || cfg.State == "" || !c.CreatedAt.Before(cutoff) {
 			continue
 		}
 		if err := l.conns.Delete(ctx, c.ID); err != nil {

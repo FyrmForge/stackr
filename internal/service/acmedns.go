@@ -45,7 +45,7 @@ func (o *Orchestrator) ACMEChallenge(ctx context.Context, del bool, zone string,
 	if !ok {
 		return nil, errs.ErrNotFound
 	}
-	p, err := o.dns.Provider(c.Provider, dnscap.Creds(d))
+	p, err := o.dns.Provider(c.Kind, dnscap.Creds(d))
 	if err != nil {
 		return nil, err
 	}

@@ -566,7 +566,7 @@ func (a *app) orgConnectors(org func(func(p string) error) error) *cobra.Command
 				if err != nil {
 					return err
 				}
-				return a.show(v, "id", "name", "provider", "host", "shared")
+				return a.show(v, "id", "name", "kind", "host", "shared")
 			})
 		})
 	ls.Flags().BoolVar(&dns, "dns", false, "list the org's DNS connectors")

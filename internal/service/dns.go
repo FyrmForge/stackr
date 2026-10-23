@@ -110,7 +110,7 @@ func (o *Orchestrator) dnsAccount(ctx context.Context, orgID *string, id string)
 	if !ok {
 		return c, dnscap.Creds{}, errs.ErrNotFound
 	}
-	c.Config = ""
+	c.Settings = ""
 	return c, dnscap.Creds(d), nil
 }
 
@@ -121,7 +121,7 @@ func (o *Orchestrator) DNSDomains(ctx context.Context, orgID *string, id string)
 	if err != nil {
 		return nil, err
 	}
-	return o.dns.Domains(ctx, c.ID, c.Provider, creds)
+	return o.dns.Domains(ctx, c.ID, c.Kind, creds)
 }
 
 // ManageDNSDomain makes stackr manage domain, or sets who may use a managed
@@ -143,7 +143,7 @@ func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, d
 	if err != nil {
 		return DNSDomain{}, err
 	}
-	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, c.Provider, creds, domain, orgIDs)
+	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, c.Kind, creds, domain, orgIDs)
 	if err != nil || !made {
 		if err == nil {
 			o.dnsChanged(ctx)
@@ -218,7 +218,7 @@ func (o *Orchestrator) TakeOverDNSDomain(ctx context.Context, orgID *string, id,
 	if err != nil {
 		return err
 	}
-	return o.dns.TakeOver(ctx, c.Provider, creds, domain, confirm)
+	return o.dns.TakeOver(ctx, c.Kind, creds, domain, confirm)
 }
 
 // DeleteDNSConnector deletes a DNS connector and the domains it manages,

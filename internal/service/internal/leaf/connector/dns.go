@@ -55,10 +55,10 @@ func (l *Leaf) AddDNS(ctx context.Context, orgID *string, kind string, d DNS) (s
 	c := store.Connector{
 		ID:           uuid.NewString(),
 		OrgID:        orgID,
-		Provider:     kind,
+		Kind:         kind,
 		Name:         "Namecheap · " + d.User,
 		Host:         NamecheapHost,
-		Config:       string(b),
+		Settings:     string(b),
 		CreatedAt:    time.Now().UTC(),
 		Capabilities: store.StringList{CapDNS},
 	}
@@ -71,7 +71,7 @@ func (l *Leaf) AddDNS(ctx context.Context, orgID *string, kind string, d DNS) (s
 		}
 		return store.Connector{}, err
 	}
-	c.Config = ""
+	c.Settings = ""
 	return c, nil
 }
 
@@ -103,7 +103,7 @@ func (l *Leaf) ListDNS(ctx context.Context, orgID *string) ([]store.Connector, e
 	}
 	cs = slices.DeleteFunc(cs, func(c store.Connector) bool { return !IsDNS(c) })
 	for i := range cs {
-		cs[i].Config = ""
+		cs[i].Settings = ""
 	}
 	return cs, err
 }

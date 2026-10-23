@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	dnsConnCols   = []string{"id", "name", "provider", "created_at"}
+	dnsConnCols   = []string{"id", "name", "kind", "created_at"}
 	dnsDomainCols = []string{"name", "state", "share_all", "org_ids"}
 )
 

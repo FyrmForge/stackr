@@ -252,10 +252,10 @@ func (e *Env) Connector(t *testing.T, orgID, secret string) string {
 	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
 		ID:        id,
 		OrgID:     &orgID,
-		Provider:  "github",
+		Kind:      "github",
 		Name:      "github",
 		Host:      "github.com",
-		Config:    string(cfg),
+		Settings:  string(cfg),
 		CreatedAt: now,
 	}))
 	return id
@@ -272,10 +272,10 @@ func (e *Env) ServerConnector(t *testing.T, name, secret string) string {
 	must(t, err)
 	must(t, e.Store.Connectors.Create(context.Background(), store.Connector{
 		ID:        id,
-		Provider:  "github",
+		Kind:      "github",
 		Name:      name,
 		Host:      "github.com",
-		Config:    string(cfg),
+		Settings:  string(cfg),
 		CreatedAt: now,
 	}))
 	return id

@@ -53,7 +53,7 @@ func ManagedHost(domain, sub string) string {
 // dnsAccounts opens a managed domain's connector account.
 func (o *Orchestrator) dnsAccounts(ctx context.Context, connectorID string, orgID *string) (dnscap.Account, error) {
 	c, creds, err := o.dnsAccount(ctx, orgID, connectorID)
-	return dnscap.Account{Kind: c.Provider, Creds: creds}, err
+	return dnscap.Account{Kind: c.Kind, Creds: creds}, err
 }
 
 // nodeAddrs is where a node's records point: its public IP override, else
@@ -260,7 +260,7 @@ func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, creds dnsc
 	if len(users) > 0 {
 		return errs.Conflictf("%s is in use by %s; remove those domains first", dnscap.Normal(name), strings.Join(users, ", "))
 	}
-	if err := o.dns.Forget(ctx, dnscap.Account{Kind: c.Provider, Creds: creds}, dnscap.Normal(name)); err != nil {
+	if err := o.dns.Forget(ctx, dnscap.Account{Kind: c.Kind, Creds: creds}, dnscap.Normal(name)); err != nil {
 		return err
 	}
 	row, err := o.dns.Unmanage(ctx, c.ID, name)
