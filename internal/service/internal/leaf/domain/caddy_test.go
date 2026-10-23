@@ -79,7 +79,7 @@ func goldens() []golden {
 		"2001:db8::/32",
 	}
 	wild := install
-	wild.DNSProvider = "cloudflare"
+	wild.Managed = []string{"example.com"}
 	wild.Accounts = []domain.Account{
 		{Host: "example.com", Email: "a@example.com"},
 		{Host: "shop.example.com", Email: "shop@example.com"},
@@ -94,6 +94,9 @@ func goldens() []golden {
 			row("other.io", domain.Extras{}),
 		},
 	}}
+
+	managed := install
+	managed.Managed = []string{"other.io", "example.com"}
 
 	logged := install
 	logged.AccessLog, logged.AccessIP = true, true
@@ -137,6 +140,57 @@ func goldens() []golden {
 		{"tls_off", off, one(row("app.example.com", domain.Extras{}))},
 		{"panel_trusted", panel, one(row("app.example.com", domain.Extras{}))},
 		{"accounts_wildcard", wild, many},
+		{"managed_domains", managed, one(row("app.example.com", domain.Extras{}))},
+	}
+}
+
+// A wildcard under a managed domain asks stackrd for its DNS-01 records; no
+// config ever carries a provider key or an env placeholder for one.
+func TestDNSChallengeHasNoToken(t *testing.T) {
+	for _, g := range goldens() {
+		cfg, err := domain.Build(g.in, g.tiles, nil, expand)
+		must(t, err)
+		s := string(cfg)
+		if strings.Contains(s, "{env.") || strings.Contains(s, "token") || strings.Contains(s, "cloudflare") {
+			t.Errorf("%s: a provider secret in the config: %s", g.name, s)
+		}
+		if n := strings.Count(s, `"dns":`); n != strings.Count(s, `"dns":{"provider":{"name":"stackr"}}`) {
+			t.Errorf("%s: a DNS challenge not through stackr: %s", g.name, s)
+		}
+		if len(g.in.Managed) > 0 && !strings.Contains(s, `"provider":{"name":"stackr"}`) {
+			t.Errorf("%s: managed domains but no stackr DNS challenge", g.name)
+		}
+	}
+}
+
+// A wildcard under no managed domain stays on the catch-all: nothing could
+// answer its DNS-01 challenge.
+func TestUnmanagedWildcardNoDNS(t *testing.T) {
+	in := install
+	in.Managed = []string{"example.com"}
+	cfg, err := domain.Build(in, one(row("*.other.io", domain.Extras{})), nil, nil)
+	must(t, err)
+	var c struct {
+		Apps struct {
+			TLS struct {
+				Automation struct {
+					Policies []struct {
+						Subjects []string `json:"subjects"`
+					} `json:"policies"`
+				} `json:"automation"`
+				Certificates struct {
+					Automate []string `json:"automate"`
+				} `json:"certificates"`
+			} `json:"tls"`
+		} `json:"apps"`
+	}
+	must(t, json.Unmarshal(cfg, &c))
+	ps := c.Apps.TLS.Automation.Policies
+	if len(ps) != 2 || strings.Join(ps[0].Subjects, ",") != "*.example.com" || len(ps[1].Subjects) != 0 {
+		t.Errorf("policies = %+v", ps)
+	}
+	if got := strings.Join(c.Apps.TLS.Certificates.Automate, ","); got != "*.example.com" {
+		t.Errorf("automate = %q", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -120,7 +121,19 @@ func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, d
 			return DNSDomain{}, err
 		}
 	}
-	return o.dns.Manage(ctx, c.ID, c.OrgID, c.Provider, creds, domain, orgIDs)
+	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, c.Provider, creds, domain, orgIDs)
+	if err == nil {
+		o.dnsChanged(ctx)
+	}
+	return d, err
+}
+
+// dnsChanged pushes the proxy config after the managed domains changed: its
+// wildcard certificates follow them.
+func (o *Orchestrator) dnsChanged(ctx context.Context) {
+	if err := o.sync.Sync(ctx); err != nil {
+		slog.Warn("proxy: push after a managed domain change", "err", err) // the periodic sync repairs it
+	}
 }
 
 // UnmanageDNSDomain stops managing domain.
@@ -129,7 +142,11 @@ func (o *Orchestrator) UnmanageDNSDomain(ctx context.Context, orgID *string, id,
 	if err != nil {
 		return err
 	}
-	return o.dns.Unmanage(ctx, c.ID, domain)
+	if err := o.dns.Unmanage(ctx, c.ID, domain); err != nil {
+		return err
+	}
+	o.dnsChanged(ctx)
+	return nil
 }
 
 // TakeOverDNSDomain switches domain to the provider's own DNS; confirm is
@@ -144,7 +161,11 @@ func (o *Orchestrator) TakeOverDNSDomain(ctx context.Context, orgID *string, id,
 
 // DeleteDNSConnector deletes a DNS connector and the domains it manages.
 func (o *Orchestrator) DeleteDNSConnector(ctx context.Context, orgID *string, id string) error {
-	return o.conns.DeleteDNS(ctx, orgID, id)
+	if err := o.conns.DeleteDNS(ctx, orgID, id); err != nil {
+		return err
+	}
+	o.dnsChanged(ctx)
+	return nil
 }
 
 // UsableDNSDomains is the managed domains orgID may put tiles under: its

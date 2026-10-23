@@ -184,6 +184,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	ln := tls.NewListener(raw, tc)
 	enableAcct()
+	s.startDNS(ctx)
 	go s.reassertLoop()
 	if len(cfg.Recover.Own.Certificate) > 0 {
 		go s.recoverLoop(15 * time.Second)

@@ -15,7 +15,7 @@ import (
 func TestNodeProxyFollowsIngressTag(t *testing.T) {
 	n := newTwoNodes(t)
 	ctx := context.Background()
-	n.ctlFake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: "ghcr.io/fyrmforge/stackr:9.9.9", Env: []string{"DNS_API_TOKEN=tok"}}}
+	n.ctlFake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: "ghcr.io/fyrmforge/stackr:9.9.9"}}
 	setTags := func(tags string) {
 		w, err := n.st.Nodes.Get(ctx, "w1")
 		must(t, err)
@@ -33,9 +33,6 @@ func TestNodeProxyFollowsIngressTag(t *testing.T) {
 	}
 	s := n.wFake.Specs[0]
 	want := installspec.NodeProxy("localhost:5000/stackr.system/stackr@sha256:pub") // the registry copy by digest, not ghcr
-	if installspec.TokenFrom(s.Env) != "" {
-		t.Fatal("the controller's DNS-01 token reached a worker's proxy")
-	}
 	if s.Name != installspec.ProxyName || s.Image != want.Image || !s.HostNetwork || s.Labels[installspec.LabelSpec] != want.Labels[installspec.LabelSpec] {
 		t.Fatalf("proxy spec: %+v", s)
 	}

@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	_ "github.com/caddy-dns/cloudflare"
 	"github.com/caddyserver/caddy/v2"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/standard"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"

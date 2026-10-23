@@ -37,7 +37,7 @@ func check(in *installspec.Input, busy func(string) bool) error {
 			return fmt.Errorf("email: %w", err)
 		}
 	} else {
-		in.Email, in.HTTPSPort, in.DNS01 = "", "", false
+		in.Email, in.HTTPSPort = "", ""
 	}
 	if err = checkPort(in.HTTPPort, busy); err != nil {
 		return fmt.Errorf("http port: %w", err)

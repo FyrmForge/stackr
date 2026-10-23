@@ -58,7 +58,6 @@ Flags you may want:
 | `--admin-email` | The first admin. |
 | `--https=false` | Serve plain HTTP. The panel is then on `http://`. |
 | `--proxy` | CDN or load balancer ranges (for example Cloudflare's) whose X-Forwarded-For is trusted. |
-| `--dns-token` | Cloudflare API token, for wildcard certificates through DNS-01. |
 | `--http-port`, `--https-port` | Host ports. Defaults 80 and 443. |
 | `--wg-port` | UDP port of the mesh. Default 51871. |
 | `--version` | Install another release than the installer's own. |

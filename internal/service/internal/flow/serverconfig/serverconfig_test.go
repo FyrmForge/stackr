@@ -142,7 +142,7 @@ func TestParseRefuses(t *testing.T) {
 		{"bad int", v1 + "settings:\n  workers: lots\n", "whole number"},
 		{"list value", v1 + "settings:\n  workers: [1]\n", "single value"},
 		{"bad email", v1 + "settings:\n  acme_email: nope\n", "email"},
-		{"provider not built", v1 + "settings:\n  dns_provider: route53\n", "cloudflare"},
+		{"dns_provider is gone", v1 + "settings:\n  dns_provider: cloudflare\n", "dns_provider"},
 		{"bad cidr", v1 + "settings:\n  trusted_proxies: 10.0.0.0/99\n", "not an IP, a CIDR or cloudflare"},
 		{"proxy_custom not an array", v1 + "settings:\n  proxy_custom: '{}'\n", "JSON array"},
 		{"wildcard panel", v1 + "settings:\n  panel_domain: '*.example.com'\n", "wildcard"},
@@ -251,10 +251,6 @@ func TestDiffSettings(t *testing.T) {
 		{
 			name: "root domain", file: "settings:\n  root_domain: new.com\n",
 			changes: []string{"settings:root_domain"}, impact: "moves 3 hosts, issues 3 certificates; point DNS first",
-		},
-		{
-			name: "dns provider", file: "settings:\n  dns_provider: cloudflare\n",
-			changes: []string{"settings:dns_provider"}, impact: "DNS token on the proxy",
 		},
 		{
 			name: "proxy_custom", file: "settings:\n  proxy_custom: '[]'\n",
@@ -547,9 +543,9 @@ func TestDiffDomains(t *testing.T) {
 			changes: []string{"domain-rename:new.com"}, impact: "Let's Encrypt allows about 50 certificates a week",
 		},
 		{
-			name: "past fifty hosts with a wildcard provider", file: "settings:\n  dns_provider: cloudflare\ndomains:\n  - {host: new.com, from: example.com}\n",
-			mut:     func(l *serverconfig.Live) { l.DomainHosts["dr1"] = 80 },
-			changes: []string{"settings:dns_provider", "domain-rename:new.com"}, impact: "moves 80 hosts",
+			name: "past fifty hosts onto a managed domain", file: "domains:\n  - {host: new.com, from: example.com}\n",
+			mut:     func(l *serverconfig.Live) { l.DomainHosts["dr1"], l.Managed = 80, []string{"new.com"} },
+			changes: []string{"domain-rename:new.com"}, impact: "moves 80 hosts",
 		},
 		{name: "dropped, with no tiles under it: a row", file: "domains: []\n", changes: []string{"domain-delete:example.com"}, mut: func(l *serverconfig.Live) {
 			l.DomainHosts = nil
@@ -623,11 +619,12 @@ func TestDiffRoutes(t *testing.T) {
 		{name: "empty block drops all", file: "routes: []\n", changes: []string{"route-delete:old.io", "route-delete:raw.example.net"}},
 		{
 			name: "wildcard needs a provider", file: "routes:\n" + old + raw + "  - {host: '*.apps.io', mode: http, target: h}\n",
-			changes: []string{"route:*.apps.io"}, blocker: "needs a DNS provider",
+			changes: []string{"route:*.apps.io"}, blocker: "needs a managed DNS domain",
 		},
 		{
-			name: "wildcard with the provider the file sets", file: "settings:\n  dns_provider: cloudflare\nroutes:\n" + old + raw + "  - {host: '*.apps.io', mode: http, target: h}\n",
-			changes: []string{"settings:dns_provider", "route:*.apps.io"},
+			name: "wildcard under a managed domain", file: "routes:\n" + old + raw + "  - {host: '*.apps.io', mode: http, target: h}\n",
+			mut:     func(l *serverconfig.Live) { l.Managed = []string{"apps.io"} },
+			changes: []string{"route:*.apps.io"},
 		},
 		{
 			name: "wildcard pass-through needs none", file: "routes:\n" + old + raw + "  - {host: '*.apps.io', mode: passthrough, target: h}\n",
@@ -643,8 +640,9 @@ func TestDiffRoutes(t *testing.T) {
 			changes: []string{"route:web.acme.example.com"}, blocker: "already a tile domain or domain resource",
 		},
 		{
-			name: "wildcard over a domain resource apex", file: "settings:\n  dns_provider: cloudflare\nroutes:\n" + old + raw + "  - {host: '*.example.com', mode: http, target: h}\n",
-			changes: []string{"settings:dns_provider", "route:*.example.com"}, blocker: "already a tile domain or domain resource",
+			name: "wildcard over a domain resource apex", file: "routes:\n" + old + raw + "  - {host: '*.example.com', mode: http, target: h}\n",
+			mut:     func(l *serverconfig.Live) { l.Managed = []string{"example.com"} },
+			changes: []string{"route:*.example.com"}, blocker: "already a tile domain or domain resource",
 		},
 		{
 			name: "overlaps another route of the file", file: "routes:\n" + old + raw + "  - {host: 'a.b.io', mode: http, target: h}\n  - {host: '*.b.io', mode: passthrough, target: h}\n",
@@ -907,7 +905,7 @@ func TestSummary(t *testing.T) {
 func full() serverconfig.Live {
 	l := live()
 	l.Settings["trusted_proxies"] = "10.0.0.0/8,127.0.0.1"
-	l.Settings["dns_provider"] = "cloudflare"
+	l.Managed = []string{"ops.net"}
 	l.Settings["proxy_custom"] = `[{"handle":[]}]`
 	l.Settings["panel_backup_keep"] = "7"
 	l.Routes = append(l.Routes, store.Route{ID: "r-wild", Host: "*.ops.net", Mode: "https", Target: "10.0.0.7:443"})
@@ -1051,12 +1049,12 @@ func TestEveryFlatKnobIsASettingExceptTheBinding(t *testing.T) {
 	}
 }
 
-// The Let's Encrypt line is for a box with no wildcard provider only.
+// The Let's Encrypt line is for a target under no managed domain only.
 func TestRenameImpactLetsEncryptLine(t *testing.T) {
 	big := func(l *serverconfig.Live) { l.DomainHosts["dr1"] = 80 }
 	p := diff(t, "domains:\n  - {host: new.com, from: example.com}\n", big)
 	has(t, "impacts", p.Impacts(), "Let's Encrypt")
-	p = diff(t, "settings:\n  dns_provider: cloudflare\ndomains:\n  - {host: new.com, from: example.com}\n", big)
+	p = diff(t, "domains:\n  - {host: new.com, from: example.com}\n", func(l *serverconfig.Live) { big(l); l.Managed = []string{"new.com"} })
 	for _, i := range p.Impacts() {
 		if strings.Contains(i, "Let's Encrypt") {
 			t.Errorf("a wildcard provider has no per-host limit: %q", i)

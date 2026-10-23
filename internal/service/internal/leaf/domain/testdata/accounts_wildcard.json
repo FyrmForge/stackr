@@ -216,8 +216,7 @@
                 "challenges": {
                   "dns": {
                     "provider": {
-                      "api_token": "{env.DNS_API_TOKEN}",
-                      "name": "cloudflare"
+                      "name": "stackr"
                     }
                   }
                 },
@@ -259,6 +258,11 @@
               }
             ]
           }
+        ]
+      },
+      "certificates": {
+        "automate": [
+          "*.example.com"
         ]
       }
     }

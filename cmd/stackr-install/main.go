@@ -19,7 +19,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"time"
 
@@ -65,7 +64,6 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	fs.StringVar(&in.Proxies, "proxy", "", "CDN or load balancer ranges whose X-Forwarded-For is trusted")
 	fs.StringVar(&in.HTTPPort, "http-port", "80", "host port for HTTP")
 	fs.StringVar(&in.HTTPSPort, "https-port", "443", "host port for HTTPS")
-	dnsToken := fs.String("dns-token", "", "Cloudflare API token for DNS-01 (wildcard certificates)")
 	release := fs.String("version", "", "release to install (default: this installer's own)")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	adminEmail := fs.String("admin-email", "", "the stackr admin's email; the password comes from "+passwordEnv+" or a prompt")
@@ -140,12 +138,11 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return errCancelled
 		}
 		r.dry = r.dry || a.next == nextDryRun
-		apply(&in, a, given, dnsToken, adminEmail)
+		apply(&in, a, given, adminEmail)
 		if password == "" {
 			password = a.password
 		}
 	}
-	in.DNS01 = in.DNS01 || *dnsToken != ""
 	if needAdmin {
 		switch {
 		case *adminEmail == "":
@@ -226,11 +223,11 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if mv != stay {
 		r.say("  moving the panel from", cmp.Or(cur, "a dev build"), "to", ver)
-		if err := runSteps(ctx, r.upgradeSteps(in, panelID, ver, *dnsToken, proxyUp)); err != nil {
+		if err := runSteps(ctx, r.upgradeSteps(in, panelID, ver, proxyUp)); err != nil {
 			return err
 		}
 	} else {
-		if err := r.ensureProxy(ctx, image, in, *dnsToken, proxyUp); err != nil {
+		if err := r.ensureProxy(ctx, image, in, proxyUp); err != nil {
 			return err
 		}
 		if err := r.ensureRegistry(ctx, in.DataDir); err != nil {
@@ -272,10 +269,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 }
 
 // ensureProxy creates the proxy, or replaces one made from another spec (an
-// older image, no admin socket mount) keeping the stackr-caddy volume. The
-// DNS-01 token lives only on the container, so a re-run without
-// --dns-token carries the running one over.
-func (r runner) ensureProxy(ctx context.Context, image string, in installspec.Input, token string, up bool) error {
+// older image, no admin socket mount) keeping the stackr-caddy volume.
+func (r runner) ensureProxy(ctx context.Context, image string, in installspec.Input, up bool) error {
 	// A crashed earlier swap left the old proxy aside: put it back when the
 	// main one is gone, drop it when the main one runs.
 	aside := installspec.ProxyName + "-old"
@@ -294,11 +289,7 @@ func (r runner) ensureProxy(ctx context.Context, image string, in installspec.In
 			up = true
 		}
 	}
-	if up && token == "" {
-		env, _ := read(ctx, "docker", "inspect", "-f", `{{range .Config.Env}}{{println .}}{{end}}`, installspec.ProxyName)
-		token = installspec.TokenFrom(strings.Split(env, "\n"))
-	}
-	want := installspec.Proxy(image, in, token)
+	want := installspec.Proxy(image, in)
 	if !up {
 		return r.docker(ctx, want.RunArgs()...)
 	}
@@ -349,7 +340,6 @@ func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]b
 		"proxy":      func() { in.Proxies = saved.Proxies },
 		"http-port":  func() { in.HTTPPort = saved.HTTPPort },
 		"https-port": func() { in.HTTPSPort = saved.HTTPSPort },
-		"dns-token":  func() { in.DNS01 = saved.DNS01 },
 		"wg-port":    func() { in.WGPort = saved.WGPort },
 	} {
 		if !given[flag] {
@@ -360,13 +350,10 @@ func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]b
 }
 
 // apply copies the asked answers into the install; given flags stay.
-func apply(in *installspec.Input, a answers, given map[string]bool, dnsToken, adminEmail *string) {
+func apply(in *installspec.Input, a answers, given map[string]bool, adminEmail *string) {
 	in.Root, in.PanelHost, in.Email, in.Proxies = a.root, a.panel, a.email, a.proxies
 	if !given["https"] {
 		in.HTTPS = a.https != "No"
-	}
-	if !given["dns-token"] && a.wildcard == "Yes" {
-		*dnsToken = a.dnsToken
 	}
 	if a.adminEmail != "" {
 		*adminEmail = a.adminEmail
@@ -522,7 +509,7 @@ func (r runner) docker(ctx context.Context, args ...string) error {
 // quietDocker is docker inside a step that said its own line.
 func (r runner) quietDocker(ctx context.Context, args ...string) error {
 	if r.dry {
-		r.say("  would run: docker", quote(maskToken(args)))
+		r.say("  would run: docker", quote(args))
 		return nil
 	}
 	return r.exec(ctx, "docker", args...)
@@ -642,17 +629,6 @@ func read(ctx context.Context, name string, args ...string) (string, error) {
 }
 
 // quote breaks the line before every flag so a container create is readable.
-// maskToken hides the DNS-01 token (read live off the proxy) in dry output.
-func maskToken(args []string) []string {
-	out := slices.Clone(args)
-	for i, a := range out {
-		if _, ok := strings.CutPrefix(a, installspec.DNSTokenEnv+"="); ok {
-			out[i] = installspec.DNSTokenEnv + "=***"
-		}
-	}
-	return out
-}
-
 func quote(args []string) string {
 	var b strings.Builder
 	for i, a := range args {

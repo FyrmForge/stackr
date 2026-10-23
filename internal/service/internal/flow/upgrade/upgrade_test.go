@@ -114,38 +114,34 @@ func proxyIn() installspec.Input {
 }
 
 func proxyFlow(fake *dockerfake.Fake) *Flow {
-	return &Flow{Docker: fake, ProxySpec: func(image, tok string) docker.ContainerSpec {
-		c := installspec.Proxy(image, proxyIn(), tok)
+	return &Flow{Docker: fake, ProxySpec: func(image string) docker.ContainerSpec {
+		c := installspec.Proxy(image, proxyIn())
 		return docker.ContainerSpec{Name: c.Name, Image: c.Image, Env: c.Env, Labels: c.Labels}
 	}}
 }
 
-// A proxy made before the admin socket (no stamp) is replaced with its DNS
-// token kept; one already current is left alone.
+// A proxy made before the admin socket (no stamp) is replaced; one already
+// current is left alone.
 func TestEnsureProxy(t *testing.T) {
 	ctx := context.Background()
 	const img = "img:0.2.0"
-	cur := installspec.Proxy(img, proxyIn(), "tok").Labels
+	cur := installspec.Proxy(img, proxyIn()).Labels
 	for _, tc := range []struct {
 		name     string
 		labels   map[string]string
 		recreate bool
 	}{
 		{"unstamped", map[string]string{installspec.LabelRole: "proxy"}, true},
-		{"other image", installspec.Proxy("img:0.1.0", proxyIn(), "tok").Labels, true},
+		{"other image", installspec.Proxy("img:0.1.0", proxyIn()).Labels, true},
 		{"current", cur, false},
 	} {
 		fake := dockerfake.New()
 		fake.Containers = []docker.Container{{ID: "old", Labels: tc.labels}}
-		fake.Details = map[string]docker.Detail{"old": {Env: []string{"A=1", "DNS_API_TOKEN=tok"}}}
 		if err := proxyFlow(fake).EnsureProxy(ctx, img); err != nil {
 			t.Fatal(tc.name, err)
 		}
 		if got := len(fake.Specs) == 1; got != tc.recreate {
 			t.Errorf("%s: recreated = %v", tc.name, got)
-		}
-		if tc.recreate && !slices.Contains(fake.Specs[0].Env, "DNS_API_TOKEN=tok") {
-			t.Errorf("%s: token lost: %v", tc.name, fake.Specs[0].Env)
 		}
 	}
 	// No proxy container: nothing to do.
@@ -166,7 +162,6 @@ func calls(f *dockerfake.Fake) []string {
 func oldProxy() *dockerfake.Fake {
 	fake := dockerfake.New()
 	fake.Containers = []docker.Container{{ID: "old", Name: "stackr-proxy", Labels: map[string]string{installspec.LabelRole: "proxy"}}}
-	fake.Details = map[string]docker.Detail{"old": {Env: []string{"DNS_API_TOKEN=tok"}}}
 	return fake
 }
 
@@ -176,7 +171,7 @@ func TestEnsureProxySwapOrder(t *testing.T) {
 	if err := proxyFlow(fake).EnsureProxy(context.Background(), "img:0.2.0"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"List()", "Inspect(old)", "Rename(old, stackr-proxy-old)", "Stop(old)",
+	want := []string{"List()", "Rename(old, stackr-proxy-old)", "Stop(old)",
 		"Run(stackr-proxy, img:0.2.0)", "StopRemove(old)"}
 	if got := calls(fake); !slices.Equal(got, want) {
 		t.Fatalf("calls:\n%v\nwant:\n%v", got, want)
@@ -213,9 +208,8 @@ func TestEnsureProxyLeftover(t *testing.T) {
 	}
 	fake = oldProxy()
 	fake.Containers = []docker.Container{aside}
-	fake.Details = map[string]docker.Detail{"aside": {Env: []string{"DNS_API_TOKEN=tok"}}}
 	// current spec: only the restore happens
-	cur := installspec.Proxy("img:0.2.0", proxyIn(), "tok").Labels
+	cur := installspec.Proxy("img:0.2.0", proxyIn()).Labels
 	fake.Containers[0].Labels = cur
 	if err := proxyFlow(fake).EnsureProxy(context.Background(), "img:0.2.0"); err != nil {
 		t.Fatal(err)

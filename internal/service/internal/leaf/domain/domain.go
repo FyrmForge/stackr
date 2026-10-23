@@ -151,8 +151,8 @@ func (l *Leaf) ListByTile(ctx context.Context, tileID string) ([]store.Domain, e
 
 // Attach adds a domain to a tile. The first one opens the tile's ingress
 // network and joins the proxy and the tile's running replicas (a fact) to it.
-// dns01 says whether a DNS-01 provider is set; without one no wildcard can
-// get a certificate, so a wildcard with HTTPS is refused.
+// dns01 says whether a wildcard host is under a managed DNS domain; if not it
+// cannot get a certificate, so a wildcard with HTTPS is refused.
 func (l *Leaf) Attach(ctx context.Context, tileID string, s Spec, dns01 bool, replicas []string) (store.Domain, error) {
 	d := store.Domain{ID: uuid.NewString(), TileID: tileID, CreatedAt: time.Now().UTC()}
 	if err := l.fill(ctx, &d, s, dns01); err != nil {
@@ -319,7 +319,7 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	}
 	https, force := On(s.HTTPS), On(s.ForceHTTPS)
 	if https && strings.HasPrefix(host, "*.") && !dns01 {
-		return errs.Invalidf("host", "a wildcard host needs a DNS-01 provider for its certificate")
+		return errs.Invalidf("host", "a wildcard host needs a managed DNS domain for its certificate")
 	}
 	redirect := strings.ToLower(strings.TrimSpace(s.RedirectTo))
 	if redirect != "" && (!hostRe.MatchString(redirect) || strings.HasPrefix(redirect, "*.")) {

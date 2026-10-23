@@ -46,11 +46,10 @@ func TestCheck(t *testing.T) {
 		Root:      "example.com",
 		Email:     "x",
 		HTTPSPort: "443",
-		DNS01:     true,
 		HTTPPort:  "8080",
 		DataDir:   "/d",
 	}
-	if err := check(&plain, nil); err != nil || plain.Email != "" || plain.HTTPSPort != "" || plain.DNS01 {
+	if err := check(&plain, nil); err != nil || plain.Email != "" || plain.HTTPSPort != "" {
 		t.Fatalf("plain HTTP keeps TLS answers: %+v %v", plain, err)
 	}
 

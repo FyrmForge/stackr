@@ -20,16 +20,13 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// DNSTokenEnv is the proxy container's env var holding the DNS-01 API token.
-const DNSTokenEnv = "DNS_API_TOKEN"
-
 // Install is the install-wide half of the config: facts from settings and
 // the domain resources' ACME accounts.
 type Install struct {
 	AdminListen    string // required on every config, or Caddy falls back to its own localhost
 	ACMEEmail      string // the instance account
 	Accounts       []Account
-	DNSProvider    string   // "" = no DNS-01, so no wildcard certificates
+	Managed        []string // managed DNS domains: wildcards under them get DNS-01 through stackrd
 	TLSOff         bool     // STACKR_TLS=off: plain HTTP only, no certificates
 	TrustedProxies []string // the controller's front proxies; other nodes get none
 	Controller     string   // the controller's node id; "" = every node keeps TrustedProxies
@@ -196,7 +193,18 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 			// tls wrapper must be listed explicitly once there is a list.
 			servers["https"].(route)["listener_wrappers"] = []route{wrapper, {"wrapper": "tls"}}
 		}
-		apps["tls"] = route{"automation": route{"policies": policies(in, httpsHosts)}}
+		hosts := slices.Sorted(maps.Keys(httpsHosts))
+		wild := WildcardSubjects(in.Managed, hosts)
+		tlsApp := route{"automation": route{"policies": policies(in, hosts, wild)}}
+		if len(wild) > 0 {
+			// Managed, so hosts a wildcard covers get no certificate of their own.
+			subj := make([]string, len(wild))
+			for i, w := range wild {
+				subj[i] = w.Subject
+			}
+			tlsApp["certificates"] = route{"automate": subj}
+		}
+		apps["tls"] = tlsApp
 	} else {
 		servers["http"].(route)["automatic_https"] = route{"disable": true}
 	}
@@ -219,8 +227,7 @@ func BuildNode(node string, in Install, tiles []TileRoute, routes []NodeRoute, e
 		in.PanelHost = ""
 	}
 	if in.Controller != "" && in.Controller != node {
-		// A worker never holds the DNS-01 token: HTTP-01/TLS-ALPN only.
-		in.TrustedProxies, in.DNSProvider = nil, ""
+		in.TrustedProxies = nil // the front proxies are the controller's
 	}
 	in.ProbeID = node
 	var ts []TileRoute
@@ -509,24 +516,61 @@ func upstream(d store.Domain, t TileRoute, e Extras) route {
 	return rp
 }
 
-// policies: wildcards on the DNS-01 issuer, hosts under a domain resource with
-// its own email on that account, everything else (raw routes included) on
-// the catch-all instance account.
-func policies(in Install, hosts map[string]bool) []route {
+// Wildcard is a wildcard certificate subject and the managed domain whose
+// DNS answers its DNS-01 challenge.
+type Wildcard struct{ Subject, Domain string }
+
+// WildcardSubjects is the wildcard certificates stackr gets for the managed
+// domains, given the hosts in use (sorted). ponytail: one *.<domain> per
+// managed domain; D3 makes it a wildcard per level in use.
+func WildcardSubjects(managed, hosts []string) []Wildcard {
+	_ = hosts
+	out := make([]Wildcard, 0, len(managed))
+	for _, m := range slices.Sorted(slices.Values(managed)) {
+		out = append(out, Wildcard{Subject: "*." + m, Domain: m})
+	}
+	return out
+}
+
+// ManagedOf is the managed domain host is at or under ("" = none). A
+// wildcard host counts as its base.
+func ManagedOf(host string, managed []string) string {
+	host = strings.TrimPrefix(strings.ToLower(host), "*.")
+	best := ""
+	for _, m := range managed {
+		if (host == m || strings.HasSuffix(host, "."+m)) && len(m) > len(best) {
+			best = m
+		}
+	}
+	return best
+}
+
+// policies: wildcards under a managed domain (wild, plus wildcard hosts in
+// use) on DNS-01 through stackrd, hosts under a domain resource with its own
+// email on that account, everything else (raw routes included) on the
+// catch-all instance account. A wildcard under no managed domain cannot be
+// issued; it stays on the catch-all.
+func policies(in Install, hosts []string, wild []Wildcard) []route {
 	type key struct {
 		email string
 		dns   bool
 	}
 	groups := map[key][]string{}
-	for h := range hosts {
-		k := key{account(in.Accounts, h), strings.HasPrefix(h, "*.")}
+	add := func(h string, dns bool) {
+		k := key{account(in.Accounts, h), dns}
 		if k.email == "" {
 			k.email = in.ACMEEmail
 		}
-		if k.dns && in.DNSProvider == "" || !k.dns && k.email == in.ACMEEmail {
-			continue // the catch-all takes it
+		if !k.dns && k.email == in.ACMEEmail || slices.Contains(groups[k], h) {
+			return // the catch-all takes it, or it is there already
 		}
 		groups[k] = append(groups[k], h)
+	}
+	for _, w := range wild {
+		add(w.Subject, true)
+	}
+	for _, h := range hosts {
+		add(h, strings.HasPrefix(h, "*.") && ManagedOf(h, in.Managed) != "")
 	}
 	keys := slices.SortedFunc(maps.Keys(groups), func(a, b key) int {
 		if a.dns != b.dns {
@@ -541,14 +585,9 @@ func policies(in Install, hosts map[string]bool) []route {
 	for _, k := range keys {
 		iss := issuer(k.email)
 		if k.dns {
-			// The token stays in the proxy container's env, never in the
-			// config stackrd pushes and Caddy autosaves.
-			// ponytail: cloudflare is the one provider compiled into
-			// `stackrd proxy`; another needs its module and its field.
-			iss["challenges"] = route{"dns": route{"provider": route{
-				"name":      in.DNSProvider,
-				"api_token": "{env." + DNSTokenEnv + "}",
-			}}}
+			// No key in the config: the module asks stackrd, which holds
+			// the DNS connectors.
+			iss["challenges"] = route{"dns": route{"provider": route{"name": "stackr"}}}
 		}
 		sort.Strings(groups[k])
 		out = append(out, route{"subjects": groups[k], "issuers": []route{iss}})

@@ -84,7 +84,7 @@ func runSteps(ctx context.Context, steps []step) error {
 // upgradeSteps moves the panel (oldID) to ver. Each step needs the
 // one before: nothing changes until the archive is written, and the workers
 // roll only onto a panel that answers its health check.
-func (r runner) upgradeSteps(in installspec.Input, oldID, ver, token string, proxyUp bool) []step {
+func (r runner) upgradeSteps(in installspec.Input, oldID, ver string, proxyUp bool) []step {
 	image := installspec.Image(ver)
 	return []step{
 		{"pre-upgrade archive", func(ctx context.Context) error {
@@ -93,7 +93,7 @@ func (r runner) upgradeSteps(in installspec.Input, oldID, ver, token string, pro
 			}
 			return nil
 		}},
-		{"proxy", func(ctx context.Context) error { return r.ensureProxy(ctx, image, in, token, proxyUp) }},
+		{"proxy", func(ctx context.Context) error { return r.ensureProxy(ctx, image, in, proxyUp) }},
 		{"registry", func(ctx context.Context) error { return r.ensureRegistry(ctx, in.DataDir) }},
 		{"panel swap", func(ctx context.Context) error { return r.swapPanel(ctx, in, ver) }},
 		{"health", func(ctx context.Context) error {

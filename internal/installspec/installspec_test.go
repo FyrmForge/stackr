@@ -18,7 +18,6 @@ var tlsIn = Input{
 	HTTPS:        true,
 	Email:        "ops@example.com",
 	Proxies:      "203.0.113.0/24",
-	DNS01:        true,
 	HTTPPort:     "80",
 	HTTPSPort:    "443",
 	DataDir:      "/var/lib/stackr",
@@ -40,8 +39,8 @@ func TestGolden(t *testing.T) {
 	for name, c := range map[string]Container{
 		"panel_tls":   Panel(Image("v1.2.3"), tlsIn),
 		"panel_plain": Panel(Image("1.2.3"), plainIn),
-		"proxy_tls":   Proxy(Image("1.2.3"), tlsIn, "cf-token"),
-		"proxy_plain": Proxy(Image("1.2.3"), plainIn, ""),
+		"proxy_tls":   Proxy(Image("1.2.3"), tlsIn),
+		"proxy_plain": Proxy(Image("1.2.3"), plainIn),
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := "docker " + strings.Join(c.RunArgs(), "\n  ") + "\n"
@@ -139,23 +138,19 @@ func TestPanelInstallID(t *testing.T) {
 // else, so a re-run or upgrade recreates exactly the stale one.
 func TestProxyHashStamp(t *testing.T) {
 	in := Input{Root: "x.io", PanelHost: "x.io", HTTPPort: "80", DataDir: "/data"}
-	base := Proxy("img:1", in, "")
-	if base.Labels[LabelSpec] == "" || base.Labels[LabelSpec] != Proxy("img:1", in, "").Labels[LabelSpec] {
+	base := Proxy("img:1", in)
+	if base.Labels[LabelSpec] == "" || base.Labels[LabelSpec] != Proxy("img:1", in).Labels[LabelSpec] {
 		t.Fatal("stamp missing or unstable")
 	}
 	other := in
 	other.DataDir = "/other"
 	for name, c := range map[string]Container{
-		"image": Proxy("img:2", in, ""),
-		"token": Proxy("img:1", in, "tok"),
-		"mount": Proxy("img:1", other, ""),
+		"image": Proxy("img:2", in),
+		"mount": Proxy("img:1", other),
 	} {
 		if c.Labels[LabelSpec] == base.Labels[LabelSpec] {
 			t.Errorf("%s change kept the stamp", name)
 		}
-	}
-	if got := TokenFrom(Proxy("img:1", in, "tok").Env); got != "tok" {
-		t.Errorf("TokenFrom = %q", got)
 	}
 }
 
@@ -164,7 +159,7 @@ func TestProxyHashStamp(t *testing.T) {
 func TestLogCap(t *testing.T) {
 	for name, c := range map[string]Container{
 		"panel":     Panel(Image("1.2.3"), tlsIn),
-		"proxy":     Proxy(Image("1.2.3"), tlsIn, ""),
+		"proxy":     Proxy(Image("1.2.3"), tlsIn),
 		"nodeproxy": NodeProxy(Image("1.2.3")),
 		"registry":  Registry("/var/lib/stackr"),
 	} {

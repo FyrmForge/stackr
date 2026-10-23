@@ -326,7 +326,6 @@ func (o *Orchestrator) panelDomain(ctx context.Context) string {
 // a partial rename (the caller still pushes so the proxy matches what landed);
 // one store transaction around the writes would make it all-or-nothing.
 func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []store.Org) error {
-	dns01 := o.dns01(ctx)
 	for i, c := range p.res {
 		if _, err := o.domainres.Rename(ctx, c, p.to[i], ownerOf(c), orgs); err != nil {
 			return err
@@ -343,7 +342,7 @@ func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []sto
 			return err
 		}
 		s.Host = p.rowTo[i]
-		if _, err := o.domains.Update(ctx, d, s, dns01); err != nil {
+		if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 			return err
 		}
 	}
@@ -353,7 +352,7 @@ func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []sto
 			return err
 		}
 		s.RedirectTo = p.repointT[d.ID]
-		if _, err := o.domains.Update(ctx, d, s, dns01); err != nil {
+		if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 			return err
 		}
 	}
@@ -365,7 +364,7 @@ func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []sto
 			ForceHTTPS: &d.ForceHTTPS,
 			RedirectTo: p.rowTo[i],
 			Auto:       true,
-		}, dns01, nil)
+		}, o.dns01(ctx, d.Host), nil)
 		if err != nil {
 			return err
 		}

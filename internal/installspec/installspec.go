@@ -31,8 +31,6 @@ const (
 	// LabelSpec stamps a container with the Hash of the spec it was made
 	// from, so a re-run or upgrade can tell a stale proxy from a current one.
 	LabelSpec = "stackr.spec"
-	// DNSTokenEnv is the proxy's DNS-01 token variable.
-	DNSTokenEnv = "DNS_API_TOKEN"
 	// ProxyAdminDir is where the proxy container sees the directory that
 	// holds Caddy's admin socket; the host side is <DataDir>/proxy. The admin
 	// API is a unix socket so no network, tile or LAN, can reach it.
@@ -114,7 +112,6 @@ type Input struct {
 	HTTPS     bool   `json:"https"`
 	Email     string `json:"email,omitempty"`   // ACME contact, HTTPS only
 	Proxies   string `json:"proxies,omitempty"` // CDN ranges Caddy trusts, comma-joined
-	DNS01     bool   `json:"dns01,omitempty"`   // Cloudflare DNS-01 (wildcards); the token lives on the proxy only
 	HTTPPort  string `json:"http_port"`
 	HTTPSPort string `json:"https_port,omitempty"`
 	DataDir   string `json:"data_dir"`
@@ -205,10 +202,6 @@ func Panel(image string, in Input) Container {
 	if in.HTTPS {
 		tls = "on"
 	}
-	dns := ""
-	if in.DNS01 {
-		dns = "cloudflare"
-	}
 	env := []string{
 		"BASE_URL=" + in.BaseURL(),
 		"STACKR_TLS=" + tls,
@@ -216,7 +209,6 @@ func Panel(image string, in Input) Container {
 		"ROOT_DOMAIN=" + strings.TrimPrefix(in.Root, "*."), // tiles get names under it
 		"ACME_EMAIL=" + in.Email,
 		"CADDY_TRUSTED_PROXIES=" + in.Proxies,
-		"DNS_PROVIDER=" + dns,
 		"DATA_DIR=" + in.DataDir,
 		"DATABASE_PATH=" + in.DataDir + "/stackr.db",
 		"HOST=" + in.Bind,
@@ -254,15 +246,12 @@ func Panel(image string, in Input) Container {
 
 // Proxy is `stackrd proxy`: Caddy with its data and config dirs on the
 // named volume, the admin API on a unix socket, `stackr` naming the panel.
-func Proxy(image string, in Input, dnsToken string) Container {
+func Proxy(image string, in Input) Container {
 	ports := []string{in.HTTPPort + ":80"}
 	if in.HTTPS {
 		ports = append(ports, in.HTTPSPort+":443")
 	}
 	env := []string{"XDG_DATA_HOME=/caddy/data", "XDG_CONFIG_HOME=/caddy/config"}
-	if dnsToken != "" {
-		env = append(env, DNSTokenEnv+"="+dnsToken)
-	}
 	c := Container{
 		Name:       ProxyName,
 		Image:      image,
@@ -314,16 +303,6 @@ func (c Container) Hash() string {
 	b, _ := json.Marshal(c) // plain strings and maps: cannot fail
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
-}
-
-// TokenFrom finds the DNS-01 token in a container's env, "" when none.
-func TokenFrom(env []string) string {
-	for _, e := range env {
-		if v, ok := strings.CutPrefix(e, DNSTokenEnv+"="); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 // RunArgs is the `docker run` for c, flags in a fixed order.
