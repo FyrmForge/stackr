@@ -15,6 +15,7 @@ import (
 	"github.com/libdns/libdns"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -98,5 +99,13 @@ func TestACMEDNSSocket(t *testing.T) {
 	}
 	if a, d, _ := env.DNS.Log(); len(a) != 6 || len(d) != 1 {
 		t.Errorf("a refused call reached the provider: %v %v", a, d)
+	}
+	// the provider's own failure is a 502 the proxy retries, even when the
+	// kind explains it as a refusal
+	for _, fail := range []error{errs.Invalidf("key", "The provider refused the API key"), errs.Refusedf("The provider did not answer")} {
+		env.DNS.Fail(fail)
+		if code, body := post(worker.DNSAppendPath, "acme.dev", txt("_acme-challenge", "y")); code != http.StatusBadGateway {
+			t.Errorf("provider failure %v: %d %s, want 502", fail, code, body)
+		}
 	}
 }

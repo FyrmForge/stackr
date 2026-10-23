@@ -28,6 +28,7 @@ type DNS struct {
 	Deleted  []string
 	Overlap  bool
 	inZone   map[string]int
+	fail     error // set by Fail: what every record write returns
 }
 
 // record logs rs under zone into to, holding the zone a moment so two
@@ -88,7 +89,23 @@ func (a fakeAccount) Get(_ context.Context, zone string) ([]libdns.Record, error
 	return out, nil
 }
 
+// Fail makes every record append answer err (nil: answer again).
+func (d *DNS) Fail(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.fail = err
+}
+
+func (d *DNS) failing() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.fail
+}
+
 func (a fakeAccount) Append(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+	if err := a.d.failing(); err != nil {
+		return nil, err
+	}
 	a.d.record(zone, rs, &a.d.Appended)
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()

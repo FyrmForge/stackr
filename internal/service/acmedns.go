@@ -50,7 +50,7 @@ func (o *Orchestrator) ACMEChallenge(ctx context.Context, del bool, zone string,
 	}
 	got, err := call(ctx, row.Name, in)
 	if err != nil {
-		return nil, err
+		return nil, providerError{err}
 	}
 	out := make([]libdns.RR, len(got))
 	for i, r := range got {
@@ -58,6 +58,13 @@ func (o *Orchestrator) ACMEChallenge(ctx context.Context, del bool, zone string,
 	}
 	return out, nil
 }
+
+// providerError is the provider's own failure on a challenge call: a 502
+// to the proxy, which retries, never the 4xx of a refused call.
+type providerError struct{ err error }
+
+func (e providerError) Error() string { return e.err.Error() }
+func (e providerError) Unwrap() error { return e.err }
 
 // managedDomains is every managed domain's name, for the proxy config.
 func (o *Orchestrator) managedDomains(ctx context.Context) []string {
@@ -81,10 +88,14 @@ func (o *Orchestrator) dnsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := o.ACMEChallenge(r.Context(), r.URL.Path == worker.DNSDeletePath, in.Zone, in.Records)
 	if err != nil {
-		code := http.StatusBadGateway // the provider's own refusal
-		if _, ok := errs.IsInvalid(err); ok {
+		var pe providerError
+		_, invalid := errs.IsInvalid(err)
+		code := http.StatusBadGateway // the provider's own failure, whatever the kind made of it
+		switch {
+		case errors.As(err, &pe):
+		case invalid:
 			code = http.StatusBadRequest
-		} else if errors.Is(err, errs.ErrRefused) || errors.Is(err, errs.ErrNotFound) {
+		case errors.Is(err, errs.ErrRefused) || errors.Is(err, errs.ErrNotFound):
 			code = http.StatusForbidden
 		}
 		slog.Warn("acme dns: refused", "zone", in.Zone, "err", err)
