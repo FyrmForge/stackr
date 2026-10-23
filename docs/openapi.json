@@ -879,6 +879,9 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -892,9 +895,6 @@
               }
             ]
           },
-          "provider": {
-            "type": "string"
-          },
           "share_all": {
             "type": "boolean"
           },
@@ -904,13 +904,30 @@
         },
         "required": [
           "id",
-          "provider",
+          "kind",
           "name",
           "host",
           "created_at",
           "share_all",
           "capabilities",
           "shared"
+        ],
+        "type": "object"
+      },
+      "ConnectorAdded": {
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/Connector"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/Domain"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "connector"
         ],
         "type": "object"
       },
@@ -941,6 +958,43 @@
         },
         "required": [
           "github_org"
+        ],
+        "type": "object"
+      },
+      "ConnectorKind": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "hint": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "redirects": {
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "hint",
+          "capabilities",
+          "steps",
+          "redirects"
         ],
         "type": "object"
       },
@@ -1055,24 +1109,6 @@
           "url",
           "username",
           "password"
-        ],
-        "type": "object"
-      },
-      "DNSConnector": {
-        "properties": {
-          "connector": {
-            "$ref": "#/components/schemas/Connector"
-          },
-          "domains": {
-            "items": {
-              "$ref": "#/components/schemas/Domain"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "connector",
-          "domains"
         ],
         "type": "object"
       },
@@ -1880,6 +1916,33 @@
           "mem_bytes",
           "mem_free",
           "uptime_s"
+        ],
+        "type": "object"
+      },
+      "Field": {
+        "properties": {
+          "help": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
+          },
+          "prefill": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "label"
         ],
         "type": "object"
       },
@@ -3457,25 +3520,6 @@
         },
         "required": [
           "name"
-        ],
-        "type": "object"
-      },
-      "NamecheapIn": {
-        "properties": {
-          "client_ip": {
-            "type": "string"
-          },
-          "key": {
-            "type": "string"
-          },
-          "user": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "user",
-          "key",
-          "client_ip"
         ],
         "type": "object"
       },
@@ -5376,6 +5420,9 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -5395,9 +5442,6 @@
             },
             "type": "array"
           },
-          "provider": {
-            "type": "string"
-          },
           "share_all": {
             "type": "boolean"
           },
@@ -5407,7 +5451,7 @@
         },
         "required": [
           "id",
-          "provider",
+          "kind",
           "name",
           "host",
           "created_at",
@@ -5859,6 +5903,38 @@
         "required": [
           "name",
           "description"
+        ],
+        "type": "object"
+      },
+      "Step": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            },
+            "type": "array"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "note": {
+            "type": "string"
+          },
+          "out": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
         ],
         "type": "object"
       },
@@ -8295,6 +8371,89 @@
         "x-verb": "serverplan.approve"
       }
     },
+    "/api/v1/admin/connector-kinds": {
+      "get": {
+        "operationId": "admin.connector-kinds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorKind"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/connector-kinds/{kind}": {
+      "post": {
+        "operationId": "admin.connector-add",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorAdded"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
     "/api/v1/admin/connectors": {
       "get": {
         "operationId": "admin.connector-list",
@@ -8677,45 +8836,6 @@
               }
             },
             "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "connector.admin"
-      }
-    },
-    "/api/v1/admin/dns-connectors/namecheap": {
-      "post": {
-        "operationId": "admin.dns-add-namecheap",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NamecheapIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DNSConnector"
-                }
-              }
-            },
-            "description": "Created"
           },
           "default": {
             "content": {
@@ -12621,6 +12741,106 @@
         "x-verb": "orgplan.approve"
       }
     },
+    "/api/v1/orgs/{org}/connector-kinds": {
+      "get": {
+        "operationId": "connector.kinds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorKind"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.read"
+      }
+    },
+    "/api/v1/orgs/{org}/connector-kinds/{kind}": {
+      "post": {
+        "operationId": "connector.add",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorAdded"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.manage"
+      }
+    },
     "/api/v1/orgs/{org}/connectors": {
       "get": {
         "operationId": "connector.list",
@@ -13009,54 +13229,6 @@
               }
             },
             "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "dns.manage"
-      }
-    },
-    "/api/v1/orgs/{org}/dns-connectors/namecheap": {
-      "post": {
-        "operationId": "dns.add-namecheap",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NamecheapIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DNSConnector"
-                }
-              }
-            },
-            "description": "Created"
           },
           "default": {
             "content": {

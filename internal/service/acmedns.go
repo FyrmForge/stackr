@@ -18,8 +18,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -37,18 +35,11 @@ func (o *Orchestrator) ACMEChallenge(ctx context.Context, del bool, zone string,
 	if err != nil {
 		return nil, err
 	}
-	c, err := o.conns.DNSConnector(ctx, row.OrgID, row.ConnectorID)
+	_, raw, err := o.dnsAccount(ctx, row.OrgID, row.ConnectorID)
 	if err != nil {
 		return nil, err
 	}
-	d, ok := connector.DNSOf(c)
-	if !ok {
-		return nil, errs.ErrNotFound
-	}
-	p, err := o.dns.Provider(c.Kind, dnscap.Creds(d))
-	if err != nil {
-		return nil, err
-	}
+	p := o.dns.Locked(raw)
 	in := make([]libdns.Record, len(rs))
 	for i, r := range rs {
 		in[i] = r

@@ -22,6 +22,8 @@ import (
 	appdb "github.com/FyrmForge/stackr/internal/db"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors/all"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/fakehost"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
@@ -163,20 +165,28 @@ type options struct {
 	caddyMetrics func(context.Context) ([]byte, error)
 	build        BuildFunc
 	gitEnv       []string
-	dnsOpen      dnscap.Opener
+	dnsOpen      func(kind string, c DNSCreds) (DNSProvider, error)
+	kinds        []connectors.Kind
 }
 
-// DNSProvider is one DNS account (dnscap.Provider): what WithDNS fakes.
+// DNSProvider is one DNS account (the DNS capability): what WithDNS fakes.
+// DNSCreds is a connection's settings as the fake sees them.
 type (
 	DNSProvider = dnscap.Provider
 	DNSZone     = dnscap.Zone
-	DNSCreds    = dnscap.Creds
+	DNSCreds    = map[string]string
 )
 
-// WithDNS replaces the built-in DNS providers (Namecheap's API), with a
-// fake in tests.
+// WithDNS replaces every DNS kind's provider calls with a fake in tests;
+// the kind's own setup checks still run.
 func WithDNS(open func(kind string, c DNSCreds) (DNSProvider, error)) Option {
 	return func(o *options) { o.dnsOpen = open }
+}
+
+// WithKinds registers connector kinds besides the built-in ones (a test's
+// fake kind).
+func WithKinds(ks ...connectors.Kind) Option {
+	return func(o *options) { o.kinds = append(o.kinds, ks...) }
 }
 
 // BuildFunc builds one git tile at a commit and returns the image row id.
@@ -244,6 +254,10 @@ type Orchestrator struct {
 	regCleaned  lastRegistryClean
 	conns       *connector.Leaf
 	dns         *dnscap.Leaf
+	kinds       []connectors.Kind // registered connector kinds (connectors/all)
+	dnsOpen     func(kind string, c DNSCreds) (DNSProvider, error)
+	setupMu     sync.Mutex
+	setups      map[string]*pendingSetup // redirect setups out at their provider, by connection id
 	managed     *managed.Leaf
 	releases    *release.Leaf
 	jobRows     *job.Leaf
@@ -534,7 +548,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		})
 		return connector.New(st.Connectors, app)
 	})
-	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords, o.dnsOpen) })
+	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
+	orch.kinds, orch.dnsOpen = append(all.Kinds(), o.kinds...), o.dnsOpen
 	orch.managed = build("leaf/managed",
 		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
@@ -750,6 +765,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.runs.Interrupted(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted runs: %w", err)
+	}
+	if err := orch.conns.Reshape(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("connector settings: %w", err)
 	}
 	root, err := orch.settings.Get(ctx, "root_domain")
 	if err != nil {

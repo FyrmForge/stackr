@@ -25,10 +25,10 @@ func TestAdminDNSConnectors(t *testing.T) {
 	root := s.Session(t, s.User(t, "root@x.test", true))
 
 	// Namecheap's screens: four steps in one form, no fake IP
-	rec := s.As(t, root, "GET", "/-/admin/dns/namecheap", nil)
+	rec := s.As(t, root, "GET", "/-/admin/connectors/new/namecheap", nil)
 	for _, want := range []string{"Step 1 of 5: API access", "Step 2 of 5: Account", "Step 3 of 5: Allow list", "Step 4 of 5: Check",
 		"Controls your whole Namecheap account.", "Add this IP to Namecheap&#39;s API allow list.", "Namecheap API Access",
-		`hx-post="/-/admin/dns/namecheap" hx-target="#connector-dialog-body"`, `hx-get="/-/admin/connectors/new?pick=1"`, "data-next", "data-back"} {
+		`hx-post="/-/admin/connectors/new/namecheap" hx-target="#connector-dialog-body"`, `hx-get="/-/admin/connectors/new?pick=1"`, "data-next", "data-back"} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("Namecheap screens have no %q\n%s", want, rec.Body)
 		}
@@ -38,7 +38,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 	}
 
 	// an empty submit names every field, and opens on the first one's step
-	rec = s.As(t, root, "POST", "/-/admin/dns/namecheap", url.Values{})
+	rec = s.As(t, root, "POST", "/-/admin/connectors/new/namecheap", url.Values{})
 	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(body, "Check these fields: Namecheap username, API key, Server IPv4.") ||
 		!strings.Contains(body, "Enter the Namecheap username") || !strings.Contains(body, "Enter the API key") ||
@@ -48,15 +48,15 @@ func TestAdminDNSConnectors(t *testing.T) {
 		t.Fatalf("empty add = %d\n%s", rec.Code, body)
 	}
 
-	bad := url.Values{"user": {"jo"}, "key": {servicetest.BadKey}, "ip": {"203.0.113.7"}}
-	rec = s.As(t, root, "POST", "/-/admin/dns/namecheap", bad)
+	bad := url.Values{"user": {"jo"}, "key": {servicetest.BadKey}, "client_ip": {"203.0.113.7"}}
+	rec = s.As(t, root, "POST", "/-/admin/connectors/new/namecheap", bad)
 	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, "refused the API key") ||
 		!strings.Contains(body, `value="jo"`) || !strings.Contains(body, `value="203.0.113.7"`) || strings.Contains(body, servicetest.BadKey) {
 		t.Fatalf("bad key = %d\n%s", rec.Code, body)
 	}
 
 	// connected: the dialog's last step, its domains
-	rec = s.As(t, root, "POST", "/-/admin/dns/namecheap", url.Values{"user": {"jo"}, "key": {panelKey}, "ip": {"203.0.113.7"}})
+	rec = s.As(t, root, "POST", "/-/admin/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {panelKey}, "client_ip": {"203.0.113.7"}})
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Step 5 of 5: Domains") ||
 		!strings.Contains(body, "/domains") || strings.Contains(body, panelKey) {
 		t.Fatalf("add = %d\n%s", rec.Code, body)
@@ -70,11 +70,11 @@ func TestAdminDNSConnectors(t *testing.T) {
 	// the list: a row with its summary and cogwheel, no domains inline
 	body := s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String()
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
-		!strings.Contains(body, `hx-get="`+base+`/settings"`) || strings.Contains(body, base+"/domains") {
+		!strings.Contains(body, `hx-get="/-/admin/connectors/`+cs[0].ID+`/settings"`) || strings.Contains(body, base+"/domains") {
 		t.Fatalf("tab:\n%s", body)
 	}
 	// the cogwheel: the domain list and Remove
-	body = s.As(t, root, "GET", base+"/settings", nil).Body.String()
+	body = s.As(t, root, "GET", "/-/admin/connectors/"+cs[0].ID+"/settings", nil).Body.String()
 	if !strings.Contains(body, "<confirm-dialog open>") || !strings.Contains(body, `hx-post="`+base+`/domains" hx-trigger="load"`) ||
 		!strings.Contains(body, `hx-post="/-/admin/connectors/`+cs[0].ID+`/delete"`) {
 		t.Fatalf("settings:\n%s", body)
@@ -104,12 +104,12 @@ func TestAdminDNSConnectors(t *testing.T) {
 		t.Errorf("take over, wrong word = %d, took over %v", rec.Code, s.DNS.TookOver)
 	}
 
-	for _, p := range []string{"/-/admin/dns/namecheap", base + "/domains", base + "/manage", base + "/takeover"} {
+	for _, p := range []string{"/-/admin/connectors/new/namecheap", base + "/domains", base + "/manage", base + "/takeover"} {
 		if rec := s.Do(t, "POST", p, url.Values{"domain": {"acme.dev"}}); rec.Code != http.StatusForbidden {
 			t.Errorf("owner POST %s = %d, want 403", p, rec.Code)
 		}
 	}
-	for _, p := range []string{"/-/admin/dns/namecheap", base + "/settings"} {
+	for _, p := range []string{"/-/admin/connectors/new/namecheap", "/-/admin/connectors/" + cs[0].ID + "/settings"} {
 		if rec := s.Do(t, "GET", p, nil); rec.Code != http.StatusForbidden {
 			t.Errorf("owner GET %s = %d, want 403", p, rec.Code)
 		}

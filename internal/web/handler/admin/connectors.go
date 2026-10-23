@@ -18,7 +18,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
-	"github.com/FyrmForge/stackr/internal/web/dnspanel"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -49,7 +49,8 @@ func (h *handler) mountConnectors(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/:connector/delete", h.act("connectors", func(c echo.Context) (string, *service.Job, error) {
 		return "Connector removed.", nil, h.orch.DeleteServerConnector(c.Request().Context(), c.Param("connector"))
 	}), admin)
-	h.dns().Mount(g, dnsBase, admin)
+	h.panel().Mount(g, connBase, admin)
+	h.panel().MountDNS(g, dnsBase, admin)
 }
 
 // dnsBase is where the server DNS connectors' actions hang.
@@ -58,17 +59,18 @@ const dnsBase = ui.Base + "/dns"
 // refresh is the tab, whose list a closing dialog swaps in.
 func refresh(echo.Context) string { return ui.Base + "?tab=connectors" }
 
-// dns is the server level of the DNS connectors.
-func (h *handler) dns() dnspanel.Panel {
-	return dnspanel.Panel{
-		Orch: h.orch,
-		Org:  func(echo.Context) *string { return nil },
-		Base: func(echo.Context) string { return dnsBase },
+// panel is the server level of the registered kinds' connectors.
+func (h *handler) panel() connpanel.Panel {
+	return connpanel.Panel{
+		Orch:    h.orch,
+		Org:     func(echo.Context) *string { return nil },
+		Base:    func(echo.Context) string { return connBase },
+		DNSBase: func(echo.Context) string { return dnsBase },
 		Delete: func(_ echo.Context, k service.Connector) comp.ConfirmView {
 			return comp.ConfirmView{
 				Button:  "Remove",
 				Title:   "Remove " + k.Name + "?",
-				Warning: "stackr deletes the DNS records it made and stops managing its domains. Refused while a tile uses one.",
+				Warning: connpanel.Warning(k),
 				Action:  connBase + "/" + k.ID + "/delete",
 				Target:  "#" + comp.DrawerRoot,
 			}
@@ -78,19 +80,20 @@ func (h *handler) dns() dnspanel.Panel {
 	}
 }
 
-// kinds is the add dialog's picker.
-var kinds = []connectors.Kind{
-	{Name: "GitHub", Hint: "A GitHub App the server owns, shared with the organizations you pick.", URL: connBase + "/new/github"},
-	{Name: "Namecheap", Hint: "DNS records and wildcard certificates for your Namecheap domains.", URL: dnsBase + "/namecheap"},
+// kinds is the add dialog's picker: GitHub, then the registered kinds.
+func (h *handler) kinds(c echo.Context) []connectors.Kind {
+	return append([]connectors.Kind{
+		{Name: "GitHub", Hint: "A GitHub App the server owns, shared with the organizations you pick.", URL: connBase + "/new/github"},
+	}, h.panel().Kinds(c, "")...)
 }
 
 // GET /-/admin/connectors/new: the add dialog on its kind picker. Its Back
 // (?pick=1) answers only the picker, into the open dialog.
 func (h *handler) newConnector(c echo.Context) error {
 	if c.QueryParam("pick") != "" {
-		return respond.HTML(c, http.StatusOK, connectors.Picker(kinds))
+		return respond.HTML(c, http.StatusOK, connectors.Picker(h.kinds(c)))
 	}
-	return respond.HTML(c, http.StatusOK, connectors.Modal("Add a connector", refresh(c), connectors.Picker(kinds)))
+	return respond.HTML(c, http.StatusOK, connectors.Modal("Add a connector", refresh(c), connectors.Picker(h.kinds(c))))
 }
 
 func githubView() connectors.GitHubView {
@@ -150,7 +153,7 @@ func (h *handler) connectorSettings(c echo.Context) error {
 	}
 	i := slices.IndexFunc(cs, func(k service.ServerConnector) bool { return k.ID == c.Param("connector") })
 	if i < 0 {
-		return middleware.HTTPError(errs.ErrNotFound)
+		return h.panel().Settings(c) // a registered kind's
 	}
 	k := cs[i]
 	install, err := h.orch.ServerConnectorInstallURL(ctx, k.ID)
@@ -190,7 +193,7 @@ func (h *handler) connectorsTab(c echo.Context) (templ.Component, error) {
 		Title: "Connectors", Scope: "instance",
 		Help:   "GitHub Apps and DNS accounts the server owns.",
 		Add:    connBase + "/new",
-		Synced: h.dns().Synced(c),
+		Synced: h.panel().Synced(c),
 	}
 	for _, k := range cs {
 		install, err := h.orch.ServerConnectorInstallURL(ctx, k.ID)
@@ -208,11 +211,11 @@ func (h *handler) connectorsTab(c echo.Context) (templ.Component, error) {
 		}
 		v.Rows = append(v.Rows, r)
 	}
-	dns, err := h.dns().Rows(c)
+	kinds, err := h.panel().Rows(c)
 	if err != nil {
 		return nil, err
 	}
-	v.Rows = append(v.Rows, dns...)
+	v.Rows = append(v.Rows, kinds...)
 	return connectors.Tab(v, nil), nil
 }
 

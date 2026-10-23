@@ -39,14 +39,8 @@ func rowKey(r store.DNSRecord) string {
 	return r.Zone + "|" + strings.ToLower(r.Name) + "|" + r.Type
 }
 
-// Account is a connector's provider kind and creds; Accounts looks one up
-// by connector id.
-type Account struct {
-	Kind  string
-	Creds Creds
-}
-
-type Accounts func(ctx context.Context, connectorID string, orgID *string) (Account, error)
+// Accounts opens a connector's provider by connector id.
+type Accounts func(ctx context.Context, connectorID string, orgID *string) (Provider, error)
 
 // RecordTaken is the refusal for a name that has a record stackr did not
 // make: Replace (the panel's "Replace it", --replace) takes it over.
@@ -91,15 +85,11 @@ func ZoneOf(host string, zones []store.DNSDomain) (store.DNSDomain, bool) {
 }
 
 // WithZone runs fn with zone's lock held: fn's provider is the raw one, so
-// a read and the write it decides stay one step. Namecheap rewrites the
+// a read and the write it decides stay one step. A provider may rewrite the
 // whole zone on every write; a writer between the two would be lost.
-func (l *Leaf) WithZone(ctx context.Context, a Account, zone string, fn func(Provider) error) error {
-	p, err := l.open(a.Kind, a.Creds)
-	if err != nil {
-		return err
-	}
+func (l *Leaf) WithZone(_ context.Context, p Provider, zone string, fn func(Provider) error) error {
 	defer l.lock(zone)()
-	return explain(fn(p), a.Creds)
+	return fn(p)
 }
 
 // blocks is a live record that stops stackr putting an address on its
@@ -134,7 +124,7 @@ func fqdn(zone, name string) string {
 }
 
 // Taken says whether host's name in zone has a record stackr did not make.
-func (l *Leaf) Taken(ctx context.Context, a Account, zone, host string) (bool, error) {
+func (l *Leaf) Taken(ctx context.Context, a Provider, zone, host string) (bool, error) {
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
 	rows, err := l.recs.List(ctx)
@@ -355,7 +345,7 @@ func (l *Leaf) Records(ctx context.Context) ([]store.DNSRecord, error) { return 
 
 // Forget deletes the records stackr made in zone, from the provider then
 // the table: what unmanaging a domain does before the domain row goes.
-func (l *Leaf) Forget(ctx context.Context, a Account, zone string) error {
+func (l *Leaf) Forget(ctx context.Context, a Provider, zone string) error {
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
 	rows, err := l.recs.List(ctx)

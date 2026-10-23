@@ -414,14 +414,14 @@ func TestServerWizardCertificates(t *testing.T) {
 	step := setup.ServerBase + "/ui/certificates"
 
 	body := s.do(adm, "GET", step, nil, false).Body.String()
-	for _, w := range []string{`hx-get="/-/setup/server/dns/new"`, "+ Add Namecheap", "No connectors yet.", ">Skip</a>", "you point its DNS yourself"} {
+	for _, w := range []string{`hx-get="/-/setup/server/connectors/new"`, "+ Add Namecheap", "No connectors yet.", ">Skip</a>", "you point its DNS yourself"} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("step lacks %s\n%s", w, body)
 		}
 	}
 	// the add dialog opens straight on Namecheap: no kind picker, no Back to one
-	body = s.do(adm, "GET", setup.ServerBase+"/dns/new", nil, true).Body.String()
-	for _, w := range []string{"<confirm-dialog open>", `hx-post="/-/setup/server/dns/namecheap"`, "Controls your whole Namecheap account.", `hx-get="` + step + `"`} {
+	body = s.do(adm, "GET", setup.ServerBase+"/connectors/new", nil, true).Body.String()
+	for _, w := range []string{"<confirm-dialog open>", `hx-post="/-/setup/server/connectors/new/namecheap"`, "Controls your whole Namecheap account.", `hx-get="` + step + `"`} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("dialog lacks %s\n%s", w, body)
 		}
@@ -429,8 +429,8 @@ func TestServerWizardCertificates(t *testing.T) {
 	if strings.Contains(body, "?pick=1") {
 		t.Errorf("the wizard's dialog goes back to a picker:\n%s", body)
 	}
-	bad := url.Values{"user": {"jo"}, "key": {servicetest.BadKey}, "ip": {"203.0.113.7"}}
-	rec := s.do(adm, "POST", setup.ServerBase+"/dns/namecheap", bad, true)
+	bad := url.Values{"user": {"jo"}, "key": {servicetest.BadKey}, "client_ip": {"203.0.113.7"}}
+	rec := s.do(adm, "POST", setup.ServerBase+"/connectors/new/namecheap", bad, true)
 	// a refusal answers into the open dialog, not the shell
 	if b := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || rec.Header().Get("HX-Retarget") != "" ||
 		!strings.Contains(b, `value="jo"`) || !strings.Contains(b, `value="203.0.113.7"`) || !strings.Contains(b, "refused the API key") {
@@ -439,7 +439,7 @@ func TestServerWizardCertificates(t *testing.T) {
 	if strings.Contains(rec.Body.String(), servicetest.BadKey) {
 		t.Error("the refused key came back")
 	}
-	rec = s.do(adm, "POST", setup.ServerBase+"/dns/namecheap", url.Values{"user": {"jo"}, "key": {"good-key"}, "ip": {"203.0.113.7"}}, true)
+	rec = s.do(adm, "POST", setup.ServerBase+"/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {"good-key"}, "client_ip": {"203.0.113.7"}}, true)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Step 5 of 5: Domains") {
 		t.Fatalf("add = %d\n%s", rec.Code, rec.Body)
 	}
@@ -449,7 +449,7 @@ func TestServerWizardCertificates(t *testing.T) {
 	}
 	base := setup.ServerBase + "/dns/" + cs[0].ID
 	body = s.do(adm, "GET", step, nil, false).Body.String()
-	if !strings.Contains(body, `hx-get="`+base+`/settings"`) || !strings.Contains(body, ">Continue</a>") || !strings.Contains(body, "No domains managed yet.") {
+	if !strings.Contains(body, `hx-get="`+setup.ServerBase+"/connectors/"+cs[0].ID+`/settings"`) || !strings.Contains(body, ">Continue</a>") || !strings.Contains(body, "No domains managed yet.") {
 		t.Errorf("step after add:\n%s", body)
 	}
 	// a closing dialog refreshes the list from the step, Continue with it
@@ -458,7 +458,7 @@ func TestServerWizardCertificates(t *testing.T) {
 	if list < 0 || strings.Index(body, ">Continue</a>") < list || strings.Index(body, `id="connector-modal"`) < strings.Index(body, ">Continue</a>") {
 		t.Errorf("the step's list does not carry Continue:\n%s", body)
 	}
-	body = s.do(adm, "GET", base+"/settings", nil, true).Body.String()
+	body = s.do(adm, "GET", setup.ServerBase+"/connectors/"+cs[0].ID+"/settings", nil, true).Body.String()
 	if !strings.Contains(body, `hx-post="`+base+`/domains"`) || strings.Contains(body, "/delete") {
 		t.Errorf("settings:\n%s", body)
 	}

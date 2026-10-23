@@ -31,7 +31,7 @@ func TestACMEDNSSocket(t *testing.T) {
 	env := servicetest.New(t, func(c *service.Config) { c.ProxyAdmin = "unix://" + filepath.Join(dir, "admin.sock") })
 	env.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}, {Name: "shop.io", OurDNS: true}}
 	ctx := context.Background()
-	c, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, account())
+	c, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}

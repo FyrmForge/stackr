@@ -1,72 +1,27 @@
-// Package dns is the DNS connector screens, the same in Admin, the org
-// drawer and the setup wizard: Namecheap's steps in the add dialog, and a
-// connector's settings dialog with its domains.
+// Package dns is the DNS capability's section of a connector's screens,
+// the same for every DNS kind in Admin, the org drawer and the setup
+// wizard: its domain list in the settings dialog, and the add dialog's last
+// step that picks the domains.
 package dns
 
 import (
 	"encoding/json"
-	"strconv"
-	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
-	"github.com/FyrmForge/stackr/internal/ui/connectors"
 )
 
-// AddView is Namecheap's screens in the add dialog. Domains set = the
-// account is connected: pick the domains.
-type AddView struct {
-	Back        string // GET the kind picker; "" = opened straight on Namecheap
-	Add         string // POST user, key, ip
-	User        string // kept on a refused add; the key never is
-	IP          string // prefilled with stackr's public IPv4 when known
-	Errors      map[string]string
-	ID, Domains string
-}
-
-var steps = []string{"API access", "Account", "Allow list", "Check", "Domains"}
-
-// start is the step shown first: the one holding the first error.
-func (v AddView) start() int {
-	switch {
-	case v.Errors["user"] != "" || v.Errors["key"] != "":
-		return 2
-	case v.Errors["ip"] != "":
-		return 3
-	case len(v.Errors) > 0:
-		return 4
-	}
-	return 1
-}
-
-// Missing names every field an add refused, for the line over the steps:
-// the fields sit on different steps.
-func Missing(errs map[string]string) string {
-	var out []string
-	for _, f := range []struct{ key, label string }{{"user", "Namecheap username"}, {"key", "API key"}, {"ip", "Server IPv4"}} {
-		if errs[f.key] != "" {
-			out = append(out, f.label)
-		}
-	}
-	if len(out) == 0 {
-		return ""
-	}
-	return "Check these fields: " + strings.Join(out, ", ") + "."
-}
-
-// SettingsView is a connector's settings dialog: its domains, and Remove
-// (Delete.Action "" = none).
-type SettingsView struct {
-	ID, Domains string
-	Delete      c.ConfirmView
-}
+// Title is the add dialog's step this capability adds after connecting.
+const Title = "Domains"
 
 // DomainsView is a connector's account: every domain and its state.
+// Provider is the kind as the copy names it.
 type DomainsView struct {
-	ID     string // the connector, for the swap target
-	Error  string
-	Note   string
-	Shared bool // a server connector: managed domains say who may use them
-	Rows   []DomainRow
+	ID       string // the connector, for the swap target
+	Provider string
+	Error    string
+	Note     string
+	Shared   bool // a server connector: managed domains say who may use them
+	Rows     []DomainRow
 }
 
 // DomainRow is one domain. State is managed, not_managed or
@@ -91,107 +46,16 @@ func vals(m map[string]string) string {
 	return string(b)
 }
 
-templ stepLine(n int) {
-	<p class="text-xs text-rw-faint">Step { strconv.Itoa(n) } of { strconv.Itoa(len(steps)) }: { steps[n-1] }</p>
+// Connected is the add dialog's last step: pick the domains.
+templ Connected(id, url, provider string) {
+	<p>Connected. Pick the domains stackr manages.</p>
+	@Load(id, url, provider)
 }
 
-// Add is Namecheap's screens. Steps 1 to 4 are one form posted at
-// Connect, so the API key never comes back from the server.
-templ Add(v AddView) {
-	<div id={ connectors.BodyID }>
-		if v.Domains != "" {
-			<div class="modal-body">
-				@stepLine(5)
-				<p>Connected. Pick the domains stackr manages.</p>
-				@Load(v.ID, v.Domains)
-			</div>
-			<div class="modal-foot">
-				<button type="button" class="btn btn-primary btn-sm" data-cancel>Done</button>
-			</div>
-		} else {
-			<form hx-post={ v.Add } hx-target={ "#" + connectors.BodyID } hx-swap="outerHTML" novalidate>
-				if Missing(v.Errors) != "" || v.Errors["general"] != "" {
-					<div class="px-5 pt-4 space-y-2">
-						@c.FormError(Missing(v.Errors))
-						@c.FormError(v.Errors["general"])
-					</div>
-				}
-				<div>
-					<section data-step hidden?={ v.start() != 1 }>
-						<div class="modal-body">
-							@stepLine(1)
-							<p>Turn on API access in Namecheap.</p>
-							<ol class="list-decimal pl-5 space-y-1">
-								<li>Open Profile, Tools, Business & Dev Tools, Namecheap API Access.</li>
-								<li>Turn API access on and copy the API key.</li>
-							</ol>
-						</div>
-						<div class="modal-foot">
-							if v.Back != "" {
-								<button type="button" class="btn btn-ghost btn-sm mr-auto" hx-get={ v.Back } hx-target={ "#" + connectors.BodyID } hx-swap="outerHTML">Back</button>
-							}
-							<button type="button" class="btn btn-primary btn-sm" data-next>Next</button>
-						</div>
-					</section>
-					<section data-step hidden?={ v.start() != 2 }>
-						<div class="modal-body">
-							@stepLine(2)
-							@c.Field(c.FieldView{Name: "user", Label: "Namecheap username", Value: v.User, Required: true, Error: c.GetError(v.Errors, "user"), Autocomplete: "off"})
-							@c.Field(c.FieldView{Name: "key", Label: "API key", Type: "password", Required: true, Help: "Controls your whole Namecheap account.", Error: c.GetError(v.Errors, "key"), Autocomplete: "off"})
-						</div>
-						@nav()
-					</section>
-					<section data-step hidden?={ v.start() != 3 }>
-						<div class="modal-body">
-							@stepLine(3)
-							@c.Field(c.FieldView{Name: "ip", Label: "Server IPv4", Value: v.IP, Required: true, Help: "Add this IP to Namecheap's API allow list.", Error: c.GetError(v.Errors, "ip")})
-							<p class="text-xs text-rw-faint">Behind NAT, use your router's public IPv4.</p>
-						</div>
-						@nav()
-					</section>
-					<section data-step hidden?={ v.start() != 4 }>
-						<div class="modal-body">
-							@stepLine(4)
-							<p>stackr asks Namecheap for your domains to check the account.</p>
-						</div>
-						<div class="modal-foot">
-							<button type="button" class="btn btn-ghost btn-sm mr-auto" data-back>Back</button>
-							<button type="submit" class="btn btn-primary btn-sm">Connect</button>
-						</div>
-					</section>
-				</div>
-			</form>
-		}
-	</div>
-}
-
-templ nav() {
-	<div class="modal-foot">
-		<button type="button" class="btn btn-ghost btn-sm mr-auto" data-back>Back</button>
-		<button type="button" class="btn btn-primary btn-sm" data-next>Next</button>
-	</div>
-}
-
-// Load is a connector's domain list, asked of the provider as it lands.
-templ Load(id, url string) {
-	<div id={ listID(id) } hx-post={ url } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Asking Namecheap…</div>
-}
-
-// Settings is a DNS connector's settings dialog body.
-templ Settings(v SettingsView) {
-	<div id={ connectors.BodyID }>
-		<div class="modal-body">
-			@Load(v.ID, v.Domains)
-		</div>
-		<div class="modal-foot">
-			if v.Delete.Action != "" {
-				<span class="mr-auto">
-					@c.Confirm(v.Delete)
-				</span>
-			}
-			<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
-		</div>
-	</div>
+// Load is a connector's domain list, asked of the provider as it lands:
+// the settings dialog's section.
+templ Load(id, url, provider string) {
+	<div id={ listID(id) } hx-post={ url } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Asking { provider }…</div>
 }
 
 func stateWord(s string) (string, string) {
@@ -233,7 +97,7 @@ templ Domains(v DomainsView) {
 								@c.Confirm(c.ConfirmView{
 									Button:  "Take over DNS",
 									Quiet:   true,
-									Title:   "Switch " + d.Name + " to Namecheap DNS?",
+									Title:   "Switch " + d.Name + " to " + v.Provider + " DNS?",
 									Warning: "Records at its current DNS host stop applying. Copy any you need first.",
 									Kept:    []string{"The domain stays registered to you."},
 									Word:    d.Name,
@@ -270,4 +134,3 @@ templ stateChip(state string) {
 	{{ word, tone := stateWord(state) }}
 	@c.Chip(word, tone)
 }
-

@@ -23,7 +23,7 @@ func recordsRig(t *testing.T) (*servicetest.Env, string, string, servicetest.Til
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
-	srv, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, account())
+	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,14 +162,14 @@ func TestRecordOrgCannotUseOthersZone(t *testing.T) {
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
-	mine, err := env.Orch.AddDNSConnector(ctx, &acme, service.DNSNamecheap, account())
+	mine, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.Orch.ManageDNSDomain(ctx, &acme, mine.Connector.ID, "acme.dev", nil); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, account())
+	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestUnmanageRefusedWhileUsed(t *testing.T) {
 	}
 	for name, err := range map[string]error{
 		"unmanage": env.Orch.UnmanageDNSDomain(ctx, nil, id, "acme.dev"),
-		"delete":   env.Orch.DeleteDNSConnector(ctx, nil, id),
+		"delete":   env.Orch.RemoveConnector(ctx, nil, id),
 	} {
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "shop.acme.dev") || !strings.Contains(err.Error(), "api") {
 			t.Errorf("%s while used = %v, want a conflict naming the tile and host", name, err)
@@ -231,7 +231,7 @@ func TestUnmanageRefusedWhileUsed(t *testing.T) {
 		t.Fatal(err)
 	}
 	env.Orch.WaitDNS()
-	if err := env.Orch.DeleteDNSConnector(ctx, nil, id); err != nil {
+	if err := env.Orch.RemoveConnector(ctx, nil, id); err != nil {
 		t.Fatal(err)
 	}
 	if z := env.DNS.Zone("acme.dev"); len(z) != 1 || !has(z, "www", "A", "203.0.113.9") {
@@ -250,7 +250,7 @@ func TestManageRefusesResourceElsewhere(t *testing.T) {
 	if _, err := env.Orch.CreateDomainResource(ctx, "org", other, "shop.io", false, ""); err != nil {
 		t.Fatal(err)
 	}
-	mine, err := env.Orch.AddDNSConnector(ctx, &acme, service.DNSNamecheap, account())
+	mine, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}

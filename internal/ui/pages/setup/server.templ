@@ -164,11 +164,11 @@ templ ServerDomains(v ServerDomainsView) {
 	}
 }
 
-// ServerCertificates adds a Namecheap DNS connector and picks the domains
+// ServerCertificates adds a DNS connector and picks the domains
 // stackr manages; skipped, every host keeps its own certificate.
 templ ServerCertificates(v ServerCertsView) {
 	@shell(v.Frame) {
-		<p class="text-sm text-rw-muted mb-6">Connect Namecheap and stackr sets DNS and gets wildcard certificates for the domains you pick.</p>
+		<p class="text-sm text-rw-muted mb-6">Connect your DNS provider and stackr sets DNS and gets wildcard certificates for the domains you pick.</p>
 		{{ v.List.Foot = serverNext(v.Next, v.Done, "Without one, each host gets its own certificate and you point its DNS yourself.") }}
 		@connectors.Tab(v.List, nil)
 	}

@@ -73,7 +73,6 @@ type config struct {
 	State string         `json:"state,omitempty"`
 	User  string         `json:"user,omitempty"`
 	App   *githubapp.App `json:"app,omitempty"`
-	DNS   *DNS           `json:"dns,omitempty"`
 }
 
 func parse(c store.Connector) config {
@@ -123,9 +122,9 @@ func (l *Leaf) Get(ctx context.Context, orgID, id string) (store.Connector, erro
 		return c, err
 	}
 	// A server connector (nil OrgID) is never an org's to write through
-	// Get: orgs only read it, through Usable, ListConnected and For. A DNS
-	// connector is an owner's, reached through DNSConnector only.
-	if IsDNS(c) {
+	// Get: orgs only read it, through Usable, ListConnected and For. A
+	// connection of a registered kind is reached through Of only.
+	if !IsGit(c) {
 		return store.Connector{}, errs.ErrNotFound
 	}
 	if c.OrgID == nil || *c.OrgID != orgID {
@@ -179,7 +178,7 @@ func (l *Leaf) Usable(ctx context.Context, orgID, id string) (store.Connector, e
 	if err != nil {
 		return c, err
 	}
-	if IsDNS(c) {
+	if !IsGit(c) {
 		return store.Connector{}, errs.ErrNotFound
 	}
 	if c.OrgID != nil && *c.OrgID == orgID {
@@ -210,8 +209,8 @@ func (l *Leaf) Server(ctx context.Context, id string) (store.Connector, error) {
 	return c, nil
 }
 
-// ListServer is the server's git connectors, config stripped (DNS ones:
-// ListDNS).
+// ListServer is the server's git connectors, settings stripped (other
+// kinds: ListOf).
 func (l *Leaf) ListServer(ctx context.Context) ([]store.Connector, error) {
 	cs, err := l.conns.ListServer(ctx)
 	cs = gitOnly(cs)
@@ -234,8 +233,8 @@ func (l *Leaf) SetShares(ctx context.Context, id string, orgIDs []string, all bo
 	if err != nil {
 		return c, err
 	}
-	if IsDNS(c) {
-		return store.Connector{}, errs.Refusedf("a DNS connector is not shared; each managed domain says who may use it")
+	if !IsGit(c) {
+		return store.Connector{}, errs.Refusedf("only a git connector is shared; a DNS connector's managed domains each say who may use them")
 	}
 	if all {
 		orgIDs = nil

@@ -368,7 +368,7 @@ func ServerDomains(v ServerDomainsView) templ.Component {
 	})
 }
 
-// ServerCertificates adds a Namecheap DNS connector and picks the domains
+// ServerCertificates adds a DNS connector and picks the domains
 // stackr manages; skipped, every host keeps its own certificate.
 func ServerCertificates(v ServerCertsView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -403,7 +403,7 @@ func ServerCertificates(v ServerCertsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<p class=\"text-sm text-rw-muted mb-6\">Connect Namecheap and stackr sets DNS and gets wildcard certificates for the domains you pick.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<p class=\"text-sm text-rw-muted mb-6\">Connect your DNS provider and stackr sets DNS and gets wildcard certificates for the domains you pick.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

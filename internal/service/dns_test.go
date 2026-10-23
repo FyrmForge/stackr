@@ -22,8 +22,8 @@ func dnsRig(t *testing.T) (*servicetest.Env, string, string) {
 	return env, env.Org(t, "acme"), env.Org(t, "other")
 }
 
-func account() service.DNSAccount {
-	return service.DNSAccount{User: "jo", Key: sentinelKey, ClientIP: "203.0.113.7"}
+func account() map[string]string {
+	return map[string]string{"user": "jo", "key": sentinelKey, "client_ip": "203.0.113.7"}
 }
 
 // Adding checks the account and lists its domains; the key is never in
@@ -32,18 +32,21 @@ func TestAddDNSConnector(t *testing.T) {
 	env, acme, _ := dnsRig(t)
 	ctx := context.Background()
 	bad := account()
-	bad.Key = servicetest.BadKey
-	if inv, ok := errs.IsInvalid(func() error { _, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, bad); return err }()); !ok || inv.Field != "key" {
+	bad["key"] = servicetest.BadKey
+	if inv, ok := errs.IsInvalid(func() error {
+		_, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: bad})
+		return err
+	}()); !ok || inv.Field != "key" {
 		t.Error("a bad key: want an Invalid on key")
 	}
 	if cs, _ := env.Orch.DNSConnectors(ctx, nil); len(cs) != 0 {
 		t.Fatalf("a refused account was saved: %v", cs)
 	}
-	got, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, account())
+	got, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
 	if err != nil || len(got.Domains) != 3 || got.Domains[2].State != service.DNSElsewhere {
 		t.Fatalf("add = %+v %v", got, err)
 	}
-	if _, err := env.Orch.AddDNSConnector(ctx, &acme, service.DNSNamecheap, account()); err != nil {
+	if _, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()}); err != nil {
 		t.Fatal(err)
 	}
 	srvList, _ := env.Orch.DNSConnectors(ctx, nil)
@@ -62,8 +65,8 @@ func TestAddDNSConnector(t *testing.T) {
 		t.Errorf("domains = %v %v", ds, err)
 	}
 	// the stored account still holds the key: the provider is opened with it
-	if o := env.DNS.Opened[len(env.DNS.Opened)-1]; o.Key != sentinelKey || o.ClientIP != "203.0.113.7" {
-		t.Errorf("opened with %q %q", o.User, o.ClientIP)
+	if o := env.DNS.Opened[len(env.DNS.Opened)-1]; o["key"] != sentinelKey || o["client_ip"] != "203.0.113.7" {
+		t.Errorf("opened with %q %q", o["user"], o["client_ip"])
 	}
 }
 
@@ -73,11 +76,11 @@ func TestAddDNSConnector(t *testing.T) {
 func TestDNSConnectorIsOrgs(t *testing.T) {
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
-	mine, err := env.Orch.AddDNSConnector(ctx, &acme, service.DNSNamecheap, account())
+	mine, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, account())
+	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +92,7 @@ func TestDNSConnectorIsOrgs(t *testing.T) {
 			_, err := env.Orch.ManageDNSDomain(ctx, &other, id, "acme.dev", nil)
 			return err
 		}(),
-		"other org delete":       env.Orch.DeleteDNSConnector(ctx, &other, id),
+		"other org delete":       env.Orch.RemoveConnector(ctx, &other, id),
 		"org reaches server one": func() error { _, err := env.Orch.DNSDomains(ctx, &acme, srv.Connector.ID); return err }(),
 		"git rename":             func() error { _, err := env.Orch.RenameConnector(ctx, acme, id, "x"); return err }(),
 		"git delete":             env.Orch.DeleteConnector(ctx, acme, id),
@@ -127,7 +130,7 @@ func TestDNSConnectorIsOrgs(t *testing.T) {
 func TestDNSDomainAvailableTo(t *testing.T) {
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
-	srv, err := env.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, account())
+	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
 	}

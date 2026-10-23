@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/handler/about"
 	"github.com/FyrmForge/stackr/internal/web/handler/account"
 	"github.com/FyrmForge/stackr/internal/web/handler/admin"
@@ -114,6 +115,9 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.POST("/account/appearance", acct.Appearance, authed)
 	site.POST("/account/time-zone", acct.TimeZone, authed)
 	site.POST("/account/keys/:key/revoke", acct.Revoke, authed)
+
+	// A redirect setup of a connector comes back here.
+	site.GET(service.ConnectorCallbackPath, connpanel.Callback(deps.Orch), page, authed)
 
 	// The admin drawer, opened from the nav on any page.
 	admin.NewHandler(deps.Orch).Mount(site, deps.Access)

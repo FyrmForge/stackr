@@ -32,7 +32,7 @@ func (stackrDNS) CaddyModule() caddy.ModuleInfo {
 }
 
 var dnsClient = &http.Client{
-	Timeout: 2 * time.Minute, // a Namecheap zone rewrite behind the zone lock
+	Timeout: 2 * time.Minute, // a provider rewriting a whole zone behind the zone lock
 	Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(installspec.ProxyAdminDir, worker.DNSSocket))
 	}},

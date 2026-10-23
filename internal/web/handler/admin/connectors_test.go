@@ -53,7 +53,7 @@ func TestAdminConnectors(t *testing.T) {
 	// the add dialog: the kind picker, then GitHub's first screen
 	rec = s.As(t, root, "GET", base+"new", nil)
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "<confirm-dialog open>") ||
-		!strings.Contains(body, `hx-get="/-/admin/connectors/new/github"`) || !strings.Contains(body, `hx-get="/-/admin/dns/namecheap"`) {
+		!strings.Contains(body, `hx-get="/-/admin/connectors/new/github"`) || !strings.Contains(body, `hx-get="/-/admin/connectors/new/namecheap"`) {
 		t.Fatalf("add dialog = %d\n%s", rec.Code, body)
 	}
 	if body := s.As(t, root, "GET", base+"new?pick=1", nil).Body.String(); strings.Contains(body, "<confirm-dialog") || !strings.Contains(body, "Namecheap") {

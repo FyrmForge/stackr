@@ -12,35 +12,36 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
-	"github.com/FyrmForge/stackr/internal/web/dnspanel"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 // The org drawer's Connectors tab (owner): the org's GitHub connectors and
-// its own DNS connectors, and the add dialog.
+// its own connectors of the registered kinds, and the add dialog.
 
 func orgSlug(c echo.Context) string { return "/" + middleware.ScopeOf(c).Org.Slug }
 
-// connBase is where the tab's add dialog hangs.
+// connBase is where the tab's add dialog and settings hang.
 func connBase(c echo.Context) string { return orgSlug(c) + "/-/drawer/connectors" }
 
 func orgRefresh(c echo.Context) string { return orgSlug(c) + "/-/drawer?tab=connectors" }
 
-// dns is the org level of the DNS connectors.
-func (h *handler) dns() dnspanel.Panel {
-	return dnspanel.Panel{
+// panel is the org level of the registered kinds' connectors.
+func (h *handler) panel() connpanel.Panel {
+	return connpanel.Panel{
 		Orch: h.orch,
 		Org: func(c echo.Context) *string {
 			id := middleware.ScopeOf(c).Org.ID
 			return &id
 		},
-		Base: func(c echo.Context) string { return orgSlug(c) + "/-/drawer/dns" },
+		Base:    connBase,
+		DNSBase: func(c echo.Context) string { return orgSlug(c) + "/-/drawer/dns" },
 		Delete: func(c echo.Context, k service.Connector) comp.ConfirmView {
 			return comp.ConfirmView{
 				Button:  "Remove",
 				Title:   "Remove " + k.Name + "?",
-				Warning: "stackr deletes the DNS records it made and stops managing its domains. Refused while a tile uses one.",
-				Action:  orgSlug(c) + "/-/drawer/dns/" + k.ID + "/delete",
+				Warning: connpanel.Warning(k),
+				Action:  connBase(c) + "/" + k.ID + "/delete",
 				Target:  "#" + comp.DrawerRoot,
 			}
 		},
@@ -50,13 +51,14 @@ func (h *handler) dns() dnspanel.Panel {
 }
 
 func (h *handler) mountDNS(site *echo.Group, a *middleware.Access) {
-	const base = "/:org/-/drawer/dns"
-	owner, write := a.Require("dns.manage"), a.Require("connector.write")
-	site.POST(base+"/:connector/delete", h.orgAction("connectors", func(c echo.Context, og *service.Org) (string, error) {
-		return "Connector removed.", h.orch.DeleteDNSConnector(c.Request().Context(), &og.ID, c.Param("connector"))
-	}), owner)
-	h.dns().Mount(site, base, owner)
 	const conn = "/:org/-/drawer/connectors"
+	owner, write := a.Require("connector.manage"), a.Require("connector.write")
+	site.GET(conn+"/:connector/settings", h.panel().Settings, owner)
+	site.POST(conn+"/:connector/delete", h.orgAction("connectors", func(c echo.Context, og *service.Org) (string, error) {
+		return "Connector removed.", h.orch.RemoveConnector(c.Request().Context(), &og.ID, c.Param("connector"))
+	}), owner)
+	h.panel().Mount(site, conn, owner)
+	h.panel().MountDNS(site, "/:org/-/drawer/dns", a.Require("dns.manage"))
 	site.GET(conn+"/new", h.newOrgConnector, owner)
 	site.GET(conn+"/new/github", func(c echo.Context) error {
 		return respond.HTML(c, http.StatusOK, connectors.GitHub(orgGitHub(c)))
@@ -71,8 +73,8 @@ func (h *handler) kinds(c echo.Context) []connectors.Kind {
 	if can(c, s, "connector.write") {
 		out = append(out, connectors.Kind{Name: "GitHub", Hint: "A GitHub App this organization owns, for its repositories.", URL: connBase(c) + "/new/github"})
 	}
-	if can(c, s, "dns.manage") {
-		out = append(out, connectors.Kind{Name: "Namecheap", Hint: "DNS records and wildcard certificates for your Namecheap domains.", URL: h.dns().Base(c) + "/namecheap"})
+	if can(c, s, "connector.manage") {
+		out = append(out, h.panel().Kinds(c, "")...)
 	}
 	return out
 }
@@ -148,11 +150,11 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 		}
 		v.Rows = append(v.Rows, r)
 	}
-	dns, err := h.dns().Rows(c)
+	kinds, err := h.panel().Rows(c)
 	if err != nil {
 		return nil, err
 	}
-	v.Rows = append(v.Rows, dns...)
+	v.Rows = append(v.Rows, kinds...)
 	var open templ.Component
 	if c.QueryParam("add") != "" {
 		open = h.addDialog(c)

@@ -51,9 +51,9 @@ func ManagedHost(domain, sub string) string {
 }
 
 // dnsAccounts opens a managed domain's connector account.
-func (o *Orchestrator) dnsAccounts(ctx context.Context, connectorID string, orgID *string) (dnscap.Account, error) {
-	c, creds, err := o.dnsAccount(ctx, orgID, connectorID)
-	return dnscap.Account{Kind: c.Kind, Creds: creds}, err
+func (o *Orchestrator) dnsAccounts(ctx context.Context, connectorID string, orgID *string) (dnscap.Provider, error) {
+	_, p, err := o.dnsAccount(ctx, orgID, connectorID)
+	return p, err
 }
 
 // nodeAddrs is where a node's records point: its public IP override, else
@@ -252,7 +252,7 @@ func (o *Orchestrator) domainUsers(ctx context.Context, zone string) ([]string, 
 // forgetDomain deletes the records stackr made in a managed domain, the
 // domain row, and the domain resource stackr made for it. Refused while a
 // tile uses the domain.
-func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, creds dnscap.Creds, name string) error {
+func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, p dnscap.Provider, name string) error {
 	users, err := o.domainUsers(ctx, dnscap.Normal(name))
 	if err != nil {
 		return err
@@ -260,7 +260,7 @@ func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, creds dnsc
 	if len(users) > 0 {
 		return errs.Conflictf("%s is in use by %s; remove those domains first", dnscap.Normal(name), strings.Join(users, ", "))
 	}
-	if err := o.dns.Forget(ctx, dnscap.Account{Kind: c.Kind, Creds: creds}, dnscap.Normal(name)); err != nil {
+	if err := o.dns.Forget(ctx, p, dnscap.Normal(name)); err != nil {
 		return err
 	}
 	row, err := o.dns.Unmanage(ctx, c.ID, name)

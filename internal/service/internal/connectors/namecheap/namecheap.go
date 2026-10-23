@@ -1,4 +1,4 @@
-package dnscap
+package namecheap
 
 import (
 	"context"
@@ -14,33 +14,31 @@ import (
 
 	"github.com/libdns/libdns"
 	"golang.org/x/net/publicsuffix"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 )
 
-// namecheapAPI is Namecheap's production endpoint. The sandbox one
+// api is Namecheap's production endpoint. The sandbox one
 // (api.sandbox.namecheap.com) is a test's to pass.
-const namecheapAPI = "https://api.namecheap.com/xml.response"
+const api = "https://api.namecheap.com/xml.response"
 
-// namecheap is a Namecheap account. Every command goes through call,
-// which keeps Namecheap's error numbers and the key out of URLs. Not
-// libdns/namecheap: it splits a zone at the first TLD whose letters it ends
-// in (x.eco as x.e + co), drops the zone's mail setting on every write and
-// loses the error numbers.
-type namecheap struct {
-	c        Creds
-	endpoint string
-	http     *http.Client
+// The API calls below are the account's raw commands. Every one goes
+// through call, which keeps Namecheap's error numbers and the key out of
+// URLs. Not libdns/namecheap: it splits a zone at the first TLD whose
+// letters it ends in (x.eco as x.e + co), drops the zone's mail setting on
+// every write and loses the error numbers.
+
+var client = &http.Client{Timeout: 30 * time.Second}
+
+func (n *Account) url() string {
+	if n.endpoint != "" {
+		return n.endpoint
+	}
+	return api
 }
 
-func newNamecheap(c Creds, endpoint string) *namecheap {
-	if endpoint == "" {
-		endpoint = namecheapAPI
-	}
-	return &namecheap{
-		c:        c,
-		endpoint: endpoint,
-		http:     &http.Client{Timeout: 30 * time.Second},
-	}
-}
+// normal is a domain as stored: lower case, no trailing dot.
+func normal(d string) string { return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(d), ".")) }
 
 // ncResponse is the part of Namecheap's XML answer stackr reads.
 type ncResponse struct {
@@ -59,24 +57,24 @@ type ncResponse struct {
 
 // call runs one API command. The key goes in the POST body, never the URL,
 // so a transport error cannot print it.
-func (n *namecheap) call(ctx context.Context, command string, extra url.Values) (ncResponse, error) {
+func (n *Account) call(ctx context.Context, command string, extra url.Values) (ncResponse, error) {
 	var out ncResponse
 	q := url.Values{
-		"ApiUser":  {n.c.User},
-		"ApiKey":   {n.c.Key},
-		"UserName": {n.c.User},
-		"ClientIp": {n.c.ClientIP},
+		"ApiUser":  {n.User},
+		"ApiKey":   {n.Key},
+		"UserName": {n.User},
+		"ClientIp": {n.ClientIP},
 		"Command":  {command},
 	}
 	for k, v := range extra {
 		q[k] = v
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.endpoint, strings.NewReader(q.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.url(), strings.NewReader(q.Encode()))
 	if err != nil {
 		return out, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := n.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return out, fmt.Errorf("namecheap: %w", err)
 	}
@@ -103,8 +101,8 @@ func (n *namecheap) call(ctx context.Context, command string, extra url.Values) 
 
 // Zones is every domain on the account (namecheap.domains.getList, 100 a
 // page).
-func (n *namecheap) Zones(ctx context.Context) ([]Zone, error) {
-	var zs []Zone
+func (n *Account) zones(ctx context.Context) ([]connectors.Zone, error) {
+	var zs []connectors.Zone
 	for page := 1; ; page++ {
 		r, err := n.call(ctx, "namecheap.domains.getList", url.Values{
 			"PageSize": {"100"},
@@ -114,7 +112,7 @@ func (n *namecheap) Zones(ctx context.Context) ([]Zone, error) {
 			return nil, err
 		}
 		for _, d := range r.Domains {
-			zs = append(zs, Zone{Name: Normal(d.Name), OurDNS: d.IsOurDNS})
+			zs = append(zs, connectors.Zone{Name: normal(d.Name), OurDNS: d.IsOurDNS})
 		}
 		if len(r.Domains) == 0 || len(zs) >= r.Total {
 			return zs, nil
@@ -124,7 +122,7 @@ func (n *namecheap) Zones(ctx context.Context) ([]Zone, error) {
 
 // TakeOver points the domain at Namecheap's own DNS
 // (namecheap.domains.dns.setDefault).
-func (n *namecheap) TakeOver(ctx context.Context, zone string) error {
+func (n *Account) takeOver(ctx context.Context, zone string) error {
 	sld, tld, err := Split(zone)
 	if err != nil {
 		return err
@@ -138,7 +136,7 @@ func (n *namecheap) TakeOver(ctx context.Context, zone string) error {
 // name under a registered domain (shop.example.com) is refused: Namecheap's
 // zones are whole domains.
 func Split(zone string) (sld, tld string, err error) {
-	zone = Normal(zone)
+	zone = normal(zone)
 	tld, _ = publicsuffix.PublicSuffix(zone)
 	sld, ok := strings.CutSuffix(zone, "."+tld)
 	if !ok || sld == "" || strings.Contains(sld, ".") {
@@ -166,7 +164,7 @@ type zoneHosts struct {
 	Hosts     []host `xml:"host"`
 }
 
-func (n *namecheap) getHosts(ctx context.Context, zone string) (zoneHosts, error) {
+func (n *Account) getHosts(ctx context.Context, zone string) (zoneHosts, error) {
 	sld, tld, err := Split(zone)
 	if err != nil {
 		return zoneHosts{}, err
@@ -178,7 +176,7 @@ func (n *namecheap) getHosts(ctx context.Context, zone string) (zoneHosts, error
 // setHosts replaces the zone's records with z: Namecheap has no call for
 // one record, so every change is a read, an edit and this, under the zone's
 // lock.
-func (n *namecheap) setHosts(ctx context.Context, zone string, z zoneHosts) error {
+func (n *Account) setHosts(ctx context.Context, zone string, z zoneHosts) error {
 	sld, tld, err := Split(zone)
 	if err != nil {
 		return err
@@ -233,7 +231,7 @@ func (h host) same(o host) bool {
 	return strings.EqualFold(h.Name, o.Name) && strings.EqualFold(h.Type, o.Type) && h.Address == o.Address
 }
 
-func (n *namecheap) Get(ctx context.Context, zone string) ([]libdns.Record, error) {
+func (n *Account) get(ctx context.Context, zone string) ([]libdns.Record, error) {
 	z, err := n.getHosts(ctx, zone)
 	out := make([]libdns.Record, 0, len(z.Hosts))
 	for _, h := range z.Hosts {
@@ -243,7 +241,7 @@ func (n *namecheap) Get(ctx context.Context, zone string) ([]libdns.Record, erro
 }
 
 // edit is a read, fn on the records, and a write when fn changed them.
-func (n *namecheap) edit(ctx context.Context, zone string, fn func([]host) ([]host, bool)) error {
+func (n *Account) edit(ctx context.Context, zone string, fn func([]host) ([]host, bool)) error {
 	z, err := n.getHosts(ctx, zone)
 	if err != nil {
 		return err
@@ -257,7 +255,7 @@ func (n *namecheap) edit(ctx context.Context, zone string, fn func([]host) ([]ho
 }
 
 // Append adds rs; a record already there (name, type, value) stays one.
-func (n *namecheap) Append(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+func (n *Account) append(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	return rs, n.edit(ctx, zone, func(hs []host) ([]host, bool) {
 		changed := false
 		for _, r := range rs {
@@ -271,7 +269,7 @@ func (n *namecheap) Append(ctx context.Context, zone string, rs []libdns.Record)
 }
 
 // Set makes rs the only records of their names and types.
-func (n *namecheap) Set(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+func (n *Account) set(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	return rs, n.edit(ctx, zone, func(hs []host) ([]host, bool) {
 		var add []host
 		for _, r := range rs {
@@ -288,7 +286,7 @@ func (n *namecheap) Set(ctx context.Context, zone string, rs []libdns.Record) ([
 
 // Delete removes the records matching rs by name, type and value; others
 // of the same name are left.
-func (n *namecheap) Delete(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+func (n *Account) delete(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	var gone []libdns.Record
 	err := n.edit(ctx, zone, func(hs []host) ([]host, bool) {
 		out := slices.DeleteFunc(hs, func(h host) bool {

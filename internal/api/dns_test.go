@@ -17,8 +17,8 @@ func TestDNSConnectorRoutes(t *testing.T) {
 	w.env.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}, {Name: "away.com"}}
 	add := `{"user":"jo","key":"` + apiKeySentinel + `","client_ip":"203.0.113.7"}`
 
-	code, out := w.do(t, w.owner, "POST", "/orgs/acme/dns-connectors/namecheap", add)
-	var got service.DNSConnector
+	code, out := w.do(t, w.owner, "POST", "/orgs/acme/connector-kinds/namecheap", add)
+	var got service.ConnectorAdded
 	if code != 201 || json.Unmarshal([]byte(out), &got) != nil || len(got.Domains) != 2 {
 		t.Fatalf("add = %d %s", code, out)
 	}
@@ -30,7 +30,7 @@ func TestDNSConnectorRoutes(t *testing.T) {
 	member := w.env.APIKey(t, m, w.acme)
 	for _, c := range []struct{ method, path, body string }{
 		{"GET", "/orgs/acme/dns-connectors", ""},
-		{"POST", "/orgs/acme/dns-connectors/namecheap", add},
+		{"POST", "/orgs/acme/connector-kinds/namecheap", add},
 		{"GET", base + "/domains", ""},
 		{"PUT", base + "/domains/acme.dev", ""},
 		{"DELETE", base, ""},
@@ -73,7 +73,7 @@ func TestDNSConnectorRoutes(t *testing.T) {
 	// server level: admin only
 	for _, c := range []struct{ method, path, body string }{
 		{"GET", "/admin/dns-connectors", ""},
-		{"POST", "/admin/dns-connectors/namecheap", add},
+		{"POST", "/admin/connector-kinds/namecheap", add},
 	} {
 		if code, _ := w.do(t, w.owner, c.method, c.path, c.body); code != 403 {
 			t.Errorf("owner %s %s = %d, want 403", c.method, c.path, code)
@@ -82,7 +82,7 @@ func TestDNSConnectorRoutes(t *testing.T) {
 	if code, _ := w.do(t, w.admin, "GET", "/admin/dns-connectors/"+id+"/domains", ""); code != 404 {
 		t.Errorf("server route on an org connector = %d, want 404", code)
 	}
-	code, out = w.do(t, w.admin, "POST", "/admin/dns-connectors/namecheap", add)
+	code, out = w.do(t, w.admin, "POST", "/admin/connector-kinds/namecheap", add)
 	if code != 201 || strings.Contains(out, apiKeySentinel) {
 		t.Fatalf("server add = %d", code)
 	}

@@ -19,11 +19,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
-	"github.com/FyrmForge/stackr/internal/web/dnspanel"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -47,10 +46,11 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	site.POST(ServerBase+"/domains", h.serverDomains, set)
 	site.POST(ServerBase+"/github", h.serverGitHub, a.Require("connector.admin"))
 	site.POST(ServerBase+"/github/app", h.serverApp, a.Require("connector.admin"))
-	site.GET(dnsBase+"/new", func(c echo.Context) error {
-		return respond.HTML(c, http.StatusOK, h.dnsPanel().Open(c))
-	}, a.Require("connector.admin"))
-	h.dnsPanel().Mount(site, dnsBase, a.Require("connector.admin"))
+	conn := a.Require("connector.admin")
+	site.GET(connBase+"/new", h.newDNSConnector, conn)
+	site.GET(connBase+"/:connector/settings", h.dnsPanel().Settings, conn)
+	h.dnsPanel().Mount(site, connBase, conn)
+	h.dnsPanel().MountDNS(site, dnsBase, conn)
 	site.POST(ServerBase+"/observe", h.serverObserve, set)
 	site.POST(ServerBase+"/dest", h.serverDest, set)
 	site.POST(ServerBase+"/panel-backup", h.serverPanelBackup, set)
@@ -181,8 +181,8 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		v.List = connectors.ListView{
 			Title: "DNS connectors", Scope: "instance",
 			Help:     "Pick the domains and who may use them in a connector's settings.",
-			Add:      dnsBase + "/new",
-			AddLabel: "+ Add Namecheap",
+			Add:      connBase + "/new",
+			AddLabel: h.addLabel(),
 		}
 		v.List.Rows, err = h.dnsPanel().Rows(c)
 		v.Done = len(v.List.Rows) > 0
@@ -463,20 +463,62 @@ func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
 	}
 }
 
-// dnsBase is where the certificates screen's DNS connector actions hang.
-const dnsBase = ServerBase + "/dns"
+// connBase and dnsBase are where the certificates screen's connector
+// screens and DNS actions hang.
+const (
+	connBase = ServerBase + "/connectors"
+	dnsBase  = ServerBase + "/dns"
+)
 
 // dnsPanel is Admin's server DNS connectors on the certificates screen,
-// its add dialog opened straight on Namecheap. Removing one is Admin's:
-// the screen has no drawer to answer into.
-func (h *handler) dnsPanel() dnspanel.Panel {
-	return dnspanel.Panel{
+// its add dialog opened straight on the DNS kind when there is one.
+// Removing one is Admin's: the screen has no drawer to answer into.
+func (h *handler) dnsPanel() connpanel.Panel {
+	p := connpanel.Panel{
 		Orch:    h.orch,
 		Org:     func(echo.Context) *string { return nil },
-		Base:    func(echo.Context) string { return dnsBase },
-		Delete:  func(echo.Context, service.Connector) comp.ConfirmView { return comp.ConfirmView{} },
+		Base:    func(echo.Context) string { return connBase },
+		DNSBase: func(echo.Context) string { return dnsBase },
 		Refresh: func(echo.Context) string { return stepURL("certificates") },
+		Only:    service.CapDNS,
 	}
+	if len(h.dnsKinds()) > 1 {
+		p.Back = func(echo.Context) string { return connBase + "/new?pick=1" }
+	}
+	return p
+}
+
+// dnsKinds is the registered kinds with the DNS capability.
+func (h *handler) dnsKinds() []service.ConnectorKind {
+	var out []service.ConnectorKind
+	for _, k := range h.orch.ConnectorKinds() {
+		if slices.Contains(k.Caps, service.CapDNS) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// GET /-/setup/server/connectors/new: the add dialog, straight on the DNS
+// kind when there is one, else on a picker of them (?pick=1: the picker
+// alone, into the open dialog).
+func (h *handler) newDNSConnector(c echo.Context) error {
+	p, ks := h.dnsPanel(), h.dnsKinds()
+	switch {
+	case len(ks) == 1:
+		return respond.HTML(c, http.StatusOK, p.Open(c, ks[0]))
+	case c.QueryParam("pick") != "":
+		return respond.HTML(c, http.StatusOK, connectors.Picker(p.Kinds(c, service.CapDNS)))
+	}
+	return respond.HTML(c, http.StatusOK, connectors.Modal("Add a DNS connector", p.Refresh(c), connectors.Picker(p.Kinds(c, service.CapDNS))))
+}
+
+// addLabel is the certificates screen's add button.
+func (h *handler) addLabel() string {
+	if ks := h.dnsKinds(); len(ks) == 1 {
+		return "+ Add " + ks[0].Label
+	}
+	return "+ Add connector"
 }
 
 // POST /-/setup/server/domains (root_domain, panel_domain, acme_email).

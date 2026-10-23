@@ -6,18 +6,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
-// DNS connectors, at two levels: server ones (admin, /admin/dns-connectors)
-// and an org's (owner, /orgs/:org/dns-connectors). The same handlers serve
-// both; level says which.
+// Connectors of a registered kind, and the DNS capability's verbs on them,
+// at two levels: server ones (admin, /admin/...) and an org's (owner,
+// /orgs/:org/...). The same handlers serve both; level says which.
 
 type (
-	// NamecheapIn is a Namecheap account. client_ip empty is stackr's own
-	// public IPv4.
-	NamecheapIn struct {
-		User     string `json:"user"`
-		Key      string `json:"key"`
-		ClientIP string `json:"client_ip"`
-	}
+	// SetupIn is a kind's setup: each declared field by name. An
+	// empty field that asks for a prefill (the server's IPv4) takes it.
+	SetupIn map[string]string
 	// ManageIn is who may use a server connector's domain: these orgs,
 	// or every org when empty. An org connector takes no body.
 	ManageIn struct {
@@ -31,7 +27,7 @@ type (
 
 func (ManageIn) BodyOptional() {}
 
-// Level picks whose DNS connectors a handler reaches.
+// Level picks whose connectors a handler reaches.
 type Level bool
 
 const (
@@ -47,16 +43,26 @@ func (l Level) org(c echo.Context) *string {
 	return &id
 }
 
+// ConnectorKinds is the registered kinds and the steps and fields each
+// declares (no values).
+func (h *H) ConnectorKinds() Endpoint {
+	return Get(func(echo.Context) ([]service.ConnectorKind, error) {
+		return h.Orch.ConnectorKinds(), nil
+	})
+}
+
+// AddConnector sets up a connection of :kind from its declared fields. A
+// kind that signs in on its provider's site is refused: the panel adds it.
+func (h *H) AddConnector(l Level) Endpoint {
+	return JSON(201, func(c echo.Context, in SetupIn) (service.ConnectorAdded, error) {
+		return h.Orch.AddConnector(rc(c), service.ConnectorAdd{OrgID: l.org(c), Kind: c.Param("kind"), Values: in})
+	}).Limit(64 << 10)
+}
+
 func (h *H) DNSConnectors(l Level) Endpoint {
 	return Get(func(c echo.Context) ([]service.Connector, error) {
 		return list(h.Orch.DNSConnectors(rc(c), l.org(c)))
 	})
-}
-
-func (h *H) AddNamecheap(l Level) Endpoint {
-	return JSON(201, func(c echo.Context, in NamecheapIn) (service.DNSConnector, error) {
-		return h.Orch.AddDNSConnector(rc(c), l.org(c), service.DNSNamecheap, service.DNSAccount(in))
-	}).Limit(64 << 10)
 }
 
 func (h *H) DNSDomains(l Level) Endpoint {
@@ -83,8 +89,10 @@ func (h *H) TakeOverDNSDomain(l Level) Endpoint {
 	})
 }
 
-func (h *H) DeleteDNSConnector(l Level) Endpoint {
+// RemoveConnector removes an org's connector of a registered kind, each
+// capability cleaning up first.
+func (h *H) RemoveConnector(l Level) Endpoint {
 	return Done(func(c echo.Context, _ None) error {
-		return h.Orch.DeleteDNSConnector(rc(c), l.org(c), c.Param("connector"))
+		return h.Orch.RemoveConnector(rc(c), l.org(c), c.Param("connector"))
 	})
 }

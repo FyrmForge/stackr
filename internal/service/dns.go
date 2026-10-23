@@ -12,15 +12,16 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// dns.go holds the DNS connector verbs. orgID nil is the server's own
-// connector (admin), else an org's (owner). The account key never leaves
-// the service: rows come back with config stripped.
+// dns.go holds the DNS capability's verbs, on any connection whose kind
+// offers it. orgID nil is the server's own connection (admin), else an
+// org's (owner). The account's secrets never leave the service: rows come
+// back with settings stripped.
 
-// DNS connector kinds and domain states.
+// Domain states.
 const (
-	DNSNamecheap  = dnscap.Namecheap
 	DNSManaged    = dnscap.Managed
 	DNSNotManaged = dnscap.NotManaged
 	DNSElsewhere  = dnscap.Elsewhere
@@ -29,25 +30,12 @@ const (
 // DNSDomain is a domain on a DNS connector's account and its state.
 type DNSDomain = dnscap.Domain
 
-// DNSAccount is what the Namecheap form takes. ClientIP "" is stackr's own
-// public IPv4 (DNSClientIP).
-type DNSAccount struct {
-	User     string `json:"user"`
-	Key      string `json:"key"`
-	ClientIP string `json:"client_ip"`
-}
-
-// DNSConnector is a just added connector and its account's domains.
-type DNSConnector struct {
-	Connector Connector   `json:"connector"`
-	Domains   []DNSDomain `json:"domains"`
-}
-
-// DNSClientIP is the controller's public IPv4, the address Namecheap sees
-// the API calls come from: its node's own, else behind NAT the router's as
-// an outside worker sees it (the cluster map's Public). "" when neither is
-// known (a single box behind NAT: the admin types the router's address).
-func (o *Orchestrator) DNSClientIP(ctx context.Context) string {
+// serverIPv4 is the controller's public IPv4, the address a DNS provider
+// sees the API calls come from: its node's own, else behind NAT the
+// router's as an outside worker sees it (the cluster map's Public). ""
+// when neither is known (a single box behind NAT: the admin types the
+// router's address).
+func (o *Orchestrator) serverIPv4(ctx context.Context) string {
 	if o.mesh == nil {
 		return ""
 	}
@@ -82,33 +70,15 @@ func natIPv4(m ClusterMap, id string) string {
 	return ""
 }
 
-// AddDNSConnector checks the account (it must list its domains) and saves
-// it as a DNS connector of kind.
-func (o *Orchestrator) AddDNSConnector(ctx context.Context, orgID *string, kind string, a DNSAccount) (DNSConnector, error) {
-	if a.ClientIP == "" {
-		a.ClientIP = o.DNSClientIP(ctx)
-	}
-	creds := dnscap.Creds(a)
-	zs, err := o.dns.Check(ctx, kind, creds)
-	if err != nil {
-		return DNSConnector{}, err
-	}
-	c, err := o.conns.AddDNS(ctx, orgID, kind, connector.DNS(creds))
-	if err != nil {
-		return DNSConnector{}, err
-	}
-	return DNSConnector{Connector: c, Domains: dnscap.States(zs)}, nil
-}
-
 // DNSConnectors is orgID's DNS connectors (nil = the server's).
 func (o *Orchestrator) DNSConnectors(ctx context.Context, orgID *string) ([]Connector, error) {
-	return o.conns.ListDNS(ctx, orgID)
+	return o.conns.ListOf(ctx, orgID, CapDNS)
 }
 
 // DNSManaged is how many domains each of orgID's DNS connectors manages
 // (nil = the server's), by connector id. No provider call.
 func (o *Orchestrator) DNSManaged(ctx context.Context, orgID *string) (map[string]int, error) {
-	cs, err := o.conns.ListDNS(ctx, orgID)
+	cs, err := o.DNSConnectors(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,34 +91,35 @@ func (o *Orchestrator) DNSManaged(ctx context.Context, orgID *string) (map[strin
 	return out, nil
 }
 
-// dnsAccount is connector id of orgID and its account.
-func (o *Orchestrator) dnsAccount(ctx context.Context, orgID *string, id string) (Connector, dnscap.Creds, error) {
-	c, err := o.conns.DNSConnector(ctx, orgID, id)
+// dnsAccount is DNS connector id of orgID, settings stripped, and its
+// provider.
+func (o *Orchestrator) dnsAccount(ctx context.Context, orgID *string, id string) (Connector, dnscap.Provider, error) {
+	c, err := o.conns.Of(ctx, orgID, id)
 	if err != nil {
-		return c, dnscap.Creds{}, err
+		return c, nil, err
 	}
-	d, ok := connector.DNSOf(c)
-	if !ok {
-		return c, dnscap.Creds{}, errs.ErrNotFound
+	if !connector.Has(c, CapDNS) {
+		return c, nil, errs.ErrNotFound
 	}
+	p, err := o.dnsOf(c)
 	c.Settings = ""
-	return c, dnscap.Creds(d), nil
+	return c, p, err
 }
 
 // DNSDomains is every domain on connector id's account: managed, not
 // managed, or DNS elsewhere.
 func (o *Orchestrator) DNSDomains(ctx context.Context, orgID *string, id string) ([]DNSDomain, error) {
-	c, creds, err := o.dnsAccount(ctx, orgID, id)
+	c, p, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
-	return o.dns.Domains(ctx, c.ID, c.Kind, creds)
+	return o.dns.Domains(ctx, c.ID, p)
 }
 
 // ManageDNSDomain makes stackr manage domain, or sets who may use a managed
 // one: on a server connector the orgs in orgIDs, or every org when none.
 func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, domain string, orgIDs []string) (DNSDomain, error) {
-	c, creds, err := o.dnsAccount(ctx, orgID, id)
+	c, p, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return DNSDomain{}, err
 	}
@@ -164,7 +135,7 @@ func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, d
 	if err != nil {
 		return DNSDomain{}, err
 	}
-	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, c.Kind, creds, domain, orgIDs)
+	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, p, domain, orgIDs)
 	if err != nil || !made {
 		if err == nil {
 			o.dnsChanged(ctx)
@@ -221,11 +192,11 @@ func (o *Orchestrator) managedResource(ctx context.Context, orgID *string, domai
 // (the error names them); else the records stackr made are deleted, then
 // the domain is forgotten.
 func (o *Orchestrator) UnmanageDNSDomain(ctx context.Context, orgID *string, id, domain string) error {
-	c, creds, err := o.dnsAccount(ctx, orgID, id)
+	c, p, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
-	if err := o.forgetDomain(ctx, c, creds, domain); err != nil {
+	if err := o.forgetDomain(ctx, c, p, domain); err != nil {
 		return err
 	}
 	o.dnsChanged(ctx)
@@ -235,17 +206,18 @@ func (o *Orchestrator) UnmanageDNSDomain(ctx context.Context, orgID *string, id,
 // TakeOverDNSDomain switches domain to the provider's own DNS; confirm is
 // the domain typed out.
 func (o *Orchestrator) TakeOverDNSDomain(ctx context.Context, orgID *string, id, domain, confirm string) error {
-	c, creds, err := o.dnsAccount(ctx, orgID, id)
+	c, p, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return err
 	}
-	return o.dns.TakeOver(ctx, c.Kind, creds, domain, confirm)
+	return o.dns.TakeOver(ctx, p, o.label(c.Kind), domain, confirm)
 }
 
-// DeleteDNSConnector deletes a DNS connector and the domains it manages,
-// each as UnmanageDNSDomain does. Refused while a tile uses any of them.
-func (o *Orchestrator) DeleteDNSConnector(ctx context.Context, orgID *string, id string) error {
-	c, creds, err := o.dnsAccount(ctx, orgID, id)
+// forgetAll unmanages every domain DNS connector c manages, each as
+// UnmanageDNSDomain does: what removing it does first. Refused while a tile
+// uses any of them.
+func (o *Orchestrator) forgetAll(ctx context.Context, c store.Connector) error {
+	p, err := o.dnsOf(c)
 	if err != nil {
 		return err
 	}
@@ -265,14 +237,10 @@ func (o *Orchestrator) DeleteDNSConnector(ctx context.Context, orgID *string, id
 		return errs.Conflictf("The connector's domains are in use by %s. Remove those domains first", strings.Join(users, ", "))
 	}
 	for _, d := range ds {
-		if err := o.forgetDomain(ctx, c, creds, d.Name); err != nil {
+		if err := o.forgetDomain(ctx, c, p, d.Name); err != nil {
 			return err
 		}
 	}
-	if err := o.conns.DeleteDNS(ctx, orgID, id); err != nil {
-		return err
-	}
-	o.dnsChanged(ctx)
 	return nil
 }
 

@@ -14,7 +14,7 @@ import (
 
 // DNS is the fake DNS account every harness wires in: Zones is what each
 // account lists; an account whose key is BadKey is refused like a wrong
-// Namecheap key. TookOver records the take-overs asked for. Appended and
+// key. TookOver records the take-overs asked for. Appended and
 // Deleted are the record calls ("zone name data"); Overlap is set when two
 // calls were ever inside one zone at once.
 type DNS struct {
@@ -68,8 +68,8 @@ type fakeAccount struct {
 }
 
 func (a fakeAccount) Zones(context.Context) ([]service.DNSZone, error) {
-	if a.c.Key == BadKey {
-		return nil, errs.Invalidf("key", "Namecheap refused the API key")
+	if a.c["key"] == BadKey {
+		return nil, errs.Invalidf("key", "The provider refused the API key")
 	}
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()

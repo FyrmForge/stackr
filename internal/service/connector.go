@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/githubapp"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -122,10 +123,15 @@ func (o *Orchestrator) RenameServerConnector(ctx context.Context, id, name strin
 }
 
 // DeleteServerConnector deletes a server connector, refused while a binding
-// (the server file's, an org's or a stack's) names it.
+// (the server file's, an org's or a stack's) names it. A registered kind's
+// is removed as RemoveConnector does.
 func (o *Orchestrator) DeleteServerConnector(ctx context.Context, id string) error {
-	if _, err := o.conns.Server(ctx, id); err != nil {
+	c, err := o.conns.Server(ctx, id)
+	if err != nil {
 		return err
+	}
+	if !connector.IsGit(c) {
+		return o.RemoveConnector(ctx, nil, id)
 	}
 	bs, err := o.connectorBindings(ctx, id)
 	if err != nil {

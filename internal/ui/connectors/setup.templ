@@ -1,0 +1,208 @@
+package connectors
+
+import (
+	"strconv"
+	"strings"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// SetupView is a kind's setup in the add dialog, drawn from the steps it
+// declares: every form step is one form posted at the last, so a secret
+// never comes back from the server. Done set: connected, the capability's
+// screen after; Out set: the browser goes to the provider.
+type SetupView struct {
+	Back    string // GET the picker; "" = opened straight on the kind
+	Post    string // POST every step's values
+	Steps   []Step
+	Total   int               // every step, the capability's after connecting too
+	Errors  map[string]string // by field; "general" over the steps
+	Connect string            // the last step's button
+	Done    *DoneView
+	Out     *OutView
+}
+
+// Step is one form screen. Field values: never a secret's.
+type Step struct {
+	Title, Intro string
+	List         []string
+	Fields       []c.FieldView
+	Note         string
+}
+
+// DoneView is the screen after connecting, at step Step: a capability's
+// (DNS picks its domains), or Body nil for none.
+type DoneView struct {
+	Step  int
+	Title string
+	Body  templ.Component
+}
+
+// OutView sends the browser to the provider: a link, or with Method POST
+// a form posting Values.
+type OutView struct {
+	Step         int
+	Title, Intro string
+	Method, URL  string
+	Values       map[string]string
+	Label        string
+}
+
+// start is the step shown first: the one holding the first field error,
+// the last for any other error.
+func (v SetupView) start() int {
+	for i, s := range v.Steps {
+		for _, f := range s.Fields {
+			if v.Errors[f.Name] != "" {
+				return i + 1
+			}
+		}
+	}
+	if len(v.Errors) > 0 {
+		return len(v.Steps)
+	}
+	return 1
+}
+
+// Missing names every field a submit refused, for the line over the
+// steps: the fields sit on different steps.
+func (v SetupView) Missing() string {
+	var out []string
+	for _, s := range v.Steps {
+		for _, f := range s.Fields {
+			if v.Errors[f.Name] != "" {
+				out = append(out, f.Label)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return "Check these fields: " + strings.Join(out, ", ") + "."
+}
+
+templ stepLine(n, total int, title string) {
+	<p class="text-xs text-rw-faint">Step { strconv.Itoa(n) } of { strconv.Itoa(total) }: { title }</p>
+}
+
+// Setup is a kind's screens.
+templ Setup(v SetupView) {
+	<div id={ BodyID }>
+		if v.Done != nil {
+			<div class="modal-body">
+				@stepLine(v.Done.Step, v.Total, v.Done.Title)
+				if v.Done.Body != nil {
+					@v.Done.Body
+				} else {
+					<p>Connected.</p>
+				}
+			</div>
+			<div class="modal-foot">
+				<button type="button" class="btn btn-primary btn-sm" data-cancel>Done</button>
+			</div>
+		} else if v.Out != nil {
+			@out(v.Total, *v.Out)
+		} else {
+			<form hx-post={ v.Post } hx-target={ "#" + BodyID } hx-swap="outerHTML" novalidate>
+				if v.Missing() != "" || v.Errors["general"] != "" {
+					<div class="px-5 pt-4 space-y-2">
+						@c.FormError(v.Missing())
+						@c.FormError(v.Errors["general"])
+					</div>
+				}
+				<div>
+					for i, s := range v.Steps {
+						<section data-step hidden?={ v.start() != i+1 }>
+							<div class="modal-body">
+								@stepLine(i+1, v.Total, s.Title)
+								if s.Intro != "" {
+									<p>{ s.Intro }</p>
+								}
+								if len(s.List) > 0 {
+									<ol class="list-decimal pl-5 space-y-1">
+										for _, li := range s.List {
+											<li>{ li }</li>
+										}
+									</ol>
+								}
+								for _, f := range s.Fields {
+									@c.Field(f)
+								}
+								if s.Note != "" {
+									<p class="text-xs text-rw-faint">{ s.Note }</p>
+								}
+							</div>
+							<div class="modal-foot">
+								if i > 0 {
+									@back("")
+								} else if v.Back != "" {
+									@back(v.Back)
+								}
+								if i+1 < len(v.Steps) {
+									<button type="button" class="btn btn-primary btn-sm" data-next>Next</button>
+								} else {
+									<button type="submit" class="btn btn-primary btn-sm">{ v.Connect }</button>
+								}
+							</div>
+						</section>
+					}
+				</div>
+			</form>
+		}
+	</div>
+}
+
+templ out(total int, o OutView) {
+	if o.Method == "POST" {
+		// templint:ignore no-native-form-actions -- a provider's sign-in takes a browser form POST
+		<form method="post" action={ templ.SafeURL(o.URL) }>
+			for k, val := range o.Values {
+				<input type="hidden" name={ k } value={ val }/>
+			}
+			<div class="modal-body">
+				@stepLine(o.Step, total, o.Title)
+				if o.Intro != "" {
+					<p>{ o.Intro }</p>
+				}
+			</div>
+			<div class="modal-foot">
+				<button type="submit" class="btn btn-primary btn-sm">Continue on { o.Label }</button>
+			</div>
+		</form>
+	} else {
+		<div class="modal-body">
+			@stepLine(o.Step, total, o.Title)
+			if o.Intro != "" {
+				<p>{ o.Intro }</p>
+			}
+		</div>
+		<div class="modal-foot">
+			<a href={ templ.SafeURL(o.URL) } class="btn btn-primary btn-sm">Continue on { o.Label }</a>
+		</div>
+	}
+}
+
+// SettingsView is a connection's settings dialog: one section per
+// capability it has, and Remove (Delete.Action "" = none).
+type SettingsView struct {
+	Sections []templ.Component
+	Delete   c.ConfirmView
+}
+
+templ Settings(v SettingsView) {
+	<div id={ BodyID }>
+		<div class="modal-body">
+			for _, s := range v.Sections {
+				@s
+			}
+		</div>
+		<div class="modal-foot">
+			if v.Delete.Action != "" {
+				<span class="mr-auto">
+					@c.Confirm(v.Delete)
+				</span>
+			}
+			<button type="button" class="btn btn-ghost btn-sm" data-cancel>Close</button>
+		</div>
+	</div>
+}

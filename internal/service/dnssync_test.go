@@ -10,7 +10,6 @@ import (
 
 	"github.com/libdns/libdns"
 
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -63,7 +62,7 @@ func TestSlowDNSNeverHoldsTheProxyPush(t *testing.T) {
 	must(t, err)
 	nd.PublicIP = "198.51.100.1"
 	must(t, n.st.Nodes.Update(ctx, nd))
-	c, err := n.orch.AddDNSConnector(ctx, nil, dnscap.Namecheap, DNSAccount{User: "u", Key: "k", ClientIP: "203.0.113.7"})
+	c, err := n.orch.AddConnector(ctx, ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: map[string]string{"user": "u", "key": "k", "client_ip": "203.0.113.7"}})
 	must(t, err)
 	_, err = n.orch.ManageDNSDomain(ctx, nil, c.Connector.ID, "acme.dev", nil)
 	must(t, err)

@@ -27,7 +27,7 @@ func TestManagedDomainForm(t *testing.T) {
 	if err := s.Store.Nodes.Update(ctx, ns[0]); err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, service.DNSAccount{User: "u", Key: "k", ClientIP: "203.0.113.7"})
+	c, err := s.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: map[string]string{"user": "u", "key": "k", "client_ip": "203.0.113.7"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func managedSite(t *testing.T, ip string) *webtest.Site {
 	if err := s.Store.Nodes.Update(ctx, ns[0]); err != nil {
 		t.Fatal(err)
 	}
-	c, err := s.Orch.AddDNSConnector(ctx, nil, service.DNSNamecheap, service.DNSAccount{User: "u", Key: "k", ClientIP: "203.0.113.7"})
+	c, err := s.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: map[string]string{"user": "u", "key": "k", "client_ip": "203.0.113.7"}})
 	if err != nil {
 		t.Fatal(err)
 	}

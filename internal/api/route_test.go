@@ -94,11 +94,11 @@ func TestDNSRouteContract(t *testing.T) {
 	}
 	for k, want := range map[key][2]string{
 		{"GET", "/admin/dns-connectors"}:                                    {"admin.dns-list", "connector.admin"},
-		{"POST", "/admin/dns-connectors/namecheap"}:                         {"admin.dns-add-namecheap", "connector.admin"},
+		{"POST", "/admin/connector-kinds/:kind"}:                            {"admin.connector-add", "connector.admin"},
 		{"PUT", "/admin/dns-connectors/:connector/domains/:zone"}:           {"admin.dns-manage", "connector.admin"},
 		{"POST", "/admin/dns-connectors/:connector/domains/:zone/takeover"}: {"admin.dns-takeover", "connector.admin"},
 		{"GET", "/orgs/:org/dns-connectors"}:                                {"dns.list", "dns.manage"},
-		{"POST", "/orgs/:org/dns-connectors/namecheap"}:                     {"dns.add-namecheap", "dns.manage"},
+		{"POST", "/orgs/:org/connector-kinds/:kind"}:                        {"connector.add", "connector.manage"},
 		{"PUT", "/orgs/:org/dns-connectors/:connector/domains/:zone"}:       {"dns.manage", "dns.manage"},
 	} {
 		if got[k] != want {

@@ -27,17 +27,17 @@ func TestOrgDNSConnectors(t *testing.T) {
 		strings.Contains(body, "+ Add connector") {
 		t.Errorf("member tab:\n%s", body)
 	}
-	if rec := s.As(t, member, "POST", "/acme/-/drawer/dns/namecheap", url.Values{"user": {"jo"}, "key": {key}, "ip": {"203.0.113.7"}}); rec.Code != http.StatusForbidden {
+	if rec := s.As(t, member, "POST", "/acme/-/drawer/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {key}, "client_ip": {"203.0.113.7"}}); rec.Code != http.StatusForbidden {
 		t.Errorf("member add = %d, want 403", rec.Code)
 	}
 
 	// the add dialog offers both kinds; Namecheap's back goes to the picker
 	if body := s.Do(t, "GET", "/acme/-/drawer/connectors/new", nil).Body.String(); !strings.Contains(body, "<confirm-dialog open>") ||
-		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/new/github"`) || !strings.Contains(body, `hx-get="/acme/-/drawer/dns/namecheap"`) ||
+		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/new/github"`) || !strings.Contains(body, `hx-get="/acme/-/drawer/connectors/new/namecheap"`) ||
 		!strings.Contains(body, `hx-get="/acme/-/drawer?tab=connectors"`) {
 		t.Fatalf("add dialog:\n%s", body)
 	}
-	if body := s.Do(t, "GET", "/acme/-/drawer/dns/namecheap", nil).Body.String(); !strings.Contains(body, `hx-get="/acme/-/drawer/connectors/new?pick=1"`) {
+	if body := s.Do(t, "GET", "/acme/-/drawer/connectors/new/namecheap", nil).Body.String(); !strings.Contains(body, `hx-get="/acme/-/drawer/connectors/new?pick=1"`) {
 		t.Errorf("Namecheap screens:\n%s", body)
 	}
 	if body := s.Do(t, "GET", "/acme/-/drawer/connectors/new/github", nil).Body.String(); !strings.Contains(body, `hx-post="/acme/-/drawer/connectors/github"`) {
@@ -55,7 +55,7 @@ func TestOrgDNSConnectors(t *testing.T) {
 		t.Errorf("member add dialog = %d, want 403", rec.Code)
 	}
 
-	rec = s.Do(t, "POST", "/acme/-/drawer/dns/namecheap", url.Values{"user": {"jo"}, "key": {key}, "ip": {"203.0.113.7"}})
+	rec = s.Do(t, "POST", "/acme/-/drawer/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {key}, "client_ip": {"203.0.113.7"}})
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Step 5 of 5: Domains") || strings.Contains(body, key) {
 		t.Fatalf("add = %d\n%s", rec.Code, body)
 	}
@@ -73,7 +73,7 @@ func TestOrgDNSConnectors(t *testing.T) {
 		t.Errorf("GitHub rows: want the org's own pending one only\n%s", body)
 	}
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
-		!strings.Contains(body, `hx-get="/acme/-/drawer/dns/`+cs[0].ID+`/settings"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
+		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/`+cs[0].ID+`/settings"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
 		t.Fatalf("tab:\n%s", body)
 	}
 	if body := s.Do(t, "GET", "/acme/-/drawer?tab=connectors&add=1", nil).Body.String(); !strings.Contains(body, "<confirm-dialog open>") {
@@ -94,7 +94,7 @@ func TestOrgDNSConnectors(t *testing.T) {
 	if got, _ := s.Orch.UsableDNSDomains(ctx, s.Org); len(got) != 1 {
 		t.Errorf("usable = %v", got)
 	}
-	rec = s.Do(t, "POST", base+"/delete", nil)
+	rec = s.Do(t, "POST", "/acme/-/drawer/connectors/"+cs[0].ID+"/delete", nil)
 	if cs, _ := s.Orch.DNSConnectors(ctx, &s.Org); rec.Code != http.StatusOK || len(cs) != 0 {
 		t.Errorf("delete = %d, left %v", rec.Code, cs)
 	}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net/url"
 	"strings"
 
@@ -25,48 +24,6 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		}
 		return "dns." + name
 	}
-	var user, ip string
-	var keyStdin bool
-	namecheap := leaf("namecheap", op("add-namecheap"),
-		"Add a Namecheap account: checks it and lists its domains", exact(0),
-		func(c *cobra.Command, _ []string) error {
-			b, err := base(c)
-			if err != nil {
-				return err
-			}
-			if user == "" {
-				return usage("--user is required: the Namecheap username")
-			}
-			var key string
-			if keyStdin {
-				raw, err := io.ReadAll(a.in)
-				if err != nil {
-					return err
-				}
-				key = strings.TrimSpace(string(raw))
-			} else if key, err = a.secret("", "STACKR_NAMECHEAP_KEY", "Namecheap API key"); err != nil {
-				return err
-			}
-			if key == "" {
-				return usage("no API key: pipe it to --key-stdin or set STACKR_NAMECHEAP_KEY")
-			}
-			v, err := a.call(POST, b+"/namecheap", map[string]string{"user": user, "key": key, "client_ip": ip})
-			if err != nil || a.json {
-				if err == nil {
-					err = a.show(v)
-				}
-				return err
-			}
-			m, _ := v.(map[string]any)
-			conn, _ := m["connector"].(map[string]any)
-			a.say("connector %s (%s)", cell(conn["id"]), cell(conn["name"]))
-			return a.show(m["domains"], dnsDomainCols...)
-		})
-	namecheap.Example = "  pass show namecheap | stackr server connectors add namecheap --user jo --key-stdin --ip 203.0.113.7"
-	namecheap.Flags().StringVar(&user, "user", "", "the Namecheap username")
-	namecheap.Flags().BoolVar(&keyStdin, "key-stdin", false, "read the API key from stdin (else STACKR_NAMECHEAP_KEY or a prompt)")
-	namecheap.Flags().StringVar(&ip, "ip", "", "this server's public IPv4, allowed in Namecheap's API settings (default: the one stackr detects)")
-
 	domains := leaf("domains <connector>", op("domains"),
 		"List the account's domains: managed, not managed, or DNS elsewhere", exact(1),
 		func(c *cobra.Command, args []string) error {
@@ -119,7 +76,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 
 	var confirm string
 	takeover := leaf("takeover <connector> <domain>", op("takeover"),
-		"Switch a domain to Namecheap DNS; records at its current DNS host stop applying", exact(2),
+		"Switch a domain to its provider's DNS; records at its current DNS host stop applying", exact(2),
 		func(c *cobra.Command, args []string) error {
 			b, err := base(c)
 			if err != nil {
@@ -139,7 +96,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		})
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
-	return []*cobra.Command{noun("add", "Add a DNS connector", namecheap), domains, manage, unmanage, takeover}
+	return append(a.addConnector(server, base), domains, manage, unmanage, takeover)
 }
 
 // orgFlag adds --org to every leaf under cs: the org to work in, over the
