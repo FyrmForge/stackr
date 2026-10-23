@@ -69,7 +69,8 @@ func (p Panel) View(c echo.Context, f *Form, help string) (ui.View, error) {
 	org := p.Org(c)
 	v := ui.View{Scope: "organization", Help: help, Add: p.Base(c) + "/namecheap", IP: p.Orch.DNSClientIP(ctx)}
 	if org == nil {
-		v.Scope = "instance"
+		// the failure can name any org's hosts: the server level only
+		v.Scope, v.Synced = "instance", p.Orch.DNSSyncError()
 	}
 	if f != nil {
 		v.User, v.IP, v.Errors = f.User, f.IP, f.Errors

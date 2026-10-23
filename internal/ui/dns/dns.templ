@@ -18,6 +18,7 @@ type View struct {
 	IP     string // prefilled with stackr's public IPv4
 	Errors map[string]string
 	Rows   []Row
+	Synced string // the last records sync's failure, "" = fine
 }
 
 // Row is one connector; Domains answers its domain list as it loads.
@@ -75,6 +76,12 @@ templ Connectors(v View) {
 		}
 	}
 	@c.Section("DNS connectors", v.Scope, v.Help) {
+		if v.Synced != "" {
+			<div class="banner banner-danger mb-3 text-sm" role="alert">
+				<p>DNS records are out of date. stackr tries again on the next change.</p>
+				<p class="mt-1 font-mono text-xs break-all">{ v.Synced }</p>
+			</div>
+		}
 		if len(v.Rows) == 0 {
 			<p class="text-sm text-rw-faint">No DNS connectors yet.</p>
 		} else {
@@ -148,7 +155,10 @@ templ Domains(v DomainsView) {
 							}
 						</span>
 					</div>
-					if v.Shared && d.State == "managed" && d.Manage != "" {
+					if v.Shared && d.State == "managed" && d.Manage != "" && len(d.Orgs) == 0 {
+						<p class="text-xs text-rw-faint">Available to every organization.</p>
+					}
+					if v.Shared && d.State == "managed" && d.Manage != "" && len(d.Orgs) > 0 {
 						<form hx-post={ d.Manage } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML" class="space-y-1">
 							<input type="hidden" name="domain" value={ d.Name }/>
 							<fieldset class="space-y-1">

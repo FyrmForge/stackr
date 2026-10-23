@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/netip"
 	"slices"
 	"strings"
@@ -20,7 +19,7 @@ import (
 // dnsrecords.go keeps the records of managed domains in step with the tile
 // domains: an A (and an AAAA when the node has a public IPv6) for every
 // host in a managed domain the tile's org may use, pointing at the node
-// whose proxy serves it. Every proxy push ends in reconcileDNS, so a domain
+// whose proxy serves it. Every proxy push kicks reconcileDNS (syncDNS), so a domain
 // added, an ingress moved and a domain removed all land the same way.
 
 // RecordTaken refuses a host whose name already has a DNS record stackr
@@ -164,14 +163,6 @@ func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool
 		return werr // the list itself failed: nothing to go on
 	}
 	return errors.Join(werr, o.dns.Reconcile(ctx, wants, replace, o.dnsAccounts))
-}
-
-// syncDNS is the proxy push's last step. A provider down must not fail a
-// deploy: the error is logged and the next push tries again.
-func (o *Orchestrator) syncDNS(ctx context.Context) {
-	if err := o.reconcileDNS(ctx, nil); err != nil {
-		slog.Warn("dns: records", "err", err)
-	}
 }
 
 // managedZone is the managed domain host sits in, for a tile of orgID. ok
