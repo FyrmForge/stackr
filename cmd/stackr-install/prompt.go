@@ -220,8 +220,8 @@ func (m asker) View() tea.View {
 // answers is what the questions fill: strings, turned into the install's
 // Input by apply. given names the flags passed, which are not asked.
 type answers struct {
-	root, panel, https, email, wildcard, dnsToken     string
-	cdn, proxies, adminEmail, password, confirm, next string
+	root, panel, https, email, cdn, proxies string
+	adminEmail, password, confirm, next     string
 }
 
 const (
@@ -246,10 +246,6 @@ func installQuestions(a *answers, given map[string]bool, withAdmin, adminEmailGi
 		{title: "Serve HTTPS with automatic certificates?", kind: askYesNo, def: yes, out: &a.https, skip: not("https")},
 		{title: "Email for Let's Encrypt", out: &a.email, check: checkEmail,
 			skip: func() bool { return given["email"] || a.https == "No" }},
-		{title: "Wildcard certificates through Cloudflare DNS?", kind: askYesNo, def: no, out: &a.wildcard,
-			skip: func() bool { return given["dns-token"] || a.https == "No" }},
-		{title: "Cloudflare API token", kind: askSecret, out: &a.dnsToken, check: required("paste the token"),
-			skip: func() bool { return given["dns-token"] || a.wildcard != "Yes" }},
 		{title: "Behind a CDN or load balancer?", kind: askYesNo, def: no, out: &a.cdn, skip: not("proxy")},
 		{title: "Its IP addresses or ranges", out: &a.proxies,
 			skip: func() bool { return given["proxy"] || a.cdn != "Yes" },
@@ -278,13 +274,4 @@ func installQuestions(a *answers, given map[string]bool, withAdmin, adminEmailGi
 	}
 	return append(qs, question{title: "What's next?", kind: askPick, out: &a.next,
 		options: []string{nextInstall, nextDryRun, nextCancel}, before: summary})
-}
-
-func required(fix string) func(string) (string, error) {
-	return func(s string) (string, error) {
-		if s == "" {
-			return "", errors.New(fix)
-		}
-		return s, nil
-	}
 }

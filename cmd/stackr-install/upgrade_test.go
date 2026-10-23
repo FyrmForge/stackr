@@ -40,7 +40,7 @@ func TestUpgradeStepOrder(t *testing.T) {
 	fakeDocker(t, "stackr-proxy", false)
 	in := installspec.Input{Root: "x.io", PanelHost: "p.x.io", HTTPPort: "80", DataDir: "/data", Bind: "172.17.0.1"}
 	var out bytes.Buffer
-	steps := (runner{dry: true, out: &out}).upgradeSteps(in, "old", "0.8.2", "", true)
+	steps := (runner{dry: true, out: &out}).upgradeSteps(in, "old", "0.8.2", true)
 	var names []string
 	for _, s := range steps {
 		names = append(names, s.name)

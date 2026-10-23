@@ -30,6 +30,7 @@ func (o *Orchestrator) serverLive(ctx context.Context, f *serverconfig.File) (se
 		DestSchedules: map[string]int{},
 		DomainHosts:   map[string]int{},
 		TLSOff:        o.cfg.TLSOff,
+		Managed:       o.managedDomains(ctx),
 	}
 	var err error
 	for _, k := range settings.Catalogue {

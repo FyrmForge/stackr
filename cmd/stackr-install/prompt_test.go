@@ -74,8 +74,8 @@ func TestQuestionsSkip(t *testing.T) {
 	if asked("Root domain") || asked("Behind a CDN or load balancer?") || asked("Admin email") {
 		t.Error("asked for an answer a flag gave, or for an admin not needed")
 	}
-	if asked("Cloudflare API token") {
-		t.Error("asked for a token before wildcard was picked")
+	if asked("Its IP addresses or ranges") {
+		t.Error("asked for the ranges a flag gave")
 	}
 	a.https = "No"
 	if asked("Email for Let's Encrypt") {

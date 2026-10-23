@@ -35,8 +35,6 @@ docker run
   -e
   CADDY_TRUSTED_PROXIES=203.0.113.0/24
   -e
-  DNS_PROVIDER=cloudflare
-  -e
   DATA_DIR=/var/lib/stackr
   -e
   DATABASE_PATH=/var/lib/stackr/stackr.db

@@ -244,11 +244,6 @@ func CheckSetting(key, raw string) (string, error) {
 		if a, err := mail.ParseAddress(raw); err != nil || a.Address != raw {
 			return "", fmt.Errorf("%s is not an email address", raw)
 		}
-	case "dns_provider":
-		// ponytail: cloudflare is the one provider compiled into the proxy.
-		if raw != "cloudflare" {
-			return "", fmt.Errorf("%q is not a provider in this build (cloudflare)", raw)
-		}
 	case "trusted_proxies":
 		for _, r := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
 			if strings.EqualFold(r, "cloudflare") { // expanded to Cloudflare's ranges where it is used

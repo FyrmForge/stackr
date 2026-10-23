@@ -89,7 +89,7 @@ func (o *Orchestrator) AttachDomain(ctx context.Context, tileID string, s Domain
 	if o.envRemote(ctx, t.EnvironmentID) { // a worker's tile is reached by VIP over the tunnel
 		ids = nil
 	}
-	d, err := o.domains.Attach(ctx, tileID, s, o.dns01(ctx), ids)
+	d, err := o.domains.Attach(ctx, tileID, s, o.dns01(ctx, s.Host), ids)
 	if err != nil {
 		return d, err
 	}
@@ -131,7 +131,7 @@ func (o *Orchestrator) UpdateDomain(ctx context.Context, id string, s DomainSpec
 			a.Password = old.BasicAuth.Password
 		}
 	}
-	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
+	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return d, err
 	}
 	return redact(d), o.sync.Sync(ctx)
@@ -149,7 +149,7 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 		return d, err
 	}
 	s.RawCaddy = raw
-	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
+	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return d, err
 	}
 	return redact(d), o.sync.Sync(ctx)
@@ -209,7 +209,7 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			}
 			s.Host = host
 			s.ResourceID = &res.ID
-			if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx)); err != nil {
+			if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 				return err
 			}
 			if err := o.repointRedirects(ctx, d.Host, host); err != nil {
@@ -241,7 +241,7 @@ func (o *Orchestrator) repointRedirects(ctx context.Context, from, to string) er
 			return err
 		}
 		s.RedirectTo = to
-		if _, err := o.domains.Update(ctx, r, s, o.dns01(ctx)); err != nil {
+		if _, err := o.domains.Update(ctx, r, s, o.dns01(ctx, s.Host)); err != nil {
 			return err
 		}
 	}
@@ -284,13 +284,15 @@ func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) erro
 	return o.checkRouteHost(ctx, host)
 }
 
-// Wildcard says whether certificates are wildcards (DNS-01); without it every
-// host gets its own, under Let's Encrypt's weekly limit per domain.
-func (o *Orchestrator) Wildcard(ctx context.Context) bool { return o.dns01(ctx) }
+// Wildcard says whether any domain is managed, so wildcard certificates
+// (DNS-01) are issued; without one every host gets its own, under Let's
+// Encrypt's weekly limit per domain.
+func (o *Orchestrator) Wildcard(ctx context.Context) bool { return len(o.managedDomains(ctx)) > 0 }
 
-func (o *Orchestrator) dns01(ctx context.Context) bool {
-	p, _ := o.settings.Get(ctx, "dns_provider")
-	return p != ""
+// dns01 says whether host, when a wildcard, can get its certificate: it is
+// under a managed domain, whose DNS-01 challenge stackrd answers.
+func (o *Orchestrator) dns01(ctx context.Context, host string) bool {
+	return domain.ManagedOf(host, o.managedDomains(ctx)) != ""
 }
 
 // Route is one domain the env's proxy serves, with the tile it lands on.

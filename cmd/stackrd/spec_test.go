@@ -19,7 +19,6 @@ func TestPanelSpecBothWays(t *testing.T) {
 		PanelHost:    "stkr.example.com",
 		HTTPS:        true,
 		Email:        "a@example.com",
-		DNS01:        true,
 		HTTPPort:     "80",
 		HTTPSPort:    "443",
 		DataDir:      "/var/lib/stackr",

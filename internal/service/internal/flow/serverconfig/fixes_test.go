@@ -112,7 +112,7 @@ func TestRefToParamTheFileDeclares(t *testing.T) {
 // what already exists.
 func TestExportThenPlanKeepsCreateOnlyChecksOffExistingRows(t *testing.T) {
 	l := full()
-	delete(l.Settings, "dns_provider") // a wildcard http route stays: SetSettings allows clearing it
+	l.Managed = nil // a wildcard http route stays: its domain can stop being managed
 	l.Orgs = append(l.Orgs, store.Org{ID: "o3", Slug: "example", Name: "Example"})
 	l.TLSOff = true
 	l.Routes = append(l.Routes, store.Route{ID: "r-pt", Host: "pt.other.net", Mode: "passthrough", Target: "10.0.0.8:443"})
@@ -234,12 +234,11 @@ func removalKeys(p serverconfig.Plan) []string {
 func TestExportSkipsValuesParseRefuses(t *testing.T) {
 	l := live()
 	l.Settings["acme_email"] = "Ops <ops@example.com>"
-	l.Settings["dns_provider"] = "route53"
 	out, err := serverconfig.Export(l)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "route53") || strings.Contains(string(out), "Ops <") {
+	if strings.Contains(string(out), "Ops <") {
 		t.Errorf("export holds a value Parse refuses:\n%s", out)
 	}
 	f, err := serverconfig.Parse(out)

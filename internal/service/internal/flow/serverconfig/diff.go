@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -44,6 +45,8 @@ type Live struct {
 	Claims     []org.Claim     // every domain on the server and its org: the new-org slug check
 
 	TLSOff bool // STACKR_TLS=off: pass-through routes need TLS
+
+	Managed []string // managed DNS domains: wildcards under them get certificates
 
 	Nodes      []NodeLive
 	Placements []PlacementLive
@@ -87,7 +90,6 @@ type ConnectorLive struct {
 // unapprovable. Orgs and params are never removal rows.
 func Diff(f *File, live Live) Plan {
 	d := &differ{f: f, live: live}
-	d.dnsProvider = d.final("dns_provider")
 	d.panelDomain = d.final("panel_domain")
 	d.panelDest = d.finalPanelDest()
 	d.destRefs()
@@ -111,7 +113,6 @@ type differ struct {
 	live     Live
 	removals []Change
 
-	dnsProvider string // after the file
 	panelDomain string
 	panelDest   string // name; "" = local
 
@@ -530,11 +531,6 @@ func (d *differ) settingImpact(key, have, want string) string {
 			}
 		}
 		return d.renameImpact("the root domain", from, rootHost(want), n)
-	case "dns_provider":
-		if want == "" {
-			return "wildcard certificates stop being issued; wildcard routes and domains need a provider"
-		}
-		return "wildcard certificates need the DNS token on the proxy"
 	case "proxy_custom":
 		return "replaces the extra Caddy routes"
 	case "trusted_proxies":
@@ -553,7 +549,7 @@ func rootHost(root string) string { return strings.TrimPrefix(installspec.CleanH
 func (d *differ) renameImpact(what, from, to string, hosts int) string {
 	s := fmt.Sprintf("%s moves from %s to %s: moves %s, issues %s; point DNS first",
 		what, from, to, plural(hosts, "host"), plural(hosts, "certificate"))
-	if hosts > 50 && d.dnsProvider == "" {
+	if hosts > 50 && domain.ManagedOf(to, d.live.Managed) == "" {
 		s += ". Let's Encrypt allows about 50 certificates a week per domain"
 	}
 	return s
@@ -915,8 +911,8 @@ func (d *differ) routes() {
 		// plan would block for good.
 		switch {
 		case ok && cur.Mode == fr.Mode:
-		case strings.HasPrefix(fr.Host, "*.") && fr.Mode != "passthrough" && d.dnsProvider == "":
-			d.block("routes: %s: a wildcard host needs a DNS provider, or the passthrough mode", fr.Host)
+		case strings.HasPrefix(fr.Host, "*.") && fr.Mode != "passthrough" && domain.ManagedOf(fr.Host, d.live.Managed) == "":
+			d.block("routes: %s: a wildcard host needs a managed DNS domain, or the passthrough mode", fr.Host)
 		case fr.Mode == "passthrough" && d.live.TLSOff:
 			d.block("routes: %s: pass-through needs HTTPS on", fr.Host)
 		}
