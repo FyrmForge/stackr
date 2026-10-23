@@ -152,7 +152,9 @@ func (o *Orchestrator) defaultIngressHosts(ctx context.Context) (panel string, o
 		if err != nil {
 			return "", nil, err
 		}
-		if pick == "" {
+		// a host in a managed domain needs no DNS change from anyone:
+		// stackr repoints its records itself
+		if pick == "" && !o.dnsFollows(ctx, d.TileID, d.Host) {
 			others = append(others, d.Host)
 		}
 	}
