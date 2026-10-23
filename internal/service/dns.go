@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -42,9 +43,10 @@ type DNSConnector struct {
 	Domains   []DNSDomain `json:"domains"`
 }
 
-// DNSClientIP is the controller's public IPv4 as its node reports it, the
-// address Namecheap sees the API calls come from; "" when it has none (a
-// box behind NAT: the admin types the router's address).
+// DNSClientIP is the controller's public IPv4, the address Namecheap sees
+// the API calls come from: its node's own, else behind NAT the router's as
+// an outside worker sees it (the cluster map's Public). "" when neither is
+// known (a single box behind NAT: the admin types the router's address).
 func (o *Orchestrator) DNSClientIP(ctx context.Context) string {
 	if o.mesh == nil {
 		return ""
@@ -55,6 +57,25 @@ func (o *Orchestrator) DNSClientIP(ctx context.Context) string {
 	}
 	for _, a := range o.mesh.publicOf(id) {
 		if a.Is4() {
+			return a.String()
+		}
+	}
+	m, err := o.ClusterMap(ctx)
+	if err != nil {
+		return ""
+	}
+	return natIPv4(m, id)
+}
+
+// natIPv4 is the public IPv4 nodes outside see node id's network's packets
+// come from; "" when none has seen it.
+func natIPv4(m ClusterMap, id string) string {
+	i := slices.IndexFunc(m.Nodes, func(n ClusterNode) bool { return n.ID == id })
+	if i < 0 || m.Nodes[i].Net == "" {
+		return ""
+	}
+	for _, c := range m.Networks {
+		if a, err := netip.ParseAddr(c.Public); c.ID == m.Nodes[i].Net && err == nil && a.Is4() {
 			return a.String()
 		}
 	}
