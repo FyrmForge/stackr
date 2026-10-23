@@ -86,8 +86,6 @@ func routes(h *v1.H) []Route {
 		{DELETE, org + "/connectors/:connector", "connector.delete", "connector.write", h.DeleteConnector()},
 		// DNS connectors: an owner's own provider account, that org only
 		{GET, org + "/dns-connectors", "dns.list", "dns.manage", h.DNSConnectors(v1.OrgLevel)},
-		{GET, org + "/connector-kinds", "connector.kinds", "org.read", h.ConnectorKinds()},
-		{POST, org + "/connector-kinds/:kind", "connector.add", "connector.manage", h.AddConnector(v1.OrgLevel)},
 		{DELETE, org + "/dns-connectors/:connector", "dns.delete", "dns.manage", h.RemoveConnector(v1.OrgLevel)},
 		{GET, org + "/dns-connectors/:connector/domains", "dns.domains", "dns.manage", h.DNSDomains(v1.OrgLevel)},
 		{PUT, org + "/dns-connectors/:connector/domains/:zone", "dns.manage", "dns.manage", h.ManageDNSDomain(v1.OrgLevel)},
@@ -334,8 +332,6 @@ func routes(h *v1.H) []Route {
 		// server DNS connectors: each managed domain says which orgs may use it;
 		// one is removed like any server connector (DELETE /admin/connectors/:connector)
 		{GET, "/admin/dns-connectors", "admin.dns-list", "connector.admin", h.DNSConnectors(v1.ServerLevel)},
-		{GET, "/admin/connector-kinds", "admin.connector-kinds", "admin.read", h.ConnectorKinds()},
-		{POST, "/admin/connector-kinds/:kind", "admin.connector-add", "connector.admin", h.AddConnector(v1.ServerLevel)},
 		{GET, "/admin/dns-connectors/:connector/domains", "admin.dns-domains", "connector.admin", h.DNSDomains(v1.ServerLevel)},
 		{PUT, "/admin/dns-connectors/:connector/domains/:zone", "admin.dns-manage", "connector.admin", h.ManageDNSDomain(v1.ServerLevel)},
 		{DELETE, "/admin/dns-connectors/:connector/domains/:zone", "admin.dns-unmanage", "connector.admin", h.UnmanageDNSDomain(v1.ServerLevel)},

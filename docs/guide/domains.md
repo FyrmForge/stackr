@@ -24,15 +24,13 @@ In the panel, open Admin, Connectors, Add a DNS connector: Namecheap. Fill in th
 
 An org owner can add the org's own Namecheap account under the org's Connectors tab. Its domains are only ever that org's.
 
-From the CLI:
+A connector is only added in the panel: Admin, Connectors for the server's, or the org's Connectors tab for an org's. Some kinds sign in on the provider's site, which a command line can't do. Once added, the CLI reaches it:
 
 ```bash
-pass show namecheap | stackr server connectors add namecheap --set user=jo --set client_ip=203.0.113.7 --stdin key
-stackr server connectors kinds
 stackr server connectors domains <connector>
 ```
 
-`kinds` lists each kind and the fields `--set` takes. A secret field never goes on the command line: pipe it with `--stdin <field>`, or set `STACKR_<KIND>_<FIELD>` (`STACKR_NAMECHEAP_KEY`), else the CLI asks for it. Leave out `client_ip` and stackr fills in the address it knows. An org owner uses `stackr org connectors` with the same verbs.
+An org owner uses `stackr org connectors` with the same verbs.
 
 ## Pick the domains stackr manages
 

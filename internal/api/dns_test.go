@@ -1,7 +1,7 @@
 package api_test
 
 import (
-	"encoding/json"
+	"context"
 	"strings"
 	"testing"
 
@@ -15,12 +15,13 @@ const apiKeySentinel = "nc-key-never-shown-77"
 func TestDNSConnectorRoutes(t *testing.T) {
 	w := newWorld(t)
 	w.env.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}, {Name: "away.com"}}
-	add := `{"user":"jo","key":"` + apiKeySentinel + `","client_ip":"203.0.113.7"}`
-
-	code, out := w.do(t, w.owner, "POST", "/orgs/acme/connector-kinds/namecheap", add)
-	var got service.ConnectorAdded
-	if code != 201 || json.Unmarshal([]byte(out), &got) != nil || len(got.Domains) != 2 {
-		t.Fatalf("add = %d %s", code, out)
+	// a connector is added in the panel; the API only reaches it
+	got, err := w.env.Orch.AddConnector(context.Background(), service.ConnectorAdd{
+		OrgID: &w.acme, Kind: "namecheap",
+		Values: map[string]string{"user": "jo", "key": apiKeySentinel, "client_ip": "203.0.113.7"},
+	})
+	if err != nil || len(got.Domains) != 2 {
+		t.Fatalf("add = %v %v", got, err)
 	}
 	id := got.Connector.ID
 	base := "/orgs/acme/dns-connectors/" + id
@@ -30,7 +31,6 @@ func TestDNSConnectorRoutes(t *testing.T) {
 	member := w.env.APIKey(t, m, w.acme)
 	for _, c := range []struct{ method, path, body string }{
 		{"GET", "/orgs/acme/dns-connectors", ""},
-		{"POST", "/orgs/acme/connector-kinds/namecheap", add},
 		{"GET", base + "/domains", ""},
 		{"PUT", base + "/domains/acme.dev", ""},
 		{"DELETE", base, ""},
@@ -66,24 +66,12 @@ func TestDNSConnectorRoutes(t *testing.T) {
 			t.Errorf("GET %s = %d, key shown: %v", p, code, strings.Contains(out, apiKeySentinel))
 		}
 	}
-	if strings.Contains(out, apiKeySentinel) {
-		t.Error("the add answer shows the key")
-	}
 
 	// server level: admin only
-	for _, c := range []struct{ method, path, body string }{
-		{"GET", "/admin/dns-connectors", ""},
-		{"POST", "/admin/connector-kinds/namecheap", add},
-	} {
-		if code, _ := w.do(t, w.owner, c.method, c.path, c.body); code != 403 {
-			t.Errorf("owner %s %s = %d, want 403", c.method, c.path, code)
-		}
+	if code, _ := w.do(t, w.owner, "GET", "/admin/dns-connectors", ""); code != 403 {
+		t.Errorf("owner GET /admin/dns-connectors = %d, want 403", code)
 	}
 	if code, _ := w.do(t, w.admin, "GET", "/admin/dns-connectors/"+id+"/domains", ""); code != 404 {
 		t.Errorf("server route on an org connector = %d, want 404", code)
-	}
-	code, out = w.do(t, w.admin, "POST", "/admin/connector-kinds/namecheap", add)
-	if code != 201 || strings.Contains(out, apiKeySentinel) {
-		t.Fatalf("server add = %d", code)
 	}
 }

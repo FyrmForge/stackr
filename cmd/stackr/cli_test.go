@@ -58,10 +58,6 @@ func (r *recorder) serve(t *testing.T) {
 		r.mu.Lock()
 		r.reqs = append(r.reqs, req.Method+" "+req.URL.Path+" "+string(b))
 		r.mu.Unlock()
-		if strings.HasSuffix(req.URL.Path, "/connector-kinds") {
-			_, _ = io.WriteString(w, testKinds)
-			return
-		}
 		_, _ = io.WriteString(w, `{"tile":{}}`)
 	}))
 	t.Cleanup(srv.Close)

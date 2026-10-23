@@ -26,7 +26,7 @@ import (
 // Features ask for a capability (dnsOf), never a kind. GitHub stays on
 // connector.go and org.go until it moves onto the Git source capability.
 
-// A kind's setup, as the screens, the CLI and the API draw it.
+// A kind's setup, as the panel's add dialog and the wizard draw it.
 type (
 	ConnectorStep  = connectors.Step
 	ConnectorField = connectors.Field

@@ -914,23 +914,6 @@
         ],
         "type": "object"
       },
-      "ConnectorAdded": {
-        "properties": {
-          "connector": {
-            "$ref": "#/components/schemas/Connector"
-          },
-          "domains": {
-            "items": {
-              "$ref": "#/components/schemas/Domain"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "connector"
-        ],
-        "type": "object"
-      },
       "ConnectorBegun": {
         "properties": {
           "action": {
@@ -958,43 +941,6 @@
         },
         "required": [
           "github_org"
-        ],
-        "type": "object"
-      },
-      "ConnectorKind": {
-        "properties": {
-          "capabilities": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "hint": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "redirects": {
-            "type": "boolean"
-          },
-          "steps": {
-            "items": {
-              "$ref": "#/components/schemas/Step"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "name",
-          "label",
-          "hint",
-          "capabilities",
-          "steps",
-          "redirects"
         ],
         "type": "object"
       },
@@ -1916,33 +1862,6 @@
           "mem_bytes",
           "mem_free",
           "uptime_s"
-        ],
-        "type": "object"
-      },
-      "Field": {
-        "properties": {
-          "help": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "optional": {
-            "type": "boolean"
-          },
-          "prefill": {
-            "type": "string"
-          },
-          "secret": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "label"
         ],
         "type": "object"
       },
@@ -5906,38 +5825,6 @@
         ],
         "type": "object"
       },
-      "Step": {
-        "properties": {
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/Field"
-            },
-            "type": "array"
-          },
-          "intro": {
-            "type": "string"
-          },
-          "list": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "note": {
-            "type": "string"
-          },
-          "out": {
-            "type": "boolean"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "title"
-        ],
-        "type": "object"
-      },
       "Subject": {
         "properties": {
           "PrefBase": {
@@ -8369,89 +8256,6 @@
           }
         },
         "x-verb": "serverplan.approve"
-      }
-    },
-    "/api/v1/admin/connector-kinds": {
-      "get": {
-        "operationId": "admin.connector-kinds",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ConnectorKind"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "admin.read"
-      }
-    },
-    "/api/v1/admin/connector-kinds/{kind}": {
-      "post": {
-        "operationId": "admin.connector-add",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "kind",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorAdded"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "connector.admin"
       }
     },
     "/api/v1/admin/connectors": {
@@ -12739,106 +12543,6 @@
           }
         },
         "x-verb": "orgplan.approve"
-      }
-    },
-    "/api/v1/orgs/{org}/connector-kinds": {
-      "get": {
-        "operationId": "connector.kinds",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ConnectorKind"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "org.read"
-      }
-    },
-    "/api/v1/orgs/{org}/connector-kinds/{kind}": {
-      "post": {
-        "operationId": "connector.add",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "kind",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorAdded"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "connector.manage"
       }
     },
     "/api/v1/orgs/{org}/connectors": {

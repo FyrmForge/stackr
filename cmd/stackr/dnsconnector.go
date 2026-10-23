@@ -96,7 +96,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		})
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
-	return append(a.addConnector(server, base), domains, manage, unmanage, takeover)
+	return []*cobra.Command{domains, manage, unmanage, takeover}
 }
 
 // orgFlag adds --org to every leaf under cs: the org to work in, over the
