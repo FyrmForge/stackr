@@ -1115,6 +1115,9 @@ func (o *Orchestrator) ingressHostsMoving(ctx context.Context, kind, id, pick st
 			return nil, err
 		}
 		for _, d := range ds {
+			if o.dnsFollows(ctx, tid, d.Host) {
+				continue // a managed domain: stackr repoints its records
+			}
 			hosts = append(hosts, d.Host)
 		}
 	}

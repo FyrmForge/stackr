@@ -27,6 +27,10 @@ type Want struct {
 	Type        string // A or AAAA
 	Value       string
 	DomainID    string // the tile domain
+	// Hold keeps whatever stackr has at Zone and Name as it is: the
+	// serving node has no address to point at right now, and deleting a
+	// live record over that would take the host down.
+	Hold bool
 }
 
 func (w Want) key() string { return w.Zone + "|" + strings.ToLower(w.Name) + "|" + w.Type }
@@ -178,7 +182,12 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		return zones[zone]
 	}
 	want := map[string]Want{}
+	held := map[string]bool{}
 	for _, w := range wants {
+		if w.Hold {
+			held[w.Zone+"|"+strings.ToLower(w.Name)] = true
+			continue
+		}
 		if _, dup := want[w.key()]; !dup { // ponytail: one host on two ingress nodes points at the first
 			want[w.key()] = w
 		}
@@ -188,6 +197,7 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		have[rowKey(r)] = r
 		w, ok := want[rowKey(r)]
 		switch {
+		case !ok && held[r.Zone+"|"+strings.ToLower(r.Name)]:
 		case !ok:
 			id := ""
 			if r.DNSDomainID != nil {
@@ -205,7 +215,7 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		}
 	}
 	for _, w := range wants {
-		if _, ok := have[w.key()]; !ok && want[w.key()] == w {
+		if _, ok := have[w.key()]; !ok && !w.Hold && want[w.key()] == w {
 			p := at(w.Zone, w.DNSDomainID)
 			p.add = append(p.add, w)
 		}

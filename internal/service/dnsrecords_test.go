@@ -88,6 +88,16 @@ func TestRecordLifecycle(t *testing.T) {
 		t.Fatalf("after repoint: %v", z)
 	}
 
+	// the node loses its address (override cleared, nothing detected): the
+	// record stays as it was, never deleted over a missing address
+	setIP(t, env, "")
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.2") {
+		t.Fatalf("a missing address deleted the record: %v", z)
+	}
+
 	if err := env.Orch.DetachDomain(ctx, d.ID); err != nil {
 		t.Fatal(err)
 	}

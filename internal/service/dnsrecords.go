@@ -78,7 +78,8 @@ func (o *Orchestrator) tileOrg(ctx context.Context, t store.Tile) (string, error
 }
 
 // dnsWants is every record stackr should have now. A node with no public
-// address yields an error naming it; the other records still come back.
+// address yields an error naming it and a hold on its hosts' records (left
+// as they are); the other records still come back.
 func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 	zones, err := o.dns.All(ctx)
 	if err != nil || len(zones) == 0 {
@@ -139,6 +140,7 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 				noIP[name] = true
 				bad = append(bad, errs.Refusedf("%s has no public IP address for DNS records; set one on the node", name))
 			}
+			out = append(out, dnscap.Want{Zone: z.Name, Name: dnscap.Name(d.Host, z.Name), Hold: true})
 			continue
 		}
 		w := dnscap.Want{DNSDomainID: z.ID, Zone: z.Name, Name: dnscap.Name(d.Host, z.Name), DomainID: d.ID}
@@ -159,7 +161,7 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool) error {
 	wants, werr := o.dnsWants(ctx)
 	if wants == nil && werr != nil {
-		return werr
+		return werr // the list itself failed: nothing to go on
 	}
 	return errors.Join(werr, o.dns.Reconcile(ctx, wants, replace, o.dnsAccounts))
 }
@@ -407,4 +409,20 @@ func (o *Orchestrator) EnvIngressDown(ctx context.Context, envID string) (Ingres
 	slices.Sort(out.Hosts)
 	out.Hosts = slices.Compact(out.Hosts)
 	return out, len(out.Hosts) > 0
+}
+
+// dnsFollows says whether stackr points host's records itself: a host in
+// a managed domain the tile's org may use. An ingress move needs no DNS
+// change from anyone for it.
+func (o *Orchestrator) dnsFollows(ctx context.Context, tileID, host string) bool {
+	t, err := o.tiles.Get(ctx, tileID)
+	if err != nil {
+		return false
+	}
+	org, err := o.tileOrg(ctx, t)
+	if err != nil {
+		return false
+	}
+	_, ok, err := o.managedZone(ctx, org, host)
+	return ok && err == nil && !strings.HasPrefix(host, "*.")
 }
