@@ -10,9 +10,11 @@
 #   scripts/rig.sh snapshots               list snapshots
 #
 # Snapshots live on the rig in $PRESERVE/<timestamp>/ with `latest` pointing at
-# the newest. Connector rows are copied as stored (the config column is
-# encrypted with keys/master.key, which a pave keeps); a restore refuses when
-# the rig's master key no longer matches the snapshot's. Connector ids are
+# the newest. Connector rows are copied as stored, every column (settings is
+# encrypted with keys/master.key, which a pave keeps; the panel reshapes an
+# old blob as it starts), with their shares by org slug. A server connector
+# stays the server's; an org's goes back to the org of its slug, else --org.
+# A restore refuses when the rig's master key no longer matches the snapshot's. Connector ids are
 # kept, so GitHub's webhook URL (/hooks/connectors/<id>) stays valid.
 #
 # ponytail: sqlite through a python:3-alpine container because the data dir
@@ -55,10 +57,18 @@ save() {
 	py "$snap" <<'PY'
 import json, shutil, sqlite3
 db = sqlite3.connect("/d/stackr.db")
-rows = db.execute("SELECT id, org_id, provider, name, host, config, created_at FROM connectors").fetchall()
-cols = ["id", "org_id", "provider", "name", "host", "config", "created_at"]
+db.row_factory = sqlite3.Row
 orgs = dict(db.execute("SELECT id, slug FROM orgs").fetchall())
-out = [dict(zip(cols, r)) | {"org_slug": orgs.get(r[1], "")} for r in rows]
+# every column as stored, under the current names (033 renamed provider and
+# config to kind and settings), plus the org's slug and the share slugs
+ren = {"provider": "kind", "config": "settings"}
+out = []
+for r in db.execute("SELECT * FROM connectors"):
+    c = {ren.get(k, k): r[k] for k in r.keys()}
+    c["org_slug"] = orgs.get(c["org_id"], "")
+    c["share_slugs"] = [orgs.get(o, "") for (o,) in
+        db.execute("SELECT org_id FROM connector_shares WHERE connector_id = ?", (c["id"],))]
+    out.append(c)
 json.dump(out, open("/s/connectors.json", "w"), indent=1)
 shutil.copy("/d/keys/master.key", "/s/master.key")
 shutil.copy("/d/install.json", "/s/install.json")
@@ -137,13 +147,23 @@ elif len(orgs) == 1:
     org_id = orgs[0][0]
 else:
     sys.exit(f"pass --org <slug>; orgs: {[s for _, s in orgs]}")
+slugs = {s: i for i, s in orgs}
+cols = [r[1] for r in db.execute("PRAGMA table_info(connectors)")]
 n = 0
 for c in json.load(open("/s/connectors.json")):
+    # a snapshot from before 033 has the old column names
+    c = {{"provider": "kind", "config": "settings"}.get(k, k): v for k, v in c.items()}
+    if c.get("org_id") is not None:  # a server connector stays the server's
+        c["org_id"] = slugs.get(c.get("org_slug", ""), org_id)
+    row = {k: c[k] for k in cols if k in c}
     cur = db.execute(
-        "INSERT OR IGNORE INTO connectors (id, org_id, provider, name, host, config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (c["id"], org_id, c["provider"], c["name"], c["host"], c["config"], c["created_at"]),
+        f"INSERT OR IGNORE INTO connectors ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+        tuple(row.values()),
     )
     n += cur.rowcount
+    for s in c.get("share_slugs", []):
+        if s in slugs:
+            db.execute("INSERT OR IGNORE INTO connector_shares (connector_id, org_id) VALUES (?, ?)", (c["id"], slugs[s]))
 db.commit()
 print(f"{n} connector(s) restored")
 PY
