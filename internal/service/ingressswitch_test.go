@@ -171,3 +171,25 @@ func TestSetDefaultIngressNeedsTheNodesName(t *testing.T) {
 		t.Errorf("defaults = %+v", d)
 	}
 }
+
+// A tile domain in a managed domain is left out of the plan: stackr
+// repoints its records itself, so its DNS never holds the switch up.
+func TestIngressSwitchPlanSkipsManagedHosts(t *testing.T) {
+	ctx := context.Background()
+	f := &zoneFake{}
+	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))
+	ingressNode(t, n, "h4", "203.0.113.4")
+	c, err := n.orch.AddDNSConnector(ctx, nil, DNSNamecheap, DNSAccount{User: "u", Key: "k", ClientIP: "203.0.113.7"})
+	must(t, err)
+	_, err = n.orch.ManageDNSDomain(ctx, nil, c.Connector.ID, "acme.dev", nil)
+	must(t, err)
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d1", TileID: n.edgeT.ID, Host: "shop.acme.dev", Path: "/", CreatedAt: time.Now()}))
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d2", TileID: n.edgeT.ID, Host: "shop.example.com", Path: "/", CreatedAt: time.Now()}))
+	fakeDNS(t, map[string][]string{"shop.example.com": {"203.0.113.4"}})
+
+	plan, err := n.orch.IngressSwitchPlan(ctx, adminP(), "h4")
+	must(t, err)
+	if len(plan.Hosts) != 1 || plan.Hosts[0].Host != "shop.example.com" {
+		t.Errorf("hosts = %+v, want only the hand-pointed one", plan.Hosts)
+	}
+}

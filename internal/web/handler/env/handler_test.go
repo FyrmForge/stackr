@@ -394,3 +394,33 @@ func TestVolumeSchedules(t *testing.T) {
 		t.Errorf("after delete = %v", ss)
 	}
 }
+
+// An env-level drawer route loaded without htmx (its link opened in a new
+// tab) sends the browser to the page that opens it, never a bare fragment.
+func TestEnvDrawersLoadInShell(t *testing.T) {
+	s := webtest.New(t)
+	v, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := "/acme/shop/dev"
+	for path, want := range map[string]string{
+		env + "/-/new-tile":               env,
+		env + "/-/proxy":                  env + "?drawer=proxy",
+		env + "/-/volumes/" + v.ID:        env + "?drawer=" + v.ID,
+		env + "/-/instances/api?tab=logs": env + "?drawer=" + s.Tile.ID + "&tab=logs",
+		env + "/-/slices/api":             env + "?drawer=" + s.Tile.ID,
+		env + "/-/placement":              env + "?drawer=env%3A" + s.Tile.Env + "&tab=placement",
+		env + "/-/tiles/api/placement":    env + "?drawer=" + s.Tile.ID + "&tab=placement",
+		"/acme/shop/-/placement":          "/acme/shop?drawer=stack%3A" + s.Tile.Stack + "&tab=placement",
+		"/acme/-/placement":               "/acme?drawer=org%3A" + s.Org + "&tab=placement",
+	} {
+		rec := s.DoNoCSRF(t, "GET", path)
+		if rec.Code != 303 || rec.Header().Get("Location") != want {
+			t.Errorf("%s = %d %q, want %q", path, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+	if rec := s.Do(t, "GET", env+"/-/proxy", nil); rec.Code != 200 {
+		t.Errorf("htmx proxy drawer = %d", rec.Code)
+	}
+}

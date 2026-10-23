@@ -107,7 +107,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 	}
 
 	unmanage := leaf("unmanage <connector> <domain>", op("unmanage"),
-		"Stop managing a domain; its records stay as they are", exact(2),
+		"Stop managing a domain; stackr deletes the records it made, other records stay", exact(2),
 		func(c *cobra.Command, args []string) error {
 			b, err := base(c)
 			if err != nil {

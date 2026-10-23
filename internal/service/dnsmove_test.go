@@ -97,6 +97,7 @@ func TestRecordFollowsIngressMove(t *testing.T) {
 	w.Tags = `["ingress","egress"]`
 	must(t, n.st.Nodes.Update(ctx, w))
 	must(t, n.orch.SetIngress(ctx, admin, ScopeEnv, n.edge.ID, "w1"))
+	n.orch.WaitDNS()
 	if got := f.shop(); !slices.Equal(got, []string{"A 198.51.100.2"}) {
 		t.Errorf("after the move: %v", got)
 	}

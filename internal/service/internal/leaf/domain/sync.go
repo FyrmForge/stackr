@@ -26,9 +26,10 @@ type Syncer struct {
 	// instead of failing the run: one ingress worker down must not fail a
 	// deploy or rollback it does not serve.
 	Soft func(node string) bool
-	// After runs at the end of every run, under its lock: the DNS records
-	// follow what was just pushed.
-	After func(context.Context)
+	// After runs at the end of a run whose pushes all landed (a tile left
+	// out of the build does not stop it): the DNS records follow what was
+	// just pushed. It must not block; the run's lock is still held.
+	After func()
 
 	run  sync.Mutex      // held for a whole run
 	mu   sync.Mutex      // guards the counters
@@ -61,9 +62,9 @@ func (s *Syncer) Sync(ctx context.Context) error {
 
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), Timeout)
 	defer cancel()
-	err := s.once(rctx)
-	if s.After != nil {
-		s.After(rctx)
+	pushed, err := s.once(rctx)
+	if s.After != nil && pushed {
+		s.After()
 	}
 	s.mu.Lock()
 	s.done, s.err = covers, err
@@ -73,18 +74,20 @@ func (s *Syncer) Sync(ctx context.Context) error {
 
 // once is one build and push. A partial build (a tile left out, a node
 // whose config failed) still pushes what built; its error still returns.
-func (s *Syncer) once(ctx context.Context) error {
+// pushed is false when a push failed hard (a Soft node's retried failure
+// does not count: one worker down must not hold every other record).
+func (s *Syncer) once(ctx context.Context) (pushed bool, err error) {
 	if s.BuildAll == nil || s.PushNode == nil {
 		cfg, err := s.Build(ctx)
 		if cfg != nil {
 			if perr := s.Push(ctx, cfg); perr != nil {
-				err = perr
+				return false, perr
 			}
 		}
-		return err
+		return true, err
 	}
 	cfgs, err := s.BuildAll(ctx)
-	errs := []error{err}
+	errs, pushed := []error{err}, true
 	for node, cfg := range cfgs { // one node down must not hold back the others
 		perr := s.PushNode(ctx, node, cfg)
 		soft := s.Soft != nil && s.Soft(node)
@@ -94,6 +97,7 @@ func (s *Syncer) once(ctx context.Context) error {
 		}
 		s.soft[node] = perr != nil && soft
 		s.mu.Unlock()
+		pushed = pushed && (perr == nil || soft)
 		switch {
 		case perr != nil && soft:
 			// ponytail: a deploy served by this node still succeeds; Retry
@@ -103,7 +107,7 @@ func (s *Syncer) once(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("push to node %q: %w", node, perr))
 		}
 	}
-	return errors.Join(errs...)
+	return pushed, errors.Join(errs...)
 }
 
 // Retry runs a sync when a Soft node's last push failed.

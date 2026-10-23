@@ -71,10 +71,12 @@ func TestRecordLifecycle(t *testing.T) {
 	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.1") || len(z) != 4 {
 		t.Fatalf("after add: %v", z)
 	}
+	env.Orch.WaitDNS() // the push's own records sync: nothing left to do
 	calls := env.DNS.Calls
 	if err := env.Orch.SyncProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS()
 	if env.DNS.Calls != calls {
 		t.Errorf("a sync with nothing to change made %d provider calls", env.DNS.Calls-calls)
 	}
@@ -84,6 +86,7 @@ func TestRecordLifecycle(t *testing.T) {
 	if err := env.Orch.SyncProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS()
 	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.2") || has(z, "shop", "A", "198.51.100.1") {
 		t.Fatalf("after repoint: %v", z)
 	}
@@ -94,6 +97,7 @@ func TestRecordLifecycle(t *testing.T) {
 	if err := env.Orch.SyncProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS()
 	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.2") {
 		t.Fatalf("a missing address deleted the record: %v", z)
 	}
@@ -101,6 +105,7 @@ func TestRecordLifecycle(t *testing.T) {
 	if err := env.Orch.DetachDomain(ctx, d.ID); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS()
 	z := env.DNS.Zone("acme.dev")
 	if len(z) != 3 {
 		t.Errorf("after remove: %v", z)
@@ -145,6 +150,7 @@ func TestRecordReplace(t *testing.T) {
 	if err := env.Orch.DetachDomain(ctx, d.ID); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS()
 	if z := env.DNS.Zone("acme.dev"); has(z, "shop", "A", "198.51.100.1") || !has(z, "shop", "TXT", "keep") {
 		t.Errorf("after remove: %v", z)
 	}
@@ -224,6 +230,7 @@ func TestUnmanageRefusedWhileUsed(t *testing.T) {
 	if err := env.Orch.DetachDomain(ctx, d.ID); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS()
 	if err := env.Orch.DeleteDNSConnector(ctx, nil, id); err != nil {
 		t.Fatal(err)
 	}

@@ -134,6 +134,9 @@ func createView(c echo.Context) dialog.CreateTileView {
 // GET …/-/new-tile: the form, or it again for another source (the
 // switch re-sends what was typed).
 func (h *handler) NewTile(c echo.Context) error {
+	if ok, err := render.ToShellTab(c, "", ""); ok { // no link of its own: the env page
+		return err
+	}
 	cs, err := h.orch.Connectors(c.Request().Context(), scope(c).Org.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
@@ -216,6 +219,9 @@ var createFields = []string{
 
 // GET …/-/instances/:tile?tab=
 func (h *handler) Instance(c echo.Context) error {
+	if ok, err := render.ToShell(c, scope(c).Tile.ID); ok {
+		return err
+	}
 	return h.instance(c, c.QueryParam("tab"), "", nil, instance.SettingsView{})
 }
 
@@ -442,6 +448,9 @@ func (h *handler) instanceVolumes(c echo.Context, tileID, instanceID string) ([]
 
 // GET …/-/slices/:tile
 func (h *handler) Slice(c echo.Context) error {
+	if ok, err := render.ToShell(c, scope(c).Tile.ID); ok {
+		return err
+	}
 	return h.slice(c, "", nil)
 }
 
@@ -551,6 +560,9 @@ func (h *handler) Logs(c echo.Context) error {
 	if !h.orch.LogsOn() {
 		return echo.ErrNotFound
 	}
+	if ok, err := h.logsToShell(c); ok {
+		return err
+	}
 	v, err := render.LogHistory(c, h.orch, scope(c))
 	if err != nil {
 		return middleware.HTTPError(err)
@@ -561,8 +573,30 @@ func (h *handler) Logs(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, comp.LogHistory(v))
 }
 
+// logsToShell sends a plain load of the log viewer to the drawer it sits
+// in: the tile's Logs tab for one tile's (?from=tile), else the env's.
+func (h *handler) logsToShell(c echo.Context) (bool, error) {
+	s := scope(c)
+	node := "env:" + s.Env.ID
+	if c.QueryParam("from") == "tile" {
+		ts, err := h.orch.Tiles(c.Request().Context(), s.Env.ID)
+		if err != nil {
+			return true, middleware.HTTPError(err)
+		}
+		for _, t := range ts {
+			if t.Slug == c.QueryParam("tile") {
+				node = t.ID
+			}
+		}
+	}
+	return render.ToShellTab(c, node, "logs")
+}
+
 // GET …/-/proxy
 func (h *handler) Proxy(c echo.Context) error {
+	if ok, err := render.ToShell(c, "proxy"); ok {
+		return err
+	}
 	rs, err := h.orch.Routes(c.Request().Context(), scope(c).Env.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
@@ -586,6 +620,9 @@ func (h *handler) Proxy(c echo.Context) error {
 
 // GET …/-/volumes/:volume?tab=
 func (h *handler) Volume(c echo.Context) error {
+	if ok, err := render.ToShell(c, c.Param("volume")); ok {
+		return err
+	}
 	return h.volume(c, c.QueryParam("tab"), "", nil)
 }
 

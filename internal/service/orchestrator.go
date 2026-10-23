@@ -220,7 +220,9 @@ type Orchestrator struct {
 	store       *store.Store
 	sessions    *auth.SessionManager
 	docker      Docker
-	vip         tile.VIP // the boot rebuild reads it (vipboot.go)
+	vip         tile.VIP  // the boot rebuild reads it (vipboot.go)
+	dnsKick     *coalesce // the records sync after a proxy push (dnssync.go)
+	dnsSync     dnsState
 
 	users       *user.Leaf
 	orgs        *org.Leaf
@@ -442,12 +444,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	o.vip = newNodeVIPs(map[string]tile.VIP{ctl.ID: o.vip})
 	orch := &Orchestrator{
-		cfg:    cfg,
-		db:     db,
-		store:  st,
-		docker: d,
-		vip:    o.vip,
-		gitEnv: o.gitEnv,
+		dnsKick: &coalesce{},
+		cfg:     cfg,
+		db:      db,
+		store:   st,
+		docker:  d,
+		vip:     o.vip,
+		gitEnv:  o.gitEnv,
 
 		caddyMetrics: o.caddyMetrics,
 
@@ -457,6 +460,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 
 		stackrPublished: make(chan struct{}),
 	}
+	orch.dnsKick.fn = orch.syncDNS
 	if nv, ok := orch.vip.(*nodeVIPs); ok {
 		nv.down = orch.nodeDown
 	}
@@ -557,7 +561,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
-		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor, func(ctx context.Context, id string) error { return orch.nodeDown(ctx, id) })), Soft: orch.isWorker, After: orch.syncDNS}
+		return &domain.Syncer{BuildAll: orch.proxyConfigs, PushNode: orch.pushNodeProxy(proxyPush(orch.controllerID, o.push, orch.caddyFor, func(ctx context.Context, id string) error { return orch.nodeDown(ctx, id) })), Soft: orch.isWorker, After: orch.dnsKick.Kick}
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
