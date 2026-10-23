@@ -145,7 +145,7 @@ type clusterNodeIn struct {
 	Alive       bool          // not Up, but its public liveness port answered
 	Expired     bool          // a worker whose newest cert ran out
 	Warnings    []NodeWarning
-	NotRejoined bool          // break glass revoked it and its rejoin is not used yet
+	NotRejoined bool // break glass revoked it and its rejoin is not used yet
 	Envs        []ClusterEnv
 	Domains     []string
 	DomainEnvs  map[string]string
