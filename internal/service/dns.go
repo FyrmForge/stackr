@@ -134,7 +134,7 @@ func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, d
 	orgIDs = slices.Compact(slices.Sorted(slices.Values(orgIDs)))
 	for _, oid := range orgIDs {
 		if _, err := o.orgs.Get(ctx, oid); errors.Is(err, errs.ErrNotFound) {
-			return DNSDomain{}, errs.Invalidf("org_ids", "no organization %q", oid)
+			return DNSDomain{}, errs.Invalidf("org_ids", "No organization %q", oid)
 		} else if err != nil {
 			return DNSDomain{}, err
 		}
@@ -241,7 +241,7 @@ func (o *Orchestrator) DeleteDNSConnector(ctx context.Context, orgID *string, id
 		users = append(users, u...)
 	}
 	if len(users) > 0 {
-		return errs.Conflictf("the connector's domains are in use by %s; remove those domains first", strings.Join(users, ", "))
+		return errs.Conflictf("The connector's domains are in use by %s. Remove those domains first", strings.Join(users, ", "))
 	}
 	for _, d := range ds {
 		if err := o.forgetDomain(ctx, c, creds, d.Name); err != nil {

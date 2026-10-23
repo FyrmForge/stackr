@@ -152,7 +152,7 @@ func (o *Orchestrator) ShareConnector(
 	orgIDs = slices.Compact(slices.Sorted(slices.Values(orgIDs)))
 	for _, oid := range orgIDs {
 		if _, err := o.orgs.Get(ctx, oid); errors.Is(err, errs.ErrNotFound) {
-			return ServerConnector{}, errs.Invalidf("org_ids", "no organization %q", oid)
+			return ServerConnector{}, errs.Invalidf("org_ids", "No organization %q", oid)
 		} else if err != nil {
 			return ServerConnector{}, err
 		}

@@ -79,7 +79,7 @@ func (p Panel) add(c echo.Context) error {
 	v := p.Form(c)
 	v.User, v.IP, v.Errors = a.User, a.ClientIP, fields(err)
 	if len(v.Errors) == 0 {
-		msg, ok := render.Refused(err)
+		msg, ok := refusal(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}
@@ -105,6 +105,15 @@ func fields(err error) map[string]string {
 	}
 	walk(err)
 	return out
+}
+
+// refusal is what the viewer reads of a refused action: an invalid
+// field's own sentence, without the field name in front.
+func refusal(err error) (string, bool) {
+	if inv, ok := errs.IsInvalid(err); ok {
+		return inv.Msg, true
+	}
+	return render.Refused(err)
 }
 
 // connector is the request's connector of this level.
@@ -204,7 +213,7 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 	v := ui.DomainsView{ID: id, Shared: org == nil, Note: note}
 	status := http.StatusOK
 	if actErr != nil {
-		msg, ok := render.Refused(actErr)
+		msg, ok := refusal(actErr)
 		if !ok {
 			return middleware.HTTPError(actErr)
 		}
@@ -212,7 +221,7 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 	}
 	ds, err := p.Orch.DNSDomains(ctx, org, id)
 	if err != nil {
-		msg, ok := render.Refused(err)
+		msg, ok := refusal(err)
 		if !ok {
 			return middleware.HTTPError(err)
 		}

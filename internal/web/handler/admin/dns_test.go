@@ -100,7 +100,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 		t.Errorf("the summary does not count the managed domain:\n%s", body)
 	}
 	rec = s.As(t, root, "POST", base+"/takeover", url.Values{"domain": {"away.com"}, "confirm": {"nope"}})
-	if rec.Code != http.StatusUnprocessableEntity || len(s.DNS.TookOver) != 0 {
+	if rec.Code != http.StatusUnprocessableEntity || len(s.DNS.TookOver) != 0 || !strings.Contains(rec.Body.String(), ">Type away.com to confirm<") {
 		t.Errorf("take over, wrong word = %d, took over %v", rec.Code, s.DNS.TookOver)
 	}
 

@@ -65,9 +65,9 @@ func (l *Leaf) AddDNS(ctx context.Context, orgID *string, kind string, d DNS) (s
 	if err := l.conns.Create(ctx, c); err != nil {
 		if _, ok := errs.IsConflict(err); ok {
 			if orgID != nil {
-				return store.Connector{}, errs.Conflictf("this organization already has a Namecheap connector")
+				return store.Connector{}, errs.Conflictf("This organization already has a Namecheap connector")
 			}
-			return store.Connector{}, errs.Conflictf("a server connector named %q exists", c.Name)
+			return store.Connector{}, errs.Conflictf("A server connector named %q exists", c.Name)
 		}
 		return store.Connector{}, err
 	}

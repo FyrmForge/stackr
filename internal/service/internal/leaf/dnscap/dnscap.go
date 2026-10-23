@@ -276,7 +276,7 @@ func (l *Leaf) zone(ctx context.Context, kind string, c Creds, name string) (Zon
 func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, kind string, c Creds, name string, orgIDs []string) (Domain, error) {
 	name = Normal(name)
 	if orgID != nil && len(orgIDs) > 0 {
-		return Domain{}, errs.Invalidf("org_ids", "an organization's connector serves that organization only")
+		return Domain{}, errs.Invalidf("org_ids", "An organization's connector serves that organization only")
 	}
 	d := Domain{Name: name, State: Managed, ShareAll: len(orgIDs) == 0, OrgIDs: orEmpty(orgIDs)}
 	if orgID != nil {
@@ -365,7 +365,7 @@ func MayUse(d store.DNSDomain, orgID string) bool {
 func (l *Leaf) TakeOver(ctx context.Context, kind string, c Creds, name, confirm string) error {
 	name = Normal(name)
 	if strings.TrimSpace(confirm) != name || name == "" {
-		return errs.Invalidf("confirm", "type %s to confirm", name)
+		return errs.Invalidf("confirm", "Type %s to confirm", name)
 	}
 	z, err := l.zone(ctx, kind, c, name)
 	if err != nil {
