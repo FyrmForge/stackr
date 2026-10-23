@@ -449,7 +449,7 @@ func TestServerWizardCertificates(t *testing.T) {
 	}
 	base := setup.ServerBase + "/dns/" + cs[0].ID
 	body = s.do(adm, "GET", step, nil, false).Body.String()
-	if !strings.Contains(body, `hx-get="`+base+`/settings"`) || !strings.Contains(body, ">Continue</a>") {
+	if !strings.Contains(body, `hx-get="`+base+`/settings"`) || !strings.Contains(body, ">Continue</a>") || !strings.Contains(body, "No domains managed yet.") {
 		t.Errorf("step after add:\n%s", body)
 	}
 	// a closing dialog refreshes the list from the step, Continue with it
@@ -465,6 +465,9 @@ func TestServerWizardCertificates(t *testing.T) {
 	rec = s.do(adm, "POST", base+"/manage", url.Values{"domain": {"acme.dev"}}, true)
 	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Available to every organization.") || strings.Contains(b, "<fieldset") {
 		t.Fatalf("manage = %d\n%s", rec.Code, b)
+	}
+	if strings.Contains(s.do(adm, "GET", step, nil, false).Body.String(), "No domains managed yet.") {
+		t.Error("the no-domains line stays once one is managed")
 	}
 	if !strings.Contains(s.do(adm, "GET", setup.ServerBase+"/ui/summary", nil, false).Body.String(), "wildcards and DNS records for acme.dev") {
 		t.Error("summary does not name the managed domain")

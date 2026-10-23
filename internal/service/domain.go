@@ -133,7 +133,34 @@ func (o *Orchestrator) checkManagedHost(ctx context.Context, t Tile, host string
 	if err != nil || !ok {
 		return "", err
 	}
+	if !auto { // a typed name is refused outright; an auto one waits for the IP
+		if err := o.checkIngressIP(ctx, t, host); err != nil {
+			return "", err
+		}
+	}
 	return z.Name, o.checkRecordFree(ctx, z, host, replace)
+}
+
+// checkIngressIP refuses host when the tile's ingress node has no public
+// address for its records.
+func (o *Orchestrator) checkIngressIP(ctx context.Context, t Tile, host string) error {
+	node, err := o.IngressFor(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	if node == "" {
+		if node, err = o.DefaultIngress(ctx); err != nil {
+			return err
+		}
+	}
+	v4, v6, name, err := o.nodeAddrs(ctx, node)
+	if err != nil {
+		return err
+	}
+	if !v4.IsValid() && !v6.IsValid() {
+		return &NoPublicIP{NodeID: node, Node: name, Hosts: []string{host}}
+	}
+	return nil
 }
 
 // syncWithDNS pushes the proxy and, for a host in managed zone, writes its

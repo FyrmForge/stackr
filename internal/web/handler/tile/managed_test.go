@@ -86,6 +86,9 @@ func TestManagedDomainNoPublicIP(t *testing.T) {
 	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, named) || !strings.Contains(body, link) {
 		t.Fatalf("admin: no IP = %d, want %q and %s", rec.Code, named, link)
 	}
+	if body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String(); strings.Contains(body, "app.acme.dev") || strings.Contains(body, "web.acme.dev") {
+		t.Errorf("a refused add saved its domain")
+	}
 }
 
 // managedSite has acme.dev managed through a DNS connector, the node's

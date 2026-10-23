@@ -186,6 +186,12 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		}
 		v.List.Rows, err = h.dnsPanel().Rows(c)
 		v.Done = len(v.List.Rows) > 0
+		if v.Done && err == nil {
+			var n map[string]int
+			if n, err = h.orch.DNSManaged(ctx, nil); err == nil && sumOf(n) == 0 {
+				v.List.Help = "No domains managed yet. Pick them in a connector's settings."
+			}
+		}
 		body = pages.ServerCertificates(v)
 	case "github":
 		var v pages.ServerGitHubView
@@ -710,4 +716,13 @@ func (h *handler) serverDone(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	return respond.Redirect(c, "/")
+}
+
+// sumOf is the total of n's values.
+func sumOf(n map[string]int) int {
+	t := 0
+	for _, v := range n {
+		t += v
+	}
+	return t
 }
