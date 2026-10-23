@@ -3,6 +3,8 @@ package service
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -250,6 +252,7 @@ func (o *Orchestrator) clone(
 	}
 	r := git.Repo{
 		Dir:    dir,
+		Root:   filepath.Join(o.cfg.DataDir, "repos"),
 		URL:    url,
 		Branch: branch,
 		Auth:   func(context.Context) []string { return env },
@@ -390,6 +393,7 @@ func (o *Orchestrator) serverFile(ctx context.Context, commit string, log io.Wri
 	defer unlock()
 	r := git.Repo{
 		Dir:    dir,
+		Root:   filepath.Join(o.cfg.DataDir, "repos"),
 		URL:    b.Repo,
 		Branch: b.Branch,
 		Auth:   func(context.Context) []string { return env },
@@ -416,7 +420,7 @@ func (o *Orchestrator) buildTile(
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(o.cfg.DataDir, "repos", t.ID)
+	dir := filepath.Join(o.cfg.DataDir, "repos", tileCheckout(st, t))
 	unlock := o.repoLock(dir)
 	defer unlock()
 	r, _, err := o.clone(ctx, st.OrgID, o.tileConnector(ctx, st, t.GitURL), t.GitURL, t.GitBranch, dir, commit, log)
@@ -458,6 +462,16 @@ func (o *Orchestrator) buildTile(
 	return buildFallback(o.builderNode(ctx, ctl), ctl,
 		func(n string) (string, error) { return o.buildOn(ctx, n, repo, ref, bctx, df, args, log) },
 		func(n string) bool { return o.nodeAnswers(ctx, n) }, log)
+}
+
+// tileCheckout names a tile's build clone. Never the tile's id: a push
+// builds a tile from its stack-file row before any row is saved, so the id
+// is "". The stack and slug key it (one build per slug per push); the repo
+// hash keeps an env whose tile points at another repo out of its clone,
+// since a clone keeps fetching from the remote it was made from.
+func tileCheckout(st store.Stack, t store.Tile) string {
+	h := sha256.Sum256([]byte(promote.NormalizeRepo(t.GitURL)))
+	return "tile-" + st.ID + "-" + t.Slug + "-" + hex.EncodeToString(h[:4])
 }
 
 // buildOn builds ref on nodeID and copies it into the cluster registry
