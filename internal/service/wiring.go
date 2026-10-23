@@ -49,7 +49,7 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 	in := domain.Install{
 		AdminListen:    ProxyAdmin,
 		ACMEEmail:      get("acme_email"),
-		DNSProvider:    get("dns_provider"),
+		Managed:        o.managedDomains(ctx),
 		TLSOff:         o.cfg.TLSOff,
 		PanelHost:      get("panel_domain"),
 		PanelUpstream:  o.cfg.PanelUpstream,

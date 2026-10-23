@@ -216,8 +216,7 @@
                 "challenges": {
                   "dns": {
                     "provider": {
-                      "api_token": "{env.DNS_API_TOKEN}",
-                      "name": "cloudflare"
+                      "name": "stackr"
                     }
                   }
                 },
@@ -227,6 +226,24 @@
             ],
             "subjects": [
               "*.example.com"
+            ]
+          },
+          {
+            "issuers": [
+              {
+                "challenges": {
+                  "dns": {
+                    "provider": {
+                      "name": "stackr"
+                    }
+                  }
+                },
+                "email": "shop@example.com",
+                "module": "acme"
+              }
+            ],
+            "subjects": [
+              "*.shop.example.com"
             ]
           },
           {
@@ -259,6 +276,11 @@
               }
             ]
           }
+        ]
+      },
+      "certificates": {
+        "automate": [
+          "*.shop.example.com"
         ]
       }
     }

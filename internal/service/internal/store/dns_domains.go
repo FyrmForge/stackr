@@ -26,8 +26,9 @@ type DNSDomainStore interface {
 	Get(ctx context.Context, id string) (DNSDomain, error)
 	Update(ctx context.Context, d DNSDomain) error
 	Delete(ctx context.Context, id string) error
-	List(ctx context.Context) ([]DNSDomain, error)
 	ListByConnector(ctx context.Context, connectorID string) ([]DNSDomain, error)
+	GetByName(ctx context.Context, name string) (DNSDomain, error)
+	List(ctx context.Context) ([]DNSDomain, error)
 	// ListFor is the domains orgID may use: its own connectors', and the
 	// server connectors' shared with it.
 	ListFor(ctx context.Context, orgID string) ([]DNSDomain, error)
@@ -37,10 +38,6 @@ var dnsDomainsT = newTable[DNSDomain]("dns_domains", nil)
 
 type dnsDomains struct{ crud[DNSDomain] }
 
-func (s dnsDomains) List(ctx context.Context) ([]DNSDomain, error) {
-	return s.many(ctx, "1 = 1 ORDER BY name")
-}
-
 func (s dnsDomains) ListByConnector(ctx context.Context, connectorID string) ([]DNSDomain, error) {
 	return s.many(ctx, "connector_id = ? ORDER BY name", connectorID)
 }
@@ -48,4 +45,12 @@ func (s dnsDomains) ListByConnector(ctx context.Context, connectorID string) ([]
 func (s dnsDomains) ListFor(ctx context.Context, orgID string) ([]DNSDomain, error) {
 	return s.many(ctx, `org_id = ? OR (org_id IS NULL AND (share_all = 1 OR EXISTS
 		(SELECT 1 FROM json_each(org_ids) WHERE value = ?))) ORDER BY name`, orgID, orgID)
+}
+
+func (s dnsDomains) GetByName(ctx context.Context, name string) (DNSDomain, error) {
+	return s.one(ctx, "name = ?", name)
+}
+
+func (s dnsDomains) List(ctx context.Context) ([]DNSDomain, error) {
+	return s.many(ctx, "1 = 1 ORDER BY name")
 }

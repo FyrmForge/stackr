@@ -189,13 +189,6 @@ var Catalogue = []Knob{
 		Desc:   "CIDRs whose X-Forwarded-For is trusted",
 	},
 	{
-		Key:    "dns_provider",
-		Label:  "DNS provider",
-		Type:   TStr,
-		Scopes: Flat,
-		Desc:   "DNS-01 provider for the wildcard certificate",
-	},
-	{
 		Key:    "proxy_custom",
 		Label:  "Custom Caddy config",
 		Type:   TStr,

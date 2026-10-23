@@ -35,8 +35,6 @@ docker run
   -e
   CADDY_TRUSTED_PROXIES=
   -e
-  DNS_PROVIDER=
-  -e
   DATA_DIR=/srv/stackr
   -e
   DATABASE_PATH=/srv/stackr/stackr.db

@@ -31,10 +31,9 @@ type Flow struct {
 	Spec func(image string) docker.ContainerSpec
 	URL  string // "" = ReleasesURL; tests point it at a fake
 	// Docker and ProxySpec let an upgrade bring stackr-proxy along: its spec
-	// for image and the DNS-01 token it already runs with. Nil = the proxy
-	// is left alone.
+	// for image. Nil = the proxy is left alone.
 	Docker    ProxyDocker
-	ProxySpec func(image, dnsToken string) docker.ContainerSpec
+	ProxySpec func(image string) docker.ContainerSpec
 	// DataDir is the install's data dir, where the registry's socket sits;
 	// "" = the registry is left alone (dev, tests).
 	DataDir string
@@ -45,7 +44,6 @@ type Flow struct {
 // ProxyDocker is the slice of the daemon the proxy recreate uses.
 type ProxyDocker interface {
 	List(ctx context.Context, labels map[string]string) ([]docker.Container, error)
-	Inspect(ctx context.Context, id string) (docker.Detail, error)
 	StopRemove(ctx context.Context, id string) error
 	Rename(ctx context.Context, id, name string) error
 	Stop(ctx context.Context, id string) error
@@ -189,11 +187,7 @@ func (f *Flow) EnsureProxy(ctx context.Context, image string) error {
 			return fmt.Errorf("remove leftover proxy: %w", err)
 		}
 	}
-	d, err := f.Docker.Inspect(ctx, cur.ID)
-	if err != nil {
-		return err
-	}
-	want := f.ProxySpec(image, installspec.TokenFrom(d.Env))
+	want := f.ProxySpec(image)
 	if cur.Labels[installspec.LabelSpec] == want.Labels[installspec.LabelSpec] {
 		return nil
 	}

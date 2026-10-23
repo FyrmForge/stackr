@@ -86,10 +86,9 @@ func TestProxyModulesCoverBuilder(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no builder fixtures")
 	}
-	// The fixtures mask bcrypt hashes; the env token is the proxy's.
+	// The fixtures mask bcrypt hashes.
 	hash, err := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.MinCost)
 	must(t, err)
-	t.Setenv("DNS_API_TOKEN", strings.Repeat("a", 40))
 	for _, f := range files {
 		raw, err := os.ReadFile(f)
 		must(t, err)

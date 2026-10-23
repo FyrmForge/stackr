@@ -219,7 +219,7 @@ func run(log *slog.Logger, generate bool) error {
 	// The installer's saved answers: the upgrade rebuilds the panel from
 	// the same spec the installer ran. None (dev) = no self-upgrade.
 	var spec func(string) service.ContainerSpec
-	var proxy func(string, string) service.ContainerSpec
+	var proxy func(string) service.ContainerSpec
 	if in, err := installspec.Load(envDataDir); err == nil {
 		spec = panelSpec(in)
 		proxy = proxySpec(in)
@@ -261,7 +261,6 @@ func run(log *slog.Logger, generate bool) error {
 		RootDomain:     config.GetEnvOrDefault("ROOT_DOMAIN", ""),
 		ACMEEmail:      config.GetEnvOrDefault("ACME_EMAIL", ""),
 		TrustedProxies: config.GetEnvOrDefault("CADDY_TRUSTED_PROXIES", ""),
-		DNSProvider:    config.GetEnvOrDefault("DNS_PROVIDER", ""),
 	})
 	if err != nil {
 		return fmt.Errorf("start service: %w", err)
@@ -379,9 +378,9 @@ func adminKey(out io.Writer) error {
 }
 
 // proxySpec builds the upgrade's proxy container from the install spec.
-func proxySpec(in installspec.Input) func(string, string) service.ContainerSpec {
-	return func(image, dnsToken string) service.ContainerSpec {
-		c := installspec.Proxy(image, in, dnsToken)
+func proxySpec(in installspec.Input) func(string) service.ContainerSpec {
+	return func(image string) service.ContainerSpec {
+		c := installspec.Proxy(image, in)
 		ports := map[string]string{}
 		for _, p := range c.Ports {
 			host, ctr, _ := strings.Cut(p, ":")

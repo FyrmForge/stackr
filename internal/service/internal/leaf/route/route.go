@@ -106,7 +106,7 @@ func Check(s Spec, tlsOn, dns01 bool) (store.Route, error) {
 	}
 	r.Host = host
 	if strings.HasPrefix(host, "*.") && s.Mode != Passthrough && !dns01 {
-		return r, errs.Invalidf("host", "A wildcard host needs a DNS provider, or the passthrough mode.")
+		return r, errs.Invalidf("host", "A wildcard host needs a managed DNS domain, or the passthrough mode.")
 	}
 	if s.Mode == Passthrough && !tlsOn {
 		return r, errs.Invalidf("mode", "Pass-through needs HTTPS on.")

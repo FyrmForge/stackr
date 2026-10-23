@@ -12,7 +12,6 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.43.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.16
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.0
-	github.com/caddy-dns/cloudflare v0.2.4
 	github.com/caddyserver/caddy/v2 v2.11.4
 	github.com/coder/websocket v1.8.14
 	github.com/containerd/errdefs v1.0.0
@@ -133,7 +132,6 @@ require (
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/labstack/gommon v0.5.0 // indirect
-	github.com/libdns/cloudflare v0.2.2 // indirect
 	github.com/lmittmann/tint v1.1.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20250317134145-8bc96cf8fc35 // indirect

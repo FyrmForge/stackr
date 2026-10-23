@@ -115,15 +115,19 @@ func (o *Orchestrator) serveRegistryWG(ctx context.Context) {
 	}
 }
 
-// meshHandler is the controller's mesh listener: node cert renewal, nothing
-// else. The registry is not served here: nodes get images loaded, never pull.
+// meshHandler is the controller's mesh listener: node cert renewal and an
+// ingress worker's ACME DNS-01 calls, nothing else. The registry is not
+// served here: nodes get images loaded, never pull.
 func (o *Orchestrator) meshHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == worker.RenewTunnelPath {
+		switch r.URL.Path {
+		case worker.RenewTunnelPath:
 			o.renewTunnel(w, r)
-			return
+		case worker.DNSAppendPath, worker.DNSDeletePath:
+			o.meshDNS(w, r)
+		default:
+			http.NotFound(w, r)
 		}
-		http.NotFound(w, r)
 	})
 }
 

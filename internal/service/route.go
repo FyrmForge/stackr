@@ -38,7 +38,7 @@ func (o *Orchestrator) CreateExternalRoute(ctx context.Context, s ExternalRouteS
 	if err := check(ctx, s.Host); err != nil {
 		return ExternalRoute{}, err
 	}
-	r, err := o.routes.Create(ctx, s, taken, !o.cfg.TLSOff, o.dns01(ctx))
+	r, err := o.routes.Create(ctx, s, taken, !o.cfg.TLSOff, o.dns01(ctx, s.Host))
 	if err != nil {
 		return r, err
 	}

@@ -36,8 +36,9 @@ type Flow struct {
 	// Config reads the stack file (and a fetcher for its includes) at a
 	// commit of the stack's config repo.
 	Config func(ctx context.Context, st store.Stack, commit string, log io.Writer) ([]byte, Fetcher, error)
-	// DNS01 reports whether a DNS-01 provider is configured (wildcards).
-	DNS01 func(ctx context.Context) bool
+	// DNS01 reports whether a wildcard host can get its certificate: it
+	// is under a managed DNS domain.
+	DNS01 func(ctx context.Context, host string) bool
 	// RouteHeld reports whether an external route holds a host: a stack
 	// file domain on it is blocked, as a UI domain is refused.
 	RouteHeld func(ctx context.Context, host string) (bool, error)
@@ -215,7 +216,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 	if err := f.applyInstances(ctx, w, e); err != nil {
 		return err
 	}
-	dns01 := f.DNS01 != nil && f.DNS01(ctx)
+	dns01 := func(host string) bool { return f.DNS01 != nil && f.DNS01(ctx, host) }
 	for _, name := range slices.Sorted(maps.Keys(w.domains)) {
 		t, err := d.Tiles.GetBySlug(ctx, e.ID, name)
 		if err != nil {
@@ -232,7 +233,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			if err != nil {
 				return err
 			}
-			if _, err := d.Domains.Update(ctx, row, sp, dns01); err != nil {
+			if _, err := d.Domains.Update(ctx, row, sp, dns01(sp.Host)); err != nil {
 				return err
 			}
 		}
@@ -247,7 +248,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			}
 		}
 		for _, sp := range dw.add {
-			if _, err := d.Domains.Attach(ctx, t.ID, sp, dns01, reps); err != nil {
+			if _, err := d.Domains.Attach(ctx, t.ID, sp, dns01(sp.Host), reps); err != nil {
 				return fmt.Errorf("%s: domain %s: %w", name, sp.Host, err)
 			}
 		}

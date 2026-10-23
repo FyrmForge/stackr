@@ -208,7 +208,7 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 		if err := settings.Check(key, raw); err != nil {
 			return err
 		}
-		if key == "acme_email" || key == "dns_provider" || key == "alert_webhook_url" {
+		if key == "acme_email" || key == "alert_webhook_url" {
 			// what the server file's Parse refuses, so export then plan reads clean
 			if _, err := serverconfig.CheckSetting(key, raw); err != nil {
 				return errs.Invalidf(key, "%s", err.Error())

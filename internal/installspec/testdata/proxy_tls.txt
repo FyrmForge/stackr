@@ -7,7 +7,7 @@ docker run
   --label
   stackr.role=proxy
   --label
-  stackr.spec=15afdc34ab5b9703
+  stackr.spec=9db2c2053ef435e7
   --log-opt
   max-size=10m
   --log-opt
@@ -26,7 +26,5 @@ docker run
   XDG_DATA_HOME=/caddy/data
   -e
   XDG_CONFIG_HOME=/caddy/config
-  -e
-  DNS_API_TOKEN=cf-token
   ghcr.io/fyrmforge/stackr:1.2.3
   proxy

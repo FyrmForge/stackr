@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/libdns/libdns"
 
@@ -13,7 +14,9 @@ import (
 
 // DNS is the fake DNS account every harness wires in: Zones is what each
 // account lists; an account whose key is BadKey is refused like a wrong
-// Namecheap key. TookOver records the take-overs asked for.
+// Namecheap key. TookOver records the take-overs asked for. Appended and
+// Deleted are the record calls ("zone name data"); Overlap is set when two
+// calls were ever inside one zone at once.
 type DNS struct {
 	mu       sync.Mutex
 	Zones    []service.DNSZone
@@ -21,6 +24,32 @@ type DNS struct {
 	Opened   []service.DNSCreds
 	Records  map[string][]libdns.RR // zone -> records
 	Calls    int                    // record calls made
+	Appended []string
+	Deleted  []string
+	Overlap  bool
+	inZone   map[string]int
+}
+
+// record logs rs under zone into to, holding the zone a moment so two
+// unlocked writers would overlap.
+func (d *DNS) record(zone string, rs []libdns.Record, to *[]string) {
+	d.mu.Lock()
+	if d.inZone == nil {
+		d.inZone = map[string]int{}
+	}
+	d.inZone[zone]++
+	if d.inZone[zone] > 1 {
+		d.Overlap = true
+	}
+	d.mu.Unlock()
+	time.Sleep(5 * time.Millisecond)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inZone[zone]--
+	for _, r := range rs {
+		rr := r.RR()
+		*to = append(*to, zone+" "+rr.Name+" "+rr.Data)
+	}
 }
 
 // BadKey is the key the fake refuses.
@@ -60,6 +89,7 @@ func (a fakeAccount) Get(_ context.Context, zone string) ([]libdns.Record, error
 }
 
 func (a fakeAccount) Append(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+	a.d.record(zone, rs, &a.d.Appended)
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()
 	a.d.Calls++
@@ -93,6 +123,7 @@ func (a fakeAccount) Set(_ context.Context, zone string, rs []libdns.Record) ([]
 
 // Delete removes records by name, type and value.
 func (a fakeAccount) Delete(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+	a.d.record(zone, rs, &a.d.Deleted)
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()
 	a.d.Calls++
@@ -132,4 +163,11 @@ func (a fakeAccount) TakeOver(_ context.Context, zone string) error {
 		}
 	}
 	return nil
+}
+
+// Log is Appended, Deleted and Overlap read under the lock.
+func (d *DNS) Log() (appended, deleted []string, overlap bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.Appended...), append([]string(nil), d.Deleted...), d.Overlap
 }

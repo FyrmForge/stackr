@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -128,13 +129,28 @@ func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, d
 	}
 	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, c.Provider, creds, domain, orgIDs)
 	if err != nil || !made {
+		if err == nil {
+			o.dnsChanged(ctx)
+		}
 		return d, err
 	}
 	r, err := o.domainres.Adopt(ctx, res, ownerOf(DomainResource{OrgID: c.OrgID}), nil)
 	if err != nil {
 		return d, err
 	}
-	return d, o.dns.Linked(ctx, c.ID, domain, r.ID)
+	if err := o.dns.Linked(ctx, c.ID, domain, r.ID); err != nil {
+		return d, err
+	}
+	o.dnsChanged(ctx)
+	return d, nil
+}
+
+// dnsChanged pushes the proxy config after the managed domains changed: its
+// wildcard certificates follow them.
+func (o *Orchestrator) dnsChanged(ctx context.Context) {
+	if err := o.sync.Sync(ctx); err != nil {
+		slog.Warn("proxy: push after a managed domain change", "err", err) // the periodic sync repairs it
+	}
 }
 
 // managedResource is the domain resource a managed domain stands for. The
@@ -172,7 +188,11 @@ func (o *Orchestrator) UnmanageDNSDomain(ctx context.Context, orgID *string, id,
 	if err != nil {
 		return err
 	}
-	return o.forgetDomain(ctx, c, creds, domain)
+	if err := o.forgetDomain(ctx, c, creds, domain); err != nil {
+		return err
+	}
+	o.dnsChanged(ctx)
+	return nil
 }
 
 // TakeOverDNSDomain switches domain to the provider's own DNS; confirm is
@@ -212,7 +232,11 @@ func (o *Orchestrator) DeleteDNSConnector(ctx context.Context, orgID *string, id
 			return err
 		}
 	}
-	return o.conns.DeleteDNS(ctx, orgID, id)
+	if err := o.conns.DeleteDNS(ctx, orgID, id); err != nil {
+		return err
+	}
+	o.dnsChanged(ctx)
+	return nil
 }
 
 // UsableDNSDomains is the managed domains orgID may put tiles under: its

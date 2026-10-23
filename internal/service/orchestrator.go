@@ -100,7 +100,6 @@ type Config struct {
 	RootDomain     string // tiles get names under it; seeds the instance domain resource
 	ACMEEmail      string
 	TrustedProxies string // CIDRs Caddy trusts X-Forwarded-For from
-	DNSProvider    string // "cloudflare" = DNS-01, the token sits on the proxy
 
 	CookieSecure bool
 	CookieDomain string
@@ -115,9 +114,9 @@ type Config struct {
 	// PanelSpec is the panel's container spec for an image, the installer's
 	// one spec; nil refuses self-upgrade.
 	PanelSpec func(image string) ContainerSpec
-	// ProxySpec is stackr-proxy's spec for an image and its DNS-01 token,
-	// the same installer spec; an upgrade recreates a stale proxy from it.
-	ProxySpec func(image, dnsToken string) ContainerSpec
+	// ProxySpec is stackr-proxy's spec for an image, the same installer
+	// spec; an upgrade recreates a stale proxy from it.
+	ProxySpec func(image string) ContainerSpec
 	// Conntrack is the host conntrack table the traffic sample reads;
 	// "" = /proc/net/nf_conntrack (the panel is host-network).
 	Conntrack string
@@ -778,6 +777,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.redeployRestored(ctx)
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()
+	orch.startDNSSocket()
 	orch.detach(context.Background(), orch.dailyChores)
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.
@@ -858,7 +858,6 @@ func bootSettings(cfg Config) map[string]string {
 		"root_domain":     cfg.RootDomain,
 		"acme_email":      cfg.ACMEEmail,
 		"trusted_proxies": cfg.TrustedProxies,
-		"dns_provider":    cfg.DNSProvider,
 	} {
 		if v != "" {
 			boot[k] = v
