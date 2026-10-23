@@ -658,9 +658,9 @@ templ NodeBody(tab string, v NodeView) {
 				}
 			case "network":
 				@c.Section("Public IP", "", "DNS records of managed domains point here. Empty uses the detected address.") {
-					<form hx-post={ v.PublicIPAction } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center mb-6">
+					<form hx-post={ v.PublicIPAction } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center">
 						<input type="text" name="public_ip" value={ v.PublicIP } aria-label="Public IP" placeholder="detected" class="input !w-48 font-mono"/>
-						<button type="submit" class="btn btn-primary btn-sm">Save</button>
+						<button type="submit" class="btn btn-primary">Save</button>
 					</form>
 				}
 				if len(v.Ifaces) == 0 {

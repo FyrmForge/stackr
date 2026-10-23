@@ -2219,7 +2219,7 @@ func NodeBody(tab string, v NodeView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "\" hx-swap=\"outerHTML\" class=\"flex flex-wrap gap-2 items-center mb-6\"><input type=\"text\" name=\"public_ip\" value=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "\" hx-swap=\"outerHTML\" class=\"flex flex-wrap gap-2 items-center\"><input type=\"text\" name=\"public_ip\" value=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2232,7 +2232,7 @@ func NodeBody(tab string, v NodeView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "\" aria-label=\"Public IP\" placeholder=\"detected\" class=\"input !w-48 font-mono\"> <button type=\"submit\" class=\"btn btn-primary btn-sm\">Save</button></form>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "\" aria-label=\"Public IP\" placeholder=\"detected\" class=\"input !w-48 font-mono\"> <button type=\"submit\" class=\"btn btn-primary\">Save</button></form>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
