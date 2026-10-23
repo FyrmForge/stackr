@@ -244,6 +244,19 @@ func InUse(err error) templ.Component {
 	return connectors.InUse(in.Msg+in.Tail, Usages(in.Usages))
 }
 
+// RemoveRefused answers a Remove refused because the connection is used:
+// the usages, linked, on top of the settings dialog it was asked from.
+// false: err is no such refusal, the level answers it.
+func RemoveRefused(c echo.Context, err error) (bool, error) {
+	in := InUse(err)
+	if in == nil {
+		return false, nil
+	}
+	c.Response().Header().Set("HX-Retarget", "#"+connectors.BodyID)
+	c.Response().Header().Set("HX-Reswap", "afterbegin")
+	return true, respond.HTML(c, http.StatusUnprocessableEntity, in)
+}
+
 // records is the Records tab: stackr's own records, by domain.
 func (p Panel) records(c echo.Context, k service.Connector) (templ.Component, error) {
 	rs, err := p.Orch.ConnectorRecords(c.Request().Context(), p.Org(c), k.ID)

@@ -625,7 +625,7 @@ func (h *handler) serverFile(c echo.Context) error {
 	v := pages.ServerFileView{
 		Frame:  serverFrame("Set up from a file", "Bind the repo that holds stackr-server.yml, then approve its plan."),
 		Base:   ServerBase,
-		Repo:   b.Repo,
+		Repo:   shortRepo(b.Repo, serverConns(cs)),
 		Branch: b.Branch, Path: b.Path, Bound: b.Repo != "",
 	}
 	for _, k := range cs {
@@ -754,4 +754,13 @@ func sumOf(n map[string]int) int {
 		t += v
 	}
 	return t
+}
+
+// serverConns is the server connectors as connectors.
+func serverConns(cs []service.ServerConnector) []service.Connector {
+	out := make([]service.Connector, len(cs))
+	for i, c := range cs {
+		out[i] = c.Connector
+	}
+	return out
 }

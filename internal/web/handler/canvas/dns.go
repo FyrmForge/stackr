@@ -60,7 +60,12 @@ func (h *handler) mountDNS(site *echo.Group, a *middleware.Access) {
 	const conn = "/:org/-/drawer/connectors"
 	owner, write := a.Require("connector.manage"), a.Require("connector.write")
 	site.POST(conn+"/:connector/delete", h.orgAction("connectors", func(c echo.Context, og *service.Org) (string, error) {
-		return "Connector removed.", h.orch.RemoveConnector(c.Request().Context(), &og.ID, c.Param("connector"))
+		err := h.orch.RemoveConnector(c.Request().Context(), &og.ID, c.Param("connector"))
+		// refused because it is used: the usages, linked, in the dialog
+		if done, rerr := connpanel.RemoveRefused(c, err); done {
+			return "", rerr
+		}
+		return "Connector removed.", err
 	}), owner)
 	// a git kind is a writer's to add, as the org's git connector always was
 	h.panel().Mount(site, conn, owner, func(k service.ConnectorKind) echo.MiddlewareFunc {

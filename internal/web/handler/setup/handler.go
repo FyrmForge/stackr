@@ -204,7 +204,7 @@ func (h *handler) git(c echo.Context, og *service.Org, st string) error {
 		Add:       base(og) + "/connectors/new",
 		Connected: len(conns) > 0,
 		Loaded:    len(conns) == 0 || body,
-		Repo:      og.ConfigRepo,
+		Repo:      shortRepo(og.ConfigRepo, conns),
 		Branch:    og.ConfigBranch,
 		Path:      og.ConfigPath,
 	}
@@ -919,4 +919,15 @@ func (h *handler) gitLabel() string {
 		return ls[0]
 	}
 	return "git"
+}
+
+// shortRepo is repo as the picker lists it, owner/name, when it is on the
+// host of one of cs; else as stored.
+func shortRepo(repo string, cs []service.Connector) string {
+	for _, c := range cs {
+		if p := "https://" + c.Host + "/"; strings.HasPrefix(repo, p) {
+			return strings.TrimPrefix(repo, p)
+		}
+	}
+	return repo
 }

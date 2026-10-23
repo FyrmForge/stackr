@@ -23,9 +23,14 @@ const connBase = ui.Base + "/connectors"
 func (h *handler) mountConnectors(g *echo.Group, a *middleware.Access) {
 	admin := a.Require("connector.admin")
 	g.GET(connBase+"/new", h.newConnector, admin)
-	g.POST(connBase+"/:connector/delete", h.act("connectors", func(c echo.Context) (string, *service.Job, error) {
-		return "Connector removed.", nil, h.orch.DeleteServerConnector(c.Request().Context(), c.Param("connector"))
-	}), admin)
+	// Remove: refused because it is used, the usages, linked, in the dialog
+	g.POST(connBase+"/:connector/delete", func(c echo.Context) error {
+		err := h.orch.DeleteServerConnector(c.Request().Context(), c.Param("connector"))
+		if done, rerr := connpanel.RemoveRefused(c, err); done {
+			return rerr
+		}
+		return h.answer(c, "connectors", "Connector removed.", extra{}, err)
+	}, admin)
 	h.panel().Mount(g, connBase, admin, nil)
 	h.panel().MountDNS(g, dnsBase, admin)
 }

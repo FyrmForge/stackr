@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"net/url"
@@ -172,5 +173,34 @@ func TestGitConnectionThroughTheCore(t *testing.T) {
 	b, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{Kind: "github", Values: map[string]string{"owner": "acme"}, User: "u1", Return: "/-/admin"})
 	if err != nil || b.Out == nil || !b.Connector.Pending || !b.Connector.ShareAll {
 		t.Fatalf("manifest add = %+v %v", b, err)
+	}
+}
+
+// The manifest an App is made from, after the panel moved, points GitHub
+// at the panel host (port kept) on the paths Apps were always registered
+// with; the webhook URL the screens show follows too.
+func TestManifestFollowsPanelHost(t *testing.T) {
+	env := servicetest.NewWith(t, nil, func(c *service.Config) { c.BaseURL = "https://old.example.com:8443" })
+	ctx := context.Background()
+	if err := env.Orch.SetSettings(ctx, map[string]string{"panel_domain": "new.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{Kind: "github", Values: map[string]string{"owner": ""}, User: "u1", Return: "/"})
+	if err != nil || a.Out == nil {
+		t.Fatalf("add = %+v %v", a, err)
+	}
+	var m struct {
+		Setup string               `json:"setup_url"`
+		Hook  struct{ URL string } `json:"hook_attributes"`
+	}
+	if err := json.Unmarshal([]byte(a.Out.Values["manifest"]), &m); err != nil {
+		t.Fatal(err)
+	}
+	id := a.Connector.ID
+	if m.Hook.URL != "https://new.example.com:8443/hooks/connectors/"+id || m.Setup != "https://new.example.com:8443/settings/github/installed/"+id {
+		t.Errorf("manifest = %+v", m)
+	}
+	if got := env.Orch.ConnectorHookURL(ctx, id); got != m.Hook.URL {
+		t.Errorf("hook URL = %s", got)
 	}
 }
