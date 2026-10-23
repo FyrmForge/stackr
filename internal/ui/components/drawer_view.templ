@@ -57,7 +57,8 @@ templ Drawer(v DrawerView, body templ.Component) {
 			</select>
 			<tab-strip class="relative hidden sm:block border-b border-rw-border">
 			<button type="button" data-prev hidden class="absolute left-0 inset-y-0 z-10 w-10 bg-gradient-to-r from-rw-surface via-rw-surface to-transparent text-rw-muted hover:text-rw-text" aria-label="Scroll tabs left">&lsaquo;</button>
-			<nav data-row class="flex gap-1 px-4 sm:px-6 overflow-x-auto scrollbar-none" aria-label="Tabs">
+			// scroll-px-10 keeps a tab scrolled into view clear of the w-10 arrows over the row's ends
+			<nav data-row class="flex gap-1 px-4 sm:px-6 scroll-px-10 overflow-x-auto scrollbar-none" aria-label="Tabs">
 				for _, t := range v.Tabs {
 					<a
 						href={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
