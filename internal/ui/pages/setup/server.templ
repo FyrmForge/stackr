@@ -168,10 +168,7 @@ templ ServerDomains(v ServerDomainsView) {
 // stackr manages; skipped, every host keeps its own certificate.
 templ ServerCertificates(v ServerCertsView) {
 	@shell(v.Frame) {
-		<div class="space-y-3 text-sm text-rw-muted mb-6">
-			<p>Each domain gets its own certificate from Let's Encrypt, automatically.</p>
-			<p>Connect Namecheap and pick domains: stackr sets their DNS records and gets wildcard certificates for them.</p>
-		</div>
+		<p class="text-sm text-rw-muted mb-6">Connect Namecheap and stackr sets DNS and gets wildcard certificates for the domains you pick.</p>
 		{{ v.List.Foot = serverNext(v.Next, v.Done, "Without one, each host gets its own certificate and you point its DNS yourself.") }}
 		@connectors.Tab(v.List, nil)
 	}

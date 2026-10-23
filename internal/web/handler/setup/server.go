@@ -180,7 +180,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		v := pages.ServerCertsView{ServerStep: s}
 		v.List = connectors.ListView{
 			Title: "DNS connectors", Scope: "instance",
-			Help:     "Each managed domain is available to every organization. Admin, Connectors narrows that.",
+			Help:     "Pick the domains and who may use them in a connector's settings.",
 			Add:      dnsBase + "/new",
 			AddLabel: "+ Add Namecheap",
 		}
