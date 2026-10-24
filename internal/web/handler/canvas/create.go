@@ -134,7 +134,7 @@ func (h *handler) createLevel(kind string) echo.HandlerFunc {
 func (h *handler) newConnector(c echo.Context) error {
 	p := h.panel()
 	p.Back = nil
-	p.Return = func(c echo.Context) string { return orgSlug(c) }
+	p.Return = orgSlug
 	ks := p.KindsWith(service.CapGit)
 	if len(ks) == 1 {
 		return respond.HTML(c, http.StatusOK, p.Open(c, ks[0]))

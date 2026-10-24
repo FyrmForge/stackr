@@ -169,7 +169,7 @@ func (o *Orchestrator) AddConnector(ctx context.Context, in ConnectorAdd) (Conne
 	if err := conn.Setup(vals); err != nil {
 		return ConnectorAdded{}, err
 	}
-	if s, ok := conn.(connectors.Settled); connectors.Redirects(k) && !(ok && s.Settled()) {
+	if s, ok := conn.(connectors.Settled); connectors.Redirects(k) && (!ok || !s.Settled()) {
 		c, out, err := o.beginSetup(ctx, in, k, conn)
 		return ConnectorAdded{Connector: c, Out: out}, err
 	}
