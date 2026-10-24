@@ -17,6 +17,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
+// hostInterfaces reads this host's interfaces; tests swap it so the
+// laptop's own addresses never leak into a fake controller.
+var hostInterfaces = worker.Interfaces
+
 // controllerFacts is what the controller node reports about itself. On a
 // multi-node install the mesh already reads it through localMesh, the same
 // code a worker runs; a single node or a fake host has no mesh, so the
@@ -27,7 +31,7 @@ func (o *Orchestrator) controllerFacts(ctx context.Context, n store.Node) *worke
 			return &f
 		}
 	}
-	f := worker.Facts{Interfaces: worker.Interfaces(), Arch: runtime.GOARCH, Version: o.cfg.Version}
+	f := worker.Facts{Interfaces: hostInterfaces(), Arch: runtime.GOARCH, Version: o.cfg.Version}
 	if h, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID)); err == nil {
 		f.CPUs, f.MemBytes, f.Docker = h.CPUs, uint64(h.MemBytes), h.Version
 	}

@@ -20,6 +20,7 @@ import (
 // acme's shop/dev/api tile.
 func recordsRig(t *testing.T) (*servicetest.Env, string, string, servicetest.Tile) {
 	t.Helper()
+	t.Cleanup(service.NoHostInterfaces())
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
