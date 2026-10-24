@@ -286,7 +286,6 @@ func TestCanvasOrg(t *testing.T) {
 		t.Error("org has no params, yet a vars card is drawn (v0 drew none)")
 	}
 	want := []string{
-		"config connector:" + w.conn + " stack:" + w.shop,
 		"ingress proxy stack:" + w.shop,
 		"source connector:" + w.conn + " stack:" + w.shop,
 	}

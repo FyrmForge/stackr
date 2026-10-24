@@ -80,7 +80,6 @@ const (
 	EdgeEgress  = "egress"
 	EdgeShared  = "shared"
 	EdgeStartup = "startup"
-	EdgeConfig  = "config"
 	EdgeSource  = "source"
 )
 
@@ -344,11 +343,10 @@ func (f *Flow) org(ctx context.Context, v *View, orgID string, in In) error {
 			proxied = true
 		}
 		v.Nodes = append(v.Nodes, n)
-		if st.ConfigConnectorID != "" && st.ConfigRepo != "" {
-			v.Edges = append(v.Edges, Edge{EdgeConfig, "connector:" + st.ConfigConnectorID, n.ID})
-		}
+		// One source line per connector the stack reads: its stack file or a
+		// tile's build repo, usually the same repo.
 		for _, c := range cs {
-			if buildsFrom(ts, c.Host) {
+			if (c.ID == st.ConfigConnectorID && st.ConfigRepo != "") || buildsFrom(ts, c.Host) {
 				v.Edges = append(v.Edges, Edge{EdgeSource, "connector:" + c.ID, n.ID})
 			}
 		}

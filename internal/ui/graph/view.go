@@ -194,7 +194,6 @@ var edgeLooks = map[string]templ.Attributes{
 	"egress":  {"stroke": "var(--rw-amber)", "stroke-opacity": "0.6"},
 	"shared":  {"stroke": "rgb(var(--rw-accent))", "stroke-dasharray": "5 4", "stroke-opacity": "0.6"},
 	"startup": {"stroke": "var(--rw-amber)", "stroke-width": "1.2", "stroke-opacity": "0.5", "stroke-dasharray": "1 5"},
-	"config":  {"stroke": "var(--rw-edge-connector)", "stroke-opacity": "0.75"},
 	"source":  {"stroke": "var(--rw-edge-connector)", "stroke-dasharray": "4 6", "stroke-opacity": "0.4"},
 	// The Cluster map's: encrypted tunnels between nodes (green over the
 	// internet, blue on a private network), a NAT's port forward (long dashes,
@@ -244,7 +243,6 @@ var legendRows = []struct{ kind, label string }{
 	{"egress", "egress"},
 	{"egress-own", "egress, own apps"},
 	{"egress-via", "egress through another node"},
-	{"config", "config as code"},
 	{"source", "source repo"},
 	{"shared", "managed instance"},
 	{"ref", "reference"},
