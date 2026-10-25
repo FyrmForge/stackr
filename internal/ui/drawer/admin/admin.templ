@@ -108,6 +108,8 @@ type BackupsView struct {
 	Job   *c.JobStatusView
 	Rows  []Backup
 	Sched PanelSchedule
+	// NoOffBox is set while no off-box destination takes the panel backup.
+	NoOffBox bool
 }
 
 // PanelSchedule is the panel backup's switch, cron line, how many archives
@@ -348,6 +350,9 @@ templ Guide(href string) {
 
 templ Backups(v BackupsView) {
 	<div id="tab-backups">
+		if v.NoOffBox {
+			<p class="text-sm text-rw-warn" role="status" data-backup-warning>Backups are only on this server. <a href={ templ.SafeURL(Base + "?tab=backups#dest_name") } class="underline">Add an S3 destination.</a></p>
+		}
 		@c.Dests(v.Dests)
 		@c.Section("Stackr's own database", "instance", "A consistent copy of the panel database, taken while it is serving. The archive carries the master key that decrypts every secret in it, so keep it somewhere private. Restore it on the host with stackr-install restore.") {
 			<div class="space-y-3">
