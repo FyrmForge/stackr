@@ -79,7 +79,7 @@ func certNote(certs []store.NodeCert, now time.Time) (expired bool, days int) {
 // badge (Label), the drawer's and `node show`'s line (Detail), `node ls`'s
 // WARN column. Offline is not one: the status says it.
 type NodeWarning struct {
-	Kind     string `json:"kind"`     // clock | disk | cert | version
+	Kind     string `json:"kind"`     // clock | disk | cert | version | memory
 	Severity string `json:"severity"` // warning | critical
 	Label    string `json:"label"`
 	Detail   string `json:"detail"`
@@ -91,6 +91,7 @@ const (
 	WarnDisk    = "disk"
 	WarnCert    = "cert"
 	WarnVersion = "version"
+	WarnMemory  = "memory"
 )
 
 // warnIn is what warningsOf judges; nodeWarnings gathers it.
@@ -103,6 +104,7 @@ type warnIn struct {
 	Skew                time.Duration
 	SkewOK              bool
 	DiskFree, DiskTotal uint64
+	MemFree, MemTotal   uint64
 }
 
 // warningsOf is the one rule for a node's warnings, on the same lines as the
@@ -145,6 +147,10 @@ func warningsOf(w warnIn) []NodeWarning {
 		out = append(out, NodeWarning{WarnDisk, SevWarning, "Disk low",
 			fmt.Sprintf("%s (%d%%) free on its Docker disk.", gb(w.DiskFree), pct)})
 	}
+	if memLow(w.MemFree, w.MemTotal) {
+		out = append(out, NodeWarning{WarnMemory, SevWarning, "Memory low",
+			fmt.Sprintf("%s (%d%%) of memory available.", gb(w.MemFree), w.MemFree*100/w.MemTotal)})
+	}
 	return out
 }
 
@@ -153,6 +159,7 @@ func (o *Orchestrator) nodeWarnings(ctx context.Context, n store.Node, f *worker
 	w := warnIn{Panel: o.cfg.Version}
 	if f != nil {
 		w.Version, w.DiskFree, w.DiskTotal = f.Version, f.DiskFree, f.DiskTotal
+		w.MemFree, w.MemTotal = f.MemFree, f.MemBytes
 		w.Behind = o.workerBehind(n, f)
 		w.TooOld = w.Behind && !o.versionAllowed(ctx, f.Version)
 	}

@@ -124,7 +124,8 @@ type Detail struct {
 	Running                         bool
 	Health                          string
 	RestartCount                    int
-	ExitCode                        int // the last exit's, once it stopped
+	ExitCode                        int  // the last exit's, once it stopped
+	OOMKilled                       bool // the kernel killed it for memory
 	// HealthInterval, HealthStartPeriod and HealthRetries are the container's
 	// effective HEALTHCHECK timings (the image's own when the spec set none);
 	// zero = docker's default.

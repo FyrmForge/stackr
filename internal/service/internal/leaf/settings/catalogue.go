@@ -364,6 +364,13 @@ var Catalogue = []Knob{
 		Scopes: Flat,
 		Desc:   "where alerts are posted as JSON; empty is off (the Alerts tab)",
 	},
+	{
+		Key:    "heartbeat_url",
+		Label:  "Heartbeat URL",
+		Type:   TStr,
+		Scopes: Flat,
+		Desc:   "a dead-man's-switch URL the panel GETs every minute; empty is off (the Alerts tab)",
+	},
 
 	// The server file's binding (stackr-server.yml); written by
 	// BindServerConfig, shown on the admin Config tab.

@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -327,5 +329,115 @@ func TestOneLineCutsTheMiddle(t *testing.T) {
 	}
 	if short := "a\nb"; oneLine(short) != "a b" {
 		t.Errorf("short: %q", oneLine(short))
+	}
+}
+
+// Three restarts inside ten minutes fire container.crashloop once; it
+// clears with container.recovered when the window passes quietly.
+func TestCrashloopAlertFiresAndClears(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	h := newHook(t)
+	alertsTo(t, w.orch, h, "")
+	w.tile(t, "worker", true)
+	now := time.Now()
+	steps := []struct {
+		at       time.Duration
+		restarts int
+		want     []string
+	}{
+		{0, 1, nil},
+		{time.Minute, 2, nil},
+		{2 * time.Minute, 4, []string{AlertCrashloop + ":" + SevCritical}},
+		{3 * time.Minute, 5, nil}, // still looping: no repeat
+		{20 * time.Minute, 5, []string{AlertCrashOK + ":" + SevInfo}},
+	}
+	for i, s := range steps {
+		w.fake.Details = map[string]docker.Detail{"c-worker": {ID: "c-worker", Running: true, RestartCount: s.restarts}}
+		w.orch.containerAlerts(ctx, now.Add(s.at))
+		if got := h.events(t, w.orch); !slices.Equal(got, s.want) {
+			t.Errorf("step %d: %v, want %v", i, got, s.want)
+		}
+	}
+}
+
+// An OOM kill fires memory.low once per kill.
+func TestOOMKillAlerts(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	h := newHook(t)
+	alertsTo(t, w.orch, h, "")
+	w.tile(t, "api", true)
+	for i, s := range []struct {
+		oom      bool
+		restarts int
+		fires    int
+	}{{false, 0, 0}, {true, 1, 1}, {true, 1, 0}, {false, 1, 0}, {true, 2, 1}} {
+		w.fake.Details = map[string]docker.Detail{"c-api": {ID: "c-api", Running: true, OOMKilled: s.oom, RestartCount: s.restarts}}
+		w.orch.containerAlerts(ctx, time.Now())
+		got := h.events(t, w.orch)
+		if len(got) != s.fires || (s.fires == 1 && got[0] != AlertMemoryLow+":"+SevCritical) {
+			t.Errorf("step %d: %v", i, got)
+		}
+	}
+}
+
+// Low memory must hold for five minutes before memory.low; recovery says so.
+func TestMemoryAlertNeedsFiveMinutes(t *testing.T) {
+	ctx := context.Background()
+	o := newWorld(t).orch
+	h := newHook(t)
+	alertsTo(t, o, h, "")
+	n := store.Node{ID: "n1", Name: "n1"}
+	const g = 1 << 30
+	now := time.Now()
+	for i, s := range []struct {
+		at    time.Duration
+		free  uint64
+		fires []string
+	}{
+		{0, 5 * g, nil}, // 5% of 100
+		{4 * time.Minute, 5 * g, nil},
+		{6 * time.Minute, 5 * g, []string{AlertMemoryLow + ":" + SevWarning}},
+		{7 * time.Minute, 4 * g, nil},
+		{8 * time.Minute, 50 * g, []string{AlertMemoryOK + ":" + SevInfo}},
+		{9 * time.Minute, 5 * g, nil}, // the clock restarts
+		{10 * time.Minute, 0, nil},    // not reported
+	} {
+		o.memAlert(ctx, n, s.free, 100*g, now.Add(s.at))
+		if got := h.events(t, o); !slices.Equal(got, s.fires) {
+			t.Errorf("step %d: %v, want %v", i, got, s.fires)
+		}
+	}
+}
+
+// The heartbeat URL is GET once a minute while set, and not when empty.
+func TestHeartbeatPingsOnSchedule(t *testing.T) {
+	ctx := context.Background()
+	o := newWorld(t).orch
+	var mu sync.Mutex
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodGet {
+			hits++
+		}
+	}))
+	t.Cleanup(srv.Close)
+	now := time.Now()
+	o.heartbeat(ctx, now) // off
+	must(t, o.SetHeartbeat(ctx, srv.URL+"/ping/token"))
+	for _, d := range []time.Duration{0, 30 * time.Second, time.Minute, 90 * time.Second, 2 * time.Minute} {
+		o.heartbeat(ctx, now.Add(d))
+	}
+	if hits != 3 { // 0, 1m, 2m
+		t.Errorf("pings = %d, want 3", hits)
+	}
+	if s, err := o.AlertSettings(ctx); err != nil || strings.Contains(s.Heartbeat, "token") || s.Heartbeat == "" {
+		t.Errorf("settings = %q, %v", s.Heartbeat, err)
+	}
+	if err := o.SetHeartbeat(ctx, "ftp://x"); err == nil {
+		t.Error("a non-http URL was accepted")
 	}
 }
