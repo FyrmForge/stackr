@@ -716,6 +716,9 @@ type IngressOut struct {
 	// Moved are the hosts a set sent to another proxy: their DNS must point
 	// at it.
 	Moved []string `json:"moved,omitempty"`
+	// DNS is what the move does to the hosts' records: the hand ones to
+	// repoint, the managed ones stackr repoints.
+	DNS DNSMove `json:"dns"`
 }
 
 // IngressGet is the effective ingress of a scope: the nearest pick up the
@@ -755,7 +758,7 @@ func (o *Orchestrator) IngressSet(ctx context.Context, by *Principal, kind, id, 
 	}
 	out, err := o.IngressGet(ctx, kind, id)
 	if hm != nil {
-		out.Moved = hm.Hosts
+		out.Moved, out.DNS = hm.Hosts, hm.DNS
 	}
 	return out, err
 }

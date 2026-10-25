@@ -478,6 +478,9 @@ func TestPickIngressAsksWhenHostsMove(t *testing.T) {
 	if !slices.Equal(out.Moved, []string{"shop.example.com"}) {
 		t.Errorf("IngressSet moved = %v", out.Moved)
 	}
+	if len(out.DNS.Hand) != 1 || out.DNS.Hand[0].Host != "shop.example.com" {
+		t.Errorf("IngressSet dns = %+v", out.DNS)
+	}
 }
 
 // IngressFor: the nearest picked placement's node, then the env's own node

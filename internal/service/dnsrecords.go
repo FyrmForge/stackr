@@ -113,12 +113,17 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 	var out []dnscap.Want
 	var bad []error
 	noIP := map[string]*NoPublicIP{}
+	held := o.DNSHeld(ctx)
 	for _, d := range ds {
 		if strings.HasPrefix(d.Host, "*.") {
 			continue
 		}
 		z, ok := dnscap.ZoneOf(d.Host, zones)
 		if !ok {
+			continue
+		}
+		if slices.Contains(held, d.Host) { // unticked in a move: the record stays as it is
+			out = append(out, dnscap.Want{Zone: z.Name, Name: dnscap.Name(d.Host, z.Name), Hold: true})
 			continue
 		}
 		f, seen := tiles[d.TileID]

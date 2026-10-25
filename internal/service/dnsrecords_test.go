@@ -265,3 +265,35 @@ func TestManageRefusesResourceElsewhere(t *testing.T) {
 		t.Errorf("refused, yet managed: %v", us)
 	}
 }
+
+// A host unticked in a move is held: a sync leaves its record where it is,
+// and repoints it again once released.
+func TestHeldHostIsNotRepointed(t *testing.T) {
+	env, _, _, tl := recordsRig(t)
+	ctx := context.Background()
+	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if err := env.Store.Settings.Set(ctx, "dns_hold", "shop.acme.dev"); err != nil {
+		t.Fatal(err)
+	}
+	setIP(t, env, "198.51.100.2")
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.1") || has(z, "shop", "A", "198.51.100.2") {
+		t.Fatalf("a held host was repointed: %v", z)
+	}
+	if err := env.Orch.ReleaseDNS(ctx, []string{"shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.2") {
+		t.Fatalf("a released host was not repointed: %v", z)
+	}
+}
