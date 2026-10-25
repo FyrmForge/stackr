@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
@@ -77,3 +78,31 @@ func (s settings) All(ctx context.Context) (map[string]string, error) {
 	}
 	return m, nil
 }
+
+// resealSettings re-encrypts every sealed setting, the canary included.
+func resealSettings(ctx context.Context, q querier, old, next *secrets.Box) error {
+	all, err := settings{q, old}.All(ctx)
+	if err != nil {
+		return err
+	}
+	for k, v := range all {
+		if !secrets.Sealed(v) {
+			continue
+		}
+		pt, err := old.Decrypt(v)
+		if err != nil {
+			return fmt.Errorf("setting %s: %w", k, err)
+		}
+		if err := (settings{q, next}).SetSealed(ctx, k, pt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CanaryKey is the sealed setting that says which master key the database is
+// sealed with, so a crash during a rotation can be told apart on the next boot.
+const CanaryKey = "master_key_canary"
+
+// CanaryValue is what the canary holds.
+const CanaryValue = "stackr"

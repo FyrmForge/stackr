@@ -2,16 +2,20 @@ package admin
 
 import (
 	"cmp"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
+	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
 const securityPage = 50
@@ -81,7 +85,7 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 		return nil, err
 	}
 	who := map[string]string{}
-	v := ui.SecurityView{Filter: q}
+	v := ui.SecurityView{Filter: q, Key: h.masterKeyView()}
 	for _, u := range us {
 		who[u.ID] = u.Email
 		v.Actors = append(v.Actors, ui.AccessOption{Value: u.ID, Label: u.Email})
@@ -141,4 +145,31 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 		v.Rows = append(v.Rows, r)
 	}
 	return ui.Security(v), nil
+}
+
+// masterKeyView is the master key section of the Security tab.
+func (h *handler) masterKeyView() ui.MasterKeyView {
+	st := h.orch.MasterKeyStatus()
+	v := ui.MasterKeyView{Gen: st.Gen, Since: st.Since, Pending: st.Pending}
+	if !st.FromEnv {
+		v.Rotate = ui.Base + "/security/master-key/rotate"
+	}
+	return v
+}
+
+// RotateMasterKey is POST /-/admin/security/master-key/rotate. The section
+// comes back with the refusal on a wrong password or an environment key, or
+// with a note that the panel is restarting.
+func (h *handler) RotateMasterKey(c echo.Context) error {
+	v, status := h.masterKeyView(), http.StatusOK
+	if err := h.orch.RotateMasterKey(c.Request().Context(), middleware.Principal(c).User.ID, c.FormValue("password")); err != nil {
+		msg, ok := render.Refused(err)
+		if !ok {
+			return middleware.HTTPError(err)
+		}
+		v.Error, status = msg, http.StatusUnprocessableEntity
+	} else {
+		v.Done = "Rotating. The panel is restarting; reload in a moment."
+	}
+	return respond.HTML(c, status, ui.MasterKey(v))
 }
