@@ -148,6 +148,9 @@ func (o *Orchestrator) DeleteBackupSchedule(ctx context.Context, id string) erro
 	err := o.backups.DeleteSchedule(ctx, id)
 	if err == nil {
 		o.sched.Reload(ctx)
+		key := "alert.backup.schedule." + id // its failure goes with it
+		_ = o.store.Settings.Delete(ctx, key)
+		o.clearProblem(ctx, key)
 	}
 	return err
 }

@@ -14,9 +14,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 )
 
-// Problems: every alert trigger that fires also keeps an open-problem row,
-// problem.<key> (the alert row's key less "alert."), and its clear deletes
-// it; the admin banner reads them, so a failing backup shows with no webhook
+// Problems: every check reconciles an open-problem row, problem.<key> (the
+// alert row's key less "alert."), on each conclusive observation: failing
+// keeps it, healthy deletes it. The alert row only debounces the webhook.
+// The admin banner reads them, so a failing backup shows with no webhook
 // set. An offline worker is read off its node row, never stored.
 
 const problemPrefix = "problem."
@@ -58,20 +59,51 @@ func (o *Orchestrator) problemSince(ctx context.Context, alertKey string) time.T
 }
 
 // openProblem opens (or rewords) the problem behind alertKey. An open one
-// keeps its since.
+// keeps its since; an unchanged one is not written again.
 func (o *Orchestrator) openProblem(ctx context.Context, alertKey, sev, msg string) {
+	old, _, _ := o.store.Settings.Get(ctx, problemKey(alertKey))
 	b, _ := json.Marshal(problemRow{Severity: sev, Message: oneLine(msg), Since: o.problemSince(ctx, alertKey)})
+	if string(b) == old {
+		return
+	}
 	if err := o.store.Settings.Set(ctx, problemKey(alertKey), string(b)); err != nil {
 		slog.Warn("problems: not kept", "key", alertKey, "err", err)
 	}
 }
 
+func (o *Orchestrator) hasProblem(ctx context.Context, alertKey string) bool {
+	_, ok, err := o.store.Settings.Get(ctx, problemKey(alertKey))
+	return err == nil && ok
+}
+
+// clearProblem deletes the problem behind alertKey; a healthy check runs
+// it every time, so it only writes when there is one.
 func (o *Orchestrator) clearProblem(ctx context.Context, alertKey string) {
-	_ = o.store.Settings.Delete(ctx, problemKey(alertKey))
+	if o.hasProblem(ctx, alertKey) {
+		_ = o.store.Settings.Delete(ctx, problemKey(alertKey))
+	}
+}
+
+// sweep deletes the alert and problem rows under alert.<kind> whose rest
+// keep says no to; only after a read that saw every subject.
+func (o *Orchestrator) sweep(ctx context.Context, kind string, keep func(rest string) bool) {
+	for _, prefix := range []string{"alert." + kind, problemPrefix + kind} {
+		rows, err := o.store.Settings.ListPrefix(ctx, prefix)
+		if err != nil {
+			continue
+		}
+		for k := range rows {
+			if rest := strings.TrimPrefix(k, prefix); !keep(rest) {
+				_ = o.store.Settings.Delete(ctx, "alert."+kind+rest)
+				o.clearProblem(ctx, "alert."+kind+rest)
+			}
+		}
+	}
 }
 
 // Problems (admin) is every open problem, critical first, then oldest first.
-// A row whose node or app is gone is left out.
+// A row whose node, app or backup schedule is gone is deleted, with its
+// alert row.
 func (o *Orchestrator) Problems(ctx context.Context) ([]Problem, error) {
 	ns, err := o.nodeLeaf().List(ctx)
 	if err != nil {
@@ -104,7 +136,10 @@ func (o *Orchestrator) Problems(ctx context.Context) ([]Problem, error) {
 		var ok bool
 		if p.Link, p.LinkText, ok = o.problemLink(ctx, p.Key, nodes); ok {
 			out = append(out, p)
+			continue
 		}
+		_ = o.store.Settings.Delete(ctx, k)
+		_ = o.store.Settings.Delete(ctx, "alert."+p.Key)
 	}
 	slices.SortFunc(out, func(a, b Problem) int {
 		if c := cmp.Compare(sevRank(b.Severity), sevRank(a.Severity)); c != 0 {
@@ -123,14 +158,19 @@ func sevRank(s string) int {
 }
 
 // problemLink is the one place a problem's key becomes where it is fixed.
-// ok is false when the node or app it is about is gone.
+// ok is false when the node, app or schedule it is about is gone.
 func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[string]bool) (href, text string, ok bool) {
 	kind, rest, _ := strings.Cut(key, ".")
 	onNode := func(id string) (string, string, bool) {
 		return "?drawer=node:" + id, "Open node", nodes[id]
 	}
 	switch kind {
-	case "backup":
+	case "backup": // backup.panel, backup.schedule.<id>
+		if id, ok := strings.CutPrefix(rest, "schedule."); ok {
+			if _, err := o.backups.GetSchedule(ctx, id); errors.Is(err, errs.ErrNotFound) {
+				return "", "", false
+			}
+		}
 		return "/-/admin/backups", "Open backups", true
 	case "node", "disk", "clock", "mem":
 		return onNode(rest)

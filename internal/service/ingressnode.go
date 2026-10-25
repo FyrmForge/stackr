@@ -17,9 +17,15 @@ import (
 
 // ingressNodes are the nodes tagged ingress, the controller included.
 func (o *Orchestrator) ingressNodes(ctx context.Context) []string {
+	ids, _ := o.listIngressNodes(ctx)
+	return ids
+}
+
+// listIngressNodes is ingressNodes with the read's error.
+func (o *Orchestrator) listIngressNodes(ctx context.Context) ([]string, error) {
 	ns, err := o.store.Nodes.List(ctx)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []string
 	for _, n := range ns {
@@ -27,7 +33,7 @@ func (o *Orchestrator) ingressNodes(ctx context.Context) []string {
 			out = append(out, n.ID)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // ensureNodeProxy brings a worker's proxy container to its tags: tagged

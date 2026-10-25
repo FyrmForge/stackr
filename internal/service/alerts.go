@@ -366,21 +366,22 @@ func (o *Orchestrator) diskAlert(ctx context.Context, n store.Node, free, total 
 	if err != nil {
 		return
 	}
-	switch low := diskLow(free, total); {
-	case low && !was:
-		if err := o.store.Settings.Set(ctx, key, "1"); err != nil {
-			return
-		}
-		pct := uint64(0)
-		if total > 0 {
-			pct = free * 100 / total
-		}
-		msg := fmt.Sprintf("%s has %s (%d%%) free on its Docker disk.", n.Name, gb(free), pct)
-		o.openProblem(ctx, key, SevWarning, msg)
-		o.alert(Alert{Event: AlertDiskLow, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
-	case !low && was:
-		_ = o.store.Settings.Delete(ctx, key)
+	low := diskLow(free, total)
+	if !low {
 		o.clearProblem(ctx, key)
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+		}
+		return
+	}
+	pct := uint64(0)
+	if total > 0 {
+		pct = free * 100 / total
+	}
+	msg := fmt.Sprintf("%s has %s (%d%%) free on its Docker disk.", n.Name, gb(free), pct)
+	o.openProblem(ctx, key, SevWarning, msg)
+	if !was && o.store.Settings.Set(ctx, key, "1") == nil {
+		o.alert(Alert{Event: AlertDiskLow, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 	}
 }
 
@@ -419,17 +420,17 @@ func (o *Orchestrator) clockAlert(ctx context.Context, n store.Node, skew time.D
 	if err != nil {
 		return
 	}
-	switch off := skewed(skew); {
-	case off && !was:
-		if err := o.store.Settings.Set(ctx, key, "1"); err != nil {
-			return
-		}
-		msg := fmt.Sprintf("The clock of %s is %s of the panel. Check time sync on the node.", n.Name, skewWords(skew))
-		o.openProblem(ctx, key, SevWarning, msg)
-		o.alert(Alert{Event: AlertClockSkew, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
-	case !off && was:
-		_ = o.store.Settings.Delete(ctx, key)
+	if !skewed(skew) {
 		o.clearProblem(ctx, key)
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+		}
+		return
+	}
+	msg := fmt.Sprintf("The clock of %s is %s of the panel. Check time sync on the node.", n.Name, skewWords(skew))
+	o.openProblem(ctx, key, SevWarning, msg)
+	if !was && o.store.Settings.Set(ctx, key, "1") == nil {
+		o.alert(Alert{Event: AlertClockSkew, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 	}
 }
 
@@ -450,9 +451,14 @@ const observeAlertKey = "alert.observe.disk"
 // observeDiskAlert fires once when observability is on and the controller's
 // free disk, less what the logs may still grow to, falls under twice
 // observe_min_free (VictoriaMetrics stops writing at the floor), and resets
-// when it recovers.
+// when it recovers. Turning observability off clears it.
 func (o *Orchestrator) observeDiskAlert(ctx context.Context, n store.Node, free uint64) {
-	if !o.ObserveOn() || free == 0 {
+	if !o.ObserveOn() {
+		_ = o.store.Settings.Delete(ctx, observeAlertKey)
+		o.clearProblem(ctx, observeAlertKey)
+		return
+	}
+	if free == 0 {
 		return
 	}
 	k, err := o.observeKnobs(ctx)
@@ -470,17 +476,17 @@ func (o *Orchestrator) observeDiskAlert(ctx context.Context, n store.Node, free 
 		cancel()
 		room = k.logsMax - min(used, k.logsMax)
 	}
-	switch low := free < 2*k.minFree+room; {
-	case low && !was:
-		if err := o.store.Settings.Set(ctx, observeAlertKey, "1"); err != nil {
-			return
-		}
-		msg := fmt.Sprintf("%s has %s free. Metrics history stops at %s.", n.Name, gb(free), gb(k.minFree))
-		o.openProblem(ctx, observeAlertKey, SevWarning, msg)
-		o.alert(Alert{Event: AlertObserveDisk, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
-	case !low && was:
-		_ = o.store.Settings.Delete(ctx, observeAlertKey)
+	if free >= 2*k.minFree+room {
 		o.clearProblem(ctx, observeAlertKey)
+		if was {
+			_ = o.store.Settings.Delete(ctx, observeAlertKey)
+		}
+		return
+	}
+	msg := fmt.Sprintf("%s has %s free. Metrics history stops at %s.", n.Name, gb(free), gb(k.minFree))
+	o.openProblem(ctx, observeAlertKey, SevWarning, msg)
+	if !was && o.store.Settings.Set(ctx, observeAlertKey, "1") == nil {
+		o.alert(Alert{Event: AlertObserveDisk, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 	}
 }
 
@@ -716,9 +722,9 @@ func (o *Orchestrator) memAlert(ctx context.Context, n store.Node, free, total u
 	}
 	if !memLow(free, total) {
 		delete(w.memLowSince, n.ID)
+		o.clearProblem(ctx, key)
 		if was {
 			_ = o.store.Settings.Delete(ctx, key)
-			o.clearProblem(ctx, key)
 			o.alert(Alert{Event: AlertMemoryOK, Severity: SevInfo, Node: n.Name, Subject: n.Name,
 				Message: n.Name + " has memory to spare again."})
 		}
@@ -728,12 +734,14 @@ func (o *Orchestrator) memAlert(ctx context.Context, n store.Node, free, total u
 	if !ok {
 		w.memLowSince[n.ID], since = now, now
 	}
-	if was || now.Sub(since) < memLowFor || o.store.Settings.Set(ctx, key, "1") != nil {
-		return
+	if !was && now.Sub(since) < memLowFor {
+		return // low, not for long enough yet
 	}
 	msg := fmt.Sprintf("%s has %s (%d%%) of memory available.", n.Name, gb(free), free*100/total)
 	o.openProblem(ctx, key, SevWarning, msg)
-	o.alert(Alert{Event: AlertMemoryLow, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
+	if !was && o.store.Settings.Set(ctx, key, "1") == nil {
+		o.alert(Alert{Event: AlertMemoryLow, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
+	}
 }
 
 // containerAlerts reads every tile container's restart count and OOM flag on
@@ -770,13 +778,7 @@ func (o *Orchestrator) containerAlerts(ctx context.Context, now time.Time) {
 		return
 	}
 	// a looping tile that was stopped or deleted is never seen again: clear it
-	open, _ := o.store.Settings.ListPrefix(ctx, "alert.crash.")
-	for key := range open {
-		if !seen[strings.TrimPrefix(key, "alert.crash.")] {
-			_ = o.store.Settings.Delete(ctx, key)
-			o.clearProblem(ctx, key)
-		}
-	}
+	o.sweep(ctx, "crash.", func(id string) bool { return seen[id] })
 }
 
 // crashSample records a container's restart count and says whether it went
@@ -797,8 +799,16 @@ func (o *Orchestrator) crashSample(id string, count int, now time.Time) bool {
 func (o *Orchestrator) crashAlert(ctx context.Context, tileID, node string) {
 	key := "alert.crash." + tileID
 	_, was, err := o.store.Settings.Get(ctx, key)
-	if err != nil || was == (node != "") {
+	if err != nil {
 		return
+	}
+	looping := node != ""
+	if !looping {
+		o.clearProblem(ctx, key)
+	}
+	switch {
+	case !looping && !was, looping && was && o.hasProblem(ctx, key):
+		return // nothing new: the lookups below are only for news
 	}
 	app, env := tileID, ""
 	if t, err := o.store.Tiles.Get(ctx, tileID); err == nil {
@@ -807,17 +817,15 @@ func (o *Orchestrator) crashAlert(ctx context.Context, tileID, node string) {
 			env = e.Name
 		}
 	}
-	if !was {
-		if o.store.Settings.Set(ctx, key, "1") != nil {
-			return
-		}
+	if looping {
 		msg := fmt.Sprintf("%s in %s keeps restarting on %s: %d restarts in %d minutes.", app, env, node, crashRestarts, crashWindow/time.Minute)
 		o.openProblem(ctx, key, SevCritical, msg)
-		o.alert(Alert{Event: AlertCrashloop, Severity: SevCritical, Node: node, Subject: app, Message: msg})
+		if !was && o.store.Settings.Set(ctx, key, "1") == nil {
+			o.alert(Alert{Event: AlertCrashloop, Severity: SevCritical, Node: node, Subject: app, Message: msg})
+		}
 		return
 	}
 	_ = o.store.Settings.Delete(ctx, key)
-	o.clearProblem(ctx, key)
 	o.alert(Alert{Event: AlertCrashOK, Severity: SevInfo, Subject: app,
 		Message: fmt.Sprintf("%s in %s stopped restarting.", app, env)})
 }

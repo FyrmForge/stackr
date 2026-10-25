@@ -52,39 +52,45 @@ type certHost struct {
 // certHosts are the hosts each ingress node serves with HTTPS, by node id:
 // the panel domain, external routes that are not pass-through and tile
 // domains with HTTPS on. Wildcards are skipped (no name to dial), so are
-// bare names and addresses, which have no public certificate.
-func (o *Orchestrator) certHosts(ctx context.Context) map[string][]certHost {
-	out := map[string][]certHost{}
+// bare names and addresses, which have no public certificate. complete is
+// false when a read failed, so a host may be missing. TLS off serves none.
+func (o *Orchestrator) certHosts(ctx context.Context) (out map[string][]certHost, complete bool) {
+	out = map[string][]certHost{}
 	if o.cfg.TLSOff {
-		return out
+		return out, true
 	}
 	def, err := o.DefaultIngress(ctx)
 	if err != nil {
-		return out
+		return out, false
 	}
-	ing := o.ingressNodes(ctx)
+	ing, err := o.listIngressNodes(ctx)
+	complete = err == nil
 	add := func(nodeID, host string, added time.Time) {
 		if _, err := netip.ParseAddr(host); err != nil && strings.Contains(host, ".") && !strings.HasPrefix(host, "*.") {
 			out[nodeID] = append(out[nodeID], certHost{host, added})
 		}
 	}
-	if p, _ := o.settings.Get(ctx, "panel_domain"); p != "" {
+	p, err := o.settings.Get(ctx, "panel_domain")
+	complete = complete && err == nil
+	if p != "" {
 		add(def, p, time.Time{})
 	}
-	if rs, err := o.routes.List(ctx); err == nil {
-		for _, r := range rs {
-			if r.Mode != route.Passthrough {
-				add(def, r.Host, r.CreatedAt)
-			}
+	rs, err := o.routes.List(ctx)
+	complete = complete && err == nil
+	for _, r := range rs {
+		if r.Mode != route.Passthrough {
+			add(def, r.Host, r.CreatedAt)
 		}
 	}
-	ds, _ := o.store.Domains.List(ctx)
+	ds, err := o.store.Domains.List(ctx)
+	complete = complete && err == nil
 	for _, d := range ds {
 		if !d.HTTPS {
 			continue
 		}
 		at, err := o.IngressFor(ctx, d.TileID)
 		if err != nil {
+			complete = false
 			continue
 		}
 		if at == "" {
@@ -94,7 +100,7 @@ func (o *Orchestrator) certHosts(ctx context.Context) map[string][]certHost {
 			add(at, d.Host, d.CreatedAt)
 		}
 	}
-	return out
+	return out, complete
 }
 
 // certAddr is where to dial a node's proxy: the controller (and a one-box
@@ -145,11 +151,17 @@ func certProblem(c *x509.Certificate, err error, host string, added, now time.Ti
 // hostCertAlerts is the daily check: every HTTPS host of every ingress node
 // is dialled with its name as SNI. A host fires cert.failing once and
 // cert.ok when it is right again; the state is the row alert.certfail.<node>.<host>.
-// ponytail: a host removed while failing keeps its row and its problem; sweep
-// rows certHosts no longer names once certHosts can say it read every host.
+// After a complete read, the rows of hosts no longer served go.
 func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 	now := time.Now()
-	for nodeID, hosts := range o.certHosts(ctx) {
+	inv, complete := o.certHosts(ctx)
+	if complete {
+		o.sweep(ctx, "certfail.", func(rest string) bool {
+			id, host, _ := strings.Cut(rest, ".")
+			return slices.ContainsFunc(inv[id], func(h certHost) bool { return h.Host == host })
+		})
+	}
+	for nodeID, hosts := range inv {
 		n, err := o.store.Nodes.Get(ctx, nodeID)
 		if err != nil {
 			continue
@@ -170,20 +182,21 @@ func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 func (o *Orchestrator) certHostAlert(ctx context.Context, n store.Node, host, problem string) {
 	key := "alert.certfail." + n.ID + "." + host
 	_, was, err := o.store.Settings.Get(ctx, key)
-	if err != nil || was == (problem != "") {
+	if err != nil {
 		return
 	}
 	if problem == "" {
-		_ = o.store.Settings.Delete(ctx, key)
 		o.clearProblem(ctx, key)
-		o.alert(Alert{Event: AlertCertOK, Severity: SevInfo, Node: n.Name, Subject: host,
-			Message: fmt.Sprintf("%s has a good certificate on %s again.", host, n.Name)})
-		return
-	}
-	if o.store.Settings.Set(ctx, key, "1") != nil {
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+			o.alert(Alert{Event: AlertCertOK, Severity: SevInfo, Node: n.Name, Subject: host,
+				Message: fmt.Sprintf("%s has a good certificate on %s again.", host, n.Name)})
+		}
 		return
 	}
 	msg := fmt.Sprintf("%s on %s: %s.", host, n.Name, problem)
 	o.openProblem(ctx, key, SevCritical, msg)
-	o.alert(Alert{Event: AlertCertFailing, Severity: SevCritical, Node: n.Name, Subject: host, Message: msg})
+	if !was && o.store.Settings.Set(ctx, key, "1") == nil {
+		o.alert(Alert{Event: AlertCertFailing, Severity: SevCritical, Node: n.Name, Subject: host, Message: msg})
+	}
 }

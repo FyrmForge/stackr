@@ -83,6 +83,30 @@ func TestHostCertAlerts(t *testing.T) {
 	}
 }
 
+// A host removed while its certificate fails takes its alert and problem
+// rows with it on the next complete read.
+func TestHostCertSweepsRemovedHosts(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	tl := w.tile(t, "web", false)
+	must(t, w.st.Domains.Create(ctx, store.Domain{ID: "d1", TileID: tl.ID, Host: "bad.acme.dev", Path: "/", HTTPS: true,
+		CreatedAt: time.Now().Add(-48 * time.Hour)}))
+	fakeProbe(t, nil)
+	w.orch.hostCertAlerts(ctx)
+	rows, err := w.st.Settings.ListPrefix(ctx, "problem.certfail.")
+	must(t, err)
+	if len(rows) != 1 {
+		t.Fatalf("problems = %v", rows)
+	}
+	must(t, w.st.Domains.Delete(ctx, "d1"))
+	w.orch.hostCertAlerts(ctx)
+	for _, p := range []string{"problem.certfail.", "alert.certfail."} {
+		if rows, _ := w.st.Settings.ListPrefix(ctx, p); len(rows) != 0 {
+			t.Errorf("%s rows kept: %v", p, rows)
+		}
+	}
+}
+
 // A worker is dialled at its public address, not its mesh one; the controller
 // by loopback; a worker with no public address is skipped.
 func TestCertAddr(t *testing.T) {
