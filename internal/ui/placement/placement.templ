@@ -451,6 +451,15 @@ type MoveView struct {
 	Vals     string
 	Downtime string
 	DNS      DNSView
+	Idle     bool // nothing stops or holds data: no word to type
+}
+
+// word is what the confirm types: nothing for an idle move.
+func (v MoveView) word() string {
+	if v.Idle {
+		return ""
+	}
+	return v.Env
 }
 
 // Move is the dialog. A failing check shows the list and no Confirm.
@@ -463,7 +472,7 @@ templ Move(v MoveView) {
 			Title:   "Move " + v.Env + " to " + v.To + "?",
 			Action:  v.Action,
 			Target:  target(),
-			Word:    v.Env,
+			Word:    v.word(),
 			Kept:    []string{"The data stays on " + v.From + " until you remove it."},
 			Vals:    v.Vals,
 			Include: v.DNS.Include(),

@@ -110,6 +110,19 @@ func TestMovePlanListsManagedHostsAndUntickHolds(t *testing.T) {
 	}
 }
 
+// An idle move needs no typed confirm, unless it changes a host's ingress:
+// then the owner sees the DNS list first.
+func TestIdleMoveWithDNSStillAsks(t *testing.T) {
+	idle := PlacementMovePlan{OK: true, Envs: []MoveEnvLine{{Path: "a/b/c"}}}
+	if pmAsks([]PlacementMovePlan{idle}) {
+		t.Error("an idle move with no DNS asks")
+	}
+	idle.DNS = DNSMove{Hand: []DNSHost{{Host: "shop.example.com"}}}
+	if !pmAsks([]PlacementMovePlan{idle}) || !MovesIdle([]PlacementMovePlan{idle}) {
+		t.Error("an idle move with DNS must ask without a typed word")
+	}
+}
+
 // The live check marks a host that resolves to what the move wants and keeps
 // the addresses of one that does not; a host that does not resolve says so.
 func TestCheckDNSReportsMatch(t *testing.T) {

@@ -430,6 +430,15 @@ func pmIdle(ps []PlacementMovePlan) bool {
 	return true
 }
 
+// MovesIdle is pmIdle for the dialog: no typed confirm is needed.
+func MovesIdle(ps []PlacementMovePlan) bool { return pmIdle(ps) }
+
+// pmAsks says the move needs a confirm: it stops something or moves data, or
+// it changes a host's ingress, whose DNS the owner must see first.
+func pmAsks(ps []PlacementMovePlan) bool {
+	return !pmIdle(ps) || slices.ContainsFunc(ps, func(p PlacementMovePlan) bool { return !p.DNS.Empty() })
+}
+
 func pmOK(cs []planfile.Check) bool {
 	return !slices.ContainsFunc(cs, func(c planfile.Check) bool { return !c.OK })
 }

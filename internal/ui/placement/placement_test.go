@@ -59,6 +59,18 @@ func TestOffers(t *testing.T) {
 	}
 }
 
+// An idle move's dialog asks for no typed word.
+func TestMoveDialogIdleTypesNothing(t *testing.T) {
+	v := ui.MoveView{Action: "/m", Env: "prod", From: "a", To: "b", OK: true, Idle: true, Vals: `{}`}
+	if body := render(t, ui.Move(v)); strings.Contains(body, "to confirm") {
+		t.Error("an idle move asks for a typed word")
+	}
+	v.Idle = false
+	if body := render(t, ui.Move(v)); !strings.Contains(body, "to confirm") {
+		t.Error("a busy move lost its typed word")
+	}
+}
+
 // The DNS list gives each hand-managed record a copy button, lists managed
 // hosts apart with a ticked repoint, and offers Check again.
 func TestDNSList(t *testing.T) {

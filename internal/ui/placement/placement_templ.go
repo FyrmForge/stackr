@@ -1728,6 +1728,15 @@ type MoveView struct {
 	Vals     string
 	Downtime string
 	DNS      DNSView
+	Idle     bool // nothing stops or holds data: no word to type
+}
+
+// word is what the confirm types: nothing for an idle move.
+func (v MoveView) word() string {
+	if v.Idle {
+		return ""
+	}
+	return v.Env
 }
 
 // Move is the dialog. A failing check shows the list and no Confirm.
@@ -1760,7 +1769,7 @@ func Move(v MoveView) templ.Component {
 				Title:   "Move " + v.Env + " to " + v.To + "?",
 				Action:  v.Action,
 				Target:  target(),
-				Word:    v.Env,
+				Word:    v.word(),
 				Kept:    []string{"The data stays on " + v.From + " until you remove it."},
 				Vals:    v.Vals,
 				Include: v.DNS.Include(),
@@ -1777,7 +1786,7 @@ func Move(v MoveView) templ.Component {
 			var templ_7745c5c3_Var71 string
 			templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(v.Env)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 474, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 483, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 			if templ_7745c5c3_Err != nil {
@@ -1790,7 +1799,7 @@ func Move(v MoveView) templ.Component {
 			var templ_7745c5c3_Var72 string
 			templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(v.To)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 474, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 483, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 			if templ_7745c5c3_Err != nil {
@@ -1841,7 +1850,7 @@ func moveBody(v MoveView) templ.Component {
 		var templ_7745c5c3_Var74 string
 		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(v.From)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 483, Col: 22}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 492, Col: 22}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 		if templ_7745c5c3_Err != nil {
@@ -1854,7 +1863,7 @@ func moveBody(v MoveView) templ.Component {
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(v.To)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 483, Col: 34}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 492, Col: 34}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 		if templ_7745c5c3_Err != nil {
@@ -1868,7 +1877,7 @@ func moveBody(v MoveView) templ.Component {
 			var templ_7745c5c3_Var76 string
 			templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(" " + "The old copy is gone: data comes back from backups.")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 485, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 494, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 			if templ_7745c5c3_Err != nil {
@@ -1883,7 +1892,7 @@ func moveBody(v MoveView) templ.Component {
 			var templ_7745c5c3_Var77 string
 			templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(" Stops for " + v.Downtime + ".")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 488, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 497, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 			if templ_7745c5c3_Err != nil {
@@ -1902,7 +1911,7 @@ func moveBody(v MoveView) templ.Component {
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(e.Path)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 493, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 502, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 			if templ_7745c5c3_Err != nil {
@@ -1915,7 +1924,7 @@ func moveBody(v MoveView) templ.Component {
 			var templ_7745c5c3_Var79 string
 			templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(e.Detail)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 493, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 502, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 			if templ_7745c5c3_Err != nil {
@@ -1959,7 +1968,7 @@ func moveBody(v MoveView) templ.Component {
 			var templ_7745c5c3_Var80 string
 			templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(" " + k.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 507, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 516, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 			if templ_7745c5c3_Err != nil {
@@ -1977,7 +1986,7 @@ func moveBody(v MoveView) templ.Component {
 				var templ_7745c5c3_Var81 string
 				templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(" " + k.Detail)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 509, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 518, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 				if templ_7745c5c3_Err != nil {
@@ -2043,7 +2052,7 @@ func Progress(v ProgressView) templ.Component {
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(Root)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 533, Col: 11}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 542, Col: 11}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 		if templ_7745c5c3_Err != nil {
@@ -2061,7 +2070,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var84 string
 			templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(v.Refresh)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 536, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 545, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 			if templ_7745c5c3_Err != nil {
@@ -2084,7 +2093,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var85 string
 			templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(v.To)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 543, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 552, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 			if templ_7745c5c3_Err != nil {
@@ -2112,7 +2121,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var86 string
 			templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(v.From)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 549, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 558, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 			if templ_7745c5c3_Err != nil {
@@ -2126,7 +2135,7 @@ func Progress(v ProgressView) templ.Component {
 		var templ_7745c5c3_Var87 string
 		templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs("started ")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 551, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 560, Col: 16}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 		if templ_7745c5c3_Err != nil {
@@ -2148,7 +2157,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var88 string
 			templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(i + 1))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 558, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 567, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 			if templ_7745c5c3_Err != nil {
@@ -2161,7 +2170,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var89 string
 			templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(s.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 559, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 568, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 			if templ_7745c5c3_Err != nil {
@@ -2179,7 +2188,7 @@ func Progress(v ProgressView) templ.Component {
 				var templ_7745c5c3_Var90 string
 				templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(s.Detail)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 561, Col: 52}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 570, Col: 52}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 				if templ_7745c5c3_Err != nil {
@@ -2212,7 +2221,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var91 string
 			templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(v.Env)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 569, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 578, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 			if templ_7745c5c3_Err != nil {
@@ -2230,7 +2239,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var92 string
 			templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs(v.Env)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 572, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 581, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 			if templ_7745c5c3_Err != nil {
@@ -2244,7 +2253,7 @@ func Progress(v ProgressView) templ.Component {
 				var templ_7745c5c3_Var93 string
 				templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs(" " + v.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 574, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 583, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 				if templ_7745c5c3_Err != nil {
@@ -2263,7 +2272,7 @@ func Progress(v ProgressView) templ.Component {
 			var templ_7745c5c3_Var94 string
 			templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(v.Env)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 578, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/placement/placement.templ`, Line: 587, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 			if templ_7745c5c3_Err != nil {

@@ -618,7 +618,7 @@ func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, na
 		return nil, err
 	}
 	if len(plans) > 0 {
-		if confirm != o.scopeSlug(ctx, kind, id) && !pmIdle(plans) {
+		if confirm != o.scopeSlug(ctx, kind, id) && pmAsks(plans) {
 			return nil, &MoveNeeded{Plans: plans}
 		}
 		for _, pl := range plans {
@@ -874,7 +874,7 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 		if err != nil {
 			return nil, err
 		}
-		if confirm != e.Slug && !pmIdle([]PlacementMovePlan{plan}) {
+		if confirm != e.Slug && pmAsks([]PlacementMovePlan{plan}) {
 			return nil, &MoveNeeded{Plans: []PlacementMovePlan{plan}}
 		}
 		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, e.Slug)

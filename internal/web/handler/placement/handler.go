@@ -241,7 +241,7 @@ func (h *handler) showIngressAsk(c echo.Context, d templ.Component) error {
 // env it moves. Confirm posts the target placement and word, the scope's
 // slug, to action; the service checks it.
 func moveView(action, word string, ps []service.PlacementMovePlan, dns ui.DNSView) ui.MoveView {
-	v := ui.MoveView{Action: action, Env: word, OK: true, DNS: dns}
+	v := ui.MoveView{Action: action, Env: word, OK: true, DNS: dns, Idle: service.MovesIdle(ps)}
 	for i, p := range ps {
 		if i == 0 {
 			v.From, v.To = p.From, p.To
