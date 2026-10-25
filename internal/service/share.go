@@ -2,8 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"slices"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -27,7 +32,8 @@ func (o *Orchestrator) CreateShare(ctx context.Context, orgID string, sp ShareSp
 }
 
 // DeleteShare removes one of the org's shares by slug or id; another org's
-// is not found. Refused while a tile line mounts it.
+// is not found. Refused while a tile line mounts it. The volumes on the
+// nodes go in a reconcile job, so a node that is down is cleaned later.
 func (o *Orchestrator) DeleteShare(ctx context.Context, orgID, ref string) error {
 	s, err := o.volumes.ShareOf(ctx, orgID, ref)
 	if err != nil {
@@ -37,11 +43,15 @@ func (o *Orchestrator) DeleteShare(ctx context.Context, orgID, ref string) error
 	if err != nil {
 		return err
 	}
-	return o.volumes.DeleteShare(ctx, s, users[s.Slug])
+	if err := o.volumes.DeleteShare(ctx, s, users[s.Slug]); err != nil {
+		return err
+	}
+	o.reconcileShares(ctx)
+	return nil
 }
 
-// UpdateShare rewrites one of the org's shares by slug or id, then drops the
-// volumes of its old recipe that no tile row names any more.
+// UpdateShare rewrites one of the org's shares by slug or id, then queues the
+// drop of the volumes of its old recipe that no tile row names any more.
 func (o *Orchestrator) UpdateShare(ctx context.Context, orgID, ref string, sp ShareSpec) (Share, error) {
 	s, err := o.volumes.ShareOf(ctx, orgID, ref)
 	if err != nil {
@@ -50,17 +60,44 @@ func (o *Orchestrator) UpdateShare(ctx context.Context, orgID, ref string, sp Sh
 	if s, err = o.volumes.UpdateShare(ctx, s, sp); err != nil {
 		return s, err
 	}
-	uses := []volume.ShareUse{}
-	err = o.eachShareLine(ctx, orgID, func(_ store.Tile, m tile.Mount) {
-		uses = append(uses, volume.ShareUse{Share: m.Share, Sub: m.Sub})
-	})
-	if err != nil {
-		return s, err
+	o.reconcileShares(ctx)
+	return s, nil
+}
+
+// reconcileShares queues the share volume reconcile across the nodes.
+func (o *Orchestrator) reconcileShares(ctx context.Context) {
+	if _, err := o.enqueue(ctx, kindShareReconcile, nil, "share-reconcile"); err != nil {
+		slog.Warn("shares: reconcile not queued", "err", err)
 	}
-	// ponytail: volumes a container still holds stay until the next sweep
-	// (a tile removal); a held one is not an error here.
-	_, err = o.volumes.SweepShares(ctx, orgID, uses)
-	return s, err
+}
+
+// runShareReconcile removes share volumes no row claims from every node that
+// is up. An offline node is skipped: it is reconciled when it reconnects.
+func (o *Orchestrator) runShareReconcile(ctx context.Context, r *jobs.Run) error {
+	orgs, err := o.orgs.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	uses := map[string][]volume.ShareUse{}
+	for _, org := range orgs {
+		err := o.eachShareLine(ctx, org.ID, func(_ store.Tile, m tile.Mount) {
+			uses[org.ID] = append(uses[org.ID], volume.ShareUse{Share: m.Share, Sub: m.Sub})
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return o.eachNode(ctx, func(ctx context.Context, n store.Node) error {
+		if n.Status == node.StatusOffline {
+			return nil
+		}
+		held, err := o.volumes.ReconcileShares(ctx, uses)
+		if len(held) > 0 {
+			_, _ = fmt.Fprintf(r.Log, "%s: %d share volumes stay: a container holds them\n", n.Name, len(held))
+			err = errors.Join(err, fmt.Errorf("%d share volumes held, retrying", len(held)))
+		}
+		return err
+	})
 }
 
 // shareUsers maps each share slug to the slugs of the org's tiles whose

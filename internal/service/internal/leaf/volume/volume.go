@@ -68,9 +68,8 @@ func (l *Leaf) at(ctx context.Context, v store.Volume) (context.Context, error) 
 }
 
 // orController keeps the node ctx already names, else the controller's: a
-// share belongs to an org, its volumes to whichever node mounts them.
-// ponytail: a share's volumes on workers are not swept until nodes can be
-// walked from here; deploys create them on the env's node via ctx.
+// share belongs to an org, its volumes to whichever node mounts them;
+// deploys create them on the env's node via ctx, ReconcileShares walks nodes.
 func (l *Leaf) orController(ctx context.Context) (context.Context, error) {
 	if l.Node == nil {
 		return ctx, nil

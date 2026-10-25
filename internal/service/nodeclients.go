@@ -537,6 +537,7 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 			}
 			if status == node.StatusOnline {
 				o.workerBack(ctx, n, &cd.f)
+				o.reconcileShares(ctx) // volumes a delete left while it was away
 			}
 			changed = true
 		}
@@ -612,6 +613,7 @@ func (o *Orchestrator) watchNodeClients() {
 			return
 		case <-day.C:
 			o.dailyChores(context.Background())
+			o.reconcileShares(context.Background())
 		case <-t.C:
 			o.controllerDiskAlert(context.Background())
 			if _, err := o.SweepPendingConnectors(context.Background(), time.Now()); err != nil {

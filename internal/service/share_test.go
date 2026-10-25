@@ -70,13 +70,15 @@ shares:
 		ss, _ := r.env.Orch.Shares(ctx, r.org)
 		return len(ss) == 1 && ss[0].Options == "nfsvers=4"
 	})
-	swept := false
-	for _, c := range r.env.Docker.Calls() {
-		swept = swept || c.String() == "RemoveVolume(stackr-share-"+media.ID+"-old)"
-	}
-	if !swept {
-		t.Error("the org file edit did not sweep the old recipe's volume")
-	}
+	// the sweep is a reconcile job, so it lands a moment after the edit
+	eventually(t, "the old recipe's volume swept", func() bool {
+		for _, c := range r.env.Docker.Calls() {
+			if c.String() == "RemoveVolume(stackr-share-"+media.ID+"-old)" {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 func TestDeleteShareMounted(t *testing.T) {
