@@ -405,15 +405,16 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 	}
 	env := "/acme/shop/dev"
 	for path, want := range map[string]string{
-		env + "/-/new-tile":               env,
-		env + "/-/proxy":                  env + "?drawer=proxy",
-		env + "/-/volumes/" + v.ID:        env + "?drawer=" + v.ID,
-		env + "/-/instances/api?tab=logs": env + "?drawer=" + s.Tile.ID + "&tab=logs",
-		env + "/-/slices/api":             env + "?drawer=" + s.Tile.ID,
-		env + "/-/placement":              env + "?drawer=env%3A" + s.Tile.Env + "&tab=placement",
-		env + "/-/tiles/api/placement":    env + "?drawer=" + s.Tile.ID + "&tab=settings",
-		"/acme/shop/-/placement":          "/acme/shop?drawer=stack%3A" + s.Tile.Stack + "&tab=placement",
-		"/acme/-/placement":               "/acme?drawer=org%3A" + s.Org + "&tab=placement",
+		env + "/-/new-tile":                           env,
+		env + "/-/proxy":                              env + "?drawer=proxy",
+		env + "/-/volumes/" + v.ID:                    env + "?drawer=" + v.ID,
+		env + "/-/instances/api?tab=logs":             env + "?drawer=" + s.Tile.ID + "&tab=logs",
+		env + "/-/slices/api":                         env + "?drawer=" + s.Tile.ID,
+		env + "/-/placement":                          env + "?drawer=env%3A" + s.Tile.Env + "&open=placement&tab=settings",
+		env + "/-/tiles/api/placement":                env + "?drawer=" + s.Tile.ID + "&open=network&tab=settings",
+		"/acme/shop/-/placement":                      "/acme/shop?drawer=stack%3A" + s.Tile.Stack + "&open=placement&tab=settings",
+		env + "/-/drawer?tab=settings&open=placement": env + "?drawer=env%3A" + s.Tile.Env + "&open=placement&tab=settings",
+		"/acme/-/placement":                           "/acme?drawer=org%3A" + s.Org + "&tab=placement",
 	} {
 		rec := s.DoNoCSRF(t, "GET", path)
 		if rec.Code != 303 || rec.Header().Get("Location") != want {

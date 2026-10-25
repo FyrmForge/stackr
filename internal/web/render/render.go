@@ -246,16 +246,16 @@ func DrawerTab(next echo.HandlerFunc) echo.HandlerFunc {
 
 // ToShell answers a plain load of a drawer route (its link opened in a new
 // tab), which would be a bare fragment, with a redirect to the page under
-// "/-/" that opens drawer node there: ?drawer=&tab=. ok false = an htmx
-// request, for the route itself.
+// "/-/" that opens drawer node there: ?drawer=&tab=&open=. ok false = an
+// htmx request, for the route itself.
 func ToShell(c echo.Context, node string) (ok bool, err error) {
-	return ToShellTab(c, node, c.QueryParam("tab"))
+	return ToShellTab(c, node, c.QueryParam("tab"), c.QueryParam("open"))
 }
 
-// ToShellTab is ToShell opening tab, for a route that is one tab of a
-// drawer (placement, log history). node "" is the page alone: a dialog
-// with no link of its own.
-func ToShellTab(c echo.Context, node, tab string) (ok bool, err error) {
+// ToShellTab is ToShell opening tab and its row open, for a route that is
+// one tab or row of a drawer (placement, log history). node "" is the page
+// alone: a dialog with no link of its own.
+func ToShellTab(c echo.Context, node, tab, open string) (ok bool, err error) {
 	if htmx.IsHTMX(c.Request()) {
 		return false, nil
 	}
@@ -265,6 +265,9 @@ func ToShellTab(c echo.Context, node, tab string) (ok bool, err error) {
 		q.Set("drawer", node)
 		if tab != "" {
 			q.Set("tab", tab)
+		}
+		if open != "" {
+			q.Set("open", open)
 		}
 	}
 	to := cmp.Or(page, "/")

@@ -136,7 +136,7 @@ func createView(c echo.Context) dialog.CreateTileView {
 // GET …/-/new-tile: the form, or it again for another source (the
 // switch re-sends what was typed).
 func (h *handler) NewTile(c echo.Context) error {
-	if ok, err := render.ToShellTab(c, "", ""); ok { // no link of its own: the env page
+	if ok, err := render.ToShellTab(c, "", "", ""); ok { // no link of its own: the env page
 		return err
 	}
 	cs, err := h.orch.Connectors(c.Request().Context(), scope(c).Org.ID)
@@ -591,7 +591,7 @@ func (h *handler) logsToShell(c echo.Context) (bool, error) {
 			}
 		}
 	}
-	return render.ToShellTab(c, node, "logs")
+	return render.ToShellTab(c, node, "logs", "")
 }
 
 // GET …/-/dns-banner: the hosts that still resolve away from their ingress

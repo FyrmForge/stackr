@@ -350,13 +350,17 @@ func count(n int, noun string) string {
 	return strconv.Itoa(n) + " " + noun + "s"
 }
 
-// Get is the tab.
+// Get is the tab: the org drawer's Placement tab, a stack's or env's
+// Settings Placement row, a tile's Settings Network row.
 func (h *handler) Get(c echo.Context) error {
-	tab := "placement"
-	if kind, _ := scopeOf(c); kind == service.ScopeTile {
-		tab = "settings" // a tile's ingress and exits are its Settings' Network row
+	tab, open := "settings", "placement"
+	switch kind, _ := scopeOf(c); kind {
+	case service.ScopeOrg:
+		tab, open = "placement", ""
+	case service.ScopeTile:
+		open = "network"
 	}
-	if ok, err := render.ToShellTab(c, drawerNode(c), tab); ok {
+	if ok, err := render.ToShellTab(c, drawerNode(c), tab, open); ok {
 		return err
 	}
 	return h.show(c, http.StatusOK, "", "")
@@ -462,7 +466,7 @@ func (h *handler) Move(c echo.Context) error {
 
 // Status is the progress tab; it polls itself while the move runs.
 func (h *handler) Status(c echo.Context) error {
-	if ok, err := render.ToShellTab(c, drawerNode(c), "moving"); ok {
+	if ok, err := render.ToShellTab(c, drawerNode(c), "moving", ""); ok {
 		return err
 	}
 	s := middleware.ScopeOf(c)
