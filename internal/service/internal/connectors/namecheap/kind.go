@@ -43,7 +43,7 @@ func (Kind) Steps() []connectors.Step {
 		{
 			Title: "Allow list",
 			Fields: []connectors.Field{{
-				Name: "client_ip", Label: "Server IPv4", Prefill: connectors.ServerIPv4,
+				Name: "client_ip", Label: "Calls come from", Prefill: connectors.ServerIPv4,
 				Help: "Add this IP to Namecheap's API allow list.",
 			}},
 			Note: "Behind NAT, use your router's public IPv4.",

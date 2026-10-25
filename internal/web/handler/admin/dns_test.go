@@ -40,7 +40,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 	// an empty submit names every field, and opens on the first one's step
 	rec = s.As(t, root, "POST", "/-/admin/connectors/new/namecheap", url.Values{})
 	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity ||
-		!strings.Contains(body, "Check these fields: Namecheap username, API key, Server IPv4.") ||
+		!strings.Contains(body, "Check these fields: Namecheap username, API key, Calls come from.") ||
 		!strings.Contains(body, "Enter the Namecheap username") || !strings.Contains(body, "Enter the API key") ||
 		!strings.Contains(body, "Namecheap needs this server&#39;s public IPv4 address") ||
 		!strings.Contains(body, `<section data-step hidden>`) || strings.Count(body, `<section data-step>`) != 1 ||
@@ -70,7 +70,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 	// the list: a row with its summary and cogwheel, no domains inline
 	body := s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String()
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
-		!strings.Contains(body, `hx-get="/-/admin/connectors/`+cs[0].ID+`/settings"`) || strings.Contains(body, base+"/domains") {
+		!strings.Contains(body, `hx-get="/-/admin/connectors/`+cs[0].ID+`/settings?tab=domains"`) || strings.Contains(body, base+"/domains") {
 		t.Fatalf("tab:\n%s", body)
 	}
 	// the cogwheel: the domain list and Remove
