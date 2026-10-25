@@ -1,7 +1,9 @@
 // Package backup runs volume backups and restores and the panel
-// self-backup. Archives are gzip, then age, then spooled to a local scratch
-// file and uploaded: a frozen container waits only for the local tar, and a
-// restore has a whole file to verify before anything is wiped.
+// self-backup. Archives are gzip, then age. A pause or stop backup spools to
+// a local scratch file and uploads after: the frozen container waits only for
+// the local tar. A live backup and a database dump stream straight into the
+// upload (nothing waits on them), so they need no scratch space and no size
+// limit. A restore has a whole file to verify before anything is wiped.
 package backup
 
 import (
@@ -111,35 +113,48 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 	return f.Backups.GetRun(ctx, r.ID)
 }
 
-// write produces the archive into a spool file and uploads it.
+// write produces the archive and uploads it: streamed for a live copy or a
+// dump, spooled first otherwise (see the package comment).
 func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (string, int64, error) {
 	name, ext := s.Volume.Slug, ".tar.gz.age"
 	if sp.GroupID != "" {
 		name = s.Volume.Name // unique on the node; slugs repeat across envs
 	}
+	stream := s.dumps() || sp.Mode == bk.Live
 	if s.dumps() {
 		ext = ".sql.gz.age"
-	} else if err := f.checkSpace(ctx, s.Volume); err != nil {
-		return "", 0, err
+	} else if !stream {
+		if err := f.checkSpace(ctx, s.Volume); err != nil {
+			return "", 0, err
+		}
+	}
+	key := bk.ObjectKey(sp.Prefix, name+ext, time.Now())
+	produce := func(ctx context.Context, w io.Writer) error {
+		enc, err := encrypt(w, sp.Dest.ArchiveKey, keyWorkFactor)
+		if err != nil {
+			return err
+		}
+		if s.dumps() {
+			err = f.dump(ctx, s, enc, log)
+		} else {
+			err = f.tar(ctx, s, sp.Mode, sp.Held, enc, log)
+		}
+		if err == nil {
+			err = enc.Close()
+		}
+		return err
+	}
+	if stream {
+		logf(log, "uploading %s while it is read\n", key)
+		size, err := f.stream(ctx, open(sp.Dest), key, produce)
+		return key, size, err
 	}
 	spool, err := f.spool(cmp.Or(s.Volume.ID, "group"))
 	if err != nil {
 		return "", 0, err
 	}
 	defer drop(spool)
-	enc, err := encrypt(spool, sp.Dest.ArchiveKey, keyWorkFactor)
-	if err != nil {
-		return "", 0, err
-	}
-	if s.dumps() {
-		err = f.dump(ctx, s, enc, log)
-	} else {
-		err = f.tar(ctx, s, sp.Mode, sp.Held, enc, log)
-	}
-	if err == nil {
-		err = enc.Close()
-	}
-	if err != nil {
+	if err := produce(ctx, spool); err != nil {
 		return "", 0, err
 	}
 	size, err := spool.Seek(0, io.SeekCurrent)
@@ -149,12 +164,50 @@ func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (st
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		return "", 0, err
 	}
-	key := bk.ObjectKey(sp.Prefix, name+ext, time.Now())
 	logf(log, "uploading %s (%d bytes)\n", key, size)
 	if err := open(sp.Dest).Put(ctx, key, spool); err != nil {
 		return "", 0, fmt.Errorf("upload: %w", err)
 	}
 	return key, size, nil
+}
+
+// stream runs produce into a pipe the destination reads, counting the bytes.
+// Either side failing stops the other, and the destination discards a partial
+// object.
+func (f *Flow) stream(ctx context.Context, d s3.Destination, key string, produce func(context.Context, io.Writer) error) (int64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	pr, pw := io.Pipe()
+	cw := &countWriter{w: pw}
+	done := make(chan error, 1)
+	go func() {
+		err := produce(ctx, cw)
+		_ = pw.CloseWithError(err) // nil = EOF
+		done <- err
+	}()
+	putErr := d.Put(ctx, key, pr)
+	_ = pr.CloseWithError(putErr) // a Put that stopped early must not strand produce
+	if putErr != nil {
+		cancel()
+	}
+	if perr := <-done; perr != nil {
+		return 0, perr
+	}
+	if putErr != nil {
+		return 0, fmt.Errorf("upload: %w", putErr)
+	}
+	return cw.n, nil
+}
+
+type countWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // dump gzips the engine's dump from the running instance into w. wait runs
