@@ -21,7 +21,7 @@ import (
 
 func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
 	approve := a.Require("hostgrant.approve")
-	g.POST(ui.Base+"/access/approve", h.act("access", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(ui.Base+"/access/approve", h.act("host-access", func(c echo.Context) (string, *service.Job, error) {
 		ctx := c.Request().Context()
 		stacks, err := h.stackNames(ctx)
 		if err != nil {
@@ -37,9 +37,9 @@ func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
 			return "", nil, errs.Invalidf("grant", "%s", msg)
 		}
 		_, err = h.orch.ApproveHostGrant(ctx, st.id, middleware.Principal(c).User.ID, pending, grant)
-		return "Elevated access approved.", nil, err
+		return "Host access approved.", nil, err
 	}), approve)
-	g.POST(ui.Base+"/access/revoke", h.act("access", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(ui.Base+"/access/revoke", h.act("host-access", func(c echo.Context) (string, *service.Job, error) {
 		if c.QueryParam("tile") == "" { // "" would revoke the whole stack
 			return "", nil, errs.Invalidf("tile", "name a tile")
 		}
@@ -141,6 +141,7 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 				Pending:    g.Pending,
 				Tiles:      access.Group(nil, g.Pending),
 				Controller: warn,
+				Target:     ui.Target,
 			}})
 		}
 		if v.Filter.Org != "" && v.Filter.Org != st.orgID {
@@ -161,7 +162,7 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 					Title:   "Revoke " + t.Tile + "'s access?",
 					Warning: "The running container keeps going; the next deploy waits again.",
 					Action:  ui.Base + "/access/revoke?stack=" + url.QueryEscape(g.StackID) + "&tile=" + url.QueryEscape(t.Tile),
-					Target:  "#" + comp.DrawerRoot,
+					Target:  ui.Target,
 				},
 			})
 		}

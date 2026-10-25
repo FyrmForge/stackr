@@ -27,11 +27,10 @@ type plOpen struct {
 	progress *ui.MoveProgressView
 }
 
-// mountPlacements is the Placements tab's actions and the move wizard. Every
+// mountPlacements is the Placements section's actions and the move wizard. Every
 // verb is node.manage, so the route's Require is the whole gate.
 func (h *handler) mountPlacements(g *echo.Group, a *middleware.Access) {
 	m := a.Require("node.manage")
-	g.GET(plBase, func(c echo.Context) error { return h.plAnswer(c, "", plOpen{}, nil) }, m)
 	g.POST(plBase, h.createPlacement, m)
 	g.POST(plBase+"/:placement/open", h.openPlacement, m)
 	g.POST(plBase+"/:placement/delete", h.deletePlacement, m)
@@ -41,23 +40,9 @@ func (h *handler) mountPlacements(g *echo.Group, a *middleware.Access) {
 	g.POST(plBase+"/:placement/retry", h.retryMove, m)
 }
 
-// plAnswer answers the Placements tab: a refusal over it (422), or the note.
+// plAnswer answers the Placements section: a refusal over it (422), or the note.
 func (h *handler) plAnswer(c echo.Context, note string, x plOpen, actErr error) error {
-	f, status := frame("placements"), http.StatusOK
-	if actErr != nil {
-		msg, ok := render.Refused(actErr)
-		if !ok {
-			return middleware.HTTPError(actErr)
-		}
-		f.Error, status = msg, http.StatusUnprocessableEntity
-	} else {
-		f.Note = note
-	}
-	body, err := h.placementsTab(c, x)
-	if err != nil {
-		return middleware.HTTPError(err)
-	}
-	return respond.HTML(c, status, comp.Drawer(f, body))
+	return h.answer(c, "placements", note, extra{placements: x}, actErr)
 }
 
 func (h *handler) placementsTab(c echo.Context, x plOpen) (templ.Component, error) {
@@ -74,7 +59,7 @@ func (h *handler) placementsTab(c echo.Context, x plOpen) (templ.Component, erro
 	if err != nil {
 		return nil, err
 	}
-	v := ui.PlacementsView{Wizard: x.wizard, Progress: x.progress, Nodes: ui.Base + "?tab=nodes"}
+	v := ui.PlacementsView{Wizard: x.wizard, Progress: x.progress, Nodes: ui.Href("nodes")}
 	for _, p := range ps {
 		v.Rows = append(v.Rows, placementRow(p, ogs))
 	}
@@ -126,7 +111,7 @@ func placementRow(p service.Placement, ogs []service.Org) ui.PlacementRow {
 	return r
 }
 
-func target() string { return "#" + comp.DrawerRoot }
+func target() string { return ui.Target }
 
 // placementState is the one word under a placement's name and its chip tone.
 func placementState(p service.Placement) (word, tone string) {
@@ -152,9 +137,19 @@ func (h *handler) createPlacement(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
 	_, err = h.orch.CreatePlacement(c.Request().Context(), middleware.Principal(c), service.PlacementSpec{
-		Name: f.Get("name"), Node: f.Get("node"), OpenToAll: f.Get("all") != "", Orgs: f["org"],
+		Name: f.Get("name"), Node: f.Get("node"), OpenToAll: f.Get("share") == comp.ShareAll, Orgs: openOrgs(f),
 	})
 	return h.plAnswer(c, "Placement added.", plOpen{}, err)
+}
+
+// openOrgs is the org slugs the sharing control picked: the ticked ones
+// with "Only these orgs", none otherwise (the boxes are disabled then, but a
+// hand-made post must not open it either).
+func openOrgs(f url.Values) []string {
+	if f.Get("share") != comp.ShareOnly {
+		return nil
+	}
+	return f["org"]
 }
 
 // POST /-/admin/placements/:placement/open
@@ -163,7 +158,7 @@ func (h *handler) openPlacement(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	err = h.orch.SetPlacementOpen(c.Request().Context(), middleware.Principal(c), c.Param("placement"), f.Get("all") != "", f["org"])
+	err = h.orch.SetPlacementOpen(c.Request().Context(), middleware.Principal(c), c.Param("placement"), f.Get("share") == comp.ShareAll, openOrgs(f))
 	return h.plAnswer(c, "Saved.", plOpen{}, err)
 }
 

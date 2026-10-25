@@ -14,7 +14,7 @@ import (
 func TestAdminRegistryTab(t *testing.T) {
 	s := webtest.New(t)
 	for _, c := range []struct{ method, path string }{
-		{"GET", "/-/admin?tab=registry"},
+		{"GET", "/-/admin/registry"},
 		{"POST", "/-/admin/registry/clean"},
 	} {
 		if rec := s.Do(t, c.method, c.path, nil); rec.Code != http.StatusForbidden {
@@ -22,7 +22,7 @@ func TestAdminRegistryTab(t *testing.T) {
 		}
 	}
 	root := s.Session(t, s.User(t, "root@x.test", true))
-	rec := s.As(t, root, "GET", "/-/admin?tab=registry", nil)
+	rec := s.As(t, root, "GET", "/-/admin/registry", nil)
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, `id="tab-registry"`) || !strings.Contains(body, "Last cleanup: none yet.") ||
 		!strings.Contains(body, "Clean up now") {

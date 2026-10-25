@@ -18,7 +18,7 @@ import (
 func TestRedirectSetup(t *testing.T) {
 	env := servicetest.NewWith(t, []service.Option{service.WithKinds(servicetest.FakeKind{})})
 	ctx := context.Background()
-	in := service.ConnectorAdd{Kind: "fake", Values: map[string]string{"account": "acme", "token": "t0k"}, User: "u1", Return: "/-/admin?tab=connectors"}
+	in := service.ConnectorAdd{Kind: "fake", Values: map[string]string{"account": "acme", "token": "t0k"}, User: "u1", Return: "/-/admin/connectors"}
 
 	for name, bad := range map[string]service.ConnectorAdd{
 		"no user (the API)": {Kind: in.Kind, Values: in.Values, Return: in.Return},

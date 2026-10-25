@@ -18,6 +18,8 @@ type RegistryView struct {
 	Clean           c.ConfirmView
 	Job             *c.JobStatusView
 	Err             string
+	// Knobs is the cleanup schedule and keep count; nil = not shown.
+	Knobs *c.SettingsFormView
 }
 
 type RegistryOrg struct{ Org, Versions, Size string }
@@ -72,6 +74,9 @@ templ Registry(v RegistryView) {
 					@c.JobStatus(*v.Job)
 				}
 			</div>
+		}
+		if v.Knobs != nil {
+			@Knobs("Schedule", *v.Knobs)
 		}
 	</div>
 }

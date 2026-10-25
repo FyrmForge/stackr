@@ -5,6 +5,15 @@ import "strings"
 // DrawerRoot is the id every drawer answer replaces (outerHTML).
 const DrawerRoot = "drawer-view"
 
+// orDrawer is a view's answer target: its own (a page's root), else the
+// drawer it sits in.
+func orDrawer(target string) string {
+	if target != "" {
+		return target
+	}
+	return "#" + DrawerRoot
+}
+
 // DrawerView is the frame of a drawer: v0's PanelHeader (icon, title,
 // status, scope chip, subtitle and location, actions, the X), an optional
 // strip, the tab strip, a refused action's message or what an action did,

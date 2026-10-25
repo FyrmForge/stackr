@@ -26,7 +26,7 @@ func TestBackupFailureOpensProblem(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(ps) != 1 || ps[0].Message != tt.want || ps[0].Severity != SevCritical ||
-			ps[0].Link != "?drawer=admin&tab=backups" || ps[0].LinkText != "Open backups" {
+			ps[0].Link != "/-/admin/backups" || ps[0].LinkText != "Open backups" {
 			t.Fatalf("%s: %+v", tt.key, ps)
 		}
 		since := ps[0].Since
@@ -60,7 +60,7 @@ func TestProblemsOrder(t *testing.T) {
 	for _, p := range ps {
 		got = append(got, p.Key+" "+p.Link)
 	}
-	want := []string{"node.w1 ?drawer=node:w1", "cert.root ?drawer=admin&tab=nodes", "disk.w1 ?drawer=node:w1"}
+	want := []string{"node.w1 ?drawer=node:w1", "cert.root /-/admin/keys", "disk.w1 ?drawer=node:w1"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("got %v, want %v", got, want)
 	}

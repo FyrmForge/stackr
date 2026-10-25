@@ -33,10 +33,10 @@ func TestNodeDownBanner(t *testing.T) {
 func TestProblemBanner(t *testing.T) {
 	var ps []Problem
 	for i := range 5 {
-		ps = append(ps, Problem{Critical: i == 0, Message: "problem " + string(rune('a'+i)), Href: "?drawer=admin&tab=backups", LinkText: "Open backups"})
+		ps = append(ps, Problem{Critical: i == 0, Message: "problem " + string(rune('a'+i)), Href: "/-/admin/backups", LinkText: "Open backups"})
 	}
 	var b strings.Builder
-	if err := Layout(Shell{Problems: ps, ProblemsMore: "?drawer=admin&tab=backups"}, templ.NopComponent).Render(context.Background(), &b); err != nil {
+	if err := Layout(Shell{Problems: ps, ProblemsMore: "/-/admin/backups"}, templ.NopComponent).Render(context.Background(), &b); err != nil {
 		t.Fatal(err)
 	}
 	got := b.String()

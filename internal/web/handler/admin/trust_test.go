@@ -17,21 +17,21 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
-// The Nodes tab carries the cluster trust section for an admin: the root,
+// Keys carries the cluster root for an admin: the root,
 // the buttons, and break glass saying plainly what stops.
 func TestAdminClusterTrust(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
 
-	rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil)
+	rec := s.As(t, root, "GET", "/-/admin/keys", nil)
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Cluster trust", "Rotate root", "Revoke controller certificate", "Break glass",
+		"Cluster root", "Rotate root", "Revoke controller certificate", "Break glass",
 		"None running.", "Tunnels between nodes stop until each node rejoins.",
 		"Apps keep running where they are.", "Deploys and traffic between nodes stop.",
 	} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
-			t.Fatalf("nodes tab = %d, no %q in\n%s", rec.Code, want, body)
+			t.Fatalf("keys = %d, no %q in\n%s", rec.Code, want, body)
 		}
 	}
 	if strings.Contains(body, "Finish rollover now") || strings.Contains(body, "—") {
@@ -58,7 +58,7 @@ func TestAdminClusterTrust(t *testing.T) {
 // After break glass the section lists each node not rejoined with a rejoin
 // action, and shows the command once it is made.
 func TestTrustViewNotRejoined(t *testing.T) {
-	v := ui.NodesView{Trust: ui.TrustView{
+	v := ui.KeysView{Trust: ui.TrustView{
 		Fingerprint: "ab12", Created: "Jan 2, 2026", Expires: "Jan 2, 2036", RollingOver: true,
 		Since: "Oct 1, 2026", OnOldRoot: []string{"h3"},
 		Finish: comp.ConfirmView{Button: "Finish rollover now", Title: "t"},
@@ -68,7 +68,7 @@ func TestTrustViewNotRejoined(t *testing.T) {
 		},
 	}}
 	var b bytes.Buffer
-	if err := ui.Nodes(v).Render(t.Context(), &b); err != nil {
+	if err := ui.Keys(v).Render(t.Context(), &b); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
@@ -101,7 +101,7 @@ func TestAdminClusterTrustVerbs(t *testing.T) {
 		path string
 		form url.Values
 		say  string // in the answer
-		tab  string // on the Nodes tab after
+		tab  string // on Keys after
 	}{
 		{"trust/rotate-root", nil, "Rotating the root.", "Still on the old root: w1."},
 		{"trust/finish-rollover", nil, "Rollover finished.", "None running."},
@@ -121,8 +121,8 @@ func TestAdminClusterTrustVerbs(t *testing.T) {
 		if step.path == w1+"/trust-rejoin" && !strings.Contains(rec.Body.String(), "stackr-install join") {
 			t.Fatalf("no rejoin command in\n%s", rec.Body)
 		}
-		if rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil); !strings.Contains(rec.Body.String(), step.tab) {
-			t.Fatalf("after %s: no %q on the Nodes tab", step.path, step.tab)
+		if rec := s.As(t, root, "GET", "/-/admin/keys", nil); !strings.Contains(rec.Body.String(), step.tab) {
+			t.Fatalf("after %s: no %q on Keys", step.path, step.tab)
 		}
 	}
 }

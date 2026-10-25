@@ -5,7 +5,7 @@ import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-// AccessView is the Elevated access tab: the stacks with a request open
+// AccessView is the Host access section: the stacks with a request open
 // (approved with the same checkboxes as the stack drawer), then every grant
 // per tile.
 type AccessView struct {
@@ -51,9 +51,8 @@ templ Access(v AccessView) {
 				</div>
 			}
 		}
-		@c.Section("Elevated access", "instance", "Every grant on this server, per tile.") {
-			<form hx-get={ Base } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
-				<input type="hidden" name="tab" value="access"/>
+		@c.Section("Grants", "instance", "Every grant on this server, per tile.") {
+			<form hx-get={ Href("host-access") } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
 				<select name="org" class="input w-auto" aria-label="Organization">
 					<option value="">All orgs</option>
 					for _, o := range v.Filter.Orgs {

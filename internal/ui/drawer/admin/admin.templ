@@ -1,6 +1,6 @@
-// Package admin is the admin drawer, opened from the nav on any page:
-// server settings (the catalogue's install and server knobs), users, the
-// self-upgrade, raw Caddy and the panel's own backups.
+// Package admin is the Server settings page, opened from the rail's gear: a
+// side menu of sections (users, nodes, backups, keys, the server's knobs,
+// the self-upgrade), and the node drawer that opens over it.
 package admin
 
 import (
@@ -10,9 +10,7 @@ import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-var Tabs = []string{"settings", "users", "nodes", "placements", "access", "security", "routes", "update", "caddy", "backups", "alerts", "config", "params", "connectors", "registry", "observability", "guide"}
-
-// Base is where every tab and action lives.
+// Base is where every section and action lives.
 const Base = "/-/admin"
 
 type UsersView struct {
@@ -111,7 +109,8 @@ type BackupsView struct {
 	Sched PanelSchedule
 	// NoOffBox is set while no off-box destination takes the panel backup.
 	NoOffBox bool
-	Recovery RecoveryView
+	// RecoveryGen is the recovery key generation the archives are encrypted to.
+	RecoveryGen int
 }
 
 // RecoveryView is the recovery key section. Unsaved is set while its private
@@ -139,8 +138,6 @@ type Backup struct {
 	When                              time.Time
 }
 
-func target() string { return "#" + c.DrawerRoot }
-
 templ Users(v UsersView) {
 	<div id="tab-users">
 		@c.Section("Users", "instance", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
@@ -159,7 +156,7 @@ templ Users(v UsersView) {
 						}
 						<span class="ml-auto flex items-center gap-2">
 							if u.Promote != "" {
-								@c.PostButton(promoteLabel(u.Admin), u.Promote)
+								@post(promoteLabel(u.Admin), u.Promote)
 							}
 							if u.Disable != "" {
 								@c.Confirm(c.ConfirmView{
@@ -234,9 +231,9 @@ templ Update(v UpdateView) {
 					@c.JobStatus(*v.Job)
 				}
 				if !v.Upgrading && !v.Checked {
-					@c.PostButton("Check for update", Base+"/update/check")
+					@post("Check for update", Base+"/update/check")
 				} else if !v.Upgrading && (v.Latest != "" || v.CheckErr != "") {
-					@c.PostButton("Check again", Base+"/update/check")
+					@post("Check again", Base+"/update/check")
 				}
 			</div>
 		}
@@ -265,7 +262,7 @@ templ Update(v UpdateView) {
 					}
 				</ul>
 				if v.Workers.Action != "" {
-					@c.PrimaryPost(v.Workers.Button, v.Workers.Action)
+					@primaryPost(v.Workers.Button, v.Workers.Action)
 				}
 			}
 		}
@@ -289,7 +286,7 @@ type Route struct {
 templ Routes(v RoutesView) {
 	<div id="tab-routes">
 		if v.Add != "" {
-			@c.Section("Add a route", "instance", "Pass-through sends raw TLS by name and keeps the target's own certificate. http and https terminate TLS here.") {
+			@c.Section("Add an external route", "instance", "Pass-through sends raw TLS by name and keeps the target's own certificate. http and https terminate TLS here.") {
 				<form hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 					@c.Field(c.FieldView{Name: "route_host", Label: "Host", Placeholder: "pve.example.com", Required: true, Help: "*.example.com works for pass-through."})
 					<div>
@@ -306,9 +303,9 @@ templ Routes(v RoutesView) {
 				</form>
 			}
 		}
-		@c.Section("Routes", "instance", "Hosts that go to an address outside stackr.") {
+		@c.Section("External routes", "instance", "Hosts that go to an address outside stackr.") {
 			if len(v.Rows) == 0 {
-				<p class="text-sm text-rw-faint">No routes yet.</p>
+				<p class="text-sm text-rw-faint">No external routes yet.</p>
 			} else {
 				<ul class="space-y-2">
 					for _, r := range v.Rows {
@@ -332,33 +329,6 @@ templ Routes(v RoutesView) {
 	</div>
 }
 
-templ Caddy(v CaddyView) {
-	<div id="tab-caddy">
-		@c.Section("Extra Caddy config", "instance", "A JSON array of Caddy routes, added after stackr's own. Per-domain raw Caddy lives in a tile's domains tab.") {
-			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-				<label for="proxy_custom" class="sr-only">Extra Caddy config (proxy_custom)</label>
-				<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" placeholder="[]" disabled?={ v.Action == "" }>{ v.Value }</textarea>
-				if v.Action != "" {
-					<button type="submit" class="btn btn-primary btn-sm">Save</button>
-				}
-			</form>
-			if v.Sync != "" {
-				<div class="mt-5 pt-5 border-t border-rw-border">
-					@c.PostButton("Re-push the proxy config", v.Sync)
-				</div>
-			}
-		}
-	</div>
-}
-
-// Guide reopens the server setup screens; the server stays set up.
-templ Guide(href string) {
-	<div id="tab-guide">
-		@c.Section("Setup guide", "instance", "Walks through domains, git, observability, backups and nodes again.") {
-			<a href={ templ.SafeURL(href) } class="btn btn-primary btn-sm">Open the setup guide</a>
-		}
-	</div>
-}
 
 // Recovery is the recovery key section; every action re-renders it alone.
 templ Recovery(v RecoveryView) {
@@ -394,74 +364,3 @@ templ Recovery(v RecoveryView) {
 	</div>
 }
 
-templ Backups(v BackupsView) {
-	<div id="tab-backups">
-		if v.NoOffBox {
-			<p class="text-sm text-rw-warn" role="status" data-backup-warning>Backups are only on this server. <a href={ templ.SafeURL(Base + "?tab=backups#dest_name") } class="underline">Add an S3 destination.</a></p>
-		}
-		@Recovery(v.Recovery)
-		@c.Dests(v.Dests)
-		@c.Section("Stackr's own database", "instance", "A consistent copy of the panel database, taken while it is serving. It is encrypted to your recovery key. Restore it on the host with stackr-install restore.") {
-			<div class="space-y-3">
-				if v.Sched.Action != "" {
-					<form hx-post={ v.Sched.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="panel_backup_enabled" name="panel_backup_enabled" value="1" checked?={ v.Sched.Enabled } class="accent-rw-accent"/> Back up on a schedule</label>
-						@c.Field(c.FieldView{Name: "panel_backup_schedule", Label: "Schedule", Value: v.Sched.Schedule, Help: "Five-field cron. Empty is 3:00 daily."})
-						@c.Field(c.FieldView{Name: "panel_backup_keep", Label: "Keep", Type: "number", Value: v.Sched.Keep, Help: "Archives kept at the destination."})
-						<div>
-							<label for="panel_backup_dest" class="label">Destination</label>
-							<select id="panel_backup_dest" name="panel_backup_dest" class="input">
-								<option value="" selected?={ v.Sched.Dest == "" }>Local</option>
-								for _, d := range v.Sched.Dests {
-									<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
-								}
-							</select>
-						</div>
-						<button type="submit" class="btn btn-primary btn-sm">Save</button>
-					</form>
-				}
-				if len(v.Rows) == 0 {
-					<p class="text-sm text-rw-muted">Last run: none yet.</p>
-				} else {
-					<p class="text-sm text-rw-muted">
-						{ "Last run: " }
-						@c.Time(v.Rows[0].When, "Jan 2 15:04")
-						{ ", " + v.Rows[0].Status + ", to " + v.Rows[0].Dest + "." }
-					</p>
-				}
-				if v.Now != "" {
-					<form hx-post={ v.Now } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
-						<label for="backup_now_dest" class="text-sm text-rw-muted">Destination</label>
-						<select id="backup_now_dest" name="dest" class="input w-auto">
-							<option value="local" selected?={ v.Sched.Dest == "" }>Local</option>
-							for _, d := range v.Sched.Dests {
-								<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
-							}
-						</select>
-						<button type="submit" class="btn btn-ghost btn-sm">Back up now</button>
-					</form>
-				}
-				if v.Job != nil {
-					@c.JobStatus(*v.Job)
-				}
-				if len(v.Rows) == 0 {
-					<p class="text-sm text-rw-muted">No panel backups yet.</p>
-				} else {
-					<ul class="space-y-2">
-						for _, b := range v.Rows {
-							<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
-								@c.JobBadge(b.Status)
-								<span class="text-rw-text">@c.Time(b.When, "Jan 2 15:04")</span>
-								<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>
-								if b.Error != "" {
-									<span class="text-xs text-rw-danger">{ b.Error }</span>
-								}
-								<span class="ml-auto font-mono text-xs text-rw-muted">{ b.Size }</span>
-							</li>
-						}
-					</ul>
-				}
-			</div>
-		}
-	</div>
-}

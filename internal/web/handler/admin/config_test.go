@@ -21,7 +21,7 @@ func TestAdminConfigApplyingPlan(t *testing.T) {
 	if err := s.Store.ServerPlans.Update(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	body := s.As(t, root, "GET", "/-/admin?tab=config", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
 	for _, gone := range []string{"/approve", "/reject", `name="ticked"`, "Are you sure?"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("an applying plan still offers %q:\n%s", gone, body)
@@ -45,7 +45,7 @@ func TestAdminConfigAppliedPlanShowsTicks(t *testing.T) {
 	if err := s.Store.ServerPlans.Update(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	body := s.As(t, root, "GET", "/-/admin?tab=config", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
 	if !strings.Contains(body, ">removed<") || strings.Contains(body, "remove?") || strings.Contains(body, "Applying") {
 		t.Errorf("applied plan does not show its ticks:\n%s", body)
 	}

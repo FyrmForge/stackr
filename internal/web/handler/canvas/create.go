@@ -157,7 +157,7 @@ func (h *handler) installedBack(c echo.Context, orgID *string, id string) (strin
 		if !s.Done {
 			return "/-/setup/server/ui/" + service.ServerSetupGit, nil
 		}
-		return "/?drawer=admin&tab=connectors", nil
+		return "/-/admin/connectors", nil
 	}
 	orgs, err := h.orch.Orgs(ctx, middleware.Principal(c).User.ID)
 	if err != nil {

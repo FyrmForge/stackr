@@ -29,9 +29,17 @@ func (h *handler) registryTab(c echo.Context, job *comp.JobStatusView) (templ.Co
 		Title:   "Clean up the registry now?",
 		Warning: "Pushes pause for a few seconds.",
 		Action:  ui.Base + "/registry/clean",
-		Target:  "#" + comp.DrawerRoot,
+		Target:  ui.Target,
 		Primary: true,
 	}}
+	if job != nil {
+		job.Refresh = ui.Href("registry")
+	}
+	knobs, err := h.settings(c, "registry", nil)
+	if err != nil {
+		return nil, err
+	}
+	v.Knobs = &knobs
 	o, err := h.orch.RegistryOverview(c.Request().Context())
 	if err != nil {
 		v.Err = err.Error()

@@ -132,8 +132,8 @@ func (h *handler) serverHand(c echo.Context) error {
 
 func stepURL(step string) string { return ServerBase + "/ui/" + step }
 
-// adminURL is an Admin drawer tab, opened over the home page.
-func adminURL(tab string) string { return "/?drawer=admin&tab=" + tab }
+// adminURL is a Server settings section.
+func adminURL(section string) string { return admin.Href(section) }
 
 // serverSteps' titles and subtitles, by step.
 var serverStepTitles = map[string][2]string{
@@ -256,10 +256,10 @@ func (h *handler) refillStep(c echo.Context, err error, step string) error {
 	return refill(c, err, func() error { return h.showServerStep(c, step) })
 }
 
-// summaryTab is the Admin tab each summary line lives on.
+// summaryTab is the Server settings section each summary line lives on.
 var summaryTab = map[string]string{
-	"domains": "settings", "certificates": "connectors", service.ServerSetupGit: "connectors",
-	"observability": "observability", "backups": "backups", "nodes": "nodes",
+	"domains": "domains", "certificates": "connectors", service.ServerSetupGit: "connectors",
+	"observability": "metrics", "backups": "backups", "nodes": "nodes",
 }
 
 func (h *handler) settings(ctx context.Context, keys map[string]*string) error {

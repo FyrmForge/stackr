@@ -78,17 +78,17 @@ func TestUpdateLive(t *testing.T) {
 		}
 		return b.String()
 	}
-	out := render(UpdateView{Version: "1.0", Upgrading: true, Live: "/-/admin?tab=update",
+	out := render(UpdateView{Version: "1.0", Upgrading: true, Live: "/-/admin/update",
 		Workers: &WorkersView{Pending: true, Rows: []WorkerRow{{Name: "h3", Current: "0.9", Behind: true}}}})
 	for _, want := range []string{
-		`data-live`, `<span hidden hx-get="/-/admin?tab=update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
+		`data-live`, `<span hidden hx-get="/-/admin/update" hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML">`,
 		`data-reconnecting hidden`, "Reconnecting...", "The rollout starts once the panel's image is published.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("live tab: no %q in\n%s", want, out)
 		}
 	}
-	out = render(UpdateView{Version: "1.0", Job: &c.JobStatusView{Kind: "upgrade", State: "running", Live: true, StreamURL: "/-/jobs/j/events", Refresh: "/-/admin?tab=update"}})
+	out = render(UpdateView{Version: "1.0", Job: &c.JobStatusView{Kind: "upgrade", State: "running", Live: true, StreamURL: "/-/jobs/j/events", Refresh: "/-/admin/update"}})
 	if !strings.Contains(out, "data-live") || !strings.Contains(out, "data-reconnecting") || strings.Contains(out, "every 3s") {
 		t.Errorf("job-stream tab: want data-live and the note, no poller\n%s", out)
 	}
@@ -138,10 +138,10 @@ func TestNodeOverviewVersionAndCert(t *testing.T) {
 // each points and asks for the node's name; the form posts to the preview.
 func TestIngressPreview(t *testing.T) {
 	var b strings.Builder
-	err := Nodes(NodesView{Rows: []NodeRow{{Name: "h4", Status: "online"}}, Defaults: &DefaultsView{
+	err := Traffic(TrafficView{Defaults: &DefaultsView{
 		IngressAction: "/-/admin/nodes/default-ingress/preview",
 		Preview: &IngressPreview{
-			Node: "h4", PanelNote: "The panel moves to h4.", Cancel: "/-/admin?tab=nodes",
+			Node: "h4", PanelNote: "The panel moves to h4.", Cancel: "/-/admin/traffic",
 			Hosts: []IngressHostRow{
 				{Host: "panel.example.com", Points: "points here", OK: true},
 				{Host: "app.example.com", Points: "points to 1.2.3.4"},

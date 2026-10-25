@@ -18,46 +18,22 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
-// The admin drawer: admin-only, every tab renders, the settings form
-// writes what changed, users flip, a panel backup streams its job.
-func TestAdminDrawer(t *testing.T) {
+// The Server settings page: admin-only, the settings forms write what
+// changed, users flip, a panel backup streams its job.
+func TestAdminPage(t *testing.T) {
 	stream.PollEvery = 10 * time.Millisecond
 	s := webtest.New(t)
 	ctx := context.Background()
-	if rec := s.Do(t, "GET", "/-/admin", nil); rec.Code != http.StatusForbidden {
+	if rec := s.Do(t, "GET", "/-/admin/overview", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("owner opens admin = %d, want 403", rec.Code)
 	}
 	root := s.Session(t, s.User(t, "root@x.test", true))
-	for tab, want := range map[string]string{
-		"settings": `id="admin-settings"`,
-		"users":    "owner@acme.test",
-		"update":   "A dev build cannot upgrade itself",
-		"routes":   `id="tab-routes"`,
-		"caddy":    `name="proxy_custom"`,
-		"backups":  "No panel backups yet",
-		"config":   `id="tab-config"`,
-		"guide":    `href="/-/setup/server/ui/domains"`,
-	} {
-		rec := s.As(t, root, "GET", "/-/admin?tab="+tab, nil)
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
-			t.Errorf("tab %s = %d, no %s in\n%s", tab, rec.Code, want, rec.Body)
-		}
-	}
-	settings := s.As(t, root, "GET", "/-/admin?tab=settings", nil).Body.String()
-	if !strings.Contains(settings, `name="root_domain"`) {
+	domains := s.As(t, root, "GET", "/-/admin/domains", nil).Body.String()
+	if !strings.Contains(domains, `name="root_domain"`) {
 		t.Error("root_domain is not an input; the server file may set it")
 	}
-	if strings.Contains(settings, `name="server_config_`) || strings.Contains(settings, `name="dns_env"`) {
-		t.Error("the Settings tab shows the server file's binding or the dead dns_env knob")
-	}
-	if body := s.As(
-		t,
-		root,
-		"GET",
-		"/acme",
-		nil,
-	).Body.String(); !strings.Contains(body, `hx-get="/-/admin?tab=settings"`) {
-		t.Error("no admin button in the nav")
+	if strings.Contains(domains, `name="server_config_`) || strings.Contains(domains, `name="dns_env"`) {
+		t.Error("Domains shows the server file's binding or the dead dns_env knob")
 	}
 
 	rec := s.As(t, root, "POST", "/-/admin/routes", url.Values{"route_host": {"pve.example.com"}, "route_mode": {"https"}, "route_target": {"10.0.0.5:8006"}})
@@ -75,17 +51,24 @@ func TestAdminDrawer(t *testing.T) {
 		t.Errorf("remove route = %d %s", rec.Code, rec.Body)
 	}
 
-	rec = s.As(t, root, "POST", "/-/admin/settings", url.Values{"workers": {"3"}, "cpu_limit": {""}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") {
+	// a section's form writes its own knobs only
+	rec = s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{"workers": {"3"}, "cpu_limit": {"2"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Saved.") || !strings.Contains(rec.Body.String(), `id="admin-jobs"`) {
 		t.Fatalf("save = %d %s", rec.Code, rec.Body)
 	}
 	if v, _ := s.Orch.Setting(ctx, "workers"); v != "3" {
 		t.Errorf("workers = %q", v)
 	}
-	if rec := s.As(t, root, "POST", "/-/admin/settings", url.Values{
+	if d, _ := s.Orch.SettingDefaults(ctx); strings.Contains(d.JSON(), "cpu_limit") {
+		t.Errorf("the Jobs form wrote cpu_limit: %s", d.JSON())
+	}
+	if rec := s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{
 		"workers": {"lots"},
 	}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not a whole number") {
 		t.Errorf("bad value = %d %s", rec.Code, rec.Body)
+	}
+	if rec := s.As(t, root, "POST", "/-/admin/settings/nope", url.Values{"workers": {"2"}}); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown form = %d, want 404", rec.Code)
 	}
 
 	var owner string
@@ -139,15 +122,7 @@ func TestAdminDrawer(t *testing.T) {
 		t.Errorf("job stream:\n%s", w.Body)
 	}
 
-	// A fresh load of ?drawer=admin opens it on any page.
-	req = httptest.NewRequest("GET", "/acme?drawer=admin&tab=users", nil)
-	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
-	w = httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), `hx-get="/-/admin?tab=users"`) {
-		t.Errorf("fresh load has no admin drawer:\n%s", w.Body)
-	}
-	// and a node's drawer, opened from its Nodes tab, the same way
+	// a node's drawer opens on any page from a fresh load
 	req = httptest.NewRequest("GET", "/acme?drawer=node:n1&tab=envs", nil)
 	req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: root})
 	w = httptest.NewRecorder()
@@ -164,7 +139,7 @@ func TestAdminBackupSchedule(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	root := s.Session(t, s.User(t, "root@x.test", true))
-	tab := s.As(t, root, "GET", "/-/admin?tab=backups", nil).Body.String()
+	tab := s.As(t, root, "GET", "/-/admin/backups", nil).Body.String()
 	for _, want := range []string{
 		`name="panel_backup_enabled"`, `name="panel_backup_schedule"`, `value="0 3 * * *"`,
 		`name="panel_backup_keep"`, `name="panel_backup_dest"`, "Last run",
@@ -173,7 +148,7 @@ func TestAdminBackupSchedule(t *testing.T) {
 			t.Errorf("backups tab has no %s", want)
 		}
 	}
-	if !regexp.MustCompile(`name="shared"[^>]*checked`).MatchString(tab) {
+	if !regexp.MustCompile(`name="share" value="all" checked`).MatchString(tab) {
 		t.Error("a new destination is not offered to every org by default")
 	}
 	if !regexp.MustCompile(`name="panel_backup_enabled"[^>]*checked`).MatchString(tab) {
@@ -224,7 +199,7 @@ func TestAdminBackupSchedule(t *testing.T) {
 	s.As(t, root, "POST", "/-/admin/backups", nil)
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		tab = s.As(t, root, "GET", "/-/admin?tab=backups", nil).Body.String()
+		tab = s.As(t, root, "GET", "/-/admin/backups", nil).Body.String()
 		if strings.Contains(tab, "done, to local") || time.Now().After(deadline) {
 			break
 		}
@@ -253,7 +228,7 @@ func TestAdminCaddyCustom(t *testing.T) {
 	if v, _ := s.Orch.Setting(ctx, "proxy_custom"); v != route {
 		t.Errorf("stored = %q, want the last good value", v)
 	}
-	if tab := s.As(t, root, "GET", "/-/admin?tab=caddy", nil).Body.String(); strings.Contains(tab, "does not read it") {
+	if tab := s.As(t, root, "GET", "/-/admin/domains", nil).Body.String(); strings.Contains(tab, "does not read it") {
 		t.Error("the tab still says the proxy ignores proxy_custom")
 	}
 }
@@ -284,10 +259,10 @@ func TestAdminConfigTab(t *testing.T) {
 	ctx := context.Background()
 	rootID := s.User(t, "root@x.test", true)
 	root := s.Session(t, rootID)
-	if rec := s.Do(t, "GET", "/-/admin?tab=config", nil); rec.Code != http.StatusForbidden {
+	if rec := s.Do(t, "GET", "/-/admin/config", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("owner opens the config tab = %d, want 403", rec.Code)
 	}
-	body := s.As(t, root, "GET", "/-/admin?tab=config", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
 	for _, want := range []string{`id="tab-config"`, `href="/api/v1/admin/config/export"`, "stackr-server.yml"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tab lacks %q:\n%s", want, body)
@@ -299,7 +274,7 @@ func TestAdminConfigTab(t *testing.T) {
 
 	p := serverPlan(t, s, "local", riskyServerPlan)
 	approve := "/-/admin/config/plans/" + p.ID + "/approve"
-	body = s.As(t, root, "GET", "/-/admin?tab=config", nil).Body.String()
+	body = s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
 	for _, want := range []string{
 		"Latest plan", "From a local file, not the repo.", `name="ticked"`, `value="route:pve.example.com"`,
 		"panel moves to b.test; point DNS first", "Are you sure?", `hx-post="` + approve + `"`,
@@ -340,7 +315,7 @@ func TestAdminConfigTab(t *testing.T) {
 
 	// reject closes a pending plan; a blocked one offers no approve
 	q := serverPlan(t, s, "repo", `{"changes":[],"blockers":["dest offsite needs server.params.s3.secret_key"]}`)
-	body = s.As(t, root, "GET", "/-/admin?tab=config", nil).Body.String()
+	body = s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
 	if !strings.Contains(body, "dest offsite needs") || strings.Contains(body, "/plans/"+q.ID+"/approve") {
 		t.Errorf("blocked plan:\n%s", body)
 	}
@@ -364,7 +339,7 @@ func TestAdminConfigBind(t *testing.T) {
 	conn := s.ServerConnector(t, "shared", "whsec")
 	g.Commit(t, "acme/server", "main", map[string]string{"stackr-server.yml": "version: 1\n"})
 
-	body := s.As(t, root, "GET", "/-/admin?tab=config", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
 	if !strings.Contains(body, `value="`+conn+`"`) || !strings.Contains(body, "(unbind)") || strings.Contains(body, "Create a server connector first") {
 		t.Fatalf("unbound tab:\n%s", body)
 	}
@@ -405,7 +380,7 @@ func TestAdminUpdateWorkers(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	s.Worker(t, "h4", "fp")
-	rec := s.As(t, root, "GET", "/-/admin?tab=update", nil)
+	rec := s.As(t, root, "GET", "/-/admin/update", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Workers") || !strings.Contains(rec.Body.String(), "h4") {
 		t.Fatalf("update tab = %d\n%s", rec.Code, rec.Body)
 	}
@@ -432,7 +407,7 @@ func TestAdminUpdateUnderway(t *testing.T) {
 	if err := s.Store.Jobs.Create(ctx, j); err != nil {
 		t.Fatal(err)
 	}
-	b := s.As(t, root, "GET", "/-/admin?tab=update", nil).Body.String()
+	b := s.As(t, root, "GET", "/-/admin/update", nil).Body.String()
 	for _, want := range []string{"data-live", `hx-trigger="every 3s"`, "Upgrading.", "Reconnecting..."} {
 		if !strings.Contains(b, want) {
 			t.Errorf("underway: no %q in\n%s", want, b)
@@ -446,13 +421,13 @@ func TestAdminUpdateUnderway(t *testing.T) {
 	if err := s.Store.Jobs.Update(ctx, j); err != nil {
 		t.Fatal(err)
 	}
-	b = s.As(t, root, "GET", "/-/admin?tab=update", nil).Body.String()
+	b = s.As(t, root, "GET", "/-/admin/update", nil).Body.String()
 	if strings.Contains(b, "every 3s") || strings.Contains(b, "data-live") {
 		t.Errorf("settled tab still live\n%s", b)
 	}
 }
 
-// The Backups tab carries the recovery key section: a fresh box's key is
+// Keys carries the recovery key section: a fresh box's key is
 // unsaved, showing it needs the admin's password, and rotating is refused
 // until it is saved.
 func TestAdminRecoveryKey(t *testing.T) {
@@ -462,10 +437,10 @@ func TestAdminRecoveryKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := s.Session(t, id)
-	tab := s.As(t, root, "GET", "/-/admin?tab=backups", nil).Body.String()
+	tab := s.As(t, root, "GET", "/-/admin/keys", nil).Body.String()
 	for _, want := range []string{"Recovery key", "data-recovery-warning", "/-/admin/backups/recovery/show"} {
 		if !strings.Contains(tab, want) {
-			t.Errorf("backups tab has no %s", want)
+			t.Errorf("keys has no %s", want)
 		}
 	}
 	post := func(action, pw string) *httptest.ResponseRecorder {

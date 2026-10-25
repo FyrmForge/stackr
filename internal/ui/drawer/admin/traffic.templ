@@ -1,0 +1,47 @@
+package admin
+
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
+// Traffic is the default ingress (with its DNS preview), the default exit,
+// then the external routes. Each form has its own Save.
+templ Traffic(v TrafficView) {
+	<div id="tab-traffic">
+		if d := v.Defaults; d != nil {
+			@c.Section("Default ingress", "instance", "The node the panel and every route without its own ingress enter by.") {
+				if d.Preview != nil {
+					@ingressPreview(*d.Preview)
+				}
+				<form hx-post={ d.IngressAction } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+					<div>
+						<label for="default-ingress" class="label">Default ingress</label>
+						<select id="default-ingress" name="node" class="input">
+							for _, n := range d.IngressNodes {
+								<option value={ n.Value } selected?={ n.Value == d.Ingress }>{ n.Label }</option>
+							}
+						</select>
+					</div>
+					<button type="submit" class="btn btn-ghost btn-sm">Preview</button>
+				</form>
+			}
+			@c.Section("Default exit", "instance", "Where outbound traffic leaves when a node picks none.") {
+				<form hx-post={ d.ExitAction } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+					<div>
+						<label for="default-exit" class="label">Default exit</label>
+						<select id="default-exit" name="node" class="input">
+							<option value="" selected?={ d.Exit == "" }>Each node's own uplink</option>
+							for _, n := range d.ExitNodes {
+								<option value={ n.Value } selected?={ n.Value == d.Exit }>{ n.Label }</option>
+							}
+						</select>
+					</div>
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				</form>
+			}
+		} else {
+			@c.Section("Ingress and exit", "instance", "") {
+				<p class="text-sm text-rw-muted">This server is the only node, so all traffic enters and leaves here.</p>
+			}
+		}
+		@Routes(v.Routes)
+	</div>
+}

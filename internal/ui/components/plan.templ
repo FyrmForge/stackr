@@ -24,6 +24,8 @@ type PlanView struct {
 	Applying bool
 	// Done: the apply ended; the same ticks read "removed" in place of "removing".
 	Done bool
+	// Target is what its buttons answer into; "" = the drawer.
+	Target string
 }
 
 // GapView is one thing a plan waits on that can be filled in place. Kind is
@@ -81,6 +83,7 @@ type PlanReviewView struct {
 	// Done: applied; the ticks show as removed and kept, nothing is offered.
 	Done   bool
 	Ticked []string // the removal keys the approver ticked
+	Target string   // what its buttons answer into; "" = the drawer
 }
 
 // PlanRow is one stored plan in a plans list: status, summary, the commit
@@ -126,10 +129,10 @@ templ Plan(p PlanView) {
 						<span class="text-rw-text">{ g.Label }</span>
 						if g.Kind == "secret" && g.Post != "" {
 							<input type="password" id={ fmt.Sprintf("gap-%d", i) } name={ g.Field } class="input ml-auto w-56" autocomplete="off" aria-label={ "Value for " + g.Label }/>
-							<button type="button" class="btn btn-primary btn-sm" hx-post={ g.Post } hx-params={ g.Field } hx-include={ fmt.Sprintf("#gap-%d", i) } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Save and re-plan</button>
+							<button type="button" class="btn btn-primary btn-sm" hx-post={ g.Post } hx-params={ g.Field } hx-include={ fmt.Sprintf("#gap-%d", i) } hx-target={ orDrawer(p.Target) } hx-swap="outerHTML">Save and re-plan</button>
 						}
 						if g.Kind == "node" && g.AddNode != "" {
-							<button type="button" class="btn btn-primary btn-sm ml-auto" hx-get={ g.AddNode } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Add this node</button>
+							<button type="button" class="btn btn-primary btn-sm ml-auto" hx-get={ g.AddNode } hx-target={ orDrawer(p.Target) } hx-swap="outerHTML">Add this node</button>
 						}
 					</li>
 				}
@@ -192,7 +195,7 @@ templ Plan(p PlanView) {
 					}
 					if c.Apply != "" {
 						<div class="mt-2 pl-6">
-							<button type="button" class="btn btn-primary btn-sm" hx-post={ c.Apply } hx-vals={ c.Vals } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Apply lock change</button>
+							<button type="button" class="btn btn-primary btn-sm" hx-post={ c.Apply } hx-vals={ c.Vals } hx-target={ orDrawer(p.Target) } hx-swap="outerHTML">Apply lock change</button>
 						</div>
 					}
 				</li>
@@ -255,16 +258,16 @@ templ PlanReview(v PlanReviewView) {
 							Warning: "This plan has impact lines. Approve only when you are ready for them.",
 							Body:    impactList(impacts),
 							Action:  v.Approve,
-							Target:  "#" + DrawerRoot,
+							Target:  orDrawer(v.Target),
 							Vals:    `{"confirm":"1"}`,
 							Primary: true,
 						})
 					} else {
-						<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Approve } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Approve</button>
+						<button type="button" class="btn btn-primary btn-sm" hx-post={ v.Approve } hx-target={ orDrawer(v.Target) } hx-swap="outerHTML">Approve</button>
 					}
 				}
 				if v.Reject != "" {
-					<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Reject } hx-target={ "#" + DrawerRoot } hx-swap="outerHTML">Reject</button>
+					<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Reject } hx-target={ orDrawer(v.Target) } hx-swap="outerHTML">Reject</button>
 				}
 			</div>
 		}
@@ -275,6 +278,7 @@ templ PlanReview(v PlanReviewView) {
 func reviewPlan(v PlanReviewView) PlanView {
 	p := v.Plan
 	p.Ticks = v.Approve != ""
+	p.Target = v.Target
 	if v.Applying || v.Done {
 		p.Applying, p.Done = true, v.Done
 		p.Changes = slices.Clone(p.Changes)

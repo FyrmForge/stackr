@@ -10,6 +10,9 @@ type ShareView struct {
 	OrgName  string // the org checkboxes' name; each posts its org's ID
 	Mode     string // ShareAll, ShareOnly or ShareServer
 	Orgs     []ShareOrg
+	// NoOnly drops "Only these orgs" for a thing that keeps no org list
+	// (a backup destination): Every org or Server only.
+	NoOnly bool
 }
 
 // ShareOrg is one org box; On = it may use it now.
@@ -28,15 +31,17 @@ templ Share(v ShareView) {
 	<fieldset class="space-y-1" data-share>
 		<legend class="label">Available to</legend>
 		@shareMode(v, ShareAll, "Every org")
-		@shareMode(v, ShareOnly, "Only these orgs")
-		<div class="space-y-1 pl-6">
-			for _, o := range v.Orgs {
-				<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name={ v.OrgName } value={ o.ID } checked?={ o.On } disabled?={ v.Mode != ShareOnly } class="accent-rw-accent" data-share-org/> { o.Name }</label>
-			}
-			if len(v.Orgs) == 0 {
-				<p class="text-xs text-rw-faint">No organizations yet.</p>
-			}
-		</div>
+		if !v.NoOnly {
+			@shareMode(v, ShareOnly, "Only these orgs")
+			<div class="space-y-1 pl-6">
+				for _, o := range v.Orgs {
+					<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name={ v.OrgName } value={ o.ID } checked?={ o.On } disabled?={ v.Mode != ShareOnly } class="accent-rw-accent" data-share-org/> { o.Name }</label>
+				}
+				if len(v.Orgs) == 0 {
+					<p class="text-xs text-rw-faint">No organizations yet.</p>
+				}
+			</div>
+		}
 		@shareMode(v, ShareServer, "Server only")
 	</fieldset>
 }

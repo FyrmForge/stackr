@@ -17,6 +17,9 @@ type ConfigView struct {
 	Job        *c.JobStatusView
 	Latest     *ConfigPlan // nil = no plan yet
 	Plans      []c.PlanRow // the plans before the latest, newest first
+	// Vars is the server variables editor; only the server file reads
+	// them. nil = not shown.
+	Vars templ.Component
 }
 
 type ConnectorOption struct{ Value, Label string }
@@ -34,7 +37,7 @@ templ Config(v ConfigView) {
 		}
 		@c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approve unless Auto apply is on.") {
 			if len(v.Connectors) == 0 && v.Repo == "" {
-				<p class="text-sm text-rw-muted">Create a server connector first, in the Connectors tab. The server file is fetched through it.</p>
+				<p class="text-sm text-rw-muted">Create a server connector first, in Connectors. The server file is fetched through it.</p>
 			} else {
 				<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
 					<fieldset disabled?={ v.Base == "" } class="space-y-4">
@@ -95,6 +98,13 @@ templ Config(v ConfigView) {
 					</li>
 				}
 			</ul>
+		}
+		if v.Vars != nil {
+			<div class="mt-6">
+				@c.Section("Variables", "instance", "") {
+					@v.Vars
+				}
+			</div>
 		}
 	</div>
 }
