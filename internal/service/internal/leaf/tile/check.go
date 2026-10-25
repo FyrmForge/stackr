@@ -288,41 +288,41 @@ func Validate(t *store.Tile) error {
 		t.UpdatePolicy = "manual"
 	}
 	if t.UpdatePolicy != "manual" && t.UpdatePolicy != "auto" {
-		return errs.Invalidf("update_policy", "update_policy must be manual or auto")
+		return errs.Invalidf("update_policy", "Pick manual or auto.")
 	}
 	rp, ok := canonRestart(t.RestartPolicy)
 	if !ok {
-		return errs.Invalidf("restart", "restart must be always, on-failure or no")
+		return errs.Invalidf("restart", "Pick always, on-failure or no.")
 	}
 	t.RestartPolicy = rp
 
 	switch {
 	case t.CPULimit < 0:
-		return errs.Invalidf("limits.cpu", "cpu limit must not be negative")
+		return errs.Invalidf("limits.cpu", "Use 0 or more; 0 is no limit.")
 	case t.MemLimitMB < 0:
-		return errs.Invalidf("limits.memory_mb", "memory limit must not be negative")
+		return errs.Invalidf("limits.memory_mb", "Use 0 or more; 0 is no limit.")
 	case t.ShmSizeMB < 0:
-		return errs.Invalidf("shm_size_mb", "shm_size_mb must not be negative")
+		return errs.Invalidf("shm_size_mb", "Use 0 or more.")
 	case t.HealthcheckIntervalS < 0 || t.HealthcheckTimeoutS < 0 || t.HealthcheckRetries < 0 ||
 		t.HealthcheckStartPeriodS < 0:
-		return errs.Invalidf("healthcheck", "healthcheck knobs must not be negative")
+		return errs.Invalidf("healthcheck", "Use 0 or more.")
 	case t.Replicas < 0:
-		return errs.Invalidf("replicas", "replicas: a whole number, at least 1")
+		return errs.Invalidf("replicas", "Use a whole number, 1 or more.")
 	case t.TimeoutMinutes < 0:
-		return errs.Invalidf("timeout_minutes", "timeout_minutes must not be negative")
+		return errs.Invalidf("timeout_minutes", "Use 0 or more.")
 	case t.ContainerPort < 0 || t.ContainerPort > 65535:
-		return errs.Invalidf("port", "port must be between 1 and 65535")
+		return errs.Invalidf("port", "Use a port from 1 to 65535.")
 	}
 	if t.Replicas == 0 {
 		t.Replicas = 1
 	}
 	if t.Replicas > 1 && strings.TrimSpace(t.Volumes) != "" {
-		return errs.Invalidf("replicas", "this tile holds a volume, so it can only run one replica: two writers on one volume corrupt it")
+		return errs.Invalidf("replicas", "A tile with a volume runs one replica: two writers on one volume corrupt it.")
 	}
 	if t.HostNetwork {
 		switch {
 		case t.Replicas > 1:
-			return errs.Invalidf("replicas", "network: host runs one replica")
+			return errs.Invalidf("replicas", "A tile on the host network runs one replica.")
 		case strings.TrimSpace(t.PublishedPorts) != "":
 			return errs.Invalidf("published_ports", "network: host binds the server's ports itself; drop published_ports")
 		case strings.TrimSpace(t.Lan) != "":
@@ -349,10 +349,10 @@ func checkRun(t *store.Tile) error {
 	}
 	if t.Kind == Cron {
 		if strings.TrimSpace(t.Schedule) == "" {
-			return errs.Invalidf("schedule", "a cron needs a schedule")
+			return errs.Invalidf("schedule", "Give the cron a schedule, like 0 3 * * *.")
 		}
 		if _, err := cron.ParseStandard(t.Schedule); err != nil {
-			return errs.Invalidf("schedule", "%s", err.Error())
+			return errs.Invalidf("schedule", "Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.")
 		}
 		return nil
 	}

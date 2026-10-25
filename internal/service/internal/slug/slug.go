@@ -64,6 +64,21 @@ func ValidName(s string) bool {
 	return nameRe.MatchString(s)
 }
 
+// Suggest is the param name closest to s, for a refusal's example:
+// lower case, anything else a "_". "my_value" when nothing is left.
+func Suggest(s string) string {
+	out := strings.Trim(strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, strings.ToLower(s)), "_")
+	if out == "" {
+		return "my_value"
+	}
+	return out
+}
+
 // ValidEnvKey reports whether s is a POSIX environment variable name.
 func ValidEnvKey(s string) bool {
 	return envRe.MatchString(s)

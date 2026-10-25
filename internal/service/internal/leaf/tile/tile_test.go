@@ -321,12 +321,12 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"cron without a schedule",
-			"a cron needs a schedule",
+			"Give the cron a schedule, like 0 3 * * *.",
 			then(cronRow, func(t *store.Tile) { t.Schedule = "" }),
 		},
 		{
 			"cron with a bad schedule",
-			"expected exactly 5 fields, found 2: [every day]",
+			"Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.",
 			then(cronRow, func(t *store.Tile) { t.Schedule = "every day" }),
 		},
 		{
@@ -371,7 +371,7 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"negative timeout",
-			"timeout_minutes must not be negative",
+			"Use 0 or more.",
 			then(cronRow, func(t *store.Tile) { t.TimeoutMinutes = -1 }),
 		},
 		{
