@@ -23,8 +23,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
-	"github.com/FyrmForge/stackr/internal/worker"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // The fake stands in for the daemon everywhere.
