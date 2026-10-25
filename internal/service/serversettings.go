@@ -36,7 +36,7 @@ func (o *Orchestrator) ServerSettings(ctx context.Context) ([]ServerSetting, err
 	var out []ServerSetting
 	for _, k := range settings.Catalogue {
 		if k.ConfigOnly || k.Key == alertURLKey || k.Key == heartbeatKey {
-			continue // the Config or Alerts tab's, not the Settings tab's
+			continue // Config as code or Alerts edit these, no settings form
 		}
 		s := ServerSetting{Knob: k, Secret: secretKnobs[k.Key]}
 		switch {

@@ -41,7 +41,7 @@ stackr node ls
 
 ## Nodes and placements
 
-Nodes are hardware, and only server admins see them: `stackr node`, `stackr cluster` and the Nodes tab are admin-only. Orgs, stacks and envs name a placement, never a node. A placement stands on one node and an admin repoints it. See [Placements](placements.md) for pins, access and moves.
+Nodes are hardware, and only server admins see them: `stackr node`, `stackr cluster` and Server settings > Nodes are admin-only. Orgs, stacks and envs name a placement, never a node. A placement stands on one node and an admin repoints it. See [Placements](placements.md) for pins, access and moves.
 
 To take a worker out, repoint its placements first (`stackr admin placement move`); `stackr node remove` refuses while a placement or an env is on the node.
 

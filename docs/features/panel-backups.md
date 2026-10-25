@@ -2,7 +2,7 @@
 
 ## Summary
 The panel archives itself on a cron schedule and can send the archive off the box.
-Admin drawer, Backups tab: schedule, keep and destination, plus the last run.
+Server settings, Backups: schedule, keep and destination, plus the last run.
 
 ## Settings
 - `panel_backup_enabled`: on by default; the switch for the schedule.
@@ -27,7 +27,7 @@ a new box does not re-issue every certificate (Let's Encrypt rate limits). If th
 read, the archive is still written without it and the job log says so.
 
 ## Restore
-The archive is encrypted to the recovery key. The panel keeps only the public half; the private half is shown once in Admin > Backups and is the one thing to save off the box.
+The archive is encrypted to the recovery key. The panel keeps only the public half; the private half is shown once in Server settings > Keys and is the one thing to save off the box.
 
 1. Local archives are under `<data dir>/backups/stackr/_panel/<install id>/<scheduled|manual|upgrade>/`. On S3,
    the object key is `stackr/_panel/<install id>/<scheduled|manual|upgrade>/<utc timestamp>-panel-g<N>.tar.gz.age`.

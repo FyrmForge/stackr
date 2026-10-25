@@ -114,7 +114,7 @@ func warningsOf(w warnIn) []NodeWarning {
 	switch {
 	case w.TooOld:
 		out = append(out, NodeWarning{WarnVersion, SevCritical, "too old",
-			"Runs " + ver + ", which the panel no longer drives. Update it under Admin, Update."})
+			"Runs " + ver + ", which the panel no longer drives. Update it in Server settings, Update."})
 	case w.Behind:
 		out = append(out, NodeWarning{WarnVersion, SevWarning, "behind",
 			"Runs " + ver + ", the panel runs " + w.Panel + "."})
