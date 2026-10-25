@@ -92,6 +92,24 @@ func TestControllerLogCapQuietDuringSwap(t *testing.T) {
 	}
 }
 
+// A helper that died mid-swap stays as an exited container; it must not hide the warning.
+func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
+	n := newTwoNodes(t)
+	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
+	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n.ctlFake.Containers = append(n.ctlFake.Containers, docker.Container{ID: "up", State: "exited", Labels: map[string]string{"stackr.role": "upgrader"}})
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	n.orch.controllerLogCap(context.Background())
+	if !strings.Contains(buf.String(), cp) {
+		t.Errorf("no warning past an exited helper: %s", buf.String())
+	}
+}
+
 // A swap copy still beside the database at boot is reported and kept.
 func TestControllerLogCapWarnsOnSwapCopy(t *testing.T) {
 	n := newTwoNodes(t)
