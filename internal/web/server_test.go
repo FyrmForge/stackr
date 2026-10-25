@@ -31,6 +31,37 @@ func TestCSPAllowsDataImages(t *testing.T) {
 	}
 }
 
+// Cookies are Secure for an https BASE_URL whoever terminates TLS, and only
+// for that. The session cookie takes the same helper; CSRF is checked on the wire.
+func TestCookiesSecureFollowBaseURL(t *testing.T) {
+	for _, c := range []struct {
+		base   string
+		secure bool
+	}{{"https://panel.example.com", true}, {"http://localhost:8080", false}, {"", true}, {"::not a url", true}} {
+		if got := web.CookieSecure(c.base); got != c.secure {
+			t.Errorf("CookieSecure(%q) = %v, want %v", c.base, got, c.secure)
+		}
+		env := servicetest.New(t)
+		srv, err := server.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), BaseURL: c.base})
+		rec := httptest.NewRecorder()
+		srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+		seen := false
+		for _, ck := range rec.Result().Cookies() {
+			seen = true
+			if ck.Secure != c.secure {
+				t.Errorf("base %q: cookie %s Secure = %v, want %v", c.base, ck.Name, ck.Secure, c.secure)
+			}
+		}
+		if !seen {
+			t.Errorf("base %q: no cookie set on /login", c.base)
+		}
+	}
+}
+
 // The web is session only: a viewer's API key on a web POST is a 401, so the
 // key mint and the CLI login approval cannot be reached with one.
 func TestWebRefusesKeys(t *testing.T) {

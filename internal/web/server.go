@@ -2,6 +2,7 @@ package web
 
 import (
 	"cmp"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
@@ -43,6 +44,13 @@ type Deps struct {
 	EmailSender email.Sender
 }
 
+// CookieSecure reports whether cookies carry Secure: always, whoever
+// terminates TLS, unless the public URL is explicitly plain http (dev on
+// localhost). An empty or unparseable URL stays Secure.
+func CookieSecure(baseURL string) bool {
+	return !strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseURL)), "http://")
+}
+
 // RegisterRoutes registers all web route handlers on the server.
 func RegisterRoutes(srv *server.Server, deps *Deps) {
 	e := srv.Echo()
@@ -57,8 +65,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.SecureWithConfig(hamrmw.SecureConfig{
 		ContentSecurityPolicy: csp,
 	}))
-	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: !deps.DevMode}))
-	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: !deps.DevMode}))
+	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: CookieSecure(deps.BaseURL)}))
+	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: CookieSecure(deps.BaseURL)}))
 
 	site.Use(deps.Access.LoadSession())
 	site.Use(render.Theme)
