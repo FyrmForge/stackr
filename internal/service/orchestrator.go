@@ -108,7 +108,6 @@ type Config struct {
 	Version       string // the running build: a release tag, or "dev"
 	BaseURL       string // the panel's public URL (provider callbacks)
 	InstallID     string // names the panel archives
-	Passphrase    string // age passphrase on the panel archive; "" = the secrets key
 	TLSOff        bool   // STACKR_TLS=off: plain HTTP only
 	PanelUpstream string // the panel's dial address for its own route; "" = stackr:8080
 	ProxyAdmin    string // Caddy's admin API as the panel reaches it; "" = http://stackr-proxy:2019
@@ -230,6 +229,11 @@ func WithProxy(push func(context.Context, json.RawMessage) error) Option {
 // main, the API and the web handlers see. One method per user-facing verb.
 type Orchestrator struct {
 	cfg Config
+	// recMu guards the recovery key's public half and generation, which a
+	// rotation changes while backups read them (backup.go).
+	recMu  sync.Mutex
+	recPub string
+	recGen int
 	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
 	recoverSeen recoverNonces
 	db          *sqlx.DB
@@ -390,8 +394,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if cfg.Conntrack == "" {
 		cfg.Conntrack = ftraffic.DefaultPath
 	}
-	if cfg.Passphrase == "" {
-		cfg.Passphrase = cfg.SecretsKey
+	recPub, recGen, err := ensureRecoveryKey(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("recovery key: %w", err)
 	}
 	// The migrations take no context, so the boot's budget starts after them:
 	// on a slow disk they could spend it all and fail the boot, migrated, on
@@ -467,6 +472,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		o.ifaces = worker.Interfaces
 	}
 	orch := &Orchestrator{
+		recPub:     recPub,
+		recGen:     recGen,
 		hostIfaces: o.ifaces,
 		dnsKick:    &coalesce{},
 		alertMem:   &alertState{restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{}},

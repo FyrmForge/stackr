@@ -134,8 +134,8 @@ func TestDoneText(t *testing.T) {
 		}
 	}
 	rerun := doneText(in, "", "", false, false)
-	if strings.Contains(rerun, "Recovery passphrase") || strings.Contains(rerun, "log in") || strings.Contains(rerun, "logged in") {
-		t.Error("a re-run printed the passphrase or the new admin")
+	if strings.Contains(rerun, "Recovery key") || strings.Contains(rerun, "log in") || strings.Contains(rerun, "logged in") {
+		t.Error("a re-run printed the recovery key or the new admin")
 	}
 }
 

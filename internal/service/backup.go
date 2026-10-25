@@ -2,12 +2,16 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+
+	"filippo.io/age"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -562,6 +566,7 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 	if o.cluster != nil {
 		lock = &o.cluster.rollMu
 	}
+	pub, gen := o.recovery()
 	return o.backup.PanelBackup(ctx, fbackup.Panel{
 		Lock: lock,
 		Vacuum: func(ctx context.Context, path string) error {
@@ -575,11 +580,114 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 			}
 			return o.docker.TarVolume(ctx, installspec.ProxyVolume, w, true)
 		},
-		Trigger:    trigger,
-		MasterKey:  o.cfg.SecretsKey,
-		Version:    o.cfg.Version,
-		Passphrase: o.cfg.Passphrase,
-		InstallID:  o.cfg.InstallID,
-		DataDir:    o.cfg.DataDir,
+		Trigger:     trigger,
+		MasterKey:   o.cfg.SecretsKey,
+		Version:     o.cfg.Version,
+		InstallID:   o.cfg.InstallID,
+		DataDir:     o.cfg.DataDir,
+		RecoveryPub: pub,
+		RecoveryGen: gen,
 	}, dest, keep, log)
+}
+
+// ---- recovery key ----
+
+// ensureRecoveryKey loads this box's recovery public key. A box with none
+// (a dev tree, or an install from before the key) makes the pair now: the
+// public half and generation 1 are kept, the private half waits in
+// RecoveryPendingFile until an admin has saved it (Admin, Backups).
+func ensureRecoveryKey(dataDir string) (string, int, error) {
+	pub, gen, err := installspec.LoadRecovery(dataDir)
+	if err != nil || pub != "" {
+		return pub, gen, err
+	}
+	pub, _, err = newRecoveryKey(dataDir, 1)
+	return pub, 1, err
+}
+
+// newRecoveryKey makes a pair, writes the private half as pending, then the
+// public half at gen. In that order: a crash between leaves a pending key the
+// box does not use (pendingKey ignores it), never a public key whose private
+// half exists nowhere.
+func newRecoveryKey(dataDir string, gen int) (pub, priv string, err error) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		return "", "", err
+	}
+	if err := installspec.WriteKeyFile(filepath.Join(dataDir, installspec.RecoveryPendingFile), []byte(id.String()+"\n")); err != nil {
+		return "", "", err
+	}
+	pub = id.Recipient().String()
+	return pub, id.String(), installspec.SaveRecovery(dataDir, pub, gen)
+}
+
+func (o *Orchestrator) recovery() (string, int) {
+	o.recMu.Lock()
+	defer o.recMu.Unlock()
+	return o.recPub, o.recGen
+}
+
+// pendingKey is the private half still waiting to be saved, "" when it was
+// confirmed or does not belong to the box's current public key.
+func (o *Orchestrator) pendingKey() string {
+	pub, _ := o.recovery()
+	b, err := os.ReadFile(filepath.Join(o.cfg.DataDir, installspec.RecoveryPendingFile))
+	if err != nil {
+		return ""
+	}
+	id, err := age.ParseX25519Identity(strings.TrimSpace(string(b)))
+	if err != nil || id.Recipient().String() != pub {
+		return ""
+	}
+	return id.String()
+}
+
+// RecoveryStatus is what the Backups tab shows: the key generation and
+// whether its private half is still unsaved (the warning stays until then).
+func (o *Orchestrator) RecoveryStatus() (gen int, unsaved bool) {
+	_, gen = o.recovery()
+	return gen, o.pendingKey() != ""
+}
+
+// RevealRecoveryKey returns the unsaved private half, behind the admin's
+// password. Until ConfirmRecoveryKey it can be shown again.
+func (o *Orchestrator) RevealRecoveryKey(ctx context.Context, userID, password string) (string, error) {
+	if err := o.users.VerifyPassword(ctx, userID, password); err != nil {
+		return "", err
+	}
+	k := o.pendingKey()
+	if k == "" {
+		return "", errs.Refusedf("the recovery key was already saved; rotate it to get a new one")
+	}
+	return k, nil
+}
+
+// ConfirmRecoveryKey is "I've saved it": the box drops the private half and
+// holds only the public one from here on.
+func (o *Orchestrator) ConfirmRecoveryKey() error {
+	err := os.Remove(filepath.Join(o.cfg.DataDir, installspec.RecoveryPendingFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// RotateRecoveryKey makes a new pair behind the admin's password and
+// returns the private half, generation + 1. Archives already made keep the
+// old key. Refused while the current key is unsaved: rotating would lose it.
+func (o *Orchestrator) RotateRecoveryKey(ctx context.Context, userID, password string) (string, error) {
+	if err := o.users.VerifyPassword(ctx, userID, password); err != nil {
+		return "", err
+	}
+	if o.pendingKey() != "" {
+		return "", errs.Refusedf("save the current recovery key first")
+	}
+	o.recMu.Lock()
+	defer o.recMu.Unlock()
+	pub, priv, err := newRecoveryKey(o.cfg.DataDir, o.recGen+1)
+	if err != nil {
+		return "", err
+	}
+	o.recPub, o.recGen = pub, o.recGen+1
+	return priv, nil
 }

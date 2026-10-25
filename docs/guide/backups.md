@@ -29,7 +29,9 @@ The panel archives its database, master key and proxy certificates on a schedule
 
 The pre-upgrade copy stays on the controller, so copy one off the box yourself before you wipe it. The history and `panel-backups` name where each run went.
 
-The archive is encrypted with the recovery passphrase the installer showed. Keep that passphrase off the box.
+The archive is encrypted to the recovery key. The installer shows it once, and the box keeps only its public half, so keep the key off the box. If a panel boots without one, it makes one and Admin, Backups shows it once behind your password, with an "I've saved it" button. The warning stays until you confirm.
+
+To change the key, use Rotate the key in Admin, Backups. It asks for your password and shows the new key once. Older archives still need the key they were made with. The archive's name says which: `...-panel-g2.tar.gz.age` needs generation 2.
 
 ### Restore the panel
 
@@ -37,11 +39,11 @@ The archive is encrypted with the recovery passphrase the installer showed. Keep
 2. On the controller, as root, from a local archive (they are under `/var/lib/stackr/backups/stackr/_panel/`):
 
    ```bash
-   read -rs STACKR_RECOVERY_PASSPHRASE && export STACKR_RECOVERY_PASSPHRASE
+   read -rs STACKR_RECOVERY_KEY && export STACKR_RECOVERY_KEY
    stackr-install restore panel.tar.gz.age
    ```
 
-3. Or straight from S3. A key ending in `/` takes the newest archive under it. Use the old install's id, it is in the old box's `install.json`:
+3. Or straight from S3. A key ending in `/` takes the newest archive under it. Name the old install's id (it is in the old box's `install.json`), or stop at `_panel/`: restore takes the only install there, or lists the ids to choose from:
 
    ```bash
    export STACKR_BACKUP_ENDPOINT=https://s3.example.com STACKR_BACKUP_REGION=eu
@@ -50,7 +52,9 @@ The archive is encrypted with the recovery passphrase the installer showed. Keep
    stackr-install restore s3://stackr-backups/stackr/_panel/<old install id>/
    ```
 
-The passphrase can also come on stdin with `--passphrase-stdin`. `--passphrase` works too, but other users on the box see it in `ps`. With none, restore tries this box's master key. On a new box that is the new install's key, so in a terminal it asks for the passphrase.
+The recovery key can also come on stdin with `--key-stdin`, or at the prompt in a terminal. There is no flag for it, other users on the box would see it in `ps`. If the key does not open the archive, restore says which key generation the archive needs.
+
+A restore keeps this box's own recovery key and removes a leftover `master.key.next`.
 
 The old database is kept as `stackr.db.before-restore-<time>`. Workers reconnect by themselves and keep their tiles running.
 

@@ -39,6 +39,12 @@ func (o *Orchestrator) ChangePassword(ctx context.Context, userID, current, next
 	return o.users.ChangePassword(ctx, userID, current, next)
 }
 
+// VerifyPassword re-checks a user's password before a sensitive act and
+// changes nothing; a wrong one is a refusal on the password field.
+func (o *Orchestrator) VerifyPassword(ctx context.Context, userID, password string) error {
+	return o.users.VerifyPassword(ctx, userID, password)
+}
+
 // SetTheme is the user's own look: system, light or dark.
 func (o *Orchestrator) SetTheme(ctx context.Context, userID, theme string) error {
 	return o.users.SetTheme(ctx, userID, theme)

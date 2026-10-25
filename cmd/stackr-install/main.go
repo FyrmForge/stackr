@@ -1,5 +1,5 @@
 // Command stackr-install installs stackr on a bare Docker host: data dir,
-// master key, the proxy and the panel containers. Re-running it converges:
+// master key, recovery key, the proxy and the panel containers. Re-running it converges:
 // every step looks before it writes.
 package main
 
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"filippo.io/age"
 	"golang.org/x/term"
 
 	"github.com/FyrmForge/stackr/internal/cliconfig"
@@ -204,7 +205,10 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.mkdir(filepath.Join(in.DataDir, "keys"), 0o700); err != nil {
 		return err
 	}
-	newKey, err := r.masterKey(in.DataDir)
+	if err := r.masterKey(in.DataDir); err != nil {
+		return err
+	}
+	newKey, err := r.recoveryKey(in.DataDir)
 	if err != nil {
 		return err
 	}
@@ -252,7 +256,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return fmt.Errorf("admin: %w; re-run with --admin-email to try again", err)
 		}
 		if apiKey != "" {
-			// Not fatal: the passphrase below is shown only this once.
+			// Not fatal: the recovery key below is shown only this once.
 			if err := r.loginCLI(in, apiKey); err != nil {
 				r.say("  cli login:", err.Error())
 			} else {
@@ -549,22 +553,38 @@ func (r runner) mkdir(path string, mode os.FileMode) error {
 }
 
 // masterKey writes 32 random bytes as hex unless a key is already there.
-// Reports whether it made one: the recovery passphrase is printed once.
-func (r runner) masterKey(dataDir string) (string, error) {
+// It is never shown: the recovery key is what an admin keeps.
+func (r runner) masterKey(dataDir string) error {
 	path := filepath.Join(dataDir, installspec.KeyFile)
 	if _, err := os.Stat(path); err == nil {
-		return "", nil
+		return nil
 	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	return r.write(path, func() error {
+		return os.WriteFile(path, []byte(hex.EncodeToString(b)+"\n"), 0o600)
+	})
+}
+
+// recoveryKey makes the recovery key pair unless the box has one: the
+// public half and generation 1 stay in keys/recovery.pub, the private half
+// is returned to be printed once and kept nowhere.
+func (r runner) recoveryKey(dataDir string) (string, error) {
+	if pub, _, err := installspec.LoadRecovery(dataDir); err != nil || pub != "" {
 		return "", err
 	}
-	key := hex.EncodeToString(b)
 	if r.dry {
-		key = "<made on a real run>"
+		return "<made on a real run>", nil
 	}
-	return key, r.write(path, func() error {
-		return os.WriteFile(path, []byte(key+"\n"), 0o600)
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dataDir, installspec.RecoveryPubFile)
+	return id.String(), r.write(path, func() error {
+		return installspec.SaveRecovery(dataDir, id.Recipient().String(), 1)
 	})
 }
 
@@ -683,8 +703,8 @@ func doneText(in installspec.Input, key, admin string, cli, dry bool) string {
 `, status, in.BaseURL(), login, in.DataDir)
 	if key != "" {
 		s += fmt.Sprintf(`
-Recovery passphrase, shown once. Save it somewhere off this box: it opens
-the panel's own backups, and restoring them anywhere else needs it.
+Recovery key, shown once. Save it somewhere off this box: it opens the
+panel's own backups, and restoring them needs it.
 
   %s
 `, key)

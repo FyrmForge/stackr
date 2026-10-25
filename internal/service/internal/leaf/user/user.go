@@ -116,6 +116,21 @@ func (l *Leaf) ChangePassword(ctx context.Context, id, current, next string) err
 	return l.SetPassword(ctx, id, next)
 }
 
+// VerifyPassword re-checks the signed-in user's password before a
+// sensitive act. It changes nothing.
+func (l *Leaf) VerifyPassword(ctx context.Context, id, password string) error {
+	u, err := l.users.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ok, err := auth.CheckPassword(password, u.PasswordHash); err != nil {
+		return fmt.Errorf("check password: %w", err)
+	} else if !ok {
+		return errs.Invalidf("password", "the password is wrong")
+	}
+	return nil
+}
+
 // SetPassword is the admin's reset (no reset flow in v1).
 func (l *Leaf) SetPassword(ctx context.Context, id, next string) error {
 	hash, err := hashPassword(next)

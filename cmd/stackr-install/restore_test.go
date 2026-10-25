@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,21 +25,25 @@ func panelNames() []string {
 	return n
 }
 
-func archive(t *testing.T, pass string, files map[string]string) *bytes.Buffer {
+func newKey(t *testing.T) *age.X25519Identity {
 	t.Helper()
-	var buf bytes.Buffer
-	r, err := age.NewScryptRecipient(pass)
+	id, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.SetWorkFactor(10)
-	enc, err := age.Encrypt(&buf, r)
+	return id
+}
+
+func archive(t *testing.T, id *age.X25519Identity, files map[string]string) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	enc, err := age.Encrypt(&buf, id.Recipient())
 	if err != nil {
 		t.Fatal(err)
 	}
 	gz := gzip.NewWriter(enc)
 	tw := tar.NewWriter(gz)
-	for _, name := range append(panelNames(), "../evil", "keys/other.key") {
+	for _, name := range append(panelNames(), "../evil", "keys/other.key", "keys/recovery.pub") {
 		body, ok := files[name]
 		if !ok {
 			continue
@@ -57,39 +62,73 @@ func archive(t *testing.T, pass string, files map[string]string) *bytes.Buffer {
 }
 
 func TestUnpack(t *testing.T) {
-	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n"}
+	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n"}
+	k := newKey(t)
 	dir := t.TempDir()
-	ver, err := unpack(archive(t, "pw", good), "pw", dir)
-	if err != nil || ver != "v0.1.0" {
-		t.Fatalf("unpack = %q %v", ver, err)
+	info, err := unpack(archive(t, k, good), k, dir)
+	if err != nil || info.version != "v0.1.0" || info.gen != 3 {
+		t.Fatalf("unpack = %+v %v", info, err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "keys/master.key")); string(b) != "k\n" {
 		t.Errorf("master key = %q", b)
 	}
 
-	if _, err := unpack(archive(t, "pw", good), "wrong", t.TempDir()); err == nil {
-		t.Error("wrong passphrase accepted")
+	// Only the recovery key opens it; the failure names the generation the
+	// archive's name carries.
+	_, err = unpack(archive(t, k, good), newKey(t), t.TempDir())
+	if err == nil {
+		t.Fatal("a different recovery key opened the archive")
+	}
+	if got := withNeededGen(err, "p/scheduled/20261017-030000-panel-g3.tar.gz.age").Error(); !strings.Contains(got, "generation 3") {
+		t.Errorf("message = %q", got)
+	}
+	if got := withNeededGen(err, "panel.tar.gz.age").Error(); strings.Contains(got, "generation") {
+		t.Errorf("a name with no generation was guessed at: %q", got)
 	}
 	evil := map[string]string{
 		"stackr.db":       "db",
 		"keys/master.key": "k",
 		"VERSION":         "v0.1.0",
+		"RECOVERY":        "1",
 		"../evil":         "x",
 	}
-	if _, err := unpack(archive(t, "pw", evil), "pw", t.TempDir()); err == nil {
-		t.Error("entry outside the three names accepted")
+	if _, err := unpack(archive(t, k, evil), k, t.TempDir()); err == nil {
+		t.Error("entry outside the panel members accepted")
 	}
-	if _, err := unpack(archive(t, "pw", map[string]string{"VERSION": "v0.1.0"}), "pw", t.TempDir()); err == nil {
+	if _, err := unpack(archive(t, k, map[string]string{"VERSION": "v0.1.0"}), k, t.TempDir()); err == nil {
 		t.Error("archive without a database accepted")
+	}
+}
+
+// A restore on a new box keeps the box's own recovery.pub: it is no archive
+// member, so an archive carrying one is refused and a normal one stages none.
+func TestRestoreKeepsBoxRecoveryKey(t *testing.T) {
+	k := newKey(t)
+	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n"}
+	stage := t.TempDir()
+	if _, err := unpack(archive(t, k, files), k, stage); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(stage, installspec.RecoveryPubFile)); err == nil {
+		t.Error("the stage holds a recovery.pub")
+	}
+	for _, m := range installspec.PanelState {
+		if m.Name == installspec.RecoveryPubFile || m.Name == installspec.RecoveryPendingFile || m.Name == installspec.KeyNextFile {
+			t.Errorf("%s is part of the panel archive", m.Name)
+		}
+	}
+	files["keys/recovery.pub"] = "age1evil\n1\n"
+	if _, err := unpack(archive(t, k, files), k, t.TempDir()); err == nil {
+		t.Error("an archive carrying keys/recovery.pub was accepted")
 	}
 }
 
 // An archive with the proxy's volume stages it; one without is as before.
 // restoreCaddy stops the proxy, untars into its volume, starts it.
 func TestRestoreCaddy(t *testing.T) {
-	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "caddy.tar.gz": "tarball"}
-	dir := t.TempDir()
-	if _, err := unpack(archive(t, "pw", files), "pw", dir); err != nil {
+	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n", "caddy.tar.gz": "tarball"}
+	dir, k := t.TempDir(), newKey(t)
+	if _, err := unpack(archive(t, k, files), k, dir); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "caddy.tar.gz")); string(b) != "tarball" {
@@ -180,12 +219,13 @@ func TestUnpackPanelState(t *testing.T) {
 		all[m.Name] = "body-" + m.Name
 	}
 	all["VERSION"] = "v0.1.0\n"
-	dir := t.TempDir()
-	if _, err := unpack(archive(t, "pw", all), "pw", dir); err != nil {
+	all["RECOVERY"] = "1\n"
+	dir, k := t.TempDir(), newKey(t)
+	if _, err := unpack(archive(t, k, all), k, dir); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range installspec.PanelState {
-		if m.Name == "VERSION" {
+		if m.Name == "VERSION" || m.Name == "RECOVERY" {
 			continue
 		}
 		if b, err := os.ReadFile(filepath.Join(dir, m.Name)); err != nil || string(b) != "body-"+m.Name {
@@ -199,35 +239,53 @@ func TestUnpackPanelState(t *testing.T) {
 		}
 	}
 	req["VERSION"] = "v0.1.0\n"
-	if _, err := unpack(archive(t, "pw", req), "pw", t.TempDir()); err != nil {
+	req["RECOVERY"] = "1\n"
+	if _, err := unpack(archive(t, k, req), k, t.TempDir()); err != nil {
 		t.Errorf("required members alone refused: %v", err)
 	}
 	req["keys/other.key"] = "x"
-	if _, err := unpack(archive(t, "pw", req), "pw", t.TempDir()); err == nil {
+	if _, err := unpack(archive(t, k, req), k, t.TempDir()); err == nil {
 		t.Error("a keys/ file outside installspec.PanelState was accepted")
 	}
 }
 
-// The flag wins, then the environment, then stdin when asked; nothing given
-// is "" (this box's master key). Stdin is never read unasked.
-func TestPassphrase(t *testing.T) {
+// The environment wins, then stdin when asked; nothing given is "" (the
+// caller prompts). Stdin is never read unasked.
+func TestRecoveryKey(t *testing.T) {
 	for _, c := range []struct {
-		flag, env string
-		stdin     bool
-		in, want  string
-		err       bool
+		env      string
+		stdin    bool
+		in, want string
+		err      bool
 	}{
-		{flag: "f", env: "e", stdin: true, in: "s\n", want: "f"},
-		{env: "e", stdin: true, in: "s\n", want: "e"},
+		{env: " e ", stdin: true, in: "s\n", want: "e"},
 		{stdin: true, in: "s p\r\nmore\n", want: "s p"},
 		{stdin: true, in: "last", want: "last"},
 		{stdin: true, in: "\n", err: true},
 		{in: "s\n", want: ""},
 	} {
-		got, err := passphrase(c.flag, c.env, c.stdin, strings.NewReader(c.in))
+		got, err := recoveryKey(c.env, c.stdin, strings.NewReader(c.in))
 		if (err != nil) != c.err || got != c.want {
-			t.Errorf("passphrase(%+v) = %q, %v; want %q", c, got, err, c.want)
+			t.Errorf("recoveryKey(%+v) = %q, %v; want %q", c, got, err, c.want)
 		}
+	}
+}
+
+// A prefix at the panel archives' root picks the only install there, or
+// names the installs to choose from; any other prefix is left alone.
+func TestPickInstall(t *testing.T) {
+	root := "stackr/_panel/"
+	one := []string{root + "aa/scheduled/20261017-030000-panel-g1.tar.gz.age", root + "aa/manual/20261018-030000-panel-g1.tar.gz.age"}
+	got, err := pickInstall(root, one)
+	if err != nil || newestKey(got) != one[1] {
+		t.Errorf("one install: %v %v", got, err)
+	}
+	two := append(slices.Clone(one), root+"bb/scheduled/20261019-030000-panel-g1.tar.gz.age")
+	if _, err := pickInstall(root, two); err == nil || !strings.Contains(err.Error(), "aa, bb") {
+		t.Errorf("two installs: %v", err)
+	}
+	if got, err := pickInstall(root+"aa/", two); err != nil || len(got) != len(two) {
+		t.Errorf("an install prefix was narrowed: %v %v", got, err)
 	}
 }
 

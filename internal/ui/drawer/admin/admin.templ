@@ -4,6 +4,7 @@
 package admin
 
 import (
+	"strconv"
 	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -110,6 +111,17 @@ type BackupsView struct {
 	Sched PanelSchedule
 	// NoOffBox is set while no off-box destination takes the panel backup.
 	NoOffBox bool
+	Recovery RecoveryView
+}
+
+// RecoveryView is the recovery key section. Unsaved is set while its private
+// half has not been confirmed saved; Key is that half, set only on the answer
+// to a password check. Show, Saved and Rotate are POST targets; "" = may not.
+type RecoveryView struct {
+	Gen                int
+	Unsaved            bool
+	Key, Error         string
+	Show, Saved, Rotate string
 }
 
 // PanelSchedule is the panel backup's switch, cron line, how many archives
@@ -348,13 +360,48 @@ templ Guide(href string) {
 	</div>
 }
 
+// Recovery is the recovery key section; every action re-renders it alone.
+templ Recovery(v RecoveryView) {
+	<div id="recovery">
+		@c.Section("Recovery key", "instance", "Opens the panel's own backups. Only its public half is kept on this server.") {
+			<div class="space-y-3">
+				<p class="text-sm text-rw-muted">{ "Key generation " + strconv.Itoa(v.Gen) + "." }</p>
+				if v.Error != "" {
+					<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+				}
+				if v.Key != "" {
+					<p class="text-sm text-rw-warn" role="status">Save this key off this server. It is shown only until you confirm.</p>
+					<pre class="panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all" data-recovery-key>{ v.Key }</pre>
+					<form hx-post={ v.Saved } hx-target="#recovery" hx-swap="outerHTML">
+						<button type="submit" class="btn btn-primary btn-sm">I've saved it</button>
+					</form>
+				} else {
+					if v.Unsaved {
+						<p class="text-sm text-rw-warn" role="status" data-recovery-warning>Your recovery key is not saved yet. Backups cannot be restored without it.</p>
+						<form hx-post={ v.Show } hx-target="#recovery" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+							@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true})
+							<button type="submit" class="btn btn-primary btn-sm">Show the key</button>
+						</form>
+					} else if v.Rotate != "" {
+						<form hx-post={ v.Rotate } hx-target="#recovery" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+							@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true, Help: "Older backups keep the old key."})
+							<button type="submit" class="btn btn-ghost btn-sm">Rotate the key</button>
+						</form>
+					}
+				}
+			</div>
+		}
+	</div>
+}
+
 templ Backups(v BackupsView) {
 	<div id="tab-backups">
 		if v.NoOffBox {
 			<p class="text-sm text-rw-warn" role="status" data-backup-warning>Backups are only on this server. <a href={ templ.SafeURL(Base + "?tab=backups#dest_name") } class="underline">Add an S3 destination.</a></p>
 		}
+		@Recovery(v.Recovery)
 		@c.Dests(v.Dests)
-		@c.Section("Stackr's own database", "instance", "A consistent copy of the panel database, taken while it is serving. The archive carries the master key that decrypts every secret in it, so keep it somewhere private. Restore it on the host with stackr-install restore.") {
+		@c.Section("Stackr's own database", "instance", "A consistent copy of the panel database, taken while it is serving. It is encrypted to your recovery key. Restore it on the host with stackr-install restore.") {
 			<div class="space-y-3">
 				if v.Sched.Action != "" {
 					<form hx-post={ v.Sched.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">

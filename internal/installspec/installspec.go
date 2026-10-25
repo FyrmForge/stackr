@@ -48,6 +48,15 @@ const (
 	// KeyFile is the master key under the data dir; the panel archive
 	// restores it to the same place.
 	KeyFile = "keys/master.key"
+	// KeyNextFile is a master key waiting to replace KeyFile; a restore
+	// removes a leftover one, it belongs to the box that was replaced.
+	KeyNextFile = "keys/master.key.next"
+	// RecoveryPubFile is the recovery key's public half (age X25519) and its
+	// generation, two lines. This box's own, never in an archive: a restore on
+	// a new box keeps the box's key. RecoveryPendingFile holds the private
+	// half until an admin has saved it.
+	RecoveryPubFile     = "keys/recovery.pub"
+	RecoveryPendingFile = "keys/recovery.pending"
 	// RestoredMarker is what stackr-install restore leaves in the data dir:
 	// the panel's next boot redeploys the controller's tiles and removes it.
 	// Never in an archive.
@@ -72,7 +81,10 @@ const (
 	// DBFile, VersionMember and CaddyMember are the other archive names.
 	DBFile        = "stackr.db"
 	VersionMember = "VERSION"
-	CaddyMember   = "caddy.tar.gz"
+	// RecoveryMember stamps an archive with the generation of the recovery
+	// key it is encrypted to.
+	RecoveryMember = "RECOVERY"
+	CaddyMember    = "caddy.tar.gz"
 )
 
 // Member is one entry of the panel archive.
@@ -93,6 +105,7 @@ var PanelState = []Member{
 	{Name: DBFile, Mode: 0o600, OnDisk: true},
 	{Name: KeyFile, Mode: 0o600, OnDisk: true},
 	{Name: VersionMember, Mode: 0o644},
+	{Name: RecoveryMember, Mode: 0o644},
 	{Name: ClusterCAKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ClusterCACertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: ClusterCAPrevCertFile, Mode: 0o644, Optional: true, OnDisk: true},
@@ -103,6 +116,42 @@ var PanelState = []Member{
 	{Name: ControllerPrevKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ControllerPrevCertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: CaddyMember, Mode: 0o600, Optional: true},
+}
+
+// LoadRecovery reads the recovery public key and its generation; pub is ""
+// when the box has none yet.
+func LoadRecovery(dataDir string) (pub string, gen int, err error) {
+	b, err := os.ReadFile(filepath.Join(dataDir, RecoveryPubFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", 0, nil
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	pub, n, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+	gen, err = strconv.Atoi(strings.TrimSpace(n))
+	if err != nil || gen < 1 || !strings.HasPrefix(pub, "age1") {
+		return "", 0, fmt.Errorf("%s is not a recovery public key and generation", RecoveryPubFile)
+	}
+	return pub, gen, nil
+}
+
+// SaveRecovery writes the public key and generation (0600, atomically).
+func SaveRecovery(dataDir, pub string, gen int) error {
+	return WriteKeyFile(filepath.Join(dataDir, RecoveryPubFile), []byte(pub+"\n"+strconv.Itoa(gen)+"\n"))
+}
+
+// WriteKeyFile writes a key file 0600 through a rename, so a crash leaves
+// the old file or the new one, never half of one.
+func WriteKeyFile(path string, b []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Input is everything about this install the containers vary on.
