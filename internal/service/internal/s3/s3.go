@@ -15,10 +15,10 @@ import (
 // Destination is where backup archives live. Keys are slash-separated and
 // timestamp-first, so List's lexical order is chronological order.
 type Destination interface {
-	// Put stores body under key, replacing any object there. A seeker
-	// because S3 needs the length up front (the archive is a finished
-	// scratch file by then).
-	Put(ctx context.Context, key string, body io.ReadSeeker) error
+	// Put stores body under key, replacing any object there. The length is
+	// not known up front, so a live backup can stream straight in; a failed
+	// Put leaves no object (and no stray multipart parts) behind.
+	Put(ctx context.Context, key string, body io.Reader) error
 	// Get opens key; ErrNotFound when there is none. The caller closes it.
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	// List returns every key under prefix, sorted.

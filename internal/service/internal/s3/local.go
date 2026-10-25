@@ -30,7 +30,7 @@ func (l Local) file(key string) (string, error) {
 
 // Put writes to a temp file beside the target and renames it into place, so
 // a crash never leaves a half archive under a real key.
-func (l Local) Put(_ context.Context, key string, body io.ReadSeeker) error {
+func (l Local) Put(_ context.Context, key string, body io.Reader) error {
 	dst, err := l.file(key)
 	if err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -34,26 +35,30 @@ func (b Bucket) client() *s3.Client {
 		Region:       region,
 		BaseEndpoint: aws.String(b.Endpoint),
 		UsePathStyle: true, // MinIO/RustFS/Garage; real S3 accepts it too
-		Credentials:  credentials.NewStaticCredentialsProvider(b.AccessKey, b.SecretKey, ""),
+		// The SDK's default trailing checksums are refused by older
+		// S3-compatible servers; none is sent unless an operation needs one.
+		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
+		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
+		Credentials:                credentials.NewStaticCredentialsProvider(b.AccessKey, b.SecretKey, ""),
 	})
 }
 
-// Put is one PutObject with the length known up front.
-// ponytail: no multipart, so one archive tops out at S3's 5 GiB single-PUT
-// limit; switch to the s3 manager uploader when a volume outgrows it.
-func (b Bucket) Put(ctx context.Context, key string, body io.ReadSeeker) error {
-	size, err := body.Seek(0, io.SeekEnd)
-	if err != nil {
-		return err
-	}
-	if _, err := body.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	_, err = b.client().PutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(b.Bucket),
-		Key:           aws.String(key),
-		Body:          body,
-		ContentLength: aws.Int64(size),
+// partSize: S3 allows 10000 parts, so 16 MiB parts lift one object to about
+// 160 GB; a stream holds concurrency x partSize in memory (80 MiB).
+const partSize = 16 << 20
+
+// Put is a multipart upload through the manager, so the length need not be
+// known and one archive is not capped at S3's 5 GiB single-PUT limit. A
+// failed upload is aborted, leaving no object and no stray parts.
+func (b Bucket) Put(ctx context.Context, key string, body io.Reader) error {
+	up := manager.NewUploader(b.client(), func(u *manager.Uploader) { //nolint:staticcheck // feature/s3/manager is deprecated for transfermanager; the agreed design names the manager
+		u.PartSize = partSize
+		u.LeavePartsOnError = false
+	})
+	_, err := up.Upload(ctx, &s3.PutObjectInput{ //nolint:staticcheck // same
+		Bucket: aws.String(b.Bucket),
+		Key:    aws.String(key),
+		Body:   body,
 	})
 	return err
 }
