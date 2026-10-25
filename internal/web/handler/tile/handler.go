@@ -430,9 +430,19 @@ func (h *handler) AttachDomain(c echo.Context) error {
 		}
 		s.Port = n
 	}
-	_, err := h.orch.AttachDomainReplace(c.Request().Context(), tileOf(c).ID, s, c.FormValue("replace") != "")
+	ctx, org := c.Request().Context(), middleware.ScopeOf(c).Org.ID
+	if c.FormValue("adopt") != "" {
+		if err := h.orch.AdoptDNSHost(ctx, org, s.Host); err != nil {
+			return h.after(c, "settings", "", err)
+		}
+	}
+	_, err := h.orch.AttachDomainReplace(ctx, tileOf(c).ID, s, c.FormValue("replace") != "")
 	if errors.As(err, new(*service.RecordTaken)) {
-		return h.offerReplace(c, s.Host)
+		rows, perr := h.orch.PlanAdoptDNSHost(ctx, org, s.Host)
+		if perr != nil {
+			return h.after(c, "settings", "", perr)
+		}
+		return h.offerReplace(c, s.Host, len(rows) > 0)
 	}
 	if np := new(service.NoPublicIP); errors.As(err, &np) {
 		return h.refuseNoIP(c, np)
@@ -455,8 +465,10 @@ func (h *handler) refuseNoIP(c echo.Context, np *service.NoPublicIP) error {
 }
 
 // offerReplace answers an add refused on a record stackr did not create:
-// the Settings tab asking whether to replace it, the form kept.
-func (h *handler) offerReplace(c echo.Context, host string) error {
+// the Settings tab asking whether to replace it, the form kept. When the
+// record already points at our node (adopt) the question is whether to let
+// stackr manage it, and yes adopts it before the retry.
+func (h *handler) offerReplace(c echo.Context, host string, adopt bool) error {
 	form := map[string]string{}
 	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
 		if v := c.FormValue(k); v != "" {
@@ -465,6 +477,10 @@ func (h *handler) offerReplace(c echo.Context, host string) error {
 	}
 	vals := maps.Clone(form)
 	vals["replace"] = "1"
+	if adopt {
+		delete(vals, "replace")
+		vals["adopt"] = "1"
+	}
 	b, err := json.Marshal(vals)
 	if err != nil {
 		return err
@@ -473,7 +489,7 @@ func (h *handler) offerReplace(c echo.Context, host string) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{replace: &ui.ReplaceOffer{Host: host, Vals: string(b), Form: form}})
+	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{replace: &ui.ReplaceOffer{Host: host, Vals: string(b), Form: form, Adopt: adopt}})
 }
 
 // autoRefusal drops the field off a refused auto attach: its form is one

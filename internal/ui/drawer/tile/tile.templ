@@ -822,7 +822,7 @@ templ domains(v View, d DomainsView) {
 			</details>
 			<button type="submit" class="btn btn-primary">Add</button>
 		</form>
-		if d.Replace != nil {
+		if d.Replace != nil && !d.Replace.Adopt {
 			<p class="mt-2 text-sm text-rw-muted">{ d.Replace.Host } already has a DNS record.</p>
 		}
 		<form novalidate hx-post={ v.Base + "/domains" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
@@ -834,7 +834,17 @@ templ domains(v View, d DomainsView) {
 			</button>
 		</form>
 	</details>
-	if d.Replace != nil {
+	if d.Replace != nil && d.Replace.Adopt {
+		@c.Confirm(c.ConfirmView{
+			Open:    true,
+			Button:  "Manage it",
+			Title:   d.Replace.Host + " already points at your node. Let stackr manage it?",
+			Warning: "Stackr keeps the record pointed at your node from now on.",
+			Action:  v.Base + "/domains",
+			Target:  "#" + Root,
+			Vals:    d.Replace.Vals,
+		})
+	} else if d.Replace != nil {
 		@c.Confirm(c.ConfirmView{
 			Open:    true,
 			Button:  "Replace it",

@@ -166,6 +166,7 @@ func (d DomainsView) preview() string {
 type ReplaceOffer struct {
 	Host, Vals string
 	Form       map[string]string
+	Adopt      bool // the record already points at our node: ask to manage it, not replace it
 }
 
 // NoIPRefusal names the ingress node with no public IP; Link opens its

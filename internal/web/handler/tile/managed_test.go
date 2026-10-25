@@ -146,3 +146,22 @@ func TestGeneratedNameShown(t *testing.T) {
 		t.Errorf("generated host not shown:\n%s", body)
 	}
 }
+
+// A name whose record already points at our node asks "Let stackr manage
+// it?", and yes adopts it and attaches the host.
+func TestManagedDomainAdoptOffer(t *testing.T) {
+	s := managedSite(t, "198.51.100.1")
+	s.DNS.Put("acme.dev", libdns.RR{Name: "shop", Type: "A", Data: "198.51.100.1"})
+	form := url.Values{"domain": {"acme.dev"}, "sub": {"shop"}, "https": {"1"}}
+	rec := s.Do(t, "POST", drawer+"/domains", form)
+	body := rec.Body.String()
+	if rec.Code != 422 || !strings.Contains(body, "shop.acme.dev already points at your node. Let stackr manage it?") ||
+		!strings.Contains(body, `&#34;adopt&#34;:&#34;1&#34;`) || strings.Contains(body, "Replace it") {
+		t.Fatalf("adopt offer = %d\n%s", rec.Code, body)
+	}
+	form.Set("adopt", "1")
+	rec = s.Do(t, "POST", drawer+"/domains", form)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached shop.acme.dev") {
+		t.Fatalf("adopt = %d\n%s", rec.Code, rec.Body)
+	}
+}
