@@ -93,13 +93,13 @@ func TestOrgTiersManaged(t *testing.T) {
 	}
 }
 
-// The env drawer's Lock section: a toggle off-tier, fixed on a tiered env,
+// The env drawer's lock, in the General row: a toggle off-tier, fixed on a tiered env,
 // and the lock route re-renders the tab it came from.
 func TestEnvLockSection(t *testing.T) {
 	s := webtest.New(t)
 	d := "/acme/shop/dev/-/drawer"
 	body := s.Do(t, "GET", d+"?tab=settings", nil).Body.String()
-	for _, want := range []string{"Other envs can't read this env's values with [env] refs while locked.", `hx-post="` + d + `/lock"`, `checked`} {
+	for _, want := range []string{"Other envs can't read this env's values while it is locked.", `hx-post="` + d + `/lock"`, `checked`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("off-tier lock lacks %q", want)
 		}
@@ -115,7 +115,7 @@ func TestEnvLockSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = s.Do(t, "GET", d+"?tab=settings", nil).Body.String()
-	if !strings.Contains(body, "dev's lock is the org's tier lock. Change it in the org's tiers.") || strings.Contains(body, "/lock\"") {
+	if !strings.Contains(body, "dev is a locked tier. <a href=\"/acme?drawer=org:"+s.Org+"\" class=\"link\">Change in org tiers</a>") || strings.Contains(body, "/lock\"") {
 		t.Errorf("tiered lock:\n%s", body)
 	}
 	if rec := s.Do(t, "POST", d+"/lock", nil); rec.Code != http.StatusUnprocessableEntity {
