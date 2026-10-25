@@ -97,9 +97,11 @@ func TestChecksReconcileTheirProblem(t *testing.T) {
 	n := store.Node{ID: "w1", Name: "h3"}
 	must(t, o.store.Settings.Set(ctx, diskAlertKey(n.ID), "1"))
 	must(t, o.store.Settings.Set(ctx, clockAlertKey(n.ID), "1"))
+	must(t, o.store.Settings.Set(ctx, "alert.cert.root", "14"))
 	o.diskAlert(ctx, n, 1<<20, 100<<30)
 	o.clockAlert(ctx, n, time.Hour, true)
-	if !hasRow(t, o, "problem.disk.w1") || !hasRow(t, o, "problem.clock.w1") {
+	o.certAlert(ctx, "root", "ctl", "cluster root certificate", time.Now().Add(10*24*time.Hour), time.Now())
+	if !hasRow(t, o, "problem.disk.w1") || !hasRow(t, o, "problem.clock.w1") || !hasRow(t, o, "problem.cert.root") {
 		t.Error("a firing alert got no problem")
 	}
 	if got := h.events(t, o); len(got) != 0 {
@@ -108,7 +110,9 @@ func TestChecksReconcileTheirProblem(t *testing.T) {
 	must(t, o.store.Settings.Delete(ctx, diskAlertKey(n.ID))) // a problem left with no alert row
 	o.diskAlert(ctx, n, 50<<30, 100<<30)
 	o.clockAlert(ctx, n, 0, true)
-	if hasRow(t, o, "problem.disk.w1") || hasRow(t, o, "problem.clock.w1") {
+	must(t, o.store.Settings.Delete(ctx, "alert.cert.root"))
+	o.certAlert(ctx, "root", "ctl", "cluster root certificate", time.Now().Add(90*24*time.Hour), time.Now())
+	if hasRow(t, o, "problem.disk.w1") || hasRow(t, o, "problem.clock.w1") || hasRow(t, o, "problem.cert.root") {
 		t.Error("a healthy check kept its problem")
 	}
 }

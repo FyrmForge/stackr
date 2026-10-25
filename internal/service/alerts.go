@@ -509,29 +509,30 @@ func (o *Orchestrator) certAlert(ctx context.Context, id, nodeName, subject stri
 	if err != nil {
 		return
 	}
-	switch st := certStage(notAfter, now); st {
-	case cur:
-	case "":
-		_ = o.store.Settings.Delete(ctx, key)
+	st := certStage(notAfter, now)
+	if st == "" {
 		o.clearProblem(ctx, key)
-	default:
-		if err := o.store.Settings.Set(ctx, key, st); err != nil {
-			return
+		if cur != "" {
+			_ = o.store.Settings.Delete(ctx, key)
 		}
-		sev, when := SevWarning, "expires on "+notAfter.UTC().Format(time.DateOnly)
-		if st == "3" {
-			sev = SevCritical
-		}
-		if !notAfter.After(now) {
-			when = "expired on " + notAfter.UTC().Format(time.DateOnly)
-		}
-		msg := "The " + subject + " " + when + "."
-		o.openProblem(ctx, key, sev, msg)
-		if cur != "" && st == "14" {
-			return // back from 3 to 14: a renewal that is still short, no news
-		}
-		o.alert(Alert{Event: AlertCertExpiring, Severity: sev, Node: nodeName, Subject: subject, Message: msg})
+		return
 	}
+	sev, when := SevWarning, "expires on "+notAfter.UTC().Format(time.DateOnly)
+	if st == "3" {
+		sev = SevCritical
+	}
+	if !notAfter.After(now) {
+		when = "expired on " + notAfter.UTC().Format(time.DateOnly)
+	}
+	msg := "The " + subject + " " + when + "."
+	o.openProblem(ctx, key, sev, msg)
+	if st == cur || o.store.Settings.Set(ctx, key, st) != nil {
+		return
+	}
+	if cur != "" && st == "14" {
+		return // back from 3 to 14: a renewal that is still short, no news
+	}
+	o.alert(Alert{Event: AlertCertExpiring, Severity: sev, Node: nodeName, Subject: subject, Message: msg})
 }
 
 // certAlerts checks the cluster root, the controller cert and every
