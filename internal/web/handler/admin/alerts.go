@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"strings"
+
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
@@ -28,11 +30,27 @@ func (h *handler) mountAlerts(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/alerts/clear", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {
 		return "Alerts are off.", nil, h.orch.ClearAlerts(c.Request().Context())
 	}), set)
+	// POST /-/admin/alerts/heartbeat: a blank URL keeps the stored one.
+	g.POST(b+"/alerts/heartbeat", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {
+		u := strings.TrimSpace(c.FormValue("url"))
+		if u == "" {
+			return "Saved.", nil, nil
+		}
+		return "Saved.", nil, h.orch.SetHeartbeat(c.Request().Context(), u)
+	}), set)
+	// POST /-/admin/alerts/heartbeat/clear
+	g.POST(b+"/alerts/heartbeat/clear", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {
+		return "Heartbeat is off.", nil, h.orch.SetHeartbeat(c.Request().Context(), "")
+	}), set)
 }
 
 func (h *handler) alertsTab(c echo.Context) (templ.Component, error) {
 	s, err := h.orch.AlertSettings(c.Request().Context())
 	v := ui.AlertsView{Action: ui.Base + "/alerts", URL: s.URL, SecretSet: s.SecretSet}
+	v.Heartbeat, v.HeartbeatSave = s.Heartbeat, ui.Base+"/alerts/heartbeat"
+	if s.Heartbeat != "" {
+		v.HeartbeatClear = ui.Base + "/alerts/heartbeat/clear"
+	}
 	if s.URL != "" {
 		v.Test = ui.Base + "/alerts/test"
 		v.Clear = comp.ConfirmView{

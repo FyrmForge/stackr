@@ -14,13 +14,17 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -35,6 +39,7 @@ const (
 	alertURLKey    = "alert_webhook_url"
 	alertSecretKey = "alert_webhook_secret" // sealed, never in the catalogue
 	alertLastKey   = "alert_last_delivery"
+	heartbeatKey   = "heartbeat_url"
 	// AlertSignatureHeader carries sha256=<hex HMAC of the body> when a secret is set.
 	AlertSignatureHeader = "X-Stackr-Signature"
 )
@@ -48,6 +53,12 @@ const (
 	AlertDiskLow      = "disk.low"
 	AlertClockSkew    = "clock.skew"
 	AlertObserveDisk  = "observe.disk"
+	AlertCertFailing  = "cert.failing"
+	AlertCertOK       = "cert.ok"
+	AlertCrashloop    = "container.crashloop"
+	AlertCrashOK      = "container.recovered"
+	AlertMemoryLow    = "memory.low"
+	AlertMemoryOK     = "memory.ok"
 	AlertTest         = "test"
 )
 
@@ -88,6 +99,7 @@ type AlertDelivery struct {
 type AlertSettings struct {
 	URL       string         `json:"url"`
 	SecretSet bool           `json:"secret_set"`
+	Heartbeat string         `json:"heartbeat"` // masked like URL; "" = off
 	Last      *AlertDelivery `json:"last_delivery,omitempty"`
 }
 
@@ -226,6 +238,11 @@ func (o *Orchestrator) AlertSettings(ctx context.Context) (AlertSettings, error)
 		return s, err
 	}
 	s.URL = settings.MaskURL(u)
+	hb, err := o.settings.Get(ctx, heartbeatKey)
+	if err != nil {
+		return s, err
+	}
+	s.Heartbeat = settings.MaskURL(hb)
 	sec, _, err := o.store.Settings.Get(ctx, alertSecretKey)
 	if err != nil {
 		return s, err
@@ -262,6 +279,18 @@ func (o *Orchestrator) SetAlerts(ctx context.Context, rawURL string, secret *str
 		return o.store.Settings.Delete(ctx, alertSecretKey)
 	}
 	return o.store.Settings.SetSealed(ctx, alertSecretKey, *secret)
+}
+
+// SetHeartbeat (admin) sets the dead-man's-switch URL; "" turns it off.
+func (o *Orchestrator) SetHeartbeat(ctx context.Context, rawURL string) error {
+	rawURL = strings.TrimSpace(rawURL)
+	if u, err := url.Parse(rawURL); rawURL != "" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "") {
+		return errs.Invalidf("heartbeat", "Give an http or https URL.")
+	}
+	if strings.HasSuffix(rawURL, "/…") {
+		return errs.Invalidf("heartbeat", "That is the masked URL. Paste the full URL.")
+	}
+	return o.SetSetting(ctx, heartbeatKey, rawURL)
 }
 
 // ClearAlerts (admin) turns alerts off: URL, secret and last delivery go.
@@ -402,6 +431,7 @@ func (o *Orchestrator) clockAlert(ctx context.Context, n store.Node, skew time.D
 
 // controllerDiskAlert is diskAlert for the controller, read as the deploy gate reads it.
 func (o *Orchestrator) controllerDiskAlert(ctx context.Context) {
+	defer o.alertTick(ctx, time.Now())
 	n, err := o.nodeLeaf().Controller(ctx)
 	if err != nil {
 		return
@@ -494,6 +524,7 @@ func (o *Orchestrator) certAlert(ctx context.Context, id, nodeName, subject stri
 // worker's newest cert. Called from dailyChores.
 // ponytail: Let's Encrypt certs live in Caddy's storage, not read here.
 func (o *Orchestrator) certAlerts(ctx context.Context) {
+	o.hostCertAlerts(ctx)
 	c := o.cluster
 	if c == nil {
 		return
@@ -572,4 +603,221 @@ func (o *Orchestrator) backupResult(ctx context.Context, key, nodeID, subject st
 	}
 	o.alert(Alert{Event: AlertBackupFailed, Severity: SevCritical, Node: name, Subject: subject,
 		Message: "Scheduled backup of " + subject + " " + verb + ": " + err.Error()})
+}
+
+// ---- the watch tick: heartbeat, crash loops, memory ----
+
+const (
+	heartbeatEvery = time.Minute
+	crashWindow    = 10 * time.Minute
+	crashRestarts  = 3 // restarts within crashWindow that make a loop
+	memLowFor      = 5 * time.Minute
+	memLowPct      = 10 // MemAvailable share of total under which memory is low
+)
+
+// alertState is what the tick keeps between runs. The "already sent" marks
+// live in settings rows; this is only the windows that have no row to be.
+type alertState struct {
+	lastBeat, lastPoll time.Time
+	restarts           map[string][]restartSample // container id -> samples inside crashWindow
+	memLowSince        map[string]time.Time       // node id -> when MemAvailable first read low
+}
+
+type restartSample struct {
+	at    time.Time
+	count int
+}
+
+// alertWatch is the one alertState. The tick runs on one goroutine.
+// ponytail: parked in repoLocks, which is a sync.Map; a field once Orchestrator may change.
+func (o *Orchestrator) alertWatch() *alertState {
+	v, _ := o.repoLocks.LoadOrStore("alertwatch", &alertState{
+		restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{},
+	})
+	return v.(*alertState)
+}
+
+// alertTick runs every 30s with the controller's disk check.
+func (o *Orchestrator) alertTick(ctx context.Context, now time.Time) {
+	o.heartbeat(ctx, now)
+	o.memoryAlerts(ctx, now)
+	if w := o.alertWatch(); now.Sub(w.lastPoll) >= time.Minute {
+		w.lastPoll = now
+		o.containerAlerts(ctx, now)
+	}
+}
+
+// heartbeat GETs the dead-man's-switch URL once a minute while one is set. A
+// failed GET is logged: the switch alerts from its own side when pings stop.
+func (o *Orchestrator) heartbeat(ctx context.Context, now time.Time) {
+	u, err := o.settings.Get(ctx, heartbeatKey)
+	w := o.alertWatch()
+	if err != nil || u == "" || now.Sub(w.lastBeat) < heartbeatEvery {
+		return
+	}
+	w.lastBeat = now
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, u, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", "stackr-heartbeat")
+	resp, err := alertClient.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // the URL is a token: never in the log
+		}
+		slog.Warn("heartbeat: ping failed", "err", err)
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	_ = resp.Body.Close()
+}
+
+// memLow: MemAvailable under memLowPct of the total. Unreported is not low.
+func memLow(free, total uint64) bool { return free > 0 && total > 0 && free*100 < total*memLowPct }
+
+// memoryAlerts fires memory.low when a node's MemAvailable stays low for
+// memLowFor, and memory.ok when it recovers. Facts are the mesh's last
+// report; a node with none changes nothing.
+func (o *Orchestrator) memoryAlerts(ctx context.Context, now time.Time) {
+	if o.mesh == nil {
+		return
+	}
+	ns, err := o.nodeLeaf().List(ctx)
+	if err != nil {
+		return
+	}
+	for _, n := range ns {
+		if f, ok := o.mesh.factsOf(n.ID); ok {
+			o.memAlert(ctx, n, f.MemFree, f.MemBytes, now)
+		}
+	}
+}
+
+func (o *Orchestrator) memAlert(ctx context.Context, n store.Node, free, total uint64, now time.Time) {
+	w, key := o.alertWatch(), "alert.mem."+n.ID
+	if free == 0 || total == 0 {
+		return
+	}
+	_, was, err := o.store.Settings.Get(ctx, key)
+	if err != nil {
+		return
+	}
+	if !memLow(free, total) {
+		delete(w.memLowSince, n.ID)
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+			o.alert(Alert{Event: AlertMemoryOK, Severity: SevInfo, Node: n.Name, Subject: n.Name,
+				Message: n.Name + " has memory to spare again."})
+		}
+		return
+	}
+	since, ok := w.memLowSince[n.ID]
+	if !ok {
+		w.memLowSince[n.ID], since = now, now
+	}
+	if was || now.Sub(since) < memLowFor || o.store.Settings.Set(ctx, key, "1") != nil {
+		return
+	}
+	o.alert(Alert{Event: AlertMemoryLow, Severity: SevWarning, Node: n.Name, Subject: n.Name,
+		Message: fmt.Sprintf("%s has %s (%d%%) of memory available.", n.Name, gb(free), free*100/total)})
+}
+
+// containerAlerts reads every tile container's restart count and OOM flag on
+// every node and hands them to crashAlert and oomAlert.
+// ponytail: one inspect per tile container a minute; a Docker events stream if that ever shows.
+func (o *Orchestrator) containerAlerts(ctx context.Context, now time.Time) {
+	looping := map[string]string{} // tile id -> node name
+	seen := map[string]bool{}
+	_ = o.eachNode(ctx, func(ctx context.Context, n store.Node) error {
+		cs, err := o.docker.List(ctx, map[string]string{tile.LabelRole: "replica"})
+		for _, c := range cs {
+			tid := c.Labels[tile.LabelTile]
+			if tid == "" {
+				continue
+			}
+			d, ierr := o.docker.Inspect(ctx, c.ID)
+			if ierr != nil {
+				continue
+			}
+			seen[tid] = true
+			if o.crashSample(c.ID, d.RestartCount, now) {
+				looping[tid] = n.Name
+			}
+			o.oomAlert(ctx, tid, n, d)
+		}
+		return err
+	})
+	for tid := range seen {
+		o.crashAlert(ctx, tid, looping[tid])
+	}
+}
+
+// crashSample records a container's restart count and says whether it went
+// up by crashRestarts within crashWindow.
+func (o *Orchestrator) crashSample(id string, count int, now time.Time) bool {
+	w := o.alertWatch()
+	ss := slices.Clone(w.restarts[id])
+	ss = append(ss, restartSample{now, count})
+	for len(ss) > 1 && now.Sub(ss[1].at) > crashWindow { // keep one sample at or before the window's start
+		ss = ss[1:]
+	}
+	w.restarts[id] = ss
+	return count-ss[0].count >= crashRestarts
+}
+
+// crashAlert fires once when a tile starts crash looping (node is the node
+// name, "" = not looping) and again as recovered when it stops.
+func (o *Orchestrator) crashAlert(ctx context.Context, tileID, node string) {
+	key := "alert.crash." + tileID
+	_, was, err := o.store.Settings.Get(ctx, key)
+	if err != nil || was == (node != "") {
+		return
+	}
+	app, env := tileID, ""
+	if t, err := o.store.Tiles.Get(ctx, tileID); err == nil {
+		app = t.Name
+		if e, err := o.store.Environments.Get(ctx, t.EnvironmentID); err == nil {
+			env = e.Name
+		}
+	}
+	if !was {
+		if o.store.Settings.Set(ctx, key, "1") != nil {
+			return
+		}
+		o.alert(Alert{Event: AlertCrashloop, Severity: SevCritical, Node: node, Subject: app,
+			Message: fmt.Sprintf("%s in %s keeps restarting on %s: %d restarts in %d minutes.", app, env, node, crashRestarts, crashWindow/time.Minute)})
+		return
+	}
+	_ = o.store.Settings.Delete(ctx, key)
+	o.alert(Alert{Event: AlertCrashOK, Severity: SevInfo, Subject: app,
+		Message: fmt.Sprintf("%s in %s stopped restarting.", app, env)})
+}
+
+// oomAlert fires memory.low once per OOM kill (the container's restart count
+// at the kill is the mark); a kill is an event, so it has no recovery.
+func (o *Orchestrator) oomAlert(ctx context.Context, tileID string, n store.Node, d docker.Detail) {
+	key := "alert.oom." + d.ID
+	last, was, err := o.store.Settings.Get(ctx, key)
+	if err != nil {
+		return
+	}
+	if !d.OOMKilled {
+		if was {
+			_ = o.store.Settings.Delete(ctx, key)
+		}
+		return
+	}
+	if mark := strconv.Itoa(d.RestartCount); last == mark || o.store.Settings.Set(ctx, key, mark) != nil {
+		return
+	}
+	app := tileID
+	if t, err := o.store.Tiles.Get(ctx, tileID); err == nil {
+		app = t.Name
+	}
+	o.alert(Alert{Event: AlertMemoryLow, Severity: SevCritical, Node: n.Name, Subject: app,
+		Message: app + " on " + n.Name + " was killed for running out of memory."})
 }

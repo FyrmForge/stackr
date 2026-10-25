@@ -16,11 +16,15 @@ type AlertsView struct {
 	Last      string    // "ok" or "failed, <why>"; "" = none yet
 	LastAt    time.Time // when it went
 	LastOK    bool
+	// Heartbeat: the dead-man's-switch URL, masked; "" = off.
+	Heartbeat      string
+	HeartbeatSave  string // POST url
+	HeartbeatClear string // POST; "" = off already
 }
 
 templ Alerts(v AlertsView) {
 	<div id="tab-alerts">
-		@c.Section("Alerts", "instance", "One webhook gets node offline, failed backups, expiring certificates and low disk.") {
+		@c.Section("Alerts", "instance", "One webhook gets node offline, failed backups, failing certificates, crash loops, low memory and low disk.") {
 			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 				@c.Field(c.FieldView{Name: "url", Label: "Webhook URL", Type: "url", Placeholder: alertsPlaceholder(v.URL), Help: alertsURLHelp(v.URL)})
 				@c.Field(c.FieldView{Name: "secret", Label: "Signing secret", Type: "password", Autocomplete: "new-password", Help: alertsSecretHelp(v.SecretSet)})
@@ -47,6 +51,17 @@ templ Alerts(v AlertsView) {
 					</div>
 				}
 			</div>
+		}
+		@c.Section("Heartbeat", "instance", "Get told when stackr stops pinging a URL.") {
+			<form hx-post={ v.HeartbeatSave } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+				@c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Placeholder: alertsPlaceholder(v.Heartbeat), Help: alertsURLHelp(v.Heartbeat)})
+				<div class="flex flex-wrap items-center gap-2">
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+					if v.HeartbeatClear != "" {
+						@c.PostButton("Turn off", v.HeartbeatClear)
+					}
+				</div>
+			</form>
 		}
 	</div>
 }
