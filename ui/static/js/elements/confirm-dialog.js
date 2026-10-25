@@ -8,6 +8,9 @@ class ConfirmDialog extends HTMLElement {
         if (move)
             return this.step(move);
         if (target.closest("[data-open]")) {
+            const bad = [...(this.closest("form")?.elements ?? [])].find((f) => !this.contains(f) && !f.checkValidity?.());
+            if (bad)
+                return void bad.reportValidity();
             this.reset();
             dialog.showModal();
             this.querySelector("[data-word]")?.focus();

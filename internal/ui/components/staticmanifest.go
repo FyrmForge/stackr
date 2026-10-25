@@ -4,13 +4,13 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.d5ea10b39d16.css",
+	"css/output.css": "css/output.994f4885421c.css",
 	"css/uplot.min.css": "css/uplot.min.df630c6a8d6f.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
 	"images/favicon-32.png": "images/favicon-32.714289f559fa.png",
 	"images/logo-mark.png": "images/logo-mark.c7991eef2bbb.png",
-	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.c0453a5e6d47.js",
+	"js/elements/confirm-dialog.js": "js/elements/confirm-dialog.0ba1b4ac7280.js",
 	"js/elements/flash-toast.js": "js/elements/flash-toast.614ea70a3063.js",
 	"js/elements/graph-canvas.js": "js/elements/graph-canvas.aace918635c3.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.e76610db4e1b.js",
@@ -18,7 +18,7 @@ var StaticManifest = map[string]string{
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
 	"js/elements/metric-chart.js": "js/elements/metric-chart.f0ae4960333e.js",
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",
-	"js/elements/settings-find.js": "js/elements/settings-find.bfdf912cb968.js",
+	"js/elements/settings-find.js": "js/elements/settings-find.2ea785e04b67.js",
 	"js/elements/side-drawer.js": "js/elements/side-drawer.1cbdacb0bb4a.js",
 	"js/elements/tab-strip.js": "js/elements/tab-strip.54412ec96f2b.js",
 	"js/elements/term-pane.js": "js/elements/term-pane.70f08ef74b6d.js",

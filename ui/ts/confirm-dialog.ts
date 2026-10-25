@@ -13,6 +13,11 @@ class ConfirmDialog extends HTMLElement {
     const move = target.closest("[data-next], [data-back]");
     if (move) return this.step(move);
     if (target.closest("[data-open]")) {
+      // a confirm inside a form asks only once the form's own fields are valid
+      const bad = [...(this.closest("form")?.elements ?? [])].find(
+        (f) => !this.contains(f) && !(f as HTMLInputElement).checkValidity?.(),
+      ) as HTMLInputElement | undefined;
+      if (bad) return void bad.reportValidity();
       this.reset();
       dialog.showModal();
       this.querySelector<HTMLInputElement>("[data-word]")?.focus();
