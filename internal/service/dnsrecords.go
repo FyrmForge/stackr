@@ -187,6 +187,9 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 // reconcileDNS brings the managed domains' records to the tile domains.
 // replace names the hosts whose foreign records may be taken over.
 func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool) error {
+	if err := o.releaseMatchedHolds(ctx); err != nil {
+		return err
+	}
 	wants, werr := o.dnsWants(ctx)
 	if wants == nil && werr != nil {
 		return werr // the list itself failed: nothing to go on

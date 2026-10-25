@@ -614,6 +614,7 @@ func (o *Orchestrator) watchNodeClients() {
 		case <-day.C:
 			o.dailyChores(context.Background())
 			o.reconcileShares(context.Background())
+			o.dnsKick.Kick() // releases held DNS hosts that now match
 		case <-t.C:
 			o.controllerDiskAlert(context.Background())
 			if _, err := o.SweepPendingConnectors(context.Background(), time.Now()); err != nil {

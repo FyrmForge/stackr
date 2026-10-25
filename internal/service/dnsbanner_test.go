@@ -66,3 +66,31 @@ func TestEnvDNSBannerReleasesHeldHost(t *testing.T) {
 		t.Errorf("held after match = %v", got)
 	}
 }
+
+// The records sync releases a held host once it resolves to its node, with
+// nobody looking at a banner; until then the hold stays.
+func TestDNSSyncReleasesHeldHost(t *testing.T) {
+	ctx := context.Background()
+	f := &zoneFake{}
+	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))
+	publicIPs(t, n, "198.51.100.1", "198.51.100.2")
+	c, err := n.orch.AddConnector(ctx, ConnectorAdd{Kind: "namecheap", Values: map[string]string{"user": "u", "key": "k", "client_ip": "203.0.113.7"}})
+	must(t, err)
+	_, err = n.orch.ManageDNSDomain(ctx, nil, c.Connector.ID, "acme.dev", nil)
+	must(t, err)
+	_, err = n.orch.AttachDomain(ctx, n.devT.ID, DomainSpec{Host: "app.acme.dev"})
+	must(t, err)
+	must(t, n.orch.holdDNS(ctx, []string{"app.acme.dev"}))
+
+	fakeDNS(t, map[string][]string{"app.acme.dev": {"192.0.2.9"}})
+	must(t, n.orch.reconcileDNS(ctx, nil))
+	if !slices.Equal(n.orch.DNSHeld(ctx), []string{"app.acme.dev"}) {
+		t.Fatalf("held after a sync that does not match = %v", n.orch.DNSHeld(ctx))
+	}
+
+	fakeDNS(t, map[string][]string{"app.acme.dev": {"198.51.100.1"}})
+	must(t, n.orch.reconcileDNS(ctx, nil))
+	if got := n.orch.DNSHeld(ctx); len(got) != 0 {
+		t.Errorf("held after a matching sync = %v", got)
+	}
+}

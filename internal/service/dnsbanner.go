@@ -97,3 +97,51 @@ func (o *Orchestrator) envDNSBanner(ctx context.Context, envID string) (DNSMove,
 	}
 	return out, nil
 }
+
+// releaseMatchedHolds lets stackr manage a held host again once it resolves
+// to the node it enters by, with no page open: the records sync and the
+// daily tick run it.
+func (o *Orchestrator) releaseMatchedHolds(ctx context.Context) error {
+	held := o.DNSHeld(ctx)
+	if len(held) == 0 {
+		return nil
+	}
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	def, err := o.DefaultIngress(ctx)
+	if err != nil {
+		return err
+	}
+	var m DNSMove
+	for _, d := range ds {
+		if !slices.Contains(held, d.Host) {
+			continue
+		}
+		node, err := o.IngressFor(ctx, d.TileID)
+		if err != nil {
+			return err
+		}
+		if node == "" {
+			node = def
+		}
+		h, managed, err := o.dnsHost(ctx, d.TileID, d.Host, node, node)
+		if err != nil {
+			return err
+		}
+		if managed {
+			m.Managed = append(m.Managed, h)
+		}
+	}
+	var matched []string
+	for _, h := range o.CheckDNS(ctx, m).Managed {
+		if h.OK {
+			matched = append(matched, h.Host)
+		}
+	}
+	if len(matched) == 0 {
+		return nil
+	}
+	return o.ReleaseDNS(ctx, matched)
+}
