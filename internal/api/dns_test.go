@@ -34,6 +34,7 @@ func TestDNSConnectorRoutes(t *testing.T) {
 		{"GET", base + "/domains", ""},
 		{"PUT", base + "/domains/acme.dev", ""},
 		{"DELETE", base, ""},
+		{"GET", base + "/domains/acme.dev/plan", ""},
 	} {
 		if code, _ := w.do(t, member, c.method, c.path, c.body); code != 403 {
 			t.Errorf("member %s %s = %d, want 403", c.method, c.path, code)
@@ -67,7 +68,14 @@ func TestDNSConnectorRoutes(t *testing.T) {
 		}
 	}
 
+	if code, out := w.do(t, w.owner, "GET", base+"/domains/acme.dev/plan", ""); code != 200 {
+		t.Errorf("plan = %d %s", code, out)
+	}
+
 	// server level: admin only
+	if code, _ := w.do(t, w.owner, "GET", "/admin/dns-connectors/"+id+"/domains/acme.dev/plan", ""); code != 403 {
+		t.Errorf("owner server plan = %d, want 403", code)
+	}
 	if code, _ := w.do(t, w.owner, "GET", "/admin/dns-connectors", ""); code != 403 {
 		t.Errorf("owner GET /admin/dns-connectors = %d, want 403", code)
 	}
