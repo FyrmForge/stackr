@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -44,21 +44,77 @@ func (b Bucket) client() *s3.Client {
 }
 
 // partSize: S3 allows 10000 parts, so 16 MiB parts lift one object to about
-// 160 GB; a stream holds concurrency x partSize in memory (80 MiB).
+// 160 GB; a stream holds one part (16 MiB) in memory.
 const partSize = 16 << 20
 
-// Put is a multipart upload through the manager, so the length need not be
-// known and one archive is not capped at S3's 5 GiB single-PUT limit. A
-// failed upload is aborted, leaving no object and no stray parts.
-func (b Bucket) Put(ctx context.Context, key string, body io.Reader) error {
-	up := manager.NewUploader(b.client(), func(u *manager.Uploader) { //nolint:staticcheck // feature/s3/manager is deprecated for transfermanager; the agreed design names the manager
-		u.PartSize = partSize
-		u.LeavePartsOnError = false
-	})
-	_, err := up.Upload(ctx, &s3.PutObjectInput{ //nolint:staticcheck // same
+// Put streams body up as a multipart upload, so the length need not be known
+// and one archive is not capped at S3's 5 GiB single-PUT limit. A body that
+// fits in one part is a plain PutObject. A failed upload is aborted, leaving
+// no object and no stray parts.
+func (b Bucket) Put(ctx context.Context, key string, body io.Reader) (err error) {
+	c := b.client()
+	buf := make([]byte, partSize)
+	n, err := io.ReadFull(body, buf)
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		_, err = c.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(b.Bucket),
+			Key:    aws.String(key),
+			Body:   bytes.NewReader(buf[:n]),
+		})
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	up, err := c.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(b.Bucket),
 		Key:    aws.String(key),
-		Body:   body,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			// The upload's own context may be the reason it failed.
+			_, _ = c.AbortMultipartUpload(context.WithoutCancel(ctx), &s3.AbortMultipartUploadInput{
+				Bucket:   aws.String(b.Bucket),
+				Key:      aws.String(key),
+				UploadId: up.UploadId,
+			})
+		}
+	}()
+
+	var parts []types.CompletedPart
+	for num := int32(1); ; num++ {
+		out, perr := c.UploadPart(ctx, &s3.UploadPartInput{
+			Bucket:     aws.String(b.Bucket),
+			Key:        aws.String(key),
+			UploadId:   up.UploadId,
+			PartNumber: aws.Int32(num),
+			Body:       bytes.NewReader(buf[:n]),
+		})
+		if perr != nil {
+			return perr
+		}
+		parts = append(parts, types.CompletedPart{ETag: out.ETag, PartNumber: aws.Int32(num)})
+		if n < partSize {
+			break
+		}
+		n, err = io.ReadFull(body, buf)
+		if err == io.EOF {
+			err = nil
+			break // the body ended exactly on a part boundary
+		}
+		if err != nil && err != io.ErrUnexpectedEOF {
+			return err
+		}
+		err = nil
+	}
+	_, err = c.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:          aws.String(b.Bucket),
+		Key:             aws.String(key),
+		UploadId:        up.UploadId,
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
 	})
 	return err
 }
