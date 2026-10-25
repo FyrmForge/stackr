@@ -184,7 +184,8 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 
 	bind := ""
 	if in.IPv4Only {
-		bind = "0.0.0.0"
+		// tcp4: Go binds 0.0.0.0 dual-stack, so the network has to say IPv4.
+		bind = "tcp4/0.0.0.0"
 	}
 	servers := route{"http": server(bind+":80", plain, in.TrustedProxies, httpTail, in)}
 	// per_host: requests, status codes and latency per host on the admin

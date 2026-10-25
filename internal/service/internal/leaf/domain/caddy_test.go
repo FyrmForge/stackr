@@ -355,14 +355,14 @@ func TestBuildListensOnIPv4Only(t *testing.T) {
 			t.Fatal(err)
 		}
 		c := string(cfg)
-		want, other := `":80"`, `"0.0.0.0:80"`
+		want, other := `":80"`, `"tcp4/0.0.0.0:80"`
 		if only {
 			want, other = other, want
 		}
 		if !strings.Contains(c, want) || strings.Contains(c, other) {
 			t.Errorf("IPv4Only=%v: listen not %s: %s", only, want, c)
 		}
-		if got := strings.Contains(c, `"0.0.0.0:443"`); got != only {
+		if got := strings.Contains(c, `"tcp4/0.0.0.0:443"`); got != only {
 			t.Errorf("IPv4Only=%v: 0.0.0.0:443 present = %v", only, got)
 		}
 	}
