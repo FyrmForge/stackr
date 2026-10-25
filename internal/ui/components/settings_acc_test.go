@@ -89,7 +89,7 @@ func TestShare(t *testing.T) {
 // empty button row.
 func TestDangerZone(t *testing.T) {
 	html := render(t, DangerZone("Deleting this stack removes it.", "/acme/home", "Backups are kept."))
-	for _, want := range []string{"Danger zone", "/acme/home", "Backups are kept."} {
+	for _, want := range []string{"Danger zone", "/acme/home", "Backups are kept.", `<div class="mt-3 empty:hidden"></div>`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q in\n%s", want, html)
 		}

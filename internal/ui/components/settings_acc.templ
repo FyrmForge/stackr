@@ -29,7 +29,7 @@ templ SettingsAccordion(v SettingsAcc) {
 			</div>
 			<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer whitespace-nowrap"><input type="checkbox" class="accent-rw-accent" data-only-changed/> Only changed</label>
 		</div>
-		<p class="text-xs text-rw-faint mb-2 empty:hidden" role="status" aria-live="polite" data-find-status></p>
+		<p class="text-xs text-rw-faint mb-2 empty:mb-0" role="status" aria-live="polite" data-find-status></p>
 		<div class="space-y-2">
 			for _, r := range v.Rows {
 				<details id={ v.ID + "-" + r.Key } name={ v.ID } class="panel group" data-acc={ r.Key } data-changed?={ r.Changed } open?={ r.Key == v.Open }>

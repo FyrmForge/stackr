@@ -87,7 +87,7 @@ func SettingsAccordion(v SettingsAcc) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" class=\"input !pl-9\" placeholder=\"Find a setting\" autocomplete=\"off\" data-find></div><label class=\"flex items-center gap-2 text-sm text-rw-muted cursor-pointer whitespace-nowrap\"><input type=\"checkbox\" class=\"accent-rw-accent\" data-only-changed> Only changed</label></div><p class=\"text-xs text-rw-faint mb-2 empty:hidden\" role=\"status\" aria-live=\"polite\" data-find-status></p><div class=\"space-y-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" class=\"input !pl-9\" placeholder=\"Find a setting\" autocomplete=\"off\" data-find></div><label class=\"flex items-center gap-2 text-sm text-rw-muted cursor-pointer whitespace-nowrap\"><input type=\"checkbox\" class=\"accent-rw-accent\" data-only-changed> Only changed</label></div><p class=\"text-xs text-rw-faint mb-2 empty:mb-0\" role=\"status\" aria-live=\"polite\" data-find-status></p><div class=\"space-y-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

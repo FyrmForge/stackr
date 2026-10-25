@@ -4,7 +4,7 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.149a8917cb6a.css",
+	"css/output.css": "css/output.9e5a31b300b1.css",
 	"css/uplot.min.css": "css/uplot.min.df630c6a8d6f.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
