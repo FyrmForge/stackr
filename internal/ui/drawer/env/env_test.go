@@ -42,3 +42,13 @@ func TestTabs(t *testing.T) {
 		t.Error("the ends of the ladder offer a move off it")
 	}
 }
+
+// The banner names the record to set and where DNS points now; a templ quirk once
+// printed the current address twice.
+func TestDNSBannerShowsRecordAndCurrent(t *testing.T) {
+	var b strings.Builder
+	_ = DNSBanner(DNSBannerView{URL: "/x", Hand: []DNSRow{{Host: "web.example.com", Records: "A 77.42.15.115", Points: "109.148.70.232"}}}).Render(context.Background(), &b)
+	if !strings.Contains(b.String(), "set A 77.42.15.115. Now 109.148.70.232.") {
+		t.Errorf("banner row = %s", b.String())
+	}
+}
