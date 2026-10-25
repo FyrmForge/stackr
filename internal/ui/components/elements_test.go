@@ -21,7 +21,7 @@ var elements = map[string]int{
 	"log-pane":        150,
 	"metric-chart":    275, // its own 24-hour time format (local-time.ts cannot be imported) and round value axes
 	"password-toggle": 150,
-	"settings-find":   150,
+	"settings-find":   170, // opens nested details on a hit, redraws row heads after an in-row save
 	"side-drawer":     150,
 	"tab-strip":       150,
 	"term-pane":       150,
@@ -112,6 +112,8 @@ var contract = map[string][]string{
 		"[data-only-changed]",
 		"[data-find-status]",
 		"[data-find-skip]",
+		"[data-acc-refresh]",
+		"htmx:afterSwap",
 	},
 }
 

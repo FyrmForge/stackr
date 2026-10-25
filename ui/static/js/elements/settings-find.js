@@ -1,6 +1,7 @@
 const LABELS = "[data-acc-title], label, .label, .settings-label";
 class SettingsFind extends HTMLElement {
     was = null;
+    opened = [];
     rows() {
         return [...this.querySelectorAll("details[data-acc]")];
     }
@@ -38,8 +39,10 @@ class SettingsFind extends HTMLElement {
             let hit = !q;
             if (q) {
                 for (const el of row.querySelectorAll(LABELS)) {
-                    if (!el.closest("[data-field][hidden]") && this.mark(el, q))
+                    if (!el.closest("[data-field][hidden]") && this.mark(el, q)) {
                         hit = true;
+                        this.opened.push(...openTo(el, row));
+                    }
                 }
             }
             const show = hit && (!only || row.matches("[data-changed]") || row.querySelector("[data-changed]") !== null);
@@ -74,6 +77,8 @@ class SettingsFind extends HTMLElement {
         return hit;
     }
     unmark() {
+        this.opened.forEach((d) => (d.open = false));
+        this.opened = [];
         this.querySelectorAll("mark[data-find-hit]").forEach((m) => {
             const parent = m.parentNode;
             m.replaceWith(...m.childNodes);
@@ -101,18 +106,36 @@ class SettingsFind extends HTMLElement {
         if (el)
             el.textContent = text;
     }
+    onSaved = (e) => {
+        const d = e.detail;
+        if (d?.requestConfig?.verb !== "post" || !this.contains(d.target))
+            return;
+        this.querySelector("[data-acc-refresh]")?.dispatchEvent(new Event("refresh"));
+    };
     connectedCallback() {
         const key = new URLSearchParams(location.search).get("open");
-        const row = this.rows().find((r) => r.dataset.acc === key);
-        if (row)
+        const rows = this.rows();
+        const row = rows.find((r) => r.dataset.acc === key);
+        if (row && !rows.some((r) => r.open))
             row.open = true;
         this.addEventListener("toggle", this.onToggle, true);
         this.addEventListener("input", this.onInput);
+        this.addEventListener("htmx:afterSwap", this.onSaved);
     }
     disconnectedCallback() {
         this.removeEventListener("toggle", this.onToggle, true);
         this.removeEventListener("input", this.onInput);
+        this.removeEventListener("htmx:afterSwap", this.onSaved);
     }
 }
+export function openTo(el, row) {
+    const out = [];
+    for (let p = el.parentElement; p && p !== row; p = p.parentElement) {
+        if (p.tagName === "DETAILS" && !p.open) {
+            p.open = true;
+            out.push(p);
+        }
+    }
+    return out;
+}
 customElements.define("settings-find", SettingsFind);
-export {};

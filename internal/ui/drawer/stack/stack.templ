@@ -15,6 +15,7 @@ var Tabs = []string{"releases", "settings"}
 type SettingsView struct {
 	Base          string // POST /rename, /config, /order; "" = read-only
 	Open          string // the accordion row open on load (?open=)
+	Refresh       string // this tab's GET: the row heads redraw from it after a row saves alone
 	Name          string
 	Slug          string
 	Where         string // "smoke / shop", under the danger zone
@@ -62,7 +63,7 @@ func target() string { return "#" + c.DrawerRoot }
 
 templ Settings(v SettingsView) {
 	<div id="tab-settings">
-		@c.SettingsAccordion(c.SettingsAcc{ID: "stack-settings", Rows: Rows(v), Open: v.Open})
+		@c.SettingsAccordion(c.SettingsAcc{ID: "stack-settings", Rows: Rows(v), Open: v.Open, Refresh: v.Refresh})
 	</div>
 }
 

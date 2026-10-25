@@ -60,6 +60,7 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	}
 	v := stackui.SettingsView{
 		Open:          c.QueryParam("open"),
+		Refresh:       f.Base + "?tab=settings",
 		Name:          st.Name,
 		Slug:          st.Slug,
 		Where:         cd.s.Org.Slug + " / " + st.Slug,

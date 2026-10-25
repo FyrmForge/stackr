@@ -1,5 +1,7 @@
 package components
 
+import "strings"
+
 // SettingsAcc is a Settings tab as accordions: one row per group, at most
 // one open, each closed row summing up its values. <settings-find> owns the
 // search bar, the one-open rule while searching and the open row in ?open=.
@@ -7,6 +9,19 @@ type SettingsAcc struct {
 	ID   string // unique on the page: the rows' <details name> and the ids
 	Rows []AccRow
 	Open string // the Key open on load (from ?open=); "" = all closed
+	// Refresh is the GET that draws this tab again: after a row body saves
+	// alone (placement, variables, resources) the row heads, summary and
+	// changed dot, are redrawn from it. "" = no row saves alone.
+	Refresh string
+}
+
+// heads is the hx-select-oob list of every row's <summary>.
+func (v SettingsAcc) heads() string {
+	ids := make([]string, len(v.Rows))
+	for i, r := range v.Rows {
+		ids[i] = "#" + v.ID + "-" + r.Key + "-head"
+	}
+	return strings.Join(ids, ",")
 }
 
 // AccRow is one group. Body holds its fields (Field, SettingsForm, ...):
@@ -30,10 +45,13 @@ templ SettingsAccordion(v SettingsAcc) {
 			<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer whitespace-nowrap"><input type="checkbox" class="accent-rw-accent" data-only-changed/> Only changed</label>
 		</div>
 		<p class="text-xs text-rw-faint mb-2 empty:mb-0" role="status" aria-live="polite" data-find-status></p>
+		if v.Refresh != "" {
+			<span hidden data-acc-refresh hx-get={ v.Refresh } hx-trigger="refresh" hx-swap="none" hx-select-oob={ v.heads() }></span>
+		}
 		<div class="space-y-2">
 			for _, r := range v.Rows {
 				<details id={ v.ID + "-" + r.Key } name={ v.ID } class="panel group" data-acc={ r.Key } data-changed?={ r.Changed } open?={ r.Key == v.Open }>
-					<summary class="flex items-center gap-3 px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+					<summary id={ v.ID + "-" + r.Key + "-head" } class="flex items-center gap-3 px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
 						<span class="text-sm font-semibold text-rw-text w-36 shrink-0" data-acc-title>
 							{ r.Title }
 							@FieldMarks(r.Changed, "")

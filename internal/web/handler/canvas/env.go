@@ -97,6 +97,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Vars:      varsBody,
 		Placement: placementui.Load(urlOf(cd.s) + "/-/placement"),
 		Open:      c.FormValue("open"),
+		Refresh:   f.Base + "?tab=settings",
 	}
 	if v.Lock, err = h.lockView(c, cd, f.Base); err != nil {
 		return nil, err

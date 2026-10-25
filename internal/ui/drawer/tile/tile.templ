@@ -539,7 +539,7 @@ templ volumes(rows []VolumeRow) {
 // Settings is the tab: one accordion row per group, each its own Save.
 templ Settings(v View, s SettingsView) {
 	<div id="tab-settings">
-		@c.SettingsAccordion(c.SettingsAcc{ID: "tile-settings", Rows: settingsRows(v, s), Open: s.Open})
+		@c.SettingsAccordion(c.SettingsAcc{ID: "tile-settings", Rows: settingsRows(v, s), Open: s.Open, Refresh: v.Base + "?tab=settings"})
 	</div>
 }
 

@@ -8,10 +8,14 @@
 // While a filter runs the rows leave the name group, so several stay open,
 // and the URL is left alone; clearing it restores the row open before.
 // [data-find-skip] (the changed dot, the "from org" tag) is never searched.
+// A hit inside a closed <details> (Show advanced) opens it until the
+// filter changes. A POST answered inside a row (its body saved alone)
+// fires "refresh" on [data-acc-refresh], which redraws the row heads.
 const LABELS = "[data-acc-title], label, .label, .settings-label";
 
 class SettingsFind extends HTMLElement {
   private was: string | null = null; // the open row while filtering; null = no filter
+  private opened: HTMLDetailsElement[] = []; // nested <details> a hit opened
 
   private rows(): HTMLDetailsElement[] {
     return [...this.querySelectorAll<HTMLDetailsElement>("details[data-acc]")];
@@ -45,7 +49,10 @@ class SettingsFind extends HTMLElement {
       let hit = !q;
       if (q) {
         for (const el of row.querySelectorAll(LABELS)) {
-          if (!el.closest("[data-field][hidden]") && this.mark(el, q)) hit = true;
+          if (!el.closest("[data-field][hidden]") && this.mark(el, q)) {
+            hit = true;
+            this.opened.push(...openTo(el, row));
+          }
         }
       }
       const show = hit && (!only || row.matches("[data-changed]") || row.querySelector("[data-changed]") !== null);
@@ -82,6 +89,8 @@ class SettingsFind extends HTMLElement {
   }
 
   private unmark(): void {
+    this.opened.forEach((d) => (d.open = false));
+    this.opened = [];
     this.querySelectorAll("mark[data-find-hit]").forEach((m) => {
       const parent = m.parentNode;
       m.replaceWith(...m.childNodes);
@@ -112,18 +121,41 @@ class SettingsFind extends HTMLElement {
     if (el) el.textContent = text;
   }
 
+  // onSaved: a POST swapped inside a row redraws the row heads.
+  private onSaved = (e: Event): void => {
+    const d = (e as CustomEvent).detail;
+    if (d?.requestConfig?.verb !== "post" || !this.contains(d.target)) return;
+    this.querySelector("[data-acc-refresh]")?.dispatchEvent(new Event("refresh"));
+  };
+
   connectedCallback(): void {
+    // the row the server opened (a save's answer) wins over the URL's
     const key = new URLSearchParams(location.search).get("open");
-    const row = this.rows().find((r) => r.dataset.acc === key);
-    if (row) row.open = true;
+    const rows = this.rows();
+    const row = rows.find((r) => r.dataset.acc === key);
+    if (row && !rows.some((r) => r.open)) row.open = true;
     this.addEventListener("toggle", this.onToggle, true); // toggle does not bubble
     this.addEventListener("input", this.onInput);
+    this.addEventListener("htmx:afterSwap", this.onSaved);
   }
 
   disconnectedCallback(): void {
     this.removeEventListener("toggle", this.onToggle, true);
     this.removeEventListener("input", this.onInput);
+    this.removeEventListener("htmx:afterSwap", this.onSaved);
   }
+}
+
+// openTo opens every closed <details> between el and its row; the ones it opened.
+export function openTo(el: Element, row: Element): HTMLDetailsElement[] {
+  const out: HTMLDetailsElement[] = [];
+  for (let p = el.parentElement; p && p !== row; p = p.parentElement) {
+    if (p.tagName === "DETAILS" && !(p as HTMLDetailsElement).open) {
+      (p as HTMLDetailsElement).open = true;
+      out.push(p as HTMLDetailsElement);
+    }
+  }
+  return out;
 }
 
 customElements.define("settings-find", SettingsFind);

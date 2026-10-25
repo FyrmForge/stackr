@@ -2483,7 +2483,7 @@ func Settings(v View, s SettingsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = c.SettingsAccordion(c.SettingsAcc{ID: "tile-settings", Rows: settingsRows(v, s), Open: s.Open}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.SettingsAccordion(c.SettingsAcc{ID: "tile-settings", Rows: settingsRows(v, s), Open: s.Open, Refresh: v.Base + "?tab=settings"}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

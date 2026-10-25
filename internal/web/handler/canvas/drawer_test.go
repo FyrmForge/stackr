@@ -197,6 +197,8 @@ func TestEnvSettingsRows(t *testing.T) {
 	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings&open=placement")
 	for _, w := range []string{
 		`data-acc="placement" open>`,
+		`<span hidden data-acc-refresh hx-get="/acme/shop/dev/-/drawer?tab=settings" hx-trigger="refresh" hx-swap="none" hx-select-oob="#env-settings-general-head,#env-settings-deploys-head,`, // an in-row save redraws the heads
+		`<summary id="env-settings-placement-head"`,
 		`hx-get="/acme/shop/dev/-/placement"`,
 		`id="vars-editor"`,
 		`data-acc="deploys">`,
@@ -218,6 +220,12 @@ func TestEnvResourcesChanged(t *testing.T) {
 	}
 	if rec := s.Do(t, "POST", "/acme/shop/dev/-/drawer/settings", url.Values{"cpu_limit": {"2"}}); rec.Code != http.StatusOK {
 		t.Fatalf("env settings = %d", rec.Code)
+	}
+	// the saved form's answer keeps its marks: set here, and from where
+	rec := s.Do(t, "POST", "/acme/shop/dev/-/drawer/settings", url.Values{"cpu_limit": {"2"}})
+	if b := rec.Body.String(); !strings.Contains(b, `<div data-field data-changed><label for="env-cascade-cpu_limit"`) ||
+		!strings.Contains(b, "from stack") {
+		t.Errorf("the saved Resources form lost its marks:\n%s", b)
 	}
 	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings")
 	for _, w := range []string{
