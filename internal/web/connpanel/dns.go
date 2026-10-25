@@ -21,6 +21,7 @@ import (
 // MountDNS adds the DNS section's actions under prefix behind gate.
 func (p Panel) MountDNS(g *echo.Group, prefix string, gate echo.MiddlewareFunc) {
 	g.POST(prefix+"/:connector/domains", p.domains, gate)
+	g.POST(prefix+"/:connector/preview", p.preview, gate)
 	g.POST(prefix+"/:connector/manage", p.manage, gate)
 	g.POST(prefix+"/:connector/unmanage", p.unmanage, gate)
 	g.POST(prefix+"/:connector/takeover", p.takeover, gate)
@@ -48,8 +49,34 @@ func (p Panel) Synced(c echo.Context) string {
 // POST <dns>/:connector/domains: the list, asked of the provider.
 func (p Panel) domains(c echo.Context) error { return p.answer(c, "", nil) }
 
-// POST <dns>/:connector/manage (domain, scope=all|only, org...): manage
-// it, or set who may use it (all: every org, as none ticked is).
+// POST <dns>/:connector/preview (domain): the confirm before managing it,
+// listing the records stackr writes and the existing ones it may adopt.
+// With neither, there is nothing to ask: it manages the domain.
+func (p Panel) preview(c echo.Context) error {
+	domain := c.FormValue("domain")
+	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, nil)
+	if err != nil {
+		return p.answer(c, "", err)
+	}
+	if len(plan.Writes) == 0 && len(plan.Adopt) == 0 {
+		return p.manage(c)
+	}
+	v := &ui.PlanView{Domain: domain, Manage: p.DNSBase(c) + "/" + c.Param("connector") + "/manage"}
+	for _, w := range plan.Writes {
+		v.Writes = append(v.Writes, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
+	}
+	for _, a := range plan.Adopt {
+		v.Adopt = append(v.Adopt, ui.PlanAdopt{
+			Host: a.Host, Type: a.Type, Address: a.Value, On: a.Serves,
+			Value: strings.Join([]string{a.Name, a.Type, a.Value}, "|"),
+		})
+	}
+	return p.list(c, "", nil, v)
+}
+
+// POST <dns>/:connector/manage (domain, scope=all|only, org..., adopt...):
+// manage it, or set who may use it (all: every org, as none ticked is).
+// adopt is name|type|value of the existing records to take over.
 func (p Panel) manage(c echo.Context) error {
 	form, err := c.FormParams()
 	if err != nil {
@@ -59,7 +86,13 @@ func (p Panel) manage(c echo.Context) error {
 	if form.Get("scope") == "all" {
 		orgs = nil
 	}
-	_, err = p.Orch.ManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), orgs)
+	var adopt []service.DNSRef
+	for _, a := range form["adopt"] {
+		if f := strings.SplitN(a, "|", 3); len(f) == 3 {
+			adopt = append(adopt, service.DNSRef{Name: f[0], Type: f[1], Value: f[2]})
+		}
+	}
+	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), orgs, adopt)
 	return p.answer(c, "Saved.", err)
 }
 
@@ -77,6 +110,11 @@ func (p Panel) takeover(c echo.Context) error {
 // note is the provider). A provider that does not answer is the list's
 // text, not an error page.
 func (p Panel) answer(c echo.Context, note string, actErr error) error {
+	return p.list(c, note, actErr, nil)
+}
+
+// list is answer with a manage confirm on top when plan is set.
+func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView) error {
 	ctx, id := c.Request().Context(), c.Param("connector")
 	org := p.Org(c)
 	k, err := p.Orch.ConnectorAt(ctx, org, id)
@@ -88,7 +126,7 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 		note = fmt.Sprintf(note, label)
 	}
 	base := p.DNSBase(c) + "/" + id
-	v := ui.DomainsView{ID: id, Provider: label, Shared: org == nil, Note: note}
+	v := ui.DomainsView{ID: id, Provider: label, Shared: org == nil, Note: note, Plan: plan}
 	status := http.StatusOK
 	if actErr != nil {
 		msg, ok := render.Refusal(actErr)
@@ -122,6 +160,7 @@ func (p Panel) answer(c echo.Context, note string, actErr error) error {
 			Name:     d.Name,
 			State:    d.State,
 			Manage:   base + "/manage",
+			Preview:  base + "/preview",
 			Unmanage: base + "/unmanage",
 			TakeOver: base + "/takeover",
 			All:      d.ShareAll,
