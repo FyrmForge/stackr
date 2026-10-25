@@ -113,7 +113,7 @@ var contract = map[string][]string{
 		"[data-find-status]",
 		"[data-find-skip]",
 		"[data-acc-refresh]",
-		"htmx:afterSwap",
+		"htmx:afterRequest",
 	},
 }
 

@@ -108,7 +108,7 @@ class SettingsFind extends HTMLElement {
     }
     onSaved = (e) => {
         const d = e.detail;
-        if (d?.requestConfig?.verb !== "post" || !this.contains(d.target))
+        if (!d?.successful || d.requestConfig?.verb !== "post")
             return;
         this.querySelector("[data-acc-refresh]")?.dispatchEvent(new Event("refresh"));
     };
@@ -120,12 +120,12 @@ class SettingsFind extends HTMLElement {
             row.open = true;
         this.addEventListener("toggle", this.onToggle, true);
         this.addEventListener("input", this.onInput);
-        this.addEventListener("htmx:afterSwap", this.onSaved);
+        this.addEventListener("htmx:afterRequest", this.onSaved);
     }
     disconnectedCallback() {
         this.removeEventListener("toggle", this.onToggle, true);
         this.removeEventListener("input", this.onInput);
-        this.removeEventListener("htmx:afterSwap", this.onSaved);
+        this.removeEventListener("htmx:afterRequest", this.onSaved);
     }
 }
 export function openTo(el, row) {

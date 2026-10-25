@@ -121,10 +121,12 @@ class SettingsFind extends HTMLElement {
     if (el) el.textContent = text;
   }
 
-  // onSaved: a POST swapped inside a row redraws the row heads.
+  // onSaved: a POST answered inside a row redraws the row heads. htmx fires
+  // afterRequest on the nearest still-connected ancestor of the poster, so a
+  // whole-drawer answer lands above the new accordion, not here.
   private onSaved = (e: Event): void => {
     const d = (e as CustomEvent).detail;
-    if (d?.requestConfig?.verb !== "post" || !this.contains(d.target)) return;
+    if (!d?.successful || d.requestConfig?.verb !== "post") return;
     this.querySelector("[data-acc-refresh]")?.dispatchEvent(new Event("refresh"));
   };
 
@@ -136,13 +138,13 @@ class SettingsFind extends HTMLElement {
     if (row && !rows.some((r) => r.open)) row.open = true;
     this.addEventListener("toggle", this.onToggle, true); // toggle does not bubble
     this.addEventListener("input", this.onInput);
-    this.addEventListener("htmx:afterSwap", this.onSaved);
+    this.addEventListener("htmx:afterRequest", this.onSaved);
   }
 
   disconnectedCallback(): void {
     this.removeEventListener("toggle", this.onToggle, true);
     this.removeEventListener("input", this.onInput);
-    this.removeEventListener("htmx:afterSwap", this.onSaved);
+    this.removeEventListener("htmx:afterRequest", this.onSaved);
   }
 }
 
