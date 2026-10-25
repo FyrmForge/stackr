@@ -98,12 +98,23 @@ func (o *Orchestrator) certHosts(ctx context.Context) map[string][]certHost {
 }
 
 // certAddr is where to dial a node's proxy: the controller (and a one-box
-// install) by loopback, a worker by its mesh address.
-func (o *Orchestrator) certAddr(n store.Node) string {
+// install) by loopback, a worker by the public address its DNS points at
+// (IPv4 first): the worker firewall drops new TCP on the mesh interface
+// except from the controller on its API port. "" = no public address.
+func (o *Orchestrator) certAddr(ctx context.Context, n store.Node) string {
 	if o.cluster == nil || n.Role == node.Controller {
 		return "127.0.0.1"
 	}
-	return n.WGAddress
+	v4, v6, _, err := o.nodeAddrs(ctx, n.ID)
+	switch {
+	case err != nil:
+		return ""
+	case v4.IsValid():
+		return v4.String()
+	case v6.IsValid():
+		return v6.String()
+	}
+	return ""
 }
 
 // certProblem says what is wrong with the certificate a node serves for
@@ -141,7 +152,7 @@ func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		addr := o.certAddr(n)
+		addr := o.certAddr(ctx, n)
 		if addr == "" {
 			continue
 		}

@@ -83,6 +83,28 @@ func TestHostCertAlerts(t *testing.T) {
 	}
 }
 
+// A worker is dialled at its public address, not its mesh one; the controller
+// by loopback; a worker with no public address is skipped.
+func TestCertAddr(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	n.orch.cluster = &clusterPKI{}
+	w, err := n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+	w.WGAddress = "10.209.0.1"
+	if got := n.orch.certAddr(ctx, w); got != "" {
+		t.Errorf("no public address: %q", got)
+	}
+	w.PublicIP = "203.0.113.9"
+	must(t, n.st.Nodes.Update(ctx, w))
+	if got := n.orch.certAddr(ctx, w); got != "203.0.113.9" {
+		t.Errorf("worker = %q", got)
+	}
+	if got := n.orch.certAddr(ctx, n.ctl); got != "127.0.0.1" {
+		t.Errorf("controller = %q", got)
+	}
+}
+
 func TestCertProblem(t *testing.T) {
 	now := time.Now()
 	day := 24 * time.Hour
