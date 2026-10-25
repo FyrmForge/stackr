@@ -164,6 +164,14 @@ func TestSettingsRefusedInItsRow(t *testing.T) {
 	if strings.Contains(body, `replicas:`) || strings.Count(body, "two writers") != 1 {
 		t.Errorf("the reason shows more than once or with its key\n%s", body)
 	}
+	// a refused domain add opens its form again with the host typed, and
+	// never fills the container port beside it
+	rec = s.Do(t, "POST", drawer+"/domains?open=network", url.Values{"host": {"app.example.com"}, "port": {"abc"}})
+	body = rec.Body.String()
+	if rec.Code != 422 || !strings.Contains(body, `<details class="mb-4" open>`) || !strings.Contains(body, `value="app.example.com"`) ||
+		!strings.Contains(body, "Use a number for the port.") || strings.Contains(body, `id="set-port" name="port" value="abc"`) {
+		t.Errorf("domain add = %d\n%s", rec.Code, body)
+	}
 }
 
 // Writes need the CSRF token like every form on the site.

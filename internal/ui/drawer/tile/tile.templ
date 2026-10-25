@@ -832,7 +832,7 @@ templ domains(v View, d DomainsView) {
 }
 
 templ addDomain(v View, d DomainsView) {
-	<details class="mb-4" open?={ d.Replace != nil }>
+	<details class="mb-4" open?={ d.Replace != nil || d.Kept != nil }>
 		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
 			<span class="text-rw-accentHi">+</span> Add domain
 		</summary>
@@ -845,7 +845,7 @@ templ addDomain(v View, d DomainsView) {
 						for _, m := range d.Managed {
 							<option value={ m } selected?={ d.typed("domain") == m }>{ m }</option>
 						}
-						<option value="" class="dns-other" selected?={ d.Replace != nil && d.typed("domain") == "" }>Other (I'll set DNS myself)</option>
+						<option value="" class="dns-other" selected?={ (d.Replace != nil || d.Kept != nil) && d.typed("domain") == "" }>Other (I'll set DNS myself)</option>
 					</select>
 					<input type="text" name="host" value={ d.typed("host") } aria-label="Host" placeholder="app.example.com" class="input !w-56 hidden group-has-[.dns-other:checked]/dom:block"/>
 				} else {
@@ -866,7 +866,7 @@ templ addDomain(v View, d DomainsView) {
 					<input type="text" name="redirect_to" value={ d.typed("redirect_to") } aria-label="Redirect to" placeholder="redirect to (optional)" title="Requests to this host get a 301 to the given host instead of being served" class="input !w-48"/>
 					<input type="url" name="forward_auth" value={ d.typed("forward_auth") } aria-label="Forward auth URL" placeholder="forward auth URL (optional)" title="Each request is checked against this URL first; 2xx lets it through" class="input !w-56"/>
 					<label class="text-sm text-rw-muted flex items-center gap-1.5">
-						<input type="checkbox" name="https" value="1" checked?={ d.Replace == nil || d.typed("https") != "" } class="accent-rw-accent"/> HTTPS
+						<input type="checkbox" name="https" value="1" checked?={ (d.Replace == nil && d.Kept == nil) || d.typed("https") != "" } class="accent-rw-accent"/> HTTPS
 					</label>
 				</div>
 			</details>

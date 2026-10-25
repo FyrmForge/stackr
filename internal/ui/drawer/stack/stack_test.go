@@ -85,6 +85,30 @@ func TestSettingsRows(t *testing.T) {
 	}
 }
 
+// After a move the focus goes back to the moved rung's button in the same
+// direction, or the other one once the rung reached the end.
+func TestOrderFocus(t *testing.T) {
+	top := Rung{ID: "a", Up: nil, Down: []string{"b", "a"}}
+	mid := Rung{ID: "b", Up: []string{"b", "a"}, Down: []string{"a", "b"}}
+	for _, tc := range []struct {
+		moved string
+		r     Rung
+		dir   string
+		want  bool
+	}{
+		{"b:up", mid, "up", true},
+		{"b:up", mid, "down", false},
+		{"a:up", top, "up", false}, // reached the top: no up button left
+		{"a:up", top, "down", true},
+		{"a:down", mid, "down", false}, // another rung
+		{"", mid, "up", false},
+	} {
+		if got := (OrderView{Moved: tc.moved}).Focus(tc.r, tc.dir); got != tc.want {
+			t.Errorf("moved %q, rung %s %s: %v, want %v", tc.moved, tc.r.ID, tc.dir, got, tc.want)
+		}
+	}
+}
+
 func TestSummaries(t *testing.T) {
 	for _, tc := range [][2]string{
 		{GeneralSummary("home", "home"), "home"},
@@ -99,6 +123,8 @@ func TestSummaries(t *testing.T) {
 		{PlacementSummary("", "", ""), "inherits org (default)"},
 		{PlacementSummary("", "h4", ""), "runs on h4 (from org)"},
 		{PlacementSummary("h3", "h3", "h4"), "runs on h3 · ingress h4"},
+		{DeleteSummary(0), "No envs"},
+		{DeleteSummary(2), "Holds 2 envs"},
 		{HostSummary(nil), "none"},
 		{HostSummary(access.Group([]string{"web privileged"}, []string{"api device:/dev/x"})), "1 grant on web · 1 waiting"},
 	} {

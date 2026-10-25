@@ -140,6 +140,7 @@ type DomainsView struct {
 	Managed []string      // the managed domains the tile may use: the add form's list
 	Replace *ReplaceOffer // an add refused on a record stackr did not create
 	NoIP    *NoIPRefusal  // an add refused on an ingress node with no public IP
+	Kept    map[string]string // a refused add's form, drawn again open; nil = none
 	Port    string        // the tile's container port: the add form's prefill
 	// AutoHost is the generated name the auto button would attach, "" = not known.
 	AutoHost string
@@ -172,10 +173,10 @@ type NoIPRefusal struct {
 
 // typed is the refused add's value of form key k, "" with none.
 func (d DomainsView) typed(k string) string {
-	if d.Replace == nil {
-		return ""
+	if d.Replace != nil {
+		return d.Replace.Form[k]
 	}
-	return d.Replace.Form[k]
+	return d.Kept[k]
 }
 
 type DomainRow struct {

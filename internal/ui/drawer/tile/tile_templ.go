@@ -4350,7 +4350,7 @@ func addDomain(v View, d DomainsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if d.Replace != nil {
+		if d.Replace != nil || d.Kept != nil {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 332, " open")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -4450,7 +4450,7 @@ func addDomain(v View, d DomainsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if d.Replace != nil && d.typed("domain") == "" {
+			if (d.Replace != nil || d.Kept != nil) && d.typed("domain") == "" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 344, " selected")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -4594,7 +4594,7 @@ func addDomain(v View, d DomainsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if d.Replace == nil || d.typed("https") != "" {
+		if (d.Replace == nil && d.Kept == nil) || d.typed("https") != "" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 360, " checked")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

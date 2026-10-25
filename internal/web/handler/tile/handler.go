@@ -98,6 +98,7 @@ type head struct {
 type typed struct {
 	replace *ui.ReplaceOffer // the Settings tab asks "Replace it"
 	noIP    *ui.NoIPRefusal  // the ingress node has no public IP
+	kept    map[string]string // a refused add's form, drawn again
 }
 
 // view is the drawer frame for tab: v0's header (status, source, where it
@@ -209,7 +210,7 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		}
 		if ty != nil {
 			if sv.Domains != nil {
-				sv.Domains.Replace, sv.Domains.NoIP = ty.replace, ty.noIP
+				sv.Domains.Replace, sv.Domains.NoIP, sv.Domains.Kept = ty.replace, ty.noIP, ty.kept
 			}
 		}
 		body = ui.Settings(v, sv)
@@ -446,7 +447,7 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	if p := c.FormValue("port"); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return h.after(c, "settings", "", errs.Invalidf("port", "Use a number for the port."))
+			return h.refuseDomain(c, errs.Invalidf("port", "Use a number for the port."))
 		}
 		s.Port = n
 	}
@@ -467,7 +468,21 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	if np := new(service.NoPublicIP); errors.As(err, &np) {
 		return h.refuseNoIP(c, np)
 	}
+	if _, ok := render.Refused(err); err != nil && ok {
+		return h.refuseDomain(c, err)
+	}
 	return h.after(c, "settings", "Attached "+s.Host+".", err)
+}
+
+// refuseDomain answers a refused add: the add form opens again with what
+// was typed, the reason over its row.
+func (h *handler) refuseDomain(c echo.Context, err error) error {
+	v, hd, verr := h.view(c, "settings")
+	if verr != nil {
+		return middleware.HTTPError(verr)
+	}
+	v.Error, _ = render.Refuse(c, c.FormValue("open"), err)
+	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{kept: domainForm(c)})
 }
 
 // refuseNoIP answers an add refused on an ingress node with no public IP:
@@ -489,12 +504,7 @@ func (h *handler) refuseNoIP(c echo.Context, np *service.NoPublicIP) error {
 // record already points at our node (adopt) the question is whether to let
 // stackr manage it, and yes adopts it before the retry.
 func (h *handler) offerReplace(c echo.Context, host string, adopt bool) error {
-	form := map[string]string{}
-	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
-		if v := c.FormValue(k); v != "" {
-			form[k] = v
-		}
-	}
+	form := domainForm(c)
 	vals := maps.Clone(form)
 	vals["replace"] = "1"
 	if adopt {
@@ -510,6 +520,17 @@ func (h *handler) offerReplace(c echo.Context, host string, adopt bool) error {
 		return middleware.HTTPError(err)
 	}
 	return h.show(c, http.StatusUnprocessableEntity, v, hd, &typed{replace: &ui.ReplaceOffer{Host: host, Vals: string(b), Form: form, Adopt: adopt}})
+}
+
+// domainForm is the add domain form as posted, for drawing it again.
+func domainForm(c echo.Context) map[string]string {
+	form := map[string]string{}
+	for _, k := range []string{"host", "domain", "sub", "path", "port", "redirect_to", "forward_auth", "https"} {
+		if v := c.FormValue(k); v != "" {
+			form[k] = v
+		}
+	}
+	return form
 }
 
 // autoRefusal drops the field off a refused auto attach: its form is one
