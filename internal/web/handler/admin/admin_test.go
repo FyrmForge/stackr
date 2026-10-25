@@ -451,3 +451,33 @@ func TestAdminUpdateUnderway(t *testing.T) {
 		t.Errorf("settled tab still live\n%s", b)
 	}
 }
+
+// The Backups tab carries the recovery key section: a fresh box's key is
+// unsaved, showing it needs the admin's password, and rotating is refused
+// until it is saved.
+func TestAdminRecoveryKey(t *testing.T) {
+	s := webtest.New(t)
+	id := s.User(t, "root@x.test", true)
+	if err := s.Orch.SetPassword(context.Background(), id, "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	root := s.Session(t, id)
+	tab := s.As(t, root, "GET", "/-/admin?tab=backups", nil).Body.String()
+	for _, want := range []string{"Recovery key", "data-recovery-warning", "/-/admin/backups/recovery/show"} {
+		if !strings.Contains(tab, want) {
+			t.Errorf("backups tab has no %s", want)
+		}
+	}
+	post := func(action, pw string) *httptest.ResponseRecorder {
+		return s.As(t, root, "POST", "/-/admin/backups/recovery/"+action, url.Values{"password": {pw}})
+	}
+	if rec := post("show", "wrong"); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "data-recovery-key") {
+		t.Errorf("show with a wrong password = %d", rec.Code)
+	}
+	if rec := post("rotate", "correct horse battery"); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "data-recovery-key") {
+		t.Errorf("rotate while unsaved = %d", rec.Code)
+	}
+	if rec := post("show", "correct horse battery"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "data-recovery-key") {
+		t.Errorf("show with the password = %d", rec.Code)
+	}
+}
