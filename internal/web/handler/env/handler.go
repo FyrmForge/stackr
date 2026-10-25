@@ -544,7 +544,7 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	for _, b := range bs {
 		v.Consumers = append(v.Consumers, slice.Consumer{
 			Slug:   b.Consumer,
-			Link:   render.EnvURL(c) + "?drawer=" + b.ConsumerID + "&tab=access",
+			Link:   render.EnvURL(c) + "?drawer=" + b.ConsumerID + "&tab=settings&open=dbaccess",
 			Kind:   b.Kind,
 			Access: b.Access,
 			User:   b.User,

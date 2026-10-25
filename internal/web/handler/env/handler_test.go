@@ -411,7 +411,7 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 		env + "/-/instances/api?tab=logs": env + "?drawer=" + s.Tile.ID + "&tab=logs",
 		env + "/-/slices/api":             env + "?drawer=" + s.Tile.ID,
 		env + "/-/placement":              env + "?drawer=env%3A" + s.Tile.Env + "&tab=placement",
-		env + "/-/tiles/api/placement":    env + "?drawer=" + s.Tile.ID + "&tab=placement",
+		env + "/-/tiles/api/placement":    env + "?drawer=" + s.Tile.ID + "&tab=settings",
 		"/acme/shop/-/placement":          "/acme/shop?drawer=stack%3A" + s.Tile.Stack + "&tab=placement",
 		"/acme/-/placement":               "/acme?drawer=org%3A" + s.Org + "&tab=placement",
 	} {

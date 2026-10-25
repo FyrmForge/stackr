@@ -352,7 +352,11 @@ func count(n int, noun string) string {
 
 // Get is the tab.
 func (h *handler) Get(c echo.Context) error {
-	if ok, err := render.ToShellTab(c, drawerNode(c), "placement"); ok {
+	tab := "placement"
+	if kind, _ := scopeOf(c); kind == service.ScopeTile {
+		tab = "settings" // a tile's ingress and exits are its Settings' Network row
+	}
+	if ok, err := render.ToShellTab(c, drawerNode(c), tab); ok {
 		return err
 	}
 	return h.show(c, http.StatusOK, "", "")
