@@ -126,6 +126,7 @@ func Shell(c echo.Context, title string) components.Shell {
 		}
 	}
 	if sc.Tile != nil {
+		s.Settings = href + "/-/tiles/" + sc.Tile.Slug + "?tab=settings"
 		href += "/" + sc.Tile.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Tile.Name, href, path))
 	}

@@ -145,6 +145,19 @@ type DomainsView struct {
 	Managed []string      // the managed domains the tile may use: the add form's list
 	Replace *ReplaceOffer // an add refused on a record stackr did not create
 	NoIP    *NoIPRefusal  // an add refused on an ingress node with no public IP
+	Port    string        // the tile's container port: the add form's prefill
+	// AutoHost is the generated name the auto button would attach, "" = not known.
+	AutoHost string
+}
+
+// preview is the address line before anything is typed: the form's own
+// script keeps it live.
+func (d DomainsView) preview() string {
+	h := d.typed("host")
+	if len(d.Managed) > 0 {
+		h = d.Managed[0]
+	}
+	return "https://" + h
 }
 
 // ReplaceOffer is the "Replace it" question: Vals is the refused add's

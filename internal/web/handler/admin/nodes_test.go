@@ -66,6 +66,11 @@ func TestAdminNodes(t *testing.T) {
 		strings.Contains(rec.Body.String(), "Open to orgs") {
 		t.Fatalf("tags tab = %d\n%s", rec.Code, rec.Body)
 	}
+	for _, want := range []string{"Exit through", `aria-label="Exit 3"`, "group-has-[input[value=egress]:checked]:hidden"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("tags tab lacks %q", want)
+		}
+	}
 	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/tags", url.Values{"tag": {"builder", "egress"}})
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Set another default ingress first") {
 		t.Errorf("untag ingress = %d\n%s", rec.Code, rec.Body)

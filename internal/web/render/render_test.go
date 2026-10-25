@@ -64,6 +64,7 @@ func TestPageRendersBothWays(t *testing.T) {
 			`href="/acme/shop/dev"`,
 			`aria-current="page"`,
 			"<title>Overview - stackr</title>",
+			`hx-get="/acme/shop/dev/-/tiles/api?tab=settings"`, // a tile page has its Settings button
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: body lacks %q", tt.name, want)

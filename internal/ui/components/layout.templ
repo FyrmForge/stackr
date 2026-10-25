@@ -198,7 +198,7 @@ templ topBar(s Shell, oob bool) {
 				if len(s.Crumbs) == 2 {
 					<span class="text-xs text-rw-faint">stack</span>
 				}
-				if len(s.Crumbs) == 3 && s.Settings != "" {
+				if len(s.Crumbs) >= 3 && s.Settings != "" {
 					@settings(s.Settings)
 				}
 				if s.Actions != nil || (len(s.Crumbs) < 3 && s.Settings != "") {
