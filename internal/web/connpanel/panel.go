@@ -50,12 +50,17 @@ type Panel struct {
 // Mount adds the kind screens under prefix (the level's base pattern),
 // each kind behind add(kind) (nil = gate), and the settings dialog and its
 // actions behind gate; MountDNS the DNS section. Remove is the level's to
-// mount.
+// mount. A git connection's repo list is behind the git kinds' add gate:
+// whoever may add one sees its Done screen, which lists them.
 func (p Panel) Mount(g *echo.Group, prefix string, gate echo.MiddlewareFunc, add func(service.ConnectorKind) echo.MiddlewareFunc) {
+	repos := gate
 	for _, k := range p.Orch.ConnectorKinds() {
 		kg := gate
 		if add != nil {
 			kg = add(k)
+			if slices.Contains(k.Caps, service.CapGit) {
+				repos = kg
+			}
 		}
 		g.GET(prefix+"/new/"+k.Name, p.form(k.Name), kg)
 		g.POST(prefix+"/new/"+k.Name, p.add(k.Name), kg)
@@ -64,7 +69,7 @@ func (p Panel) Mount(g *echo.Group, prefix string, gate echo.MiddlewareFunc, add
 	g.POST(prefix+"/:connector/check", p.check, gate)
 	g.POST(prefix+"/:connector/rename", p.rename, gate)
 	g.POST(prefix+"/:connector/credentials", p.update, gate)
-	p.mountGit(g, prefix, gate)
+	p.mountGit(g, prefix, gate, repos)
 }
 
 // Kinds is the add dialog's picker entries for the registered kinds, those

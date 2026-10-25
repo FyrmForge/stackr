@@ -32,6 +32,13 @@ func TestWriterAddsGitConnector(t *testing.T) {
 	if rec := s.As(t, member, "POST", "/acme/-/drawer/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {"k"}, "client_ip": {"203.0.113.7"}}); rec.Code != http.StatusForbidden {
 		t.Errorf("writer's DNS add = %d, want 403", rec.Code)
 	}
+	// the Done screen's repo list is the adder's to read; sharing is not
+	if rec := s.As(t, member, "POST", "/acme/-/drawer/connectors/nope/repos", nil); rec.Code == http.StatusForbidden {
+		t.Errorf("writer's repo list = %d", rec.Code)
+	}
+	if rec := s.As(t, member, "POST", "/acme/-/drawer/connectors/nope/installed", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("writer's install check = %d, want 403", rec.Code)
+	}
 }
 
 // Removing a server git connector a stack is bound to is refused, the

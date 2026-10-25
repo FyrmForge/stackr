@@ -21,9 +21,9 @@ import (
 // the provider's page for it, who may use a server one, and the repos it
 // may read. The same for every git kind.
 
-func (p Panel) mountGit(g *echo.Group, prefix string, gate echo.MiddlewareFunc) {
+func (p Panel) mountGit(g *echo.Group, prefix string, gate, repos echo.MiddlewareFunc) {
 	g.POST(prefix+"/:connector/share", p.share, gate)
-	g.POST(prefix+"/:connector/repos", p.repos, gate)
+	g.POST(prefix+"/:connector/repos", p.repos, repos)
 	g.POST(prefix+"/:connector/installed", p.installed, gate)
 }
 
