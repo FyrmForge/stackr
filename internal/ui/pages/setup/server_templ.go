@@ -549,7 +549,7 @@ func ServerObserve(v ServerObserveView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, " class=\"accent-rw-accent\"> Run the stackr-observe container</label><div class=\"grid grid-cols-2 gap-3\"><div><label class=\"label\" for=\"srv-ob-days\">Graph history (days)</label> <input type=\"number\" min=\"1\" id=\"srv-ob-days\" name=\"observe_metrics_retention\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, " class=\"accent-rw-accent\"> Keep metrics history</label><div class=\"grid grid-cols-2 gap-3\"><div><label class=\"label\" for=\"srv-ob-days\">Metrics retention (days)</label> <input type=\"number\" min=\"1\" id=\"srv-ob-days\" name=\"observe_metrics_retention\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -607,7 +607,7 @@ func ServerObserve(v ServerObserveView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div><div><label class=\"label\" for=\"srv-ob-logs\">Log history (days)</label> <input type=\"number\" min=\"1\" id=\"srv-ob-logs\" name=\"observe_logs_retention\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div><div><label class=\"label\" for=\"srv-ob-logs\">Logs retention (days)</label> <input type=\"number\" min=\"1\" id=\"srv-ob-logs\" name=\"observe_logs_retention\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -636,7 +636,7 @@ func ServerObserve(v ServerObserveView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</div><div><label class=\"label\" for=\"srv-ob-cap\">Log size cap (GB)</label> <input type=\"number\" min=\"1\" id=\"srv-ob-cap\" name=\"observe_logs_max_size\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</div><div><label class=\"label\" for=\"srv-ob-cap\">Logs size cap (GB)</label> <input type=\"number\" min=\"1\" id=\"srv-ob-cap\" name=\"observe_logs_max_size\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
