@@ -35,7 +35,7 @@ func TestManagedDomainForm(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
-	if !strings.Contains(body, `<option value="acme.dev">.acme.dev</option>`) || !strings.Contains(body, "Other (I'll set DNS myself)") {
+	if !strings.Contains(body, `<option value="acme.dev">acme.dev</option>`) || !strings.Contains(body, "Other (I'll set DNS myself)") {
 		t.Fatalf("no managed domain list:\n%s", body)
 	}
 	form := url.Values{"domain": {"acme.dev"}, "sub": {"shop"}, "https": {"1"}}
@@ -114,4 +114,20 @@ func managedSite(t *testing.T, ip string) *webtest.Site {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// The add form is one address row with a preview, and an empty subdomain
+// attaches the bare domain.
+func TestManagedDomainBareHost(t *testing.T) {
+	s := managedSite(t, "198.51.100.1")
+	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
+	for _, want := range []string{`data-preview`, ">https://acme.dev<", "Leave empty to use", "Use the generated name"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("form lacks %q", want)
+		}
+	}
+	rec := s.Do(t, "POST", drawer+"/domains", url.Values{"domain": {"acme.dev"}, "sub": {""}, "https": {"1"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached acme.dev") {
+		t.Fatalf("bare domain = %d\n%s", rec.Code, rec.Body)
+	}
 }

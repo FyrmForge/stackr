@@ -683,15 +683,23 @@ templ NodeBody(tab string, v NodeView) {
 					if v.RoutesNote != "" {
 						<p class="text-sm text-rw-muted mb-3">{ v.RoutesNote } Tag another node as ingress before removing this tag.</p>
 					}
-					<form hx-post={ v.TagsAction } hx-target={ target() } hx-swap="outerHTML" class="space-y-2">
+					<form hx-post={ v.TagsAction } hx-target={ target() } hx-swap="outerHTML" class="group space-y-2">
 						for _, t := range v.AllTags {
-							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ hasTag(v.Tags, t) } class="accent-rw-accent"/> { t } <span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
+							if t != "egress" {
+								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ hasTag(v.Tags, t) } class="accent-rw-accent"/> { t } <span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
+							}
 						}
-						<fieldset class="pt-2">
-							<legend class="label">Default exit</legend>
+						for _, t := range v.AllTags {
+							if t == "egress" {
+								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ hasTag(v.Tags, t) } class="accent-rw-accent"/> { t } <span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
+							}
+						}
+						<fieldset class="pt-2 pl-6 group-has-[input[value=egress]:checked]:hidden" data-testid="exit-list">
+							<legend class="label">Exit through</legend>
+							<p class="text-xs text-rw-faint mb-1">Internet traffic leaves through the first that's online.</p>
 							<div class="flex flex-wrap gap-2">
 								for i, sel := range v.Exits {
-									<select name="exit" class="input" aria-label={ fmt.Sprintf("Default exit %d", i+1) }>
+									<select name="exit" class="input" aria-label={ fmt.Sprintf("Exit %d", i+1) }>
 										<option value="">None</option>
 										for _, o := range v.ExitNodes {
 											<option value={ o.Value } selected?={ o.Value == sel }>{ o.Label }</option>
@@ -699,7 +707,6 @@ templ NodeBody(tab string, v NodeView) {
 									</select>
 								}
 							</div>
-							<p class="text-xs text-rw-faint mt-1">Used when this node has no egress tag.</p>
 						</fieldset>
 						<button type="submit" class="btn btn-primary btn-sm">Save tags</button>
 					</form>

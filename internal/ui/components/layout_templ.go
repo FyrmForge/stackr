@@ -961,7 +961,7 @@ func topBar(s Shell, oob bool) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			if len(s.Crumbs) == 3 && s.Settings != "" {
+			if len(s.Crumbs) >= 3 && s.Settings != "" {
 				templ_7745c5c3_Err = settings(s.Settings).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
