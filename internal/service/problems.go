@@ -184,10 +184,12 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 	case "observe":
 		return "/-/admin/metrics", "Open metrics and logs", true
 	case "crash":
-		if _, err := o.store.Tiles.Get(ctx, rest); errors.Is(err, errs.ErrNotFound) {
+		t, err := o.store.Tiles.Get(ctx, rest)
+		if errors.Is(err, errs.ErrNotFound) {
 			return "", "", false
 		}
-		return "/" + o.scopePath(ctx, ScopeTile, rest), "Open app", true
+		// the tile URL itself is a placeholder; its drawer opens over the env canvas
+		return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + rest + "&tab=status", "Open app", true
 	}
 	return "/-/admin/alerts", "Open alerts", true
 }

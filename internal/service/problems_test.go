@@ -45,8 +45,8 @@ func TestBackupFailureOpensProblem(t *testing.T) {
 
 // A volume schedule's problem links to the Storage row of the tile that
 // mounts the volume, never to the admin Backups page, which lists panel
-// backups only.
-func TestScheduleProblemLinksTileStorage(t *testing.T) {
+// backups only. A crash loop opens the app the same way.
+func TestAppProblemsOpenTileDrawer(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
 	backupSchedule(t, w, "s1")
@@ -58,6 +58,12 @@ func TestScheduleProblemLinksTileStorage(t *testing.T) {
 	must(t, err)
 	if len(ps) != 1 || ps[0].Link != "/acme/shop/dev?drawer="+tl.ID+"&tab=settings&open=storage" || ps[0].LinkText != "Open storage" {
 		t.Errorf("%+v", ps)
+	}
+	// a crash loop opens the app's drawer the same way: its own URL is a placeholder
+	w.orch.backupResult(ctx, "schedule.s1", "", "", nil)
+	w.orch.openProblem(ctx, "alert.crash."+tl.ID, SevWarning, "web keeps crashing")
+	if ps, _ = w.orch.Problems(ctx); len(ps) != 1 || ps[0].Link != "/acme/shop/dev?drawer="+tl.ID+"&tab=status" {
+		t.Errorf("crash: %+v", ps)
 	}
 }
 
