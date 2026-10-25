@@ -79,3 +79,16 @@ func TestRunStepsStops(t *testing.T) {
 		t.Fatalf("err %v, ran %v", err, ran)
 	}
 }
+
+// The swap helper gets the data dir at the panel's path, to copy the database aside.
+func TestSwapPanelMountsDataDir(t *testing.T) {
+	fakeDocker(t, "stackr-proxy", false)
+	in := installspec.Input{Root: "x.io", PanelHost: "p.x.io", HTTPPort: "80", DataDir: "/data", Bind: "172.17.0.1"}
+	var out bytes.Buffer
+	if err := (runner{dry: true, out: &out}).swapPanel(context.Background(), in, "0.8.2"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "/data:/data") {
+		t.Fatalf("no data dir mount in:\n%s", out.String())
+	}
+}
