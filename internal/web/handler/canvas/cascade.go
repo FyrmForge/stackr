@@ -1,6 +1,7 @@
 package canvas
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -30,9 +31,11 @@ var cascadeKeys = map[string]bool{
 	"protect_password": true,
 }
 
-// rung is one level above the edited one, as the Inherited line names it.
+// rung is one level above the edited one: name as the Inherited line says
+// it, tag as the From mark does ("org", "stack", "server").
 type rung struct {
 	name string // "server", "smoke organization"
+	tag  string
 	blob string
 }
 
@@ -66,10 +69,9 @@ func limitWord(key, v string) string {
 	return v + " MB"
 }
 
-// cascadeForm is the card's own rung as the settings form: its values, and
-// for a row left empty what applies from the rungs above (nearest first)
-// and which one decided it. Resolve's pair rule holds: the rung that sets
-// the user or the password decides both. A stored password never leaves.
+// cascadeForm is the card's own rung as the settings form (cascadeRows).
+// Resolve's pair rule holds: the rung that sets the user or the password
+// decides both. A stored password never leaves.
 func (h *handler) cascadeForm(c echo.Context, cd card, own string) (comp.SettingsFormView, error) {
 	s := cd.s
 	v := comp.SettingsFormView{
@@ -82,24 +84,33 @@ func (h *handler) cascadeForm(c echo.Context, cd card, own string) (comp.Setting
 	if err != nil {
 		return v, err
 	}
-	above := []rung{{s.Org.Name + " organization", s.Org.Settings}, {"server", server.JSON()}}
+	above := []rung{{s.Org.Name + " organization", "org", s.Org.Settings}, {"server", "server", server.JSON()}}
 	switch cd.kind {
 	case "org":
 		above = above[1:]
 	case "env":
-		above = append([]rung{{s.Stack.Name + " stack", s.Stack.Settings}}, above...)
+		above = append([]rung{{s.Stack.Name + " stack", "stack", s.Stack.Settings}}, above...)
 	}
+	v.Rows, err = cascadeRows(h.orch.Settings(), own, above)
+	return v, err
+}
+
+// cascadeRows is one row per cascade knob: this rung's value (Changed when
+// it sets one) and, left empty, what applies from the rungs above (nearest
+// first) and which one decided it (From; "" = the built-in default).
+func cascadeRows(knobs []service.Knob, own string, above []rung) ([]comp.SettingRowView, error) {
 	mine, err := decode(own)
 	if err != nil {
-		return v, err
+		return nil, err
 	}
 	ups := make([]map[string]any, len(above))
 	for i, r := range above {
 		if ups[i], err = decode(r.blob); err != nil {
-			return v, err
+			return nil, err
 		}
 	}
-	for _, k := range h.orch.Settings() {
+	var rows []comp.SettingRowView
+	for _, k := range knobs {
 		if !cascadeKeys[k.Key] {
 			continue
 		}
@@ -111,7 +122,7 @@ func (h *handler) cascadeForm(c echo.Context, cd card, own string) (comp.Setting
 			Secret: k.Key == "protect_password",
 		}
 		if val, ok := mine[k.Key]; ok {
-			r.Value = word(val)
+			r.Value, r.Changed = word(val), true
 		}
 		if r.Secret {
 			r.Effective = "not set"
@@ -119,7 +130,7 @@ func (h *handler) cascadeForm(c echo.Context, cd card, own string) (comp.Setting
 				r.Effective = "set"
 			}
 			r.Value = ""
-			v.Rows = append(v.Rows, r)
+			rows = append(rows, r)
 			continue
 		}
 		r.Effective = k.Default
@@ -130,13 +141,47 @@ func (h *handler) cascadeForm(c echo.Context, cd card, own string) (comp.Setting
 			}
 			if ok {
 				r.Effective, r.DecidedBy = word(val), above[i].name
+				if !r.Changed {
+					r.From = above[i].tag
+				}
 				break
 			}
 		}
 		r.Effective = limitWord(k.Key, r.Effective)
-		v.Rows = append(v.Rows, r)
+		rows = append(rows, r)
 	}
-	return v, nil
+	return rows, nil
+}
+
+// cascadeSummary is a closed row's line for a cascade form: the limits and
+// protection that apply here, an inherited one with where it comes from.
+func cascadeSummary(rows []comp.SettingRowView) string {
+	var parts []string
+	for _, r := range rows {
+		var s string
+		switch r.Key {
+		case "cpu_limit", "mem_limit_mb":
+			s = r.Effective
+			if r.Value != "" {
+				s = limitWord(r.Key, r.Value)
+			}
+			if s == "no limit" {
+				s = map[string]string{"cpu_limit": "no CPU limit", "mem_limit_mb": "no memory limit"}[r.Key]
+			}
+		case "protect":
+			s = "no password"
+			if cmp.Or(r.Value, r.Effective) == "true" {
+				s = "password protected"
+			}
+		default:
+			continue
+		}
+		if r.From != "" {
+			s += " (from " + r.From + ")"
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // parseRung folds the posted rows into the stored rung: blank inherits, a
