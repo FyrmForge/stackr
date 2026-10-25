@@ -570,7 +570,15 @@ var logCapWait, logCapPoll = 5 * time.Minute, 2 * time.Second
 func (o *Orchestrator) controllerLogCap(ctx context.Context) {
 	// A swap copy left beside the database means a helper died mid-swap.
 	// Kept: it may be the only database the old panel can open.
+	// While the helper still runs, the copy belongs to the swap that booted this panel.
+	var busy []docker.Container
+	if cctx, err := o.withController(ctx); err == nil {
+		busy, _ = o.docker.List(cctx, map[string]string{panel.LabelRole: "upgrader"})
+	}
 	for _, f := range panel.Leftovers(o.cfg.DBPath) {
+		if len(busy) > 0 {
+			break
+		}
 		slog.Warn("upgrade: database copy left from an interrupted swap, kept", "file", f)
 	}
 	if o.cfg.PanelSpec == nil || o.cfg.FakeHost != "" || o.cfg.Version == "" {
