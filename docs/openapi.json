@@ -97,6 +97,9 @@
       },
       "AlertSettings": {
         "properties": {
+          "heartbeat": {
+            "type": "string"
+          },
           "last_delivery": {
             "oneOf": [
               {
@@ -116,7 +119,8 @@
         },
         "required": [
           "url",
-          "secret_set"
+          "secret_set",
+          "heartbeat"
         ],
         "type": "object"
       },
@@ -1047,6 +1051,165 @@
         ],
         "type": "object"
       },
+      "DNSAdopt": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "serves": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "value",
+          "host",
+          "serves"
+        ],
+        "type": "object"
+      },
+      "DNSHost": {
+        "properties": {
+          "connector": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "new": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "old": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/DNSRecord"
+            },
+            "type": "array"
+          },
+          "want": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "host",
+          "want",
+          "ok"
+        ],
+        "type": "object"
+      },
+      "DNSManagePlan": {
+        "properties": {
+          "adopt": {
+            "items": {
+              "$ref": "#/components/schemas/DNSAdopt"
+            },
+            "type": "array"
+          },
+          "writes": {
+            "items": {
+              "$ref": "#/components/schemas/DNSWrite"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "writes",
+          "adopt"
+        ],
+        "type": "object"
+      },
+      "DNSMove": {
+        "properties": {
+          "hand": {
+            "items": {
+              "$ref": "#/components/schemas/DNSHost"
+            },
+            "type": "array"
+          },
+          "managed": {
+            "items": {
+              "$ref": "#/components/schemas/DNSHost"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "hand",
+          "managed"
+        ],
+        "type": "object"
+      },
+      "DNSRecord": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "DNSWrite": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "type",
+          "value"
+        ],
+        "type": "object"
+      },
       "DefaultIngressIn": {
         "properties": {
           "confirm": {
@@ -1488,6 +1651,9 @@
         "properties": {
           "confirm": {
             "type": "string"
+          },
+          "keep_dns": {
+            "type": "boolean"
           },
           "placement": {
             "type": "string"
@@ -2101,6 +2267,9 @@
       },
       "IngressOut": {
         "properties": {
+          "dns": {
+            "$ref": "#/components/schemas/DNSMove"
+          },
           "from": {
             "type": "string"
           },
@@ -2120,7 +2289,8 @@
         "required": [
           "scope",
           "placement",
-          "from"
+          "from",
+          "dns"
         ],
         "type": "object"
       },
@@ -2722,6 +2892,12 @@
       },
       "ManageIn": {
         "properties": {
+          "adopt": {
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "type": "array"
+          },
           "org_ids": {
             "items": {
               "type": "string"
@@ -2730,7 +2906,8 @@
           }
         },
         "required": [
-          "org_ids"
+          "org_ids",
+          "adopt"
         ],
         "type": "object"
       },
@@ -3332,6 +3509,9 @@
             },
             "type": "array"
           },
+          "dns": {
+            "$ref": "#/components/schemas/DNSMove"
+          },
           "envs": {
             "items": {
               "$ref": "#/components/schemas/MoveEnvOut"
@@ -3361,7 +3541,8 @@
           "restore",
           "envs",
           "checks",
-          "ok"
+          "ok",
+          "dns"
         ],
         "type": "object"
       },
@@ -4376,6 +4557,9 @@
           "confirm": {
             "type": "string"
           },
+          "keep_dns": {
+            "type": "boolean"
+          },
           "placement": {
             "type": "string"
           }
@@ -4697,6 +4881,25 @@
           "env",
           "tile",
           "job"
+        ],
+        "type": "object"
+      },
+      "Ref": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "value"
         ],
         "type": "object"
       },
@@ -7332,9 +7535,6 @@
               }
             ]
           },
-          "max_size_mb": {
-            "type": "integer"
-          },
           "name": {
             "type": "string"
           },
@@ -7368,7 +7568,6 @@
           "scope_id",
           "slug",
           "name",
-          "max_size_mb",
           "created_at",
           "node_id"
         ],
@@ -7376,16 +7575,12 @@
       },
       "VolumeIn": {
         "properties": {
-          "max_size_mb": {
-            "type": "integer"
-          },
           "slug": {
             "type": "string"
           }
         },
         "required": [
-          "slug",
-          "max_size_mb"
+          "slug"
         ],
         "type": "object"
       },
@@ -8741,6 +8936,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/dns-connectors/{connector}/domains/{zone}/plan": {
+      "get": {
+        "operationId": "admin.dns-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSManagePlan"
                 }
               }
             },
@@ -13051,6 +13292,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}/plan": {
+      "get": {
+        "operationId": "dns.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSManagePlan"
                 }
               }
             },
