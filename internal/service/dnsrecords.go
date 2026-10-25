@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -55,8 +56,16 @@ func (o *Orchestrator) dnsAccounts(ctx context.Context, connectorID string, orgI
 	return p, err
 }
 
+// ipv6On is the admin's IPv6 setting, off until set.
+func (o *Orchestrator) ipv6On(ctx context.Context) bool {
+	v, _ := o.settings.Get(ctx, "ipv6")
+	b, _ := strconv.ParseBool(v)
+	return b
+}
+
 // nodeAddrs is where a node's records point: its public IP override, else
-// the public IPv4 and IPv6 it reports. Invalid ones stay unset.
+// the public IPv4 and IPv6 it reports. Invalid ones stay unset, and v6 stays
+// unset while the IPv6 setting is off.
 func (o *Orchestrator) nodeAddrs(ctx context.Context, id string) (v4, v6 netip.Addr, name string, err error) {
 	n, err := o.store.Nodes.Get(ctx, id)
 	if err != nil {
@@ -72,11 +81,12 @@ func (o *Orchestrator) nodeAddrs(ctx context.Context, id string) (v4, v6 netip.A
 	} else if o.mesh != nil {
 		as = o.mesh.publicOf(n.ID)
 	}
+	v6ok := o.ipv6On(ctx)
 	for _, a := range as {
 		switch {
 		case a.Is4() && !v4.IsValid():
 			v4 = a
-		case a.Is6() && !a.Is4In6() && !v6.IsValid():
+		case v6ok && a.Is6() && !a.Is4In6() && !v6.IsValid():
 			v6 = a
 		}
 	}
@@ -439,4 +449,53 @@ func (o *Orchestrator) dnsFollows(ctx context.Context, tileID, host string) bool
 	}
 	_, ok, err := o.managedZone(ctx, org, host)
 	return ok && err == nil && !strings.HasPrefix(host, "*.")
+}
+
+// zoneWants is the records tile domains under zone z would get: one A, and
+// an AAAA when the node has a public IPv6, per host. hosts is the names
+// (lower case, relative) a tile serves. A node with no public address
+// yields nothing.
+func (o *Orchestrator) zoneWants(ctx context.Context, z store.DNSDomain) (hosts map[string]bool, wants []dnscap.Want, err error) {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	def, err := o.DefaultIngress(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	hosts = map[string]bool{}
+	for _, d := range ds {
+		name := dnscap.Name(d.Host, z.Name)
+		if name == "" || strings.HasPrefix(d.Host, "*.") {
+			continue
+		}
+		t, err := o.tiles.Get(ctx, d.TileID)
+		if err != nil {
+			return nil, nil, err
+		}
+		org, err := o.tileOrg(ctx, t)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !dnscap.MayUse(z, org) {
+			continue
+		}
+		in, err := o.IngressFor(ctx, t.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		v4, v6, _, err := o.nodeAddrs(ctx, cmp.Or(in, def))
+		if err != nil {
+			return nil, nil, err
+		}
+		hosts[strings.ToLower(name)] = true
+		if v4.IsValid() {
+			wants = append(wants, dnscap.Want{Name: name, Type: "A", Value: v4.String()})
+		}
+		if v6.IsValid() {
+			wants = append(wants, dnscap.Want{Name: name, Type: "AAAA", Value: v6.String()})
+		}
+	}
+	return hosts, wants, nil
 }

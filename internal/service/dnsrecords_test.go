@@ -296,3 +296,28 @@ func TestHeldHostIsNotRepointed(t *testing.T) {
 		t.Fatalf("a released host was not repointed: %v", z)
 	}
 }
+
+// A node with a public IPv6 gets an AAAA record only while the IPv6
+// setting is on.
+func TestRecordAAAAFollowsIPv6Setting(t *testing.T) {
+	env, _, _, tl := recordsRig(t)
+	ctx := context.Background()
+	setIP(t, env, "2001:db8::1")
+	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.acme.dev"}); err == nil {
+		t.Fatal("ipv6 off: a node with only an IPv6 address took a domain")
+	}
+	env.Orch.WaitDNS()
+	if z := env.DNS.Zone("acme.dev"); has(z, "shop", "AAAA", "2001:db8::1") {
+		t.Fatalf("ipv6 off wrote an AAAA: %v", z)
+	}
+	if err := env.Orch.SetSettings(ctx, map[string]string{"ipv6": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "AAAA", "2001:db8::1") {
+		t.Fatalf("ipv6 on wrote no AAAA: %v", z)
+	}
+}

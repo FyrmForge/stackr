@@ -28,6 +28,7 @@ type Install struct {
 	Accounts       []Account
 	Managed        []string // managed DNS domains: wildcards under them get DNS-01 through stackrd
 	TLSOff         bool     // STACKR_TLS=off: plain HTTP only, no certificates
+	IPv4Only       bool     // listen on 0.0.0.0 only, not the IPv6 wildcard
 	TrustedProxies []string // the controller's front proxies; other nodes get none
 	Controller     string   // the controller's node id; "" = every node keeps TrustedProxies
 	PanelHost      string   // the panel's public host; skipped when a bare IP, localhost or ""
@@ -181,12 +182,16 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 		}
 	}
 
-	servers := route{"http": server(":80", plain, in.TrustedProxies, httpTail, in)}
+	bind := ""
+	if in.IPv4Only {
+		bind = "0.0.0.0"
+	}
+	servers := route{"http": server(bind+":80", plain, in.TrustedProxies, httpTail, in)}
 	// per_host: requests, status codes and latency per host on the admin
 	// API's /metrics, which the panel's sampler turns into tile traffic.
 	apps := route{"http": route{"servers": servers, "metrics": route{"per_host": true}}}
 	if tlsOn {
-		servers["https"] = server(":443", secure, in.TrustedProxies, custom, in)
+		servers["https"] = server(bind+":443", secure, in.TrustedProxies, custom, in)
 		servers["https"].(route)["automatic_https"] = route{"disable_redirects": true}
 		if wrapper != nil {
 			// The layer4 wrapper reads the SNI before TLS terminates; the

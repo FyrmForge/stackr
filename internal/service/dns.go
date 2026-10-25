@@ -1,7 +1,6 @@
 package service
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -391,55 +390,6 @@ func zoneHost(name, zone string) string {
 		return zone
 	}
 	return name + "." + zone
-}
-
-// zoneWants is the records tile domains under zone z would get: one A, and
-// an AAAA when the node has a public IPv6, per host. hosts is the names
-// (lower case, relative) a tile serves. A node with no public address
-// yields nothing.
-func (o *Orchestrator) zoneWants(ctx context.Context, z store.DNSDomain) (hosts map[string]bool, wants []dnscap.Want, err error) {
-	ds, err := o.domains.List(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	def, err := o.DefaultIngress(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	hosts = map[string]bool{}
-	for _, d := range ds {
-		name := dnscap.Name(d.Host, z.Name)
-		if name == "" || strings.HasPrefix(d.Host, "*.") {
-			continue
-		}
-		t, err := o.tiles.Get(ctx, d.TileID)
-		if err != nil {
-			return nil, nil, err
-		}
-		org, err := o.tileOrg(ctx, t)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !dnscap.MayUse(z, org) {
-			continue
-		}
-		in, err := o.IngressFor(ctx, t.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		v4, v6, _, err := o.nodeAddrs(ctx, cmp.Or(in, def))
-		if err != nil {
-			return nil, nil, err
-		}
-		hosts[strings.ToLower(name)] = true
-		if v4.IsValid() {
-			wants = append(wants, dnscap.Want{Name: name, Type: "A", Value: v4.String()})
-		}
-		if v6.IsValid() {
-			wants = append(wants, dnscap.Want{Name: name, Type: "AAAA", Value: v6.String()})
-		}
-	}
-	return hosts, wants, nil
 }
 
 // PlanAdoptDNSHost is the existing records host would meet in a managed

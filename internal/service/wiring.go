@@ -53,6 +53,7 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 		ACMEEmail:      get("acme_email"),
 		Managed:        o.managedDomains(ctx),
 		TLSOff:         o.cfg.TLSOff,
+		IPv4Only:       !o.ipv6On(ctx),
 		PanelHost:      get("panel_domain"),
 		PanelUpstream:  o.cfg.PanelUpstream,
 		TrustedProxies: splitList(get("trusted_proxies")),
