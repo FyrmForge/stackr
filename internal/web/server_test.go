@@ -37,7 +37,7 @@ func TestCookiesSecureFollowBaseURL(t *testing.T) {
 	for _, c := range []struct {
 		base   string
 		secure bool
-	}{{"https://panel.example.com", true}, {"http://localhost:8080", false}, {"", false}} {
+	}{{"https://panel.example.com", true}, {"http://localhost:8080", false}, {"", true}, {"::not a url", true}} {
 		if got := web.CookieSecure(c.base); got != c.secure {
 			t.Errorf("CookieSecure(%q) = %v, want %v", c.base, got, c.secure)
 		}

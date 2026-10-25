@@ -44,11 +44,11 @@ type Deps struct {
 	EmailSender email.Sender
 }
 
-// CookieSecure reports whether cookies carry Secure: whenever the public URL
-// is https, whoever terminates TLS. A plain-http URL (dev on localhost) never
-// gets a cookie the browser would refuse to send back.
+// CookieSecure reports whether cookies carry Secure: always, whoever
+// terminates TLS, unless the public URL is explicitly plain http (dev on
+// localhost). An empty or unparseable URL stays Secure.
 func CookieSecure(baseURL string) bool {
-	return strings.HasPrefix(strings.ToLower(baseURL), "https://")
+	return !strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseURL)), "http://")
 }
 
 // RegisterRoutes registers all web route handlers on the server.
