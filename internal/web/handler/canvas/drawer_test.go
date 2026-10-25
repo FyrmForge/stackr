@@ -432,6 +432,9 @@ func TestViewerSettingsReadOnly(t *testing.T) {
 		"/acme/shop/-/drawer?tab=settings":     `data-acc="config"`,
 		"/acme/-/drawer?tab=general":           `data-acc="defaults"`,
 		"/acme/shop/dev/-/placement":           `id="ingress-node"`,
+		"/acme/shop/dev/-/tiles/api/placement": `id="ingress-node"`,
+		"/acme/shop/-/placement":               `id="ingress-node"`,
+		"/acme/-/placement":                    `id="ingress-node"`,
 	} {
 		body := s.As(t, vs, "GET", path, nil).Body.String()
 		if !strings.Contains(body, row) || !strings.Contains(body, "disabled") {
