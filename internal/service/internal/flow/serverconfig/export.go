@@ -46,6 +46,9 @@ const AlertURLParam = "alerts.webhook_url"
 // alertURLKey is the one setting the file gives as a ref.
 const alertURLKey = "alert_webhook_url"
 
+// heartbeatKey is a secret-bearing URL the file never carries.
+const heartbeatKey = "heartbeat_url"
+
 func destRef(name, key string) string {
 	return fmt.Sprintf("${{ server.params.%s.%s }}", DestParamCollection(name), key)
 }
@@ -119,7 +122,7 @@ func Export(live Live) ([]byte, error) {
 func exportSettings(live Live) map[string]any {
 	out := map[string]any{}
 	for _, k := range settings.Catalogue {
-		if k.Scopes != settings.Flat || k.ConfigOnly || k.ReadOnly {
+		if k.Scopes != settings.Flat || k.ConfigOnly || k.ReadOnly || k.Key == heartbeatKey {
 			continue
 		}
 		v := strings.TrimSpace(live.eff(k.Key))

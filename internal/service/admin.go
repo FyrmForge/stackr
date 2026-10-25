@@ -159,11 +159,11 @@ func (o *Orchestrator) RevokeKey(ctx context.Context, by *Principal, keyID strin
 // Settings is the catalogue every surface enumerates.
 func (o *Orchestrator) Settings() []Knob { return settings.Catalogue }
 
-// Setting is a flat knob's effective value; the alert webhook's is masked as
-// the Alerts tab shows it.
+// Setting is a flat knob's effective value; the alert webhook's and the
+// heartbeat's are masked as the Alerts tab shows them.
 func (o *Orchestrator) Setting(ctx context.Context, key string) (string, error) {
 	v, err := o.settings.Get(ctx, key)
-	if key == alertURLKey {
+	if key == alertURLKey || key == heartbeatKey {
 		v = settings.MaskURL(v)
 	}
 	return v, err

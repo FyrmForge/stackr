@@ -67,3 +67,27 @@ func TestServerSettings(t *testing.T) {
 		t.Error("a bad value was taken")
 	}
 }
+
+// The heartbeat URL carries a secret: the Settings listing, the masked
+// read and the server-file export never show it.
+func TestHeartbeatURLStaysHidden(t *testing.T) {
+	env := servicetest.New(t)
+	orch, ctx := env.Orch, context.Background()
+	const secret = "tok-heartbeat-secret-91"
+	if err := orch.SetSetting(ctx, "heartbeat_url", "https://hc.example.com/ping/"+secret); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := byKey(t, orch)["heartbeat_url"]; ok {
+		t.Error("heartbeat_url is on the Settings tab")
+	}
+	if v, err := orch.Setting(ctx, "heartbeat_url"); err != nil || strings.Contains(v, secret) {
+		t.Errorf("Setting = %q, %v", v, err)
+	}
+	out, err := orch.ExportServerConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), secret) || strings.Contains(string(out), "heartbeat_url") {
+		t.Errorf("export carries the heartbeat:\n%s", out)
+	}
+}
