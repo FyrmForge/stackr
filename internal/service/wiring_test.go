@@ -1,10 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -67,5 +70,25 @@ func TestNeedsVIP(t *testing.T) {
 		if got := needsVIP(c.node, "ctl", c.ingress); got != c.want {
 			t.Errorf("needsVIP(%s, ingress %s) = %v, want %v", c.node, c.ingress, got, c.want)
 		}
+	}
+}
+
+// A swap copy still beside the database at boot is reported and kept.
+func TestControllerLogCapWarnsOnSwapCopy(t *testing.T) {
+	n := newTwoNodes(t)
+	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
+	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	n.orch.controllerLogCap(context.Background())
+	if !strings.Contains(buf.String(), cp) {
+		t.Errorf("no warning naming %s: %s", cp, buf.String())
+	}
+	if _, err := os.Stat(cp); err != nil {
+		t.Errorf("copy removed at boot: %v", err)
 	}
 }
