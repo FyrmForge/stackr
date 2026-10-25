@@ -51,7 +51,7 @@ func (v ApproveView) risky() bool { return NeedName(v.Pending) }
 func (v ApproveView) confirm() c.ConfirmView {
 	cv := c.ConfirmView{
 		Button:  "Approve",
-		Title:   "Approve elevated access?",
+		Title:   "Approve host access?",
 		Warning: "Unticked lines keep waiting. Parked jobs resume once everything they ask for is granted.",
 		Action:  v.Action,
 		Target:  v.target(),

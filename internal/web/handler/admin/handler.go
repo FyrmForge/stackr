@@ -383,12 +383,7 @@ func (h *handler) overview(c echo.Context, ps []service.Problem) (templ.Componen
 	if err != nil {
 		return nil, err
 	}
-	for _, n := range ns {
-		v.Nodes++
-		if n.Status == "offline" {
-			v.Offline++
-		}
-	}
+	v.Nodes = len(ns) // an offline one is an open problem above
 	a, err := h.orch.AlertSettings(ctx)
 	v.Webhook = a.URL != ""
 	return ui.Overview(v), err

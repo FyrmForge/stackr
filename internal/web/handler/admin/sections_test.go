@@ -58,9 +58,14 @@ func TestAdminSections(t *testing.T) {
 				t.Errorf("%s: no %s", key, w)
 			}
 		}
-		if strings.Contains(body, `hx-target="#drawer-view"`) {
+		if strings.Contains(body, "#drawer-view") {
 			t.Errorf("%s aims a request at the drawer's root", key)
 		}
+	}
+
+	// the add-node steps answer the page too
+	if b := s.As(t, root, "GET", "/-/admin/nodes/add", nil).Body.String(); !strings.Contains(b, "Get join command") || strings.Contains(b, "#drawer-view") {
+		t.Errorf("add node steps:\n%s", b)
 	}
 
 	// a section's form holds its own knobs only

@@ -13,7 +13,6 @@ type OverviewView struct {
 	Update   string // "up to date", "v0.9.0 available", "" = never checked
 	Panel    string // the panel domain; "" = not set
 	Nodes    int
-	Offline  int
 	Webhook  bool   // an alert webhook is set
 	Guide    string // the setup guide's first step
 }
@@ -22,17 +21,6 @@ type OverviewView struct {
 type ProblemRow struct {
 	Message, Area, Href, LinkText string
 	Critical                      bool
-}
-
-func nodesWord(n, offline int) string {
-	s := strconv.Itoa(n)
-	switch {
-	case offline > 0:
-		return s + ", " + strconv.Itoa(offline) + " offline"
-	case n == 1:
-		return s
-	}
-	return s + ", all online"
 }
 
 func problemTone(critical bool) string {
@@ -92,7 +80,7 @@ templ Overview(v OverviewView) {
 					}
 				</dd>
 				<dt class="text-rw-faint">Nodes</dt>
-				<dd class="text-rw-text min-w-0">{ nodesWord(v.Nodes, v.Offline) }</dd>
+				<dd class="text-rw-text min-w-0">{ strconv.Itoa(v.Nodes) }</dd>
 				<dt class="text-rw-faint">Alerts webhook</dt>
 				<dd class="text-rw-text min-w-0">
 					if v.Webhook {
