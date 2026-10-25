@@ -259,6 +259,38 @@ func TestCertAlertStages(t *testing.T) {
 	}
 }
 
+// A failed panel backup opens its problem, manual or scheduled; a later good
+// run of either kind clears it.
+func TestPanelBackupFailureOpensProblem(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	o := w.orch
+	_, srv := newFakeS3(t)
+	good := w.globalS3(t, srv.URL)
+	dead, err := o.CreateBackupDest(ctx, nil, BackupDestSpec{Name: "dead", Endpoint: "http://127.0.0.1:1", Bucket: "b", AccessKey: "a", SecretKey: "s"})
+	must(t, err)
+	run := func(scheduled bool, d BackupDest) {
+		must(t, o.SetSettings(ctx, map[string]string{"panel_backup_dest": d.ID}))
+		b, _ := json.Marshal(panelBackupJob{Scheduled: scheduled, DestID: d.ID})
+		_ = o.handlers()[kindPanelBackup](ctx, &jobs.Run{Job: store.Job{Payload: string(b)}, Log: io.Discard})
+	}
+	open := func() bool {
+		ps, err := o.Problems(ctx)
+		must(t, err)
+		return slices.ContainsFunc(ps, func(p Problem) bool { return p.Key == "backup.panel" })
+	}
+	for _, tt := range []struct{ fail, clear bool }{{false, true}, {true, false}} {
+		run(tt.fail, dead)
+		if !open() {
+			t.Fatalf("a failed run (scheduled %v) opened no problem", tt.fail)
+		}
+		run(tt.clear, good)
+		if open() {
+			t.Errorf("a good run (scheduled %v) kept the problem", tt.clear)
+		}
+	}
+}
+
 // A scheduled backup that fails alerts; a manual one and a skip do not.
 func TestScheduledBackupFailureAlerts(t *testing.T) {
 	ctx := context.Background()

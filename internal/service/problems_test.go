@@ -18,17 +18,16 @@ func TestBackupFailureOpensProblem(t *testing.T) {
 	w := newWorld(t)
 	o := w.orch
 	backupSchedule(t, w, "s1")
-	for _, tt := range []struct{ key, subject, want string }{
-		{"schedule.s1", "volume x", "Backup of volume x failing: s3 down"},
-		{"panel", "the panel database", "Panel backup failing: s3 down"},
+	for _, tt := range []struct{ key, subject, want, link string }{
+		{"schedule.s1", "volume x", "Backup of volume x failing: s3 down", "/acme/shop/dev"},
+		{"panel", "the panel database", "Panel backup failing: s3 down", "/-/admin/backups"},
 	} {
 		o.backupResult(ctx, tt.key, "", tt.subject, errors.New("s3 down"))
 		ps, err := o.Problems(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(ps) != 1 || ps[0].Message != tt.want || ps[0].Severity != SevCritical ||
-			ps[0].Link != "/-/admin/backups" || ps[0].LinkText != "Open backups" {
+		if len(ps) != 1 || ps[0].Message != tt.want || ps[0].Severity != SevCritical || ps[0].Link != tt.link {
 			t.Fatalf("%s: %+v", tt.key, ps)
 		}
 		since := ps[0].Since
@@ -41,6 +40,24 @@ func TestBackupFailureOpensProblem(t *testing.T) {
 		if ps, _ = o.Problems(ctx); len(ps) != 0 {
 			t.Errorf("%s after success: %+v", tt.key, ps)
 		}
+	}
+}
+
+// A volume schedule's problem links to the Storage row of the tile that
+// mounts the volume, never to the admin Backups page, which lists panel
+// backups only.
+func TestScheduleProblemLinksTileStorage(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	backupSchedule(t, w, "s1")
+	tl := w.tile(t, "web", false)
+	tl.Volumes = "data-s1:/data"
+	must(t, w.st.Tiles.Update(ctx, tl))
+	w.orch.backupResult(ctx, "schedule.s1", "", "volume data-s1", errors.New("s3 down"))
+	ps, err := w.orch.Problems(ctx)
+	must(t, err)
+	if len(ps) != 1 || ps[0].Link != "/acme/shop/dev?drawer="+tl.ID+"&tab=settings&open=storage" || ps[0].LinkText != "Open storage" {
+		t.Errorf("%+v", ps)
 	}
 }
 

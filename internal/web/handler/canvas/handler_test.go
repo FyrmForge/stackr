@@ -211,6 +211,11 @@ func TestEnvFreshLoadOpensTileDrawer(t *testing.T) {
 		!strings.Contains(body, `hx-get="/acme/shop/dev/-/tiles/api?tab=logs" hx-trigger="load"`) {
 		t.Errorf("drawer not open on the tile's logs:\n%s", body)
 	}
+	// ?open= rides along to the settings row it names (a problem's link)
+	body = load("/acme/shop/dev?drawer=" + s.Tile.ID + "&tab=settings&open=storage")
+	if !strings.Contains(body, `hx-get="/acme/shop/dev/-/tiles/api?tab=settings&amp;open=storage"`) {
+		t.Errorf("open=storage did not reach the tile's settings:\n%s", body)
+	}
 	if body := load("/acme/shop/dev?drawer=nope"); strings.Contains(body, "<side-drawer open") {
 		t.Error("an unknown id opened the drawer")
 	}

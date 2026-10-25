@@ -166,12 +166,11 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 	}
 	switch kind {
 	case "backup": // backup.panel, backup.schedule.<id>
-		if id, ok := strings.CutPrefix(rest, "schedule."); ok {
-			if _, err := o.backups.GetSchedule(ctx, id); errors.Is(err, errs.ErrNotFound) {
-				return "", "", false
-			}
+		id, ok := strings.CutPrefix(rest, "schedule.")
+		if !ok {
+			return "/-/admin/backups", "Open backups", true
 		}
-		return "/-/admin/backups", "Open backups", true
+		return o.scheduleLink(ctx, id)
 	case "node", "disk", "clock", "mem":
 		return onNode(rest)
 	case "certfail": // certfail.<node>.<host>
@@ -191,4 +190,23 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "/" + o.scopePath(ctx, ScopeTile, rest), "Open app", true
 	}
 	return "/-/admin/alerts", "Open alerts", true
+}
+
+// scheduleLink is a volume schedule's problem link: the Storage row of the
+// first tile that mounts the volume, else its env. ok is false once the
+// schedule or its volume is gone.
+func (o *Orchestrator) scheduleLink(ctx context.Context, id string) (href, text string, ok bool) {
+	s, err := o.backups.GetSchedule(ctx, id)
+	if errors.Is(err, errs.ErrNotFound) {
+		return "", "", false
+	}
+	v, err := o.volumes.Get(ctx, s.VolumeID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return "", "", false
+	}
+	if ts, _ := o.mounters(ctx, v); len(ts) > 0 {
+		// the tile URL itself is a placeholder; its drawer opens over the env canvas
+		return "/" + o.scopePath(ctx, ScopeEnv, ts[0].EnvironmentID) + "?drawer=" + ts[0].ID + "&tab=settings&open=storage", "Open storage", true
+	}
+	return "/" + o.scopePath(ctx, v.ScopeKind, v.ScopeID), "Open env", true
 }

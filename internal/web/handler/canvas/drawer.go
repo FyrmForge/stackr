@@ -196,7 +196,7 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 		}
 		for _, s := range v.Nodes[i].Subs {
 			if s.ID == id && s.Drawer != "" {
-				return envDrawerLoad(s.Drawer, tab), nil
+				return envDrawerLoad(s.Drawer, tab, c.QueryParam("open")), nil
 			}
 		}
 	}
@@ -223,7 +223,7 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 		if n.Drawer == "" {
 			return nil, nil
 		}
-		return envDrawerLoad(n.Drawer, tab), nil
+		return envDrawerLoad(n.Drawer, tab, c.QueryParam("open")), nil
 	}
 	if err != nil || !can(c, cd.s, "org.read") {
 		return nil, ignoreRefusal(err)
@@ -271,12 +271,20 @@ func ignoreRefusal(err error) error {
 
 // envDrawerLoad opens the drawer with its route fetched on load (url
 // carries the card's default ?tab=; tab, when set, wins), so the route's
-// own middleware and render answer it.
+// own middleware and render answer it. open, when set, is the settings
+// row the tab opens on.
 // ponytail: one extra request; render server-side if the flash shows.
-func envDrawerLoad(url, tab string) templ.Component {
+func envDrawerLoad(url, tab, open string) templ.Component {
 	if tab != "" {
 		url, _, _ = strings.Cut(url, "?")
 		url += "?tab=" + neturl.QueryEscape(tab)
+	}
+	if open != "" {
+		sep := "?"
+		if strings.Contains(url, "?") {
+			sep = "&"
+		}
+		url += sep + "open=" + neturl.QueryEscape(open)
 	}
 	return comp.DrawerLoad(url)
 }

@@ -297,9 +297,8 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				trigger = "schedule"
 			}
 			_, err = o.panelBackup(ctx, r.Log, trigger, p.DestID)
-			if p.Scheduled || err == nil { // a good manual run also says backups work again
-				o.backupResult(ctx, "panel", "", "the panel database", err)
-			}
+			// either kind opens the problem on a failure and clears it on a success
+			o.backupResult(ctx, "panel", "", "the panel database", err)
 			return err
 		}),
 		kindUpgrade: payload(func(ctx context.Context, r *jobs.Run, p upgradeJob) error {

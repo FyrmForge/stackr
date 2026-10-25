@@ -579,7 +579,8 @@ func (o *Orchestrator) certAlerts(ctx context.Context) {
 // backupRemind is how long a schedule fails before backup.failed fires again.
 const backupRemind = 24 * time.Hour
 
-// backupResult takes a scheduled backup's outcome; key names the schedule.
+// backupResult takes a scheduled backup's outcome, or any panel backup's; key
+// names the schedule, or panel.
 // The first failure alerts, then a reminder each backupRemind it keeps
 // failing; a success resets. A skip (node offline) or a cancel is neither.
 // The row alert.backup.<key> holds when the last alert went.
@@ -623,7 +624,7 @@ func (o *Orchestrator) backupResult(ctx context.Context, key, nodeID, subject st
 		name = n.Name
 	}
 	o.alert(Alert{Event: AlertBackupFailed, Severity: SevCritical, Node: name, Subject: subject,
-		Message: "Scheduled backup of " + subject + " " + verb + ": " + err.Error()})
+		Message: "Backup of " + subject + " " + verb + ": " + err.Error()})
 }
 
 // ---- the watch tick: heartbeat, crash loops, memory ----
