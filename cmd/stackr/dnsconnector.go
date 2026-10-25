@@ -38,6 +38,27 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			return a.show(v, dnsDomainCols...)
 		})
 
+	plan := leaf("plan <connector> <domain>", op("plan"),
+		"Show the records managing a domain would write, and the existing ones stackr may adopt", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			v, err := a.call(GET, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1])+"/plan", nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			m := asMap(v)
+			if err := a.show(m["writes"], "host", "type", "value"); err != nil {
+				return err
+			}
+			return a.show(m["adopt"], "host", "type", "serves")
+		})
+
 	var orgs []string
 	manage := leaf("manage <connector> <domain>", op("manage"),
 		"Let stackr manage a domain's DNS records", exact(2),
@@ -96,7 +117,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		})
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
-	return []*cobra.Command{domains, manage, unmanage, takeover}
+	return []*cobra.Command{domains, plan, manage, unmanage, takeover}
 }
 
 // orgFlag adds --org to every leaf under cs: the org to work in, over the
