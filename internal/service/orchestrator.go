@@ -286,6 +286,7 @@ type Orchestrator struct {
 	earlyMu      sync.Mutex          // guards earlyIPs
 	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
 	repoLocks    sync.Map            // clone dir -> *sync.Mutex
+	alertMem     *alertState         // the alert tick's memory (alerts.go)
 	platforms    platformCache       // each node's CPU type (imports.go)
 	cli          cliCodes
 
@@ -455,13 +456,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	o.vip = newNodeVIPs(map[string]tile.VIP{ctl.ID: o.vip})
 	orch := &Orchestrator{
-		dnsKick: &coalesce{},
-		cfg:     cfg,
-		db:      db,
-		store:   st,
-		docker:  d,
-		vip:     o.vip,
-		gitEnv:  o.gitEnv,
+		dnsKick:  &coalesce{},
+		alertMem: &alertState{restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{}},
+		cfg:      cfg,
+		db:       db,
+		store:    st,
+		docker:   d,
+		vip:      o.vip,
+		gitEnv:   o.gitEnv,
 
 		caddyMetrics: o.caddyMetrics,
 

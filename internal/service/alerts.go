@@ -629,13 +629,7 @@ type restartSample struct {
 }
 
 // alertWatch is the one alertState. The tick runs on one goroutine.
-// ponytail: parked in repoLocks, which is a sync.Map; a field once Orchestrator may change.
-func (o *Orchestrator) alertWatch() *alertState {
-	v, _ := o.repoLocks.LoadOrStore("alertwatch", &alertState{
-		restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{},
-	})
-	return v.(*alertState)
-}
+func (o *Orchestrator) alertWatch() *alertState { return o.alertMem }
 
 // alertTick runs every 30s with the controller's disk check.
 func (o *Orchestrator) alertTick(ctx context.Context, now time.Time) {
