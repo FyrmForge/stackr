@@ -174,3 +174,18 @@ func TestLaunchMountsDataDir(t *testing.T) {
 		t.Errorf("volumes = %v", fake.Specs[0].Volumes)
 	}
 }
+
+// A database the helper cannot see skips the copy and the restore, and the swap goes on.
+func TestSwapWithoutVisibleDatabase(t *testing.T) {
+	fake := dockerfake.New()
+	fake.RunID = "new"
+	fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "healthy"}}
+	l := New(fake)
+	l.Poll, l.Deadline = time.Millisecond, 20*time.Millisecond
+	db := filepath.Join(t.TempDir(), "missing", "stackr.db")
+	err := l.Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0", Env: []string{"DATABASE_PATH=" + db}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
