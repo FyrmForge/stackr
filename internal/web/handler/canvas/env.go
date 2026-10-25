@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"slices"
-	"strings"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/a-h/templ"
@@ -67,7 +66,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 	if err != nil {
 		return nil, err
 	}
-	changed := markRung(cascade.Rows)
+	changed := anyChanged(cascade.Rows)
 	es, err := h.orch.Ladder(ctx, e.StackID)
 	if err != nil {
 		return nil, err
@@ -119,32 +118,14 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 	return envui.Settings(v), nil
 }
 
-// markRung puts the changed dot on each knob this rung sets and the "from"
-// tag on each it inherits; true when any is set here.
-func markRung(rows []comp.SettingRowView) bool {
-	some := false
-	for i := range rows {
-		r := &rows[i]
-		r.Changed = r.Value != "" || (r.Secret && r.Effective == "set")
-		if !r.Changed && r.DecidedBy != "" {
-			r.From = shortRung(r.DecidedBy)
+// anyChanged is true when this rung sets any knob; cascadeRows marks them.
+func anyChanged(rows []comp.SettingRowView) bool {
+	for _, r := range rows {
+		if r.Changed {
+			return true
 		}
-		some = some || r.Changed
 	}
-	return some
-}
-
-// shortRung is a cascade rung as a from tag says it: "smoke organization"
-// is "org", "shop stack" is "stack".
-func shortRung(name string) string {
-	f := strings.Fields(name)
-	if len(f) == 0 {
-		return ""
-	}
-	if w := f[len(f)-1]; w != "organization" {
-		return w
-	}
-	return "org"
+	return false
 }
 
 // below is the name of the rung under id on the ladder (bottom first); ""
