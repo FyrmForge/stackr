@@ -37,7 +37,16 @@ class TabStrip extends HTMLElement {
   connectedCallback(): void {
     const row = this.row();
     if (!row) return;
-    row.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // Sideways only, and only while the row overflows: scrollIntoView would
+    // also scroll the page (a vertical menu, or a re-render below the fold).
+    const cur = row.querySelector<HTMLElement>("[aria-current]");
+    if (cur && row.scrollWidth > row.clientWidth) {
+      const pad = parseFloat(getComputedStyle(row).scrollPaddingLeft) || 0;
+      const left = cur.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+      if (left < row.scrollLeft + pad || left + cur.offsetWidth > row.scrollLeft + row.clientWidth - pad) {
+        row.scrollLeft = left - pad;
+      }
+    }
     row.addEventListener("scroll", this.update, { passive: true });
     this.addEventListener("wheel", this.onWheel, { passive: false });
     this.addEventListener("click", this.onClick);

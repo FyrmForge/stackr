@@ -75,9 +75,8 @@ func (h *handler) newConnector(c echo.Context) error {
 // connectorsTab is the list: every server connector, each summed up by its
 // capabilities.
 func (h *handler) connectorsTab(c echo.Context) (templ.Component, error) {
+	// no title or help: the section heading says both
 	v := connectors.ListView{
-		Title: "Connectors", Scope: "instance",
-		Help:   "Git hosts and DNS accounts the server owns.",
 		Add:    connBase + "/new",
 		Synced: h.panel().Synced(c),
 	}

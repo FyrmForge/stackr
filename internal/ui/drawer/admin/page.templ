@@ -106,7 +106,7 @@ func badgeTitle(key string, n int) string {
 	if key == "host-access" {
 		return strconv.Itoa(n) + " waiting for approval"
 	}
-	return strconv.Itoa(n) + " open problems"
+	return plural(n, "open problem")
 }
 
 func badgeClass(b Badge) string {
@@ -138,7 +138,9 @@ templ Page(f ViewFrame, body templ.Component) {
 // View is the side menu and one section; every action answers it.
 templ View(f ViewFrame, body templ.Component) {
 	<div id={ Root } class="settings-layout">
-		<nav class="settings-nav" aria-label="Server settings">
+		// tab-strip scrolls the active item into view while the menu is a row (mobile)
+		<tab-strip class="block">
+		<nav data-row class="settings-nav scrollbar-none" aria-label="Server settings">
 			for _, g := range Groups {
 				if g.Title != "" {
 					<p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rw-faint hidden md:block">{ g.Title }</p>
@@ -162,6 +164,7 @@ templ View(f ViewFrame, body templ.Component) {
 				}
 			}
 		</nav>
+		</tab-strip>
 		<div class="settings-body space-y-4">
 			if it, ok := Find(f.Section); ok {
 				<div>

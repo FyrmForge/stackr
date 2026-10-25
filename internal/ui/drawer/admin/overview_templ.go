@@ -576,6 +576,7 @@ func Domains(v DomainsView) templ.Component {
 }
 
 // Knobs is a section of plain server knobs: one settings form, its Save.
+// title "" = the section heading names it already.
 func Knobs(title string, v c.SettingsFormView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

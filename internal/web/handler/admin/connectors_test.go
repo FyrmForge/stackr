@@ -26,7 +26,7 @@ func TestAdminConnectors(t *testing.T) {
 	rec := s.As(t, root, "GET", "/-/admin/connectors", nil)
 	body := rec.Body.String()
 	for _, want := range []string{
-		`id="tab-connectors"`, `id="connectors-list"`, "main", "Not shared yet",
+		`id="tab-connectors"`, `id="connectors-list"`, "main", "Server only",
 		`<li class="rounded-lg border`, `hx-get="/-/admin/connectors/` + srv + `/settings?tab=git"`, ">Sharing<",
 		`hx-get="/-/admin/connectors/new"`, "+ Add connector",
 	} {
@@ -43,7 +43,7 @@ func TestAdminConnectors(t *testing.T) {
 	body = rec.Body.String()
 	for _, want := range []string{
 		"<confirm-dialog open>", "https://github.com/apps/stackr-main/installations/new",
-		"All organizations", "Only these", `name="org" value="` + s.Org + `"`,
+		"Every org", "Only these orgs", `name="org" value="` + s.Org + `"`,
 		`hx-post="/-/admin/connectors/` + srv + `/delete"`, `hx-trigger="close from:#connector-dialog"`,
 	} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {

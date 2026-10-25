@@ -17,12 +17,12 @@ func TestPlacementState(t *testing.T) {
 		word string
 		tone string
 	}{
-		{"online", service.Placement{NodeID: "n", Online: true}, "online", "success"},
-		{"offline", service.Placement{NodeID: "n"}, "offline", "danger"},
-		{"no node", service.Placement{}, "no node yet", "warn"},
-		{"forgotten", service.Placement{NodeID: "gone", NodeForgotten: true}, "node forgotten: repoint to restore", "danger"},
-		{"moving", service.Placement{NodeID: "n", Online: true, Moving: run}, "moving 1 of 3", "warn"},
-		{"failed", service.Placement{NodeID: "n", Online: true, Moving: &service.PlacementMoveStatus{State: "failed"}}, "move failed", "danger"},
+		{"online", service.Placement{NodeID: "n", Online: true}, "Online", "success"},
+		{"offline", service.Placement{NodeID: "n"}, "Offline", "danger"},
+		{"no node", service.Placement{}, "No node yet", "warn"},
+		{"forgotten", service.Placement{NodeID: "gone", NodeForgotten: true}, "Node forgotten: repoint to restore", "danger"},
+		{"moving", service.Placement{NodeID: "n", Online: true, Moving: run}, "Moving 1 of 3", "warn"},
+		{"failed", service.Placement{NodeID: "n", Online: true, Moving: &service.PlacementMoveStatus{State: "failed"}}, "Move failed", "danger"},
 	} {
 		if w, tone := placementState(c.p); w != c.word || tone != c.tone {
 			t.Errorf("%s: %q %q, want %q %q", c.name, w, tone, c.word, c.tone)
@@ -34,10 +34,10 @@ func TestPlacementState(t *testing.T) {
 func TestPlacementRowOpen(t *testing.T) {
 	ogs := []service.Org{{Slug: "acme", Name: "Acme"}, {Slug: "beta", Name: "Beta"}}
 	r := placementRow(service.Placement{Name: "eu-db", Orgs: []string{"acme"}}, ogs)
-	if r.Open != "1 org" || r.Delete.Action == "" || !r.Edit.Orgs[0].On || r.Edit.Orgs[1].On {
+	if r.Open != "Only these orgs (1)" || r.Delete.Action == "" || !r.Edit.Orgs[0].On || r.Edit.Orgs[1].On {
 		t.Errorf("row = %+v", r)
 	}
-	if r := placementRow(service.Placement{Name: "default", Default: true, OpenToAll: true}, ogs); r.Open != "all orgs" || r.Delete.Action != "" {
+	if r := placementRow(service.Placement{Name: "default", Default: true, OpenToAll: true}, ogs); r.Open != "Every org" || r.Delete.Action != "" {
 		t.Errorf("default row = %+v", r)
 	}
 }

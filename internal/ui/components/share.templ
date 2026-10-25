@@ -1,5 +1,7 @@
 package components
 
+import "strconv"
+
 // ShareView is the one "who may use this" control (destinations,
 // connectors, DNS domains, placements). Pure view: the caller names the
 // fields and wraps it in its own form with its own Save. The org boxes are
@@ -26,6 +28,18 @@ const (
 	ShareOnly   = "only"
 	ShareServer = "server"
 )
+
+// ShareSummary is a row's sharing in the control's own words: Every org,
+// Only these orgs (n), or Server only when no org is picked.
+func ShareSummary(all bool, orgs int) string {
+	switch {
+	case all:
+		return "Every org"
+	case orgs > 0:
+		return "Only these orgs (" + strconv.Itoa(orgs) + ")"
+	}
+	return "Server only"
+}
 
 templ Share(v ShareView) {
 	<fieldset class="space-y-1" data-share>

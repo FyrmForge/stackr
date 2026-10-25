@@ -140,7 +140,7 @@ type Backup struct {
 
 templ Users(v UsersView) {
 	<div id="tab-users">
-		@c.Section("Users", "instance", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
+		@c.Section("", "", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
 			<ul class="space-y-2">
 				for _, u := range v.Rows {
 					<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
@@ -203,7 +203,7 @@ templ Update(v UpdateView) {
 		if v.Live != "" {
 			<span hidden hx-get={ v.Live } hx-trigger="every 3s" hx-select="#tab-update" hx-target="#tab-update" hx-swap="outerHTML"></span>
 		}
-		@c.Section("Update", "instance", "Backs up the panel, then restarts it on the new release.") {
+		@c.Section("", "", "Backs up the panel, then restarts it on the new release.") {
 			<div class="space-y-3 text-sm">
 				if live(v) {
 					<p class="text-rw-warn" role="status" data-reconnecting hidden>Reconnecting...</p>

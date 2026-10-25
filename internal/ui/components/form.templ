@@ -130,18 +130,21 @@ templ AuthCard(title string, sub templ.Component) {
 }
 
 // Section is v0's settings card (form.Section): a titled panel, its scope
-// chip ("org", "stack") and one help line over the controls.
+// chip ("org", "stack") and one help line over the controls. Title "" drops
+// the heading and the chip, for a card the page heading already names.
 templ Section(title, scope, help string) {
 	<section class="panel p-6 mb-6">
-		<div class="flex items-baseline gap-3 mb-1">
-			<h2 class="text-base font-semibold text-rw-text tracking-tight">{ title }</h2>
-			if scope != "" {
-				<span class="settings-scope">{ scope }</span>
-			}
-		</div>
+		if title != "" {
+			<div class="flex items-baseline gap-3 mb-1">
+				<h2 class="text-base font-semibold text-rw-text tracking-tight">{ title }</h2>
+				if scope != "" {
+					<span class="settings-scope">{ scope }</span>
+				}
+			</div>
+		}
 		if help != "" {
 			<p class="text-sm text-rw-muted mb-4 max-w-2xl">{ help }</p>
-		} else {
+		} else if title != "" {
 			<div class="mb-4"></div>
 		}
 		{ children... }

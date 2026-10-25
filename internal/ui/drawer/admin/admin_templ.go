@@ -284,7 +284,7 @@ func Users(v UsersView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.Section("Users", "instance", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Section("", "", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -506,7 +506,7 @@ func Update(v UpdateView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.Section("Update", "instance", "Backs up the panel, then restarts it on the new release.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Section("", "", "Backs up the panel, then restarts it on the new release.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

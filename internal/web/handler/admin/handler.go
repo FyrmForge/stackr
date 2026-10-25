@@ -31,6 +31,10 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	b := ui.Base
 	g.GET(b+"/:section", h.Section, a.Require("admin.read"))
+	// the page's own root is its first section
+	overview := func(c echo.Context) error { return c.Redirect(http.StatusSeeOther, ui.Href("overview")) }
+	g.GET(b, overview, a.Require("admin.read"))
+	g.GET(b+"/", overview, a.Require("admin.read"))
 	g.GET(
 		"/-/jobs/:job/events",
 		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
@@ -147,9 +151,9 @@ func (h *handler) share(c echo.Context) (string, *service.Job, error) {
 		Shared:   all,
 	})
 	if all {
-		return "Offered to every organization.", nil, err
+		return "Saved. Every org may use it.", nil, err
 	}
-	return "Kept for the server only.", nil, err
+	return "Saved. Server only.", nil, err
 }
 
 // extra is what an action adds to its section's answer.
@@ -334,7 +338,7 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		return h.registryTab(c, job)
 	case "cleanup":
 		s, err := h.settings(c, "cleanup", nil)
-		return ui.Knobs("Cleanup", s), err
+		return ui.Knobs("", s), err
 	case "metrics":
 		return h.observeTab(c)
 	case "alerts":
@@ -345,10 +349,10 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		return h.securityTab(c)
 	case "org-defaults":
 		s, err := h.settings(c, "org-defaults", nil)
-		return ui.Knobs("Org defaults", s), err
+		return ui.Knobs("", s), err
 	case "jobs":
 		s, err := h.settings(c, "jobs", nil)
-		return ui.Knobs("Jobs", s), err
+		return ui.Knobs("", s), err
 	case "config":
 		return h.configTab(c, job)
 	case "update":

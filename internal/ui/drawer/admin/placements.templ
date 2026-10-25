@@ -129,7 +129,7 @@ templ placementForm(f PlacementFormView, id string, withName bool) {
 		}
 		<div class="text-sm">
 			@c.Share(placementShare(f))
-			<p class="mt-1 text-xs text-rw-faint">Closing keeps the envs already here.</p>
+			<p class="mt-1 text-xs text-rw-faint">Envs already here stay, even for orgs you take off.</p>
 		</div>
 		<button type="submit" class="btn btn-primary btn-sm">
 			if withName {
@@ -149,7 +149,7 @@ templ Placements(v PlacementsView) {
 		if v.Progress != nil {
 			@MoveProgress(*v.Progress)
 		}
-		@c.Section("Placements", "instance", "A name envs belong to, standing on one node. Orgs pin to placements; you point each at a node.") {
+		@c.Section("", "", "A name envs belong to, standing on one node. Orgs pin to placements; you point each at a node.") {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">No placements yet.</p>
 			}
@@ -169,7 +169,7 @@ templ Placements(v PlacementsView) {
 							}
 							<span class="ml-auto">@c.Chip(r.State, r.Tone)</span>
 						</div>
-						<p class="text-xs text-rw-muted">{ plural(r.Envs, "env") } · open to { r.Open }</p>
+						<p class="text-xs text-rw-muted">{ plural(r.Envs, "env") } · { r.Open }</p>
 						<div class="flex flex-wrap items-center gap-2">
 							if r.Move != "" {
 								<button type="button" hx-get={ r.Move } hx-target={ target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Repoint</button>

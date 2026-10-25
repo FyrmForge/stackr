@@ -69,16 +69,16 @@ func TestDrawerRouteLoadsInShell(t *testing.T) {
 	for path, want := range map[string]string{
 		"/-/admin/nodes/n1":        "/-/admin/nodes?drawer=node%3An1",
 		"/acme/-/drawer?tab=audit": "/acme?drawer=org%3A" + b.org + "&tab=audit",
+		// the Server settings root is its Overview, with or without the slash
+		"/-/admin":  "/-/admin/overview",
+		"/-/admin/": "/-/admin/overview",
 	} {
 		rec := b.do(t, "GET", path, nil, false)
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
 			t.Errorf("%s = %d %q, want %q", path, rec.Code, rec.Header().Get("Location"), want)
 		}
 	}
-	// the admin drawer is gone: no route, and ?drawer=admin opens nothing
-	if rec := b.do(t, "GET", "/-/admin?tab=settings", nil, true); rec.Code != http.StatusNotFound {
-		t.Errorf("htmx admin drawer = %d, want 404", rec.Code)
-	}
+	// the admin drawer is gone: ?drawer=admin opens nothing
 	if body := b.do(t, "GET", "/?drawer=admin&tab=settings", nil, false).Body.String(); strings.Contains(body, `<side-drawer open`) {
 		t.Errorf("?drawer=admin still opens a drawer:\n%s", body)
 	}

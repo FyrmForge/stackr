@@ -142,10 +142,10 @@ templ Connection(v ConnectionView) {
 }
 
 // ShareView is who may use something of the server's: all organizations,
-// or only the ticked ones, which show only then. It saves on change:
-// Action gets scope=all|only, org=<id>... and Hidden. While All, every box
-// starts ticked, so a switch to Only these takes nobody away until one is
-// unticked.
+// or only the ticked ones, which show only then. Its Save posts Action
+// scope=all|only, org=<id>... and Hidden. While All, every box starts
+// ticked, so a switch to Only these orgs takes nobody away until one is
+// unticked. The labels are the Share control's (components.Share).
 type ShareView struct {
 	ID     string // unique on the page
 	Action string
@@ -162,14 +162,14 @@ type ShareOrg struct {
 }
 
 templ Share(v ShareView) {
-	<form class="share-form space-y-1" hx-post={ v.Action } hx-trigger="change" hx-target={ v.Target } hx-swap="outerHTML">
+	<form class="share-form space-y-1" hx-post={ v.Action } hx-target={ v.Target } hx-swap="outerHTML">
 		for k, val := range v.Hidden {
 			<input type="hidden" name={ k } value={ val }/>
 		}
 		<fieldset class="space-y-1">
 			<legend class="label">Available to</legend>
-			<label class="flex items-center gap-2 text-rw-text"><input type="radio" name="scope" value="all" checked?={ v.All } class="accent-rw-accent"/> All organizations</label>
-			<label class="flex items-center gap-2 text-rw-text"><input type="radio" name="scope" value="only" checked?={ !v.All } class="accent-rw-accent"/> Only these</label>
+			<label class="flex items-center gap-2 text-rw-text"><input type="radio" name="scope" value="all" checked?={ v.All } class="accent-rw-accent"/> Every org</label>
+			<label class="flex items-center gap-2 text-rw-text"><input type="radio" name="scope" value="only" checked?={ !v.All } class="accent-rw-accent"/> Only these orgs</label>
 			<div class="share-orgs space-y-1 pl-6">
 				for _, o := range v.Orgs {
 					<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.ID } checked?={ v.All || o.On } class="accent-rw-accent"/> { o.Name }</label>
@@ -179,6 +179,7 @@ templ Share(v ShareView) {
 				}
 			</div>
 		</fieldset>
+		<button type="submit" class="btn btn-primary btn-sm mt-2">Save</button>
 	</form>
 }
 

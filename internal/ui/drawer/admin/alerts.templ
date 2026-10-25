@@ -24,7 +24,7 @@ type AlertsView struct {
 
 templ Alerts(v AlertsView) {
 	<div id="tab-alerts">
-		@c.Section("Alerts", "instance", "One webhook gets node offline, failed backups, failing certificates, crash loops, low memory and low disk.") {
+		@c.Section("Webhook", "instance", "One webhook gets node offline, failed backups, failing certificates, crash loops, low memory and low disk.") {
 			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 				@c.Field(c.FieldView{Name: "url", Label: "Webhook URL", Type: "url", Placeholder: alertsPlaceholder(v.URL), Help: alertsURLHelp(v.URL)})
 				@c.Field(c.FieldView{Name: "secret", Label: "Signing secret", Type: "password", Autocomplete: "new-password", Help: alertsSecretHelp(v.SecretSet)})

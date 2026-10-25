@@ -32,7 +32,14 @@ class TabStrip extends HTMLElement {
         const row = this.row();
         if (!row)
             return;
-        row.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        const cur = row.querySelector("[aria-current]");
+        if (cur && row.scrollWidth > row.clientWidth) {
+            const pad = parseFloat(getComputedStyle(row).scrollPaddingLeft) || 0;
+            const left = cur.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+            if (left < row.scrollLeft + pad || left + cur.offsetWidth > row.scrollLeft + row.clientWidth - pad) {
+                row.scrollLeft = left - pad;
+            }
+        }
         row.addEventListener("scroll", this.update, { passive: true });
         this.addEventListener("wheel", this.onWheel, { passive: false });
         this.addEventListener("click", this.onClick);

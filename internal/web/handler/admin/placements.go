@@ -82,20 +82,11 @@ func orgPicks(ogs []service.Org, on []string) []ui.OrgPick {
 func placementRow(p service.Placement, ogs []service.Org) ui.PlacementRow {
 	r := ui.PlacementRow{
 		Name: p.Name, Node: p.NodeName, Tags: p.Tags, Envs: p.Envs, Default: p.Default,
-		Open: "all orgs", Move: plBase + "/" + p.Name + "/move",
+		Open: comp.ShareSummary(p.OpenToAll, len(p.Orgs)), Move: plBase + "/" + p.Name + "/move",
 	}
 	r.State, r.Tone = placementState(p)
 	if p.Moving != nil {
 		r.Progress = plBase + "/" + p.Name + "/progress"
-	}
-	if !p.OpenToAll {
-		r.Open = fmt.Sprint(len(p.Orgs), " orgs")
-		if len(p.Orgs) == 1 {
-			r.Open = "1 org"
-		}
-		if len(p.Orgs) == 0 {
-			r.Open = "no org"
-		}
 	}
 	r.Edit = ui.PlacementFormView{Action: plBase + "/" + p.Name + "/open", All: p.OpenToAll, Orgs: orgPicks(ogs, p.Orgs)}
 	if !p.Default {
@@ -117,17 +108,17 @@ func target() string { return ui.Target }
 func placementState(p service.Placement) (word, tone string) {
 	switch {
 	case p.Moving != nil && p.Moving.State == "running":
-		return fmt.Sprintf("moving %d of %d", p.Moving.Done, p.Moving.All), "warn"
+		return fmt.Sprintf("Moving %d of %d", p.Moving.Done, p.Moving.All), "warn"
 	case p.Moving != nil && p.Moving.State == "failed":
-		return "move failed", "danger"
+		return "Move failed", "danger"
 	case p.NodeForgotten:
-		return "node forgotten: repoint to restore", "danger"
+		return "Node forgotten: repoint to restore", "danger"
 	case p.NodeID == "":
-		return "no node yet", "warn"
+		return "No node yet", "warn"
 	case !p.Online:
-		return "offline", "danger"
+		return "Offline", "danger"
 	}
-	return "online", "success"
+	return "Online", "success"
 }
 
 // POST /-/admin/placements

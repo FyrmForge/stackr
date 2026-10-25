@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
-	"strconv"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
@@ -13,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -43,15 +43,7 @@ func (p Panel) shares(c echo.Context) (map[string]service.ServerConnector, error
 
 // sharedWith is a server connection's sharing in a few words.
 func sharedWith(k service.ServerConnector) string {
-	switch {
-	case k.ShareAll:
-		return "Shared with all organizations"
-	case len(k.OrgIDs) == 1:
-		return "Shared with 1 organization"
-	case len(k.OrgIDs) > 1:
-		return "Shared with " + strconv.Itoa(len(k.OrgIDs)) + " organizations"
-	}
-	return "Not shared yet"
+	return comp.ShareSummary(k.ShareAll, len(k.OrgIDs))
 }
 
 // gitRow fills a git connection's row: at the server its sharing, where

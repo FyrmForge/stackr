@@ -26,7 +26,7 @@ type RegistryOrg struct{ Org, Versions, Size string }
 
 templ Registry(v RegistryView) {
 	<div id="tab-registry">
-		@c.Section("Registry", "instance", "What the registry holds, per organization.") {
+		@c.Section("", "", "What the registry holds, per organization.") {
 			if v.Err != "" {
 				<p class="text-sm text-rw-warn">{ v.Err }</p>
 			} else {

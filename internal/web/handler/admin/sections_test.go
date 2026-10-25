@@ -91,8 +91,8 @@ func TestAdminSections(t *testing.T) {
 		}
 	}
 
-	// the drawer is gone; an unknown section is not found
-	for _, p := range []string{"/-/admin", "/-/admin?tab=settings", "/-/admin/settings", "/-/admin/nope"} {
+	// an unknown section is not found; the root goes to Overview (canvas drawer_test)
+	for _, p := range []string{"/-/admin/settings", "/-/admin/nope"} {
 		if rec := s.As(t, root, "GET", p, nil); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", p, rec.Code)
 		}
