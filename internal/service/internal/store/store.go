@@ -197,6 +197,10 @@ type table[T any] struct {
 	secret func(*T) []*string
 }
 
+// resealers has one entry per table with encrypted columns, added by newTable,
+// so a table cannot be left out of a key rotation.
+var resealers []func(ctx context.Context, q querier, old, next *secrets.Box) error
+
 func newTable[T any](name string, secret func(*T) []*string) table[T] {
 	var cols, named, sets []string
 	rt := reflect.TypeFor[T]()
@@ -211,7 +215,7 @@ func newTable[T any](name string, secret func(*T) []*string) table[T] {
 			sets = append(sets, c+" = :"+c)
 		}
 	}
-	return table[T]{
+	t := table[T]{
 		name: name,
 		cols: strings.Join(cols, ", "),
 		insert: fmt.Sprintf(
@@ -223,6 +227,52 @@ func newTable[T any](name string, secret func(*T) []*string) table[T] {
 		update: fmt.Sprintf("UPDATE %s SET %s WHERE id = :id", name, strings.Join(sets, ", ")),
 		secret: secret,
 	}
+	if secret != nil {
+		resealers = append(resealers, t.reseal)
+	}
+	return t
+}
+
+// reseal rewrites every row's encrypted columns from old to next.
+func (t table[T]) reseal(ctx context.Context, q querier, old, next *secrets.Box) error {
+	var rows []T
+	if err := q.SelectContext(ctx, &rows, "SELECT "+t.cols+" FROM "+t.name); err != nil {
+		return mapErr(err)
+	}
+	for i := range rows {
+		for _, p := range t.secret(&rows[i]) {
+			v, err := old.Decrypt(*p)
+			if err != nil {
+				return fmt.Errorf("%s: %w", t.name, err)
+			}
+			if *p, err = next.Encrypt(v); err != nil {
+				return err
+			}
+		}
+		if _, err := q.NamedExecContext(ctx, t.update, rows[i]); err != nil {
+			return mapErr(err)
+		}
+	}
+	return nil
+}
+
+// Reseal moves every encrypted column and sealed setting from old's key to
+// next's in one transaction: all of it or none.
+func (s *Store) Reseal(ctx context.Context, old, next *secrets.Box) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, r := range resealers {
+		if err := r(ctx, tx, old, next); err != nil {
+			return err
+		}
+	}
+	if err := resealSettings(ctx, tx, old, next); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // crud is the shared create/get/update/delete; each table adds its own

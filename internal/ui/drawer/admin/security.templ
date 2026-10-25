@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"strconv"
 	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -15,6 +16,18 @@ type SecurityView struct {
 	Actors  []AccessOption // the actor picker
 	Windows []AccessOption // the time picker
 	More    string         // GET for older rows; "" = this is all of them
+	Key     MasterKeyView
+}
+
+// MasterKeyView is the master key section. Rotate is the POST target; ""
+// = may not (the key comes from the environment). Done is the answer to a
+// rotation just started.
+type MasterKeyView struct {
+	Gen            int
+	Since          time.Time // zero = never rotated
+	Pending        bool
+	Rotate         string
+	Error, Done    string
 }
 
 // SecurityFilter is what the pickers hold now.
@@ -32,6 +45,7 @@ type SecurityDetail struct{ Label, Value string }
 
 templ Security(v SecurityView) {
 	<div id="tab-security">
+		@MasterKey(v.Key)
 		@c.Section("Security log", "instance", "Every sign-in, grant, key and node change. Kept forever.") {
 			<form hx-get={ Base } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
 				<input type="hidden" name="tab" value="security"/>
@@ -87,4 +101,37 @@ templ securityPicker(name, label, any string, opts []AccessOption, cur string) {
 			<option value={ o.Value } selected?={ o.Value == cur }>{ o.Label }</option>
 		}
 	</select>
+}
+
+// MasterKey is the master key section; the rotation answers with it alone.
+templ MasterKey(v MasterKeyView) {
+	<div id="master-key">
+		@c.Section("Master key", "instance", "Seals every secret stored on this server.") {
+			<div class="space-y-3">
+				<p class="text-sm text-rw-muted">
+					{ "Key generation " + strconv.Itoa(v.Gen) }
+					if !v.Since.IsZero() {
+						{ " since " }
+						@c.Time(v.Since, "Jan 2, 2006")
+					}
+					{ "." }
+				</p>
+				if v.Error != "" {
+					<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+				}
+				if v.Done != "" {
+					<p class="text-sm text-rw-warn" role="status">{ v.Done }</p>
+				} else if v.Pending {
+					<p class="text-sm text-rw-warn" role="status">A new key is waiting for the panel to restart.</p>
+				} else if v.Rotate != "" {
+					<form hx-post={ v.Rotate } hx-target="#master-key" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+						@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true, Help: "The panel restarts. Older backups keep the old key."})
+						<button type="submit" class="btn btn-ghost btn-sm">Rotate the master key</button>
+					</form>
+				} else {
+					<p class="text-sm text-rw-faint">This key is set in the environment.</p>
+				}
+			</div>
+		}
+	</div>
 }

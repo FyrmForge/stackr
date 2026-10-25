@@ -85,3 +85,7 @@ func (b *Box) Decrypt(s string) (string, error) {
 	}
 	return string(pt), nil
 }
+
+// Sealed reports whether s looks like an Encrypt result, so a sweep can tell
+// sealed settings from plain ones.
+func Sealed(s string) bool { return strings.HasPrefix(s, prefix) }

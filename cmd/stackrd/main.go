@@ -214,7 +214,10 @@ func run(log *slog.Logger, generate bool) error {
 		return nil
 	}
 
-	masterKey := masterKey()
+	masterKey, err := masterKey()
+	if err != nil {
+		return fmt.Errorf("master key: %w", err)
+	}
 	tlsOff := config.GetEnvOrDefault("STACKR_TLS", "") == "off"
 	// The installer's saved answers: the upgrade rebuilds the panel from
 	// the same spec the installer ran. None (dev) = no self-upgrade.
@@ -235,6 +238,8 @@ func run(log *slog.Logger, generate bool) error {
 		DataDir:    envDataDir,
 		DBPath:     envDatabasePath,
 		SecretsKey: masterKey,
+		KeyFromEnv: envMasterKey != "",
+		Restart:    restartPanel,
 		// Secure whenever the public URL is https, even with TLS off here
 		// (another proxy terminates it); never over a plain-http URL.
 		CookieSecure: web.CookieSecure(envBaseURL),
@@ -309,14 +314,16 @@ func run(log *slog.Logger, generate bool) error {
 	return srv.Start()
 }
 
-// masterKey is STACKR_MASTER_KEY, else the key file the installer wrote.
-func masterKey() string {
-	if envMasterKey != "" {
-		return envMasterKey
-	}
-	b, _ := os.ReadFile(filepath.Join(envDataDir, installspec.KeyFile))
-	return strings.TrimSpace(string(b))
+// masterKey is STACKR_MASTER_KEY, else the key file the installer wrote. A
+// rotation waiting in keys/master.key.next is finished first, so the server
+// and the CLI commands all see the key the database is sealed with.
+func masterKey() (string, error) {
+	return service.LoadMasterKey(context.Background(), envDataDir, envDatabasePath, envMasterKey)
 }
+
+// restartPanel ends the process; the container's restart policy starts it
+// again, and the boot finishes the master key rotation.
+func restartPanel() { _ = syscall.Kill(os.Getpid(), syscall.SIGTERM) }
 
 // adminKeyPrefix starts the create-admin line carrying the admin's first API
 // key; stackr-install reads it.
@@ -337,7 +344,11 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: masterKey()}
+	key, err := masterKey()
+	if err != nil {
+		return err
+	}
+	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: key}
 	ctx := context.Background()
 	if *check {
 		need, err := service.NeedsAdmin(ctx, cfg)
@@ -368,7 +379,11 @@ func createAdmin(args []string, stdin io.Reader, out io.Writer) error {
 // adminKey mints a new key for the stackr admin and prints it on the line
 // stackr-install reads.
 func adminKey(out io.Writer) error {
-	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: masterKey()}
+	mk, err := masterKey()
+	if err != nil {
+		return err
+	}
+	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: mk}
 	u, key, err := service.MintAdminKey(context.Background(), cfg)
 	if err != nil {
 		return err

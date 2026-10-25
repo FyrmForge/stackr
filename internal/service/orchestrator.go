@@ -90,6 +90,12 @@ type Config struct {
 	DataDir    string // job logs, clones, backups and other state live under it
 	DBPath     string // "" = <DataDir>/stackr.db
 	SecretsKey string // 64 hex chars; required, never generated here
+	// KeyFromEnv is true when SecretsKey came from STACKR_MASTER_KEY: the
+	// panel cannot rotate a key it does not own.
+	KeyFromEnv bool
+	// Restart ends the process so the supervisor starts it again; a
+	// master key rotation takes effect on that boot. nil = nothing restarts.
+	Restart func()
 
 	// Boot values for knobs the settings catalogue also holds: 0 = the
 	// catalogue default; a settings row, once written, wins (DECIDE 15).
@@ -430,6 +436,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	d := o.docker
 
 	st := build("store", func() *store.Store { return store.New(db, box) })
+	if err := ensureCanary(ctx, st); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	nodes := build("leaf/node", func() *node.Leaf { return node.New(st.Nodes) })
 	// The controller row is made once; "the head" is that row, never this process.
 	ctl, created, err := nodes.Bootstrap(ctx)

@@ -5,6 +5,8 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,11 +37,12 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stackr-install restore", flag.ContinueOnError)
 	keyStdin := fs.Bool("key-stdin", false, "read the recovery key from the first line of stdin (or set "+recoveryKeyEnv+", or type it at the prompt)")
 	image := fs.String("image", "", "panel image to run (default: the build the archive names)")
+	rotate := fs.Bool("rotate-key", true, "when the archive carries an older master key than this box, rotate to a new one on the first boot")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: stackr-install restore [--key-stdin] [--image REF] <archive | s3://bucket/prefix/>")
+		return errors.New("usage: stackr-install restore [--key-stdin] [--rotate-key=false] [--image REF] <archive | s3://bucket/prefix/>")
 	}
 	secret, err := recoveryKey(os.Getenv(recoveryKeyEnv), *keyStdin, os.Stdin)
 	if err == nil && secret == "" {
@@ -85,6 +88,10 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		return fmt.Errorf("read archive (nothing changed): %w", withNeededGen(err, archiveName))
 	}
 	ver := info.version
+	keyWarn := masterKeyChange(dataDir, stage)
+	if keyWarn != "" {
+		_, _ = fmt.Fprintln(out, "Warning:", keyWarn)
+	}
 	if *image == "" {
 		v, err := checkVersion(ver, "")
 		if err != nil {
@@ -143,6 +150,17 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	// replaced; the restored database is sealed with the archive's key.
 	if err := os.Remove(filepath.Join(dataDir, installspec.KeyNextFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if keyWarn != "" && *rotate {
+		// The first boot re-seals everything under a fresh key (rotation).
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return err
+		}
+		if err := installspec.WriteKeyFile(filepath.Join(dataDir, installspec.KeyNextFile), []byte(hex.EncodeToString(raw)+"\n")); err != nil {
+			return err
+		}
+		r.say("  the panel rotates to a new master key on its first boot")
 	}
 	// Certificates are re-issuable (rate limits aside), the database is not:
 	// a proxy volume that fails to restore warns and the restore goes on.
@@ -396,4 +414,26 @@ func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
 		return info, errors.New("the archive is incomplete")
 	}
 	return info, nil
+}
+
+// masterKeyChange says what restoring does to the master key: "" when the
+// archive's key (staged in stage) is the one this box runs on, else a warning
+// naming the key that replaced it when the box has rotated.
+func masterKeyChange(dataDir, stage string) string {
+	had, err := os.ReadFile(filepath.Join(dataDir, installspec.KeyFile))
+	if err != nil {
+		return ""
+	}
+	got, err := os.ReadFile(filepath.Join(stage, installspec.KeyFile))
+	if err != nil || strings.TrimSpace(string(had)) == strings.TrimSpace(string(got)) {
+		return ""
+	}
+	// keys/master.gen is the panel's note of the current generation and date.
+	if g, _ := os.ReadFile(filepath.Join(dataDir, "keys/master.gen")); len(strings.Fields(string(g))) == 2 {
+		f := strings.Fields(string(g))
+		if at, err := time.Parse(time.RFC3339, f[1]); err == nil {
+			return fmt.Sprintf("This backup uses an older master key; key %s replaced it on %s; restoring brings the old key back.", f[0], at.Format("2006-01-02"))
+		}
+	}
+	return "This backup uses a different master key than this box; restoring brings its key back."
 }
