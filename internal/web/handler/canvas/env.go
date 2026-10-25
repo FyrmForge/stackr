@@ -194,38 +194,6 @@ func (h *handler) lockView(c echo.Context, cd card, base string) (envui.LockView
 	return v, err
 }
 
-// orderView gives each rung the whole order after one move up or down.
-// The env drawer's Order tab is gone; the stack drawer's Env order row
-// takes this and POST /order.
-//
-//nolint:unused // kept for the stack drawer's Env order row
-func orderView(es []service.Environment) envui.OrderView {
-	ids := make([]string, len(es))
-	for i, e := range es {
-		ids[i] = e.ID
-	}
-	hues := service.EnvHues(es)
-	var v envui.OrderView
-	swap := func(i, j int) []string {
-		if j < 0 || j >= len(ids) {
-			return nil
-		}
-		o := slices.Clone(ids)
-		o[i], o[j] = o[j], o[i]
-		return o
-	}
-	for i, e := range es {
-		v.Rungs = append(v.Rungs, envui.Rung{
-			ID:    e.ID,
-			Name:  e.Name,
-			Color: hues[e.ID],
-			Up:    swap(i, i+1),
-			Down:  swap(i, i-1),
-		})
-	}
-	return v
-}
-
 func (h *handler) envAction(tab string, do func(echo.Context, card) (string, error)) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		cd, _ := h.cardOf(c, "env")

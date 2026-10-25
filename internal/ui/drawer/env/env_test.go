@@ -33,6 +33,7 @@ func TestTabs(t *testing.T) {
 		`name="open" value="deploys"`,
 		`data-acc="delete"`,
 		"promoted from staging</span>",
+		`group-has-[input[value=promote]:checked]/deploys:hidden" data-field><input type="checkbox" name="auto"`, // no push deploys under Promote
 		`id="tab-logs"`,
 	} {
 		if !strings.Contains(got, w) {

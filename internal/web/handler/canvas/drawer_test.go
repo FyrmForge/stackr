@@ -187,14 +187,12 @@ func TestDrawerTabs(t *testing.T) {
 	}
 }
 
-// The env's Params, Order and Placement tabs are Settings rows now: their
-// old keys land on Settings, ?open= opens a row, and each row sums itself up.
+// The env drawer opens on Releases (an env card); Settings is accordion
+// rows, ?open= opens one, and each row sums itself up.
 func TestEnvSettingsRows(t *testing.T) {
 	s := webtest.New(t)
-	for _, tab := range []string{"params", "order", "placement"} {
-		if body := get(t, s, "/acme/shop/dev/-/drawer?tab="+tab); !strings.Contains(body, `id="tab-settings"`) {
-			t.Errorf("tab=%s does not land on Settings:\n%s", tab, body)
-		}
+	if body := get(t, s, "/acme/shop/dev/-/drawer"); !strings.Contains(body, `id="tab-releases"`) {
+		t.Error("the env drawer does not open on Releases")
 	}
 	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings&open=placement")
 	for _, w := range []string{
@@ -234,11 +232,11 @@ func TestEnvResourcesChanged(t *testing.T) {
 }
 
 // With log history off the env drawer has no Logs tab (asking for it lands on
-// Settings) and the viewer route is gone.
+// Releases) and the viewer route is gone.
 func TestLogsTabOffWhenHistoryOff(t *testing.T) {
 	s := webtest.New(t)
 	body := get(t, s, "/acme/shop/dev/-/drawer?tab=logs")
-	if strings.Contains(body, `tab=logs`) || !strings.Contains(body, `id="tab-settings"`) {
+	if strings.Contains(body, `tab=logs`) || !strings.Contains(body, `id="tab-releases"`) {
 		t.Errorf("env drawer offers Logs:\n%s", body)
 	}
 	if rec := s.Do(t, "GET", "/acme/shop/dev/-/logs", nil); rec.Code != http.StatusNotFound {
