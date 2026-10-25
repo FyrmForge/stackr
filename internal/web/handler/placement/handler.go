@@ -299,9 +299,17 @@ func (h *handler) dnsView(c echo.Context, m service.DNSMove) ui.DNSView {
 	}
 	var names []string
 	for _, x := range m.Hand {
+		if x.Note != "" {
+			v.Held = append(v.Held, ui.DNSHost{Host: x.Host, Note: x.Note})
+			continue
+		}
 		v.Hand = append(v.Hand, row(x))
 	}
 	for _, x := range m.Managed {
+		if x.Note != "" {
+			v.Held = append(v.Held, ui.DNSHost{Host: x.Host, Note: x.Note})
+			continue
+		}
 		v.Managed = append(v.Managed, row(x))
 		if !slices.Contains(names, x.Connector) {
 			names = append(names, x.Connector)

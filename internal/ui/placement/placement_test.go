@@ -86,3 +86,21 @@ func TestDNSList(t *testing.T) {
 		}
 	}
 }
+
+// Hosts onto a node with no public IP are listed apart with the note: no
+// repoint, no record rows, no repoint tick.
+func TestDNSListHeldHosts(t *testing.T) {
+	body := render(t, ui.DNS(ui.DNSView{
+		Held: []ui.DNSHost{{Host: "shop.example.com", Note: "Node h4 has no public IP address; records are left as they are"}},
+	}))
+	for _, w := range []string{"Left as they are", "shop.example.com", "Node h4 has no public IP address"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("dns list lacks %q", w)
+		}
+	}
+	for _, w := range []string{"Repointed for you", "Point these hosts here", `name="repoint"`} {
+		if strings.Contains(body, w) {
+			t.Errorf("dns list has %q for a held host", w)
+		}
+	}
+}

@@ -230,6 +230,7 @@ type DNSRow struct{ Type, Name, Value string }
 // where it resolves now; OK, it matches.
 type DNSHost struct {
 	Host, Old, New, Now, Err string
+	Note                     string // set: nothing to point at, listed apart
 	Rows                     []DNSRow
 	OK                       bool
 }
@@ -239,11 +240,12 @@ type DNSHost struct {
 // CheckAction and CheckVals post the list back to look it up again.
 type DNSView struct {
 	Hand, Managed          []DNSHost
+	Held                   []DNSHost // hosts left as they are, whichever kind
 	Connectors             string // "Cloudflare", "Cloudflare, Namecheap"
 	CheckAction, CheckVals string
 }
 
-func (v DNSView) Empty() bool { return len(v.Hand) == 0 && len(v.Managed) == 0 }
+func (v DNSView) Empty() bool { return len(v.Hand) == 0 && len(v.Managed) == 0 && len(v.Held) == 0 }
 
 // Include is the confirm's hx-include: the repoint tick, when there is one.
 func (v DNSView) Include() string {
@@ -284,6 +286,17 @@ templ DNS(v DNSView) {
 							{ h.Host }
 							<span class="text-rw-faint">{ " " + h.Old + " to " + h.New }</span>
 							@dnsNow(h)
+						</p>
+					}
+				</div>
+			}
+			if len(v.Held) > 0 {
+				<div class="space-y-2">
+					<p class="text-sm font-medium text-rw-text">Left as they are</p>
+					for _, h := range v.Held {
+						<p class="text-sm font-mono text-rw-text">
+							{ h.Host }
+							<span class="text-rw-faint">{ " " + h.Note }</span>
 						</p>
 					}
 				</div>

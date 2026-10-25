@@ -193,3 +193,30 @@ func TestIngressSwitchPlanSkipsManagedHosts(t *testing.T) {
 		t.Errorf("hosts = %+v, want only the hand-pointed one", plan.Hosts)
 	}
 }
+
+// A move onto a node with no public IP lists its hosts with a note, not as
+// repoints or empty record rows: the records stay as they are.
+func TestDNSForMoveNodeWithoutPublicIP(t *testing.T) {
+	ctx := context.Background()
+	f := &zoneFake{}
+	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))
+	ingressNode(t, n, "h4", "")
+	c, err := n.orch.AddConnector(ctx, ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: map[string]string{"user": "u", "key": "k", "client_ip": "203.0.113.7"}})
+	must(t, err)
+	_, err = n.orch.ManageDNSDomain(ctx, nil, c.Connector.ID, "acme.dev", nil)
+	must(t, err)
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d1", TileID: n.edgeT.ID, Host: "shop.acme.dev", Path: "/", CreatedAt: time.Now()}))
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d2", TileID: n.edgeT.ID, Host: "shop.example.com", Path: "/", CreatedAt: time.Now()}))
+
+	m, err := n.orch.DNSForMove(ctx, map[string]string{n.edgeT.ID: "h4"})
+	must(t, err)
+	const note = "Node h4 has no public IP address; records are left as they are"
+	if len(m.Hand) != 1 || len(m.Managed) != 1 {
+		t.Fatalf("move = %+v", m)
+	}
+	for _, h := range append(m.Hand, m.Managed...) {
+		if h.Note != note || len(h.Records) != 0 || len(h.New) != 0 || len(h.Want) != 0 {
+			t.Errorf("%s = %+v", h.Host, h)
+		}
+	}
+}

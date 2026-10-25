@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
@@ -223,6 +224,9 @@ type DNSHost struct {
 	Points    []string    `json:"points,omitempty"`
 	OK        bool        `json:"ok"`
 	Error     string      `json:"error,omitempty"`
+	// Note is set when the destination has no public IP: there is nothing to
+	// point at, the records stay as they are, and Records and New are empty.
+	Note string `json:"note,omitempty"`
 }
 
 // DNSMove is the hosts a move sends to another ingress node: Hand the ones
@@ -296,9 +300,13 @@ func (o *Orchestrator) DNSForMove(ctx context.Context, to map[string]string) (DN
 // dnsHost is host's move from node from to node to.
 func (o *Orchestrator) dnsHost(ctx context.Context, tileID, host, from, to string) (h DNSHost, managed bool, err error) {
 	h = DNSHost{Host: host}
-	v4, v6, _, err := o.nodeAddrs(ctx, to)
+	v4, v6, toName, err := o.nodeAddrs(ctx, to)
 	if err != nil {
 		return h, false, err
+	}
+	if !v4.IsValid() && !v6.IsValid() {
+		h.Note = fmt.Sprintf("Node %s has no public IP address; records are left as they are", toName)
+		return h, o.dnsFollows(ctx, tileID, host), nil
 	}
 	for _, a := range []netip.Addr{v4, v6} {
 		if !a.IsValid() {
