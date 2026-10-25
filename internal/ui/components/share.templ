@@ -1,0 +1,46 @@
+package components
+
+// ShareView is the one "who may use this" control (destinations,
+// connectors, DNS domains, placements). Pure view: the caller names the
+// fields and wraps it in its own form with its own Save. The org boxes are
+// disabled, so not posted, unless Mode is "only"; main.js flips them as the
+// radio changes.
+type ShareView struct {
+	ModeName string // the radio's name; posts ShareAll, ShareOnly or ShareServer
+	OrgName  string // the org checkboxes' name; each posts its org's ID
+	Mode     string // ShareAll, ShareOnly or ShareServer
+	Orgs     []ShareOrg
+}
+
+// ShareOrg is one org box; On = it may use it now.
+type ShareOrg struct {
+	ID, Name string
+	On       bool
+}
+
+const (
+	ShareAll    = "all"
+	ShareOnly   = "only"
+	ShareServer = "server"
+)
+
+templ Share(v ShareView) {
+	<fieldset class="space-y-1" data-share>
+		<legend class="label">Available to</legend>
+		@shareMode(v, ShareAll, "Every org")
+		@shareMode(v, ShareOnly, "Only these orgs")
+		<div class="space-y-1 pl-6">
+			for _, o := range v.Orgs {
+				<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name={ v.OrgName } value={ o.ID } checked?={ o.On } disabled?={ v.Mode != ShareOnly } class="accent-rw-accent" data-share-org/> { o.Name }</label>
+			}
+			if len(v.Orgs) == 0 {
+				<p class="text-xs text-rw-faint">No organizations yet.</p>
+			}
+		</div>
+		@shareMode(v, ShareServer, "Server only")
+	</fieldset>
+}
+
+templ shareMode(v ShareView, mode, label string) {
+	<label class="flex items-center gap-2 text-rw-text"><input type="radio" name={ v.ModeName } value={ mode } checked?={ v.Mode == mode } class="accent-rw-accent"/> { label }</label>
+}
