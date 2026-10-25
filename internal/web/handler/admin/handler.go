@@ -359,6 +359,11 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			return nil, serr
 		}
 		v.Sched.Enabled = on == "true"
+		off, oerr := h.orch.PanelBackupOffBox(ctx)
+		if oerr != nil {
+			return nil, oerr
+		}
+		v.NoOffBox = !off
 		if added, _ := c.Get(addedDestKey).(string); v.Sched.Dest == "" {
 			v.Sched.Dest = added
 		}
