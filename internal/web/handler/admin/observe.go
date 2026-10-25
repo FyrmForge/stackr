@@ -13,34 +13,42 @@ import (
 )
 
 func (h *handler) mountObserve(g *echo.Group, a *middleware.Access) {
-	g.POST(ui.Base+"/observe", h.act("observability", func(c echo.Context) (string, *service.Job, error) {
-		on := "false"
-		if c.FormValue("observe_enabled") != "" {
-			on = "true"
-		}
-		logs := "false"
-		if c.FormValue("observe_logs_enabled") != "" {
-			logs = "true"
-		}
+	g.POST(ui.Base+"/observe", h.act("metrics", func(c echo.Context) (string, *service.Job, error) {
 		flag := func(k string) string {
 			if c.FormValue(k) != "" {
 				return "true"
 			}
 			return "false"
 		}
-		return "Saved.", nil, h.orch.SetSettings(c.Request().Context(), map[string]string{
-			"observe_enabled":           on,
+		all := map[string]string{
+			"observe_enabled":           flag("observe_enabled"),
 			"observe_metrics_retention": c.FormValue("observe_metrics_retention"),
 			"observe_min_free":          c.FormValue("observe_min_free"),
 			"observe_max_memory":        c.FormValue("observe_max_memory"),
-			"observe_logs_enabled":      logs,
+			"observe_logs_enabled":      flag("observe_logs_enabled"),
 			"observe_logs_retention":    c.FormValue("observe_logs_retention"),
 			"observe_logs_max_size":     c.FormValue("observe_logs_max_size"),
 			"observe_access_query":      flag("observe_access_query"),
 			"observe_access_ip":         flag("observe_access_ip"),
 			"observe_access_headers":    flag("observe_access_headers"),
-		})
+		}
+		// each panel posts its part: a box left out of the post is not "off"
+		vals := all
+		if keys, ok := observeParts[c.FormValue("part")]; ok {
+			vals = map[string]string{}
+			for _, k := range keys {
+				vals[k] = all[k]
+			}
+		}
+		return "Saved.", nil, h.orch.SetSettings(c.Request().Context(), vals)
 	}), a.Require("serverdefaults.set"))
+}
+
+// observeParts is each Metrics and logs panel's knobs.
+var observeParts = map[string][]string{
+	"metrics": {"observe_enabled", "observe_metrics_retention", "observe_min_free", "observe_max_memory"},
+	"logs":    {"observe_logs_enabled", "observe_logs_retention", "observe_logs_max_size"},
+	"access":  {"observe_access_query", "observe_access_ip", "observe_access_headers"},
 }
 
 // observeTab is metrics history's knobs and what it holds.

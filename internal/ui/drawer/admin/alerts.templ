@@ -19,7 +19,7 @@ type AlertsView struct {
 	// Heartbeat: the dead-man's-switch URL, masked; "" = off.
 	Heartbeat      string
 	HeartbeatSave  string // POST url
-	HeartbeatClear string // POST; "" = off already
+	HeartbeatClear c.ConfirmView // Action "" = off already
 }
 
 templ Alerts(v AlertsView) {
@@ -46,7 +46,7 @@ templ Alerts(v AlertsView) {
 				}
 				if v.Test != "" {
 					<div class="flex flex-wrap items-center gap-2">
-						@c.PostButton("Send test", v.Test)
+						@post("Send test", v.Test)
 						@c.Confirm(v.Clear)
 					</div>
 				}
@@ -55,13 +55,13 @@ templ Alerts(v AlertsView) {
 		@c.Section("Heartbeat", "instance", "Get told when stackr stops pinging a URL.") {
 			<form hx-post={ v.HeartbeatSave } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 				@c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Placeholder: alertsPlaceholder(v.Heartbeat), Help: alertsURLHelp(v.Heartbeat)})
-				<div class="flex flex-wrap items-center gap-2">
-					<button type="submit" class="btn btn-primary btn-sm">Save</button>
-					if v.HeartbeatClear != "" {
-						@c.PostButton("Turn off", v.HeartbeatClear)
-					}
-				</div>
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			</form>
+			if v.HeartbeatClear.Action != "" {
+				<div class="mt-5 pt-5 border-t border-rw-border">
+					@c.Confirm(v.HeartbeatClear)
+				</div>
+			}
 		}
 	</div>
 }

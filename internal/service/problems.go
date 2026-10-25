@@ -22,7 +22,7 @@ import (
 const problemPrefix = "problem."
 
 // ProblemsHref is where the banner's "and N more" goes.
-const ProblemsHref = "?drawer=admin&tab=backups"
+const ProblemsHref = "/-/admin/overview"
 
 // Problem is one open problem. Link and LinkText are where it is fixed.
 type Problem struct {
@@ -131,7 +131,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 	}
 	switch kind {
 	case "backup":
-		return "?drawer=admin&tab=backups", "Open backups", true
+		return "/-/admin/backups", "Open backups", true
 	case "node", "disk", "clock", "mem":
 		return onNode(rest)
 	case "certfail": // certfail.<node>.<host>
@@ -141,14 +141,14 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		if id, isNode := strings.CutPrefix(rest, "node."); isNode {
 			return onNode(id)
 		}
-		return "?drawer=admin&tab=nodes", "Open nodes", true
+		return "/-/admin/keys", "Open keys", true
 	case "observe":
-		return "?drawer=admin&tab=observability", "Open observability", true
+		return "/-/admin/metrics", "Open metrics and logs", true
 	case "crash":
 		if _, err := o.store.Tiles.Get(ctx, rest); errors.Is(err, errs.ErrNotFound) {
 			return "", "", false
 		}
 		return "/" + o.scopePath(ctx, ScopeTile, rest), "Open app", true
 	}
-	return "?drawer=admin&tab=alerts", "Open alerts", true
+	return "/-/admin/alerts", "Open alerts", true
 }

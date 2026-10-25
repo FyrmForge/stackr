@@ -49,7 +49,13 @@ func (h *handler) alertsTab(c echo.Context) (templ.Component, error) {
 	v := ui.AlertsView{Action: ui.Base + "/alerts", URL: s.URL, SecretSet: s.SecretSet}
 	v.Heartbeat, v.HeartbeatSave = s.Heartbeat, ui.Base+"/alerts/heartbeat"
 	if s.Heartbeat != "" {
-		v.HeartbeatClear = ui.Base + "/alerts/heartbeat/clear"
+		v.HeartbeatClear = comp.ConfirmView{
+			Button:  "Turn off",
+			Title:   "Turn the heartbeat off?",
+			Warning: "stackr stops pinging the URL and forgets it.",
+			Action:  ui.Base + "/alerts/heartbeat/clear",
+			Target:  ui.Target,
+		}
 	}
 	if s.URL != "" {
 		v.Test = ui.Base + "/alerts/test"
@@ -58,7 +64,7 @@ func (h *handler) alertsTab(c echo.Context) (templ.Component, error) {
 			Title:   "Turn alerts off?",
 			Warning: "stackr forgets the webhook URL and secret.",
 			Action:  ui.Base + "/alerts/clear",
-			Target:  "#" + comp.DrawerRoot,
+			Target:  ui.Target,
 		}
 	}
 	if d := s.Last; d != nil {

@@ -67,8 +67,7 @@ func TestDrawerRouteLoadsInShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
-		"/-/admin?tab=settings":    "/?drawer=admin&tab=settings",
-		"/-/admin/nodes/n1":        "/?drawer=node%3An1",
+		"/-/admin/nodes/n1":        "/-/admin/nodes?drawer=node%3An1",
 		"/acme/-/drawer?tab=audit": "/acme?drawer=org%3A" + b.org + "&tab=audit",
 	} {
 		rec := b.do(t, "GET", path, nil, false)
@@ -76,12 +75,12 @@ func TestDrawerRouteLoadsInShell(t *testing.T) {
 			t.Errorf("%s = %d %q, want %q", path, rec.Code, rec.Header().Get("Location"), want)
 		}
 	}
-	body := b.do(t, "GET", "/?drawer=admin&tab=settings", nil, false).Body.String()
-	if !strings.Contains(body, `<side-drawer open tab="settings">`) || !strings.Contains(body, `hx-get="/-/admin?tab=settings"`) {
-		t.Errorf("the shell form does not open the admin drawer:\n%s", body)
+	// the admin drawer is gone: no route, and ?drawer=admin opens nothing
+	if rec := b.do(t, "GET", "/-/admin?tab=settings", nil, true); rec.Code != http.StatusNotFound {
+		t.Errorf("htmx admin drawer = %d, want 404", rec.Code)
 	}
-	if rec := b.do(t, "GET", "/-/admin?tab=settings", nil, true); rec.Code != http.StatusOK {
-		t.Errorf("htmx admin drawer = %d", rec.Code)
+	if body := b.do(t, "GET", "/?drawer=admin&tab=settings", nil, false).Body.String(); strings.Contains(body, `<side-drawer open`) {
+		t.Errorf("?drawer=admin still opens a drawer:\n%s", body)
 	}
 }
 

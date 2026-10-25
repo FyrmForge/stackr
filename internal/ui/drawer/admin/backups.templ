@@ -1,0 +1,123 @@
+package admin
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// lastFailed is how many of the newest runs failed in a row.
+func lastFailed(rows []Backup) int {
+	n := 0
+	for _, b := range rows {
+		if b.Status != "failed" {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// lastGood is the newest run that worked; nil = none yet.
+func lastGood(rows []Backup) *Backup {
+	for i := range rows {
+		if rows[i].Status == "done" {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+func failedTitle(n int) string {
+	if n == 1 {
+		return "The last run failed"
+	}
+	return "The last " + strconv.Itoa(n) + " runs failed"
+}
+
+templ Backups(v BackupsView) {
+	<div id="tab-backups">
+		if v.NoOffBox {
+			<p class="banner" role="status" data-backup-warning>Backups are only on this server. <a href="#dest_name" class="underline">Add an S3 destination.</a></p>
+		}
+		@c.Section("Stackr's own database", "instance", "A copy of the panel database, taken while it serves. Restore it on the host with stackr-install restore.") {
+			<div class="space-y-4">
+				if n := lastFailed(v.Rows); n > 0 {
+					<div class="rounded-lg border border-rw-danger/40 bg-rw-danger/10 px-4 py-3 text-sm" role="status">
+						<p class="font-medium text-rw-danger">{ failedTitle(n) }</p>
+						if v.Rows[0].Error != "" {
+							<p class="text-rw-text mt-0.5">{ v.Rows[0].Error }</p>
+						}
+						if g := lastGood(v.Rows); g != nil {
+							<p class="text-rw-faint mt-0.5">Last good backup @c.Time(g.When, "Jan 2 15:04").</p>
+						}
+					</div>
+				} else if len(v.Rows) == 0 {
+					<p class="text-sm text-rw-muted">Last run: none yet.</p>
+				} else {
+					<p class="text-sm text-rw-muted">
+						{ "Last run: " }
+						@c.Time(v.Rows[0].When, "Jan 2 15:04")
+						{ ", " + v.Rows[0].Status + ", to " + v.Rows[0].Dest + "." }
+					</p>
+				}
+				if v.Sched.Action != "" {
+					<form hx-post={ v.Sched.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="panel_backup_enabled" name="panel_backup_enabled" value="1" checked?={ v.Sched.Enabled } class="accent-rw-accent"/> Back up on a schedule</label>
+						@c.Field(c.FieldView{Name: "panel_backup_schedule", Label: "When", Value: v.Sched.Schedule, Help: "Five-field cron. Empty is 3:00 daily."})
+						@c.Field(c.FieldView{Name: "panel_backup_keep", Label: "Keep", Type: "number", Value: v.Sched.Keep, Help: "Older copies are deleted."})
+						<div>
+							<label for="panel_backup_dest" class="label">Destination</label>
+							<select id="panel_backup_dest" name="panel_backup_dest" class="input">
+								<option value="" selected?={ v.Sched.Dest == "" }>Local</option>
+								for _, d := range v.Sched.Dests {
+									<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
+								}
+							</select>
+						</div>
+						<button type="submit" class="btn btn-primary btn-sm">Save</button>
+					</form>
+				}
+				<p class="text-xs text-rw-faint">
+					{ "Encrypted to recovery key generation " + strconv.Itoa(v.RecoveryGen) + ". " }
+					<a href={ templ.SafeURL(Href("keys")) } hx-get={ Href("keys") } hx-target="#main" hx-push-url="true" class="underline">Keys</a>
+				</p>
+				if v.Now != "" {
+					<form hx-post={ v.Now } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+						<label for="backup_now_dest" class="text-sm text-rw-muted">Destination</label>
+						<select id="backup_now_dest" name="dest" class="input w-auto">
+							<option value="local" selected?={ v.Sched.Dest == "" }>Local</option>
+							for _, d := range v.Sched.Dests {
+								<option value={ d.Value } selected?={ v.Sched.Dest == d.Value }>{ d.Label }</option>
+							}
+						</select>
+						<button type="submit" class="btn btn-ghost btn-sm">Back up now</button>
+					</form>
+				}
+				if v.Job != nil {
+					@c.JobStatus(*v.Job)
+				}
+			</div>
+		}
+		@c.Dests(v.Dests)
+		@c.Section("History", "instance", "") {
+			if len(v.Rows) == 0 {
+				<p class="text-sm text-rw-muted">No panel backups yet.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, b := range v.Rows {
+						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
+							@c.JobBadge(b.Status)
+							<span class="text-rw-text">@c.Time(b.When, "Jan 2 15:04")</span>
+							<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>
+							if b.Error != "" {
+								<span class="text-xs text-rw-danger">{ b.Error }</span>
+							}
+							<span class="ml-auto font-mono text-xs text-rw-muted">{ b.Size }</span>
+						</li>
+					}
+				</ul>
+			}
+		}
+	</div>
+}

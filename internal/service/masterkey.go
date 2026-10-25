@@ -138,7 +138,7 @@ func ensureCanary(ctx context.Context, st *store.Store) error {
 	return st.Settings.SetSealed(ctx, store.CanaryKey, store.CanaryValue)
 }
 
-// MasterKeyStatus is what Admin, Security shows about the master key.
+// MasterKeyStatus is what Server settings, Keys shows about the master key.
 type MasterKeyStatus struct {
 	Gen     int
 	Since   time.Time // zero = never rotated

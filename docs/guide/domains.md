@@ -24,7 +24,7 @@ In the panel, open Admin, Connectors, Add a DNS connector: Namecheap. Fill in th
 
 An org owner can add the org's own Namecheap account under the org's Connectors tab. Its domains are only ever that org's.
 
-A connector is only added in the panel: Admin, Connectors for the server's, or the org's Connectors tab for an org's. Some kinds sign in on the provider's site, which a command line can't do. Once added, the CLI reaches it:
+A connector is only added in the panel: Server settings, Connectors for the server's, or the org's Connectors tab for an org's. Some kinds sign in on the provider's site, which a command line can't do. Once added, the CLI reaches it:
 
 ```bash
 stackr server connectors domains <connector>

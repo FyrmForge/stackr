@@ -15,6 +15,9 @@ type SettingsFormView struct {
 	Error    string // a refusal no one row owns
 	Note     string // what a save did
 	Flat     bool   // one list, no section heads: a Section around it titles it
+	// Keys is the rows the form shows, in this order; nil = every row. A
+	// key with no row is skipped.
+	Keys []string
 }
 
 // SettingRowView mirrors a settings.Knob plus the cascade's answer.
@@ -31,6 +34,9 @@ type SettingRowView struct {
 	Error     string
 	Changed   bool   // this rung sets it: the dot, and data-changed for settings-find
 	From      string // where an inherited value comes from ("org"): a tag after the label
+	// NoInherit: a flat knob, no rung above it. No Inherit choice and no
+	// "inherit" placeholder.
+	NoInherit bool
 }
 
 // knobSection is the v0 section each catalogue key sits in; the label is
@@ -74,6 +80,24 @@ var knobSection = map[string]string{
 }
 
 var knobSections = []string{"Resources", "Protect", "Jobs", "Images", "Volumes", "Backups", "Observability", "Panel and proxy", "Other"}
+
+// shown is the rows Keys picks, in Keys order; every row when Keys is nil.
+func (v SettingsFormView) shown() []SettingRowView {
+	if v.Keys == nil {
+		return v.Rows
+	}
+	by := map[string]SettingRowView{}
+	for _, r := range v.Rows {
+		by[r.Key] = r
+	}
+	var out []SettingRowView
+	for _, k := range v.Keys {
+		if r, ok := by[k]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
 
 func knobLabel(r SettingRowView) string {
 	if r.Label != "" {
@@ -152,12 +176,12 @@ templ SettingsForm(v SettingsFormView) {
 			<legend class="sr-only">{ v.Scope } settings</legend>
 			if v.Flat {
 				<div class="space-y-4">
-					for _, r := range v.Rows {
+					for _, r := range v.shown() {
 						@settingRow(v.ID, r)
 					}
 				</div>
 			} else {
-				for _, rows := range sectioned(v.Rows) {
+				for _, rows := range sectioned(v.shown()) {
 					@PanelSection(v.ID+"-"+strings.ReplaceAll(strings.ToLower(sectionOf(rows)), " ", "-"), sectionOf(rows), "") {
 						for _, r := range rows {
 							@settingRow(v.ID, r)
@@ -210,7 +234,9 @@ templ editRow(form string, r SettingRowView) {
 		switch {
 			case r.Type == "bool":
 				<select id={ form + "-" + r.Key } name={ r.Key } class="input">
-					<option value="" selected?={ r.Value == "" }>Inherit ({ onOff(r.Effective) })</option>
+					if !r.NoInherit {
+						<option value="" selected?={ r.Value == "" }>Inherit ({ onOff(r.Effective) })</option>
+					}
 					<option value="true" selected?={ r.Value == "true" }>On</option>
 					<option value="false" selected?={ r.Value == "false" }>Off</option>
 				</select>
@@ -231,9 +257,13 @@ templ editRow(form string, r SettingRowView) {
 	</div>
 }
 
-// inheritHint is an empty field's placeholder: the inherited value when the
-// From tag names its rung (the Inherited line is then left out).
+// inheritHint is an empty field's placeholder: nothing on a flat knob, the
+// inherited value when the From tag names its rung (the Inherited line is
+// then left out), else "inherit".
 func inheritHint(r SettingRowView) string {
+	if r.NoInherit {
+		return ""
+	}
 	if r.From != "" && r.Effective != "" {
 		return r.Effective
 	}

@@ -13,12 +13,13 @@ import (
 // Shell is what the layout needs: built once per request by render.Page
 // from the URL and the principal, never by a page.
 type Shell struct {
-	Title  string
-	CSRF   string // sent on every htmx request as X-CSRF-Token
-	User   string // signed-in email; "" = anonymous
-	Crumbs []Link // org / stack / env / tile, from the URL
-	Nav    []Link // top-level sections; Active marks the one the URL is in
-	Admin  bool   // the nav opens the admin drawer
+	Title   string
+	CSRF    string // sent on every htmx request as X-CSRF-Token
+	User    string // signed-in email; "" = anonymous
+	Crumbs  []Link // org / stack / env / tile, from the URL
+	Nav     []Link // top-level sections; Active marks the one the URL is in
+	Admin   bool   // the rail links to Server settings
+	AdminOn bool   // the page is Server settings: its rail icon is active
 	// Waiting is the badge on the admin icon: stacks with a request for
 	// elevated access open. 0 = none (and always 0 for a non-admin).
 	Waiting int

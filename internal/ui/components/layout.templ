@@ -100,7 +100,20 @@ templ rail(s Shell, oob bool) {
 				}
 			}
 			if s.Admin {
-				<button type="button" title={ adminTitle(s.Waiting) } aria-label={ adminTitle(s.Waiting) } class={ railIdle, "relative" } hx-get={ adminTab(s.Waiting) } hx-target="#drawer-body" hx-push-url={ "?drawer=admin&tab=" + adminTabKey(s.Waiting) }>
+				<a
+					href="/-/admin/overview"
+					hx-get="/-/admin/overview"
+					hx-target="#main"
+					hx-push-url="true"
+					title={ adminTitle(s.Waiting) }
+					aria-label={ adminTitle(s.Waiting) }
+					class={ "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+						templ.KV("bg-rw-accent/15 text-rw-accentHi", s.AdminOn),
+						templ.KV("text-rw-muted hover:text-rw-text hover:bg-rw-raised", !s.AdminOn) }
+					if s.AdminOn {
+						aria-current="page"
+					}
+				>
 					if s.Waiting > 0 {
 						<span id="rail-waiting" class="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rw-warn px-1 text-[10px] font-semibold text-rw-surface">{ strconv.Itoa(s.Waiting) }</span>
 					}
@@ -108,7 +121,7 @@ templ rail(s Shell, oob bool) {
 						<circle cx="12" cy="12" r="3"></circle>
 						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
 					</svg>
-				</button>
+				</a>
 			}
 		</nav>
 		<div class="pr-2 sm:pr-0 sm:py-3 flex flex-row sm:flex-col items-center gap-1">
@@ -127,22 +140,11 @@ templ rail(s Shell, oob bool) {
 	</aside>
 }
 
-// adminTabKey is the tab the admin icon opens: the elevated access
-// requests while any wait, else settings.
-func adminTabKey(waiting int) string {
-	if waiting > 0 {
-		return "access"
-	}
-	return "settings"
-}
-
-func adminTab(waiting int) string { return "/-/admin?tab=" + adminTabKey(waiting) }
-
 func adminTitle(waiting int) string {
 	if waiting > 0 {
-		return "Admin: " + strconv.Itoa(waiting) + " waiting for approval"
+		return "Server settings: " + strconv.Itoa(waiting) + " waiting for approval"
 	}
-	return "Admin"
+	return "Server settings"
 }
 
 // railIdle is a rail button at rest (v0 railIcon, not active).

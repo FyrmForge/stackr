@@ -1,6 +1,7 @@
-// Package admin serves the admin drawer's tabs and actions under /-/admin,
-// and the panel jobs' stream at /-/jobs/:job/events. Every admin verb is
-// admin-level, so the route's Require is the whole gate.
+// Package admin serves the Server settings page under /-/admin/<section>,
+// its actions, the node drawer that opens over it, and the panel jobs'
+// stream at /-/jobs/:job/events. Every admin verb is admin-level, so the
+// route's Require is the whole gate.
 package admin
 
 import (
@@ -8,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
+	"github.com/FyrmForge/hamr/pkg/htmx"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -27,13 +30,13 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	b := ui.Base
-	g.GET(b, h.Drawer, a.Require("admin.read"))
+	g.GET(b+"/:section", h.Section, a.Require("admin.read"))
 	g.GET(
 		"/-/jobs/:job/events",
 		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
 		a.Require("admin.read"),
 	)
-	g.POST(b+"/settings", h.SaveSettings, a.Require("serverdefaults.set"))
+	g.POST(b+"/settings/:form", h.SaveSettings, a.Require("serverdefaults.set"))
 	h.mountParams(g, a)
 	h.mountAccess(g, a)
 	g.POST(b+"/users/:user/admin", h.act("users", func(c echo.Context) (string, *service.Job, error) {
@@ -51,10 +54,10 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		j, err := h.orch.UpdateWorkers(c.Request().Context(), middleware.Principal(c))
 		return "Worker rollout queued.", &j, err
 	}), a.Require("container.admin"))
-	g.POST(b+"/caddy", h.act("caddy", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(b+"/caddy", h.act("domains", func(c echo.Context) (string, *service.Job, error) {
 		return "Saved.", nil, h.orch.SetSetting(c.Request().Context(), "proxy_custom", c.FormValue("proxy_custom"))
 	}), a.Require("proxy.admin"))
-	g.POST(b+"/caddy/sync", h.act("caddy", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(b+"/caddy/sync", h.act("domains", func(c echo.Context) (string, *service.Job, error) {
 		return "Proxy config re-pushed.", nil, h.orch.SyncProxy(c.Request().Context())
 	}), a.Require("proxy.admin"))
 	g.POST(b+"/backups", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
@@ -79,7 +82,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/backups/recovery/rotate", h.RotateRecoveryKey, a.Require("container.admin"))
 	g.POST(b+"/security/master-key/rotate", h.RotateMasterKey, a.Require("container.admin"))
 	routes := a.Require("route.admin")
-	g.POST(b+"/routes", h.act("routes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(b+"/routes", h.act("traffic", func(c echo.Context) (string, *service.Job, error) {
 		f := c.FormValue
 		_, err := h.orch.CreateExternalRoute(c.Request().Context(), service.ExternalRouteSpec{
 			Host:     f("route_host"),
@@ -89,7 +92,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		})
 		return "Route added.", nil, err
 	}), routes)
-	g.POST(b+"/routes/:route/delete", h.act("routes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(b+"/routes/:route/delete", h.act("traffic", func(c echo.Context) (string, *service.Job, error) {
 		return "Route removed.", nil, h.orch.DeleteExternalRoute(c.Request().Context(), c.Param("route"))
 	}), routes)
 	h.mountConfig(g, a)
@@ -104,7 +107,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 			Bucket:    f("bucket"),
 			AccessKey: f("access_key"),
 			SecretKey: f("secret_key"),
-			Shared:    f("shared") != "",
+			Shared:    f("share") == comp.ShareAll,
 		})
 		c.Set(addedDestKey, d.ID) // the panel backup form picks it
 		return "Destination added.", nil, err
@@ -119,11 +122,12 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	}), dests)
 }
 
-// addedDestKey carries a destination just added to the Backups tab render.
+// addedDestKey carries a destination just added to the Backups render.
 const addedDestKey = "admin_added_dest"
 
-// share flips a global destination's sharing; blank keys keep the stored
-// ones, so no key leaves the service.
+// share sets who may use a global destination: share=all offers it to every
+// org, anything else keeps it the server's. Blank keys keep the stored ones,
+// so no key leaves the service.
 func (h *handler) share(c echo.Context) (string, *service.Job, error) {
 	ctx := c.Request().Context()
 	ds, err := h.orch.GlobalBackupDests(ctx)
@@ -134,67 +138,62 @@ func (h *handler) share(c echo.Context) (string, *service.Job, error) {
 	if i < 0 {
 		return "", nil, errs.ErrNotFound
 	}
-	d := ds[i]
+	d, all := ds[i], c.FormValue("share") == comp.ShareAll
 	_, err = h.orch.UpdateBackupDest(ctx, "", d.ID, service.BackupDestSpec{
 		Name:     d.Name,
 		Endpoint: d.Endpoint,
 		Region:   d.Region,
 		Bucket:   d.Bucket,
-		Shared:   !d.Shared,
+		Shared:   all,
 	})
-	if d.Shared {
-		return "No longer offered to other organizations.", nil, err
+	if all {
+		return "Offered to every organization.", nil, err
 	}
-	return "Offered to every organization.", nil, err
+	return "Kept for the server only.", nil, err
 }
 
-func frame(tab string) comp.DrawerView {
-	f := comp.DrawerView{
-		Node:  "admin",
-		Title: "Admin",
-		Kind:  "server",
-		Base:  ui.Base,
-		Tabs:  ui.Tabs,
-		Tab:   tab,
-		// "access" would read "Access", which is the tile's own word
-		Labels: map[string]string{"access": "Elevated access", "security": "Security log", "guide": "Setup guide"},
-	}
-	if !slices.Contains(ui.Tabs, tab) {
-		f.Tab = ui.Tabs[0]
-	}
-	return f
-}
-
-// extra is what an action adds to its tab's answer.
+// extra is what an action adds to its section's answer.
 type extra struct {
 	job   *service.Job
 	check *ui.UpdateView
 	adder *ui.AddNodeView
 	// ingress is the DNS preview of a default ingress switch
 	ingress *ui.IngressPreview
+	// placements is what a placements answer opens above the list
+	placements plOpen
 }
 
-// GET /-/admin?tab=
-func (h *handler) Drawer(c echo.Context) error {
-	if ok, err := render.ToShell(c, "admin"); ok {
-		return err
+// GET /-/admin/:section: the page, or for an htmx request aimed anywhere
+// but #main (a filter, a poll, a refresh after a job) the view alone.
+func (h *handler) Section(c echo.Context) error {
+	key := c.Param("section")
+	if _, ok := ui.Find(key); !ok {
+		return echo.ErrNotFound
 	}
-	return h.answer(c, c.QueryParam("tab"), "", extra{}, nil)
+	r := c.Request()
+	if htmx.IsHTMX(r) && r.Header.Get(htmx.HeaderTarget) != "main" && r.Header.Get(htmx.HeaderHistoryRestore) != "true" {
+		return h.answer(c, key, "", extra{}, nil)
+	}
+	f, body, err := h.view(c, key, extra{})
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return render.Page(c, http.StatusOK, "Server settings", ui.Page(f, body))
 }
 
-// act runs one action and answers its tab: a refusal over it (422), or
+// act runs one action and answers its section: a refusal over it (422), or
 // what it did, with the job it queued.
-func (h *handler) act(tab string, do func(echo.Context) (string, *service.Job, error)) echo.HandlerFunc {
+func (h *handler) act(section string, do func(echo.Context) (string, *service.Job, error)) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		note, j, err := do(c)
 		if err != nil {
 			j = nil
 		}
-		return h.answer(c, tab, note, extra{job: j}, err)
+		return h.answer(c, section, note, extra{job: j}, err)
 	}
 }
 
-// POST /-/admin/update/check reaches the release host; a failure is the tab's text,
+// POST /-/admin/update/check reaches the release host; a failure is the section's text,
 // not an error page (a panel may have no way out).
 func (h *handler) Check(c echo.Context) error {
 	v := ui.UpdateView{Checked: true}
@@ -205,7 +204,7 @@ func (h *handler) Check(c echo.Context) error {
 	return h.answer(c, "update", "", extra{check: &v}, nil)
 }
 
-// POST /-/admin/update/run queues the upgrade; the tab says it is under way
+// POST /-/admin/update/run queues the upgrade; the section says it is under way
 // until the job's stream ends, then reloads.
 func (h *handler) Upgrade(c echo.Context) error {
 	j, err := h.orch.Upgrade(c.Request().Context(), c.QueryParam("tag"))
@@ -215,32 +214,82 @@ func (h *handler) Upgrade(c echo.Context) error {
 	return h.answer(c, "update", "", extra{job: &j, check: &ui.UpdateView{Upgrading: true}}, nil)
 }
 
-func (h *handler) answer(c echo.Context, tab, note string, x extra, actErr error) error {
-	f, status := frame(tab), http.StatusOK
+// answer is the view (side menu and section) with a refusal (422) or a note.
+func (h *handler) answer(c echo.Context, section, note string, x extra, actErr error) error {
+	status := http.StatusOK
+	var msg string
 	if actErr != nil {
-		msg, ok := render.Refused(actErr)
-		if !ok {
+		var ok bool
+		if msg, ok = render.Refused(actErr); !ok {
 			return middleware.HTTPError(actErr)
 		}
-		f.Error, status = msg, http.StatusUnprocessableEntity
-	} else {
-		f.Note = note
+		status, note = http.StatusUnprocessableEntity, ""
 	}
-	body, err := h.tab(c, f.Tab, x)
+	f, body, err := h.view(c, section, x)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	return respond.HTML(c, status, comp.Drawer(f, body))
+	f.Note, f.Error = note, msg
+	return respond.HTML(c, status, ui.View(f, body))
 }
 
-func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, error) {
+// view is the frame (with the side menu's badges) and the section's body.
+func (h *handler) view(c echo.Context, section string, x extra) (ui.ViewFrame, templ.Component, error) {
+	ps, err := h.orch.Problems(c.Request().Context())
+	if err != nil {
+		return ui.ViewFrame{}, nil, err
+	}
+	f := ui.ViewFrame{Section: section, Badges: badges(ps)}
+	// the rail's waiting badge, on the section that answers it
+	if n, err := h.orch.HostGrantsWaiting(c.Request().Context()); err == nil && n > 0 {
+		f.Badges["host-access"] = ui.Badge{N: n}
+	}
+	body, err := h.section(c, section, x, ps)
+	return f, body, err
+}
+
+// problemSection is the section a problem is fixed in: its link's, or Nodes
+// for a node drawer; "" = elsewhere (an app).
+func problemSection(p service.Problem) string {
+	if strings.HasPrefix(p.Link, "?drawer=node:") {
+		return "nodes"
+	}
+	if s, ok := strings.CutPrefix(p.Link, ui.Base+"/"); ok {
+		return s
+	}
+	return ""
+}
+
+// badges counts the open problems per section, and every one on Overview.
+func badges(ps []service.Problem) map[string]ui.Badge {
+	out := map[string]ui.Badge{}
+	add := func(key string, critical bool) {
+		b := out[key]
+		b.N++
+		b.Critical = b.Critical || critical
+		out[key] = b
+	}
+	for _, p := range ps {
+		crit := p.Severity == service.SevCritical
+		add("overview", crit)
+		if s := problemSection(p); s != "" && s != "overview" {
+			add(s, crit)
+		}
+	}
+	return out
+}
+
+func (h *handler) section(c echo.Context, section string, x extra, ps []service.Problem) (templ.Component, error) {
 	ctx := c.Request().Context()
 	var job *comp.JobStatusView
 	if x.job != nil {
 		v := render.JobView("", *x.job)
+		v.Target = ui.Target
 		job = &v
 	}
-	switch tab {
+	switch section {
+	case "overview":
+		return h.overview(c, ps)
 	case "users":
 		us, err := h.orch.Users(ctx)
 		var v ui.UsersView
@@ -262,139 +311,179 @@ func (h *handler) tab(c echo.Context, tab string, x extra) (templ.Component, err
 			v.Rows = append(v.Rows, r)
 		}
 		return ui.Users(v), err
+	case "host-access":
+		return h.accessTab(c)
 	case "nodes":
 		return h.nodesTab(c, x)
 	case "placements":
-		return h.placementsTab(c, plOpen{})
-	case "routes":
-		rs, err := h.orch.ExternalRoutes(ctx)
-		v := ui.RoutesView{Add: ui.Base + "/routes"}
-		for _, r := range rs {
-			v.Rows = append(v.Rows, ui.Route{
-				Host:     r.Host,
-				Mode:     r.Mode,
-				Target:   r.Target,
-				Insecure: r.Insecure,
-				Remove: comp.ConfirmView{
-					Button:  "Remove",
-					Title:   "Remove the route for " + r.Host + "?",
-					Warning: "The host stops being served.",
-					Action:  ui.Base + "/routes/" + r.ID + "/delete",
-					Target:  "#" + comp.DrawerRoot,
-				},
-			})
-		}
-		return ui.Routes(v), err
-	case "access":
-		return h.accessTab(c)
-	case "security":
-		return h.securityTab(c)
-	case "update":
-		v := ui.UpdateView{}
-		if x.check != nil {
-			v = *x.check
-		} else {
-			v.Latest, v.Newer, v.Checked = h.orch.LastUpgradeCheck(ctx)
-		}
-		v.Version, v.Job = h.orch.Version(), job
-		v.Upgrading = v.Upgrading || h.orch.UpgradeUnderway(ctx)
-		if job != nil {
-			job.Refresh = ui.Base + "?tab=update"
-		}
-		if v.Newer && !v.Upgrading {
-			v.Run = comp.ConfirmView{
-				Button:  "Upgrade to " + v.Latest,
-				Title:   "Upgrade stackr to " + v.Latest,
-				Warning: "The panel archives its database, then restarts on the new image. Running tiles keep running.",
-				Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest),
-				Target:  "#" + comp.DrawerRoot,
-			}
-		}
-		w, err := h.workersView(c)
-		if w != nil && v.Upgrading {
-			w.Action = ""
-		}
-		v.Workers = w
-		// A live job stream refreshes the tab when it ends; otherwise the
-		// tab polls itself while the upgrade or the rollout moves, through
-		// the panel's restart.
-		moving := v.Upgrading || (w != nil && (w.Running || w.Pending))
-		if moving && (job == nil || !job.Live) {
-			v.Live = ui.Base + "?tab=update"
-		}
-		return ui.Update(v), err
-	case "config":
-		return h.configTab(c, job)
-	case "params":
-		body, err := h.params(c, "", "")
-		return body, err
-	case "guide":
-		return ui.Guide("/-/setup/server/ui/domains"), nil
-	case "caddy":
-		val, err := h.orch.Setting(ctx, "proxy_custom")
-		return ui.Caddy(ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}), err
-	case "connectors":
-		return h.connectorsTab(c)
-	case "alerts":
-		return h.alertsTab(c)
-	case "registry":
-		return h.registryTab(c, job)
-	case "observability":
-		return h.observeTab(c)
-	case "backups":
-		ds, err := h.orch.GlobalBackupDests(ctx)
+		return h.placementsTab(c, x.placements)
+	case "traffic":
+		return h.trafficTab(c, x)
+	case "domains":
+		s, err := h.settings(c, "domains", nil)
 		if err != nil {
 			return nil, err
 		}
-		rs, err := h.orch.PanelBackups(ctx)
-		v := ui.BackupsView{Dests: destsView(ds), Now: ui.Base + "/backups", Job: job}
-		v.Sched.Action = ui.Base + "/backups/schedule"
-		for _, k := range []struct {
-			key string
-			to  *string
-		}{{"panel_backup_schedule", &v.Sched.Schedule}, {"panel_backup_keep", &v.Sched.Keep}, {"panel_backup_dest", &v.Sched.Dest}} {
-			var serr error
-			if *k.to, serr = h.orch.Setting(ctx, k.key); serr != nil {
-				return nil, serr
-			}
-		}
-		on, serr := h.orch.Setting(ctx, "panel_backup_enabled")
-		if serr != nil {
-			return nil, serr
-		}
-		v.Sched.Enabled = on == "true"
-		off, oerr := h.orch.PanelBackupOffBox(ctx)
-		if oerr != nil {
-			return nil, oerr
-		}
-		v.NoOffBox = !off
-		v.Recovery = h.recoveryView()
-		if added, _ := c.Get(addedDestKey).(string); v.Sched.Dest == "" {
-			v.Sched.Dest = added
-		}
-		destName := map[string]string{}
-		for _, d := range ds {
-			destName[d.ID] = d.Name
-		}
-		for _, d := range ds {
-			if d.Kind != "local" {
-				v.Sched.Dests = append(v.Sched.Dests, ui.DestOption{Value: d.ID, Label: d.Name})
-			}
-		}
-		for _, r := range rs {
-			v.Rows = append(v.Rows, ui.Backup{
-				Status:  r.Status,
-				Trigger: r.Trigger,
-				When:    r.CreatedAt,
-				Size:    render.Size(r.SizeBytes),
-				Error:   r.Error,
-				Dest:    cmp.Or(destName[r.DestID], "a removed destination"),
-			})
-		}
-		return ui.Backups(v), err
+		val, err := h.orch.Setting(ctx, "proxy_custom")
+		return ui.Domains(ui.DomainsView{Settings: s, Caddy: ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}}), err
+	case "connectors":
+		return h.connectorsTab(c)
+	case "backups":
+		return h.backupsTab(c, job)
+	case "registry":
+		return h.registryTab(c, job)
+	case "cleanup":
+		s, err := h.settings(c, "cleanup", nil)
+		return ui.Knobs("Cleanup", s), err
+	case "metrics":
+		return h.observeTab(c)
+	case "alerts":
+		return h.alertsTab(c)
+	case "keys":
+		return h.keysTab(c)
+	case "security-log":
+		return h.securityTab(c)
+	case "org-defaults":
+		s, err := h.settings(c, "org-defaults", nil)
+		return ui.Knobs("Org defaults", s), err
+	case "jobs":
+		s, err := h.settings(c, "jobs", nil)
+		return ui.Knobs("Jobs", s), err
+	case "config":
+		return h.configTab(c, job)
+	case "update":
+		return h.updateTab(c, x, job)
 	}
-	v, err := h.settings(c, nil)
-	return comp.SettingsForm(v), err
+	return nil, errs.ErrNotFound
+}
+
+// overview is the open problems, the version and update state, the nodes,
+// whether alerts go anywhere, and the setup guide.
+func (h *handler) overview(c echo.Context, ps []service.Problem) (templ.Component, error) {
+	ctx := c.Request().Context()
+	v := ui.OverviewView{Version: h.orch.Version(), Guide: "/-/setup/server/ui/domains"}
+	for _, p := range ps {
+		r := ui.ProblemRow{Message: p.Message, Href: p.Link, LinkText: p.LinkText, Critical: p.Severity == service.SevCritical}
+		if it, ok := ui.Find(problemSection(p)); ok {
+			r.Area = it.Label
+		}
+		v.Problems = append(v.Problems, r)
+	}
+	switch latest, newer, checked := h.orch.LastUpgradeCheck(ctx); {
+	case checked && newer:
+		v.Update = latest + " available"
+	case checked && latest != "":
+		v.Update = "up to date"
+	}
+	var err error
+	if v.Panel, err = h.orch.Setting(ctx, "panel_domain"); err != nil {
+		return nil, err
+	}
+	ns, err := h.orch.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v.Nodes = len(ns) // an offline one is an open problem above
+	a, err := h.orch.AlertSettings(ctx)
+	v.Webhook = a.URL != ""
+	return ui.Overview(v), err
+}
+
+// updateTab is the running version, the upgrade and the worker rollout.
+func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (templ.Component, error) {
+	ctx := c.Request().Context()
+	v := ui.UpdateView{}
+	if x.check != nil {
+		v = *x.check
+	} else {
+		v.Latest, v.Newer, v.Checked = h.orch.LastUpgradeCheck(ctx)
+	}
+	v.Version, v.Job = h.orch.Version(), job
+	v.Upgrading = v.Upgrading || h.orch.UpgradeUnderway(ctx)
+	if job != nil {
+		job.Refresh = ui.Href("update")
+	}
+	if v.Newer && !v.Upgrading {
+		v.Run = comp.ConfirmView{
+			Button:  "Upgrade to " + v.Latest,
+			Title:   "Upgrade stackr to " + v.Latest,
+			Warning: "The panel archives its database, then restarts on the new image. Running tiles keep running.",
+			Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest),
+			Target:  ui.Target,
+		}
+	}
+	w, err := h.workersView(c)
+	if w != nil && v.Upgrading {
+		w.Action = ""
+	}
+	v.Workers = w
+	// A live job stream refreshes the section when it ends; otherwise the
+	// section polls itself while the upgrade or the rollout moves, through
+	// the panel's restart.
+	moving := v.Upgrading || (w != nil && (w.Running || w.Pending))
+	if moving && (job == nil || !job.Live) {
+		v.Live = ui.Href("update")
+	}
+	return ui.Update(v), err
+}
+
+// backupsTab is the panel's own backup (schedule, last run, back up now),
+// the destinations and the history.
+func (h *handler) backupsTab(c echo.Context, job *comp.JobStatusView) (templ.Component, error) {
+	ctx := c.Request().Context()
+	ds, err := h.orch.GlobalBackupDests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rs, err := h.orch.PanelBackups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v := ui.BackupsView{Dests: destsView(ds), Now: ui.Base + "/backups", Job: job}
+	if job != nil {
+		job.Refresh = ui.Href("backups")
+	}
+	v.Sched.Action = ui.Base + "/backups/schedule"
+	for _, k := range []struct {
+		key string
+		to  *string
+	}{{"panel_backup_schedule", &v.Sched.Schedule}, {"panel_backup_keep", &v.Sched.Keep}, {"panel_backup_dest", &v.Sched.Dest}} {
+		if *k.to, err = h.orch.Setting(ctx, k.key); err != nil {
+			return nil, err
+		}
+	}
+	on, err := h.orch.Setting(ctx, "panel_backup_enabled")
+	if err != nil {
+		return nil, err
+	}
+	v.Sched.Enabled = on == "true"
+	off, err := h.orch.PanelBackupOffBox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v.NoOffBox = !off
+	v.RecoveryGen, _ = h.orch.RecoveryStatus()
+	if added, _ := c.Get(addedDestKey).(string); v.Sched.Dest == "" {
+		v.Sched.Dest = added
+	}
+	destName := map[string]string{}
+	for _, d := range ds {
+		destName[d.ID] = d.Name
+		if d.Kind != "local" {
+			v.Sched.Dests = append(v.Sched.Dests, ui.DestOption{Value: d.ID, Label: d.Name})
+		}
+	}
+	for _, r := range rs {
+		v.Rows = append(v.Rows, ui.Backup{
+			Status:  r.Status,
+			Trigger: r.Trigger,
+			When:    r.CreatedAt,
+			Size:    render.Size(r.SizeBytes),
+			Error:   r.Error,
+			Dest:    cmp.Or(destName[r.DestID], "a removed destination"),
+		})
+	}
+	return ui.Backups(v), nil
 }
 
 // destsView is the install's own destinations; the local one is part of
@@ -404,7 +493,8 @@ func destsView(ds []service.BackupDest) comp.DestsView {
 		Scope:    "instance",
 		Add:      ui.Base + "/dests",
 		Share:    true,
-		ListHelp: "A shared server-wide destination can be chosen from every organization. An unshared one is yours alone; the panel's own backup uses it either way.",
+		ListHelp: "Where backups go. Orgs can add their own too. The panel's own backup may use any of them.",
+		Target:   ui.Target,
 	}
 	for _, d := range ds {
 		r := comp.DestView{Name: d.Name, Bucket: d.Bucket, Endpoint: d.Endpoint, Shared: d.Shared}
@@ -413,13 +503,13 @@ func destsView(ds []service.BackupDest) comp.DestsView {
 			v.Rows = append(v.Rows, r)
 			continue
 		}
-		r.Toggle = ui.Base + "/dests/" + d.ID + "/share"
+		r.ShareAction = ui.Base + "/dests/" + d.ID + "/share"
 		r.Remove = comp.ConfirmView{
 			Button:  "Remove",
 			Title:   "Remove " + d.Name + "?",
 			Warning: "stackr forgets this destination. Archives already in the bucket stay there.",
 			Action:  ui.Base + "/dests/" + d.ID + "/delete",
-			Target:  "#" + comp.DrawerRoot,
+			Target:  ui.Target,
 		}
 		v.Rows = append(v.Rows, r)
 	}
@@ -433,14 +523,42 @@ func boolWord(b bool) string {
 	return "false"
 }
 
-// settings is the server's knobs as the one settings form; refused marks
-// the row it names, or the form.
-func (h *handler) settings(c echo.Context, refused error) (comp.SettingsFormView, error) {
+// knobForms is each section's plain server knobs, in the order its form
+// shows them. Every other server knob has an editor of its own (ownEditor),
+// so each knob is edited in exactly one place.
+var knobForms = map[string][]string{
+	"domains":      {"panel_domain", "root_domain", "acme_email", "trusted_proxies", "ipv6"},
+	"registry":     {"registry_cleanup_schedule", "registry_keep"},
+	"cleanup":      {"image_check_interval", "cleanup_enabled", "cleanup_schedule", "orphans_enabled", "orphans_schedule", "orphan_retention_days"},
+	"org-defaults": {"cpu_limit", "mem_limit_mb", "protect", "protect_user", "protect_password"},
+	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency"},
+}
+
+// ownEditor is the server knobs a section edits with a form of its own:
+// the custom Caddy config (Domains), the panel backup (Backups) and
+// Metrics and logs.
+var ownEditor = []string{
+	"proxy_custom",
+	"panel_backup_enabled", "panel_backup_schedule", "panel_backup_keep", "panel_backup_dest",
+	"observe_enabled", "observe_metrics_retention", "observe_min_free", "observe_max_memory",
+	"observe_logs_enabled", "observe_logs_retention", "observe_logs_max_size",
+	"observe_access_query", "observe_access_ip", "observe_access_headers",
+}
+
+// settings is one section's knobs as a settings form; refused marks the
+// row it names, or the form.
+func (h *handler) settings(c echo.Context, form string, refused error) (comp.SettingsFormView, error) {
 	ss, err := h.orch.ServerSettings(c.Request().Context())
-	v := comp.SettingsFormView{ID: "admin-settings", Action: ui.Base + "/settings", Scope: "Server"}
+	v := comp.SettingsFormView{
+		ID: "admin-" + form, Action: ui.Base + "/settings/" + form, Scope: "Server",
+		Flat: true, Keys: knobForms[form],
+	}
 	bad, invalid := errs.IsInvalid(refused)
 	marked := false
 	for _, s := range ss {
+		if !slices.Contains(v.Keys, s.Key) {
+			continue
+		}
 		r := comp.SettingRowView{
 			Key:       s.Key,
 			Label:     s.Label,
@@ -451,6 +569,7 @@ func (h *handler) settings(c echo.Context, refused error) (comp.SettingsFormView
 			DecidedBy: s.DecidedBy,
 			Secret:    s.Secret,
 			ReadOnly:  s.ReadOnly,
+			NoInherit: s.DecidedBy == "install",
 		}
 		if invalid && bad.Field == s.Key {
 			r.Error, marked = bad.Msg, true
@@ -463,35 +582,45 @@ func (h *handler) settings(c echo.Context, refused error) (comp.SettingsFormView
 	return v, err
 }
 
-// POST /-/admin/settings: every row is posted; the service writes the
-// changed ones only.
+// POST /-/admin/settings/:form: the form's own knobs only; the service
+// writes the changed ones.
 func (h *handler) SaveSettings(c echo.Context) error {
-	form, err := c.FormParams()
+	form := c.Param("form")
+	keys, ok := knobForms[form]
+	if !ok {
+		return echo.ErrNotFound
+	}
+	f, err := c.FormParams()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
 	vals := map[string]string{}
-	for k, vs := range form {
-		vals[k] = vs[0]
+	for _, k := range keys {
+		if vs := f[k]; len(vs) > 0 {
+			vals[k] = vs[0]
+		}
 	}
 	actErr := h.orch.SetServerSettings(c.Request().Context(), vals)
 	if _, ok := render.Refused(actErr); actErr != nil && !ok {
 		return middleware.HTTPError(actErr)
 	}
-	v, err := h.settings(c, actErr)
+	v, err := h.settings(c, form, actErr)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	status := http.StatusOK
-	if actErr != nil {
+	switch {
+	case actErr != nil:
 		status = http.StatusUnprocessableEntity
-	} else {
+	case form == "org-defaults":
 		v.Note = "Saved. A changed limit or protect setting redeploys every running tile."
+	default:
+		v.Note = "Saved."
 	}
 	return respond.HTML(c, status, comp.SettingsForm(v))
 }
 
-// workersView is the Update tab's worker rows, with Update workers while any
+// workersView is the Update section's worker rows, with Update workers while any
 // worker is behind and no rollout runs, and Retry after a stop. nil = no workers.
 func (h *handler) workersView(c echo.Context) (*ui.WorkersView, error) {
 	r, err := h.orch.WorkerRollout(c.Request().Context())

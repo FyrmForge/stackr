@@ -19,7 +19,7 @@ func TestAdminParams(t *testing.T) {
 	ctx := context.Background()
 	root := s.Session(t, s.User(t, "root@x.test", true))
 
-	tab := s.As(t, root, "GET", "/-/admin?tab=params", nil)
+	tab := s.As(t, root, "GET", "/-/admin/config", nil)
 	for _, want := range []string{`id="vars-editor"`, "/-/admin/params", "stackr-server.yml", `name="new_name"`} {
 		if tab.Code != http.StatusOK || !strings.Contains(tab.Body.String(), want) {
 			t.Fatalf("params tab = %d, no %s in\n%s", tab.Code, want, tab.Body)
@@ -43,7 +43,7 @@ func TestAdminParams(t *testing.T) {
 	if ps, _ := s.Orch.Params(ctx, service.ParamScope{Kind: "org", ID: s.Org}, true); len(ps) != 0 {
 		t.Errorf("org params = %+v; the save reached an org", ps)
 	}
-	if after := s.As(t, root, "GET", "/-/admin?tab=params", nil).Body.String(); strings.Contains(after, "LEAK-sk") ||
+	if after := s.As(t, root, "GET", "/-/admin/config", nil).Body.String(); strings.Contains(after, "LEAK-sk") ||
 		!strings.Contains(after, `name="secret.s3.secret_key"`) {
 		t.Errorf("params tab after a save shows the secret value or lost the row:\n%s", after)
 	}

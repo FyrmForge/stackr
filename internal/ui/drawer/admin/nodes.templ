@@ -7,22 +7,26 @@ import (
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-// NodesView is the admin Nodes tab. Add "" = may not add a node.
+// NodesView is the Nodes section. Add "" = may not add a node.
 type NodesView struct {
 	Add   string // GET: opens the add-node steps
-	// Placements is a GET to the Placements tab, for the lost envs' hint.
+	// Placements is the Placements section, for the lost envs' hint.
 	Placements string
 	Lost       []LostEnvRow
 	// Pending are the machines that called in and wait for a confirm.
 	Pending []PendingRow
 	Rows  []NodeRow
 	Adder *AddNodeView // the open add-node steps, nil = closed
-	// Defaults is the cluster-wide default ingress and exit; nil = single node.
-	Defaults *DefaultsView
-	Trust    TrustView
 }
 
-// TrustView is the cluster trust section of the Nodes tab: the root, the
+// TrafficView is the Traffic section: the cluster-wide default ingress and
+// exit (nil = a single node, nothing to pick), then the external routes.
+type TrafficView struct {
+	Defaults *DefaultsView
+	Routes   RoutesView
+}
+
+// TrustView is the cluster root in the Keys section: the root, the
 // rotate, break glass and revoke buttons, and the nodes break glass left
 // unjoined. A ConfirmView with no Action is not offered.
 type TrustView struct {
@@ -49,10 +53,6 @@ type DefaultsView struct {
 	IngressAction, ExitAction string
 	Ingress, Exit             string // node id in force; Exit "" = each node's own uplink
 	IngressNodes, ExitNodes   []Option
-	// RotateAction (POST) rotates every node's keys; RotateEvery (POST
-	// days=) sets the schedule, RotateDays the one in force (0 = off).
-	RotateAction, RotateEvery string
-	RotateDays                int
 	// Preview is the DNS check of a switch to a node, nil = none asked. The
 	// ingress form posts to IngressAction for it; Confirm then moves the default.
 	Preview *IngressPreview
@@ -108,9 +108,11 @@ templ ingressPreview(p IngressPreview) {
 	</div>
 }
 
-// NodeRow is one node card. Open is a GET that answers the node drawer.
+// NodeRow is one node card. Open is a GET that answers the node drawer,
+// which opens over the page; Push is the URL it leaves (?drawer=node:<id>).
 type NodeRow struct {
 	Name, Role, Status, Open string
+	Push                     string
 	Hint                     string // what to do about Status, NodeHint's
 	Tags                     []string
 	Envs                     int
@@ -376,7 +378,7 @@ templ Nodes(v NodesView) {
 					}
 				</ul>
 				if v.Placements != "" {
-					<button type="button" hx-get={ v.Placements } hx-target={ target() } hx-swap="outerHTML" class="btn btn-primary btn-sm mt-3">Open placements</button>
+					<a href={ templ.SafeURL(v.Placements) } hx-get={ v.Placements } hx-target="#main" hx-push-url="true" class="btn btn-primary btn-sm mt-3">Open placements</a>
 				}
 			}
 		}
@@ -418,14 +420,11 @@ templ Nodes(v NodesView) {
 			if v.Adder != nil {
 				@AddNode(*v.Adder)
 			}
-			if v.Defaults != nil {
-				@defaultsControl(*v.Defaults)
-			}
 			<ul class="space-y-3">
 				for _, r := range v.Rows {
 					<li class="panel px-4 py-3 text-sm">
 						<div class="flex flex-wrap items-center gap-2">
-							<button type="button" hx-get={ r.Open } hx-target={ target() } hx-swap="outerHTML" class="text-rw-text font-medium hover:underline">{ r.Name }</button>
+							<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url={ r.Push } class="text-rw-text font-medium hover:underline">{ r.Name }</button>
 							@c.Chip(r.Role, "")
 							for _, t := range r.Tags {
 								@c.Chip(t, "accent")
@@ -462,14 +461,11 @@ templ Nodes(v NodesView) {
 				</div>
 			}
 		}
-		if v.Trust.Fingerprint != "" {
-			@trustSection(v.Trust)
-		}
 	</div>
 }
 
 templ trustSection(t TrustView) {
-	@c.Section("Cluster trust", "instance", "The root every node's certificate comes from.") {
+	@c.Section("Cluster root", "instance", "Signs every node certificate.") {
 		<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1 mb-3">
 			<dt class="text-rw-muted">Root</dt>
 			<dd class="font-mono text-xs text-rw-text break-all">{ t.Fingerprint }</dd>
@@ -658,7 +654,7 @@ templ NodeBody(tab string, v NodeView) {
 				}
 			case "network":
 				@c.Section("Public IP", "", "DNS records of managed domains point here. Empty uses the detected address.") {
-					<form hx-post={ v.PublicIPAction } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center">
+					<form hx-post={ v.PublicIPAction } hx-target={ drawerTarget() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center">
 						<input type="text" name="public_ip" value={ v.PublicIP } aria-label="Public IP" placeholder="detected" class="input !w-48 font-mono"/>
 						<button type="submit" class="btn btn-primary">Save</button>
 					</form>
@@ -683,7 +679,7 @@ templ NodeBody(tab string, v NodeView) {
 					if v.RoutesNote != "" {
 						<p class="text-sm text-rw-muted mb-3">{ v.RoutesNote } Tag another node as ingress before removing this tag.</p>
 					}
-					<form hx-post={ v.TagsAction } hx-target={ target() } hx-swap="outerHTML" class="group space-y-2">
+					<form hx-post={ v.TagsAction } hx-target={ drawerTarget() } hx-swap="outerHTML" class="group space-y-2">
 						for _, t := range v.AllTags {
 							if t != "egress" {
 								<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ hasTag(v.Tags, t) } class="accent-rw-accent"/> { t } <span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
@@ -730,7 +726,7 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 				@c.Section("Keys", "", "Replace this node's WireGuard keys without a rejoin. Its tunnels blip for a moment; the security log shows when it is done.") {
-					<form hx-post={ v.Rotate } hx-target={ target() } hx-swap="outerHTML">
+					<form hx-post={ v.Rotate } hx-target={ drawerTarget() } hx-swap="outerHTML">
 						<button type="submit" class="btn btn-ghost btn-sm">Rotate keys</button>
 					</form>
 				}
@@ -740,7 +736,7 @@ templ NodeBody(tab string, v NodeView) {
 							<p class="text-sm text-rw-muted mb-2">Run this on the machine as root. It works once and expires { v.JoinExpires }.</p>
 							<div class="mb-3">@joinCommand(v.JoinCommand, v.JoinTwoStep)</div>
 						}
-						<form hx-post={ v.Rejoin } hx-target={ target() } hx-swap="outerHTML">
+						<form hx-post={ v.Rejoin } hx-target={ drawerTarget() } hx-swap="outerHTML">
 							<button type="submit" class="btn btn-ghost btn-sm">Rejoin</button>
 						</form>
 					}
@@ -760,7 +756,7 @@ templ NodeBody(tab string, v NodeView) {
 							}
 						</ul>
 						if v.CertExpired && v.Rejoin != "" {
-							<form hx-post={ v.Rejoin } hx-target={ target() } hx-swap="outerHTML" class="ml-auto">
+							<form hx-post={ v.Rejoin } hx-target={ drawerTarget() } hx-swap="outerHTML" class="ml-auto">
 								<button type="submit" class="btn btn-primary btn-sm">Rejoin</button>
 							</form>
 						}
@@ -983,51 +979,6 @@ templ ifaceList(rows []IfaceRow) {
 	</ul>
 }
 
-// NodeBack is the link from a node drawer to the Nodes tab.
-templ NodeBack(href string) {
-	<button type="button" hx-get={ href } hx-target={ target() } hx-swap="outerHTML" class="text-xs text-rw-accent hover:underline mb-3">Back to nodes</button>
-}
-
-templ defaultsControl(d DefaultsView) {
-	if d.Preview != nil {
-		@ingressPreview(*d.Preview)
-	}
-	<div class="panel px-4 py-3 mb-3 text-sm grid gap-3 sm:grid-cols-2">
-		<form hx-post={ d.IngressAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
-			<div>
-				<label for="default-ingress" class="label">Default ingress</label>
-				<select id="default-ingress" name="node" class="input">
-					for _, n := range d.IngressNodes {
-						<option value={ n.Value } selected?={ n.Value == d.Ingress }>{ n.Label }</option>
-					}
-				</select>
-			</div>
-			<button type="submit" class="btn btn-ghost btn-sm">Preview</button>
-		</form>
-		<form hx-post={ d.ExitAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
-			<div>
-				<label for="default-exit" class="label">Default exit</label>
-				<select id="default-exit" name="node" class="input">
-					<option value="" selected?={ d.Exit == "" }>Each node's own uplink</option>
-					for _, n := range d.ExitNodes {
-						<option value={ n.Value } selected?={ n.Value == d.Exit }>{ n.Label }</option>
-					}
-				</select>
-			</div>
-			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
-		</form>
-		<form hx-post={ d.RotateEvery } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
-			<div>
-				<label for="rotate-days" class="label">Rotate keys every (days, 0 = off)</label>
-				<input id="rotate-days" name="days" type="number" min="0" max="365" value={ fmt.Sprint(d.RotateDays) } class="input w-24"/>
-			</div>
-			<button type="submit" class="btn btn-ghost btn-sm">Set</button>
-		</form>
-		<form hx-post={ d.RotateAction } hx-target={ target() } hx-swap="outerHTML" class="flex items-end">
-			<button type="submit" class="btn btn-ghost btn-sm">Rotate all keys now</button>
-		</form>
-	</div>
-}
 
 // joinCommand is the one line to run on a joining machine, or the two-step
 // version when the panel's certificate is not one a fresh box trusts.

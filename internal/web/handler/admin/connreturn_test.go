@@ -35,11 +35,11 @@ func TestInstallReturnsWhereItBegan(t *testing.T) {
 	if got := s.As(t, root, "GET", back+"?state="+url.QueryEscape(state), nil).Header().Get("Location"); got != "/-/setup/server/ui/git" {
 		t.Errorf("return from the wizard's install = %q", got)
 	}
-	if got := s.As(t, root, "GET", back, nil).Header().Get("Location"); got != "/?drawer=admin&tab=connectors" {
+	if got := s.As(t, root, "GET", back, nil).Header().Get("Location"); got != "/-/admin/connectors" {
 		t.Errorf("return with no state = %q", got)
 	}
 	bad := strings.Replace(state, ".", ".0", 1)
-	if got := s.As(t, root, "GET", back+"?state="+url.QueryEscape(bad), nil).Header().Get("Location"); got != "/?drawer=admin&tab=connectors" {
+	if got := s.As(t, root, "GET", back+"?state="+url.QueryEscape(bad), nil).Header().Get("Location"); got != "/-/admin/connectors" {
 		t.Errorf("return with a forged state = %q", got)
 	}
 	if got := s.As(t, root, "GET", "/settings/github/callback?state=nope.nope&code=c", nil).Header().Get("Location"); got != "/" {

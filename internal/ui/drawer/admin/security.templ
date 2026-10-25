@@ -16,7 +16,6 @@ type SecurityView struct {
 	Actors  []AccessOption // the actor picker
 	Windows []AccessOption // the time picker
 	More    string         // GET for older rows; "" = this is all of them
-	Key     MasterKeyView
 }
 
 // MasterKeyView is the master key section. Rotate is the POST target; ""
@@ -45,10 +44,8 @@ type SecurityDetail struct{ Label, Value string }
 
 templ Security(v SecurityView) {
 	<div id="tab-security">
-		@MasterKey(v.Key)
 		@c.Section("Security log", "instance", "Every sign-in, grant, key and node change. Kept forever.") {
-			<form hx-get={ Base } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
-				<input type="hidden" name="tab" value="security"/>
+			<form hx-get={ Href("security-log") } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
 				@securityPicker("action", "Action", "Any action", v.Actions, v.Filter.Action)
 				@securityPicker("actor", "Actor", "Anyone", v.Actors, v.Filter.Actor)
 				@securityPicker("window", "Time", "All time", v.Windows, v.Filter.Window)

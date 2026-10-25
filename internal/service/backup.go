@@ -597,7 +597,7 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 // ensureRecoveryKey loads this box's recovery public key. A box with none
 // (a dev tree, or an install from before the key) makes the pair now: the
 // public half and generation 1 are kept, the private half waits in
-// RecoveryPendingFile until an admin has saved it (Admin, Backups).
+// RecoveryPendingFile until an admin has saved it (Server settings, Keys).
 func ensureRecoveryKey(dataDir string) (string, int, error) {
 	pub, gen, err := installspec.LoadRecovery(dataDir)
 	if err != nil || pub != "" {

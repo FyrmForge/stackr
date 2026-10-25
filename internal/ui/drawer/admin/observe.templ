@@ -2,8 +2,9 @@ package admin
 
 import c "github.com/FyrmForge/stackr/internal/ui/components"
 
-// ObserveView is the admin's Observability tab: metrics history and logs on
-// or off, their knobs, and what it holds against the disk. Action "" = may not save.
+// ObserveView is Metrics and logs: metrics history and logs on or off, their
+// knobs, and what it holds against the disk. Action "" = may not save. The
+// one editor of the observe_* knobs; the labels are the catalogue's.
 type ObserveView struct {
 	Action                               string
 	Enabled                              bool
@@ -19,43 +20,50 @@ type ObserveView struct {
 	Err                                  string
 }
 
+// Each panel saves its own knobs: part names them to the handler, so an
+// unticked box in another panel is never read as off.
+templ observeForm(action, part string) {
+	<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+		<input type="hidden" name="part" value={ part }/>
+		{ children... }
+		<button type="submit" class="btn btn-primary btn-sm">Save</button>
+	</form>
+}
+
 templ Observe(v ObserveView) {
 	<div id="tab-observability">
 		if v.Action != "" {
-			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-				@c.Section("Metrics", "instance", "Keeps graphs past 24 hours in the stackr-observe container.") {
-					<div class="space-y-3">
-						@observeCheck("observe_enabled", "Keep metrics history", v.Enabled)
-						@c.Field(c.FieldView{Name: "observe_metrics_retention", Label: "Retention (days)", Type: "number", Value: v.Retention, Help: "Older points are deleted."})
-						@c.Field(c.FieldView{Name: "observe_min_free", Label: "Free disk floor (GB)", Type: "number", Value: v.MinFree, Help: "Writes stop below this much free disk."})
-						@c.Field(c.FieldView{Name: "observe_max_memory", Label: "Memory cap (MB)", Type: "number", Value: v.Memory, Help: "Shared with logs. At least 256."})
-						if v.Data != "" {
-							<p class="text-sm text-rw-muted">Using { v.Data }</p>
-						}
-					</div>
+			@c.Section("Metrics", "instance", "Keeps graphs past 24 hours in the stackr-observe container.") {
+				@observeForm(v.Action, "metrics") {
+					@observeCheck("observe_enabled", "Keep metrics history", v.Enabled)
+					@c.Field(c.FieldView{Name: "observe_metrics_retention", Label: "Metrics retention (days)", Type: "number", Value: v.Retention, Help: "Older points are deleted."})
+					@c.Field(c.FieldView{Name: "observe_min_free", Label: "Free disk floor (GB)", Type: "number", Value: v.MinFree, Help: "Writes stop below this much free disk."})
+					@c.Field(c.FieldView{Name: "observe_max_memory", Label: "Memory cap (MB)", Type: "number", Value: v.Memory, Help: "Shared with logs. At least 256."})
+					if v.Data != "" {
+						<p class="text-sm text-rw-muted">Using { v.Data }</p>
+					}
 				}
-				@c.Section("Logs", "instance", "Keeps container and run logs for search. Needs metrics history on.") {
-					<div class="space-y-3">
-						@observeCheck("observe_logs_enabled", "Keep logs", v.LogsEnabled)
-						@c.Field(c.FieldView{Name: "observe_logs_retention", Label: "Retention (days)", Type: "number", Value: v.LogsDays, Help: "Older lines are deleted."})
-						@c.Field(c.FieldView{Name: "observe_logs_max_size", Label: "Size cap (GB)", Type: "number", Value: v.LogsMax, Help: "The oldest days go first."})
-						if v.LogsData != "" {
-							<p class="text-sm text-rw-muted">Using { v.LogsData }</p>
-						}
-						if v.LogsDropped != "" {
-							<p class="text-sm text-rw-muted">Dropped: { v.LogsDropped }</p>
-						}
-					</div>
+			}
+			@c.Section("Logs", "instance", "Keeps container and run logs for search. Needs metrics history on.") {
+				@observeForm(v.Action, "logs") {
+					@observeCheck("observe_logs_enabled", "Keep logs", v.LogsEnabled)
+					@c.Field(c.FieldView{Name: "observe_logs_retention", Label: "Logs retention (days)", Type: "number", Value: v.LogsDays, Help: "Older lines are deleted."})
+					@c.Field(c.FieldView{Name: "observe_logs_max_size", Label: "Logs size cap (GB)", Type: "number", Value: v.LogsMax, Help: "The oldest days go first."})
+					if v.LogsData != "" {
+						<p class="text-sm text-rw-muted">Using { v.LogsData }</p>
+					}
+					if v.LogsDropped != "" {
+						<p class="text-sm text-rw-muted">Dropped: { v.LogsDropped }</p>
+					}
 				}
-				@c.Section("Access logs", "instance", "What the proxy keeps of each request. Kept with logs.") {
-					<div class="space-y-3">
-						@observeCheck("observe_access_ip", "Client IP", v.AccessIP)
-						@observeCheck("observe_access_query", "Query string", v.AccessQuery)
-						@observeCheck("observe_access_headers", "All headers", v.AccessHeaders)
-					</div>
+			}
+			@c.Section("Access logs", "instance", "What the proxy keeps of each request. Kept with logs.") {
+				@observeForm(v.Action, "access") {
+					@observeCheck("observe_access_ip", "Access log client IP", v.AccessIP)
+					@observeCheck("observe_access_query", "Access log query string", v.AccessQuery)
+					@observeCheck("observe_access_headers", "Access log headers", v.AccessHeaders)
 				}
-				<button type="submit" class="btn btn-primary btn-sm">Save</button>
-			</form>
+			}
 		}
 		@c.Section("Storage", "instance", "Turning history off keeps the data for later.") {
 			<div class="space-y-1 text-sm">

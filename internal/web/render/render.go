@@ -40,12 +40,10 @@ func Page(c echo.Context, status int, title string, body templ.Component) error 
 func PageWith(c echo.Context, status int, title string, body, actions, drawer templ.Component) error {
 	s := Shell(c, title)
 	s.Actions = actions
-	// the admin drawer and a node's, opened from it, sit on any page
+	// a node's drawer opens over any page
 	if d := c.QueryParam("drawer"); drawer == nil && s.Admin {
 		if id, ok := strings.CutPrefix(d, "node:"); ok && id != "" {
 			drawer = components.DrawerLoad(cluster.NodeDrawer(id, c.QueryParam("tab")))
-		} else if d == "admin" {
-			drawer = components.DrawerLoad("/-/admin?tab=" + url.QueryEscape(c.QueryParam("tab")))
 		}
 	}
 	s.Drawer, s.Tab = drawer, c.QueryParam("tab")
@@ -82,6 +80,7 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Theme, s.TimeZone = p.User.Theme, p.User.TimeZone
 		s.Nav = append(s.Nav, link("Orgs", "/", path), link("Account", "/account", path))
 		s.Admin = p.Access.Admin
+		s.AdminOn = s.Admin && strings.HasPrefix(path, "/-/admin/")
 		if s.Admin { // the Cluster map is the admin's
 			s.Nav = append(s.Nav, link("Cluster", "/-/cluster", path))
 		}

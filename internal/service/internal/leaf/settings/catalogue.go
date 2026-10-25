@@ -286,7 +286,7 @@ var Catalogue = []Knob{
 
 	{
 		Key:     "observe_enabled",
-		Label:   "Metrics",
+		Label:   "Keep metrics history",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
@@ -310,7 +310,7 @@ var Catalogue = []Knob{
 	},
 	{
 		Key:     "observe_logs_enabled",
-		Label:   "Logs",
+		Label:   "Keep logs",
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,

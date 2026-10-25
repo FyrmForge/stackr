@@ -39,7 +39,7 @@ func (h *handler) mountConnectors(g *echo.Group, a *middleware.Access) {
 const dnsBase = ui.Base + "/dns"
 
 // refresh is the tab, whose list a closing dialog swaps in.
-func refresh(echo.Context) string { return ui.Base + "?tab=connectors" }
+func refresh(echo.Context) string { return ui.Href("connectors") }
 
 // panel is the server level of the connectors.
 func (h *handler) panel() connpanel.Panel {
@@ -54,7 +54,7 @@ func (h *handler) panel() connpanel.Panel {
 				Title:   "Remove " + k.Name + "?",
 				Warning: connpanel.Warning(k),
 				Action:  connBase + "/" + k.ID + "/delete",
-				Target:  "#" + comp.DrawerRoot,
+				Target:  ui.Target,
 			}
 		},
 		Back:    func(echo.Context) string { return connBase + "/new?pick=1" },

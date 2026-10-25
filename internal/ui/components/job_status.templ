@@ -12,6 +12,7 @@ type JobStatusView struct {
 	StreamURL string
 	Live      bool
 	Refresh   string // re-fetched into the drawer when the stream ends; "" = none
+	Target    string // what Refresh replaces; "" = the drawer
 }
 
 templ JobStatus(v JobStatusView) {
@@ -21,7 +22,7 @@ templ JobStatus(v JobStatusView) {
 				@JobStatusBody(v)
 			</div>
 			if v.Refresh != "" {
-				<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ "#" + DrawerRoot } hx-swap="outerHTML"></span>
+				<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ orDrawer(v.Target) } hx-swap="outerHTML"></span>
 			}
 		</div>
 	} else {

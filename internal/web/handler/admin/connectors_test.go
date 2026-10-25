@@ -23,7 +23,7 @@ func TestAdminConnectors(t *testing.T) {
 	const base = "/-/admin/connectors/"
 
 	// the list: one row, its summary and cogwheel, and the add button
-	rec := s.As(t, root, "GET", "/-/admin?tab=connectors", nil)
+	rec := s.As(t, root, "GET", "/-/admin/connectors", nil)
 	body := rec.Body.String()
 	for _, want := range []string{
 		`id="tab-connectors"`, `id="connectors-list"`, "main", "Not shared yet",
@@ -68,7 +68,7 @@ func TestAdminConnectors(t *testing.T) {
 
 	// the owner of an org is no admin
 	for _, c := range []struct{ method, path string }{
-		{"GET", "/-/admin?tab=connectors"},
+		{"GET", "/-/admin/connectors"},
 		{"GET", base + "new"},
 		{"GET", base + "new/github"},
 		{"GET", base + srv + "/settings"},
@@ -125,12 +125,12 @@ func TestAdminConnectors(t *testing.T) {
 			t.Errorf("a connector begun in Admin is not shared with every org: %+v", k)
 		}
 	}
-	rec = s.As(t, root, "GET", "/-/admin?tab=connectors", nil)
+	rec = s.As(t, root, "GET", "/-/admin/connectors", nil)
 	if !strings.Contains(rec.Body.String(), "pending") {
 		t.Errorf("a pending connector is not marked:\n%s", rec.Body)
 	}
 	// set up server: GitHub's install return lands on the Connectors tab
-	if rec := s.As(t, root, "GET", "/settings/github/installed/"+cs[1].ID, nil); rec.Header().Get("Location") != "/?drawer=admin&tab=connectors" {
+	if rec := s.As(t, root, "GET", "/settings/github/installed/"+cs[1].ID, nil); rec.Header().Get("Location") != "/-/admin/connectors" {
 		t.Errorf("installed = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 
@@ -153,7 +153,7 @@ func TestAdminConnectorCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/connectors", nil).Body.String()
 	if n := strings.Count(body, `<li class="rounded-lg border`); n != 2 {
 		t.Errorf("cards = %d, want 2\n%s", n, body)
 	}

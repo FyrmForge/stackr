@@ -1,0 +1,182 @@
+package admin
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Root is the id every section answer replaces (outerHTML): the side menu
+// and the section, so a badge follows what an action fixed. Never the
+// drawer's own root, which a node drawer over the page still uses.
+const Root = "admin-view"
+
+// Target is what the page's forms and buttons answer into.
+const Target = "#" + Root
+
+func target() string { return Target }
+
+// drawerTarget is the node drawer's, open over the page.
+func drawerTarget() string { return "#" + c.DrawerRoot }
+
+// Item is one section of the side menu; Key is its URL segment.
+type Item struct{ Key, Label, Sub string }
+
+// Group is a side menu heading and its sections; Title "" = no heading.
+type Group struct {
+	Title string
+	Items []Item
+}
+
+// Groups is the side menu, in order.
+var Groups = []Group{
+	{"", []Item{{"overview", "Overview", "What needs you, and how this server is set up."}}},
+	{"People", []Item{
+		{"users", "Users", "Everyone who can sign in."},
+		{"host-access", "Host access", "Apps allowed past the container on a node."},
+	}},
+	{"Nodes", []Item{
+		{"nodes", "Nodes", "Machines this panel runs envs on."},
+		{"placements", "Placements", "Named spots on nodes that orgs deploy to."},
+		{"traffic", "Traffic", "Where traffic enters and leaves the cluster."},
+	}},
+	{"Web", []Item{
+		{"domains", "Domains and proxy", "The panel's domain and the proxy in front of every app."},
+		{"connectors", "Connectors", "Git hosts and DNS accounts the server owns."},
+	}},
+	{"Data", []Item{
+		{"backups", "Backups", "The panel's own backup and where backups go."},
+		{"registry", "Registry", "Images every org has pushed."},
+		{"cleanup", "Cleanup", "Old images and volumes no app uses."},
+	}},
+	{"Monitoring", []Item{
+		{"metrics", "Metrics and logs", "What the panel keeps about every app."},
+		{"alerts", "Alerts", "Where the server reports problems."},
+	}},
+	{"Security", []Item{
+		{"keys", "Keys", "Every key the server holds."},
+		{"security-log", "Security log", "Every sign-in, grant, key and node change."},
+	}},
+	{"System", []Item{
+		{"org-defaults", "Org defaults", "Limits every org starts from."},
+		{"jobs", "Jobs", "How much background work runs at once."},
+		{"config", "Config as code", "Manage the server from a file in git."},
+		{"update", "Update", "This server's version."},
+	}},
+}
+
+// Find is the section by key; ok false = no such section.
+func Find(key string) (Item, bool) {
+	for _, g := range Groups {
+		for _, it := range g.Items {
+			if it.Key == key {
+				return it, true
+			}
+		}
+	}
+	return Item{}, false
+}
+
+// Href is a section's page.
+func Href(key string) string { return Base + "/" + key }
+
+// Badge is a nav item's count: open problems, or host access requests
+// waiting. Critical colours it.
+type Badge struct {
+	N        int
+	Critical bool
+}
+
+// ViewFrame is the side menu and the section: which one, its badges, and
+// what an action did (Note) or why it was refused (Error).
+type ViewFrame struct {
+	Section     string
+	Badges      map[string]Badge
+	Note, Error string
+}
+
+func navClass(on bool) string {
+	if on {
+		return "settings-nav-item is-active flex items-center gap-2"
+	}
+	return "settings-nav-item flex items-center gap-2"
+}
+
+func badgeTitle(key string, n int) string {
+	if key == "host-access" {
+		return strconv.Itoa(n) + " waiting for approval"
+	}
+	return strconv.Itoa(n) + " open problems"
+}
+
+func badgeClass(b Badge) string {
+	if b.Critical {
+		return "ml-auto rounded-full bg-rw-danger/15 px-1.5 text-[10px] font-semibold text-rw-danger"
+	}
+	return "ml-auto rounded-full bg-rw-warn/15 px-1.5 text-[10px] font-semibold text-rw-warn"
+}
+
+// post is a one-button POST answered with the page's view.
+templ post(label, action string) {
+	<button type="button" class="btn btn-ghost btn-sm" hx-post={ action } hx-target={ target() } hx-swap="outerHTML">{ label }</button>
+}
+
+// primaryPost is post as the one primary act.
+templ primaryPost(label, action string) {
+	<button type="button" class="btn btn-primary btn-sm" hx-post={ action } hx-target={ target() } hx-swap="outerHTML">{ label }</button>
+}
+
+// Page is the Server settings page around the view.
+templ Page(f ViewFrame, body templ.Component) {
+	<div class="page">
+		<h1 class="text-2xl font-semibold text-rw-text tracking-tight">Server settings</h1>
+		<p class="text-sm text-rw-muted mt-1 mb-8">Settings for the whole server. Only admins see them.</p>
+		@View(f, body)
+	</div>
+}
+
+// View is the side menu and one section; every action answers it.
+templ View(f ViewFrame, body templ.Component) {
+	<div id={ Root } class="settings-layout">
+		<nav class="settings-nav" aria-label="Server settings">
+			for _, g := range Groups {
+				if g.Title != "" {
+					<p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rw-faint hidden md:block">{ g.Title }</p>
+				}
+				for _, it := range g.Items {
+					<a
+						href={ templ.SafeURL(Href(it.Key)) }
+						hx-get={ Href(it.Key) }
+						hx-target="#main"
+						hx-push-url="true"
+						class={ navClass(it.Key == f.Section) }
+						if it.Key == f.Section {
+							aria-current="page"
+						}
+					>
+						<span>{ it.Label }</span>
+						if b := f.Badges[it.Key]; b.N > 0 {
+							<span class={ badgeClass(b) } title={ badgeTitle(it.Key, b.N) }>{ strconv.Itoa(b.N) }</span>
+						}
+					</a>
+				}
+			}
+		</nav>
+		<div class="settings-body space-y-4">
+			if it, ok := Find(f.Section); ok {
+				<div>
+					<h2 class="text-lg font-semibold text-rw-text tracking-tight">{ it.Label }</h2>
+					<p class="text-sm text-rw-muted">{ it.Sub }</p>
+				</div>
+			}
+			if f.Error != "" {
+				<p class="banner banner-danger" role="alert">{ f.Error }</p>
+			}
+			if f.Note != "" {
+				// a note may hold a one-time token: keep it out of htmx's history cache
+				<p class="banner" role="status" hx-history="false">{ f.Note }</p>
+			}
+			@body
+		</div>
+	</div>
+}

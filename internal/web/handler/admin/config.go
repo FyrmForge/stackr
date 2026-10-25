@@ -76,8 +76,11 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 		Auto:      bd.Auto,
 		Job:       job,
 	}
+	if v.Vars, err = h.params(c, "", ""); err != nil {
+		return nil, err
+	}
 	if job != nil {
-		job.Refresh = ui.Base + "?tab=config"
+		job.Refresh = ui.Href("config")
 	}
 	for _, k := range cs {
 		v.Connectors = append(v.Connectors, ui.ConnectorOption{Value: k.ID, Label: k.Name + " (" + k.Host + ")"})
@@ -88,7 +91,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 			Title:   "Unbind the server file?",
 			Warning: "The server goes back to being managed from the UI. Plans nobody approved are rejected; nothing applied changes.",
 			Action:  ui.Base + "/config/unbind",
-			Target:  "#" + comp.DrawerRoot,
+			Target:  ui.Target,
 		}
 	}
 	ps, err := h.orch.ServerPlans(ctx, 20)
@@ -114,6 +117,7 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 		Review: comp.PlanReviewView{
 			Plan:   render.ServerPlanView(pl),
 			Origin: render.PlanOrigin(latest.Source),
+			Target: ui.Target,
 		},
 	}
 	switch {

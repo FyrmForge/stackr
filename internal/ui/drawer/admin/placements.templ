@@ -93,6 +93,22 @@ type MoveProgressEnv struct {
 	Path, State, Step, Error string
 }
 
+// placementShare is who may pin to the placement: every org, the ticked
+// ones, or none (Server only). It posts share and org (slugs).
+func placementShare(f PlacementFormView) c.ShareView {
+	v := c.ShareView{ModeName: "share", OrgName: "org", Mode: c.ShareServer}
+	for _, o := range f.Orgs {
+		v.Orgs = append(v.Orgs, c.ShareOrg{ID: o.Slug, Name: o.Name, On: o.On})
+		if o.On {
+			v.Mode = c.ShareOnly
+		}
+	}
+	if f.All {
+		v.Mode = c.ShareAll
+	}
+	return v
+}
+
 templ placementForm(f PlacementFormView, id string, withName bool) {
 	<form hx-post={ f.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 		if f.Error != "" {
@@ -111,20 +127,10 @@ templ placementForm(f PlacementFormView, id string, withName bool) {
 				<p class="text-xs text-rw-faint mt-1">With no node, envs wait until you give it one.</p>
 			</div>
 		}
-		<fieldset class="space-y-1">
-			<legend class="label">Open to</legend>
-			<input type="checkbox" id={ id + "-all" } name="all" value="on" checked?={ f.All } class="peer accent-rw-accent"/>
-			<label for={ id + "-all" } class="text-rw-text">All orgs</label>
-			<div class="space-y-1 pl-6 peer-checked:hidden">
-				for _, o := range f.Orgs {
-					<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="org" value={ o.Slug } checked?={ o.On } class="accent-rw-accent"/> { o.Name }</label>
-				}
-				if len(f.Orgs) == 0 {
-					<p class="text-sm text-rw-faint">No organizations yet.</p>
-				}
-			</div>
-			<p class="text-xs text-rw-faint">Closing keeps the envs already here.</p>
-		</fieldset>
+		<div class="text-sm">
+			@c.Share(placementShare(f))
+			<p class="mt-1 text-xs text-rw-faint">Closing keeps the envs already here.</p>
+		</div>
 		<button type="submit" class="btn btn-primary btn-sm">
 			if withName {
 				Add placement
@@ -177,7 +183,7 @@ templ Placements(v PlacementsView) {
 						</div>
 						if r.Edit.Action != "" {
 							<details>
-								<summary class="cursor-pointer text-xs text-rw-muted hover:text-rw-text">Open to orgs</summary>
+								<summary class="cursor-pointer text-xs text-rw-muted hover:text-rw-text">Sharing</summary>
 								<div class="mt-2">
 									@placementForm(r.Edit, "pl-"+r.Name, false)
 								</div>

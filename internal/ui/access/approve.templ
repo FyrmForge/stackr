@@ -17,6 +17,8 @@ type ApproveView struct {
 	// Controller is set when envs of the stack run on the controller and a
 	// worker exists; the form warns and offers the move, never blocks.
 	Controller *ControllerWarn
+	// Target is what the approve answers into; "" = the drawer it sits in.
+	Target string
 }
 
 // ControllerWarn names the controller and the stack's envs running on it.
@@ -28,17 +30,23 @@ type ControllerWarn struct {
 // ControllerEnv is one env; Move opens its drawer, where it is moved.
 type ControllerEnv struct{ Name, Move string }
 
-func target() string { return "#" + c.DrawerRoot }
+// target is what the approve answers into: Target, or the drawer.
+func (v ApproveView) target() string {
+	if v.Target != "" {
+		return v.Target
+	}
+	return "#" + c.DrawerRoot
+}
 
 func (v ApproveView) risky() bool { return NeedName(v.Pending) }
 
 func (v ApproveView) confirm() c.ConfirmView {
 	cv := c.ConfirmView{
 		Button:  "Approve",
-		Title:   "Approve elevated access?",
+		Title:   "Approve host access?",
 		Warning: "Unticked lines keep waiting. Parked jobs resume once everything they ask for is granted.",
 		Action:  v.Action,
-		Target:  target(),
+		Target:  v.target(),
 		Primary: true,
 	}
 	// The dialog is rendered with the form, before any untick, so it names
@@ -68,7 +76,11 @@ templ Approve(v ApproveView) {
 				<p class="mt-1 text-rw-muted">Docker socket or host networking here can reach every node. Run it on a worker if you can.</p>
 				<p class="mt-2 flex flex-wrap gap-3">
 					for _, e := range v.Controller.Envs {
-						<a href={ templ.SafeURL(e.Move) } hx-get={ e.Move } hx-target={ target() } hx-swap="outerHTML" class="text-rw-accent underline">Move { e.Name }</a>
+						if v.Target != "" {
+							<a href={ templ.SafeURL(e.Move) } hx-get={ e.Move } hx-target="#drawer-body" class="text-rw-accent underline">Move { e.Name }</a>
+						} else {
+							<a href={ templ.SafeURL(e.Move) } hx-get={ e.Move } hx-target={ v.target() } hx-swap="outerHTML" class="text-rw-accent underline">Move { e.Name }</a>
+						}
 					}
 				</p>
 			</div>

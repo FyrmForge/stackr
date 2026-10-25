@@ -76,14 +76,14 @@ func TestKindSetupAndCallback(t *testing.T) {
 		t.Fatalf("another admin finished it: %v", cs)
 	}
 	rec = s.As(t, root, "GET", cb, nil)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/-/admin?tab=connectors" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/-/admin/connectors" {
 		t.Fatalf("callback = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	cs, _ := s.Orch.ConnectorsAt(ctx, nil)
 	if len(cs) != 1 {
 		t.Fatalf("connectors = %v", cs)
 	}
-	body = s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String()
+	body = s.As(t, root, "GET", "/-/admin/connectors", nil).Body.String()
 	if !strings.Contains(body, "Fake · acme") || !strings.Contains(body, `hx-get="`+base+"/"+cs[0].ID+`/settings"`) {
 		t.Fatalf("tab:\n%s", body)
 	}

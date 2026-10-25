@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/hamr/pkg/htmx"
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -75,11 +77,11 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		return err
 	}), m)
 	g.POST(nodesBase+"/default-ingress/preview", h.previewIngress, m)
-	g.POST(nodesBase+"/default-ingress", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/default-ingress", h.act("traffic", func(c echo.Context) (string, *service.Job, error) {
 		_, err := h.orch.SetDefaultIngress(c.Request().Context(), middleware.Principal(c), c.FormValue("node"), c.FormValue("confirm"))
 		return "Default ingress saved.", nil, err
 	}), m)
-	g.POST(nodesBase+"/default-exit", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/default-exit", h.act("traffic", func(c echo.Context) (string, *service.Job, error) {
 		_, err := h.orch.SetDefaultExit(c.Request().Context(), middleware.Principal(c), c.FormValue("node"))
 		return "Default exit saved.", nil, err
 	}), m)
@@ -91,11 +93,11 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		c.Set("rejoin", out)
 		return h.nodeAnswer(c, "security", "New join command below.", nil)
 	}, m)
-	g.POST(nodesBase+"/rotate", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/rotate", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), "")
 		return "Rotating every node's keys, one at a time. The security log shows each.", nil, err
 	}), m)
-	g.POST(nodesBase+"/rotate-every", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/rotate-every", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		days, err := strconv.Atoi(c.FormValue("days"))
 		if err != nil {
 			return "", nil, errs.Invalidf("days", "a whole number of days")
@@ -108,19 +110,19 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		return fmt.Sprintf("Keys rotate every %d days.", days), nil, nil
 	}), m)
-	g.POST(nodesBase+"/trust/rotate-root", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/trust/rotate-root", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		err := h.orch.RotateRoot(c.Request().Context(), middleware.Principal(c))
 		return "Rotating the root. Every node gets a new certificate; the security log shows each step.", nil, err
 	}), m)
-	g.POST(nodesBase+"/trust/finish-rollover", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/trust/finish-rollover", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		err := h.orch.FinishRollover(c.Request().Context(), middleware.Principal(c))
 		return "Rollover finished. Nodes still on the old root need a rejoin.", nil, err
 	}), m)
-	g.POST(nodesBase+"/trust/revoke-controller-cert", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/trust/revoke-controller-cert", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		err := h.orch.RevokeControllerCert(c.Request().Context(), middleware.Principal(c))
 		return "Replacing the controller certificate. Workers stop accepting the old one within minutes.", nil, err
 	}), m)
-	g.POST(nodesBase+"/trust/break-glass", h.act("nodes", func(c echo.Context) (string, *service.Job, error) {
+	g.POST(nodesBase+"/trust/break-glass", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		if c.FormValue("confirm") != breakGlassWord {
 			return "", nil, errs.Invalidf("confirm", "type %q to confirm", breakGlassWord)
 		}
@@ -134,10 +136,10 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/:node/trust-rejoin", func(c echo.Context) error {
 		out, err := h.orch.RejoinNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 		if err != nil {
-			return h.answer(c, "nodes", "", extra{}, err)
+			return h.answer(c, "keys", "", extra{}, err)
 		}
 		c.Set("rejoin", out)
-		return h.answer(c, "nodes", "New join command below.", extra{}, nil)
+		return h.answer(c, "keys", "New join command below.", extra{}, nil)
 	}, m)
 	g.POST(nodesBase+"/:node/rotate", func(c echo.Context) error {
 		err := h.orch.RotateNodeKeys(c.Request().Context(), middleware.Principal(c), c.Param("node"))
@@ -149,7 +151,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/:node/backup", h.nodeJob("overview", "Node backup queued.", func(c echo.Context) (service.Job, error) {
 		return h.orch.BackupNode(c.Request().Context(), middleware.Principal(c), c.Param("node"))
 	}), m)
-	// An offline node is forgotten at once: the Nodes tab. One still online
+	// An offline node is forgotten at once: the Nodes section. One still online
 	// is cleaned by a job first: its drawer, with the job.
 	g.POST(nodesBase+"/:node/forget", func(c echo.Context) error {
 		j, err := h.orch.ForgetNode(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("confirm"))
@@ -160,7 +162,9 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 			c.Set("job", j)
 			return h.nodeAnswer(c, "security", "Cleaning the box, then forgetting the node.", nil)
 		}
-		return h.answer(c, "nodes", "Node forgotten.", extra{}, nil)
+		// the drawer it was asked from shows a node that is gone: the page
+		hamrmw.SetFlash(c, "Node forgotten.", hamrmw.FlashSuccess)
+		return respond.Redirect(c, ui.Href("nodes"))
 	}, m)
 }
 
@@ -207,7 +211,7 @@ func (h *handler) addNode(c echo.Context) error {
 func (h *handler) step1(c echo.Context, name string, picked []string, msg string) (*ui.AddNodeView, error) {
 	return &ui.AddNodeView{
 		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
-		Create: nodesBase + "/add", Cancel: ui.Base + "?tab=nodes",
+		Create: nodesBase + "/add", Cancel: ui.Href("nodes"),
 	}, nil
 }
 
@@ -236,7 +240,7 @@ func (h *handler) mintNode(c echo.Context) error {
 		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
 		Expires: "in " + fmt.Sprint(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes",
 		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName),
-		Cancel:  ui.Base + "?tab=nodes",
+		Cancel:  ui.Href("nodes"),
 	}}, nil)
 }
 
@@ -287,7 +291,7 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 	if err != nil {
 		return nil, err
 	}
-	v := ui.NodesView{Add: nodesBase + "/add", Adder: x.adder, Placements: ui.Base + "?tab=placements"}
+	v := ui.NodesView{Add: nodesBase + "/add", Adder: x.adder, Placements: ui.Href("placements")}
 	ps, err := h.orch.PendingNodes(ctx)
 	if err != nil {
 		return nil, err
@@ -301,12 +305,26 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 	for _, n := range ns {
 		v.Rows = append(v.Rows, ui.NodeRow{
 			Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs,
-			Open: nodesBase + "/" + n.ID, Hint: ui.NodeHint(n.Status, n.Stalled),
+			Open: nodesBase + "/" + n.ID, Push: "?drawer=node:" + n.ID, Hint: ui.NodeHint(n.Status, n.Stalled),
 		})
 	}
+	for _, l := range lost {
+		v.Lost = append(v.Lost, ui.LostEnvRow{Path: l.Path, Node: l.Node, Placement: l.Placement, Volumes: l.Volumes})
+	}
+	return ui.Nodes(v), nil
+}
+
+// trafficTab is the default ingress and exit (with more than one node),
+// then the external routes.
+func (h *handler) trafficTab(c echo.Context, x extra) (templ.Component, error) {
+	ctx := c.Request().Context()
+	ns, err := h.orch.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var v ui.TrafficView
 	if len(ns) > 1 {
-		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress/preview", Preview: x.ingress, ExitAction: nodesBase + "/default-exit",
-			RotateAction: nodesBase + "/rotate", RotateEvery: nodesBase + "/rotate-every", RotateDays: h.orch.RotateSchedule(ctx)}
+		d := &ui.DefaultsView{IngressAction: nodesBase + "/default-ingress/preview", Preview: x.ingress, ExitAction: nodesBase + "/default-exit"}
 		if id, err := h.orch.DefaultIngress(ctx); err == nil {
 			d.Ingress = id
 		}
@@ -322,13 +340,42 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 		}
 		v.Defaults = d
 	}
-	for _, l := range lost {
-		v.Lost = append(v.Lost, ui.LostEnvRow{Path: l.Path, Node: l.Node, Placement: l.Placement, Volumes: l.Volumes})
+	rs, err := h.orch.ExternalRoutes(ctx)
+	v.Routes = ui.RoutesView{Add: ui.Base + "/routes"}
+	for _, r := range rs {
+		v.Routes.Rows = append(v.Routes.Rows, ui.Route{
+			Host:     r.Host,
+			Mode:     r.Mode,
+			Target:   r.Target,
+			Insecure: r.Insecure,
+			Remove: comp.ConfirmView{
+				Button:  "Remove",
+				Title:   "Remove the route for " + r.Host + "?",
+				Warning: "The host stops being served.",
+				Action:  ui.Base + "/routes/" + r.ID + "/delete",
+				Target:  ui.Target,
+			},
+		})
+	}
+	return ui.Traffic(v), err
+}
+
+// keysTab is every key the server holds: master, recovery, the node tunnel
+// keys (with more than one node) and the cluster root.
+func (h *handler) keysTab(c echo.Context) (templ.Component, error) {
+	ctx := c.Request().Context()
+	v := ui.KeysView{Master: h.masterKeyView(), Recovery: h.recoveryView()}
+	ns, err := h.orch.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(ns) > 1 {
+		v.Tunnel = ui.TunnelKeysView{Every: nodesBase + "/rotate-every", Rotate: nodesBase + "/rotate", Days: h.orch.RotateSchedule(ctx)}
 	}
 	if v.Trust, err = h.trustView(c); err != nil {
 		return nil, err
 	}
-	return ui.Nodes(v), nil
+	return ui.Keys(v), nil
 }
 
 // POST /-/admin/nodes/default-ingress/preview: where each host that would
@@ -336,9 +383,9 @@ func (h *handler) nodesTab(c echo.Context, x extra) (templ.Component, error) {
 func (h *handler) previewIngress(c echo.Context) error {
 	p, err := h.orch.IngressSwitchPlan(c.Request().Context(), middleware.Principal(c), c.FormValue("node"))
 	if err != nil {
-		return h.answer(c, "nodes", "", extra{}, err)
+		return h.answer(c, "traffic", "", extra{}, err)
 	}
-	v := &ui.IngressPreview{Node: p.Node, Cancel: ui.Base + "?tab=nodes"}
+	v := &ui.IngressPreview{Node: p.Node, Cancel: ui.Href("traffic")}
 	for _, ho := range p.Hosts {
 		r := ui.IngressHostRow{Host: ho.Host, OK: ho.OK}
 		switch {
@@ -359,9 +406,9 @@ func (h *handler) previewIngress(c echo.Context) error {
 		Button: "Move default ingress", Title: "Move the default ingress to " + p.Node + "?",
 		Warning: "The panel and every route without its own ingress enter by " + p.Node + ".",
 		Kept:    []string{"apps running on every node"},
-		Word:    p.Node, Action: nodesBase + "/default-ingress", Target: "#" + comp.DrawerRoot, Vals: string(vals),
+		Word:    p.Node, Action: nodesBase + "/default-ingress", Target: ui.Target, Vals: string(vals),
 	}
-	return h.answer(c, "nodes", "", extra{ingress: v}, nil)
+	return h.answer(c, "traffic", "", extra{ingress: v}, nil)
 }
 
 // trustView is the cluster trust section: the root, the buttons with what
@@ -388,23 +435,23 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 	v.Rotate = comp.ConfirmView{
 		Button: "Rotate root", Title: "Rotate the root?", Quiet: true, Primary: true,
 		Warning: "Every node gets a new certificate. Nothing stops while it runs.",
-		Action:  act + "rotate-root", Target: "#" + comp.DrawerRoot,
+		Action:  act + "rotate-root", Target: ui.Target,
 	}
 	v.Finish = comp.ConfirmView{
 		Button: "Finish rollover now", Title: "Finish the rollover now?", Quiet: true,
 		Warning: "The old root stops working. Nodes still on it need a rejoin.",
-		Action:  act + "finish-rollover", Target: "#" + comp.DrawerRoot,
+		Action:  act + "finish-rollover", Target: ui.Target,
 	}
 	v.RevokeController = comp.ConfirmView{
 		Button: "Revoke controller certificate", Title: "Revoke the controller certificate?", Quiet: true,
 		Warning: "The controller gets a new certificate. Workers stop accepting the old one.",
-		Action:  act + "revoke-controller-cert", Target: "#" + comp.DrawerRoot,
+		Action:  act + "revoke-controller-cert", Target: ui.Target,
 	}
 	v.BreakGlass = comp.ConfirmView{
 		Button: "Break glass", Title: "Break glass?",
 		Warning: "Tunnels between nodes stop until each node rejoins. Apps keep running where they are. Deploys and traffic between nodes stop.",
 		Kept:    []string{"apps running on every node", "node names, envs and addresses"},
-		Word:    breakGlassWord, Action: act + "break-glass", Target: "#" + comp.DrawerRoot,
+		Word:    breakGlassWord, Action: act + "break-glass", Target: ui.Target,
 		Vals: `{"confirm":"` + breakGlassWord + `"}`,
 		Body: ui.BreakGlassBody(), Include: "input[name=backup]",
 	}
@@ -420,7 +467,6 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 	return v, nil
 }
 
-// GET /-/admin/nodes/:node?tab=
 // GET …/nodes/:node/metrics/events: the Metrics tab's new points.
 func (h *handler) nodeMetricsEvents(c echo.Context) error {
 	s, err := h.orch.NodeScope(c.Request().Context(), c.Param("node"))
@@ -430,9 +476,15 @@ func (h *handler) nodeMetricsEvents(c echo.Context) error {
 	return render.MetricsEvents(c, h.orch, s)
 }
 
+// nodeDrawer: a plain load (the link opened in a new tab) lands on the
+// Nodes section with the drawer open over it.
 func (h *handler) nodeDrawer(c echo.Context) error {
-	if ok, err := render.ToShell(c, "node:"+c.Param("node")); ok {
-		return err
+	if !htmx.IsHTMX(c.Request()) {
+		q := url.Values{"drawer": {"node:" + c.Param("node")}}
+		if t := c.QueryParam("tab"); t != "" {
+			q.Set("tab", t)
+		}
+		return c.Redirect(http.StatusSeeOther, ui.Href("nodes")+"?"+q.Encode())
 	}
 	return h.nodeAnswer(c, c.QueryParam("tab"), "", nil)
 }
@@ -450,10 +502,6 @@ func (h *handler) nodeAnswer(c echo.Context, tab, note string, actErr error) err
 	f := comp.DrawerView{
 		Node: "node:" + d.ID, Title: d.Name, Kind: d.Role, Base: base, Tabs: nodeTabs, Tab: tab,
 		Note: note,
-	}
-	// Opened from the cluster map, "back" has nowhere to go.
-	if cur, err := url.Parse(c.Request().Header.Get("HX-Current-URL")); err != nil || !strings.HasPrefix(cur.Path, "/-/cluster") {
-		f.Actions = ui.NodeBack(ui.Base + "?tab=nodes")
 	}
 	status := http.StatusOK
 	if actErr != nil {

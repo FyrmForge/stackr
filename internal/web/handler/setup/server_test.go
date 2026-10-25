@@ -242,7 +242,7 @@ func TestServerWizardSteps(t *testing.T) {
 		t.Fatalf("finish = %q", got)
 	}
 	check()
-	if body := s.do(adm, "GET", setup.ServerBase+"/ui/summary", nil, false).Body.String(); !strings.Contains(body, `href="/?drawer=admin&amp;tab=connectors"`) {
+	if body := s.do(adm, "GET", setup.ServerBase+"/ui/summary", nil, false).Body.String(); !strings.Contains(body, `href="/-/admin/connectors"`) {
 		t.Errorf("finished summary does not link to Admin:\n%s", body)
 	}
 	if rec := s.do(adm, "GET", "/", nil, false); rec.Code != http.StatusOK {

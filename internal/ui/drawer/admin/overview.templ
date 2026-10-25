@@ -1,0 +1,134 @@
+package admin
+
+import (
+	"strconv"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// OverviewView is what needs the admin and how the server is set up.
+type OverviewView struct {
+	Problems []ProblemRow
+	Version  string
+	Update   string // "up to date", "v0.9.0 available", "" = never checked
+	Panel    string // the panel domain; "" = not set
+	Nodes    int
+	Webhook  bool   // an alert webhook is set
+	Guide    string // the setup guide's first step
+}
+
+// ProblemRow is one open problem; Area is the section it belongs to.
+type ProblemRow struct {
+	Message, Area, Href, LinkText string
+	Critical                      bool
+}
+
+func problemTone(critical bool) string {
+	if critical {
+		return "text-rw-danger"
+	}
+	return "text-rw-warn"
+}
+
+// problemLink is a section on this page (navigates) or a ?drawer= link
+// (opens the drawer over the page).
+templ problemLink(r ProblemRow) {
+	if len(r.Href) > 0 && r.Href[0] == '?' {
+		<a href={ templ.SafeURL(r.Href) } class="btn btn-sm btn-ghost shrink-0">{ r.LinkText }</a>
+	} else {
+		<a href={ templ.SafeURL(r.Href) } hx-get={ r.Href } hx-target="#main" hx-push-url="true" class="btn btn-sm btn-ghost shrink-0">{ r.LinkText }</a>
+	}
+}
+
+templ Overview(v OverviewView) {
+	<div id="tab-overview">
+		@c.Section("Open problems", "instance", "Each one clears by itself once it is fixed.") {
+			if len(v.Problems) == 0 {
+				<p class="text-sm text-rw-muted">Nothing needs you.</p>
+			} else {
+				<ul class="rounded-lg border border-rw-border divide-y divide-rw-border">
+					for _, p := range v.Problems {
+						<li class="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
+							<span class={ "mt-0.5 shrink-0 font-semibold", problemTone(p.Critical) } aria-hidden="true">!</span>
+							<span class="flex-1 min-w-0 text-rw-text">{ p.Message }</span>
+							if p.Area != "" {
+								<span class="text-xs text-rw-faint shrink-0">{ p.Area }</span>
+							}
+							if p.Href != "" {
+								@problemLink(p)
+							}
+						</li>
+					}
+				</ul>
+			}
+		}
+		@c.Section("This server", "instance", "") {
+			<dl class="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-1.5 text-sm">
+				<dt class="text-rw-faint">Version</dt>
+				<dd class="text-rw-text min-w-0">
+					<span class="font-mono">{ v.Version }</span>
+					if v.Update != "" {
+						<span class="text-rw-faint">{ " · " + v.Update }</span>
+					}
+				</dd>
+				<dt class="text-rw-faint">Panel</dt>
+				<dd class="text-rw-text min-w-0">
+					if v.Panel != "" {
+						{ v.Panel }
+					} else {
+						<span class="text-rw-faint">No domain set</span>
+					}
+				</dd>
+				<dt class="text-rw-faint">Nodes</dt>
+				<dd class="text-rw-text min-w-0">{ strconv.Itoa(v.Nodes) }</dd>
+				<dt class="text-rw-faint">Alerts webhook</dt>
+				<dd class="text-rw-text min-w-0">
+					if v.Webhook {
+						Set
+					} else {
+						<span class="text-rw-faint">Not set</span>
+					}
+				</dd>
+			</dl>
+		}
+		@c.Section("Setup guide", "instance", "Walks through domains, git, observability, backups and nodes again.") {
+			<a href={ templ.SafeURL(v.Guide) } class="btn btn-primary btn-sm">Open the setup guide</a>
+		}
+	</div>
+}
+
+// DomainsView is Domains and proxy: the panel's and the proxy's knobs, then
+// the custom Caddy config, which is a textarea only.
+type DomainsView struct {
+	Settings c.SettingsFormView
+	Caddy    CaddyView
+}
+
+templ Domains(v DomainsView) {
+	<div id="tab-domains">
+		@c.Section("Panel and proxy", "instance", "") {
+			@c.SettingsForm(v.Settings)
+		}
+		@c.Section("Custom Caddy config", "instance", "A JSON array of Caddy routes, added after stackr's own.") {
+			<form hx-post={ v.Caddy.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
+				<label for="proxy_custom" class="label">Custom Caddy config</label>
+				<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" placeholder="[]" disabled?={ v.Caddy.Action == "" }>{ v.Caddy.Value }</textarea>
+				if v.Caddy.Action != "" {
+					<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				}
+			</form>
+			if v.Caddy.Sync != "" {
+				<div class="mt-5 pt-5 border-t border-rw-border">
+					@post("Re-push the proxy config", v.Caddy.Sync)
+				</div>
+			}
+		}
+	</div>
+}
+
+// Knobs is a section of plain server knobs: one settings form, its Save.
+templ Knobs(title string, v c.SettingsFormView) {
+	@c.Section(title, "instance", "") {
+		@c.SettingsForm(v)
+	}
+}

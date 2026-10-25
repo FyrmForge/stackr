@@ -21,7 +21,7 @@ func TestAdminNodes(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
 
-	rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil)
+	rec := s.As(t, root, "GET", "/-/admin/nodes", nil)
 	body := rec.Body.String()
 	for _, want := range []string{`id="tab-nodes"`, "controller", "Only this server so far", "Add node"} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
@@ -93,7 +93,7 @@ func TestAdminNodes(t *testing.T) {
 	}
 
 	for _, c := range []struct{ method, path string }{
-		{"GET", "/-/admin?tab=nodes"}, {"GET", "/-/admin/nodes/add"}, {"POST", "/-/admin/nodes/add"},
+		{"GET", "/-/admin/nodes"}, {"GET", "/-/admin/nodes/add"}, {"POST", "/-/admin/nodes/add"},
 		{"GET", "/-/admin/nodes/" + id}, {"POST", "/-/admin/nodes/" + id + "/tags"},
 	} {
 		if rec := s.Do(t, c.method, c.path, url.Values{"name": {"w1"}}); rec.Code != http.StatusForbidden {
@@ -123,7 +123,7 @@ func TestAdminNodesPending(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rec := s.As(t, root, "GET", "/-/admin?tab=nodes", nil)
+	rec := s.As(t, root, "GET", "/-/admin/nodes", nil)
 	body := rec.Body.String()
 	for _, want := range []string{"Waiting to join", "ct110", "192.168.1.110/24", "6.8.0", "/reject"} {
 		if !strings.Contains(body, want) {
@@ -193,7 +193,7 @@ func TestAdminIngressPreview(t *testing.T) {
 	if rec := s.As(t, root, "POST", "/-/admin/nodes/"+h4+"/tags", url.Values{"tag": {"ingress", "egress"}}); rec.Code != http.StatusOK {
 		t.Fatalf("tag h4 = %d\n%s", rec.Code, rec.Body)
 	}
-	if body := s.As(t, root, "GET", "/-/admin?tab=nodes", nil).Body.String(); !strings.Contains(body, `hx-post="/-/admin/nodes/default-ingress/preview"`) {
+	if body := s.As(t, root, "GET", "/-/admin/traffic", nil).Body.String(); !strings.Contains(body, `hx-post="/-/admin/nodes/default-ingress/preview"`) {
 		t.Errorf("the select does not post to the preview\n%s", body)
 	}
 	rec := s.As(t, root, "POST", "/-/admin/nodes/default-ingress/preview", url.Values{"node": {h4}})
@@ -215,7 +215,7 @@ func TestAdminIngressPreview(t *testing.T) {
 func TestAdminBreakGlassBackupFirst(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))
-	body := s.As(t, root, "GET", "/-/admin?tab=nodes", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/keys", nil).Body.String()
 	for _, want := range []string{"Back up every node first", `name="backup"`, "checked"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("no %q in\n%s", want, body)

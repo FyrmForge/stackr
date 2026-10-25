@@ -68,7 +68,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 	base := "/-/admin/dns/" + cs[0].ID
 
 	// the list: a row with its summary and cogwheel, no domains inline
-	body := s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String()
+	body := s.As(t, root, "GET", "/-/admin/connectors", nil).Body.String()
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
 		!strings.Contains(body, `hx-get="/-/admin/connectors/`+cs[0].ID+`/settings?tab=domains"`) || strings.Contains(body, base+"/domains") {
 		t.Fatalf("tab:\n%s", body)
@@ -96,7 +96,7 @@ func TestAdminDNSConnectors(t *testing.T) {
 	if got, _ := s.Orch.UsableDNSDomains(ctx, s.Org); !slices.Equal(got, []string{"shop.io"}) {
 		t.Errorf("usable = %v", got)
 	}
-	if body := s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String(); !strings.Contains(body, "1 managed domain") {
+	if body := s.As(t, root, "GET", "/-/admin/connectors", nil).Body.String(); !strings.Contains(body, "1 managed domain") {
 		t.Errorf("the summary does not count the managed domain:\n%s", body)
 	}
 	rec = s.As(t, root, "POST", base+"/takeover", url.Values{"domain": {"away.com"}, "confirm": {"nope"}})

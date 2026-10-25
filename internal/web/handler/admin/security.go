@@ -28,8 +28,8 @@ var securityActions = []struct{ Key, Label string }{
 	{"login.limited", "sign-in rate limited"},
 	{"key.mint", "key made"},
 	{"key.revoke", "key revoked"},
-	{"grant.approve", "elevated access approved"},
-	{"grant.revoke", "elevated access revoked"},
+	{"grant.approve", "host access approved"},
+	{"grant.revoke", "host access revoked"},
 	{"secrets.reveal", "secret revealed"},
 	{"node.bootstrap", "controller created"},
 	{"join.token", "join token issued"},
@@ -85,7 +85,7 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 		return nil, err
 	}
 	who := map[string]string{}
-	v := ui.SecurityView{Filter: q, Key: h.masterKeyView()}
+	v := ui.SecurityView{Filter: q}
 	for _, u := range us {
 		who[u.ID] = u.Email
 		v.Actors = append(v.Actors, ui.AccessOption{Value: u.ID, Label: u.Email})
@@ -100,13 +100,13 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 	}
 	if len(evs) > limit {
 		evs = evs[:limit]
-		more := url.Values{"tab": {"security"}, "limit": {strconv.Itoa(limit + securityPage)}}
+		more := url.Values{"limit": {strconv.Itoa(limit + securityPage)}}
 		for k, s := range map[string]string{"action": q.Action, "actor": q.Actor, "window": q.Window} {
 			if s != "" {
 				more.Set(k, s)
 			}
 		}
-		v.More = ui.Base + "?" + more.Encode()
+		v.More = ui.Href("security-log") + "?" + more.Encode()
 	}
 	target := func(e service.SecurityEvent) string {
 		switch e.TargetKind {
@@ -147,7 +147,7 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 	return ui.Security(v), nil
 }
 
-// masterKeyView is the master key section of the Security tab.
+// masterKeyView is the master key section of Keys.
 func (h *handler) masterKeyView() ui.MasterKeyView {
 	st := h.orch.MasterKeyStatus()
 	v := ui.MasterKeyView{Gen: st.Gen, Since: st.Since, Pending: st.Pending}
