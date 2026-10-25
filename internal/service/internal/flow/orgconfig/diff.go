@@ -83,6 +83,11 @@ type Live struct {
 	// Moves is, per "stack/env" path, the move the file's pin would cause.
 	// The orchestrator fills it once the file is parsed.
 	Moves map[string]planfile.MoveFact
+	// DNS and DNSNotes are the hosts the file's pin or ingress sends to
+	// another ingress node: managed ones as change rows (repointed on apply),
+	// hand-managed ones as notes. Neither blocks the apply.
+	DNS      []planfile.Change
+	DNSNotes []string
 }
 
 // StackLive is one stack.

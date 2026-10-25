@@ -184,3 +184,24 @@ func TestExportPlacing(t *testing.T) {
 		t.Errorf("export diffs: %v %v", p.Changes, p.Blockers)
 	}
 }
+
+// An ingress change lists the hosts it moves: managed as a change row,
+// hand-managed as a note, and neither blocks.
+func TestDiffPlacingDNS(t *testing.T) {
+	f, err := orgconfig.Parse([]byte(v1 + "ingress: eu-prod\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := live()
+	l.Placements = placed()
+	l.DNS = []planfile.Change{{Kind: "dns", Tile: "acme", Field: "shop.acme.dev", Old: "1.1.1.1", New: "2.2.2.2"}}
+	l.DNSNotes = []string{"hand.io -> A 2.2.2.2: set by hand before traffic moves"}
+	p := orgconfig.Diff(f, l)
+	if !slices.Contains(p.Changes, l.DNS[0]) {
+		t.Errorf("changes = %+v", p.Changes)
+	}
+	one(t, "notes", p.Notes, "set by hand")
+	if p.Blocked() {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
