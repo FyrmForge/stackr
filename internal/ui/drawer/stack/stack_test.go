@@ -12,8 +12,8 @@ import (
 func TestHostAccess(t *testing.T) {
 	var b strings.Builder
 	_ = Settings(SettingsView{Name: "none"}).Render(context.Background(), &b)
-	if strings.Contains(b.String(), "Elevated access") {
-		t.Error("a stack with no host access shows the section")
+	if strings.Contains(b.String(), `id="host-access"`) || !strings.Contains(b.String(), "No tile has host access.") {
+		t.Error("a stack with no host access lists grants")
 	}
 	b.Reset()
 	_ = Settings(SettingsView{Name: "mon", Host: HostView{
@@ -27,8 +27,9 @@ func TestHostAccess(t *testing.T) {
 		},
 	}}).Render(context.Background(), &b)
 	for _, w := range []string{
-		"Elevated access", "Host folder", "Privileged", "Device", "waiting",
+		"Host access", "Host folder", "Privileged", "Device", "waiting",
 		`hx-post="/approve"`, `name="grant" value="web device:/dev/x" checked`,
+		"2 grants on web · 1 waiting",
 	} {
 		if !strings.Contains(b.String(), w) {
 			t.Errorf("no %s in\n%s", w, b.String())
@@ -39,20 +40,32 @@ func TestHostAccess(t *testing.T) {
 	}
 }
 
-func TestTabs(t *testing.T) {
+func TestSettingsRows(t *testing.T) {
 	var b strings.Builder
 	_ = Settings(SettingsView{
 		Base:       "/o/s/-/drawer",
+		Open:       "order",
 		Name:       "shop",
 		Connectors: []Option{{"k1", "gh"}},
 		Connector:  "k1",
 		Repo:       "acme/infra",
-		Delete:     c.ConfirmView{Word: "shop", Kept: []string{"x"}, Action: "/o/s/-/drawer/delete"},
+		Order: OrderView{Action: "/o/s/-/drawer/order", Rungs: []Rung{
+			{ID: "a", Name: "dev", Detail: "branch main", Down: []string{"b", "a"}},
+			{ID: "b", Name: "prod", Detail: "from dev", Up: []string{"b", "a"}},
+		}},
+		Delete: c.ConfirmView{Word: "shop", Kept: []string{"x"}, Action: "/o/s/-/drawer/delete"},
 	}).Render(context.Background(), &b)
 	_ = c.Releases(c.ReleasesView{Rows: []c.ReleaseRow{{Number: "3", By: "dev", Message: "fix <b>x</b>"}}}).Render(context.Background(), &b)
 	_ = Settings(SettingsView{Name: "ro"}).Render(context.Background(), &b)
 	got := b.String()
 	for _, w := range []string{
+		"<settings-find",
+		`data-acc="general"`, `data-acc="order"`, `data-acc="config"`, `data-acc="resources"`,
+		`data-acc="variables"`, `data-acc="placement"`, `data-acc="host"`, `data-acc="delete"`,
+		`data-acc="order" open`,
+		"dev, prod",
+		`hx-post="/o/s/-/drawer/order"`,
+		`aria-label="Move dev down"`,
 		`hx-post="/o/s/-/drawer/config"`,
 		`<option value="k1" selected>`,
 		`value="acme/infra"`,
@@ -63,6 +76,36 @@ func TestTabs(t *testing.T) {
 	} {
 		if !strings.Contains(got, w) {
 			t.Errorf("no %s in\n%s", w, got)
+		}
+	}
+	// read-only: no move buttons, no delete row
+	ro := got[strings.LastIndex(got, `<div id="tab-settings">`):]
+	if strings.Contains(ro, `data-acc="delete"`) || strings.Contains(ro, "/order") {
+		t.Errorf("read-only settings offer delete or a move:\n%s", ro)
+	}
+}
+
+func TestSummaries(t *testing.T) {
+	for _, tc := range [][2]string{
+		{GeneralSummary("home", "home"), "home"},
+		{GeneralSummary("Home App", "home-app"), "Home App · home-app"},
+		{OrderSummary(nil), "no environments"},
+		{OrderSummary([]Rung{{Name: "dev"}, {Name: "staging"}, {Name: "production"}}), "dev, staging, production"},
+		{ConfigSummary("", "", ""), "managed from the UI"},
+		{ConfigSummary("https://github.com/FyrmForge/stackr-test.git", "", ""), "FyrmForge/stackr-test · stackr-compose.yml"},
+		{ConfigSummary("acme/infra", "main", "deploy/stack.yml"), "acme/infra · main · deploy/stack.yml"},
+		{ResourcesSummary([]c.SettingRowView{{Key: "cpu_limit"}}), "inherits org"},
+		{ResourcesSummary([]c.SettingRowView{{Value: "2"}, {Secret: true, Effective: "set"}, {}}), "2 set here"},
+		{VarsSummary(0), "none set"},
+		{VarsSummary(5), "5 set"},
+		{PlacementSummary("", "", ""), "inherits org (default)"},
+		{PlacementSummary("", "h4", ""), "runs on h4 (from org)"},
+		{PlacementSummary("h3", "h3", "h4"), "runs on h3 · ingress h4"},
+		{HostSummary(nil), "none"},
+		{HostSummary(access.Group([]string{"web privileged"}, []string{"api device:/dev/x"})), "1 grant on web · 1 waiting"},
+	} {
+		if tc[0] != tc[1] {
+			t.Errorf("got %q, want %q", tc[0], tc[1])
 		}
 	}
 }

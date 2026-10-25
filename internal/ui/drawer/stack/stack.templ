@@ -1,36 +1,56 @@
-// Package stack is the stack card's drawer tabs (org canvas): settings
-// (name, resource defaults, config as code, delete), drawn as v0's stack
-// settings page. Params and releases are shared views, composed by the
-// handler.
+// Package stack is the stack card's drawer tabs (org canvas): releases and
+// settings. Settings is one accordion: general, env order, config as code,
+// resources, variables, placement, host access and delete. Releases,
+// variables and placement are shared views, composed by the handler.
 package stack
 
 import (
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"strconv"
 )
 
-var Tabs = []string{"settings", "params", "releases", "placement"}
+var Tabs = []string{"releases", "settings"}
 
 type SettingsView struct {
-	Base       string // POST /rename, /config; "" = read-only
-	Name       string
-	Slug       string
-	Where      string // "smoke / shop", under the danger zone
-	Cascade    c.SettingsFormView
-	Connectors []Option
-	Connector  string
-	Repo       string
-	Branch     string
-	Path       string
-	Unbind     c.ConfirmView // Action "" = nothing bound, or read-only
-	Delete     c.ConfirmView
-	Host       HostView
+	Base          string // POST /rename, /config, /order; "" = read-only
+	Open          string // the accordion row open on load (?open=)
+	Name          string
+	Slug          string
+	Where         string // "smoke / shop", under the danger zone
+	Order         OrderView
+	Cascade       c.SettingsFormView
+	Connectors    []Option
+	Connector     string
+	Repo          string
+	Branch        string
+	Path          string
+	Unbind        c.ConfirmView // Action "" = nothing bound, or read-only
+	Vars          int           // params and secrets set at this stack
+	VarsBody      templ.Component
+	Placement     string // the row's summary
+	PlacementBody templ.Component
+	Delete        c.ConfirmView
+	Host          HostView
 }
 
-// HostView is the stack's elevated access, per tile: what a server admin
+// OrderView is the ladder, bottom rung first; each move posts the whole
+// new order.
+type OrderView struct {
+	Action string // POST ids...; "" = read-only
+	Rungs  []Rung
+}
+
+type Rung struct {
+	ID, Name, Color string
+	Detail          string   // where its releases come from: "branch main", "from dev"
+	Up, Down        []string // the order after moving this rung up or down the list; nil = at the end
+}
+
+// HostView is the stack's host access, per tile: what a server admin
 // approved and what its parked jobs still ask for. Approve is the form for
 // a server admin when something waits; nil = the viewer cannot approve, or
-// nothing waits. The zero value draws nothing.
+// nothing waits.
 type HostView struct {
 	Tiles   []access.TilePerms
 	Approve *access.ApproveView
@@ -42,73 +62,122 @@ func target() string { return "#" + c.DrawerRoot }
 
 templ Settings(v SettingsView) {
 	<div id="tab-settings">
-		@c.Section("Stack", "stack", "") {
-			<form hx-post={ v.Base + "/rename" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
-				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write access to this stack."})
-				<div>
-					<label for="stack-slug" class="label">URL slug</label>
-					<input id="stack-slug" type="text" value={ v.Slug } class="input font-mono" disabled/>
-					<p class="mt-1.5 text-xs text-rw-faint">Follows the name: renaming moves every URL under this stack.</p>
-				</div>
-				if v.Base != "" {
-					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
-				}
-			</form>
-		}
-		@c.Section("Resource defaults", "stack", "Applied to every service in this stack that does not set its own. Environments and individual services can still override them; leave a field empty to inherit from the level above.") {
-			@c.SettingsForm(v.Cascade)
-		}
-		@c.Section("Config as code", "stack", "Bind a repository holding stackr-compose.yml and deploys read the stack from it. An empty repository leaves the stack managed from the UI.") {
-			<form hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
-				<fieldset disabled?={ v.Base == "" } class="space-y-4">
-					<legend class="sr-only">Config repository</legend>
-					<div>
-						<label for="connector" class="label">Connector</label>
-						<select id="connector" name="connector" class="input">
-							<option value="">None (a public repository)</option>
-							for _, o := range v.Connectors {
-								<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
-							}
-						</select>
-						<p class="mt-1.5 text-xs text-rw-faint">Which connector supplies the credentials.</p>
-					</div>
-					@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/infra", Help: "owner/name or the https URL, either works."})
-					@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})
-					@c.Field(c.FieldView{Name: "path", Label: "Config path", Value: v.Path, Placeholder: "stackr-compose.yml"})
-					if v.Base != "" {
-						<button type="submit" class="btn btn-primary btn-sm">Save</button>
-					}
-				</fieldset>
-			</form>
-			if v.Unbind.Action != "" {
-				<div class="flex flex-wrap items-center gap-2 mt-5 pt-5 border-t border-rw-border">
-					@c.Confirm(v.Unbind)
-				</div>
-			}
-		}
-		if len(v.Host.Tiles) > 0 {
-			@c.Section("Elevated access", "stack", "Set by a server admin, per tile.") {
-				<div id="host-access" class="space-y-3">
-					for _, t := range v.Host.Tiles {
-						<div>
-							<div class="mb-1 font-mono text-xs text-rw-muted">{ t.Tile }</div>
-							@access.Rows(t.Perms)
-						</div>
-					}
-				</div>
-				if v.Host.Approve != nil {
-					<div class="mt-4 pt-4 border-t border-rw-border">
-						<div class="label">Review request</div>
-						<p class="mb-3 text-xs text-rw-faint">Untick what you do not grant.</p>
-						@access.Approve(*v.Host.Approve)
-					</div>
-				}
-			}
-		}
-		if v.Base != "" {
-			@c.DangerZone("Deleting this stack removes its tiles, envs, releases and params.", v.Where, "Backups already in a destination are kept.") {
-				@c.Confirm(v.Delete)
-			}
-		}
+		@c.SettingsAccordion(c.SettingsAcc{ID: "stack-settings", Rows: Rows(v), Open: v.Open})
 	</div>
+}
+
+templ general(v SettingsView) {
+	<form hx-post={ v.Base + "/rename" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write access to this stack."})
+		<div data-field>
+			<label for="stack-slug" class="label">URL slug</label>
+			<input id="stack-slug" type="text" value={ v.Slug } class="input font-mono" disabled/>
+			<p class="mt-1.5 text-xs text-rw-faint">Follows the name: renaming moves every URL under this stack.</p>
+		</div>
+		if v.Base != "" {
+			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
+		}
+	</form>
+}
+
+templ order(v OrderView) {
+	<p class="text-xs text-rw-faint">Releases move down this list.</p>
+	if len(v.Rungs) == 0 {
+		<p class="text-sm text-rw-muted">No environments yet.</p>
+	} else {
+		<ol class="rounded-lg border border-rw-border divide-y divide-rw-border text-sm">
+			for i, r := range v.Rungs {
+				<li class="flex items-center gap-3 px-3 py-2">
+					<span class="text-rw-faint w-4">{ strconv.Itoa(i + 1) }</span>
+					<span class="flex-1">
+						@c.EnvBadge(r.Name, r.Color)
+					</span>
+					if r.Detail != "" {
+						<span class="text-xs text-rw-faint">{ r.Detail }</span>
+					}
+					if v.Action != "" {
+						@move("↑", "Move "+r.Name+" up", v.Action, r.Up)
+						@move("↓", "Move "+r.Name+" down", v.Action, r.Down)
+					}
+				</li>
+			}
+		</ol>
+	}
+}
+
+templ move(icon, label, action string, ids []string) {
+	if ids != nil {
+		<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML">
+			for _, id := range ids {
+				<input type="hidden" name="ids" value={ id }/>
+			}
+			<button type="submit" class="btn btn-ghost btn-sm" aria-label={ label } title={ label }>{ icon }</button>
+		</form>
+	} else {
+		<span class="btn btn-ghost btn-sm invisible" aria-hidden="true">{ icon }</span>
+	}
+}
+
+templ config(v SettingsView) {
+	<p class="text-xs text-rw-faint">Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p>
+	<form hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
+		<fieldset disabled?={ v.Base == "" } class="space-y-4">
+			<legend class="sr-only">Config repository</legend>
+			<div data-field>
+				<label for="connector" class="label">Connector</label>
+				<select id="connector" name="connector" class="input">
+					<option value="">None (a public repository)</option>
+					for _, o := range v.Connectors {
+						<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
+					}
+				</select>
+				<p class="mt-1.5 text-xs text-rw-faint">Which connector supplies the credentials.</p>
+			</div>
+			@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/infra", Help: "owner/name or the https URL, either works."})
+			@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})
+			@c.Field(c.FieldView{Name: "path", Label: "Config path", Value: v.Path, Placeholder: "stackr-compose.yml"})
+			if v.Base != "" {
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			}
+		</fieldset>
+	</form>
+	if v.Unbind.Action != "" {
+		<div class="flex flex-wrap items-center gap-2 pt-4 border-t border-rw-border">
+			@c.Confirm(v.Unbind)
+		</div>
+	}
+}
+
+templ resources(f c.SettingsFormView) {
+	<p class="text-xs text-rw-faint">Applies to every service here that does not set its own.</p>
+	@c.SettingsForm(f)
+}
+
+templ host(v HostView) {
+	if len(v.Tiles) == 0 {
+		<p class="text-sm text-rw-muted">No tile has host access.</p>
+	} else {
+		<p class="text-xs text-rw-faint">Set by a server admin, per tile.</p>
+		<div id="host-access" class="space-y-3">
+			for _, t := range v.Tiles {
+				<div>
+					<div class="mb-1 font-mono text-xs text-rw-muted">{ t.Tile }</div>
+					@access.Rows(t.Perms)
+				</div>
+			}
+		</div>
+		if v.Approve != nil {
+			<div class="pt-4 border-t border-rw-border">
+				<div class="label">Review request</div>
+				<p class="mb-3 text-xs text-rw-faint">Untick what you do not grant.</p>
+				@access.Approve(*v.Approve)
+			</div>
+		}
+	}
+}
+
+templ danger(v SettingsView) {
+	@c.DangerZone("Deleting this stack removes its tiles, envs, releases and variables.", v.Where, "Backups already in a destination are kept.") {
+		@c.Confirm(v.Delete)
+	}
 }
