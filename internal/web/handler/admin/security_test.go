@@ -3,6 +3,7 @@ package admin_test
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -32,5 +33,23 @@ func TestAdminSecurityTab(t *testing.T) {
 	body = s.As(t, root, "GET", "/-/admin?tab=security&action=key.mint", nil).Body.String()
 	if strings.Contains(body, "203.0.113.9") || !strings.Contains(body, "Nothing matches") {
 		t.Errorf("action filter kept the other rows:\n%s", body)
+	}
+}
+
+// The Security tab shows the Master key section; a wrong password is refused
+// and nothing is written.
+func TestAdminMasterKeyRotateWrongPassword(t *testing.T) {
+	s := webtest.New(t)
+	uid := s.User(t, "root@x.test", true)
+	if err := s.Orch.SetPassword(context.Background(), uid, "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	root := s.Session(t, uid)
+	if body := s.As(t, root, "GET", "/-/admin?tab=security", nil).Body.String(); !strings.Contains(body, `id="master-key"`) || !strings.Contains(body, "Master key") {
+		t.Fatalf("no Master key section in\n%s", body)
+	}
+	rec := s.As(t, root, "POST", "/-/admin/security/master-key/rotate", url.Values{"password": {"wrong"}})
+	if rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "restarting") {
+		t.Errorf("wrong password = %d\n%s", rec.Code, rec.Body.String())
 	}
 }
