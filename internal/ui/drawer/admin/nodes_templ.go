@@ -3928,6 +3928,7 @@ func ifaceList(rows []IfaceRow) templ.Component {
 
 // joinCommand is the one line to run on a joining machine, or the two-step
 // version when the panel's certificate is not one a fresh box trusts.
+// joinCommand carries a join token: kept out of htmx's history cache.
 func joinCommand(oneLine, twoStep string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -3950,14 +3951,14 @@ func joinCommand(oneLine, twoStep string) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if oneLine != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 325, "<pre class=\"panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 325, "<pre class=\"panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all\" hx-history=\"false\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var176 string
 			templ_7745c5c3_Var176, templ_7745c5c3_Err = templ.JoinStringErrs(oneLine)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 987, Col: 99}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 988, Col: 118}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var176))
 			if templ_7745c5c3_Err != nil {
@@ -3969,14 +3970,14 @@ func joinCommand(oneLine, twoStep string) templ.Component {
 			}
 		}
 		if twoStep != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 327, "<p class=\"text-xs text-rw-muted mb-2\">The panel has no trusted certificate, so it takes two steps.</p><pre class=\"panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 327, "<p class=\"text-xs text-rw-muted mb-2\">The panel has no trusted certificate, so it takes two steps.</p><pre class=\"panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all\" hx-history=\"false\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var177 string
 			templ_7745c5c3_Var177, templ_7745c5c3_Err = templ.JoinStringErrs(twoStep)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 991, Col: 99}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/nodes.templ`, Line: 992, Col: 118}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var177))
 			if templ_7745c5c3_Err != nil {

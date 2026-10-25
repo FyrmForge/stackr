@@ -452,7 +452,7 @@ func TestAdminRecoveryKey(t *testing.T) {
 	if rec := post("rotate", "correct horse battery"); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "data-recovery-key") {
 		t.Errorf("rotate while unsaved = %d", rec.Code)
 	}
-	if rec := post("show", "correct horse battery"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "data-recovery-key") {
+	if rec := post("show", "correct horse battery"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `hx-history="false" data-recovery-key`) {
 		t.Errorf("show with the password = %d", rec.Code)
 	}
 }

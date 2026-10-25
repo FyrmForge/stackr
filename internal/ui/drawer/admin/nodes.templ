@@ -982,12 +982,13 @@ templ ifaceList(rows []IfaceRow) {
 
 // joinCommand is the one line to run on a joining machine, or the two-step
 // version when the panel's certificate is not one a fresh box trusts.
+// joinCommand carries a join token: kept out of htmx's history cache.
 templ joinCommand(oneLine, twoStep string) {
 	if oneLine != "" {
-		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ oneLine }</pre>
+		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all" hx-history="false">{ oneLine }</pre>
 	}
 	if twoStep != "" {
 		<p class="text-xs text-rw-muted mb-2">The panel has no trusted certificate, so it takes two steps.</p>
-		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all">{ twoStep }</pre>
+		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all" hx-history="false">{ twoStep }</pre>
 	}
 }

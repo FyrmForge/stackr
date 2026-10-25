@@ -939,14 +939,14 @@ func Recovery(v RecoveryView) templ.Component {
 				}
 			}
 			if v.Key != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<p class=\"text-sm text-rw-warn\" role=\"status\">Save this key off this server. It is shown only until you confirm.</p><pre class=\"panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all\" data-recovery-key>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<p class=\"text-sm text-rw-warn\" role=\"status\">Save this key off this server. It is shown only until you confirm.</p><pre class=\"panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all\" hx-history=\"false\" data-recovery-key>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(v.Key)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/admin.templ`, Line: 344, Col: 118}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/admin.templ`, Line: 344, Col: 137}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {

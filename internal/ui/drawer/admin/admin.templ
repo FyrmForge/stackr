@@ -341,7 +341,7 @@ templ Recovery(v RecoveryView) {
 				}
 				if v.Key != "" {
 					<p class="text-sm text-rw-warn" role="status">Save this key off this server. It is shown only until you confirm.</p>
-					<pre class="panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all" data-recovery-key>{ v.Key }</pre>
+					<pre class="panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all" hx-history="false" data-recovery-key>{ v.Key }</pre>
 					<form hx-post={ v.Saved } hx-target="#recovery" hx-swap="outerHTML">
 						<button type="submit" class="btn btn-primary btn-sm">I've saved it</button>
 					</form>
