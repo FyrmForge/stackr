@@ -235,8 +235,9 @@ func run(log *slog.Logger, generate bool) error {
 		DataDir:    envDataDir,
 		DBPath:     envDatabasePath,
 		SecretsKey: masterKey,
-		// A Secure cookie never comes back over plain HTTP.
-		CookieSecure: !envDevMode && !tlsOff,
+		// Secure whenever the public URL is https, even with TLS off here
+		// (another proxy terminates it); never over a plain-http URL.
+		CookieSecure: web.CookieSecure(envBaseURL),
 		// Host-only, so the session follows panel_domain to a new host and
 		// is never sent to the tiles under the panel's domain.
 		CookieDomain:    "",
