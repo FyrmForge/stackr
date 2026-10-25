@@ -21,7 +21,7 @@ templ Editor(v View) {
 		if v.Lead != "" {
 			<p class="text-sm text-rw-muted">{ v.Lead }</p>
 		} else {
-			<p class="text-sm text-rw-muted">Params and secrets of { v.Scope }. A save redeploys the running tiles that read them.</p>
+			<p class="text-sm text-rw-muted">Variables of { v.Scope }. A save redeploys the running tiles that read them.</p>
 		}
 		@c.FormError(v.Error)
 		if v.Note != "" {

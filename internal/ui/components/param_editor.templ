@@ -47,7 +47,7 @@ templ ParamEditor(v ParamEditorView) {
 			<p class="banner mb-4">{ v.Why }</p>
 		}
 		<fieldset disabled?={ v.ReadOnly }>
-			<legend class="sr-only">Params and secrets</legend>
+			<legend class="sr-only">Variables</legend>
 			<h4 class="text-xs uppercase tracking-wide text-rw-faint mb-2">Variables</h4>
 			if len(v.Params) == 0 {
 				<p class="text-sm text-rw-faint mb-5">Nothing here yet.</p>

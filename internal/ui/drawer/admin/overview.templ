@@ -113,6 +113,7 @@ templ Domains(v DomainsView) {
 			<form hx-post={ v.Caddy.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 				<label for="proxy_custom" class="label">Custom Caddy config</label>
 				<textarea id="proxy_custom" name="proxy_custom" rows="12" class="input font-mono text-xs" placeholder="[]" disabled?={ v.Caddy.Action == "" }>{ v.Caddy.Value }</textarea>
+				<p class="text-xs text-rw-faint">Raw Caddy for one domain is in its tile's Settings, under Network.</p>
 				if v.Caddy.Action != "" {
 					<button type="submit" class="btn btn-primary btn-sm">Save</button>
 				}

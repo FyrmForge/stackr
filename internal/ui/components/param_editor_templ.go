@@ -116,7 +116,7 @@ func ParamEditor(v ParamEditorView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "><legend class=\"sr-only\">Params and secrets</legend><h4 class=\"text-xs uppercase tracking-wide text-rw-faint mb-2\">Variables</h4>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "><legend class=\"sr-only\">Variables</legend><h4 class=\"text-xs uppercase tracking-wide text-rw-faint mb-2\">Variables</h4>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
