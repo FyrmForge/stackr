@@ -100,6 +100,17 @@ func TestLoadMasterKeyCrashAfterTransaction(t *testing.T) {
 	}
 }
 
+// The env key wins: a leftover next file and the key file stay as they are.
+func TestLoadMasterKeyEnvKeyLeavesFilesAlone(t *testing.T) {
+	k := newKeyBox(t)
+	k.writeNext(t)
+	got, err := LoadMasterKey(context.Background(), k.dir, "", "envkey")
+	must(t, err)
+	if got != "envkey" || k.onDisk(t, installspec.KeyFile) != testKey || k.onDisk(t, installspec.KeyNextFile) != nextKey {
+		t.Fatalf("env key = %q, files moved", got)
+	}
+}
+
 // A transaction that fails rolls back whole: the boot stays on the old key,
 // the unused next key is dropped, nothing in the database moved.
 func TestLoadMasterKeyFailedTransactionKeepsOldKey(t *testing.T) {
