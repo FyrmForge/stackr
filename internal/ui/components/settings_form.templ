@@ -164,7 +164,7 @@ func onOff(v string) string {
 }
 
 templ SettingsForm(v SettingsFormView) {
-	<form id={ v.ID } hx-post={ v.Action } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
+	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
 		if v.ReadOnly {
 			<p class="banner">{ v.Why }</p>
 		}

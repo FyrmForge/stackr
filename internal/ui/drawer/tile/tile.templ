@@ -107,7 +107,8 @@ templ Status(v View, s StatusView) {
 					<span class="text-sm text-rw-faint">never deployed</span>
 				} else {
 					@c.JobStatus(*s.Job)
-					<div class="text-xs text-rw-faint mt-1.5">@c.Time(s.JobWhen, "Jan 2 15:04")</div>
+					<div class="text-xs text-rw-faint mt-1.5">@c.Time(s.JobWhen, "Jan 2 15:04")
+</div>
 				}
 			</div>
 		</div>
@@ -269,7 +270,8 @@ templ Jobs(v View, j JobsView) {
 				for _, r := range j.Rows {
 					<li class="panel px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
 						<span class="text-sm text-rw-text font-mono">{ r.Kind }</span>
-						<span class="text-xs text-rw-faint whitespace-nowrap">@c.Time(r.When, "Jan 2 15:04")</span>
+						<span class="text-xs text-rw-faint whitespace-nowrap">@c.Time(r.When, "Jan 2 15:04")
+</span>
 						<span class="ml-auto flex items-center gap-2">
 							if r.Cancel != "" {
 								@c.Confirm(c.ConfirmView{
@@ -460,7 +462,8 @@ templ Runs(v View, r RunsView) {
 							<summary class="flex items-center gap-3 text-sm cursor-pointer list-none">
 								<span class={ "shrink-0", runTone(x) }>{ runWord(x) }</span>
 								<span class="text-rw-faint text-xs font-mono">{ shortID(x.ID) }</span>
-								<span class="text-rw-faint text-xs">@c.Time(x.Started, "Jan 2 15:04")</span>
+								<span class="text-rw-faint text-xs">@c.Time(x.Started, "Jan 2 15:04")
+</span>
 								<span class="text-rw-muted text-xs">{ x.Trigger }</span>
 								<span class="text-rw-faint text-xs ml-auto">{ x.Took }</span>
 								if x.Mem != "" {
@@ -544,13 +547,20 @@ templ Settings(v View, s SettingsView) {
 }
 
 // rowForm is one row's own form: it posts only its keys, so the others
-// keep their stored values, and the answer keeps the row open.
+// keep their stored values, and the answer keeps the row open. A reader
+// gets the fields disabled, no form and no Save.
 templ rowForm(v View, s SettingsView, row string, keys []string) {
-	<form novalidate hx-post={ v.Base + "/settings?open=" + row } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
-		<input type="hidden" name="fields" value={ s.Keys(keys...) }/>
-		{ children... }
-		<button type="submit" class="btn btn-primary btn-sm">Save</button>
-	</form>
+	if v.ReadOnly {
+		<fieldset disabled class="space-y-4">
+			{ children... }
+		</fieldset>
+	} else {
+		<form novalidate hx-post={ v.Base + "/settings?open=" + row } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			<input type="hidden" name="fields" value={ s.Keys(keys...) }/>
+			{ children... }
+			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+		</form>
+	}
 }
 
 // advanced folds a row's rare fields, open when one of them is set.
@@ -564,21 +574,31 @@ templ advanced(open bool) {
 }
 
 templ general(v View, s SettingsView) {
-	<form novalidate hx-post={ v.Base + "/rename?open=general" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
-		<div class="grid grid-cols-2 gap-4">
-			<div data-field>
-				<label class="label" for="set-name">Name</label>
-				<input type="text" id="set-name" name="name" value={ s.Name } required class="input"/>
-				<p class="mt-1.5 text-xs text-rw-faint">A new name changes its URL.</p>
-				@c.FieldError("name", s.Errors["name"])
-			</div>
-			<div data-field>
-				<span class="label">Kind</span>
-				<p class="text-sm text-rw-text py-2">{ s.Kind }</p>
-			</div>
+	if v.ReadOnly {
+		<fieldset disabled>
+			@generalFields(s)
+		</fieldset>
+	} else {
+		<form novalidate hx-post={ v.Base + "/rename?open=general" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			@generalFields(s)
+			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+		</form>
+	}
+}
+
+templ generalFields(s SettingsView) {
+	<div class="grid grid-cols-2 gap-4">
+		<div data-field>
+			<label class="label" for="set-name">Name</label>
+			<input type="text" id="set-name" name="name" value={ s.Name } required class="input"/>
+			<p class="mt-1.5 text-xs text-rw-faint">A new name changes its URL.</p>
+			@c.FieldError("name", s.Errors["name"])
 		</div>
-		<button type="submit" class="btn btn-primary btn-sm">Save</button>
-	</form>
+		<div data-field>
+			<span class="label">Kind</span>
+			<p class="text-sm text-rw-text py-2">{ s.Kind }</p>
+		</div>
+	</div>
 }
 
 templ sourceRow(v View, s SettingsView) {
@@ -798,6 +818,13 @@ templ fieldFoot(s SettingsView, key, hint string) {
 // the auto one under the nearest domain resource), then a panel row per
 // host with its Remove (and an admin's raw Caddy route).
 templ domains(v View, d DomainsView) {
+	if !v.ReadOnly {
+		@addDomain(v, d)
+	}
+	@domainList(v, d)
+}
+
+templ addDomain(v View, d DomainsView) {
 	<details class="mb-4" open?={ d.Replace != nil }>
 		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
 			<span class="text-rw-accentHi">+</span> Add domain
@@ -843,7 +870,8 @@ templ domains(v View, d DomainsView) {
 		}
 		<form novalidate hx-post={ v.Base + "/domains?open=network" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
 			<input type="hidden" name="auto" value="1"/>
-			<button type="submit" class="btn btn-ghost btn-sm" title="Generate a hostname under the nearest domain resource (stack, organization, or server)">Use the generated name
+			<button type="submit" class="btn btn-ghost btn-sm" title="Generate a hostname under the nearest domain resource (stack, organization, or server)">
+				Use the generated name
 				if d.AutoHost != "" {
 					<span class="font-mono ml-1">{ d.AutoHost }</span>
 				}
@@ -881,6 +909,9 @@ templ domains(v View, d DomainsView) {
 			}
 		</p>
 	}
+}
+
+templ domainList(v View, d DomainsView) {
 	if len(d.Rows) == 0 {
 		<p class="text-rw-muted text-sm">No domains yet.</p>
 	} else {
@@ -902,17 +933,19 @@ templ domains(v View, d DomainsView) {
 								<span class="text-xs text-rw-faint ml-1">generated</span>
 							}
 						</span>
-						<span class="flex items-center gap-2 shrink-0 ml-auto">
-							@c.Confirm(c.ConfirmView{
-								Button:  "Remove",
-								Title:   "Remove " + r.Host + "?",
-								Warning: "The proxy stops routing it.",
-								Action:  v.Base + "/domains/" + r.ID + "/detach?open=network",
-								Target:  "#" + Root,
-							})
-						</span>
+						if !v.ReadOnly {
+							<span class="flex items-center gap-2 shrink-0 ml-auto">
+								@c.Confirm(c.ConfirmView{
+									Button:  "Remove",
+									Title:   "Remove " + r.Host + "?",
+									Warning: "The proxy stops routing it.",
+									Action:  v.Base + "/domains/" + r.ID + "/detach?open=network",
+									Target:  "#" + Root,
+								})
+							</span>
+						}
 					</div>
-					if d.Admin {
+					if d.Admin && !v.ReadOnly {
 						<details class="mt-1" open?={ r.Raw != "" }>
 							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">Raw Caddy route (admin)</summary>
 							<form novalidate hx-post={ v.Base + "/domains/" + r.ID + "/raw?open=network" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-2">
@@ -950,7 +983,9 @@ templ image(v View, i ImageView) {
 		if i.LastError != "" {
 			<p class="text-xs text-rw-danger">{ i.LastError }</p>
 		}
-		@c.PostButton("Check now", v.Base+"/image/check?open=source")
+		if !v.ReadOnly {
+			@c.PostButton("Check now", v.Base+"/image/check?open=source")
+		}
 	</div>
 }
 

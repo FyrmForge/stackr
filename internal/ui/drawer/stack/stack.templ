@@ -68,7 +68,7 @@ templ Settings(v SettingsView) {
 }
 
 templ general(v SettingsView) {
-	<form hx-post={ v.Base + "/rename" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+	<form if v.Base != "" { hx-post={ v.Base + "/rename" } } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write access to this stack."})
 		<div data-field>
 			<label for="stack-slug" class="label">URL slug</label>
@@ -121,7 +121,7 @@ templ move(icon, label, action string, ids []string) {
 
 templ config(v SettingsView) {
 	<p class="text-xs text-rw-faint">Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p>
-	<form hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
+	<form if v.Base != "" { hx-post={ v.Base + "/config" } } hx-target={ target() } hx-swap="outerHTML">
 		<fieldset disabled?={ v.Base == "" } class="space-y-4">
 			<legend class="sr-only">Config repository</legend>
 			<div data-field>

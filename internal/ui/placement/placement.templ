@@ -94,7 +94,7 @@ templ runsOn(v View) {
 		if v.Moving != "" {
 			<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
 		}
-		<form hx-post={ v.Base + "/pin" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+		<form if v.editable() { hx-post={ v.Base + "/pin" } } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="runs-on" class="sr-only">Runs on</label>
 			<select id="runs-on" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
 				if v.Scope != "env" {
@@ -166,7 +166,7 @@ func yesNo(b bool) string {
 
 templ ingress(v View) {
 	@c.Section("Ingress", v.Scope, "") {
-		<form hx-post={ v.Base + "/ingress" } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
+		<form if v.editable() { hx-post={ v.Base + "/ingress" } } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="ingress-node" class="sr-only">Ingress</label>
 			<select id="ingress-node" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
 				<option value="" selected?={ v.Ingress == "" }>Inherit</option>

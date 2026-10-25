@@ -232,7 +232,7 @@ func TestTabsPerKind(t *testing.T) {
 			t.Errorf("Tab(%s, %s) = %s, want %s", tc.kind, tc.tab, got, tc.want)
 		}
 	}
-	if got := Tab("service", "settings", false, true); got != "status" {
+	if got := Tab("service", "settings", false, true); got != "settings" { // read-only, but there
 		t.Errorf("a viewer's settings tab = %s", got)
 	}
 }

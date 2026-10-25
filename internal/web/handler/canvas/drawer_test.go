@@ -419,3 +419,26 @@ func TestOrgDefaultsSave(t *testing.T) {
 		t.Errorf("member save = %d, want 403", rec.Code)
 	}
 }
+
+// A viewer gets the env, stack and org Settings read-only: the rows and
+// their fields, and no form that posts.
+func TestViewerSettingsReadOnly(t *testing.T) {
+	s := webtest.New(t)
+	v := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, v, "viewer")
+	vs := s.Session(t, v)
+	for path, row := range map[string]string{
+		"/acme/shop/dev/-/drawer?tab=settings": `data-acc="deploys"`,
+		"/acme/shop/-/drawer?tab=settings":     `data-acc="config"`,
+		"/acme/-/drawer?tab=general":           `data-acc="defaults"`,
+		"/acme/shop/dev/-/placement":           `id="ingress-node"`,
+	} {
+		body := s.As(t, vs, "GET", path, nil).Body.String()
+		if !strings.Contains(body, row) || !strings.Contains(body, "disabled") {
+			t.Errorf("%s: no read-only %s\n%s", path, row, body)
+		}
+		if strings.Contains(body, "hx-post") || strings.Contains(body, `method="post"`) {
+			t.Errorf("%s: a viewer gets a form that posts", path)
+		}
+	}
+}

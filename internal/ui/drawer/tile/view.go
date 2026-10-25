@@ -60,7 +60,7 @@ type View struct {
 	Stopped  bool   // offer Start, not Stop / Restart
 	Paused   bool   // cron: offer Resume
 	Terminal bool   // the viewer may open a shell (tile.write): show the Terminal tab
-	ReadOnly bool   // the viewer may not write: no action buttons, no Access or Settings tab
+	ReadOnly bool   // the viewer may not write: no action buttons; Settings read-only, no Database access or Delete row
 	Location string // "stack / env"
 	EnvColor string
 	Domained bool // the tile has a domain: only then does it see requests (Metrics tab)
@@ -85,9 +85,6 @@ func (v View) tabs() []string {
 	t := Tabs(v.Kind)
 	if i := slices.Index(t, "logs"); v.Terminal && v.Kind != "cron" && v.Kind != "function" {
 		t = slices.Insert(slices.Clone(t), i+1, "terminal")
-	}
-	if v.ReadOnly {
-		t = slices.DeleteFunc(slices.Clone(t), func(k string) bool { return k == "settings" })
 	}
 	return t
 }
@@ -527,9 +524,9 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 		{s.Any(healthKeys...), "health", "Health", healthSummary, healthKeys, healthRow(v, s)},
 		{s.Any(resourceKeys...), "resources", "Resources", resourcesSummary, resourceKeys, resourcesRow(v, s)},
 		{true, "variables", "Variables", variablesSummary, nil, Env(v, s.Env)},
-		{true, "dbaccess", "Database access", accessSummary, nil, Access(v, s.Access)},
+		{!v.ReadOnly, "dbaccess", "Database access", accessSummary, nil, Access(v, s.Access)},
 		{s.Any(hostKeys...), "host", "Host access", hostSummary, hostKeys, hostRow(v, s)},
-		{true, "delete", "Delete", func(SettingsView) string { return "" }, nil, deleteRow(v)},
+		{!v.ReadOnly, "delete", "Delete", func(SettingsView) string { return "" }, nil, deleteRow(v)},
 	}
 	var out []c.AccRow
 	for _, r := range all {

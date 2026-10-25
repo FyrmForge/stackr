@@ -265,22 +265,37 @@ func TestTerminalTab(t *testing.T) {
 	}
 }
 
-// A viewer's drawer has no write buttons and no Access or Settings tab, even
-// when asked for; an owner has Deploy.
+// A viewer's drawer has no write buttons; its Settings tab is the same
+// rows read-only: fields disabled, nothing that posts, no Database access
+// or Delete row. An owner has Deploy.
 func TestViewerDrawerReadOnly(t *testing.T) {
 	s := webtest.New(t)
 	if body := s.Do(t, "GET", drawer, nil).Body.String(); !strings.Contains(body, "Deploy") {
 		t.Fatalf("owner drawer lacks Deploy\n%s", body)
 	}
+	if _, err := s.Orch.AttachDomain(context.Background(), s.Tile.ID, service.DomainSpec{Host: "app.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
 	viewer := s.User(t, "viewer@acme.test", false)
 	s.Member(t, s.Org, viewer, "viewer")
 	vs := s.Session(t, viewer)
-	for _, tab := range []string{"status", "settings", "access"} {
+	for _, tab := range []string{"status", "access"} {
 		body := s.As(t, vs, "GET", drawer+"?tab="+tab, nil).Body.String()
-		for _, w := range []string{`/deploy"`, `/restart"`, `tab=settings`, `tab=access`, `id="tab-settings"`} {
+		for _, w := range []string{`/deploy"`, `/restart"`, `tab=access`} {
 			if strings.Contains(body, w) {
 				t.Errorf("viewer tab=%s shows %q", tab, w)
 			}
+		}
+	}
+	body := s.As(t, vs, "GET", drawer+"?tab=settings", nil).Body.String()
+	for _, w := range []string{`id="tab-settings"`, `data-acc="general"`, `data-acc="network"`, `data-acc="variables"`, "app.acme.dev", "<fieldset disabled"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("viewer settings lacks %q\n%s", w, body)
+		}
+	}
+	for _, w := range []string{"hx-post", `method="post"`, `data-acc="delete"`, `data-acc="dbaccess"`, "Raw Caddy", "/detach"} {
+		if strings.Contains(body, w) {
+			t.Errorf("viewer settings shows %q", w)
 		}
 	}
 }
