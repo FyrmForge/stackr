@@ -405,6 +405,9 @@
           "object_key": {
             "type": "string"
           },
+          "recovery_gen": {
+            "type": "integer"
+          },
           "schedule_id": {
             "oneOf": [
               {
@@ -445,6 +448,7 @@
           "size_bytes",
           "error",
           "created_at",
+          "recovery_gen",
           "dest"
         ],
         "type": "object"
