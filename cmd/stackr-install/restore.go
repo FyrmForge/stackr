@@ -12,7 +12,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,21 +28,29 @@ import (
 // restore puts the install back to a panel archive (a pre-upgrade one, or
 // any panel backup): the database and master key from the archive, the panel
 // container on the build the archive names. The way back when an upgraded
-// panel passed its gate and still turned out broken.
+// panel passed its gate and still turned out broken. The archive opens with
+// the recovery key; this box's own recovery.pub is kept, never replaced from
+// the archive.
 func restore(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stackr-install restore", flag.ContinueOnError)
-	passFlag := fs.String("passphrase", "", "recovery passphrase; prefer "+passphraseEnv+" or --passphrase-stdin, a flag shows in ps")
-	passStdin := fs.Bool("passphrase-stdin", false, "read the recovery passphrase from the first line of stdin")
+	keyStdin := fs.Bool("key-stdin", false, "read the recovery key from the first line of stdin (or set "+recoveryKeyEnv+", or type it at the prompt)")
 	image := fs.String("image", "", "panel image to run (default: the build the archive names)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: stackr-install restore [--passphrase-stdin] [--image REF] <archive | s3://bucket/key>")
+		return errors.New("usage: stackr-install restore [--key-stdin] [--image REF] <archive | s3://bucket/prefix/>")
 	}
-	pass, err := passphrase(*passFlag, os.Getenv(passphraseEnv), *passStdin, os.Stdin)
+	secret, err := recoveryKey(os.Getenv(recoveryKeyEnv), *keyStdin, os.Stdin)
+	if err == nil && secret == "" {
+		secret, err = promptRecoveryKey(out)
+	}
 	if err != nil {
 		return err
+	}
+	id, err := age.ParseX25519Identity(secret)
+	if err != nil {
+		return errors.New("that is not a recovery key (it starts with AGE-SECRET-KEY-)")
 	}
 	dataDir := "/var/lib/stackr"
 	if d := os.Getenv("STACKR_DATA_DIR"); d != "" {
@@ -52,15 +63,8 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("no install answers in %s (install first): %w", dataDir, err)
 	}
-	fromKey := pass == ""
-	if fromKey {
-		b, err := os.ReadFile(filepath.Join(dataDir, installspec.KeyFile))
-		if err != nil {
-			return fmt.Errorf("no passphrase and no master key on this box: %w", err)
-		}
-		pass = strings.TrimSpace(string(b))
-	}
 	src := fs.Arg(0)
+	archiveName := src
 	if strings.HasPrefix(src, "s3://") {
 		tmp, key, err := fetchS3(ctx, src, dataDir, os.Getenv)
 		if err != nil {
@@ -68,7 +72,7 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		}
 		defer func() { _ = os.Remove(tmp) }()
 		_, _ = fmt.Fprintln(out, "Fetched", key)
-		src = tmp
+		src, archiveName = tmp, key
 	}
 	f, err := os.Open(src)
 	if err != nil {
@@ -76,23 +80,11 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	}
 	defer func() { _ = f.Close() }()
 	stage := filepath.Join(dataDir, "restore-"+time.Now().UTC().Format("20060102T150405"))
-	ver, err := unpack(f, pass, stage)
-	if err != nil && fromKey && term.IsTerminal(int(os.Stdin.Fd())) {
-		// On a new box the master key is the new install's, not the
-		// archive's: ask for the recovery passphrase.
-		_, _ = fmt.Fprint(out, "This box's master key does not open the archive. Recovery passphrase: ")
-		b, perr := term.ReadPassword(int(os.Stdin.Fd()))
-		_, _ = fmt.Fprintln(out)
-		if perr != nil {
-			return perr
-		}
-		if _, err = f.Seek(0, io.SeekStart); err == nil {
-			ver, err = unpack(f, strings.TrimSpace(string(b)), stage)
-		}
-	}
+	info, err := unpack(f, id, stage)
 	if err != nil {
-		return fmt.Errorf("read archive (nothing changed): %w", err)
+		return fmt.Errorf("read archive (nothing changed): %w", withNeededGen(err, archiveName))
 	}
+	ver := info.version
 	if *image == "" {
 		v, err := checkVersion(ver, "")
 		if err != nil {
@@ -147,6 +139,11 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 	}
+	// A master key waiting to replace the old one belongs to the box that was
+	// replaced; the restored database is sealed with the archive's key.
+	if err := os.Remove(filepath.Join(dataDir, installspec.KeyNextFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	// Certificates are re-issuable (rate limits aside), the database is not:
 	// a proxy volume that fails to restore warns and the restore goes on.
 	if err := restoreCaddy(ctx, r, *image, stage); err != nil {
@@ -171,29 +168,64 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	return nil
 }
 
-// passphraseEnv carries the recovery passphrase without a flag (ps shows
-// flags to every user on the box).
-const passphraseEnv = "STACKR_RECOVERY_PASSPHRASE"
+// recoveryKeyEnv carries the recovery key without a flag (ps shows flags
+// to every user on the box).
+const recoveryKeyEnv = "STACKR_RECOVERY_KEY"
 
-// passphrase is the recovery passphrase from the flag, the environment or
-// the first line of stdin, in that order; "" = use this box's master key.
-func passphrase(flagVal, envVal string, fromStdin bool, stdin io.Reader) (string, error) {
+// recoveryKey is the recovery key from the environment or, when asked, the
+// first line of stdin; "" = neither, so the caller prompts.
+func recoveryKey(envVal string, fromStdin bool, stdin io.Reader) (string, error) {
 	switch {
-	case flagVal != "":
-		return flagVal, nil
 	case envVal != "":
-		return envVal, nil
+		return strings.TrimSpace(envVal), nil
 	case fromStdin:
 		line, err := bufio.NewReader(stdin).ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("read the passphrase from stdin: %w", err)
+			return "", fmt.Errorf("read the recovery key from stdin: %w", err)
 		}
-		if line = strings.TrimRight(line, "\r\n"); line == "" {
-			return "", errors.New("--passphrase-stdin: stdin held no passphrase")
+		if line = strings.TrimSpace(line); line == "" {
+			return "", errors.New("--key-stdin: stdin held no recovery key")
 		}
 		return line, nil
 	}
 	return "", nil
+}
+
+// promptRecoveryKey asks at the terminal, hidden; a pipe has no prompt.
+func promptRecoveryKey(out io.Writer) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", errors.New("no recovery key: set " + recoveryKeyEnv + ", pass --key-stdin, or run this at a terminal")
+	}
+	_, _ = fmt.Fprint(out, "Recovery key: ")
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	_, _ = fmt.Fprintln(out)
+	return strings.TrimSpace(string(b)), err
+}
+
+// archiveGen is the recovery key generation in an archive's name
+// (...-panel-g2.tar.gz.age); 0 when the name carries none.
+func archiveGen(name string) int {
+	m := genInName.FindStringSubmatch(path.Base(name))
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+var genInName = regexp.MustCompile(`-panel-g(\d+)\.tar\.gz\.age$`)
+
+// withNeededGen turns "no identity matched" into what to do about it: name
+// the key generation the archive needs when its name says.
+func withNeededGen(err error, name string) error {
+	var nm *age.NoIdentityMatchError
+	if !errors.As(err, &nm) {
+		return err
+	}
+	if g := archiveGen(name); g > 0 {
+		return fmt.Errorf("this recovery key does not open the archive; it needs the key of generation %d", g)
+	}
+	return errors.New("this recovery key does not open the archive")
 }
 
 // relogCLI mints the admin a new API key in the restored panel and writes
@@ -287,24 +319,29 @@ func dropStage(stage string) error { return os.RemoveAll(stage) }
 // caddyMember is the proxy volume's tar inside a panel archive.
 const caddyMember = installspec.CaddyMember
 
-// unpack decrypts a panel archive into dir and returns the build it names.
-// Only the members of installspec.PanelState are accepted; the optional ones
-// (cluster keys, the proxy volume's tar) may be missing.
-func unpack(src io.Reader, pass, dir string) (string, error) {
-	id, err := age.NewScryptIdentity(pass)
-	if err != nil {
-		return "", err
-	}
+// archiveInfo is what an archive says about itself: the build it names and
+// the recovery key generation it is stamped with.
+type archiveInfo struct {
+	version string
+	gen     int
+}
+
+// unpack decrypts a panel archive into dir. Only the members of
+// installspec.PanelState are accepted; the optional ones (cluster keys, the
+// proxy volume's tar) may be missing. VERSION and RECOVERY are read, not
+// written, and recovery.pub is no member, so the box keeps its own.
+func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
+	var info archiveInfo
 	plain, err := age.Decrypt(src, id)
 	if err != nil {
-		return "", err
+		return info, err
 	}
 	gz, err := gzip.NewReader(plain)
 	if err != nil {
-		return "", err
+		return info, err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "keys"), 0o700); err != nil {
-		return "", err
+		return info, err
 	}
 	want, optional := map[string]os.FileMode{}, map[string]os.FileMode{}
 	for _, m := range installspec.PanelState {
@@ -314,7 +351,6 @@ func unpack(src io.Reader, pass, dir string) (string, error) {
 			want[m.Name] = os.FileMode(m.Mode)
 		}
 	}
-	var version string
 	tr := tar.NewReader(gz)
 	for {
 		h, err := tr.Next()
@@ -322,38 +358,42 @@ func unpack(src io.Reader, pass, dir string) (string, error) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return info, err
 		}
 		mode, ok := want[h.Name]
 		if !ok {
 			mode, ok = optional[h.Name]
 		}
 		if !ok || h.Typeflag != tar.TypeReg {
-			return "", fmt.Errorf("unexpected entry %q; not a panel archive", h.Name)
+			return info, fmt.Errorf("unexpected entry %q; not a panel archive", h.Name)
 		}
 		delete(want, h.Name)
-		if h.Name == "VERSION" {
+		if h.Name == installspec.VersionMember || h.Name == installspec.RecoveryMember {
 			b, err := io.ReadAll(io.LimitReader(tr, 256))
 			if err != nil {
-				return "", err
+				return info, err
 			}
-			version = strings.TrimSpace(string(b))
+			if h.Name == installspec.VersionMember {
+				info.version = strings.TrimSpace(string(b))
+			} else {
+				info.gen, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			}
 			continue
 		}
 		w, err := os.OpenFile(filepath.Join(dir, h.Name), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 		if err != nil {
-			return "", err
+			return info, err
 		}
 		_, err = io.Copy(w, tr)
 		if cerr := w.Close(); err == nil {
 			err = cerr
 		}
 		if err != nil {
-			return "", err
+			return info, err
 		}
 	}
 	if len(want) > 0 {
-		return "", errors.New("the archive is incomplete")
+		return info, errors.New("the archive is incomplete")
 	}
-	return version, nil
+	return info, nil
 }

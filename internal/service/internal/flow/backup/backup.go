@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -457,7 +458,7 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 
 // Panel is the self-backup's facts: a consistent copy of the database
 // (VACUUM INTO, taken by the store), the master key, the build, and the
-// recovery passphrase the installer printed. Caddy streams the proxy's data
+// recovery public key it is encrypted to. Caddy streams the proxy's data
 // volume (certificates, keys, ACME accounts) as a gzipped tar; nil = none.
 // Trigger is schedule or manual ("" = manual).
 type Panel struct {
@@ -469,12 +470,16 @@ type Panel struct {
 	// Lock is held from the database copy until the data dir files are in
 	// the archive, not over the upload: a renewal rewrites a key pair there
 	// in two renames, under this lock. nil = none.
-	Lock       sync.Locker
-	Trigger    string
-	MasterKey  string
-	Version    string
-	Passphrase string
-	InstallID  string
+	Lock      sync.Locker
+	Trigger   string
+	MasterKey string
+	Version   string
+	// RecoveryPub is the age X25519 public key the archive is encrypted to,
+	// and only to it: the box holds no private half. RecoveryGen is stamped
+	// in the archive, on the run and in the object name.
+	RecoveryPub string
+	RecoveryGen int
+	InstallID   string
 }
 
 func (p Panel) trigger() string {
@@ -485,8 +490,8 @@ func (p Panel) trigger() string {
 }
 
 // PanelBackup writes the panel archive (stackr.db, keys/master.key,
-// VERSION) encrypted with the recovery passphrase. Admin-only; restored on
-// the host with the restore script, never from the panel.
+// VERSION) encrypted to the recovery key. Admin-only; restored on the host
+// with the restore script, never from the panel.
 func (f *Flow) PanelBackup(
 	ctx context.Context,
 	p Panel,
@@ -500,6 +505,7 @@ func (f *Flow) PanelBackup(
 		return r, err
 	}
 	key, size, err := f.writePanel(ctx, p, dest, log)
+	r.RecoveryGen = p.RecoveryGen
 	if r, ferr := f.Backups.Finish(ctx, r, key, size, err); ferr != nil || err != nil {
 		return r, errors.Join(err, ferr)
 	}
@@ -514,8 +520,12 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest, l
 		// A backup that cannot be restored must not report success.
 		return "", 0, errors.New("the master key is not loaded; refusing a panel backup that cannot be restored")
 	}
-	if p.Passphrase == "" {
-		return "", 0, errors.New("no recovery passphrase is set")
+	if p.RecoveryPub == "" {
+		return "", 0, errors.New("no recovery key is set")
+	}
+	rcpt, err := age.ParseX25519Recipient(p.RecoveryPub)
+	if err != nil {
+		return "", 0, fmt.Errorf("recovery key: %w", err)
 	}
 	if err := os.MkdirAll(f.Scratch, 0o700); err != nil {
 		return "", 0, err
@@ -525,20 +535,23 @@ func (f *Flow) writePanel(ctx context.Context, p Panel, dest store.BackupDest, l
 		return "", 0, err
 	}
 	defer drop(spool)
-	if err := f.panelArchive(ctx, p, spool, log); err != nil {
+	if err := f.panelArchive(ctx, p, rcpt, spool, log); err != nil {
 		return "", 0, err
 	}
 	size, _ := spool.Seek(0, io.SeekCurrent)
 	if _, err := spool.Seek(0, io.SeekStart); err != nil {
 		return "", 0, err
 	}
-	key := bk.ObjectKey(bk.PanelPrefix(p.InstallID, p.trigger()), "panel.tar.gz.age", time.Now())
+	// The generation is in the name: a restore whose key fails can say which
+	// one the archive needs without opening it.
+	name := fmt.Sprintf("panel-g%d.tar.gz.age", p.RecoveryGen)
+	key := bk.ObjectKey(bk.PanelPrefix(p.InstallID, p.trigger()), name, time.Now())
 	return key, size, open(dest).Put(ctx, key, spool)
 }
 
 // panelArchive writes the encrypted archive to w under p.Lock: the database
 // copy, the proxy volume and the data dir files as one moment of the panel.
-func (f *Flow) panelArchive(ctx context.Context, p Panel, w io.Writer, log io.Writer) error {
+func (f *Flow) panelArchive(ctx context.Context, p Panel, rcpt age.Recipient, w io.Writer, log io.Writer) error {
 	if p.Lock != nil {
 		p.Lock.Lock()
 		defer p.Lock.Unlock()
@@ -550,7 +563,7 @@ func (f *Flow) panelArchive(ctx context.Context, p Panel, w io.Writer, log io.Wr
 	}
 	caddy := f.panelCaddy(ctx, p, log)
 	defer func() { _ = os.Remove(caddy) }()
-	enc, err := encrypt(w, p.Passphrase, 0)
+	enc, err := age.Encrypt(w, rcpt)
 	if err != nil {
 		return err
 	}
@@ -598,6 +611,8 @@ func panelTar(w io.Writer, db, caddy string, p Panel) error {
 			err = tarBytes(tw, m, p.MasterKey+"\n", now)
 		case installspec.VersionMember:
 			err = tarBytes(tw, m, p.Version+"\n", now)
+		case installspec.RecoveryMember:
+			err = tarBytes(tw, m, strconv.Itoa(p.RecoveryGen)+"\n", now)
 		case installspec.CaddyMember:
 			if caddy != "" {
 				err = tarFile(tw, m, caddy, now)
@@ -648,7 +663,7 @@ func tarFile(tw *tar.Writer, m installspec.Member, path string, now time.Time) e
 }
 
 // keyWorkFactor: a destination key is 256 random bits, so scrypt's cost buys
-// nothing there; the human recovery passphrase keeps age's default.
+// nothing there. (The panel archive uses the recovery public key instead.)
 const keyWorkFactor = 10
 
 func encrypt(w io.Writer, pass string, workFactor int) (io.WriteCloser, error) {

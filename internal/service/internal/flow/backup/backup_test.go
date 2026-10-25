@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"filippo.io/age"
+
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -228,18 +230,29 @@ func TestDumpRoundTripAndPrune(t *testing.T) {
 func TestPanelArchive(t *testing.T) {
 	w := setup(t)
 	p := Panel{
-		MasterKey:  "mk",
-		Version:    "v1.2.3",
-		Passphrase: "correct horse",
-		InstallID:  "i1",
-		Vacuum:     func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
+		MasterKey:   "mk",
+		Version:     "v1.2.3",
+		RecoveryPub: testRecovery.Recipient().String(),
+		RecoveryGen: 2,
+		InstallID:   "i1",
+		Vacuum:      func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
 	}
 	r, err := w.f.PanelBackup(ctx, p, w.dest, 0, io.Discard)
 	must(t, err)
 	f, err := os.Open(filepath.Join(w.dest.Endpoint, r.ObjectKey))
 	must(t, err)
 	defer func() { _ = f.Close() }()
-	dec, err := decrypt(f, "correct horse")
+	// Only the recovery key opens it, and the generation is stamped in the
+	// archive, on the run and in the object name.
+	if _, err := age.Decrypt(f, newTestKey(t)); err == nil {
+		t.Error("an unrelated key opened the panel archive")
+	}
+	if r.RecoveryGen != 2 || !strings.HasSuffix(r.ObjectKey, "-panel-g2.tar.gz.age") {
+		t.Errorf("run gen %d, key %s", r.RecoveryGen, r.ObjectKey)
+	}
+	_, err = f.Seek(0, io.SeekStart)
+	must(t, err)
+	dec, err := age.Decrypt(f, testRecovery)
 	must(t, err)
 	gz, err := gzip.NewReader(dec)
 	must(t, err)
@@ -248,7 +261,7 @@ func TestPanelArchive(t *testing.T) {
 	for h, err := tr.Next(); err == nil; h, err = tr.Next() {
 		names = append(names, h.Name)
 	}
-	if !slices.Equal(names, []string{"stackr.db", "keys/master.key", "VERSION"}) {
+	if !slices.Equal(names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY"}) {
 		t.Errorf("members = %v", names)
 	}
 	p.MasterKey = ""
@@ -263,12 +276,13 @@ func TestPanelArchive(t *testing.T) {
 func TestPanelArchiveCaddy(t *testing.T) {
 	w := setup(t)
 	p := Panel{
-		MasterKey:  "mk",
-		Version:    "v1.2.3",
-		Passphrase: "pw",
-		InstallID:  "i1",
-		Trigger:    "schedule",
-		Vacuum:     func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
+		MasterKey:   "mk",
+		Version:     "v1.2.3",
+		RecoveryPub: testRecovery.Recipient().String(),
+		RecoveryGen: 1,
+		InstallID:   "i1",
+		Trigger:     "schedule",
+		Vacuum:      func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
 		Caddy: func(_ context.Context, out io.Writer) error {
 			_, err := out.Write(tarGz(t, "data/certs/a.crt", "pem"))
 			return err
@@ -279,8 +293,8 @@ func TestPanelArchiveCaddy(t *testing.T) {
 	if r.Trigger != "schedule" {
 		t.Errorf("trigger = %q", r.Trigger)
 	}
-	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey), "pw")
-	if !slices.Equal(got.names, []string{"stackr.db", "keys/master.key", "VERSION", "caddy.tar.gz"}) {
+	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey))
+	if !slices.Equal(got.names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "caddy.tar.gz"}) {
 		t.Fatalf("members = %v", got.names)
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(got.bodies["caddy.tar.gz"]))
@@ -294,7 +308,7 @@ func TestPanelArchiveCaddy(t *testing.T) {
 	var log bytes.Buffer
 	r, err = w.f.PanelBackup(ctx, p, w.dest, 0, &log)
 	must(t, err)
-	if got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey), "pw"); slices.Contains(got.names, "caddy.tar.gz") {
+	if got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey)); slices.Contains(got.names, "caddy.tar.gz") {
 		t.Errorf("a failed proxy tar was archived: %v", got.names)
 	}
 	if !strings.Contains(log.String(), "proxy volume not archived") {
@@ -314,7 +328,7 @@ func TestPanelArchiveState(t *testing.T) {
 		return err
 	}
 	p := Panel{
-		MasterKey: "mk", Version: "v1.2.3", Passphrase: "pw", InstallID: "i1", DataDir: data,
+		MasterKey: "mk", Version: "v1.2.3", RecoveryPub: testRecovery.Recipient().String(), RecoveryGen: 1, InstallID: "i1", DataDir: data,
 		Vacuum: func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
 	}
 	var req, all []string
@@ -326,7 +340,7 @@ func TestPanelArchiveState(t *testing.T) {
 	}
 	r, err := w.f.PanelBackup(ctx, p, w.dest, 0, io.Discard)
 	must(t, err)
-	if got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey), "pw"); !slices.Equal(got.names, req) {
+	if got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey)); !slices.Equal(got.names, req) {
 		t.Errorf("bare members = %v, want %v", got.names, req)
 	}
 
@@ -339,7 +353,7 @@ func TestPanelArchiveState(t *testing.T) {
 	p.Caddy = caddy
 	r, err = w.f.PanelBackup(ctx, p, w.dest, 0, io.Discard)
 	must(t, err)
-	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey), "pw")
+	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey))
 	if !slices.Equal(got.names, all) {
 		t.Fatalf("members = %v, want %v", got.names, all)
 	}
@@ -355,12 +369,22 @@ type members struct {
 	bodies map[string][]byte
 }
 
-func panelMembers(t *testing.T, path, pass string) members {
+// testRecovery is the recovery key every panel test encrypts to; the tests
+// hold the private half, the flow only ever sees the public one.
+var testRecovery = func() *age.X25519Identity {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		panic(err)
+	}
+	return id
+}()
+
+func panelMembers(t *testing.T, path string) members {
 	t.Helper()
 	f, err := os.Open(path)
 	must(t, err)
 	defer func() { _ = f.Close() }()
-	dec, err := decrypt(f, pass)
+	dec, err := age.Decrypt(f, testRecovery)
 	must(t, err)
 	gz, err := gzip.NewReader(dec)
 	must(t, err)
@@ -390,14 +414,22 @@ func TestOrphans(t *testing.T) {
 	}
 }
 
+func newTestKey(t *testing.T) *age.X25519Identity {
+	t.Helper()
+	id, err := age.GenerateX25519Identity()
+	must(t, err)
+	return id
+}
+
 func panelFor(trigger string) Panel {
 	return Panel{
-		MasterKey:  "mk",
-		Version:    "v1",
-		Passphrase: "pw",
-		InstallID:  "i1",
-		Trigger:    trigger,
-		Vacuum:     func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
+		MasterKey:   "mk",
+		Version:     "v1",
+		RecoveryPub: testRecovery.Recipient().String(),
+		RecoveryGen: 1,
+		InstallID:   "i1",
+		Trigger:     trigger,
+		Vacuum:      func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
 	}
 }
 

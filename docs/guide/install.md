@@ -35,7 +35,7 @@ The panel is the controller: the web UI, the API and the first node. One box run
      --admin-email you@example.com
    ```
 
-3. Save the recovery passphrase the installer prints. It is shown once. It opens the panel's own backups, and a restore on another box needs it.
+3. Save the recovery key the installer prints. It is shown once. It opens the panel's own backups, and a restore needs it.
 
 4. With HTTPS (the default), add the two DNS records the installer prints, both pointing at this box's public IP.
 

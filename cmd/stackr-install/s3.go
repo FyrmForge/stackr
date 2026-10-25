@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -54,6 +56,29 @@ func newestKey(keys []string) string {
 	return best
 }
 
+// pickInstall narrows keys to one install when prefix is the panel archives'
+// root (...stackr/_panel/): the only install there, or an error listing the
+// choices. Any other prefix is returned as it is.
+func pickInstall(prefix string, keys []string) ([]string, error) {
+	root := strings.TrimSuffix(prefix, "/")
+	if path.Base(root) != "_panel" {
+		return keys, nil
+	}
+	ids := map[string]bool{}
+	for _, k := range keys {
+		if id, _, ok := strings.Cut(strings.TrimPrefix(k, root+"/"), "/"); ok && id != "" {
+			ids[id] = true
+		}
+	}
+	if len(ids) > 1 {
+		return nil, fmt.Errorf("%d installs have archives there: %s", len(ids), strings.Join(slices.Sorted(maps.Keys(ids)), ", "))
+	}
+	for id := range ids {
+		return slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return !strings.HasPrefix(k, root+"/"+id+"/") }), nil
+	}
+	return nil, nil
+}
+
 // fetchS3 downloads the archive at u into dir (0600) and returns its path
 // and the key it read. The keys come from the environment, never a flag.
 func fetchS3(ctx context.Context, u, dir string, getenv func(string) string) (string, string, error) {
@@ -82,6 +107,9 @@ func fetchS3(ctx context.Context, u, dir string, getenv func(string) string) (st
 			for _, o := range page.Contents {
 				keys = append(keys, aws.ToString(o.Key))
 			}
+		}
+		if keys, err = pickInstall(key, keys); err != nil {
+			return "", "", fmt.Errorf("%w (name one: s3://%s/%s<id>/)", err, bucket, strings.TrimSuffix(key, "/")+"/")
 		}
 		if key = newestKey(keys); key == "" {
 			return "", "", fmt.Errorf("no archive under %s", u)
