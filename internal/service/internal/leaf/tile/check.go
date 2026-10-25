@@ -242,14 +242,14 @@ func Validate(t *store.Tile) error {
 	switch t.Kind {
 	case Service:
 		if t.GitURL == "" {
-			return errs.Invalidf("git_url", "a git source needs a git_url")
+			return errs.Invalidf("git_url", "Give the Git URL to build from.")
 		}
 		if !gitURL.MatchString(t.GitURL) {
 			return errs.Invalidf("git_url", badGitURL)
 		}
 	case Image:
 		if t.ImageRef == "" {
-			return errs.Invalidf("image", "an image source needs an image (set git_url to switch to a git build)")
+			return errs.Invalidf("image", "Give an image to run, or a Git URL to build instead.")
 		}
 	case Cron, Function:
 		if err := checkRun(t); err != nil {
@@ -281,7 +281,7 @@ func Validate(t *store.Tile) error {
 	}
 	if t.ImageRef != "" {
 		if _, _, _, ok := registry.ParseRef(t.ImageRef); !ok {
-			return errs.Invalidf("image", "%q is not an image reference", t.ImageRef)
+			return errs.Invalidf("image", "Not an image reference: use a name and tag, like nginx:1.")
 		}
 	}
 	if t.UpdatePolicy == "" {
@@ -324,9 +324,9 @@ func Validate(t *store.Tile) error {
 		case t.Replicas > 1:
 			return errs.Invalidf("replicas", "A tile on the host network runs one replica.")
 		case strings.TrimSpace(t.PublishedPorts) != "":
-			return errs.Invalidf("published_ports", "network: host binds the server's ports itself; drop published_ports")
+			return errs.Invalidf("published_ports", "On the host network the tile binds the server's ports itself: leave server ports empty.")
 		case strings.TrimSpace(t.Lan) != "":
-			return errs.Invalidf("lan", "network: host already reaches the whole LAN; drop lan")
+			return errs.Invalidf("lan", "On the host network the tile already reaches the whole LAN: leave LAN access empty.")
 		}
 	}
 	return checkLists(t)
@@ -338,9 +338,9 @@ func Validate(t *store.Tile) error {
 func checkRun(t *store.Tile) error {
 	switch {
 	case t.GitURL != "" && t.ImageRef != "":
-		return errs.Invalidf("image", "a %s builds from git_url or runs an image, not both", t.Kind)
+		return errs.Invalidf("image", "Set a Git URL or an image, not both.")
 	case t.GitURL == "" && t.ImageRef == "":
-		return errs.Invalidf("git_url", "a %s needs a git_url or an image", t.Kind)
+		return errs.Invalidf("git_url", "Set a Git URL to build from or an image to run.")
 	case t.GitURL != "" && !gitURL.MatchString(t.GitURL):
 		return errs.Invalidf("git_url", badGitURL)
 	}
@@ -360,7 +360,7 @@ func checkRun(t *store.Tile) error {
 		t.Trigger = Manual
 	}
 	if t.Trigger != Manual && t.Trigger != OnDeploy {
-		return errs.Invalidf("trigger", "trigger must be manual or on_deploy")
+		return errs.Invalidf("trigger", "Pick manually or on every deploy.")
 	}
 	return nil
 }
@@ -397,7 +397,7 @@ func checkSlice(t *store.Tile) error {
 // connection clones it is the clone's to say.
 var gitURL = regexp.MustCompile(`^(https://[A-Za-z0-9.-]+(:[0-9]+)?/|[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+:)[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$`)
 
-const badGitURL = "use a repository URL: https://host/owner/repo or user@host:owner/repo"
+const badGitURL = "Use a repository URL: https://host/owner/repo or user@host:owner/repo."
 
 // canonRestart folds the spellings of the same policy: "", always and
 // unless-stopped are all "always".

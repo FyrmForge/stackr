@@ -361,12 +361,12 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"cron with git and an image",
-			"a cron builds from git_url or runs an image, not both",
+			"Set a Git URL or an image, not both.",
 			then(cronRow, func(t *store.Tile) { t.ImageRef = "alpine:3" }),
 		},
 		{
 			"cron with neither source",
-			"a cron needs a git_url or an image",
+			"Set a Git URL to build from or an image to run.",
 			then(cronRow, func(t *store.Tile) { t.GitURL = "" }),
 		},
 		{
@@ -386,7 +386,7 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"function with a bad trigger",
-			"trigger must be manual or on_deploy",
+			"Pick manually or on every deploy.",
 			then(fnRow, func(t *store.Tile) { t.Trigger = "hourly" }),
 		},
 		{
