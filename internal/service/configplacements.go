@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -182,7 +184,23 @@ func (o *Orchestrator) orgPlacements(ctx context.Context, live *orgconfig.Live) 
 // pin: EnvNeeds, what the envs the org pin covers ask of their node, and
 // Moves, the envs the pin would move. A stack with its own pin is not covered.
 func (o *Orchestrator) orgMoves(ctx context.Context, live *orgconfig.Live, f *orgconfig.File) error {
-	live.Moves, live.EnvNeeds, live.FileErrors = nil, nil, nil
+	live.Moves, live.EnvNeeds, live.FileErrors, live.DNS, live.DNSNotes = nil, nil, nil, nil, nil
+	var ws []promote.PlacementWrite
+	if f.Pin != "" && f.Pin != live.Current.Pin {
+		ws = append(ws, promote.PlacementWrite{Scope: ScopeOrg, ScopeID: live.Org.ID, Field: "pin", Refs: []string{f.Pin}})
+	}
+	if f.Ingress != "" && f.Ingress != live.Current.Ingress {
+		ws = append(ws, promote.PlacementWrite{Scope: ScopeOrg, ScopeID: live.Org.ID, Field: "ingress", Refs: []string{f.Ingress}})
+	}
+	var err error
+	if live.DNS, live.DNSNotes, err = o.configDNS(ctx, ws); err != nil {
+		return err
+	}
+	return o.orgPinMoves(ctx, live, f)
+}
+
+// orgPinMoves is the part of orgMoves that only a pin asks for.
+func (o *Orchestrator) orgPinMoves(ctx context.Context, live *orgconfig.Live, f *orgconfig.File) error {
 	if f.Pin == "" {
 		return nil
 	}
@@ -347,6 +365,7 @@ func (o *Orchestrator) stackPlacements(ctx context.Context, envID string) (promo
 		return o.pinMoves(ctx, live.Placements, placement, envs)
 	}
 	live.Set = func(ctx context.Context, w promote.PlacementWrite) error { return o.setPlacing(ctx, w) }
+	live.DNS = o.configDNS
 	live.MayPlace, _ = ctx.Value(mayPlaceKey{}).(bool)
 	return live, nil
 }
@@ -386,4 +405,104 @@ func (o *Orchestrator) applyOrgPlacing(ctx context.Context, og store.Org, f *org
 		return o.SetExits(ctx, nil, ScopeOrg, og.ID, f.Exits)
 	}
 	return nil
+}
+
+// configDNS shows, for the pin and ingress writes a file plans, the hosts
+// that would enter by another ingress node (DNSForMove, the list the panel's
+// move screen shows): a managed host is a change row the connector repoints
+// on apply, a hand-managed one a note to set by hand. Neither blocks.
+// ponytail: one ingress write wins per tile (the last that covers it); the
+// files only plan one per scope, so this holds until a tile has two.
+func (o *Orchestrator) configDNS(ctx context.Context, ws []promote.PlacementWrite) ([]planfile.Change, []string, error) {
+	over := map[string]*ingressOver{}
+	for _, w := range ws {
+		if w.Field != "pin" && w.Field != "ingress" {
+			continue
+		}
+		p, err := o.store.Placements.GetByName(ctx, w.Refs[0])
+		if err != nil {
+			continue // an unknown placement is the plan's blocker, not ours
+		}
+		envs, err := o.writeEnvs(ctx, w)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, e := range envs {
+			ts, err := o.store.Tiles.ListByEnv(ctx, e.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, t := range ts {
+				if over[t.ID] == nil {
+					over[t.ID] = &ingressOver{}
+				}
+				if w.Field == "pin" {
+					over[t.ID].envNode = p.NodeID
+				} else {
+					over[t.ID].kind, over[t.ID].id, over[t.ID].pick = w.Scope, w.ScopeID, p.ID
+				}
+			}
+		}
+	}
+	to := map[string]string{}
+	for tid, ov := range over {
+		var err error
+		if to[tid], err = o.ingressWith(ctx, tid, ov); err != nil {
+			return nil, nil, err
+		}
+	}
+	m, err := o.DNSForMove(ctx, to)
+	if err != nil {
+		return nil, nil, err
+	}
+	var cs []planfile.Change
+	var notes []string
+	for _, h := range m.Managed {
+		cs = append(cs, planfile.Change{Kind: "dns", Tile: h.Connector, Field: h.Host, Old: strings.Join(h.Old, ", "), New: strings.Join(h.New, ", ")})
+	}
+	for _, h := range m.Hand {
+		recs := make([]string, len(h.Records))
+		for i, r := range h.Records {
+			recs[i] = r.Type + " " + r.Value
+		}
+		notes = append(notes, fmt.Sprintf("%s -> %s: set by hand before traffic moves", h.Host, strings.Join(recs, ", ")))
+	}
+	return cs, notes, nil
+}
+
+// writeEnvs are the envs a pin or ingress write covers: a pin skips the
+// ephemeral envs, the stacks with a pin of their own (org scope) and the
+// envs the file pins itself (Except).
+func (o *Orchestrator) writeEnvs(ctx context.Context, w promote.PlacementWrite) ([]store.Environment, error) {
+	pin := w.Field == "pin"
+	stackEnvs := func(st store.Stack) ([]store.Environment, error) {
+		if pin {
+			m, err := o.movable(ctx, st, w.Except...)
+			return slices.Collect(maps.Values(m)), err
+		}
+		return o.store.Environments.ListByStack(ctx, st.ID)
+	}
+	switch w.Scope {
+	case ScopeEnv:
+		e, err := o.store.Environments.Get(ctx, w.ScopeID)
+		return []store.Environment{e}, err
+	case ScopeStack:
+		return stackEnvs(store.Stack{ID: w.ScopeID})
+	}
+	sts, err := o.store.Stacks.ListByOrg(ctx, w.ScopeID)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Environment
+	for _, st := range sts {
+		if pin && st.PlacementID != nil {
+			continue
+		}
+		es, err := stackEnvs(st)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, es...)
+	}
+	return out, nil
 }

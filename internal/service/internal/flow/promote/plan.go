@@ -75,6 +75,10 @@ type PlacementLive struct {
 	// exits (an org owner). False: a plan that changes one is blocked with
 	// NeedsOwner, so it waits for an owner to promote it.
 	MayPlace bool
+	// DNS is the hosts the planned pin and ingress writes send to another
+	// ingress node: managed ones as change rows, hand-managed ones as
+	// warnings. Neither blocks. Nil = not shown.
+	DNS func(ctx context.Context, ws []PlacementWrite) ([]planfile.Change, []string, error)
 }
 
 // shownValues are the tile keys whose old and new values the plan prints:
@@ -354,6 +358,20 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	w.orgs = orgs
 	if err := f.planPlacing(ctx, p, w, r); err != nil {
 		return err
+	}
+	if w.place != nil && w.place.DNS != nil && len(w.placing) > 0 {
+		ws := make([]PlacementWrite, len(w.placing))
+		for i, s := range w.placing {
+			ws[i] = s.PlacementWrite
+		}
+		cs, notes, err := w.place.DNS(ctx, ws)
+		if err != nil {
+			return err
+		}
+		for _, c := range cs {
+			p.add(c)
+		}
+		p.Warnings = append(p.Warnings, notes...)
 	}
 	// Stack-level keys land with the bottom rung, where new config enters
 	// the ladder, so a rollback higher up never rewrites them (DECIDE 31).

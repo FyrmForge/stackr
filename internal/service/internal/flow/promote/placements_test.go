@@ -263,3 +263,31 @@ func TestExportPlacing(t *testing.T) {
 		t.Errorf("an env on its inherited pin names none:\n%s", b)
 	}
 }
+
+// A pin change lists the hosts it moves: a managed host as a change row, a
+// hand-managed one as a warning, and neither blocks.
+func TestPlanPlacingDNSRows(t *testing.T) {
+	w := setup(t)
+	w.files["p"] = placeHead + "pin: eu-prod\n"
+	var sets []PlacementWrite
+	wire(w, PlacementLive{DNS: func(_ context.Context, ws []PlacementWrite) ([]planfile.Change, []string, error) {
+		if len(ws) != 1 || ws[0].Field != "pin" {
+			t.Errorf("writes = %+v", ws)
+		}
+		return []planfile.Change{{Kind: "dns", Tile: "acme", Field: "shop.acme.dev", Old: "1.1.1.1", New: "2.2.2.2"}},
+			[]string{"hand.io -> A 2.2.2.2: set by hand before traffic moves"}, nil
+	}}, &sets)
+	p, err := w.f.Plan(ctx, w.dev.ID, w.release(t, "p").ID, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(p.Changes, func(c Change) bool { return c.Kind == "dns" && c.Field == "shop.acme.dev" }) {
+		t.Errorf("changes = %+v", p.Changes)
+	}
+	if !slices.ContainsFunc(p.Warnings, func(s string) bool { return strings.Contains(s, "set by hand") }) {
+		t.Errorf("warnings = %v", p.Warnings)
+	}
+	if slices.ContainsFunc(p.Blockers, func(s string) bool { return strings.Contains(s, "hand.io") || strings.Contains(s, "shop.acme.dev") }) {
+		t.Errorf("blockers = %v", p.Blockers)
+	}
+}
