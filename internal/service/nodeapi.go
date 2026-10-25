@@ -139,6 +139,12 @@ func (o *Orchestrator) placementOrg(ctx context.Context, kind, id string) (strin
 	return og.ID, err
 }
 
+// ScopePath words a scope for a list a person reads (the security log):
+// acme/shop/prod/web, or "env <id>" once it is gone.
+func (o *Orchestrator) ScopePath(ctx context.Context, kind, id string) string {
+	return o.scopePath(ctx, kind, id)
+}
+
 // scopePath words a scope: acme/shop/prod/web.
 func (o *Orchestrator) scopePath(ctx context.Context, kind, id string) string {
 	if kind == scopeNode {

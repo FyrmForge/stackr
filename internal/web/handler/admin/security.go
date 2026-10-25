@@ -42,6 +42,33 @@ var securityActions = []struct{ Key, Label string }{
 	{"move.finish", "env move finished"},
 	{"node.recover", "node recovered through the panel"},
 	{"node.key_rotate", "node keys rotated"},
+	{"node.cert_renew", "node certificate renewed"},
+	{"node.rejoined", "node rejoined"},
+	{"cert.controller_renew", "controller certificate renewed"},
+	{"cert.controller_revoke", "controller certificate replaced"},
+	{"ca.break_glass", "cluster root wiped"},
+	{"root.rollover_start", "root rollover started"},
+	{"root.rollover_push", "trust list sent to workers"},
+	{"root.rollover_node", "node marked to rejoin"},
+	{"root.rollover_finish", "root rollover finished"},
+	{"registry.clean", "registry cleaned"},
+	{"placement.create", "placement added"},
+	{"placement.open", "placement sharing changed"},
+	{"placement.delete", "placement deleted"},
+	{"placement.node", "placement node set"},
+	{"placement.move", "placement repointed"},
+	{"placement.pin", "placement pinned"},
+	{"placement.ingress", "ingress picked"},
+	{"placement.exits", "exits picked"},
+}
+
+// actionWord is an action as the log shows it: its label, or for one not
+// listed its key in plain words (no dots or underscores).
+func actionWord(label map[string]string, action string) string {
+	if l, ok := label[action]; ok {
+		return l
+	}
+	return strings.NewReplacer(".", " ", "_", " ").Replace(action)
 }
 
 var securityWindows = []struct {
@@ -108,6 +135,15 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 		}
 		v.More = ui.Href("security-log") + "?" + more.Encode()
 	}
+	pls, err := h.orch.Placements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	placement := map[string]string{}
+	for _, p := range pls {
+		placement[p.ID] = p.Name
+	}
+	paths := map[string]string{} // env, tile and org ids, worded once per page
 	target := func(e service.SecurityEvent) string {
 		switch e.TargetKind {
 		case "node":
@@ -116,10 +152,21 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 			return cmp.Or(who[e.TargetID], e.TargetID)
 		case "email":
 			return e.TargetID
+		case "placement":
+			return "placement " + cmp.Or(placement[e.TargetID], e.TargetID)
 		case "stack":
 			if st, ok := stacks[e.TargetID]; ok {
 				return st.org + " / " + st.name
 			}
+		case service.ScopeEnv, service.ScopeTile, service.ScopeOrg:
+			k := e.TargetKind + ":" + e.TargetID
+			if _, ok := paths[k]; !ok {
+				paths[k] = h.orch.ScopePath(ctx, e.TargetKind, e.TargetID)
+			}
+			return paths[k]
+		}
+		if e.TargetKind == e.TargetID { // "server server"
+			return e.TargetKind
 		}
 		return strings.TrimSpace(e.TargetKind + " " + e.TargetID)
 	}
@@ -131,9 +178,12 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 		r := ui.SecurityRow{
 			When:    e.At,
 			Actor:   actor,
-			Action:  cmp.Or(label[e.Action], e.Action),
+			Action:  actionWord(label, e.Action),
 			Target:  target(e),
 			Refused: e.Action == "login.bad" || e.Action == "login.limited" || e.Action == "node.reject",
+		}
+		if r.Target == r.Actor { // a sign-in names its own user
+			r.Target = ""
 		}
 		for _, d := range [][2]string{
 			{"Detail", e.Detail}, {"Address", e.IP}, {"Browser", e.UserAgent}, {"Key", e.KeyID}, {"Event", e.ID},

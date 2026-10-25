@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/web/handler/admin"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -33,6 +34,21 @@ func TestAdminSecurityTab(t *testing.T) {
 	body = s.As(t, root, "GET", "/-/admin/security-log?action=key.mint", nil).Body.String()
 	if strings.Contains(body, "203.0.113.9") || !strings.Contains(body, "Nothing matches") {
 		t.Errorf("action filter kept the other rows:\n%s", body)
+	}
+}
+
+// The log words every action in plain words: the listed ones by label, any
+// other with no dotted key left in it.
+func TestSecurityActionWords(t *testing.T) {
+	for in, want := range map[string]string{
+		"placement.pin":         "placement pinned",
+		"move.finish":           "env move finished",
+		"cert.controller_renew": "controller certificate renewed",
+		"some.new_thing":        "some new thing",
+	} {
+		if got := admin.ActionWord(in); got != want {
+			t.Errorf("%s = %q, want %q", in, got, want)
+		}
 	}
 }
 
