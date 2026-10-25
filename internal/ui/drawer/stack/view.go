@@ -1,0 +1,148 @@
+package stack
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/FyrmForge/stackr/internal/ui/access"
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// Rows are the Settings tab's accordion rows, in the drawer's order.
+func Rows(v SettingsView) []c.AccRow {
+	rs := []c.AccRow{
+		{Key: "general", Title: "General", Summary: GeneralSummary(v.Name, v.Slug), Body: general(v)},
+		{Key: "order", Title: "Env order", Summary: OrderSummary(v.Order.Rungs), Body: order(v.Order)},
+		{Key: "config", Title: "Config as code", Summary: ConfigSummary(v.Repo, v.Branch, v.Path), Body: config(v)},
+		{Key: "resources", Title: "Resources", Summary: ResourcesSummary(v.Cascade.Rows), Changed: anyChanged(v.Cascade.Rows), Body: resources(v.Cascade)},
+		{Key: "variables", Title: "Variables", Summary: VarsSummary(v.Vars), Body: v.VarsBody},
+		{Key: "placement", Title: "Placement", Summary: v.Placement, Body: v.PlacementBody},
+		{Key: "host", Title: "Host access", Summary: HostSummary(v.Host.Tiles), Body: host(v.Host)},
+	}
+	if v.Base != "" {
+		rs = append(rs, c.AccRow{Key: "delete", Title: "Delete", Body: danger(v)})
+	}
+	return rs
+}
+
+func GeneralSummary(name, slug string) string {
+	if slug == "" || slug == name {
+		return name
+	}
+	return name + " · " + slug
+}
+
+// OrderSummary is the ladder's names, bottom rung first.
+func OrderSummary(rs []Rung) string {
+	if len(rs) == 0 {
+		return "no environments"
+	}
+	names := make([]string, len(rs))
+	for i, r := range rs {
+		names[i] = r.Name
+	}
+	return strings.Join(names, ", ")
+}
+
+// ConfigSummary is the bound repository, short, and the file it reads.
+func ConfigSummary(repo, branch, path string) string {
+	if repo == "" {
+		return "managed from the UI"
+	}
+	r := strings.TrimSuffix(strings.TrimPrefix(repo, "https://"), ".git")
+	if host, rest, ok := strings.Cut(r, "/"); ok && strings.Contains(host, ".") {
+		r = rest
+	}
+	parts := []string{r}
+	if branch != "" {
+		parts = append(parts, branch)
+	}
+	if path == "" {
+		path = "stackr-compose.yml"
+	}
+	return strings.Join(append(parts, path), " · ")
+}
+
+// ResourcesSummary counts the knobs this stack sets itself.
+func ResourcesSummary(rows []c.SettingRowView) string {
+	n := 0
+	for _, r := range rows {
+		if r.Value != "" || (r.Secret && r.Effective == "set") {
+			n++
+		}
+	}
+	if n == 0 {
+		return "inherits org"
+	}
+	return strconv.Itoa(n) + " set here"
+}
+
+func anyChanged(rows []c.SettingRowView) bool {
+	for _, r := range rows {
+		if r.Changed {
+			return true
+		}
+	}
+	return false
+}
+
+func VarsSummary(n int) string {
+	if n == 0 {
+		return "none set"
+	}
+	return strconv.Itoa(n) + " set"
+}
+
+// PlacementSummary is where the stack runs: its own pin, the org's, or
+// the default.
+func PlacementSummary(pin, inherited, ingress string) string {
+	s := "inherits org (default)"
+	switch {
+	case pin != "":
+		s = "runs on " + pin
+	case inherited != "":
+		s = "runs on " + inherited + " (from org)"
+	}
+	if ingress != "" {
+		s += " · ingress " + ingress
+	}
+	return s
+}
+
+// HostSummary counts the grants per tile and what still waits.
+func HostSummary(ts []access.TilePerms) string {
+	granted, waiting := 0, 0
+	var tiles []string
+	for _, t := range ts {
+		g := 0
+		for _, p := range t.Perms {
+			if p.Waiting {
+				waiting++
+			} else {
+				g++
+			}
+		}
+		if g > 0 {
+			tiles = append(tiles, t.Tile)
+			granted += g
+		}
+	}
+	var parts []string
+	if granted > 0 {
+		parts = append(parts, plural(granted, "grant")+" on "+strings.Join(tiles, ", "))
+	}
+	if waiting > 0 {
+		parts = append(parts, strconv.Itoa(waiting)+" waiting")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, " · ")
+}
+
+func plural(n int, word string) string {
+	if n != 1 {
+		word += "s"
+	}
+	return strconv.Itoa(n) + " " + word
+}

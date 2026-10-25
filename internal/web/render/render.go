@@ -138,7 +138,7 @@ func Shell(c echo.Context, title string) components.Shell {
 		s.Crumbs = append(s.Crumbs, link(sc.Tile.Name, href, path))
 	}
 	if sc.Tile == nil && href != "" && path == href { // a level's canvas: its own drawer
-		s.Settings = href + "/-/drawer"
+		s.Settings = href + "/-/drawer?tab=settings"
 	}
 	return s
 }

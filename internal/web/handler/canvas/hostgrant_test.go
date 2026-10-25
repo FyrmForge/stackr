@@ -54,7 +54,7 @@ func TestStackHostAccess(t *testing.T) {
 	line := pending[0]
 	const tab = "/acme/shop/-/drawer?tab=settings"
 	body := b.do(t, "GET", tab, nil, true).Body.String()
-	for _, w := range []string{"Docker socket", "waiting", "elevated access"} {
+	for _, w := range []string{"Docker socket", "waiting", "host access"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("owner view has no %q:\n%s", w, body)
 		}

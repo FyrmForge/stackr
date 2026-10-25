@@ -153,7 +153,7 @@ func TestDrawerTabs(t *testing.T) {
 	s := webtest.New(t)
 	for path, tabs := range map[string][]string{
 		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "shares", "backups"},
-		"/acme/shop/-/drawer":     {"settings", "params", "releases"},
+		"/acme/shop/-/drawer":     {"releases", "settings"},
 		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order"},
 		"/acme/-/vars":            {"editor"},
 		"/acme/shop/-/vars":       {"editor"},
@@ -172,12 +172,12 @@ func TestDrawerTabs(t *testing.T) {
 	// a level's top bar "Settings" opens its own drawer; a stack card drills
 	// into the stack (v0). The org has no params, so no vars card (v0 drew
 	// none for an empty scope; the editor is the drawer's params tab).
-	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/drawer"`) ||
+	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/drawer?tab=settings"`) ||
 		!strings.Contains(body, `hx-get="/acme/shop"`) ||
 		strings.Contains(body, `hx-get="/acme/-/vars"`) {
 		t.Error("the org canvas's Settings and cards do not open their drawers, or an empty vars card is drawn")
 	}
-	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer"`) {
+	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer?tab=settings"`) {
 		t.Error("the stack canvas's Settings does not open the stack drawer")
 	}
 }
