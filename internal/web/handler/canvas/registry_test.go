@@ -11,9 +11,9 @@ import (
 // section; a registry that is not there is the section's text, not an error.
 func TestOrgRegistryTab(t *testing.T) {
 	b := newBrowser(t, "owner")
-	rec := b.do(t, "GET", "/acme/-/drawer?tab=registry", nil, true)
+	rec := b.do(t, "GET", "/acme/-/drawer?tab=storage", nil, true)
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || !strings.Contains(body, `id="tab-registry"`) || !strings.Contains(body, "Repositories") {
+	if rec.Code != http.StatusOK || !strings.Contains(body, `id="tab-storage"`) || !strings.Contains(body, "Repositories") {
 		t.Fatalf("registry tab = %d\n%s", rec.Code, body)
 	}
 	if !strings.Contains(body, "The registry did not answer") && !strings.Contains(body, "the registry did not answer") && !strings.Contains(body, "No images yet") {
@@ -36,7 +36,7 @@ func TestRegistryDeleteIsTheOwners(t *testing.T) {
 	if rec := b.do(t, "POST", path, url.Values{}, true); rec.Code != http.StatusNotFound {
 		t.Errorf("owner delete of another org's repo = %d, want 404", rec.Code)
 	}
-	if rec := b.do(t, "GET", "/acme/-/drawer?tab=registry&repo=other%2Fshop%2Fapi", nil, true); rec.Code != http.StatusNotFound {
+	if rec := b.do(t, "GET", "/acme/-/drawer?tab=storage&repo=other%2Fshop%2Fapi", nil, true); rec.Code != http.StatusNotFound {
 		t.Errorf("another org's repo opened: %d", rec.Code)
 	}
 }

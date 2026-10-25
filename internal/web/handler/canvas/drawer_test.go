@@ -90,17 +90,17 @@ func TestDrawerRouteLoadsInShell(t *testing.T) {
 // an id not on the canvas leaves the drawer closed.
 func TestDrawerFreshLoad(t *testing.T) {
 	b := newBrowser(t, "owner")
-	rec := b.do(t, "GET", "/?drawer=org:"+b.org+"&tab=settings", nil, false)
+	rec := b.do(t, "GET", "/?drawer=org:"+b.org+"&tab=general", nil, false)
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || !strings.Contains(body, `<side-drawer open tab="settings">`) ||
-		!strings.Contains(body, `id="tab-settings"`) ||
+	if rec.Code != http.StatusOK || !strings.Contains(body, `<side-drawer open tab="general">`) ||
+		!strings.Contains(body, `id="tab-general"`) ||
 		!strings.Contains(body, `<graph-canvas`) {
 		t.Fatalf("fresh load = %d\n%s", rec.Code, body)
 	}
 	if body := b.do(
 		t,
 		"GET",
-		"/?drawer=org:nope&tab=settings",
+		"/?drawer=org:nope&tab=general",
 		nil,
 		false,
 	).Body.String(); !strings.Contains(body, "<side-drawer>") {
@@ -108,13 +108,19 @@ func TestDrawerFreshLoad(t *testing.T) {
 	}
 
 	v := newBrowser(t, "viewer")
-	body = v.do(t, "GET", "/?drawer=org:"+v.org+"&tab=members", nil, false).Body.String()
-	if !strings.Contains(body, `id="tab-members"`) || strings.Contains(body, `hx-post="/acme/-/drawer/invite"`) {
+	body = v.do(t, "GET", "/?drawer=org:"+v.org+"&tab=people", nil, false).Body.String()
+	if !strings.Contains(body, `id="org-members"`) || strings.Contains(body, `hx-post="/acme/-/drawer/invite"`) {
 		t.Error("a viewer lists members but gets no invite form")
 	}
-	body = v.do(t, "GET", "/?drawer=org:"+v.org+"&tab=settings", nil, false).Body.String()
-	if !strings.Contains(body, `id="tab-settings"`) || strings.Contains(body, "/acme/-/drawer/rename") {
+	body = v.do(t, "GET", "/?drawer=org:"+v.org+"&tab=general", nil, false).Body.String()
+	if !strings.Contains(body, `id="tab-general"`) || strings.Contains(body, "/acme/-/drawer/rename") {
 		t.Error("a viewer got the rename form")
+	}
+	// a tab the role cannot use is not drawn, and asking for it opens General
+	body = v.do(t, "GET", "/acme/-/drawer?tab=connectors", nil, true).Body.String()
+	if !strings.Contains(body, `id="tab-general"`) || strings.Contains(body, "tab=connectors") ||
+		strings.Contains(body, "tab=domains") || !strings.Contains(body, "tab=storage") {
+		t.Errorf("a viewer's strip:\n%s", body)
 	}
 }
 
@@ -152,7 +158,7 @@ func TestOwnDrawerFreshLoad(t *testing.T) {
 func TestDrawerTabs(t *testing.T) {
 	s := webtest.New(t)
 	for path, tabs := range map[string][]string{
-		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "shares", "backups"},
+		"/acme/-/drawer":          {"general", "people", "variables", "domains", "storage", "config"},
 		"/acme/shop/-/drawer":     {"settings", "params", "releases"},
 		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order"},
 		"/acme/-/vars":            {"editor"},
@@ -161,7 +167,7 @@ func TestDrawerTabs(t *testing.T) {
 		for _, tab := range tabs {
 			body := get(t, s, path+"?tab="+tab)
 			want := `id="tab-` + tab + `"`
-			if tab == "params" || tab == "editor" {
+			if tab == "params" || tab == "variables" || tab == "editor" {
 				want = `id="vars-editor"`
 			}
 			if !strings.Contains(body, want) || !strings.Contains(body, `id="drawer-view"`) {
@@ -268,8 +274,8 @@ func TestDrawerActions(t *testing.T) {
 		to,
 		nil,
 		false,
-	).Body.String(); !strings.Contains(body, `<side-drawer open tab="settings">`) ||
-		!strings.Contains(body, `value="Acme Two"`) {
+	).Body.String(); !strings.Contains(body, `<side-drawer open tab="general">`) ||
+		!strings.Contains(body, `value="Acme Two"`) || !strings.Contains(body, `data-acc="name" open`) {
 		t.Errorf("rename lands on %q without its drawer open", to)
 	}
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/drawer/color", url.Values{"color": {"teal"}})
@@ -327,7 +333,7 @@ func TestOrgDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = v.do(t, "GET", "/acme/-/drawer?tab=domains", nil, true).Body.String()
-	if strings.Contains(body, "acme.io") || !strings.Contains(body, "Your role cannot list domains.") {
+	if strings.Contains(body, "acme.io") || !strings.Contains(body, `id="tab-general"`) {
 		t.Errorf("a viewer gets no domain rows:\n%s", body)
 	}
 	if rec := v.do(t, "POST", "/acme/-/drawer/domains", url.Values{"host": {"x.io"}}, true); rec.Code != http.StatusForbidden {
@@ -348,13 +354,13 @@ func TestOrgDefaultsSave(t *testing.T) {
 	if err != nil || len(ogs) != 1 || !strings.Contains(ogs[0].Settings, `"cpu_limit":1.5`) {
 		t.Errorf("orgs = %+v %v, want acme's rung saved", ogs, err)
 	}
-	body := b.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	body := b.do(t, "GET", "/acme/-/drawer?tab=general", nil, true).Body.String()
 	if !strings.Contains(body, `name="cpu_limit" type="number" step="any" value="1.5"`) || strings.Contains(body, "needs an owner") {
 		t.Errorf("the drawer does not read the rung back:\n%s", body)
 	}
 
 	m := newBrowser(t, "member")
-	body = m.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	body = m.do(t, "GET", "/acme/-/drawer?tab=general", nil, true).Body.String()
 	if !strings.Contains(body, "Changing defaults needs an owner of this organization.") {
 		t.Errorf("a member's defaults are not read-only:\n%s", body)
 	}

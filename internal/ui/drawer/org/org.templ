@@ -1,27 +1,32 @@
-// Package org is the org card's drawer tabs (home canvas): settings,
-// members + invites, keys, domains, backups, config, drawn as v0's
-// organization settings.
-// Params is the vars editor, composed by the handler. Each tab is drawn
-// inside components.Drawer.
+// Package org is the org card's drawer tabs (home canvas): general, people,
+// domains, storage, config, drawn as v0's organization settings.
+// Variables (the vars editor), connectors and placement are composed by the
+// handler. Each tab is drawn inside components.Drawer.
 package org
 
 import (
 	"strconv"
+	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
-// Tabs in strip order.
-var Tabs = []string{"settings", "members", "keys", "params", "domains", "connectors", "registry", "shares", "backups", "config", "placement"}
+// Tabs in strip order; the handler hides the ones a role cannot use.
+var Tabs = []string{"general", "people", "variables", "domains", "connectors", "storage", "config", "placement"}
+
+// Labels are the strip's words where the key's capitalised form is not.
+var Labels = map[string]string{"config": "Config as code"}
 
 type SettingsView struct {
-	Name    string
-	Slug    string
-	Rename  string // POST name; "" = not an owner
-	Cascade c.SettingsFormView
-	Stacks  int           // a delete is refused while any remain
-	Delete  c.ConfirmView // shown when Rename is set
-	Tiers   TiersView
+	Name     string
+	Slug     string
+	Rename   string // POST name; "" = not an owner
+	Cascade  c.SettingsFormView
+	Defaults string        // the cascade row's summary
+	Stacks   int           // a delete is refused while any remain
+	Delete   c.ConfirmView // shown when Rename is set
+	Tiers    TiersView
+	Open     string // the row open on load (?open=)
 }
 
 // TiersView is the org's ladder of tiers. Base is where an owner posts
@@ -56,9 +61,9 @@ type MemberRow struct{ UserID, Name, Email, Role string }
 type InviteRow struct{ ID, Email, Role, Expires, Link string } // Link: the full invite URL
 
 type KeysView struct {
-	Base   string // POST /keys (name, level, stack), /keys/<id>/revoke
-	Minted string // the token a mint just made; "" = none
-	Roles  []string // the ceilings the viewer may mint: up to their own role (admin only for admins)
+	Base   string     // POST /keys (name, level, stack), /keys/<id>/revoke
+	Minted string     // the token a mint just made; "" = none
+	Roles  []string   // the ceilings the viewer may mint: up to their own role (admin only for admins)
 	Stacks []StackOpt // the org's stacks, for a key limited to one
 	Keys   []KeyRow
 }
@@ -130,7 +135,7 @@ type ConfigView struct {
 	Auto       bool
 	Unbind     c.ConfirmView // Action "" = nothing bound, or not an owner
 	Job        *c.JobStatusView
-	Latest     *PlanBox  // nil = no plan, or the viewer may not read plans
+	Latest     *PlanBox    // nil = no plan, or the viewer may not read plans
 	Plans      []c.PlanRow // the last plans, newest first
 }
 
@@ -151,34 +156,91 @@ func stacks(n int) string {
 	return strconv.Itoa(n) + " stacks"
 }
 
+// generalRows are the General tab's accordion rows; Delete is an owner's.
+func generalRows(v SettingsView) []c.AccRow {
+	changed := false
+	for _, r := range v.Cascade.Rows {
+		changed = changed || r.Changed
+	}
+	rows := []c.AccRow{
+		{Key: "name", Title: "Name", Summary: v.Name, Body: nameBody(v)},
+		{Key: "tiers", Title: "Tiers", Summary: TiersSummary(v.Tiers), Body: Tiers(v.Tiers)},
+		{Key: "defaults", Title: "Defaults for new tiles", Summary: v.Defaults, Changed: changed, Body: defaultsBody(v.Cascade)},
+	}
+	if v.Rename != "" {
+		sum := "No stacks"
+		if v.Stacks > 0 {
+			sum = "Holds " + stacks(v.Stacks)
+		}
+		rows = append(rows, c.AccRow{Key: "delete", Title: "Delete", Summary: sum, Body: deleteBody(v)})
+	}
+	return rows
+}
+
+// TiersSummary is the Tiers row closed: the ladder bottom first, and how
+// many are locked.
+func TiersSummary(v TiersView) string {
+	if len(v.Rows) == 0 {
+		return "No tiers"
+	}
+	names, locked := make([]string, len(v.Rows)), 0
+	for i, t := range v.Rows {
+		names[i] = t.Slug
+		if t.Locked {
+			locked++
+		}
+	}
+	s := strings.Join(names, ", ")
+	if locked > 0 {
+		s += " · " + strconv.Itoa(locked) + " locked"
+	}
+	return s
+}
+
+// Count is a closed row's "2 destinations", "No shares".
+func Count(n int, one, many string) string {
+	switch n {
+	case 0:
+		return "No " + many
+	case 1:
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
+}
+
 templ Settings(v SettingsView) {
-	<div id="tab-settings">
-		@c.Section("Organization", "organization", "The name is the slug in every URL below it, so renaming moves them.") {
-			<form novalidate hx-post={ v.Rename } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
-				@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "Renaming breaks existing links.", Disabled: v.Rename == "", Why: "Only an owner can rename this organization."})
-				if v.Rename != "" {
-					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
-				}
-			</form>
-		}
-		@Tiers(v.Tiers)
-		@c.Section("Resource defaults", "organization", "Applied to every service in this organization that does not set its own. Stacks, environments and services can still override them.") {
-			@c.SettingsForm(v.Cascade)
-		}
-		if v.Rename != "" {
-			if v.Stacks > 0 {
-				@c.DangerZone("This organization still holds "+stacks(v.Stacks)+". Move or delete them before it can be deleted.", "/"+v.Slug, "")
-			} else {
-				@c.DangerZone("Deleting this organization removes its members, keys, connectors and params.", "/"+v.Slug, "Backups already in a destination are kept.") {
-					@c.Confirm(v.Delete)
-				}
-			}
-		}
+	<div id="tab-general">
+		@c.SettingsAccordion(c.SettingsAcc{ID: "org-general", Rows: generalRows(v), Open: v.Open})
 	</div>
 }
 
+templ nameBody(v SettingsView) {
+	<form novalidate hx-post={ v.Rename } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "Renaming breaks old links.", Disabled: v.Rename == "", Why: "Only an owner can rename this organization."})
+		if v.Rename != "" {
+			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+		}
+	</form>
+}
+
+templ defaultsBody(v c.SettingsFormView) {
+	<p class="text-xs text-rw-faint">Stacks and envs can override these.</p>
+	@c.SettingsForm(v)
+}
+
+templ deleteBody(v SettingsView) {
+	if v.Stacks > 0 {
+		@c.DangerZone("This organization still holds "+stacks(v.Stacks)+". Move or delete them before it can be deleted.", "/"+v.Slug, "")
+	} else {
+		@c.DangerZone("Deleting this organization removes its members, keys, connectors and variables.", "/"+v.Slug, "Backups already in a destination are kept.") {
+			@c.Confirm(v.Delete)
+		}
+	}
+}
+
 templ Tiers(v TiersView) {
-	@c.Section("Tiers", "organization", "Envs named like a tier join it. Listed bottom first.") {
+	<div id="org-tiers">
+		<p class="text-xs text-rw-faint mb-3">Envs named like a tier join it. Listed bottom first.</p>
 		if v.Base == "" {
 			<p class="banner mb-4">Only an owner can change tiers.</p>
 		} else if v.Managed {
@@ -204,8 +266,9 @@ templ Tiers(v TiersView) {
 								@tierMove(v.Base, "Move "+t.Slug+" up", "↑", t.Up)
 								@tierMove(v.Base, "Move "+t.Slug+" down", "↓", t.Down)
 							</span>
-							<form novalidate hx-post={ v.Base + "/" + t.Slug + "/lock" } hx-trigger="change" hx-target={ target() } hx-swap="outerHTML">
+							<form novalidate hx-post={ v.Base + "/" + t.Slug + "/lock" } hx-target={ target() } hx-swap="outerHTML" class="flex items-center gap-2">
 								<label class="text-sm flex items-center gap-2 text-rw-text"><input type="checkbox" name="locked" value="1" checked?={ t.Locked } aria-label={ "Lock " + t.Slug } class="accent-rw-accent"/> <span>Locked</span></label>
+								<button type="submit" class="btn btn-ghost btn-sm" aria-label={ "Save the lock on " + t.Slug }>Save</button>
 							</form>
 							<details class="contents">
 								<summary class="btn btn-ghost btn-sm cursor-pointer list-none">Rename</summary>
@@ -229,7 +292,7 @@ templ Tiers(v TiersView) {
 			</form>
 			<p class="mt-1.5 text-xs text-rw-faint">A new tier starts locked.</p>
 		}
-	}
+	</div>
 }
 
 // tierMove posts the whole new order; nil = at the end of the ladder.
@@ -262,8 +325,19 @@ templ avatar(name string) {
 	<span class="flex items-center justify-center rounded bg-rw-inset font-bold uppercase text-rw-accentHi shrink-0 h-8 w-8 text-xs" aria-hidden="true">{ c.Initials(name) }</span>
 }
 
+// People is the members and invites (nil: the role cannot list them), then
+// the viewer's own keys.
+templ People(m *MembersView, k KeysView) {
+	<div id="tab-people">
+		if m != nil {
+			@Members(*m)
+		}
+		@Keys(k)
+	</div>
+}
+
 templ Members(v MembersView) {
-	<div id="tab-members">
+	<div id="org-members">
 		if v.Manage {
 			@c.Section("Add people", "organization", "Everyone gets an invite link to accept, and that link is a credential.") {
 				<form novalidate hx-post={ v.Base + "/invite" } hx-target={ target() } hx-swap="outerHTML" class="people-add space-y-4">
@@ -351,7 +425,7 @@ func nameOr(name, email string) string {
 }
 
 templ Keys(v KeysView) {
-	<div id="tab-keys">
+	<div id="org-keys">
 		@c.Section("Mint a key", "organization", "An API key for the stackr CLI, scoped to this organization. It is shown once, when minted.") {
 			<form novalidate hx-post={ v.Base + "/keys" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 				@c.Field(c.FieldView{Name: "key_name", Label: "Name", Placeholder: "laptop", Required: true})
@@ -492,56 +566,92 @@ type ShareRow struct {
 	Delete                                      c.ConfirmView // Action "" = not an owner
 }
 
+// StorageView is the Storage tab: backup destinations, network shares and
+// the registry, one accordion row each.
+type StorageView struct {
+	Dests    c.DestsView
+	Shares   SharesView
+	Registry RegistryView
+	Open     string // the row open on load (?open=)
+}
+
+func storageRows(v StorageView) []c.AccRow {
+	return []c.AccRow{
+		{Key: "backups", Title: "Backups", Summary: Count(len(v.Dests.Rows), "destination", "destinations"), Body: Backups(v.Dests)},
+		{Key: "shares", Title: "Shares", Summary: Count(len(v.Shares.Rows), "share", "shares"), Body: Shares(v.Shares)},
+		{Key: "registry", Title: "Registry", Summary: RegistrySummary(v.Registry), Body: Registry(v.Registry)},
+	}
+}
+
+// RegistrySummary is the Registry row closed: the repository open, or how
+// many there are.
+func RegistrySummary(v RegistryView) string {
+	switch {
+	case v.Repo != "":
+		return v.Repo
+	case v.Host == "":
+		return "No panel domain"
+	case v.Err != "":
+		return "Not answering"
+	}
+	return Count(len(v.Repos), "repository", "repositories")
+}
+
+templ Storage(v StorageView) {
+	<div id="tab-storage">
+		@c.SettingsAccordion(c.SettingsAcc{ID: "org-storage", Rows: storageRows(v), Open: v.Open})
+	</div>
+}
+
 templ Shares(v SharesView) {
-	<div id="tab-shares">
-		@c.Section("Network shares", "organization", "NFS or SMB exports tiles can mount.") {
-			if len(v.Rows) > 0 {
-				<ul class="space-y-2 mb-5">
-					for _, r := range v.Rows {
-						<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
-							<span class="font-mono text-sm text-rw-text">{ r.Slug }</span>
-							<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ r.Kind }</span>
-							<span class="font-mono text-xs text-rw-faint">{ r.Source }</span>
-							if r.Options != "" {
-								<span class="font-mono text-xs text-rw-faint">{ r.Options }</span>
-							}
-							if r.User != "" {
-								<span class="text-xs text-rw-faint">user { r.User }</span>
-							}
-							if r.Delete.Action != "" {
-								<span class="ml-auto">
-									@c.Confirm(r.Delete)
-								</span>
-							}
-						</li>
-					}
-				</ul>
-			} else {
-				<p class="text-sm text-rw-faint mb-5">No shares yet.</p>
-			}
-			if v.Add != "" {
-				<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
-					@c.Field(c.FieldView{Name: "slug", Label: "Name", Placeholder: "media", Required: true})
-					<div>
-						<label for="share-kind" class="label">Kind</label>
-						<select id="share-kind" name="kind" class="input">
-							<option value="nfs">nfs</option>
-							<option value="smb">smb</option>
-						</select>
-					</div>
-					@c.Field(c.FieldView{Name: "source", Label: "Source", Placeholder: "nas.lan:/export", Help: "nfs: host:/path. smb: //host/share.", Required: true})
-					@c.Field(c.FieldView{Name: "options", Label: "Options", Placeholder: "nfsvers=4"})
-					@c.Field(c.FieldView{Name: "user", Label: "SMB user", Placeholder: "bob"})
-					@c.Field(c.FieldView{Name: "password", Label: "SMB password ref", Placeholder: "${{ org.params.nas.password }}", Help: "A param ref, never the password."})
-					<button type="submit" class="btn btn-primary btn-sm">Add share</button>
-				</form>
-			}
+	<div id="org-shares">
+		<p class="text-xs text-rw-faint mb-3">NFS or SMB exports tiles can mount.</p>
+		if len(v.Rows) > 0 {
+			<ul class="space-y-2 mb-5">
+				for _, r := range v.Rows {
+					<li class="panel px-3 py-2.5 flex flex-wrap items-center gap-2">
+						<span class="font-mono text-sm text-rw-text">{ r.Slug }</span>
+						<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ r.Kind }</span>
+						<span class="font-mono text-xs text-rw-faint">{ r.Source }</span>
+						if r.Options != "" {
+							<span class="font-mono text-xs text-rw-faint">{ r.Options }</span>
+						}
+						if r.User != "" {
+							<span class="text-xs text-rw-faint">user { r.User }</span>
+						}
+						if r.Delete.Action != "" {
+							<span class="ml-auto">
+								@c.Confirm(r.Delete)
+							</span>
+						}
+					</li>
+				}
+			</ul>
+		} else {
+			<p class="text-sm text-rw-faint mb-5">No shares yet.</p>
+		}
+		if v.Add != "" {
+			<form novalidate hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+				@c.Field(c.FieldView{Name: "slug", Label: "Name", Placeholder: "media", Required: true})
+				<div>
+					<label for="share-kind" class="label">Kind</label>
+					<select id="share-kind" name="kind" class="input">
+						<option value="nfs">nfs</option>
+						<option value="smb">smb</option>
+					</select>
+				</div>
+				@c.Field(c.FieldView{Name: "source", Label: "Source", Placeholder: "nas.lan:/export", Help: "nfs: host:/path. smb: //host/share.", Required: true})
+				@c.Field(c.FieldView{Name: "options", Label: "Options", Placeholder: "nfsvers=4"})
+				@c.Field(c.FieldView{Name: "user", Label: "SMB user", Placeholder: "bob"})
+				@c.Field(c.FieldView{Name: "password", Label: "SMB password ref", Placeholder: "${{ org.params.nas.password }}", Help: "A param ref, never the password."})
+				<button type="submit" class="btn btn-primary btn-sm">Add share</button>
+			</form>
 		}
 	</div>
 }
 
 templ Backups(v c.DestsView) {
-	<div id="tab-backups">
+	<div id="org-backups">
 		@c.Dests(v)
 	</div>
 }
@@ -567,7 +677,7 @@ templ Config(v ConfigView) {
 								}
 							</select>
 						</div>
-						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "you/serverconfig"})
+						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "acme/stackr-org"})
 						@c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch})
 						@c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-org.yml)", Value: v.Path})
 						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no impact lines and no removals</label>

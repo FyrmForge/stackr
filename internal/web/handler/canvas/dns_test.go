@@ -11,8 +11,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
-// The org drawer's Connectors tab is an owner's: a member sees why not and
-// reaches no action; the owner adds a Namecheap account (key never shown)
+// The org drawer's Connectors tab: a member adds git kinds alone and its
+// cards carry no owner action; the owner adds a Namecheap account (key never shown)
 // and manages a domain, which only this org may then use.
 func TestOrgDNSConnectors(t *testing.T) {
 	s := webtest.New(t)
@@ -23,8 +23,9 @@ func TestOrgDNSConnectors(t *testing.T) {
 	m := s.User(t, "member@acme.test", false)
 	s.Member(t, s.Org, m, "member")
 	member := s.Session(t, m)
-	if body := s.As(t, member, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String(); !strings.Contains(body, "Only an owner") ||
-		strings.Contains(body, "+ Add connector") {
+	// a member adds git connectors, so the tab and its add are theirs too
+	if body := s.As(t, member, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String(); !strings.Contains(body, "+ Add connector") ||
+		!strings.Contains(body, `hx-get="/acme/-/drawer?tab=connectors"`) {
 		t.Errorf("member tab:\n%s", body)
 	}
 	if rec := s.As(t, member, "POST", "/acme/-/drawer/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {key}, "client_ip": {"203.0.113.7"}}); rec.Code != http.StatusForbidden {
@@ -51,8 +52,9 @@ func TestOrgDNSConnectors(t *testing.T) {
 	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, ">This org already has a github.com connector<") {
 		t.Errorf("second GitHub begin = %d\n%s", rec.Code, body)
 	}
-	if rec := s.As(t, member, "GET", "/acme/-/drawer/connectors/new", nil); rec.Code != http.StatusForbidden {
-		t.Errorf("member add dialog = %d, want 403", rec.Code)
+	if body := s.As(t, member, "GET", "/acme/-/drawer/connectors/new", nil).Body.String(); !strings.Contains(body, "/connectors/new/github") ||
+		strings.Contains(body, "/connectors/new/namecheap") {
+		t.Errorf("member add dialog, want github alone:\n%s", body)
 	}
 
 	rec = s.Do(t, "POST", "/acme/-/drawer/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {key}, "client_ip": {"203.0.113.7"}})
@@ -75,6 +77,13 @@ func TestOrgDNSConnectors(t *testing.T) {
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
 		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/`+cs[0].ID+`/settings?tab=domains"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
 		t.Fatalf("tab:\n%s", body)
+	}
+	// a member sees the cards with only what their role reaches: the git
+	// drawer, no settings, install check or remove
+	mb := s.As(t, member, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String()
+	if !strings.Contains(mb, "Namecheap · jo") || !strings.Contains(mb, `hx-push-url="?drawer=connector:`) ||
+		strings.Contains(mb, "/settings") || strings.Contains(mb, "/installed") || strings.Contains(mb, "/delete") {
+		t.Errorf("member cards:\n%s", mb)
 	}
 	if body := s.Do(t, "GET", "/acme/-/drawer?tab=connectors&add=1", nil).Body.String(); !strings.Contains(body, "<confirm-dialog open>") {
 		t.Errorf("add=1 does not open the dialog:\n%s", body)

@@ -16,7 +16,7 @@ func TestOrgMintAndInvite(t *testing.T) {
 		strings.Contains(body, `class="banner" role="status"`) {
 		t.Errorf("mint:\n%s", body)
 	}
-	if again := b.do(t, "GET", "/acme/-/drawer?tab=keys", nil, true).Body.String(); strings.Contains(again, "not shown again") {
+	if again := b.do(t, "GET", "/acme/-/drawer?tab=people", nil, true).Body.String(); strings.Contains(again, "not shown again") {
 		t.Errorf("the key shows again:\n%s", again)
 	}
 	body = b.do(t, "POST", "/acme/-/drawer/invite", url.Values{"email": {"new@acme.test"}, "role": {"owner"}}, true).Body.String()

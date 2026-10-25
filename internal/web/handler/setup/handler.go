@@ -895,10 +895,10 @@ func next(og *service.Org, step string) string {
 // the wizard.
 func settingsTab(og *service.Org, step string) string {
 	tab := map[string]string{
-		"name":   "settings",
+		"name":   "general",
 		"config": "config",
 		"domain": "domains",
-		"team":   "members",
+		"team":   "people",
 	}[step]
 	if tab == "" {
 		return "/" + og.Slug

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -33,18 +34,47 @@ func day(t time.Time) string { return t.Format("2 Jan 2006") }
 // answers with.
 const mintedKey = "minted-key"
 
-// orgTab is one verb read per tab; members needs member.list.
+// openKey carries the accordion row an action belongs to, so the tab it
+// answers with has that row open.
+const openKey = "open-row"
+
+// openRow is the accordion row open on load: ?open=, else the action's.
+func openRow(c echo.Context) string {
+	o, _ := c.Get(openKey).(string)
+	return cmp.Or(c.QueryParam("open"), o)
+}
+
+// orgTabs are the tabs the viewer's role can use; the rest are not drawn.
+func orgTabs(c echo.Context, s service.Scope) []string {
+	return slices.DeleteFunc(slices.Clone(orgui.Tabs), func(t string) bool {
+		switch t {
+		case "domains":
+			return !can(c, s, "domain.resource")
+		case "connectors":
+			return !can(c, s, "connector.write") && !can(c, s, "connector.manage") && !can(c, s, "dns.manage")
+		}
+		return false
+	})
+}
+
+// orgTab is one verb read per tab; a tab the role cannot use is hidden and
+// asking for it opens General.
 func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Component, error) {
 	ctx, og := c.Request().Context(), cd.s.Org
+	f.Tabs, f.Labels = orgTabs(c, cd.s), orgui.Labels
+	if !slices.Contains(f.Tabs, f.Tab) {
+		f.Tab = f.Tabs[0]
+	}
 	switch f.Tab {
-	case "members":
-		if !can(c, cd.s, "member.list") {
-			f.Error = "Your role cannot list members."
-			return templ.NopComponent, nil
+	case "people":
+		var m *orgui.MembersView
+		if can(c, cd.s, "member.list") {
+			v, err := h.membersView(c, cd, f.Base)
+			if err != nil {
+				return nil, err
+			}
+			m = &v
 		}
-		v, err := h.membersView(c, cd, f.Base)
-		return orgui.Members(v), err
-	case "keys":
 		ks, err := h.orch.Keys(ctx, middleware.Principal(c).User.ID)
 		v := orgui.KeysView{Base: f.Base}
 		v.Minted, _ = c.Get(mintedKey).(string)
@@ -71,27 +101,27 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 			v.Stacks = append(v.Stacks, orgui.StackOpt{Slug: st.Slug, Name: st.Name})
 		}
 		err = errors.Join(err, serr)
-		return orgui.Keys(v), err
-	case "params":
+		return orgui.People(m, v), err
+	case "variables":
 		return h.vars(c, cd.s, "", "")
 	case "domains":
-		if !can(c, cd.s, "domain.resource") {
-			f.Error = "Your role cannot list domains."
-			return templ.NopComponent, nil
-		}
 		return h.orgDomains(c, cd, f.Base)
 	case "connectors":
-		if !can(c, cd.s, "dns.manage") {
-			f.Error = "Only an owner of this organization manages its connectors."
-			return templ.NopComponent, nil
-		}
 		return h.connectorsTab(c, og)
-	case "registry":
-		return h.orgRegistry(c, cd)
-	case "shares":
-		return h.orgShares(c, cd, f.Base)
-	case "backups":
-		return h.orgDests(c, cd, f.Base)
+	case "storage":
+		v := orgui.StorageView{Open: openRow(c)}
+		var err error
+		if v.Registry, err = h.orgRegistry(c, cd); err != nil {
+			return nil, err
+		}
+		if v.Registry.Repo != "" {
+			v.Open = "registry"
+		}
+		if v.Shares, err = h.orgShares(c, cd, f.Base); err != nil {
+			return nil, err
+		}
+		v.Dests, err = h.orgDests(c, cd, f.Base)
+		return orgui.Storage(v), err
 	case "config":
 		return h.configTab(c, cd, f)
 	case "placement":
@@ -104,7 +134,7 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	if !can(c, cd.s, "orgdefaults.set") {
 		cascade.ReadOnly, cascade.Why = true, "Changing defaults needs an owner of this organization."
 	}
-	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade}
+	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade, Defaults: cascadeSummary(cascade.Rows), Open: openRow(c)}
 	if v.Tiers, err = h.tiersView(c, cd, f.Base); err != nil {
 		return nil, err
 	}
@@ -181,13 +211,14 @@ func (h *handler) tiersView(c echo.Context, cd card, base string) (orgui.TiersVi
 
 // orgDests is the org's own destinations and the install's shared ones,
 // which it may use but never change.
-func (h *handler) orgDests(c echo.Context, cd card, base string) (templ.Component, error) {
+func (h *handler) orgDests(c echo.Context, cd card, base string) (comp.DestsView, error) {
+	v := comp.DestsView{}
 	ds, err := h.orch.BackupDests(c.Request().Context(), cd.s.Org.ID)
 	if err != nil {
-		return nil, err
+		return v, err
 	}
 	write := can(c, cd.s, "destination.write")
-	v := comp.DestsView{Scope: "organization", ListHelp: "This organization's own buckets, and the ones the server shares with every organization."}
+	v = comp.DestsView{Scope: "organization", ListHelp: "This organization's own buckets, and the ones the server shares with every organization."}
 	if write {
 		v.Add = base + "/backups"
 	}
@@ -209,14 +240,14 @@ func (h *handler) orgDests(c echo.Context, cd card, base string) (templ.Componen
 		}
 		v.Rows = append(v.Rows, r)
 	}
-	return orgui.Backups(v), nil
+	return v, nil
 }
 
 // orgShares is the org's network shares; an owner adds and removes them.
-func (h *handler) orgShares(c echo.Context, cd card, base string) (templ.Component, error) {
+func (h *handler) orgShares(c echo.Context, cd card, base string) (orgui.SharesView, error) {
 	ss, err := h.orch.Shares(c.Request().Context(), cd.s.Org.ID)
 	if err != nil {
-		return nil, err
+		return orgui.SharesView{}, err
 	}
 	owner := can(c, cd.s, "share.write")
 	v := orgui.SharesView{}
@@ -244,7 +275,7 @@ func (h *handler) orgShares(c echo.Context, cd card, base string) (templ.Compone
 		}
 		v.Rows = append(v.Rows, row)
 	}
-	return orgui.Shares(v), nil
+	return v, nil
 }
 
 // orgDomains is the org's domain resources and the instance's, which it
@@ -333,8 +364,11 @@ func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.Membe
 }
 
 // orgAction is a POST on the org drawer: one verb, then its tab again.
+// "tab/row" also opens that accordion row.
 func (h *handler) orgAction(tab string, do func(echo.Context, *service.Org) (string, error)) echo.HandlerFunc {
+	tab, row, _ := strings.Cut(tab, "/")
 	return func(c echo.Context) error {
+		c.Set(openKey, row)
 		cd, _ := h.cardOf(c, "org")
 		note, err := do(c, cd.s.Org)
 		if err == nil && c.Response().Committed {
@@ -348,20 +382,20 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	o := "/:org/-/drawer"
 	site.GET(o, h.drawerRoute("org"), a.Require("org.read"))
 	owner, manage := a.Require("org.write"), a.Require("member.manage")
-	site.POST(o+"/rename", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/rename", h.orgAction("general/name", func(c echo.Context, og *service.Org) (string, error) {
 		n, err := h.orch.RenameOrg(c.Request().Context(), og.ID, c.FormValue("name"))
 		if err != nil {
 			return "", err
 		}
-		return redirect(c, "/?drawer=org:"+n.ID+"&tab=settings") // org cards are on home
+		return redirect(c, "/?drawer=org:"+n.ID+"&tab=general&open=name") // org cards are on home
 	}), owner)
-	site.POST(o+"/delete", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/delete", h.orgAction("general/delete", func(c echo.Context, og *service.Org) (string, error) {
 		if err := h.orch.DeleteOrg(c.Request().Context(), og.ID); err != nil {
 			return "", err
 		}
 		return redirect(c, "/")
 	}), owner)
-	site.POST(o+"/invite", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/invite", h.orgAction("people", func(c echo.Context, og *service.Org) (string, error) {
 		i, err := h.orch.Invite(
 			c.Request().Context(),
 			og.ID,
@@ -371,16 +405,16 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		)
 		return "Invite link: " + h.panelURL(c.Request().Context(), "/invite/"+i.ID), err
 	}), manage)
-	site.POST(o+"/invites/:invite/revoke", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/invites/:invite/revoke", h.orgAction("people", func(c echo.Context, og *service.Org) (string, error) {
 		return "Invite revoked.", h.orch.RevokeInvite(c.Request().Context(), og.ID, c.Param("invite"))
 	}), manage)
-	site.POST(o+"/members/:user/role", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/members/:user/role", h.orgAction("people", func(c echo.Context, og *service.Org) (string, error) {
 		return "Role changed.", h.orch.SetRole(c.Request().Context(), og.ID, c.Param("user"), c.FormValue("role"))
 	}), manage)
-	site.POST(o+"/members/:user/remove", h.orgAction("members", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/members/:user/remove", h.orgAction("people", func(c echo.Context, og *service.Org) (string, error) {
 		return "Member removed.", h.orch.RemoveMember(c.Request().Context(), og.ID, c.Param("user"))
 	}), manage)
-	site.POST(o+"/keys", h.orgAction("keys", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/keys", h.orgAction("people", func(c echo.Context, og *service.Org) (string, error) {
 		tok, _, err := h.orch.MintKey(
 			c.Request().Context(),
 			middleware.Principal(c),
@@ -392,7 +426,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		c.Set(mintedKey, tok) // the keys tab shows it once, with a Copy
 		return "", err
 	}), a.Require("org.read"))
-	site.POST(o+"/keys/:key/revoke", h.orgAction("keys", func(c echo.Context, _ *service.Org) (string, error) {
+	site.POST(o+"/keys/:key/revoke", h.orgAction("people", func(c echo.Context, _ *service.Org) (string, error) {
 		return "Key revoked.", h.orch.RevokeKey(c.Request().Context(), middleware.Principal(c), c.Param("key"))
 	}), a.Require("org.read"))
 	res := a.Require("domain.resource")
@@ -415,7 +449,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		return "Domain renamed to " + r.Host + ". Old names redirect until removed.", err
 	}), res)
 	shr := a.Require("share.write")
-	site.POST(o+"/shares", h.orgAction("shares", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/shares", h.orgAction("storage/shares", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
 		s, err := h.orch.CreateShare(c.Request().Context(), og.ID, service.ShareSpec{
 			Slug:        f("slug"),
@@ -427,10 +461,10 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		})
 		return "Share " + s.Slug + " added.", err
 	}), shr)
-	site.POST(o+"/shares/:share/delete", h.orgAction("shares", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/shares/:share/delete", h.orgAction("storage/shares", func(c echo.Context, og *service.Org) (string, error) {
 		return "Share removed.", h.orch.DeleteShare(c.Request().Context(), og.ID, c.Param("share"))
 	}), shr)
-	site.POST(o+"/backups", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/backups", h.orgAction("storage/backups", func(c echo.Context, og *service.Org) (string, error) {
 		f := c.FormValue
 		_, err := h.orch.CreateBackupDest(c.Request().Context(), &og.ID, service.BackupDestSpec{
 			Name:      f("dest_name"),
@@ -442,26 +476,26 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		})
 		return "Destination added.", err
 	}), a.Require("destination.write"))
-	site.POST(o+"/backups/:dest/delete", h.orgAction("backups", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/backups/:dest/delete", h.orgAction("storage/backups", func(c echo.Context, og *service.Org) (string, error) {
 		return "Destination deleted.", h.orch.DeleteBackupDest(c.Request().Context(), og.ID, c.Param("dest"))
 	}), a.Require("destination.write"))
 	tw := a.Require("tier.write")
-	site.POST(o+"/tiers", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/tiers", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		t, err := h.orch.CreateTier(c.Request().Context(), og.ID, c.FormValue("slug"))
 		return "Tier " + t.Slug + " added.", err
 	}), tw)
-	site.POST(o+"/tiers/order", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/tiers/order", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		form, _ := c.FormParams()
 		return "Order saved.", h.orch.ReorderTiers(c.Request().Context(), og.ID, form["slugs"])
 	}), tw)
-	site.POST(o+"/tiers/:tier/rename", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/tiers/:tier/rename", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		_, err := h.orch.RenameTier(c.Request().Context(), og.ID, c.Param("tier"), c.FormValue("name"))
 		return "Tier renamed.", err
 	}), tw)
-	site.POST(o+"/tiers/:tier/delete", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/tiers/:tier/delete", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		return "Tier deleted.", h.orch.DeleteTier(c.Request().Context(), og.ID, c.Param("tier"))
 	}), tw)
-	site.POST(o+"/tiers/:tier/lock", h.orgAction("settings", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST(o+"/tiers/:tier/lock", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		_, err := h.orch.SetTierLock(c.Request().Context(), og.ID, c.Param("tier"), c.FormValue("locked") != "")
 		return "Lock saved.", err
 	}), tw)

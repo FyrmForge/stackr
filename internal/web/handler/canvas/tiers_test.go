@@ -27,7 +27,7 @@ func TestOrgTiersSection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	owner := s.Do(t, "GET", "/acme/-/drawer?tab=settings", nil).Body.String()
+	owner := s.Do(t, "GET", "/acme/-/drawer?tab=general", nil).Body.String()
 	for _, want := range []string{
 		`hx-post="/acme/-/drawer/tiers/dev/lock"`, `name="slugs"`, "A new tier starts locked.",
 		`hx-post="/acme/-/drawer/tiers"`, "in 1 stack", "Delete tier dev?",
@@ -40,7 +40,7 @@ func TestOrgTiersSection(t *testing.T) {
 		t.Error("banner without a bound org file")
 	}
 	m := memberSession(t, s)
-	body := s.As(t, m, "GET", "/acme/-/drawer?tab=settings", nil).Body.String()
+	body := s.As(t, m, "GET", "/acme/-/drawer?tab=general", nil).Body.String()
 	if !strings.Contains(body, "Only an owner can change tiers.") || strings.Contains(body, "/tiers") || !strings.Contains(body, ">locked<") {
 		t.Errorf("member view:\n%s", body)
 	}
@@ -62,7 +62,10 @@ func TestOrgTiersVerbs(t *testing.T) {
 	}
 	post("", url.Values{"slug": {"dev"}})
 	post("", url.Values{"slug": {"prod"}})
-	post("/dev/lock", nil) // unchecked: open
+	// the lock waits for its Save, and the answer keeps the Tiers row open
+	if body := post("/dev/lock", nil); !strings.Contains(body, `data-acc="tiers" open`) || strings.Contains(body, `/lock" hx-trigger`) { // unchecked: open
+		t.Errorf("lock answer:\n%s", body)
+	}
 	ts, _ := s.Orch.Tiers(context.Background(), s.Org)
 	if len(ts) != 2 || ts[0].Locked || !ts[1].Locked {
 		t.Fatalf("tiers = %+v", ts)
@@ -87,7 +90,7 @@ func TestOrgTiersManaged(t *testing.T) {
 	}
 	r.file(t, regionFile)
 	r.owner.do(t, "POST", "/acme/-/drawer/config", url.Values{"connector": {r.conn}, "repo": {"acme/org"}}, true)
-	body := r.owner.do(t, "GET", "/acme/-/drawer?tab=settings", nil, true).Body.String()
+	body := r.owner.do(t, "GET", "/acme/-/drawer?tab=general", nil, true).Body.String()
 	if !strings.Contains(body, "Set in the org file. Edits here show as drift on the next plan.") || !strings.Contains(body, "/tiers/dev/lock") {
 		t.Errorf("managed view:\n%s", body)
 	}
