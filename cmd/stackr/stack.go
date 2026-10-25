@@ -26,7 +26,7 @@ var (
 	releaseCols = []string{"number", "commit", "message", "created_by", "created_at", "id"}
 	domainCols  = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
 	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
-	volumeCols  = []string{"slug", "name", "max_size_mb", "scope_kind", "orphaned_at", "id"}
+	volumeCols  = []string{"slug", "name", "scope_kind", "orphaned_at", "id"}
 	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
 	runCols     = []string{"id", "status", "trigger", "dest", "created_at", "size_bytes", "object_key", "error"}
 	pinCols     = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
@@ -1782,7 +1782,6 @@ func readFile(a *app, name string) ([]byte, error) {
 // ---- volumes and backups ----
 
 func (a *app) volumes() *cobra.Command {
-	var maxMB int
 	add := leaf(
 		"add <slug>",
 		"org.volume-declare,stack.volume-declare,env.volume-declare",
@@ -1793,14 +1792,13 @@ func (a *app) volumes() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			v, err := a.call(POST, p+"/volumes", map[string]any{"slug": args[0], "max_size_mb": maxMB})
+			v, err := a.call(POST, p+"/volumes", map[string]any{"slug": args[0]})
 			if err != nil {
 				return err
 			}
 			return a.show(v, volumeCols...)
 		},
 	)
-	add.Flags().IntVar(&maxMB, "max-mb", 0, "size cap in MB (0: none)")
 	return levelFlag(noun("volume", "Volumes",
 		leaf("ls", "org.volumes,stack.volumes,env.volumes", "List volumes at the level", exact(0),
 			func(c *cobra.Command, _ []string) error {

@@ -37,8 +37,8 @@ func TestNodeLifecycleMigrationRoundTrip(t *testing.T) {
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?,NULL)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','')`, []any{now}},
 		{`UPDATE environments SET node_id = 'n1' WHERE id = 'e1'`, nil},
-		{`INSERT INTO volumes VALUES ('v1','env','e1',NULL,'pgdata','vol',0,NULL,?)`, []any{now}},
-		{`INSERT INTO volumes VALUES ('v2','stack','s1',NULL,'shared','vol',0,NULL,?)`, []any{now}},
+		{`INSERT INTO volumes (id, scope_kind, scope_id, instance_id, slug, name, orphaned_at, created_at) VALUES ('v1','env','e1',NULL,'pgdata','vol',NULL,?)`, []any{now}},
+		{`INSERT INTO volumes (id, scope_kind, scope_id, instance_id, slug, name, orphaned_at, created_at) VALUES ('v2','stack','s1',NULL,'shared','vol',NULL,?)`, []any{now}},
 		{`INSERT INTO backup_schedules VALUES ('bs1','v1','tar',NULL,'0 0 * * *','UTC',3,'full',?)`, []any{now}},
 	})
 	step(1)

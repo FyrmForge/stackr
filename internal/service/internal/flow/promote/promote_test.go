@@ -172,7 +172,7 @@ params:
       mode: fast
       key: {type: secret}
 volumes:
-  data: {max_size_mb: 100}
+  data: {}
 base:
   tiles:
     api:

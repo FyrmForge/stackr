@@ -59,7 +59,7 @@ func TestCreateTileRoundTrip(t *testing.T) {
 // routes.
 func TestVolumeAndProxyDrawers(t *testing.T) {
 	s := webtest.New(t)
-	v, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
+	v, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestJobEvents(t *testing.T) {
 func TestVolumeSchedules(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	v, err := s.Orch.DeclareVolume(ctx, service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
+	v, err := s.Orch.DeclareVolume(ctx, service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestVolumeSchedules(t *testing.T) {
 // tab) sends the browser to the page that opens it, never a bare fragment.
 func TestEnvDrawersLoadInShell(t *testing.T) {
 	s := webtest.New(t)
-	v, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads", 0)
+	v, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads")
 	if err != nil {
 		t.Fatal(err)
 	}

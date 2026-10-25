@@ -56,7 +56,7 @@ func TestPlacementsMigrationRoundTrip(t *testing.T) {
 		env("e3", "s2", "dev", "w1"),   // on the stack's pin
 		env("e4", "s1", "qa", "gone"),  // lost with a forgotten node
 		env("e5", "s1", "old", ""),     // from before nodes
-		{`INSERT INTO volumes VALUES ('v1','env','e3',NULL,'pgdata','vol',0,NULL,?,'')`, []any{now}},
+		{`INSERT INTO volumes (id, scope_kind, scope_id, instance_id, slug, name, orphaned_at, created_at, node_id) VALUES ('v1','env','e3',NULL,'pgdata','vol',NULL,?,'')`, []any{now}},
 		{`INSERT INTO ingress_picks VALUES ('env','e1','w1')`, nil},
 		{`INSERT INTO exit_ladders VALUES ('org','o1',0,'w3'), ('org','o1',1,'own'), ('node','w1',0,'ctl')`, nil},
 	})

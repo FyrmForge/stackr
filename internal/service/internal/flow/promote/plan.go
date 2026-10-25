@@ -1150,14 +1150,6 @@ func (f *Flow) planVolumes(ctx context.Context, p *Plan, w *work) error {
 			p.add(Change{Kind: "volume", New: n})
 		case v.OrphanedAt != nil:
 			p.add(Change{Kind: "volume", New: n, Note: "re-adopts the orphaned volume and its data"})
-		case v.MaxSizeMB != vc.MaxSizeMB:
-			p.add(Change{
-				Kind:  "volume",
-				Field: "max_size_mb",
-				Old:   strconv.Itoa(v.MaxSizeMB),
-				New:   strconv.Itoa(vc.MaxSizeMB),
-				Tile:  n,
-			})
 		default:
 			continue
 		}

@@ -80,3 +80,12 @@ func TestStackFileParamsInclude(t *testing.T) {
 		t.Errorf("params = %+v", r.Params)
 	}
 }
+
+// max_size_mb was never enforced; a file that sets it is told to drop it.
+func TestParseRefusesVolumeMaxSize(t *testing.T) {
+	src := "version: 1\nstack: shop\nladder: [dev]\nhead: main\nvolumes:\n  data: {max_size_mb: 100}\n"
+	_, err := Parse([]byte(src))
+	if err == nil || !strings.Contains(err.Error(), "volumes have no size cap yet") {
+		t.Errorf("err = %v", err)
+	}
+}

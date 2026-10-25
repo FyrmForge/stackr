@@ -66,7 +66,7 @@ func setup(t *testing.T) *world {
 	}
 	dest, err := f.Backups.EnsureLocal(ctx, filepath.Join(dir, "archives"))
 	must(t, err)
-	v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: "e1"}, "data", 0, nil)
+	v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: "e1"}, "data", nil)
 	must(t, err)
 	api := store.Tile{ID: "t1", Slug: "api"}
 	fake.Containers = []docker.Container{{

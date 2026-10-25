@@ -20,7 +20,7 @@ func TestDeleteEnvOrphansVolumeOnItsNode(t *testing.T) {
 		NodeID: "w1", Type: environment.Static, FromKind: environment.FromBranch, FromBranch: "main",
 	})
 	must(t, err)
-	v, _, err := n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: e.ID}, "data", 0, nil)
+	v, _, err := n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: e.ID}, "data", nil)
 	must(t, err)
 	n.wFake.Volumes = []docker.VolumeInfo{{Name: v.Name, SizeBytes: 10}}
 

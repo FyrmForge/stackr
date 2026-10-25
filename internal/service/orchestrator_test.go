@@ -543,9 +543,9 @@ func TestDrawerReads(t *testing.T) {
 		t.Errorf("routes = %+v", rs)
 	}
 	scope := VolumeScope{Kind: "env", ID: w.env}
-	_, err = w.orch.DeclareVolume(ctx, scope, "uploads", 0)
+	_, err = w.orch.DeclareVolume(ctx, scope, "uploads")
 	must(t, err)
-	_, err = w.orch.DeclareVolume(ctx, scope, "cache", 0)
+	_, err = w.orch.DeclareVolume(ctx, scope, "cache")
 	must(t, err)
 	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error {
 		t.Volumes = "uploads:/data"

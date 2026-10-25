@@ -173,7 +173,7 @@ func TestOverlapRollout(t *testing.T) {
 // starts, and its old replica reported running.
 func mountWorld(t *testing.T) *world {
 	w := setup(t)
-	_, _, err := w.f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.env.ID}, "data", 0, nil)
+	_, _, err := w.f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.env.ID}, "data", nil)
 	must(t, err)
 	w.tile.Volumes = "data:/var/lib/data"
 	w.fake.Containers[0].State = "running"

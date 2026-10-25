@@ -65,7 +65,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 		{`INSERT INTO params VALUES ('p4','tier','ti1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p5','org_pr','o1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
 		{`INSERT INTO params VALUES ('p6','stack_pr','s1','email','key','secret','enc1:x',?,?)`, []any{now, now}},
-		{`INSERT INTO volumes VALUES ('v1','env','e1',NULL,'pgdata','vol',0,NULL,?,'')`, []any{now}},
+		{`INSERT INTO volumes VALUES ('v1','env','e1',NULL,'pgdata','vol',NULL,?,'')`, []any{now}},
 		{`INSERT INTO positions VALUES ('org','o1','stack:s1',0,0), ('stack','s1','env:e1',0,0), ('env','e1','tile:api',0,0)`, nil},
 		{`INSERT INTO annotations VALUES ('a1','org','o1','note',0,0,160,60,'hi',?), ('a2','env','e1','box',0,0,90,90,'',?)`, []any{now, now}},
 		{`INSERT INTO credentials VALUES ('c1','o1','hub','https://r','u','enc1:x',?)`, []any{now}},

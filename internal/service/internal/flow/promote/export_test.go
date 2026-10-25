@@ -24,7 +24,7 @@ func TestExportPlansClean(t *testing.T) {
 	scope := params.Scope{Kind: "env", ID: w.dev.ID}
 	must(t, w.f.D.Params.Set(ctx, scope, params.Entry{Collection: "app", Name: "mode", Kind: params.Param, Value: "fast"}))
 	must(t, w.f.D.Params.Set(ctx, scope, params.Entry{Collection: "app", Name: "key", Kind: params.Secret, Value: "s3cret-value"}))
-	_, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.dev.ID}, "data", 100, nil)
+	_, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.dev.ID}, "data", nil)
 	must(t, err)
 
 	api := w.mk(t, w.dev, "api", store.Tile{

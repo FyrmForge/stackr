@@ -727,9 +727,6 @@ func (h *handler) volume(c echo.Context, tab, note string, actErr error) error {
 			Created:  vol.CreatedAt,
 			Orphaned: when(vol.OrphanedAt),
 		}
-		if vol.MaxSizeMB > 0 {
-			o.MaxSize = fmt.Sprint(vol.MaxSizeMB, " MB")
-		}
 		o.Mounts, err = h.mounts(c, vol.Slug)
 		if err != nil {
 			return middleware.HTTPError(err)

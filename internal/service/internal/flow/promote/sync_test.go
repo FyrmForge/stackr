@@ -394,7 +394,7 @@ func TestSyncRemovedManagedOrphansItsVolume(t *testing.T) {
 	db := w.mk(t, w.prd, "db", store.Tile{Kind: tile.Managed})
 	m, err := w.f.D.Managed.Create(ctx, db.ID, "postgres", "stackr", "")
 	must(t, err)
-	vol, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.prd.ID}, "db-data", 0, &m.ID)
+	vol, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.prd.ID}, "db-data", &m.ID)
 	must(t, err)
 	s := w.syncPlan(t)
 	if tags(s) != "db:removed" || !strings.Contains(s.Changes[0].Note, "orphaned") {
@@ -414,7 +414,7 @@ func TestSyncRemovedManagedOrphansItsVolume(t *testing.T) {
 
 func TestSyncVolumes(t *testing.T) {
 	w := syncWorld(t)
-	_, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.dev.ID}, "data", 100, nil)
+	_, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.dev.ID}, "data", nil)
 	must(t, err)
 	row := imgTile("nginx:1", 80)
 	row.Volumes = "data:/srv"
@@ -427,7 +427,7 @@ func TestSyncVolumes(t *testing.T) {
 	must(t, err)
 	v, err := w.f.D.Volumes.List(ctx, volume.Scope{Kind: "env", ID: w.prd.ID})
 	must(t, err)
-	if len(v) != 1 || v[0].Slug != "data" || v[0].MaxSizeMB != 100 {
+	if len(v) != 1 || v[0].Slug != "data" {
 		t.Errorf("volumes: %+v", v)
 	}
 }

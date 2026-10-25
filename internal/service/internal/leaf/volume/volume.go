@@ -114,14 +114,10 @@ func (l *Leaf) Declare(
 	ctx context.Context,
 	s Scope,
 	sl string,
-	maxSizeMB int,
 	instanceID *string,
 ) (v store.Volume, adopted bool, err error) {
 	if !slug.Valid(sl) {
 		return v, false, errs.Invalidf("volume", "%q: a volume name is lower-case letters, digits and single hyphens", sl)
-	}
-	if maxSizeMB < 0 {
-		return v, false, errs.Invalidf("max_size_mb", "must not be negative")
 	}
 	v, err = l.BySlug(ctx, s, sl)
 	switch {
@@ -134,7 +130,6 @@ func (l *Leaf) Declare(
 			InstanceID: instanceID,
 			Slug:       sl,
 			Name:       "stackr-vol-" + id,
-			MaxSizeMB:  maxSizeMB,
 			CreatedAt:  time.Now().UTC(),
 		}
 		return v, false, l.volumes.Create(ctx, v)
@@ -142,13 +137,12 @@ func (l *Leaf) Declare(
 		return v, false, err
 	}
 	adopted = v.OrphanedAt != nil
-	v.OrphanedAt, v.MaxSizeMB, v.InstanceID = nil, maxSizeMB, instanceID
+	v.OrphanedAt, v.InstanceID = nil, instanceID
 	return v, adopted, l.volumes.Update(ctx, v)
 }
 
 // Ensure makes the Docker volume; an existing one is fine. Returns its name.
-// ponytail: max_size_mb is recorded, not enforced; the local driver has no
-// quota.
+// ponytail: no size cap; the local driver has no quota.
 func (l *Leaf) Ensure(ctx context.Context, v store.Volume) (string, error) {
 	ctx, err := l.at(ctx, v)
 	if err != nil {
