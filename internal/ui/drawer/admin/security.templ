@@ -58,7 +58,7 @@ templ Security(v SecurityView) {
 						<li class="panel text-sm">
 							<details>
 								<summary class="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-									<span class="w-28 shrink-0 text-xs text-rw-faint">@c.Time(r.When, "Jan 2, 15:04")</span>
+									<span class="w-28 shrink-0 text-xs text-rw-faint">@c.When(r.When)</span>
 									<span class="text-rw-text">{ r.Actor }</span>
 									<span class="text-rw-muted">{ r.Action }</span>
 									<span class="font-mono text-xs text-rw-muted">{ r.Target }</span>
@@ -71,7 +71,7 @@ templ Security(v SecurityView) {
 									</span>
 								</summary>
 								if len(r.Details) > 0 {
-									<dl class="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 border-t border-rw-border px-4 py-3 text-xs">
+									<dl class="grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1 border-t border-rw-border px-4 py-3 text-xs">
 										for _, d := range r.Details {
 											<dt class="text-rw-faint">{ d.Label }</dt>
 											<dd class="whitespace-pre-wrap break-all font-mono text-rw-muted">{ d.Value }</dd>
@@ -109,7 +109,7 @@ templ MasterKey(v MasterKeyView) {
 					{ "Key generation " + strconv.Itoa(v.Gen) }
 					if !v.Since.IsZero() {
 						{ " since " }
-						@c.Time(v.Since, "Jan 2, 2006")
+						@c.When(v.Since)
 					}
 					{ "." }
 				</p>

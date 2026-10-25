@@ -1151,7 +1151,7 @@ func problems(s Shell) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = Time(p.Since, "2 Jan, 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = When(p.Since).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

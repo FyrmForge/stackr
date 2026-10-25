@@ -209,7 +209,7 @@ func Overview(o OverviewView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Time(o.Created, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.When(o.Created).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -241,7 +241,7 @@ func Overview(o OverviewView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Time(o.Orphaned, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.When(o.Orphaned).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -830,7 +830,7 @@ func History(b BackupsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(r.When, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(r.When).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -986,7 +986,7 @@ func History(b BackupsView) templ.Component {
 func restore(b BackupsView, r Run) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Restore",
-		Title:   "Restore " + b.Name + " from " + r.When.UTC().Format("Jan 2 15:04") + " UTC?",
+		Title:   "Restore " + b.Name + " from " + r.When.UTC().Format(c.WhenLayout) + " UTC?",
 		Warning: "The current data is overwritten; its tiles stop while it restores.",
 		Kept:    []string{"this backup and every other in the destination"},
 		Action:  b.Base + "/restore?run=" + r.ID,

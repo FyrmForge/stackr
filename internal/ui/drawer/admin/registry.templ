@@ -60,7 +60,7 @@ templ Registry(v RegistryView) {
 				} else {
 					<p class="text-rw-muted">
 						{ "Last cleanup: " }
-						@c.Time(v.LastAt, "Jan 2 15:04")
+						@c.When(v.LastAt)
 						{ ", " + v.Last }
 					</p>
 				}

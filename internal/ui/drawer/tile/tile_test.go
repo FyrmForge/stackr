@@ -146,7 +146,7 @@ func TestEveryTabRenders(t *testing.T) {
 				"/run\"",
 				">Pause",
 				`{&#34;paused&#34;:&#34;true&#34;}`,
-				"next run <local-time fmt=\"Jan 2 15:04\"><time datetime=\"2026-07-25T03:00:00Z\"",
+				"next run <local-time fmt=\"Jan 2, 15:04\"><time datetime=\"2026-07-25T03:00:00Z\"",
 				"Times in <local-time zone>UTC</local-time>",
 				"/runs/r1/stop",
 				"tab=logs&amp;run=r1",

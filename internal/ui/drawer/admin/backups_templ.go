@@ -128,7 +128,7 @@ func Backups(v BackupsView) templ.Component {
 					}
 				}
 				if g := lastGood(v.Rows); g != nil {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<p class=\"text-rw-faint mt-0.5\">Last good backup @c.Time(g.When, \"Jan 2 15:04\").</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<p class=\"text-rw-faint mt-0.5\">Last good backup @c.When(g.When).</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -156,7 +156,7 @@ func Backups(v BackupsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(v.Rows[0].When, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(v.Rows[0].When).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -470,7 +470,7 @@ func Backups(v BackupsView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = c.Time(b.When, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = c.When(b.When).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

@@ -57,7 +57,7 @@ templ SettingsAccordion(v SettingsAcc) {
 								{ r.Title }
 								@FieldMarks(r.Changed, "")
 							</span>
-							<span class="flex-1 min-w-0 truncate text-sm text-rw-muted">{ r.Summary }</span>
+							<span class="flex-1 min-w-0 truncate text-sm text-rw-muted" title={ r.Summary } data-acc-sum>{ r.Summary }</span>
 						</span>
 						<svg class="h-4 w-4 shrink-0 text-rw-faint transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
 					</summary>

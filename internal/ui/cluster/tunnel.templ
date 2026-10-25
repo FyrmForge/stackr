@@ -13,7 +13,7 @@ import (
 templ TunnelBody(m Map, l Link, mv components.MetricsView) {
 	<section class="panel p-6 mb-6">
 		<h3 class="text-base font-semibold text-rw-text mb-2">Tunnel</h3>
-		<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+		<dl class="text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 			<dt class="text-rw-muted">Between</dt>
 			<dd class="text-rw-text">
 				@nodeLink(m, l.A)
@@ -35,7 +35,7 @@ templ TunnelBody(m Map, l Link, mv components.MetricsView) {
 	for i, id := range []string{l.A, l.B} {
 		<section class="panel p-6 mb-6">
 			<h3 class="text-base font-semibold text-rw-text mb-2">{ nodeName(m, id) } side</h3>
-			<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+			<dl class="text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 				<dt class="text-rw-muted">Endpoint</dt>
 				<dd class="font-mono text-xs text-rw-text break-all">{ endpointText(l.Ends[i]) }</dd>
 				<dt class="text-rw-muted">Seen from</dt>

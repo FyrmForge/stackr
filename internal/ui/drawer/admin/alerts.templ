@@ -38,12 +38,12 @@ templ Alerts(v AlertsView) {
 				} else if v.LastOK {
 					<p class="text-sm text-rw-muted">
 						{ "Last delivery: " + v.Last + ", " }
-						@c.Time(v.LastAt, "Jan 2 15:04")
+						@c.When(v.LastAt)
 					</p>
 				} else {
 					<p class="text-sm text-rw-danger">
 						{ "Last delivery: " + v.Last + ", " }
-						@c.Time(v.LastAt, "Jan 2 15:04")
+						@c.When(v.LastAt)
 					</p>
 				}
 				if v.Test != "" {

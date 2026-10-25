@@ -130,7 +130,7 @@ func Alerts(v AlertsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(v.LastAt, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(v.LastAt).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -152,7 +152,7 @@ func Alerts(v AlertsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(v.LastAt, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(v.LastAt).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

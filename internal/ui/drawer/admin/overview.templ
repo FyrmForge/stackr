@@ -59,7 +59,7 @@ templ Overview(v OverviewView) {
 								if !p.Since.IsZero() {
 									<span class="text-rw-muted">
 										{ " Since " }
-										@c.Time(p.Since, "2 Jan, 15:04")
+										@c.When(p.Since)
 									</span>
 								}
 							</span>
@@ -75,7 +75,7 @@ templ Overview(v OverviewView) {
 			}
 		}
 		@c.Section("This server", "instance", "") {
-			<dl class="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-1.5 text-sm">
+			<dl class="grid grid-cols-[9rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-rw-faint">Version</dt>
 				<dd class="text-rw-text min-w-0">
 					<span class="font-mono">{ v.Version }</span>

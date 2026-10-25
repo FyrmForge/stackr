@@ -49,7 +49,7 @@ templ Backups(v BackupsView) {
 							<p class="text-rw-text mt-0.5">{ v.Rows[0].Error }</p>
 						}
 						if g := lastGood(v.Rows); g != nil {
-							<p class="text-rw-faint mt-0.5">Last good backup @c.Time(g.When, "Jan 2 15:04").</p>
+							<p class="text-rw-faint mt-0.5">Last good backup @c.When(g.When).</p>
 						}
 					</div>
 				} else if len(v.Rows) == 0 {
@@ -57,7 +57,7 @@ templ Backups(v BackupsView) {
 				} else {
 					<p class="text-sm text-rw-muted">
 						{ "Last run: " }
-						@c.Time(v.Rows[0].When, "Jan 2 15:04")
+						@c.When(v.Rows[0].When)
 						{ ", " + v.Rows[0].Status + ", to " + v.Rows[0].Dest + "." }
 					</p>
 				}
@@ -108,7 +108,7 @@ templ Backups(v BackupsView) {
 					for _, b := range v.Rows {
 						<li class="panel px-4 py-3 text-sm flex flex-wrap items-center gap-2">
 							@c.JobBadge(b.Status)
-							<span class="text-rw-text">@c.Time(b.When, "Jan 2 15:04")</span>
+							<span class="text-rw-text">@c.When(b.When)</span>
 							<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>
 							if b.Error != "" {
 								<span class="text-xs text-rw-danger">{ b.Error }</span>

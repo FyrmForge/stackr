@@ -48,7 +48,7 @@ func TestEveryTabRenders(t *testing.T) {
 	}{
 		"overview": {
 			Overview(OverviewView{Docker: "stackr-vol-v1", Mounts: []Mount{{Tile: "web", Path: "/data"}}, Orphaned: time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)}),
-			[]string{"stackr-vol-v1", "/data", "Orphaned since <local-time fmt=\"Jan 2 15:04\"><time datetime=\"2026-07-02T10:00:00Z\" title=\"2026-07-02T10:00:00Z\">Jul 2 10:00</time></local-time>: no tile mounts it."},
+			[]string{"stackr-vol-v1", "/data", "Orphaned since <local-time fmt=\"Jan 2, 15:04\"><time datetime=\"2026-07-02T10:00:00Z\" title=\"2026-07-02T10:00:00Z\">Jul 2, 10:00</time></local-time>: no tile mounts it."},
 		},
 		"backups": {
 			Backups(b),

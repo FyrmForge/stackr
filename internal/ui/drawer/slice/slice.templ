@@ -157,7 +157,7 @@ func consumerRows(v View) [][]templ.Component {
 			c.Text(cs.Kind),
 			accessCell(v, cs),
 			c.Text(cs.User),
-			c.Time(cs.Since, "Jan 2 15:04"),
+			c.When(cs.Since),
 		})
 	}
 	return rows

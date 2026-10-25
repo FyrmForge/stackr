@@ -426,7 +426,7 @@ func Status(v View, s StatusView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Time(s.JobWhen, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.When(s.JobWhen).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1201,7 +1201,7 @@ func Jobs(v View, j JobsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(r.When, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(r.When).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2048,7 +2048,7 @@ func bindingRows(a AccessView) [][]templ.Component {
 			sliceLink(b.Slice, b.Link),
 			c.Text(b.Access),
 			c.Text(b.User),
-			c.Time(b.Since, "Jan 2 15:04"),
+			c.When(b.Since),
 		})
 	}
 	return rows
@@ -2130,7 +2130,7 @@ func Runs(v View, r RunsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Time(r.Next, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.When(r.Next).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2215,7 +2215,7 @@ func Runs(v View, r RunsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(x.Started, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(x.Started).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -5036,7 +5036,7 @@ func image(v View, i ImageView) templ.Component {
 			templ_7745c5c3_Var205 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 403, "<div class=\"panel p-4 space-y-3\"><dl class=\"grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1.5 text-sm\"><dt class=\"text-rw-faint\">Image</dt><dd class=\"truncate font-mono text-rw-text\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 403, "<div class=\"panel p-4 space-y-3\"><dl class=\"grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1.5 text-sm\"><dt class=\"text-rw-faint\">Image</dt><dd class=\"truncate font-mono text-rw-text\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -5124,7 +5124,7 @@ func image(v View, i ImageView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = c.Time(i.Checked, "Jan 2 15:04").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.When(i.Checked).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

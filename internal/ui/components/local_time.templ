@@ -25,3 +25,11 @@ templ ZoneNote() {
 		@Zone()
 	</p>
 }
+
+// WhenLayout is the one way a moment reads across the panel: "Oct 25, 21:57".
+const WhenLayout = "Jan 2, 15:04"
+
+// When is t as WhenLayout, in the viewer's zone.
+templ When(t time.Time) {
+	@Time(t, WhenLayout)
+}

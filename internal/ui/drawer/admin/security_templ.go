@@ -148,7 +148,7 @@ func Security(v SecurityView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = c.Time(r.When, "Jan 2, 15:04").Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = c.When(r.When).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -211,7 +211,7 @@ func Security(v SecurityView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					if len(r.Details) > 0 {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<dl class=\"grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 border-t border-rw-border px-4 py-3 text-xs\">")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<dl class=\"grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1 border-t border-rw-border px-4 py-3 text-xs\">")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -495,7 +495,7 @@ func MasterKey(v MasterKeyView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(v.Since, "Jan 2, 2006").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.When(v.Since).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

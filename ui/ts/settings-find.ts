@@ -1,17 +1,20 @@
 // <settings-find> wraps components.SettingsAccordion. The rows are native
 // <details> sharing one name, so the browser keeps one open. The open row
 // lives in ?open= (history.replaceState, so Back does not walk every
-// toggle) and a fresh load opens the row ?open= names, which also covers a
-// drawer whose load URL dropped it. [data-find] filters the rows by their
-// title, labels, headings and hints, opens the hits and marks them; [data-only-changed]
-// hides the [data-field]s without data-changed and the rows with none.
-// While a filter runs the rows leave the name group, so several stay open,
-// and the URL is left alone; clearing it restores the row open before.
-// [data-find-skip] (the changed dot, the "from org" tag) and .sr-only are never searched.
-// A hit inside a closed <details> (Show advanced) opens it until the
-// filter changes. A POST answered inside a row (its body saved alone)
-// fires "refresh" on [data-acc-refresh], which redraws the row heads.
-const LABELS = "[data-acc-title], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help";
+// toggle) and a fresh load opens the row ?open= names. [data-find] filters the
+// rows by their title, summary, labels, headings, hints, a nested <details>'
+// summary and a field's aria-label, opens the hits and marks them; [data-only-changed]
+// hides the [data-field]s without data-changed and the rows with none. While a
+// filter runs the rows leave the name group and the URL is left alone; clearing
+// it restores the row open before. [data-find-skip] and .sr-only are never searched.
+// A hit inside a closed <details> (Show advanced) opens it until the filter
+// changes. A POST answered inside a row fires "refresh" on [data-acc-refresh].
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, details details > summary, :is(input, select, textarea)[aria-label]";
+
+// matches is the live region's count of the rows a filter shows.
+export function matches(n: number): string {
+  return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
+}
 
 // pattern finds q literally, color and colour as one word.
 export function pattern(q: string): RegExp {
@@ -48,13 +51,12 @@ class SettingsFind extends HTMLElement {
     let n = 0;
     for (const row of rows) {
       row.removeAttribute("name");
-      row.querySelectorAll<HTMLElement>("[data-field]").forEach((f) => {
-        f.hidden = only && !f.hasAttribute("data-changed");
-      });
+      row.querySelectorAll<HTMLElement>("[data-field]").forEach((f) => (f.hidden = only && !f.hasAttribute("data-changed")));
       let hit = !q;
       if (q) {
         for (const el of row.querySelectorAll(LABELS)) {
-          if (!el.closest("[data-field][hidden]") && this.mark(el, q)) {
+          const named = el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label")!.toLowerCase());
+          if (!el.closest("[data-field][hidden]") && (named || this.mark(el, q))) {
             hit = true;
             this.opened.push(...openTo(el, row));
           }
@@ -65,7 +67,7 @@ class SettingsFind extends HTMLElement {
       row.open = show;
       if (show) n++;
     }
-    this.status(n === 1 ? "1 group matches." : `${n} groups match.`);
+    this.status(matches(n));
   };
 
   // mark wraps each hit in el's own text (not in [data-find-skip]) in a
@@ -117,14 +119,12 @@ class SettingsFind extends HTMLElement {
       row.setAttribute("name", this.id);
       row.querySelectorAll<HTMLElement>("[data-field]").forEach((f) => (f.hidden = false));
     }
-    const open = rows.find((r) => r.dataset.acc === before);
-    if (open) open.open = true;
+    rows.find((r) => r.dataset.acc === before)?.toggleAttribute("open", true);
     this.status("");
   }
 
   private status(text: string): void {
-    const el = this.querySelector("[data-find-status]");
-    if (el) el.textContent = text;
+    this.querySelector("[data-find-status]")?.replaceChildren(text);
   }
 
   // onSaved: a POST answered inside a row redraws the row heads. htmx fires

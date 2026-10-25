@@ -309,7 +309,7 @@ templ PlanLine(r PlanRow) {
 		if r.Commit != "" {
 			<span class="text-xs text-rw-faint font-mono">{ r.Commit }</span>
 		}
-		<span class="text-xs text-rw-faint ml-auto">@Time(r.When, "Jan 2 15:04")</span>
+		<span class="text-xs text-rw-faint ml-auto">@When(r.When)</span>
 	</div>
 }
 

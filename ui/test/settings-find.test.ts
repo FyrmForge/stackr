@@ -6,7 +6,13 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { openTo, pattern } = await import("../ts/settings-find.ts");
+const { openTo, pattern, matches } = await import("../ts/settings-find.ts");
+
+test("the live region counts sections in plain words", () => {
+  assert.equal(matches(0), "No settings match.");
+  assert.equal(matches(1), "1 section matches.");
+  assert.equal(matches(3), "3 sections match.");
+});
 
 type Fake = { tagName: string; open?: boolean; parentElement: Fake | null };
 

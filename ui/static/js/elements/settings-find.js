@@ -1,4 +1,7 @@
-const LABELS = "[data-acc-title], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help";
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, details details > summary, :is(input, select, textarea)[aria-label]";
+export function matches(n) {
+    return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
+}
 export function pattern(q) {
     return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/colou?r/g, "colou?r"));
 }
@@ -36,13 +39,12 @@ class SettingsFind extends HTMLElement {
         let n = 0;
         for (const row of rows) {
             row.removeAttribute("name");
-            row.querySelectorAll("[data-field]").forEach((f) => {
-                f.hidden = only && !f.hasAttribute("data-changed");
-            });
+            row.querySelectorAll("[data-field]").forEach((f) => (f.hidden = only && !f.hasAttribute("data-changed")));
             let hit = !q;
             if (q) {
                 for (const el of row.querySelectorAll(LABELS)) {
-                    if (!el.closest("[data-field][hidden]") && this.mark(el, q)) {
+                    const named = el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label").toLowerCase());
+                    if (!el.closest("[data-field][hidden]") && (named || this.mark(el, q))) {
                         hit = true;
                         this.opened.push(...openTo(el, row));
                     }
@@ -54,7 +56,7 @@ class SettingsFind extends HTMLElement {
             if (show)
                 n++;
         }
-        this.status(n === 1 ? "1 group matches." : `${n} groups match.`);
+        this.status(matches(n));
     };
     mark(el, q) {
         const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -100,15 +102,11 @@ class SettingsFind extends HTMLElement {
             row.setAttribute("name", this.id);
             row.querySelectorAll("[data-field]").forEach((f) => (f.hidden = false));
         }
-        const open = rows.find((r) => r.dataset.acc === before);
-        if (open)
-            open.open = true;
+        rows.find((r) => r.dataset.acc === before)?.toggleAttribute("open", true);
         this.status("");
     }
     status(text) {
-        const el = this.querySelector("[data-find-status]");
-        if (el)
-            el.textContent = text;
+        this.querySelector("[data-find-status]")?.replaceChildren(text);
     }
     onSaved = (e) => {
         const d = e.detail;

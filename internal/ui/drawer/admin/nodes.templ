@@ -466,7 +466,7 @@ templ Nodes(v NodesView) {
 
 templ trustSection(t TrustView) {
 	@c.Section("Cluster root", "instance", "Signs every node certificate.") {
-		<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1 mb-3">
+		<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1 mb-3">
 			<dt class="text-rw-muted">Root</dt>
 			<dd class="font-mono text-xs text-rw-text break-all">{ t.Fingerprint }</dd>
 			<dt class="text-rw-muted">Created</dt>
@@ -563,7 +563,7 @@ templ AddNode(v AddNodeView) {
 			case 3:
 				if v.Pending != nil {
 					<p class="text-sm text-rw-muted">{ v.Pending.Name } called in. Check it is the machine you expect.</p>
-					<dl class="text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+					<dl class="text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 						<dt class="text-rw-muted">Name</dt>
 						<dd class="text-rw-text">{ v.Pending.Name }</dd>
 						<dt class="text-rw-muted">Addresses</dt>
@@ -713,7 +713,7 @@ templ NodeBody(tab string, v NodeView) {
 						<p class="text-sm text-rw-faint">No certificate issued.</p>
 					}
 					for _, ce := range v.Certs {
-						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1 mb-2">
+						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1 mb-2">
 							<dt class="text-rw-muted">Serial</dt>
 							<dd class="font-mono text-xs text-rw-text">{ ce.Serial }</dd>
 							<dt class="text-rw-muted">Issued</dt>
@@ -763,7 +763,7 @@ templ NodeBody(tab string, v NodeView) {
 					</div>
 				}
 				@c.Section("Node", "", "") {
-					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 						<dt class="text-rw-muted">Status</dt>
 						<dd class="text-rw-text flex items-center gap-2">
 							<span class={ "inline-block size-2 rounded-full", statusDot(v.Status) } aria-hidden="true"></span>
@@ -797,7 +797,7 @@ templ NodeBody(tab string, v NodeView) {
 					</dl>
 				}
 				@c.Section("Addresses", "", "") {
-					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+					<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 						@addrRow("Public", ifaces(v.Ifaces, "public"))
 						@addrRow("LAN", ifaces(v.Ifaces, "lan"))
 						if v.WGAddress != "" {
@@ -812,7 +812,7 @@ templ NodeBody(tab string, v NodeView) {
 				}
 				@c.Section("Machine", "", "") {
 					if v.HasFacts {
-						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_1fr] gap-y-1">
+						<dl class="panel px-4 py-3 text-sm grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-y-1">
 							<dt class="text-rw-muted">Arch</dt>
 							<dd>
 								if v.Arch != "" {
@@ -970,7 +970,7 @@ templ ifaceList(rows []IfaceRow) {
 		for _, i := range rows {
 			<li class="panel px-4 py-2 text-sm flex flex-wrap items-center gap-3">
 				<span class="font-mono text-rw-text">{ i.Name }</span>
-				<span class="font-mono text-xs text-rw-muted">{ i.Addr }</span>
+				<span class="min-w-0 font-mono text-xs text-rw-muted break-all">{ i.Addr }</span>
 				if i.Label != "" {
 					@c.Chip(i.Label, "")
 				}
