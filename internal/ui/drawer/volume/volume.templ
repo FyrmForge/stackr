@@ -57,7 +57,7 @@ func Drawer(v View, body templ.Component) templ.Component {
 }
 
 type OverviewView struct {
-	Docker, MaxSize   string
+	Docker            string
 	Created, Orphaned time.Time // Orphaned: since when; zero = in use
 	Mounts            []Mount
 }
@@ -80,11 +80,6 @@ templ Overview(o OverviewView) {
 			}
 			@stat("Docker volume") {
 				<p class="text-sm text-rw-text font-mono break-all">{ o.Docker }</p>
-			}
-			if o.MaxSize != "" {
-				@stat("Expected size") {
-					<p class="text-sm text-rw-text">{ o.MaxSize }</p>
-				}
 			}
 			@stat("Created") {
 				<p class="text-sm text-rw-text">@c.Time(o.Created, "Jan 2 15:04")</p>
