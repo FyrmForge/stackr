@@ -344,3 +344,26 @@ func TestAccessLogFilters(t *testing.T) {
 		has(t, build(func(in *domain.Install) { in.AccessIP = false }), ip, true)
 	})
 }
+
+// IPv4Only binds the servers to 0.0.0.0; off, they listen on every address.
+func TestBuildListensOnIPv4Only(t *testing.T) {
+	for _, only := range []bool{false, true} {
+		in := install
+		in.IPv4Only = only
+		cfg, err := domain.Build(in, one(row("app.example.com", domain.Extras{})), nil, expand)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := string(cfg)
+		want, other := `":80"`, `"0.0.0.0:80"`
+		if only {
+			want, other = other, want
+		}
+		if !strings.Contains(c, want) || strings.Contains(c, other) {
+			t.Errorf("IPv4Only=%v: listen not %s: %s", only, want, c)
+		}
+		if got := strings.Contains(c, `"0.0.0.0:443"`); got != only {
+			t.Errorf("IPv4Only=%v: 0.0.0.0:443 present = %v", only, got)
+		}
+	}
+}

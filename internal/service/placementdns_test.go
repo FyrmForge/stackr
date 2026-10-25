@@ -60,8 +60,14 @@ func TestMovePlanListsHandManagedHostsAndRecords(t *testing.T) {
 		t.Errorf("pin move hosts = %v", hosts)
 	}
 
-	// IPv6 only when the node has one public
+	// IPv6 only when the node has one public and the setting is on
 	publicIPs(t, n, "198.51.100.1", "2001:db8::2")
+	plan, err = n.orch.PlanEnvPin(ctx, n.dev.ID, "w1")
+	must(t, err)
+	if len(plan.DNS.Hand) != 1 || len(recordsOf(plan.DNS.Hand[0])) != 0 {
+		t.Errorf("ipv6 off still plans records: %+v", plan.DNS)
+	}
+	must(t, n.orch.settings.Set(ctx, "ipv6", "true"))
 	plan, err = n.orch.PlanEnvPin(ctx, n.dev.ID, "w1")
 	must(t, err)
 	if got := recordsOf(plan.DNS.Hand[0]); !slices.Equal(got, []string{"AAAA shop.example.com 2001:db8::2"}) {

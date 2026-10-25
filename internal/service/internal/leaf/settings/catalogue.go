@@ -182,6 +182,14 @@ var Catalogue = []Knob{
 		Desc:   "contact address for certificates",
 	},
 	{
+		Key:     "ipv6",
+		Label:   "IPv6",
+		Type:    TBool,
+		Default: "false",
+		Scopes:  Flat,
+		Desc:    "serve and publish AAAA records over IPv6",
+	},
+	{
 		Key:    "trusted_proxies",
 		Label:  "Trusted proxies",
 		Type:   TStr,
