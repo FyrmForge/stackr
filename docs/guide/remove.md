@@ -44,7 +44,7 @@ sudo stackr-install uninstall --purge
 
 ## Remove the panel
 
-Remove the workers first, or they keep calling back. If you may want this install again, keep a panel backup and its recovery passphrase off the box.
+Remove the workers first, or they keep calling back. If you may want this install again, keep a panel backup and its recovery key off the box.
 
 On the controller, as root:
 

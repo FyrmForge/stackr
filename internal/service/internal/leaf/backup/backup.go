@@ -286,7 +286,7 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Prob
 // newKey is the destination's archive key: 32 random bytes, hex. The flow
 // feeds it to age.
 // ponytail: raw bytes, not an age identity; turning it into one (scrypt
-// passphrase or X25519) is the flow's call and needs no migration.
+// or X25519) is the flow's call and needs no migration.
 func newKey() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b) // never fails (crypto/rand panics instead)

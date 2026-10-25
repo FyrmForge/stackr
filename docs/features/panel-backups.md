@@ -27,17 +27,16 @@ a new box does not re-issue every certificate (Let's Encrypt rate limits). If th
 read, the archive is still written without it and the job log says so.
 
 ## Restore
-The archive is encrypted with the recovery passphrase (default: the box's master key).
+The archive is encrypted to the recovery key. The panel keeps only the public half; the private half is shown once in Admin > Backups and is the one thing to save off the box.
 
 1. Local archives are under `<data dir>/backups/stackr/_panel/<install id>/<scheduled|manual|upgrade>/`. On S3,
-   the object key is `stackr/_panel/<install id>/<scheduled|manual|upgrade>/<utc timestamp>-panel.tar.gz.age`.
+   the object key is `stackr/_panel/<install id>/<scheduled|manual|upgrade>/<utc timestamp>-panel-g<N>.tar.gz.age`.
 2. On the host: `stackr-install restore <archive | s3://bucket/key>`. An S3 key ending in `/` is a prefix: the
    newest archive under it (by its timestamp, across trigger dirs). The S3 keys come from
    `STACKR_BACKUP_ENDPOINT`, `STACKR_BACKUP_REGION` (default `us-east-1`), `STACKR_BACKUP_ACCESS_KEY` and
    `STACKR_BACKUP_SECRET_KEY`; the download sits in the data dir (0600) and is deleted after.
-3. The passphrase: `STACKR_RECOVERY_PASSPHRASE`, or the first line of stdin with `--passphrase-stdin`, or
-   `--passphrase P` (shows in `ps`). With none, the box's master key; when that does not open the archive and
-   stdin is a terminal, a prompt asks for it.
+3. The recovery key: `STACKR_RECOVERY_KEY`, or the first line of stdin with `--key-stdin`. With neither and
+   stdin a terminal, a prompt asks for it. `<N>` in the archive name is the key generation it needs.
 
 Restore stops the proxy, keeps a copy of the current `stackr-caddy` tree, wipes and refills it from the
 archive (the copy goes back if the untar fails), starts the proxy, then starts the panel on the archived

@@ -93,7 +93,7 @@ install() {
 	# Docker (the log cap), which would kill a container it ran in.
 	rig "umask 077;" STACKR_ADMIN_PASSWORD="$(printf %q "$ADMIN_PASSWORD")" "$INSTALLER" --domain "$DOMAIN" --panel-host "$DOMAIN" --email "$EMAIL" --proxy "$FRONT_PROXY" \
 		--admin-email "$ADMIN_EMAIL" '>/root/rig-install.log' '2>&1' ||
-		{ echo "installer failed; see /root/rig-install.log on the rig (it holds the recovery passphrase)" >&2; exit 1; }
+		{ echo "installer failed; see /root/rig-install.log on the rig (it holds the recovery key)" >&2; exit 1; }
 	rig docker ps --format "'{{.Names}} {{.Image}} {{.Status}}'"
 }
 

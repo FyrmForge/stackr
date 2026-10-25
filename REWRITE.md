@@ -728,8 +728,8 @@ Filesystem snapshots were explored and parked (see "Later").
   create, stored encrypted like any secret. Archives are `age`-encrypted
   with it, streamed between gzip and upload. Restore on the same install
   needs nothing typed. The panel self-backup cannot use a stored key (the
-  master key is inside the archive): the installer prints a **recovery
-  passphrase** once, and that is the one thing admins must save. Local and
+  master key is inside the archive): the panel shows a **recovery
+  key** once (an age keypair, only the public half stays on the box), and that is the one thing admins must save. Local and
   S3 share one code path.
 - **Restore:** as today (pre-restore backup first, download, verify the
   archive before anything is wiped, stop, wipe, untar or `DROP SCHEMA` +
@@ -749,7 +749,7 @@ Filesystem snapshots were explored and parked (see "Later").
   pgBackRest run by stackrd, Postgres archives to a local WAL volume, a job
   ships it; storage for a 1 GB DB with a week kept: 2 to 7 GB); Postgres
   replicas and managed-tile HA (single node is not HA; rides with
-  clustering); owner-held backup passphrase (age keypair, public key on the
+  clustering); owner-held per-destination backup key (age keypair, public key on the
   box, nothing decryptable from the server, per destination). All in
   "Later".
 
@@ -1097,7 +1097,7 @@ shares, collection links (stack collection → org collection), an `env.`
 ref scope, volume moves, metrics (CPU, memory, disk, slice stats), search,
 share links, notifications and mail, port forwarding, audit log,
 fine-grained permissions, btrfs volume snapshots, Postgres PITR, managed-tile
-HA (with clustering), owner-held backup passphrase (see "Backups").
+HA (with clustering), owner-held backup key (see "Backups").
 
 **Infrastructure options.** Recorded only, not designed:
 
