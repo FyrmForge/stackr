@@ -206,6 +206,28 @@ func TestEnvSettingsRows(t *testing.T) {
 	}
 }
 
+// A resource set on the env marks its row and field changed and shows in
+// the summary; one inherited says where from.
+func TestEnvResourcesChanged(t *testing.T) {
+	s := webtest.New(t)
+	if rec := s.Do(t, "POST", "/acme/shop/-/drawer/settings", url.Values{"mem_limit_mb": {"512"}}); rec.Code != http.StatusOK {
+		t.Fatalf("stack settings = %d", rec.Code)
+	}
+	if rec := s.Do(t, "POST", "/acme/shop/dev/-/drawer/settings", url.Values{"cpu_limit": {"2"}}); rec.Code != http.StatusOK {
+		t.Fatalf("env settings = %d", rec.Code)
+	}
+	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings")
+	for _, w := range []string{
+		`data-acc="resources" data-changed>`,
+		`<div data-field data-changed><label for="env-cascade-cpu_limit"`,
+		"2 cores · 512 MB (from stack) · protect off</span>",
+	} {
+		if !strings.Contains(body, w) {
+			t.Errorf("no %s in\n%s", w, body)
+		}
+	}
+}
+
 // With log history off the env drawer has no Logs tab (asking for it lands on
 // Settings) and the viewer route is gone.
 func TestLogsTabOffWhenHistoryOff(t *testing.T) {
