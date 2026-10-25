@@ -17,6 +17,8 @@ type SettingStore interface {
 	Set(ctx context.Context, key, value string) error
 	Delete(ctx context.Context, key string) error
 	All(ctx context.Context) (map[string]string, error)
+	// ListPrefix is every row whose key starts with prefix, key to value.
+	ListPrefix(ctx context.Context, prefix string) (map[string]string, error)
 	// GetSealed and SetSealed are Get and Set for a value kept encrypted.
 	GetSealed(ctx context.Context, key string) (string, error)
 	SetSealed(ctx context.Context, key, value string) error
@@ -65,11 +67,16 @@ func (s settings) Delete(ctx context.Context, key string) error {
 }
 
 func (s settings) All(ctx context.Context) (map[string]string, error) {
+	return s.ListPrefix(ctx, "")
+}
+
+func (s settings) ListPrefix(ctx context.Context, prefix string) (map[string]string, error) {
 	var rows []struct {
 		Key   string `db:"key"`
 		Value string `db:"value"`
 	}
-	if err := s.q.SelectContext(ctx, &rows, `SELECT key, value FROM settings`); err != nil {
+	// substr, not LIKE: a key's _ and % stay literal
+	if err := s.q.SelectContext(ctx, &rows, `SELECT key, value FROM settings WHERE substr(key, 1, ?) = ?`, len(prefix), prefix); err != nil {
 		return nil, err
 	}
 	m := make(map[string]string, len(rows))

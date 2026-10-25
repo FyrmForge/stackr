@@ -375,10 +375,12 @@ func (o *Orchestrator) diskAlert(ctx context.Context, n store.Node, free, total 
 		if total > 0 {
 			pct = free * 100 / total
 		}
-		o.alert(Alert{Event: AlertDiskLow, Severity: SevWarning, Node: n.Name, Subject: n.Name,
-			Message: fmt.Sprintf("%s has %s (%d%%) free on its Docker disk.", n.Name, gb(free), pct)})
+		msg := fmt.Sprintf("%s has %s (%d%%) free on its Docker disk.", n.Name, gb(free), pct)
+		o.openProblem(ctx, key, SevWarning, msg)
+		o.alert(Alert{Event: AlertDiskLow, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 	case !low && was:
 		_ = o.store.Settings.Delete(ctx, key)
+		o.clearProblem(ctx, key)
 	}
 }
 
@@ -422,10 +424,12 @@ func (o *Orchestrator) clockAlert(ctx context.Context, n store.Node, skew time.D
 		if err := o.store.Settings.Set(ctx, key, "1"); err != nil {
 			return
 		}
-		o.alert(Alert{Event: AlertClockSkew, Severity: SevWarning, Node: n.Name, Subject: n.Name,
-			Message: fmt.Sprintf("The clock of %s is %s of the panel. Check time sync on the node.", n.Name, skewWords(skew))})
+		msg := fmt.Sprintf("The clock of %s is %s of the panel. Check time sync on the node.", n.Name, skewWords(skew))
+		o.openProblem(ctx, key, SevWarning, msg)
+		o.alert(Alert{Event: AlertClockSkew, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 	case !off && was:
 		_ = o.store.Settings.Delete(ctx, key)
+		o.clearProblem(ctx, key)
 	}
 }
 
@@ -471,10 +475,12 @@ func (o *Orchestrator) observeDiskAlert(ctx context.Context, n store.Node, free 
 		if err := o.store.Settings.Set(ctx, observeAlertKey, "1"); err != nil {
 			return
 		}
-		o.alert(Alert{Event: AlertObserveDisk, Severity: SevWarning, Node: n.Name, Subject: n.Name,
-			Message: fmt.Sprintf("%s has %s free. Metrics history stops at %s.", n.Name, gb(free), gb(k.minFree))})
+		msg := fmt.Sprintf("%s has %s free. Metrics history stops at %s.", n.Name, gb(free), gb(k.minFree))
+		o.openProblem(ctx, observeAlertKey, SevWarning, msg)
+		o.alert(Alert{Event: AlertObserveDisk, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 	case !low && was:
 		_ = o.store.Settings.Delete(ctx, observeAlertKey)
+		o.clearProblem(ctx, observeAlertKey)
 	}
 }
 
@@ -501,12 +507,10 @@ func (o *Orchestrator) certAlert(ctx context.Context, id, nodeName, subject stri
 	case cur:
 	case "":
 		_ = o.store.Settings.Delete(ctx, key)
+		o.clearProblem(ctx, key)
 	default:
 		if err := o.store.Settings.Set(ctx, key, st); err != nil {
 			return
-		}
-		if cur != "" && st == "14" {
-			return // back from 3 to 14: a renewal that is still short, no news
 		}
 		sev, when := SevWarning, "expires on "+notAfter.UTC().Format(time.DateOnly)
 		if st == "3" {
@@ -515,8 +519,12 @@ func (o *Orchestrator) certAlert(ctx context.Context, id, nodeName, subject stri
 		if !notAfter.After(now) {
 			when = "expired on " + notAfter.UTC().Format(time.DateOnly)
 		}
-		o.alert(Alert{Event: AlertCertExpiring, Severity: sev, Node: nodeName, Subject: subject,
-			Message: "The " + subject + " " + when + "."})
+		msg := "The " + subject + " " + when + "."
+		o.openProblem(ctx, key, sev, msg)
+		if cur != "" && st == "14" {
+			return // back from 3 to 14: a renewal that is still short, no news
+		}
+		o.alert(Alert{Event: AlertCertExpiring, Severity: sev, Node: nodeName, Subject: subject, Message: msg})
 	}
 }
 
@@ -581,8 +589,14 @@ func (o *Orchestrator) backupResult(ctx context.Context, key, nodeID, subject st
 		if was {
 			_ = o.store.Settings.Delete(ctx, key)
 		}
+		o.clearProblem(ctx, key)
 		return
 	}
+	what := "Backup of " + subject
+	if key == "alert.backup.panel" {
+		what = "Panel backup"
+	}
+	o.openProblem(ctx, key, SevCritical, what+" failing: "+err.Error())
 	verb := "failed"
 	if was {
 		t, perr := time.Parse(time.RFC3339, last)
@@ -704,6 +718,7 @@ func (o *Orchestrator) memAlert(ctx context.Context, n store.Node, free, total u
 		delete(w.memLowSince, n.ID)
 		if was {
 			_ = o.store.Settings.Delete(ctx, key)
+			o.clearProblem(ctx, key)
 			o.alert(Alert{Event: AlertMemoryOK, Severity: SevInfo, Node: n.Name, Subject: n.Name,
 				Message: n.Name + " has memory to spare again."})
 		}
@@ -716,8 +731,9 @@ func (o *Orchestrator) memAlert(ctx context.Context, n store.Node, free, total u
 	if was || now.Sub(since) < memLowFor || o.store.Settings.Set(ctx, key, "1") != nil {
 		return
 	}
-	o.alert(Alert{Event: AlertMemoryLow, Severity: SevWarning, Node: n.Name, Subject: n.Name,
-		Message: fmt.Sprintf("%s has %s (%d%%) of memory available.", n.Name, gb(free), free*100/total)})
+	msg := fmt.Sprintf("%s has %s (%d%%) of memory available.", n.Name, gb(free), free*100/total)
+	o.openProblem(ctx, key, SevWarning, msg)
+	o.alert(Alert{Event: AlertMemoryLow, Severity: SevWarning, Node: n.Name, Subject: n.Name, Message: msg})
 }
 
 // containerAlerts reads every tile container's restart count and OOM flag on
@@ -726,7 +742,8 @@ func (o *Orchestrator) memAlert(ctx context.Context, n store.Node, free, total u
 func (o *Orchestrator) containerAlerts(ctx context.Context, now time.Time) {
 	looping := map[string]string{} // tile id -> node name
 	seen := map[string]bool{}
-	_ = o.eachNode(ctx, func(ctx context.Context, n store.Node) error {
+	partial := false // a node or a container that did not answer
+	err := o.eachNode(ctx, func(ctx context.Context, n store.Node) error {
 		cs, err := o.docker.List(ctx, map[string]string{tile.LabelRole: "replica"})
 		for _, c := range cs {
 			tid := c.Labels[tile.LabelTile]
@@ -735,6 +752,7 @@ func (o *Orchestrator) containerAlerts(ctx context.Context, now time.Time) {
 			}
 			d, ierr := o.docker.Inspect(ctx, c.ID)
 			if ierr != nil {
+				partial = true
 				continue
 			}
 			seen[tid] = true
@@ -747,6 +765,17 @@ func (o *Orchestrator) containerAlerts(ctx context.Context, now time.Time) {
 	})
 	for tid := range seen {
 		o.crashAlert(ctx, tid, looping[tid])
+	}
+	if err != nil || partial {
+		return
+	}
+	// a looping tile that was stopped or deleted is never seen again: clear it
+	open, _ := o.store.Settings.ListPrefix(ctx, "alert.crash.")
+	for key := range open {
+		if !seen[strings.TrimPrefix(key, "alert.crash.")] {
+			_ = o.store.Settings.Delete(ctx, key)
+			o.clearProblem(ctx, key)
+		}
 	}
 }
 
@@ -782,11 +811,13 @@ func (o *Orchestrator) crashAlert(ctx context.Context, tileID, node string) {
 		if o.store.Settings.Set(ctx, key, "1") != nil {
 			return
 		}
-		o.alert(Alert{Event: AlertCrashloop, Severity: SevCritical, Node: node, Subject: app,
-			Message: fmt.Sprintf("%s in %s keeps restarting on %s: %d restarts in %d minutes.", app, env, node, crashRestarts, crashWindow/time.Minute)})
+		msg := fmt.Sprintf("%s in %s keeps restarting on %s: %d restarts in %d minutes.", app, env, node, crashRestarts, crashWindow/time.Minute)
+		o.openProblem(ctx, key, SevCritical, msg)
+		o.alert(Alert{Event: AlertCrashloop, Severity: SevCritical, Node: node, Subject: app, Message: msg})
 		return
 	}
 	_ = o.store.Settings.Delete(ctx, key)
+	o.clearProblem(ctx, key)
 	o.alert(Alert{Event: AlertCrashOK, Severity: SevInfo, Subject: app,
 		Message: fmt.Sprintf("%s in %s stopped restarting.", app, env)})
 }

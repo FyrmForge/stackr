@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/a-h/templ"
@@ -27,7 +28,11 @@ type Shell struct {
 	// MoveIngress is the banner's link when it is the env's ingress that is
 	// down: the env's Placement tab, where its ingress moves.
 	MoveIngress string
-	Flash       Flash
+	// Problems is the admin's problem banner, worst first; nil = none (and
+	// always nil for a non-admin). ProblemsMore is where "and N more" goes.
+	Problems     []Problem
+	ProblemsMore string
+	Flash        Flash
 	// EnvColor is the URL's env hue (one of EnvColors): the top bar's band
 	// and the env crumb's dot. "" = no env, or no hue picked.
 	EnvColor string
@@ -89,6 +94,39 @@ type Link struct {
 	Href   string
 	Active bool
 	Color  string // an env link's hue; "" = none
+}
+
+// Problem is one line of the problem banner. Href is where it is fixed.
+type Problem struct {
+	Critical bool
+	Message  string
+	Since    time.Time
+	Href     string
+	LinkText string
+}
+
+// problemsShown is how many lines the banner draws before "and N more".
+const problemsShown = 3
+
+func shownProblems(ps []Problem) []Problem { return ps[:min(len(ps), problemsShown)] }
+
+func moreProblems(ps []Problem) int { return max(len(ps)-problemsShown, 0) }
+
+// problemsTone is the banner's colours: the worst problem's.
+func problemsTone(ps []Problem) string {
+	for _, p := range ps {
+		if p.Critical {
+			return "border-rw-danger/40 bg-rw-danger/10"
+		}
+	}
+	return "border-rw-warn/40 bg-rw-warn/10"
+}
+
+func problemTone(p Problem) string {
+	if p.Critical {
+		return "text-rw-danger"
+	}
+	return "text-rw-warn"
 }
 
 // Flash is a one-shot message. Kind is success, error, warning or info.
