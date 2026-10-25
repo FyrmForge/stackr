@@ -230,6 +230,20 @@ func (o *Orchestrator) autoHost(ctx context.Context, t store.Tile) (string, Doma
 	return host, vis[0], nil
 }
 
+// TileAutoHost is the generated name the tile's auto button attaches, ""
+// when no domain resource is visible to it.
+func (o *Orchestrator) TileAutoHost(ctx context.Context, tileID string) (string, error) {
+	t, err := o.tiles.Get(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
+	host, _, err := o.autoHost(ctx, t)
+	if _, ok := errs.IsConflict(err); ok {
+		return "", nil
+	}
+	return host, err
+}
+
 // repoLock serialises git work on one clone dir.
 func (o *Orchestrator) repoLock(dir string) func() {
 	m, _ := o.repoLocks.LoadOrStore(dir, &sync.Mutex{})

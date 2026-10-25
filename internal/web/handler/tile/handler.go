@@ -275,8 +275,12 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		if err != nil {
 			return sv, err
 		}
+		auto, err := h.orch.TileAutoHost(c.Request().Context(), t.ID)
+		if err != nil {
+			return sv, err
+		}
 		p := middleware.Principal(c)
-		sv.Domains = &ui.DomainsView{Rows: domainRows(ds), Admin: p != nil && p.Access.Admin, Managed: managed}
+		sv.Domains = &ui.DomainsView{Rows: domainRows(ds), Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
 		if t.ContainerPort != 0 {
 			sv.Domains.Port = strconv.Itoa(t.ContainerPort)
 		}

@@ -131,3 +131,18 @@ func TestManagedDomainBareHost(t *testing.T) {
 		t.Fatalf("bare domain = %d\n%s", rec.Code, rec.Body)
 	}
 }
+
+// "Use the generated name" shows the host it would attach once a domain
+// resource is visible to the tile, and no host before.
+func TestGeneratedNameShown(t *testing.T) {
+	s := webtest.New(t)
+	if body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String(); !strings.Contains(body, "Use the generated name") {
+		t.Fatalf("no generated-name button:\n%s", body)
+	}
+	if _, err := s.Orch.CreateDomainResource(context.Background(), "instance", "", "example.com", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String(); !strings.Contains(body, `ml-1">api.`) || !strings.Contains(body, ".example.com") {
+		t.Errorf("generated host not shown:\n%s", body)
+	}
+}
