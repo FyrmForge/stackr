@@ -187,6 +187,7 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		have[rowKey(r)] = r
 		w, ok := want[rowKey(r)]
 		switch {
+		case !ok && r.Adopted: // adopted records are repointed, never deleted
 		case !ok && held[r.Zone+"|"+strings.ToLower(r.Name)]:
 		case !ok:
 			id := ""
@@ -340,6 +341,74 @@ func rr(name, typ, value string) libdns.Record {
 	return libdns.RR{Name: name, Type: typ, Data: value, TTL: TTL * time.Second}
 }
 
+// Ref names one record in a zone: Name relative, "@" the apex.
+type Ref struct {
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+// Existing is the A, AAAA and CNAME records live in zone, the ones that
+// can be adopted or that block a name.
+func (l *Leaf) Existing(ctx context.Context, p Provider, zone string) ([]libdns.RR, error) {
+	live, err := l.Locked(p).Get(ctx, zone)
+	var out []libdns.RR
+	for _, r := range live {
+		if x := r.RR(); x.Type == "A" || x.Type == "AAAA" || x.Type == "CNAME" {
+			out = append(out, x)
+		}
+	}
+	return out, err
+}
+
+// Adoptable is the records of live that point at one of ips, are not a
+// wildcard and are not stackr's already: the ones stackr may take over.
+func Adoptable(live []libdns.RR, rows []store.DNSRecord, zone string, ips map[string]bool) []Ref {
+	var out []Ref
+	for _, r := range live {
+		if (r.Type == "A" || r.Type == "AAAA") && ips[r.Data] && !strings.Contains(r.Name, "*") && !ours(r, rows, zone) {
+			out = append(out, Ref{Name: r.Name, Type: r.Type, Value: r.Data})
+		}
+	}
+	return out
+}
+
+// Adopt records refs in zone of connector id as stackr's own, adopted: it
+// repoints them with their host's ingress and never deletes them. Records
+// already in the table are left as they are.
+func (l *Leaf) Adopt(ctx context.Context, id, zone string, refs []Ref) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	l.recMu.Lock()
+	defer l.recMu.Unlock()
+	ds, err := l.rows.ListByConnector(ctx, id)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(ds, func(d store.DNSDomain) bool { return d.Name == Normal(zone) })
+	if i < 0 {
+		return errs.ErrNotFound
+	}
+	rows, err := l.recs.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range refs {
+		r := store.DNSRecord{
+			ID: uuid.NewString(), DNSDomainID: &ds[i].ID, Zone: ds[i].Name, Name: f.Name, Type: f.Type,
+			Value: f.Value, TTL: TTL, Adopted: true, CreatedAt: time.Now().UTC(),
+		}
+		if slices.ContainsFunc(rows, func(x store.DNSRecord) bool { return rowKey(x) == rowKey(r) }) {
+			continue
+		}
+		if err := l.recs.Create(ctx, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Records is every record stackr made.
 func (l *Leaf) Records(ctx context.Context) ([]store.DNSRecord, error) { return l.recs.List(ctx) }
 
@@ -358,14 +427,18 @@ func (l *Leaf) Forget(ctx context.Context, a Provider, zone string) error {
 	}
 	var del []libdns.Record
 	for _, r := range rows {
-		del = append(del, rr(r.Name, r.Type, r.Value))
+		if !r.Adopted { // an adopted record stays in the zone; only its row goes
+			del = append(del, rr(r.Name, r.Type, r.Value))
+		}
 	}
 	// Delete matches name, type and value: a record edited since stays.
-	if err := l.WithZone(ctx, a, zone, func(p Provider) error {
-		_, err := p.Delete(ctx, zone, del)
-		return err
-	}); err != nil {
-		return err
+	if len(del) > 0 {
+		if err := l.WithZone(ctx, a, zone, func(p Provider) error {
+			_, err := p.Delete(ctx, zone, del)
+			return err
+		}); err != nil {
+			return err
+		}
 	}
 	for _, r := range rows {
 		if err := l.recs.Delete(ctx, r.ID); err != nil {

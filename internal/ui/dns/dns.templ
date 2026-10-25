@@ -5,6 +5,7 @@
 package dns
 
 import (
+	"cmp"
 	"encoding/json"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -24,6 +25,27 @@ type DomainsView struct {
 	Shared   bool // a server connector: managed domains say who may use them
 	InUse    templ.Component // a refusal that lists where a domain is used, linked; nil = Error alone
 	Rows     []DomainRow
+	Plan     *PlanView // the confirm that comes before managing a domain; nil = none
+}
+
+// PlanView is the confirm before managing Domain: the records stackr
+// writes, and the ones already in the zone it may adopt. Manage posts
+// domain and the ticked adopt values.
+type PlanView struct {
+	Domain string
+	Manage string
+	Writes []PlanWrite
+	Adopt  []PlanAdopt
+}
+
+// PlanWrite is a record stackr writes now.
+type PlanWrite struct{ Host, Type, Value string }
+
+// PlanAdopt is an existing record stackr may adopt. Value is the form
+// value the service reads back; On starts it ticked.
+type PlanAdopt struct {
+	Host, Type, Address, Value string
+	On                         bool
 }
 
 // DomainRow is one domain. State is managed, not_managed or
@@ -31,6 +53,7 @@ type DomainsView struct {
 type DomainRow struct {
 	Name, State                string
 	Manage, Unmanage, TakeOver string
+	Preview                    string // the confirm before managing; posts domain
 	All                        bool
 	Orgs                       []Org
 }
@@ -97,6 +120,19 @@ templ Domains(v DomainsView) {
 		if len(v.Rows) == 0 && v.Error == "" {
 			<p class="text-sm text-rw-faint">No domains on this account.</p>
 		}
+		if v.Plan != nil {
+			@c.Confirm(c.ConfirmView{
+				Open:    true,
+				Primary: true,
+				Button:  "Manage",
+				Title:   "Manage " + v.Plan.Domain + "?",
+				Action:  v.Plan.Manage,
+				Target:  "#" + listID(v.ID),
+				Vals:    vals(map[string]string{"domain": v.Plan.Domain}),
+				Include: "input[name=adopt]:checked",
+				Body:    plan(*v.Plan),
+			})
+		}
 		<ul class="space-y-2">
 			for _, d := range v.Rows {
 				<li class="border-t border-rw-border pt-2 space-y-2">
@@ -105,7 +141,7 @@ templ Domains(v DomainsView) {
 						@stateChip(d.State)
 						<span class="ml-auto flex gap-2">
 							if d.Manage != "" && d.State == "not_managed" {
-								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Manage } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
+								<button type="button" class="btn btn-ghost btn-sm" hx-post={ cmp.Or(d.Preview, d.Manage) } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
 							}
 							if d.Unmanage != "" && d.State == "managed" {
 								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the records it made. Other records stay.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
@@ -137,4 +173,33 @@ templ Domains(v DomainsView) {
 templ stateChip(state string) {
 	{{ word, tone := stateWord(state) }}
 	@c.Chip(word, tone)
+}
+
+// plan is the confirm's body: what stackr writes, then what it may adopt.
+templ plan(p PlanView) {
+	if len(p.Writes) > 0 {
+		<div>
+			<p class="mb-1.5 text-xs font-medium text-rw-muted">stackr writes these now.</p>
+			<ul class="modal-list">
+				for _, w := range p.Writes {
+					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Type } { w.Host } { w.Value }</li>
+				}
+			</ul>
+		</div>
+	}
+	if len(p.Adopt) > 0 {
+		<div>
+			<p class="mb-1.5 text-xs font-medium text-rw-muted">Already in the zone and pointing at your nodes. Ticked ones follow your ingress and are never deleted.</p>
+			<ul class="modal-list">
+				for _, a := range p.Adopt {
+					<li class="modal-list-row">
+						<label class="flex items-center gap-2 font-mono text-xs text-rw-text">
+							<input type="checkbox" name="adopt" value={ a.Value } checked?={ a.On }/>
+							{ a.Type } { a.Host } { a.Address }
+						</label>
+					</li>
+				}
+			</ul>
+		</div>
+	}
 }
