@@ -25,6 +25,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
+	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/proxy"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
@@ -69,6 +70,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/volumes/:volume/delete", h.DeleteVolume, a.Require("tile.write"))
 	g.GET(e+"/proxy", h.Proxy, a.Require("tile.read"))
 	g.GET(e+"/logs", h.Logs, a.Require("tile.read"))
+	g.GET(e+"/dns-banner", h.DNSBanner, a.Require("tile.read"))
 }
 
 // when is a moment a drawer shows, zero for none.
@@ -590,6 +592,37 @@ func (h *handler) logsToShell(c echo.Context) (bool, error) {
 		}
 	}
 	return render.ToShellTab(c, node, "logs")
+}
+
+// GET …/-/dns-banner: the hosts that still resolve away from their ingress
+// node (tile.read); empty once DNS matches.
+func (h *handler) DNSBanner(c echo.Context) error {
+	m, err := h.orch.EnvDNSBanner(c.Request().Context(), scope(c).Env.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.HTML(c, http.StatusOK, envui.DNSBanner(dnsBannerView(render.EnvURL(c)+"/-/dns-banner", m)))
+}
+
+func dnsBannerView(url string, m service.DNSMove) envui.DNSBannerView {
+	rows := func(hs []service.DNSHost, hand bool) (out []envui.DNSRow) {
+		for _, h := range hs {
+			r := envui.DNSRow{Host: h.Host, Points: "nothing"}
+			if len(h.Points) > 0 {
+				r.Points = strings.Join(h.Points, ", ")
+			}
+			if hand {
+				var recs []string
+				for _, rec := range h.Records {
+					recs = append(recs, rec.Type+" "+rec.Value)
+				}
+				r.Records = strings.Join(recs, ", ")
+			}
+			out = append(out, r)
+		}
+		return out
+	}
+	return envui.DNSBannerView{URL: url, Hand: rows(m.Hand, true), Held: rows(m.Managed, false)}
 }
 
 // GET …/-/proxy
