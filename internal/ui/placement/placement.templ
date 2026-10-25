@@ -195,6 +195,7 @@ templ ingress(v View) {
 type IngressHostsView struct {
 	Action, To, Vals string
 	Hosts            []string
+	DNS              DNSView
 }
 
 // IngressHosts asks before a pick moves hosts whose DNS points elsewhere.
@@ -208,8 +209,121 @@ templ IngressHosts(v IngressHostsView) {
 		Action:  v.Action,
 		Target:  target(),
 		Vals:    v.Vals,
-		Body:    hostList(v.Hosts),
+		Include: v.DNS.Include(),
+		Body:    hostsBody(v),
 	})
+}
+
+templ hostsBody(v IngressHostsView) {
+	if v.DNS.Empty() {
+		@hostList(v.Hosts)
+	} else {
+		@DNS(v.DNS)
+	}
+}
+
+// DNSRow is one record a hand-managed host needs.
+type DNSRow struct{ Type, Name, Value string }
+
+// DNSHost is one host in the move's DNS list. Rows are what a hand-managed
+// host needs; Old, New and Connector are a managed host's repoint. Now is
+// where it resolves now; OK, it matches.
+type DNSHost struct {
+	Host, Old, New, Now, Err string
+	Rows                     []DNSRow
+	OK                       bool
+}
+
+// DNSView is the DNS list of a move: Hand the hosts the owner points,
+// Managed the ones a connector repoints, which the repoint tick covers.
+// CheckAction and CheckVals post the list back to look it up again.
+type DNSView struct {
+	Hand, Managed          []DNSHost
+	Connectors             string // "Cloudflare", "Cloudflare, Namecheap"
+	CheckAction, CheckVals string
+}
+
+func (v DNSView) Empty() bool { return len(v.Hand) == 0 && len(v.Managed) == 0 }
+
+// Include is the confirm's hx-include: the repoint tick, when there is one.
+func (v DNSView) Include() string {
+	if len(v.Managed) == 0 {
+		return ""
+	}
+	return "[name=repoint]"
+}
+
+func nowLabel(h DNSHost) string {
+	switch {
+	case h.Err != "":
+		return "not found yet"
+	case h.Now == "":
+		return "not checked"
+	}
+	return h.Now
+}
+
+// DNS is the move's DNS list. The #dns-check part swaps on Check again; the
+// repoint tick sits outside it, so a check keeps it.
+templ DNS(v DNSView) {
+	<div class="space-y-3">
+		<div id="dns-check" class="space-y-4">
+			if len(v.Hand) > 0 {
+				<div class="space-y-2">
+					<p class="text-sm font-medium text-rw-text">Point these hosts here</p>
+					for _, h := range v.Hand {
+						@dnsHand(h)
+					}
+				</div>
+			}
+			if len(v.Managed) > 0 {
+				<div class="space-y-2">
+					<p class="text-sm font-medium text-rw-text">Repointed for you</p>
+					for _, h := range v.Managed {
+						<p class="text-sm font-mono text-rw-text">
+							{ h.Host }
+							<span class="text-rw-faint">{ " " + h.Old + " to " + h.New }</span>
+							@dnsNow(h)
+						</p>
+					}
+				</div>
+			}
+			if v.CheckAction != "" {
+				<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.CheckAction } hx-vals={ v.CheckVals } hx-target="#dns-check" hx-swap="outerHTML">Check again</button>
+			}
+		</div>
+		if len(v.Managed) > 0 {
+			<label class="flex items-center gap-2 text-sm text-rw-text">
+				<input type="checkbox" name="repoint" value="yes" checked/>
+				{ "Let " + v.Connectors + " repoint these" }
+			</label>
+		}
+	</div>
+}
+
+templ dnsHand(h DNSHost) {
+	<div class="space-y-1">
+		<p class="text-sm font-mono text-rw-text">{ h.Host } @dnsNow(h)</p>
+		<ul class="text-xs font-mono space-y-1" aria-label={ "Records for " + h.Host }>
+			for _, r := range h.Rows {
+				<li class="flex items-center gap-2">
+					<span class="text-rw-faint">{ r.Type }</span>
+					<span class="text-rw-muted">{ r.Name }</span>
+					<span class="text-rw-text">{ r.Value }</span>
+					<button type="button" data-copy={ r.Value } class="btn btn-ghost btn-sm" aria-label={ "Copy " + r.Value }>Copy</button>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+templ dnsNow(h DNSHost) {
+	<span class="text-xs text-rw-faint">
+		{ " Now: " + nowLabel(h) }
+		if h.OK {
+			<span class="text-rw-ok">{ " Matches" }</span>
+		}
+	</span>
 }
 
 templ hostList(hosts []string) {
@@ -336,6 +450,7 @@ type MoveView struct {
 	Restore  bool
 	Vals     string
 	Downtime string
+	DNS      DNSView
 }
 
 // Move is the dialog. A failing check shows the list and no Confirm.
@@ -351,6 +466,7 @@ templ Move(v MoveView) {
 			Word:    v.Env,
 			Kept:    []string{"The data stays on " + v.From + " until you remove it."},
 			Vals:    v.Vals,
+			Include: v.DNS.Include(),
 			Body:    moveBody(v),
 		})
 	} else {
@@ -377,6 +493,9 @@ templ moveBody(v MoveView) {
 				<li class="text-rw-text">{ e.Path } <span class="text-rw-faint">{ e.Detail }</span></li>
 			}
 		</ul>
+		if !v.DNS.Empty() {
+			@DNS(v.DNS)
+		}
 		<ul class="text-sm space-y-1" aria-label="Checks">
 			for _, k := range v.Checks {
 				<li>

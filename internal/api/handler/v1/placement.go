@@ -42,6 +42,8 @@ func (h *H) Pin(at At) Endpoint {
 type PinIn struct {
 	Placement string `json:"placement"`
 	Confirm   string `json:"confirm,omitempty"`
+	// KeepDNS leaves managed domains' records untouched for the moves.
+	KeepDNS bool `json:"keep_dns,omitempty"`
 }
 
 // PinSetOut is the scope's pin after the call; Jobs are the env moves the
@@ -64,10 +66,14 @@ func (h *H) SetPin(at At) Endpoint {
 			return err
 		}
 		k, id := at(c)
-		jobs, err := h.Orch.PinScope(rc(c), middleware.Principal(c), k, id, in.Placement, in.Confirm)
+		ctx := rc(c)
+		if in.KeepDNS {
+			ctx = service.KeepDNS(ctx)
+		}
+		jobs, err := h.Orch.PinScope(ctx, middleware.Principal(c), k, id, in.Placement, in.Confirm)
 		var mn *service.MoveNeeded
 		if errors.As(err, &mn) {
-			return c.JSON(http.StatusConflict, movePlansOut(mn.Plans))
+			return c.JSON(http.StatusConflict, movePlansOut(h.looked(c, mn.Plans...)))
 		}
 		if err != nil {
 			return err
@@ -87,7 +93,7 @@ func (h *H) PinPlan(at At) Endpoint {
 	return Get(func(c echo.Context) ([]MovePlanOut, error) {
 		k, id := at(c)
 		ps, err := h.Orch.PlanPin(rc(c), middleware.Principal(c), k, id, c.QueryParam("to"))
-		return movePlansOut(ps), err
+		return movePlansOut(h.looked(c, ps...)), err
 	}).Q("to")
 }
 

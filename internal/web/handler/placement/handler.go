@@ -5,9 +5,11 @@
 package placement
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -55,6 +57,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		g.POST(l.path+"/exits", h.act("Saved.", h.reorder), write)
 		g.POST(l.path+"/exits/add", h.act("Saved.", h.add), write)
 		g.POST(l.path+"/exits/remove", h.act("Saved.", h.remove), write)
+		g.POST(l.path+"/dnscheck", h.DNSCheck, write)
 	}
 	e := levels[2].path
 	g.POST(e+"/move", h.Move, a.Require(write))
@@ -237,8 +240,8 @@ func (h *handler) showIngressAsk(c echo.Context, d templ.Component) error {
 // moveView is the plans of a pin change as the dialog shows them, one per
 // env it moves. Confirm posts the target placement and word, the scope's
 // slug, to action; the service checks it.
-func moveView(action, word string, ps []service.PlacementMovePlan) ui.MoveView {
-	v := ui.MoveView{Action: action, Env: word, OK: true}
+func moveView(action, word string, ps []service.PlacementMovePlan, dns ui.DNSView) ui.MoveView {
+	v := ui.MoveView{Action: action, Env: word, OK: true, DNS: dns}
 	for i, p := range ps {
 		if i == 0 {
 			v.From, v.To = p.From, p.To
@@ -265,9 +268,71 @@ func moveView(action, word string, ps []service.PlacementMovePlan) ui.MoveView {
 			v.Checks = append(v.Checks, ui.CheckLine{Name: name, Detail: k.Detail, OK: k.OK})
 		}
 	}
-	vals, _ := json.Marshal(map[string]string{"placement": v.To, "confirm": word})
-	v.Vals = string(vals)
+	v.Vals = confirmVals(map[string]string{"placement": v.To, "confirm": word}, dns)
 	return v
+}
+
+// confirmVals is the JSON a confirm posts. With managed hosts in the list it
+// also says the DNS question was asked, so an unticked repoint (the tick is
+// absent from the post) can be told from a dialog that never offered it.
+func confirmVals(m map[string]string, dns ui.DNSView) string {
+	if len(dns.Managed) > 0 {
+		m["dnsask"] = "yes"
+	}
+	vals, _ := json.Marshal(m)
+	return string(vals)
+}
+
+// dnsView is the move's DNS list as the dialog shows it, each host looked up.
+func (h *handler) dnsView(c echo.Context, m service.DNSMove) ui.DNSView {
+	m = h.orch.CheckDNS(c.Request().Context(), m)
+	v := ui.DNSView{CheckAction: base(c) + "/dnscheck"}
+	raw, _ := json.Marshal(m)
+	vals, _ := json.Marshal(map[string]string{"dns": string(raw)})
+	v.CheckVals = string(vals)
+	row := func(h service.DNSHost) ui.DNSHost {
+		o := ui.DNSHost{Host: h.Host, Old: strings.Join(h.Old, ", "), New: strings.Join(h.New, ", "), Now: strings.Join(h.Points, ", "), Err: h.Error, OK: h.OK}
+		for _, r := range h.Records {
+			o.Rows = append(o.Rows, ui.DNSRow{Type: r.Type, Name: r.Name, Value: r.Value})
+		}
+		return o
+	}
+	var names []string
+	for _, x := range m.Hand {
+		v.Hand = append(v.Hand, row(x))
+	}
+	for _, x := range m.Managed {
+		v.Managed = append(v.Managed, row(x))
+		if !slices.Contains(names, x.Connector) {
+			names = append(names, x.Connector)
+		}
+	}
+	slices.Sort(names)
+	v.Connectors = strings.Join(names, ", ")
+	return v
+}
+
+// keepCtx is the request's context; with the DNS question asked and its tick
+// off, the move leaves managed records alone.
+func keepCtx(c echo.Context) context.Context {
+	ctx := c.Request().Context()
+	if c.FormValue("dnsask") != "" && c.FormValue("repoint") == "" {
+		ctx = service.KeepDNS(ctx)
+	}
+	return ctx
+}
+
+// maxDNSCheck caps the hosts one Check again looks up.
+const maxDNSCheck = 50
+
+// DNSCheck is POST …/dnscheck (dns): look the list up again and answer the
+// list's checked part.
+func (h *handler) DNSCheck(c echo.Context) error {
+	var m service.DNSMove
+	if err := json.Unmarshal([]byte(c.FormValue("dns")), &m); err != nil || len(m.Hand)+len(m.Managed) > maxDNSCheck {
+		return middleware.HTTPError(errs.Invalidf("dns", "the list is not valid"))
+	}
+	return respond.HTML(c, http.StatusOK, ui.DNS(h.dnsView(c, m)))
 }
 
 func count(n int, noun string) string {
@@ -306,8 +371,9 @@ func (h *handler) act(note string, do func(echo.Context, string, string) error) 
 			}
 			var hm *service.IngressHostsMove
 			if errors.As(err, &hm) {
-				vals, _ := json.Marshal(map[string]string{"placement": c.FormValue("placement"), "confirm": "yes"})
-				d := ui.IngressHosts(ui.IngressHostsView{Action: base(c) + "/ingress", To: hm.To, Vals: string(vals), Hosts: hm.Hosts})
+				dns := h.dnsView(c, hm.DNS)
+				vals := confirmVals(map[string]string{"placement": c.FormValue("placement"), "confirm": "yes"}, dns)
+				d := ui.IngressHosts(ui.IngressHostsView{Action: base(c) + "/ingress", To: hm.To, Vals: vals, Hosts: hm.Hosts, DNS: dns})
 				return h.showIngressAsk(c, d)
 			}
 			msg, ok := refused(err)
@@ -323,14 +389,14 @@ func (h *handler) act(note string, do func(echo.Context, string, string) error) 
 // pin sets the scope's pin; with confirm (the scope's slug, from the move
 // dialog) a pin that moves envs starts their moves.
 func (h *handler) pin(c echo.Context, kind, id string) error {
-	_, err := h.orch.PinScope(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"), c.FormValue("confirm"))
+	_, err := h.orch.PinScope(keepCtx(c), middleware.Principal(c), kind, id, c.FormValue("placement"), c.FormValue("confirm"))
 	return err
 }
 
 // ingress saves the scope's ingress pick; one that moves hosts to another
 // proxy asks first (*service.IngressHostsMove), confirm=yes answers it.
 func (h *handler) ingress(c echo.Context, kind, id string) error {
-	return h.orch.PickIngress(c.Request().Context(), middleware.Principal(c), kind, id, c.FormValue("placement"), c.FormValue("confirm") == "yes")
+	return h.orch.PickIngress(keepCtx(c), middleware.Principal(c), kind, id, c.FormValue("placement"), c.FormValue("confirm") == "yes")
 }
 
 func (h *handler) reorder(c echo.Context, kind, id string) error {
@@ -358,7 +424,11 @@ func (h *handler) moved(c echo.Context, kind string, mv *service.MoveNeeded) err
 	case service.ScopeStack:
 		word = s.Stack.Slug
 	}
-	v := moveView(action, word, mv.Plans)
+	var dns service.DNSMove
+	for _, p := range mv.Plans {
+		dns.Hand, dns.Managed = append(dns.Hand, p.DNS.Hand...), append(dns.Managed, p.DNS.Managed...)
+	}
+	v := moveView(action, word, mv.Plans, h.dnsView(c, dns))
 	return h.showWith(c, http.StatusOK, "", "", &v)
 }
 
@@ -366,7 +436,7 @@ func (h *handler) moved(c echo.Context, kind string, mv *service.MoveNeeded) err
 // the progress tab.
 func (h *handler) Move(c echo.Context) error {
 	s := middleware.ScopeOf(c)
-	_, err := h.orch.PinScope(c.Request().Context(), middleware.Principal(c), service.ScopeEnv, s.Env.ID, c.FormValue("placement"), c.FormValue("confirm"))
+	_, err := h.orch.PinScope(keepCtx(c), middleware.Principal(c), service.ScopeEnv, s.Env.ID, c.FormValue("placement"), c.FormValue("confirm"))
 	if err != nil {
 		msg, ok := refused(err)
 		if !ok {

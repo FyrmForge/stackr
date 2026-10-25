@@ -67,6 +67,10 @@ type MovePlanOut struct {
 	Envs      []MoveEnvOut `json:"envs"`
 	Checks    []CheckOut   `json:"checks"`
 	OK        bool         `json:"ok"`
+	// DNS: the hosts the move sends to another ingress node, hand-managed
+	// ones with the records they need, managed ones with the repoint; each
+	// looked up now.
+	DNS service.DNSMove `json:"dns"`
 }
 
 // MoveStepOut is one line of an env's move progress.
@@ -117,7 +121,10 @@ func placementOut(p service.Placement) PlacementOut {
 }
 
 func movePlanOut(p service.PlacementMovePlan) MovePlanOut {
-	out := MovePlanOut{Placement: p.Placement, From: p.From, To: p.To, Restore: p.Restore, OK: p.OK, Envs: []MoveEnvOut{}, Checks: []CheckOut{}}
+	out := MovePlanOut{Placement: p.Placement, From: p.From, To: p.To, Restore: p.Restore, OK: p.OK, Envs: []MoveEnvOut{}, Checks: []CheckOut{}, DNS: p.DNS}
+	if out.DNS.Hand == nil {
+		out.DNS = service.DNSMove{Hand: []service.DNSHost{}, Managed: []service.DNSHost{}}
+	}
 	for _, e := range p.Envs {
 		out.Envs = append(out.Envs, MoveEnvOut{Path: e.Path, Volumes: e.Volumes, Bytes: e.Bytes, Downtime: e.Downtime})
 	}
@@ -125,6 +132,14 @@ func movePlanOut(p service.PlacementMovePlan) MovePlanOut {
 		out.Checks = append(out.Checks, CheckOut{Name: ck.Name, OK: ck.OK, Detail: ck.Detail, Overridable: ck.Overridable})
 	}
 	return out
+}
+
+// looked is the plans with their DNS lists looked up.
+func (h *H) looked(c echo.Context, ps ...service.PlacementMovePlan) []service.PlacementMovePlan {
+	for i := range ps {
+		ps[i].DNS = h.Orch.CheckDNS(rc(c), ps[i].DNS)
+	}
+	return ps
 }
 
 func movePlansOut(ps []service.PlacementMovePlan) []MovePlanOut {
@@ -265,6 +280,8 @@ func (h *H) PlacementMove() Endpoint {
 type EnvPinIn struct {
 	Placement string `json:"placement"`
 	Confirm   string `json:"confirm,omitempty"`
+	// KeepDNS leaves managed domains' records untouched for the move.
+	KeepDNS bool `json:"keep_dns,omitempty"`
 }
 
 // EnvPinOut is the env's pin after the call; Job is set when the pin moved
@@ -280,7 +297,7 @@ type EnvPinOut struct {
 func (h *H) EnvPinPlan() Endpoint {
 	return Get(func(c echo.Context) (MovePlanOut, error) {
 		p, err := h.Orch.PlanEnvPin(rc(c), envID(c), c.QueryParam("to"))
-		return movePlanOut(p), err
+		return movePlanOut(h.looked(c, p)[0]), err
 	}).Q("to")
 }
 
@@ -294,10 +311,13 @@ func (h *H) SetEnvPin() Endpoint {
 			return err
 		}
 		by, ctx, env := middleware.Principal(c), rc(c), scope(c).Env
+		if in.KeepDNS {
+			ctx = service.KeepDNS(ctx)
+		}
 		jobs, err := h.Orch.PinScope(ctx, by, "env", env.ID, in.Placement, in.Confirm)
 		var mn *service.MoveNeeded
 		if errors.As(err, &mn) {
-			return c.JSON(http.StatusConflict, movePlanOut(mn.Plans[0]))
+			return c.JSON(http.StatusConflict, movePlanOut(h.looked(c, mn.Plans...)[0]))
 		}
 		if err != nil {
 			return err

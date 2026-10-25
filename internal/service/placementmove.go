@@ -59,6 +59,9 @@ type PlacementMovePlan struct {
 	Envs                []MoveEnvLine
 	Checks              []planfile.Check
 	OK                  bool
+	// DNS is the hosts the move sends to another ingress node (not looked up;
+	// see CheckDNS).
+	DNS DNSMove
 }
 
 // PlacementMoveStatus is a running or finished repoint. Envs is every env
@@ -1021,7 +1024,24 @@ func (o *Orchestrator) PlanEnvPin(ctx context.Context, envID, placement string) 
 		return plan, err
 	}
 	plan.OK = pmOK(plan.Checks)
-	return plan, nil
+	plan.DNS, err = o.envMoveDNS(ctx, e.ID, p.NodeID)
+	return plan, err
+}
+
+// envMoveDNS are the env's hosts whose ingress node changes when the env
+// runs on node toNode.
+func (o *Orchestrator) envMoveDNS(ctx context.Context, envID, toNode string) (DNSMove, error) {
+	ts, err := o.store.Tiles.ListByEnv(ctx, envID)
+	if err != nil {
+		return DNSMove{}, err
+	}
+	to := map[string]string{}
+	for _, t := range ts {
+		if to[t.ID], err = o.ingressWith(ctx, t.ID, &ingressOver{envNode: toNode}); err != nil {
+			return DNSMove{}, err
+		}
+	}
+	return o.DNSForMove(ctx, to)
 }
 
 // MoveEnvToPlacement pins an env and moves it: confirm is the env slug. A
@@ -1052,6 +1072,9 @@ func (o *Orchestrator) MoveEnvToPlacement(ctx context.Context, by *Principal, en
 	}
 	if !plan.OK {
 		return Job{}, errs.Conflictf("the checks failed: %s", pmFailedChecks(plan.Checks))
+	}
+	if err := o.keepManaged(ctx, plan.DNS); err != nil {
+		return Job{}, err
 	}
 	o.pmAudit(ctx, by, auditPlacementMove, "env", e.ID, fmt.Sprintf("pin %s: %s -> %s restore=%t", plan.Placement, plan.From, plan.To, plan.Restore))
 	switch {
