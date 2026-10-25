@@ -55,10 +55,14 @@ func TestConnectorSettingsTabs(t *testing.T) {
 		return b
 	}
 	conn := tab("connection")
-	for _, w := range []string{"Namecheap · jo", "Working, checked", "Check now", `name="user" type="text" value="jo"`, `name="key" type="password" value=""`, "Update credentials"} {
+	for _, w := range []string{"Namecheap · jo", "Working, checked", "Check now", `name="user" type="text" value="jo"`, `name="key" type="password" autocomplete="new-password" placeholder="••••••••••••"`, "Stored. Type a new key to replace it.", "Update credentials",
+		"Calls come from", `data-copy="203.0.113.7"`, "Enter by hand"} {
 		if !strings.Contains(conn, w) {
 			t.Errorf("Connection lacks %s\n%s", w, conn)
 		}
+	}
+	if strings.Contains(conn, `name="key" type="password" value=`) {
+		t.Errorf("a stored key is filled in\n%s", conn)
 	}
 	rec := tab("records")
 	path := "/acme/shop/dev?drawer=tile:" + s.Tile.ID

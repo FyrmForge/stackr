@@ -36,10 +36,14 @@ type Step struct {
 }
 
 // Field is a step's input; Multiline: a text area (a pasted key), never
-// prefilled when secret.
+// prefilled when secret. Stored: a secret already kept, shown as dots and
+// optional. Fixed: a fact stackr knows (the address its calls come from),
+// shown read-only with the input behind "Enter by hand".
 type Field struct {
 	c.FieldView
 	Multiline bool
+	Stored    bool
+	Fixed     bool
 }
 
 // DoneView is the screen after connecting, at step Step: a capability's
@@ -97,9 +101,44 @@ templ stepLine(n, total int, title string) {
 	<p class="text-xs text-rw-faint">Step { strconv.Itoa(n) } of { strconv.Itoa(total) }: { title }</p>
 }
 
+const storedDots = "••••••••••••"
+
 // field is one input: a text area for a multiline one.
 templ field(f Field) {
-	if f.Multiline {
+	if f.Stored {
+		<div>
+			<label for={ f.Name } class="label">{ f.Label }</label>
+			if f.Multiline {
+				<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" placeholder={ storedDots } class="input font-mono text-xs"></textarea>
+			} else {
+				<password-toggle class="relative block">
+					<input id={ f.Name } name={ f.Name } type="password" autocomplete="new-password" placeholder={ storedDots } class="input pr-14 peer"/>
+					<button type="button" data-toggle aria-pressed="false" class="absolute inset-y-0 right-0 hidden px-3 text-xs text-rw-faint hover:text-rw-text peer-[:not(:placeholder-shown)]:block">Show</button>
+				</password-toggle>
+			}
+			<p class="mt-1.5 text-xs text-rw-faint">Stored. Type a new key to replace it.</p>
+			@c.FieldError(f.Name, f.Error)
+		</div>
+	} else if f.Fixed {
+		<div>
+			<p class="label">{ f.Label }</p>
+			<p class="flex items-center gap-2">
+				<span class="font-mono text-sm text-rw-text">{ f.Value }</span>
+				<button type="button" data-copy={ f.Value } class="btn btn-ghost btn-sm">Copy</button>
+			</p>
+			if f.Help != "" {
+				<p class="mt-1.5 text-xs text-rw-faint">{ f.Help }</p>
+			}
+			<details class="mt-1.5">
+				<summary class="link cursor-pointer text-xs">Enter by hand</summary>
+				<div class="mt-2">
+					<label for={ f.Name } class="label">Address</label>
+					<input id={ f.Name } name={ f.Name } type="text" value={ f.Value } autocomplete="off" class="input" required?={ f.Required }/>
+				</div>
+			</details>
+			@c.FieldError(f.Name, f.Error)
+		</div>
+	} else if f.Multiline {
 		<div>
 			<label for={ f.Name } class="label">{ f.Label }</label>
 			<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" class="input font-mono text-xs" required?={ f.Required }>{ f.Value }</textarea>

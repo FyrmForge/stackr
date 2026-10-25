@@ -456,7 +456,7 @@ func TestServerWizardCertificates(t *testing.T) {
 	}
 	base := setup.ServerBase + "/dns/" + cs[0].ID
 	body = s.do(adm, "GET", step, nil, false).Body.String()
-	if !strings.Contains(body, `hx-get="`+setup.ServerBase+"/connectors/"+cs[0].ID+`/settings"`) || !strings.Contains(body, ">Continue</a>") || !strings.Contains(body, "No domains managed yet.") {
+	if !strings.Contains(body, `hx-get="`+setup.ServerBase+"/connectors/"+cs[0].ID+`/settings?tab=domains"`) || !strings.Contains(body, ">Continue</a>") || !strings.Contains(body, "No domains managed yet.") {
 		t.Errorf("step after add:\n%s", body)
 	}
 	// a closing dialog refreshes the list from the step, Continue with it

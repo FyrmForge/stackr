@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -26,7 +27,7 @@ func TestAdminConnectors(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`id="tab-connectors"`, `id="connectors-list"`, "main", "Not shared yet",
-		`hx-get="/-/admin/connectors/` + srv + `/settings"`, `aria-label="Settings for main"`,
+		`<li class="rounded-lg border`, `hx-get="/-/admin/connectors/` + srv + `/settings?tab=git"`, ">Sharing<",
 		`hx-get="/-/admin/connectors/new"`, "+ Add connector",
 	} {
 		if rec.Code != http.StatusOK || !strings.Contains(body, want) {
@@ -139,5 +140,32 @@ func TestAdminConnectors(t *testing.T) {
 	}
 	if cs, _ := s.Orch.ServerConnectors(ctx); len(cs) != 1 {
 		t.Errorf("connectors after remove = %+v", cs)
+	}
+}
+
+// The list is one card per connector, each with its own buttons and its
+// Remove.
+func TestAdminConnectorCards(t *testing.T) {
+	s := webtest.New(t)
+	srv := s.ServerConnector(t, "main", "sec")
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	a, err := s.Orch.AddConnector(context.Background(), service.ConnectorAdd{Kind: "namecheap", Values: map[string]string{"user": "jo", "key": "k", "client_ip": "203.0.113.7"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := s.As(t, root, "GET", "/-/admin?tab=connectors", nil).Body.String()
+	if n := strings.Count(body, `<li class="rounded-lg border`); n != 2 {
+		t.Errorf("cards = %d, want 2\n%s", n, body)
+	}
+	for _, want := range []string{
+		"Manage domains", "/-/admin/connectors/" + a.Connector.ID + "/settings?tab=domains",
+		"Sharing", `hx-post="/-/admin/connectors/` + srv + `/delete"`, `hx-post="/-/admin/connectors/` + a.Connector.ID + `/delete"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("cards lack %q\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Settings for") {
+		t.Errorf("the cogwheel is back:\n%s", body)
 	}
 }

@@ -73,7 +73,7 @@ func TestOrgDNSConnectors(t *testing.T) {
 		t.Errorf("GitHub rows: want the org's own pending one only\n%s", body)
 	}
 	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
-		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/`+cs[0].ID+`/settings"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
+		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/`+cs[0].ID+`/settings?tab=domains"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
 		t.Fatalf("tab:\n%s", body)
 	}
 	if body := s.Do(t, "GET", "/acme/-/drawer?tab=connectors&add=1", nil).Body.String(); !strings.Contains(body, "<confirm-dialog open>") {

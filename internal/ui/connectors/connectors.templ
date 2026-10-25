@@ -7,6 +7,7 @@ package connectors
 
 import (
 	"strconv"
+	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -29,19 +30,43 @@ type ListView struct {
 	Foot               templ.Component // under the list, refreshed with it (the wizard's Continue)
 }
 
-// Row is one connector. Settings opens its dialog into the Slot; Drawer
-// instead opens a drawer (an org's git connector has its own). Status is
-// its last check gone wrong ("" = fine); Detail a line under it (where
-// the provider delivers events), Link a page at the provider.
+// Row is one connector, a card: Kind as its title, Name under it, a status
+// pill right. Actions are its own buttons (Settings opens its dialog into
+// the Slot; Drawer instead opens a drawer, an org's git connector has its
+// own), Link a page at the provider, Remove apart on the right. Status is
+// its last check gone wrong ("" = fine); Hook where the provider delivers
+// events.
 type Row struct {
 	ID, Kind, Name, Summary string
 	Check                   string // POST answering an install-status chip as the row loads
 	Pending                 bool
 	Status                  string
 	Detail                  string
+	Hook                    string
 	Link, LinkLabel         string
 	Settings                string
 	Drawer, Push            string // GET into #drawer-body, and the URL it pushes
+	Actions                 []Action
+	Remove                  c.ConfirmView // Action "" = none
+}
+
+// Action is a button on a card: GET URL into the Slot, or with Drawer into
+// #drawer-body pushing Push.
+type Action struct {
+	Label, URL string
+	Drawer     bool
+	Push       string
+}
+
+// short is a webhook URL as a card shows it: no scheme, the middle cut.
+func short(u string) string {
+	if _, rest, ok := strings.Cut(u, "://"); ok {
+		u = rest
+	}
+	if r := []rune(u); len(r) > 36 {
+		return string(r[:22]) + "…" + string(r[len(r)-10:])
+	}
+	return u
 }
 
 func addLabel(v ListView) string {
@@ -70,6 +95,11 @@ templ Slot(open templ.Component) {
 
 templ List(v ListView) {
 	<div id={ ListID }>
+		if v.Add != "" {
+			<div class="flex justify-end mb-3">
+				<button type="button" class="btn btn-primary btn-sm" hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>
+			</div>
+		}
 		@c.Section(v.Title, v.Scope, v.Help) {
 			if v.Synced != "" {
 				<div class="banner banner-danger mb-3 text-sm" role="alert">
@@ -80,14 +110,11 @@ templ List(v ListView) {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint mb-4">No connectors yet.</p>
 			} else {
-				<ul class="divide-y divide-rw-border border-y border-rw-border mb-4">
+				<ul class="space-y-3 mb-4">
 					for _, r := range v.Rows {
 						@row(r)
 					}
 				</ul>
-			}
-			if v.Add != "" {
-				<button type="button" class="btn btn-primary btn-sm" hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>
 			}
 		}
 		if v.Foot != nil {
@@ -97,50 +124,60 @@ templ List(v ListView) {
 }
 
 templ row(r Row) {
-	<li class="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-sm">
-		@c.Chip(r.Kind, "")
-		<span class="text-rw-text">{ r.Name }</span>
-		if r.Pending {
-			@c.Chip("pending", "warn")
-		}
-		if r.Check != "" {
-			<span hx-post={ r.Check } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">checking…</span>
-		}
-		if r.Summary != "" {
-			<span class="text-xs text-rw-faint">{ r.Summary }</span>
-		}
-		if r.Status != "" {
-			@c.Chip("not working", "danger")
-		}
-		<span class="ml-auto">
-			if r.Settings != "" {
-				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Settings } hx-target={ "#" + SlotID } aria-label={ "Settings for " + r.Name } title="Settings">
-					@cogIcon()
-				</button>
-			} else if r.Drawer != "" {
-				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Drawer } hx-target="#drawer-body" hx-push-url={ r.Push } aria-label={ "Settings for " + r.Name } title="Settings">
-					@cogIcon()
-				</button>
-			}
-		</span>
-		if r.Detail != "" || r.Link != "" {
-			<span class="basis-full space-y-0.5">
-				if r.Detail != "" {
-					<span class="block font-mono text-xs text-rw-faint break-all">{ r.Detail }</span>
+	<li class="rounded-lg border border-rw-border p-4 text-sm space-y-2">
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<div class="min-w-0">
+				<p class="font-medium text-rw-text">{ r.Kind }</p>
+				<p class="text-xs text-rw-muted break-all">{ r.Name }</p>
+			</div>
+			<span class="ml-auto flex items-center gap-2">
+				if r.Summary != "" {
+					<span class="text-xs text-rw-faint">{ r.Summary }</span>
 				}
-				if r.Link != "" {
-					<a href={ templ.SafeURL(r.Link) } target="_blank" rel="noopener noreferrer" class="text-xs text-rw-accent hover:underline">{ r.LinkLabel }</a>
+				if r.Pending {
+					@c.Chip("pending", "warn")
+				} else if r.Status != "" {
+					@c.Chip("not working", "danger")
+				} else if r.Check != "" {
+					<span hx-post={ r.Check } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">checking…</span>
+				} else {
+					@c.Chip("connected", "success")
 				}
 			</span>
+		</div>
+		if r.Detail != "" {
+			<p class="font-mono text-xs text-rw-faint break-all">{ r.Detail }</p>
 		}
+		if r.Hook != "" {
+			<p class="flex items-center gap-2 text-xs text-rw-faint">
+				<span>Webhook</span>
+				<span class="font-mono" title={ r.Hook }>{ short(r.Hook) }</span>
+				<button type="button" data-copy={ r.Hook } class="btn btn-ghost btn-sm">Copy</button>
+			</p>
+		}
+		<div class="flex flex-wrap items-center gap-2">
+			if r.Link != "" {
+				<a href={ templ.SafeURL(r.Link) } target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">{ r.LinkLabel }</a>
+			}
+			for _, a := range r.Actions {
+				if a.Drawer {
+					<button type="button" class="btn btn-ghost btn-sm" hx-get={ a.URL } hx-target="#drawer-body" hx-push-url={ a.Push }>{ a.Label }</button>
+				} else {
+					<button type="button" class="btn btn-ghost btn-sm" hx-get={ a.URL } hx-target={ "#" + SlotID }>{ a.Label }</button>
+				}
+			}
+			if len(r.Actions) == 0 && r.Settings != "" {
+				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Settings } hx-target={ "#" + SlotID }>Settings</button>
+			} else if len(r.Actions) == 0 && r.Drawer != "" {
+				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Drawer } hx-target="#drawer-body" hx-push-url={ r.Push }>Manage</button>
+			}
+			if r.Remove.Action != "" {
+				<span class="ml-auto">
+					@c.Confirm(r.Remove)
+				</span>
+			}
+		</div>
 	</li>
-}
-
-templ cogIcon() {
-	<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-		<circle cx="12" cy="12" r="3"></circle>
-		<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-	</svg>
 }
 
 // Modal is a connector dialog, open as it lands in the Slot. Refresh, if

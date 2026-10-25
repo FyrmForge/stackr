@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
@@ -134,7 +135,9 @@ func (p Panel) ret(c echo.Context) string {
 }
 
 // fieldsOf is a step's fields as inputs, vals in them (nil = each one's
-// prefill); a secret is never filled.
+// prefill); a secret is never filled. vals set without errs is a saved
+// connection's form: its secrets are stored, shown as dots. A field with a
+// fact to prefill and a value is read-only until the admin asks to type it.
 func (p Panel) fieldsOf(c echo.Context, fs []service.ConnectorField, vals, errs map[string]string) []connectors.Field {
 	var out []connectors.Field
 	for _, f := range fs {
@@ -142,6 +145,7 @@ func (p Panel) fieldsOf(c echo.Context, fs []service.ConnectorField, vals, errs 
 			Name: f.Name, Label: f.Label, Help: f.Help, Required: !f.Optional,
 			Error: comp.GetError(errs, f.Name), Autocomplete: "off",
 		}
+		cf := connectors.Field{Multiline: f.Multiline}
 		switch {
 		case f.Secret && !f.Multiline:
 			fv.Type = "password"
@@ -151,7 +155,12 @@ func (p Panel) fieldsOf(c echo.Context, fs []service.ConnectorField, vals, errs 
 		default:
 			fv.Value = vals[f.Name]
 		}
-		out = append(out, connectors.Field{FieldView: fv, Multiline: f.Multiline})
+		if f.Secret && vals != nil && errs == nil {
+			cf.Stored, fv.Required = true, false
+		}
+		cf.Fixed = f.Prefill != "" && fv.Value != "" && fv.Error == ""
+		cf.FieldView = fv
+		out = append(out, cf)
 	}
 	return out
 }
@@ -323,7 +332,6 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 		}
 		r := connectors.Row{
 			ID: k.ID, Kind: p.label(k), Name: k.Name, Pending: k.Pending, Status: k.CheckError,
-			Settings: p.Base(c) + "/" + k.ID + "/settings",
 		}
 		if slices.Contains(k.Capabilities, service.CapDNS) {
 			r.Summary = managed(n[k.ID])
@@ -332,6 +340,25 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 			if err := p.gitRow(c, k, shares, &r); err != nil {
 				return nil, err
 			}
+		}
+		if h, ok := strings.CutPrefix(r.Detail, "Webhook URL "); ok {
+			r.Hook, r.Detail = h, ""
+		}
+		settings := p.Base(c) + "/" + k.ID + "/settings"
+		switch {
+		case r.Drawer != "":
+			r.Actions = []connectors.Action{{Label: "Manage", URL: r.Drawer, Drawer: true, Push: r.Push}}
+		case k.Pending:
+			r.Actions = []connectors.Action{{Label: "Settings", URL: settings}}
+		case slices.Contains(k.Capabilities, service.CapDNS):
+			r.Actions = []connectors.Action{{Label: "Manage domains", URL: settings + "?tab=domains"}, {Label: "Settings", URL: settings + "?tab=connection"}}
+		case slices.Contains(k.Capabilities, service.CapGit) && p.Org(c) == nil:
+			r.Actions = []connectors.Action{{Label: "Sharing", URL: settings + "?tab=git"}, {Label: "Settings", URL: settings + "?tab=connection"}}
+		default:
+			r.Actions = []connectors.Action{{Label: "Settings", URL: settings}}
+		}
+		if p.Delete != nil {
+			r.Remove = p.Delete(c, k)
 		}
 		out = append(out, r)
 	}
