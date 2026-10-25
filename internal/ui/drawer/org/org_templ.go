@@ -279,7 +279,7 @@ func Settings(v SettingsView) templ.Component {
 		}
 		if v.Rename != "" {
 			if v.Stacks > 0 {
-				templ_7745c5c3_Err = c.DangerSection("This organization still holds "+stacks(v.Stacks)+". Move or delete them before it can be deleted.", "/"+v.Slug, "").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.DangerZone("This organization still holds "+stacks(v.Stacks)+". Move or delete them before it can be deleted.", "/"+v.Slug, "").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -302,7 +302,7 @@ func Settings(v SettingsView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = c.DangerSection("Deleting this organization removes its members, keys, connectors and params.", "/"+v.Slug, "Backups already in a destination are kept.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.DangerZone("Deleting this organization removes its members, keys, connectors and params.", "/"+v.Slug, "Backups already in a destination are kept.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

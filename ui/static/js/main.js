@@ -243,3 +243,12 @@ document.addEventListener('click', function (evt) {
         if (opt) { e.preventDefault(); pick(p, opt); }
     });
 })();
+
+// The sharing control (components.Share): the org boxes count only under
+// "Only these orgs", so they are disabled, and not posted, under the others.
+document.addEventListener('change', function (evt) {
+    var radio = evt.target;
+    var share = radio.type === 'radio' && radio.closest('[data-share]');
+    if (!share) return;
+    share.querySelectorAll('[data-share-org]').forEach(function (b) { b.disabled = radio.value !== 'only'; });
+});

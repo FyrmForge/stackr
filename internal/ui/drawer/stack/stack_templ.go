@@ -406,7 +406,7 @@ func Settings(v SettingsView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.DangerSection("Deleting this stack removes its tiles, envs, releases and params.", v.Where, "Backups already in a destination are kept.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.DangerZone("Deleting this stack removes its tiles, envs, releases and params.", v.Where, "Backups already in a destination are kept.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

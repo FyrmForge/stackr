@@ -264,7 +264,7 @@ func Settings(v SettingsView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.DangerSection("A stack or tile that clones through it stops building.", v.Host, "It stays installed on "+v.Label+"; uninstall it there too.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.DangerZone("A stack or tile that clones through it stops building.", v.Host, "It stays installed on "+v.Label+"; uninstall it there too.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

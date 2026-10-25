@@ -104,6 +104,7 @@ class SideDrawer extends HTMLElement {
         const url = new URL(location.href);
         url.searchParams.delete("drawer");
         url.searchParams.delete("tab");
+        url.searchParams.delete("open");
         history.replaceState(history.state, "", url);
         this.dispatchEvent(new CustomEvent("drawer-closed", { bubbles: true }));
         if (this.opener?.isConnected)
