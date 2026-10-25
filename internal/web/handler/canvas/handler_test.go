@@ -54,6 +54,17 @@ func TestCanvasLevels(t *testing.T) {
 	}
 }
 
+// The env page loads the DNS banner on arrival; the stack page has no such slot.
+func TestEnvPageLoadsDNSBanner(t *testing.T) {
+	s := webtest.New(t)
+	if body := get(t, s, "/acme/shop/dev"); !strings.Contains(body, `hx-get="/acme/shop/dev/-/dns-banner"`) {
+		t.Error("the env page does not load the DNS banner")
+	}
+	if body := get(t, s, "/acme/shop"); strings.Contains(body, "/-/dns-banner") {
+		t.Error("the stack page loads a DNS banner")
+	}
+}
+
 // Home is the caller's own canvas: anonymous goes to the login page.
 func TestCanvasHomeNeedsLogin(t *testing.T) {
 	env := servicetest.New(t)

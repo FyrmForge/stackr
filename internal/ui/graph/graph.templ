@@ -32,6 +32,9 @@ templ Page(v View) {
 			<span>{ v.Banner.Text }</span>
 		</a>
 	}
+	if v.DNS != "" {
+		<div hx-get={ v.DNS } hx-trigger="load" hx-swap="outerHTML"></div>
+	}
 	if v.SyncBar != nil {
 		<div id="sync-bar" role="status" class="relative z-40 flex flex-wrap items-center gap-2 px-4 sm:px-6 py-2 text-sm border-b border-rw-border bg-rw-surface text-rw-text shrink-0">
 			<span>{ v.SyncBar.Text }</span>

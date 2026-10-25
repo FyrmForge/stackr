@@ -35,6 +35,7 @@ type View struct {
 	Create  []Create        // the level's create dialogs the viewer may open
 	Lanes   []cards.Lane    // env traffic at the last sample; nil = no lanes layer
 	Banner  *Banner         // the strip over the canvas; nil = none
+	DNS     string          // GET …/-/dns-banner, loaded on page load (env); "" = no slot
 	SyncBar *SyncBar        // the env sync review's strip; nil = none
 	Over    templ.Component // drawn over the canvas with the chrome (the Cluster map's legend); nil = none
 	Review  string          // the review the page carries, "sync=dev&drop=a,b"; kept on the helper routes and the show switches
