@@ -442,7 +442,6 @@ func TestRoundTrip(t *testing.T) {
 		InstanceID: ptr("mi1"),
 		Slug:       "data",
 		Name:       "stackr_data",
-		MaxSizeMB:  100,
 		CreatedAt:  t0,
 	}, func(v *store.Volume) { v.InstanceID, v.OrphanedAt = nil, ptr(t1) })
 	roundTrip(t, s.DomainResources, store.DomainResource{

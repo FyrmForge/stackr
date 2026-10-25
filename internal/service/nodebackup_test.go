@@ -26,9 +26,9 @@ func edgeData(t *testing.T, n *twoNodes) (pg Tile, inst, plain store.Volume) {
 	must(t, err)
 	m, err := n.st.ManagedInstances.GetByTile(ctx, pg.ID)
 	must(t, err)
-	inst, _, err = n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: n.edge.ID}, "pg-data", 0, &m.ID)
+	inst, _, err = n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: n.edge.ID}, "pg-data", &m.ID)
 	must(t, err)
-	plain, _, err = n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: n.edge.ID}, "uploads", 0, nil)
+	plain, _, err = n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: n.edge.ID}, "uploads", nil)
 	must(t, err)
 	for _, tl := range []Tile{pg, n.edgeT} {
 		n.wFake.Containers = append(n.wFake.Containers, docker.Container{

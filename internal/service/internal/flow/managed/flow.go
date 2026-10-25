@@ -83,7 +83,7 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		if i > 0 {
 			sl += "-" + strconv.Itoa(i+1)
 		}
-		v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID}, sl, 0, &m.ID)
+		v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID}, sl, &m.ID)
 		if err != nil {
 			return c, err
 		}

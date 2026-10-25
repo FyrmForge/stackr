@@ -14,7 +14,6 @@ type Volume struct {
 	InstanceID *string    `db:"instance_id" json:"instance_id"`
 	Slug       string     `db:"slug" json:"slug"`
 	Name       string     `db:"name" json:"name"`
-	MaxSizeMB  int        `db:"max_size_mb" json:"max_size_mb"`
 	OrphanedAt *time.Time `db:"orphaned_at" json:"orphaned_at"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
 	// NodeID is where an orphan's data lives once its env row is gone; ''

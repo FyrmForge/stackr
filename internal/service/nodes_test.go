@@ -128,7 +128,7 @@ func TestTarBackupRunsOnVolumeNode(t *testing.T) {
 		env         Environment
 		mine, other *dockerfake.Fake
 	}{{n.dev, n.ctlFake, n.wFake}, {n.edge, n.wFake, n.ctlFake}} {
-		v, err := n.orch.DeclareVolume(ctx, VolumeScope{Kind: "env", ID: c.env.ID}, "data-"+c.env.Slug, 0)
+		v, err := n.orch.DeclareVolume(ctx, VolumeScope{Kind: "env", ID: c.env.ID}, "data-"+c.env.Slug)
 		must(t, err)
 		j, err := n.orch.BackupNow(ctx, v.ID, "", "volume", "live")
 		must(t, err)

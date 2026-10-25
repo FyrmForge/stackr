@@ -24,11 +24,11 @@ func TestOrphanReadopt(t *testing.T) {
 	st := servicetest.Store(t)
 	l := volume.New(st.Volumes, dockerfake.New())
 
-	v, adopted, err := l.Declare(ctx, env, "pgdata", 0, nil)
+	v, adopted, err := l.Declare(ctx, env, "pgdata", nil)
 	if err != nil || adopted {
 		t.Fatalf("declare = %+v, %v, %v", v, adopted, err)
 	}
-	if _, _, err := l.Declare(ctx, env, "Bad Name", 0, nil); !isInvalid(err) {
+	if _, _, err := l.Declare(ctx, env, "Bad Name", nil); !isInvalid(err) {
 		t.Errorf("bad slug = %v", err)
 	}
 	o, err := l.Orphan(ctx, v)
@@ -47,12 +47,11 @@ func TestOrphanReadopt(t *testing.T) {
 		t.Errorf("old orphan not expired: %v", exp)
 	}
 
-	back, adopted, err := l.Declare(ctx, env, "pgdata", 512, nil)
-	if err != nil || !adopted || back.ID != v.ID || back.Name != v.Name || back.OrphanedAt != nil ||
-		back.MaxSizeMB != 512 {
+	back, adopted, err := l.Declare(ctx, env, "pgdata", nil)
+	if err != nil || !adopted || back.ID != v.ID || back.Name != v.Name || back.OrphanedAt != nil {
 		t.Fatalf("re-adopt = %+v, %v, %v", back, adopted, err)
 	}
-	other, _, _ := l.Declare(ctx, volume.Scope{Kind: "env", ID: "e2"}, "pgdata", 0, nil)
+	other, _, _ := l.Declare(ctx, volume.Scope{Kind: "env", ID: "e2"}, "pgdata", nil)
 	if other.ID == v.ID {
 		t.Error("another env adopted this env's volume")
 	}
@@ -62,7 +61,7 @@ func TestDeleteAndHoldsData(t *testing.T) {
 	st := servicetest.Store(t)
 	fake := dockerfake.New()
 	l := volume.New(st.Volumes, fake)
-	v, _, _ := l.Declare(ctx, env, "data", 0, nil)
+	v, _, _ := l.Declare(ctx, env, "data", nil)
 	if name, err := l.Ensure(ctx, v); err != nil || name != v.Name {
 		t.Fatalf("ensure = %s, %v", name, err)
 	}

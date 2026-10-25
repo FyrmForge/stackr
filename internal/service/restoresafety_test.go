@@ -30,7 +30,7 @@ func (w *world) pg(t *testing.T, name string) (Tile, store.ManagedInstance, stor
 	must(t, err)
 	m, err := w.st.ManagedInstances.GetByTile(ctx, tl.ID)
 	must(t, err)
-	v, _, err := w.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.env}, name+"-data", 0, &m.ID)
+	v, _, err := w.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.env}, name+"-data", &m.ID)
 	must(t, err)
 	w.fake.Containers = append(w.fake.Containers, docker.Container{
 		ID:     "c-" + name,

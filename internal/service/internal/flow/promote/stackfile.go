@@ -76,8 +76,7 @@ type Reservation struct {
 // VolumeConf is one entry of volumes:. A volume is its own thing, scoped to
 // its env; promote never carries one across envs.
 type VolumeConf struct {
-	MaxSizeMB int         `yaml:"max_size_mb"`
-	Backup    *BackupConf `yaml:"backup"`
+	Backup *BackupConf `yaml:"backup"`
 }
 
 // BackupConf: the destination is a reference, never a literal (bucket
@@ -377,6 +376,7 @@ func strictNode(n *yaml.Node, out any) error {
 
 // removedKeys tells an old file what replaced a key.
 var removedKeys = map[string]string{
+	"max_size_mb":      "drop it; volumes have no size cap yet",
 	"compose":          "use image: or build:",
 	"compose_inline":   "use image: or build:",
 	"compose_path":     "use image: or build:",
@@ -798,9 +798,6 @@ func checkSlice(name string, tc TileConf) error {
 func checkVolume(name string, v VolumeConf) error {
 	if !slug.Valid(name) {
 		return fmt.Errorf("volume %q: a volume name is lower-case letters, digits and single hyphens", name)
-	}
-	if v.MaxSizeMB < 0 {
-		return fmt.Errorf("volume %s: max_size_mb must not be negative", name)
 	}
 	b := v.Backup
 	if b == nil {

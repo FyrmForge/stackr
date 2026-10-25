@@ -18,8 +18,7 @@ type (
 		Value      string `json:"value"` // a secret sent empty keeps its stored value (B35)
 	}
 	VolumeIn struct {
-		Slug      string `json:"slug"`
-		MaxSizeMB int    `json:"max_size_mb"`
+		Slug string `json:"slug"`
 	}
 	ScheduleIn struct {
 		Method   string  `json:"method"`
@@ -192,7 +191,7 @@ func (h *H) Volumes(at At) Endpoint {
 
 func (h *H) DeclareVolume(at At) Endpoint {
 	return JSON(201, func(c echo.Context, in VolumeIn) (service.Volume, error) {
-		return h.Orch.DeclareVolume(rc(c), volumeScope(c, at), in.Slug, in.MaxSizeMB)
+		return h.Orch.DeclareVolume(rc(c), volumeScope(c, at), in.Slug)
 	})
 }
 

@@ -582,7 +582,7 @@ func (f *Flow) syncVolumes(
 		}
 	}
 	for _, sl := range slices.Sorted(maps.Keys(want)) {
-		sv, ok := from[sl]
+		_, ok := from[sl]
 		if !ok {
 			continue
 		}
@@ -592,18 +592,10 @@ func (f *Flow) syncVolumes(
 			p.add(Change{Kind: "volume", New: sl})
 		case tv.OrphanedAt != nil:
 			p.add(Change{Kind: "volume", New: sl, Note: "re-adopts the orphaned volume and its data"})
-		case tv.MaxSizeMB != sv.MaxSizeMB:
-			p.add(Change{
-				Kind:  "volume",
-				Field: "max_size_mb",
-				Old:   fmt.Sprint(tv.MaxSizeMB),
-				New:   fmt.Sprint(sv.MaxSizeMB),
-				Tile:  sl,
-			})
 		default:
 			continue
 		}
-		w.declare[sl] = VolumeConf{MaxSizeMB: sv.MaxSizeMB}
+		w.declare[sl] = VolumeConf{}
 	}
 	freed := map[string]bool{}
 	for n, it := range items {
@@ -725,7 +717,7 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func(
 	}
 	scope := volume.Scope{Kind: "env", ID: e.ID}
 	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
-		if _, _, err := d.Volumes.Declare(ctx, scope, n, w.declare[n].MaxSizeMB, nil); err != nil {
+		if _, _, err := d.Volumes.Declare(ctx, scope, n, nil); err != nil {
 			return err
 		}
 	}

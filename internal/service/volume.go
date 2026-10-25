@@ -19,8 +19,8 @@ func (o *Orchestrator) Volumes(ctx context.Context, s VolumeScope) ([]Volume, er
 }
 
 // DeclareVolume makes (or adopts an orphaned) volume in a scope.
-func (o *Orchestrator) DeclareVolume(ctx context.Context, s VolumeScope, slug string, maxSizeMB int) (Volume, error) {
-	v, _, err := o.volumes.Declare(ctx, s, slug, maxSizeMB, nil)
+func (o *Orchestrator) DeclareVolume(ctx context.Context, s VolumeScope, slug string) (Volume, error) {
+	v, _, err := o.volumes.Declare(ctx, s, slug, nil)
 	return v, err
 }
 

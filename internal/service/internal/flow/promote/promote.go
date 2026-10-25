@@ -186,7 +186,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 	}
 	scope := volume.Scope{Kind: "env", ID: e.ID}
 	for _, n := range slices.Sorted(maps.Keys(w.declare)) {
-		if _, _, err := d.Volumes.Declare(ctx, scope, n, w.declare[n].MaxSizeMB, nil); err != nil {
+		if _, _, err := d.Volumes.Declare(ctx, scope, n, nil); err != nil {
 			return err
 		}
 	}
