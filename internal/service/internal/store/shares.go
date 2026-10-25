@@ -24,6 +24,7 @@ type ShareStore interface {
 	Get(ctx context.Context, id string) (Share, error)
 	GetBySlug(ctx context.Context, orgID, slug string) (Share, error)
 	ListByOrg(ctx context.Context, orgID string) ([]Share, error)
+	ListAll(ctx context.Context) ([]Share, error)
 	Update(ctx context.Context, s Share) error
 	Delete(ctx context.Context, id string) error
 }
@@ -38,4 +39,8 @@ func (s shares) GetBySlug(ctx context.Context, orgID, slug string) (Share, error
 
 func (s shares) ListByOrg(ctx context.Context, orgID string) ([]Share, error) {
 	return s.many(ctx, "org_id = ? ORDER BY slug", orgID)
+}
+
+func (s shares) ListAll(ctx context.Context) ([]Share, error) {
+	return s.many(ctx, "1 = 1 ORDER BY org_id, slug")
 }

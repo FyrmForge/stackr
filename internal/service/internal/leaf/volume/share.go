@@ -24,10 +24,9 @@ import (
 // a tile line "share:<slug>/<sub>:/abs[:ro]" becomes one Docker volume per
 // sub path (EnsureShare), driver local with nfs or cifs opts. Share volumes
 // have no row in volumes, so no backup, orphan job or retention touches
-// them; they carry the label stackr.share=<share id>. Deleting the share
-// removes its volumes first (refused while a container holds one), and
-// SweepShares drops the ones no tile row names once a tile goes or a share
-// is edited.
+// them; they carry the label stackr.share=<share id>. ReconcileShares drops,
+// node by node, the ones no share or tile row names: after a share is
+// deleted or edited, on a schedule and when a node reconnects.
 
 // ShareLabel marks a Docker volume made for a share.
 const ShareLabel = "stackr.share"
@@ -156,29 +155,57 @@ func (l *Leaf) UpdateShare(ctx context.Context, s store.Share, sp ShareSpec) (st
 	return s, l.shares.Update(ctx, s)
 }
 
-// DeleteShare removes the share's Docker volumes, then the row; mountedBy
-// are the tiles whose lines name it. A volume a container still holds
-// refuses the delete, row kept.
+// DeleteShare removes the row; mountedBy are the tiles whose lines name it.
+// Its Docker volumes, on whichever nodes hold them, go in the next
+// ReconcileShares (the caller queues one): a node that is down now is
+// cleaned when it is back.
 func (l *Leaf) DeleteShare(ctx context.Context, s store.Share, mountedBy []string) error {
 	if len(mountedBy) > 0 {
 		return errs.Conflictf("detach the share from %s before deleting it", strings.Join(mountedBy, ", "))
 	}
-	ctx, err := l.orController(ctx)
-	if err != nil {
-		return err
+	return l.shares.Delete(ctx, s.ID)
+}
+
+// ReconcileShares removes, on the node ctx names, every share volume no
+// share row and tile line claims: those of a deleted share and of an old
+// recipe. usesByOrg is every share line of every tile row, per org id (the
+// keep set comes from rows, see SweepShares). A volume a container still
+// holds stays, its name is returned for the next run; any other Docker error
+// is returned.
+func (l *Leaf) ReconcileShares(ctx context.Context, usesByOrg map[string][]ShareUse) (held []string, err error) {
+	if l.shares == nil {
+		return nil, nil
 	}
-	vs, err := l.docker.ListVolumes(ctx, map[string]string{ShareLabel: s.ID})
+	ss, err := l.shares.ListAll(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, v := range vs {
-		if err := l.docker.RemoveVolume(ctx, v.Name); docker.IsVolumeInUse(err) {
-			return errs.Conflictf("share %s: a container still holds %s; remove it first", s.Slug, v.Name)
-		} else if err != nil {
-			return err
+	keep := map[string]bool{}
+	for _, s := range ss {
+		for _, u := range usesByOrg[s.OrgID] {
+			if u.Share == s.Slug {
+				keep[ShareVolumeName(s, u.Sub)] = true
+			}
 		}
 	}
-	return l.shares.Delete(ctx, s.ID)
+	// ponytail: Docker's label filter cannot say "has the label", so this
+	// lists every volume on the node; fine for a daily and reconnect job.
+	vs, err := l.docker.ListVolumes(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vs {
+		if _, ok := v.Labels[ShareLabel]; !ok || keep[v.Name] {
+			continue
+		}
+		switch err := l.docker.RemoveVolume(ctx, v.Name); {
+		case docker.IsVolumeInUse(err):
+			held = append(held, v.Name)
+		case err != nil:
+			return held, err
+		}
+	}
+	return held, nil
 }
 
 // ShareUse is one tile line's claim on a share volume: "share:<Share>/<Sub>".

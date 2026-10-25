@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -86,51 +85,6 @@ func TestShareRows(t *testing.T) {
 	}
 }
 
-// TestDeleteShareDropsVolumes: the share's Docker volumes go with the row;
-// one a container still holds refuses the delete and keeps the row.
-func TestDeleteShareDropsVolumes(t *testing.T) {
-	st := storetest.Store(t)
-	d := dockerfake.New()
-	l := volume.New(st.Volumes, d).WithShares(st.Shares)
-	if err := st.Orgs.Create(ctx, store.Org{ID: "o1", Name: "o1", Slug: "o1", EnvColors: "{}", Settings: "{}",
-		CreatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	s, err := l.CreateShare(ctx, "o1", volume.ShareSpec{Slug: "media", Kind: "nfs", Source: "nas:/e"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	d.Volumes = []docker.VolumeInfo{
-		{Name: "stackr-share-" + s.ID + "-a", Labels: map[string]string{volume.ShareLabel: s.ID}},
-		{Name: "stackr-share-other-b", Labels: map[string]string{volume.ShareLabel: "other"}},
-		{Name: "stackr-vol-c", Labels: map[string]string{"stackr.volume": "c"}},
-	}
-	d.Err = map[string]error{"RemoveVolume": errors.New("volume is in use")}
-	if _, ok := errs.IsConflict(l.DeleteShare(ctx, s, nil)); !ok {
-		t.Fatal("a held volume did not refuse the delete")
-	}
-	if _, err := l.ShareOf(ctx, "o1", s.ID); err != nil {
-		t.Fatalf("row gone after a refused delete: %v", err)
-	}
-	delete(d.Err, "RemoveVolume")
-	if err := l.DeleteShare(ctx, s, nil); err != nil {
-		t.Fatal(err)
-	}
-	var removed []string
-	for _, c := range d.Calls() {
-		if c.Method == "RemoveVolume" {
-			removed = append(removed, c.Args[0])
-		}
-	}
-	// Two calls: the refused one, then the real one; only this share's volume.
-	if len(removed) != 2 || removed[1] != "stackr-share-"+s.ID+"-a" {
-		t.Errorf("removed %v", removed)
-	}
-	if _, err := l.ShareOf(ctx, "o1", s.ID); err == nil {
-		t.Error("row still there")
-	}
-}
-
 // shareWorld is org o1 with an NFS share "media" and docker volumes labelled
 // for it: one a tile row still names, one nothing names.
 func sweepWorld(t *testing.T) (*volume.Leaf, *dockerfake.Fake, store.Share, string, string) {
@@ -203,16 +157,29 @@ func TestSweepSharesErrors(t *testing.T) {
 	}
 }
 
-// DeleteShare: only the in-use refusal is the "a container holds it" conflict.
-func TestDeleteShareOtherErrors(t *testing.T) {
-	l, d, s, _, _ := sweepWorld(t)
-	d.Err = map[string]error{"RemoveVolume": errors.New("Cannot connect to the Docker daemon")}
-	err := l.DeleteShare(ctx, s, nil)
-	if err == nil {
-		t.Fatal("delete went through")
+// ReconcileShares removes the volumes of a deleted share and an old recipe,
+// keeps the ones a row names, and leaves plain volumes alone; a held one is
+// reported, a daemon error is an error.
+func TestReconcileShares(t *testing.T) {
+	l, d, s, live, gone := sweepWorld(t)
+	uses := map[string][]volume.ShareUse{"o1": {{Share: "media", Sub: "a"}}}
+	held, err := l.ReconcileShares(ctx, uses)
+	if err != nil || len(held) != 0 {
+		t.Fatalf("reconcile = %v, %v", held, err)
 	}
-	if _, ok := errs.IsConflict(err); ok {
-		t.Errorf("a daemon error became a conflict: %v", err)
+	if got := removedVolumes(d); !slices.Equal(got, []string{gone, "stackr-share-other-x"}) {
+		t.Errorf("removed %v, want the old recipe's and the unknown share's", got)
+	}
+	if err := l.DeleteShare(ctx, s, nil); err != nil {
+		t.Fatal(err)
+	}
+	d.Err = map[string]error{"RemoveVolume": errors.New("remove x: volume is in use")}
+	if held, err = l.ReconcileShares(ctx, uses); err != nil || !slices.Contains(held, live) {
+		t.Errorf("held = %v, %v, want %s among them", held, err, live)
+	}
+	d.Err = map[string]error{"RemoveVolume": errors.New("Cannot connect to the Docker daemon")}
+	if _, err = l.ReconcileShares(ctx, uses); err == nil {
+		t.Error("a daemon error was reported as held")
 	}
 }
 
