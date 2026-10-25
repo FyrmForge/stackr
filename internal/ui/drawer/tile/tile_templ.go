@@ -1440,7 +1440,7 @@ func Env(v View, e EnvView) templ.Component {
 			}
 		}
 		if !v.ReadOnly {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "<details class=\"group mt-4\"><summary class=\"btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden\">Edit variables</summary><form novalidate hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 131, "<details class=\"group/edit mt-4\"><summary class=\"btn btn-ghost btn-sm cursor-pointer list-none select-none group-open/edit:hidden\">Edit variables</summary><form novalidate hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

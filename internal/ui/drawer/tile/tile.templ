@@ -324,8 +324,8 @@ templ Env(v View, e EnvView) {
 			</ul>
 		}
 		if !v.ReadOnly {
-			<details class="group mt-4">
-				<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open:hidden">Edit variables</summary>
+			<details class="group/edit mt-4">
+				<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open/edit:hidden">Edit variables</summary>
 				<form novalidate hx-post={ v.Base + "/env?open=variables" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 					<div>
 						<label class="label" for="env-text">Variables</label>

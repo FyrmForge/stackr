@@ -101,12 +101,22 @@ func TestActions(t *testing.T) {
 func TestSettingsRows(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
+	// The fixture sets only its image and port 80.
+	body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String()
+	for _, row := range []string{"general", "source", "run", "storage", "health", "resources", "host"} {
+		if strings.Contains(body, `data-acc="`+row+`" data-changed`) {
+			t.Errorf("an untouched tile marks %s changed", row)
+		}
+	}
+	if !strings.Contains(body, `data-acc="network" data-changed`) {
+		t.Error("the port the tile sets is not marked")
+	}
 	rec := s.Do(t, "POST", drawer+"/settings?open=resources", url.Values{"fields": {"cpu_limit mem_limit_mb"}, "cpu_limit": {"0.5"}})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `data-acc="resources" data-changed open`) {
 		t.Fatalf("resources save = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", drawer+"/settings?open=network", url.Values{"fields": {"endpoint_protocol port"}, "port": {"8080"}})
-	body := rec.Body.String()
+	body = rec.Body.String()
 	for _, w := range []string{`data-acc="network" data-changed open`, `name="fields" value="endpoint_protocol port"`, `/placement"`, "Variables", "Database access"} {
 		if rec.Code != 200 || !strings.Contains(body, w) {
 			t.Errorf("network save = %d, lacks %q", rec.Code, w)
