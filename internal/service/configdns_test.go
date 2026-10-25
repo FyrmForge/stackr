@@ -52,3 +52,19 @@ func TestConfigDNSListsManagedAndHandHosts(t *testing.T) {
 		t.Errorf("unknown placement: %+v %v", cs, notes)
 	}
 }
+
+// A destination node with no public address gives a note naming the node,
+// not a record row with nothing in it.
+func TestConfigDNSNodeWithoutPublicIP(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	ingressNode(t, n, "h4", "")
+	must(t, n.st.Domains.Create(ctx, store.Domain{ID: "d2", TileID: n.edgeT.ID, Host: "shop.example.com", Path: "/", CreatedAt: time.Now()}))
+	addPlacement(t, n, "h4", "h4", true)
+	w := promote.PlacementWrite{Scope: ScopeEnv, ScopeID: n.edge.ID, Field: "ingress", Refs: []string{"h4"}}
+	cs, notes, err := n.orch.configDNS(ctx, []promote.PlacementWrite{w})
+	must(t, err)
+	if len(cs) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "Node h4 has no public IP address") || strings.Contains(notes[0], "->") {
+		t.Errorf("changes %+v notes %v", cs, notes)
+	}
+}

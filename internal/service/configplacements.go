@@ -457,10 +457,32 @@ func (o *Orchestrator) configDNS(ctx context.Context, ws []promote.PlacementWrit
 	}
 	var cs []planfile.Change
 	var notes []string
+	// a destination with no public address has nothing to point at: say so
+	noIP := func(h DNSHost) bool {
+		if len(h.Want) > 0 {
+			return false
+		}
+		name := h.Host
+		for tid, dest := range to {
+			ds, _ := o.store.Domains.ListByTile(ctx, tid)
+			if slices.ContainsFunc(ds, func(d store.Domain) bool { return d.Host == h.Host }) {
+				if _, _, nm, err := o.nodeAddrs(ctx, dest); err == nil && nm != "" {
+					name = nm
+				}
+			}
+		}
+		notes = append(notes, fmt.Sprintf("%s: Node %s has no public IP address; set one on the node before traffic moves", h.Host, name))
+		return true
+	}
 	for _, h := range m.Managed {
-		cs = append(cs, planfile.Change{Kind: "dns", Tile: h.Connector, Field: h.Host, Old: strings.Join(h.Old, ", "), New: strings.Join(h.New, ", ")})
+		if !noIP(h) {
+			cs = append(cs, planfile.Change{Kind: "dns", Tile: h.Connector, Field: h.Host, Old: strings.Join(h.Old, ", "), New: strings.Join(h.New, ", ")})
+		}
 	}
 	for _, h := range m.Hand {
+		if noIP(h) {
+			continue
+		}
 		recs := make([]string, len(h.Records))
 		for i, r := range h.Records {
 			recs[i] = r.Type + " " + r.Value
