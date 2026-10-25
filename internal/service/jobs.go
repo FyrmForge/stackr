@@ -297,7 +297,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				trigger = "schedule"
 			}
 			_, err = o.panelBackup(ctx, r.Log, trigger, p.DestID)
-			if p.Scheduled {
+			if p.Scheduled || err == nil { // a good manual run also says backups work again
 				o.backupResult(ctx, "panel", "", "the panel database", err)
 			}
 			return err

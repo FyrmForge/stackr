@@ -145,6 +145,8 @@ func certProblem(c *x509.Certificate, err error, host string, added, now time.Ti
 // hostCertAlerts is the daily check: every HTTPS host of every ingress node
 // is dialled with its name as SNI. A host fires cert.failing once and
 // cert.ok when it is right again; the state is the row alert.certfail.<node>.<host>.
+// ponytail: a host removed while failing keeps its row and its problem; sweep
+// rows certHosts no longer names once certHosts can say it read every host.
 func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 	now := time.Now()
 	for nodeID, hosts := range o.certHosts(ctx) {
@@ -173,6 +175,7 @@ func (o *Orchestrator) certHostAlert(ctx context.Context, n store.Node, host, pr
 	}
 	if problem == "" {
 		_ = o.store.Settings.Delete(ctx, key)
+		o.clearProblem(ctx, key)
 		o.alert(Alert{Event: AlertCertOK, Severity: SevInfo, Node: n.Name, Subject: host,
 			Message: fmt.Sprintf("%s has a good certificate on %s again.", host, n.Name)})
 		return
@@ -180,6 +183,7 @@ func (o *Orchestrator) certHostAlert(ctx context.Context, n store.Node, host, pr
 	if o.store.Settings.Set(ctx, key, "1") != nil {
 		return
 	}
-	o.alert(Alert{Event: AlertCertFailing, Severity: SevCritical, Node: n.Name, Subject: host,
-		Message: fmt.Sprintf("%s on %s: %s.", host, n.Name, problem)})
+	msg := fmt.Sprintf("%s on %s: %s.", host, n.Name, problem)
+	o.openProblem(ctx, key, SevCritical, msg)
+	o.alert(Alert{Event: AlertCertFailing, Severity: SevCritical, Node: n.Name, Subject: host, Message: msg})
 }
