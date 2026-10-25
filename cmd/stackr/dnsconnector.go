@@ -38,12 +38,16 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			return a.show(v, dnsDomainCols...)
 		})
 
+	var shared bool
 	plan := leaf("plan <connector> <domain>", op("plan"),
 		"Show the records managing a domain would write, and the existing ones stackr may adopt", exact(2),
 		func(c *cobra.Command, args []string) error {
 			b, err := base(c)
 			if err != nil {
 				return err
+			}
+			if !server && (shared || a.serverOwned(b, args[0])) {
+				b = "/admin/dns-connectors" // a server connector answers only at the server level
 			}
 			v, err := a.call(GET, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1])+"/plan", nil)
 			if err != nil {
@@ -58,6 +62,10 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			}
 			return a.show(m["adopt"], "host", "type", "serves")
 		})
+
+	if !server {
+		plan.Flags().BoolVar(&shared, "server", false, "the connector is a server one (admin)")
+	}
 
 	var orgs []string
 	manage := leaf("manage <connector> <domain>", op("manage"),
@@ -118,6 +126,23 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
 	return []*cobra.Command{domains, plan, manage, unmanage, takeover}
+}
+
+// serverOwned says whether connector id is missing from the org's DNS
+// connectors at orgBase, which list only the org's own: a shared one is the
+// server's. A list that cannot be read says no.
+func (a *app) serverOwned(orgBase, id string) bool {
+	v, err := a.call(GET, orgBase, nil)
+	list, ok := v.([]any)
+	if err != nil || !ok {
+		return false
+	}
+	for _, it := range list {
+		if cell(asMap(it)["id"]) == id {
+			return false
+		}
+	}
+	return true
 }
 
 // orgFlag adds --org to every leaf under cs: the org to work in, over the

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,6 +210,11 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		return cause
 	}
 	db := dbPath(spec)
+	if _, err := os.Stat(db); db != "" && err != nil {
+		// A helper launched by a panel built before the data-dir mount cannot see the file.
+		slog.Warn("upgrade: database not visible to the helper, swapping without a copy", "file", db, "err", err)
+		db = ""
+	}
 	cp := copyName(db, spec)
 	if db != "" {
 		if err := saveDB(db, cp); err != nil {

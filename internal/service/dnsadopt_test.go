@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -63,6 +64,24 @@ func TestManagePlanListsWritesAndAdoptable(t *testing.T) {
 		default:
 			t.Errorf("listed %s, a wildcard or a record pointing elsewhere", r.Name)
 		}
+	}
+}
+
+// An empty plan marshals both lists as [], never null: the API schema requires arrays.
+func TestManagePlanEmptyListsAreArrays(t *testing.T) {
+	env, _, _ := dnsRig(t)
+	setIP(t, env, "198.51.100.1")
+	srv, err := env.Orch.AddConnector(context.Background(), service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := env.Orch.PlanManageDNSDomain(context.Background(), nil, srv.Connector.ID, "acme.dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(plan)
+	if string(b) != `{"writes":[],"adopt":[]}` {
+		t.Errorf("plan = %s", b)
 	}
 }
 

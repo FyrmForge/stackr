@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
 
 type fakeCaddy struct {
@@ -70,6 +71,24 @@ func TestNeedsVIP(t *testing.T) {
 		if got := needsVIP(c.node, "ctl", c.ingress); got != c.want {
 			t.Errorf("needsVIP(%s, ingress %s) = %v, want %v", c.node, c.ingress, got, c.want)
 		}
+	}
+}
+
+// A copy beside the database while the upgrade helper runs is the live swap's, not a leftover.
+func TestControllerLogCapQuietDuringSwap(t *testing.T) {
+	n := newTwoNodes(t)
+	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
+	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n.ctlFake.Containers = append(n.ctlFake.Containers, docker.Container{ID: "up", State: "running", Labels: map[string]string{"stackr.role": "upgrader"}})
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	n.orch.controllerLogCap(context.Background())
+	if strings.Contains(buf.String(), cp) {
+		t.Errorf("warned during a live swap: %s", buf.String())
 	}
 }
 

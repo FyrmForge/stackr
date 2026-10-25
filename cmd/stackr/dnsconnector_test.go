@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -49,6 +53,38 @@ func TestDNSConnectorVerbs(t *testing.T) {
 		code, _, _ := cli(t, strings.Fields(args)...)
 		if code == 0 || slicesHasWrite(r.reqs) {
 			t.Errorf("%s = %d, sent %q; want a refusal and no write", args, code, r.reqs)
+		}
+	}
+}
+
+// `org connectors plan` goes to the admin route for a connector the org does
+// not own, or with --server, and stays on the org route for its own.
+func TestOrgConnectorPlanServerOwned(t *testing.T) {
+	var mu sync.Mutex
+	var reqs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		reqs = append(reqs, req.Method+" "+req.URL.Path)
+		mu.Unlock()
+		if req.URL.Path == "/api/v1/orgs/acme/dns-connectors" {
+			_, _ = io.WriteString(w, `[{"id":"own"}]`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"writes":[],"adopt":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	for _, tc := range []struct{ args, want string }{
+		{"org connectors plan shared acme.dev", "GET /api/v1/admin/dns-connectors/shared/domains/acme.dev/plan"},
+		{"org connectors plan own acme.dev", "GET /api/v1/orgs/acme/dns-connectors/own/domains/acme.dev/plan"},
+		{"org connectors plan own acme.dev --server", "GET /api/v1/admin/dns-connectors/own/domains/acme.dev/plan"},
+	} {
+		reqs = nil
+		if code, _, errw := cli(t, strings.Fields(tc.args)...); code != 0 {
+			t.Fatalf("%s = %d %s", tc.args, code, errw)
+		}
+		if reqs[len(reqs)-1] != tc.want {
+			t.Errorf("%s sent %q, want last %q", tc.args, reqs, tc.want)
 		}
 	}
 }

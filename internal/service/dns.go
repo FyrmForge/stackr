@@ -361,7 +361,7 @@ func (o *Orchestrator) planManage(ctx context.Context, c Connector, p dnscap.Pro
 	if err != nil {
 		return DNSManagePlan{}, err
 	}
-	var plan DNSManagePlan
+	plan := DNSManagePlan{Writes: []DNSWrite{}, Adopt: []DNSAdopt{}} // the API schema requires both arrays
 	adoptable := dnscap.Adoptable(live, rows, zone, ips)
 	for _, a := range adoptable {
 		plan.Adopt = append(plan.Adopt, DNSAdopt{DNSRef: a, Host: zoneHost(a.Name, zone), Serves: hosts[strings.ToLower(a.Name)]})

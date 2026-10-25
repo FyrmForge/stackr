@@ -135,8 +135,9 @@ func (r runner) swapPanel(ctx context.Context, in installspec.Input, ver string)
 	if err != nil {
 		return err
 	}
+	// The data dir at the panel's own path: the swap copies the database aside.
 	if err := r.docker(ctx, "run", "--name", upgraderName, "--label", installspec.LabelRole+"=upgrader",
-		"-v", "/var/run/docker.sock:/var/run/docker.sock", "-e", installspec.SwapSpecEnv+"="+spec,
+		"-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", in.DataDir+":"+in.DataDir, "-e", installspec.SwapSpecEnv+"="+spec,
 		installspec.Image(ver), "upgrade-swap"); err != nil {
 		return fmt.Errorf("%w; the old panel runs again, see docker logs %s", err, upgraderName)
 	}
