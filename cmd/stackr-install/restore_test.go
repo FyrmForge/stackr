@@ -62,7 +62,7 @@ func archive(t *testing.T, id *age.X25519Identity, files map[string]string) *byt
 }
 
 func TestUnpack(t *testing.T) {
-	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n", "MASTERGEN": "1\n", "MASTERGEN": "2\n"}
+	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n", "MASTERGEN": "2\n"}
 	k := newKey(t)
 	dir := t.TempDir()
 	info, err := unpack(archive(t, k, good), k, dir)
