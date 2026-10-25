@@ -326,12 +326,12 @@ templ Env(v View, e EnvView) {
 			</ul>
 		}
 		if !v.ReadOnly {
-			<details class="group/edit mt-4">
+			<details class="group/edit mt-4" open?={ c.Kept(ctx, "env", "") != "" }>
 				<summary class="btn btn-ghost btn-sm cursor-pointer list-none select-none group-open/edit:hidden">Edit variables</summary>
 				<form novalidate hx-post={ v.Base + "/env?open=variables" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 					<div>
 						<label class="label" for="env-text">Variables</label>
-						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nAPI=${{ tile.api.url }}" } class="input font-mono text-sm">{ e.Text }</textarea>
+						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nAPI=${{ tile.api.url }}" } class="input font-mono text-sm">{ c.Kept(ctx, "env", e.Text) }</textarea>
 						if len(e.Kept) > 0 {
 							<p class="settings-help">Kept as they are, a value on more than one line: { strings.Join(e.Kept, ", ") }.</p>
 						}
@@ -386,7 +386,11 @@ templ Access(v View, a AccessView) {
 		}
 		@c.PanelSection("access-add", "Add access", "") {
 			if len(a.Slices) == 0 {
-				<p class="text-sm text-rw-muted">No slice tile in this environment yet.</p>
+				if len(a.Entries) > 0 {
+					<p class="text-sm text-rw-muted">Every slice here has its access set.</p>
+				} else {
+					<p class="text-sm text-rw-muted">No slice tile in this environment yet.</p>
+				}
 			} else {
 				<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
 					<div class="flex-1 min-w-32">
@@ -590,9 +594,9 @@ templ generalFields(s SettingsView) {
 	<div class="grid grid-cols-2 gap-4">
 		<div data-field>
 			<label class="label" for="set-name">Name</label>
-			<input type="text" id="set-name" name="name" value={ s.Name } required class="input"/>
+			<input type="text" id="set-name" name="name" value={ c.Kept(ctx, "name", s.Name) } required class="input"/>
 			<p class="mt-1.5 text-xs text-rw-faint">A new name changes its URL.</p>
-			@c.FieldError("name", s.Errors["name"])
+			@c.FieldError("name", c.KeptErr(ctx, "name", ""))
 		</div>
 		<div data-field>
 			<span class="label">Kind</span>
@@ -603,6 +607,9 @@ templ generalFields(s SettingsView) {
 
 templ sourceRow(v View, s SettingsView) {
 	@rowForm(v, s, "source", sourceKeys) {
+		if s.Has("git_url") && s.Has("image") {
+			<p class="text-xs text-rw-faint" data-hint>Build from a repo or run an image: set one of the two.</p>
+		}
 		@text(s, "git_url", "Git URL", "https://git.example.com/owner/repo", "", true)
 		@text(s, "branch", "Branch", "main", "", true)
 		@text(s, "image", "Image", "nginx:1", "", true)
@@ -746,7 +753,7 @@ templ text(s SettingsView, key, label, placeholder, hint string, mono bool) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<input type="text" id={ "set-" + key } name={ key } value={ s.Vals[key] } placeholder={ placeholder } class={ "input", templ.KV("font-mono", mono) }/>
+			<input type="text" id={ "set-" + key } name={ key } value={ s.kept(ctx, key) } placeholder={ placeholder } class={ "input", templ.KV("font-mono", mono) }/>
 			@fieldFoot(s, key, hint)
 		</div>
 	}
@@ -756,7 +763,7 @@ templ number(s SettingsView, key, label, placeholder, step, hint string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<input type="number" id={ "set-" + key } name={ key } value={ s.Vals[key] } placeholder={ placeholder } step={ step } min="0" class="input"/>
+			<input type="number" id={ "set-" + key } name={ key } value={ s.kept(ctx, key) } placeholder={ placeholder } step={ step } min="0" class="input"/>
 			@fieldFoot(s, key, hint)
 		</div>
 	}
@@ -766,7 +773,7 @@ templ area(s SettingsView, key, label, placeholder, hint string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<textarea id={ "set-" + key } name={ key } rows="2" placeholder={ placeholder } class="input font-mono text-sm">{ s.Vals[key] }</textarea>
+			<textarea id={ "set-" + key } name={ key } rows="2" placeholder={ placeholder } class="input font-mono text-sm">{ s.kept(ctx, key) }</textarea>
 			@fieldFoot(s, key, hint)
 		</div>
 	}
@@ -778,7 +785,7 @@ templ choice(s SettingsView, key, label string, opts []opt, hint string) {
 			@fieldLabel(s, key, label)
 			<select id={ "set-" + key } name={ key } class="input">
 				for _, o := range opts {
-					<option value={ o.v } selected?={ o.v == cmp.Or(s.Vals[key], defaults[key]) }>{ o.l }</option>
+					<option value={ o.v } selected?={ o.v == cmp.Or(s.kept(ctx, key), defaults[key]) }>{ o.l }</option>
 				}
 			</select>
 			@fieldFoot(s, key, hint)
@@ -790,12 +797,12 @@ templ check(s SettingsView, key, label, warn string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			<label class="text-sm flex items-center gap-2">
-				<input type="checkbox" name={ key } value="1" checked?={ s.Vals[key] == "1" } class="accent-rw-accent"/>
+				<input type="checkbox" name={ key } value="1" checked?={ s.on(ctx, key) } class="accent-rw-accent"/>
 				<span>{ label }</span>
 				@c.FieldMarks(s.Changed(key), "")
 				<span class="text-xs text-rw-danger" data-find-skip>{ warn }</span>
 			</label>
-			@c.FieldError(key, s.Errors[key])
+			@c.FieldError(key, keptErr(ctx, key))
 		</div>
 	}
 }
@@ -809,9 +816,9 @@ templ fieldLabel(s SettingsView, key, label string) {
 
 templ fieldFoot(s SettingsView, key, hint string) {
 	if hint != "" {
-		<p class="mt-1.5 text-xs text-rw-faint">{ hint }</p>
+		<p class="mt-1.5 text-xs text-rw-faint" data-hint>{ hint }</p>
 	}
-	@c.FieldError(key, s.Errors[key])
+	@c.FieldError(key, keptErr(ctx, key))
 }
 
 // domains is v0's domainsSection: "+ Add domain" folded (a literal host, or
@@ -825,7 +832,7 @@ templ domains(v View, d DomainsView) {
 }
 
 templ addDomain(v View, d DomainsView) {
-	<details class="mb-4" open?={ d.Replace != nil }>
+	<details class="mb-4" open?={ d.Replace != nil || d.Kept != nil }>
 		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
 			<span class="text-rw-accentHi">+</span> Add domain
 		</summary>
@@ -838,7 +845,7 @@ templ addDomain(v View, d DomainsView) {
 						for _, m := range d.Managed {
 							<option value={ m } selected?={ d.typed("domain") == m }>{ m }</option>
 						}
-						<option value="" class="dns-other" selected?={ d.Replace != nil && d.typed("domain") == "" }>Other (I'll set DNS myself)</option>
+						<option value="" class="dns-other" selected?={ (d.Replace != nil || d.Kept != nil) && d.typed("domain") == "" }>Other (I'll set DNS myself)</option>
 					</select>
 					<input type="text" name="host" value={ d.typed("host") } aria-label="Host" placeholder="app.example.com" class="input !w-56 hidden group-has-[.dns-other:checked]/dom:block"/>
 				} else {
@@ -859,7 +866,7 @@ templ addDomain(v View, d DomainsView) {
 					<input type="text" name="redirect_to" value={ d.typed("redirect_to") } aria-label="Redirect to" placeholder="redirect to (optional)" title="Requests to this host get a 301 to the given host instead of being served" class="input !w-48"/>
 					<input type="url" name="forward_auth" value={ d.typed("forward_auth") } aria-label="Forward auth URL" placeholder="forward auth URL (optional)" title="Each request is checked against this URL first; 2xx lets it through" class="input !w-56"/>
 					<label class="text-sm text-rw-muted flex items-center gap-1.5">
-						<input type="checkbox" name="https" value="1" checked?={ d.Replace == nil || d.typed("https") != "" } class="accent-rw-accent"/> HTTPS
+						<input type="checkbox" name="https" value="1" checked?={ (d.Replace == nil && d.Kept == nil) || d.typed("https") != "" } class="accent-rw-accent"/> HTTPS
 					</label>
 				</div>
 			</details>

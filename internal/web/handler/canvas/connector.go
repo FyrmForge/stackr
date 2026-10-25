@@ -27,6 +27,7 @@ func (h *handler) connectorTab(c echo.Context, cd card, f *comp.DrawerView) (tem
 		Host:       cd.conn.Host,
 		InstallURL: install,
 		Shared:     cd.conn.Shared,
+		Admin:      middleware.Principal(c).Access.Admin,
 	}
 	if can(c, cd.s, "connector.write") && !cd.conn.Shared {
 		v.Base = f.Base

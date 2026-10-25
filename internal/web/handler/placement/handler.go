@@ -189,7 +189,11 @@ func (h *handler) build(c echo.Context) (ui.View, error) {
 	}
 	if can(c, write) {
 		v.Base = base(c)
+	} else {
+		v.Why = "Only an owner of this organization can change placement."
 	}
+	// a cron or function takes no inbound traffic: no ingress to pick
+	v.NoIngress = s.Tile != nil && (s.Tile.Kind == "cron" || s.Tile.Kind == "function")
 	if kind == service.ScopeOrg {
 		for _, o := range list {
 			v.Offers = append(v.Offers, ui.Offer{Name: o.Name, Tags: strings.Join(o.Tags, ", "), Public: o.Public, Online: o.Online, Usable: o.Usable, Why: o.Why})

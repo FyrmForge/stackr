@@ -2,7 +2,6 @@ package canvas
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	neturl "net/url"
 	"slices"
@@ -67,6 +66,8 @@ func (cd card) frame(tab string) comp.DrawerView {
 		f.Tabs = []string{"editor"}
 		f.Base = urlOf(s) + "/-/vars"
 	}
+	// org, stack and env hold the wide variables grid: every tab as wide
+	f.Wide = cd.kind == "org" || cd.kind == "stack" || cd.kind == "env"
 	if cd.kind == "env" && tab == "moving" { // present only while a move exists (envTab)
 		f.Tabs = append(slices.Clone(f.Tabs), tab)
 	}
@@ -94,13 +95,7 @@ func can(c echo.Context, s service.Scope, v authz.Verb) bool {
 
 // refused is the message of an error the viewer can act on (a 4xx other
 // than not found), shown over the drawer; ok false = a real failure.
-func refused(err error) (string, bool) {
-	var he *echo.HTTPError
-	if errors.As(middleware.HTTPError(err), &he) && he.Code < 500 && he.Code != http.StatusNotFound {
-		return fmt.Sprint(he.Message), true
-	}
-	return "", false
-}
+func refused(err error) (string, bool) { return render.Refused(err) }
 
 // reload reads the scope's rows again after an action changed them.
 func (h *handler) reload(c echo.Context, s service.Scope) (service.Scope, error) {
@@ -165,7 +160,7 @@ func (h *handler) render(c echo.Context, cd card, f comp.DrawerView) (templ.Comp
 func (h *handler) after(c echo.Context, cd card, tab, note string, err error) error {
 	f := cd.frame(tab)
 	if err != nil {
-		msg, ok := refused(err)
+		msg, ok := render.Refuse(c, openRow(c), err) // a settings row's form takes its own refusal
 		if !ok {
 			return middleware.HTTPError(err)
 		}

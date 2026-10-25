@@ -177,12 +177,12 @@ func TestDrawerTabs(t *testing.T) {
 	// a level's top bar "Settings" opens its own drawer; a stack card drills
 	// into the stack (v0). The org has no params, so no vars card (v0 drew
 	// none for an empty scope; the editor is the drawer's params tab).
-	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/drawer?tab=settings"`) ||
+	if body := get(t, s, "/acme"); !strings.Contains(body, `hx-get="/acme/-/drawer?tab=general" hx-target="#drawer-body" hx-push-url="?drawer=org%3A`) ||
 		!strings.Contains(body, `hx-get="/acme/shop"`) ||
 		strings.Contains(body, `hx-get="/acme/-/vars"`) {
 		t.Error("the org canvas's Settings and cards do not open their drawers, or an empty vars card is drawn")
 	}
-	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer?tab=settings"`) {
+	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer?tab=settings" hx-target="#drawer-body" hx-push-url="?drawer=stack%3A`) || !strings.Contains(body, `&amp;tab=settings"`) {
 		t.Error("the stack canvas's Settings does not open the stack drawer")
 	}
 }

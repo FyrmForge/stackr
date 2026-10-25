@@ -321,12 +321,12 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"cron without a schedule",
-			"a cron needs a schedule",
+			"Give the cron a schedule, like 0 3 * * *.",
 			then(cronRow, func(t *store.Tile) { t.Schedule = "" }),
 		},
 		{
 			"cron with a bad schedule",
-			"expected exactly 5 fields, found 2: [every day]",
+			"Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.",
 			then(cronRow, func(t *store.Tile) { t.Schedule = "every day" }),
 		},
 		{
@@ -361,17 +361,17 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"cron with git and an image",
-			"a cron builds from git_url or runs an image, not both",
+			"Set a Git URL or an image, not both.",
 			then(cronRow, func(t *store.Tile) { t.ImageRef = "alpine:3" }),
 		},
 		{
 			"cron with neither source",
-			"a cron needs a git_url or an image",
+			"Set a Git URL to build from or an image to run.",
 			then(cronRow, func(t *store.Tile) { t.GitURL = "" }),
 		},
 		{
 			"negative timeout",
-			"timeout_minutes must not be negative",
+			"Use 0 or more.",
 			then(cronRow, func(t *store.Tile) { t.TimeoutMinutes = -1 }),
 		},
 		{
@@ -386,7 +386,7 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"function with a bad trigger",
-			"trigger must be manual or on_deploy",
+			"Pick manually or on every deploy.",
 			then(fnRow, func(t *store.Tile) { t.Trigger = "hourly" }),
 		},
 		{

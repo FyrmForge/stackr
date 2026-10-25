@@ -1,7 +1,10 @@
 package vars
 
 import (
+	"context"
 	"encoding/json"
+	"net/url"
+	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -124,7 +127,8 @@ templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 			<span class="text-xs text-rw-faint">unset</span>
 		}
 	} else {
-		<details class="group">
+		{{ refused := cellRefused(ctx, col, group, r.Name) }}
+		<details class="group" open?={ refused != nil }>
 			<summary class="cursor-pointer list-none select-none rounded-md px-2 py-1.5 hover:bg-rw-inset text-xs">
 				if cell.Set && cell.Secret {
 					<span class="font-mono text-rw-muted" aria-label="hidden">••••••••</span>
@@ -142,9 +146,12 @@ templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 				if cell.Secret || (!cell.Set && r.Secret) {
 					<input class="input font-mono flex-1 min-w-24" type="password" autocomplete="new-password" name={ "secret." + group + "." + r.Name } placeholder="new value" aria-label={ group + "." + r.Name + " in " + col.Label + " (secret)" }/>
 				} else {
-					<input class="input font-mono flex-1 min-w-24" name={ "param." + group + "." + r.Name } value={ cell.Value } autocomplete="off" aria-label={ group + "." + r.Name + " in " + col.Label }/>
+					<input class="input font-mono flex-1 min-w-24" name={ "param." + group + "." + r.Name } value={ keptCell(refused, "param."+group+"."+r.Name, cell.Value) } autocomplete="off" aria-label={ group + "." + r.Name + " in " + col.Label }/>
 				}
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+				if refused != nil {
+					<p class="field-error basis-full" role="alert">{ refused.Msg }</p>
+				}
 			</form>
 			if cell.Set && g.DeleteAction != "" {
 				@c.Confirm(c.ConfirmView{
@@ -165,7 +172,8 @@ templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 // addForm is a row: group (fixed inside a group's panel), name, kind and a
 // value per column; blank = unset there.
 templ addForm(g Grid, group string) {
-	<details class="group">
+	{{ r := addRefused(ctx, group) }}
+	<details class="group" open?={ r != nil }>
 		<summary class="btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none">
 			if group == "" {
 				+ Add group
@@ -174,21 +182,25 @@ templ addForm(g Grid, group string) {
 			}
 		</summary>
 		<form class="panel px-3 py-2.5 mt-2 border-rw-accent/60 space-y-2" hx-post={ g.Action } hx-target="#vars-editor" hx-swap="outerHTML">
-			<input type="checkbox" id={ "add-secret-" + group } name="add_kind" value="secret" class="peer sr-only" aria-label="Secret"/>
+			<input type="hidden" name="add_form" value={ group }/>
+			<input type="checkbox" id={ "add-secret-" + group } name="add_kind" value="secret" class="peer sr-only" aria-label="Secret" checked?={ typed(r, "add_kind") == "secret" }/>
 			<div class="flex flex-wrap items-center gap-2">
 				if group == "" {
-					<input class="input font-mono !w-32" name="add_group" placeholder="group" aria-label="Group" required/>
+					<input class="input font-mono !w-32" name="add_group" placeholder="group" aria-label="Group" value={ typed(r, "add_group") } required/>
 				} else {
 					<input type="hidden" name="add_group" value={ group }/>
 				}
-				<input class="input font-mono flex-1 min-w-32" name="add_name" placeholder="name" aria-label="Name" required/>
+				<input class="input font-mono flex-1 min-w-32" name="add_name" placeholder="name" aria-label="Name" value={ typed(r, "add_name") } required/>
 				<label for={ "add-secret-" + group } class="btn btn-ghost btn-sm cursor-pointer">Secret?</label>
 			</div>
+			if r != nil {
+				<p class="field-error" role="alert">{ r.Msg }</p>
+			}
 			<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 peer-checked:hidden">
 				for _, col := range g.Cols {
 					<label class="text-xs text-rw-faint">
 						{ col.Label }
-						<input class="input font-mono mt-0.5" name={ "add_value." + col.Token } autocomplete="off" placeholder="unset"/>
+						<input class="input font-mono mt-0.5" name={ "add_value." + col.Token } value={ typed(r, "add_value."+col.Token) } autocomplete="off" placeholder="unset"/>
 					</label>
 				}
 			</div>
@@ -232,6 +244,58 @@ func lockTitle(col Col) string {
 		return "Locked: read only from inside " + col.Label
 	}
 	return "Open: other envs can read it"
+}
+
+// Takes: a refusal of this form shows in it, open with what was typed (an
+// add or a cell save), not over the editor.
+func Takes(form url.Values) bool {
+	if form.Has("add_form") {
+		return true
+	}
+	for k := range form {
+		if strings.HasPrefix(k, "param.") || strings.HasPrefix(k, "secret.") {
+			return true
+		}
+	}
+	return false
+}
+
+// addRefused is the refusal when this add form (its group, "" = a new
+// group) posted it; nil otherwise.
+func addRefused(ctx context.Context, group string) *c.Refused {
+	if r := c.RefusedHere(ctx); r != nil && r.Vals.Has("add_form") && r.Vals.Get("add_form") == group {
+		return r
+	}
+	return nil
+}
+
+// cellRefused is the refusal when this cell's form posted it.
+func cellRefused(ctx context.Context, col Col, group, name string) *c.Refused {
+	r := c.RefusedHere(ctx)
+	if r == nil || r.Vals.Get("scope") != col.Token {
+		return nil
+	}
+	if r.Vals.Has("param."+group+"."+name) || r.Vals.Has("secret."+group+"."+name) {
+		return r
+	}
+	return nil
+}
+
+// typed is what the refused form posted for k; a secret is never asked.
+func typed(r *c.Refused, k string) string {
+	if r == nil {
+		return ""
+	}
+	return r.Vals.Get(k)
+}
+
+// keptCell is a plain cell's value: what was typed when its save was
+// refused, else stored.
+func keptCell(r *c.Refused, k, stored string) string {
+	if r == nil {
+		return stored
+	}
+	return r.Vals.Get(k)
 }
 
 func delVals(scope, group, name string) string {

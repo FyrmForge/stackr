@@ -260,7 +260,7 @@ func TestSliceDrawer(t *testing.T) {
 		t.Errorf("on remove = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/default-access", url.Values{"access": {"read"}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "saved") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Saved.") {
 		t.Errorf("default access = %d\n%s", rec.Code, rec.Body)
 	}
 

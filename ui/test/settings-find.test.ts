@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { openTo } = await import("../ts/settings-find.ts");
+const { openTo, pattern } = await import("../ts/settings-find.ts");
 
 type Fake = { tagName: string; open?: boolean; parentElement: Fake | null };
 
@@ -20,4 +20,12 @@ test("a hit opens the closed details above it, below its row", () => {
   assert.deepEqual(got, [adv]);
   assert.equal(adv.open, true);
   assert.equal(row.open, false);
+});
+
+test("color and colour find each other, anything else is literal", () => {
+  assert.equal(pattern("color").exec("tile colour")?.[0], "colour");
+  assert.equal(pattern("colour").exec("env color")?.[0], "color");
+  assert.equal(pattern("a.b").test("axb"), false);
+  assert.equal(pattern("(x").exec("f(x)")?.index, 1);
+  assert.equal(pattern("port").test("no match"), false);
 });

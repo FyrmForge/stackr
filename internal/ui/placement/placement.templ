@@ -54,7 +54,10 @@ type View struct {
 	Offers  []Offer         // org: what it may use
 	Move    templ.Component // env: the pin change dialog, when the pin moves it
 
+	Why string // a viewer who cannot change it: why, over the disabled controls
+
 	// Ingress
+	NoIngress   bool // a cron or function: no inbound traffic, no Ingress section
 	Ingress     string
 	IngressFrom string
 	IngressOpts []Option        // placements tagged ingress
@@ -72,6 +75,14 @@ type View struct {
 
 func (v View) editable() bool { return v.Base != "" }
 
+// scopeWord is the section chip, as the other drawers name the level.
+func (v View) scopeWord() string {
+	if v.Scope == "org" {
+		return "organization"
+	}
+	return v.Scope
+}
+
 templ Placement(v View) {
 	<div id={ Root } class="space-y-6">
 		<p class="text-sm text-rw-muted">Where it runs and how traffic gets in and out.</p>
@@ -81,16 +92,21 @@ templ Placement(v View) {
 		if v.Note != "" {
 			<p class="banner" role="status">{ v.Note }</p>
 		}
+		if v.Why != "" {
+			<p class="text-xs text-rw-faint">{ v.Why }</p>
+		}
 		if v.RunsOn {
 			@runsOn(v)
 		}
-		@ingress(v)
+		if !v.NoIngress {
+			@ingress(v)
+		}
 		@exits(v)
 	</div>
 }
 
 templ runsOn(v View) {
-	@c.Section("Runs on", v.Scope, "") {
+	@c.Section("Runs on", v.scopeWord(), "") {
 		if v.Moving != "" {
 			<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
 		}
@@ -165,7 +181,7 @@ func yesNo(b bool) string {
 }
 
 templ ingress(v View) {
-	@c.Section("Ingress", v.Scope, "") {
+	@c.Section("Ingress", v.scopeWord(), "") {
 		<form if v.editable() { hx-post={ v.Base + "/ingress" } } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="ingress-node" class="sr-only">Ingress</label>
 			<select id="ingress-node" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
@@ -348,7 +364,7 @@ templ hostList(hosts []string) {
 }
 
 templ exits(v View) {
-	@c.Section("Exits", v.Scope, "") {
+	@c.Section("Exits", v.scopeWord(), "") {
 		if v.NoNet {
 			<div class="banner banner-danger mb-3" role="alert">
 				<p class="font-medium">No internet for these apps.</p>

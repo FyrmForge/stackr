@@ -1,12 +1,18 @@
 package components
 
-import "strings"
+import (
+	"cmp"
+	"strings"
+)
+
+// tileWords spell a tile word the way a person says it.
+var tileWords = map[string]string{"none": "not deployed"}
 
 // TileBadge and JobBadge colour one status word. The set of words is the
 // service's (leaf/tile State.Word, leaf/job states); the badge only picks a
 // colour and spells it for humans ("waiting_ci" -> "waiting ci").
 templ TileBadge(word string) {
-	@badge(word, tileTone[word])
+	@badge(cmp.Or(tileWords[word], word), tileTone[word])
 }
 
 templ JobBadge(state string) {

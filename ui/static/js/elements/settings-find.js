@@ -1,4 +1,7 @@
-const LABELS = "[data-acc-title], label, .label, .settings-label";
+const LABELS = "[data-acc-title], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help";
+export function pattern(q) {
+    return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/colou?r/g, "colou?r"));
+}
 class SettingsFind extends HTMLElement {
     was = null;
     opened = [];
@@ -58,17 +61,18 @@ class SettingsFind extends HTMLElement {
         const texts = [];
         while (walk.nextNode()) {
             const t = walk.currentNode;
-            if (!t.parentElement?.closest("[data-find-skip]"))
+            if (!t.parentElement?.closest("[data-find-skip], .sr-only, mark[data-find-hit]"))
                 texts.push(t);
         }
+        const re = pattern(q);
         let hit = false;
         for (let t of texts) {
-            let i;
-            while ((i = t.data.toLowerCase().indexOf(q)) >= 0) {
+            let found;
+            while ((found = re.exec(t.data.toLowerCase()))) {
                 const m = document.createElement("mark");
                 m.dataset.findHit = "";
-                const word = t.splitText(i);
-                t = word.splitText(q.length);
+                const word = t.splitText(found.index);
+                t = word.splitText(found[0].length);
                 word.before(m);
                 m.append(word);
                 hit = true;

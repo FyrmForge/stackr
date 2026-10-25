@@ -9,6 +9,45 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
+// A refused save keeps what was typed and says why on the field, in plain
+// words: the Resources form (a bad CPU beside a good memory), a rename (in
+// its General row, opened, the summary still the stored name) and a
+// variables add (its form open again, never a secret echoed).
+func TestRefusedSaveKeepsTyped(t *testing.T) {
+	s := webtest.New(t)
+	const d = "/acme/shop/-/drawer"
+	rec := s.Do(t, "POST", d+"/settings", url.Values{"cpu_limit": {"lots"}, "mem_limit_mb": {"300"}, "protect_password": {"hunter2"}})
+	body := rec.Body.String()
+	for _, w := range []string{`value="lots"`, `value="300"`, `id="error-cpu_limit" data-has-error="true" aria-live="polite">&#34;lots&#34; is not a number.`} {
+		if rec.Code != 422 || !strings.Contains(body, w) {
+			t.Errorf("resources = %d, lacks %s\n%s", rec.Code, w, body)
+		}
+	}
+	if strings.Contains(body, "hunter2") {
+		t.Error("the refused form echoes the password")
+	}
+
+	rec = s.Do(t, "POST", d+"/rename", url.Values{"open": {"general"}, "name": {"  "}})
+	body = rec.Body.String()
+	_, general, _ := strings.Cut(body, `id="stack-settings-general"`)
+	general, _, _ = strings.Cut(general, "</details>")
+	if rec.Code != 422 || !strings.Contains(general, `data-acc="general" open`) || !strings.Contains(general, `<span class="flex-1 min-w-0 truncate text-sm text-rw-muted">shop`) ||
+		!strings.Contains(general, `data-has-error="true"`) || strings.Contains(body, "name:") {
+		t.Errorf("rename = %d\n%s", rec.Code, general)
+	}
+
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"GREETING"}, "add_value.stack_pr": {"hi"}, "add_secret.stack_pr": {"s3cret"}})
+	body = rec.Body.String()
+	for _, w := range []string{`<details class="group" open>`, `value="app"`, `value="GREETING"`, `value="hi"`, "Use lower-case letters, digits and _ in a name, like greeting."} {
+		if rec.Code != 422 || !strings.Contains(body, w) {
+			t.Errorf("vars add = %d, lacks %s\n%s", rec.Code, w, body)
+		}
+	}
+	if strings.Contains(body, "s3cret") || strings.Count(body, " open>") != 1 || strings.Contains(body, "name:") {
+		t.Errorf("vars add echoes a secret, opens more than its form, or shows the key\n%s", body)
+	}
+}
+
 // The stack's Settings tab is one accordion holding what were the Params
 // and Placement tabs; Env order moves the ladder from here.
 func TestStackSettingsRows(t *testing.T) {

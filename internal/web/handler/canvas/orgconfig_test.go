@@ -73,7 +73,7 @@ func TestOrgConfigTab(t *testing.T) {
 	const tab = "/acme/-/drawer?tab=config"
 	body := r.owner.do(t, "GET", tab, nil, true).Body.String()
 	if !strings.Contains(body, `id="tab-config"`) || !strings.Contains(body, `href="/api/v1/orgs/acme/config/export"`) ||
-		!strings.Contains(body, "(unbind)") || !strings.Contains(body, `value="`+r.conn+`"`) {
+		!strings.Contains(body, "None (a public repository)") || !strings.Contains(body, `value="`+r.conn+`"`) {
 		t.Fatalf("unbound tab:\n%s", body)
 	}
 

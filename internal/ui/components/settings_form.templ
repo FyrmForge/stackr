@@ -163,6 +163,45 @@ func onOff(v string) string {
 	return v
 }
 
+// Option is one choice of a select: the value posted, the words shown.
+type Option struct{ Value, Label string }
+
+// ConfigRepoView is the config-as-code binding, the same fields and words
+// on the org and the stack.
+type ConfigRepoView struct {
+	ID          string // the connector select's id
+	Connectors  []Option
+	Connector   string
+	Repo        string
+	Branch      string
+	Path        string
+	File        string // the file read when Path is empty
+	Placeholder string // the repository's example
+	AutoApply   bool   // offer Auto apply (the org file plans before it applies)
+	Auto        bool
+}
+
+templ ConfigRepoFields(v ConfigRepoView) {
+	<div data-field>
+		<label for={ v.ID + "-connector" } class="label">Connector</label>
+		<select id={ v.ID + "-connector" } name="connector" class="input">
+			<option value="">None (a public repository)</option>
+			for _, o := range v.Connectors {
+				<option value={ o.Value } selected?={ o.Value == Kept(ctx, "connector", v.Connector) }>{ o.Label }</option>
+			}
+		</select>
+		<p class="mt-1.5 text-xs text-rw-faint" data-hint>Which connector supplies the credentials.</p>
+		@FieldError("connector", KeptErr(ctx, "connector", ""))
+	</div>
+	@Field(FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: v.Placeholder, Help: "owner/name or the https URL, either works."})
+	@Field(FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})
+	@Field(FieldView{Name: "path", Label: "Config path", Value: v.Path, Placeholder: v.File, Help: "Empty uses " + v.File + "."})
+	if v.AutoApply {
+		<input type="hidden" name="fields" value="auto"/>
+		<label class="flex items-center gap-2 text-sm text-rw-text" data-field><input type="checkbox" name="auto" value="1" checked?={ KeptOn(ctx, "auto", v.Auto) } class="accent-rw-accent"/> <span class="settings-label">Auto apply a plan with no impact lines and no removals</span></label>
+	}
+}
+
 templ SettingsForm(v SettingsFormView) {
 	<form id={ v.ID } if !v.ReadOnly { hx-post={ v.Action } } hx-target={ "#" + v.ID } hx-swap="outerHTML" class="space-y-4">
 		if v.ReadOnly {
@@ -235,15 +274,15 @@ templ editRow(form string, r SettingRowView) {
 			case r.Type == "bool":
 				<select id={ form + "-" + r.Key } name={ r.Key } class="input">
 					if !r.NoInherit {
-						<option value="" selected?={ r.Value == "" }>Inherit ({ onOff(r.Effective) })</option>
+						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>Inherit ({ onOff(r.Effective) })</option>
 					}
-					<option value="true" selected?={ r.Value == "true" }>On</option>
-					<option value="false" selected?={ r.Value == "false" }>Off</option>
+					<option value="true" selected?={ Kept(ctx, r.Key, r.Value) == "true" }>On</option>
+					<option value="false" selected?={ Kept(ctx, r.Key, r.Value) == "false" }>Off</option>
 				</select>
 			case r.Secret:
 				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono"/>
 			default:
-				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder={ inheritHint(r) } class="input"/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input"/>
 		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>
@@ -253,7 +292,7 @@ templ editRow(form string, r SettingRowView) {
 		if r.Desc != "" {
 			<span class="settings-help">{ sentence(r.Desc) }</span>
 		}
-		@FieldError(r.Key, r.Error)
+		@FieldError(r.Key, KeptErr(ctx, r.Key, r.Error))
 	</div>
 }
 

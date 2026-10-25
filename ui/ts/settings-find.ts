@@ -3,15 +3,20 @@
 // lives in ?open= (history.replaceState, so Back does not walk every
 // toggle) and a fresh load opens the row ?open= names, which also covers a
 // drawer whose load URL dropped it. [data-find] filters the rows by their
-// title and field labels, opens the hits and marks them; [data-only-changed]
+// title, labels, headings and hints, opens the hits and marks them; [data-only-changed]
 // hides the [data-field]s without data-changed and the rows with none.
 // While a filter runs the rows leave the name group, so several stay open,
 // and the URL is left alone; clearing it restores the row open before.
-// [data-find-skip] (the changed dot, the "from org" tag) is never searched.
+// [data-find-skip] (the changed dot, the "from org" tag) and .sr-only are never searched.
 // A hit inside a closed <details> (Show advanced) opens it until the
 // filter changes. A POST answered inside a row (its body saved alone)
 // fires "refresh" on [data-acc-refresh], which redraws the row heads.
-const LABELS = "[data-acc-title], label, .label, .settings-label";
+const LABELS = "[data-acc-title], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help";
+
+// pattern finds q literally, color and colour as one word.
+export function pattern(q: string): RegExp {
+  return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/colou?r/g, "colou?r"));
+}
 
 class SettingsFind extends HTMLElement {
   private was: string | null = null; // the open row while filtering; null = no filter
@@ -70,16 +75,17 @@ class SettingsFind extends HTMLElement {
     const texts: Text[] = [];
     while (walk.nextNode()) {
       const t = walk.currentNode as Text;
-      if (!t.parentElement?.closest("[data-find-skip]")) texts.push(t);
+      if (!t.parentElement?.closest("[data-find-skip], .sr-only, mark[data-find-hit]")) texts.push(t);
     }
+    const re = pattern(q);
     let hit = false;
     for (let t of texts) {
-      let i: number;
-      while ((i = t.data.toLowerCase().indexOf(q)) >= 0) {
+      let found: RegExpExecArray | null;
+      while ((found = re.exec(t.data.toLowerCase()))) {
         const m = document.createElement("mark");
         m.dataset.findHit = "";
-        const word = t.splitText(i);
-        t = word.splitText(q.length);
+        const word = t.splitText(found.index);
+        t = word.splitText(found[0].length);
         word.before(m);
         m.append(word);
         hit = true;

@@ -45,7 +45,7 @@ func TestManagedDomainForm(t *testing.T) {
 	}
 	form.Set("replace", "1")
 	rec = s.Do(t, "POST", drawer+"/domains", form)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached shop.acme.dev") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Attached shop.acme.dev.") {
 		t.Fatalf("replace = %d\n%s", rec.Code, rec.Body)
 	}
 	if z := s.DNS.Zone("acme.dev"); len(z) != 1 || z[0].Data != "198.51.100.1" {
@@ -127,7 +127,7 @@ func TestManagedDomainBareHost(t *testing.T) {
 		}
 	}
 	rec := s.Do(t, "POST", drawer+"/domains", url.Values{"domain": {"acme.dev"}, "sub": {""}, "https": {"1"}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached acme.dev") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Attached acme.dev.") {
 		t.Fatalf("bare domain = %d\n%s", rec.Code, rec.Body)
 	}
 }
@@ -161,7 +161,7 @@ func TestManagedDomainAdoptOffer(t *testing.T) {
 	}
 	form.Set("adopt", "1")
 	rec = s.Do(t, "POST", drawer+"/domains", form)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached shop.acme.dev") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Attached shop.acme.dev.") {
 		t.Fatalf("adopt = %d\n%s", rec.Code, rec.Body)
 	}
 }

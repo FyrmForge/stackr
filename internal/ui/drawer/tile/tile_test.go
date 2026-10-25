@@ -83,7 +83,6 @@ func TestEveryTabRenders(t *testing.T) {
 				Name:    "api",
 				Kind:    "service",
 				Vals:    map[string]string{"cpu_limit": "0.5", "mem_limit_mb": "", "port": "80", "image": "nginx:1", "volumes": ""},
-				Errors:  map[string]string{"cpu_limit": "must be a number"},
 				From:    map[string]string{"mem_limit_mb": "org"},
 				Inherit: map[string]string{"mem_limit_mb": "512"},
 				Open:    "resources",
@@ -113,7 +112,6 @@ func TestEveryTabRenders(t *testing.T) {
 				"from org",
 				"0.5 cores · 512 MB (from org)",
 				"80 http · 1 domain",
-				"must be a number",
 				"https://api.acme.dev",
 				`/domains/d1/detach?open=network`,
 				`name="raw_caddy"`,
@@ -210,7 +208,7 @@ func TestEveryTabRenders(t *testing.T) {
 // placement and backups among them) opens its first tab.
 func TestTabsPerKind(t *testing.T) {
 	for kind, want := range map[string]string{
-		"cron":    "runs logs metrics jobs settings",
+		"cron":    "runs jobs logs metrics settings",
 		"service": "status jobs logs metrics settings",
 	} {
 		if got := strings.Join(Tabs(kind), " "); got != want {

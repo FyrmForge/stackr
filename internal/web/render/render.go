@@ -133,11 +133,20 @@ func Shell(c echo.Context, title string) components.Shell {
 	}
 	if sc.Tile != nil {
 		s.Settings = href + "/-/tiles/" + sc.Tile.Slug + "?tab=settings"
+		s.SettingsPush = href + "?drawer=" + url.QueryEscape(sc.Tile.ID) + "&tab=settings" // the env canvas draws a tile's drawer
 		href += "/" + sc.Tile.Slug
 		s.Crumbs = append(s.Crumbs, link(sc.Tile.Name, href, path))
 	}
 	if sc.Tile == nil && href != "" && path == href { // a level's canvas: its own drawer
-		s.Settings = href + "/-/drawer?tab=settings"
+		node, tab := "org:"+sc.Org.ID, "general"
+		switch {
+		case sc.Env != nil:
+			node, tab = "env:"+sc.Env.ID, "settings"
+		case sc.Stack != nil:
+			node, tab = "stack:"+sc.Stack.ID, "settings"
+		}
+		s.Settings = href + "/-/drawer?tab=" + tab
+		s.SettingsPush = "?drawer=" + url.QueryEscape(node) + "&tab=" + tab
 	}
 	return s
 }
@@ -309,11 +318,38 @@ func Refused(err error) (msg string, ok bool) {
 		// from the offline banner.
 		return middleware.NodeOfflineMsg, true
 	}
+	if bad, ok := errs.IsInvalid(err); ok && bad.Label == "" {
+		return cmp.Or(bad.Msg, "That was refused."), true // the words alone, never the field's key
+	}
 	var he *echo.HTTPError
 	if errors.As(middleware.HTTPError(err), &he) && he.Code < 500 && he.Code != 404 {
 		return fmt.Sprint(he.Message), true
 	}
 	return "", false
+}
+
+// Refuse is a refused save drawn again in row, the accordion row its form
+// sits in: the typed values kept, the reason under its field or over the
+// row (components.Refused). banner is what still goes over the whole
+// drawer: "" when a row takes it; ok false = a real failure.
+func Refuse(c echo.Context, row string, err error) (banner string, ok bool) {
+	msg, ok := Refused(err)
+	if !ok {
+		return "", false
+	}
+	if c.Request().Method != http.MethodPost {
+		return msg, true
+	}
+	form, _ := c.FormParams()
+	r := &components.Refused{Row: row, Msg: msg, Vals: form}
+	if bad, invalid := errs.IsInvalid(err); invalid && row != "" {
+		r.Field = bad.Field
+	}
+	c.SetRequest(c.Request().WithContext(components.WithRefused(c.Request().Context(), r)))
+	if row == "" { // no row: the fields keep what was typed, the reason goes over the drawer
+		return msg, true
+	}
+	return "", true
 }
 
 // EnvURL is the env page's path from the request's scope: /org/stack/env.

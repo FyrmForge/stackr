@@ -119,3 +119,17 @@ func TestAllowIsAnOwners(t *testing.T) {
 		t.Error("a non-owner must not get the allow forms")
 	}
 }
+
+// The Settings rows closed: the allow patterns or the default, the pairs.
+func TestSettingsSummaries(t *testing.T) {
+	for _, tc := range []struct{ got, want string }{
+		{AllowSummary(nil), "this environment only"},
+		{AllowSummary([]string{"acme:shop:*", "acme:web:prod:api"}), "acme:shop:*, acme:web:prod:api"},
+		{PairsSummary(nil), "none"},
+		{PairsSummary([]Pair{{"staging", "dev"}, {"prod", "prod"}}), "staging → dev, prod → prod"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("got %q, want %q", tc.got, tc.want)
+		}
+	}
+}

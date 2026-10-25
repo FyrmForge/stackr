@@ -15,14 +15,22 @@ func Rows(v SettingsView) []c.AccRow {
 		{Key: "order", Title: "Env order", Summary: OrderSummary(v.Order.Rungs), Body: order(v.Order)},
 		{Key: "config", Title: "Config as code", Summary: ConfigSummary(v.Repo, v.Branch, v.Path), Body: config(v)},
 		{Key: "resources", Title: "Resources", Summary: ResourcesSummary(v.Cascade.Rows), Changed: anyChanged(v.Cascade.Rows), Body: resources(v.Cascade)},
-		{Key: "variables", Title: "Variables", Summary: VarsSummary(v.Vars), Body: v.VarsBody},
+		{Key: "variables", Title: "Variables", Summary: v.Vars, Body: v.VarsBody},
 		{Key: "placement", Title: "Placement", Summary: v.Placement, Body: v.PlacementBody},
 		{Key: "host", Title: "Host access", Summary: HostSummary(v.Host.Tiles), Body: host(v.Host)},
 	}
 	if v.Base != "" {
-		rs = append(rs, c.AccRow{Key: "delete", Title: "Delete", Body: danger(v)})
+		rs = append(rs, c.AccRow{Key: "delete", Title: "Delete", Summary: DeleteSummary(len(v.Order.Rungs)), Body: danger(v)})
 	}
 	return rs
+}
+
+// DeleteSummary is what a delete takes: "Holds 2 envs", "No envs".
+func DeleteSummary(envs int) string {
+	if envs == 0 {
+		return "No envs"
+	}
+	return "Holds " + plural(envs, "env")
 }
 
 func GeneralSummary(name, slug string) string {
@@ -86,12 +94,6 @@ func anyChanged(rows []c.SettingRowView) bool {
 	return false
 }
 
-func VarsSummary(n int) string {
-	if n == 0 {
-		return "none set"
-	}
-	return strconv.Itoa(n) + " set"
-}
 
 // PlacementSummary is where the stack runs: its own pin, the org's, or
 // the default.

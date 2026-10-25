@@ -27,6 +27,7 @@ type SettingsView struct {
 	Delete   c.ConfirmView // shown when Rename is set
 	Tiers    TiersView
 	Open     string // the row open on load (?open=)
+	Refresh  string // this tab's GET: the row heads redraw from it after Defaults saves alone
 }
 
 // TiersView is the org's ladder of tiers. Base is where an owner posts
@@ -139,7 +140,7 @@ type ConfigView struct {
 	Plans      []c.PlanRow // the last plans, newest first
 }
 
-type Option struct{ Value, Label string }
+type Option = c.Option
 
 // PlanBox is the latest plan: its row, and the dry run with its answers.
 type PlanBox struct {
@@ -210,7 +211,7 @@ func Count(n int, one, many string) string {
 
 templ Settings(v SettingsView) {
 	<div id="tab-general">
-		@c.SettingsAccordion(c.SettingsAcc{ID: "org-general", Rows: generalRows(v), Open: v.Open})
+		@c.SettingsAccordion(c.SettingsAcc{ID: "org-general", Rows: generalRows(v), Open: v.Open, Refresh: v.Refresh})
 	</div>
 }
 
@@ -262,10 +263,12 @@ templ Tiers(v TiersView) {
 						}
 					} else {
 						<span class="ml-auto flex flex-wrap items-center gap-2">
-							<span class="flex items-center gap-1">
-								@tierMove(v.Base, "Move "+t.Slug+" up", "↑", t.Up)
-								@tierMove(v.Base, "Move "+t.Slug+" down", "↓", t.Down)
-							</span>
+							if len(v.Rows) > 1 {
+								<span class="flex items-center gap-1">
+									@tierMove(v.Base, "Move "+t.Slug+" up", "↑", t.Up)
+									@tierMove(v.Base, "Move "+t.Slug+" down", "↓", t.Down)
+								</span>
+							}
 							<form novalidate hx-post={ v.Base + "/" + t.Slug + "/lock" } hx-target={ target() } hx-swap="outerHTML" class="flex items-center gap-2">
 								<label class="text-sm flex items-center gap-2 text-rw-text"><input type="checkbox" name="locked" value="1" checked?={ t.Locked } aria-label={ "Lock " + t.Slug } class="accent-rw-accent"/> <span>Locked</span></label>
 								<button type="submit" class="btn btn-ghost btn-sm" aria-label={ "Save the lock on " + t.Slug }>Save</button>
@@ -668,19 +671,10 @@ templ Config(v ConfigView) {
 				<form novalidate hx-post={ v.Base + "/config" } hx-target={ target() } hx-swap="outerHTML">
 					<fieldset disabled?={ v.Base == "" } class="space-y-4">
 						<legend class="sr-only">Config repository</legend>
-						<div>
-							<label for="org-connector" class="label">Connector</label>
-							<select id="org-connector" name="connector" class="input">
-								<option value="">(unbind)</option>
-								for _, o := range v.Connectors {
-									<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
-								}
-							</select>
-						</div>
-						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "acme/stackr-org"})
-						@c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch})
-						@c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-org.yml)", Value: v.Path})
-						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no impact lines and no removals</label>
+						if v.Base == "" {
+							<p class="text-xs text-rw-faint">Only an owner can bind the org file.</p>
+						}
+						@c.ConfigRepoFields(c.ConfigRepoView{ID: "org-config", Connectors: v.Connectors, Connector: v.Connector, Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-org.yml", Placeholder: "acme/stackr-org", AutoApply: true, Auto: v.Auto})
 						if v.Base != "" {
 							<div class="flex flex-wrap items-center gap-2">
 								<button type="submit" class="btn btn-primary btn-sm">Save and plan</button>

@@ -68,7 +68,7 @@ func TestActions(t *testing.T) {
 	}
 	rec = s.Do(t, "POST", drawer+"/env", url.Values{"env": {"GREETING=hi\nNAME=bob"}})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `aria-label="Delete GREETING"`) ||
-		!strings.Contains(rec.Body.String(), "saved") {
+		!strings.Contains(rec.Body.String(), "Saved.") {
 		t.Errorf("env = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", drawer+"/env", url.Values{"drop": {"GREETING"}})
@@ -80,8 +80,8 @@ func TestActions(t *testing.T) {
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "line 2: want KEY=VALUE") {
 		t.Errorf("bad env = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", drawer+"/settings", url.Values{"cpu_limit": {"lots"}, "mem_limit_mb": {"256"}})
-	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "must be a number") ||
+	rec = s.Do(t, "POST", drawer+"/settings?open=resources", url.Values{"fields": {"cpu_limit mem_limit_mb"}, "cpu_limit": {"lots"}, "mem_limit_mb": {"256"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="error-cpu_limit" data-has-error="true" aria-live="polite">Use a number.`) ||
 		!strings.Contains(rec.Body.String(), `value="256"`) || !strings.Contains(rec.Body.String(), `value="lots"`) {
 		t.Errorf("bad settings = %d\n%s", rec.Code, rec.Body)
 	}
@@ -89,7 +89,7 @@ func TestActions(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="0.5"`) {
 		t.Errorf("settings = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", drawer+"/settings", url.Values{"restart_policy": {"sometimes"}})
+	rec = s.Do(t, "POST", drawer+"/settings?open=run", url.Values{"fields": {"command replicas restart_policy user"}, "restart_policy": {"sometimes"}})
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="error-restart_policy" data-has-error="true"`) {
 		t.Errorf("refused restart policy = %d\n%s", rec.Code, rec.Body)
 	}
@@ -137,6 +137,43 @@ func TestSettingsRows(t *testing.T) {
 	}
 }
 
+// A row save refused over a field another row holds (a volume while the
+// Run row asks for 2 replicas): the reason in the Storage row, opened, the
+// typed volume kept, every summary still the stored values, the Run row
+// clean.
+func TestSettingsRefusedInItsRow(t *testing.T) {
+	s := webtest.New(t)
+	rec := s.Do(t, "POST", drawer+"/settings?open=run", url.Values{"fields": {"command replicas restart_policy user"}, "replicas": {"2"}})
+	if rec.Code != 200 {
+		t.Fatalf("replicas = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", drawer+"/settings?open=storage", url.Values{"fields": {"files volumes"}, "volumes": {"data:/data"}})
+	body := rec.Body.String()
+	_, storage, _ := strings.Cut(body, `id="tile-settings-storage"`)
+	storage, _, _ = strings.Cut(storage, "</details>")
+	_, run, _ := strings.Cut(body, `id="tile-settings-run"`)
+	run, _, _ = strings.Cut(run, "</details>")
+	for _, w := range []string{`data-acc="storage" open`, `role="alert">A tile with a volume runs one replica`, `>data:/data</textarea>`, "no volumes · no files"} {
+		if !strings.Contains(storage, w) {
+			t.Errorf("storage row lacks %q\n%s", w, storage)
+		}
+	}
+	if rec.Code != 422 || strings.Contains(run, "two writers") || strings.Contains(run, `data-acc="run" data-changed open`) || !strings.Contains(run, "2 replicas") {
+		t.Errorf("run row = %d\n%s", rec.Code, run)
+	}
+	if strings.Contains(body, `replicas:`) || strings.Count(body, "two writers") != 1 {
+		t.Errorf("the reason shows more than once or with its key\n%s", body)
+	}
+	// a refused domain add opens its form again with the host typed, and
+	// never fills the container port beside it
+	rec = s.Do(t, "POST", drawer+"/domains?open=network", url.Values{"host": {"app.example.com"}, "port": {"abc"}})
+	body = rec.Body.String()
+	if rec.Code != 422 || !strings.Contains(body, `<details class="mb-4" open>`) || !strings.Contains(body, `value="app.example.com"`) ||
+		!strings.Contains(body, "Use a number for the port.") || strings.Contains(body, `id="set-port" name="port" value="abc"`) {
+		t.Errorf("domain add = %d\n%s", rec.Code, body)
+	}
+}
+
 // Writes need the CSRF token like every form on the site.
 func TestActionNeedsCSRF(t *testing.T) {
 	s := webtest.New(t)
@@ -170,7 +207,7 @@ func TestAutoDomain(t *testing.T) {
 	}
 	setPort(t, s, 80)
 	rec = s.Do(t, "POST", drawer+"/domains", url.Values{"auto": {"1"}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "attached api.shop.acme.io") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Attached api.shop.acme.io.") {
 		t.Fatalf("auto = %d\n%s", rec.Code, rec.Body)
 	}
 	ds, err := s.Orch.Domains(ctx, s.Tile.ID)
@@ -215,7 +252,7 @@ func TestAccessTab(t *testing.T) {
 	})
 	body := rec.Body.String()
 	for _, w := range []string{
-		"saved",
+		"Saved.",
 		`href="/acme/shop/dev?drawer=` + main.ID + `&amp;tab=overview"`,
 		`name="slice" value="main"`,
 		`<option value="read" selected>`,
