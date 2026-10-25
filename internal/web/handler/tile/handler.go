@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -48,10 +49,10 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		"restart": h.orch.RestartTile,
 		"stop":    h.orch.StopTile,
 		"start":   h.orch.StartTile,
-		"delete":  h.orch.DeleteTile,
 	} {
 		g.POST(d+"/"+verb, h.tileJob(verb, f), write)
 	}
+	g.POST(d+"/delete", h.Delete, write)
 	g.POST(d+"/jobs/:job/cancel", h.CancelJob, require("deployment.cancel"))
 	g.POST(d+"/run", h.Run, write)
 	g.POST(d+"/pause", h.Pause, write)
@@ -93,12 +94,10 @@ type head struct {
 	image  service.Image // a pulled tile's watch; zero otherwise
 }
 
-// typed is a refused settings save: what was posted and why, drawn over
-// the stored row.
+// typed is a refused domain add, drawn over the stored row.
 type typed struct {
-	vals, errors map[string]string
-	replace      *ui.ReplaceOffer // the Settings tab asks "Replace it"
-	noIP         *ui.NoIPRefusal  // the ingress node has no public IP
+	replace *ui.ReplaceOffer // the Settings tab asks "Replace it"
+	noIP    *ui.NoIPRefusal  // the ingress node has no public IP
 }
 
 // view is the drawer frame for tab: v0's header (status, source, where it
@@ -209,8 +208,6 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 			return middleware.HTTPError(err)
 		}
 		if ty != nil {
-			maps.Copy(sv.Vals, ty.vals)
-			sv.Errors = ty.errors
 			if sv.Domains != nil {
 				sv.Domains.Replace, sv.Domains.NoIP = ty.replace, ty.noIP
 			}
@@ -274,8 +271,9 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 	if err != nil {
 		return sv, err
 	}
-	sv.Placement, sv.Ingress = base(c)+"/placement", ingressWord(pv.IngressName, pv.Ingress, pv.IngressFrom)
+	sv.Placement = base(c) + "/placement"
 	if !runKind(t.Kind) {
+		sv.Ingress = ingressWord(pv.IngressName, pv.Ingress, pv.IngressFrom)
 		ds, err := h.orch.Domains(ctx, t.ID)
 		if err != nil {
 			return sv, err
@@ -330,6 +328,7 @@ func (h *handler) access(c echo.Context, t service.Tile) (ui.AccessView, error) 
 			Link:   link(ids[e.From]),
 			Access: e.Access,
 		})
+		a.Slices = slices.DeleteFunc(a.Slices, func(s string) bool { return s == e.From }) // the add form offers the rest
 	}
 	bs, err := h.orch.ConsumerBindings(ctx, t.ID)
 	if err != nil {
@@ -355,7 +354,7 @@ func (h *handler) after(c echo.Context, tab, note string, err error) error {
 		return middleware.HTTPError(verr)
 	}
 	if err != nil {
-		msg, ok := render.Refused(err)
+		msg, ok := render.Refuse(c, c.FormValue("open"), err) // a settings row takes its own refusal
 		if !ok {
 			return middleware.HTTPError(err)
 		}
@@ -371,6 +370,18 @@ func (h *handler) tileJob(verb string, f func(context.Context, string) (service.
 		_, err := f(c.Request().Context(), tileOf(c).ID)
 		return h.after(c, "status", verb+" queued", err)
 	}
+}
+
+// Delete queues the tile's removal and goes back to its env's canvas: the
+// drawer would poll a tile that is about to be gone (a 404).
+func (h *handler) Delete(c echo.Context) error {
+	t := tileOf(c)
+	if _, err := h.orch.DeleteTile(c.Request().Context(), t.ID); err != nil {
+		return h.after(c, "settings", "", err)
+	}
+	hamrmw.SetFlash(c, "Deleting "+t.Name+".", hamrmw.FlashInfo)
+	c.Response().Header().Set("HX-Redirect", render.EnvURL(c))
+	return c.NoContent(http.StatusOK)
 }
 
 func (h *handler) Run(c echo.Context) error {
@@ -416,7 +427,7 @@ func (h *handler) StopRun(c echo.Context) error {
 func (h *handler) AttachDomain(c echo.Context) error {
 	if c.FormValue("auto") != "" {
 		d, err := h.orch.AttachDomain(c.Request().Context(), tileOf(c).ID, service.DomainSpec{Auto: true})
-		return h.after(c, "settings", "attached "+d.Host, autoRefusal(err))
+		return h.after(c, "settings", "Attached "+d.Host+".", autoRefusal(err))
 	}
 	https := c.FormValue("https") != ""
 	host := strings.TrimSpace(c.FormValue("host"))
@@ -435,7 +446,7 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	if p := c.FormValue("port"); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return h.after(c, "settings", "", errs.Invalidf("port", "must be a number"))
+			return h.after(c, "settings", "", errs.Invalidf("port", "Use a number for the port."))
 		}
 		s.Port = n
 	}
@@ -456,7 +467,7 @@ func (h *handler) AttachDomain(c echo.Context) error {
 	if np := new(service.NoPublicIP); errors.As(err, &np) {
 		return h.refuseNoIP(c, np)
 	}
-	return h.after(c, "settings", "attached "+s.Host, err)
+	return h.after(c, "settings", "Attached "+s.Host+".", err)
 }
 
 // refuseNoIP answers an add refused on an ingress node with no public IP:
@@ -516,20 +527,20 @@ func autoRefusal(err error) error {
 
 func (h *handler) DetachDomain(c echo.Context) error {
 	err := h.orch.DetachDomain(c.Request().Context(), c.Param("domain"))
-	return h.after(c, "settings", "detached", err)
+	return h.after(c, "settings", "Detached.", err)
 }
 
 func (h *handler) SetRawCaddy(c echo.Context) error {
 	_, err := h.orch.SetRawCaddy(c.Request().Context(), c.Param("domain"), c.FormValue("raw_caddy"))
-	return h.after(c, "settings", "snippet saved", err)
+	return h.after(c, "settings", "Saved.", err)
 }
 
 // update applies edit through UpdateTile and says whether it redeploys.
 func (h *handler) update(c echo.Context, tab string, edit func(*service.Tile) error) error {
 	t, j, err := h.orch.UpdateTile(c.Request().Context(), tileOf(c).ID, edit)
-	note := "saved"
+	note := "Saved."
 	if j != nil {
-		note = "saved; redeploy queued"
+		note = "Saved. A redeploy is queued."
 	}
 	if err == nil {
 		*tileOf(c) = t // the tab shows the edited row, not the scope's
@@ -561,7 +572,7 @@ func (h *handler) SetAccess(c echo.Context) error {
 	if err == nil {
 		*tileOf(c) = t
 	}
-	return h.after(c, "settings", "saved", err)
+	return h.after(c, "settings", "Saved.", err)
 }
 
 // POST …/rename: the General row's name. The slug and the drawer's URL
@@ -571,13 +582,13 @@ func (h *handler) Rename(c echo.Context) error {
 	if err == nil {
 		*tileOf(c) = t
 	}
-	return h.after(c, "settings", "renamed", err)
+	return h.after(c, "settings", "Saved.", err)
 }
 
 func (h *handler) CheckImage(c echo.Context) error {
 	s := middleware.ScopeOf(c)
 	_, err := h.orch.CheckImages(c.Request().Context(), s.Stack.ID, s.Tile.ID)
-	return h.after(c, "settings", "check queued", err)
+	return h.after(c, "settings", "Check queued.", err)
 }
 
 // POST …/settings: the one settings form. A refusal draws the form again
@@ -593,34 +604,28 @@ func (h *handler) SetSettings(c echo.Context) error {
 	})
 	if err == nil {
 		*tileOf(c) = t
-		note := "saved"
+		note := "Saved."
 		if j != nil {
-			note = "saved; redeploy queued"
+			note = "Saved. A redeploy is queued."
 		}
 		return h.after(c, "settings", note, nil)
 	}
-	msg, ok := render.Refused(err)
-	if !ok {
-		return middleware.HTTPError(err)
-	}
-	v, hd, verr := h.view(c, "settings")
-	if verr != nil {
-		return middleware.HTTPError(verr)
-	}
-	shown := carries[tileOf(c).Kind]
-	ty := &typed{vals: map[string]string{}, errors: map[string]string{}}
-	for _, k := range keys {
-		if slices.Contains(shown, k) {
-			ty.vals[k] = strings.TrimSpace(form.Get(k))
-		}
-	}
+	return h.after(c, "settings", "", rowRefusal(err, form.Get("fields")))
+}
+
+// rowRefusal names the form field a refused row save is about (Validate
+// speaks the stack file's keys); a field the row does not draw (a volume
+// refused for the replicas) leaves the reason over the row instead.
+func rowRefusal(err error, fields string) error {
 	bad, invalid := errs.IsInvalid(err)
-	if k := formKey(bad.Field); invalid && slices.Contains(shown, k) {
-		ty.errors[k] = bad.Msg
-	} else {
-		v.Error = msg
+	if !invalid {
+		return err
 	}
-	return h.show(c, http.StatusUnprocessableEntity, v, hd, ty)
+	k := formKey(bad.Field)
+	if !slices.Contains(strings.Fields(fields), k) {
+		k = ""
+	}
+	return errs.Invalid{Field: k, Msg: bad.Msg}
 }
 
 // GET …/logs/stream?container=&run=: one rendered LogLine per "line".

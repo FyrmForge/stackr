@@ -3,6 +3,7 @@ package canvas
 import (
 	"context"
 	"net/http"
+	neturl "net/url"
 	"slices"
 	"strings"
 
@@ -54,23 +55,23 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	if err != nil {
 		return nil, err
 	}
-	nvars, err := h.varsCount(c, cd.s)
+	set, secret, err := h.varCounts(c, cd.s)
 	if err != nil {
 		return nil, err
 	}
 	v := stackui.SettingsView{
-		Open:          c.QueryParam("open"),
+		Open:          c.FormValue("open"),
 		Refresh:       f.Base + "?tab=settings",
 		Name:          st.Name,
 		Slug:          st.Slug,
 		Where:         cd.s.Org.Slug + " / " + st.Slug,
-		Order:         ladderView(es),
+		Order:         ladderView(es, c.FormValue("moved")),
 		Cascade:       cascade,
 		Connector:     st.ConfigConnectorID,
 		Repo:          st.ConfigRepo,
 		Branch:        st.ConfigBranch,
 		Path:          st.ConfigPath,
-		Vars:          nvars,
+		Vars:          comp.VarsSummary(set, secret),
 		VarsBody:      vars,
 		Placement:     stackui.PlacementSummary(pv.Pin, pv.PinName, pv.Ingress),
 		PlacementBody: placementui.Load(urlOf(cd.s) + "/-/placement"),
@@ -120,25 +121,9 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 	return stackui.Settings(v), nil
 }
 
-// varsCount is how many params and secrets the stack's grid holds: the
-// Variables row's summary.
-func (h *handler) varsCount(c echo.Context, s service.Scope) (int, error) {
-	ctx := c.Request().Context()
-	cs, _, err := h.cols(ctx, s)
-	if err != nil {
-		return 0, err
-	}
-	g, err := h.grid(ctx, cs, can(c, s, "variable.write"))
-	n := 0
-	for _, gr := range g.Groups {
-		n += len(gr.Rows)
-	}
-	return n, err
-}
-
 // ladderView is the stack's envs, bottom rung first, each with where its
 // releases come from and the whole order after one move up or down the list.
-func ladderView(es []service.Environment) stackui.OrderView {
+func ladderView(es []service.Environment, moved string) stackui.OrderView {
 	ids := make([]string, len(es))
 	for i, e := range es {
 		ids[i] = e.ID
@@ -152,7 +137,7 @@ func ladderView(es []service.Environment) stackui.OrderView {
 		o[i], o[j] = o[j], o[i]
 		return o
 	}
-	var v stackui.OrderView
+	v := stackui.OrderView{Moved: moved}
 	for i, e := range es {
 		d := strings.TrimSpace("branch " + e.FromBranch)
 		if e.FromKind != "branch" {
@@ -193,6 +178,18 @@ func redirect(c echo.Context, url string) (string, error) {
 	return "", c.NoContent(http.StatusOK)
 }
 
+// renamed answers a rename: a flash, then the page the viewer was on with
+// the renamed card's drawer open again. On the card's own page (its old
+// URL, own) that is the page at its new URL (moved); anywhere else, its
+// card's canvas (canvas). query is the drawer's ?drawer=&tab=&open=.
+func renamed(c echo.Context, name, own, moved, canvas, query string) (string, error) {
+	hamrmw.SetFlash(c, "Renamed to "+name+".", hamrmw.FlashSuccess)
+	if cur, err := neturl.Parse(c.Request().Header.Get("HX-Current-URL")); err == nil && cur.Path == own {
+		return redirect(c, moved+"?"+query)
+	}
+	return redirect(c, canvas+"?"+query)
+}
+
 func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 	s := "/:org/:stack/-/drawer"
 	site.GET(s, h.drawerRoute("stack"), a.Require("org.read"))
@@ -202,7 +199,8 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		return redirect(c, "/"+cd.s.Org.Slug+"?drawer=stack:"+st.ID+"&tab=settings&open=general")
+		org := "/" + cd.s.Org.Slug
+		return renamed(c, st.Name, urlOf(cd.s), org+"/"+st.Slug, org, "drawer=stack:"+st.ID+"&tab=settings&open=general")
 	}), write)
 	site.POST(s+"/config", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		f := c.FormValue
@@ -214,11 +212,11 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 			f("branch"),
 			f("path"),
 		)
-		return "Config repo saved.", err
+		return "Saved.", err
 	}), write)
 	site.POST(s+"/order", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		form, _ := c.FormParams()
-		return "Order saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
+		return "Saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
 	}), write)
 	site.POST(s+"/host-grant/approve", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		f, _ := c.FormParams()

@@ -2,6 +2,7 @@ package tile
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"maps"
 	"net/url"
@@ -273,7 +274,7 @@ func volumeRows(env string, vs []service.Volume) []ui.VolumeRow {
 		}
 		out = append(out, ui.VolumeRow{
 			ID:     x.ID,
-			Name:   x.Name,
+			Name:   cmp.Or(x.Slug, x.Name), // the name its tile mounts, not the docker one
 			State:  state,
 			Drawer: env + "/-/volumes/" + x.ID + "?tab=backups",
 		})

@@ -228,6 +228,11 @@ func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err er
 			return middleware.HTTPError(err)
 		}
 		status, note = http.StatusUnprocessableEntity, ""
+		// an add or cell form shows its own refusal, open with what was typed
+		if form, _ := c.FormParams(); vars.Takes(form) {
+			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), &comp.Refused{Msg: msg, Vals: form})))
+			msg = ""
+		}
 	}
 	body, err := h.vars(c, s, msg, note)
 	if err != nil {

@@ -177,7 +177,7 @@ func write(key string, p any, v string) error {
 		}
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return errs.Invalidf(key, "must be a whole number")
+			return errs.Invalidf(key, "Use a whole number.")
 		}
 		*p = n
 	case *float64:
@@ -187,7 +187,7 @@ func write(key string, p any, v string) error {
 		}
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return errs.Invalidf(key, "must be a number")
+			return errs.Invalidf(key, "Use a number.")
 		}
 		*p = f
 	case *bool:

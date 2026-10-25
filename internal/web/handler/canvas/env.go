@@ -107,7 +107,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Deploys:          envui.DeploysSummary(e.FromKind, e.FromBranch, e.Auto, v.Below),
 		Resources:        envui.ResourcesSummary(cascade.Rows),
 		ResourcesChanged: changed,
-		Variables:        envui.VariablesSummary(set, secret),
+		Variables:        comp.VarsSummary(set, secret),
 		Placement:        envui.PlacementSummary(pv.PinName, pv.IngressName, exitOf(pv.Rungs)),
 	}
 	if write {
@@ -221,7 +221,7 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		return redirect(c, stackURL(cd)+"?drawer=env:"+en.ID+"&tab=settings&open=general")
+		return renamed(c, en.Name, urlOf(cd.s), stackURL(cd)+"/"+en.Slug, stackURL(cd), "drawer=env:"+en.ID+"&tab=settings&open=general")
 	}), write)
 	site.POST(e+"/from", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		_, err := h.orch.SetEnvFrom(
@@ -235,16 +235,16 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 	}), write)
 	site.POST(e+"/color", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		_, err := h.orch.SetEnvColor(c.Request().Context(), cd.s.Env.ID, c.FormValue("color"))
-		return "Colour saved.", err
+		return "Saved.", err
 	}), write)
 	site.POST(e+"/lock", func(c echo.Context) error {
 		cd, _ := h.cardOf(c, "env")
 		_, err := h.orch.SetEnvLock(c.Request().Context(), cd.s.Env.ID, c.FormValue("locked") != "")
-		return h.after(c, cd, cmp.Or(c.FormValue("tab"), "settings"), "Lock saved.", err)
+		return h.after(c, cd, cmp.Or(c.FormValue("tab"), "settings"), "Saved.", err)
 	}, a.Require("env.lock"))
 	site.POST(e+"/order", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		form, _ := c.FormParams()
-		return "Order saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
+		return "Saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
 	}), write)
 	site.POST(e+"/promote/:release", h.envAction("releases", func(c echo.Context, cd card) (string, error) {
 		j, err := h.orch.PromoteTicked(c.Request().Context(), middleware.Principal(c), cd.s.Env.ID, c.Param("release"), render.ApproveOpts(c).Ticked)

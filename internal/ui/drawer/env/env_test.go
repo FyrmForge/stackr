@@ -68,9 +68,9 @@ func TestSummaries(t *testing.T) {
 		}), "2 cores (from org) · 2048 MB · protect off (from server)"},
 		{ResourcesSummary([]c.SettingRowView{{Key: "cpu_limit", Value: "0"}, {Key: "protect", Value: "true"}}), "no CPU limit · protect on"},
 		{ResourcesSummary([]c.SettingRowView{{Key: "mem_limit_mb", Effective: "no limit", From: "server"}}), "no memory limit (from server)"},
-		{VariablesSummary(12, 4), "12 set, 4 secret"},
-		{VariablesSummary(2, 0), "2 set"},
-		{VariablesSummary(0, 0), "none set"},
+		{c.VarsSummary(12, 4), "8 params · 4 secrets"},
+		{c.VarsSummary(2, 0), "2 params · 0 secrets"},
+		{c.VarsSummary(1, 1), "0 params · 1 secret"},
 		{PlacementSummary("h4", "h4", ""), "runs on h4 · ingress h4 · own uplink"},
 		{PlacementSummary("eu", "cluster default", "h3"), "runs on eu · ingress cluster default · exits via h3"},
 	} {

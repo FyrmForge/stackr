@@ -38,6 +38,9 @@ type DrawerView struct {
 	EnvColor string // one of EnvColors, the dot before Location
 	Actions  templ.Component
 	Strip    templ.Component // full width under the header (the image-update strip)
+	// Wide keeps the drawer wide on every tab (a card with a wide tab), so
+	// it does not jump as the tabs change.
+	Wide bool
 }
 
 // TabLabel is how the strip spells a tab key.
@@ -53,6 +56,9 @@ func (v DrawerView) TabLabel(key string) string {
 
 templ Drawer(v DrawerView, body templ.Component) {
 	<div id={ DrawerRoot } class="[side-drawer[full]_&]:max-w-5xl [side-drawer[full]_&]:mx-auto [side-drawer[full]_&]:has-[[data-wide]]:max-w-none">
+		if v.Wide {
+			<span hidden data-wide></span>
+		}
 		<div class="sticky top-0 z-20 bg-rw-surface">
 		@panelHeader(v)
 		if v.Strip != nil {

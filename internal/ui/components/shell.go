@@ -43,6 +43,9 @@ type Shell struct {
 	// Settings is the drawer GET the bar's "Settings" opens (the level's
 	// own card); "" = no link.
 	Settings string
+	// SettingsPush is the page URL with that drawer open (?drawer=&tab=),
+	// pushed so a reload or Back keeps it.
+	SettingsPush string
 	// Actions is the top bar's right side (a canvas's create buttons);
 	// nil = none. It shows only where the bar does (Crumbs set).
 	Actions templ.Component

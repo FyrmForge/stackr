@@ -1,6 +1,9 @@
 package components
 
-import "strconv"
+import (
+	"context"
+	"strconv"
+)
 
 // FieldView is one labelled input. Disabled needs Why: a disabled control
 // always says why (config-managed, no permission, ...).
@@ -53,9 +56,9 @@ templ Field(f FieldView) {
 		if f.Disabled {
 			<p class="mt-1.5 text-xs text-rw-faint">{ f.Why }</p>
 		} else if f.Help != "" {
-			<p class="mt-1.5 text-xs text-rw-faint">{ f.Help }</p>
+			<p class="mt-1.5 text-xs text-rw-faint" data-hint>{ f.Help }</p>
 		}
-		@FieldError(f.Name, f.Error)
+		@FieldError(f.Name, KeptErr(ctx, f.Name, f.Error))
 	</div>
 }
 
@@ -64,7 +67,7 @@ templ fieldInput(f FieldView) {
 		id={ f.Name }
 		name={ f.Name }
 		type={ inputType(f.Type) }
-		value={ f.Value }
+		value={ fieldValue(ctx, f) }
 		placeholder={ f.Placeholder }
 		class={ "input", templ.KV("pr-14", f.Type == "password") }
 		required?={ f.Required }
@@ -94,6 +97,15 @@ templ FieldError(field string, err string) {
 // FieldErrorOOB renders an out-of-band swap for a field error (used with HTMX blur validation).
 templ FieldErrorOOB(field string, err string) {
 	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite" hx-swap-oob="true">{ err }</span>
+}
+
+// fieldValue is the stored value, or the typed one of a refused save; a
+// password is never echoed.
+func fieldValue(ctx context.Context, f FieldView) string {
+	if f.Type == "password" {
+		return f.Value
+	}
+	return Kept(ctx, f.Name, f.Value)
 }
 
 func inputType(t string) string {
@@ -187,10 +199,10 @@ templ DangerZone(warning, path, kept string) {
 // inherited value comes from. settings-find skips both when it searches.
 templ FieldMarks(changed bool, from string) {
 	if changed {
-		<span class="changed-dot" title="Changed from default" data-find-skip><span class="sr-only">Changed</span></span>
+		<span class="changed-dot" title="Changed from default" data-find-skip><span class="sr-only">{ " Changed" }</span></span>
 	}
 	if from != "" {
-		<span class="from-tag" data-find-skip>from { from }</span>
+		<span class="from-tag" data-find-skip><span class="sr-only">{ " " }</span>from { from }</span>
 	}
 }
 

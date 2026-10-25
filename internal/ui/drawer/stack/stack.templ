@@ -8,6 +8,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"strconv"
+	"strings"
 )
 
 var Tabs = []string{"releases", "settings"}
@@ -27,7 +28,7 @@ type SettingsView struct {
 	Branch        string
 	Path          string
 	Unbind        c.ConfirmView // Action "" = nothing bound, or read-only
-	Vars          int           // params and secrets set at this stack
+	Vars          string        // the Variables row's summary
 	VarsBody      templ.Component
 	Placement     string // the row's summary
 	PlacementBody templ.Component
@@ -40,6 +41,18 @@ type SettingsView struct {
 type OrderView struct {
 	Action string // POST ids...; "" = read-only
 	Rungs  []Rung
+	Moved  string // the move just made, "<id>:up" or "<id>:down"; "" = none
+}
+
+// Focus: after a move, the moved rung's button in the same direction gets
+// the focus back, or the other one once it reached the end.
+func (v OrderView) Focus(r Rung, dir string) bool {
+	id, moved, ok := strings.Cut(v.Moved, ":")
+	if !ok || id != r.ID {
+		return false
+	}
+	end := (moved == "up" && r.Up == nil) || (moved == "down" && r.Down == nil)
+	return (dir == moved) != end
 }
 
 type Rung struct {
@@ -57,7 +70,7 @@ type HostView struct {
 	Approve *access.ApproveView
 }
 
-type Option struct{ Value, Label string }
+type Option = c.Option
 
 func target() string { return "#" + c.DrawerRoot }
 
@@ -68,12 +81,13 @@ templ Settings(v SettingsView) {
 }
 
 templ general(v SettingsView) {
-	<form if v.Base != "" { hx-post={ v.Base + "/rename" } } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+	<form novalidate if v.Base != "" { hx-post={ v.Base + "/rename" } } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+		@c.KeepOpen("general")
 		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write access to this stack."})
 		<div data-field>
 			<label for="stack-slug" class="label">URL slug</label>
 			<input id="stack-slug" type="text" value={ v.Slug } class="input font-mono" disabled/>
-			<p class="mt-1.5 text-xs text-rw-faint">Follows the name: renaming moves every URL under this stack.</p>
+			<p class="mt-1.5 text-xs text-rw-faint" data-hint>Set from the name on rename, which moves every URL under this stack.</p>
 		</div>
 		if v.Base != "" {
 			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
@@ -96,9 +110,9 @@ templ order(v OrderView) {
 					if r.Detail != "" {
 						<span class="text-xs text-rw-faint">{ r.Detail }</span>
 					}
-					if v.Action != "" {
-						@move("↑", "Move "+r.Name+" up", v.Action, r.Up)
-						@move("↓", "Move "+r.Name+" down", v.Action, r.Down)
+					if v.Action != "" && len(v.Rungs) > 1 {
+						@move("↑", "Move "+r.Name+" up", v.Action, r.Up, r.ID+":up", v.Focus(r, "up"))
+						@move("↓", "Move "+r.Name+" down", v.Action, r.Down, r.ID+":down", v.Focus(r, "down"))
 					}
 				</li>
 			}
@@ -106,13 +120,17 @@ templ order(v OrderView) {
 	}
 }
 
-templ move(icon, label, action string, ids []string) {
+// move posts the order after one move; moved names it, so the answer puts
+// the focus back on the moved rung's button (focus).
+templ move(icon, label, action string, ids []string, moved string, focus bool) {
 	if ids != nil {
 		<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML">
+			@c.KeepOpen("order")
+			<input type="hidden" name="moved" value={ moved }/>
 			for _, id := range ids {
 				<input type="hidden" name="ids" value={ id }/>
 			}
-			<button type="submit" class="btn btn-ghost btn-sm" aria-label={ label } title={ label }>{ icon }</button>
+			<button type="submit" class="btn btn-ghost btn-sm" aria-label={ label } title={ label } autofocus?={ focus }>{ icon }</button>
 		</form>
 	} else {
 		<span class="btn btn-ghost btn-sm invisible" aria-hidden="true">{ icon }</span>
@@ -121,22 +139,14 @@ templ move(icon, label, action string, ids []string) {
 
 templ config(v SettingsView) {
 	<p class="text-xs text-rw-faint">Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p>
-	<form if v.Base != "" { hx-post={ v.Base + "/config" } } hx-target={ target() } hx-swap="outerHTML">
+	<form novalidate if v.Base != "" { hx-post={ v.Base + "/config" } } hx-target={ target() } hx-swap="outerHTML">
+		@c.KeepOpen("config")
 		<fieldset disabled?={ v.Base == "" } class="space-y-4">
 			<legend class="sr-only">Config repository</legend>
-			<div data-field>
-				<label for="connector" class="label">Connector</label>
-				<select id="connector" name="connector" class="input">
-					<option value="">None (a public repository)</option>
-					for _, o := range v.Connectors {
-						<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
-					}
-				</select>
-				<p class="mt-1.5 text-xs text-rw-faint">Which connector supplies the credentials.</p>
-			</div>
-			@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/infra", Help: "owner/name or the https URL, either works."})
-			@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})
-			@c.Field(c.FieldView{Name: "path", Label: "Config path", Value: v.Path, Placeholder: "stackr-compose.yml"})
+			if v.Base == "" {
+				<p class="text-xs text-rw-faint">Binding a repository needs write access to this stack.</p>
+			}
+			@c.ConfigRepoFields(c.ConfigRepoView{ID: "stack-config", Connectors: v.Connectors, Connector: v.Connector, Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-compose.yml", Placeholder: "acme/infra"})
 			if v.Base != "" {
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			}
@@ -150,7 +160,7 @@ templ config(v SettingsView) {
 }
 
 templ resources(f c.SettingsFormView) {
-	<p class="text-xs text-rw-faint">Applies to every service here that does not set its own.</p>
+	<p class="text-xs text-rw-faint">Tiles below use these unless they set their own.</p>
 	@c.SettingsForm(f)
 }
 

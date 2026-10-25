@@ -287,7 +287,8 @@ func (h *handler) saved(c echo.Context, field string, err error, typed instance.
 		form.Errors = map[string]string{field: inv.Msg}
 		err = nil
 	}
-	return h.instance(c, "settings", "saved", err, form)
+	form.Open = map[string]string{"allow": "allow", "env_pairs": "pairs"}[field] // the row saved stays open
+	return h.instance(c, "settings", "Saved.", err, form)
 }
 
 func nonBlank(list []string) []string {
@@ -385,6 +386,7 @@ func settingsView(c echo.Context, m service.ManagedInstance, form instance.Setti
 	s := scope(c)
 	form.Allow = m.Allow
 	form.CanAllow = can(c, s, "managed.allow")
+	form.Open = cmp.Or(form.Open, c.FormValue("open"))
 	if form.Add == "" {
 		form.Add = s.Org.Slug + ":"
 	}
@@ -459,7 +461,7 @@ func (h *handler) Slice(c echo.Context) error {
 // POST …/-/slices/:tile/default-access
 func (h *handler) SliceDefaultAccess(c echo.Context) error {
 	_, err := h.orch.SetSliceDefaultAccess(c.Request().Context(), scope(c).Tile.ID, c.FormValue("access"))
-	return h.slice(c, "saved", err)
+	return h.slice(c, "Saved.", err)
 }
 
 // POST …/-/slices/:tile/access: consumer (a tile slug of this env) and
@@ -478,13 +480,13 @@ func (h *handler) SliceAccess(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "no such consumer in this env")
 	}
 	_, err = h.orch.SetSliceAccess(ctx, ts[i].ID, s.Tile.Slug, c.FormValue("access"))
-	return h.slice(c, "saved", err)
+	return h.slice(c, "Saved.", err)
 }
 
 // POST …/-/slices/:tile/on-remove
 func (h *handler) SliceOnRemove(c echo.Context) error {
 	_, err := h.orch.SetSliceOnRemove(c.Request().Context(), scope(c).Tile.ID, c.FormValue("on_remove"))
-	return h.slice(c, "saved", err)
+	return h.slice(c, "Saved.", err)
 }
 
 // POST …/-/slices/:tile/delete

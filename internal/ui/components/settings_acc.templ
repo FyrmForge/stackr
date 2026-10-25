@@ -50,22 +50,28 @@ templ SettingsAccordion(v SettingsAcc) {
 		}
 		<div class="space-y-2">
 			for _, r := range v.Rows {
-				<details id={ v.ID + "-" + r.Key } name={ v.ID } class="panel group" data-acc={ r.Key } data-changed?={ r.Changed } open?={ r.Key == v.Open }>
+				<details id={ v.ID + "-" + r.Key } name={ v.ID } class="panel group" data-acc={ r.Key } data-changed?={ r.Changed } open?={ r.Key == accOpen(ctx, v.Rows, v.Open) }>
 					<summary id={ v.ID + "-" + r.Key + "-head" } class="flex items-center gap-3 px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-						<span class="text-sm font-semibold text-rw-text w-36 shrink-0" data-acc-title>
-							{ r.Title }
-							@FieldMarks(r.Changed, "")
+						<span class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center sm:gap-3">
+							<span class="text-sm font-semibold text-rw-text sm:w-36 shrink-0" data-acc-title>
+								{ r.Title }
+								@FieldMarks(r.Changed, "")
+							</span>
+							<span class="flex-1 min-w-0 truncate text-sm text-rw-muted">{ r.Summary }</span>
 						</span>
-						<span class="flex-1 min-w-0 truncate text-sm text-rw-muted">{ r.Summary }</span>
 						<svg class="h-4 w-4 shrink-0 text-rw-faint transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
 					</summary>
 					<div class="px-4 pb-5 pt-4 space-y-4 border-t border-rw-border">
-						if r.Body != nil {
-							@r.Body
-						}
+						@accBody(r.Key, r.Body)
 					</div>
 				</details>
 			}
 		</div>
 	</settings-find>
+}
+
+// KeepOpen names the accordion row a form sits in: the answer, saved or
+// refused, opens that row again.
+templ KeepOpen(row string) {
+	<input type="hidden" name="open" value={ row }/>
 }

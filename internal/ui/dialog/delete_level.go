@@ -13,7 +13,7 @@ func DeleteOrg(name, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete org",
 		Title:   "Delete " + name + "?",
-		Warning: "Its members, keys, connectors and params go. Refused while it has stacks.",
+		Warning: "Its members, keys, connectors and variables go. Refused while it has stacks.",
 		Kept:    []string{"backups already in a destination", "its volumes, for the orphan retention; a last backup is taken before they go"},
 		Word:    name,
 		Action:  action,
@@ -27,7 +27,7 @@ func DeleteStack(name, slug, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete stack",
 		Title:   "Delete " + name + "?",
-		Warning: "Its tiles, envs, releases and params go.",
+		Warning: "Its tiles, envs, releases and variables go.",
 		Kept:    []string{"backups already in a destination", "its volumes, for the orphan retention; a last backup is taken before they go"},
 		Word:    slug,
 		Action:  action,
@@ -40,7 +40,7 @@ func DeleteEnv(name, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete env",
 		Title:   "Delete " + name + "?",
-		Warning: "Its variables go and the ladder closes the gap. Refused while it has tiles.",
+		Warning: "Its variables go, and releases then move straight from the env below to the one above. Refused while it has tiles.",
 		Kept:    []string{"the stack's releases", "its volumes, for the orphan retention; a last backup is taken before they go"},
 		Word:    name,
 		Action:  action,

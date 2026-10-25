@@ -46,7 +46,7 @@ func TestSettingsRows(t *testing.T) {
 		Base:       "/o/s/-/drawer",
 		Open:       "order",
 		Name:       "shop",
-		Connectors: []Option{{"k1", "gh"}},
+		Connectors: []Option{{Value: "k1", Label: "gh"}},
 		Connector:  "k1",
 		Repo:       "acme/infra",
 		Order: OrderView{Action: "/o/s/-/drawer/order", Rungs: []Rung{
@@ -96,8 +96,6 @@ func TestSummaries(t *testing.T) {
 		{ConfigSummary("acme/infra", "main", "deploy/stack.yml"), "acme/infra · main · deploy/stack.yml"},
 		{ResourcesSummary([]c.SettingRowView{{Key: "cpu_limit"}}), "inherits org"},
 		{ResourcesSummary([]c.SettingRowView{{Value: "2"}, {Secret: true, Effective: "set"}, {}}), "2 set here"},
-		{VarsSummary(0), "none set"},
-		{VarsSummary(5), "5 set"},
 		{PlacementSummary("", "", ""), "inherits org (default)"},
 		{PlacementSummary("", "h4", ""), "runs on h4 (from org)"},
 		{PlacementSummary("h3", "h3", "h4"), "runs on h3 · ingress h4"},

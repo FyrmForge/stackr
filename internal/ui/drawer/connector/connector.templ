@@ -17,10 +17,14 @@ type SettingsView struct {
 	Host       string
 	InstallURL string // the provider's install page; "" = setup not finished
 	Shared     bool   // a server connector: read-only here
+	Admin      bool   // the viewer is a server admin: Server settings changes it
 	Delete     c.ConfirmView
 }
 
 func renameWhy(v SettingsView) string {
+	if v.Shared && v.Admin {
+		return v.Label + " connector on " + v.Host + ". Shared from the server: rename it in Server settings."
+	}
 	if v.Shared {
 		return v.Label + " connector on " + v.Host + ". Only a server admin can rename it."
 	}
@@ -59,6 +63,9 @@ templ Settings(v SettingsView) {
 					<button type="submit" class="btn btn-primary btn-sm">Rename</button>
 				}
 			</form>
+			if v.Shared && v.Admin {
+				<a href="/-/admin/connectors" class="link text-sm mt-3 inline-block">Open Server settings, Connectors</a>
+			}
 		}
 		if v.Base != "" {
 			@c.DangerZone("A stack or tile that clones through it stops building.", v.Host, "It stays installed on "+v.Label+"; uninstall it there too.") {

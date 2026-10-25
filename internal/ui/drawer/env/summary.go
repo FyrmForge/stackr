@@ -98,23 +98,14 @@ func limit(key, v string) string {
 	switch {
 	case v == "0":
 		return "no limit"
+	case key == "cpu_limit" && v == "1":
+		return "1 core"
 	case key == "cpu_limit":
 		return v + " cores"
 	}
 	return v + " MB"
 }
 
-// VariablesSummary: "12 set, 4 secret", or "none set".
-func VariablesSummary(set, secret int) string {
-	if set == 0 {
-		return "none set"
-	}
-	s := strconv.Itoa(set) + " set"
-	if secret > 0 {
-		s += ", " + strconv.Itoa(secret) + " secret"
-	}
-	return s
-}
 
 // PlacementSummary: "runs on h4 · ingress h4 · exits via h3". exit "" is
 // the env's own uplink.

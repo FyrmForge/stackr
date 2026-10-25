@@ -41,7 +41,7 @@ const openKey = "open-row"
 // openRow is the accordion row open on load: ?open=, else the action's.
 func openRow(c echo.Context) string {
 	o, _ := c.Get(openKey).(string)
-	return cmp.Or(c.QueryParam("open"), o)
+	return cmp.Or(c.FormValue("open"), o)
 }
 
 // orgTabs are the tabs the viewer's role can use; the rest are not drawn.
@@ -134,7 +134,7 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	if !can(c, cd.s, "orgdefaults.set") {
 		cascade.ReadOnly, cascade.Why = true, "Changing defaults needs an owner of this organization."
 	}
-	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade, Defaults: cascadeSummary(cascade.Rows), Open: openRow(c)}
+	v := orgui.SettingsView{Name: og.Name, Slug: og.Slug, Cascade: cascade, Defaults: cascadeSummary(cascade.Rows), Open: openRow(c), Refresh: f.Base + "?tab=general"}
 	if v.Tiers, err = h.tiersView(c, cd, f.Base); err != nil {
 		return nil, err
 	}
@@ -387,7 +387,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		return redirect(c, "/?drawer=org:"+n.ID+"&tab=general&open=name") // org cards are on home
+		return renamed(c, n.Name, "/"+og.Slug, "/"+n.Slug, "/", "drawer=org:"+n.ID+"&tab=general&open=name") // org cards are on home
 	}), owner)
 	site.POST(o+"/delete", h.orgAction("general/delete", func(c echo.Context, og *service.Org) (string, error) {
 		if err := h.orch.DeleteOrg(c.Request().Context(), og.ID); err != nil {
@@ -486,7 +486,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	}), tw)
 	site.POST(o+"/tiers/order", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		form, _ := c.FormParams()
-		return "Order saved.", h.orch.ReorderTiers(c.Request().Context(), og.ID, form["slugs"])
+		return "Saved.", h.orch.ReorderTiers(c.Request().Context(), og.ID, form["slugs"])
 	}), tw)
 	site.POST(o+"/tiers/:tier/rename", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		_, err := h.orch.RenameTier(c.Request().Context(), og.ID, c.Param("tier"), c.FormValue("name"))
@@ -497,7 +497,7 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	}), tw)
 	site.POST(o+"/tiers/:tier/lock", h.orgAction("general/tiers", func(c echo.Context, og *service.Org) (string, error) {
 		_, err := h.orch.SetTierLock(c.Request().Context(), og.ID, c.Param("tier"), c.FormValue("locked") != "")
-		return "Lock saved.", err
+		return "Saved.", err
 	}), tw)
 	h.mountOrgConfig(site, a)
 	h.mountDNS(site, a)

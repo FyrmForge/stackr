@@ -7,6 +7,7 @@ package tile
 
 import (
 	"cmp"
+	"context"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,7 +56,7 @@ type View struct {
 	Base     string // the drawer URL: tabs add ?tab=, actions add /<verb>
 	Tab      string
 	Error    string // a refused action's message
-	Note     string // what an action did ("redeploy queued")
+	Note     string // what an action did ("Saved. A redeploy is queued.")
 	Status   string // a TileBadge word; "" = unknown
 	Stopped  bool   // offer Start, not Stop / Restart
 	Paused   bool   // cron: offer Resume
@@ -74,7 +75,7 @@ type View struct {
 // falls back to its first tab.
 func Tabs(kind string) []string {
 	if kind == "cron" || kind == "function" {
-		return []string{"runs", "logs", "metrics", "jobs", "settings"}
+		return []string{"runs", "jobs", "logs", "metrics", "settings"}
 	}
 	return []string{"status", "jobs", "logs", "metrics", "settings"}
 }
@@ -239,10 +240,9 @@ type ImageView struct {
 // access, ingress and exits) sits in its row.
 type SettingsView struct {
 	Name, Kind string
-	Vals       map[string]string // form key → value; a key the kind does not carry is absent
-	Errors     map[string]string // form key → why the save was refused
+	Vals       map[string]string // form key → stored value; a key the kind does not carry is absent
 	From       map[string]string // an empty limit: the rung it inherits from ("org")
-	Inherit    map[string]string // an empty limit: the value it inherits ("1 cores")
+	Inherit    map[string]string // an empty limit: the value it inherits ("2 cores")
 	Open       string            // the row open on load; "" = none
 	Domains    *DomainsView      // nil = the kind has no endpoint
 	Image      *ImageView        // nil = nothing pulled to watch
@@ -251,6 +251,39 @@ type SettingsView struct {
 	Volumes    []VolumeRow
 	Placement  string // the ingress and exits fragment's URL
 	Ingress    string // where traffic comes in, "h4 (from env)"; "" = not known
+}
+
+// rowRefused: the refusal drawn here came from a row's settings form (it
+// posts fields); a domain or variables form in the same row does not, so
+// its port is never the container port's.
+func rowRefused(ctx context.Context) bool {
+	r := c.RefusedHere(ctx)
+	return r != nil && r.Vals.Has("fields")
+}
+
+// kept is a field's value: what was typed when its row's save was
+// refused, else stored. Summaries and marks read Vals, never this.
+func (s SettingsView) kept(ctx context.Context, key string) string {
+	if rowRefused(ctx) {
+		return c.Kept(ctx, key, s.Vals[key])
+	}
+	return s.Vals[key]
+}
+
+// on is a checkbox's state, as kept.
+func (s SettingsView) on(ctx context.Context, key string) bool {
+	if rowRefused(ctx) {
+		return c.KeptOn(ctx, key, s.Vals[key] == "1")
+	}
+	return s.Vals[key] == "1"
+}
+
+// keptErr is the refusal's reason under the field it names.
+func keptErr(ctx context.Context, key string) string {
+	if rowRefused(ctx) {
+		return c.KeptErr(ctx, key, "")
+	}
+	return ""
 }
 
 // Has: the kind carries this key, so the form draws its field.
@@ -296,6 +329,7 @@ var defaults = map[string]string{
 	"endpoint_protocol": "http",
 	"dockerfile":        "Dockerfile",
 	"build_context":     ".",
+	"timeout_minutes":   "30", // the tile leaf's DefaultTimeout
 }
 
 // identity keys say what the tile is, not how it differs: never marked.

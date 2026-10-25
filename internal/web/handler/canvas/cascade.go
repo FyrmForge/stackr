@@ -63,6 +63,8 @@ func limitWord(key, v string) string {
 		return v
 	case v == "0" || v == "":
 		return "no limit"
+	case key == "cpu_limit" && v == "1":
+		return "1 core"
 	case key == "cpu_limit":
 		return v + " cores"
 	}
@@ -276,6 +278,9 @@ func (h *handler) saveRung(kind string, own func(service.Scope) string, set func
 			return middleware.HTTPError(err)
 		}
 		if actErr != nil {
+			// the rows keep what was typed (never the password); the reason on its row
+			r := &comp.Refused{Vals: form}
+			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), r)))
 			if bad, invalid := errs.IsInvalid(actErr); invalid {
 				mark(&v, bad.Field, bad.Msg)
 			} else {
@@ -285,7 +290,7 @@ func (h *handler) saveRung(kind string, own func(service.Scope) string, set func
 		}
 		v.Note = "Nothing changed."
 		if changed {
-			v.Note = "Saved. Running tiles below this level redeploy with the new settings."
+			v.Note = "Saved. Running tiles below redeploy with it."
 		}
 		return respond.HTML(c, http.StatusOK, comp.SettingsForm(v))
 	}

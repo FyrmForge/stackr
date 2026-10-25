@@ -42,14 +42,11 @@ templ Registry(v RegistryView) {
 
 templ registryRepos(v RegistryView) {
 	<div>
-		<p class="text-xs text-rw-faint mb-3">Push your own images and deploy them as tiles.</p>
+		<p class="text-xs text-rw-faint mb-3" data-hint>Push your own images to a repository here and deploy them as tiles.</p>
 		if v.Host == "" {
 			<p class="text-sm text-rw-faint">Set the panel domain first: the registry lives at registry.&lt;panel domain&gt;.</p>
 		} else {
-			<pre class="panel overflow-x-auto px-4 py-3 font-mono text-xs text-rw-text">
-				$ stackr registry login
-				$ docker push { v.Host }/{ v.Org }/&lt;stack&gt;/&lt;tile&gt;:&lt;tag&gt;
-			</pre>
+			<pre class="panel overflow-x-auto px-4 py-3 font-mono text-xs text-rw-text">{ "$ stackr registry login\n$ docker push " + v.Host + "/" + v.Org + "/<stack>/<tile>:<tag>" }</pre>
 			<p class="mt-2 text-xs text-rw-faint">Tokens last 12 hours. Members can pull; owners can push.</p>
 		}
 	</div>
@@ -60,26 +57,28 @@ templ registryRepos(v RegistryView) {
 		} else if len(v.Repos) == 0 {
 			<p class="text-sm text-rw-faint">No images yet.</p>
 		} else {
-			<table class="w-full text-left text-sm">
-				<thead class="text-xs text-rw-faint">
-					<tr>
-						<th class="pb-2 font-normal">Repository</th>
-						<th class="pb-2 font-normal">Tags</th>
-						<th class="pb-2 font-normal">Latest</th>
-						<th class="pb-2 text-right font-normal">Size</th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, r := range v.Repos {
-						<tr class="border-t border-rw-border cursor-pointer hover:bg-rw-surface" hx-get={ r.Open } hx-target={ target() } hx-swap="outerHTML">
-							<td class="py-2 font-mono text-rw-text"><button type="button" class="font-mono hover:underline">{ r.Name }</button></td>
-							<td class="py-2 text-rw-muted">{ r.Tags }</td>
-							<td class="py-2 font-mono text-xs text-rw-muted">{ r.Latest }</td>
-							<td class="py-2 text-right text-rw-muted">{ r.Size }</td>
+			<div class="overflow-x-auto">
+				<table class="w-full text-left text-sm">
+					<thead class="text-xs text-rw-faint">
+						<tr>
+							<th class="pb-2 pr-3 font-normal">Repository</th>
+							<th class="pb-2 pr-3 font-normal">Tags</th>
+							<th class="pb-2 pr-3 font-normal hidden sm:table-cell">Latest</th>
+							<th class="pb-2 text-right font-normal">Size</th>
 						</tr>
-					}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						for _, r := range v.Repos {
+							<tr class="border-t border-rw-border hover:bg-rw-surface">
+								<td class="py-2 pr-3 font-mono text-rw-text break-all"><button type="button" class="font-mono text-left hover:underline" hx-get={ r.Open } hx-target={ target() } hx-swap="outerHTML">{ r.Name }</button></td>
+								<td class="py-2 pr-3 text-rw-muted">{ r.Tags }</td>
+								<td class="py-2 pr-3 font-mono text-xs text-rw-muted hidden sm:table-cell">{ r.Latest }</td>
+								<td class="py-2 text-right text-rw-muted whitespace-nowrap">{ r.Size }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
 		}
 	</div>
 }

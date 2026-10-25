@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestSettingsAccordion(t *testing.T) {
 		`id="tile-settings-general" name="tile-settings" class="panel group" data-acc="general">`,
 		`8080 http, 2 domains</span>`,
 		`<div data-field data-changed>`,
-		`class="from-tag" data-find-skip>from env</span>`,
+		`class="from-tag" data-find-skip><span class="sr-only"> </span>from env</span>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q in\n%s", want, html)
@@ -93,5 +94,36 @@ func TestDangerZone(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q in\n%s", want, html)
 		}
+	}
+}
+
+// A refused save draws its row open with what was typed: the reason under
+// the field it names, or over the row when no field there takes it. The
+// other rows draw their stored values; the summaries are the caller's.
+func TestAccordionRefused(t *testing.T) {
+	acc := func(r *Refused) string {
+		var b strings.Builder
+		v := SettingsAcc{ID: "s", Open: "a", Rows: []AccRow{
+			{Key: "a", Title: "A", Summary: "stored a", Body: Field(FieldView{Name: "name", Label: "Name", Value: "old"})},
+			{Key: "b", Title: "B", Summary: "stored b", Body: Field(FieldView{Name: "name", Label: "Name", Value: "kept"})},
+		}}
+		if err := SettingsAccordion(v).Render(WithRefused(context.Background(), r), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	html := acc(&Refused{Row: "b", Field: "name", Msg: "Give it a name.", Vals: url.Values{"name": {"typed"}}})
+	a, b, _ := strings.Cut(html, `id="s-b"`)
+	for _, w := range []string{`data-acc="b" open`, `value="typed"`, `data-has-error="true" aria-live="polite">Give it a name.`, "stored b"} {
+		if !strings.Contains(b, w) {
+			t.Errorf("refused row lacks %q\n%s", w, b)
+		}
+	}
+	if strings.Contains(a, " open>") || !strings.Contains(a, `value="old"`) || strings.Contains(a, "Give it a name.") || strings.Contains(b, `role="alert"`) {
+		t.Errorf("the other row is touched, or the reason shows twice\n%s", html)
+	}
+	html = acc(&Refused{Row: "b", Field: "replicas", Msg: "One replica only.", Vals: url.Values{"name": {"typed"}}})
+	if !strings.Contains(html, `role="alert">One replica only.</div>`) || strings.Count(html, "One replica only.") != 1 {
+		t.Errorf("a reason no field takes goes over the row, once\n%s", html)
 	}
 }
