@@ -402,6 +402,9 @@
           "kind": {
             "type": "string"
           },
+          "master_gen": {
+            "type": "integer"
+          },
           "object_key": {
             "type": "string"
           },
@@ -449,6 +452,7 @@
           "error",
           "created_at",
           "recovery_gen",
+          "master_gen",
           "dest"
         ],
         "type": "object"
@@ -1098,6 +1102,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "note": {
+            "type": "string"
           },
           "ok": {
             "type": "boolean"
