@@ -2,6 +2,8 @@ package panel
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -85,5 +87,90 @@ func TestPullSkipsPresent(t *testing.T) {
 		if c.Method == "Pull" {
 			t.Error("pulled an image already present")
 		}
+	}
+}
+
+// spy reads the database files at the moments the swap hands over to a container.
+type spy struct {
+	*dockerfake.Fake
+	db      string
+	atStart []byte
+	atRun   os.FileMode
+}
+
+func (s *spy) Start(ctx context.Context, id string) error {
+	s.atStart, _ = os.ReadFile(s.db)
+	return s.Fake.Start(ctx, id)
+}
+
+func (s *spy) Run(ctx context.Context, sp docker.ContainerSpec) (string, error) {
+	if fi, err := os.Stat(s.db + ".pre-0.2.0"); err == nil {
+		s.atRun = fi.Mode().Perm()
+	}
+	// The new panel migrates the database and leaves its own wal behind.
+	_ = os.WriteFile(s.db, []byte("migrated"), 0o600)
+	_ = os.WriteFile(s.db+"-wal", []byte("new wal"), 0o600)
+	return s.Fake.Run(ctx, sp)
+}
+
+func swapDB(t *testing.T, health string) (*spy, string, error) {
+	t.Helper()
+	db := filepath.Join(t.TempDir(), "stackr.db")
+	for suf, body := range map[string]string{"": "old db", "-wal": "old wal"} {
+		if err := os.WriteFile(db+suf, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := dockerfake.New()
+	fake.RunID = "new"
+	fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+	fake.Details = map[string]docker.Detail{"new": {Running: true, Health: health}}
+	sp := &spy{Fake: fake, db: db}
+	l := New(sp)
+	l.Poll, l.Deadline = time.Millisecond, 20*time.Millisecond
+	err := l.Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0", Env: []string{"DATABASE_PATH=" + db}})
+	return sp, db, err
+}
+
+// A failed gate puts the old database back before the old panel starts, and
+// the new panel's wal does not follow it.
+func TestSwapFailRestoresDatabase(t *testing.T) {
+	sp, db, err := swapDB(t, "unhealthy")
+	if err == nil {
+		t.Fatal("swap passed")
+	}
+	if string(sp.atStart) != "old db" {
+		t.Errorf("db at old start = %q", sp.atStart)
+	}
+	if b, _ := os.ReadFile(db + "-wal"); string(b) != "old wal" {
+		t.Errorf("wal = %q", b)
+	}
+	if m, _ := filepath.Glob(db + ".pre-*"); len(m) != 0 {
+		t.Errorf("copy left after a restore: %v", m)
+	}
+}
+
+// A pass deletes the copy; the copy was 0600 while it existed.
+func TestSwapPassDropsCopy(t *testing.T) {
+	sp, db, err := swapDB(t, "healthy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp.atRun != 0o600 {
+		t.Errorf("copy mode = %v", sp.atRun)
+	}
+	if m, _ := filepath.Glob(db + ".pre-*"); len(m) != 0 {
+		t.Errorf("copy left after a pass: %v", m)
+	}
+}
+
+func TestLaunchMountsDataDir(t *testing.T) {
+	fake := dockerfake.New()
+	err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0", Env: []string{"DATABASE_PATH=/srv/stackr/stackr.db"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fake.Specs[0].Volumes, "/srv/stackr:/srv/stackr") {
+		t.Errorf("volumes = %v", fake.Specs[0].Volumes)
 	}
 }

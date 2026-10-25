@@ -553,6 +553,11 @@ var logCapWait, logCapPoll = 5 * time.Minute, 2 * time.Second
 // the old panel behind. The build is recorded before the run, so a Docker
 // that refuses the cap is not restarted at every boot. It only warns.
 func (o *Orchestrator) controllerLogCap(ctx context.Context) {
+	// A swap copy left beside the database means a helper died mid-swap.
+	// Kept: it may be the only database the old panel can open.
+	for _, f := range panel.Leftovers(o.cfg.DBPath) {
+		slog.Warn("upgrade: database copy left from an interrupted swap, kept", "file", f)
+	}
 	if o.cfg.PanelSpec == nil || o.cfg.FakeHost != "" || o.cfg.Version == "" {
 		return // not an installed panel: no host to touch
 	}
