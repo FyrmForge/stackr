@@ -58,3 +58,31 @@ func TestOffers(t *testing.T) {
 		}
 	}
 }
+
+// An idle move's dialog asks for no typed word.
+func TestMoveDialogIdleTypesNothing(t *testing.T) {
+	v := ui.MoveView{Action: "/m", Env: "prod", From: "a", To: "b", OK: true, Idle: true, Vals: `{}`}
+	if body := render(t, ui.Move(v)); strings.Contains(body, "to confirm") {
+		t.Error("an idle move asks for a typed word")
+	}
+	v.Idle = false
+	if body := render(t, ui.Move(v)); !strings.Contains(body, "to confirm") {
+		t.Error("a busy move lost its typed word")
+	}
+}
+
+// The DNS list gives each hand-managed record a copy button, lists managed
+// hosts apart with a ticked repoint, and offers Check again.
+func TestDNSList(t *testing.T) {
+	body := render(t, ui.DNS(ui.DNSView{
+		Hand:        []ui.DNSHost{{Host: "shop.example.com", Rows: []ui.DNSRow{{Type: "A", Name: "shop.example.com", Value: "198.51.100.2"}}, Now: "198.51.100.1"}},
+		Managed:     []ui.DNSHost{{Host: "app.acme.dev", Old: "198.51.100.1", New: "198.51.100.2", OK: true}},
+		Connectors:  "Namecheap",
+		CheckAction: "/acme/-/placement/dnscheck", CheckVals: `{}`,
+	}))
+	for _, w := range []string{`data-copy="198.51.100.2"`, "Repointed for you", "198.51.100.1 to 198.51.100.2", "Let Namecheap repoint these", `name="repoint"`, "checked", "Check again", "Matches"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("dns list lacks %q", w)
+		}
+	}
+}

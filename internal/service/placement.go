@@ -618,7 +618,7 @@ func (o *Orchestrator) PinScope(ctx context.Context, by *Principal, kind, id, na
 		return nil, err
 	}
 	if len(plans) > 0 {
-		if confirm != o.scopeSlug(ctx, kind, id) && !pmIdle(plans) {
+		if confirm != o.scopeSlug(ctx, kind, id) && pmAsks(plans) {
 			return nil, &MoveNeeded{Plans: plans}
 		}
 		for _, pl := range plans {
@@ -874,7 +874,7 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 		if err != nil {
 			return nil, err
 		}
-		if confirm != e.Slug && !pmIdle([]PlacementMovePlan{plan}) {
+		if confirm != e.Slug && pmAsks([]PlacementMovePlan{plan}) {
 			return nil, &MoveNeeded{Plans: []PlacementMovePlan{plan}}
 		}
 		j, err := o.MoveEnvToPlacement(ctx, by, envID, p.Name, e.Slug)
@@ -899,8 +899,9 @@ func (o *Orchestrator) pinEnv(ctx context.Context, by *Principal, envID string, 
 // IngressHostsMove is PickIngress's refusal when the pick sends hosts to
 // another proxy: their DNS must point there or they stop answering.
 type IngressHostsMove struct {
-	Hosts []string
-	To    string // the placement, or "the default ingress"
+	Hosts []string // the hand-managed ones
+	To    string   // the placement, or "the default ingress"
+	DNS   DNSMove
 }
 
 func (e *IngressHostsMove) Error() string {
@@ -935,16 +936,24 @@ func (o *Orchestrator) PickIngress(ctx context.Context, by *Principal, kind, id,
 		pick = p.ID
 	}
 	if !confirm {
-		hosts, err := o.ingressHostsMoving(ctx, kind, id, pick)
+		dns, err := o.ingressMoveDNS(ctx, kind, id, pick)
 		if err != nil {
 			return err
 		}
-		if len(hosts) > 0 {
+		if !dns.Empty() {
 			to := name
 			if to == "" {
 				to = "the inherited ingress"
 			}
-			return &IngressHostsMove{Hosts: hosts, To: to}
+			return &IngressHostsMove{Hosts: dns.HandHosts(), To: to, DNS: dns}
+		}
+	} else if keepsDNS(ctx) {
+		dns, err := o.ingressMoveDNS(ctx, kind, id, pick)
+		if err != nil {
+			return err
+		}
+		if err := o.keepManaged(ctx, dns); err != nil {
+			return err
 		}
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
@@ -1044,11 +1053,12 @@ func (o *Orchestrator) ResolveExits(ctx context.Context, tileID string) (exits.R
 }
 
 // ingressOver is a scope's ingress pick as it would be.
-type ingressOver struct{ kind, id, pick string }
+// envNode, when set, stands in for the env's own node (an env move's target).
+type ingressOver struct{ kind, id, pick, envNode string }
 
-// ingressHostsMoving are the hosts of the scope's tiles whose ingress node
+// ingressMoveDNS are the hosts of the scope's tiles whose ingress node
 // changes when the scope's pick becomes pick.
-func (o *Orchestrator) ingressHostsMoving(ctx context.Context, kind, id, pick string) ([]string, error) {
+func (o *Orchestrator) ingressMoveDNS(ctx context.Context, kind, id, pick string) (DNSMove, error) {
 	var tileIDs []string
 	switch kind {
 	case ScopeTile:
@@ -1058,7 +1068,7 @@ func (o *Orchestrator) ingressHostsMoving(ctx context.Context, kind, id, pick st
 		if kind == ScopeEnv {
 			e, err := o.store.Environments.Get(ctx, id)
 			if err != nil {
-				return nil, err
+				return DNSMove{}, err
 			}
 			envs = []store.Environment{e}
 		} else {
@@ -1066,13 +1076,13 @@ func (o *Orchestrator) ingressHostsMoving(ctx context.Context, kind, id, pick st
 			if kind == ScopeOrg {
 				var err error
 				if sts, err = o.store.Stacks.ListByOrg(ctx, id); err != nil {
-					return nil, err
+					return DNSMove{}, err
 				}
 			}
 			for _, st := range sts {
 				es, err := o.store.Environments.ListByStack(ctx, st.ID)
 				if err != nil {
-					return nil, err
+					return DNSMove{}, err
 				}
 				envs = append(envs, es...)
 			}
@@ -1080,49 +1090,22 @@ func (o *Orchestrator) ingressHostsMoving(ctx context.Context, kind, id, pick st
 		for _, e := range envs {
 			ts, err := o.store.Tiles.ListByEnv(ctx, e.ID)
 			if err != nil {
-				return nil, err
+				return DNSMove{}, err
 			}
 			for _, t := range ts {
 				tileIDs = append(tileIDs, t.ID)
 			}
 		}
 	}
-	def, err := o.DefaultIngress(ctx)
-	if err != nil {
-		return nil, err
-	}
-	or := func(n string) string {
-		if n == "" {
-			return def
-		}
-		return n
-	}
-	var hosts []string
+	to := map[string]string{}
 	for _, tid := range tileIDs {
-		before, err := o.ingressWith(ctx, tid, nil)
+		after, err := o.ingressWith(ctx, tid, &ingressOver{kind: kind, id: id, pick: pick})
 		if err != nil {
-			return nil, err
+			return DNSMove{}, err
 		}
-		after, err := o.ingressWith(ctx, tid, &ingressOver{kind, id, pick})
-		if err != nil {
-			return nil, err
-		}
-		if or(before) == or(after) {
-			continue
-		}
-		ds, err := o.store.Domains.ListByTile(ctx, tid)
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range ds {
-			if o.dnsFollows(ctx, tid, d.Host) {
-				continue // a managed domain: stackr repoints its records
-			}
-			hosts = append(hosts, d.Host)
-		}
+		to[tid] = after
 	}
-	slices.Sort(hosts)
-	return slices.Compact(hosts), nil
+	return o.DNSForMove(ctx, to)
 }
 
 // ingressPick is the scope's own ingress pick as a placement id ("" = inherit).
@@ -1168,6 +1151,9 @@ func (o *Orchestrator) ingressWith(ctx context.Context, tileID string, over *ing
 	e, err := o.store.Environments.Get(ctx, ch[1].id)
 	if err != nil {
 		return "", err
+	}
+	if over != nil && over.envNode != "" {
+		e.NodeID = over.envNode
 	}
 	if n, err := o.store.Nodes.Get(ctx, e.NodeID); err == nil && slices.Contains(node.Tags(n), node.TagIngress) {
 		return n.ID, nil
