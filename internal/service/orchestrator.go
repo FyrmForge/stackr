@@ -166,6 +166,7 @@ type options struct {
 	gitEnv       []string
 	dnsOpen      func(kind string, c DNSCreds) (DNSProvider, error)
 	kinds        []connectors.Kind
+	ifaces       func() []worker.Iface
 }
 
 // DNSProvider is one DNS account (the DNS capability): what WithDNS fakes.
@@ -180,6 +181,12 @@ type (
 // the kind's own setup checks still run.
 func WithDNS(open func(kind string, c DNSCreds) (DNSProvider, error)) Option {
 	return func(o *options) { o.dnsOpen = open }
+}
+
+// WithHostInterfaces replaces the read of this host's network interfaces,
+// so a test's fake controller never reports the machine it runs on.
+func WithHostInterfaces(f func() []worker.Iface) Option {
+	return func(o *options) { o.ifaces = f }
 }
 
 // WithKinds registers connector kinds besides the built-in ones (a test's
@@ -278,16 +285,17 @@ type Orchestrator struct {
 	sched     *schedule.Runner
 	sync      *domain.Syncer
 
-	gitEnv       []string            // WithGit: clone env that replaces the connector's
-	proxyStarted atomic.Value        // the proxy container's last seen start time
-	vipAsync     sync.WaitGroup      // rerouteVIPsAsync runs in flight; tests wait on it
-	trustAsync   sync.WaitGroup      // detached rollover / controller cert steps (detach); Close waits
-	vipLocks     sync.Map            // node ID -> *sync.Mutex: one VIP rebuild per node at a time
-	earlyMu      sync.Mutex          // guards earlyIPs
-	earlyIPs     map[string]earlyEnt // container id -> address holding early lan rules
-	repoLocks    sync.Map            // clone dir -> *sync.Mutex
-	alertMem     *alertState         // the alert tick's memory (alerts.go)
-	platforms    platformCache       // each node's CPU type (imports.go)
+	hostIfaces   func() []worker.Iface // this host's interfaces (WithHostInterfaces)
+	gitEnv       []string              // WithGit: clone env that replaces the connector's
+	proxyStarted atomic.Value          // the proxy container's last seen start time
+	vipAsync     sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
+	trustAsync   sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
+	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
+	earlyMu      sync.Mutex            // guards earlyIPs
+	earlyIPs     map[string]earlyEnt   // container id -> address holding early lan rules
+	repoLocks    sync.Map              // clone dir -> *sync.Mutex
+	alertMem     *alertState           // the alert tick's memory (alerts.go)
+	platforms    platformCache         // each node's CPU type (imports.go)
 	cli          cliCodes
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
@@ -455,15 +463,19 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		d = NewRouter(map[string]Docker{ctl.ID: d})
 	}
 	o.vip = newNodeVIPs(map[string]tile.VIP{ctl.ID: o.vip})
+	if o.ifaces == nil {
+		o.ifaces = worker.Interfaces
+	}
 	orch := &Orchestrator{
-		dnsKick:  &coalesce{},
-		alertMem: &alertState{restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{}},
-		cfg:      cfg,
-		db:       db,
-		store:    st,
-		docker:   d,
-		vip:      o.vip,
-		gitEnv:   o.gitEnv,
+		hostIfaces: o.ifaces,
+		dnsKick:    &coalesce{},
+		alertMem:   &alertState{restarts: map[string][]restartSample{}, memLowSince: map[string]time.Time{}},
+		cfg:        cfg,
+		db:         db,
+		store:      st,
+		docker:     d,
+		vip:        o.vip,
+		gitEnv:     o.gitEnv,
 
 		caddyMetrics: o.caddyMetrics,
 

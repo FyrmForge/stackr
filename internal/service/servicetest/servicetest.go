@@ -23,6 +23,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
 
@@ -67,6 +68,7 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		service.WithDocker(fake),
 		service.WithDNS(dns.open),
 		service.WithVIP(noVIP{}),
+		service.WithHostInterfaces(func() []worker.Iface { return nil }),
 		service.WithProxy(func(context.Context, json.RawMessage) error { return nil }),
 	}, opts...)...)
 	if err != nil {

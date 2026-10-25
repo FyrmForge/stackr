@@ -17,7 +17,6 @@ import (
 // which none does), a wildcard at our node, and one pointing elsewhere.
 func adoptRig(t *testing.T) (env *servicetest.Env, connector string) {
 	t.Helper()
-	t.Cleanup(service.NoHostInterfaces())
 	env, acme, _ := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
