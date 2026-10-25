@@ -196,10 +196,10 @@ func write(key string, p any, v string) error {
 	return nil
 }
 
-// settingsView is the form over the stored row: one value per key the
+// settingsView is the rows over the stored tile: one value per key the
 // kind carries.
 func settingsView(t service.Tile) ui.SettingsView {
-	s := ui.SettingsView{Vals: map[string]string{}}
+	s := ui.SettingsView{Name: t.Name, Kind: t.Kind, Vals: map[string]string{}}
 	for _, k := range carries[t.Kind] {
 		s.Vals[k] = shown(k, field(&t, k))
 	}
