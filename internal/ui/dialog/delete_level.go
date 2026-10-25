@@ -40,7 +40,7 @@ func DeleteEnv(name, action, target string) c.ConfirmView {
 	return c.ConfirmView{
 		Button:  "Delete env",
 		Title:   "Delete " + name + "?",
-		Warning: "Its params go and the ladder closes the gap. Refused while it has tiles.",
+		Warning: "Its variables go and the ladder closes the gap. Refused while it has tiles.",
 		Kept:    []string{"the stack's releases", "its volumes, for the orphan retention; a last backup is taken before they go"},
 		Word:    name,
 		Action:  action,

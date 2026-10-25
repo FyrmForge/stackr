@@ -104,7 +104,7 @@ func Shell(c echo.Context, title string) components.Shell {
 		if s.NodeDown == "" && sc.Org != nil && sc.Stack != nil {
 			if d, ok := c.Get(ingressDownKey).(func(envID string) string); ok {
 				if s.NodeDown = d(sc.Env.ID); s.NodeDown != "" {
-					s.MoveIngress = "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug + "/-/drawer?tab=placement"
+					s.MoveIngress = "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug + "/-/drawer?tab=settings&open=placement"
 				}
 			}
 		}

@@ -484,7 +484,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 	for _, x := range down {
 		v.DownDomains = append(v.DownDomains, ui.DownDomainRow{
 			Host: x.Host, Env: x.Org + "/" + x.Stack + "/" + x.Env,
-			Move: "/" + x.Org + "/" + x.Stack + "/" + x.Env + "/-/drawer?tab=placement",
+			Move: "/" + x.Org + "/" + x.Stack + "/" + x.Env + "/-/drawer?tab=settings&open=placement",
 		})
 	}
 	if c.QueryParam("tab") == "metrics" {

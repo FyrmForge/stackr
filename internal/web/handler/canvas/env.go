@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/a-h/templ"
@@ -14,6 +15,7 @@ import (
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	envui "github.com/FyrmForge/stackr/internal/ui/drawer/env"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/vars"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -32,12 +34,8 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		}
 	}
 	switch f.Tab {
-	case "placement":
-		return placementui.Load(urlOf(cd.s) + "/-/placement"), nil
 	case "moving":
 		return placementui.Load(urlOf(cd.s) + "/-/placement/move/status"), nil
-	case "params":
-		return h.vars(c, cd.s, "", "")
 	case "logs":
 		v, err := render.LogHistory(c, h.orch, cd.s)
 		if err != nil {
@@ -52,14 +50,15 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.releasesTab(c, cd, f)
 	case "sync":
 		return h.syncTab(c, cd, f)
-	case "order":
-		es, err := h.orch.Ladder(ctx, e.StackID)
-		v := orderView(es)
-		if write {
-			v.Action = f.Base + "/order"
-		}
-		return envui.Order(v), err
 	}
+	return h.envSettings(c, cd, f, write)
+}
+
+// envSettings is the Settings tab: one accordion row per group, each closed
+// row summing up its values. ?open= (or a saved form's open) names the row
+// open on load.
+func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write bool) (templ.Component, error) {
+	ctx, e := c.Request().Context(), cd.s.Env
 	ts, err := h.orch.Tiles(ctx, e.ID)
 	if err != nil {
 		return nil, err
@@ -68,33 +67,137 @@ func (h *handler) envTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 	if err != nil {
 		return nil, err
 	}
+	changed := markRung(cascade.Rows)
+	es, err := h.orch.Ladder(ctx, e.StackID)
+	if err != nil {
+		return nil, err
+	}
+	varsBody, err := h.vars(c, cd.s, "", "")
+	if err != nil {
+		return nil, err
+	}
+	set, secret, err := h.varCounts(c, cd.s)
+	if err != nil {
+		return nil, err
+	}
+	pv, err := h.orch.Placement(ctx, service.ScopeEnv, e.ID)
+	if err != nil {
+		return nil, err
+	}
 	v := envui.SettingsView{
-		Name:    e.Name,
-		Tiles:   len(ts),
-		Canvas:  urlOf(cd.s),
-		Path:    cd.s.Org.Slug + " / " + cd.s.Stack.Slug + " / " + e.Slug,
-		From:    e.FromKind,
-		Branch:  e.FromBranch,
-		Auto:    e.Auto,
-		Color:   e.Color,
-		Cascade: cascade,
+		Name:      e.Name,
+		Tiles:     len(ts),
+		Canvas:    urlOf(cd.s),
+		Path:      cd.s.Org.Slug + " / " + cd.s.Stack.Slug + " / " + e.Slug,
+		From:      e.FromKind,
+		Branch:    e.FromBranch,
+		Auto:      e.Auto,
+		Below:     below(es, e.ID),
+		Color:     e.Color,
+		Cascade:   cascade,
+		Vars:      varsBody,
+		Placement: placementui.Load(urlOf(cd.s) + "/-/placement"),
+		Open:      c.FormValue("open"),
 	}
 	if v.Lock, err = h.lockView(c, cd, f.Base); err != nil {
 		return nil, err
+	}
+	v.Sums = envui.Sums{
+		General:          envui.GeneralSummary(e.Name, e.Color, v.Lock),
+		Deploys:          envui.DeploysSummary(e.FromKind, e.FromBranch, e.Auto, v.Below),
+		Resources:        envui.ResourcesSummary(cascade.Rows),
+		ResourcesChanged: changed,
+		Variables:        envui.VariablesSummary(set, secret),
+		Placement:        envui.PlacementSummary(pv.PinName, pv.IngressName, exitOf(pv.Rungs)),
 	}
 	if write {
 		v.Base = f.Base
 		v.Delete = dialog.DeleteEnv(e.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
 	} else {
-		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing overrides needs write access to this environment."
+		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing resources needs write access to this environment."
 	}
 	return envui.Settings(v), nil
+}
+
+// markRung puts the changed dot on each knob this rung sets and the "from"
+// tag on each it inherits; true when any is set here.
+func markRung(rows []comp.SettingRowView) bool {
+	some := false
+	for i := range rows {
+		r := &rows[i]
+		r.Changed = r.Value != "" || (r.Secret && r.Effective == "set")
+		if !r.Changed && r.DecidedBy != "" {
+			r.From = shortRung(r.DecidedBy)
+		}
+		some = some || r.Changed
+	}
+	return some
+}
+
+// shortRung is a cascade rung as a from tag says it: "smoke organization"
+// is "org", "shop stack" is "stack".
+func shortRung(name string) string {
+	f := strings.Fields(name)
+	if len(f) == 0 {
+		return ""
+	}
+	if w := f[len(f)-1]; w != "organization" {
+		return w
+	}
+	return "org"
+}
+
+// below is the name of the rung under id on the ladder (bottom first); ""
+// for the bottom rung.
+func below(es []service.Environment, id string) string {
+	for i, e := range es {
+		if e.ID == id && i > 0 {
+			return es[i-1].Name
+		}
+	}
+	return ""
+}
+
+// exitOf is the first exit of the ladder; "" = the env's own uplink.
+func exitOf(rs []service.PlacementRung) string {
+	if len(rs) == 0 || rs[0].Own {
+		return ""
+	}
+	return rs[0].Name
+}
+
+// varCounts is how many variables this env's own grid sets, and how many
+// of them are secret.
+// ponytail: reads the grid a second time beside h.vars; share it if the
+// Settings tab gets slow.
+func (h *handler) varCounts(c echo.Context, s service.Scope) (set, secret int, err error) {
+	ctx := c.Request().Context()
+	cs, _, err := h.cols(ctx, s)
+	if err != nil {
+		return 0, 0, err
+	}
+	g, err := h.grid(ctx, cs, can(c, s, "variable.write"))
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, gr := range g.Groups {
+		for _, r := range gr.Rows {
+			if !slices.ContainsFunc(r.Cells, func(c vars.Cell) bool { return c.Set }) {
+				continue
+			}
+			set++
+			if r.Secret {
+				secret++
+			}
+		}
+	}
+	return set, secret, nil
 }
 
 // lockView: a PR env has no lock; a tiered env shows its tier's.
 func (h *handler) lockView(c echo.Context, cd card, base string) (envui.LockView, error) {
 	e := cd.s.Env
-	v := envui.LockView{Show: e.Type == "static", Locked: e.Locked, Name: e.Slug}
+	v := envui.LockView{Show: e.Type == "static", Locked: e.Locked, Name: e.Slug, Tiers: "/" + cd.s.Org.Slug + "?drawer=org:" + cd.s.Org.ID}
 	if !v.Show {
 		return v, nil
 	}
@@ -111,6 +214,10 @@ func (h *handler) lockView(c echo.Context, cd card, base string) (envui.LockView
 }
 
 // orderView gives each rung the whole order after one move up or down.
+// The env drawer's Order tab is gone; the stack drawer's Env order row
+// takes this and POST /order.
+//
+//nolint:unused // kept for the stack drawer's Env order row
 func orderView(es []service.Environment) envui.OrderView {
 	ids := make([]string, len(es))
 	for i, e := range es {
@@ -164,7 +271,7 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		return redirect(c, stackURL(cd)+"?drawer=env:"+en.ID+"&tab=settings")
+		return redirect(c, stackURL(cd)+"?drawer=env:"+en.ID+"&tab=settings&open=general")
 	}), write)
 	site.POST(e+"/from", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		_, err := h.orch.SetEnvFrom(
@@ -185,7 +292,7 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		_, err := h.orch.SetEnvLock(c.Request().Context(), cd.s.Env.ID, c.FormValue("locked") != "")
 		return h.after(c, cd, cmp.Or(c.FormValue("tab"), "settings"), "Lock saved.", err)
 	}, a.Require("env.lock"))
-	site.POST(e+"/order", h.envAction("order", func(c echo.Context, cd card) (string, error) {
+	site.POST(e+"/order", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		form, _ := c.FormParams()
 		return "Order saved.", h.orch.ReorderEnvs(c.Request().Context(), cd.s.Stack.ID, form["ids"])
 	}), write)

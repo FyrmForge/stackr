@@ -154,7 +154,7 @@ func TestDrawerTabs(t *testing.T) {
 	for path, tabs := range map[string][]string{
 		"/acme/-/drawer":          {"settings", "members", "keys", "params", "domains", "shares", "backups"},
 		"/acme/shop/-/drawer":     {"releases", "settings"},
-		"/acme/shop/dev/-/drawer": {"settings", "releases", "params", "order"},
+		"/acme/shop/dev/-/drawer": {"settings", "releases", "sync"},
 		"/acme/-/vars":            {"editor"},
 		"/acme/shop/-/vars":       {"editor"},
 	} {
@@ -179,6 +179,52 @@ func TestDrawerTabs(t *testing.T) {
 	}
 	if body := get(t, s, "/acme/shop"); !strings.Contains(body, `hx-get="/acme/shop/-/drawer?tab=settings"`) {
 		t.Error("the stack canvas's Settings does not open the stack drawer")
+	}
+}
+
+// The env's Params, Order and Placement tabs are Settings rows now: their
+// old keys land on Settings, ?open= opens a row, and each row sums itself up.
+func TestEnvSettingsRows(t *testing.T) {
+	s := webtest.New(t)
+	for _, tab := range []string{"params", "order", "placement"} {
+		if body := get(t, s, "/acme/shop/dev/-/drawer?tab="+tab); !strings.Contains(body, `id="tab-settings"`) {
+			t.Errorf("tab=%s does not land on Settings:\n%s", tab, body)
+		}
+	}
+	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings&open=placement")
+	for _, w := range []string{
+		`data-acc="placement" open>`,
+		`hx-get="/acme/shop/dev/-/placement"`,
+		`id="vars-editor"`,
+		`data-acc="deploys">`,
+		"own uplink",
+		"set</span>", // Variables: "N set" or "none set"
+	} {
+		if !strings.Contains(body, w) {
+			t.Errorf("no %s in\n%s", w, body)
+		}
+	}
+}
+
+// A resource set on the env marks its row and field changed and shows in
+// the summary; one inherited says where from.
+func TestEnvResourcesChanged(t *testing.T) {
+	s := webtest.New(t)
+	if rec := s.Do(t, "POST", "/acme/shop/-/drawer/settings", url.Values{"mem_limit_mb": {"512"}}); rec.Code != http.StatusOK {
+		t.Fatalf("stack settings = %d", rec.Code)
+	}
+	if rec := s.Do(t, "POST", "/acme/shop/dev/-/drawer/settings", url.Values{"cpu_limit": {"2"}}); rec.Code != http.StatusOK {
+		t.Fatalf("env settings = %d", rec.Code)
+	}
+	body := get(t, s, "/acme/shop/dev/-/drawer?tab=settings")
+	for _, w := range []string{
+		`data-acc="resources" data-changed>`,
+		`<div data-field data-changed><label for="env-cascade-cpu_limit"`,
+		"2 cores · 512 MB (from stack) · protect off</span>",
+	} {
+		if !strings.Contains(body, w) {
+			t.Errorf("no %s in\n%s", w, body)
+		}
 	}
 }
 
