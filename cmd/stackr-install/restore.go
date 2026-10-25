@@ -88,7 +88,7 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		return fmt.Errorf("read archive (nothing changed): %w", withNeededGen(err, archiveName))
 	}
 	ver := info.version
-	keyWarn := masterKeyChange(dataDir, stage)
+	keyWarn := masterKeyChange(dataDir, stage, info.masterGen)
 	if keyWarn != "" {
 		_, _ = fmt.Fprintln(out, "Warning:", keyWarn)
 	}
@@ -340,8 +340,9 @@ const caddyMember = installspec.CaddyMember
 // archiveInfo is what an archive says about itself: the build it names and
 // the recovery key generation it is stamped with.
 type archiveInfo struct {
-	version string
-	gen     int
+	version   string
+	gen       int
+	masterGen int // 0 = the archive predates the stamp
 }
 
 // unpack decrypts a panel archive into dir. Only the members of
@@ -386,15 +387,19 @@ func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
 			return info, fmt.Errorf("unexpected entry %q; not a panel archive", h.Name)
 		}
 		delete(want, h.Name)
-		if h.Name == installspec.VersionMember || h.Name == installspec.RecoveryMember {
+		if h.Name == installspec.VersionMember || h.Name == installspec.RecoveryMember || h.Name == installspec.MasterGenMember {
 			b, err := io.ReadAll(io.LimitReader(tr, 256))
 			if err != nil {
 				return info, err
 			}
-			if h.Name == installspec.VersionMember {
-				info.version = strings.TrimSpace(string(b))
-			} else {
-				info.gen, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			body := strings.TrimSpace(string(b))
+			switch h.Name {
+			case installspec.VersionMember:
+				info.version = body
+			case installspec.RecoveryMember:
+				info.gen, _ = strconv.Atoi(body)
+			default:
+				info.masterGen, _ = strconv.Atoi(body)
 			}
 			continue
 		}
@@ -418,8 +423,9 @@ func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
 
 // masterKeyChange says what restoring does to the master key: "" when the
 // archive's key (staged in stage) is the one this box runs on, else a warning
-// naming the key that replaced it when the box has rotated.
-func masterKeyChange(dataDir, stage string) string {
+// naming the key that replaced it when the box has rotated. thisGen is the
+// generation the archive is stamped with, 0 when it has none.
+func masterKeyChange(dataDir, stage string, thisGen int) string {
 	had, err := os.ReadFile(filepath.Join(dataDir, installspec.KeyFile))
 	if err != nil {
 		return ""
@@ -432,6 +438,9 @@ func masterKeyChange(dataDir, stage string) string {
 	if g, _ := os.ReadFile(filepath.Join(dataDir, "keys/master.gen")); len(strings.Fields(string(g))) == 2 {
 		f := strings.Fields(string(g))
 		if at, err := time.Parse(time.RFC3339, f[1]); err == nil {
+			if thisGen > 0 {
+				return fmt.Sprintf("This backup uses master key %d; key %s replaced it on %s; restoring brings key %d back.", thisGen, f[0], at.Format("2006-01-02"), thisGen)
+			}
 			return fmt.Sprintf("This backup uses an older master key; key %s replaced it on %s; restoring brings the old key back.", f[0], at.Format("2006-01-02"))
 		}
 	}

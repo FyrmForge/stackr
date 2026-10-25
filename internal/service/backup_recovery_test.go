@@ -58,6 +58,9 @@ func TestRecoveryKeyBootRevealConfirm(t *testing.T) {
 	if r.RecoveryGen != 1 || !w.opensWith(t, r.ObjectKey, key) {
 		t.Errorf("run gen %d, opens with the panel-made key = %v", r.RecoveryGen, w.opensWith(t, r.ObjectKey, key))
 	}
+	if r.MasterGen != 1 {
+		t.Errorf("run master gen = %d, want 1", r.MasterGen)
+	}
 
 	must(t, w.orch.ConfirmRecoveryKey())
 	if _, unsaved := w.orch.RecoveryStatus(); unsaved {

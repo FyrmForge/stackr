@@ -234,6 +234,7 @@ func TestPanelArchive(t *testing.T) {
 		Version:     "v1.2.3",
 		RecoveryPub: testRecovery.Recipient().String(),
 		RecoveryGen: 2,
+		MasterGen:   3,
 		InstallID:   "i1",
 		Vacuum:      func(_ context.Context, path string) error { return os.WriteFile(path, []byte("sqlite"), 0o600) },
 	}
@@ -250,6 +251,9 @@ func TestPanelArchive(t *testing.T) {
 	if r.RecoveryGen != 2 || !strings.HasSuffix(r.ObjectKey, "-panel-g2.tar.gz.age") {
 		t.Errorf("run gen %d, key %s", r.RecoveryGen, r.ObjectKey)
 	}
+	if got, _ := w.f.Backups.GetRun(ctx, r.ID); r.MasterGen != 3 || got.MasterGen != 3 {
+		t.Errorf("master gen on the run = %d, stored %d", r.MasterGen, got.MasterGen)
+	}
 	_, err = f.Seek(0, io.SeekStart)
 	must(t, err)
 	dec, err := age.Decrypt(f, testRecovery)
@@ -261,7 +265,7 @@ func TestPanelArchive(t *testing.T) {
 	for h, err := tr.Next(); err == nil; h, err = tr.Next() {
 		names = append(names, h.Name)
 	}
-	if !slices.Equal(names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY"}) {
+	if !slices.Equal(names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "MASTERGEN"}) {
 		t.Errorf("members = %v", names)
 	}
 	p.MasterKey = ""
@@ -294,7 +298,7 @@ func TestPanelArchiveCaddy(t *testing.T) {
 		t.Errorf("trigger = %q", r.Trigger)
 	}
 	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey))
-	if !slices.Equal(got.names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "caddy.tar.gz"}) {
+	if !slices.Equal(got.names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "MASTERGEN", "caddy.tar.gz"}) {
 		t.Fatalf("members = %v", got.names)
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(got.bodies["caddy.tar.gz"]))

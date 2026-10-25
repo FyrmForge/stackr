@@ -25,16 +25,20 @@ func TestMasterKeyChangeWarnsOnOlderKey(t *testing.T) {
 	}
 	put(data, installspec.KeyFile, "new\n")
 	put(stage, installspec.KeyFile, "new\n")
-	if w := masterKeyChange(data, stage); w != "" {
+	if w := masterKeyChange(data, stage, 0); w != "" {
 		t.Errorf("same key warned: %q", w)
 	}
 	put(stage, installspec.KeyFile, "old\n")
-	if w := masterKeyChange(data, stage); !strings.Contains(w, "different master key") {
+	if w := masterKeyChange(data, stage, 0); !strings.Contains(w, "different master key") {
 		t.Errorf("warning = %q", w)
 	}
 	put(data, "keys/master.gen", "3\n2026-10-20T10:00:00Z\n")
 	want := "This backup uses an older master key; key 3 replaced it on 2026-10-20; restoring brings the old key back."
-	if w := masterKeyChange(data, stage); w != want {
+	if w := masterKeyChange(data, stage, 0); w != want {
 		t.Errorf("warning = %q", w)
+	}
+	want = "This backup uses master key 2; key 3 replaced it on 2026-10-20; restoring brings key 2 back."
+	if w := masterKeyChange(data, stage, 2); w != want {
+		t.Errorf("stamped warning = %q", w)
 	}
 }

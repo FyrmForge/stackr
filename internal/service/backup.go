@@ -567,6 +567,7 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 		lock = &o.cluster.rollMu
 	}
 	pub, gen := o.recovery()
+	masterGen, _ := MasterGen(o.cfg.DataDir)
 	return o.backup.PanelBackup(ctx, fbackup.Panel{
 		Lock: lock,
 		Vacuum: func(ctx context.Context, path string) error {
@@ -587,6 +588,7 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 		DataDir:     o.cfg.DataDir,
 		RecoveryPub: pub,
 		RecoveryGen: gen,
+		MasterGen:   masterGen,
 	}, dest, keep, log)
 }
 

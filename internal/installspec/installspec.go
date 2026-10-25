@@ -85,6 +85,9 @@ const (
 	// key it is encrypted to.
 	RecoveryMember = "RECOVERY"
 	CaddyMember    = "caddy.tar.gz"
+	// MasterGenMember stamps an archive with the generation of the master
+	// key it carries.
+	MasterGenMember = "MASTERGEN"
 )
 
 // Member is one entry of the panel archive.
@@ -106,6 +109,7 @@ var PanelState = []Member{
 	{Name: KeyFile, Mode: 0o600, OnDisk: true},
 	{Name: VersionMember, Mode: 0o644},
 	{Name: RecoveryMember, Mode: 0o644},
+	{Name: MasterGenMember, Mode: 0o644},
 	{Name: ClusterCAKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ClusterCACertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: ClusterCAPrevCertFile, Mode: 0o644, Optional: true, OnDisk: true},

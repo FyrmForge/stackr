@@ -96,6 +96,9 @@ type BackupRun struct {
 	// RecoveryGen is the recovery key generation a panel run is encrypted
 	// to; 0 on a volume run.
 	RecoveryGen int `db:"recovery_gen" json:"recovery_gen"`
+	// MasterGen is the master key generation a panel run carries; 0 on a
+	// volume run.
+	MasterGen int `db:"master_gen" json:"master_gen"`
 	// Dest is the destination's name ("local" for the install's disk),
 	// filled by the leaf's run lists, never stored.
 	Dest string `db:"-" json:"dest"`

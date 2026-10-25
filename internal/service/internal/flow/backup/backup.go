@@ -479,7 +479,9 @@ type Panel struct {
 	// in the archive, on the run and in the object name.
 	RecoveryPub string
 	RecoveryGen int
-	InstallID   string
+	// MasterGen is the generation of MasterKey, stamped in the archive and on the run.
+	MasterGen int
+	InstallID string
 }
 
 func (p Panel) trigger() string {
@@ -505,7 +507,7 @@ func (f *Flow) PanelBackup(
 		return r, err
 	}
 	key, size, err := f.writePanel(ctx, p, dest, log)
-	r.RecoveryGen = p.RecoveryGen
+	r.RecoveryGen, r.MasterGen = p.RecoveryGen, p.MasterGen
 	if r, ferr := f.Backups.Finish(ctx, r, key, size, err); ferr != nil || err != nil {
 		return r, errors.Join(err, ferr)
 	}
@@ -613,6 +615,8 @@ func panelTar(w io.Writer, db, caddy string, p Panel) error {
 			err = tarBytes(tw, m, p.Version+"\n", now)
 		case installspec.RecoveryMember:
 			err = tarBytes(tw, m, strconv.Itoa(p.RecoveryGen)+"\n", now)
+		case installspec.MasterGenMember:
+			err = tarBytes(tw, m, strconv.Itoa(p.MasterGen)+"\n", now)
 		case installspec.CaddyMember:
 			if caddy != "" {
 				err = tarFile(tw, m, caddy, now)

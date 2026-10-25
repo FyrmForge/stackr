@@ -62,11 +62,11 @@ func archive(t *testing.T, id *age.X25519Identity, files map[string]string) *byt
 }
 
 func TestUnpack(t *testing.T) {
-	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n"}
+	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n", "MASTERGEN": "1\n", "MASTERGEN": "2\n"}
 	k := newKey(t)
 	dir := t.TempDir()
 	info, err := unpack(archive(t, k, good), k, dir)
-	if err != nil || info.version != "v0.1.0" || info.gen != 3 {
+	if err != nil || info.version != "v0.1.0" || info.gen != 3 || info.masterGen != 2 {
 		t.Fatalf("unpack = %+v %v", info, err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "keys/master.key")); string(b) != "k\n" {
@@ -90,6 +90,7 @@ func TestUnpack(t *testing.T) {
 		"keys/master.key": "k",
 		"VERSION":         "v0.1.0",
 		"RECOVERY":        "1",
+		"MASTERGEN":       "1",
 		"../evil":         "x",
 	}
 	if _, err := unpack(archive(t, k, evil), k, t.TempDir()); err == nil {
@@ -104,7 +105,7 @@ func TestUnpack(t *testing.T) {
 // member, so an archive carrying one is refused and a normal one stages none.
 func TestRestoreKeepsBoxRecoveryKey(t *testing.T) {
 	k := newKey(t)
-	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n"}
+	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n", "MASTERGEN": "1\n"}
 	stage := t.TempDir()
 	if _, err := unpack(archive(t, k, files), k, stage); err != nil {
 		t.Fatal(err)
@@ -126,7 +127,7 @@ func TestRestoreKeepsBoxRecoveryKey(t *testing.T) {
 // An archive with the proxy's volume stages it; one without is as before.
 // restoreCaddy stops the proxy, untars into its volume, starts it.
 func TestRestoreCaddy(t *testing.T) {
-	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n", "caddy.tar.gz": "tarball"}
+	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n", "MASTERGEN": "1\n", "caddy.tar.gz": "tarball"}
 	dir, k := t.TempDir(), newKey(t)
 	if _, err := unpack(archive(t, k, files), k, dir); err != nil {
 		t.Fatal(err)
@@ -225,7 +226,7 @@ func TestUnpackPanelState(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range installspec.PanelState {
-		if m.Name == "VERSION" || m.Name == "RECOVERY" {
+		if m.Name == "VERSION" || m.Name == "RECOVERY" || m.Name == "MASTERGEN" {
 			continue
 		}
 		if b, err := os.ReadFile(filepath.Join(dir, m.Name)); err != nil || string(b) != "body-"+m.Name {
@@ -239,7 +240,7 @@ func TestUnpackPanelState(t *testing.T) {
 		}
 	}
 	req["VERSION"] = "v0.1.0\n"
-	req["RECOVERY"] = "1\n"
+	req["RECOVERY"], req["MASTERGEN"] = "1\n", "1\n"
 	if _, err := unpack(archive(t, k, req), k, t.TempDir()); err != nil {
 		t.Errorf("required members alone refused: %v", err)
 	}
