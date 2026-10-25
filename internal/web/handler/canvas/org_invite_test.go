@@ -24,7 +24,7 @@ func TestInviteLinkFollowsPanelDomain(t *testing.T) {
 	if !strings.Contains(body, "Invite link: https://stkr.b.example.com:8443/invite/") || strings.Contains(body, "stkr.a.example.com") {
 		t.Errorf("invite note:\n%s", body)
 	}
-	list := b.do(t, "GET", "/acme/-/drawer?tab=members", nil, true).Body.String()
+	list := b.do(t, "GET", "/acme/-/drawer?tab=people", nil, true).Body.String()
 	if !strings.Contains(list, `data-copy="https://stkr.b.example.com:8443/invite/`) || strings.Contains(list, "stkr.a.example.com") {
 		t.Errorf("pending invite row:\n%s", list)
 	}

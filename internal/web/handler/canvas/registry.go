@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
@@ -21,7 +20,7 @@ import (
 // orgRegistry is the Registry tab: the login and push lines, then the org's
 // repositories; ?repo= opens that repository's versions. A registry that does
 // not answer is the tab's text.
-func (h *handler) orgRegistry(c echo.Context, cd card) (templ.Component, error) {
+func (h *handler) orgRegistry(c echo.Context, cd card) (orgui.RegistryView, error) {
 	ctx := c.Request().Context()
 	base := urlOf(cd.s) + "/-/drawer"
 	v := orgui.RegistryView{Host: h.orch.RegistryHost(ctx), Org: cd.s.Org.Slug}
@@ -31,13 +30,13 @@ func (h *handler) orgRegistry(c echo.Context, cd card) (templ.Component, error) 
 	repos, err := h.orch.OrgRepositories(ctx, cd.s.Org.ID)
 	if err != nil {
 		v.Err = err.Error()
-		return orgui.Registry(v), nil
+		return v, nil
 	}
 	for _, r := range repos {
 		row := orgui.RepoRow{
 			Name: r.Name,
 			Tags: fmt.Sprintf("%d tags", r.Tags),
-			Open: base + "?tab=registry&repo=" + url.QueryEscape(r.Name),
+			Open: base + "?tab=storage&repo=" + url.QueryEscape(r.Name),
 		}
 		if r.Tags == 1 {
 			row.Tags = "1 tag"
@@ -48,21 +47,21 @@ func (h *handler) orgRegistry(c echo.Context, cd card) (templ.Component, error) 
 		}
 		v.Repos = append(v.Repos, row)
 	}
-	return orgui.Registry(v), nil
+	return v, nil
 }
 
 // orgVersions is one repository's versions, with the envs that run each. The
 // delete button is there for whoever may delete; for a version in use its
 // warning names the envs and the post forces, which the service re-checks.
-func (h *handler) orgVersions(c echo.Context, cd card, v orgui.RegistryView, base, repo string) (templ.Component, error) {
-	v.Repo, v.Back = repo, base+"?tab=registry"
+func (h *handler) orgVersions(c echo.Context, cd card, v orgui.RegistryView, base, repo string) (orgui.RegistryView, error) {
+	v.Repo, v.Back = repo, base+"?tab=storage&open=registry"
 	vs, err := h.orch.RegistryVersions(c.Request().Context(), cd.s.Org.ID, repo)
 	if errors.Is(err, errs.ErrNotFound) {
-		return nil, err
+		return v, err
 	}
 	if err != nil {
 		v.Err = err.Error()
-		return orgui.Registry(v), nil
+		return v, nil
 	}
 	mayDelete := can(c, cd.s, "registry.tag.delete")
 	for _, x := range vs {
@@ -95,7 +94,7 @@ func (h *handler) orgVersions(c echo.Context, cd card, v orgui.RegistryView, bas
 		}
 		v.Versions = append(v.Versions, row)
 	}
-	return orgui.Registry(v), nil
+	return v, nil
 }
 
 func sourceOf(v service.RegistryVersion) string {
@@ -113,7 +112,7 @@ func sourceOf(v service.RegistryVersion) string {
 // mountRegistry is the Registry tab's one action, for whoever may delete a
 // version (the tab shows it again, on the same repository).
 func (h *handler) mountRegistry(site *echo.Group, a *middleware.Access) {
-	site.POST("/:org/-/drawer/registry/delete", h.orgAction("registry", func(c echo.Context, og *service.Org) (string, error) {
+	site.POST("/:org/-/drawer/registry/delete", h.orgAction("storage/registry", func(c echo.Context, og *service.Org) (string, error) {
 		repo, tag := c.QueryParam("repo"), c.QueryParam("tag")
 		err := h.orch.DeleteRegistryVersion(c.Request().Context(), og.ID, repo, tag, c.QueryParam("force") == "true")
 		return "Deleted " + repo + ":" + tag + ".", err

@@ -15,8 +15,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/connpanel"
 )
 
-// The org drawer's Connectors tab (owner): the org's connectors of every
-// kind and the server ones shared with it, and the add dialog. A git
+// The org drawer's Connectors tab (anyone who may add a kind): the org's
+// connectors of every kind and the server ones shared with it, and the add
+// dialog; each card's actions are gated by their own verb. A git
 // connection opens its own drawer (its Repos tab); the others their
 // settings dialog.
 
@@ -75,7 +76,8 @@ func (h *handler) mountDNS(site *echo.Group, a *middleware.Access) {
 		return owner
 	})
 	h.panel().MountDNS(site, "/:org/-/drawer/dns", a.Require("dns.manage"))
-	site.GET(conn+"/new", h.newOrgConnector, owner)
+	// the picker offers what the viewer may add (kinds)
+	site.GET(conn+"/new", h.newOrgConnector, write)
 }
 
 // kinds is the add dialog's picker, by what the viewer may add.
@@ -114,13 +116,20 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 	v := connectors.ListView{
 		Title: "Connectors", Scope: "organization",
 		Help: "Git hosts and DNS accounts this organization uses.",
-		Add:  connBase(c) + "/new",
+	}
+	if len(h.kinds(c)) > 0 {
+		v.Add = connBase(c) + "/new"
 	}
 	rows, err := h.panel().Rows(c)
 	if err != nil {
 		return nil, err
 	}
 	v.Rows = rows
+	if !can(c, middleware.ScopeOf(c), "connector.manage") {
+		for i := range v.Rows {
+			mayGate(&v.Rows[i])
+		}
+	}
 	shared, err := h.orch.ConnectedConnectors(c.Request().Context(), og.ID)
 	if err != nil {
 		return nil, err
@@ -139,6 +148,13 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 		open = h.addDialog(c)
 	}
 	return connectors.Tab(v, open), nil
+}
+
+// mayGate strips a card to what a writer may do: open a git connector's
+// drawer. Settings, the install check and Remove are the owner's routes.
+func mayGate(r *connectors.Row) {
+	r.Actions = slices.DeleteFunc(r.Actions, func(a connectors.Action) bool { return !a.Drawer })
+	r.Remove, r.Check = comp.ConfirmView{}, ""
 }
 
 // kindLabel is how the screens name kind.

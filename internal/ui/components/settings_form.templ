@@ -217,11 +217,11 @@ templ editRow(form string, r SettingRowView) {
 			case r.Secret:
 				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono"/>
 			default:
-				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder="inherit" class="input"/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ r.Value } placeholder={ inheritHint(r) } class="input"/>
 		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>
-		} else if r.Value == "" && r.Effective != "" {
+		} else if r.Value == "" && r.Effective != "" && r.From == "" {
 			@Inherited(onOff(r.Effective), from(r.DecidedBy))
 		}
 		if r.Desc != "" {
@@ -229,6 +229,15 @@ templ editRow(form string, r SettingRowView) {
 		}
 		@FieldError(r.Key, r.Error)
 	</div>
+}
+
+// inheritHint is an empty field's placeholder: the inherited value when the
+// From tag names its rung (the Inherited line is then left out).
+func inheritHint(r SettingRowView) string {
+	if r.From != "" && r.Effective != "" {
+		return r.Effective
+	}
+	return "inherit"
 }
 
 // A stored secret is never rendered: blank keeps it (v0 ProtectFields).

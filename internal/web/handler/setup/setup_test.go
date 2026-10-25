@@ -158,7 +158,7 @@ func TestByHand(t *testing.T) {
 	if og := org(t, s, uid); og.SetupDoneAt == nil || og.Name != "Globex" {
 		t.Fatalf("finished org = %+v", og)
 	}
-	if got := s.As(t, sess, "GET", b+"/team", nil).Header().Get("HX-Redirect"); got != "/globex?drawer=org:"+og.ID+"&tab=members" {
+	if got := s.As(t, sess, "GET", b+"/team", nil).Header().Get("HX-Redirect"); got != "/globex?drawer=org:"+og.ID+"&tab=people" {
 		t.Errorf("a finished org's step = %q", got)
 	}
 }
