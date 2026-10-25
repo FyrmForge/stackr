@@ -213,6 +213,9 @@ templ topBar(s Shell, oob bool) {
 				}
 			</div>
 		}
+		if len(s.Problems) > 0 {
+			@problems(s)
+		}
 		if s.NodeDown != "" {
 			<div id="node-down" role="alert" class="border-b border-rw-warn/40 bg-rw-warn/10 px-4 sm:px-6 py-2 text-sm text-rw-warn">
 				{ s.NodeDown }
@@ -222,6 +225,42 @@ templ topBar(s Shell, oob bool) {
 			</div>
 		}
 	</header>
+}
+
+// problems is the admin's problem banner: the worst problems, one line
+// each with where to fix it, then "and N more". No dismiss: a problem goes
+// when it is fixed.
+templ problems(s Shell) {
+	<div id="problems" role="alert" class={ "border-b px-4 sm:px-6 py-2 text-sm", problemsTone(s.Problems) }>
+		<ul>
+			for _, p := range shownProblems(s.Problems) {
+				<li class="flex items-start gap-2 py-1">
+					<span class={ "mt-0.5 shrink-0", problemTone(p) }>
+						<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path>
+							<path d="M12 9v4"></path>
+							<path d="M12 17h.01"></path>
+						</svg>
+					</span>
+					<span class="flex-1 min-w-0 truncate text-rw-text" title={ p.Message }>
+						{ p.Message }
+						if !p.Since.IsZero() {
+							<span class="text-rw-muted">
+								{ " Since " }
+								@Time(p.Since, "2 Jan, 15:04")
+							</span>
+						}
+					</span>
+					<a href={ templ.SafeURL(p.Href) } class={ "shrink-0 underline hover:text-rw-text", problemTone(p) }>{ p.LinkText }</a>
+				</li>
+			}
+			if n := moreProblems(s.Problems); n > 0 {
+				<li class="py-1">
+					<a href={ templ.SafeURL(s.ProblemsMore) } class="text-rw-muted underline hover:text-rw-text">{ "and " + strconv.Itoa(n) + " more" }</a>
+				</li>
+			}
+		</ul>
+	</div>
 }
 
 // settings opens the level's own drawer (v0's bar link to its settings

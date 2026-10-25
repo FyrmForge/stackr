@@ -64,7 +64,7 @@ func PageWith(c echo.Context, status int, title string, body, actions, drawer te
 // chromeless Layout), full page even for htmx: its links navigate.
 func Bare(c echo.Context, status int, title string, body templ.Component) error {
 	s := Shell(c, title)
-	s.User, s.Nav, s.Crumbs, s.Envs, s.Settings = "", nil, nil, nil, ""
+	s.User, s.Nav, s.Crumbs, s.Envs, s.Settings, s.Problems = "", nil, nil, nil, "", nil
 	return respond.HTML(c, status, components.Layout(s, body))
 }
 
@@ -87,6 +87,13 @@ func Shell(c echo.Context, title string) components.Shell {
 		}
 		if count, ok := c.Get(waitingKey).(func() int); ok && s.Admin {
 			s.Waiting = count()
+		}
+		if ps, ok := c.Get(problemsKey).(func() []service.Problem); ok && s.Admin {
+			for _, p := range ps() {
+				s.Problems = append(s.Problems, components.Problem{Critical: p.Severity == service.SevCritical,
+					Message: p.Message, Since: p.Since, Href: p.Link, LinkText: p.LinkText})
+			}
+			s.ProblemsMore = service.ProblemsHref
 		}
 	}
 	sc := middleware.ScopeOf(c)
@@ -137,6 +144,7 @@ func Shell(c echo.Context, title string) components.Shell {
 }
 
 const waitingKey = "host_waiting"
+const problemsKey = "admin_problems"
 const nodeDownKey = "env_node_down"
 const ingressDownKey = "env_ingress_down"
 
@@ -178,8 +186,9 @@ func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 	}
 }
 
-// Waiting lets the shell show the admin rail's badge: for a server admin it
-// leaves a lazy count of stacks waiting on elevated access, which Shell
+// Waiting lets the shell show the admin rail's badge and the problem banner:
+// for a server admin it leaves a lazy count of stacks waiting on elevated
+// access and a lazy list of open problems, which Shell
 // reads only when a page draws the rail (assets and API calls never pay).
 // Mount after Access.Load.
 func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
@@ -189,6 +198,10 @@ func Waiting(orch *service.Orchestrator) echo.MiddlewareFunc {
 				c.Set(waitingKey, func() int {
 					n, _ := orch.HostGrantsWaiting(c.Request().Context())
 					return n
+				})
+				c.Set(problemsKey, func() []service.Problem {
+					ps, _ := orch.Problems(c.Request().Context())
+					return ps
 				})
 			}
 			return next(c)

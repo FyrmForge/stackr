@@ -1,6 +1,7 @@
 package render_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -127,5 +128,46 @@ func TestRefusedNodeDown(t *testing.T) {
 	}
 	if _, ok := render.Refused(echo.NewHTTPError(http.StatusServiceUnavailable, "x")); ok {
 		t.Error("a plain 503 read as a refusal")
+	}
+}
+
+// The problem banner is the admin's: an offline worker shows on the home
+// page (no crumbs) for a server admin and never for a member.
+func TestProblemsAdminOnly(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New(server.WithDevMode(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	ctx := context.Background()
+	n, err := env.Store.Nodes.Get(ctx, env.Worker(t, "h3", "x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.Status = "offline"
+	if err := env.Store.Nodes.Update(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Settings.Set(ctx, "server_setup_done_at", "2026-10-01T00:00:00Z"); err != nil { // no setup redirect
+		t.Fatal(err)
+	}
+	acme := env.Org(t, "acme")
+	member := env.User(t, "member@x", false)
+	env.Member(t, acme, member, "owner")
+	admin := env.User(t, "admin@x", true)
+	get := func(user string) string {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.AddCookie(&http.Cookie{Name: env.Orch.Sessions().CookieName(), Value: env.Session(t, user)})
+		rec := httptest.NewRecorder()
+		srv.Echo().ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	if body := get(admin); !strings.Contains(body, `id="problems" role="alert"`) || !strings.Contains(body, "h3 is offline") ||
+		!strings.Contains(body, `href="?drawer=node:`+n.ID+`"`) {
+		t.Errorf("admin: no banner:\n%s", body)
+	}
+	if body := get(member); strings.Contains(body, `id="problems"`) || strings.Contains(body, "is offline") {
+		t.Error("a member saw the problem banner")
 	}
 }
