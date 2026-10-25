@@ -262,19 +262,63 @@ func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
 	return v
 }
 
-func backupsView(env string, vs []service.Volume) ui.BackupsView {
-	var v ui.BackupsView
+// volumeRows are the Storage row's volumes, each opening its drawer's
+// Backups tab.
+func volumeRows(env string, vs []service.Volume) []ui.VolumeRow {
+	var out []ui.VolumeRow
 	for _, x := range vs {
 		state := "in use"
 		if x.OrphanedAt != nil {
 			state = "orphaned"
 		}
-		v.Rows = append(v.Rows, ui.VolumeRow{
+		out = append(out, ui.VolumeRow{
 			ID:     x.ID,
 			Name:   x.Name,
 			State:  state,
 			Drawer: env + "/-/volumes/" + x.ID + "?tab=backups",
 		})
 	}
-	return v
+	return out
+}
+
+// rung is one level above the tile: its name and stored settings.
+type rung struct{ name, blob string }
+
+// inherit fills what each limit the tile leaves empty inherits: the
+// nearest rung (rungs nearest first) that sets it, and its value.
+func inherit(sv *ui.SettingsView, rungs []rung) error {
+	sv.From, sv.Inherit = map[string]string{}, map[string]string{}
+	for _, r := range rungs {
+		var b service.SettingsBlob
+		if strings.TrimSpace(r.blob) != "" {
+			if err := json.Unmarshal([]byte(r.blob), &b); err != nil {
+				return err
+			}
+		}
+		set := func(key, val string) {
+			if _, done := sv.Inherit[key]; !done && sv.Vals[key] == "" {
+				sv.From[key], sv.Inherit[key] = r.name, val
+			}
+		}
+		if b.CPULimit != nil {
+			set("cpu_limit", strconv.FormatFloat(*b.CPULimit, 'f', -1, 64))
+		}
+		if b.MemLimitMB != nil {
+			set("mem_limit_mb", strconv.Itoa(*b.MemLimitMB))
+		}
+	}
+	return nil
+}
+
+// ingressWord is where traffic comes in: the tile's own pick, else the
+// one in effect and the rung it comes from ("From env: h4." names env).
+func ingressWord(name, own, from string) string {
+	if own != "" {
+		return own
+	}
+	k, _, _ := strings.Cut(strings.TrimSuffix(strings.TrimPrefix(from, "From "), "."), ":")
+	if k == "" || k == "default" {
+		return name
+	}
+	return name + " (from " + k + ")"
 }

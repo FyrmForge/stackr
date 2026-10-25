@@ -80,8 +80,15 @@ func TestEveryTabRenders(t *testing.T) {
 		"settings": {
 			v,
 			Settings(v, SettingsView{
-				Vals:   map[string]string{"cpu_limit": "0.5", "port": "80"},
-				Errors: map[string]string{"cpu_limit": "must be a number"},
+				Name:    "api",
+				Kind:    "service",
+				Vals:    map[string]string{"cpu_limit": "0.5", "mem_limit_mb": "", "port": "80", "image": "nginx:1", "volumes": ""},
+				Errors:  map[string]string{"cpu_limit": "must be a number"},
+				From:    map[string]string{"mem_limit_mb": "org"},
+				Inherit: map[string]string{"mem_limit_mb": "512"},
+				Open:    "resources",
+				Volumes: []VolumeRow{{ID: "v1", Name: "uploads", Drawer: "/o/s/e/-/volumes/v1?tab=backups"}},
+				Placement: "/o/s/e/-/tiles/api/placement",
 				Domains: &DomainsView{
 					Admin: true,
 					Rows: []DomainRow{{
@@ -96,15 +103,27 @@ func TestEveryTabRenders(t *testing.T) {
 			}),
 			[]string{
 				`id="tile-settings"`,
-				`name="fields" value="cpu_limit port"`,
+				`<settings-find`,
+				`name="fields" value="cpu_limit mem_limit_mb"`,
+				`name="fields" value="port"`,
+				`hx-post="/o/s/e/-/tiles/api/settings?open=resources"`,
+				`data-acc="resources" data-changed open`,
 				`value="0.5"`,
+				`placeholder="512"`,
+				"from org",
+				"0.5 cores · 512 MB (from org)",
+				"80 http · 1 domain",
 				"must be a number",
 				"https://api.acme.dev",
-				`/domains/d1/detach`,
+				`/domains/d1/detach?open=network`,
 				`name="raw_caddy"`,
 				"reverse_proxy x",
 				`name="host"`,
-				"/image/check",
+				"/image/check?open=source",
+				`hx-get="/o/s/e/-/tiles/api/placement"`,
+				"uploads",
+				"-/volumes/v1",
+				`/rename?open=general`,
 				`word="api"`,
 			},
 		},
@@ -164,15 +183,8 @@ func TestEveryTabRenders(t *testing.T) {
 				`href="/o/s/e?drawer=t6&amp;tab=overview"`,
 				"api_user",
 				`id="access-slice"`,
-				`hx-post="/o/s/e/-/tiles/api/access"`,
+				`hx-post="/o/s/e/-/tiles/api/access?open=dbaccess"`,
 			},
-		},
-		"backups": {
-			v,
-			Backups(v, BackupsView{
-				Rows: []VolumeRow{{ID: "v1", Name: "uploads", Drawer: "/o/s/e/-/volumes/v1?tab=backups"}},
-			}),
-			[]string{"uploads", "-/volumes/v1"},
 		},
 	} {
 		var b strings.Builder
@@ -194,21 +206,24 @@ func TestEveryTabRenders(t *testing.T) {
 	}
 }
 
-// v0's tab names and order per kind; the old domains and image tabs open
-// Settings, a key the kind lacks opens its first tab.
+// The tabs per kind; a key the kind lacks (the folded env, access,
+// placement and backups among them) opens its first tab.
 func TestTabsPerKind(t *testing.T) {
 	for kind, want := range map[string]string{
-		"cron":    "runs logs metrics jobs env access settings placement backups",
-		"service": "status jobs logs metrics env access settings placement backups",
+		"cron":    "runs logs metrics jobs settings",
+		"service": "status jobs logs metrics settings",
 	} {
 		if got := strings.Join(Tabs(kind), " "); got != want {
 			t.Errorf("%s tabs = %s", kind, got)
 		}
 	}
+	if got := strings.Join(View{Kind: "image", Terminal: true}.tabs(), " "); got != "status jobs logs terminal metrics settings" {
+		t.Errorf("image tabs with a shell = %s", got)
+	}
 	for _, tc := range []struct{ kind, tab, want string }{
 		{"cron", "status", "runs"},
-		{"service", "domains", "settings"},
-		{"image", "image", "settings"},
+		{"service", "env", "status"},
+		{"cron", "placement", "runs"},
 		{"service", "runs", "status"},
 		{"service", "terminal", "terminal"},
 		{"cron", "terminal", "runs"},
@@ -216,6 +231,70 @@ func TestTabsPerKind(t *testing.T) {
 		if got := Tab(tc.kind, tc.tab, true, false); got != tc.want {
 			t.Errorf("Tab(%s, %s) = %s, want %s", tc.kind, tc.tab, got, tc.want)
 		}
+	}
+	if got := Tab("service", "settings", false, true); got != "status" {
+		t.Errorf("a viewer's settings tab = %s", got)
+	}
+}
+
+// Each closed row sums up its values in one line.
+func TestSummaries(t *testing.T) {
+	img := SettingsView{Name: "web", Kind: "image", Vals: map[string]string{
+		"image": "nginx:1.27", "update_policy": "manual", "command": "", "restart_policy": "", "replicas": "",
+		"port": "8080", "endpoint_protocol": "", "volumes": "data:/data\n", "files": "",
+		"health_path": "/healthz", "healthcheck_cmd": "", "healthcheck_interval_s": "30",
+		"cpu_limit": "", "mem_limit_mb": "512", "privileged": "", "published_ports": "80:8080\n443:8443",
+	}, From: map[string]string{"cpu_limit": "org"}, Inherit: map[string]string{"cpu_limit": "1"},
+		Domains: &DomainsView{Rows: make([]DomainRow, 2)}, Ingress: "h4 (from env)",
+		Env: EnvView{Rows: make([]EnvRow, 8)}, Access: AccessView{Entries: []AccessEntry{{Slice: "main", Access: "read"}}}}
+	repo := SettingsView{Kind: "function", Vals: map[string]string{
+		"git_url": "https://github.com/acme/api", "branch": "", "trigger": "on_deploy", "timeout_minutes": "30",
+		"dockerfile": "", "build_context": "web", "build_args": "A=1\nB=2", "command": "make run",
+	}}
+	for _, tc := range []struct{ name, got, want string }{
+		{"general", generalSummary(img), "web · image"},
+		{"source image", sourceSummary(img), "nginx:1.27 · notify on a new version"},
+		{"source repo", sourceSummary(repo), "github.com/acme/api · default branch"},
+		{"build", buildSummary(repo), "Dockerfile · context web · 2 build args"},
+		{"schedule", scheduleSummary(repo), "runs on every deploy · max 30 min"},
+		{"run image", runSummary(img), "image command · restart always · 1 replica"},
+		{"run repo", runSummary(repo), "own command"},
+		{"network", networkSummary(img), "8080 http · 2 domains · ingress h4 (from env)"},
+		{"storage", storageSummary(img), "1 volume · no files"},
+		{"health", healthSummary(img), "GET /healthz · every 30 s"},
+		{"health none", healthSummary(repo), "no check"},
+		{"resources", resourcesSummary(img), "1 core (from org) · 512 MB"},
+		{"variables", variablesSummary(img), "8 set"},
+		{"access", accessSummary(img), "main read"},
+		{"access none", accessSummary(repo), "none"},
+		{"host", hostSummary(img), "2 server ports"},
+		{"host none", hostSummary(repo), "none, needs an admin"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// A field is changed when it differs from what the tile holds unset; a
+// row is marked when one of its fields is, and only rows the kind has
+// draw.
+func TestSettingsRowsChanged(t *testing.T) {
+	s := SettingsView{Kind: "image", Vals: map[string]string{
+		"image": "nginx:1", "update_policy": "manual", "replicas": "1", "restart_policy": "always",
+		"port": "8080", "endpoint_protocol": "http", "cpu_limit": "", "mem_limit_mb": "",
+	}}
+	got := map[string]bool{}
+	var keys []string
+	for _, r := range settingsRows(View{}, s) {
+		got[r.Key] = r.Changed
+		keys = append(keys, r.Key)
+	}
+	if strings.Join(keys, " ") != "general source run network resources variables dbaccess delete" {
+		t.Errorf("rows = %v", keys)
+	}
+	if got["source"] || got["run"] || got["resources"] || !got["network"] {
+		t.Errorf("changed rows = %v", got)
 	}
 }
 

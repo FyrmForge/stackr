@@ -28,7 +28,6 @@ import (
 	clusterui "github.com/FyrmForge/stackr/internal/ui/cluster"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/tile"
-	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -63,6 +62,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/env", h.SetEnv, write)
 	g.POST(d+"/access", h.SetAccess, write)
 	g.POST(d+"/settings", h.SetSettings, write)
+	g.POST(d+"/rename", h.Rename, write)
 	g.POST(d+"/image/check", h.CheckImage, write)
 }
 
@@ -203,14 +203,6 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		}
 		v.Domained = len(ds) > 0
 		body = ui.Metrics(v, render.MetricsLive(h.orch, m, r, v.Base+"?tab=metrics", v.Base+"/metrics/events"))
-	case "env":
-		body = ui.Env(v, envView(t.EnvJSON))
-	case "access":
-		a, err := h.access(c, *t)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		body = ui.Access(v, a)
 	case "settings":
 		sv, err := h.settings(c, *t, hd)
 		if err != nil {
@@ -240,14 +232,6 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 			return middleware.HTTPError(err)
 		}
 		body = ui.Runs(v, runsView(v.Base, hd.status, rs))
-	case "placement":
-		body = placementui.Load(v.Base + "/placement")
-	case "backups":
-		vs, err := h.orch.TileVolumes(ctx, t.ID)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		body = ui.Backups(v, backupsView(render.EnvURL(c), vs))
 	}
 	return respond.HTML(c, status, ui.Drawer(v, body))
 }
@@ -262,20 +246,45 @@ func (h *handler) MetricsEvents(c echo.Context) error {
 	return render.MetricsEvents(c, h.orch, s)
 }
 
-// settings is the Settings tab: the form over the row, the domains of a
-// kind with an endpoint, a pulled image's watch.
+// settings is the Settings tab: the rows over the stored tile, the limits
+// it inherits, its variables, database access, volumes and ingress, the
+// domains of a kind with an endpoint, a pulled image's watch. ?open= (or
+// a row action's) is the row open.
 func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.SettingsView, error) {
+	ctx, s := c.Request().Context(), middleware.ScopeOf(c)
 	sv := settingsView(t)
+	sv.Open = c.FormValue("open")
+	sv.Env = envView(t.EnvJSON)
+	server, err := h.orch.SettingDefaults(ctx)
+	if err != nil {
+		return sv, err
+	}
+	if err := inherit(&sv, []rung{{"env", s.Env.Settings}, {"stack", s.Stack.Settings}, {"org", s.Org.Settings}, {"server", server.JSON()}}); err != nil {
+		return sv, err
+	}
+	if sv.Access, err = h.access(c, t); err != nil {
+		return sv, err
+	}
+	vs, err := h.orch.TileVolumes(ctx, t.ID)
+	if err != nil {
+		return sv, err
+	}
+	sv.Volumes = volumeRows(render.EnvURL(c), vs)
+	pv, err := h.orch.Placement(ctx, service.ScopeTile, t.ID)
+	if err != nil {
+		return sv, err
+	}
+	sv.Placement, sv.Ingress = base(c)+"/placement", ingressWord(pv.IngressName, pv.Ingress, pv.IngressFrom)
 	if !runKind(t.Kind) {
-		ds, err := h.orch.Domains(c.Request().Context(), t.ID)
+		ds, err := h.orch.Domains(ctx, t.ID)
 		if err != nil {
 			return sv, err
 		}
-		managed, err := h.orch.TileDNSDomains(c.Request().Context(), t.ID)
+		managed, err := h.orch.TileDNSDomains(ctx, t.ID)
 		if err != nil {
 			return sv, err
 		}
-		auto, err := h.orch.TileAutoHost(c.Request().Context(), t.ID)
+		auto, err := h.orch.TileAutoHost(ctx, t.ID)
 		if err != nil {
 			return sv, err
 		}
@@ -292,7 +301,7 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 	return sv, nil
 }
 
-// access is the Access tab: the tile's slice_access entries, the creds
+// access is the Database access row: the tile's slice_access entries, the creds
 // it holds, and the env's slice tiles, each linked to its drawer.
 func (h *handler) access(c echo.Context, t service.Tile) (ui.AccessView, error) {
 	ctx := c.Request().Context()
@@ -531,7 +540,7 @@ func (h *handler) update(c echo.Context, tab string, edit func(*service.Tile) er
 // POST …/env: the editor's KEY=VALUE lines, or one row's × (drop).
 func (h *handler) SetEnv(c echo.Context) error {
 	drop, text := c.FormValue("drop"), c.FormValue("env")
-	return h.update(c, "env", func(t *service.Tile) error {
+	return h.update(c, "settings", func(t *service.Tile) error {
 		if drop != "" {
 			t.EnvJSON = without(t.EnvJSON, drop)
 			return nil
@@ -552,7 +561,17 @@ func (h *handler) SetAccess(c echo.Context) error {
 	if err == nil {
 		*tileOf(c) = t
 	}
-	return h.after(c, "access", "saved", err)
+	return h.after(c, "settings", "saved", err)
+}
+
+// POST …/rename: the General row's name. The slug and the drawer's URL
+// move with it.
+func (h *handler) Rename(c echo.Context) error {
+	t, err := h.orch.RenameTile(c.Request().Context(), tileOf(c).ID, strings.TrimSpace(c.FormValue("name")))
+	if err == nil {
+		*tileOf(c) = t
+	}
+	return h.after(c, "settings", "renamed", err)
 }
 
 func (h *handler) CheckImage(c echo.Context) error {
