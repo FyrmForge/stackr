@@ -329,6 +329,12 @@ func (h *handler) trafficTab(c echo.Context, x extra) (templ.Component, error) {
 			d.Ingress = id
 		}
 		d.Exit = h.orch.DefaultExit(ctx)
+		if f := refill(c, d.IngressAction); f != nil {
+			d.Ingress = f.Get("node")
+		}
+		if f := refill(c, d.ExitAction); f != nil {
+			d.Exit = f.Get("node")
+		}
 		for _, n := range ns {
 			o := ui.Option{Value: n.ID, Label: n.Name}
 			if slices.Contains(n.Tags, "ingress") {
@@ -342,6 +348,9 @@ func (h *handler) trafficTab(c echo.Context, x extra) (templ.Component, error) {
 	}
 	rs, err := h.orch.ExternalRoutes(ctx)
 	v.Routes = ui.RoutesView{Add: ui.Base + "/routes"}
+	if f := refill(c, v.Routes.Add); f != nil {
+		v.Routes.Draft = ui.Route{Host: f.Get("route_host"), Mode: f.Get("route_mode"), Target: f.Get("route_target"), Insecure: f.Get("route_insecure") != ""}
+	}
 	for _, r := range rs {
 		v.Routes.Rows = append(v.Routes.Rows, ui.Route{
 			Host:     r.Host,
@@ -370,7 +379,10 @@ func (h *handler) keysTab(c echo.Context) (templ.Component, error) {
 		return nil, err
 	}
 	if len(ns) > 1 {
-		v.Tunnel = ui.TunnelKeysView{Every: nodesBase + "/rotate-every", Rotate: nodesBase + "/rotate", Days: h.orch.RotateSchedule(ctx)}
+		v.Tunnel = ui.TunnelKeysView{Every: nodesBase + "/rotate-every", Rotate: nodesBase + "/rotate", Days: strconv.Itoa(h.orch.RotateSchedule(ctx))}
+		if f := refill(c, v.Tunnel.Every); f != nil {
+			v.Tunnel.Days = f.Get("days")
+		}
 	}
 	if v.Trust, err = h.trustView(c); err != nil {
 		return nil, err
@@ -510,6 +522,7 @@ func (h *handler) nodeAnswer(c echo.Context, tab, note string, actErr error) err
 			return middleware.HTTPError(actErr)
 		}
 		f.Error, status = msg, http.StatusUnprocessableEntity
+		c.Set(refusedKey, true)
 	}
 	v, err := h.nodeView(c, d, base)
 	if err != nil {
@@ -523,6 +536,9 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Hint: ui.NodeHint(d.Status, d.Stalled), Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
 		PublicIP: d.PublicIP, PublicIPAction: base + "/public-ip",
+	}
+	if f := refill(c, v.PublicIPAction); f != nil {
+		v.PublicIP = f.Get("public_ip")
 	}
 	ctx := c.Request().Context()
 	down, err := h.orch.DownIngressDomains(ctx, d.ID)
@@ -602,6 +618,11 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		picks = []string{x.Suggested}
 	}
 	copy(v.Exits[:], picks)
+	if f := refill(c, v.TagsAction); f != nil {
+		v.Tags = f["tag"]
+		clear(v.Exits[:])
+		copy(v.Exits[:], f["exit"])
+	}
 	for _, o := range x.Options {
 		v.ExitNodes = append(v.ExitNodes, ui.Option{Value: o.Name, Label: o.Name})
 	}

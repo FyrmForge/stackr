@@ -17,6 +17,24 @@ type DestsView struct {
 	ListHelp string
 	Rows     []DestView
 	Target   string // what its forms answer into; "" = the drawer
+	// Draft is a refused add as typed, never its secret key; nil = a fresh
+	// form.
+	Draft *DestDraft
+}
+
+// DestDraft is the add form's fields as posted.
+type DestDraft struct {
+	Name, Endpoint, Bucket, Region, AccessKey string
+	Shared                                    bool
+}
+
+// draft is the add form's values: what was typed, or a fresh form
+// offered to every org.
+func (v DestsView) draft() DestDraft {
+	if v.Draft != nil {
+		return *v.Draft
+	}
+	return DestDraft{Shared: true}
 }
 
 type DestView struct {
@@ -106,7 +124,7 @@ func Dests(v DestsView) templ.Component {
 					var templ_7745c5c3_Var3 string
 					templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(d.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 59, Col: 42}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 77, Col: 42}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 					if templ_7745c5c3_Err != nil {
@@ -124,7 +142,7 @@ func Dests(v DestsView) templ.Component {
 						var templ_7745c5c3_Var4 string
 						templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(d.Bucket)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 61, Col: 73}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 79, Col: 73}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 						if templ_7745c5c3_Err != nil {
@@ -137,7 +155,7 @@ func Dests(v DestsView) templ.Component {
 						var templ_7745c5c3_Var5 string
 						templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(endpointWord(d.Endpoint))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 61, Col: 105}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 79, Col: 105}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 						if templ_7745c5c3_Err != nil {
@@ -166,7 +184,7 @@ func Dests(v DestsView) templ.Component {
 						var templ_7745c5c3_Var6 string
 						templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(sharedWord(d.Shared))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 68, Col: 67}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 86, Col: 67}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 						if templ_7745c5c3_Err != nil {
@@ -195,7 +213,7 @@ func Dests(v DestsView) templ.Component {
 						var templ_7745c5c3_Var7 string
 						templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(d.ShareAction)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 78, Col: 37}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 96, Col: 37}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 						if templ_7745c5c3_Err != nil {
@@ -208,7 +226,7 @@ func Dests(v DestsView) templ.Component {
 						var templ_7745c5c3_Var8 string
 						templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(orDrawer(v.Target))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 78, Col: 70}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 96, Col: 70}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 						if templ_7745c5c3_Err != nil {
@@ -263,7 +281,7 @@ func Dests(v DestsView) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(v.Add)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 91, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 109, Col: 24}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -276,7 +294,7 @@ func Dests(v DestsView) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(orDrawer(v.Target))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 91, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/dests.templ`, Line: 109, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -286,23 +304,23 @@ func Dests(v DestsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = Field(FieldView{Name: "dest_name", Label: "Name", Placeholder: "offsite", Required: true}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = Field(FieldView{Name: "dest_name", Label: "Name", Value: v.draft().Name, Placeholder: "offsite", Required: true}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = Field(FieldView{Name: "endpoint", Label: "Endpoint", Placeholder: "https://s3.eu-west-1.amazonaws.com", Help: "Full URL, including the scheme. Empty is AWS."}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = Field(FieldView{Name: "endpoint", Label: "Endpoint", Value: v.draft().Endpoint, Placeholder: "https://s3.eu-west-1.amazonaws.com", Help: "Full URL, including the scheme. Empty is AWS."}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = Field(FieldView{Name: "bucket", Label: "Bucket", Placeholder: "stackr-backups", Required: true}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = Field(FieldView{Name: "bucket", Label: "Bucket", Value: v.draft().Bucket, Placeholder: "stackr-backups", Required: true}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = Field(FieldView{Name: "region", Label: "Region", Placeholder: "us-east-1", Help: "Optional: servers that ignore regions still need one for signing."}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = Field(FieldView{Name: "region", Label: "Region", Value: v.draft().Region, Placeholder: "us-east-1", Help: "Optional: servers that ignore regions still need one for signing."}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = Field(FieldView{Name: "access_key", Label: "Access key", Required: true}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = Field(FieldView{Name: "access_key", Label: "Access key", Value: v.draft().AccessKey, Required: true}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -315,7 +333,7 @@ func Dests(v DestsView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = Share(destShare(true)).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = Share(destShare(v.draft().Shared)).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

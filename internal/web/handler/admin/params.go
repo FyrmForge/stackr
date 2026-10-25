@@ -36,6 +36,7 @@ func (h *handler) params(c echo.Context, errMsg, note string) (templ.Component, 
 		Note:   note,
 		Editor: comp.ParamEditorView{Action: ui.Base + "/params", DeleteAction: ui.Base + "/params/delete"},
 	}
+	posted := refill(c, v.Editor.Action) // a secret's value never comes back
 	for _, p := range rows {
 		if p.Kind == "secret" {
 			v.Editor.Secrets = append(v.Editor.Secrets, comp.SecretRowView{
@@ -45,12 +46,22 @@ func (h *handler) params(c echo.Context, errMsg, note string) (templ.Component, 
 				DecidedBy:  "server",
 			})
 		} else {
-			v.Editor.Params = append(v.Editor.Params, comp.ParamRowView{
+			r := comp.ParamRowView{
 				Collection: p.Collection,
 				Name:       p.Name,
 				Value:      p.Value,
 				DecidedBy:  "server",
-			})
+			}
+			if vs, ok := posted["param."+p.Collection+"."+p.Name]; ok {
+				r.Value = vs[0]
+			}
+			v.Editor.Params = append(v.Editor.Params, r)
+		}
+	}
+	if posted != nil {
+		v.Editor.New = comp.ParamDraft{Collection: posted.Get("new_collection"), Name: posted.Get("new_name"), Kind: posted.Get("new_kind")}
+		if v.Editor.New.Kind != "secret" {
+			v.Editor.New.Value = posted.Get("new_value")
 		}
 	}
 	return vars.Editor(v), nil
@@ -80,6 +91,7 @@ func (h *handler) paramsAfter(c echo.Context, note string, err error) error {
 			return middleware.HTTPError(err)
 		}
 		status, note = http.StatusUnprocessableEntity, ""
+		c.Set(refusedKey, true)
 	}
 	body, err := h.params(c, msg, note)
 	if err != nil {

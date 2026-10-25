@@ -13,7 +13,13 @@ type ParamEditorView struct {
 	Secrets      []SecretRowView
 	ReadOnly     bool
 	Why          string // why ReadOnly
+	// New is a refused new row as typed (a secret's value never); zero =
+	// a fresh, closed row.
+	New ParamDraft
 }
+
+// ParamDraft is the new row's fields as posted.
+type ParamDraft struct{ Collection, Name, Value, Kind string }
 
 // ParamRowView is a plain param: its value is shown and editable.
 type ParamRowView struct {
@@ -69,7 +75,7 @@ templ ParamEditor(v ParamEditorView) {
 				</ul>
 			}
 			if !v.ReadOnly {
-				@newRow()
+				@newRow(v.New)
 			}
 		</fieldset>
 	</form>
@@ -183,16 +189,16 @@ templ deleteRow(v ParamEditorView, collection, name string) {
 }
 
 // newRow is v0's dashed "+ Add variable": the new row opens under it.
-templ newRow() {
-	<details class="group">
+templ newRow(d ParamDraft) {
+	<details class="group" open?={ d.Name != "" }>
 		<summary class="btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none">+ Add variable</summary>
 		<div class="panel px-3 py-2.5 mt-2 border-rw-accent/60 flex flex-wrap items-center gap-2">
-			<input class="input font-mono !w-32" name="new_collection" placeholder="collection" aria-label="New param collection"/>
-			<input class="input font-mono flex-1 min-w-32" name="new_name" placeholder="NAME" aria-label="New param name"/>
-			<input class="input font-mono flex-1 min-w-32" name="new_value" placeholder="value" autocomplete="off" aria-label="New param value"/>
+			<input class="input font-mono !w-32" name="new_collection" value={ d.Collection } placeholder="collection" aria-label="New param collection"/>
+			<input class="input font-mono flex-1 min-w-32" name="new_name" value={ d.Name } placeholder="NAME" aria-label="New param name"/>
+			<input class="input font-mono flex-1 min-w-32" name="new_value" value={ d.Value } placeholder="value" autocomplete="off" aria-label="New param value"/>
 			<select class="input !w-28" name="new_kind" aria-label="New param kind">
 				<option value="param">variable</option>
-				<option value="secret">secret</option>
+				<option value="secret" selected?={ d.Kind == "secret" }>secret</option>
 			</select>
 			<button type="submit" class="btn btn-primary btn-sm ml-auto">Save</button>
 		</div>

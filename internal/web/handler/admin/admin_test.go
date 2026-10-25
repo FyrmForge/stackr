@@ -212,6 +212,38 @@ func TestAdminBackupSchedule(t *testing.T) {
 
 // The Caddy tab saves proxy_custom as a JSON array of routes and refuses
 // anything else, keeping what was stored.
+// A refused save (422) draws its form as typed, and only that form: a
+// sibling form posting the same field name keeps what is stored.
+func TestAdminRefusedKeepsTyped(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	refused := func(path string, form url.Values, want ...string) string {
+		t.Helper()
+		rec := s.As(t, root, "POST", path, form)
+		body := rec.Body.String()
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("%s = %d, want 422\n%s", path, rec.Code, body)
+		}
+		for _, w := range want {
+			if !strings.Contains(body, w) {
+				t.Errorf("%s: no %s in\n%s", path, w, body)
+			}
+		}
+		return body
+	}
+	refused("/-/admin/settings/jobs", url.Values{"workers": {"-5"}}, `value="-5"`)
+	refused("/-/admin/caddy", url.Values{"proxy_custom": {"{oops"}}, ">{oops</textarea>")
+	refused("/-/admin/backups/schedule", url.Values{"panel_backup_schedule": {"not cron"}, "panel_backup_keep": {"4"}},
+		`value="not cron"`, `value="4"`)
+	refused("/-/admin/routes", url.Values{"route_host": {"bad host"}, "route_mode": {"https"}, "route_target": {"10.0.0.1:1"}, "route_insecure": {"1"}},
+		`value="bad host"`, `value="https" selected`, `value="10.0.0.1:1"`)
+	// the webhook's refused URL stays in the webhook field, not the heartbeat's
+	body := refused("/-/admin/alerts", url.Values{"url": {"nope"}}, `value="nope"`)
+	if strings.Count(body, `value="nope"`) != 1 || strings.Index(body, `value="nope"`) > strings.Index(body, "Heartbeat URL") {
+		t.Errorf("the refused webhook URL is not in the webhook field alone:\n%s", body)
+	}
+}
+
 func TestAdminCaddyCustom(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
@@ -340,7 +372,7 @@ func TestAdminConfigBind(t *testing.T) {
 	g.Commit(t, "acme/server", "main", map[string]string{"stackr-server.yml": "version: 1\n"})
 
 	body := s.As(t, root, "GET", "/-/admin/config", nil).Body.String()
-	if !strings.Contains(body, `value="`+conn+`"`) || !strings.Contains(body, "(unbind)") || strings.Contains(body, "Create a server connector first") {
+	if !strings.Contains(body, `value="`+conn+`"`) || !strings.Contains(body, `<option value="">None</option>`) || strings.Contains(body, "Create a server connector first") {
 		t.Fatalf("unbound tab:\n%s", body)
 	}
 	form := url.Values{"connector": {conn}, "repo": {"acme/server"}, "path": {"infra/server.yml"}, "auto": {"1"}}

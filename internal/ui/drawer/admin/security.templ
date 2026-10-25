@@ -121,9 +121,12 @@ templ MasterKey(v MasterKeyView) {
 				} else if v.Pending {
 					<p class="text-sm text-rw-warn" role="status">A new key is waiting for the panel to restart.</p>
 				} else if v.Rotate != "" {
-					<form hx-post={ v.Rotate } hx-target="#master-key" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
-						@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true, Help: "The panel restarts. Older backups keep the old key."})
-						<button type="submit" class="btn btn-ghost btn-sm">Rotate the master key</button>
+					<form hx-post={ v.Rotate } hx-target="#master-key" hx-swap="outerHTML">
+						<div class="flex flex-wrap items-end gap-2">
+							@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true})
+							<button type="submit" class="btn btn-ghost btn-sm">Rotate the master key</button>
+						</div>
+						<p class="mt-1.5 text-xs text-rw-faint">The panel restarts. Older backups keep the old key.</p>
 					</form>
 				} else {
 					<p class="text-sm text-rw-faint">This key is set in the environment.</p>

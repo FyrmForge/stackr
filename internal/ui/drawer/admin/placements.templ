@@ -40,6 +40,8 @@ type PlacementFormView struct {
 	Node   string   // picked node name
 	Nodes  []Option // Value = node name
 	All    bool     // open to all orgs
+	// Refused: a refused save, drawn as posted; an edit opens for it.
+	Refused bool
 	Orgs   []OrgPick
 }
 
@@ -182,7 +184,7 @@ templ Placements(v PlacementsView) {
 							}
 						</div>
 						if r.Edit.Action != "" {
-							<details>
+							<details open?={ r.Edit.Refused }>
 								<summary class="cursor-pointer text-xs text-rw-muted hover:text-rw-text">Sharing</summary>
 								<div class="mt-2">
 									@placementForm(r.Edit, "pl-"+r.Name, false)

@@ -134,7 +134,7 @@ var Catalogue = []Knob{
 		Default:   "60",
 		Scopes:    Flat,
 		AllowZero: true,
-		Desc:      "minutes between image-watch checks; 0 is off",
+		Desc:      "minutes between checks for newer images; 0 is off",
 	},
 	{
 		Key:     "orphan_retention_days",
@@ -217,7 +217,7 @@ var Catalogue = []Knob{
 		Type:    TStr,
 		Default: "30 4 * * *",
 		Scopes:  Flat,
-		Desc:    "when the sweep runs, a cron line; empty is the default time (cleanup_enabled is the switch)",
+		Desc:    "when the sweep runs, a cron line; empty is the default time",
 	},
 	{
 		Key:      "registry_cleanup_schedule",

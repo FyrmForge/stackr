@@ -35,7 +35,7 @@ templ Config(v ConfigView) {
 		@c.Section("Export", "instance", "This server's live state as a stackr-server.yml, the way into config-as-code. Secrets come out as names, never values.") {
 			<a href={ templ.SafeURL(v.Export) } download="stackr-server.yml" class="btn btn-ghost btn-sm">Download stackr-server.yml</a>
 		}
-		@c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approve unless Auto apply is on.") {
+		@c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approval unless Auto apply is on.") {
 			if len(v.Connectors) == 0 && v.Repo == "" {
 				<p class="text-sm text-rw-muted">Create a server connector first, in Connectors. The server file is fetched through it.</p>
 			} else {
@@ -45,15 +45,15 @@ templ Config(v ConfigView) {
 						<div>
 							<label for="server-connector" class="label">Connector</label>
 							<select id="server-connector" name="connector" class="input">
-								<option value="">(unbind)</option>
+								<option value="">None</option>
 								for _, o := range v.Connectors {
 									<option value={ o.Value } selected?={ o.Value == v.Connector }>{ o.Label }</option>
 								}
 							</select>
 						</div>
-						@c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "you/serverconfig"})
-						@c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch})
-						@c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-server.yml)", Value: v.Path})
+						@c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/stackr-server"})
+						@c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Help: "Empty uses the default branch."})
+						@c.Field(c.FieldView{Name: "path", Label: "File path", Value: v.Path, Placeholder: "stackr-server.yml", Help: "Empty reads stackr-server.yml."})
 						<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="auto" value="1" checked?={ v.Auto } class="accent-rw-accent"/> Auto apply a plan with no impact lines and no removals</label>
 						if v.Base != "" {
 							<div class="flex flex-wrap items-center gap-2">

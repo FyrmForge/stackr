@@ -28,7 +28,7 @@ func (h *handler) mountConfig(g *echo.Group, a *middleware.Access) {
 	}
 	g.POST(b, h.act("config", func(c echo.Context) (string, *service.Job, error) {
 		f := c.FormValue
-		if f("connector") == "" { // the select's "(unbind)"
+		if f("connector") == "" { // the select's "None"
 			return unbind(c)
 		}
 		_, err := h.orch.BindServerConfig(
@@ -75,6 +75,10 @@ func (h *handler) configTab(c echo.Context, job *comp.JobStatusView) (templ.Comp
 		Path:      bd.Path,
 		Auto:      bd.Auto,
 		Job:       job,
+	}
+	if f := refill(c, ui.Base+"/config"); f != nil {
+		v.Connector, v.Repo, v.Branch, v.Path = f.Get("connector"), f.Get("repo"), f.Get("branch"), f.Get("path")
+		v.Auto = f.Get("auto") != ""
 	}
 	if v.Vars, err = h.params(c, "", ""); err != nil {
 		return nil, err

@@ -21,7 +21,7 @@ func TestRecoverySection(t *testing.T) {
 			t.Errorf("unsaved section lacks %q", want)
 		}
 	}
-	if strings.Contains(unsaved, "AGE-SECRET-KEY") || strings.Contains(unsaved, "Rotate the key") {
+	if strings.Contains(unsaved, "AGE-SECRET-KEY") || strings.Contains(unsaved, "Rotate the recovery key") {
 		t.Error("an unsaved section showed the key or offered rotation")
 	}
 	shown := render(RecoveryView{Gen: 1, Unsaved: true, Key: "AGE-SECRET-KEY-X", Saved: "/v"})
@@ -29,7 +29,7 @@ func TestRecoverySection(t *testing.T) {
 		t.Errorf("revealed section:\n%s", shown)
 	}
 	saved := render(RecoveryView{Gen: 2, Rotate: "/r"})
-	if strings.Contains(saved, "data-recovery-warning") || !strings.Contains(saved, "Rotate the key") {
+	if strings.Contains(saved, "data-recovery-warning") || !strings.Contains(saved, "Rotate the recovery key") {
 		t.Errorf("saved section:\n%s", saved)
 	}
 }

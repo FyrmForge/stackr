@@ -228,6 +228,7 @@ func (h *handler) answer(c echo.Context, section, note string, x extra, actErr e
 			return middleware.HTTPError(actErr)
 		}
 		status, note = http.StatusUnprocessableEntity, ""
+		c.Set(refusedKey, true)
 	}
 	f, body, err := h.view(c, section, x)
 	if err != nil {
@@ -235,6 +236,24 @@ func (h *handler) answer(c echo.Context, section, note string, x extra, actErr e
 	}
 	f.Note, f.Error = note, msg
 	return respond.HTML(c, status, ui.View(f, body))
+}
+
+// refusedKey marks an answer to a refused act (refill).
+const refusedKey = "admin_refused"
+
+// refill is what a refused POST to action carried, for its form to draw
+// again as typed; nil on any other answer, so every other form shows what
+// is stored. A box left unticked posts nothing: absent is off.
+func refill(c echo.Context, action string) url.Values {
+	r := c.Request()
+	if refused, _ := c.Get(refusedKey).(bool); !refused || r.Method != http.MethodPost || r.URL.Path != action {
+		return nil
+	}
+	f, err := c.FormParams()
+	if err != nil {
+		return nil
+	}
+	return f
 }
 
 // view is the frame (with the side menu's badges) and the section's body.
@@ -329,6 +348,9 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 			return nil, err
 		}
 		val, err := h.orch.Setting(ctx, "proxy_custom")
+		if f := refill(c, ui.Base+"/caddy"); f != nil {
+			val = f.Get("proxy_custom")
+		}
 		return ui.Domains(ui.DomainsView{Settings: s, Caddy: ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}}), err
 	case "connectors":
 		return h.connectorsTab(c)
@@ -367,7 +389,7 @@ func (h *handler) overview(c echo.Context, ps []service.Problem) (templ.Componen
 	ctx := c.Request().Context()
 	v := ui.OverviewView{Version: h.orch.Version(), Guide: "/-/setup/server/ui/domains"}
 	for _, p := range ps {
-		r := ui.ProblemRow{Message: p.Message, Href: p.Link, LinkText: p.LinkText, Critical: p.Severity == service.SevCritical}
+		r := ui.ProblemRow{Message: p.Message, Href: p.Link, LinkText: p.LinkText, Critical: p.Severity == service.SevCritical, Since: p.Since}
 		if it, ok := ui.Find(problemSection(p)); ok {
 			r.Area = it.Label
 		}
@@ -461,6 +483,16 @@ func (h *handler) backupsTab(c echo.Context, job *comp.JobStatusView) (templ.Com
 		return nil, err
 	}
 	v.Sched.Enabled = on == "true"
+	if f := refill(c, v.Sched.Action); f != nil {
+		v.Sched.Schedule, v.Sched.Keep, v.Sched.Dest = f.Get("panel_backup_schedule"), f.Get("panel_backup_keep"), f.Get("panel_backup_dest")
+		v.Sched.Enabled = f.Get("panel_backup_enabled") != ""
+	}
+	if f := refill(c, v.Dests.Add); f != nil {
+		v.Dests.Draft = &comp.DestDraft{
+			Name: f.Get("dest_name"), Endpoint: f.Get("endpoint"), Bucket: f.Get("bucket"),
+			Region: f.Get("region"), AccessKey: f.Get("access_key"), Shared: f.Get("share") == comp.ShareAll,
+		}
+	}
 	off, err := h.orch.PanelBackupOffBox(ctx)
 	if err != nil {
 		return nil, err
@@ -559,6 +591,10 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 	}
 	bad, invalid := errs.IsInvalid(refused)
 	marked := false
+	if refused != nil {
+		c.Set(refusedKey, true)
+	}
+	posted := refill(c, v.Action)
 	for _, s := range ss {
 		if !slices.Contains(v.Keys, s.Key) {
 			continue
@@ -574,6 +610,9 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 			Secret:    s.Secret,
 			ReadOnly:  s.ReadOnly,
 			NoInherit: s.DecidedBy == "install",
+		}
+		if vs, ok := posted[s.Key]; ok && !s.Secret && !s.ReadOnly {
+			r.Value = vs[0]
 		}
 		if invalid && bad.Field == s.Key {
 			r.Error, marked = bad.Msg, true

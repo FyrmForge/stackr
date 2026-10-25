@@ -71,6 +71,18 @@ func (h *handler) observeTab(c echo.Context) (templ.Component, error) {
 
 		AccessQuery: s.AccessQuery, AccessIP: s.AccessIP, AccessHeaders: s.AccessHeaders,
 	}
+	// a refused save draws its own panel as typed; the others as stored
+	if f := refill(c, v.Action); f != nil {
+		on := func(k string) bool { return f.Get(k) != "" }
+		switch f.Get("part") {
+		case "metrics":
+			v.Enabled, v.Retention, v.MinFree, v.Memory = on("observe_enabled"), f.Get("observe_metrics_retention"), f.Get("observe_min_free"), f.Get("observe_max_memory")
+		case "logs":
+			v.LogsEnabled, v.LogsDays, v.LogsMax = on("observe_logs_enabled"), f.Get("observe_logs_retention"), f.Get("observe_logs_max_size")
+		case "access":
+			v.AccessQuery, v.AccessIP, v.AccessHeaders = on("observe_access_query"), on("observe_access_ip"), on("observe_access_headers")
+		}
+	}
 	switch {
 	case s.Container == "running":
 		v.State = "running."

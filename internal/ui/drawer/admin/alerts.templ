@@ -20,13 +20,15 @@ type AlertsView struct {
 	Heartbeat      string
 	HeartbeatSave  string // POST url
 	HeartbeatClear c.ConfirmView // Action "" = off already
+	// URLDraft and HeartbeatDraft are a refused save's URL as typed.
+	URLDraft, HeartbeatDraft string
 }
 
 templ Alerts(v AlertsView) {
 	<div id="tab-alerts">
 		@c.Section("Webhook", "instance", "One webhook gets node offline, failed backups, failing certificates, crash loops, low memory and low disk.") {
 			<form hx-post={ v.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-				@c.Field(c.FieldView{Name: "url", Label: "Webhook URL", Type: "url", Placeholder: alertsPlaceholder(v.URL), Help: alertsURLHelp(v.URL)})
+				@c.Field(c.FieldView{Name: "url", Label: "Webhook URL", Type: "url", Value: v.URLDraft, Placeholder: alertsPlaceholder(v.URL), Help: alertsURLHelp(v.URL)})
 				@c.Field(c.FieldView{Name: "secret", Label: "Signing secret", Type: "password", Autocomplete: "new-password", Help: alertsSecretHelp(v.SecretSet)})
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			</form>
@@ -54,7 +56,7 @@ templ Alerts(v AlertsView) {
 		}
 		@c.Section("Heartbeat", "instance", "Get told when stackr stops pinging a URL.") {
 			<form hx-post={ v.HeartbeatSave } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-				@c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Placeholder: alertsPlaceholder(v.Heartbeat), Help: alertsURLHelp(v.Heartbeat)})
+				@c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Value: v.HeartbeatDraft, Placeholder: alertsPlaceholder(v.Heartbeat), Help: heartbeatURLHelp(v.Heartbeat)})
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			</form>
 			if v.HeartbeatClear.Action != "" {
@@ -76,6 +78,13 @@ func alertsPlaceholder(u string) string {
 func alertsURLHelp(u string) string {
 	if u == "" {
 		return "Alerts are off until you set one."
+	}
+	return "Empty keeps the current one."
+}
+
+func heartbeatURLHelp(u string) string {
+	if u == "" {
+		return "No heartbeat until you set one."
 	}
 	return "Empty keeps the current one."
 }

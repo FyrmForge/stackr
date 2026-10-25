@@ -2,6 +2,8 @@ package admin
 
 import (
 	"strconv"
+	"strings"
+	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -21,6 +23,7 @@ type OverviewView struct {
 type ProblemRow struct {
 	Message, Area, Href, LinkText string
 	Critical                      bool
+	Since                         time.Time // zero = unknown
 }
 
 func problemTone(critical bool) string {
@@ -30,10 +33,11 @@ func problemTone(critical bool) string {
 	return "text-rw-warn"
 }
 
-// problemLink is a section on this page (navigates) or a ?drawer= link
-// (opens the drawer over the page).
+// problemLink is a section on this page (swaps the section in) or a link
+// anywhere else, a ?drawer= over this page or an app's drawer over its
+// canvas, which only a full load opens.
 templ problemLink(r ProblemRow) {
-	if len(r.Href) > 0 && r.Href[0] == '?' {
+	if !strings.HasPrefix(r.Href, Base+"/") {
 		<a href={ templ.SafeURL(r.Href) } class="btn btn-sm btn-ghost shrink-0">{ r.LinkText }</a>
 	} else {
 		<a href={ templ.SafeURL(r.Href) } hx-get={ r.Href } hx-target="#main" hx-push-url="true" class="btn btn-sm btn-ghost shrink-0">{ r.LinkText }</a>
@@ -50,7 +54,15 @@ templ Overview(v OverviewView) {
 					for _, p := range v.Problems {
 						<li class="flex flex-wrap items-start gap-3 px-4 py-3 text-sm">
 							<span class={ "mt-0.5 shrink-0 font-semibold", problemTone(p.Critical) } aria-hidden="true">!</span>
-							<span class="flex-1 min-w-0 text-rw-text">{ p.Message }</span>
+							<span class="flex-1 min-w-0 text-rw-text">
+								{ p.Message }
+								if !p.Since.IsZero() {
+									<span class="text-rw-muted">
+										{ " Since " }
+										@c.Time(p.Since, "2 Jan, 15:04")
+									</span>
+								}
+							</span>
 							if p.Area != "" {
 								<span class="text-xs text-rw-faint shrink-0">{ p.Area }</span>
 							}
@@ -87,6 +99,7 @@ templ Overview(v OverviewView) {
 						Set
 					} else {
 						<span class="text-rw-faint">Not set</span>
+						<a href={ templ.SafeURL(Href("alerts")) } hx-get={ Href("alerts") } hx-target="#main" hx-push-url="true" class="ml-1 underline text-rw-muted hover:text-rw-text">Set one</a>
 					}
 				</dd>
 			</dl>

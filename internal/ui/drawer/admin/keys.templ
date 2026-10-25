@@ -1,10 +1,6 @@
 package admin
 
-import (
-	"fmt"
-
-	c "github.com/FyrmForge/stackr/internal/ui/components"
-)
+import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 // KeysView is every key the server holds: the master key, the recovery key,
 // the node tunnel keys and the cluster root (Trust.Fingerprint "" = no
@@ -17,11 +13,11 @@ type KeysView struct {
 }
 
 // TunnelKeysView is the WireGuard keys between nodes. Every (POST days=)
-// sets the schedule, Days the one in force (0 = off); Rotate (POST) rotates
-// them all now. "" = may not.
+// sets the schedule, Days the one in force (0 = off) or a refused one as
+// typed; Rotate (POST) rotates them all now. "" = may not.
 type TunnelKeysView struct {
 	Every, Rotate string
-	Days          int
+	Days          string
 }
 
 templ Keys(v KeysView) {
@@ -34,7 +30,7 @@ templ Keys(v KeysView) {
 					<form hx-post={ v.Tunnel.Every } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
 						<div>
 							<label for="rotate-days" class="label">Rotate every (days)</label>
-							<input id="rotate-days" name="days" type="number" min="0" max="365" value={ fmt.Sprint(v.Tunnel.Days) } class="input w-24"/>
+							<input id="rotate-days" name="days" type="number" min="0" max="365" value={ v.Tunnel.Days } class="input w-24"/>
 						</div>
 						<button type="submit" class="btn btn-primary btn-sm">Save</button>
 					</form>

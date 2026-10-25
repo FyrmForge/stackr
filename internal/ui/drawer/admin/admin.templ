@@ -274,6 +274,8 @@ templ Update(v UpdateView) {
 type RoutesView struct {
 	Add  string // POST the new route
 	Rows []Route
+	// Draft is a refused add as typed; zero = a fresh form.
+	Draft Route
 }
 
 // Route is one row; Remove.Action "" = may not.
@@ -285,24 +287,6 @@ type Route struct {
 
 templ Routes(v RoutesView) {
 	<div id="tab-routes">
-		if v.Add != "" {
-			@c.Section("Add an external route", "instance", "Pass-through sends raw TLS by name and keeps the target's own certificate. http and https terminate TLS here.") {
-				<form hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
-					@c.Field(c.FieldView{Name: "route_host", Label: "Host", Placeholder: "pve.example.com", Required: true, Help: "*.example.com works for pass-through."})
-					<div>
-						<label for="route_mode" class="label">Mode</label>
-						<select id="route_mode" name="route_mode" class="input">
-							<option value="passthrough">passthrough</option>
-							<option value="http">http</option>
-							<option value="https">https</option>
-						</select>
-					</div>
-					@c.Field(c.FieldView{Name: "route_target", Label: "Target", Placeholder: "192.168.1.10:8006", Required: true, Help: "host or host:port. Port defaults to 80 for http, 443 otherwise."})
-					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="route_insecure" value="1" class="accent-rw-accent"/> Do not verify the target's certificate (https only)</label>
-					<button type="submit" class="btn btn-primary btn-sm">Add route</button>
-				</form>
-			}
-		}
 		@c.Section("External routes", "instance", "Hosts that go to an address outside stackr.") {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">No external routes yet.</p>
@@ -326,9 +310,26 @@ templ Routes(v RoutesView) {
 				</ul>
 			}
 		}
+		if v.Add != "" {
+			@c.Section("Add an external route", "instance", "Pass-through sends raw TLS by name and keeps the target's own certificate. http and https terminate TLS here.") {
+				<form hx-post={ v.Add } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+					@c.Field(c.FieldView{Name: "route_host", Label: "Host", Value: v.Draft.Host, Placeholder: "pve.example.com", Required: true, Help: "*.example.com works for pass-through."})
+					<div>
+						<label for="route_mode" class="label">Mode</label>
+						<select id="route_mode" name="route_mode" class="input">
+							for _, m := range []string{"passthrough", "http", "https"} {
+								<option value={ m } selected?={ v.Draft.Mode == m }>{ m }</option>
+							}
+						</select>
+					</div>
+					@c.Field(c.FieldView{Name: "route_target", Label: "Target", Value: v.Draft.Target, Placeholder: "192.168.1.10:8006", Required: true, Help: "host or host:port. Port defaults to 80 for http, 443 otherwise."})
+					<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="route_insecure" value="1" checked?={ v.Draft.Insecure } class="accent-rw-accent"/> Do not verify the target's certificate (https only)</label>
+					<button type="submit" class="btn btn-primary btn-sm">Add route</button>
+				</form>
+			}
+		}
 	</div>
 }
-
 
 // Recovery is the recovery key section; every action re-renders it alone.
 templ Recovery(v RecoveryView) {
@@ -353,9 +354,12 @@ templ Recovery(v RecoveryView) {
 							<button type="submit" class="btn btn-primary btn-sm">Show the key</button>
 						</form>
 					} else if v.Rotate != "" {
-						<form hx-post={ v.Rotate } hx-target="#recovery" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
-							@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true, Help: "Older backups keep the old key."})
-							<button type="submit" class="btn btn-ghost btn-sm">Rotate the key</button>
+						<form hx-post={ v.Rotate } hx-target="#recovery" hx-swap="outerHTML">
+							<div class="flex flex-wrap items-end gap-2">
+								@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true})
+								<button type="submit" class="btn btn-ghost btn-sm">Rotate the recovery key</button>
+							</div>
+							<p class="mt-1.5 text-xs text-rw-faint">Older backups keep the old key.</p>
 						</form>
 					}
 				}

@@ -61,9 +61,12 @@ func (h *handler) placementsTab(c echo.Context, x plOpen) (templ.Component, erro
 	}
 	v := ui.PlacementsView{Wizard: x.wizard, Progress: x.progress, Nodes: ui.Href("nodes")}
 	for _, p := range ps {
-		v.Rows = append(v.Rows, placementRow(p, ogs))
+		r := placementRow(p, ogs)
+		refillPlacement(c, &r.Edit)
+		v.Rows = append(v.Rows, r)
 	}
 	v.Add = ui.PlacementFormView{Action: plBase, All: true, Orgs: orgPicks(ogs, nil)}
+	refillPlacement(c, &v.Add)
 	for _, n := range ns {
 		v.Add.Nodes = append(v.Add.Nodes, ui.Option{Value: n.Name, Label: n.Name})
 	}
@@ -141,6 +144,22 @@ func openOrgs(f url.Values) []string {
 		return nil
 	}
 	return f["org"]
+}
+
+// refillPlacement draws a refused placement form as posted.
+func refillPlacement(c echo.Context, f *ui.PlacementFormView) {
+	p := refill(c, f.Action)
+	if p == nil {
+		return
+	}
+	f.Refused, f.All = true, p.Get("share") == comp.ShareAll
+	if p.Has("name") {
+		f.Name, f.Node = p.Get("name"), p.Get("node")
+	}
+	on := openOrgs(p)
+	for i := range f.Orgs {
+		f.Orgs[i].On = slices.Contains(on, f.Orgs[i].Slug)
+	}
 }
 
 // POST /-/admin/placements/:placement/open

@@ -9,6 +9,24 @@ type DestsView struct {
 	ListHelp string
 	Rows     []DestView
 	Target   string // what its forms answer into; "" = the drawer
+	// Draft is a refused add as typed, never its secret key; nil = a fresh
+	// form.
+	Draft *DestDraft
+}
+
+// DestDraft is the add form's fields as posted.
+type DestDraft struct {
+	Name, Endpoint, Bucket, Region, AccessKey string
+	Shared                                    bool
+}
+
+// draft is the add form's values: what was typed, or a fresh form
+// offered to every org.
+func (v DestsView) draft() DestDraft {
+	if v.Draft != nil {
+		return *v.Draft
+	}
+	return DestDraft{Shared: true}
 }
 
 type DestView struct {
@@ -89,15 +107,15 @@ templ Dests(v DestsView) {
 	if v.Add != "" {
 		@Section("Add a destination", v.Scope, "Any S3-compatible bucket: AWS, MinIO, Backblaze B2, a RustFS instance.") {
 			<form hx-post={ v.Add } hx-target={ orDrawer(v.Target) } hx-swap="outerHTML" class="space-y-4">
-				@Field(FieldView{Name: "dest_name", Label: "Name", Placeholder: "offsite", Required: true})
-				@Field(FieldView{Name: "endpoint", Label: "Endpoint", Placeholder: "https://s3.eu-west-1.amazonaws.com", Help: "Full URL, including the scheme. Empty is AWS."})
-				@Field(FieldView{Name: "bucket", Label: "Bucket", Placeholder: "stackr-backups", Required: true})
-				@Field(FieldView{Name: "region", Label: "Region", Placeholder: "us-east-1", Help: "Optional: servers that ignore regions still need one for signing."})
-				@Field(FieldView{Name: "access_key", Label: "Access key", Required: true})
+				@Field(FieldView{Name: "dest_name", Label: "Name", Value: v.draft().Name, Placeholder: "offsite", Required: true})
+				@Field(FieldView{Name: "endpoint", Label: "Endpoint", Value: v.draft().Endpoint, Placeholder: "https://s3.eu-west-1.amazonaws.com", Help: "Full URL, including the scheme. Empty is AWS."})
+				@Field(FieldView{Name: "bucket", Label: "Bucket", Value: v.draft().Bucket, Placeholder: "stackr-backups", Required: true})
+				@Field(FieldView{Name: "region", Label: "Region", Value: v.draft().Region, Placeholder: "us-east-1", Help: "Optional: servers that ignore regions still need one for signing."})
+				@Field(FieldView{Name: "access_key", Label: "Access key", Value: v.draft().AccessKey, Required: true})
 				@Field(FieldView{Name: "secret_key", Label: "Secret key", Type: "password", Required: true, Help: "Stored encrypted and never shown again."})
 				if v.Share {
 					<div class="text-sm">
-						@Share(destShare(true))
+						@Share(destShare(v.draft().Shared))
 					</div>
 				}
 				<button type="submit" class="btn btn-primary btn-sm">Add destination</button>

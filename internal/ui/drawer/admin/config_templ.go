@@ -152,7 +152,7 @@ func Config(v ConfigView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, " class=\"space-y-4\"><legend class=\"sr-only\">Config repository</legend><div><label for=\"server-connector\" class=\"label\">Connector</label> <select id=\"server-connector\" name=\"connector\" class=\"input\"><option value=\"\">(unbind)</option> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, " class=\"space-y-4\"><legend class=\"sr-only\">Config repository</legend><div><label for=\"server-connector\" class=\"label\">Connector</label> <select id=\"server-connector\" name=\"connector\" class=\"input\"><option value=\"\">None</option> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -202,15 +202,15 @@ func Config(v ConfigView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "repo", Label: "Repository (owner/name)", Value: v.Repo, Placeholder: "you/serverconfig"}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: "acme/stackr-server"}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "branch", Label: "Branch (empty = default)", Value: v.Branch}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Help: "Empty uses the default branch."}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "path", Label: "File path (empty = stackr-server.yml)", Value: v.Path}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "path", Label: "File path", Value: v.Path, Placeholder: "stackr-server.yml", Help: "Empty reads stackr-server.yml."}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -295,7 +295,7 @@ func Config(v ConfigView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approve unless Auto apply is on.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approval unless Auto apply is on.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -48,6 +48,12 @@ func (h *handler) alertsTab(c echo.Context) (templ.Component, error) {
 	s, err := h.orch.AlertSettings(c.Request().Context())
 	v := ui.AlertsView{Action: ui.Base + "/alerts", URL: s.URL, SecretSet: s.SecretSet}
 	v.Heartbeat, v.HeartbeatSave = s.Heartbeat, ui.Base+"/alerts/heartbeat"
+	if f := refill(c, v.Action); f != nil {
+		v.URLDraft = f.Get("url")
+	}
+	if f := refill(c, v.HeartbeatSave); f != nil {
+		v.HeartbeatDraft = f.Get("url")
+	}
 	if s.Heartbeat != "" {
 		v.HeartbeatClear = comp.ConfirmView{
 			Button:  "Turn off",
