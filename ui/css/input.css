@@ -389,6 +389,20 @@ html.light {
   .share-form:has(input[value="only"]:checked) .share-orgs {
     display: block;
   }
+  /* settings accordions: the changed dot, the "from org" tag, a search hit,
+     and what settings-find hides beats any display class */
+  .changed-dot {
+    @apply ml-1 inline-block h-1.5 w-1.5 rounded-full bg-rw-accent align-middle;
+  }
+  .from-tag {
+    @apply ml-1 rounded bg-rw-inset px-1.5 py-0.5 text-[10px] font-normal text-rw-faint;
+  }
+  settings-find mark {
+    @apply rounded-sm bg-rw-accent/20 px-0.5 text-inherit;
+  }
+  settings-find [hidden] {
+    display: none !important;
+  }
   .modal-head {
     @apply flex items-start gap-3 border-b border-rw-border px-5 py-4;
   }

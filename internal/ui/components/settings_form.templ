@@ -29,6 +29,8 @@ type SettingRowView struct {
 	Secret    bool   // never echoed: a password box, blank keeps it
 	ReadOnly  bool   // the installer set it: shown as text, never posted
 	Error     string
+	Changed   bool   // this rung sets it: the dot, and data-changed for settings-find
+	From      string // where an inherited value comes from ("org"): a tag after the label
 }
 
 // knobSection is the v0 section each catalogue key sits in; the label is
@@ -183,8 +185,11 @@ templ settingRow(form string, r SettingRowView) {
 // readOnlyRow is a knob the installer set: its value as text, no input, so
 // a save never posts it.
 templ readOnlyRow(r SettingRowView) {
-	<div>
-		<span class="settings-label">{ knobLabel(r) }</span>
+	<div data-field data-changed?={ r.Changed }>
+		<span class="settings-label">
+			{ knobLabel(r) }
+			@FieldMarks(r.Changed, r.From)
+		</span>
 		if r.Value == "" {
 			<p class="text-sm text-rw-faint">Not set.</p>
 		} else {
@@ -197,8 +202,11 @@ templ readOnlyRow(r SettingRowView) {
 }
 
 templ editRow(form string, r SettingRowView) {
-	<div>
-		<label for={ form + "-" + r.Key } class="settings-label">{ knobLabel(r) }</label>
+	<div data-field data-changed?={ r.Changed }>
+		<label for={ form + "-" + r.Key } class="settings-label">
+			{ knobLabel(r) }
+			@FieldMarks(r.Changed, r.From)
+		</label>
 		switch {
 			case r.Type == "bool":
 				<select id={ form + "-" + r.Key } name={ r.Key } class="input">

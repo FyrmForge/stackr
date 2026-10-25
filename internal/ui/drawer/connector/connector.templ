@@ -61,7 +61,7 @@ templ Settings(v SettingsView) {
 			</form>
 		}
 		if v.Base != "" {
-			@c.DangerSection("A stack or tile that clones through it stops building.", v.Host, "It stays installed on "+v.Label+"; uninstall it there too.") {
+			@c.DangerZone("A stack or tile that clones through it stops building.", v.Host, "It stays installed on "+v.Label+"; uninstall it there too.") {
 				@c.Confirm(v.Delete)
 			}
 		}

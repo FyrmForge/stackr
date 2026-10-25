@@ -21,6 +21,7 @@ var elements = map[string]int{
 	"log-pane":        150,
 	"metric-chart":    275, // its own 24-hour time format (local-time.ts cannot be imported) and round value axes
 	"password-toggle": 150,
+	"settings-find":   150,
 	"side-drawer":     150,
 	"tab-strip":       150,
 	"term-pane":       150,
@@ -98,6 +99,20 @@ var contract = map[string][]string{
 	"metric-chart":    {`"measures"`, `"labels"`, `"unit"`, `"range"`, `"sse:points"`, `"metrics-refill"`, `script[type="application/json"]`, "No data yet."},
 	"theme-toggle":    {`"theme"`},
 	"password-toggle": {"[data-toggle]", `"aria-pressed"`},
+	"settings-find": {
+		`"open"`,
+		`"toggle"`,
+		`"name"`,
+		"history.replaceState",
+		"details[data-acc]",
+		"[data-acc-title]",
+		"[data-field]",
+		"data-changed",
+		"[data-find]",
+		"[data-only-changed]",
+		"[data-find-status]",
+		"[data-find-skip]",
+	},
 }
 
 func TestElementWhitelist(t *testing.T) {

@@ -4,7 +4,7 @@ package components
 
 // StaticManifest maps original asset paths to fingerprinted paths.
 var StaticManifest = map[string]string{
-	"css/output.css": "css/output.3edaba8805ad.css",
+	"css/output.css": "css/output.149a8917cb6a.css",
 	"css/uplot.min.css": "css/uplot.min.df630c6a8d6f.css",
 	"css/xterm.css": "css/xterm.854a7c0fb70e.css",
 	"images/apple-touch-icon.png": "images/apple-touch-icon.bf7ad3fd7ca1.png",
@@ -18,11 +18,12 @@ var StaticManifest = map[string]string{
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
 	"js/elements/metric-chart.js": "js/elements/metric-chart.f0ae4960333e.js",
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",
-	"js/elements/side-drawer.js": "js/elements/side-drawer.54b9afdeea02.js",
+	"js/elements/settings-find.js": "js/elements/settings-find.84c193c983e8.js",
+	"js/elements/side-drawer.js": "js/elements/side-drawer.1cbdacb0bb4a.js",
 	"js/elements/tab-strip.js": "js/elements/tab-strip.54412ec96f2b.js",
 	"js/elements/term-pane.js": "js/elements/term-pane.70f08ef74b6d.js",
 	"js/elements/theme-toggle.js": "js/elements/theme-toggle.2b6c88b4c400.js",
-	"js/main.js": "js/main.be124c9f8e8f.js",
+	"js/main.js": "js/main.eaf5c173906e.js",
 	"js/vendor/htmx.min.js": "js/vendor/htmx.min.e209dda5c823.js",
 	"js/vendor/sse.min.js": "js/vendor/sse.min.98a46496de0c.js",
 	"js/vendor/uplot.min.js": "js/vendor/uplot.min.19c8d4c6ad88.js",

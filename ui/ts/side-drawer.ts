@@ -1,8 +1,8 @@
 // <side-drawer open tab> is in the layout once. htmx swaps a card's drawer
 // into its #drawer-body; the swap opens it and copies ?tab= into "tab" (the
 // URL is pushed before the swap). [data-close], [data-backdrop] and Escape
-// close it: the body empties, ?drawer and ?tab leave the URL through
-// history.replaceState (the one place an element touches the URL), and a
+// close it: the body empties, ?drawer, ?tab and ?open (settings-find's
+// open row) leave the URL through history.replaceState, and a
 // bubbling "drawer-closed" fires. While open, Tab cycles inside the drawer
 // and closing hands focus back to what opened it. An edited form asks
 // before a close drops it; a failed request into the open drawer shows
@@ -127,6 +127,7 @@ class SideDrawer extends HTMLElement {
     const url = new URL(location.href);
     url.searchParams.delete("drawer");
     url.searchParams.delete("tab");
+    url.searchParams.delete("open");
     history.replaceState(history.state, "", url);
     this.dispatchEvent(new CustomEvent("drawer-closed", { bubbles: true }));
     if (this.opener?.isConnected) this.opener.focus();
