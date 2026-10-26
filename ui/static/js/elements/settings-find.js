@@ -1,4 +1,5 @@
-const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option";
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit]";
+let seen = false;
 export function matches(n) {
     return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
 }
@@ -120,6 +121,9 @@ class SettingsFind extends HTMLElement {
         const row = rows.find((r) => r.dataset.acc === key);
         if (row && !rows.some((r) => r.open))
             row.open = true;
+        if (!seen && row?.open)
+            requestAnimationFrame(() => row.scrollIntoView({ block: "nearest" }));
+        seen = true;
         this.addEventListener("toggle", this.onToggle, true);
         this.addEventListener("input", this.onInput);
         this.addEventListener("htmx:afterRequest", this.onSaved);
