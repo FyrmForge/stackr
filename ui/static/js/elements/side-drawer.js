@@ -17,7 +17,7 @@ class SideDrawer extends HTMLElement {
             this.setAttribute("tab", tab);
         else
             this.removeAttribute("tab");
-        this.querySelector("[data-close]")?.focus();
+        this.querySelector("[data-close]")?.focus({ preventScroll: true });
     };
     onClick = (e) => {
         const el = e.target;

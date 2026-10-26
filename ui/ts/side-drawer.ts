@@ -28,7 +28,7 @@ class SideDrawer extends HTMLElement {
     const tab = new URLSearchParams(location.search).get("tab");
     if (tab) this.setAttribute("tab", tab);
     else this.removeAttribute("tab");
-    this.querySelector<HTMLElement>("[data-close]")?.focus();
+    this.querySelector<HTMLElement>("[data-close]")?.focus({ preventScroll: true });
   };
 
   private onClick = (e: Event): void => {
