@@ -325,7 +325,7 @@ func (o *Orchestrator) deployNoted(ctx context.Context, id, note string) (Job, e
 }
 
 // RebuildTile queues a build of the commit the env runs, without the build
-// cache, into the image its release pins, then a deploy of it. Only a git
+// cache, as a new image in a new release, then a deploy of it. Only a git
 // tile has one.
 func (o *Orchestrator) RebuildTile(ctx context.Context, id string) (Job, error) {
 	t, err := o.tiles.Get(ctx, id)

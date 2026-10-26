@@ -498,10 +498,10 @@ func TestMissingBuildIsBuiltAgain(t *testing.T) {
 	w.fake.Gone = []string{ref}
 	w.fake.Err = map[string]error{"Pull": fmt.Errorf("pull %s: %w", ref, docker.ErrNoClusterImage)}
 	var built []string
-	w.f.Build = func(_ context.Context, _ store.Tile, commit, into string, _ io.Writer) error {
+	w.f.Build = func(_ context.Context, _ store.Tile, commit, into string, _ io.Writer) (string, error) {
 		built = append(built, commit, into)
 		delete(w.fake.Err, "Pull")
-		return nil
+		return im.ID, nil
 	}
 	git := w.tile
 	git.Kind, git.GitURL, git.ImageRef = tile.Service, "https://github.com/acme/shop", ""

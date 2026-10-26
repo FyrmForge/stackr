@@ -617,12 +617,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Managed:    orch.managed,
 			Domains:    orch.domains,
 			Import:     orch.importForDeploy,
-			Build: func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) error {
+			Build: func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) (string, error) {
 				st, err := orch.stacks.Get(ctx, t.StackID)
-				if err == nil {
-					_, err = orch.buildInto(ctx, st, t, commit, ref, log)
+				if err != nil {
+					return "", err
 				}
-				return err
+				return orch.buildInto(ctx, st, t, commit, ref, log)
 			},
 			Cred:       orch.pullCred,
 			Settings:   orch.settings,

@@ -188,6 +188,14 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 				if err := o.deploy.Rebuild(ctx, p.TileID, r.Log); err != nil {
 					return err
 				}
+				// Built and pinned: a parked job's next run only deploys.
+				// Other keys (org_id) are kept.
+				var m map[string]any
+				if json.Unmarshal([]byte(r.Job.Payload), &m) == nil && m != nil {
+					delete(m, "rebuild")
+					b, _ := json.Marshal(m)
+					r.Job.Payload = string(b)
+				}
 			}
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				o.downAfterFailedDeploy(ctx, p.TileID, err)
