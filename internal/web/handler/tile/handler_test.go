@@ -189,7 +189,7 @@ func TestSettingsRefusedInItsRow(t *testing.T) {
 	storage, _, _ = strings.Cut(storage, "</details>")
 	_, run, _ := strings.Cut(body, `id="tile-settings-run"`)
 	run, _, _ = strings.Cut(run, "</details>")
-	for _, w := range []string{`data-acc="storage" open`, `role="alert">A tile with a volume runs one replica`, `<option value="data" selected>data</option>`, `name="mount_path" value="/data"`, "no volumes · no files"} {
+	for _, w := range []string{`data-acc="storage" open`, `role="alert">A tile with a volume runs one replica`, `<option value="data" selected>data</option>`, `name="mount_path" value="/data"`, "no mounts · no files"} {
 		if !strings.Contains(storage, w) {
 			t.Errorf("storage row lacks %q\n%s", w, storage)
 		}
@@ -361,12 +361,12 @@ func TestViewerDrawerReadOnly(t *testing.T) {
 		}
 	}
 	body := s.As(t, vs, "GET", drawer+"?tab=settings", nil).Body.String()
-	for _, w := range []string{`id="tab-settings"`, `data-acc="general"`, `data-acc="network"`, `data-acc="variables"`, `data-acc="dbaccess"`, "app.acme.dev", "<fieldset disabled", "Only members and owners can change"} {
+	for _, w := range []string{`id="tab-settings"`, `data-acc="general"`, `data-acc="network"`, `data-acc="variables"`, `data-acc="dbaccess"`, `data-acc="storage"`, "Tiles mount the env's volumes.", "app.acme.dev", "<fieldset disabled", "Only members and owners can change"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("viewer settings lacks %q\n%s", w, body)
 		}
 	}
-	for _, w := range []string{"hx-post", `method="post"`, `data-acc="delete"`, "Raw Caddy", "/detach"} {
+	for _, w := range []string{"hx-post", `method="post"`, `data-acc="delete"`, "Raw Caddy", "/detach", "Declare one in env Settings", `aria-label="Mount path 1"`} {
 		if strings.Contains(body, w) {
 			t.Errorf("viewer settings shows %q", w)
 		}
@@ -483,6 +483,37 @@ func TestStorageMounts(t *testing.T) {
 	}
 	if rec.Code != 422 {
 		t.Errorf("undeclared = %d", rec.Code)
+	}
+	if n := strings.Count(b, `aria-invalid="true"`); n != 2 || strings.Index(b, `aria-invalid="true"`) < strings.Index(b, `aria-label="Volume 2"`) {
+		t.Errorf("want only the ghost row marked, got %d marks", n)
+	}
+	// "/", a doubled path (any spelling) and a missing share: each refused
+	// on its own row, the line kept where it was typed
+	for _, c := range []struct {
+		vols, paths, other, says, marked string
+	}{
+		{"uploads", "/", "", "not at / itself", `aria-label="Volume 1"`},
+		{"uploads uploads", "/data /data/", "", "Two mounts use /data.", `aria-label="Volume 2"`},
+		{"uploads", "/data", "host:/srv/x:/data", "Two mounts use /data.", `id="set-mount_other"`},
+		{"uploads", "/data", "share:nope/x:/s", "no share nope", `id="set-mount_other"`},
+		{"", "/data", "", "Pick a volume for /data.", `aria-label="Volume 1"`},
+		{"uploads", "data", "", "Start the path for uploads with /.", `aria-label="Volume 1"`},
+	} {
+		f := url.Values{"fields": {"files volumes"}, "mount_volume": strings.Fields(c.vols), "mount_path": strings.Fields(c.paths), "mount_other": {c.other}}
+		if c.vols == "" {
+			f["mount_volume"] = []string{""}
+		}
+		f["mount_mode"] = make([]string, len(f["mount_path"]))
+		rec := s.Do(t, "POST", drawer+"/settings?open=storage", f)
+		b := rec.Body.String()
+		at := strings.Index(b, c.marked)
+		mark := strings.Index(b, `aria-invalid="true"`)
+		if rec.Code != 422 || !strings.Contains(b, c.says) || mark < at || (c.other != "" && !strings.Contains(b, c.other+"</textarea>")) {
+			t.Errorf("%v %v %q = %d, want %q marked from %s\n%s", c.vols, c.paths, c.other, rec.Code, c.says, c.marked, b)
+		}
+		if c.marked != `aria-label="Volume 1"` && strings.Contains(b[:at], `aria-invalid="true"`) {
+			t.Errorf("%v %v %q: a row before the bad one is marked", c.vols, c.paths, c.other)
+		}
 	}
 	// a row with no path stays a row, refused, never moved to the other mounts
 	half := url.Values{"fields": {"files volumes"}, "mount_volume": {"uploads"}, "mount_path": {""}, "mount_mode": {""}, "mount_other": {""}}

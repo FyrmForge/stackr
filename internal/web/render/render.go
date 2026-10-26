@@ -482,6 +482,8 @@ func Size(b int64) string {
 		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
 	case b >= 1<<20:
 		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%d KB", b>>10)
 	}
-	return fmt.Sprintf("%d KB", b>>10)
+	return fmt.Sprintf("%d B", b)
 }

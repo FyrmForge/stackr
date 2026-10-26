@@ -269,15 +269,22 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 	}
 	sv.Volumes = volumeRows(render.EnvURL(c), vs)
 	if sv.Has("volumes") {
-		if sv.Mounts.Declared, err = h.orch.MountableVolumes(ctx, t.EnvironmentID); err != nil {
+		declared, err := h.orch.MountableVolumes(ctx, t.EnvironmentID)
+		if err != nil {
 			return sv, err
 		}
 		// a save just posted shows as typed: refused, it was not stored
-		src := t.Volumes
-		if f, _ := c.FormParams(); c.Request().Method == http.MethodPost && f.Has("volumes") {
-			src = f.Get("volumes")
+		f, _ := c.FormParams()
+		switch post := c.Request().Method == http.MethodPost; {
+		case post && f.Has("mount_path"):
+			sv.Mounts = typedMounts(f)
+		case post && f.Has("volumes"):
+			sv.Mounts = mountRows(f.Get("volumes"))
+		default:
+			sv.Mounts = mountRows(t.Volumes)
 		}
-		sv.Mounts.Rows, sv.Mounts.Other = mountRows(src)
+		sv.Mounts.Declared = declared
+		sv.Mounts.Managed = s.Stack.ConfigRepo != ""
 		sv.Mounts.Declare = render.EnvURL(c) + "?drawer=env:" + t.EnvironmentID + "&tab=settings&open=volumes"
 	}
 	pv, err := h.orch.Placement(ctx, service.ScopeTile, t.ID)
@@ -660,6 +667,9 @@ func rowRefusal(err error, fields string) error {
 	for _, bad := range bads {
 		if k := formKey(bad.Field); slices.Contains(strings.Fields(fields), k) {
 			under = append(under, errs.Invalid{Field: k, Msg: bad.Msg})
+			if bad.Line > 0 { // the row of a list field it is about: "volumes.2"
+				under = append(under, errs.Invalid{Field: k + "." + strconv.Itoa(bad.Line), Msg: bad.Msg})
+			}
 		} else if len(over) == 0 {
 			over = append(over, errs.Invalid{Msg: bad.Msg})
 		}

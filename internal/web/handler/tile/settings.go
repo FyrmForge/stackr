@@ -260,33 +260,52 @@ func formKey(field string) string {
 
 // joinMounts folds the Storage row's mount rows and its host and share
 // lines into the one volumes value the tile stores. A row with neither a
-// volume nor a path is the blank one, left out.
+// volume nor a path is the blank one, left out. The mount_ keys stay, so a
+// refused save draws the rows as typed (typedMounts).
 func joinMounts(form url.Values) {
 	if !form.Has("mount_path") {
 		return
 	}
-	vols, paths, modes := form["mount_volume"], form["mount_path"], form["mount_mode"]
 	var ls []string
+	rows, other := postedMounts(form)
+	for _, r := range rows {
+		l := r.Volume + ":" + r.Path
+		if r.RO {
+			l += ":ro"
+		}
+		ls = append(ls, l)
+	}
+	form["volumes"] = []string{strings.Join(append(ls, other...), "\n")}
+}
+
+// postedMounts are the posted mount rows, the blank ones left out, and the
+// host and share lines; rows numbered by their line in the joined value.
+func postedMounts(form url.Values) (rows []ui.MountRow, other []string) {
+	vols, paths, modes := form["mount_volume"], form["mount_path"], form["mount_mode"]
 	for i, p := range paths {
 		name, p := at(vols, i), strings.TrimSpace(p)
 		if name == "" && p == "" {
 			continue
 		}
-		l := name + ":" + p
-		if at(modes, i) == "ro" {
-			l += ":ro"
-		}
-		ls = append(ls, l)
+		rows = append(rows, ui.MountRow{Volume: name, Path: p, RO: at(modes, i) == "ro", Line: len(rows) + 1})
 	}
 	for l := range strings.SplitSeq(form.Get("mount_other"), "\n") {
 		if l = strings.TrimSpace(l); l != "" {
-			ls = append(ls, l)
+			other = append(other, l)
 		}
 	}
-	form["volumes"] = []string{strings.Join(ls, "\n")}
-	for _, k := range []string{"mount_volume", "mount_path", "mount_mode", "mount_other"} {
-		delete(form, k)
+	return rows, other
+}
+
+// typedMounts are the Storage rows as a refused save posted them: each row
+// where it was typed, the host and share lines in their box.
+func typedMounts(form url.Values) (m ui.Mounts) {
+	rows, other := postedMounts(form)
+	m.Rows, m.Other = rows, strings.Join(other, "\n")
+	for i := range other {
+		m.OtherLines = append(m.OtherLines, len(rows)+i+1)
 	}
+	return m
 }
 
 func at(vs []string, i int) string {
@@ -299,24 +318,28 @@ func at(vs []string, i int) string {
 // mountRows splits a volumes value into its volume lines, as rows (one
 // that does not parse too, so a refused row stays where it was typed), and
 // the host: and share: lines.
-func mountRows(v string) (rows []ui.MountRow, other string) {
+func mountRows(v string) (m ui.Mounts) {
 	var rest []string
+	n := 0
 	for l := range strings.SplitSeq(v, "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" {
 			continue
 		}
+		n++
 		name, path, ok := service.MountedVolume(l)
 		switch {
 		case ok:
 		case strings.HasPrefix(l, "host:"), strings.HasPrefix(l, "share:"):
 			rest = append(rest, l)
+			m.OtherLines = append(m.OtherLines, n)
 			continue
 		default: // a row typed half ("uploads:") stays a row
 			name, path, _ = strings.Cut(l, ":")
 			path = strings.TrimSuffix(path, ":ro")
 		}
-		rows = append(rows, ui.MountRow{Volume: name, Path: path, RO: strings.HasSuffix(l, ":ro")})
+		m.Rows = append(m.Rows, ui.MountRow{Volume: name, Path: path, RO: strings.HasSuffix(l, ":ro"), Line: n})
 	}
-	return rows, strings.Join(rest, "\n")
+	m.Other = strings.Join(rest, "\n")
+	return m
 }

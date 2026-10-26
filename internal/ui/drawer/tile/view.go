@@ -460,7 +460,7 @@ func networkSummary(s SettingsView) string {
 }
 
 func storageSummary(s SettingsView) string {
-	return join(count(lines(s.Vals["volumes"]), "volume", "volumes"), count(lines(s.Vals["files"]), "file", "files"))
+	return join(count(lines(s.Vals["volumes"]), "mount", "mounts"), count(lines(s.Vals["files"]), "file", "files"))
 }
 
 func healthSummary(s SettingsView) string {
@@ -610,18 +610,25 @@ type RunRow struct {
 type VolumeRow struct{ ID, Name, State, Drawer string }
 
 // Mounts is the Storage row's volumes field: one row per volume line, as
-// stored or as typed into a refused save; Other the host: and share: lines.
-// Declared are the volumes the env offers; Declare links to its Settings.
+// stored or as typed into a refused save; Other the host: and share: lines,
+// OtherLines their lines in the volumes value. Declared are the volumes the
+// env offers; Declare links to its Settings. Managed: the stack file
+// declares them, so there is nothing to link to.
 type Mounts struct {
-	Rows     []MountRow
-	Other    string
-	Declared []string
-	Declare  string
+	Rows       []MountRow
+	Other      string
+	OtherLines []int
+	Declared   []string
+	Declare    string
+	Managed    bool
 }
 
+// MountRow is one volume line; Line is its line in the volumes value
+// (1-based), 0 for the blank row.
 type MountRow struct {
 	Volume, Path string
 	RO           bool
+	Line         int
 }
 
 // options are the volumes a row's select offers: the declared ones, and
@@ -633,14 +640,40 @@ func (m Mounts) options(cur string) []string {
 	return append(slices.Clone(m.Declared), cur)
 }
 
-// mountErr is the volumes refusal on a filled row; the blank one stays
-// clean.
-func mountErr(ctx context.Context, m MountRow) string {
-	if m.Volume == "" && m.Path == "" {
+// lineErr is the refusal on one line of the volumes value ("volumes.2").
+// A refusal that names no line marks every line, as it is about them all.
+func lineErr(ctx context.Context, line int) string {
+	if line == 0 {
 		return ""
+	}
+	if r := c.RefusedHere(ctx); r != nil {
+		for k := range r.More {
+			if strings.HasPrefix(k, "volumes.") {
+				return keptErr(ctx, "volumes."+strconv.Itoa(line))
+			}
+		}
 	}
 	return keptErr(ctx, "volumes")
 }
 
-// withBlank is the rows plus an empty one to add a volume with.
-func (m Mounts) withBlank() []MountRow { return append(slices.Clone(m.Rows), MountRow{}) }
+// mountErr is the refusal on a row: the blank one stays clean.
+func mountErr(ctx context.Context, m MountRow) string { return lineErr(ctx, m.Line) }
+
+// otherErr is the refusal on any of the host and share lines.
+func (m Mounts) otherErr(ctx context.Context) string {
+	for _, l := range m.OtherLines {
+		if e := lineErr(ctx, l); e != "" {
+			return e
+		}
+	}
+	return ""
+}
+
+// withBlank is the rows plus an empty one to add a volume with; a reader
+// gets none.
+func (m Mounts) withBlank(readOnly bool) []MountRow {
+	if readOnly {
+		return m.Rows
+	}
+	return append(slices.Clone(m.Rows), MountRow{})
+}

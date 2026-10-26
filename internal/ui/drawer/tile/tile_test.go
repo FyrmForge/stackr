@@ -258,7 +258,7 @@ func TestSummaries(t *testing.T) {
 		{"run image", runSummary(img), "image command · restart always · 1 replica"},
 		{"run repo", runSummary(repo), "own command"},
 		{"network", networkSummary(img), "8080 http · 2 domains · ingress h4 (from env)"},
-		{"storage", storageSummary(img), "1 volume · no files"},
+		{"storage", storageSummary(img), "1 mount · no files"},
 		{"health", healthSummary(img), "GET /healthz · every 30 s"},
 		{"health none", healthSummary(repo), "no check"},
 		{"resources", resourcesSummary(img), "1 core (from org) · 512 MB"},

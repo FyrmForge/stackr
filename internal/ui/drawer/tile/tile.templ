@@ -711,7 +711,7 @@ templ networkRow(v View, s SettingsView) {
 
 templ storageRow(v View, s SettingsView) {
 	@rowForm(v, s, "storage", storageKeys) {
-		@mounts(s)
+		@mounts(v, s)
 		@area(s, "files", "Files", "config/loki.yml:/etc/loki/config.yml", "Read-only from the repo; add :template to resolve references.")
 	}
 	if len(s.Volumes) > 0 {
@@ -721,14 +721,14 @@ templ storageRow(v View, s SettingsView) {
 
 // mounts is the volumes field: per line a declared volume, its path and
 // its access, one blank line to add, then the host and share lines.
-templ mounts(s SettingsView) {
+templ mounts(v View, s SettingsView) {
 	if s.Has("volumes") {
 		<fieldset class="space-y-2" data-field data-changed?={ s.Changed("volumes") }>
 			<legend class="label">
 				Volumes
 				@c.FieldMarks(s.Changed("volumes"), "")
 			</legend>
-			for i, m := range s.Mounts.withBlank() {
+			for i, m := range s.Mounts.withBlank(v.ReadOnly) {
 				<div class="flex flex-wrap items-center gap-2">
 					<select name="mount_volume" aria-label={ "Volume " + strconv.Itoa(i+1) } class="input !w-40" { c.Invalid("volumes", mountErr(ctx, m))... }>
 						<option value="">No volume</option>
@@ -744,11 +744,17 @@ templ mounts(s SettingsView) {
 				</div>
 			}
 			<p class="text-xs text-rw-faint" data-hint>
-				Tiles mount the env's volumes.
-				<a href={ templ.SafeURL(s.Mounts.Declare) } class="link">Declare one in env Settings</a>
+				if s.Mounts.Managed {
+					The stack file declares this env's volumes.
+				} else {
+					Tiles mount the env's volumes.
+					if !v.ReadOnly {
+						<a href={ templ.SafeURL(s.Mounts.Declare) } class="link">Declare one in env Settings</a>
+					}
+				}
 			</p>
 			<label class="label" for="set-mount_other">Host and share mounts</label>
-			<textarea id="set-mount_other" name="mount_other" rows="2" placeholder="share:media/photos:/data" class="input font-mono text-sm" { c.Invalid("volumes", mountErr(ctx, MountRow{Path: s.Mounts.Other}))... }>{ s.Mounts.Other }</textarea>
+			<textarea id="set-mount_other" name="mount_other" rows="2" placeholder="share:media/photos:/data" class="input font-mono text-sm" { c.Invalid("volumes", s.Mounts.otherErr(ctx))... }>{ s.Mounts.Other }</textarea>
 			@c.FieldError("volumes", keptErr(ctx, "volumes"))
 		</fieldset>
 	}
