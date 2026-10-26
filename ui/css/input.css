@@ -226,6 +226,13 @@ html.light {
 /* One focus ring everywhere: solid 2px, 2px off the edge. Fields draw their
    own (border and ring) and opt out with focus:outline-none. */
 @layer base {
+  /* No scroll anchoring: an htmx outerHTML swap puts the new view in before
+     the old one goes, and the browser shifts the scroller by the new view's
+     height to keep the old anchor in place, so a save jumped the page by a
+     screen or more. main.js brings the answer into view instead. */
+  * {
+    overflow-anchor: none;
+  }
   :focus-visible {
     outline: 2px solid rgb(var(--rw-accentHi));
     outline-offset: 2px;

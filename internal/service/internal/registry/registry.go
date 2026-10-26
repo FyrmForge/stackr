@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"golang.org/x/mod/semver"
 )
 
 // The full set docker pull negotiates. Anything less and a multi-arch image
@@ -72,6 +73,57 @@ func ParseRef(ref string) (host, repoPath, tag string, ok bool) {
 		return "", "", "", false
 	}
 	return host, rest, tag, true
+}
+
+// ValidRef: ref is an image reference by Docker's grammar that ParseRef can
+// look up (a name and tag, no digest).
+func ValidRef(ref string) bool {
+	if _, err := name.ParseReference(ref); err != nil {
+		return false
+	}
+	_, _, _, ok := ParseRef(ref)
+	return ok
+}
+
+// ValidTagPolicy: policy is "" or a tag policy Constraint reads, with an
+// optional "semver" in front.
+func ValidTagPolicy(policy string) bool {
+	_, err := Constraint(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(policy), "semver")))
+	return err == nil
+}
+
+// Constraint is a tag policy's version rule (DECIDE 32) as a match on
+// "v"-prefixed semver: ^1.2, ~1.2, 1 or 1.2 (prefix), * or "" (any).
+func Constraint(c string) (func(string) bool, error) {
+	if c == "" || c == "*" {
+		return func(string) bool { return true }, nil
+	}
+	op := c[0]
+	if op == '^' || op == '~' {
+		c = c[1:]
+	}
+	base := "v" + strings.TrimPrefix(c, "v")
+	if !semver.IsValid(base) {
+		return nil, fmt.Errorf("tag policy: %q is not a version", c)
+	}
+	switch op {
+	case '^':
+		return func(v string) bool { return semver.Major(v) == semver.Major(base) && semver.Compare(v, base) >= 0 }, nil
+	case '~':
+		return func(v string) bool {
+			return semver.MajorMinor(v) == semver.MajorMinor(base) && semver.Compare(v, base) >= 0
+		}, nil
+	}
+	parts := strings.Count(base, ".")
+	return func(v string) bool {
+		switch parts {
+		case 0:
+			return semver.Major(v) == base
+		case 1:
+			return semver.MajorMinor(v) == base
+		}
+		return semver.Compare(v, base) == 0
+	}, nil
 }
 
 // Digest returns the registry's current manifest digest for ref, via a HEAD

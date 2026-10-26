@@ -210,48 +210,18 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 	mu.Lock()
 	defer mu.Unlock()
 	vals = maps.Clone(vals)
-	for key, raw := range vals {
-		if err := settings.Check(key, raw); err != nil {
-			return err
-		}
-		if key == "acme_email" || key == "alert_webhook_url" {
-			// what the server file's Parse refuses, so export then plan reads clean
-			if _, err := serverconfig.CheckSetting(key, raw); err != nil {
-				return errs.Invalidf(key, "%s", err.Error())
-			}
-		}
-		// The masked form reads back as a valid URL; saving it would drop the
-		// real webhook.
-		if key == "alert_webhook_url" && strings.HasSuffix(raw, "/…") {
-			return errs.Invalidf(key, "That is the masked URL. Paste the full webhook URL.")
-		}
-		if key == "trusted_proxies" {
-			for _, r := range splitList(raw) {
-				if strings.EqualFold(r, domain.CloudflareKeyword) {
-					continue
-				}
-				if _, err := netip.ParsePrefix(r); err != nil {
-					if _, err := netip.ParseAddr(r); err != nil {
-						return errs.Invalidf("trusted_proxies", "%q is not an IP, a CIDR or cloudflare.", r)
-					}
-				}
-			}
-		}
-		if key == "panel_domain" {
-			host, err := o.cleanPanelDomain(ctx, raw)
-			if err != nil {
+	// every refused field at once, in key order; anything else stops the save
+	var bad []error
+	for _, key := range slices.Sorted(maps.Keys(vals)) {
+		if err := o.checkSetting(ctx, vals, key); err != nil {
+			if _, ok := errs.IsInvalid(err); !ok {
 				return err
 			}
-			vals[key] = host
-			if err := o.checkPanelRoutes(ctx, host); err != nil {
-				return err
-			}
+			bad = append(bad, err)
 		}
-		if key == "root_domain" {
-			if err := o.checkRootDomain(ctx, raw); err != nil {
-				return err
-			}
-		}
+	}
+	if len(bad) > 0 {
+		return errors.Join(bad...)
 	}
 	if raw, ok := vals["root_domain"]; ok && vals["panel_domain"] != "" {
 		if err := o.checkPanelAgainstRename(ctx, raw, vals["panel_domain"]); err != nil {
@@ -312,6 +282,56 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 		return errors.Join(err, o.sync.Sync(ctx))
 	}
 	return err
+}
+
+// checkSetting is one key's refusal; a panel domain is stored cleaned.
+func (o *Orchestrator) checkSetting(ctx context.Context, vals map[string]string, key string) error {
+	raw := vals[key]
+	if err := settings.Check(key, raw); err != nil {
+		return err
+	}
+	if key == "acme_email" || key == "alert_webhook_url" {
+		// what the server file's Parse refuses, so export then plan reads clean
+		if _, err := serverconfig.CheckSetting(key, raw); err != nil {
+			if key == "alert_webhook_url" {
+				return errs.Invalidf(key, "Give an http or https URL.")
+			}
+			return errs.Invalidf(key, "%s.", strings.TrimSuffix(err.Error(), ".")) // it starts with the value
+		}
+	}
+	// The masked form reads back as a valid URL; saving it would drop the
+	// real webhook.
+	if key == "alert_webhook_url" && strings.HasSuffix(raw, "/…") {
+		return errs.Invalidf(key, "That is the masked URL. Paste the full webhook URL.")
+	}
+	if key == "trusted_proxies" {
+		for _, r := range splitList(raw) {
+			if strings.EqualFold(r, domain.CloudflareKeyword) {
+				continue
+			}
+			if _, err := netip.ParsePrefix(r); err != nil {
+				if _, err := netip.ParseAddr(r); err != nil {
+					return errs.Invalidf("trusted_proxies", "%q is not an IP, a CIDR or cloudflare.", r)
+				}
+			}
+		}
+	}
+	if key == "panel_domain" {
+		host, err := o.cleanPanelDomain(ctx, raw)
+		if err != nil {
+			return err
+		}
+		vals[key] = host
+		if err := o.checkPanelRoutes(ctx, host); err != nil {
+			return err
+		}
+	}
+	if key == "root_domain" {
+		if err := o.checkRootDomain(ctx, raw); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // cleanPanelDomain is the host a panel_domain value stores: the form the

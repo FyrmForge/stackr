@@ -526,3 +526,23 @@ func TestAdminAnswerInItsCard(t *testing.T) {
 		t.Errorf("turning the heartbeat off is not told in its card (form %d, note %d):\n%s", form, note, body)
 	}
 }
+
+// A settings form refused on several knobs marks each one at once, and a
+// save's answer sits after its Save button (data-acted), not over the form.
+func TestAdminSettingsEveryRefusalAndNoteBySave(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	rec := s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{
+		"workers": {"-5"}, "backup_run_concurrency": {"-5"}, "backup_restore_concurrency": {"-5"},
+	})
+	body := rec.Body.String()
+	if rec.Code != http.StatusUnprocessableEntity || strings.Count(body, `aria-invalid="true"`) != 3 {
+		t.Errorf("refused = %d, %d fields marked, want 3\n%s", rec.Code, strings.Count(body, `aria-invalid="true"`), body)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{"workers": {"3"}})
+	body = rec.Body.String()
+	save, note := strings.Index(body, ">Save</button>"), strings.Index(body, "data-acted")
+	if rec.Code != http.StatusOK || save < 0 || note < save || !strings.Contains(body[note:], "Saved.") {
+		t.Errorf("saved = %d, note at %d, Save at %d\n%s", rec.Code, note, save, body)
+	}
+}

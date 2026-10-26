@@ -2,10 +2,13 @@ package tile
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -223,8 +226,9 @@ var Carries = map[string]map[string]bool{
 	Slice:    keys([]string{"provision_from", "default_access", "on_remove"}),
 }
 
-// Validate is one gate over the finished row, create and update alike; first
-// refusal wins. It also normalises in place: update_policy "" → manual,
+// Validate is one gate over the finished row, create and update alike; every
+// refused field at once (errors.Join), each field's first reason. It also
+// normalises in place: update_policy "" → manual,
 // restart folded to its canonical word, replicas 0 → 1, empty JSON → {},
 // a build's branch, dockerfile and context to main, Dockerfile and ".".
 // The promote plan validates the row it builds from the file the same way,
@@ -234,31 +238,32 @@ func Validate(t *store.Tile) error {
 	if !ok {
 		return errs.Invalidf("kind", "kind must be service, image, managed, cron, function or slice")
 	}
+	var bad []error
+	add := func(err error) {
+		if err != nil {
+			bad = append(bad, err)
+		}
+	}
 	for _, f := range fields {
 		if f.set(t) && !allowed[f.key] {
-			return refuse(t.Kind, f.key)
+			add(refuse(t.Kind, f.key))
 		}
 	}
 	switch t.Kind {
 	case Service:
 		if t.GitURL == "" {
-			return errs.Invalidf("git_url", "Give the Git URL to build from.")
-		}
-		if !gitURL.MatchString(t.GitURL) {
-			return errs.Invalidf("git_url", badGitURL)
+			add(errs.Invalidf("git_url", "Give the Git URL to build from."))
+		} else if !gitURL.MatchString(t.GitURL) {
+			add(errs.Invalidf("git_url", badGitURL))
 		}
 	case Image:
 		if t.ImageRef == "" {
-			return errs.Invalidf("image", "Give an image to run, or a Git URL to build instead.")
+			add(errs.Invalidf("image", "Give an image to run, or a Git URL to build instead."))
 		}
 	case Cron, Function:
-		if err := checkRun(t); err != nil {
-			return err
-		}
+		add(checkRun(t))
 	case Slice:
-		if err := checkSlice(t); err != nil {
-			return err
-		}
+		add(checkSlice(t))
 	}
 	if Builds(*t) {
 		if t.GitBranch == "" {
@@ -274,62 +279,73 @@ func Validate(t *store.Tile) error {
 	for _, a := range t.SliceAccess {
 		switch {
 		case !slug.Valid(a.From):
-			return errs.Invalidf("slice_access", "from %q is not a slice tile slug", a.From)
+			add(errs.Invalidf("slice_access", "from %q is not a slice tile slug", a.From))
 		case a.Access != Read && a.Access != Write:
-			return errs.Invalidf("slice_access", "%s: access must be read or write", a.From)
+			add(errs.Invalidf("slice_access", "%s: access must be read or write", a.From))
 		}
 	}
-	if t.ImageRef != "" {
-		if _, _, _, ok := registry.ParseRef(t.ImageRef); !ok {
-			return errs.Invalidf("image", "Not an image reference: use a name and tag, like nginx:1.")
-		}
+	if t.ImageRef != "" && !registry.ValidRef(t.ImageRef) {
+		add(errs.Invalidf("image", "Not an image reference: use a name and tag, like nginx:1.27."))
+	}
+	if !registry.ValidTagPolicy(t.TagPolicy) {
+		add(errs.Invalidf("tag_policy", "Use a version rule: ^1.2, ~1.2, 1.2 or *, with an optional semver in front."))
 	}
 	if t.UpdatePolicy == "" {
 		t.UpdatePolicy = "manual"
 	}
 	if t.UpdatePolicy != "manual" && t.UpdatePolicy != "auto" {
-		return errs.Invalidf("update_policy", "Pick manual or auto.")
+		add(errs.Invalidf("update_policy", "Pick manual or auto."))
 	}
-	rp, ok := canonRestart(t.RestartPolicy)
-	if !ok {
-		return errs.Invalidf("restart", "Pick always, on-failure or no.")
+	if rp, ok := canonRestart(t.RestartPolicy); ok {
+		t.RestartPolicy = rp
+	} else {
+		add(errs.Invalidf("restart", "Pick always, on-failure or no."))
 	}
-	t.RestartPolicy = rp
-
-	switch {
-	case t.CPULimit < 0:
-		return errs.Invalidf("limits.cpu", "Use 0 or more; 0 is no limit.")
-	case t.MemLimitMB < 0:
-		return errs.Invalidf("limits.memory_mb", "Use 0 or more; 0 is no limit.")
-	case t.ShmSizeMB < 0:
-		return errs.Invalidf("shm_size_mb", "Use 0 or more.")
-	case t.HealthcheckIntervalS < 0 || t.HealthcheckTimeoutS < 0 || t.HealthcheckRetries < 0 ||
-		t.HealthcheckStartPeriodS < 0:
-		return errs.Invalidf("healthcheck", "Use 0 or more.")
-	case t.Replicas < 0:
-		return errs.Invalidf("replicas", "Use a whole number, 1 or more.")
-	case t.TimeoutMinutes < 0:
-		return errs.Invalidf("timeout_minutes", "Use 0 or more.")
-	case t.ContainerPort < 0 || t.ContainerPort > 65535:
-		return errs.Invalidf("port", "Use a port from 1 to 65535.")
+	if p := t.EndpointProtocol; p != "" && p != "http" && p != "https" && p != "tcp" {
+		add(errs.Invalidf("endpoint_protocol", "Use http, https or tcp."))
+	}
+	if p := strings.TrimSpace(t.HealthPath); p != "" && !strings.HasPrefix(p, "/") {
+		add(errs.Invalidf("health_path", "Start the path with /, like /healthz."))
+	}
+	for _, n := range []struct {
+		key string
+		bad bool
+		msg string
+	}{
+		{"limits.cpu", t.CPULimit < 0, "Use 0 or more; 0 is no limit."},
+		{"limits.memory_mb", t.MemLimitMB < 0, "Use 0 or more; 0 is no limit."},
+		{"shm_size_mb", t.ShmSizeMB < 0, "Use 0 or more."},
+		{"healthcheck_interval", t.HealthcheckIntervalS < 0, "Use 0 or more."},
+		{"healthcheck_timeout", t.HealthcheckTimeoutS < 0, "Use 0 or more."},
+		{"healthcheck_retries", t.HealthcheckRetries < 0, "Use 0 or more."},
+		{"healthcheck_start_period", t.HealthcheckStartPeriodS < 0, "Use 0 or more."},
+		{"replicas", t.Replicas < 0, "Use a whole number, 1 or more."},
+		{"timeout_minutes", t.TimeoutMinutes < 0, "Use 0 or more."},
+		{"port", t.ContainerPort < 0 || t.ContainerPort > 65535, "Use a port from 1 to 65535."},
+	} {
+		if n.bad {
+			add(errs.Invalidf(n.key, "%s", n.msg))
+		}
 	}
 	if t.Replicas == 0 {
 		t.Replicas = 1
 	}
 	if t.Replicas > 1 && strings.TrimSpace(t.Volumes) != "" {
-		return errs.Invalidf("replicas", "A tile with a volume runs one replica: two writers on one volume corrupt it.")
+		add(errs.Invalidf("replicas", "A tile with a volume runs one replica: two writers on one volume corrupt it."))
 	}
 	if t.HostNetwork {
-		switch {
-		case t.Replicas > 1:
-			return errs.Invalidf("replicas", "A tile on the host network runs one replica.")
-		case strings.TrimSpace(t.PublishedPorts) != "":
-			return errs.Invalidf("published_ports", "On the host network the tile binds the server's ports itself: leave server ports empty.")
-		case strings.TrimSpace(t.Lan) != "":
-			return errs.Invalidf("lan", "On the host network the tile already reaches the whole LAN: leave LAN access empty.")
+		if t.Replicas > 1 {
+			add(errs.Invalidf("replicas", "A tile on the host network runs one replica."))
+		}
+		if strings.TrimSpace(t.PublishedPorts) != "" {
+			add(errs.Invalidf("published_ports", "On the host network the tile binds the server's ports itself: leave server ports empty."))
+		}
+		if strings.TrimSpace(t.Lan) != "" {
+			add(errs.Invalidf("lan", "On the host network the tile already reaches the whole LAN: leave LAN access empty."))
 		}
 	}
-	return checkLists(t)
+	add(checkLists(t))
+	return errors.Join(bad...)
 }
 
 // checkRun: a cron or function builds from git or runs an image, exactly
@@ -411,7 +427,9 @@ func canonRestart(v string) (string, bool) {
 	return v, false
 }
 
+// checkLists: each list's first bad line, every list at once.
 func checkLists(t *store.Tile) error {
+	var bad []error
 	for _, blob := range []struct {
 		key string
 		v   *string
@@ -424,13 +442,22 @@ func checkLists(t *store.Tile) error {
 		}
 		var m map[string]string
 		if err := json.Unmarshal([]byte(*blob.v), &m); err != nil {
-			return errs.Invalidf(blob.key, "%s must be a map of names to strings", blob.key)
+			bad = append(bad, errs.Invalidf(blob.key, "%s must be a map of names to strings", blob.key))
+			continue
 		}
 		if blob.key == "env" {
-			for k := range m {
+			var names []string
+			for _, k := range slices.Sorted(maps.Keys(m)) {
 				if !slug.ValidEnvKey(k) {
-					return errs.Invalidf("env", "%s is not a variable name. Use letters, digits and _, and start with a letter or _.", k)
+					names = append(names, k)
 				}
+			}
+			switch len(names) {
+			case 0:
+			case 1:
+				bad = append(bad, errs.Invalidf("env", "%s is not a variable name. Use letters, digits and _, and start with a letter or _.", names[0]))
+			default:
+				bad = append(bad, errs.Invalidf("env", "%s are not variable names. Use letters, digits and _, and start with a letter or _.", strings.Join(names, ", ")))
 			}
 		}
 	}
@@ -460,11 +487,12 @@ func checkLists(t *store.Tile) error {
 	} {
 		for _, l := range Lines(list.v) {
 			if err := list.parse(l); err != nil {
-				return errs.Invalidf(list.key, "%s", err.Error())
+				bad = append(bad, errs.Invalidf(list.key, "%s", err.Error()))
+				break
 			}
 		}
 	}
-	return nil
+	return errors.Join(bad...)
 }
 
 // Lines is the tile-column list convention: one item per line, blanks dropped.

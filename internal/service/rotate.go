@@ -341,7 +341,7 @@ func (o *Orchestrator) SetRotateSchedule(ctx context.Context, by *Principal, day
 		return err
 	}
 	if days < 0 || days > 365 {
-		return errs.Invalidf("days", "between 0 (off) and 365")
+		return errs.Invalidf("days", "Use 0 (off) to 365 days.")
 	}
 	if days > 0 {
 		_ = o.store.Settings.Set(ctx, rotatedAtKey, strconv.FormatInt(time.Now().Unix(), 10))

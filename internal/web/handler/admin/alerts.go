@@ -20,7 +20,8 @@ func (h *handler) mountAlerts(g *echo.Group, a *middleware.Access) {
 		if s := c.FormValue("secret"); s != "" {
 			secret = &s
 		}
-		return "Saved.", nil, h.orch.SetAlerts(c.Request().Context(), c.FormValue("url"), secret)
+		err := h.orch.SetAlerts(c.Request().Context(), c.FormValue("url"), secret)
+		return "Saved.", nil, asFields(err, map[string]string{"alert_webhook_url": "url"})
 	}), set)
 	// POST /-/admin/alerts/test
 	g.POST(b+"/alerts/test", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {
@@ -36,7 +37,7 @@ func (h *handler) mountAlerts(g *echo.Group, a *middleware.Access) {
 		if u == "" {
 			return "Saved.", nil, nil
 		}
-		return "Saved.", nil, h.orch.SetHeartbeat(c.Request().Context(), u)
+		return "Saved.", nil, asFields(h.orch.SetHeartbeat(c.Request().Context(), u), map[string]string{"heartbeat": "url"})
 	}), set)
 	// POST /-/admin/alerts/heartbeat/clear
 	g.POST(b+"/alerts/heartbeat/clear", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {

@@ -30,7 +30,8 @@ templ Keys(v KeysView) {
 					<form hx-post={ v.Tunnel.Every } hx-target={ target() } hx-swap="outerHTML" class="flex items-end gap-2">
 						<div>
 							<label for="rotate-days" class="label">Rotate every (days)</label>
-							<input id="rotate-days" name="days" type="number" min="0" max="365" value={ v.Tunnel.Days } class="input w-24"/>
+							<input id="rotate-days" name="days" type="number" min="0" max="365" value={ c.Kept(ctx, "days", v.Tunnel.Days) } class="input w-24" { c.Invalid("days", c.KeptErr(ctx, "days", ""))... }/>
+							@c.FieldError("days", c.KeptErr(ctx, "days", ""))
 						</div>
 						<button type="submit" class="btn btn-primary btn-sm">Save</button>
 					</form>

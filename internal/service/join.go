@@ -161,7 +161,7 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 	}
 	name := strings.TrimSpace(spec.NodeName)
 	if !joinNameRE.MatchString(name) || name == "controller" {
-		return JoinTokenOut{}, errs.Invalidf("node_name", "use lowercase letters, digits and dashes, up to 32 characters")
+		return JoinTokenOut{}, errs.Invalidf("node_name", "Use lowercase letters, digits and dashes, up to 32 characters.")
 	}
 	for _, t := range spec.Tags {
 		if !slices.Contains(joinTags, t) {

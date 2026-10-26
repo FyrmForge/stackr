@@ -6,6 +6,7 @@ package route
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -92,33 +93,37 @@ func (l *Leaf) Delete(ctx context.Context, id string) error { return l.rows.Dele
 // target normalised. tlsOn and dns01 as for Create.
 func Check(s Spec, tlsOn, dns01 bool) (store.Route, error) {
 	r := store.Route{ID: uuid.NewString(), Mode: s.Mode, CreatedAt: time.Now().UTC()}
+	var bad []error // every refused field at once
 	switch s.Mode {
 	case Passthrough, HTTP, HTTPS:
+		if s.Mode == Passthrough && !tlsOn {
+			bad = append(bad, errs.Invalidf("mode", "Pass-through needs HTTPS on."))
+		}
 	default:
-		return r, errs.Invalidf("mode", "A route is passthrough, http or https.")
+		bad = append(bad, errs.Invalidf("mode", "A route is passthrough, http or https."))
 	}
-	if strings.ContainsAny(s.Host, "/: ") {
-		return r, errs.Invalidf("host", "Give a bare hostname: no scheme, slash or port.")
-	}
-	host, err := installspec.CheckRoot(s.Host)
-	if err != nil {
-		return r, errs.Invalidf("host", "%s", err.Error())
-	}
-	r.Host = host
-	if strings.HasPrefix(host, "*.") && s.Mode != Passthrough && !dns01 {
-		return r, errs.Invalidf("host", "A wildcard host needs a managed DNS domain, or the passthrough mode.")
-	}
-	if s.Mode == Passthrough && !tlsOn {
-		return r, errs.Invalidf("mode", "Pass-through needs HTTPS on.")
+	switch host, err := installspec.CheckRoot(s.Host); {
+	case strings.TrimSpace(s.Host) == "":
+		bad = append(bad, errs.Invalidf("host", "Give the host name the route answers on."))
+	case strings.ContainsAny(s.Host, "/: "):
+		bad = append(bad, errs.Invalidf("host", "Give a bare hostname: no scheme, slash or port."))
+	case err != nil:
+		msg := strings.TrimSuffix(err.Error(), ".")
+		bad = append(bad, errs.Invalidf("host", "%s%s.", strings.ToUpper(msg[:1]), msg[1:]))
+	case strings.HasPrefix(host, "*.") && s.Mode != Passthrough && !dns01:
+		bad = append(bad, errs.Invalidf("host", "A wildcard host needs a managed DNS domain, or the passthrough mode."))
+	default:
+		r.Host = host
 	}
 	if s.Insecure && s.Mode != HTTPS {
-		return r, errs.Invalidf("insecure", "Skipping the certificate check only applies to an https route.")
+		bad = append(bad, errs.Invalidf("insecure", "Skipping the certificate check only applies to an https route."))
 	}
 	r.Insecure = s.Insecure
+	var err error
 	if r.Target, err = checkTarget(s.Target, s.Mode); err != nil {
-		return r, err
+		bad = append(bad, err)
 	}
-	return r, nil
+	return r, errors.Join(bad...)
 }
 
 // checkTarget is host[:port] with the mode's default port filled in.

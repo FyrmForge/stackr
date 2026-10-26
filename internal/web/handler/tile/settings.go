@@ -1,6 +1,7 @@
 package tile
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -225,18 +226,17 @@ func first(vs []string) string {
 	return vs[0]
 }
 
-// apply writes the posted keys onto t; first refusal wins.
+// apply writes the posted keys onto t; every refused key at once.
 func apply(t *service.Tile, keys []string, form map[string][]string) error {
+	var bad []error
 	for _, k := range keys {
-		p := field(t, k)
-		if p == nil {
-			continue
-		}
-		if err := write(k, p, first(form[k])); err != nil {
-			return err
+		if p := field(t, k); p != nil {
+			if err := write(k, p, first(form[k])); err != nil {
+				bad = append(bad, err)
+			}
 		}
 	}
-	return nil
+	return errors.Join(bad...)
 }
 
 // formKey is the form field a service refusal names (Validate speaks the
@@ -251,6 +251,8 @@ func formKey(field string) string {
 		return "restart_policy"
 	case "healthcheck":
 		return "healthcheck_cmd"
+	case "healthcheck_interval", "healthcheck_timeout", "healthcheck_start_period":
+		return field + "_s"
 	case "git_branch":
 		return "branch"
 	}

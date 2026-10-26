@@ -85,8 +85,8 @@ func TestAutoHostOnRouteHost(t *testing.T) {
 		t.Fatalf("auto host = %s", d.Host)
 	}
 	_, _, err = w.orch.RenameTile(ctx, web.ID, "pve")
-	if _, ok := errs.IsConflict(err); !ok {
-		t.Errorf("rename onto a route host = %v, want conflict", err)
+	if _, ok := errs.IsInvalid(err); !ok { // the tile pve holds the name too
+		t.Errorf("rename onto a route host = %v, want refused", err)
 	}
 	got, err := w.orch.domains.Get(ctx, d.ID)
 	must(t, err)

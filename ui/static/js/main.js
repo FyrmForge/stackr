@@ -10,8 +10,15 @@ document.addEventListener('htmx:afterSwap', function(evt) {
     // Bring what the answer said into view: the first field showing an
     // error, else the note a Section drew by its form. Nearest: no jump when
     // it is already on screen. An SSE outerHTML swap has no target.
+    // An outerHTML swap leaves target as the old, detached node: read the
+    // new one by its id. A refused field folded in a closed <details> (Show
+    // advanced) opens it, so the reason can be seen.
     var t = evt.detail.target;
+    if (t && !t.isConnected) t = t.id ? document.getElementById(t.id) : null;
     if (!t || !t.querySelector) return;
+    t.querySelectorAll('.field-error[data-has-error="true"]').forEach(function (e) {
+        for (var d = e.closest('details'); d; d = d.parentElement.closest('details')) d.open = true;
+    });
     var hit = t.querySelector('.field-error[data-has-error="true"]') || t.querySelector('[data-acted]');
     if (hit) {
         hit.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

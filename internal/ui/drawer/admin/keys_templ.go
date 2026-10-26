@@ -105,41 +105,57 @@ func Keys(v KeysView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var5 string
-				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.Tunnel.Days)
+				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(c.Kept(ctx, "days", v.Tunnel.Days))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/keys.templ`, Line: 33, Col: 96}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/keys.templ`, Line: 33, Col: 117}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"input w-24\"></div><button type=\"submit\" class=\"btn btn-primary btn-sm\">Save</button></form><form hx-post=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" class=\"input w-24\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, c.Invalid("days", c.KeptErr(ctx, "days", "")))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, ">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = c.FieldError("days", c.KeptErr(ctx, "days", "")).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><button type=\"submit\" class=\"btn btn-primary btn-sm\">Save</button></form><form hx-post=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Tunnel.Rotate)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/keys.templ`, Line: 37, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/keys.templ`, Line: 38, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" hx-target=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" hx-target=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(target())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/keys.templ`, Line: 37, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/keys.templ`, Line: 38, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\" hx-swap=\"outerHTML\"><button type=\"submit\" class=\"btn btn-ghost btn-sm\">Rotate all now</button></form></div><p class=\"mt-1.5 text-xs text-rw-faint\">0 turns scheduled rotation off.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-swap=\"outerHTML\"><button type=\"submit\" class=\"btn btn-ghost btn-sm\">Rotate all now</button></form></div><p class=\"mt-1.5 text-xs text-rw-faint\">0 turns scheduled rotation off.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -156,7 +172,7 @@ func Keys(v KeysView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

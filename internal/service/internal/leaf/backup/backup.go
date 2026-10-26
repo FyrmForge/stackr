@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -103,10 +104,11 @@ func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest, probe Probe) (
 		ArchiveKey: cmp.Or(s.ArchiveKey, newKey()),
 		CreatedAt:  time.Now().UTC(),
 	}
+	var noSecret error
 	if s.SecretKey == "" {
-		return d, errs.Invalidf("secret_key", "an S3 destination needs a secret key")
+		noSecret = errs.Invalidf("secret_key", "An S3 destination needs a secret key.")
 	}
-	if err := l.fill(ctx, &d, s, probe); err != nil {
+	if err := l.fill(ctx, &d, s, probe, noSecret); err != nil {
 		return d, err
 	}
 	return d, l.dests.Create(ctx, d)
@@ -123,7 +125,7 @@ func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest, probe Pro
 	if s.AccessKey == "" {
 		s.AccessKey = d.AccessKey
 	}
-	if err := l.fill(ctx, &d, s, probe); err != nil {
+	if err := l.fill(ctx, &d, s, probe, nil); err != nil {
 		return d, err
 	}
 	return d, l.dests.Update(ctx, d)
@@ -241,24 +243,29 @@ func blank(ds []store.BackupDest) []store.BackupDest {
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Probe) error {
+// fill checks s into d; every refused field at once, more (nil = none) last.
+func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Probe, more error) error {
+	var bad []error
 	name := strings.TrimSpace(s.Name)
 	if !nameRe.MatchString(name) {
-		return errs.Invalidf("name", "a name is letters, digits, - and _ (it is used as ${{ org.backups.NAME }})")
+		bad = append(bad, errs.Invalidf("name", "A name is letters, digits, - and _ (it is used as ${{ org.backups.NAME }})."))
 	}
 	if name == Local {
-		return errs.Invalidf("name", "%q is the install's own destination", name)
+		bad = append(bad, errs.Invalidf("name", "%q is the install's own destination.", name))
 	}
 	endpoint := strings.TrimRight(strings.TrimSpace(s.Endpoint), "/")
 	if endpoint != "" && !strings.HasPrefix(endpoint, "https://") && !strings.HasPrefix(endpoint, "http://") {
-		return errs.Invalidf("endpoint", "an endpoint is an http(s) URL, or empty for AWS")
+		bad = append(bad, errs.Invalidf("endpoint", "An endpoint is an http(s) URL, or empty for AWS."))
 	}
 	bucket := strings.TrimSpace(s.Bucket)
 	if bucket == "" {
-		return errs.Invalidf("bucket", "an S3 destination needs a bucket")
+		bad = append(bad, errs.Invalidf("bucket", "An S3 destination needs a bucket."))
 	}
 	if strings.TrimSpace(s.AccessKey) == "" {
-		return errs.Invalidf("access_key", "an S3 destination needs an access key")
+		bad = append(bad, errs.Invalidf("access_key", "An S3 destination needs an access key."))
+	}
+	if err := errors.Join(append(bad, more)...); err != nil {
+		return err
 	}
 	peers, err := l.dests.ListByOrg(ctx, d.OrgID)
 	if err != nil {

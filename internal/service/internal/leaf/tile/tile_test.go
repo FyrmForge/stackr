@@ -98,8 +98,8 @@ func TestCreateRename(t *testing.T) {
 		api.RestartPolicy != "always" || api.UpdatePolicy != "manual" || api.EnvJSON != "{}" {
 		t.Fatalf("create = %+v, %v", api, err)
 	}
-	if _, err := l.Create(ctx, svc(base, "api server")); !isConflict(err) {
-		t.Errorf("same slug in the env = %v, want conflict", err)
+	if _, err := l.Create(ctx, svc(base, "api server")); !isInvalid(err, "name") {
+		t.Errorf("same slug in the env = %v, want a name refusal", err)
 	}
 	for _, name := range []string{"", "Params", "!!"} {
 		if _, err := l.Create(ctx, svc(base, name)); err == nil {
@@ -107,7 +107,7 @@ func TestCreateRename(t *testing.T) {
 		}
 	}
 	db, _ := l.Create(ctx, svc(base, "db"))
-	if _, err := l.Rename(ctx, db, "API server"); !isConflict(err) {
+	if _, err := l.Rename(ctx, db, "API server"); !isInvalid(err, "name") {
 		t.Errorf("rename onto a taken slug = %v", err)
 	}
 	if _, err := l.Rename(ctx, db, ""); err == nil {
@@ -748,5 +748,36 @@ func TestWriteFilesRefusesOldDocker(t *testing.T) {
 	fake.Host = docker.HostInfo{Version: "26.0.0"}
 	if _, err := l.WriteFiles(ctx, base, "k", []byte("x")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func isInvalid(err error, field string) bool {
+	bad, ok := errs.IsInvalid(err)
+	return ok && bad.Field == field
+}
+
+// Validate names every refused field at once, each health number on its own
+// key, and refuses an image reference or tag policy that cannot work.
+func TestValidateEveryRefusal(t *testing.T) {
+	row := store.Tile{
+		Kind: tile.Image, ImageRef: "Bad Image!!", TagPolicy: "???", EndpointProtocol: "ftp", HealthPath: "nope",
+		CPULimit: -1, MemLimitMB: -5, HealthcheckIntervalS: -1, HealthcheckRetries: -3, ContainerPort: 99999,
+		Volumes: "novolume", Files: "junk",
+	}
+	got := map[string]bool{}
+	for _, bad := range errs.Invalids(tile.Validate(&row)) {
+		got[bad.Field] = true
+	}
+	for _, f := range []string{"image", "tag_policy", "endpoint_protocol", "health_path", "limits.cpu", "limits.memory_mb",
+		"healthcheck_interval", "healthcheck_retries", "port", "volumes", "files"} {
+		if !got[f] {
+			t.Errorf("%s not refused; refused %v", f, got)
+		}
+	}
+	for _, ok := range []string{"nginx:1.27", "traefik/whoami", "ghcr.io/acme/api:v2", "localhost:5000/x"} {
+		row := store.Tile{Kind: tile.Image, ImageRef: ok, TagPolicy: "semver ^1.2"}
+		if err := tile.Validate(&row); err != nil {
+			t.Errorf("%s refused: %v", ok, err)
+		}
 	}
 }

@@ -75,7 +75,7 @@ func (o *Orchestrator) SetServerSettings(ctx context.Context, vals map[string]st
 	if err != nil {
 		return err
 	}
-	cascade := map[string]string{}
+	flat, cascade := map[string]string{}, map[string]string{}
 	for _, s := range cur {
 		raw, ok := vals[s.Key]
 		if !ok || raw == s.Value || (s.Secret && raw == "") {
@@ -85,7 +85,11 @@ func (o *Orchestrator) SetServerSettings(ctx context.Context, vals map[string]st
 			cascade[s.Key] = raw
 			continue
 		}
-		if err := o.SetSetting(ctx, s.Key, raw); err != nil {
+		flat[s.Key] = raw
+	}
+	// the flat knobs as one save, so every refused one shows at once
+	if len(flat) > 0 {
+		if err := o.SetSettings(ctx, flat); err != nil {
 			return err
 		}
 	}

@@ -173,6 +173,7 @@ func encode(m map[string]string) string {
 // untouched save is no change at all.
 func withLines(key, blob, text string) (string, error) {
 	next := map[string]string{}
+	var bad []string // every line that is not KEY=VALUE, at once
 	for i, l := range strings.Split(text, "\n") {
 		l = strings.TrimRight(l, "\r")
 		if strings.TrimSpace(l) == "" || strings.HasPrefix(strings.TrimSpace(l), "#") {
@@ -180,9 +181,17 @@ func withLines(key, blob, text string) (string, error) {
 		}
 		k, val, ok := strings.Cut(l, "=")
 		if !ok {
-			return "", errs.Invalidf(key, "line %d: want KEY=VALUE", i+1)
+			bad = append(bad, strconv.Itoa(i+1))
+			continue
 		}
 		next[strings.TrimSpace(k)] = val
+	}
+	switch len(bad) {
+	case 0:
+	case 1:
+		return "", errs.Invalidf(key, "Line %s is not KEY=VALUE.", bad[0])
+	default:
+		return "", errs.Invalidf(key, "Lines %s are not KEY=VALUE.", strings.Join(bad, ", "))
 	}
 	cur := envMap(blob)
 	for k, val := range cur {

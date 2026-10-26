@@ -316,7 +316,7 @@ func (o *Orchestrator) CreatePlacement(ctx context.Context, by *Principal, s Pla
 	}
 	name := strings.TrimSpace(s.Name)
 	if !joinNameRE.MatchString(name) {
-		return Placement{}, errs.Invalidf("name", "use lowercase letters, digits and dashes, up to 32 characters")
+		return Placement{}, errs.Invalidf("name", "Use lowercase letters, digits and dashes, up to 32 characters.")
 	}
 	p := store.Placement{ID: uuid.NewString(), Name: name, OpenToAll: s.OpenToAll, CreatedAt: time.Now().UTC()}
 	if s.Node != "" {

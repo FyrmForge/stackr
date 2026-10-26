@@ -96,8 +96,8 @@ type head struct {
 
 // typed is a refused domain add, drawn over the stored row.
 type typed struct {
-	replace *ui.ReplaceOffer // the Settings tab asks "Replace it"
-	noIP    *ui.NoIPRefusal  // the ingress node has no public IP
+	replace *ui.ReplaceOffer  // the Settings tab asks "Replace it"
+	noIP    *ui.NoIPRefusal   // the ingress node has no public IP
 	kept    map[string]string // a refused add's form, drawn again
 }
 
@@ -639,16 +639,22 @@ func (h *handler) SetSettings(c echo.Context) error {
 // rowRefusal names the form field a refused row save is about (Validate
 // speaks the stack file's keys); a field the row does not draw (a volume
 // refused for the replicas) leaves the reason over the row instead.
+// Every refused field shows at once; the first one the row does not draw
+// goes first, as the row's own reason.
 func rowRefusal(err error, fields string) error {
-	bad, invalid := errs.IsInvalid(err)
-	if !invalid {
+	bads := errs.Invalids(err)
+	if len(bads) == 0 {
 		return err
 	}
-	k := formKey(bad.Field)
-	if !slices.Contains(strings.Fields(fields), k) {
-		k = ""
+	var over, under []error
+	for _, bad := range bads {
+		if k := formKey(bad.Field); slices.Contains(strings.Fields(fields), k) {
+			under = append(under, errs.Invalid{Field: k, Msg: bad.Msg})
+		} else if len(over) == 0 {
+			over = append(over, errs.Invalid{Msg: bad.Msg})
+		}
 	}
-	return errs.Invalid{Field: k, Msg: bad.Msg}
+	return errors.Join(append(over, under...)...)
 }
 
 // GET …/logs/stream?container=&run=: one rendered LogLine per "line".

@@ -6,6 +6,7 @@ package admin
 
 import (
 	"cmp"
+	"errors"
 	"net/http"
 	"net/url"
 	"slices"
@@ -94,7 +95,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 			Target:   f("route_target"),
 			Insecure: f("route_insecure") != "",
 		})
-		return "Route added.", nil, err
+		return "Route added.", nil, asFields(err, map[string]string{
+			"host": "route_host", "mode": "route_mode", "target": "route_target", "insecure": "route_insecure",
+		})
 	}), routes)
 	g.POST(b+"/routes/:route/delete", h.act("traffic", func(c echo.Context) (string, *service.Job, error) {
 		return "Route removed.", nil, h.orch.DeleteExternalRoute(c.Request().Context(), c.Param("route"))
@@ -245,6 +248,23 @@ func (h *handler) answer(c echo.Context, section, note string, x extra, actErr e
 		f.At = c.Request().URL.RequestURI()
 	}
 	return respond.HTML(c, status, ui.View(f, body))
+}
+
+// asFields renames the fields a service refusal names to the form's input
+// names, so each reason lands under its own input.
+func asFields(err error, names map[string]string) error {
+	bads := errs.Invalids(err)
+	if len(bads) == 0 {
+		return err
+	}
+	out := make([]error, len(bads))
+	for i, b := range bads {
+		if n, ok := names[b.Field]; ok {
+			b.Field = n
+		}
+		out[i] = b
+	}
+	return errors.Join(out...)
 }
 
 // refusedKey marks an answer to a refused act (refill).
@@ -598,7 +618,7 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 		ID: "admin-" + form, Action: ui.Base + "/settings/" + form, Scope: "Server",
 		Flat: true, Keys: knobForms[form],
 	}
-	bad, invalid := errs.IsInvalid(refused)
+	bad := render.FieldErrs(refused) // every refused knob at once
 	marked := false
 	if refused != nil {
 		c.Set(refusedKey, true)
@@ -623,8 +643,8 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 		if vs, ok := posted[s.Key]; ok && !s.Secret && !s.ReadOnly {
 			r.Value = vs[0]
 		}
-		if invalid && bad.Field == s.Key {
-			r.Error, marked = bad.Msg, true
+		if msg := bad[s.Key]; msg != "" {
+			r.Error, marked = msg, true
 		}
 		v.Rows = append(v.Rows, r)
 	}

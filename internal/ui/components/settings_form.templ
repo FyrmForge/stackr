@@ -207,10 +207,6 @@ templ SettingsForm(v SettingsFormView) {
 		if v.ReadOnly {
 			<p class="banner">{ v.Why }</p>
 		}
-		@FormError(v.Error)
-		if v.Note != "" {
-			<p class="banner" role="status">{ v.Note }</p>
-		}
 		<fieldset disabled?={ v.ReadOnly }>
 			<legend class="sr-only">{ v.Scope } settings</legend>
 			if v.Flat {
@@ -234,6 +230,12 @@ templ SettingsForm(v SettingsFormView) {
 				</div>
 			}
 		</fieldset>
+		// the answer by the Save that posted it, inside the form it swaps
+		if v.Error != "" {
+			@actedNote(FormError(v.Error))
+		} else if v.Note != "" {
+			@actedNote(Note(v.Note))
+		}
 	</form>
 }
 

@@ -136,7 +136,7 @@ func (l *Leaf) checkSlug(ctx context.Context, t store.Tile) error {
 	}
 	holder, err := l.tiles.GetBySlug(ctx, t.EnvironmentID, t.Slug)
 	if err == nil && holder.ID != t.ID {
-		return errs.Conflictf("Another tile in this environment is already called %s.", holder.Name)
+		return errs.Invalidf("name", "Another tile in this environment is already called %s.", holder.Name)
 	}
 	if err != nil && !errors.Is(err, errs.ErrNotFound) {
 		return err

@@ -100,7 +100,7 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 	g.POST(nodesBase+"/rotate-every", h.act("keys", func(c echo.Context) (string, *service.Job, error) {
 		days, err := strconv.Atoi(c.FormValue("days"))
 		if err != nil {
-			return "", nil, errs.Invalidf("days", "a whole number of days")
+			return "", nil, errs.Invalidf("days", "Use a whole number of days.")
 		}
 		if err := h.orch.SetRotateSchedule(c.Request().Context(), middleware.Principal(c), days); err != nil {
 			return "", nil, err

@@ -77,7 +77,7 @@ func TestActions(t *testing.T) {
 		t.Errorf("drop = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", drawer+"/env", url.Values{"env": {"NAME=bob\noops"}})
-	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "line 2: want KEY=VALUE") {
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "Line 2 is not KEY=VALUE.") {
 		t.Errorf("bad env = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", drawer+"/settings?open=resources", url.Values{"fields": {"cpu_limit mem_limit_mb"}, "cpu_limit": {"lots"}, "mem_limit_mb": {"256"}})
@@ -137,8 +137,8 @@ func TestSettingsRows(t *testing.T) {
 	}
 }
 
-// A rename onto a taken name answers right after the rename form, through
-// the real server (render.Posted carries the posted URI).
+// A rename onto a taken name answers under the name field, inside the
+// rename form, the input marked (aria-invalid).
 func TestRenameRefusedByItsForm(t *testing.T) {
 	s := webtest.New(t)
 	if _, err := s.Orch.CreateTile(context.Background(), service.Tile{
@@ -151,7 +151,8 @@ func TestRenameRefusedByItsForm(t *testing.T) {
 	form := strings.Index(body, `hx-post="`+drawer+`/rename?open=general"`)
 	end := form + strings.Index(body[form:], "</form>")
 	msg := strings.Index(body, "Another tile in this environment is already called other.")
-	if rec.Code != 422 || form < 0 || msg < end || strings.Count(body, "already called other") != 1 {
+	if rec.Code != 422 || form < 0 || msg < form || msg > end || strings.Count(body, "already called other") != 1 ||
+		!strings.Contains(body[form:end], `aria-invalid="true"`) {
 		t.Errorf("refused rename = %d, reason at %d, form ends at %d\n%s", rec.Code, msg, end, body)
 	}
 }

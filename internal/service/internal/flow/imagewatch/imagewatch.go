@@ -281,7 +281,7 @@ func Pick(policy, current string, tags []string) (string, error) {
 			c = "^" + current
 		}
 	}
-	match, err := constraint(c)
+	match, err := registry.Constraint(c)
 	if err != nil {
 		return "", err
 	}
@@ -303,38 +303,6 @@ func Pick(policy, current string, tags []string) (string, error) {
 	}
 	sort.Slice(ok, func(i, j int) bool { return semver.Compare(ok[i], ok[j]) < 0 })
 	return byV[ok[len(ok)-1]], nil
-}
-
-func constraint(c string) (func(string) bool, error) {
-	if c == "" || c == "*" {
-		return func(string) bool { return true }, nil
-	}
-	op := c[0]
-	if op == '^' || op == '~' {
-		c = c[1:]
-	}
-	base := "v" + strings.TrimPrefix(c, "v")
-	if !semver.IsValid(base) {
-		return nil, fmt.Errorf("tag policy: %q is not a version", c)
-	}
-	switch op {
-	case '^':
-		return func(v string) bool { return semver.Major(v) == semver.Major(base) && semver.Compare(v, base) >= 0 }, nil
-	case '~':
-		return func(v string) bool {
-			return semver.MajorMinor(v) == semver.MajorMinor(base) && semver.Compare(v, base) >= 0
-		}, nil
-	}
-	parts := strings.Count(base, ".")
-	return func(v string) bool {
-		switch parts {
-		case 0:
-			return semver.Major(v) == base
-		case 1:
-			return semver.MajorMinor(v) == base
-		}
-		return semver.Compare(v, base) == 0
-	}, nil
 }
 
 func (f *Flow) digest() func(context.Context, string, string, string) (string, error) {
