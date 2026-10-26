@@ -250,6 +250,7 @@ type SettingsView struct {
 	Env        EnvView
 	Access     AccessView
 	Volumes    []VolumeRow
+	Mounts     Mounts
 	Placement  string // the ingress and exits fragment's URL
 	Ingress    string // where traffic comes in, "h4 (from env)"; "" = not known
 	OwnExits   bool   // the tile lists its own exits
@@ -607,3 +608,39 @@ type RunRow struct {
 }
 
 type VolumeRow struct{ ID, Name, State, Drawer string }
+
+// Mounts is the Storage row's volumes field: one row per volume line, as
+// stored or as typed into a refused save; Other the host: and share: lines.
+// Declared are the volumes the env offers; Declare links to its Settings.
+type Mounts struct {
+	Rows     []MountRow
+	Other    string
+	Declared []string
+	Declare  string
+}
+
+type MountRow struct {
+	Volume, Path string
+	RO           bool
+}
+
+// options are the volumes a row's select offers: the declared ones, and
+// the row's own when the env does not declare it, so it stays as saved.
+func (m Mounts) options(cur string) []string {
+	if cur == "" || slices.Contains(m.Declared, cur) {
+		return m.Declared
+	}
+	return append(slices.Clone(m.Declared), cur)
+}
+
+// mountErr is the volumes refusal on a filled row; the blank one stays
+// clean.
+func mountErr(ctx context.Context, m MountRow) string {
+	if m.Volume == "" && m.Path == "" {
+		return ""
+	}
+	return keptErr(ctx, "volumes")
+}
+
+// withBlank is the rows plus an empty one to add a volume with.
+func (m Mounts) withBlank() []MountRow { return append(slices.Clone(m.Rows), MountRow{}) }

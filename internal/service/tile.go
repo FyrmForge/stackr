@@ -165,6 +165,9 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	if cur.DependsOn != old.DependsOn {
 		bad = append(bad, o.checkDeps(ctx, cur))
 	}
+	if cur.Volumes != old.Volumes {
+		bad = append(bad, o.checkTileVolumes(ctx, cur))
+	}
 	for _, err := range bad {
 		if _, ok := errs.IsInvalid(err); err != nil && !ok {
 			return old, nil, err

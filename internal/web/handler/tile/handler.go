@@ -268,6 +268,18 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		return sv, err
 	}
 	sv.Volumes = volumeRows(render.EnvURL(c), vs)
+	if sv.Has("volumes") {
+		if sv.Mounts.Declared, err = h.orch.MountableVolumes(ctx, t.EnvironmentID); err != nil {
+			return sv, err
+		}
+		// a save just posted shows as typed: refused, it was not stored
+		src := t.Volumes
+		if f, _ := c.FormParams(); c.Request().Method == http.MethodPost && f.Has("volumes") {
+			src = f.Get("volumes")
+		}
+		sv.Mounts.Rows, sv.Mounts.Other = mountRows(src)
+		sv.Mounts.Declare = render.EnvURL(c) + "?drawer=env:" + t.EnvironmentID + "&tab=settings&open=volumes"
+	}
 	pv, err := h.orch.Placement(ctx, service.ScopeTile, t.ID)
 	if err != nil {
 		return sv, err
@@ -618,6 +630,7 @@ func (h *handler) SetSettings(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
+	joinMounts(form)
 	keys := posted(form)
 	t, j, err := h.orch.UpdateTile(c.Request().Context(), tileOf(c).ID, func(t *service.Tile) error {
 		return apply(t, keys, form)

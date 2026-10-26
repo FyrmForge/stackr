@@ -132,3 +132,25 @@ func PlacementSummary(runsOn, ingress, exit string) string {
 	}
 	return strings.Join(parts, sep)
 }
+
+// VolumesSummary: "2 volumes", "1 volume", "None".
+func VolumesSummary(n int) string {
+	switch n {
+	case 0:
+		return "None"
+	case 1:
+		return "1 volume"
+	}
+	return strconv.Itoa(n) + " volumes"
+}
+
+// volumeUse is who uses a volume: its instance, its tiles, or nobody.
+func volumeUse(r VolumeRow) string {
+	switch {
+	case r.Owner != "":
+		return "owned by " + r.Owner
+	case r.MountedBy != "":
+		return "mounted by " + r.MountedBy
+	}
+	return "not mounted"
+}

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/a-h/templ"
@@ -83,6 +84,10 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 	if err != nil {
 		return nil, err
 	}
+	vols, err := h.orch.ListEnvVolumes(ctx, e.ID)
+	if err != nil {
+		return nil, err
+	}
 	v := envui.SettingsView{
 		Name:      e.Name,
 		Tiles:     len(ts),
@@ -94,6 +99,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Below:     below(es, e.ID),
 		Color:     e.Color,
 		Cascade:   cascade,
+		Volumes:   volumesView(vols, f.Base, write),
 		Vars:      varsBody,
 		Placement: placementui.Load(urlOf(cd.s) + "/-/placement"),
 		Open:      c.FormValue("open"),
@@ -107,6 +113,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Deploys:          envui.DeploysSummary(e.FromKind, e.FromBranch, e.Auto, v.Below),
 		Resources:        envui.ResourcesSummary(cascade.Rows),
 		ResourcesChanged: changed,
+		Volumes:          envui.VolumesSummary(len(vols.Volumes)),
 		Variables:        comp.VarsSummary(set, secret),
 		VariablesChanged: set > 0,
 		Placement:        envui.PlacementSummary(pv.PinName, pv.IngressName, exitOf(pv.Rungs)),
@@ -119,6 +126,32 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		v.Cascade.ReadOnly, v.Cascade.Why = true, "Only members and owners can change resources."
 	}
 	return envui.Settings(v), nil
+}
+
+// volumesView is the Volumes row: Add and each Remove only for a writer on
+// an env the panel may change (a stack file declares a managed one's).
+func volumesView(vs service.EnvVolumes, base string, write bool) envui.VolumesView {
+	edit := write && !vs.Managed
+	var v envui.VolumesView
+	switch {
+	case edit:
+		v.Add = base + "/volumes"
+	case vs.Managed:
+		v.Why = "The stack file declares this env's volumes."
+	default:
+		v.Why = "Only members and owners can change volumes."
+	}
+	for _, ev := range vs.Volumes {
+		r := envui.VolumeRow{Name: ev.Slug, Size: "size unknown", MountedBy: strings.Join(ev.MountedBy, ", "), Owner: ev.OwnedBy}
+		if ev.SizeBytes >= 0 {
+			r.Size = render.Size(ev.SizeBytes)
+		}
+		if edit && ev.OwnedBy == "" {
+			r.Remove = base + "/volumes/" + ev.ID + "/remove"
+		}
+		v.Rows = append(v.Rows, r)
+	}
+	return v
 }
 
 // anyChanged is true when this rung sets any knob; cascadeRows marks them.
@@ -271,6 +304,16 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		// the full page leaves the review (a ?job= page draws none: no tags,
 		// ghosts or bar, the stream back); sync= only names the drawer's source
 		return redirect(c, urlOf(cd.s)+"?drawer=env:"+cd.s.Env.ID+"&tab=sync&sync="+c.Param("from")+"&job="+j.ID)
+	}), write)
+	site.POST(e+"/volumes", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
+		v, adopted, err := h.orch.DeclareEnvVolume(c.Request().Context(), cd.s.Env.ID, c.FormValue("volume"))
+		if adopted {
+			return "Added " + v.Slug + " back, with the data it had.", err
+		}
+		return "Added " + v.Slug + ".", err
+	}), write)
+	site.POST(e+"/volumes/:volume/remove", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
+		return "Volume removed. Its data is kept for the retention window.", h.orch.RemoveEnvVolume(c.Request().Context(), cd.s.Env.ID, c.Param("volume"))
 	}), write)
 	site.POST(e+"/settings", h.saveRung(
 		"env",

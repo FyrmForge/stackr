@@ -2,6 +2,7 @@ package tile
 
 import (
 	"errors"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -255,4 +256,60 @@ func formKey(field string) string {
 		return "branch"
 	}
 	return field
+}
+
+// joinMounts folds the Storage row's mount rows and its host and share
+// lines into the one volumes value the tile stores. A row with neither a
+// volume nor a path is the blank one, left out.
+func joinMounts(form url.Values) {
+	if !form.Has("mount_path") {
+		return
+	}
+	vols, paths, modes := form["mount_volume"], form["mount_path"], form["mount_mode"]
+	var ls []string
+	for i, p := range paths {
+		name, p := at(vols, i), strings.TrimSpace(p)
+		if name == "" && p == "" {
+			continue
+		}
+		l := name + ":" + p
+		if at(modes, i) == "ro" {
+			l += ":ro"
+		}
+		ls = append(ls, l)
+	}
+	for l := range strings.SplitSeq(form.Get("mount_other"), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			ls = append(ls, l)
+		}
+	}
+	form["volumes"] = []string{strings.Join(ls, "\n")}
+	for _, k := range []string{"mount_volume", "mount_path", "mount_mode", "mount_other"} {
+		delete(form, k)
+	}
+}
+
+func at(vs []string, i int) string {
+	if i < len(vs) {
+		return vs[i]
+	}
+	return ""
+}
+
+// mountRows splits a volumes value into its volume lines, as rows, and
+// the rest (host: and share: lines, or a line that does not parse).
+func mountRows(v string) (rows []ui.MountRow, other string) {
+	var rest []string
+	for l := range strings.SplitSeq(v, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		if name, path, ok := service.MountedVolume(l); ok {
+			rows = append(rows, ui.MountRow{Volume: name, Path: path, RO: strings.HasSuffix(l, ":ro")})
+		} else {
+			rest = append(rest, l)
+		}
+	}
+	return rows, strings.Join(rest, "\n")
 }

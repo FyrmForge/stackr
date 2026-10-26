@@ -2,6 +2,7 @@ package tile
 
 import (
 	"cmp"
+	"strconv"
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -710,11 +711,46 @@ templ networkRow(v View, s SettingsView) {
 
 templ storageRow(v View, s SettingsView) {
 	@rowForm(v, s, "storage", storageKeys) {
-		@area(s, "volumes", "Volumes", "pgdata:/var/lib/postgresql/data", "Add :ro to mount one read-only.")
+		@mounts(s)
 		@area(s, "files", "Files", "config/loki.yml:/etc/loki/config.yml", "Read-only from the repo; add :template to resolve references.")
 	}
 	if len(s.Volumes) > 0 {
 		@volumes(s.Volumes)
+	}
+}
+
+// mounts is the volumes field: per line a declared volume, its path and
+// its access, one blank line to add, then the host and share lines.
+templ mounts(s SettingsView) {
+	if s.Has("volumes") {
+		<fieldset class="space-y-2" data-field data-changed?={ s.Changed("volumes") }>
+			<legend class="label">
+				Volumes
+				@c.FieldMarks(s.Changed("volumes"), "")
+			</legend>
+			for i, m := range s.Mounts.withBlank() {
+				<div class="flex flex-wrap items-center gap-2">
+					<select name="mount_volume" aria-label={ "Volume " + strconv.Itoa(i+1) } class="input !w-40" { c.Invalid("volumes", mountErr(ctx, m))... }>
+						<option value="">No volume</option>
+						for _, n := range s.Mounts.options(m.Volume) {
+							<option value={ n } selected?={ n == m.Volume }>{ n }</option>
+						}
+					</select>
+					<input type="text" name="mount_path" value={ m.Path } placeholder="/data" aria-label={ "Mount path " + strconv.Itoa(i+1) } class="input flex-1 font-mono text-sm" { c.Invalid("volumes", mountErr(ctx, m))... }/>
+					<select name="mount_mode" aria-label={ "Access " + strconv.Itoa(i+1) } class="input !w-32">
+						<option value="">read-write</option>
+						<option value="ro" selected?={ m.RO }>read-only</option>
+					</select>
+				</div>
+			}
+			<p class="text-xs text-rw-faint" data-hint>
+				Tiles mount the env's volumes.
+				<a href={ templ.SafeURL(s.Mounts.Declare) } class="link">Declare one in env Settings</a>
+			</p>
+			<label class="label" for="set-mount_other">Host and share mounts</label>
+			<textarea id="set-mount_other" name="mount_other" rows="2" placeholder="share:media/photos:/data" class="input font-mono text-sm" { c.Invalid("volumes", mountErr(ctx, MountRow{Path: s.Mounts.Other}))... }>{ s.Mounts.Other }</textarea>
+			@c.FieldError("volumes", keptErr(ctx, "volumes"))
+		</fieldset>
 	}
 }
 

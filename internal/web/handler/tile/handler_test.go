@@ -176,6 +176,9 @@ func TestRenameRefusedByItsForm(t *testing.T) {
 // clean.
 func TestSettingsRefusedInItsRow(t *testing.T) {
 	s := webtest.New(t)
+	if _, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "data"); err != nil {
+		t.Fatal(err)
+	}
 	rec := s.Do(t, "POST", drawer+"/settings?open=run", url.Values{"fields": {"command replicas restart_policy user"}, "replicas": {"2"}})
 	if rec.Code != 200 {
 		t.Fatalf("replicas = %d\n%s", rec.Code, rec.Body)
@@ -186,7 +189,7 @@ func TestSettingsRefusedInItsRow(t *testing.T) {
 	storage, _, _ = strings.Cut(storage, "</details>")
 	_, run, _ := strings.Cut(body, `id="tile-settings-run"`)
 	run, _, _ = strings.Cut(run, "</details>")
-	for _, w := range []string{`data-acc="storage" open`, `role="alert">A tile with a volume runs one replica`, `>data:/data</textarea>`, "no volumes · no files"} {
+	for _, w := range []string{`data-acc="storage" open`, `role="alert">A tile with a volume runs one replica`, `<option value="data" selected>data</option>`, `name="mount_path" value="/data"`, "no volumes · no files"} {
 		if !strings.Contains(storage, w) {
 			t.Errorf("storage row lacks %q\n%s", w, storage)
 		}
@@ -447,5 +450,47 @@ func TestCancelJobLookup(t *testing.T) {
 	other := s.QueuedJob(t, s.Org, "some-other-tile")
 	if rec = s.Do(t, "POST", drawer+"/jobs/"+other+"/cancel", url.Values{}); rec.Code != 404 {
 		t.Errorf("other tile's job = %d, want 404", rec.Code)
+	}
+}
+
+// Storage's volume rows fold into the volumes lines; a volume the env does
+// not declare is refused on the field, the rows kept as typed, and the row
+// links to the env's Volumes to declare one.
+func TestStorageMounts(t *testing.T) {
+	s := webtest.New(t)
+	if _, err := s.Orch.DeclareVolume(context.Background(), service.VolumeScope{Kind: "env", ID: s.Tile.Env}, "uploads"); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{
+		"fields":       {"files volumes"},
+		"mount_volume": {"uploads", "ghost", ""},
+		"mount_path":   {"/data", "/ghost", ""},
+		"mount_mode":   {"ro", "", ""},
+		"mount_other":  {""},
+	}
+	rec := s.Do(t, "POST", drawer+"/settings?open=storage", form)
+	b := rec.Body.String()
+	for _, w := range []string{
+		"does not declare ghost",
+		`<option value="ghost" selected>ghost</option>`,
+		`name="mount_path" value="/ghost"`,
+		`aria-invalid="true"`,
+		`?drawer=env:` + s.Tile.Env + `&amp;tab=settings&amp;open=volumes`,
+	} {
+		if !strings.Contains(b, w) {
+			t.Errorf("refused mounts lack %q\n%s", w, b)
+		}
+	}
+	if rec.Code != 422 {
+		t.Errorf("undeclared = %d", rec.Code)
+	}
+	form["mount_volume"], form["mount_path"], form["mount_mode"] = []string{"uploads", ""}, []string{"/data", ""}, []string{"ro", ""}
+	form["mount_other"] = []string{"host:/srv/x:/x"}
+	if rec := s.Do(t, "POST", drawer+"/settings?open=storage", form); rec.Code != 200 {
+		t.Fatalf("declared = %d\n%s", rec.Code, rec.Body)
+	}
+	ts, err := s.Orch.Tiles(context.Background(), s.Tile.Env)
+	if err != nil || len(ts) != 1 || ts[0].Volumes != "uploads:/data:ro\nhost:/srv/x:/x" {
+		t.Errorf("stored = %+v %v", ts, err)
 	}
 }
