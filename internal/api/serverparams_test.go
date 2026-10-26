@@ -43,7 +43,7 @@ func TestServerParams(t *testing.T) {
 		t.Errorf("declassify = %d %s, want 409", code, out)
 	}
 	if code, out = w.do(t, w.admin, "PATCH", "/admin/params",
-		`[{"collection":"S3","name":"x","kind":"param","value":"v"}]`); code != 400 {
+		`[{"collection":"3s","name":"x","kind":"param","value":"v"}]`); code != 400 {
 		t.Errorf("bad collection = %d %s, want 400", code, out)
 	}
 

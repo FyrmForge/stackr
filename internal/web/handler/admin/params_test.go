@@ -49,7 +49,7 @@ func TestAdminParams(t *testing.T) {
 	}
 
 	if rec := s.As(t, root, "POST", "/-/admin/params", url.Values{
-		"new_collection": {"S3"}, "new_name": {"x"}, "new_kind": {"param"},
+		"new_collection": {"3s"}, "new_name": {"x"}, "new_kind": {"param"},
 	}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("bad collection = %d, want 422", rec.Code)
 	}

@@ -202,14 +202,7 @@ func (h *handler) addVar(c echo.Context, s service.Scope, cs []col, form url.Val
 	if form.Get("add_kind") == "secret" {
 		e.Kind, field = "secret", "add_secret."
 	}
-	var bad []error // the shape first: FieldErrs keeps a field's first reason
-	if e.Collection == "" {
-		bad = append(bad, errs.Invalidf("add_group", "Give the group a name."))
-	}
-	if e.Name == "" {
-		bad = append(bad, errs.Invalidf("add_name", "Give the variable a name."))
-	}
-	bad = append(bad, render.AsFields(h.orch.CheckParam(e), map[string]string{"collection": "add_group", "name": "add_name"}))
+	bad := []error{render.AsFields(h.orch.CheckParam(e), map[string]string{"collection": "add_group", "name": "add_name"})}
 	var set []col
 	for _, col := range cs {
 		if form.Get(field+col.Token) != "" {

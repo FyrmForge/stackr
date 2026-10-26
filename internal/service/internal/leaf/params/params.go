@@ -78,10 +78,16 @@ func (l *Leaf) Set(ctx context.Context, s Scope, e Entry) error { return l.Merge
 func Check(e Entry) error {
 	var bad []error
 	const rule = "Use letters, digits and _ in a %s, and start with a letter or _, like %s."
-	if !slug.ValidName(e.Collection) {
+	switch {
+	case e.Collection == "":
+		bad = append(bad, errs.Invalidf("collection", "Give the group a name."))
+	case !slug.ValidName(e.Collection):
 		bad = append(bad, errs.Invalidf("collection", rule, "group name", slug.Suggest(e.Collection)))
 	}
-	if !slug.ValidName(e.Name) {
+	switch {
+	case e.Name == "":
+		bad = append(bad, errs.Invalidf("name", "Give the variable a name."))
+	case !slug.ValidName(e.Name):
 		bad = append(bad, errs.Invalidf("name", rule, "name", slug.Suggest(e.Name)))
 	}
 	if e.Kind != Param && e.Kind != Secret {
