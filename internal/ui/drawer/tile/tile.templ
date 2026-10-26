@@ -570,7 +570,7 @@ templ rowForm(v View, s SettingsView, row string, keys []string) {
 // advanced folds a row's rare fields, open when one of them is set.
 templ advanced(open bool) {
 	<details class="text-sm" open?={ open }>
-		<summary class="cursor-pointer text-rw-muted select-none">Show advanced</summary>
+		<summary class="cursor-pointer text-rw-muted select-none" data-hint>Show advanced</summary>
 		<div class="space-y-4 mt-3">
 			{ children... }
 		</div>

@@ -31,7 +31,8 @@ type TrafficView struct {
 // rotate, break glass and revoke buttons, and the nodes break glass left
 // unjoined. A ConfirmView with no Action is not offered.
 type TrustView struct {
-	Fingerprint, Expires string // Expires: a date years out, with its year
+	Fingerprint                   string
+	Expires                       time.Time // years out: its date with the year
 	Created                       time.Time
 	RollingOver                   bool
 	Since                         time.Time // when the rollover started
@@ -474,7 +475,7 @@ templ trustSection(t TrustView) {
 			<dt class="text-rw-muted">Created</dt>
 			<dd class="text-rw-text">@c.When(t.Created)</dd>
 			<dt class="text-rw-muted">Expires</dt>
-			<dd class="text-rw-text">{ t.Expires }</dd>
+			<dd class="text-rw-text">@c.Time(t.Expires, "Jan 2, 2006")</dd>
 			<dt class="text-rw-muted">Rollover</dt>
 			<dd class="text-rw-text">
 				if t.RollingOver {

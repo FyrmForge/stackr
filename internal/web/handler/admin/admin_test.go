@@ -510,6 +510,14 @@ func TestAdminAnswerInItsCard(t *testing.T) {
 	if strings.Contains(body, `banner banner-danger`) {
 		t.Errorf("a refusal a field shows is drawn again as a banner:\n%s", body)
 	}
+	// a field refusal shows under its own form's field only, never a
+	// same-named field in another card
+	for _, path := range []string{"/-/admin/alerts", "/-/admin/alerts/heartbeat"} {
+		body = s.As(t, root, "POST", path, url.Values{"url": {""}}).Body.String()
+		if n := strings.Count(body, `data-has-error="true"`); n > 1 {
+			t.Errorf("%s: the refusal shows under %d fields", path, n)
+		}
+	}
 	// Turn off takes its own button away: the note lands in the card above it.
 	s.As(t, root, "POST", "/-/admin/alerts/heartbeat", url.Values{"url": {"https://hb.example.test/ping"}})
 	body = s.As(t, root, "POST", "/-/admin/alerts/heartbeat/clear", nil).Body.String()

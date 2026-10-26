@@ -179,20 +179,31 @@ func (a *Acted) posted(html string) bool {
 // chip ("org", "stack") and one help line over the controls. Title "" drops
 // the heading and the chip, for a card the page heading already names. The
 // innermost card holding the form an answer came from shows its note or
-// refusal under the controls.
+// refusal under the controls, and only its fields take the refusal (a
+// sibling card's field of the same name stays clean).
 func Section(title, scope, help string) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		a, _ := ctx.Value(actedKey{}).(*Acted)
-		if a == nil || a.used || a.Path == "" {
+		if a == nil || a.Path == "" {
 			return section(title, scope, help, nil).Render(ctx, w)
 		}
+		if a.used {
+			return section(title, scope, help, nil).Render(WithRefused(ctx, nil), w)
+		}
+		children := templ.GetChildren(ctx)
 		var buf bytes.Buffer
-		if err := templ.GetChildren(ctx).Render(templ.ClearChildren(ctx), &buf); err != nil {
+		if err := children.Render(WithRefused(templ.ClearChildren(ctx), nil), &buf); err != nil {
 			return err
 		}
 		var note templ.Component
 		if !a.used && a.posted(buf.String()) {
 			a.used = true
+			if a.Ref != nil { // draw it again, its fields taking the refusal
+				buf.Reset()
+				if err := children.Render(WithRefused(templ.ClearChildren(ctx), a.Ref), &buf); err != nil {
+					return err
+				}
+			}
 			if e := a.err(); e != "" {
 				note = FormError(e)
 			} else if a.Note != "" {

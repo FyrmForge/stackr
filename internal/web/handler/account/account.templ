@@ -1,6 +1,10 @@
 package account
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // PageView is v0's account settings: a nav beside one tab (profile, keys
 // or appearance).
@@ -27,7 +31,10 @@ type KeysView struct {
 	Error string
 }
 
-type Key struct{ ID, Name, Org, Created string }
+type Key struct {
+	ID, Name, Org string
+	Created       time.Time
+}
 
 var tabs = []struct{ Key, Label, Sub string }{
 	{"profile", "Profile", "Your details and sign-in credentials."},
@@ -172,7 +179,7 @@ templ keyList(v KeysView) {
 					<li class="panel px-4 py-3 flex flex-wrap items-center gap-3">
 						<span class="min-w-0 flex-1">
 							<span class="block text-sm text-rw-text">{ k.Name }</span>
-							<span class="block text-xs text-rw-faint">{ k.Org } · created { k.Created }</span>
+							<span class="block text-xs text-rw-faint">{ k.Org } · created @c.When(k.Created)</span>
 						</span>
 						@c.Confirm(c.ConfirmView{
 							Button:  "Revoke",

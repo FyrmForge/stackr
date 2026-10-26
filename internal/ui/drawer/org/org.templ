@@ -6,6 +6,7 @@ package org
 
 import (
 	"strconv"
+	"time"
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -73,7 +74,10 @@ type StackOpt struct{ Slug, Name string }
 
 // KeyRow: Role is the key's ceiling ("" = the user's full rights), Stack the
 // slug it is limited to ("" = the whole org).
-type KeyRow struct{ ID, Name, Created, Role, Stack string }
+type KeyRow struct {
+	ID, Name, Role, Stack string
+	Created               time.Time
+}
 
 // roleHelp is the one line under each role in a picker.
 func roleHelp(r string) string {
@@ -474,7 +478,7 @@ templ Keys(v KeysView) {
 						<li class="panel px-4 py-3 flex items-center justify-between gap-3">
 							<span class="min-w-0">
 								<span class="text-sm text-rw-text">{ k.Name }</span>
-								<span class="text-rw-faint text-xs">{ k.Created }</span>
+								<span class="text-rw-faint text-xs">@c.When(k.Created)</span>
 								if k.Role != "" {
 									<span class="text-xs px-1.5 py-0.5 rounded bg-rw-inset text-rw-muted">{ k.Role }</span>
 								}

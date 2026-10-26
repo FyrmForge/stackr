@@ -1,4 +1,4 @@
-const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, details details > summary, :is(input, select, textarea)[aria-label]";
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label]";
 export function matches(n) {
     return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
 }

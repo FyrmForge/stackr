@@ -338,6 +338,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		Tab:      instance.Tab(tab),
 		Status:   st.Word,
 		Running:  st.Word == "running",
+		ReadOnly: !can(c, s, "tile.write"),
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 		Error:    msg,

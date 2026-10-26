@@ -80,7 +80,7 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		v.Minted, _ = c.Get(mintedKey).(string)
 		for _, k := range ks {
 			if k.OrgID != nil && *k.OrgID == og.ID {
-				v.Keys = append(v.Keys, orgui.KeyRow{ID: k.ID, Name: k.Name, Created: day(k.CreatedAt), Role: k.Level, Stack: k.Stack})
+				v.Keys = append(v.Keys, orgui.KeyRow{ID: k.ID, Name: k.Name, Created: k.CreatedAt, Role: k.Level, Stack: k.Stack})
 			}
 		}
 		acc := middleware.Principal(c).Access

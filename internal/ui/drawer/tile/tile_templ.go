@@ -2638,7 +2638,7 @@ func advanced(open bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 228, "><summary class=\"cursor-pointer text-rw-muted select-none\">Show advanced</summary><div class=\"space-y-4 mt-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 228, "><summary class=\"cursor-pointer text-rw-muted select-none\" data-hint>Show advanced</summary><div class=\"space-y-4 mt-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

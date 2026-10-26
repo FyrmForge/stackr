@@ -430,9 +430,8 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 	if err != nil {
 		return ui.TrustView{}, err
 	}
-	day := func(t time.Time) string { return t.Local().Format("Jan 2, 2006") }
 	v := ui.TrustView{
-		Fingerprint: t.Fingerprint, Created: t.CreatedAt, Expires: day(t.ExpiresAt), RollingOver: t.RollingOver,
+		Fingerprint: t.Fingerprint, Created: t.CreatedAt, Expires: t.ExpiresAt, RollingOver: t.RollingOver,
 	}
 	if t.RolloverStartedAt != nil {
 		v.Since = *t.RolloverStartedAt

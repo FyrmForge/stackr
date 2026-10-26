@@ -37,6 +37,7 @@ type View struct {
 	Tab                string
 	Status             string // a TileBadge word
 	Running            bool   // offer Stop, not Deploy (v0 dbActions)
+	ReadOnly           bool   // the viewer may not write: no Deploy, Stop, pairs or delete
 	Location, EnvColor string
 	Error, Note        string
 }
@@ -61,10 +62,12 @@ func Drawer(v View, body templ.Component) templ.Component {
 }
 
 templ actions(v View) {
-	if v.Running {
-		@c.Confirm(stop(v))
-	} else {
-		@c.PrimaryPost("Deploy", v.Base+"/deploy")
+	if !v.ReadOnly {
+		if v.Running {
+			@c.Confirm(stop(v))
+		} else {
+			@c.PrimaryPost("Deploy", v.Base+"/deploy")
+		}
 	}
 }
 
@@ -191,11 +194,14 @@ templ Settings(v View, s SettingsView) {
 }
 
 func settingsRows(v View, s SettingsView) []c.AccRow {
-	return []c.AccRow{
+	rows := []c.AccRow{
 		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Changed: len(s.Allow) > 0, Body: allowRow(v, s)},
 		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Changed: len(s.Pairs) > 0, Body: pairsRow(v, s)},
-		{Key: "delete", Title: "Delete", Body: deleteRow(v)},
 	}
+	if !v.ReadOnly {
+		rows = append(rows, c.AccRow{Key: "delete", Title: "Delete", Body: deleteRow(v)})
+	}
+	return rows
 }
 
 // AllowSummary is the Allow row closed: its patterns, or who may by default.
@@ -272,17 +278,22 @@ templ pairsRow(v View, s SettingsView) {
 						<span class="text-rw-text">{ p.From }</span>
 						<span class="text-rw-faint">→</span>
 						<span class="flex-1 text-rw-text">{ p.To }</span>
-						<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML">
-							for _, q := range dropPair(s.Pairs, i) {
-								<input type="hidden" name="from" value={ q.From }/>
-								<input type="hidden" name="to" value={ q.To }/>
-							}
-							<button type="submit" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p.From }>×</button>
-						</form>
+						if !v.ReadOnly {
+							<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML">
+								for _, q := range dropPair(s.Pairs, i) {
+									<input type="hidden" name="from" value={ q.From }/>
+									<input type="hidden" name="to" value={ q.To }/>
+								}
+								<button type="submit" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p.From }>×</button>
+							</form>
+						}
 					</li>
 				}
 			</ul>
 		}
+		if v.ReadOnly {
+			<p class="text-xs text-rw-faint">Only members and owners can change the pairs.</p>
+		} else {
 		<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
 			for _, q := range s.Pairs {
 				<input type="hidden" name="from" value={ q.From }/>
@@ -305,6 +316,7 @@ templ pairsRow(v View, s SettingsView) {
 				@c.FieldError("env_pairs", s.Errors["env_pairs"])
 			</div>
 		</form>
+		}
 	</div>
 }
 

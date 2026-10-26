@@ -127,7 +127,7 @@ func (h *handler) keys(c echo.Context) (KeysView, error) {
 			ID:      k.ID,
 			Name:    k.Name,
 			Org:     org,
-			Created: k.CreatedAt.Local().Format("Jan 2 2006"),
+			Created: k.CreatedAt,
 		})
 	}
 	return v, nil
