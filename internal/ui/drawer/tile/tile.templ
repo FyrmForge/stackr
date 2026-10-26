@@ -594,7 +594,7 @@ templ generalFields(s SettingsView) {
 	<div class="grid grid-cols-2 gap-4">
 		<div data-field>
 			<label class="label" for="set-name">Name</label>
-			<input type="text" id="set-name" name="name" value={ c.Kept(ctx, "name", s.Name) } required class="input"/>
+			<input type="text" id="set-name" name="name" value={ c.Kept(ctx, "name", s.Name) } required class="input" { c.Invalid("name", c.KeptErr(ctx, "name", ""))... }/>
 			<p class="mt-1.5 text-xs text-rw-faint">A new name changes its URL.</p>
 			@c.FieldError("name", c.KeptErr(ctx, "name", ""))
 		</div>
@@ -753,7 +753,7 @@ templ text(s SettingsView, key, label, placeholder, hint string, mono bool) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<input type="text" id={ "set-" + key } name={ key } value={ s.kept(ctx, key) } placeholder={ placeholder } class={ "input", templ.KV("font-mono", mono) }/>
+			<input type="text" id={ "set-" + key } name={ key } value={ s.kept(ctx, key) } placeholder={ placeholder } class={ "input", templ.KV("font-mono", mono) } { c.Invalid(key, keptErr(ctx, key))... }/>
 			@fieldFoot(s, key, hint)
 		</div>
 	}
@@ -763,7 +763,7 @@ templ number(s SettingsView, key, label, placeholder, step, hint string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<input type="number" id={ "set-" + key } name={ key } value={ s.kept(ctx, key) } placeholder={ placeholder } step={ step } min="0" class="input"/>
+			<input type="number" id={ "set-" + key } name={ key } value={ s.kept(ctx, key) } placeholder={ placeholder } step={ step } min="0" class="input" { c.Invalid(key, keptErr(ctx, key))... }/>
 			@fieldFoot(s, key, hint)
 		</div>
 	}
@@ -773,7 +773,7 @@ templ area(s SettingsView, key, label, placeholder, hint string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<textarea id={ "set-" + key } name={ key } rows="2" placeholder={ placeholder } class="input font-mono text-sm">{ s.kept(ctx, key) }</textarea>
+			<textarea id={ "set-" + key } name={ key } rows="2" placeholder={ placeholder } class="input font-mono text-sm" { c.Invalid(key, keptErr(ctx, key))... }>{ s.kept(ctx, key) }</textarea>
 			@fieldFoot(s, key, hint)
 		</div>
 	}
@@ -783,7 +783,7 @@ templ choice(s SettingsView, key, label string, opts []opt, hint string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			@fieldLabel(s, key, label)
-			<select id={ "set-" + key } name={ key } class="input">
+			<select id={ "set-" + key } name={ key } class="input" { c.Invalid(key, keptErr(ctx, key))... }>
 				for _, o := range opts {
 					<option value={ o.v } selected?={ o.v == cmp.Or(s.kept(ctx, key), defaults[key]) }>{ o.l }</option>
 				}
@@ -797,7 +797,7 @@ templ check(s SettingsView, key, label, warn string) {
 	if s.Has(key) {
 		<div data-field data-changed?={ s.Changed(key) }>
 			<label class="text-sm flex items-center gap-2">
-				<input type="checkbox" name={ key } value="1" checked?={ s.on(ctx, key) } class="accent-rw-accent"/>
+				<input type="checkbox" name={ key } value="1" checked?={ s.on(ctx, key) } class="accent-rw-accent" { c.Invalid(key, keptErr(ctx, key))... }/>
 				<span>{ label }</span>
 				@c.FieldMarks(s.Changed(key), "")
 				<span class="text-xs text-rw-danger" data-find-skip>{ warn }</span>

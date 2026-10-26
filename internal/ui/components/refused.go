@@ -80,6 +80,15 @@ func KeptErr(ctx context.Context, name, err string) string {
 	return err
 }
 
+// Invalid marks an input whose field shows err: aria-invalid, and
+// aria-describedby naming its FieldError, so a screen reader reads why.
+func Invalid(field, err string) templ.Attributes {
+	if err == "" {
+		return nil
+	}
+	return templ.Attributes{"aria-invalid": "true", "aria-describedby": "error-" + field}
+}
+
 // RefusedHere is the refusal drawn under ctx, nil = none.
 func RefusedHere(ctx context.Context) *Refused { return refusedOf(ctx) }
 

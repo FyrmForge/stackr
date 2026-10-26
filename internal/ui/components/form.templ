@@ -78,6 +78,7 @@ templ fieldInput(f FieldView) {
 		class={ "input", templ.KV("pr-14", f.Type == "password") }
 		required?={ f.Required }
 		disabled?={ f.Disabled }
+		{ Invalid(f.Name, KeptErr(ctx, f.Name, f.Error))... }
 		if f.Autocomplete != "" {
 			autocomplete={ f.Autocomplete }
 		}

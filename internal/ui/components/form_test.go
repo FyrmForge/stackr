@@ -22,3 +22,28 @@ func TestFormNovalidatePasswordToggle(t *testing.T) {
 		}
 	}
 }
+
+// A field with an error is marked invalid and described by the error; a
+// clean one is not. Two refused fields both show their reason.
+func TestFieldInvalidAria(t *testing.T) {
+	r := &Refused{Field: "cpu", Msg: "too many", More: map[string]string{"cpu": "too many", "mem": "too much"}}
+	ctx := WithRefused(context.Background(), r)
+	for name, want := range map[string]string{"cpu": "too many", "mem": "too much"} {
+		var b strings.Builder
+		if err := Field(FieldView{Name: name, Label: name}).Render(ctx, &b); err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range []string{`aria-invalid="true"`, `aria-describedby="error-` + name + `"`, want} {
+			if !strings.Contains(b.String(), w) {
+				t.Errorf("%s: missing %q in %s", name, w, b.String())
+			}
+		}
+	}
+	var b strings.Builder
+	if err := Field(FieldView{Name: "ok", Label: "ok"}).Render(ctx, &b); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "aria-invalid") {
+		t.Errorf("clean field marked invalid: %s", b.String())
+	}
+}

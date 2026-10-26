@@ -184,7 +184,7 @@ type ConfigRepoView struct {
 templ ConfigRepoFields(v ConfigRepoView) {
 	<div data-field data-changed?={ v.Connector != "" }>
 		<label for={ v.ID + "-connector" } class="label">Connector</label>
-		<select id={ v.ID + "-connector" } name="connector" class="input">
+		<select id={ v.ID + "-connector" } name="connector" class="input" { Invalid("connector", KeptErr(ctx, "connector", ""))... }>
 			<option value="">None (a public repository)</option>
 			for _, o := range v.Connectors {
 				<option value={ o.Value } selected?={ o.Value == Kept(ctx, "connector", v.Connector) }>{ o.Label }</option>
@@ -272,7 +272,7 @@ templ editRow(form string, r SettingRowView) {
 		</label>
 		switch {
 			case r.Type == "bool":
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input">
+				<select id={ form + "-" + r.Key } name={ r.Key } class="input" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					if !r.NoInherit {
 						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>Inherit ({ onOff(r.Effective) })</option>
 					}
@@ -280,9 +280,9 @@ templ editRow(form string, r SettingRowView) {
 					<option value="false" selected?={ Kept(ctx, r.Key, r.Value) == "false" }>Off</option>
 				</select>
 			case r.Secret:
-				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono"/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 			default:
-				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input"/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>
