@@ -56,7 +56,7 @@ templ Alerts(v AlertsView) {
 		}
 		@c.Section("Heartbeat", "instance", "Get told when stackr stops pinging a URL.") {
 			<form hx-post={ v.HeartbeatSave } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-				@c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Value: v.HeartbeatDraft, Placeholder: alertsPlaceholder(v.Heartbeat), Help: heartbeatURLHelp(v.Heartbeat)})
+				@c.Field(c.FieldView{Name: "heartbeat_url", Label: "Heartbeat URL", Type: "url", Value: v.HeartbeatDraft, Placeholder: alertsPlaceholder(v.Heartbeat), Help: heartbeatURLHelp(v.Heartbeat)})
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			</form>
 			<div class="mt-5 pt-5 border-t border-rw-border space-y-3">

@@ -233,14 +233,23 @@ func TestAdminRefusedKeepsTyped(t *testing.T) {
 	}
 	refused("/-/admin/settings/jobs", url.Values{"workers": {"-5"}}, `value="-5"`)
 	refused("/-/admin/caddy", url.Values{"proxy_custom": {"{oops"}}, ">{oops</textarea>")
-	refused("/-/admin/backups/schedule", url.Values{"panel_backup_schedule": {"not cron"}, "panel_backup_keep": {"4"}},
-		`value="not cron"`, `value="4"`)
+	if body := refused("/-/admin/backups/schedule", url.Values{"panel_backup_schedule": {"not cron"}, "panel_backup_keep": {"4"}},
+		`value="not cron"`, `value="4"`, "Not a cron schedule."); strings.Contains(body, "expected exactly") {
+		t.Error("the cron refusal shows the parser's own text")
+	}
 	refused("/-/admin/routes", url.Values{"route_host": {"bad host"}, "route_mode": {"https"}, "route_target": {"10.0.0.1:1"}, "route_insecure": {"1"}},
 		`value="bad host"`, `value="https" selected`, `value="10.0.0.1:1"`)
 	// the webhook's refused URL stays in the webhook field, not the heartbeat's
 	body := refused("/-/admin/alerts", url.Values{"url": {"nope"}}, `value="nope"`)
 	if strings.Count(body, `value="nope"`) != 1 || strings.Index(body, `value="nope"`) > strings.Index(body, "Heartbeat URL") {
 		t.Errorf("the refused webhook URL is not in the webhook field alone:\n%s", body)
+	}
+	// the heartbeat's refusal is its own field's: no id on the page twice
+	body = refused("/-/admin/alerts/heartbeat", url.Values{"heartbeat_url": {"notaurl"}}, `value="notaurl"`, `aria-describedby="error-heartbeat_url"`, `id="error-heartbeat_url" data-has-error="true"`)
+	for _, id := range []string{`id="url"`, `id="error-url"`, `id="heartbeat_url"`, `id="error-heartbeat_url"`} {
+		if strings.Count(body, id) != 1 {
+			t.Errorf("%s is on the alerts page %d times", id, strings.Count(body, id))
+		}
 	}
 }
 
@@ -519,7 +528,7 @@ func TestAdminAnswerInItsCard(t *testing.T) {
 		}
 	}
 	// Turn off takes its own button away: the note lands in the card above it.
-	s.As(t, root, "POST", "/-/admin/alerts/heartbeat", url.Values{"url": {"https://hb.example.test/ping"}})
+	s.As(t, root, "POST", "/-/admin/alerts/heartbeat", url.Values{"heartbeat_url": {"https://hb.example.test/ping"}})
 	body = s.As(t, root, "POST", "/-/admin/alerts/heartbeat/clear", nil).Body.String()
 	form, note = strings.Index(body, `hx-post="/-/admin/alerts/heartbeat"`), strings.Index(body, "Heartbeat is off.")
 	if form < 0 || note < form || !strings.Contains(body, "Status: off.") {

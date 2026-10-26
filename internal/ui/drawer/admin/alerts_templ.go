@@ -231,7 +231,7 @@ func Alerts(v AlertsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Value: v.HeartbeatDraft, Placeholder: alertsPlaceholder(v.Heartbeat), Help: heartbeatURLHelp(v.Heartbeat)}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "heartbeat_url", Label: "Heartbeat URL", Type: "url", Value: v.HeartbeatDraft, Placeholder: alertsPlaceholder(v.Heartbeat), Help: heartbeatURLHelp(v.Heartbeat)}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

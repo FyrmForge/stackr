@@ -34,11 +34,11 @@ func (h *handler) mountAlerts(g *echo.Group, a *middleware.Access) {
 	}), set)
 	// POST /-/admin/alerts/heartbeat: a blank URL keeps the stored one.
 	g.POST(b+"/alerts/heartbeat", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {
-		u := strings.TrimSpace(c.FormValue("url"))
+		u := strings.TrimSpace(c.FormValue("heartbeat_url"))
 		if u == "" {
 			return "Saved.", nil, nil
 		}
-		return "Saved.", nil, render.AsFields(h.orch.SetHeartbeat(c.Request().Context(), u), map[string]string{"heartbeat": "url"})
+		return "Saved.", nil, render.AsFields(h.orch.SetHeartbeat(c.Request().Context(), u), map[string]string{"heartbeat": "heartbeat_url"})
 	}), set)
 	// POST /-/admin/alerts/heartbeat/clear
 	g.POST(b+"/alerts/heartbeat/clear", h.act("alerts", func(c echo.Context) (string, *service.Job, error) {
@@ -54,7 +54,7 @@ func (h *handler) alertsTab(c echo.Context) (templ.Component, error) {
 		v.URLDraft = f.Get("url")
 	}
 	if f := refill(c, v.HeartbeatSave); f != nil {
-		v.HeartbeatDraft = f.Get("url")
+		v.HeartbeatDraft = f.Get("heartbeat_url")
 	}
 	if s.Heartbeat != "" {
 		v.HeartbeatClear = comp.ConfirmView{

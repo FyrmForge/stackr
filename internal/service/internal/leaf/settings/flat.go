@@ -99,7 +99,7 @@ func Check(key, raw string) error {
 func validate(k Knob, raw string) error {
 	if cronKnobs[k.Key] {
 		if _, err := cron.ParseStandard(raw); err != nil {
-			return invalid(k, "Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.\n%s", err)
+			return invalid(k, "Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.")
 		}
 	}
 	if k.Key == "proxy_custom" {
