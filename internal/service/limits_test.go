@@ -301,6 +301,16 @@ func TestProtectWithoutPairRefused(t *testing.T) {
 	refused("stack", err)
 	_, err = o.SetEnvSettings(ctx, r.tile.Env, `{"protect":true}`)
 	refused("env", err)
+	// a stored pair whose user is cleared: the password went with it only
+	// for want of a user, so the user alone is refused
+	if _, err := o.SetStackSettings(ctx, r.tile.Stack, `{"protect":true,"protect_user":"u","protect_password":"p"}`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = o.SetStackSettings(ctx, r.tile.Stack, `{"protect":true}`)
+	if bads := errs.Invalids(err); len(bads) != 1 || bads[0].Field != "protect_user" || bads[0].Msg != "Protection needs a user as well as a password." {
+		t.Errorf("stack user cleared = %v, want the user field alone", err)
+	}
+	// with the org's pair above, clearing the stack's own pair inherits it
 	if _, err := o.SetOrgSettings(ctx, r.org, `{"protect_user":"a","protect_password":"b"}`); err != nil {
 		t.Fatal(err)
 	}

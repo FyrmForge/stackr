@@ -180,14 +180,20 @@ func (o *Orchestrator) orgLimitBlock(ctx context.Context, f *orgconfig.File, p o
 // checkProtect refuses a rung that turns password protection on while no
 // user and password reach it (its own, or a level above's): the proxy
 // would lock every URL below with a pair nobody knows. above is the levels
-// over it, server first.
-func checkProtect(above []settings.Settings, blob string) error {
+// over it, server first; stored is the rung before this save. A rung whose
+// stored password went only because its user was cleared is missing the
+// user alone: typing one back keeps that password.
+func checkProtect(above []settings.Settings, stored, blob string) error {
 	s, err := settings.Parse(blob)
 	if err != nil || s.Protect == nil || !*s.Protect {
 		return nil // a corrupt blob is the setter's own error
 	}
 	if settings.Resolve(append(above, s)...).ProtectUser != "" {
 		return nil
+	}
+	if old, err := settings.Parse(stored); err == nil && old.ProtectPassword != nil && *old.ProtectPassword != "" &&
+		(s.ProtectPassword == nil || *s.ProtectPassword == "") {
+		return errs.Invalidf("protect_user", "Protection needs a user as well as a password.")
 	}
 	const msg = "Protection needs a user and a password, here or on a level above."
 	return errors.Join(errs.Invalidf("protect_user", msg), errs.Invalidf("protect_password", msg))

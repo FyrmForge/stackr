@@ -177,7 +177,7 @@ func (o *Orchestrator) SetEnvSettings(ctx context.Context, id, blob string) (Env
 		if err != nil {
 			return e, err
 		}
-		if err := errors.Join(o.checkBlobLimits(ctx, blob), checkProtect(above, blob)); err != nil {
+		if err := errors.Join(o.checkBlobLimits(ctx, blob), checkProtect(above, e.Settings, blob)); err != nil {
 			return e, err
 		}
 		return o.envs.SetSettings(ctx, e, blob)

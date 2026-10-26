@@ -184,7 +184,7 @@ func (o *Orchestrator) SetStackSettings(ctx context.Context, id, blob string) (S
 	if err != nil {
 		return st, err
 	}
-	if err := errors.Join(o.checkBlobLimits(ctx, blob), checkProtect(above, blob)); err != nil {
+	if err := errors.Join(o.checkBlobLimits(ctx, blob), checkProtect(above, st.Settings, blob)); err != nil {
 		return st, err
 	}
 	if st, err = o.stacks.SetSettings(ctx, st, blob); err != nil {

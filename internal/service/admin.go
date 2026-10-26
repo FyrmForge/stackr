@@ -396,7 +396,7 @@ func (o *Orchestrator) SetSettingDefaults(ctx context.Context, vals map[string]s
 	}
 	var protectErr error
 	if next, err := settings.Merge(cur, vals, settings.Server); err == nil { // a refused merge is SetDefaults' to say
-		protectErr = checkProtect(nil, next.JSON())
+		protectErr = checkProtect(nil, cur.JSON(), next.JSON())
 	}
 	if err := errors.Join(o.checkValLimits(ctx, vals), protectErr); err != nil {
 		return err
