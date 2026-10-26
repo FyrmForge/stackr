@@ -1,21 +1,13 @@
 // <settings-find> wraps components.SettingsAccordion. The rows are native
 // <details> sharing one name, so the browser keeps one open. The open row
 // lives in ?open= (history.replaceState, so Back does not walk every
-// toggle) and a fresh load opens the row ?open= names and scrolls it into
-// view. [data-find] filters the rows by their title, summary, labels,
-// headings, hints, submit buttons (Rename), a nested <details>'
-// summary (Show advanced carries data-hint), a field's aria-label and option words (an <option> takes no <mark>), opens the hits and marks them; [data-only-changed]
+// toggle) and a fresh load opens (and shows) the row ?open= names. [data-find]
+// filters the rows by their title, summary, labels, headings, hints, submit buttons, a nested <details>' summary (Show advanced carries data-hint), a field's aria-label and option words (an <option> takes no <mark>), opens the hits and marks them; [data-only-changed]
 // hides the [data-field]s without data-changed and the rows with none. While a
 // filter runs the rows leave the name group and the URL is left alone; clearing
 // it restores the row open before. [data-find-skip] and .sr-only are never searched.
-// A hit inside a closed <details> (Show advanced) opens it until the filter
-// changes. A POST answered inside a row fires "refresh" on [data-acc-refresh].
+// A hit inside a closed <details> (Show advanced) opens it until the filter changes.
 const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit]";
-
-// seen: a <settings-find> already connected in this page. Only the first,
-// the one the page loaded with, brings its ?open= row into view; a save's
-// redraw leaves the scroll to main.js (the answer or the refused field).
-let seen = false;
 
 // matches is the live region's count of the rows a filter shows.
 export function matches(n: number): string {
@@ -28,6 +20,7 @@ export function pattern(q: string): RegExp {
 }
 
 class SettingsFind extends HTMLElement {
+  private static loads = 0; // only the page's first scrolls to its ?open= row; a save's redraw leaves that to main.js
   private was: string | null = null; // the open row while filtering; null = no filter
   private opened: HTMLDetailsElement[] = []; // nested <details> a hit opened
 
@@ -148,8 +141,7 @@ class SettingsFind extends HTMLElement {
     const rows = this.rows();
     const row = rows.find((r) => r.dataset.acc === key);
     if (row && !rows.some((r) => r.open)) row.open = true;
-    if (!seen && row?.open) requestAnimationFrame(() => row.scrollIntoView({ block: "nearest" }));
-    seen = true;
+    if (SettingsFind.loads++ === 0 && row?.open) requestAnimationFrame(() => row.scrollIntoView({ block: "nearest" }));
     this.addEventListener("toggle", this.onToggle, true); // toggle does not bubble
     this.addEventListener("input", this.onInput);
     this.addEventListener("htmx:afterRequest", this.onSaved);

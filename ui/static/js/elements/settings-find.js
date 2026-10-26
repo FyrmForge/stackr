@@ -1,5 +1,4 @@
 const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit]";
-let seen = false;
 export function matches(n) {
     return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
 }
@@ -7,6 +6,7 @@ export function pattern(q) {
     return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/colou?r/g, "colou?r"));
 }
 class SettingsFind extends HTMLElement {
+    static loads = 0;
     was = null;
     opened = [];
     rows() {
@@ -121,9 +121,8 @@ class SettingsFind extends HTMLElement {
         const row = rows.find((r) => r.dataset.acc === key);
         if (row && !rows.some((r) => r.open))
             row.open = true;
-        if (!seen && row?.open)
+        if (SettingsFind.loads++ === 0 && row?.open)
             requestAnimationFrame(() => row.scrollIntoView({ block: "nearest" }));
-        seen = true;
         this.addEventListener("toggle", this.onToggle, true);
         this.addEventListener("input", this.onInput);
         this.addEventListener("htmx:afterRequest", this.onSaved);
