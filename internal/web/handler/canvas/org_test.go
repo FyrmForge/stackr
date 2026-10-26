@@ -23,6 +23,12 @@ func TestOrgMintAndInvite(t *testing.T) {
 	if !strings.Contains(body, "Invite link: ") || !strings.Contains(body, `data-copy="/invite/`) {
 		t.Errorf("invite:\n%s", body)
 	}
+	// the link sits right after the Add people form that posted it
+	form := strings.Index(body, `hx-post="/acme/-/drawer/invite"`)
+	end := form + strings.Index(body[form:], "</form>")
+	if note := strings.Index(body, "Invite link: "); form < 0 || note < end || !strings.Contains(body[end:note], "data-acted") {
+		t.Errorf("invite link at %d, form ends at %d\n%s", note, end, body)
+	}
 }
 
 // Revoking an invite drops its row and kills the link.

@@ -115,7 +115,7 @@ func accBody(key string, open bool, body templ.Component) templ.Component {
 		top := false
 		if here && !r.used {
 			words, top = FormError(r.Msg), true
-		} else if a, _ := ctx.Value(actedKey{}).(*Acted); !here && open && a != nil && !a.used && a.Path == "" && a.Note != "" {
+		} else if a, _ := ctx.Value(actedKey{}).(*Acted); !here && open && a != nil && !a.used && a.Note != "" {
 			a.used = true
 			words = Note(a.Note)
 		}
@@ -360,7 +360,7 @@ func noted(note string, body templ.Component) templ.Component {
 		if note == "" {
 			return body.Render(ctx, w)
 		}
-		a := &Acted{Note: note}
+		a := &Acted{Note: note, Path: postedOf(ctx)} // the Section whose form posted takes it
 		var buf bytes.Buffer
 		if err := body.Render(WithActed(ctx, a), &buf); err != nil {
 			return err
