@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/authz"
@@ -163,10 +164,24 @@ func (o *Orchestrator) SetEnvColor(ctx context.Context, id, color string) (Envir
 // SetEnvSettings writes the env's settings blob and redeploys its running
 // tiles (B34).
 func (o *Orchestrator) SetEnvSettings(ctx context.Context, id, blob string) (Environment, error) {
-	if err := o.checkBlobLimits(ctx, blob); err != nil {
-		return Environment{}, err
-	}
-	e, err := o.onEnv(ctx, id, func(e Environment) (Environment, error) { return o.envs.SetSettings(ctx, e, blob) })
+	e, err := o.onEnv(ctx, id, func(e Environment) (Environment, error) {
+		st, err := o.stacks.Get(ctx, e.StackID)
+		if err != nil {
+			return e, err
+		}
+		og, err := o.orgs.Get(ctx, st.OrgID)
+		if err != nil {
+			return e, err
+		}
+		above, err := o.levelsAbove(ctx, og.Settings, st.Settings)
+		if err != nil {
+			return e, err
+		}
+		if err := errors.Join(o.checkBlobLimits(ctx, blob), checkProtect(above, blob)); err != nil {
+			return e, err
+		}
+		return o.envs.SetSettings(ctx, e, blob)
+	})
 	if err != nil {
 		return e, err
 	}

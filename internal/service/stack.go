@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -175,7 +176,15 @@ func (o *Orchestrator) SetStackSettings(ctx context.Context, id, blob string) (S
 	if err != nil {
 		return st, err
 	}
-	if err := o.checkBlobLimits(ctx, blob); err != nil {
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return st, err
+	}
+	above, err := o.levelsAbove(ctx, og.Settings)
+	if err != nil {
+		return st, err
+	}
+	if err := errors.Join(o.checkBlobLimits(ctx, blob), checkProtect(above, blob)); err != nil {
 		return st, err
 	}
 	if st, err = o.stacks.SetSettings(ctx, st, blob); err != nil {

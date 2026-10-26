@@ -277,3 +277,34 @@ func TestOrgApplyFailsWithItsRedeploys(t *testing.T) {
 		t.Errorf("plan = %s %q, want error naming the failed redeploy", last.Status, last.Error)
 	}
 }
+
+// Password protection on with no user and password reaching the rung is
+// refused on both fields at every level; a pair from a level above passes.
+func TestProtectWithoutPairRefused(t *testing.T) {
+	ctx := context.Background()
+	r := newLimitRig(t)
+	o := r.env.Orch
+	refused := func(what string, err error) {
+		t.Helper()
+		bad := map[string]bool{}
+		for _, b := range errs.Invalids(err) {
+			bad[b.Field] = true
+		}
+		if !bad["protect_user"] || !bad["protect_password"] {
+			t.Errorf("%s protect on, no pair = %v, want both fields refused", what, err)
+		}
+	}
+	refused("server", o.SetSettingDefaults(ctx, map[string]string{"protect": "true"}))
+	_, err := o.SetOrgSettings(ctx, r.org, `{"protect":true}`)
+	refused("org", err)
+	_, err = o.SetStackSettings(ctx, r.tile.Stack, `{"protect":true}`)
+	refused("stack", err)
+	_, err = o.SetEnvSettings(ctx, r.tile.Env, `{"protect":true}`)
+	refused("env", err)
+	if _, err := o.SetOrgSettings(ctx, r.org, `{"protect_user":"a","protect_password":"b"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.SetStackSettings(ctx, r.tile.Stack, `{"protect":true}`); err != nil {
+		t.Errorf("stack protect on under the org's pair = %v", err)
+	}
+}

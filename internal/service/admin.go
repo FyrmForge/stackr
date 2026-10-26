@@ -390,7 +390,15 @@ func (o *Orchestrator) SettingDefaults(ctx context.Context) (settings.Settings, 
 // SetSettingDefaults merges into the server rung; every running tile
 // redeploys (B34) and the proxy is re-pushed (protect).
 func (o *Orchestrator) SetSettingDefaults(ctx context.Context, vals map[string]string) error {
-	if err := o.checkValLimits(ctx, vals); err != nil {
+	cur, err := o.settings.Defaults(ctx)
+	if err != nil {
+		return err
+	}
+	var protectErr error
+	if next, err := settings.Merge(cur, vals, settings.Server); err == nil { // a refused merge is SetDefaults' to say
+		protectErr = checkProtect(nil, next.JSON())
+	}
+	if err := errors.Join(o.checkValLimits(ctx, vals), protectErr); err != nil {
 		return err
 	}
 	if err := o.settings.SetDefaults(ctx, vals); err != nil {
