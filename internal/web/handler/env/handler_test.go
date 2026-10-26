@@ -152,6 +152,10 @@ func TestManagedAllow(t *testing.T) {
 	if rec.Code != 200 || strings.Join(allow(), " ") != "acme:shop:*" {
 		t.Errorf("remove = %d %v", rec.Code, allow())
 	}
+	// the answer sits after the Add form, not inside a list entry
+	if body := rec.Body.String(); strings.Index(body, "Saved.") < strings.Index(body, `id="allow-add"`) {
+		t.Errorf("remove answer is above the Add form\n%s", body)
+	}
 
 	member := s.User(t, "dev@acme.test", false)
 	s.Member(t, s.Org, member, "member")
@@ -184,6 +188,9 @@ func TestManagedEnvPairs(t *testing.T) {
 	}
 	if rec.Code != 200 || m.EnvPairs["staging"] != "dev" || !strings.Contains(rec.Body.String(), `name="from" value="staging"`) {
 		t.Errorf("add = %d %v\n%s", rec.Code, m.EnvPairs, rec.Body)
+	}
+	if body := rec.Body.String(); strings.Index(body, "Saved.") < strings.Index(body, `id="pair-from"`) {
+		t.Errorf("pair answer is above the Add form\n%s", body)
 	}
 	rec = s.Do(t, "POST", d, url.Values{
 		"from":     {"staging"},
@@ -496,7 +503,12 @@ func TestInstanceAndSliceRename(t *testing.T) {
 	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
 		t.Fatal(err)
 	}
-	rec := s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/rename", url.Values{"name": {"pg main"}})
+	// a refused rename keeps what was typed in the field
+	rec := s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/rename", url.Values{"name": {"api"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, `name="name" type="text" value="api"`) || !strings.Contains(body, `aria-describedby="error-name"`) {
+		t.Errorf("database rename onto a taken name = %d\n%s", rec.Code, body)
+	}
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/rename", url.Values{"name": {"pg main"}})
 	if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "/-/instances/pg-main/rename") || !strings.Contains(body, "Saved.") {
 		t.Errorf("database rename = %d\n%s", rec.Code, body)
 	}

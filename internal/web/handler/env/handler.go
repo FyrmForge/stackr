@@ -254,7 +254,8 @@ func (h *handler) InstanceDelete(c echo.Context) error {
 // POST …/-/instances/:tile/rename: the new name; its slices follow.
 func (h *handler) InstanceRename(c echo.Context) error {
 	note, err := h.rename(c)
-	return h.savedNote(c, "name", note, err, instance.SettingsView{})
+	typed := strings.TrimSpace(c.FormValue("name"))
+	return h.savedNote(c, "name", note, err, instance.SettingsView{Name: &typed})
 }
 
 // POST …/-/slices/:tile/rename

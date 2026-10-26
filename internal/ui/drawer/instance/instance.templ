@@ -178,7 +178,8 @@ type SettingsView struct {
 	AddFrom  string
 	AddTo    string
 	Envs     []string          // this stack's envs, a pair's right side
-	Errors   map[string]string // allow | env_pairs | delete → why the save was refused
+	Name     *string           // a refused rename's name as typed; nil = the stored one
+	Errors   map[string]string // allow | env_pairs | name | delete → why the save was refused
 	Open     string            // the accordion row open on load: the saved one, or ?open=
 }
 
@@ -225,6 +226,8 @@ func PairsSummary(ps []Pair) string {
 	return strings.Join(out, ", ")
 }
 
+// allowRow and pairsRow: a row's × posts from its button, not its form,
+// so a save's answer lands after the Add form (the one form posting there).
 templ allowRow(v View, s SettingsView) {
 	<p class="text-xs text-rw-faint" data-hint>Who may cut a slice here: org:stack:env:tile patterns, a trailing * for the rest.</p>
 	<div class="space-y-4">
@@ -236,11 +239,11 @@ templ allowRow(v View, s SettingsView) {
 					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm" data-field data-changed>
 						<span class="flex-1 font-mono text-rw-text break-all">{ p }</span>
 						if s.CanAllow {
-							<form hx-post={ v.Base + "/allow" } hx-target={ "#" + Root } hx-swap="outerHTML">
+							<form>
 								for _, q := range drop(s.Allow, i) {
 									<input type="hidden" name="allow" value={ q }/>
 								}
-								<button type="submit" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p }>×</button>
+								<button type="submit" hx-post={ v.Base + "/allow" } hx-target={ "#" + Root } hx-swap="outerHTML" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p }>×</button>
 							</form>
 						}
 					</li>
@@ -280,12 +283,12 @@ templ pairsRow(v View, s SettingsView) {
 						<span class="text-rw-faint">→</span>
 						<span class="flex-1 text-rw-text">{ p.To }</span>
 						if !v.ReadOnly {
-							<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML">
+							<form>
 								for _, q := range dropPair(s.Pairs, i) {
 									<input type="hidden" name="from" value={ q.From }/>
 									<input type="hidden" name="to" value={ q.To }/>
 								}
-								<button type="submit" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p.From }>×</button>
+								<button type="submit" hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML" class="text-rw-faint hover:text-rw-danger" aria-label={ "Remove " + p.From }>×</button>
 							</form>
 						}
 					</li>
@@ -322,6 +325,13 @@ templ pairsRow(v View, s SettingsView) {
 	</div>
 }
 
+func typedName(v View, s SettingsView) string {
+	if s.Name != nil {
+		return *s.Name
+	}
+	return v.Name
+}
+
 // nameRow renames the database; its slices follow it.
 templ nameRow(v View, s SettingsView) {
 	if v.ReadOnly {
@@ -332,7 +342,7 @@ templ nameRow(v View, s SettingsView) {
 		</div>
 	} else {
 		<form novalidate hx-post={ v.Base + "/rename" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
-			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Error: s.Errors["name"], Help: "Its slices follow the new name."})
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: typedName(v, s), Error: s.Errors["name"], Help: "Its slices follow the new name."})
 			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
 		</form>
 	}
