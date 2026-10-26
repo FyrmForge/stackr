@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -30,13 +31,17 @@ type Version struct {
 // Versions are the repo's versions, one per tag, newest first: the registry
 // lists the tags and digests, the table adds detail. A row whose image is
 // gone is not shown; an image with no row is shown with what the manifest
-// says. Tags on one digest share its row.
+// says. Tags on one digest share its row. A repo the registry does not have
+// (lost with its storage, say) has no versions.
 func (l *Leaf) Versions(ctx context.Context, repo string) ([]Version, error) {
 	c := &client{base: l.base, http: &http.Client{Timeout: 5 * time.Second, Transport: l.tr}}
 	var tl struct {
 		Tags []string `json:"tags"`
 	}
 	if _, err := c.get(ctx, "/v2/"+repo+"/tags/list", "", &tl); err != nil {
+		if se, ok := errors.AsType[statusErr](err); ok && se.code == http.StatusNotFound {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("the registry did not answer: %w", err)
 	}
 	rows, err := l.rows(ctx)

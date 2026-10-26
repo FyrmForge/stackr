@@ -211,11 +211,17 @@ func (l *Leaf) Clean(ctx context.Context, keep func(repo string) int, inUse InUs
 		return res, fmt.Errorf("the registry did not answer: %w", err)
 	}
 	note := func(repo string, err error) { res.Errors = append(res.Errors, repo+": "+err.Error()) }
+	held := map[string]bool{}   // repo@digest the registry tags
+	unread := map[string]bool{} // repos whose versions could not be read
 	for _, repo := range repos {
 		vs, err := l.versions(ctx, repo)
 		if err != nil {
 			note(repo, err)
+			unread[repo] = true
 			continue
+		}
+		for _, v := range vs {
+			held[repo+"@"+v.digest] = true
 		}
 		for _, v := range vs[min(keep(repo), len(vs)):] {
 			used, err := inUse(ctx, repo, v.digest)
@@ -239,5 +245,27 @@ func (l *Leaf) Clean(ctx context.Context, keep func(repo string) int, inUse InUs
 			res.Freed += size
 		}
 	}
+	l.forgetLost(ctx, held, unread, note)
 	return res, nil
+}
+
+// forgetLost deletes the rows of versions the registry answered it does not
+// tag: a repo gone from the catalog, or a digest no tag of its repo names
+// (storage lost in a restore, a hand delete). A repo whose versions could not
+// be read keeps its rows. Under the push gate, so no push lands between the
+// read and the delete.
+func (l *Leaf) forgetLost(ctx context.Context, held, unread map[string]bool, note func(string, error)) {
+	rows, err := l.images.ListAll(ctx)
+	if err != nil {
+		note("rows", err)
+		return
+	}
+	for _, r := range rows {
+		if unread[r.Repo] || held[r.Repo+"@"+r.Digest] {
+			continue
+		}
+		if err := l.images.DeleteByRepoDigest(ctx, r.Repo, r.Digest); err != nil {
+			note(r.Repo, err)
+		}
+	}
 }

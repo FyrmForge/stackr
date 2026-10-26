@@ -109,10 +109,20 @@ func (c *client) get(ctx context.Context, path, accept string, into any) (http.H
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("registry %s: %s", path, resp.Status)
+		return nil, statusErr{path, resp.StatusCode, resp.Status}
 	}
 	return resp.Header, json.NewDecoder(resp.Body).Decode(into)
 }
+
+// statusErr is a registry answer other than 200; code 404 on a tag list is
+// a repo the registry does not have (or no longer has).
+type statusErr struct {
+	path   string
+	code   int
+	status string
+}
+
+func (e statusErr) Error() string { return "registry " + e.path + ": " + e.status }
 
 // info is what the manifest of a tag says.
 type info struct {

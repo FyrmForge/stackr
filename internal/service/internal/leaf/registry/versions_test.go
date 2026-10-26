@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -171,5 +172,34 @@ func TestUsage(t *testing.T) {
 	got, err := l.Usage(ctx)
 	if err != nil || len(got) != 1 || got[0].Org != "acme" || got[0].Versions != 2 || got[0].Bytes != 15 {
 		t.Fatalf("usage = %+v, %v", got, err)
+	}
+}
+
+// A repo the registry lost has no versions (not an error), and a clean
+// forgets the rows of versions the registry no longer tags.
+func TestLostRepoAndRows(t *testing.T) {
+	srv, _ := fakeRegistry(t)
+	st := servicetest.Store(t)
+	org := seedOrg(t, st)
+	l := registry.New(st.RegistryImages, "").WithBase(srv.URL)
+	if vs, err := l.Versions(ctx, "acme/shop/web"); err != nil || len(vs) != 0 {
+		t.Fatalf("lost repo = %+v, %v", vs, err)
+	}
+	for _, r := range []store.RegistryImage{
+		{OrgID: &org, Repo: repoBuilt, Tag: "1", Digest: dgBuilt, Source: registry.SourceBuilt},
+		{OrgID: &org, Repo: repoBuilt, Tag: "0", Digest: "sha256:untagged", Source: registry.SourceBuilt},
+		{OrgID: &org, Repo: "acme/shop/web", Tag: "1", Digest: "sha256:w1", Source: registry.SourceBuilt},
+	} {
+		if err := l.Record(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := l.Clean(ctx, func(string) int { return 100 }, func(context.Context, string, string) (bool, error) { return true, nil })
+	if err != nil || len(res.Errors) != 0 {
+		t.Fatalf("clean = %+v, %v", res, err)
+	}
+	rows, _ := st.RegistryImages.ListAll(ctx)
+	if len(rows) != 1 || rows[0].Digest != dgBuilt {
+		t.Errorf("rows left = %+v, want only the tagged one", rows)
 	}
 }
