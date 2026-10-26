@@ -35,6 +35,7 @@ func TestParseDotenv(t *testing.T) {
 		"Mixed_Case9=m",
 		"BAD-NAME=x",
 		"dotted.name=x",
+		"9LIVES=x",
 		"NOEQUALS",
 		`OPEN="never closed`,
 		"PLAIN=again",
@@ -58,7 +59,7 @@ func TestParseDotenv(t *testing.T) {
 			t.Errorf("entry %d = %v, want %v", i, got[i], want[i])
 		}
 	}
-	if strings.Join(bad, ",") != "BAD-NAME,dotted.name,line 14,OPEN" {
+	if strings.Join(bad, ",") != "BAD-NAME,dotted.name,9LIVES,line 15,OPEN" {
 		t.Errorf("refused = %v", bad)
 	}
 }

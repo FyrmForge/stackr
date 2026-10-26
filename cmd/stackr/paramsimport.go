@@ -12,8 +12,9 @@ import (
 // dotenvEntry is one KEY=VALUE of a .env file, the key already lowercased.
 type dotenvEntry struct{ name, value string }
 
-// paramNameRe is the param name rule (leaf/params): lower-case letters, digits and _.
-var paramNameRe = regexp.MustCompile(`^[a-z0-9_]+$`)
+// paramNameRe is the param name rule (slug.ValidName): letters, digits and
+// _, starting with a letter or _.
+var paramNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // parseDotenv reads KEY=VALUE lines: # comments, an export prefix, single
 // and double quotes, no interpolation, no multi-line values. A later
@@ -98,7 +99,7 @@ func (a *app) paramsImport() *cobra.Command {
 		"Set a param per KEY=VALUE line of a .env file, in one collection; others at the level stay", exact(1),
 		func(c *cobra.Command, args []string) error {
 			if collection == "" || !paramNameRe.MatchString(collection) {
-				return usage("--collection is required: lower-case letters, digits and _")
+				return usage("--collection is required: letters, digits and _, starting with a letter or _")
 			}
 			if scope != "" {
 				if err := c.Flags().Set("level", scope); err != nil {

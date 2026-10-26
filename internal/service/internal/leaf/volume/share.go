@@ -39,7 +39,7 @@ const (
 var (
 	nfsSource = regexp.MustCompile(`^([^:/\s,]+):(/\S*)$`)
 	smbSource = regexp.MustCompile(`^//([^/\s,]+)(/\S+)$`)
-	orgRef    = regexp.MustCompile(`^\$\{\{\s*org\.params\.[a-z0-9_]+(\[[a-z0-9-]+\])?\.[a-z0-9_]+\s*\}\}$`)
+	orgRef    = regexp.MustCompile(`^\$\{\{\s*org\.params\.[A-Za-z_][A-Za-z0-9_]*(\[[a-z0-9-]+\])?\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$`)
 	plainUser = regexp.MustCompile(`^[^\s,]+$`)
 )
 
