@@ -331,7 +331,8 @@ templ Env(v View, e EnvView) {
 				<form novalidate hx-post={ v.Base + "/env?open=variables" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 					<div>
 						<label class="label" for="env-text">Variables</label>
-						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nAPI=${{ tile.api.url }}" } class="input font-mono text-sm">{ c.Kept(ctx, "env", e.Text) }</textarea>
+						<textarea id="env-text" name="env" rows="10" placeholder={ "KEY=value\nAPI=${{ tile.api.url }}" } class="input font-mono text-sm" { c.Invalid("env", c.KeptErr(ctx, "env", ""))... }>{ c.Kept(ctx, "env", e.Text) }</textarea>
+						@c.FieldError("env", c.KeptErr(ctx, "env", ""))
 						if len(e.Kept) > 0 {
 							<p class="settings-help">Kept as they are, a value on more than one line: { strings.Join(e.Kept, ", ") }.</p>
 						}

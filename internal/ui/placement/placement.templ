@@ -96,22 +96,18 @@ func (v View) scopeWord() string {
 templ Placement(v View) {
 	<div id={ Root } class="space-y-6">
 		<p class="text-sm text-rw-muted">Where it runs and how traffic gets in and out.</p>
-		if v.Error != "" {
-			<p class="banner banner-danger" role="alert">{ v.Error }</p>
+		@c.Answered(v.Note, v.Error) {
+			if v.Why != "" {
+				<p class="text-xs text-rw-faint">{ v.Why }</p>
+			}
+			if v.RunsOn {
+				@runsOn(v)
+			}
+			if !v.NoIngress {
+				@ingress(v)
+			}
+			@exits(v)
 		}
-		if v.Note != "" {
-			<p class="banner" role="status">{ v.Note }</p>
-		}
-		if v.Why != "" {
-			<p class="text-xs text-rw-faint">{ v.Why }</p>
-		}
-		if v.RunsOn {
-			@runsOn(v)
-		}
-		if !v.NoIngress {
-			@ingress(v)
-		}
-		@exits(v)
 	</div>
 }
 

@@ -93,31 +93,90 @@ func Invalid(field, err string) templ.Attributes {
 func RefusedHere(ctx context.Context) *Refused { return refusedOf(ctx) }
 
 // accBody draws one row's body. The refused row draws with the refusal
-// (and its reason over the body when no field took it); every other row
-// draws as stored.
-func accBody(key string, body templ.Component) templ.Component {
+// (its reason after the form that posted when no field took it, else over
+// the body); the open row of a saved drawer takes the note the same way
+// (else under the body); every other row draws as stored.
+func accBody(key string, open bool, body templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		r := refusedOf(ctx)
-		if r == nil || r.Row != key {
-			if body == nil {
-				return nil
-			}
-			return body.Render(WithRefused(ctx, nil), w)
+		here := r != nil && r.Row == key
+		bctx := ctx
+		if !here {
+			bctx = WithRefused(ctx, nil)
 		}
 		var buf bytes.Buffer
 		if body != nil {
-			if err := body.Render(ctx, &buf); err != nil {
+			if err := body.Render(bctx, &buf); err != nil {
 				return err
 			}
 		}
-		if !r.used {
-			if err := FormError(r.Msg).Render(ctx, w); err != nil {
-				return err
-			}
+		html := buf.String()
+		var words templ.Component
+		top := false
+		if here && !r.used {
+			words, top = FormError(r.Msg), true
+		} else if a, _ := ctx.Value(actedKey{}).(*Acted); !here && open && a != nil && !a.used && a.Path == "" && a.Note != "" {
+			a.used = true
+			words = Note(a.Note)
 		}
-		_, err := w.Write(buf.Bytes())
+		if words == nil {
+			_, err := io.WriteString(w, html)
+			return err
+		}
+		var nb bytes.Buffer
+		if err := actedNote(words).Render(ctx, &nb); err != nil {
+			return err
+		}
+		at, ok := postAt(html, postedOf(ctx), false)
+		switch {
+		case ok:
+		case top:
+			at = 0
+		default:
+			at = len(html)
+		}
+		_, err := io.WriteString(w, html[:at]+nb.String()+html[at:])
 		return err
 	})
+}
+
+// Answered draws its children with what a POST did (note) or why it was
+// refused (refusal) in the Section whose form posted it (WithPosted's URI);
+// when no Section claims it, over the children.
+func Answered(note, refusal string) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		children := templ.GetChildren(ctx)
+		a := &Acted{Path: postedOf(ctx), Note: note, Err: refusal}
+		var buf bytes.Buffer
+		if err := children.Render(WithActed(templ.ClearChildren(ctx), a), &buf); err != nil {
+			return err
+		}
+		if a.Unclaimed() {
+			if err := FormError(refusal).Render(ctx, w); err != nil {
+				return err
+			}
+			if refusal == "" && note != "" {
+				if err := Note(note).Render(ctx, w); err != nil {
+					return err
+				}
+			}
+		}
+		_, werr := w.Write(buf.Bytes())
+		return werr
+	})
+}
+
+type postedKey struct{}
+
+// WithPosted carries the request URI a POST came to, so an accordion row
+// puts what the answer says right after the form that posted it.
+func WithPosted(ctx context.Context, uri string) context.Context {
+	return context.WithValue(ctx, postedKey{}, uri)
+}
+
+func postedOf(ctx context.Context) string {
+	s, _ := ctx.Value(postedKey{}).(string)
+	return s
 }
 
 // accOpen is the row open on load: the refused one, else open.
@@ -176,30 +235,39 @@ func (a *Acted) Unclaimed() bool { return !a.used && (a.Note != "" || a.err() !=
 // Words is the note or the refusal still to show ("" note when refused).
 func (a *Acted) Words() (note, err string) { return a.Note, a.err() }
 
-// posted: html holds a control posting to Path, a request URI. One with a
-// query matches only the same query; one without matches any. at is where
-// the words go: right after the posting <form>, so they sit by its button;
-// len(html) when the control is not a form.
+// posted: html holds a control posting to Path (postAt).
 func (a *Acted) posted(html string) (at int, ok bool) {
-	attr := `hx-post="` + templ.EscapeString(a.Path)
-	anyQuery := !strings.Contains(a.Path, "?")
+	return postAt(html, a.Path, a.Below)
+}
+
+// postAt: html holds a control posting to path, a request URI. One with a
+// query matches only the same query; one without matches any; below also
+// takes a control posting under path. at is where an answer goes: right
+// after the posting <form>, so it sits by its button; len(html) when the
+// control is not a form.
+func postAt(html, path string, below bool) (at int, ok bool) {
+	if path == "" {
+		return 0, false
+	}
+	attr := `hx-post="` + templ.EscapeString(path)
+	anyQuery := !strings.Contains(path, "?")
 	for off := 0; ; {
 		i := strings.Index(html[off:], attr)
 		if i < 0 {
-			return 0, false
+			return len(html), ok
 		}
 		i += off
 		off = i + len(attr)
 		rest := html[off:]
-		if !strings.HasPrefix(rest, `"`) && !(anyQuery && strings.HasPrefix(rest, "?")) && !(a.Below && strings.HasPrefix(rest, "/")) {
+		if !strings.HasPrefix(rest, `"`) && !(anyQuery && strings.HasPrefix(rest, "?")) && !(below && strings.HasPrefix(rest, "/")) {
 			continue
 		}
+		ok = true // a button posting there; a form posting there wins
 		lt := strings.LastIndex(html[:i], "<")
 		end := strings.Index(rest, "</form>")
-		if lt < 0 || !strings.HasPrefix(html[lt:], "<form") || end < 0 {
-			return len(html), true
+		if lt >= 0 && strings.HasPrefix(html[lt:], "<form") && end >= 0 {
+			return off + end + len("</form>"), true
 		}
-		return off + end + len("</form>"), true
 	}
 }
 
@@ -288,14 +356,4 @@ func noted(note string, body templ.Component) templ.Component {
 	})
 }
 
-// rowNote draws the drawer's note under the open row, once.
-func rowNote(open bool) templ.Component {
-	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		a, _ := ctx.Value(actedKey{}).(*Acted)
-		if !open || a == nil || a.used || a.Path != "" || a.Note == "" {
-			return nil
-		}
-		a.used = true
-		return Note(a.Note).Render(ctx, w)
-	})
-}
+

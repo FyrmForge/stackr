@@ -429,7 +429,7 @@ func checkLists(t *store.Tile) error {
 		if blob.key == "env" {
 			for k := range m {
 				if !slug.ValidEnvKey(k) {
-					return errs.Invalidf("env", "%q is not an env var name: letters, digits and _, not starting with a digit", k)
+					return errs.Invalidf("env", "%s is not a variable name. Use letters, digits and _, and start with a letter or _.", k)
 				}
 			}
 		}

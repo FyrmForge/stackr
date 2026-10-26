@@ -358,7 +358,7 @@ func (l *Leaf) name(ctx context.Context, e *store.Environment, name string) erro
 func checkFrom(e store.Environment, kind, branch string, bottom bool) error {
 	switch {
 	case kind == FromBranch && strings.TrimSpace(branch) == "":
-		return errs.Invalidf("from", "Name the branch this environment builds from.")
+		return errs.Invalidf("branch", "Name the branch this environment builds from.")
 	case kind == FromPromote && bottom:
 		return errs.Invalidf("from", "The bottom environment has nothing below it to promote from; give it a branch.")
 	case kind == FromPromote && e.Type == Ephemeral:

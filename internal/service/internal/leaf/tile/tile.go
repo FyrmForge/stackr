@@ -128,15 +128,15 @@ func (l *Leaf) Create(ctx context.Context, t store.Tile) (store.Tile, error) {
 func (l *Leaf) checkSlug(ctx context.Context, t store.Tile) error {
 	switch {
 	case t.Slug == "":
-		return errs.Invalidf("name", "a name needs at least one letter or number")
+		return errs.Invalidf("name", "Give it a name with at least one letter or digit.")
 	case !slug.Valid(t.Slug):
-		return errs.Invalidf("name", "%q is not a valid slug: lower-case letters, digits and single hyphens", t.Slug)
+		return errs.Invalidf("name", "Use lower-case letters, digits and single hyphens in the name.")
 	case slug.Reserved(t.Slug):
-		return errs.Invalidf("name", "%q is reserved for variable references; pick another name", t.Slug)
+		return errs.Invalidf("name", "%s is reserved for variable references. Pick another name.", t.Slug)
 	}
 	holder, err := l.tiles.GetBySlug(ctx, t.EnvironmentID, t.Slug)
 	if err == nil && holder.ID != t.ID {
-		return errs.Conflictf("a tile named %q (%s) already exists in this environment", holder.Name, t.Slug)
+		return errs.Conflictf("Another tile in this environment is already called %s.", holder.Name)
 	}
 	if err != nil && !errors.Is(err, errs.ErrNotFound) {
 		return err

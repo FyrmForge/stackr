@@ -234,6 +234,17 @@ func Theme(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+// Posted carries a POST's request URI to the components it draws
+// (components.WithPosted), so an answer sits by the form that posted it.
+func Posted(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if r := c.Request(); r.Method == http.MethodPost {
+			c.SetRequest(r.WithContext(components.WithPosted(r.Context(), r.URL.RequestURI())))
+		}
+		return next(c)
+	}
+}
+
 // DrawerTab pushes ?drawer=&tab= for a drawer tab picked from the phone
 // select, as the tab links do: the select sends its node as ?drawer=, the
 // links do not. A reply that is not a 200 pushes nothing.

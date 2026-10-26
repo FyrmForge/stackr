@@ -62,8 +62,7 @@ templ SettingsAccordion(v SettingsAcc) {
 						<svg class="h-4 w-4 shrink-0 text-rw-faint transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
 					</summary>
 					<div class="px-4 pb-5 pt-4 space-y-4 border-t border-rw-border">
-						@accBody(r.Key, r.Body)
-						@rowNote(r.Key == accOpen(ctx, v.Rows, v.Open))
+						@accBody(r.Key, r.Key == accOpen(ctx, v.Rows, v.Open), r.Body)
 					</div>
 				</details>
 			}
