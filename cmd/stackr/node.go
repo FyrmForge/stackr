@@ -103,14 +103,19 @@ func (a *app) nodes() *cobra.Command {
 
 func (a *app) nodeAdd() *cobra.Command {
 	var tags []string
+	var addr string
 	c := leaf("add <name>", "admin.join-token", "Make the join command for a new worker; it always gets egress (server admin)", exact(1),
-		func(_ *cobra.Command, args []string) error {
+		func(c *cobra.Command, args []string) error {
 			for _, t := range tags {
 				if !slices.Contains(nodeTags, t) {
 					return usage("unknown tag %q; tags are %s", t, strings.Join(nodeTags, ", "))
 				}
 			}
-			v, err := a.call(POST, "/admin/join-tokens", map[string]any{"node_name": args[0], "tags": tags})
+			body := map[string]any{"node_name": args[0], "tags": tags}
+			if c.Flags().Changed("address") {
+				body["node_address"] = addr
+			}
+			v, err := a.call(POST, "/admin/join-tokens", body)
 			if err != nil {
 				return err
 			}
@@ -118,12 +123,16 @@ func (a *app) nodeAdd() *cobra.Command {
 				return a.show(v)
 			}
 			a.sayJoin(fmt.Sprintf("Join %s to this cluster. On the new machine, as root, run:", args[0]), asMap(v))
+			if ad, _ := asMap(v)["node_address"].(string); ad != "" {
+				a.say("Its address is %s.", ad)
+			}
 			return nil
 		})
 	c.Long = "Make the join command for a new worker (server admin). The node always gets egress; add more tags with --tag.\n" +
 		"Orgs reach it through a placement: stackr admin placement add <name> --node <node>."
 	c.Example = "  stackr node add vps-fsn1 --tag ingress\n  stackr node add vps-fsn1 --tag storage"
 	c.Flags().StringArrayVar(&tags, "tag", nil, "another capability: ingress, builder or storage (repeatable; egress is always on)")
+	c.Flags().StringVar(&addr, "address", "", "the node's own DNS name (default: <name>.<panel address>; empty for none)")
 	return c
 }
 
@@ -265,12 +274,15 @@ func (a *app) nodeLs() *cobra.Command {
 			if cell(m["docker"]) == "(none)" {
 				m["docker"] = "-"
 			}
+			if cell(m["address"]) == "(none)" {
+				m["address"] = "-"
+			}
 			m["warn"] = "-"
 			if ws := warnings(m, "label"); len(ws) > 0 {
 				m["warn"] = strings.Join(ws, ", ")
 			}
 		}
-		return a.show(rows, "name", "role", "state", "tags", "envs", "cpu", "mem", "disk_free", "docker", "warn")
+		return a.show(rows, "name", "role", "state", "address", "tags", "envs", "cpu", "mem", "disk_free", "docker", "warn")
 	})
 	c.Example = "  stackr node ls\n  stackr node ls --pending"
 	c.Flags().StringVar(&state, "state", "", "only nodes in this state (online, pending, ...)")
@@ -343,6 +355,9 @@ func (a *app) nodeShow() *cobra.Command {
 					addrs = append(addrs, fmt.Sprintf("%s (%s, %s)", strings.Join(strs(im["prefixes"]), " "), kind, cell(im["name"])))
 				}
 				rows = append(rows, []string{"addresses", strings.Join(addrs, "   ")})
+			}
+			if ad := cell(n["address"]); ad != "(none)" {
+				rows = append(rows, []string{"address", ad})
 			}
 			if r := cell(n["range"]); r != "(none)" {
 				rows = append(rows, []string{"range", r})
@@ -446,31 +461,51 @@ func (a *app) nodeExit() *cobra.Command {
 	return c
 }
 
-// nodeSet sets a node's public IP override: the address the DNS records of
-// the managed domains it serves point at.
+// nodeSet sets a node's public IP override (the address the DNS records
+// of the managed domains it serves point at) and its own DNS name.
 func (a *app) nodeSet() *cobra.Command {
-	var ip string
-	c := leaf("set <name>", "admin.node-public-ip", "Set the public IP a node's DNS records point at (server admin)", exact(1),
+	var ip, addr string
+	c := leaf("set <name>", "admin.node-public-ip,admin.node-address", "Set a node's public IP or its own DNS name (server admin)", exact(1),
 		func(c *cobra.Command, args []string) error {
-			if !c.Flags().Changed("public-ip") {
-				return usage("nothing to set; pass --public-ip")
+			setIP, setAddr := c.Flags().Changed("public-ip"), c.Flags().Changed("address")
+			if !setIP && !setAddr {
+				return usage("nothing to set; pass --public-ip or --address")
 			}
-			v, err := a.call(PUT, "/admin/nodes/"+url.PathEscape(args[0])+"/public-ip", map[string]string{"public_ip": ip})
-			if err != nil {
-				return err
+			base := "/admin/nodes/" + url.PathEscape(args[0])
+			var v any
+			var err error
+			if setIP {
+				if v, err = a.call(PUT, base+"/public-ip", map[string]string{"public_ip": ip}); err != nil {
+					return err
+				}
+			}
+			if setAddr {
+				if v, err = a.call(PUT, base+"/address", map[string]string{"node_address": addr}); err != nil {
+					return err
+				}
 			}
 			if a.json {
 				return a.show(v)
 			}
-			if ip == "" {
+			switch {
+			case !setIP:
+			case ip == "":
 				a.say("%s: DNS records point at its detected address", args[0])
-				return nil
+			default:
+				a.say("%s: DNS records point at %s", args[0], ip)
 			}
-			a.say("%s: DNS records point at %s", args[0], ip)
+			switch {
+			case !setAddr:
+			case addr == "":
+				a.say("%s: no address", args[0])
+			default:
+				a.say("%s: address %s", args[0], cell(asMap(v)["address"]))
+			}
 			return nil
 		})
 	c.Flags().StringVar(&ip, "public-ip", "", "a floating IP or load balancer address; empty goes back to the detected one")
-	c.Example = "  stackr node set vps-fsn1 --public-ip 203.0.113.10"
+	c.Flags().StringVar(&addr, "address", "", "the node's own DNS name; empty for none")
+	c.Example = "  stackr node set vps-fsn1 --public-ip 203.0.113.10\n  stackr node set vps-fsn1 --address fsn1.example.com"
 	return c
 }
 

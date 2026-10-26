@@ -50,6 +50,21 @@ func ManagedHost(domain, sub string) string {
 	return sub + "." + domain
 }
 
+// DNSScope is the scope a manage of domain asks for when under is typed:
+// the name below the domain, the full name pasted reads the same ("" =
+// the whole domain).
+func DNSScope(domain, under string) string {
+	d := strings.ToLower(strings.Trim(strings.TrimSpace(domain), "."))
+	sub := strings.ToLower(strings.Trim(strings.TrimSpace(under), "."))
+	if sub == d {
+		return ""
+	}
+	if sub = strings.TrimSuffix(sub, "."+d); sub == "" {
+		return ""
+	}
+	return ManagedHost(domain, sub)
+}
+
 // dnsAccounts opens a managed domain's connector account.
 func (o *Orchestrator) dnsAccounts(ctx context.Context, connectorID string, orgID *string) (dnscap.Provider, error) {
 	_, p, err := o.dnsAccount(ctx, orgID, connectorID)

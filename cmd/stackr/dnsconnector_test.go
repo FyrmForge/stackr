@@ -98,3 +98,32 @@ func slicesHasWrite(reqs []string) bool {
 	}
 	return false
 }
+
+// --under reaches plan and manage; the plan lists what it leaves alone and
+// a scoped domain reads "managed under".
+func TestDNSUnder(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/plan":       `{"scope":"stackr.acme.dev","writes":[],"adopt":[],"left_alone":[{"host":"www.acme.dev","type":"A","value":"192.0.2.1"}]}`,
+		"/acme.dev":   `{"name":"acme.dev","state":"managed","scope":"stackr.acme.dev","share_all":true,"org_ids":[]}`,
+		"/c1/domains": `[{"name":"acme.dev","state":"managed","scope":"stackr.acme.dev"},{"name":"b.dev","state":"managed"}]`,
+	})
+	code, out, errw := cli(t, "server", "connectors", "plan", "c1", "acme.dev", "--under", "stackr")
+	if code != 0 || !strings.Contains(out, "1 record outside stackr.acme.dev left alone") || !strings.Contains(out, "www.acme.dev") {
+		t.Fatalf("plan = %d %q %q", code, out, errw)
+	}
+	if got := r.reqs[len(r.reqs)-1]; got != "GET /api/v1/admin/dns-connectors/c1/domains/acme.dev/plan?under=stackr " {
+		t.Errorf("plan sent %q", got)
+	}
+	if code, out, errw = cli(t, "-y", "server", "connectors", "manage", "c1", "acme.dev", "--under", "stackr"); code != 0 || !strings.Contains(out, "managed under stackr.acme.dev") {
+		t.Fatalf("manage = %d %q %q", code, out, errw)
+	}
+	if w := writes(r); w[len(w)-1] != `PUT /api/v1/admin/dns-connectors/c1/domains/acme.dev {"org_ids":[],"under":"stackr"}` {
+		t.Errorf("manage sent %q", w)
+	}
+	if code, out, _ = cli(t, "server", "connectors", "domains", "c1"); code != 0 || !strings.Contains(out, "managed under stackr.acme.dev") || strings.Contains(out, "under (none)") {
+		t.Errorf("domains = %d %q", code, out)
+	}
+	if code, out, _ = cli(t, "--json", "server", "connectors", "domains", "c1"); code != 0 || !strings.Contains(out, `"scope": "stackr.acme.dev"`) {
+		t.Errorf("domains --json = %d %q", code, out)
+	}
+}

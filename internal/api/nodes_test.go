@@ -13,6 +13,7 @@ func TestNodeAPI(t *testing.T) {
 	w := newWorld(t)
 	for _, p := range []struct{ method, path, body string }{
 		{"PUT", "/admin/nodes/x/tags", `{"add":["egress"]}`},
+		{"PUT", "/admin/nodes/x/address", `{"node_address":"x.example.com"}`},
 		{"POST", "/admin/nodes/x/rejoin", ""},
 		{"POST", "/admin/nodes/x/forget", ""},
 		{"DELETE", "/admin/nodes/x", ""},
@@ -59,6 +60,17 @@ func TestNodeAPI(t *testing.T) {
 	}
 	if _, body = w.do(t, w.admin, "GET", "/nodes/"+ns[0].Name, ""); !strings.Contains(body, `"wg_address":"10.207.255.6"`) {
 		t.Errorf("admin sees the address: %s", body)
+	}
+	// an admin sets the node's own DNS name, clears it, and a bad one is on its field
+	addr := "/admin/nodes/" + ns[0].Name + "/address"
+	if code, body = w.do(t, w.admin, "PUT", addr, `{"node_address":"n1.example.com"}`); code != 200 || !strings.Contains(body, `"address":"n1.example.com"`) {
+		t.Errorf("set address = %d %s", code, body)
+	}
+	if code, body = w.do(t, w.admin, "PUT", addr, `{"node_address":"*.example.com"}`); code != 400 || !strings.Contains(body, `"field":"node_address"`) {
+		t.Errorf("wildcard address = %d %s", code, body)
+	}
+	if code, body = w.do(t, w.admin, "PUT", addr, `{"node_address":""}`); code != 200 || !strings.Contains(body, `"address":""`) {
+		t.Errorf("clear address = %d %s", code, body)
 	}
 
 	// an owner pins the org to the default placement and reads it back

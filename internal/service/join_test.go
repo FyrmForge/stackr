@@ -71,6 +71,36 @@ func TestJoinTokenAlwaysEgress(t *testing.T) {
 	}
 }
 
+// An omitted address is <name>.<panel address>, none when that is taken; a
+// given one, empty included, is used as is.
+func TestJoinTokenAddressDefault(t *testing.T) {
+	w, adm, _ := joinWorld(t)
+	ctx := context.Background()
+	if out, err := w.orch.CreateJoinToken(ctx, adm, JoinTokenSpec{NodeName: "w1"}); err != nil || out.NodeAddress != "" {
+		t.Errorf("no panel address = %q %v", out.NodeAddress, err)
+	}
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "p.example.com"))
+	for _, tc := range []struct {
+		spec JoinTokenSpec
+		want string
+	}{
+		{JoinTokenSpec{NodeName: "w2"}, "w2.p.example.com"},
+		{JoinTokenSpec{NodeName: "w3", NodeAddress: new("")}, ""},
+		{JoinTokenSpec{NodeName: "w4", NodeAddress: new("box.lan.example.com")}, "box.lan.example.com"},
+	} {
+		if out, err := w.orch.CreateJoinToken(ctx, adm, tc.spec); err != nil || out.NodeAddress != tc.want {
+			t.Errorf("%s = %q %v, want %q", tc.spec.NodeName, out.NodeAddress, err, tc.want)
+		}
+	}
+	ns, err := w.st.Nodes.List(ctx)
+	must(t, err)
+	ns[0].Address = "w5.p.example.com"
+	must(t, w.st.Nodes.Update(ctx, ns[0]))
+	if out, err := w.orch.CreateJoinToken(ctx, adm, JoinTokenSpec{NodeName: "w5"}); err != nil || out.NodeAddress != "" {
+		t.Errorf("taken default = %q %v, want none", out.NodeAddress, err)
+	}
+}
+
 func TestJoinTokenRules(t *testing.T) {
 	w, adm, ca := joinWorld(t)
 	ctx := context.Background()

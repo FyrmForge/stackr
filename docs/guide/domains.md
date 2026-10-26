@@ -48,6 +48,13 @@ stackr server connectors unmanage <connector> example.com
 stackr server connectors takeover <connector> example.com --confirm example.com
 ```
 
+To manage only part of a domain, give the name below it. stackr then writes only at and under `stackr.example.com` and never touches the rest. The plan lists the records it leaves alone. The domain list shows `managed under stackr.example.com`.
+
+```bash
+stackr server connectors plan <connector> example.com --under stackr
+stackr server connectors manage <connector> example.com --under stackr
+```
+
 Stop managing, or removing the connector, is refused while a tile uses the domain; the message names the tiles. Once nothing uses it, stackr deletes only the records it created and forgets the domain.
 
 ## Records
@@ -75,6 +82,12 @@ Records point at the ingress node's detected public IP. To point them somewhere 
 
 ```bash
 stackr node set vps-fsn1 --public-ip 203.0.113.10
+```
+
+A node's own DNS name is its address: Admin, Nodes, the node, Network, Address. stackr writes its record when the name sits in a managed domain. Empty clears it.
+
+```bash
+stackr node set vps-fsn1 --address fsn1.example.com
 ```
 
 A node behind NAT has no public address of its own, and stackr holds its records until it has one. Set its public IP to the router's address, with ports 80 and 443 forwarded to the node.

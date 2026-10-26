@@ -35,10 +35,11 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			if err != nil {
 				return err
 			}
-			return a.show(v, dnsDomainCols...)
+			return a.showDomains(v)
 		})
 
 	var shared bool
+	var under string
 	plan := leaf("plan <connector> <domain>", op("plan"),
 		"Show the records managing a domain would write, and the existing ones stackr may adopt", exact(2),
 		func(c *cobra.Command, args []string) error {
@@ -49,7 +50,11 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			if !server && (shared || a.serverOwned(b, args[0])) {
 				b = "/admin/dns-connectors" // a server connector answers only at the server level
 			}
-			v, err := a.call(GET, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1])+"/plan", nil)
+			path := b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1]) + "/plan"
+			if under != "" {
+				path += "?under=" + url.QueryEscape(under)
+			}
+			v, err := a.call(GET, path, nil)
 			if err != nil {
 				return err
 			}
@@ -60,8 +65,17 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			if err := a.show(m["writes"], "host", "type", "value"); err != nil {
 				return err
 			}
-			return a.show(m["adopt"], "host", "type", "serves")
+			if err := a.show(m["adopt"], "host", "type", "serves"); err != nil {
+				return err
+			}
+			left := asList(m["left_alone"])
+			if len(left) == 0 {
+				return nil
+			}
+			a.say("%s outside %s left alone:", plural(len(left), "record", "records"), cell(m["scope"]))
+			return a.show(left, "host", "type", "value")
 		})
+	plan.Flags().StringVar(&under, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
 
 	if !server {
 		plan.Flags().BoolVar(&shared, "server", false, "the connector is a server one (admin)")
@@ -81,12 +95,16 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 				}
 			}
 			body := map[string]any{"org_ids": append([]string{}, orgs...)}
+			if under != "" {
+				body["under"] = under
+			}
 			v, err := a.call(PUT, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1]), body)
 			if err != nil {
 				return err
 			}
-			return a.show(v, dnsDomainCols...)
+			return a.showDomains(v)
 		})
+	manage.Flags().StringVar(&under, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
 	if server {
 		manage.Short += "; --org limits who may use it (default: every organization)"
 		manage.Flags().StringArrayVar(&orgs, "org", nil, "available to this organization id only (repeatable)")
@@ -126,6 +144,23 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
 	return []*cobra.Command{domains, plan, manage, unmanage, takeover}
+}
+
+// showDomains is a domain or a list of them; a managed domain with a scope
+// reads "managed under <scope>".
+func (a *app) showDomains(v any) error {
+	if !a.json {
+		rows := asList(v)
+		if rows == nil {
+			rows = []any{v}
+		}
+		for _, r := range rows {
+			if m := asMap(r); m["state"] == "managed" && cell(m["scope"]) != "(none)" {
+				m["state"] = "managed under " + cell(m["scope"])
+			}
+		}
+	}
+	return a.show(v, dnsDomainCols...)
 }
 
 // serverOwned says whether connector id is missing from the org's DNS

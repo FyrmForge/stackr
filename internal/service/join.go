@@ -52,8 +52,9 @@ var (
 type JoinTokenSpec struct {
 	NodeName string `json:"node_name"`
 	// NodeAddress is the node's own DNS name ("" = none), set on its row
-	// when it calls in.
-	NodeAddress string   `json:"node_address,omitempty"`
+	// when it calls in. Omitted: <name>.<panel address>, as the panel
+	// fills it in, or none when that is taken or no panel address is set.
+	NodeAddress *string  `json:"node_address,omitempty"`
 	Tags        []string `json:"tags"`
 	TTLMinutes  int      `json:"ttl_minutes"` // 0 = one hour
 }
@@ -63,6 +64,7 @@ type JoinTokenSpec struct {
 type JoinTokenOut struct {
 	Token       string    `json:"token"`
 	NodeName    string    `json:"node_name"`
+	NodeAddress string    `json:"node_address,omitempty"`
 	Tags        []string  `json:"tags"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	Fingerprint string    `json:"ca_fingerprint"` // SHA-256 of the cluster CA cert, hex
@@ -174,9 +176,16 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
 		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
 	}
-	addr, err := o.checkNodeAddress(ctx, "", spec.NodeAddress)
-	if err != nil {
-		return JoinTokenOut{}, err
+	var (
+		addr string
+		err  error
+	)
+	if spec.NodeAddress != nil {
+		if addr, err = o.checkNodeAddress(ctx, "", *spec.NodeAddress); err != nil {
+			return JoinTokenOut{}, err
+		}
+	} else if s := o.NodeAddressSuffix(ctx); s != "" {
+		addr, _ = o.checkNodeAddress(ctx, "", name+s) // taken: no address, set it on the node later
 	}
 	// A default exit can't be picked before the node exists, so a new node
 	// always has egress; an admin can drop it once it is up.
@@ -206,7 +215,7 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name, addres
 		}
 		fp := caFingerprint(ca)
 		out = JoinTokenOut{
-			Token: token, NodeName: name, Tags: tags, ExpiresAt: row.ExpiresAt, Fingerprint: fp,
+			Token: token, NodeName: name, NodeAddress: address, Tags: tags, ExpiresAt: row.ExpiresAt, Fingerprint: fp,
 			Command: "stackr-install " + shLine(o.joinArgs(token, fp)),
 		}
 		if o.publicCert() {

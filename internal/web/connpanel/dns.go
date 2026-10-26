@@ -55,16 +55,10 @@ func (p Panel) domains(c echo.Context) error { return p.answer(c, "", nil) }
 // under (the full name pasted reads the same), unless part is all ("" =
 // the whole domain).
 func under(c echo.Context, domain string) string {
-	d := strings.ToLower(strings.Trim(strings.TrimSpace(domain), "."))
-	sub := strings.ToLower(strings.Trim(strings.TrimSpace(c.FormValue("under")), "."))
-	if sub == d {
-		sub = ""
-	}
-	sub = strings.TrimSuffix(sub, "."+d)
-	if c.FormValue("part") == "all" || sub == "" {
+	if c.FormValue("part") == "all" {
 		return ""
 	}
-	return service.ManagedHost(domain, sub)
+	return service.DNSScope(domain, c.FormValue("under"))
 }
 
 // POST <dns>/:connector/preview (domain, part, under): the confirm before

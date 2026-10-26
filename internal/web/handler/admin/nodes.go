@@ -241,7 +241,7 @@ func (h *handler) mintNode(c echo.Context) error {
 	}
 	name := strings.TrimSpace(f.Get("name"))
 	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{
-		NodeName: name, NodeAddress: f.Get("node_address"), Tags: f["tag"],
+		NodeName: name, NodeAddress: new(f.Get("node_address")), Tags: f["tag"],
 	})
 	if err != nil {
 		v, err := h.step1(c, name, f.Get("node_address"), f["tag"], err)

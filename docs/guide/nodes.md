@@ -37,7 +37,7 @@ stackr node confirm vps-fsn1
 stackr node ls
 ```
 
-`--tag ingress`, `--tag builder` or `--tag storage` adds roles; `egress` is always on. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
+`--tag ingress`, `--tag builder` or `--tag storage` adds roles; `egress` is always on. The node's address defaults to `<name>.<panel address>`; `--address` sets another, `--address ""` none. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
 
 ## Nodes and placements
 

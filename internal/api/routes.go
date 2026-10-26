@@ -251,6 +251,7 @@ func routes(h *v1.H) []Route {
 		{PUT, "/admin/nodes/:node/tags", "admin.node-tags", "node.manage", h.TagNode()},
 		{PUT, "/admin/nodes/:node/exit", "admin.node-exit", "node.manage", h.SetNodeExit()},
 		{PUT, "/admin/nodes/:node/public-ip", "admin.node-public-ip", "node.manage", h.SetNodePublicIP()},
+		{PUT, "/admin/nodes/:node/address", "admin.node-address", "node.manage", h.SetNodeAddress()},
 		{GET, "/admin/node-defaults", "admin.node-defaults", "node.manage", h.NodeDefaults()},
 		{GET, "/admin/default-ingress/plan", "admin.default-ingress-plan", "node.manage", h.DefaultIngressPlan()},
 		{PUT, "/admin/default-ingress", "admin.default-ingress-set", "node.manage", h.SetDefaultIngress()},

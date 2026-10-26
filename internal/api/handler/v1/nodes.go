@@ -57,6 +57,18 @@ func (h *H) SetNodePublicIP() Endpoint {
 	})
 }
 
+// NodeAddressIn is the node's own DNS name, "" = none.
+type NodeAddressIn struct {
+	NodeAddress string `json:"node_address"`
+}
+
+// SetNodeAddress (server admin) sets a node's own DNS name.
+func (h *H) SetNodeAddress() Endpoint {
+	return JSON(200, func(c echo.Context, in NodeAddressIn) (service.NodeOut, error) {
+		return h.Orch.SetNodeAddress(rc(c), middleware.Principal(c), c.Param("node"), in.NodeAddress)
+	})
+}
+
 // RejoinNode (server admin) answers a new join command for a broken worker.
 func (h *H) RejoinNode() Endpoint {
 	return JSON(201, func(c echo.Context, _ None) (service.JoinTokenOut, error) {

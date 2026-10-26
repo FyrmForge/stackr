@@ -48,7 +48,9 @@ type NodeOut struct {
 	Range      string   `json:"range"`
 	WGAddress  string   `json:"wg_address"`
 	// PublicIP is the address DNS records point at, "" = the detected one.
-	PublicIP  string `json:"public_ip"`
+	PublicIP string `json:"public_ip"`
+	// Address is the node's own DNS name, "" = none.
+	Address   string `json:"address"`
 	CPU       int    `json:"cpu"`
 	MemTotal  uint64 `json:"mem_total"`
 	DiskFree  uint64 `json:"disk_free"`
@@ -286,7 +288,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	slices.Sort(names)
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{}, PublicIP: n.PublicIP,
+		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{}, PublicIP: n.PublicIP, Address: n.Address,
 	}
 	if !hasEgress(n) {
 		ids, err := scopeLadder(ctx, o.store, scopeNode, n.ID)

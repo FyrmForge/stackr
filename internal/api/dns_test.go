@@ -52,6 +52,15 @@ func TestDNSConnectorRoutes(t *testing.T) {
 		t.Errorf("other org path = %d, want 404", code)
 	}
 
+	// under is the name below the domain, or the full name
+	for _, u := range []string{"stackr", "stackr.acme.dev"} {
+		if code, out := w.do(t, w.owner, "GET", base+"/domains/acme.dev/plan?under="+u, ""); code != 200 || !strings.Contains(out, `"scope":"stackr.acme.dev"`) {
+			t.Errorf("plan under %s = %d %s", u, code, out)
+		}
+	}
+	if code, out := w.do(t, w.owner, "GET", base+"/domains/acme.dev/plan?under=a_b", ""); code != 400 || !strings.Contains(out, `"field":"under"`) {
+		t.Errorf("plan under a bad name = %d %s", code, out)
+	}
 	if code, out := w.do(t, w.owner, "PUT", base+"/domains/acme.dev", ""); code != 200 || !strings.Contains(out, `"managed"`) {
 		t.Errorf("manage = %d %s", code, out)
 	}

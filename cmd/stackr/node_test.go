@@ -105,7 +105,7 @@ func TestNodeLs(t *testing.T) {
 	time.Local = time.UTC // requested_at reads on this machine's clock
 	t.Cleanup(func() { time.Local = was })
 	code, out, errw := cli(t, "node", "ls")
-	if code != 0 || !strings.Contains(out, "vps-fsn1\tworker\tonline\tingress,egress\t2\t2\t4.0 GB\t71 GB\t29.9.0") || strings.Contains(out, "nas") {
+	if code != 0 || !strings.Contains(out, "vps-fsn1\tworker\tonline\t-\tingress,egress\t2\t2\t4.0 GB\t71 GB\t29.9.0") || strings.Contains(out, "nas") {
 		t.Fatalf("ls = %d %q %q", code, out, errw)
 	}
 	for _, args := range [][]string{{"node", "ls", "--pending"}, {"node", "ls", "--state", "pending"}} {
@@ -738,5 +738,33 @@ func TestJobLogFindsServerJob(t *testing.T) {
 	}
 	if code, _, errw := cli(t, "job", "log", "nope"); code == 0 || !strings.Contains(errw, "no job") {
 		t.Errorf("missing = %d %q", code, errw)
+	}
+}
+
+// node set --address puts the node's own DNS name; node add sends one only
+// when given, so the server's default applies otherwise.
+func TestNodeAddress(t *testing.T) {
+	r := fake(t, map[string]string{"/address": `{"name":"vps-fsn1","address":"fsn1.acme.dev"}`})
+	if code, out, errw := cli(t, "node", "set", "vps-fsn1", "--address", "fsn1.acme.dev"); code != 0 || !strings.Contains(out, "vps-fsn1: address fsn1.acme.dev") {
+		t.Fatalf("set = %d %q %q", code, out, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `PUT /api/v1/admin/nodes/vps-fsn1/address {"node_address":"fsn1.acme.dev"}` {
+		t.Errorf("writes = %v", w)
+	}
+	if code, _, errw := cli(t, "node", "set", "vps-fsn1"); code != 2 || !strings.Contains(errw, "--address") {
+		t.Errorf("nothing = %d %q", code, errw)
+	}
+	tok := map[string]string{"/admin/join-tokens": `{"node_name":"w","node_address":"w.p.dev","command":"c","expires_at":"2099-01-01T00:00:00Z"}`}
+	r = fake(t, tok)
+	if code, out, _ := cli(t, "node", "add", "w"); code != 0 || !strings.Contains(out, "Its address is w.p.dev.") {
+		t.Errorf("add = %d %q", code, out)
+	}
+	if w := writes(r); len(w) != 1 || strings.Contains(w[0], "node_address") {
+		t.Errorf("add default sent %v", w)
+	}
+	r = fake(t, tok)
+	cli(t, "node", "add", "w", "--address", "")
+	if w := writes(r); len(w) != 1 || !strings.Contains(w[0], `"node_address":""`) {
+		t.Errorf("add none sent %v", w)
 	}
 }

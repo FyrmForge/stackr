@@ -14,9 +14,12 @@ type (
 	// ManageIn is who may use a server connector's domain: these orgs,
 	// or every org when empty. An org connector takes no org_ids. Adopt
 	// is the existing records to take over, as the plan lists them.
+	// Under is the name below the domain stackr manages at and under ("" =
+	// the whole domain); a managed domain keeps its own.
 	ManageIn struct {
 		OrgIDs []string         `json:"org_ids"`
 		Adopt  []service.DNSRef `json:"adopt"`
+		Under  string           `json:"under,omitempty"`
 	}
 	// TakeOverIn is the domain typed out.
 	TakeOverIn struct {
@@ -56,16 +59,18 @@ func (h *H) DNSDomains(l Level) Endpoint {
 
 func (h *H) ManageDNSDomain(l Level) Endpoint {
 	return JSON(200, func(c echo.Context, in ManageIn) (service.DNSDomain, error) {
-		return h.Orch.ManageDNSDomainAdopting(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), "", in.OrgIDs, in.Adopt)
+		return h.Orch.ManageDNSDomainAdopting(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), service.DNSScope(c.Param("zone"), in.Under), in.OrgIDs, in.Adopt)
 	})
 }
 
-// PlanDNSDomain is what managing the zone would write and the existing
-// records it may adopt (?org_id=, repeated, as org_ids in the body).
+// PlanDNSDomain is what managing the zone would write, the existing
+// records it may adopt and the ones it leaves alone (?org_id=, repeated,
+// as org_ids in the body; ?under= as under).
 func (h *H) PlanDNSDomain(l Level) Endpoint {
 	return Get(func(c echo.Context) (service.DNSManagePlan, error) {
-		return h.Orch.PlanManageDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), "", c.QueryParams()["org_id"])
-	})
+		under := service.DNSScope(c.Param("zone"), c.QueryParam("under"))
+		return h.Orch.PlanManageDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), under, c.QueryParams()["org_id"])
+	}).Q("org_id", "under")
 }
 
 func (h *H) UnmanageDNSDomain(l Level) Endpoint {

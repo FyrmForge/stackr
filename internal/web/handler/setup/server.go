@@ -436,7 +436,7 @@ func (h *handler) serverMintNode(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
 	name := strings.TrimSpace(f.Get("name"))
-	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, NodeAddress: f.Get("node_address"), Tags: f["tag"]})
+	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, NodeAddress: new(f.Get("node_address")), Tags: f["tag"]})
 	if err != nil {
 		v, err := h.adderStep1(c, name, f.Get("node_address"), f["tag"], err)
 		if err != nil {
