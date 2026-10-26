@@ -35,6 +35,20 @@ func TestEnvDNSBannerShowsStaleAndClears(t *testing.T) {
 	}
 }
 
+// A node with no public address (behind NAT or a proxy) has no record to
+// set: its hand-managed host is not in the banner, wherever it resolves.
+func TestEnvDNSBannerSkipsNodeWithNoPublicIP(t *testing.T) {
+	noBannerCache(t)
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	_, err := n.orch.AttachDomain(ctx, n.devT.ID, DomainSpec{Host: "shop.example.com"})
+	must(t, err)
+	fakeDNS(t, map[string][]string{"shop.example.com": {"192.0.2.9"}})
+	if m, err := n.orch.EnvDNSBanner(ctx, n.dev.ID); err != nil || !m.Empty() {
+		t.Fatalf("banner = %+v, %v", m, err)
+	}
+}
+
 // A held managed host stays in the banner until it resolves to its node, then
 // stackr releases it.
 func TestEnvDNSBannerReleasesHeldHost(t *testing.T) {

@@ -79,7 +79,9 @@ func (o *Orchestrator) envDNSBanner(ctx context.Context, envID string) (DNSMove,
 	all = o.CheckDNS(ctx, all)
 	var matched []string
 	for _, h := range all.Hand {
-		if !h.OK {
+		// no record to set: the node has no public address (behind NAT or a
+		// proxy), so a mismatch is nothing stackr can tell the user to fix
+		if !h.OK && len(h.Records) > 0 {
 			out.Hand = append(out.Hand, h)
 		}
 	}
