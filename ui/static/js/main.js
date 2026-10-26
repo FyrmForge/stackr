@@ -7,11 +7,14 @@ document.addEventListener('htmx:responseError', function(evt) {
 
 // Re-initialize components after HTMX swaps.
 document.addEventListener('htmx:afterSwap', function(evt) {
-    // Scroll to the first validation error if present.
-    // An SSE outerHTML swap has no target.
-    var firstError = evt.detail.target && evt.detail.target.querySelector('.field-error');
-    if (firstError && firstError.textContent.trim() !== '') {
-        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Bring what the answer said into view: the first field showing an
+    // error, else the note a Section drew by its form. Nearest: no jump when
+    // it is already on screen. An SSE outerHTML swap has no target.
+    var t = evt.detail.target;
+    if (!t || !t.querySelector) return;
+    var hit = t.querySelector('.field-error[data-has-error="true"]') || t.querySelector('[data-acted]');
+    if (hit) {
+        hit.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 });
 

@@ -175,6 +175,14 @@ templ section(title, scope, help string, note templ.Component) {
 	</section>
 }
 
+// actedNote is a Section's answer, right after the form that posted it.
+// data-acted: main.js brings it into view after the swap.
+templ actedNote(note templ.Component) {
+	<div class="mt-3" data-acted>
+		@note
+	</div>
+}
+
 templ errDetailLine(d string) {
 	<span class="mt-0.5 block font-mono text-[11px] opacity-80 [overflow-wrap:anywhere]">{ d }</span>
 }

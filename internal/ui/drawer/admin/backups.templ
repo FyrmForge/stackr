@@ -111,7 +111,7 @@ templ Backups(v BackupsView) {
 							<span class="text-rw-text">@c.When(b.When)</span>
 							<span class="text-rw-faint">{ b.Trigger }, { b.Dest }</span>
 							if b.Error != "" {
-								<span class="text-xs text-rw-danger">{ b.Error }</span>
+								<span class="basis-full min-w-0 text-xs text-rw-danger [overflow-wrap:anywhere]">{ b.Error }</span>
 							}
 							<span class="ml-auto font-mono text-xs text-rw-muted">{ b.Size }</span>
 						</li>

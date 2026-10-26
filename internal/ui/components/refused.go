@@ -177,19 +177,29 @@ func (a *Acted) Unclaimed() bool { return !a.used && (a.Note != "" || a.err() !=
 func (a *Acted) Words() (note, err string) { return a.Note, a.err() }
 
 // posted: html holds a control posting to Path, a request URI. One with a
-// query matches only the same query; one without matches any.
-func (a *Acted) posted(html string) bool {
-	at := `hx-post="` + templ.EscapeString(a.Path)
+// query matches only the same query; one without matches any. at is where
+// the words go: right after the posting <form>, so they sit by its button;
+// len(html) when the control is not a form.
+func (a *Acted) posted(html string) (at int, ok bool) {
+	attr := `hx-post="` + templ.EscapeString(a.Path)
 	anyQuery := !strings.Contains(a.Path, "?")
-	for rest := html; ; {
-		i := strings.Index(rest, at)
+	for off := 0; ; {
+		i := strings.Index(html[off:], attr)
 		if i < 0 {
-			return false
+			return 0, false
 		}
-		rest = rest[i+len(at):]
-		if strings.HasPrefix(rest, `"`) || (anyQuery && strings.HasPrefix(rest, "?")) || (a.Below && strings.HasPrefix(rest, "/")) {
-			return true
+		i += off
+		off = i + len(attr)
+		rest := html[off:]
+		if !strings.HasPrefix(rest, `"`) && !(anyQuery && strings.HasPrefix(rest, "?")) && !(a.Below && strings.HasPrefix(rest, "/")) {
+			continue
 		}
+		lt := strings.LastIndex(html[:i], "<")
+		end := strings.Index(rest, "</form>")
+		if lt < 0 || !strings.HasPrefix(html[lt:], "<form") || end < 0 {
+			return len(html), true
+		}
+		return off + end + len("</form>"), true
 	}
 }
 
@@ -213,22 +223,32 @@ func Section(title, scope, help string) templ.Component {
 		if err := children.Render(WithRefused(templ.ClearChildren(ctx), nil), &buf); err != nil {
 			return err
 		}
-		var note templ.Component
-		if !a.used && a.posted(buf.String()) {
+		html := buf.String()
+		if at, ok := a.posted(html); ok && !a.used {
 			a.used = true
 			if a.Ref != nil { // draw it again, its fields taking the refusal
 				buf.Reset()
 				if err := children.Render(WithRefused(templ.ClearChildren(ctx), a.Ref), &buf); err != nil {
 					return err
 				}
+				html = buf.String()
+				at, _ = a.posted(html)
 			}
+			var note templ.Component
 			if e := a.err(); e != "" {
 				note = FormError(e)
 			} else if a.Note != "" {
 				note = Note(a.Note)
 			}
+			if note != nil {
+				var nb bytes.Buffer
+				if err := actedNote(note).Render(ctx, &nb); err != nil {
+					return err
+				}
+				html = html[:at] + nb.String() + html[at:]
+			}
 		}
-		return section(title, scope, help, note).Render(templ.WithChildren(ctx, templ.Raw(buf.String())), w)
+		return section(title, scope, help, nil).Render(templ.WithChildren(ctx, templ.Raw(html)), w)
 	})
 }
 

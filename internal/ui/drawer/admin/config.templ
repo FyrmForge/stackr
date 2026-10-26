@@ -101,7 +101,7 @@ templ Config(v ConfigView) {
 		}
 		if v.Vars != nil {
 			<div class="mt-6">
-				@c.Section("Variables", "instance", "") {
+				@c.Section("Variables and secrets", "instance", "") {
 					@v.Vars
 				}
 			</div>

@@ -112,10 +112,18 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 		return nil, err
 	}
 	who := map[string]string{}
+	keys := map[string]string{} // live API keys by id; a revoked one is gone
 	v := ui.SecurityView{Filter: q}
 	for _, u := range us {
 		who[u.ID] = u.Email
 		v.Actors = append(v.Actors, ui.AccessOption{Value: u.ID, Label: u.Email})
+		ks, err := h.orch.Keys(ctx, u.ID) // ponytail: one query per user; fine for a server's handful
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range ks {
+			keys[k.ID] = k.Name
+		}
 	}
 	label := map[string]string{}
 	for _, a := range securityActions {
@@ -155,6 +163,11 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 			return cmp.Or(who[e.TargetID], e.TargetID)
 		case "email":
 			return e.TargetID
+		case "api_key":
+			if n, ok := keys[e.TargetID]; ok {
+				return "key " + n
+			}
+			return "a removed key"
 		case "placement":
 			if p, ok := placement[e.TargetID]; ok {
 				return "placement " + p
