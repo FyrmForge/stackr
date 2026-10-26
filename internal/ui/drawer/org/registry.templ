@@ -82,7 +82,8 @@ templ registryRepos(v RegistryView) {
 								<td class="py-2 pr-3 text-rw-muted">{ r.Tags }</td>
 								<td class="py-2 pr-3 font-mono text-xs text-rw-muted hidden sm:table-cell">
 									if r.Latest != "" {
-										{ r.Latest } · @c.When(r.LatestAt)
+										{ r.Latest + " · " }
+										@c.When(r.LatestAt)
 									}
 								</td>
 								<td class="py-2 text-right text-rw-muted whitespace-nowrap">{ r.Size }</td>

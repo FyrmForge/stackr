@@ -482,7 +482,9 @@ templ trustSection(t TrustView) {
 			<dt class="text-rw-muted">Rollover</dt>
 			<dd class="text-rw-text">
 				if t.RollingOver {
-					Running since @c.When(t.Since).
+					{ "Running since " }
+					@c.When(t.Since)
+					{ ". " }
 					if len(t.OnOldRoot) > 0 {
 						Still on the old root: { strings.Join(t.OnOldRoot, ", ") }.
 					}

@@ -49,7 +49,11 @@ templ Backups(v BackupsView) {
 							<p class="text-rw-text mt-0.5">{ v.Rows[0].Error }</p>
 						}
 						if g := lastGood(v.Rows); g != nil {
-							<p class="text-rw-faint mt-0.5">Last good backup @c.When(g.When).</p>
+							<p class="text-rw-faint mt-0.5">
+								{ "Last good backup " }
+								@c.When(g.When)
+								{ "." }
+							</p>
 						}
 					</div>
 				} else if len(v.Rows) == 0 {
