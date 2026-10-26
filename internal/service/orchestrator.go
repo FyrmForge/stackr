@@ -823,6 +823,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()
 	orch.startDNSSocket()
+	if created {
+		orch.defaultControllerAddress(ctx) // a panel address from the boot config
+	}
 	orch.detach(context.Background(), orch.dailyChores)
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.

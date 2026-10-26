@@ -172,16 +172,76 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 			continue
 		}
 		w := dnscap.Want{DNSDomainID: z.ID, Zone: z.Name, Name: dnscap.Name(d.Host, z.Name), DomainID: d.ID}
-		if v4.IsValid() {
-			w.Type, w.Value = "A", v4.String()
-			out = append(out, w)
+		out = append(out, addrWants(w, v4, v6)...)
+	}
+	names, err := o.nameWants(ctx, zones)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, names...), errors.Join(bad...)
+}
+
+// addrWants is w as an A to v4 and an AAAA to v6, each when set.
+func addrWants(w dnscap.Want, v4, v6 netip.Addr) []dnscap.Want {
+	var out []dnscap.Want
+	if v4.IsValid() {
+		w.Type, w.Value = "A", v4.String()
+		out = append(out, w)
+	}
+	if v6.IsValid() {
+		w.Type, w.Value = "AAAA", v6.String()
+		out = append(out, w)
+	}
+	return out
+}
+
+// nameWants is the panel's and the nodes' own records in zones: the panel
+// address on the node that serves the panel (the default ingress, the
+// controller until it moves), each node's Address on that node's public
+// addresses. A name outside every managed scope gets none. A node with no
+// public address holds what stackr has there: a LAN-only box never gets a
+// record, and a lost detection never deletes a live one.
+func (o *Orchestrator) nameWants(ctx context.Context, zones []store.DNSDomain) ([]dnscap.Want, error) {
+	if len(zones) == 0 {
+		return nil, nil
+	}
+	type named struct{ host, node string }
+	var names []named
+	if p := o.panelDomain(ctx); p != "" {
+		def, err := o.DefaultIngress(ctx)
+		if err != nil {
+			return nil, err
 		}
-		if v6.IsValid() {
-			w.Type, w.Value = "AAAA", v6.String()
-			out = append(out, w)
+		names = append(names, named{p, def})
+	}
+	ns, err := o.store.Nodes.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range ns {
+		if n.Address != "" && n.Status != node.StatusPending {
+			names = append(names, named{n.Address, n.ID})
 		}
 	}
-	return out, errors.Join(bad...)
+	var out []dnscap.Want
+	for _, x := range names {
+		z, ok := dnscap.ZoneOf(x.host, zones)
+		if !ok || x.node == "" {
+			continue
+		}
+		w := dnscap.Want{DNSDomainID: z.ID, Zone: z.Name, Name: dnscap.Name(x.host, z.Name)}
+		v4, v6, _, err := o.nodeAddrs(ctx, x.node)
+		if err != nil {
+			return nil, err
+		}
+		if !v4.IsValid() && !v6.IsValid() {
+			w.Hold = true
+			out = append(out, w)
+			continue
+		}
+		out = append(out, addrWants(w, v4, v6)...)
+	}
+	return out, nil
 }
 
 // reconcileDNS brings the managed domains' records to the tile domains.
@@ -274,14 +334,32 @@ func (o *Orchestrator) domainUsers(ctx context.Context, zone string) ([]Usage, e
 // domain row, and the domain resource stackr made for it. Refused while a
 // tile uses the domain.
 func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, p dnscap.Provider, name string) error {
-	users, err := o.domainUsers(ctx, dnscap.Normal(name))
+	rows, err := o.dns.ByConnector(ctx, c.ID)
+	if err != nil {
+		return err
+	}
+	under := dnscap.Normal(name)
+	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == under }); i >= 0 {
+		under = dnscap.Under(rows[i]) // tiles outside the scope do not use it
+	}
+	users, err := o.domainUsers(ctx, under)
 	if err != nil {
 		return err
 	}
 	if len(users) > 0 {
 		return &InUse{Msg: dnscap.Normal(name) + " is in use by", Tail: "; remove those domains first", Usages: users}
 	}
-	if err := o.dns.Forget(ctx, p, dnscap.Normal(name)); err != nil {
+	keep := map[string]bool{} // the panel's and nodes' names keep resolving
+	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == dnscap.Normal(name) }); i >= 0 {
+		names, err := o.nameWants(ctx, rows[i:i+1])
+		if err != nil {
+			return err
+		}
+		for _, w := range names {
+			keep[strings.ToLower(w.Name)] = true
+		}
+	}
+	if err := o.dns.Forget(ctx, p, dnscap.Normal(name), keep); err != nil {
 		return err
 	}
 	row, err := o.dns.Unmanage(ctx, c.ID, name)
@@ -304,7 +382,7 @@ func (o *Orchestrator) checkNotManaged(ctx context.Context, r DomainResource) er
 	if err != nil {
 		return err
 	}
-	if slices.ContainsFunc(zones, func(z store.DNSDomain) bool { return z.Name == r.Host }) {
+	if slices.ContainsFunc(zones, func(z store.DNSDomain) bool { return dnscap.Under(z) == r.Host }) {
 		return errs.Conflictf("%s is managed through a DNS connector; unmanage it there first", r.Host)
 	}
 	return nil
@@ -438,6 +516,17 @@ func (o *Orchestrator) EnvIngressDown(ctx context.Context, envID string) (Ingres
 	return out, len(out.Hosts) > 0
 }
 
+// dnsOwns says whether host sits in a managed scope: stackr writes its
+// records (the panel's, a node's).
+func (o *Orchestrator) dnsOwns(ctx context.Context, host string) bool {
+	zones, err := o.dns.All(ctx)
+	if err != nil {
+		return false
+	}
+	_, ok := dnscap.ZoneOf(host, zones)
+	return ok
+}
+
 // dnsFollows says whether stackr points host's records itself: a host in
 // a managed domain the tile's org may use. An ingress move needs no DNS
 // change from anyone for it.
@@ -454,9 +543,10 @@ func (o *Orchestrator) dnsFollows(ctx context.Context, tileID, host string) bool
 	return ok && err == nil && !strings.HasPrefix(host, "*.")
 }
 
-// zoneWants is the records tile domains under zone z would get: one A, and
-// an AAAA when the node has a public IPv6, per host. hosts is the names
-// (lower case, relative) a tile serves. A node with no public address
+// zoneWants is the records tile domains under zone z (inside its scope)
+// would get: one A, and an AAAA when the node has a public IPv6, per host;
+// then the panel's and the nodes' own (nameWants). hosts is the names
+// (lower case, relative) stackr serves. A node with no public address
 // yields nothing.
 func (o *Orchestrator) zoneWants(ctx context.Context, z store.DNSDomain) (hosts map[string]bool, wants []dnscap.Want, err error) {
 	ds, err := o.domains.List(ctx)
@@ -470,7 +560,7 @@ func (o *Orchestrator) zoneWants(ctx context.Context, z store.DNSDomain) (hosts 
 	hosts = map[string]bool{}
 	for _, d := range ds {
 		name := dnscap.Name(d.Host, z.Name)
-		if name == "" || strings.HasPrefix(d.Host, "*.") {
+		if name == "" || !dnscap.InScope(z, name) || strings.HasPrefix(d.Host, "*.") {
 			continue
 		}
 		t, err := o.tiles.Get(ctx, d.TileID)
@@ -493,11 +583,16 @@ func (o *Orchestrator) zoneWants(ctx context.Context, z store.DNSDomain) (hosts 
 			return nil, nil, err
 		}
 		hosts[strings.ToLower(name)] = true
-		if v4.IsValid() {
-			wants = append(wants, dnscap.Want{Name: name, Type: "A", Value: v4.String()})
-		}
-		if v6.IsValid() {
-			wants = append(wants, dnscap.Want{Name: name, Type: "AAAA", Value: v6.String()})
+		wants = append(wants, addrWants(dnscap.Want{Name: name}, v4, v6)...)
+	}
+	names, err := o.nameWants(ctx, []store.DNSDomain{z})
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, w := range names {
+		hosts[strings.ToLower(w.Name)] = true // the panel's and nodes' own: adopted ones start ticked
+		if !w.Hold {
+			wants = append(wants, w)
 		}
 	}
 	return hosts, wants, nil

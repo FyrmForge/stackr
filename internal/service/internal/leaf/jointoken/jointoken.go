@@ -45,7 +45,7 @@ func Hash(token string) string {
 
 // Mint stores a new token for a node name and tags and returns the token,
 // which exists nowhere else.
-func (l *Leaf) Mint(ctx context.Context, name string, tags []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
+func (l *Leaf) Mint(ctx context.Context, name, address string, tags []string, by string, ttl time.Duration) (string, store.JoinToken, error) {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {
 		return "", store.JoinToken{}, err
@@ -54,7 +54,7 @@ func (l *Leaf) Mint(ctx context.Context, name string, tags []string, by string, 
 	t, _ := json.Marshal(tags)
 	now := time.Now().UTC()
 	row := store.JoinToken{
-		ID: uuid.NewString(), Hash: Hash(token), NodeName: name, Tags: string(t),
+		ID: uuid.NewString(), Hash: Hash(token), NodeName: name, NodeAddress: address, Tags: string(t),
 		CreatedBy: by, CreatedAt: now, ExpiresAt: now.Add(ttl),
 	}
 	return token, row, l.rows.Create(ctx, row)

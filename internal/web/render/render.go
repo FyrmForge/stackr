@@ -339,6 +339,17 @@ func Refused(err error) (msg string, ok bool) {
 	return "", false
 }
 
+// OnField splits a refusal for a form: the sentence for field when the
+// refusal is that field's, else the one for the top; ok false = a real
+// failure for the error page.
+func OnField(err error, field string) (onField, top string, ok bool) {
+	if bad, isBad := errs.IsInvalid(err); isBad && bad.Field == field {
+		return bad.Msg, "", true
+	}
+	top, ok = Refused(err)
+	return "", top, ok
+}
+
 // AsFields renames the fields a service refusal names to the form's input
 // names, so each reason lands under its own input.
 func AsFields(err error, names map[string]string) error {

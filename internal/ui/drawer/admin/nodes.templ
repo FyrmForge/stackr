@@ -140,6 +140,9 @@ type AddNodeView struct {
 	Error string
 	// Step 1
 	Name       string
+	// Address is the node's own DNS name; AddressSuffix (".<panel address>",
+	// "" = none) follows the name as it is typed until the field is edited.
+	Address, AddressSuffix, AddressError string
 	Tags       []string // the choices
 	Picked     []string
 	Create     string // POST name, tag
@@ -206,6 +209,12 @@ type NodeView struct {
 	// DownDomains the domains it serves while it is down.
 	PublicIP, PublicIPAction string
 	DownDomains              []DownDomainRow
+	// Address is the node's own DNS name (AddressAction posts node_address).
+	// Managed: stackr writes AddressRecords; else they are the records to
+	// set by hand. NoPublic: no public address, so no record.
+	Address, AddressAction, AddressError string
+	AddressManaged, AddressNoPublic      bool
+	AddressRecords                       []RecordRow
 	Exits       [3]string // default exit picks by node name, "" = none
 	ExitNodes   []Option  // nodes tagged egress, Value = name
 	AllTags     []string
@@ -233,6 +242,15 @@ type BackupVolumeRow struct{ Volume, Where, Method, Status, Size, Error string }
 type NodeEnvRow struct {
 	Path, Pin string
 	Tiles     int
+}
+
+// RecordRow is one DNS record.
+type RecordRow struct{ Type, Host, Value string }
+
+// addressEdited says the Address was typed, not the name's default: it
+// stops following the name.
+func addressEdited(v AddNodeView) bool {
+	return v.Address != "" && v.Address != v.Name+v.AddressSuffix
 }
 
 // DownDomainRow is a domain a down ingress node serves; Move opens its
@@ -549,6 +567,12 @@ templ AddNode(v AddNodeView) {
 			case 1:
 				<form hx-post={ v.Create } hx-target={ v.target() } hx-swap="outerHTML" class="space-y-4">
 					@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Placeholder: "vps-fsn1", Help: "Lowercase, used in placements and the CLI."})
+					<div data-field>
+						<label for="node_address" class="label">Address</label>
+						<input id="node_address" name="node_address" type="text" value={ v.Address } placeholder={ "vps-fsn1" + v.AddressSuffix } class="input font-mono" data-follows="name" data-suffix={ v.AddressSuffix } data-edited?={ addressEdited(v) } { c.Invalid("node_address", v.AddressError)... }/>
+						<p class="mt-1.5 text-xs text-rw-faint" data-hint>The node's own name. Optional.</p>
+						@c.FieldError("node_address", v.AddressError)
+					</div>
 					<fieldset class="space-y-1">
 						<legend class="label">Tags</legend>
 						for _, t := range v.Tags {
@@ -592,6 +616,27 @@ templ AddNode(v AddNodeView) {
 				}
 		}
 	</div>
+}
+
+// addressRecords is what the node's Address needs in DNS: stackr's to
+// keep, or the records to set by hand.
+templ addressRecords(v NodeView) {
+	if v.Address != "" {
+		if v.AddressNoPublic {
+			<p class="mt-2 text-sm text-rw-muted">No public address, so no record. Fine for a box on a LAN.</p>
+		} else {
+			if v.AddressManaged {
+				<p class="mt-2 text-sm text-rw-muted">stackr keeps this record.</p>
+			} else {
+				<p class="mt-2 text-sm text-rw-muted">stackr does not manage this name. Set this record at your DNS host.</p>
+			}
+			<ul class="mt-1 space-y-1">
+				for _, r := range v.AddressRecords {
+					<li class="font-mono text-xs text-rw-text">{ r.Type } { r.Host } { r.Value }</li>
+				}
+			</ul>
+		}
+	}
 }
 
 templ ForgetWarning(b ForgetBody) {
@@ -661,6 +706,14 @@ templ NodeBody(tab string, v NodeView) {
 					}
 				}
 			case "network":
+				@c.Section("Address", "", "This node's own name.") {
+					<form hx-post={ v.AddressAction } hx-target={ drawerTarget() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center">
+						<input type="text" name="node_address" value={ v.Address } aria-label="Address" placeholder="n2.stackr.example.com" class="input !w-64 font-mono" { c.Invalid("node_address", v.AddressError)... }/>
+						<button type="submit" class="btn btn-primary">Save</button>
+					</form>
+					@c.FieldError("node_address", v.AddressError)
+					@addressRecords(v)
+				}
 				@c.Section("Public IP", "", "DNS records of managed domains point here. Empty uses the detected address.") {
 					<form hx-post={ v.PublicIPAction } hx-target={ drawerTarget() } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-center">
 						<input type="text" name="public_ip" value={ v.PublicIP } aria-label="Public IP" placeholder="detected" class="input !w-48 font-mono"/>

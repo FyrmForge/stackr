@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -126,14 +127,20 @@ func (o *Orchestrator) DNSDomains(ctx context.Context, orgID *string, id string)
 // ManageDNSDomain makes stackr manage domain, or sets who may use a managed
 // one: on a server connector the orgs in orgIDs, or every org when none.
 func (o *Orchestrator) ManageDNSDomain(ctx context.Context, orgID *string, id, domain string, orgIDs []string) (DNSDomain, error) {
-	return o.ManageDNSDomainAdopting(ctx, orgID, id, domain, orgIDs, nil)
+	return o.ManageDNSDomainAdopting(ctx, orgID, id, domain, "", orgIDs, nil)
 }
 
 // ManageDNSDomainAdopting is ManageDNSDomain that also adopts the records in
 // adopt: ones PlanManageDNSDomain listed, already in the zone and pointing
-// at our nodes. Anything else in adopt is ignored.
-func (o *Orchestrator) ManageDNSDomainAdopting(ctx context.Context, orgID *string, id, domain string, orgIDs []string, adopt []DNSRef) (DNSDomain, error) {
+// at our nodes. Anything else in adopt is ignored. under is the name stackr
+// manages at and under ("" = the whole domain); a managed domain keeps the
+// one it was managed with.
+func (o *Orchestrator) ManageDNSDomainAdopting(ctx context.Context, orgID *string, id, domain, under string, orgIDs []string, adopt []DNSRef) (DNSDomain, error) {
 	c, p, err := o.dnsAccount(ctx, orgID, id)
+	if err != nil {
+		return DNSDomain{}, err
+	}
+	scope, err := o.scopeOf(ctx, c.ID, domain, under)
 	if err != nil {
 		return DNSDomain{}, err
 	}
@@ -145,16 +152,16 @@ func (o *Orchestrator) ManageDNSDomainAdopting(ctx context.Context, orgID *strin
 			return DNSDomain{}, err
 		}
 	}
-	res, made, err := o.managedResource(ctx, c.OrgID, domain)
+	res, made, err := o.managedResource(ctx, c.OrgID, cmp.Or(scope, domain))
 	if err != nil {
 		return DNSDomain{}, err
 	}
-	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, p, domain, orgIDs)
+	d, err := o.dns.Manage(ctx, c.ID, c.OrgID, p, domain, under, orgIDs)
 	if err != nil {
 		return d, err
 	}
 	if len(adopt) > 0 { // before the sync: the records are stackr's by then
-		plan, err := o.planManage(ctx, c, p, domain, orgIDs)
+		plan, err := o.planManage(ctx, c, p, domain, d.Scope, orgIDs)
 		if err != nil {
 			return d, err
 		}
@@ -181,6 +188,19 @@ func (o *Orchestrator) ManageDNSDomainAdopting(ctx context.Context, orgID *strin
 	}
 	o.dnsChanged(ctx)
 	return d, nil
+}
+
+// scopeOf is the scope a manage of domain through connector id works with:
+// a managed domain's own, else under checked ("" = the whole domain).
+func (o *Orchestrator) scopeOf(ctx context.Context, id, domain, under string) (string, error) {
+	rows, err := o.dns.ByConnector(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == dnscap.Normal(domain) }); i >= 0 && under == "" {
+		return rows[i].Scope, nil
+	}
+	return dnscap.Scope(domain, under)
 }
 
 // dnsChanged pushes the proxy config after the managed domains changed: its
@@ -257,7 +277,7 @@ func (o *Orchestrator) forgetAll(ctx context.Context, c store.Connector) error {
 	}
 	var users []Usage
 	for _, d := range ds {
-		u, err := o.domainUsers(ctx, d.Name)
+		u, err := o.domainUsers(ctx, dnscap.Under(d))
 		if err != nil {
 			return err
 		}
@@ -280,7 +300,7 @@ func (o *Orchestrator) UsableDNSDomains(ctx context.Context, orgID string) ([]st
 	rows, err := o.dns.Usable(ctx, orgID)
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, r.Name)
+		out = append(out, dnscap.Under(r)) // a scoped domain's tiles sit under its scope
 	}
 	return out, err
 }
@@ -301,23 +321,30 @@ type DNSAdopt struct {
 	Serves bool   `json:"serves"`
 }
 
-// DNSManagePlan is what managing a domain does: the records stackr writes
-// and the existing ones it may adopt.
+// DNSManagePlan is what managing a domain does: the records stackr writes,
+// the existing ones it may adopt, and the ones outside the scope it never
+// touches. Scope is the name managed ("" = the whole domain).
 type DNSManagePlan struct {
-	Writes []DNSWrite `json:"writes"`
-	Adopt  []DNSAdopt `json:"adopt"`
+	Scope     string     `json:"scope,omitempty"`
+	Writes    []DNSWrite `json:"writes"`
+	Adopt     []DNSAdopt `json:"adopt"`
+	LeftAlone []DNSWrite `json:"left_alone"`
 }
 
 // PlanManageDNSDomain is what ManageDNSDomain would write now and what it
-// may adopt, for the confirm that comes first. orgIDs is who may use the
-// domain, as ManageDNSDomain takes it. Wildcards and records pointing
-// anywhere but our nodes are never listed.
-func (o *Orchestrator) PlanManageDNSDomain(ctx context.Context, orgID *string, id, domain string, orgIDs []string) (DNSManagePlan, error) {
+// may adopt, for the confirm that comes first. under and orgIDs are what
+// to manage and who may use it, as ManageDNSDomainAdopting takes them.
+// Wildcards and records pointing anywhere but our nodes are never adopted.
+func (o *Orchestrator) PlanManageDNSDomain(ctx context.Context, orgID *string, id, domain, under string, orgIDs []string) (DNSManagePlan, error) {
 	c, p, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return DNSManagePlan{}, err
 	}
-	return o.planManage(ctx, c, p, domain, slices.Sorted(slices.Values(orgIDs)))
+	scope, err := o.scopeOf(ctx, c.ID, domain, under)
+	if err != nil {
+		return DNSManagePlan{}, err
+	}
+	return o.planManage(ctx, c, p, domain, scope, slices.Sorted(slices.Values(orgIDs)))
 }
 
 // nodeIPs is every address our nodes' records point at.
@@ -341,12 +368,13 @@ func (o *Orchestrator) nodeIPs(ctx context.Context) (map[string]bool, error) {
 	return ips, nil
 }
 
-func (o *Orchestrator) planManage(ctx context.Context, c Connector, p dnscap.Provider, domain string, orgIDs []string) (DNSManagePlan, error) {
+func (o *Orchestrator) planManage(ctx context.Context, c Connector, p dnscap.Provider, domain, scope string, orgIDs []string) (DNSManagePlan, error) {
 	zone := dnscap.Normal(domain)
-	live, err := o.dns.Existing(ctx, p, zone)
+	all, err := o.dns.Live(ctx, p, zone)
 	if err != nil {
 		return DNSManagePlan{}, err
 	}
+	live := dnscap.Addresses(all)
 	rows, err := o.dns.Records(ctx)
 	if err != nil {
 		return DNSManagePlan{}, err
@@ -356,12 +384,18 @@ func (o *Orchestrator) planManage(ctx context.Context, c Connector, p dnscap.Pro
 		return DNSManagePlan{}, err
 	}
 	// the zone as it will be managed: who may use it decides whose tiles count
-	z := store.DNSDomain{Name: zone, OrgID: c.OrgID, ShareAll: c.OrgID == nil && len(orgIDs) == 0, OrgIDs: orgIDs}
+	z := store.DNSDomain{Name: zone, OrgID: c.OrgID, ShareAll: c.OrgID == nil && len(orgIDs) == 0, OrgIDs: orgIDs, Scope: scope}
 	hosts, wants, err := o.zoneWants(ctx, z)
 	if err != nil {
 		return DNSManagePlan{}, err
 	}
-	plan := DNSManagePlan{Writes: []DNSWrite{}, Adopt: []DNSAdopt{}} // the API schema requires both arrays
+	plan := DNSManagePlan{Scope: scope, Writes: []DNSWrite{}, Adopt: []DNSAdopt{}, LeftAlone: []DNSWrite{}} // the API schema requires the arrays
+	for _, r := range all {
+		if !dnscap.InScope(z, r.Name) {
+			plan.LeftAlone = append(plan.LeftAlone, DNSWrite{Host: zoneHost(r.Name, zone), Type: r.Type, Value: r.Data})
+		}
+	}
+	live = slices.DeleteFunc(live, func(r libdns.RR) bool { return !dnscap.InScope(z, r.Name) })
 	adoptable := dnscap.Adoptable(live, rows, zone, ips)
 	for _, a := range adoptable {
 		plan.Adopt = append(plan.Adopt, DNSAdopt{DNSRef: a, Host: zoneHost(a.Name, zone), Serves: hosts[strings.ToLower(a.Name)]})
@@ -454,4 +488,48 @@ func (o *Orchestrator) AdoptDNSHost(ctx context.Context, orgID, host string) err
 		refs[i] = r.DNSRef
 	}
 	return o.dns.Adopt(ctx, z.ConnectorID, z.Name, refs)
+}
+
+// DNSSuggestion is a manage the Domains list offers: Host, the panel
+// address (Panel) or the root domain for tiles, sits on Domain, a domain
+// of the account stackr does not manage yet. Sub is Host relative to
+// Domain, "" when Host is the domain itself.
+type DNSSuggestion struct {
+	Domain, Host, Sub string
+	Panel             bool
+}
+
+// DNSSuggestions is what ds, a server connector's domain list, suggests
+// managing: one per domain the panel address or the root for tiles sits
+// on. When both sit there, the one covering the other is managed; two
+// apart suggest the panel's. An org's connector suggests nothing: both
+// are the server's.
+func (o *Orchestrator) DNSSuggestions(ctx context.Context, orgID *string, ds []DNSDomain) []DNSSuggestion {
+	if orgID != nil {
+		return nil
+	}
+	panel := o.panelDomain(ctx)
+	root, _ := o.settings.Get(ctx, "root_domain")
+	root = strings.TrimPrefix(dnscap.Normal(root), "*.")
+	var out []DNSSuggestion
+	for _, d := range ds {
+		if d.State != DNSNotManaged {
+			continue
+		}
+		p, r := panel != "" && dnscap.Name(panel, d.Name) != "", root != "" && dnscap.Name(root, d.Name) != ""
+		s := DNSSuggestion{Domain: d.Name, Host: panel, Panel: true}
+		switch {
+		case p && r && dnscap.Name(panel, root) != "": // the panel under the root
+			s = DNSSuggestion{Domain: d.Name, Host: root}
+		case r && !p:
+			s = DNSSuggestion{Domain: d.Name, Host: root}
+		case !p:
+			continue
+		}
+		if s.Sub = dnscap.Name(s.Host, d.Name); s.Sub == "@" {
+			s.Sub = ""
+		}
+		out = append(out, s)
+	}
+	return out
 }

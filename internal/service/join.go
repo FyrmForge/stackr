@@ -50,9 +50,12 @@ var (
 
 // JoinTokenSpec is what an admin asks for.
 type JoinTokenSpec struct {
-	NodeName   string   `json:"node_name"`
-	Tags       []string `json:"tags"`
-	TTLMinutes int      `json:"ttl_minutes"` // 0 = one hour
+	NodeName string `json:"node_name"`
+	// NodeAddress is the node's own DNS name ("" = none), set on its row
+	// when it calls in.
+	NodeAddress string   `json:"node_address,omitempty"`
+	Tags        []string `json:"tags"`
+	TTLMinutes  int      `json:"ttl_minutes"` // 0 = one hour
 }
 
 // JoinTokenOut is a minted token. The token and the command carry it; both
@@ -171,14 +174,18 @@ func (o *Orchestrator) CreateJoinToken(ctx context.Context, by *Principal, spec 
 	if _, err := o.store.Nodes.GetBySlug(ctx, name); err == nil {
 		return JoinTokenOut{}, errs.Conflictf("A node named %q already exists.", name)
 	}
+	addr, err := o.checkNodeAddress(ctx, "", spec.NodeAddress)
+	if err != nil {
+		return JoinTokenOut{}, err
+	}
 	// A default exit can't be picked before the node exists, so a new node
 	// always has egress; an admin can drop it once it is up.
-	return o.mintJoin(ctx, by, name, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes)
+	return o.mintJoin(ctx, by, name, addr, append(slices.Clone(spec.Tags), node.TagEgress), spec.TTLMinutes)
 }
 
 // mintJoin is the token itself. A rejoin names a node that already exists
 // (RejoinNode set it to needs-rejoin); its request then reuses the row.
-func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string, tagList []string, ttlMinutes int) (JoinTokenOut, error) {
+func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name, address string, tagList []string, ttlMinutes int) (JoinTokenOut, error) {
 	ttl := time.Duration(ttlMinutes) * time.Minute
 	switch {
 	case ttlMinutes < 0 || ttl > JoinTokenMaxTTL:
@@ -193,7 +200,7 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name string,
 	tags := slices.Compact(slices.Sorted(slices.Values(tagList)))
 	var out JoinTokenOut
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		token, row, err := o.joinTokens(tx).Mint(ctx, name, tags, by.User.ID, ttl)
+		token, row, err := o.joinTokens(tx).Mint(ctx, name, address, tags, by.User.ID, ttl)
 		if err != nil {
 			return err
 		}
@@ -280,9 +287,15 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		}
 		var tags []string
 		_ = json.Unmarshal([]byte(row.Tags), &tags)
-		n, _, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin)
+		n, fresh, err := node.New(tx.Nodes).CreatePendingOrRejoin(ctx, row.NodeName, tags, req.WGPublicKey, StateNeedsRejoin)
 		if err != nil {
 			return err
+		}
+		if fresh && row.NodeAddress != "" { // a rejoin keeps the address it has
+			n.Address = row.NodeAddress
+			if err := tx.Nodes.Update(ctx, n); err != nil {
+				return err
+			}
 		}
 		if err := jt.Record(ctx, row, n.ID, req.CSR, req.WGPublicKey, facts); err != nil {
 			return err

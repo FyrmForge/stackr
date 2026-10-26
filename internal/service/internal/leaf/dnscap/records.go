@@ -73,11 +73,12 @@ func Name(host, zone string) string {
 }
 
 // ZoneOf is the managed domain host sits in (the longest that matches) and
-// whether there is one.
+// whether there is one. A host on the domain but outside its scope is in
+// none: stackr does not manage it.
 func ZoneOf(host string, zones []store.DNSDomain) (store.DNSDomain, bool) {
 	best, ok := store.DNSDomain{}, false
 	for _, z := range zones {
-		if Name(host, z.Name) != "" && len(z.Name) > len(best.Name) {
+		if Name(host, Under(z)) != "" && len(z.Name) > len(best.Name) {
 			best, ok = z, true
 		}
 	}
@@ -114,6 +115,54 @@ func foreign(live []libdns.Record, rows []store.DNSRecord, zone, name string) []
 		}
 	}
 	return out
+}
+
+// OutsideScope refuses a zone write that would change or delete a record
+// stackr may not touch: outside the managed scope, or not stackr's. Nothing
+// of that write was made.
+type OutsideScope struct {
+	Zone    string
+	Records []string // "TYPE host value"
+}
+
+func (e *OutsideScope) Error() string {
+	return "Refused a DNS change on " + e.Zone + " that would touch records stackr does not manage: " + strings.Join(e.Records, ", ")
+}
+
+// Is makes errors.Is(err, errs.ErrRefused) true.
+func (e *OutsideScope) Is(target error) bool { return target == errs.ErrRefused }
+
+// InScope says whether name (relative to d's zone) is at or under d's scope.
+func InScope(d store.DNSDomain, name string) bool {
+	return Name(fqdn(d.Name, name), Under(d)) != ""
+}
+
+// checkWrite is the safety net under every record write: the zone before
+// (live) against after (live less del, plus put). A record that would go or
+// appear outside d's scope, or go while not mine, refuses the whole write.
+// It runs before the first provider write, so a refusal writes nothing.
+func checkWrite(d store.DNSDomain, live, del, put []libdns.Record, mine func(libdns.RR) bool) error {
+	same := func(a, b libdns.RR) bool {
+		return strings.EqualFold(a.Name, b.Name) && strings.EqualFold(a.Type, b.Type) && a.Data == b.Data
+	}
+	in := func(rs []libdns.Record, x libdns.RR) bool {
+		return slices.ContainsFunc(rs, func(r libdns.Record) bool { return same(r.RR(), x) })
+	}
+	var bad []string
+	for _, r := range live {
+		if x := r.RR(); in(del, x) && (!InScope(d, x.Name) || !mine(x)) {
+			bad = append(bad, x.Type+" "+fqdn(d.Name, x.Name)+" "+x.Data)
+		}
+	}
+	for _, r := range put {
+		if x := r.RR(); !in(live, x) && !InScope(d, x.Name) {
+			bad = append(bad, x.Type+" "+fqdn(d.Name, x.Name)+" "+x.Data)
+		}
+	}
+	if len(bad) > 0 {
+		return &OutsideScope{Zone: d.Name, Records: bad}
+	}
+	return nil
 }
 
 func fqdn(zone, name string) string {
@@ -198,8 +247,8 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		case w.Value != r.Value:
 			p := at(r.Zone, w.DNSDomainID)
 			p.move, p.add = append(p.move, r), append(p.add, w)
-		case r.DomainID == nil || *r.DomainID != w.DomainID:
-			r.DomainID = &w.DomainID
+		case deref(r.DomainID) != w.DomainID:
+			r.DomainID = optID(w.DomainID)
 			if err := l.recs.Update(ctx, r); err != nil {
 				return err
 			}
@@ -289,6 +338,11 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 			put = append(put, rr(w.Name, w.Type, w.Value))
 			made = append(made, w)
 		}
+		mine := func(x libdns.RR) bool { return ours(x, rows, zone) || replace[fqdn(zone, x.Name)] }
+		if err := checkWrite(d, live, del, put, mine); err != nil {
+			made, taken = nil, nil
+			return err
+		}
 		if len(del) > 0 {
 			if _, err := pv.Delete(ctx, zone, del); err != nil {
 				return err
@@ -313,7 +367,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 		i := slices.IndexFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() })
 		if i >= 0 {
 			r := move[i]
-			r.Value, r.DomainID = w.Value, &w.DomainID
+			r.Value, r.DomainID = w.Value, optID(w.DomainID)
 			if err := l.recs.Update(ctx, r); err != nil {
 				return taken, err
 			}
@@ -321,7 +375,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 		}
 		if err := l.recs.Create(ctx, store.DNSRecord{
 			ID: uuid.NewString(), DNSDomainID: &d.ID, Zone: zone, Name: w.Name, Type: w.Type,
-			Value: w.Value, TTL: TTL, DomainID: &w.DomainID, CreatedAt: time.Now().UTC(),
+			Value: w.Value, TTL: TTL, DomainID: optID(w.DomainID), CreatedAt: time.Now().UTC(),
 		}); err != nil {
 			return taken, err
 		}
@@ -335,6 +389,22 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 		}
 	}
 	return taken, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// optID is a link column's value: nil for none (a panel or node record
+// has no tile domain).
+func optID(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func rr(name, typ, value string) libdns.Record {
@@ -351,14 +421,29 @@ type Ref struct {
 // Existing is the A, AAAA and CNAME records live in zone, the ones that
 // can be adopted or that block a name.
 func (l *Leaf) Existing(ctx context.Context, p Provider, zone string) ([]libdns.RR, error) {
+	live, err := l.Live(ctx, p, zone)
+	return Addresses(live), err
+}
+
+// Live is every record in zone.
+func (l *Leaf) Live(ctx context.Context, p Provider, zone string) ([]libdns.RR, error) {
 	live, err := l.Locked(p).Get(ctx, zone)
-	var out []libdns.RR
+	out := make([]libdns.RR, 0, len(live))
 	for _, r := range live {
-		if x := r.RR(); x.Type == "A" || x.Type == "AAAA" || x.Type == "CNAME" {
+		out = append(out, r.RR())
+	}
+	return out, err
+}
+
+// Addresses is the A, AAAA and CNAME records of rs.
+func Addresses(rs []libdns.RR) []libdns.RR {
+	var out []libdns.RR
+	for _, x := range rs {
+		if x.Type == "A" || x.Type == "AAAA" || x.Type == "CNAME" {
 			out = append(out, x)
 		}
 	}
-	return out, err
+	return out
 }
 
 // Adoptable is the records of live that point at one of ips, are not a
@@ -414,7 +499,9 @@ func (l *Leaf) Records(ctx context.Context) ([]store.DNSRecord, error) { return 
 
 // Forget deletes the records stackr made in zone, from the provider then
 // the table: what unmanaging a domain does before the domain row goes.
-func (l *Leaf) Forget(ctx context.Context, a Provider, zone string) error {
+// Records at keep's names (relative, lower case: the panel's and nodes'
+// own) stay in the zone; only their rows go, so the names keep working.
+func (l *Leaf) Forget(ctx context.Context, a Provider, zone string, keep map[string]bool) error {
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
 	rows, err := l.recs.List(ctx)
@@ -427,14 +514,25 @@ func (l *Leaf) Forget(ctx context.Context, a Provider, zone string) error {
 	}
 	var del []libdns.Record
 	for _, r := range rows {
-		if !r.Adopted { // an adopted record stays in the zone; only its row goes
+		if !r.Adopted && !keep[strings.ToLower(r.Name)] { // an adopted or kept record stays in the zone; only its row goes
 			del = append(del, rr(r.Name, r.Type, r.Value))
 		}
 	}
 	// Delete matches name, type and value: a record edited since stays.
 	if len(del) > 0 {
+		d, err := l.rows.GetByName(ctx, zone)
+		if err != nil {
+			return err
+		}
 		if err := l.WithZone(ctx, a, zone, func(p Provider) error {
-			_, err := p.Delete(ctx, zone, del)
+			live, err := p.Get(ctx, zone)
+			if err != nil {
+				return err
+			}
+			if err := checkWrite(d, live, del, nil, func(x libdns.RR) bool { return ours(x, rows, zone) }); err != nil {
+				return err
+			}
+			_, err = p.Delete(ctx, zone, del)
 			return err
 		}); err != nil {
 			return err

@@ -132,10 +132,10 @@ func TestManageStates(t *testing.T) {
 	f := &fake{zones: []Zone{{Name: "away.com"}, {Name: "home.com", OurDNS: true}, {Name: "free.com", OurDNS: true}}}
 	l := leafWith(t, f)
 	ctx := context.Background()
-	if _, err := l.Manage(ctx, "c1", nil, f, "other.com", nil); err == nil {
+	if _, err := l.Manage(ctx, "c1", nil, f, "other.com", "", nil); err == nil {
 		t.Error("a domain off the account was managed")
 	}
-	if _, ok := errs.IsConflict(func() error { _, err := l.Manage(ctx, "c1", nil, f, "away.com", nil); return err }()); !ok {
+	if _, ok := errs.IsConflict(func() error { _, err := l.Manage(ctx, "c1", nil, f, "away.com", "", nil); return err }()); !ok {
 		t.Error("a DNS elsewhere domain: want a conflict")
 	}
 	ds, err := l.Domains(ctx, "c1", f)

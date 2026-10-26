@@ -6,7 +6,9 @@
 package dnscap
 
 import (
+	"cmp"
 	"context"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -38,11 +40,38 @@ const (
 
 // Domain is a domain on a connector's account as its manager sees it.
 // ShareAll and OrgIDs: who may use a managed domain of a server connector.
+// Scope: the name stackr manages at and under; "" = the whole domain.
 type Domain struct {
 	Name     string   `json:"name"`
 	State    string   `json:"state"`
 	ShareAll bool     `json:"share_all"`
 	OrgIDs   []string `json:"org_ids"`
+	Scope    string   `json:"scope,omitempty"`
+}
+
+// Under is the name managed domain d covers: its scope, else the domain.
+func Under(d store.DNSDomain) string { return cmp.Or(d.Scope, d.Name) }
+
+var labelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// Scope is the scope a manage asks for on zone, as stored: "" for the
+// whole domain (none given, or the domain itself). A name outside zone or
+// not a plain host name is an Invalid on under.
+func Scope(zone, scope string) (string, error) {
+	zone, scope = Normal(zone), Normal(scope)
+	if scope == "" || scope == zone {
+		return "", nil
+	}
+	sub, ok := strings.CutSuffix(scope, "."+zone)
+	if !ok {
+		return "", errs.Invalidf("under", "%s is not under %s.", scope, zone)
+	}
+	for _, l := range strings.Split(sub, ".") {
+		if !labelRE.MatchString(l) {
+			return "", errs.Invalidf("under", "Use letters, digits and dashes, dot between names.")
+		}
+	}
+	return scope, nil
 }
 
 type Leaf struct {
@@ -131,13 +160,13 @@ func merge(zs []Zone, rows []store.DNSDomain) []Domain {
 			d.State = Elsewhere
 		}
 		if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == z.Name }); i >= 0 {
-			d.State, d.ShareAll, d.OrgIDs = Managed, rows[i].ShareAll, orEmpty(rows[i].OrgIDs)
+			d.State, d.ShareAll, d.OrgIDs, d.Scope = Managed, rows[i].ShareAll, orEmpty(rows[i].OrgIDs), rows[i].Scope
 			rows = slices.Delete(rows, i, i+1)
 		}
 		out = append(out, d)
 	}
 	for _, r := range rows {
-		out = append(out, Domain{Name: r.Name, State: Managed, ShareAll: r.ShareAll, OrgIDs: orEmpty(r.OrgIDs)})
+		out = append(out, Domain{Name: r.Name, State: Managed, ShareAll: r.ShareAll, OrgIDs: orEmpty(r.OrgIDs), Scope: r.Scope})
 	}
 	return out
 }
@@ -166,13 +195,19 @@ func (l *Leaf) zone(ctx context.Context, p Provider, name string) (Zone, error) 
 // server connector), or for a managed one sets who may use it. A server
 // connector's domain is available to orgIDs, or every org when none; an
 // org connector's is only ever its org's. The domain must be on the
-// account, served by the provider's DNS.
-func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, p Provider, name string, orgIDs []string) (Domain, error) {
+// account, served by the provider's DNS. scope is the name stackr manages
+// at and under ("" = the whole domain); it is set once: a managed domain
+// keeps its own, and asking for another is refused.
+func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, p Provider, name, scope string, orgIDs []string) (Domain, error) {
 	name = Normal(name)
 	if orgID != nil && len(orgIDs) > 0 {
 		return Domain{}, errs.Invalidf("org_ids", "An organization's connector serves that organization only")
 	}
-	d := Domain{Name: name, State: Managed, ShareAll: len(orgIDs) == 0, OrgIDs: orEmpty(orgIDs)}
+	scope, err := Scope(name, scope)
+	if err != nil {
+		return Domain{}, err
+	}
+	d := Domain{Name: name, State: Managed, ShareAll: len(orgIDs) == 0, OrgIDs: orEmpty(orgIDs), Scope: scope}
 	if orgID != nil {
 		d.ShareAll = false
 	}
@@ -182,7 +217,11 @@ func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, p Provider,
 	}
 	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == name }); i >= 0 {
 		r := rows[i]
+		if scope != "" && scope != r.Scope {
+			return Domain{}, errs.Conflictf("%s is already managed. Stop managing it first to change what stackr manages.", name)
+		}
 		r.ShareAll, r.OrgIDs = d.ShareAll, store.StringList(orgIDs)
+		d.Scope = r.Scope
 		return d, l.rows.Update(ctx, r)
 	}
 	z, err := l.zone(ctx, p, name)
@@ -199,6 +238,7 @@ func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, p Provider,
 		Name:        name,
 		ShareAll:    d.ShareAll,
 		OrgIDs:      store.StringList(orgIDs),
+		Scope:       scope,
 		CreatedAt:   time.Now().UTC(),
 	})
 	if _, ok := errs.IsConflict(err); ok {
