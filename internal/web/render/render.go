@@ -328,6 +328,17 @@ func Refused(err error) (msg string, ok bool) {
 	return "", false
 }
 
+// FieldErrs is every field a refusal names, by field, in plain words.
+func FieldErrs(err error) map[string]string {
+	out := map[string]string{}
+	for _, bad := range errs.Invalids(err) {
+		if bad.Field != "" && out[bad.Field] == "" {
+			out[bad.Field] = cmp.Or(bad.Msg, "That was refused.")
+		}
+	}
+	return out
+}
+
 // Refuse is a refused save drawn again in row, the accordion row its form
 // sits in: the typed values kept, the reason under its field or over the
 // row (components.Refused). banner is what still goes over the whole
@@ -344,6 +355,7 @@ func Refuse(c echo.Context, row string, err error) (banner string, ok bool) {
 	r := &components.Refused{Row: row, Msg: msg, Vals: form}
 	if bad, invalid := errs.IsInvalid(err); invalid && row != "" {
 		r.Field = bad.Field
+		r.More = FieldErrs(err)
 	}
 	c.SetRequest(c.Request().WithContext(components.WithRefused(c.Request().Context(), r)))
 	if row == "" { // no row: the fields keep what was typed, the reason goes over the drawer

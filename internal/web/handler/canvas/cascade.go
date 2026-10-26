@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -199,21 +200,24 @@ func parseRung(stored string, form url.Values) (blob string, changed bool, err e
 	}
 	before := s.JSON()
 	get := func(k string) string { return strings.TrimSpace(form.Get(k)) }
-	if s.CPULimit, err = limit("cpu_limit", get("cpu_limit"), func(r string) (float64, error) {
+	// every row's refusal at once, not the first
+	var bad []error
+	var cpuErr, memErr error
+	s.CPULimit, cpuErr = limit("cpu_limit", get("cpu_limit"), func(r string) (float64, error) {
 		return strconv.ParseFloat(r, 64)
-	}); err != nil {
-		return "", false, err
-	}
-	if s.MemLimitMB, err = limit("mem_limit_mb", get("mem_limit_mb"), strconv.Atoi); err != nil {
-		return "", false, err
-	}
+	})
+	s.MemLimitMB, memErr = limit("mem_limit_mb", get("mem_limit_mb"), strconv.Atoi)
+	bad = append(bad, cpuErr, memErr)
 	s.Protect = nil
 	if raw := get("protect"); raw != "" {
 		on, err := strconv.ParseBool(raw)
 		if err != nil {
-			return "", false, errs.Invalidf("protect", "Choose on, off or inherit.")
+			bad = append(bad, errs.Invalidf("protect", "Choose on, off or inherit."))
 		}
 		s.Protect = &on
+	}
+	if err := errors.Join(bad...); err != nil {
+		return "", false, err
 	}
 	user := get("protect_user")
 	s.ProtectUser = nil
@@ -235,8 +239,8 @@ func parseRung(stored string, form url.Values) (blob string, changed bool, err e
 	return blob, blob != before, nil
 }
 
-// limit is one numeric row: blank inherits, 0 is unlimited, below 0 or
-// not a number is refused.
+// limit is one numeric row: blank inherits, 0 is unlimited, not a number
+// is refused. Below 0 is the service's refusal, with the host's limits.
 func limit[T int | float64](key, raw string, parse func(string) (T, error)) (*T, error) {
 	if raw == "" {
 		return nil, nil
@@ -245,9 +249,6 @@ func limit[T int | float64](key, raw string, parse func(string) (T, error)) (*T,
 	f := float64(v)
 	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return nil, errs.Invalidf(key, "%q is not a number.", raw)
-	}
-	if f < 0 {
-		return nil, errs.Invalidf(key, "Use 0 or more; 0 is unlimited.")
 	}
 	return &v, nil
 }
@@ -281,8 +282,10 @@ func (h *handler) saveRung(kind string, own func(service.Scope) string, set func
 			// the rows keep what was typed (never the password); the reason on its row
 			r := &comp.Refused{Vals: form}
 			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), r)))
-			if bad, invalid := errs.IsInvalid(actErr); invalid {
-				mark(&v, bad.Field, bad.Msg)
+			if bads := errs.Invalids(actErr); len(bads) > 0 {
+				for _, bad := range bads {
+					mark(&v, bad.Field, bad.Msg)
+				}
 			} else {
 				v.Error = msg
 			}

@@ -232,7 +232,7 @@ func (h *handler) answer(c echo.Context, section, note string, x extra, actErr e
 		c.Set(refusedKey, true)
 		// a refusal about one field sits under it; refill keeps the values
 		if bad, ok := errs.IsInvalid(actErr); ok && bad.Field != "" {
-			ref = &comp.Refused{Field: bad.Field, Msg: msg}
+			ref = &comp.Refused{Field: bad.Field, Msg: msg, More: render.FieldErrs(actErr)}
 			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), ref)))
 		}
 	}

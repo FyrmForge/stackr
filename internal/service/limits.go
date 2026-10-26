@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -27,24 +28,49 @@ func (o *Orchestrator) checkLimits(
 	memMB int,
 	cpuField, memField string,
 ) error {
+	return o.checkLimitsOn(ctx, []store.Node{n}, cpu, memMB, cpuField, memField)
+}
+
+// checkLimitsOn checks against the smallest of ns, CPU and memory each on
+// its own: both refusals at once, each naming the node that decides it.
+func (o *Orchestrator) checkLimitsOn(
+	ctx context.Context,
+	ns []store.Node,
+	cpu float64,
+	memMB int,
+	cpuField, memField string,
+) error {
 	if cpu <= 0 && memMB <= 0 {
 		return nil
 	}
-	h, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID))
-	if err != nil {
-		return nil
+	name := func(n store.Node) string {
+		if n.Role == node.Controller {
+			return "This host"
+		}
+		return "Node " + n.Name
 	}
-	host := "This host"
-	if n.Role != node.Controller {
-		host = "Node " + n.Name
+	var cpuAt, memAt string
+	minCPU, minMB := 0, 0
+	for _, n := range ns {
+		h, err := o.docker.HostInfo(docker.WithNode(ctx, n.ID))
+		if err != nil {
+			continue
+		}
+		if h.CPUs > 0 && (minCPU == 0 || h.CPUs < minCPU) {
+			minCPU, cpuAt = h.CPUs, name(n)
+		}
+		if mb := int(h.MemBytes >> 20); mb > 0 && (minMB == 0 || mb < minMB) {
+			minMB, memAt = mb, name(n)
+		}
 	}
-	if cpu > 0 && h.CPUs > 0 && cpu > float64(h.CPUs) {
-		return errs.Invalidf(cpuField, "%s has %s; the limit can be at most %d.", host, plural(h.CPUs, "CPU"), h.CPUs)
+	var out []error
+	if cpu > 0 && minCPU > 0 && cpu > float64(minCPU) {
+		out = append(out, errs.Invalidf(cpuField, "%s has %s; the limit can be at most %d.", cpuAt, plural(minCPU, "CPU"), minCPU))
 	}
-	if hostMB := int(h.MemBytes >> 20); memMB > 0 && hostMB > 0 && memMB > hostMB {
-		return errs.Invalidf(memField, "%s has %d MB of memory; the limit can be at most %d.", host, hostMB, hostMB)
+	if memMB > 0 && minMB > 0 && memMB > minMB {
+		out = append(out, errs.Invalidf(memField, "%s has %d MB of memory; the limit can be at most %d.", memAt, minMB, minMB))
 	}
-	return nil
+	return errors.Join(out...)
 }
 
 // checkLimitsEverywhere is checkLimits for a limit that reaches tiles on any
@@ -67,12 +93,7 @@ func (o *Orchestrator) checkLimitsEverywhere(
 	if err != nil {
 		return err
 	}
-	for _, n := range ns {
-		if err := o.checkLimits(ctx, n, cpu, memMB, cpuField, memField); err != nil {
-			return err
-		}
-	}
-	return nil
+	return o.checkLimitsOn(ctx, ns, cpu, memMB, cpuField, memField)
 }
 
 func plural(n int, word string) string {
@@ -92,7 +113,14 @@ func (o *Orchestrator) checkSettingLimits(ctx context.Context, s settings.Settin
 	if s.MemLimitMB != nil {
 		mem = *s.MemLimitMB
 	}
-	return o.checkLimitsEverywhere(ctx, cpu, mem, "cpu_limit", "mem_limit_mb")
+	var bad []error
+	if cpu < 0 {
+		bad, cpu = append(bad, errs.Invalidf("cpu_limit", "Use 0 or more; 0 is unlimited.")), 0
+	}
+	if mem < 0 {
+		bad, mem = append(bad, errs.Invalidf("mem_limit_mb", "Use 0 or more; 0 is unlimited.")), 0
+	}
+	return errors.Join(append(bad, o.checkLimitsEverywhere(ctx, cpu, mem, "cpu_limit", "mem_limit_mb"))...)
 }
 
 // checkBlobLimits is checkSettingLimits for a stored blob; one that does not

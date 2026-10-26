@@ -277,10 +277,48 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Prob
 	}
 	if err := probe(ctx, *d); err != nil {
 		// An S3 error can quote the request; never let a key through.
-		msg := strings.NewReplacer(d.SecretKey, "***", d.AccessKey, "***").Replace(err.Error())
+		msg := redact(err.Error(), d.SecretKey, d.AccessKey)
 		return errs.Invalidf("endpoint", "A test file could not be written to bucket %s. Check the endpoint, bucket and keys.\n%s", d.Bucket, msg)
 	}
 	return nil
+}
+
+// redact hides each key in msg. A key of 8 or more characters goes wherever
+// it appears; a shorter one only as a whole token, so a test key "x" never
+// garbles "exceeded" (inside a word it is not the key, only a letter).
+func redact(msg string, keys ...string) string {
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		var b strings.Builder
+		for rest := msg; ; {
+			i := strings.Index(rest, k)
+			if i < 0 {
+				b.WriteString(rest)
+				break
+			}
+			end := i + len(k)
+			b.WriteString(rest[:i])
+			if len(k) >= 8 || (!wordByte(rest, i-1) && !wordByte(rest, end)) {
+				b.WriteString("***")
+			} else {
+				b.WriteString(k)
+			}
+			rest = rest[end:]
+		}
+		msg = b.String()
+	}
+	return msg
+}
+
+// wordByte: s[i] is a letter or digit; a position outside s is not.
+func wordByte(s string, i int) bool {
+	if i < 0 || i >= len(s) {
+		return false
+	}
+	c := s[i]
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // newKey is the destination's archive key: 32 random bytes, hex. The flow

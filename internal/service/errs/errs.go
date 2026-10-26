@@ -101,6 +101,29 @@ func IsInvalid(err error) (Invalid, bool) {
 	return v, errors.As(err, &v)
 }
 
+// Invalids is every Invalid in err, through wrapping and errors.Join, in
+// order: a save refused on several fields says all of them at once.
+func Invalids(err error) []Invalid {
+	var out []Invalid
+	var walk func(error)
+	walk = func(e error) {
+		if v, ok := e.(Invalid); ok {
+			out = append(out, v)
+			return
+		}
+		switch x := e.(type) {
+		case interface{ Unwrap() []error }:
+			for _, c := range x.Unwrap() {
+				walk(c)
+			}
+		case interface{ Unwrap() error }:
+			walk(x.Unwrap())
+		}
+	}
+	walk(err)
+	return out
+}
+
 func IsConflict(err error) (Conflict, bool) {
 	var v Conflict
 	return v, errors.As(err, &v)

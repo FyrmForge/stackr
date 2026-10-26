@@ -21,7 +21,10 @@ type Refused struct {
 	Field string     // the field the reason is about; "" = the row's
 	Msg   string     // plain words, no field key
 	Vals  url.Values // the posted form
-	used  bool       // a field drew Msg
+	// More is every field the save was refused on, by name, Field's too:
+	// each field shows its own reason at once.
+	More map[string]string
+	used bool // a field drew Msg
 }
 
 type refusedKey struct{}
@@ -64,7 +67,13 @@ func KeptOn(ctx context.Context, name string, stored bool) bool {
 // KeptErr is a field's error: the refusal's reason when it names this
 // field, else err.
 func KeptErr(ctx context.Context, name, err string) string {
-	if r := refusedOf(ctx); r != nil && r.Field != "" && r.Field == name && r.Msg != "" {
+	r := refusedOf(ctx)
+	switch {
+	case r == nil || name == "":
+	case r.More[name] != "":
+		r.used = r.used || name == r.Field
+		return r.More[name]
+	case r.Field == name && r.Msg != "":
 		r.used = true
 		return r.Msg
 	}

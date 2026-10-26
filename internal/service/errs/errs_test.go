@@ -47,3 +47,14 @@ func TestAs(t *testing.T) {
 		t.Errorf("Invalid without field = %q", v.Error())
 	}
 }
+
+func TestInvalids(t *testing.T) {
+	err := fmt.Errorf("save: %w", errors.Join(Invalidf("cpu", "a"), errors.New("x"), fmt.Errorf("w: %w", Invalidf("mem", "b"))))
+	got := Invalids(err)
+	if len(got) != 2 || got[0].Field != "cpu" || got[1].Field != "mem" {
+		t.Errorf("Invalids = %+v, want cpu then mem", got)
+	}
+	if Invalids(nil) != nil {
+		t.Error("Invalids(nil) not empty")
+	}
+}

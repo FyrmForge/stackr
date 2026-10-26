@@ -86,6 +86,20 @@ func TestLimitsAboveHostRefused(t *testing.T) {
 	}
 }
 
+// A rung refused on both limits names both at once, a negative one too.
+func TestLimitsRefusedTogether(t *testing.T) {
+	ctx := context.Background()
+	r := newLimitRig(t)
+	_, err := r.env.Orch.SetStackSettings(ctx, r.tile.Stack, `{"cpu_limit":999,"mem_limit_mb":-5}`)
+	bad := map[string]string{}
+	for _, b := range errs.Invalids(err) {
+		bad[b.Field] = b.Msg
+	}
+	if len(bad) != 2 || !strings.Contains(bad["cpu_limit"], "at most 1") || !strings.Contains(bad["mem_limit_mb"], "0 or more") {
+		t.Errorf("cpu 999 and memory -5 = %v, want both fields refused", bad)
+	}
+}
+
 // An edit that leaves an already-too-big tile limit alone is not refused for
 // it: only a changed limit is checked.
 func TestLimitsUntouchedTileEditPasses(t *testing.T) {
