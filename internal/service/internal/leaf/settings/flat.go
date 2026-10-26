@@ -3,7 +3,6 @@ package settings
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -100,38 +99,38 @@ func Check(key, raw string) error {
 func validate(k Knob, raw string) error {
 	if cronKnobs[k.Key] {
 		if _, err := cron.ParseStandard(raw); err != nil {
-			return fmt.Errorf("Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.\n%s", err)
+			return invalid(k, "Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.\n%s", err)
 		}
 	}
 	if k.Key == "proxy_custom" {
 		// ponytail: shape only; Caddy rejects a route it cannot load at the push.
 		var rs []map[string]any
 		if err := json.Unmarshal([]byte(raw), &rs); err != nil {
-			return fmt.Errorf("Use a JSON array of Caddy route objects.\n%s", err)
+			return invalid(k, "Use a JSON array of Caddy route objects.\n%s", err)
 		}
 		if slices.ContainsFunc(rs, func(m map[string]any) bool { return m == nil }) {
-			return fmt.Errorf("Use a JSON array of Caddy route objects, with no null in it.")
+			return invalid(k, "Use a JSON array of Caddy route objects, with no null in it.")
 		}
 	}
 	switch k.Type {
 	case TInt:
 		v, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("Use a whole number, not %q.", raw)
+			return invalid(k, "Use a whole number, not %q.", raw)
 		}
 		if k.Key == "observe_max_memory" && v < 256 {
-			return fmt.Errorf("Use 256 MB or more.")
+			return invalid(k, "Use 256 MB or more.")
 		}
 		return usable(k, v)
 	case TFloat:
 		v, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
-			return fmt.Errorf("Use a number, not %q.", raw)
+			return invalid(k, "Use a number, not %q.", raw)
 		}
 		return usable(k, v)
 	case TBool:
 		if _, err := strconv.ParseBool(raw); err != nil {
-			return fmt.Errorf("Use true or false, not %q.", raw)
+			return invalid(k, "Use true or false, not %q.", raw)
 		}
 	}
 	return nil

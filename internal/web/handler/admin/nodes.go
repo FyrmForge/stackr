@@ -432,13 +432,13 @@ func (h *handler) trustView(c echo.Context) (ui.TrustView, error) {
 	}
 	day := func(t time.Time) string { return t.Local().Format("Jan 2, 2006") }
 	v := ui.TrustView{
-		Fingerprint: t.Fingerprint, Created: day(t.CreatedAt), Expires: day(t.ExpiresAt), RollingOver: t.RollingOver,
+		Fingerprint: t.Fingerprint, Created: t.CreatedAt, Expires: day(t.ExpiresAt), RollingOver: t.RollingOver,
 	}
 	if t.RolloverStartedAt != nil {
-		v.Since = day(*t.RolloverStartedAt)
+		v.Since = *t.RolloverStartedAt
 	}
 	if t.BreakGlassAt != nil {
-		v.BreakGlassAt = day(*t.BreakGlassAt)
+		v.BreakGlassAt = *t.BreakGlassAt
 	}
 	for _, n := range t.OnOldRoot {
 		v.OnOldRoot = append(v.OnOldRoot, n.Name)

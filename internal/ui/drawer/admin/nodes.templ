@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -30,11 +31,12 @@ type TrafficView struct {
 // rotate, break glass and revoke buttons, and the nodes break glass left
 // unjoined. A ConfirmView with no Action is not offered.
 type TrustView struct {
-	Fingerprint, Created, Expires string
+	Fingerprint, Expires string // Expires: a date years out, with its year
+	Created                       time.Time
 	RollingOver                   bool
-	Since                         string   // when the rollover started
+	Since                         time.Time // when the rollover started
 	OnOldRoot                     []string // node names still on the old root
-	BreakGlassAt                  string   // "" = never
+	BreakGlassAt                  time.Time // zero = never
 	Rotate, Finish                c.ConfirmView
 	BreakGlass, RevokeController  c.ConfirmView
 	NotRejoined                   []NotRejoinedRow
@@ -470,13 +472,13 @@ templ trustSection(t TrustView) {
 			<dt class="text-rw-muted">Root</dt>
 			<dd class="font-mono text-xs text-rw-text break-all">{ t.Fingerprint }</dd>
 			<dt class="text-rw-muted">Created</dt>
-			<dd class="text-rw-text">{ t.Created }</dd>
+			<dd class="text-rw-text">@c.When(t.Created)</dd>
 			<dt class="text-rw-muted">Expires</dt>
 			<dd class="text-rw-text">{ t.Expires }</dd>
 			<dt class="text-rw-muted">Rollover</dt>
 			<dd class="text-rw-text">
 				if t.RollingOver {
-					Running since { t.Since }.
+					Running since @c.When(t.Since).
 					if len(t.OnOldRoot) > 0 {
 						Still on the old root: { strings.Join(t.OnOldRoot, ", ") }.
 					}
@@ -484,9 +486,9 @@ templ trustSection(t TrustView) {
 					None running.
 				}
 			</dd>
-			if t.BreakGlassAt != "" {
+			if !t.BreakGlassAt.IsZero() {
 				<dt class="text-rw-muted">Break glass</dt>
-				<dd class="text-rw-text">{ t.BreakGlassAt }</dd>
+				<dd class="text-rw-text">@c.When(t.BreakGlassAt)</dd>
 			}
 		</dl>
 		<div class="flex flex-wrap gap-2">

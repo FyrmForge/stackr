@@ -59,8 +59,8 @@ func TestAdminClusterTrust(t *testing.T) {
 // action, and shows the command once it is made.
 func TestTrustViewNotRejoined(t *testing.T) {
 	v := ui.KeysView{Trust: ui.TrustView{
-		Fingerprint: "ab12", Created: "Jan 2, 2026", Expires: "Jan 2, 2036", RollingOver: true,
-		Since: "Oct 1, 2026", OnOldRoot: []string{"h3"},
+		Fingerprint: "ab12", Created: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Expires: "Jan 2, 2036", RollingOver: true,
+		Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), OnOldRoot: []string{"h3"},
 		Finish: comp.ConfirmView{Button: "Finish rollover now", Title: "t"},
 		NotRejoined: []ui.NotRejoinedRow{
 			{Name: "vm106", Rejoin: "/-/admin/nodes/n2/trust-rejoin"},
