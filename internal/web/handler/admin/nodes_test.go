@@ -268,3 +268,46 @@ func TestAdminNodeBackupAndRemove(t *testing.T) {
 		}
 	}
 }
+
+// The add-node Address starts as <name>.<panel address> and follows the
+// name; a refused address lands on its field. The drawer saves an Address
+// and, with no managed domain, shows the record to set by hand.
+func TestAdminNodeAddress(t *testing.T) {
+	s := webtest.New(t)
+	ctx := t.Context()
+	if err := s.Orch.SetSettings(ctx, map[string]string{"panel_domain": "stackr.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	body := s.As(t, root, "GET", "/-/admin/nodes/add?name=n2", nil).Body.String()
+	for _, want := range []string{`value="n2.stackr.example.com"`, `data-follows="name"`, `data-suffix=".stackr.example.com"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("add step 1 lacks %q\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "data-edited") {
+		t.Error("the default address reads as edited")
+	}
+	rec := s.As(t, root, "POST", "/-/admin/nodes/add", url.Values{"name": {"n2"}, "node_address": {"stackr.example.com"}})
+	body = rec.Body.String()
+	if !strings.Contains(body, `aria-describedby="error-node_address"`) || !strings.Contains(body, "the panel&#39;s address") || !strings.Contains(body, "data-edited") {
+		t.Errorf("refused address = %d\n%s", rec.Code, body)
+	}
+
+	ns, _ := s.Orch.Nodes(ctx)
+	id := ns[0].ID
+	if body := s.As(t, root, "GET", "/-/admin/nodes/"+id+"?tab=network", nil).Body.String(); !strings.Contains(body, `value="n1.stackr.example.com"`) {
+		t.Errorf("controller's default address missing\n%s", body)
+	}
+	if err := s.Orch.SetSettings(ctx, map[string]string{"panel_domain": "panel.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/address", url.Values{"node_address": {"box1.lan.example.com"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `value="box1.lan.example.com"`) {
+		t.Errorf("save address = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/nodes/"+id+"/address", url.Values{"node_address": {"*.example.com"}})
+	if body := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, `aria-invalid="true"`) || !strings.Contains(body, `value="*.example.com"`) {
+		t.Errorf("wildcard address = %d\n%s", rec.Code, body)
+	}
+}

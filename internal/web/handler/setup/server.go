@@ -385,12 +385,25 @@ func pendingRow(p service.PendingNode) admin.PendingRow {
 	}
 }
 
-// adderStep1 is Admin's first add-node step, answering into the panel.
-func adderStep1(name string, picked []string, msg string) *admin.AddNodeView {
-	return &admin.AddNodeView{
-		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags, Error: msg,
+// adderStep1 is Admin's first add-node step, answering into the panel;
+// refused is the mint's refusal, as Admin's step one shows it.
+func (h *handler) adderStep1(c echo.Context, name, address string, picked []string, refused error) (*admin.AddNodeView, error) {
+	v := &admin.AddNodeView{
+		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags,
 		Create: nodesBase + "/add", Cancel: nodesBase, Target: "#" + pages.NodesPanelID,
 	}
+	v.AddressSuffix, v.Address = h.orch.NodeAddressSuffix(c.Request().Context()), address
+	if refused == nil {
+		if name != "" && v.AddressSuffix != "" {
+			v.Address = name + v.AddressSuffix // the default after the name
+		}
+		return v, nil
+	}
+	var ok bool
+	if v.AddressError, v.Error, ok = render.OnField(refused, "node_address"); !ok {
+		return nil, refused
+	}
+	return v, nil
 }
 
 // answerNodes is the panel, the add-node steps as adder leaves them.
@@ -407,7 +420,10 @@ func (h *handler) answerNodes(c echo.Context, adder *admin.AddNodeView, skip str
 func (h *handler) serverNodes(c echo.Context) error {
 	var adder *admin.AddNodeView
 	if c.QueryParam("add") != "" {
-		adder = adderStep1("", nil, "")
+		var err error
+		if adder, err = h.adderStep1(c, "", "", nil, nil); err != nil {
+			return middleware.HTTPError(err)
+		}
 	}
 	return h.answerNodes(c, adder, c.QueryParam("skip"))
 }
@@ -420,13 +436,13 @@ func (h *handler) serverMintNode(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
 	name := strings.TrimSpace(f.Get("name"))
-	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, Tags: f["tag"]})
+	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, NodeAddress: f.Get("node_address"), Tags: f["tag"]})
 	if err != nil {
-		msg, ok := render.Refused(err)
-		if !ok {
+		v, err := h.adderStep1(c, name, f.Get("node_address"), f["tag"], err)
+		if err != nil {
 			return middleware.HTTPError(err)
 		}
-		return h.answerNodes(c, adderStep1(name, f["tag"], msg), "")
+		return h.answerNodes(c, v, "")
 	}
 	return h.answerNodes(c, &admin.AddNodeView{
 		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
@@ -462,11 +478,11 @@ func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
 			err = h.orch.RejectJoin(ctx, by, id)
 		}
 		if err != nil {
-			msg, ok := render.Refused(err)
-			if !ok {
+			v, err := h.adderStep1(c, "", "", nil, err)
+			if err != nil {
 				return middleware.HTTPError(err)
 			}
-			return h.answerNodes(c, adderStep1("", nil, msg), "")
+			return h.answerNodes(c, v, "")
 		}
 		return h.answerNodes(c, nil, "")
 	}

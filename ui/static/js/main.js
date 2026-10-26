@@ -262,3 +262,19 @@ document.addEventListener('change', function (evt) {
     if (!share) return;
     share.querySelectorAll('[data-share-org]').forEach(function (b) { b.disabled = radio.value !== 'only'; });
 });
+
+// An input with data-follows="name" fills itself from that field of its
+// form plus data-suffix as the name is typed (the add-node Address), until
+// it is edited by hand (data-edited).
+document.addEventListener('input', function (evt) {
+    var t = evt.target;
+    if (t.matches && t.matches('[data-follows]')) {
+        t.setAttribute('data-edited', '');
+        return;
+    }
+    if (!t.form || !t.name) return;
+    t.form.querySelectorAll('[data-follows="' + t.name + '"]:not([data-edited])').forEach(function (f) {
+        var suffix = f.getAttribute('data-suffix') || '';
+        f.value = t.value.trim() && suffix ? t.value.trim() + suffix : '';
+    });
+});
