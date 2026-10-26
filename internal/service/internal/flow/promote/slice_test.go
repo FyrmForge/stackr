@@ -355,7 +355,7 @@ func TestSliceBlockers(t *testing.T) {
 			prep: func(t *testing.T, w *sliceWorld) {
 				must(t, w.f.D.Tiles.Delete(ctx, w.pg["staging"].ID))
 			},
-			want: "slice api-db: infra/staging has no tile pg-db",
+			want: "slice api-db: infra/staging has no tile called pg-db to cut it from",
 		},
 		{
 			name: "not managed",

@@ -199,7 +199,7 @@ func Resolve(orgSlug string, me Address, base string, tg Target, pl Place) (stri
 	h := pl.Envs[env]
 	switch {
 	case h == nil:
-		return "", errs.Conflictf("%s has no tile %s", at, tg.Tile)
+		return "", errs.Conflictf("%s has no tile called %s to cut it from", at, tg.Tile)
 	case !h.Managed:
 		return "", errs.Conflictf("%s/%s is not a managed tile", at, tg.Tile)
 	case !h.Ready:
