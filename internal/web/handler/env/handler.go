@@ -56,6 +56,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/rename", h.InstanceRename, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
@@ -63,6 +64,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/on-remove", h.SliceOnRemove, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/delete", h.SliceDelete, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/rename", h.SliceRename, a.Require("tile.write"))
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
 	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
 	g.POST(e+"/volumes/:volume/schedules", h.AddSchedule, a.Require("backup.write"))
@@ -249,6 +251,28 @@ func (h *handler) InstanceDelete(c echo.Context) error {
 	return deleting(c)
 }
 
+// POST …/-/instances/:tile/rename: the new name; its slices follow.
+func (h *handler) InstanceRename(c echo.Context) error {
+	note, err := h.rename(c)
+	return h.savedNote(c, "name", note, err, instance.SettingsView{})
+}
+
+// POST …/-/slices/:tile/rename
+func (h *handler) SliceRename(c echo.Context) error {
+	note, err := h.rename(c)
+	return h.slice(c, note, err)
+}
+
+// rename renames the scope's tile; the drawer then reads it by its new slug.
+func (h *handler) rename(c echo.Context) (string, error) {
+	t, warn, err := h.orch.RenameTile(c.Request().Context(), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("name")))
+	if err != nil {
+		return "", err
+	}
+	*scope(c).Tile = t
+	return strings.Join(append([]string{"Saved."}, warn...), " "), nil
+}
+
 // POST …/-/instances/:tile/allow: the whole list (allow, repeated) plus
 // add, one more pattern. Blank entries are dropped.
 func (h *handler) Allow(c echo.Context) error {
@@ -294,6 +318,11 @@ func (h *handler) EnvPairs(c echo.Context) error {
 // saved answers a Settings form: a refusal of its own field shows under
 // the form with what was typed (422), any other over the drawer.
 func (h *handler) saved(c echo.Context, field string, err error, typed instance.SettingsView) error {
+	return h.savedNote(c, field, "Saved.", err, typed)
+}
+
+// savedNote is saved with its own note.
+func (h *handler) savedNote(c echo.Context, field, note string, err error, typed instance.SettingsView) error {
 	var form instance.SettingsView
 	if err != nil {
 		form = typed
@@ -302,8 +331,8 @@ func (h *handler) saved(c echo.Context, field string, err error, typed instance.
 		form.Errors = map[string]string{field: inv.Msg}
 		err = nil
 	}
-	form.Open = map[string]string{"allow": "allow", "env_pairs": "pairs"}[field] // the row saved stays open
-	return h.instance(c, "settings", "Saved.", err, form)
+	form.Open = map[string]string{"allow": "allow", "env_pairs": "pairs", "name": "general"}[field] // the row saved stays open
+	return h.instance(c, "settings", note, err, form)
 }
 
 func nonBlank(list []string) []string {

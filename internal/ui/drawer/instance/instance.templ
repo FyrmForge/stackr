@@ -195,6 +195,7 @@ templ Settings(v View, s SettingsView) {
 
 func settingsRows(v View, s SettingsView) []c.AccRow {
 	rows := []c.AccRow{
+		{Key: "general", Title: "Name", Summary: v.Name, Body: nameRow(v, s)},
 		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Changed: len(s.Allow) > 0, Body: allowRow(v, s)},
 		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Changed: len(s.Pairs) > 0, Body: pairsRow(v, s)},
 	}
@@ -319,6 +320,16 @@ templ pairsRow(v View, s SettingsView) {
 		</form>
 		}
 	</div>
+}
+
+// nameRow renames the database; its slices follow it.
+templ nameRow(v View, s SettingsView) {
+	<form novalidate if !v.ReadOnly { hx-post={ v.Base + "/rename" } } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Error: s.Errors["name"], Disabled: v.ReadOnly, Why: "Only members and owners can rename it.", Help: "Its slices follow the new name."})
+		if !v.ReadOnly {
+			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
+		}
+	</form>
 }
 
 templ deleteRow(v View, s SettingsView) {

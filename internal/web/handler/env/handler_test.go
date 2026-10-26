@@ -471,3 +471,26 @@ func TestInstanceDeleteWithSlicesRefused(t *testing.T) {
 		t.Error("the database went")
 	}
 }
+
+// A database and a slice are renamed from their own drawers; the drawer
+// answers at the new name, a clash on the Name field.
+func TestInstanceAndSliceRename(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	managed(t, s)
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
+		t.Fatal(err)
+	}
+	rec := s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/rename", url.Values{"name": {"pg main"}})
+	if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "/-/instances/pg-main/rename") || !strings.Contains(body, "Saved.") {
+		t.Errorf("database rename = %d\n%s", rec.Code, body)
+	}
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/rename", url.Values{"name": {"pg main"}, "open": {"general"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, `aria-describedby="error-name"`) {
+		t.Errorf("slice rename onto a taken name = %d\n%s", rec.Code, body)
+	}
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/rename", url.Values{"name": {"app db"}, "open": {"general"}})
+	if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "/-/slices/app-db/rename") {
+		t.Errorf("slice rename = %d\n%s", rec.Code, body)
+	}
+}

@@ -110,6 +110,7 @@ templ Settings(v View) {
 
 func settingsRows(v View) []c.AccRow {
 	rows := []c.AccRow{
+		{Key: "general", Title: "Name", Summary: v.Name, Body: nameRow(v)},
 		{Key: "access", Title: "Default access", Summary: access(v.DefaultAccess), Changed: v.DefaultAccess == "read", Body: accessRow(v)},
 	}
 	if len(v.Consumers) > 0 {
@@ -196,6 +197,17 @@ templ consumersRow(v View) {
 			</li>
 		}
 	</ul>
+}
+
+// nameRow renames the slice tile; its consumers keep their binding.
+templ nameRow(v View) {
+	<form novalidate if !v.ReadOnly { hx-post={ v.Base + "/rename" } } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+		@c.KeepOpen("general")
+		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Disabled: v.ReadOnly, Why: "Only members and owners can rename it."})
+		if !v.ReadOnly {
+			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
+		}
+	</form>
 }
 
 templ removeRow(v View) {
