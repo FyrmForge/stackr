@@ -36,9 +36,9 @@ func TestRefusedSaveKeepsTyped(t *testing.T) {
 		t.Errorf("rename = %d\n%s", rec.Code, general)
 	}
 
-	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"GREETING"}, "add_value.stack_pr": {"hi"}, "add_secret.stack_pr": {"s3cret"}})
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"9 greeting"}, "add_value.stack_pr": {"hi"}, "add_secret.stack_pr": {"s3cret"}})
 	body = rec.Body.String()
-	for _, w := range []string{`<details class="group" open>`, `value="app"`, `value="GREETING"`, `value="hi"`, "Use lower-case letters, digits and _ in a name, like greeting."} {
+	for _, w := range []string{`<details class="group" open>`, `value="app"`, `value="9 greeting"`, `value="hi"`, "Use letters, digits and _ in a name, and start with a letter or _, like _9_greeting."} {
 		if rec.Code != 422 || !strings.Contains(body, w) {
 			t.Errorf("vars add = %d, lacks %s\n%s", rec.Code, w, body)
 		}
@@ -60,11 +60,30 @@ func TestVarsAddAnswers(t *testing.T) {
 	if rec := s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}}); rec.Code != 422 || !strings.Contains(rec.Body.String(), "Give the variable a name.") {
 		t.Errorf("empty add = %d\n%s", rec.Code, rec.Body)
 	}
+	// no value: said on the values, with a bad group and name at once
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"Bad Group!"}, "add_name": {"9 bad"}})
+	body = rec.Body.String()
+	for _, w := range []string{
+		`aria-describedby="error-add_group"`, `aria-describedby="error-add_name"`, `aria-describedby="error-add_value"`,
+		"Set a value in at least one column.", "like Bad_Group", "like _9_bad",
+	} {
+		if rec.Code != 422 || !strings.Contains(body, w) {
+			t.Errorf("no value = %d, lacks %s\n%s", rec.Code, w, body)
+		}
+	}
 	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"greeting"}, "add_value.stack_pr": {"hi"}})
 	body = rec.Body.String()
 	form, note := strings.LastIndex(body, "+ Add group"), strings.Index(body, "data-acted")
 	if rec.Code != 200 || note < form || !strings.Contains(body[note:], "Saved.") {
 		t.Errorf("saved add = %d, note at %d, add form at %d\n%s", rec.Code, note, form, body)
+	}
+	// inside a group's panel the ids carry the group
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {"app"}, "add_group": {"app"}, "add_name": {"x"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, `aria-describedby="error-add_value-app"`) || !strings.Contains(body, `id="error-add_value-app" data-has-error="true"`) {
+		t.Errorf("group panel no value = %d\n%s", rec.Code, body)
+	}
+	if got := value(t, s, "stack_pr", s.Tile.Stack); got["app.x"] != "" {
+		t.Errorf("a refused add stored %v", got)
 	}
 }
 

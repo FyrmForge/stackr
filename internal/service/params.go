@@ -50,6 +50,10 @@ func (o *Orchestrator) SetParams(ctx context.Context, s ParamScope, es []ParamEn
 	})
 }
 
+// CheckParam is an entry's shape (group, name, kind) without writing it,
+// so a form can say it beside its own refusals.
+func (o *Orchestrator) CheckParam(e ParamEntry) error { return params.Check(e) }
+
 // DeleteParam drops one param or secret; running tiles that read it
 // redeploy, and the answer names them.
 func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection, name string) ([]Redeploy, error) {

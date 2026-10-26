@@ -606,8 +606,8 @@ the old `variables` table and the four-owner cascade.
   apply declares secrets but never writes their values.
 - **Name grammar.** Env keys on a tile are real env var names
   (`[A-Za-z_][A-Za-z0-9_]*`), same rule in file, API and UI. Collection and
-  param names are slugs (`[a-z0-9_]+`), same validator as tile slugs. Dots
-  are separators, never part of a name.
+  param names follow the same rule, so a variable name means one thing on
+  a tile and in the params grid. Dots are separators, never part of a name.
 - **As today, no decision needed:** generating a random secret value on
   demand; secret values refused to readers without the secrets permission
   (never loaded, not redacted); encryption at rest.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -180,39 +181,8 @@ func (h *handler) SetVars(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	if form.Has("add_form") { // an Add row: a group and a name are its shape
-		var bad []error
-		if strings.TrimSpace(form.Get("add_group")) == "" {
-			bad = append(bad, errs.Invalidf("add_group", "Give the group a name."))
-		}
-		if strings.TrimSpace(form.Get("add_name")) == "" {
-			bad = append(bad, errs.Invalidf("add_name", "Give the variable a name."))
-		}
-		if len(bad) > 0 {
-			return h.varsAfter(c, s, "", errors.Join(bad...))
-		}
-	}
-	if name := strings.TrimSpace(form.Get("add_name")); name != "" {
-		e := service.ParamEntry{Collection: strings.TrimSpace(form.Get("add_group")), Name: name, Kind: "param"}
-		field := "add_value."
-		if form.Get("add_kind") == "secret" {
-			e.Kind, field = "secret", "add_secret."
-		}
-		n := 0
-		for _, col := range cs {
-			if e.Value = form.Get(field + col.Token); e.Value == "" {
-				continue
-			}
-			n++
-			if _, err = h.orch.SetParams(ctx, col.ps, []service.ParamEntry{e}); err != nil {
-				err = render.AsFields(err, map[string]string{"collection": "add_group", "name": "add_name"})
-				break
-			}
-		}
-		if err == nil && n == 0 {
-			err = errs.Invalidf("value", "Set a value in at least one column.")
-		}
-		return h.varsAfter(c, s, "Saved.", err)
+	if form.Has("add_form") || strings.TrimSpace(form.Get("add_name")) != "" {
+		return h.addVar(c, s, cs, form)
 	}
 	col, ok := pick(cs, form.Get("scope"))
 	if !ok {
@@ -220,6 +190,45 @@ func (h *handler) SetVars(c echo.Context) error {
 	}
 	_, err = h.orch.SetParams(ctx, col.ps, render.ParamEntries(form))
 	return h.varsAfter(c, s, "Saved.", err)
+}
+
+// addVar is an Add row: a group, a name and a value in at least one
+// column. Every refusal comes at once, each under its own input; nothing is
+// written until all pass.
+func (h *handler) addVar(c echo.Context, s service.Scope, cs []col, form url.Values) error {
+	ctx := c.Request().Context()
+	e := service.ParamEntry{Collection: strings.TrimSpace(form.Get("add_group")), Name: strings.TrimSpace(form.Get("add_name")), Kind: "param"}
+	field := "add_value."
+	if form.Get("add_kind") == "secret" {
+		e.Kind, field = "secret", "add_secret."
+	}
+	var bad []error // the shape first: FieldErrs keeps a field's first reason
+	if e.Collection == "" {
+		bad = append(bad, errs.Invalidf("add_group", "Give the group a name."))
+	}
+	if e.Name == "" {
+		bad = append(bad, errs.Invalidf("add_name", "Give the variable a name."))
+	}
+	bad = append(bad, render.AsFields(h.orch.CheckParam(e), map[string]string{"collection": "add_group", "name": "add_name"}))
+	var set []col
+	for _, col := range cs {
+		if form.Get(field+col.Token) != "" {
+			set = append(set, col)
+		}
+	}
+	if len(set) == 0 {
+		bad = append(bad, errs.Invalidf("add_value", "Set a value in at least one column."))
+	}
+	if err := errors.Join(bad...); err != nil {
+		return h.varsAfter(c, s, "", err)
+	}
+	for _, col := range set {
+		e.Value = form.Get(field + col.Token)
+		if _, err := h.orch.SetParams(ctx, col.ps, []service.ParamEntry{e}); err != nil {
+			return h.varsAfter(c, s, "", render.AsFields(err, map[string]string{"collection": "add_group", "name": "add_name"}))
+		}
+	}
+	return h.varsAfter(c, s, "Saved.", nil)
 }
 
 // POST <level>/-/vars/delete (collection, name).

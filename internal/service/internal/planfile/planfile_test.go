@@ -200,8 +200,8 @@ func TestCheckWide(t *testing.T) {
 		want string
 	}{
 		"ok":            {map[string]map[string]planfile.Param{"app": {"a": {Type: "param", Value: &val}, "s": {Type: "secret"}}}, ""},
-		"collection":    {map[string]map[string]planfile.Param{"App": {}}, `collection "App"`},
-		"name":          {map[string]map[string]planfile.Param{"app": {"A-b": {Type: "param"}}}, "lower-case"},
+		"collection":    {map[string]map[string]planfile.Param{"9app": {}}, `collection "9app"`},
+		"name":          {map[string]map[string]planfile.Param{"app": {"A-b": {Type: "param"}}}, "starting with"},
 		"secret value":  {map[string]map[string]planfile.Param{"app": {"s": {Type: "secret", Value: &val}}}, "never goes in the file"},
 		"type":          {map[string]map[string]planfile.Param{"app": {"s": {Type: "other"}}}, "type must be param or secret"},
 		"empty is fine": {nil, ""},
@@ -221,8 +221,8 @@ func TestParamsGrammar(t *testing.T) {
 		"bad env":       {"app:\n  Dev:\n    host: a\n", "not an env slug"},
 		"empty part":    {"app:\n  dev|:\n    host: a\n", "not an env slug"},
 		"twice":         {"app:\n  dev|dev:\n    host: a\n", "names dev twice"},
-		"bad name":      {"app:\n  dev:\n    A-b: x\n", "lower-case"},
-		"bad group":     {"App:\n  dev:\n    a: x\n", `collection "App"`},
+		"bad name":      {"app:\n  dev:\n    A-b: x\n", "starting with"},
+		"bad group":     {"9app:\n  dev:\n    a: x\n", `collection "9app"`},
 		"unknown key":   {"app:\n  dev:\n    a: {type: secret, value: x}\n", "unknown key value"},
 		"generate":      {"app:\n  dev:\n    a: {type: secret, generate: 32}\n", ""},
 		"short":         {"app:\n  dev:\n    a: {type: secret, generate: 8}\n", "from 16 to 128"},

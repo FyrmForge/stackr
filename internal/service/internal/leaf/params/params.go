@@ -73,6 +73,23 @@ func (l *Leaf) Values(ctx context.Context, s Scope, secrets bool) (map[string]Va
 // Set writes one entry.
 func (l *Leaf) Set(ctx context.Context, s Scope, e Entry) error { return l.Merge(ctx, s, []Entry{e}) }
 
+// Check is an entry's shape, every refusal at once: its group and name
+// (the env key rule a tile's variables follow too) and its kind.
+func Check(e Entry) error {
+	var bad []error
+	const rule = "Use letters, digits and _ in a %s, and start with a letter or _, like %s."
+	if !slug.ValidName(e.Collection) {
+		bad = append(bad, errs.Invalidf("collection", rule, "group name", slug.Suggest(e.Collection)))
+	}
+	if !slug.ValidName(e.Name) {
+		bad = append(bad, errs.Invalidf("name", rule, "name", slug.Suggest(e.Name)))
+	}
+	if e.Kind != Param && e.Kind != Secret {
+		bad = append(bad, errs.Invalidf("type", "type must be param or secret"))
+	}
+	return errors.Join(bad...)
+}
+
 // Merge upserts the given entries and leaves every other entry of the scope
 // alone (B35). Every entry is checked before any row is touched (B4).
 func (l *Leaf) Merge(ctx context.Context, s Scope, es []Entry) error {
@@ -82,18 +99,8 @@ func (l *Leaf) Merge(ctx context.Context, s Scope, es []Entry) error {
 	}
 	var ws []write
 	for _, e := range es {
-		var bad []error // both names at once
-		if !slug.ValidName(e.Collection) {
-			bad = append(bad, errs.Invalidf("collection", "Use lower-case letters, digits and _ in a group name, like %s.", slug.Suggest(e.Collection)))
-		}
-		if !slug.ValidName(e.Name) {
-			bad = append(bad, errs.Invalidf("name", "Use lower-case letters, digits and _ in a name, like %s.", slug.Suggest(e.Name)))
-		}
-		if e.Kind != Param && e.Kind != Secret {
-			bad = append(bad, errs.Invalidf("type", "type must be param or secret"))
-		}
-		if len(bad) > 0 {
-			return errors.Join(bad...)
+		if err := Check(e); err != nil {
+			return err
 		}
 		old, err := l.params.GetByName(ctx, s.Kind, s.ID, e.Collection, e.Name)
 		switch {

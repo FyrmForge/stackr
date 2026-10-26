@@ -232,12 +232,12 @@ func IsRef(s string) bool {
 func CheckWide(ps map[string]map[string]Param, allowGenerate bool) error {
 	for c, entries := range ps {
 		if !slug.ValidName(c) {
-			return fmt.Errorf("params: collection %q is lower-case letters, digits and _", c)
+			return fmt.Errorf("params: collection %q is letters, digits and _, starting with a letter or _", c)
 		}
 		for n, p := range entries {
 			switch {
 			case !slug.ValidName(n):
-				return fmt.Errorf("params: %s.%s: a name is lower-case letters, digits and _", c, n)
+				return fmt.Errorf("params: %s.%s: a name is letters, digits and _, starting with a letter or _", c, n)
 			case p.Generate != 0 && !allowGenerate:
 				return fmt.Errorf("params: %s.%s: generate is only read in a stack file", c, n)
 			case p.Generate != 0 && p.Type != "secret":

@@ -29,12 +29,22 @@ func TestGrammar(t *testing.T) {
 	}
 	for s, want := range map[string]bool{
 		"api_key": true,
+		"API_KEY": true,
 		"a-b":     false,
-		"A":       false,
+		"9_bad":   false,
 		"":        false,
 	} {
 		if ValidName(s) != want {
 			t.Errorf("ValidName(%q) = %v", s, !want)
+		}
+	}
+	for in, want := range map[string]string{
+		"9 bad":  "_9_bad",
+		"My Key": "My_Key",
+		"!!!":    "my_value",
+	} {
+		if got := Suggest(in); got != want || !ValidName(got) {
+			t.Errorf("Suggest(%q) = %q, want %q", in, got, want)
 		}
 	}
 	for s, want := range map[string]bool{

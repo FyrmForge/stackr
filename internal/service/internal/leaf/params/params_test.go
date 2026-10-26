@@ -221,7 +221,7 @@ func TestResolve(t *testing.T) {
 		{params.InProvisionFrom, "${{ params.email.host }}:dev:pg-db", "smtp:dev:pg-db", ""},
 		{params.InProvisionFrom, "${{ tile.api.host }}:dev:pg-db", "", "not allowed in provision_from"},
 		{params.InProvisionFrom, "${{ params.db.pass }}:dev:pg-db", "", "db.pass is a secret"},
-		{params.InEnv, "${{ params.Email.x }}", "", "not a valid collection"},
+		{params.InEnv, "${{ params.9mail.x }}", "", "not a valid collection"},
 		{params.InEnv, "${{ org.backups.s3-main }}", "", "not allowed in env"},
 		{params.InBackupDest, "${{ org.backups.s3-main }}", "s3://b", ""},
 		{params.InBackupDest, "${{ params.email.host }}", "", "not allowed"},
@@ -234,7 +234,7 @@ func TestResolve(t *testing.T) {
 		{params.InServerFile, "${{ server.params.s3.nope }}", "", "unset"},
 		{params.InServerFile, "${{ params.email.host }}", "", "not allowed in server_file"},
 		{params.InServerFile, "${{ org.params.email.org_only }}", "", "not allowed in server_file"},
-		{params.InServerFile, "${{ server.params.S3.x }}", "", "not a valid collection"},
+		{params.InServerFile, "${{ server.params.3s.x }}", "", "not a valid collection"},
 		{params.InServerFile, "${{ server.s3.x }}", "", "want server.params"},
 		{params.InEnv, "${{ server.params.s3.secret_key }}", "", "only in the server file"},
 		{params.InCommand, "${{ server.params.s3.secret_key }}", "", "only in the server file"},
@@ -278,7 +278,7 @@ func TestServerRefs(t *testing.T) {
 		t.Errorf("plain = %v, %v", keys, err)
 	}
 	for _, bad := range []string{
-		"${{ params.s3.x }}", "${{ org.params.s3.x }}", "${{ server.params.S3.x }}", "${{ server.nope }}",
+		"${{ params.s3.x }}", "${{ org.params.s3.x }}", "${{ server.params.3s.x }}", "${{ server.nope }}",
 	} {
 		if keys, err := params.ServerRefs(bad); err == nil || keys != nil {
 			t.Errorf("%q = %v, %v; want a refusal", bad, keys, err)

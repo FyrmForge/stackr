@@ -1,7 +1,8 @@
 // Package slug is the one grammar for names that end up in URLs, DNS aliases
 // and refs (DECIDE 5 a): org, stack, env and tile slugs are [a-z0-9-]
 // (a tile slug is a DNS alias, where "_" is not allowed); param collection
-// and param names are [a-z0-9_]. Leaves share it, so it lives outside leaf/.
+// and param names follow the env key rule, as a tile's own variables do.
+// Leaves share it, so it lives outside leaf/.
 package slug
 
 import (
@@ -11,7 +12,6 @@ import (
 
 var (
 	slugRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-	nameRe = regexp.MustCompile(`^[a-z0-9_]+$`)
 	envRe  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
@@ -59,22 +59,27 @@ var routeReserved = map[string]bool{
 // panel or API route.
 func RouteReserved(s string) bool { return routeReserved[s] }
 
-// ValidName reports whether s is a param collection or param name.
+// ValidName reports whether s is a param collection or param name: the
+// same rule as a tile's variable names (ValidEnvKey).
 func ValidName(s string) bool {
-	return nameRe.MatchString(s)
+	return envRe.MatchString(s)
 }
 
 // Suggest is the param name closest to s, for a refusal's example:
-// lower case, anything else a "_". "my_value" when nothing is left.
+// anything but a letter or digit a "_", a "_" before a leading digit.
+// "my_value" when nothing is left.
 func Suggest(s string) string {
 	out := strings.Trim(strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
 			return r
 		}
 		return '_'
-	}, strings.ToLower(s)), "_")
-	if out == "" {
+	}, s), "_")
+	switch {
+	case out == "":
 		return "my_value"
+	case out[0] >= '0' && out[0] <= '9':
+		return "_" + out
 	}
 	return out
 }

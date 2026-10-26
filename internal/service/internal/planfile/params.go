@@ -115,13 +115,13 @@ func Expand(ps map[string]Group) (map[string]map[string]Entry, error) {
 func CheckParams(ps map[string]Group, allowGenerate bool) error {
 	for c, g := range ps {
 		if !slug.ValidName(c) {
-			return fmt.Errorf("params: collection %q is lower-case letters, digits and _", c)
+			return fmt.Errorf("params: collection %q is letters, digits and _, starting with a letter or _", c)
 		}
 		for _, entries := range g {
 			for n, e := range entries {
 				switch {
 				case !slug.ValidName(n):
-					return fmt.Errorf("params: %s.%s: a name is lower-case letters, digits and _", c, n)
+					return fmt.Errorf("params: %s.%s: a name is letters, digits and _, starting with a letter or _", c, n)
 				case e.Generate != 0 && !allowGenerate:
 					return fmt.Errorf("params: %s.%s: generate is only read in a stack file", c, n)
 				case e.Generate != 0 && (e.Generate < 16 || e.Generate > 128):

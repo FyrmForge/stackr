@@ -203,9 +203,7 @@ templ addForm(g Grid, group string) {
 				<input class="input font-mono flex-1 min-w-32" name="add_name" placeholder="name" aria-label="Name" value={ typed(r, "add_name") } { c.Invalid(errID(group, "add_name"), fieldErr(r, "add_name"))... }/>
 				<label for={ "add-secret-" + group } class="btn btn-ghost btn-sm cursor-pointer">Secret?</label>
 			</div>
-			if group == "" {
-				@c.FieldError(errID(group, "add_group"), fieldErr(r, "add_group"))
-			}
+			@c.FieldError(errID(group, "add_group"), fieldErr(r, "add_group"))
 			@c.FieldError(errID(group, "add_name"), fieldErr(r, "add_name"))
 			if r != nil && len(r.More) == 0 {
 				<p class="field-error" role="alert">{ r.Msg }</p>
@@ -214,7 +212,7 @@ templ addForm(g Grid, group string) {
 				for _, col := range g.Cols {
 					<label class="text-xs text-rw-faint">
 						{ col.Label }
-						<input class="input font-mono mt-0.5" name={ "add_value." + col.Token } value={ typed(r, "add_value."+col.Token) } autocomplete="off" placeholder="unset"/>
+						<input class="input font-mono mt-0.5" name={ "add_value." + col.Token } value={ typed(r, "add_value."+col.Token) } autocomplete="off" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
 					</label>
 				}
 			</div>
@@ -223,10 +221,11 @@ templ addForm(g Grid, group string) {
 				for _, col := range g.Cols {
 					<label class="text-xs text-rw-faint">
 						{ col.Label }
-						<input class="input font-mono mt-0.5" type="password" name={ "add_secret." + col.Token } autocomplete="new-password" placeholder="unset"/>
+						<input class="input font-mono mt-0.5" type="password" name={ "add_secret." + col.Token } autocomplete="new-password" placeholder="unset" { c.Invalid(errID(group, "add_value"), fieldErr(r, "add_value"))... }/>
 					</label>
 				}
 			</div>
+			@c.FieldError(errID(group, "add_value"), fieldErr(r, "add_value"))
 			<button type="submit" class="btn btn-primary btn-sm">Save</button>
 		</form>
 	</details>
