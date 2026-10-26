@@ -3,6 +3,7 @@ package env_test
 import (
 	"context"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -446,5 +447,27 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 	}
 	if rec := s.Do(t, "GET", env+"/-/proxy", nil); rec.Code != 200 {
 		t.Errorf("htmx proxy drawer = %d", rec.Code)
+	}
+}
+
+// Deleting a database that still holds a slice is refused in its drawer,
+// under the Delete row, and nothing is queued.
+func TestInstanceDeleteWithSlicesRefused(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	pg := managed(t, s)
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Bound(t, main.ID, pg.ID, s.Tile.ID, "read")
+	rec := s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/delete", nil)
+	body := rec.Body.String()
+	_, row, _ := strings.Cut(body, `data-acc="delete"`)
+	if rec.Code != 422 || rec.Header().Get("HX-Redirect") != "" || !strings.Contains(row, "still lives on this database") {
+		t.Errorf("delete with a slice = %d, HX-Redirect %q\n%s", rec.Code, rec.Header().Get("HX-Redirect"), body)
+	}
+	if ts, _ := s.Orch.Tiles(ctx, s.Tile.Env); !slices.ContainsFunc(ts, func(x service.Tile) bool { return x.ID == pg.ID }) {
+		t.Error("the database went")
 	}
 }

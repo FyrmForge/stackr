@@ -446,7 +446,7 @@ type SettingsView struct {
 	AddFrom  string
 	AddTo    string
 	Envs     []string          // this stack's envs, a pair's right side
-	Errors   map[string]string // allow | env_pairs → why the save was refused
+	Errors   map[string]string // allow | env_pairs | delete → why the save was refused
 	Open     string            // the accordion row open on load: the saved one, or ?open=
 }
 
@@ -498,7 +498,7 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Changed: len(s.Pairs) > 0, Body: pairsRow(v, s)},
 	}
 	if !v.ReadOnly {
-		rows = append(rows, c.AccRow{Key: "delete", Title: "Delete", Body: deleteRow(v)})
+		rows = append(rows, c.AccRow{Key: "delete", Title: "Delete", Body: deleteRow(v, s)})
 	}
 	return rows
 }
@@ -1064,7 +1064,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 	})
 }
 
-func deleteRow(v View) templ.Component {
+func deleteRow(v View, s SettingsView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1103,7 +1103,11 @@ func deleteRow(v View) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.DangerZone("Deleting this database removes its container and everything provisioned from it.", v.Name, "The data volume is kept, orphaned for the retention window.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var39), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.DangerZone("Deleting this database removes its container. Its slice tiles must go first.", v.Name, "The data volume is kept, orphaned for the retention window.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var39), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = c.FormError(s.Errors["delete"]).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1123,6 +1127,7 @@ func dropPair(list []Pair, i int) []Pair {
 func remove(v View) c.ConfirmView {
 	d := dialog.Delete(v.Name, v.Base+"/delete", "#"+Root)
 	d.Button = "Delete database"
+	d.Warning = "Its container and domains go. Refused while slice tiles still live on it."
 	return d
 }
 

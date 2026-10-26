@@ -250,6 +250,13 @@ func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, [
 
 // DeleteTile queues the tile's removal: containers, ingress, slices, row.
 func (o *Orchestrator) DeleteTile(ctx context.Context, id string) (Job, error) {
+	// a database still holding slices is refused here, where the drawer
+	// shows it; the job would fail on it out of sight
+	if m, err := o.managed.GetByTile(ctx, id); err == nil {
+		if _, err := o.managed.Teardown(ctx, m, false); err != nil {
+			return Job{}, err
+		}
+	}
 	return o.enqueue(ctx, kindDelete, tileJob{TileID: id}, id)
 }
 

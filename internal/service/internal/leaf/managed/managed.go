@@ -142,9 +142,12 @@ func (l *Leaf) Teardown(ctx context.Context, m store.ManagedInstance, force bool
 	if err != nil {
 		return nil, err
 	}
-	if len(held) > 0 && !force {
-		return nil, errs.Conflictf("%d slice(s) live on this instance; "+
-			"remove their slice tiles first, or force the delete to destroy the data with it", len(held))
+	switch {
+	case force || len(held) == 0:
+	case len(held) == 1:
+		return nil, errs.Conflictf("A slice still lives on this database. Delete its slice tile first.")
+	default:
+		return nil, errs.Conflictf("%d slices still live on this database. Delete their slice tiles first.", len(held))
 	}
 	return held, nil
 }

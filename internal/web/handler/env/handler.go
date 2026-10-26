@@ -240,6 +240,10 @@ func (h *handler) instanceJob(note string, f func(context.Context, string) (serv
 // POST …/-/instances/:tile/delete: queued, the drawer goes back to its env.
 func (h *handler) InstanceDelete(c echo.Context) error {
 	if _, err := h.orch.DeleteTile(c.Request().Context(), scope(c).Tile.ID); err != nil {
+		// the refusal under the Delete row, the drawer kept open on it
+		if msg, ok := render.Refused(err); ok {
+			return h.instance(c, "settings", "", nil, instance.SettingsView{Open: "delete", Errors: map[string]string{"delete": msg}})
+		}
 		return h.instance(c, "settings", "", err, instance.SettingsView{})
 	}
 	return deleting(c)
