@@ -73,6 +73,8 @@ type tileJob struct {
 	TileID string `json:"tile_id"`
 	// Note opens a deploy's job log (a restore's warnings).
 	Note string `json:"note,omitempty"`
+	// Rebuild: build the pinned commit again without the build cache first.
+	Rebuild bool `json:"rebuild,omitempty"`
 }
 
 type promoteJob struct {
@@ -182,6 +184,11 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			o.ensureMesh(ctx)
+			if p.Rebuild {
+				if err := o.deploy.Rebuild(ctx, p.TileID, r.Log); err != nil {
+					return err
+				}
+			}
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				o.downAfterFailedDeploy(ctx, p.TileID, err)
 				return parkOnApproval(r, err)

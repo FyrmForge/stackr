@@ -38,7 +38,7 @@ func (l *Leaf) Image(ctx context.Context, repo, at, arch string) (docker.Cluster
 	}
 	d, err := remote.Get(ref, l.remote(ctx)...)
 	if notFound(err) {
-		return docker.ClusterImage{}, fmt.Errorf("%s:%s: the cluster registry has no such image", repo, at)
+		return docker.ClusterImage{}, fmt.Errorf("%s:%s: %w", repo, at, docker.ErrNoClusterImage)
 	} else if err != nil {
 		return docker.ClusterImage{}, fmt.Errorf("%s:%s: %w", repo, at, err)
 	}

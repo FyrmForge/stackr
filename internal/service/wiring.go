@@ -429,6 +429,18 @@ func (o *Orchestrator) buildTile(
 	t store.Tile,
 	commit string,
 	log io.Writer,
+) (string, error) {
+	return o.buildInto(ctx, st, t, commit, "", log)
+}
+
+// buildInto is buildTile into ref, an image row a release already pins
+// (deploy's Build: the row and its id stay); "" names a new one.
+func (o *Orchestrator) buildInto(
+	ctx context.Context,
+	st store.Stack,
+	t store.Tile,
+	commit, ref string,
+	log io.Writer,
 ) (_ string, err error) {
 	defer func(start time.Time) { selfmetrics.Build(err, time.Since(start)) }(time.Now())
 	og, err := o.orgs.Get(ctx, st.OrgID)
@@ -470,9 +482,10 @@ func (o *Orchestrator) buildTile(
 		return "", err
 	}
 	repo := regfront.Repo(og.Slug, st.Slug, t.Slug)
-	ref, err := o.images.Name(ctx, "localhost:"+installspec.RegistryPort+"/"+repo, commit, uuid.NewString())
-	if err != nil {
-		return "", err
+	if ref == "" {
+		if ref, err = o.images.Name(ctx, "localhost:"+installspec.RegistryPort+"/"+repo, commit, uuid.NewString()); err != nil {
+			return "", err
+		}
 	}
 	return buildFallback(o.builderNode(ctx, ctl), ctl,
 		func(n string) (string, error) { return o.buildOn(ctx, n, repo, ref, bctx, df, args, log) },

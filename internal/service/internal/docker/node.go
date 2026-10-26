@@ -36,6 +36,18 @@ func PullOrgFrom(ctx context.Context) (string, bool) {
 	return s, ok && s != ""
 }
 
+type noCacheKey struct{}
+
+// WithNoCache makes a Build in ctx skip the build cache (a Rebuild).
+func WithNoCache(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noCacheKey{}, true)
+}
+
+func noCache(ctx context.Context) bool {
+	b, _ := ctx.Value(noCacheKey{}).(bool)
+	return b
+}
+
 // ErrNoNode is a Docker call made without a node in its context. Every
 // caller decides which node it is for (see service/dockerrouter.go).
 var ErrNoNode = errors.New("docker: call has no node in its context")

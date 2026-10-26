@@ -3,6 +3,7 @@ package deploy_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -478,5 +479,43 @@ func TestCleanedUpBuildNamesTheTile(t *testing.T) {
 	err = w.f.Redeploy(ctx, w.tile.ID, io.Discard, nil)
 	if err == nil || err.Error() != "the image for api was cleaned up; rebuild it" {
 		t.Errorf("err = %v, want the tile named", err)
+	}
+}
+
+// A git tile whose pinned build is gone from the cluster registry (a panel
+// restore keeps no builds) builds the pinned commit again into the same
+// image, then deploys it.
+func TestMissingBuildIsBuiltAgain(t *testing.T) {
+	w := setup(t)
+	ref := image.ClusterRegistry + "acme/shop/api:abc1234"
+	im, err := w.f.Images.Built(ctx, ref, "sha256:built")
+	must(t, err)
+	const sha = "abc1234def5678abc1234def5678abc1234def5"
+	r, err := w.f.Releases.Create(ctx, w.tile.StackID, "test", []release.Pin{{Slug: "api", ImageID: &im.ID, CommitSHA: sha}})
+	must(t, err)
+	_, err = w.f.Envs.SetRelease(ctx, w.env, r.ID)
+	must(t, err)
+	w.fake.Gone = []string{ref}
+	w.fake.Err = map[string]error{"Pull": fmt.Errorf("pull %s: %w", ref, docker.ErrNoClusterImage)}
+	var built []string
+	w.f.Build = func(_ context.Context, _ store.Tile, commit, into string, _ io.Writer) error {
+		built = append(built, commit, into)
+		delete(w.fake.Err, "Pull")
+		return nil
+	}
+	git := w.tile
+	git.Kind, git.GitURL, git.ImageRef = tile.Service, "https://github.com/acme/shop", ""
+	var log strings.Builder
+	if _, err := w.f.Run(ctx, git, ref, &log, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(built, []string{sha, ref}) {
+		t.Errorf("built %v, want the pinned commit into the pinned ref", built)
+	}
+	if !strings.Contains(log.String(), "Image for commit abc1234 is missing; building it again.") {
+		t.Errorf("log = %q", log.String())
+	}
+	if got := w.fake.Specs[0].Image; got != ref {
+		t.Errorf("ran %q, want %q", got, ref)
 	}
 }

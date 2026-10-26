@@ -99,6 +99,10 @@ type Flow struct {
 	// from the registry's own copy. nil = every pull goes outside.
 	Import func(ctx context.Context, orgID, ref string, c store.Credential, log io.Writer) (run string, imported bool, err error)
 
+	// Build builds commit of git tile t into ref, the image row a release
+	// pins, so the release stays valid; nil = a missing build is an error.
+	Build func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) error
+
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
 	// Engines is flow/managed (the deploy -> managed edge): a managed
@@ -160,6 +164,46 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 	_, err = f.Envs.SetRelease(ctx, e, r.ID)
 	return err
 }
+
+// Rebuild builds the commit the env's release pins for git tile tileID
+// again, without the build cache, into the image the pin names; a
+// Redeploy then runs it.
+func (f *Flow) Rebuild(ctx context.Context, tileID string, log io.Writer) error {
+	t, err := f.Tiles.Get(ctx, tileID)
+	if err != nil {
+		return err
+	}
+	e, err := f.Envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	commit, ref, err := f.BuiltPin(ctx, t, e)
+	if err != nil {
+		return err
+	}
+	logf(log, "Rebuilding commit %s without the build cache.\n", sha7(commit))
+	return f.Build(docker.WithNoCache(ctx), t, commit, ref, log)
+}
+
+// BuiltPin is the commit and image ref env e's release pins for git tile t.
+func (f *Flow) BuiltPin(ctx context.Context, t store.Tile, e store.Environment) (commit, ref string, err error) {
+	if t.GitURL == "" || tile.Pulls(t) || f.Build == nil {
+		return "", "", errs.Invalidf("tile", "only an app built from git can be rebuilt")
+	}
+	if e.ReleaseID != nil {
+		pins, err := f.Releases.Pins(ctx, *e.ReleaseID)
+		if err != nil {
+			return "", "", err
+		}
+		if p := pins[t.Slug]; p.ImageID != nil && p.CommitSHA != "" {
+			im, err := f.Images.Get(ctx, *p.ImageID)
+			return p.CommitSHA, im.Ref, err
+		}
+	}
+	return "", "", errs.Conflictf("%s has nothing built yet: build a commit first", t.Slug)
+}
+
+func sha7(sha string) string { return sha[:min(7, len(sha))] }
 
 // Current is the image the env's release pins for the tile. pinned=false:
 // the release has no pin for it and an image tile falls back to its tag.
@@ -338,6 +382,15 @@ func (f *Flow) prepare(
 	}
 	logf(log, "pulling %s\n", ref)
 	digest, err := f.Images.Ensure(docker.WithPullOrg(ctx, o.Slug), run, auth, log)
+	if errors.Is(err, docker.ErrNoClusterImage) && f.Build != nil {
+		// A restore keeps no builds: build the pinned commit again, once.
+		if commit, pin, perr := f.BuiltPin(ctx, t, e); perr == nil && pin == run {
+			logf(log, "Image for commit %s is missing; building it again.\n", sha7(commit))
+			if err = f.Build(ctx, t, commit, pin, log); err == nil {
+				digest, err = f.Images.Ensure(docker.WithPullOrg(ctx, o.Slug), run, auth, log)
+			}
+		}
+	}
 	if errors.Is(err, image.ErrCleanedUp) {
 		return r, e, "", fmt.Errorf("the image for %s was cleaned up; rebuild it", t.Slug)
 	}

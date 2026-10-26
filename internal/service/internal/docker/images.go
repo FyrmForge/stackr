@@ -472,6 +472,9 @@ func (d *Client) Build(
 	log io.Writer,
 ) (string, error) {
 	args := []string{"buildx", "build", "--builder", d.builderName(builder), "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
+	if noCache(ctx) {
+		args = append(args, "--no-cache")
+	}
 	for k, v := range buildArgs {
 		args = append(args, "--build-arg", k+"="+v)
 	}

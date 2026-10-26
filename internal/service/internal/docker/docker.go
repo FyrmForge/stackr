@@ -156,6 +156,10 @@ type Image struct {
 // ErrNotFound: the container, network, volume or image does not exist.
 var ErrNotFound = errors.New("docker: no such object")
 
+// ErrNoClusterImage: the cluster registry lacks the image asked for (a
+// restore keeps no builds).
+var ErrNoClusterImage = errors.New("the cluster registry has no such image")
+
 // ErrStillRunning: an exec's output ended while the command was still running,
 // so its exit code (0) means nothing.
 var ErrStillRunning = errors.New("docker: command still running when its output ended")

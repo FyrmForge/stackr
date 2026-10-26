@@ -324,6 +324,30 @@ func (o *Orchestrator) deployNoted(ctx context.Context, id, note string) (Job, e
 	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id, Note: note}, id)
 }
 
+// RebuildTile queues a build of the commit the env runs, without the build
+// cache, into the image its release pins, then a deploy of it. Only a git
+// tile has one.
+func (o *Orchestrator) RebuildTile(ctx context.Context, id string) (Job, error) {
+	t, err := o.tiles.Get(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return Job{}, err
+	}
+	if _, _, err := o.deploy.BuiltPin(ctx, t, e); err != nil {
+		return Job{}, err
+	}
+	if err := o.gateTile(ctx, id, true); err != nil {
+		return Job{}, err
+	}
+	return o.enqueue(ctx, kindDeploy, tileJob{TileID: id, Rebuild: true}, id)
+}
+
+// Rebuildable: the tile builds from git, so RebuildTile takes it.
+func Rebuildable(t Tile) bool { return t.GitURL != "" && !tile.Pulls(t) }
+
 // RestartTile and StartTile: a cron or function has runs, not replicas;
 // refused (tilelifecycle.md wording).
 func (o *Orchestrator) RestartTile(ctx context.Context, id string) (Job, error) {
