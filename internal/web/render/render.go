@@ -356,12 +356,18 @@ func AsFields(err error, names map[string]string) error {
 	return errors.Join(out...)
 }
 
-// FieldErrs is every field a refusal names, by field, in plain words.
+// FieldErrs is every field a refusal names, by field, in plain words: two
+// reasons for one field (a line that does not parse, a bad name) both.
 func FieldErrs(err error) map[string]string {
 	out := map[string]string{}
 	for _, bad := range errs.Invalids(err) {
-		if bad.Field != "" && out[bad.Field] == "" {
-			out[bad.Field] = cmp.Or(bad.Msg, "That was refused.")
+		msg := cmp.Or(bad.Msg, "That was refused.")
+		switch {
+		case bad.Field == "" || strings.Contains(out[bad.Field], msg):
+		case out[bad.Field] == "":
+			out[bad.Field] = msg
+		default:
+			out[bad.Field] += " " + msg
 		}
 	}
 	return out

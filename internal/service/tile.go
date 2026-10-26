@@ -156,21 +156,23 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 		return old, nil, err
 	}
 	cur := old
-	if err := edit(&cur); err != nil {
-		return old, nil, err
-	}
-	if err := refuseServerRefs(cur); err != nil {
-		return old, nil, err
-	}
+	// every refusal at once: an edit's own (a line that does not parse)
+	// and each check here come back with the row's Validate, none written
+	bad := []error{edit(&cur), refuseServerRefs(cur)}
 	if cur.GitBranch != old.GitBranch || cur.Kind != old.Kind || cur.GitURL != old.GitURL {
-		if err := o.envBranch(ctx, &cur); err != nil {
-			return old, nil, err
-		}
+		bad = append(bad, o.envBranch(ctx, &cur))
 	}
 	if cur.DependsOn != old.DependsOn {
-		if err := o.checkDeps(ctx, cur); err != nil {
+		bad = append(bad, o.checkDeps(ctx, cur))
+	}
+	for _, err := range bad {
+		if _, ok := errs.IsInvalid(err); err != nil && !ok {
 			return old, nil, err
 		}
+	}
+	if err := errors.Join(bad...); err != nil {
+		v := cur
+		return old, nil, errors.Join(err, tile.Validate(&v))
 	}
 	// only a limit this edit changed: a tile already over the host's size
 	// can still be renamed or retargeted

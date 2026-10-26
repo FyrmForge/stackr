@@ -167,10 +167,8 @@ func write(key string, p any, v string) error {
 			return nil
 		}
 		blob, err := withLines(key, *p, v)
-		if err != nil {
-			return err
-		}
 		*p = blob
+		return err
 	case *int:
 		if v == "" {
 			*p = 0

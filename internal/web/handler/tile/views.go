@@ -170,7 +170,9 @@ func encode(m map[string]string) string {
 // withLines is blob after the editor saved text (KEY=VALUE per line): the
 // lines replace the map, except a value on more than one line, which no
 // line could hold, stays. An unchanged map keeps the stored text, so an
-// untouched save is no change at all.
+// untouched save is no change at all. A line that is not KEY=VALUE is
+// refused, and the blob of the good lines comes with the refusal, so the
+// service can say what else is wrong in the same save.
 func withLines(key, blob, text string) (string, error) {
 	next := map[string]string{}
 	var bad []string // every line that is not KEY=VALUE, at once
@@ -186,12 +188,13 @@ func withLines(key, blob, text string) (string, error) {
 		}
 		next[strings.TrimSpace(k)] = val
 	}
+	var err error
 	switch len(bad) {
 	case 0:
 	case 1:
-		return "", errs.Invalidf(key, "Line %s is not KEY=VALUE.", bad[0])
+		err = errs.Invalidf(key, "Line %s is not KEY=VALUE.", bad[0])
 	default:
-		return "", errs.Invalidf(key, "Lines %s are not KEY=VALUE.", strings.Join(bad, ", "))
+		err = errs.Invalidf(key, "Lines %s are not KEY=VALUE.", strings.Join(bad, ", "))
 	}
 	cur := envMap(blob)
 	for k, val := range cur {
@@ -200,9 +203,9 @@ func withLines(key, blob, text string) (string, error) {
 		}
 	}
 	if maps.Equal(cur, next) {
-		return blob, nil
+		return blob, err
 	}
-	return encode(next), nil
+	return encode(next), err
 }
 
 // without is blob with name dropped.

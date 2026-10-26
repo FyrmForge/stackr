@@ -580,11 +580,8 @@ func (h *handler) SetEnv(c echo.Context) error {
 			return nil
 		}
 		blob, err := withLines("env", t.EnvJSON, text)
-		if err != nil {
-			return err
-		}
 		t.EnvJSON = blob
-		return nil
+		return err
 	})
 }
 

@@ -93,6 +93,19 @@ func TestActions(t *testing.T) {
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), `id="error-restart_policy" data-has-error="true"`) {
 		t.Errorf("refused restart policy = %d\n%s", rec.Code, rec.Body)
 	}
+	// every bad field of a row at once, the service's own check among them
+	rec = s.Do(t, "POST", drawer+"/settings?open=run", url.Values{"fields": {"command replicas restart_policy user shm_size_mb depends_on"},
+		"replicas": {"-2"}, "shm_size_mb": {"-4"}, "depends_on": {"nosuchtile"}})
+	for _, w := range []string{`id="error-replicas" data-has-error="true"`, `id="error-shm_size_mb" data-has-error="true"`, `id="error-depends_on" data-has-error="true"`} {
+		if rec.Code != 422 || !strings.Contains(rec.Body.String(), w) {
+			t.Errorf("run row = %d, lacks %s\n%s", rec.Code, w, rec.Body)
+		}
+	}
+	// a line that does not parse and a bad name in one save
+	rec = s.Do(t, "POST", drawer+"/env?open=variables", url.Values{"env": {"oops\n9X=1"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, "Line 1 is not KEY=VALUE.") || !strings.Contains(body, "9X is not a variable name.") {
+		t.Errorf("env line and name = %d\n%s", rec.Code, body)
+	}
 }
 
 // Each Settings row saves on its own: a Network save keeps the limits a
