@@ -87,7 +87,7 @@ func TestTierDeleteAndMoveRedeploy(t *testing.T) {
 		t.Errorf("tier deleted: qual %d, want %d", w.deploys(t, qual), q+1)
 	}
 	n := w.deploys(t, tl)
-	_, err = w.orch.RenameEnv(ctx, w.env, "prod")
+	_, _, err = w.orch.RenameEnv(ctx, w.env, "prod")
 	must(t, err)
 	if w.deploys(t, tl) != n+1 {
 		t.Errorf("dev renamed to prod: %d deploys, want %d", w.deploys(t, tl), n+1)
@@ -201,7 +201,7 @@ func TestTiers(t *testing.T) {
 	if _, err := w.orch.RenameTier(ctx, w.org, "dev", "develop"); !isConflict(err) || !strings.Contains(err.Error(), "shop/dev is still in tier dev; rename the env first") {
 		t.Errorf("rename = %v, want a conflict naming shop/dev", err)
 	}
-	_, err = w.orch.RenameEnv(ctx, w.env, "staging")
+	_, _, err = w.orch.RenameEnv(ctx, w.env, "staging")
 	must(t, err)
 	_, err = w.orch.RenameTier(ctx, w.org, "dev", "develop")
 	must(t, err)

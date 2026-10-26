@@ -72,7 +72,8 @@ func (h *H) SetOrgSettings() Endpoint {
 
 func (h *H) RenameOrg() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Org, error) {
-		return h.Orch.RenameOrg(rc(c), orgID(c), in.Name)
+		og, _, err := h.Orch.RenameOrg(rc(c), orgID(c), in.Name) // the panel shows stack file warnings
+		return og, err
 	})
 }
 

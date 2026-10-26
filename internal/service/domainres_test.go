@@ -94,7 +94,7 @@ func TestRenameMovesAutoHosts(t *testing.T) {
 		t.Fatalf("auto attach = %q", auto.Host)
 	}
 
-	_, err = w.orch.RenameStack(ctx, w.stack, "store")
+	_, _, err = w.orch.RenameStack(ctx, w.stack, "store")
 	must(t, err)
 	got, err := w.orch.domains.Get(ctx, auto.ID)
 	must(t, err)

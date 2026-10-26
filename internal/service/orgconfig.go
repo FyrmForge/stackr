@@ -445,10 +445,18 @@ func (o *Orchestrator) walkOrgPlan(
 		var err error
 		switch c.Kind {
 		case "rename":
-			_, err = o.RenameStack(ctx, stackIDs[c.Old], c.New)
+			var warn []string
+			_, warn, err = o.RenameStack(ctx, stackIDs[c.Old], c.New)
+			for _, w := range warn {
+				_, _ = fmt.Fprintln(log, w)
+			}
 			stackIDs[c.New] = stackIDs[c.Old]
 		case "org":
-			_, err = o.RenameOrg(ctx, og.ID, c.New)
+			var warn []string
+			_, warn, err = o.RenameOrg(ctx, og.ID, c.New)
+			for _, w := range warn {
+				_, _ = fmt.Fprintln(log, w)
+			}
 		case "param", "param-update":
 			err = o.putOrgParams(ctx, og, f, plan, c.Tile)
 		case "tier":

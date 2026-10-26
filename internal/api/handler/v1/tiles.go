@@ -195,7 +195,8 @@ func (h *H) UpdateTile() Endpoint {
 
 func (h *H) RenameTile() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Tile, error) {
-		return h.Orch.RenameTile(rc(c), tileID(c), in.Name)
+		t, _, err := h.Orch.RenameTile(rc(c), tileID(c), in.Name) // the panel shows stack file warnings
+		return t, err
 	})
 }
 

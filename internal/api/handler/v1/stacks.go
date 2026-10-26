@@ -83,7 +83,8 @@ func (h *H) GetStack() Endpoint {
 
 func (h *H) RenameStack() Endpoint {
 	return JSON(200, func(c echo.Context, in NameIn) (service.Stack, error) {
-		return h.Orch.RenameStack(rc(c), stackID(c), in.Name)
+		st, _, err := h.Orch.RenameStack(rc(c), stackID(c), in.Name) // the panel shows stack file warnings
+		return st, err
 	})
 }
 
@@ -267,7 +268,8 @@ func (h *H) RenameEnv() Endpoint {
 				return h.envOut(c)(*e, err)
 			}
 		}
-		return h.envOut(c)(h.Orch.RenameEnv(rc(c), envID(c), in.Name))
+		e, _, err := h.Orch.RenameEnv(rc(c), envID(c), in.Name) // the panel shows stack file warnings
+		return h.envOut(c)(e, err)
 	})
 }
 

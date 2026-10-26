@@ -35,7 +35,7 @@ func TestRouteSegmentsAreReservedOrgSlugs(t *testing.T) {
 		}
 	}
 	for seg := range segs {
-		if _, err := env.Orch.RenameOrg(context.Background(), org, seg); err == nil {
+		if _, _, err := env.Orch.RenameOrg(context.Background(), org, seg); err == nil {
 			t.Errorf("org named %q accepted, but /%s is a route", seg, seg)
 		}
 	}

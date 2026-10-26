@@ -209,23 +209,43 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	return t, j, nil
 }
 
-// RenameTile moves name and slug, and the tile's auto domains with them.
-func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, error) {
+// RenameTile moves name and slug, the tile's auto domains, and every slice
+// target and allow entry that names it (carrySlug). warn names the
+// references a stack file holds.
+func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, []string, error) {
 	t, err := o.tiles.Get(ctx, id)
 	if err != nil {
-		return t, err
+		return t, nil, err
 	}
 	old := t
-	if t, err = o.tiles.Rename(ctx, t, name); err != nil {
-		return t, err
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil {
+		return t, nil, err
+	}
+	st, err := o.stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return t, nil, err
+	}
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return t, nil, err
+	}
+	// a managed tile's slices and allow entries follow its slug
+	warn, err := o.renameCarrying(ctx, og.ID, 3, []string{og.Slug, st.Slug, e.Slug}, old.Slug, func(tx store.Tx) (string, error) {
+		var err error
+		t, err = tile.New(tx.Tiles, o.docker, o.vip).Rename(ctx, old, name)
+		return t.Slug, err
+	})
+	if err != nil {
+		return t, nil, err
 	}
 	if t.Slug != old.Slug { // the new name asks the admin again
 		if err := o.dropTileGrant(ctx, old); err != nil {
-			return t, err
+			return t, warn, err
 		}
 		o.cancelWaitingTile(ctx, id)
 	}
-	return t, o.refreshAutoHosts(ctx, []Tile{t})
+	return t, warn, o.refreshAutoHosts(ctx, []Tile{t})
 }
 
 // DeleteTile queues the tile's removal: containers, ingress, slices, row.

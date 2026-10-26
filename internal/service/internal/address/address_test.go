@@ -236,3 +236,29 @@ func TestParseTargetRefuses(t *testing.T) {
 		}
 	}
 }
+
+func TestRenameSeg(t *testing.T) {
+	for _, c := range []struct {
+		ref   string
+		pos   int
+		above []string
+		want  string
+		ok    bool
+	}{
+		{"acme:shop:qa:pg", 2, []string{"acme", "shop"}, "acme:shop:prod:pg", true},
+		{"acme:shop:qa", 2, []string{"acme", "shop"}, "acme:shop:prod", true},
+		{"acme:shop:qa:*", 2, []string{"acme", "shop"}, "acme:shop:prod:*", true},
+		{"acme:*:qa:*", 2, []string{"acme", "shop"}, "acme:*:qa:*", false}, // names every stack's qa
+		{"acme:blog:qa:pg", 2, []string{"acme", "shop"}, "acme:blog:qa:pg", false},
+		{"acme:shop", 2, []string{"acme", "shop"}, "acme:shop", false},
+		{"shop:qa:pg", 1, []string{"shop"}, "shop:prod:pg", true},
+		{"shop:${{ env.name }}:pg", 1, []string{"shop"}, "shop:${{ env.name }}:pg", false},
+		{"acme:*", 0, nil, "acme:*", false},
+		{"qa:shop:*", 0, nil, "prod:shop:*", true},
+	} {
+		got, ok := RenameSeg(c.ref, c.pos, c.above, "qa", "prod")
+		if got != c.want || ok != c.ok {
+			t.Errorf("RenameSeg(%q, %d, %v) = %q, %v; want %q, %v", c.ref, c.pos, c.above, got, ok, c.want, c.ok)
+		}
+	}
+}

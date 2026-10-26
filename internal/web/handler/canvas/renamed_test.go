@@ -19,7 +19,7 @@ func TestRenamedStaysOnPage(t *testing.T) {
 		req := httptest.NewRequest("POST", "/acme/shop/-/drawer/rename", nil)
 		req.Header.Set("HX-Current-URL", tc.current)
 		rec := httptest.NewRecorder()
-		if _, err := renamed(echo.New().NewContext(req, rec), "store", "/acme/shop", "/acme/store", "/acme", "drawer=stack:s1&tab=settings&open=general"); err != nil {
+		if _, err := renamed(echo.New().NewContext(req, rec), "store", nil, "/acme/shop", "/acme/store", "/acme", "drawer=stack:s1&tab=settings&open=general"); err != nil {
 			t.Fatal(err)
 		}
 		if got := rec.Header().Get("HX-Redirect"); got != tc.want {

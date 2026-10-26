@@ -379,7 +379,7 @@ func TestPlanApplyFails(t *testing.T) {
 		t.Errorf("plan again left the binding %q", got)
 	}
 	// another org takes the slug between the plan and its apply
-	if _, err := s.Orch.RenameOrg(ctx, s.Org, "Globex"); err != nil {
+	if _, _, err := s.Orch.RenameOrg(ctx, s.Org, "Globex"); err != nil {
 		t.Fatal(err)
 	}
 	wait := s.As(t, sess, "POST", b+"/config/plan/"+pl.ID+"/approve", nil).Header().Get("HX-Redirect")

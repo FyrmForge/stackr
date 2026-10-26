@@ -601,11 +601,11 @@ func (h *handler) SetAccess(c echo.Context) error {
 // POST …/rename: the General row's name. The slug and the drawer's URL
 // move with it.
 func (h *handler) Rename(c echo.Context) error {
-	t, err := h.orch.RenameTile(c.Request().Context(), tileOf(c).ID, strings.TrimSpace(c.FormValue("name")))
+	t, warn, err := h.orch.RenameTile(c.Request().Context(), tileOf(c).ID, strings.TrimSpace(c.FormValue("name")))
 	if err == nil {
 		*tileOf(c) = t
 	}
-	return h.after(c, "settings", "Saved.", err)
+	return h.after(c, "settings", strings.Join(append([]string{"Saved."}, warn...), " "), err)
 }
 
 func (h *handler) CheckImage(c echo.Context) error {

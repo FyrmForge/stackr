@@ -385,11 +385,11 @@ func (h *handler) mountOrg(site *echo.Group, a *middleware.Access) {
 	site.GET(o, h.drawerRoute("org"), a.Require("org.read"))
 	owner, manage := a.Require("org.write"), a.Require("member.manage")
 	site.POST(o+"/rename", h.orgAction("general/name", func(c echo.Context, og *service.Org) (string, error) {
-		n, err := h.orch.RenameOrg(c.Request().Context(), og.ID, c.FormValue("name"))
+		n, warn, err := h.orch.RenameOrg(c.Request().Context(), og.ID, c.FormValue("name"))
 		if err != nil {
 			return "", err
 		}
-		return renamed(c, n.Name, "/"+og.Slug, "/"+n.Slug, "/", "drawer=org:"+n.ID+"&tab=general&open=name") // org cards are on home
+		return renamed(c, n.Name, warn, "/"+og.Slug, "/"+n.Slug, "/", "drawer=org:"+n.ID+"&tab=general&open=name") // org cards are on home
 	}), owner)
 	site.POST(o+"/delete", h.orgAction("general/delete", func(c echo.Context, og *service.Org) (string, error) {
 		if err := h.orch.DeleteOrg(c.Request().Context(), og.ID); err != nil {

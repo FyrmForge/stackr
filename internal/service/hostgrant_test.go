@@ -248,7 +248,7 @@ func TestTileRenameAndDeleteDropGrant(t *testing.T) {
 	must(t, err)
 	w.wait(t, j.ID)
 
-	tl, err = w.orch.RenameTile(ctx, tl.ID, "mon2")
+	tl, _, err = w.orch.RenameTile(ctx, tl.ID, "mon2")
 	must(t, err)
 	if g, _ = w.orch.HostGrant(ctx, w.stack); g.Granted {
 		t.Fatalf("lines survived the rename: %v", g.Lines)

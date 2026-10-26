@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 type EnvSpec = environment.Spec
@@ -72,15 +73,16 @@ func (o *Orchestrator) EnvDefaultBranch(ctx context.Context, stackID string) (st
 	return cmp.Or(st.ConfigBranch, "main"), err
 }
 
-// RenameEnv moves name and slug, and the auto domains under the env with
-// them.
-func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environment, error) {
+// RenameEnv moves name and slug, the auto domains under the env, and every
+// slice target, allow entry and env pair that names it (carrySlug). warn
+// names the references a stack file holds, which only the file can change.
+func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (e Environment, warn []string, err error) {
 	// [old] and [new] refs from other envs, and its own view if it joins or
 	// leaves a tier
 	sc := ParamScope{Kind: "env", ID: id}
 	var was Tier
 	var old []Tile
-	e, err := o.onEnv(ctx, id, func(e Environment) (Environment, error) {
+	e, err = o.onEnv(ctx, id, func(e Environment) (Environment, error) {
 		var err error
 		if was, _, err = o.envTier(ctx, e); err != nil {
 			return e, err
@@ -88,28 +90,42 @@ func (o *Orchestrator) RenameEnv(ctx context.Context, id, name string) (Environm
 		if old, err = o.readersOf(ctx, sc, true); err != nil {
 			return e, err
 		}
-		return o.envs.Rename(ctx, e, name)
+		st, err := o.stacks.Get(ctx, e.StackID)
+		if err != nil {
+			return e, err
+		}
+		og, err := o.orgs.Get(ctx, st.OrgID)
+		if err != nil {
+			return e, err
+		}
+		out := e
+		warn, err = o.renameCarrying(ctx, og.ID, 2, []string{og.Slug, st.Slug}, e.Slug, func(tx store.Tx) (string, error) {
+			var err error
+			out, err = environment.New(tx.Environments, nil).Rename(ctx, e, name)
+			return out.Slug, err
+		})
+		return out, err
 	})
 	if err != nil {
-		return e, err
+		return e, nil, err
 	}
 	ts, err := o.tiles.List(ctx, id)
 	if err != nil {
-		return e, err
+		return e, warn, err
 	}
 	if err := o.refreshAutoHosts(ctx, ts); err != nil {
-		return e, err
+		return e, warn, err
 	}
 	now, err := o.readersOf(ctx, sc, true)
 	if err != nil {
-		return e, err
+		return e, warn, err
 	}
 	if t, _, err := o.envTier(ctx, e); err != nil {
-		return e, err
+		return e, warn, err
 	} else if t.ID != was.ID { // joined, left or moved between tiers
 		now = append(now, ts...)
 	}
-	return e, o.redeployUnion(ctx, old, now)
+	return e, warn, o.redeployUnion(ctx, old, now)
 }
 
 // SetEnvFrom sets where the env's releases come from: a branch (auto or

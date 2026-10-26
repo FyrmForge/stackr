@@ -54,7 +54,7 @@ func (o *Orchestrator) CreateNamedOrg(ctx context.Context, userID, name string) 
 	if err != nil {
 		return og, err
 	}
-	if og, err = o.RenameOrg(ctx, og.ID, name); err == nil {
+	if og, _, err = o.RenameOrg(ctx, og.ID, name); err == nil { // a new org has no references
 		og, err = o.FinishOrg(ctx, og.ID)
 	}
 	if err != nil {
@@ -78,25 +78,33 @@ func (o *Orchestrator) SetOrgSetupMode(ctx context.Context, orgID, mode string) 
 	return o.SetOrgConfigRepo(ctx, og.ID, "", "", "", "", false)
 }
 
-// RenameOrg moves name and slug, and the auto domains under the org with
-// them; the squat check reads every domain's org.
-func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, error) {
+// RenameOrg moves name and slug, the auto domains under the org, and every
+// allow entry that leads with it (carrySlug); the squat check reads every
+// domain's org. warn names the references a stack file holds.
+func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, []string, error) {
 	og, err := o.orgs.Get(ctx, orgID)
 	if err != nil {
-		return og, err
+		return og, nil, err
 	}
 	claims, err := o.claims(ctx)
 	if err != nil {
-		return og, err
+		return og, nil, err
 	}
-	if og, err = o.orgs.Rename(ctx, og, name, claims); err != nil {
-		return og, err
+	was := og
+	// allow entries lead with the org slug; a stack file's come back as warnings
+	warn, err := o.renameCarrying(ctx, og.ID, 0, nil, was.Slug, func(tx store.Tx) (string, error) {
+		var err error
+		og, err = org.New(tx.Orgs, tx.OrgMembers, tx.Invites).Rename(ctx, was, name, claims)
+		return og.Slug, err
+	})
+	if err != nil {
+		return og, nil, err
 	}
 	ts, err := o.scopeTiles(ctx, ParamScope{Kind: "org", ID: og.ID})
 	if err != nil {
-		return og, err
+		return og, warn, err
 	}
-	return og, o.refreshAutoHosts(ctx, ts)
+	return og, warn, o.refreshAutoHosts(ctx, ts)
 }
 
 // SetOrgSettings writes the org's rung of the defaults cascade and

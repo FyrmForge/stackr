@@ -219,11 +219,11 @@ func (h *handler) mountEnv(site *echo.Group, a *middleware.Access) {
 		if err != nil {
 			return "", err
 		}
-		en, err := h.orch.RenameEnv(ctx, cd.s.Env.ID, c.FormValue("name"))
+		en, warn, err := h.orch.RenameEnv(ctx, cd.s.Env.ID, c.FormValue("name"))
 		if err != nil {
 			return "", err
 		}
-		return renamed(c, en.Name, urlOf(cd.s), stackURL(cd)+"/"+en.Slug, stackURL(cd), "drawer=env:"+en.ID+"&tab=settings&open=general")
+		return renamed(c, en.Name, warn, urlOf(cd.s), stackURL(cd)+"/"+en.Slug, stackURL(cd), "drawer=env:"+en.ID+"&tab=settings&open=general")
 	}), write)
 	site.POST(e+"/from", h.envAction("settings", func(c echo.Context, cd card) (string, error) {
 		_, err := h.orch.SetEnvFrom(

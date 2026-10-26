@@ -220,3 +220,16 @@ func Resolve(orgSlug string, me Address, base string, tg Target, pl Place) (stri
 	}
 	return env, nil
 }
+
+// RenameSeg rewrites segment pos of ref (split on ":") from old to nu when
+// the segments before it equal above, so a renamed org, stack, env or tile
+// keeps the references that name it. A * or a ${{ }} ref never equals a
+// slug, so neither is ever rewritten. ok is false when nothing changed.
+func RenameSeg(ref string, pos int, above []string, old, nu string) (string, bool) {
+	segs := strings.Split(ref, ":")
+	if old == nu || len(segs) <= pos || segs[pos] != old || !slices.Equal(segs[:pos], above) {
+		return ref, false
+	}
+	segs[pos] = nu
+	return strings.Join(segs, ":"), true
+}

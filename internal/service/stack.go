@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -24,21 +25,32 @@ func (o *Orchestrator) CreateStack(ctx context.Context, orgID, name, description
 	return o.stacks.Create(ctx, orgID, name, description)
 }
 
-// RenameStack moves name and slug, and the auto domains under the stack
-// with them.
-func (o *Orchestrator) RenameStack(ctx context.Context, id, name string) (Stack, error) {
+// RenameStack moves name and slug, the auto domains under the stack, and
+// every slice target and allow entry that names it (carrySlug). warn names
+// the references a stack file holds.
+func (o *Orchestrator) RenameStack(ctx context.Context, id, name string) (Stack, []string, error) {
 	st, err := o.stacks.Get(ctx, id)
 	if err != nil {
-		return st, err
+		return st, nil, err
 	}
-	if st, err = o.stacks.Rename(ctx, st, name); err != nil {
-		return st, err
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return st, nil, err
+	}
+	was := st
+	warn, err := o.renameCarrying(ctx, og.ID, 1, []string{og.Slug}, was.Slug, func(tx store.Tx) (string, error) {
+		var err error
+		st, err = stack.New(tx.Stacks).Rename(ctx, was, name)
+		return st.Slug, err
+	})
+	if err != nil {
+		return st, nil, err
 	}
 	ts, err := o.tiles.ListByStack(ctx, st.ID)
 	if err != nil {
-		return st, err
+		return st, warn, err
 	}
-	return st, o.refreshAutoHosts(ctx, ts)
+	return st, warn, o.refreshAutoHosts(ctx, ts)
 }
 
 // DeleteStack refuses while the stack has environments.

@@ -352,7 +352,7 @@ func TestRenameStackRepointsGeneratedRedirects(t *testing.T) {
 	ctx := context.Background()
 	_, err := w.orch.RenameDomainResource(ctx, w.inst.ID, "new.io")
 	must(t, err)
-	_, err = w.orch.RenameStack(ctx, w.stack, "store")
+	_, _, err = w.orch.RenameStack(ctx, w.stack, "store")
 	must(t, err)
 	if red := w.redirect(t, "api.shop.acme.example.com"); red.RedirectTo != "api.store.acme.new.io" {
 		t.Errorf("redirect = %+v, want it repointed at the row's new host", red)

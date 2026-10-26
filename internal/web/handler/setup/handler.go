@@ -619,7 +619,7 @@ func planURL(og *service.Org, planID, jobID string) string {
 // moves on. A refusal comes back as the form with what was typed.
 func (h *handler) name(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
-	n, err := h.orch.RenameOrg(c.Request().Context(), og.ID, c.FormValue("name"))
+	n, _, err := h.orch.RenameOrg(c.Request().Context(), og.ID, c.FormValue("name")) // setup: no stacks yet
 	if err == nil {
 		return respond.Redirect(c, next(&n, "name"))
 	}

@@ -184,9 +184,14 @@ func redirect(c echo.Context, url string) (string, error) {
 // renamed answers a rename: a flash, then the page the viewer was on with
 // the renamed card's drawer open again. On the card's own page (its old
 // URL, own) that is the page at its new URL (moved); anywhere else, its
-// card's canvas (canvas). query is the drawer's ?drawer=&tab=&open=.
-func renamed(c echo.Context, name, own, moved, canvas, query string) (string, error) {
-	hamrmw.SetFlash(c, "Renamed to "+name+".", hamrmw.FlashSuccess)
+// card's canvas (canvas). query is the drawer's ?drawer=&tab=&open=. warn
+// is what the rename could not carry, read with the flash.
+func renamed(c echo.Context, name string, warn []string, own, moved, canvas, query string) (string, error) {
+	if len(warn) > 0 {
+		hamrmw.SetFlash(c, "Renamed to "+name+". "+strings.Join(warn, " "), hamrmw.FlashInfo)
+	} else {
+		hamrmw.SetFlash(c, "Renamed to "+name+".", hamrmw.FlashSuccess)
+	}
 	if cur, err := neturl.Parse(c.Request().Header.Get("HX-Current-URL")); err == nil && cur.Path == own {
 		return redirect(c, moved+"?"+query)
 	}
@@ -198,12 +203,12 @@ func (h *handler) mountStack(site *echo.Group, a *middleware.Access) {
 	site.GET(s, h.drawerRoute("stack"), a.Require("org.read"))
 	write := a.Require("stack.write")
 	site.POST(s+"/rename", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
-		st, err := h.orch.RenameStack(c.Request().Context(), cd.s.Stack.ID, c.FormValue("name"))
+		st, warn, err := h.orch.RenameStack(c.Request().Context(), cd.s.Stack.ID, c.FormValue("name"))
 		if err != nil {
 			return "", err
 		}
 		org := "/" + cd.s.Org.Slug
-		return renamed(c, st.Name, urlOf(cd.s), org+"/"+st.Slug, org, "drawer=stack:"+st.ID+"&tab=settings&open=general")
+		return renamed(c, st.Name, warn, urlOf(cd.s), org+"/"+st.Slug, org, "drawer=stack:"+st.ID+"&tab=settings&open=general")
 	}), write)
 	site.POST(s+"/config", h.stackAction("settings", func(c echo.Context, cd card) (string, error) {
 		f := c.FormValue
