@@ -491,10 +491,10 @@ func masterKeyChange(dataDir, stage string, thisGen int) string {
 // ponytail: the date is the restore's; the archive carries no rotation date.
 func writeMasterGen(dataDir string, gen int) error {
 	p := filepath.Join(dataDir, "keys/master.gen")
-	switch {
-	case gen == 0:
+	switch gen {
+	case 0:
 		return nil
-	case gen == 1:
+	case 1:
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
