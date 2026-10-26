@@ -365,7 +365,7 @@ func defaultsBody(v c.SettingsFormView) templ.Component {
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<p class=\"text-xs text-rw-faint\">Stacks and envs can override these.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<p class=\"text-xs text-rw-faint\" data-hint>Stacks and envs can override these.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -452,7 +452,7 @@ func Tiers(v TiersView) templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div id=\"org-tiers\"><p class=\"text-xs text-rw-faint mb-3\">Envs named like a tier join it. Listed bottom first.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div id=\"org-tiers\"><p class=\"text-xs text-rw-faint mb-3\" data-hint>Envs named like a tier join it. Listed bottom first.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -664,7 +664,7 @@ func Tiers(v TiersView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\"> <button type=\"submit\" class=\"btn btn-primary btn-sm\">Save</button><p class=\"basis-full text-xs text-rw-faint\">Envs keep the old name until renamed to match.</p></form></details>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\"> <button type=\"submit\" class=\"btn btn-primary btn-sm\">Save</button><p class=\"basis-full text-xs text-rw-faint\" data-hint>Envs keep the old name until renamed to match.</p></form></details>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -682,7 +682,7 @@ func Tiers(v TiersView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</ul><p class=\"mt-3 text-xs text-rw-faint\">A locked tier is read from inside it only.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</ul><p class=\"mt-3 text-xs text-rw-faint\" data-hint>A locked tier is read from inside it only.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -713,7 +713,7 @@ func Tiers(v TiersView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" hx-swap=\"outerHTML\" class=\"flex gap-2 mt-4\"><input type=\"text\" name=\"slug\" required class=\"input font-mono\" placeholder=\"tier name\" aria-label=\"New tier name\"> <button type=\"submit\" class=\"btn btn-ghost btn-sm shrink-0\">Add tier</button></form><p class=\"mt-1.5 text-xs text-rw-faint\">A new tier starts locked.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" hx-swap=\"outerHTML\" class=\"flex gap-2 mt-4\"><input type=\"text\" name=\"slug\" required class=\"input font-mono\" placeholder=\"tier name\" aria-label=\"New tier name\"> <button type=\"submit\" class=\"btn btn-ghost btn-sm shrink-0\">Add tier</button></form><p class=\"mt-1.5 text-xs text-rw-faint\" data-hint>A new tier starts locked.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1095,7 +1095,7 @@ func Members(v MembersView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "\" hx-swap=\"outerHTML\" class=\"people-add space-y-4\"><div><label for=\"people-email\" class=\"label\">Email address</label> <input id=\"people-email\" name=\"email\" type=\"email\" required placeholder=\"person@example.com\" class=\"input\"><p class=\"mt-1.5 text-xs text-rw-faint\">They get an invitation to accept. This server sends no mail, so the link is yours to send.</p></div><div><span class=\"label\">Role</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "\" hx-swap=\"outerHTML\" class=\"people-add space-y-4\"><div><label for=\"people-email\" class=\"label\">Email address</label> <input id=\"people-email\" name=\"email\" type=\"email\" required placeholder=\"person@example.com\" class=\"input\"><p class=\"mt-1.5 text-xs text-rw-faint\" data-hint>They get an invitation to accept. This server sends no mail, so the link is yours to send.</p></div><div><span class=\"label\">Role</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1561,7 +1561,7 @@ func Keys(v KeysView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "</select></div><p class=\"text-xs text-rw-faint\">A key never has more access than you do.</p><button type=\"submit\" class=\"btn btn-primary btn-sm\">Mint key</button></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "</select></div><p class=\"text-xs text-rw-faint\" data-hint>A key never has more access than you do.</p><button type=\"submit\" class=\"btn btn-primary btn-sm\">Mint key</button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1888,7 +1888,7 @@ func Domains(v DomainsView) templ.Component {
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 141, "<p class=\"basis-full text-xs text-rw-faint\">Names under it move; the old ones redirect. Point DNS first.</p></form>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 141, "<p class=\"basis-full text-xs text-rw-faint\" data-hint>Names under it move; the old ones redirect. Point DNS first.</p></form>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -1913,7 +1913,7 @@ func Domains(v DomainsView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.NoWildcard {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<p class=\"text-xs text-rw-faint mb-5\">No wildcard certificates: each host gets its own, and Let's Encrypt allows about 50 a week per domain.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<p class=\"text-xs text-rw-faint mb-5\" data-hint>No wildcard certificates: each host gets its own, and Let's Encrypt allows about 50 a week per domain.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1962,7 +1962,7 @@ func Domains(v DomainsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "\" class=\"input font-mono\"><p class=\"mt-1.5 text-xs text-rw-faint\">A bare lowercase hostname, e.g. example.com.</p></div><label class=\"flex items-center gap-2 text-sm text-rw-muted cursor-pointer\"><input type=\"checkbox\" name=\"include_env_on_default\" value=\"1\" class=\"accent-rw-accent\"> Include env slug on default env (api.prod.stack instead of api.stack)</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "\" class=\"input font-mono\"><p class=\"mt-1.5 text-xs text-rw-faint\" data-hint>A bare lowercase hostname, e.g. example.com.</p></div><label class=\"flex items-center gap-2 text-sm text-rw-muted cursor-pointer\"><input type=\"checkbox\" name=\"include_env_on_default\" value=\"1\" class=\"accent-rw-accent\"> Include env slug on default env (api.prod.stack instead of api.stack)</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2090,7 +2090,7 @@ func Shares(v SharesView) templ.Component {
 			templ_7745c5c3_Var78 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 156, "<div id=\"org-shares\"><p class=\"text-xs text-rw-faint mb-3\">NFS or SMB exports tiles can mount.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 156, "<div id=\"org-shares\"><p class=\"text-xs text-rw-faint mb-3\" data-hint>NFS or SMB exports tiles can mount.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2270,7 +2270,7 @@ func Shares(v SharesView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 176, "<p class=\"text-xs text-rw-faint\">Only an owner can add shares.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 176, "<p class=\"text-xs text-rw-faint\" data-hint>Only an owner can add shares.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2452,7 +2452,7 @@ func Config(v ConfigView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if v.Base == "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 190, "<p class=\"text-xs text-rw-faint\">Only an owner can bind the org file.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 190, "<p class=\"text-xs text-rw-faint\" data-hint>Only an owner can bind the org file.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

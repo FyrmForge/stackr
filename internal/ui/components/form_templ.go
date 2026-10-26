@@ -1106,14 +1106,14 @@ func DangerZone(warning, path, kept string) templ.Component {
 			templ_7745c5c3_Var46 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<section class=\"mt-8 first:mt-0 rounded-lg border border-rw-danger/40 p-4\"><h3 class=\"text-sm font-semibold text-rw-danger mb-2\">Danger zone</h3><p class=\"text-sm text-rw-text mb-1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<section class=\"mt-8 first:mt-0 rounded-lg border border-rw-danger/40 p-4\"><h3 class=\"text-sm font-semibold text-rw-danger mb-2\">Danger zone</h3><p class=\"text-sm text-rw-text mb-1\" data-hint>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var47 string
 		templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(warning)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/form.templ`, Line: 212, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/form.templ`, Line: 212, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 		if templ_7745c5c3_Err != nil {
@@ -1143,14 +1143,14 @@ func DangerZone(warning, path, kept string) templ.Component {
 			}
 		}
 		if kept != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<p class=\"text-xs text-rw-faint\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<p class=\"text-xs text-rw-faint\" data-hint>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(kept)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/form.templ`, Line: 217, Col: 42}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/form.templ`, Line: 217, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {

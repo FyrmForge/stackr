@@ -107,7 +107,7 @@ templ Placement(v View) {
 		<p class="text-sm text-rw-muted">Where it runs and how traffic gets in and out.</p>
 		@c.Answered(v.Note, v.Error) {
 			if v.Why != "" {
-				<p class="text-xs text-rw-faint">{ v.Why }</p>
+				<p class="text-xs text-rw-faint" data-hint>{ v.Why }</p>
 			}
 			if v.RunsOn {
 				@runsOn(v)
@@ -140,7 +140,7 @@ templ runsOn(v View) {
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			}
 		</form>
-		<p class="mt-2 text-xs text-rw-faint">
+		<p class="mt-2 text-xs text-rw-faint" data-hint>
 			if v.Scope == "env" {
 				Changing it moves this env.
 			} else {
@@ -212,7 +212,7 @@ templ ingress(v View) {
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			}
 		</form>
-		<p class="mt-2 text-xs text-rw-faint">
+		<p class="mt-2 text-xs text-rw-faint" data-hint>
 			Public traffic comes in here.
 			if v.IngressFrom != "" {
 				{ " " + inherited(v.IngressFrom) }
@@ -441,7 +441,7 @@ templ exits(v View) {
 				<button type="submit" class="btn btn-ghost btn-sm">Add exit</button>
 			</form>
 		}
-		<p class="mt-2 text-xs text-rw-faint">Tried top to bottom. Never falls back unless listed.</p>
+		<p class="mt-2 text-xs text-rw-faint" data-hint>Tried top to bottom. Never falls back unless listed.</p>
 		</div>
 	}
 }
@@ -603,7 +603,7 @@ templ Progress(v ProgressView) {
 			} else {
 				<h3 class="text-base font-semibold text-rw-text">Move</h3>
 			}
-			<p class="text-xs text-rw-faint">
+			<p class="text-xs text-rw-faint" data-hint>
 				if v.From != "" {
 					from { v.From } ·
 				}
@@ -625,7 +625,7 @@ templ Progress(v ProgressView) {
 		</ol>
 		switch v.State {
 			case "running":
-				<p class="text-xs text-rw-faint">If it fails, { v.Env } starts again where it was.</p>
+				<p class="text-xs text-rw-faint" data-hint>If it fails, { v.Env } starts again where it was.</p>
 			case "rolled_back":
 				<p class="banner banner-danger" role="alert">
 					Rolled back: { v.Env } runs where it did.

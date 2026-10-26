@@ -98,7 +98,7 @@ templ general(v SettingsView) {
 }
 
 templ order(v OrderView) {
-	<p class="text-xs text-rw-faint">Releases move down this list.</p>
+	<p class="text-xs text-rw-faint" data-hint>Releases move down this list.</p>
 	if len(v.Rungs) == 0 {
 		<p class="text-sm text-rw-muted">No environments yet.</p>
 	} else {
@@ -140,13 +140,13 @@ templ move(icon, label, action string, ids []string, moved string, focus bool) {
 }
 
 templ config(v SettingsView) {
-	<p class="text-xs text-rw-faint">Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p>
+	<p class="text-xs text-rw-faint" data-hint>Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p>
 	<form novalidate if v.Base != "" { hx-post={ v.Base + "/config" } } hx-target={ target() } hx-swap="outerHTML">
 		@c.KeepOpen("config")
 		<fieldset disabled?={ v.Base == "" } class="space-y-4">
 			<legend class="sr-only">Config repository</legend>
 			if v.Base == "" {
-				<p class="text-xs text-rw-faint">Only members and owners can bind a repository.</p>
+				<p class="text-xs text-rw-faint" data-hint>Only members and owners can bind a repository.</p>
 			}
 			@c.ConfigRepoFields(c.ConfigRepoView{ID: "stack-config", Connectors: v.Connectors, Connector: v.Connector, Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-compose.yml", Placeholder: "acme/infra"})
 			if v.Base != "" {
@@ -162,7 +162,7 @@ templ config(v SettingsView) {
 }
 
 templ resources(f c.SettingsFormView) {
-	<p class="text-xs text-rw-faint">Tiles below use these unless they set their own.</p>
+	<p class="text-xs text-rw-faint" data-hint>Tiles below use these unless they set their own.</p>
 	@c.SettingsForm(f)
 }
 
@@ -170,7 +170,7 @@ templ host(v HostView) {
 	if len(v.Tiles) == 0 {
 		<p class="text-sm text-rw-muted">No tile has host access.</p>
 	} else {
-		<p class="text-xs text-rw-faint">Set by a server admin, per tile.</p>
+		<p class="text-xs text-rw-faint" data-hint>Set by a server admin, per tile.</p>
 		<div id="host-access" class="space-y-3">
 			for _, t := range v.Tiles {
 				<div>
@@ -182,7 +182,7 @@ templ host(v HostView) {
 		if v.Approve != nil {
 			<div class="pt-4 border-t border-rw-border">
 				<div class="label">Review request</div>
-				<p class="mb-3 text-xs text-rw-faint">Untick what you do not grant.</p>
+				<p class="mb-3 text-xs text-rw-faint" data-hint>Untick what you do not grant.</p>
 				@access.Approve(*v.Approve)
 			</div>
 		}

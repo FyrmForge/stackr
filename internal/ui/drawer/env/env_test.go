@@ -106,4 +106,14 @@ func TestRowsChanged(t *testing.T) {
 			t.Errorf("a bare env marks %s changed", r.Key)
 		}
 	}
+	// a colour, its own lock off and every push differ from a new env
+	moved := SettingsView{Color: "sky", From: "branch", Auto: true, Lock: LockView{Show: true}}
+	for _, r := range rows(moved) {
+		if want := r.Key == "general" || r.Key == "deploys"; r.Changed != want {
+			t.Errorf("moved env: %s changed = %v, want %v", r.Key, r.Changed, want)
+		}
+	}
+	if lockMoved(LockView{Show: true, Tiered: true}) || lockMoved(LockView{Show: true, Locked: true}) {
+		t.Error("a tier's lock, or an env still locked, marked changed")
+	}
 }

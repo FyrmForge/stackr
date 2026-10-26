@@ -128,7 +128,7 @@ templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 		if cell.Set && cell.Secret {
 			<span class="font-mono text-xs text-rw-muted select-none" aria-label="hidden">••••••••</span>
 		} else if cell.Set {
-			<span class="font-mono text-xs text-rw-text truncate">{ cell.Value }</span>
+			<span class="block max-w-48 font-mono text-xs text-rw-text truncate" title={ cell.Value }>{ cell.Value }</span>
 		} else {
 			<span class="text-xs text-rw-faint">unset</span>
 		}
@@ -140,7 +140,7 @@ templ cellView(g Grid, col Col, group string, r Row, cell Cell) {
 					<span class="font-mono text-rw-muted" aria-label="hidden">••••••••</span>
 					<span class="ml-2 text-[10px] text-rw-faint">Replace</span>
 				} else if cell.Set {
-					<span class="font-mono text-rw-text truncate">{ cell.Value }</span>
+					<span class="block max-w-48 font-mono text-rw-text truncate" title={ cell.Value }>{ cell.Value }</span>
 				} else if r.Secret {
 					<span class="block rounded-md border border-dashed border-rw-danger/50 px-2 py-1 text-rw-danger">Set</span>
 				} else {

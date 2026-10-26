@@ -44,6 +44,14 @@ func GeneralSummary(name, color string, l LockView) string {
 	return strings.Join(parts, sep)
 }
 
+// lockMoved: the env's own lock is off; a new env starts locked. A tier's
+// lock is the org's, not this env's.
+func lockMoved(l LockView) bool { return l.Show && !l.Tiered && !l.Locked }
+
+// deploysMoved: a branch env that deploys every push; a new one deploys by
+// hand.
+func deploysMoved(from string, auto bool) bool { return from != "promote" && auto }
+
 // DeploysSummary: "promoted from staging" or "branch main · every push".
 func DeploysSummary(from, branch string, auto bool, below string) string {
 	if from == "promote" {

@@ -1,4 +1,4 @@
-const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label]";
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option";
 export function matches(n) {
     return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
 }
@@ -43,8 +43,10 @@ class SettingsFind extends HTMLElement {
             let hit = !q;
             if (q) {
                 for (const el of row.querySelectorAll(LABELS)) {
-                    const named = el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label").toLowerCase());
-                    if (!el.closest("[data-field][hidden]") && (named || this.mark(el, q))) {
+                    const named = el.matches("option")
+                        ? pattern(q).test((el.textContent ?? "").toLowerCase())
+                        : el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label").toLowerCase());
+                    if (!el.closest("[data-field][hidden]") && (named || (!el.matches("option") && this.mark(el, q)))) {
                         hit = true;
                         this.opened.push(...openTo(el, row));
                     }

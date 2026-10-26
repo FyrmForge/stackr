@@ -699,7 +699,7 @@ func Logs(v View, l LogsView) templ.Component {
 			}
 		}
 		if l.Run != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "<p class=\"text-xs text-rw-faint\">Run <span class=\"font-mono text-rw-muted\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "<p class=\"text-xs text-rw-faint\" data-hint>Run <span class=\"font-mono text-rw-muted\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1301,7 +1301,7 @@ func Env(v View, e EnvView) templ.Component {
 			templ_7745c5c3_Var47 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<div id=\"tab-env\"><p class=\"text-xs text-rw-faint mb-3\">Values may reference params or another tile: <span class=\"font-mono text-rw-muted\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<div id=\"tab-env\"><p class=\"text-xs text-rw-faint mb-3\" data-hint>Values may reference params or another tile: <span class=\"font-mono text-rw-muted\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1843,7 +1843,7 @@ func Access(v View, a AccessView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if v.ReadOnly {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "<p class=\"mt-4 text-xs text-rw-faint\">Only members and owners can change its access.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "<p class=\"mt-4 text-xs text-rw-faint\" data-hint>Only members and owners can change its access.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2176,7 +2176,7 @@ func Runs(v View, r RunsView) templ.Component {
 			}
 		}
 		if !r.Next.IsZero() {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 193, "<p class=\"text-xs text-rw-faint\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 193, "<p class=\"text-xs text-rw-faint\" data-hint>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2821,7 +2821,7 @@ func readOnlyWhy() templ.Component {
 			templ_7745c5c3_Var116 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 243, "<p class=\"mt-3 text-xs text-rw-faint\">Only members and owners can change it.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 243, "<p class=\"mt-3 text-xs text-rw-faint\" data-hint>Only members and owners can change it.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2871,7 +2871,7 @@ func generalFields(s SettingsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 246, "><p class=\"mt-1.5 text-xs text-rw-faint\">A new name changes its URL.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 246, "><p class=\"mt-1.5 text-xs text-rw-faint\" data-hint>A new name changes its URL.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -3477,7 +3477,7 @@ func healthRow(v View, s SettingsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "</div><p class=\"text-xs text-rw-faint\">A failing check holds a deploy and turns the tile amber.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "</div><p class=\"text-xs text-rw-faint\" data-hint>A failing check holds a deploy and turns the tile amber.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3536,7 +3536,7 @@ func resourcesRow(v View, s SettingsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 277, "</div><p class=\"text-xs text-rw-faint\">Empty inherits from the env, stack, org or server.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 277, "</div><p class=\"text-xs text-rw-faint\" data-hint>Empty inherits from the env, stack, org or server.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3583,7 +3583,7 @@ func hostRow(v View, s SettingsView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 278, "<p class=\"text-xs text-rw-faint\">A server admin approves these before the deploy goes on.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 278, "<p class=\"text-xs text-rw-faint\" data-hint>A server admin approves these before the deploy goes on.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

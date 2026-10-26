@@ -261,7 +261,7 @@ templ allowRow(v View, s SettingsView) {
 				</div>
 			</form>
 		} else {
-			<p class="text-xs text-rw-faint">Only an owner of the organization changes this list.</p>
+			<p class="text-xs text-rw-faint" data-hint>Only an owner of the organization changes this list.</p>
 		}
 	</div>
 }
@@ -292,7 +292,7 @@ templ pairsRow(v View, s SettingsView) {
 			</ul>
 		}
 		if v.ReadOnly {
-			<p class="text-xs text-rw-faint">Only members and owners can change the pairs.</p>
+			<p class="text-xs text-rw-faint" data-hint>Only members and owners can change the pairs.</p>
 		} else {
 		<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
 			<input type="hidden" name="adding" value="1"/>

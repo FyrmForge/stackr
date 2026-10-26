@@ -3,13 +3,14 @@
 // lives in ?open= (history.replaceState, so Back does not walk every
 // toggle) and a fresh load opens the row ?open= names. [data-find] filters the
 // rows by their title, summary, labels, headings, hints, a nested <details>'
-// summary (Show advanced carries data-hint) and a field's aria-label, opens the hits and marks them; [data-only-changed]
+// summary (Show advanced carries data-hint), a field's aria-label and a select's option words (found, not
+// marked: an <option> draws no <mark>), opens the hits and marks them; [data-only-changed]
 // hides the [data-field]s without data-changed and the rows with none. While a
 // filter runs the rows leave the name group and the URL is left alone; clearing
 // it restores the row open before. [data-find-skip] and .sr-only are never searched.
 // A hit inside a closed <details> (Show advanced) opens it until the filter
 // changes. A POST answered inside a row fires "refresh" on [data-acc-refresh].
-const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label]";
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option";
 
 // matches is the live region's count of the rows a filter shows.
 export function matches(n: number): string {
@@ -55,8 +56,10 @@ class SettingsFind extends HTMLElement {
       let hit = !q;
       if (q) {
         for (const el of row.querySelectorAll(LABELS)) {
-          const named = el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label")!.toLowerCase());
-          if (!el.closest("[data-field][hidden]") && (named || this.mark(el, q))) {
+          const named = el.matches("option")
+            ? pattern(q).test((el.textContent ?? "").toLowerCase())
+            : el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label")!.toLowerCase());
+          if (!el.closest("[data-field][hidden]") && (named || (!el.matches("option") && this.mark(el, q)))) {
             hit = true;
             this.opened.push(...openTo(el, row));
           }

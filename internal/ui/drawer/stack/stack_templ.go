@@ -246,7 +246,7 @@ func order(v OrderView) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<p class=\"text-xs text-rw-faint\">Releases move down this list.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<p class=\"text-xs text-rw-faint\" data-hint>Releases move down this list.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -524,7 +524,7 @@ func config(v SettingsView) templ.Component {
 			templ_7745c5c3_Var18 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<p class=\"text-xs text-rw-faint\">Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p><form novalidate")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<p class=\"text-xs text-rw-faint\" data-hint>Bind a repository holding stackr-compose.yml and deploys read the stack from it.</p><form novalidate")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -583,7 +583,7 @@ func config(v SettingsView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if v.Base == "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "<p class=\"text-xs text-rw-faint\">Only members and owners can bind a repository.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "<p class=\"text-xs text-rw-faint\" data-hint>Only members and owners can bind a repository.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -641,7 +641,7 @@ func resources(f c.SettingsFormView) templ.Component {
 			templ_7745c5c3_Var21 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<p class=\"text-xs text-rw-faint\">Tiles below use these unless they set their own.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<p class=\"text-xs text-rw-faint\" data-hint>Tiles below use these unless they set their own.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -680,7 +680,7 @@ func host(v HostView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<p class=\"text-xs text-rw-faint\">Set by a server admin, per tile.</p><div id=\"host-access\" class=\"space-y-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<p class=\"text-xs text-rw-faint\" data-hint>Set by a server admin, per tile.</p><div id=\"host-access\" class=\"space-y-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -716,7 +716,7 @@ func host(v HostView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.Approve != nil {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "<div class=\"pt-4 border-t border-rw-border\"><div class=\"label\">Review request</div><p class=\"mb-3 text-xs text-rw-faint\">Untick what you do not grant.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "<div class=\"pt-4 border-t border-rw-border\"><div class=\"label\">Review request</div><p class=\"mb-3 text-xs text-rw-faint\" data-hint>Untick what you do not grant.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

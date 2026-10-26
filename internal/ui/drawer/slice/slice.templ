@@ -81,7 +81,7 @@ templ Overview(v View) {
 				<a href={ templ.SafeURL(v.TargetLink) } class="font-mono text-sm text-rw-accentHi hover:underline">{ v.Target }</a>
 			} else {
 				<p class="text-sm text-rw-danger" role="alert">{ v.Blocker }</p>
-				<p class="text-xs text-rw-faint font-mono">{ "Written as " + v.ProvisionFrom }</p>
+				<p class="text-xs text-rw-faint font-mono" data-hint>{ "Written as " + v.ProvisionFrom }</p>
 			}
 		}
 		@c.PanelSection("slice-consumers", "Consumers", "") {
@@ -151,9 +151,9 @@ templ accessRow(v View) {
 			<p class="label">Default access</p>
 			<p class="text-sm text-rw-text font-mono">{ access(v.DefaultAccess) }</p>
 			if v.FileOwned {
-				<p class="text-xs text-rw-faint">Set in the stack file.</p>
+				<p class="text-xs text-rw-faint" data-hint>Set in the stack file.</p>
 			} else {
-				<p class="text-xs text-rw-faint">Only members and owners can change this.</p>
+				<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
 			}
 		</div>
 	} else {
@@ -204,7 +204,7 @@ templ removeRow(v View) {
 		<div data-field data-changed?={ v.OnRemove == "drop" }>
 			<p class="label">On remove</p>
 			<p class="text-sm text-rw-text font-mono">{ onRemoveWord(v.OnRemove) }</p>
-			<p class="text-xs text-rw-faint">Only members and owners can change this.</p>
+			<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
 		</div>
 	} else {
 		<form hx-post={ v.Base + "/on-remove" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
