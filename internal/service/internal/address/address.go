@@ -216,7 +216,7 @@ func Resolve(orgSlug string, me Address, base string, tg Target, pl Place) (stri
 	case err != nil:
 		return "", errs.Conflictf("%s/%s: %v", at, tg.Tile, err)
 	case !ok:
-		return "", errs.Conflictf("%s/%s does not allow %s", at, tg.Tile, me)
+		return "", errs.Conflictf("%s/%s does not allow %s; add it to the Allow list of %s", at, tg.Tile, me, tg.Tile)
 	}
 	return env, nil
 }

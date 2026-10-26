@@ -167,6 +167,11 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 			return old, nil, err
 		}
 	}
+	if cur.DependsOn != old.DependsOn {
+		if err := o.checkDeps(ctx, cur); err != nil {
+			return old, nil, err
+		}
+	}
 	// only a limit this edit changed: a tile already over the host's size
 	// can still be renamed or retargeted
 	if cur.CPULimit != old.CPULimit || cur.MemLimitMB != old.MemLimitMB {
@@ -553,4 +558,20 @@ func (o *Orchestrator) TileImage(ctx context.Context, tileID string) (Image, err
 	}
 	i.Digest, err = o.releases.Digest(ctx, e.ReleaseID, t.Slug) // what runs is the pin
 	return i, err
+}
+
+// checkDeps refuses a depends_on line naming no tile of the env: the deploy
+// would wait on nothing. A line that does not parse is Validate's to say.
+func (o *Orchestrator) checkDeps(ctx context.Context, t Tile) error {
+	ts, err := o.tiles.List(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	for _, l := range tile.Lines(t.DependsOn) {
+		name, _, err := tile.ParseDep(l)
+		if err == nil && !slices.ContainsFunc(ts, func(x Tile) bool { return x.Slug == name && x.ID != t.ID }) {
+			return errs.Invalidf("depends_on", "No other tile in this environment is called %s.", name)
+		}
+	}
+	return nil
 }

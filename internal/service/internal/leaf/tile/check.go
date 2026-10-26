@@ -487,7 +487,7 @@ func checkLists(t *store.Tile) error {
 	} {
 		for _, l := range Lines(list.v) {
 			if err := list.parse(l); err != nil {
-				bad = append(bad, errs.Invalidf(list.key, "%s", err.Error()))
+				bad = append(bad, errs.Invalidf(list.key, "%s.", err.Error()))
 				break
 			}
 		}
@@ -544,17 +544,17 @@ func ParseMount(l string) (Mount, error) {
 		m.Kind = MountShare
 		name, sub, _ := strings.Cut(parts[1], "/")
 		if !slug.Valid(name) || strings.HasPrefix(sub, "/") || hasDotDot(sub) {
-			return m, fmt.Errorf("%q: want share:slug[/sub/path]:/container/path[:ro]", l)
+			return m, fmt.Errorf("%q is not a share mount: write share:name/sub/path:/container/path, with :ro for read-only", l)
 		}
 		m.Share, m.Sub, rest = name, path.Clean("/" + sub)[1:], parts[2:]
 	default:
 		if len(parts) < 2 || !slug.Valid(parts[0]) {
-			return m, fmt.Errorf("%q: want volume:/container/path[:ro]", l)
+			return m, fmt.Errorf("%q is not a mount: write volume:/container/path, with :ro for read-only", l)
 		}
 		m.Volume = parts[0]
 	}
 	if len(rest) < 1 || len(rest) > 2 || !path.IsAbs(rest[0]) || (len(rest) == 2 && rest[1] != "ro") {
-		return m, fmt.Errorf("%q: want volume:/path[:ro], host:/host:/path[:ro] or share:slug/sub:/path[:ro]", l)
+		return m, fmt.Errorf("%q is not a mount: write volume:/path, host:/host/path:/path or share:name/sub:/path, each with :ro for read-only", l)
 	}
 	m.Path, m.RO = rest[0], len(rest) == 2
 	return m, nil
@@ -681,7 +681,7 @@ func ParseDevice(l string) (docker.Device, error) {
 func ParseFileMount(l string) (src, dst string, err error) {
 	parts := strings.Split(l, ":")
 	if len(parts) < 2 || len(parts) > 3 || (len(parts) == 3 && parts[2] != "template") {
-		return "", "", fmt.Errorf("%q: want repo/path:/container/path[:template]", l)
+		return "", "", fmt.Errorf("%q is not a file line: write repo/path:/container/path, with :template to fill in variables", l)
 	}
 	src, dst = path.Clean(parts[0]), parts[1]
 	if src == "." || path.IsAbs(src) || src == ".." || strings.HasPrefix(src, "../") || !path.IsAbs(dst) {

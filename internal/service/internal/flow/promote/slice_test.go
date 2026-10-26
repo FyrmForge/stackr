@@ -380,7 +380,7 @@ func TestSliceBlockers(t *testing.T) {
 					m.Allow = store.StringList{"testorg:blog:*"}
 				})
 			},
-			want: "slice api-db: infra/staging/pg-db does not allow testorg:shop:dev:api-db",
+			want: "slice api-db: infra/staging/pg-db does not allow testorg:shop:dev:api-db; add it to the Allow list of pg-db",
 		},
 		{
 			name: "param unset",
@@ -492,7 +492,7 @@ func TestSliceHappyPath(t *testing.T) {
 	})
 	p, err = w.f.Plan(ctx, pr.ID, w.shopRelease(t, "c4", sliceShopFile).ID, io.Discard)
 	must(t, err)
-	if want := "slice api-db: infra/staging/pg-db does not allow testorg:shop:pr-12:api-db"; !slices.Contains(p.Blockers, want) {
+	if want := "slice api-db: infra/staging/pg-db does not allow testorg:shop:pr-12:api-db; add it to the Allow list of pg-db"; !slices.Contains(p.Blockers, want) {
 		t.Errorf("pr blockers = %q, want %q", p.Blockers, want)
 	}
 }
@@ -812,7 +812,7 @@ func TestSliceNotAllowedAtDeploy(t *testing.T) {
 	must(t, err)
 	runs := len(w.fake.Specs)
 	err = d.Redeploy(ctx, api.ID, io.Discard, nil)
-	want := "slice api-db: infra/staging/pg-db does not allow testorg:shop:dev:api-db"
+	want := "slice api-db: infra/staging/pg-db does not allow testorg:shop:dev:api-db; add it to the Allow list of pg-db"
 	if err == nil || err.Error() != want {
 		t.Fatalf("redeploy = %v, want %q", err, want)
 	}

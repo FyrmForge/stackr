@@ -308,3 +308,13 @@ func TestProtectWithoutPairRefused(t *testing.T) {
 		t.Errorf("stack protect on under the org's pair = %v", err)
 	}
 }
+
+// A depends_on line naming no other tile of the env is refused on its field.
+func TestDependsOnUnknownTileRefused(t *testing.T) {
+	ctx := context.Background()
+	r := newLimitRig(t)
+	_, _, err := r.env.Orch.UpdateTile(ctx, r.tile.ID, func(t *service.Tile) error { t.DependsOn = "nosuchtile"; return nil })
+	if bad, ok := errs.IsInvalid(err); !ok || bad.Field != "depends_on" {
+		t.Errorf("depends_on nosuchtile = %v, want a depends_on refusal", err)
+	}
+}

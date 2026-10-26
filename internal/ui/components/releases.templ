@@ -103,20 +103,25 @@ templ Releases(v ReleasesView) {
 						for _, e := range r.Envs {
 							<span class={ "log-chip", envClass(e.Color) }>{ e.Name }</span>
 						}
-						for _, m := range r.Moves {
-							<button
-								type="button"
-								class={ "btn btn-sm shrink-0", templ.KV("btn-danger", m.Back), templ.KV("btn-ghost", !m.Back) }
-								hx-get={ m.Ask }
-								hx-target={ "#" + DrawerRoot }
-								hx-swap="outerHTML"
-							>
-								if m.Back {
-									Roll back { m.Env }
-								} else {
-									Promote to { m.Env }
+						if len(r.Moves) > 0 {
+							// the buttons wrap as one group, on their own line on a phone
+							<span class="flex flex-wrap items-center gap-2 basis-full sm:basis-auto">
+								for _, m := range r.Moves {
+									<button
+										type="button"
+										class={ "btn btn-sm shrink-0", templ.KV("btn-danger", m.Back), templ.KV("btn-ghost", !m.Back) }
+										hx-get={ m.Ask }
+										hx-target={ "#" + DrawerRoot }
+										hx-swap="outerHTML"
+									>
+										if m.Back {
+											Roll back { m.Env }
+										} else {
+											Promote to { m.Env }
+										}
+									</button>
 								}
-							</button>
+							</span>
 						}
 						</span>
 					</li>
