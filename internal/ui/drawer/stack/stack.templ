@@ -85,7 +85,7 @@ templ Settings(v SettingsView) {
 templ general(v SettingsView) {
 	<form novalidate if v.Base != "" { hx-post={ v.Base + "/rename" } } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 		@c.KeepOpen("general")
-		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Renaming needs write access to this stack."})
+		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Disabled: v.Base == "", Why: "Only members and owners can rename it."})
 		<div data-field>
 			<label for="stack-slug" class="label">URL slug</label>
 			<input id="stack-slug" type="text" value={ v.Slug } class="input font-mono" disabled/>
@@ -146,7 +146,7 @@ templ config(v SettingsView) {
 		<fieldset disabled?={ v.Base == "" } class="space-y-4">
 			<legend class="sr-only">Config repository</legend>
 			if v.Base == "" {
-				<p class="text-xs text-rw-faint">Binding a repository needs write access to this stack.</p>
+				<p class="text-xs text-rw-faint">Only members and owners can bind a repository.</p>
 			}
 			@c.ConfigRepoFields(c.ConfigRepoView{ID: "stack-config", Connectors: v.Connectors, Connector: v.Connector, Repo: v.Repo, Branch: v.Branch, Path: v.Path, File: "stackr-compose.yml", Placeholder: "acme/infra"})
 			if v.Base != "" {

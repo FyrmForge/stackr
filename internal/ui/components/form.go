@@ -9,12 +9,12 @@ import (
 )
 
 // VarsSummary is a Variables row closed, worded as the canvas card:
-// "3 params · 1 secret", or "none set". set counts every name, secrets too.
+// "3 variables · 1 secret", or "none set". set counts every name, secrets too.
 func VarsSummary(set, secret int) string {
 	if set == 0 {
 		return "none set"
 	}
-	return count(set-secret, "param") + " · " + count(secret, "secret")
+	return count(set, "variable") + " · " + count(secret, "secret")
 }
 
 func count(n int, one string) string {

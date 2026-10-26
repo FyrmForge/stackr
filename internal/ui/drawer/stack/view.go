@@ -6,6 +6,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/env"
 )
 
 // Rows are the Settings tab's accordion rows, in the drawer's order.
@@ -71,19 +72,9 @@ func ConfigSummary(repo, branch, path string) string {
 	return strings.Join(append(parts, path), " · ")
 }
 
-// ResourcesSummary counts the knobs this stack sets itself.
-func ResourcesSummary(rows []c.SettingRowView) string {
-	n := 0
-	for _, r := range rows {
-		if r.Value != "" || (r.Secret && r.Effective == "set") {
-			n++
-		}
-	}
-	if n == 0 {
-		return "inherits org"
-	}
-	return strconv.Itoa(n) + " set here"
-}
+// ResourcesSummary is the values in effect, as the env's row says them:
+// "2 cores · 512 MB (from org) · protect off".
+func ResourcesSummary(rows []c.SettingRowView) string { return env.ResourcesSummary(rows) }
 
 // granted: a server admin gave a tile host access, which no tile has unset.
 func granted(ts []access.TilePerms) bool {

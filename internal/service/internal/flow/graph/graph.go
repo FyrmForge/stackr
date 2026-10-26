@@ -475,7 +475,7 @@ func (f *Flow) vars(ctx context.Context, ss ...params.Scope) (Node, error) {
 			n.Params++
 		}
 	}
-	n.Detail = plural(n.Params, "param") + " · " + plural(n.Secrets, "secret")
+	n.Detail = plural(n.Params+n.Secrets, "variable") + " · " + plural(n.Secrets, "secret")
 	return n, err
 }
 

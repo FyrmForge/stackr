@@ -410,7 +410,7 @@ func (l *Leaf) Reorder(ctx context.Context, stackID string, ids []string) error 
 			return errs.Invalidf("order", "List every environment of the stack once.")
 		}
 		if i == 0 && e.FromKind == FromPromote {
-			return errs.Invalidf("order", "%s promotes from the env below it, so it cannot be the bottom rung.", e.Name)
+			return errs.Invalidf("order", "%s promotes from the env before it in the list, so it cannot be first.", e.Name)
 		}
 		delete(byID, id)
 		e.Position = i

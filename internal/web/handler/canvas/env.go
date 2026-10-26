@@ -116,7 +116,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		v.Base = f.Base
 		v.Delete = dialog.DeleteEnv(e.Name, f.Base+"/delete", "#"+comp.DrawerRoot)
 	} else {
-		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing resources needs write access to this environment."
+		v.Cascade.ReadOnly, v.Cascade.Why = true, "Only members and owners can change resources."
 	}
 	return envui.Settings(v), nil
 }

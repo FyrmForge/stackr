@@ -105,7 +105,7 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		v.Connectors = append(v.Connectors, stackui.Option{Value: k.ID, Label: label})
 	}
 	if !can(c, cd.s, "stack.write") {
-		v.Cascade.ReadOnly, v.Cascade.Why = true, "Changing defaults needs write access to this stack."
+		v.Cascade.ReadOnly, v.Cascade.Why = true, "Only members and owners can change resources."
 		return stackui.Settings(v), nil
 	}
 	v.Base = f.Base
@@ -131,8 +131,9 @@ func ladderView(es []service.Environment, moved string) stackui.OrderView {
 		ids[i] = e.ID
 	}
 	hues := service.EnvHues(es)
+	// a move is offered only when the env it puts first may be first
 	swap := func(i, j int) []string {
-		if j < 0 || j >= len(ids) {
+		if j < 0 || j >= len(ids) || (min(i, j) == 0 && !service.CanBeBottom(es[max(i, j)])) {
 			return nil
 		}
 		o := slices.Clone(ids)

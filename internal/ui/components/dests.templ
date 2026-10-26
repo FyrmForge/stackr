@@ -5,6 +5,7 @@ package components
 type DestsView struct {
 	Scope    string // the chip: organization | instance
 	Add      string // POST the new destination; "" = read-only
+	Why      string // read-only: who may add one
 	Share    bool   // the form asks who may use it (admin)
 	ListHelp string
 	Rows     []DestView
@@ -121,5 +122,7 @@ templ Dests(v DestsView) {
 				<button type="submit" class="btn btn-primary btn-sm">Add destination</button>
 			</form>
 		}
+	} else if v.Why != "" {
+		<p class="text-xs text-rw-faint">{ v.Why }</p>
 	}
 }

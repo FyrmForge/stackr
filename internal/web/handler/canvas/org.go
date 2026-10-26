@@ -221,6 +221,8 @@ func (h *handler) orgDests(c echo.Context, cd card, base string) (comp.DestsView
 	v = comp.DestsView{Scope: "organization", ListHelp: "This organization's own buckets, and the ones the server shares with every organization."}
 	if write {
 		v.Add = base + "/backups"
+	} else {
+		v.Why = "Only members and owners can add a destination."
 	}
 	for _, d := range ds {
 		r := comp.DestView{Name: d.Name, Bucket: d.Bucket, Endpoint: d.Endpoint}

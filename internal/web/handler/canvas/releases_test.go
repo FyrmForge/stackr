@@ -97,4 +97,15 @@ func TestStackReleasesPromote(t *testing.T) {
 	if rec := s.Do(t, "POST", base+"/promote/"+s.Tile.Env+"/"+id, nil); rec.Code != 404 {
 		t.Errorf("promote by env id = %d, want 404", rec.Code)
 	}
+	// a viewer, who cannot finish a move, is offered none
+	stagingOf(t, s)
+	if !strings.Contains(get(t, s, base+"?tab=releases"), "tab=releases&amp;env=") {
+		t.Error("an owner is offered no move")
+	}
+	v := s.User(t, "viewer@acme.test", false)
+	s.Member(t, s.Org, v, "viewer")
+	body = s.As(t, s.Session(t, v), "GET", base+"?tab=releases", nil).Body.String()
+	if !strings.Contains(body, "#1") || strings.Contains(body, "tab=releases&amp;env=") {
+		t.Errorf("a viewer sees Promote or Roll back:\n%s", body)
+	}
 }

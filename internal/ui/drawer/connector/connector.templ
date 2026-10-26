@@ -28,7 +28,7 @@ func renameWhy(v SettingsView) string {
 	if v.Shared {
 		return v.Label + " connector on " + v.Host + ". Only a server admin can rename it."
 	}
-	return v.Label + " connector on " + v.Host + ". Renaming needs write."
+	return v.Label + " connector on " + v.Host + ". Only members and owners can rename it."
 }
 
 func settingsHelp(v SettingsView) string {

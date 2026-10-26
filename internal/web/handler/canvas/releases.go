@@ -62,9 +62,13 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		v.Ladder = append(v.Ladder, run)
 	}
 	// every rung, the bottom one too: v0 gave it no moves, which left a
-	// one-env stack no way to roll back
+	// one-env stack no way to roll back. A viewer, who cannot finish one,
+	// gets none.
 	var targets []service.Environment
 	for _, e := range es {
+		if !can(c, cd.s, "env.write") {
+			break
+		}
 		if cd.kind == "stack" || e.ID == cd.s.Env.ID {
 			targets = append(targets, e)
 		}

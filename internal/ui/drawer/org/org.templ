@@ -166,7 +166,7 @@ func generalRows(v SettingsView) []c.AccRow {
 	rows := []c.AccRow{
 		{Key: "name", Title: "Name", Summary: v.Name, Body: nameBody(v)},
 		{Key: "tiers", Title: "Tiers", Summary: TiersSummary(v.Tiers), Body: Tiers(v.Tiers)},
-		{Key: "defaults", Title: "Defaults for new tiles", Summary: v.Defaults, Changed: changed, Body: defaultsBody(v.Cascade)},
+		{Key: "defaults", Title: "Tile defaults", Summary: v.Defaults, Changed: changed, Body: defaultsBody(v.Cascade)},
 	}
 	if v.Rename != "" {
 		sum := "No stacks"
@@ -451,6 +451,7 @@ templ Keys(v KeysView) {
 						}
 					</select>
 				</div>
+				<p class="text-xs text-rw-faint">A key never has more access than you do.</p>
 				<button type="submit" class="btn btn-primary btn-sm">Mint key</button>
 			</form>
 			if v.Minted != "" {
@@ -649,6 +650,8 @@ templ Shares(v SharesView) {
 				@c.Field(c.FieldView{Name: "password", Label: "SMB password ref", Placeholder: "${{ org.params.nas.password }}", Help: "A param ref, never the password."})
 				<button type="submit" class="btn btn-primary btn-sm">Add share</button>
 			</form>
+		} else {
+			<p class="text-xs text-rw-faint">Only an owner can add shares.</p>
 		}
 	</div>
 }
@@ -664,7 +667,7 @@ templ Config(v ConfigView) {
 		@c.Section("Export", "organization", "This organization's live state as a stackr-org.yml, the way out of panel-first and into config-as-code. Secrets come out as declarations, never values.") {
 			<a href={ templ.SafeURL(v.Export) } download="stackr-org.yml" class="btn btn-ghost btn-sm">Download stackr-org.yml</a>
 		}
-		@c.Section("Config as code", "organization", "One file declares the whole organization. Its plans wait for an owner's approve unless Auto apply is on.") {
+		@c.Section("Config as code", "organization", "One file declares the whole organization. Its plans wait for an owner's approval unless Auto apply is on.") {
 			if len(v.Connectors) == 0 && v.Repo == "" {
 				<p class="text-sm text-rw-muted">Connect a git host first. The org file is fetched through a connector. <a href={ templ.SafeURL(v.Canvas) } class="link">Connectors</a></p>
 			} else {

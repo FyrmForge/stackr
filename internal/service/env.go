@@ -161,6 +161,10 @@ func (o *Orchestrator) SetEnvSettings(ctx context.Context, id, blob string) (Env
 	return e, o.redeployRunning(ctx, ts)
 }
 
+// CanBeBottom: e may be the ladder's bottom rung, which builds from a
+// branch; a promote env has nothing below it to promote from.
+func CanBeBottom(e Environment) bool { return e.FromKind != environment.FromPromote }
+
 // ReorderEnvs sets the ladder order, bottom rung first.
 func (o *Orchestrator) ReorderEnvs(ctx context.Context, stackID string, ids []string) error {
 	return o.envs.Reorder(ctx, stackID, ids)

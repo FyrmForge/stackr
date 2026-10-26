@@ -112,7 +112,7 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (te
 	}
 	g.Action, g.DeleteAction = base, base+"/delete"
 	if !write {
-		g.ReadOnly, g.Why = true, "Your role reads params; changing them, and seeing secrets, needs write."
+		g.ReadOnly, g.Why = true, "Only members and owners can change variables or see secrets."
 	}
 	v.Grid = &g
 	return vars.Editor(v), nil
