@@ -70,3 +70,22 @@ func TestAdminParams(t *testing.T) {
 		}
 	}
 }
+
+// A new row with no name is refused on its name field, not "Saved."; bad
+// group and name are each marked at once.
+func TestAdminParamsNewRowRefusals(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	rec := s.As(t, root, "POST", "/-/admin/params", url.Values{"new_collection": {"qa"}, "new_value": {"v"}, "new_kind": {"param"}})
+	body := rec.Body.String()
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, "Give the variable a name.") ||
+		!strings.Contains(body, `aria-describedby="error-new_name"`) || !strings.Contains(body, `value="qa"`) {
+		t.Errorf("nameless add = %d\n%s", rec.Code, body)
+	}
+	rec = s.As(t, root, "POST", "/-/admin/params", url.Values{"new_collection": {"bad coll!"}, "new_name": {"bad name!"}, "new_kind": {"param"}})
+	body = rec.Body.String()
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(body, `aria-describedby="error-new_collection"`) ||
+		!strings.Contains(body, `aria-describedby="error-new_name"`) {
+		t.Errorf("bad group and name = %d\n%s", rec.Code, body)
+	}
+}

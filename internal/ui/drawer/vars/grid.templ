@@ -20,6 +20,10 @@ type Grid struct {
 	Groups       []Group
 	ReadOnly     bool
 	Why          string
+	// Added is the add form a save came from (its group, "" = a new
+	// group) and Note what it did: the note sits right after that form.
+	Added *string
+	Note  string
 }
 
 type Col struct {
@@ -192,14 +196,18 @@ templ addForm(g Grid, group string) {
 			<input type="checkbox" id={ "add-secret-" + group } name="add_kind" value="secret" class="peer sr-only" aria-label="Secret" checked?={ typed(r, "add_kind") == "secret" }/>
 			<div class="flex flex-wrap items-center gap-2">
 				if group == "" {
-					<input class="input font-mono !w-32" name="add_group" placeholder="group" aria-label="Group" value={ typed(r, "add_group") } required/>
+					<input class="input font-mono !w-32" name="add_group" placeholder="group" aria-label="Group" value={ typed(r, "add_group") } { c.Invalid(errID(group, "add_group"), fieldErr(r, "add_group"))... }/>
 				} else {
 					<input type="hidden" name="add_group" value={ group }/>
 				}
-				<input class="input font-mono flex-1 min-w-32" name="add_name" placeholder="name" aria-label="Name" value={ typed(r, "add_name") } required/>
+				<input class="input font-mono flex-1 min-w-32" name="add_name" placeholder="name" aria-label="Name" value={ typed(r, "add_name") } { c.Invalid(errID(group, "add_name"), fieldErr(r, "add_name"))... }/>
 				<label for={ "add-secret-" + group } class="btn btn-ghost btn-sm cursor-pointer">Secret?</label>
 			</div>
-			if r != nil {
+			if group == "" {
+				@c.FieldError(errID(group, "add_group"), fieldErr(r, "add_group"))
+			}
+			@c.FieldError(errID(group, "add_name"), fieldErr(r, "add_name"))
+			if r != nil && len(r.More) == 0 {
 				<p class="field-error" role="alert">{ r.Msg }</p>
 			}
 			<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 peer-checked:hidden">
@@ -222,6 +230,28 @@ templ addForm(g Grid, group string) {
 			<button type="submit" class="btn btn-primary btn-sm">Save</button>
 		</form>
 	</details>
+	if g.Added != nil && *g.Added == group && g.Note != "" {
+		<div class="mt-3" data-acted>
+			@c.Note(g.Note)
+		</div>
+	}
+}
+
+// errID is an add form's field error id: one per group's form, so two
+// forms on the page never share one.
+func errID(group, field string) string {
+	if group == "" {
+		return field
+	}
+	return field + "-" + group
+}
+
+// fieldErr is the refusal's reason for one field of an add form.
+func fieldErr(r *c.Refused, field string) string {
+	if r == nil {
+		return ""
+	}
+	return r.More[field]
 }
 
 templ lockIcon(locked bool) {

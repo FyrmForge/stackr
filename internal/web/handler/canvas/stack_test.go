@@ -48,6 +48,26 @@ func TestRefusedSaveKeepsTyped(t *testing.T) {
 	}
 }
 
+// An Add row marks its group and name each at once, refuses a blank one
+// instead of "Saved.", and a saved add's note sits right after its form.
+func TestVarsAddAnswers(t *testing.T) {
+	s := webtest.New(t)
+	rec := s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"bad g!"}, "add_name": {"bad n!"}, "add_value.stack_pr": {"v"}})
+	body := rec.Body.String()
+	if rec.Code != 422 || !strings.Contains(body, `aria-describedby="error-add_group"`) || !strings.Contains(body, `aria-describedby="error-add_name"`) {
+		t.Errorf("bad group and name = %d\n%s", rec.Code, body)
+	}
+	if rec := s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}}); rec.Code != 422 || !strings.Contains(rec.Body.String(), "Give the variable a name.") {
+		t.Errorf("empty add = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", "/acme/shop/-/vars", url.Values{"add_form": {""}, "add_group": {"app"}, "add_name": {"greeting"}, "add_value.stack_pr": {"hi"}})
+	body = rec.Body.String()
+	form, note := strings.LastIndex(body, "+ Add group"), strings.Index(body, "data-acted")
+	if rec.Code != 200 || note < form || !strings.Contains(body[note:], "Saved.") {
+		t.Errorf("saved add = %d, note at %d, add form at %d\n%s", rec.Code, note, form, body)
+	}
+}
+
 // The stack's Settings tab is one accordion holding what were the Params
 // and Placement tabs; Env order moves the ladder from here.
 func TestStackSettingsRows(t *testing.T) {

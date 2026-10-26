@@ -23,14 +23,23 @@ templ Editor(v View) {
 		} else {
 			<p class="text-sm text-rw-muted">Variables of { v.Scope }. A save redeploys the running tiles that read them.</p>
 		}
-		@c.FormError(v.Error)
-		if v.Note != "" {
-			<p class="banner" role="status">{ v.Note }</p>
-		}
 		if v.Grid != nil {
+			@c.FormError(v.Error)
+			if v.Note != "" && v.Grid.Added == nil {
+				<p class="banner" role="status">{ v.Note }</p>
+			}
 			@grid(v)
 		} else {
 			@c.ParamEditor(v.Editor)
+			// the answer after the one form every row's Save posts
+			if v.Error != "" || v.Note != "" {
+				<div data-acted>
+					@c.FormError(v.Error)
+					if v.Error == "" {
+						@c.Note(v.Note)
+					}
+				</div>
+			}
 		}
 	</div>
 }

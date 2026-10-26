@@ -785,11 +785,12 @@ func newRow(d ParamDraft) templ.Component {
 			templ_7745c5c3_Var29 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		collErr, nameErr := KeptErr(ctx, "new_collection", ""), KeptErr(ctx, "new_name", "")
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<details class=\"group\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if d.Name != "" {
+		if d.Name != "" || d.Collection != "" || collErr != "" || nameErr != "" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, " open")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -802,49 +803,77 @@ func newRow(d ParamDraft) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(d.Collection)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/param_editor.templ`, Line: 196, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/param_editor.templ`, Line: 197, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "\" placeholder=\"collection\" aria-label=\"New param collection\"> <input class=\"input font-mono flex-1 min-w-32\" name=\"new_name\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "\" placeholder=\"collection\" aria-label=\"New param collection\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, Invalid("new_collection", collErr))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "> <input class=\"input font-mono flex-1 min-w-32\" name=\"new_name\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(d.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/param_editor.templ`, Line: 197, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/param_editor.templ`, Line: 198, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" placeholder=\"NAME\" aria-label=\"New param name\"> <input class=\"input font-mono flex-1 min-w-32\" name=\"new_value\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "\" placeholder=\"NAME\" aria-label=\"New param name\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, Invalid("new_name", nameErr))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "> <input class=\"input font-mono flex-1 min-w-32\" name=\"new_value\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(d.Value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/param_editor.templ`, Line: 198, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/param_editor.templ`, Line: 199, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "\" placeholder=\"value\" autocomplete=\"off\" aria-label=\"New param value\"> <select class=\"input !w-28\" name=\"new_kind\" aria-label=\"New param kind\"><option value=\"param\">variable</option> <option value=\"secret\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\" placeholder=\"value\" autocomplete=\"off\" aria-label=\"New param value\"> <select class=\"input !w-28\" name=\"new_kind\" aria-label=\"New param kind\"><option value=\"param\">variable</option> <option value=\"secret\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if d.Kind == "secret" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, " selected")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, " selected")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, ">secret</option></select> <button type=\"submit\" class=\"btn btn-primary btn-sm ml-auto\">Save</button></div></details>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, ">secret</option></select> <button type=\"submit\" class=\"btn btn-primary btn-sm ml-auto\">Save</button><div class=\"basis-full\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = FieldError("new_collection", collErr).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = FieldError("new_name", nameErr).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "</div></div></details>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

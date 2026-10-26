@@ -6,7 +6,6 @@ package admin
 
 import (
 	"cmp"
-	"errors"
 	"net/http"
 	"net/url"
 	"slices"
@@ -95,7 +94,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 			Target:   f("route_target"),
 			Insecure: f("route_insecure") != "",
 		})
-		return "Route added.", nil, asFields(err, map[string]string{
+		return "Route added.", nil, render.AsFields(err, map[string]string{
 			"host": "route_host", "mode": "route_mode", "target": "route_target", "insecure": "route_insecure",
 		})
 	}), routes)
@@ -248,23 +247,6 @@ func (h *handler) answer(c echo.Context, section, note string, x extra, actErr e
 		f.At = c.Request().URL.RequestURI()
 	}
 	return respond.HTML(c, status, ui.View(f, body))
-}
-
-// asFields renames the fields a service refusal names to the form's input
-// names, so each reason lands under its own input.
-func asFields(err error, names map[string]string) error {
-	bads := errs.Invalids(err)
-	if len(bads) == 0 {
-		return err
-	}
-	out := make([]error, len(bads))
-	for i, b := range bads {
-		if n, ok := names[b.Field]; ok {
-			b.Field = n
-		}
-		out[i] = b
-	}
-	return errors.Join(out...)
 }
 
 // refusedKey marks an answer to a refused act (refill).

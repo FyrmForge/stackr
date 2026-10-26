@@ -190,17 +190,22 @@ templ deleteRow(v ParamEditorView, collection, name string) {
 
 // newRow is v0's dashed "+ Add variable": the new row opens under it.
 templ newRow(d ParamDraft) {
-	<details class="group" open?={ d.Name != "" }>
+	{{ collErr, nameErr := KeptErr(ctx, "new_collection", ""), KeptErr(ctx, "new_name", "") }}
+	<details class="group" open?={ d.Name != "" || d.Collection != "" || collErr != "" || nameErr != "" }>
 		<summary class="btn btn-ghost btn-sm w-full border border-dashed border-rw-border cursor-pointer list-none select-none">+ Add variable</summary>
 		<div class="panel px-3 py-2.5 mt-2 border-rw-accent/60 flex flex-wrap items-center gap-2">
-			<input class="input font-mono !w-32" name="new_collection" value={ d.Collection } placeholder="collection" aria-label="New param collection"/>
-			<input class="input font-mono flex-1 min-w-32" name="new_name" value={ d.Name } placeholder="NAME" aria-label="New param name"/>
+			<input class="input font-mono !w-32" name="new_collection" value={ d.Collection } placeholder="collection" aria-label="New param collection" { Invalid("new_collection", collErr)... }/>
+			<input class="input font-mono flex-1 min-w-32" name="new_name" value={ d.Name } placeholder="NAME" aria-label="New param name" { Invalid("new_name", nameErr)... }/>
 			<input class="input font-mono flex-1 min-w-32" name="new_value" value={ d.Value } placeholder="value" autocomplete="off" aria-label="New param value"/>
 			<select class="input !w-28" name="new_kind" aria-label="New param kind">
 				<option value="param">variable</option>
 				<option value="secret" selected?={ d.Kind == "secret" }>secret</option>
 			</select>
 			<button type="submit" class="btn btn-primary btn-sm ml-auto">Save</button>
+			<div class="basis-full">
+				@FieldError("new_collection", collErr)
+				@FieldError("new_name", nameErr)
+			</div>
 		</div>
 	</details>
 }

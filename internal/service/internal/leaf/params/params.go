@@ -82,13 +82,18 @@ func (l *Leaf) Merge(ctx context.Context, s Scope, es []Entry) error {
 	}
 	var ws []write
 	for _, e := range es {
-		switch {
-		case !slug.ValidName(e.Collection):
-			return errs.Invalidf("collection", "Use lower-case letters, digits and _ in a group name, like %s.", slug.Suggest(e.Collection))
-		case !slug.ValidName(e.Name):
-			return errs.Invalidf("name", "Use lower-case letters, digits and _ in a name, like %s.", slug.Suggest(e.Name))
-		case e.Kind != Param && e.Kind != Secret:
-			return errs.Invalidf("type", "type must be param or secret")
+		var bad []error // both names at once
+		if !slug.ValidName(e.Collection) {
+			bad = append(bad, errs.Invalidf("collection", "Use lower-case letters, digits and _ in a group name, like %s.", slug.Suggest(e.Collection)))
+		}
+		if !slug.ValidName(e.Name) {
+			bad = append(bad, errs.Invalidf("name", "Use lower-case letters, digits and _ in a name, like %s.", slug.Suggest(e.Name)))
+		}
+		if e.Kind != Param && e.Kind != Secret {
+			bad = append(bad, errs.Invalidf("type", "type must be param or secret"))
+		}
+		if len(bad) > 0 {
+			return errors.Join(bad...)
 		}
 		old, err := l.params.GetByName(ctx, s.Kind, s.ID, e.Collection, e.Name)
 		switch {

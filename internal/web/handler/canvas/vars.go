@@ -3,6 +3,7 @@ package canvas
 import (
 	"cmp"
 	"context"
+	"errors"
 	"maps"
 	"net/http"
 	"slices"
@@ -114,6 +115,10 @@ func (h *handler) vars(c echo.Context, s service.Scope, errMsg, note string) (te
 	if !write {
 		g.ReadOnly, g.Why = true, "Only members and owners can change variables or see secrets."
 	}
+	if form, _ := c.FormParams(); c.Request().Method == http.MethodPost && errMsg == "" && form.Has("add_form") {
+		group := form.Get("add_form") // the note right after the add form that posted
+		g.Added, g.Note = &group, note
+	}
 	v.Grid = &g
 	return vars.Editor(v), nil
 }
@@ -175,6 +180,18 @@ func (h *handler) SetVars(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	if form.Has("add_form") { // an Add row: a group and a name are its shape
+		var bad []error
+		if strings.TrimSpace(form.Get("add_group")) == "" {
+			bad = append(bad, errs.Invalidf("add_group", "Give the group a name."))
+		}
+		if strings.TrimSpace(form.Get("add_name")) == "" {
+			bad = append(bad, errs.Invalidf("add_name", "Give the variable a name."))
+		}
+		if len(bad) > 0 {
+			return h.varsAfter(c, s, "", errors.Join(bad...))
+		}
+	}
 	if name := strings.TrimSpace(form.Get("add_name")); name != "" {
 		e := service.ParamEntry{Collection: strings.TrimSpace(form.Get("add_group")), Name: name, Kind: "param"}
 		field := "add_value."
@@ -188,6 +205,7 @@ func (h *handler) SetVars(c echo.Context) error {
 			}
 			n++
 			if _, err = h.orch.SetParams(ctx, col.ps, []service.ParamEntry{e}); err != nil {
+				err = render.AsFields(err, map[string]string{"collection": "add_group", "name": "add_name"})
 				break
 			}
 		}
@@ -230,7 +248,8 @@ func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err er
 		status, note = http.StatusUnprocessableEntity, ""
 		// an add or cell form shows its own refusal, open with what was typed
 		if form, _ := c.FormParams(); vars.Takes(form) {
-			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), &comp.Refused{Msg: msg, Vals: form})))
+			r := &comp.Refused{Msg: msg, Vals: form, More: render.FieldErrs(err)}
+			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), r)))
 			msg = ""
 		}
 	}

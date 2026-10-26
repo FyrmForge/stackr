@@ -339,6 +339,23 @@ func Refused(err error) (msg string, ok bool) {
 	return "", false
 }
 
+// AsFields renames the fields a service refusal names to the form's input
+// names, so each reason lands under its own input.
+func AsFields(err error, names map[string]string) error {
+	bads := errs.Invalids(err)
+	if len(bads) == 0 {
+		return err
+	}
+	out := make([]error, len(bads))
+	for i, b := range bads {
+		if n, ok := names[b.Field]; ok {
+			b.Field = n
+		}
+		out[i] = b
+	}
+	return errors.Join(out...)
+}
+
 // FieldErrs is every field a refusal names, by field, in plain words.
 func FieldErrs(err error) map[string]string {
 	out := map[string]string{}
