@@ -139,7 +139,7 @@ func TestSettingsSummaries(t *testing.T) {
 func TestSettingsRowsChanged(t *testing.T) {
 	s := SettingsView{Allow: []string{"acme:*"}, Pairs: []Pair{{"staging", "dev"}}}
 	for _, r := range settingsRows(View{Base: "/i"}, s) {
-		if want := r.Key != "delete"; r.Changed != want {
+		if want := r.Key != "delete" && r.Key != "general"; r.Changed != want { // a name is never "changed"
 			t.Errorf("%s changed = %v", r.Key, r.Changed)
 		}
 		var b strings.Builder

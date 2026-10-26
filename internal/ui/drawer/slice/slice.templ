@@ -201,13 +201,19 @@ templ consumersRow(v View) {
 
 // nameRow renames the slice tile; its consumers keep their binding.
 templ nameRow(v View) {
-	<form novalidate if !v.ReadOnly { hx-post={ v.Base + "/rename" } } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
-		@c.KeepOpen("general")
-		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Disabled: v.ReadOnly, Why: "Only members and owners can rename it."})
-		if !v.ReadOnly {
+	if v.ReadOnly {
+		<div data-field>
+			<p class="label">Name</p>
+			<p class="text-sm text-rw-text">{ v.Name }</p>
+			<p class="text-xs text-rw-faint" data-hint>Only members and owners can rename it.</p>
+		</div>
+	} else {
+		<form novalidate hx-post={ v.Base + "/rename" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			@c.KeepOpen("general")
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name})
 			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
-		}
-	</form>
+		</form>
+	}
 }
 
 templ removeRow(v View) {

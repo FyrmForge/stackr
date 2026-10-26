@@ -324,12 +324,18 @@ templ pairsRow(v View, s SettingsView) {
 
 // nameRow renames the database; its slices follow it.
 templ nameRow(v View, s SettingsView) {
-	<form novalidate if !v.ReadOnly { hx-post={ v.Base + "/rename" } } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
-		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Error: s.Errors["name"], Disabled: v.ReadOnly, Why: "Only members and owners can rename it.", Help: "Its slices follow the new name."})
-		if !v.ReadOnly {
+	if v.ReadOnly {
+		<div data-field>
+			<p class="label">Name</p>
+			<p class="text-sm text-rw-text">{ v.Name }</p>
+			<p class="text-xs text-rw-faint" data-hint>Only members and owners can rename it.</p>
+		</div>
+	} else {
+		<form novalidate hx-post={ v.Base + "/rename" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Error: s.Errors["name"], Help: "Its slices follow the new name."})
 			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
-		}
-	</form>
+		</form>
+	}
 }
 
 templ deleteRow(v View, s SettingsView) {
