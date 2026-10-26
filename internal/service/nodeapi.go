@@ -140,8 +140,13 @@ func (o *Orchestrator) placementOrg(ctx context.Context, kind, id string) (strin
 }
 
 // ScopePath words a scope for a list a person reads (the security log):
-// acme/shop/prod/web, or "env <id>" once it is gone.
+// acme/shop/prod/web, or "a removed env" once it is gone.
 func (o *Orchestrator) ScopePath(ctx context.Context, kind, id string) string {
+	if kind != scopeNode {
+		if _, _, err := o.chain(ctx, kind, id); err != nil {
+			return "a removed " + kind
+		}
+	}
 	return o.scopePath(ctx, kind, id)
 }
 

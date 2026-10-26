@@ -319,7 +319,7 @@ func (o *Orchestrator) TestAlert(ctx context.Context) error {
 	if _, ok := errs.IsConflict(err); ok {
 		return err
 	}
-	return errs.Conflictf("Test delivery failed: %s.", oneLine(err.Error()))
+	return errs.Conflictf("The test delivery did not arrive. Check the URL.\n%s", oneLine(err.Error()))
 }
 
 // oneLine is s on one line, at most 300 characters. A longer s loses its

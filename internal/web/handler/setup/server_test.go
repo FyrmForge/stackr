@@ -274,7 +274,7 @@ func TestServerWizardObserve(t *testing.T) {
 		}
 	}
 	rec = s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"1"}, "observe_metrics_retention": {"lots"}}, true)
-	refused(t, rec, `value="lots"`, `id="error-observe_metrics_retention"`, "is not a whole number")
+	refused(t, rec, `value="lots"`, `id="error-observe_metrics_retention"`, "Use a whole number")
 	if v, _ := s.env.Orch.Setting(ctx, "observe_enabled"); v != "false" {
 		t.Errorf("a refused save wrote observe_enabled = %q", v)
 	}

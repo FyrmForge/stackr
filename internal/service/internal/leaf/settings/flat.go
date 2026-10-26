@@ -83,7 +83,7 @@ func Check(key, raw string) error {
 		return unknown(key)
 	}
 	if k.ReadOnly {
-		return invalid(k, "comes from the installer and cannot be changed here")
+		return invalid(k, "This comes from the installer and cannot be changed here.")
 	}
 	if raw = strings.TrimSpace(raw); raw == "" {
 		return nil
@@ -100,38 +100,38 @@ func Check(key, raw string) error {
 func validate(k Knob, raw string) error {
 	if cronKnobs[k.Key] {
 		if _, err := cron.ParseStandard(raw); err != nil {
-			return fmt.Errorf("%q is not a cron line (five fields): %s", raw, err)
+			return fmt.Errorf("Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.\n%s", err)
 		}
 	}
 	if k.Key == "proxy_custom" {
 		// ponytail: shape only; Caddy rejects a route it cannot load at the push.
 		var rs []map[string]any
 		if err := json.Unmarshal([]byte(raw), &rs); err != nil {
-			return fmt.Errorf("must be a JSON array of Caddy route objects: %s", err)
+			return fmt.Errorf("Use a JSON array of Caddy route objects.\n%s", err)
 		}
 		if slices.ContainsFunc(rs, func(m map[string]any) bool { return m == nil }) {
-			return fmt.Errorf("must be a JSON array of Caddy route objects, not null")
+			return fmt.Errorf("Use a JSON array of Caddy route objects, with no null in it.")
 		}
 	}
 	switch k.Type {
 	case TInt:
 		v, err := strconv.Atoi(raw)
 		if err != nil {
-			return fmt.Errorf("%q is not a whole number", raw)
+			return fmt.Errorf("Use a whole number, not %q.", raw)
 		}
 		if k.Key == "observe_max_memory" && v < 256 {
-			return fmt.Errorf("%d MB is under the 256 MB floor", v)
+			return fmt.Errorf("Use 256 MB or more.")
 		}
 		return usable(k, v)
 	case TFloat:
 		v, err := strconv.ParseFloat(raw, 64)
 		if err != nil {
-			return fmt.Errorf("%q is not a number", raw)
+			return fmt.Errorf("Use a number, not %q.", raw)
 		}
 		return usable(k, v)
 	case TBool:
 		if _, err := strconv.ParseBool(raw); err != nil {
-			return fmt.Errorf("%q is not true or false", raw)
+			return fmt.Errorf("Use true or false, not %q.", raw)
 		}
 	}
 	return nil

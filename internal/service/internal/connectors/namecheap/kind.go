@@ -100,7 +100,7 @@ func (a *Account) explain(err error) error {
 		return err
 	}
 	if !errors.As(err, &ae) {
-		return errs.Refusedf("Namecheap did not answer: %v", err)
+		return errs.Refusedf("Namecheap did not answer. Try again in a minute.\n%v", err)
 	}
 	switch ae.Number {
 	case "1011102", "1010102":

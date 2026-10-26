@@ -295,7 +295,7 @@ func Config(v ConfigView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approval unless Auto apply is on.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Section("Repository", "instance", "One file declares the server. Its plans wait for an admin's approval unless Auto apply is on.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

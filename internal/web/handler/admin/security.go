@@ -147,17 +147,24 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 	target := func(e service.SecurityEvent) string {
 		switch e.TargetKind {
 		case "node":
-			return "node " + cmp.Or(nodes[e.TargetID], e.TargetID)
+			if n, ok := nodes[e.TargetID]; ok {
+				return "node " + n
+			}
+			return "a removed node"
 		case "user":
 			return cmp.Or(who[e.TargetID], e.TargetID)
 		case "email":
 			return e.TargetID
 		case "placement":
-			return "placement " + cmp.Or(placement[e.TargetID], e.TargetID)
+			if p, ok := placement[e.TargetID]; ok {
+				return "placement " + p
+			}
+			return "a removed placement"
 		case "stack":
 			if st, ok := stacks[e.TargetID]; ok {
 				return st.org + " / " + st.name
 			}
+			return "a removed stack"
 		case service.ScopeEnv, service.ScopeTile, service.ScopeOrg:
 			k := e.TargetKind + ":" + e.TargetID
 			if _, ok := paths[k]; !ok {

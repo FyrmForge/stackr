@@ -217,7 +217,7 @@ var Catalogue = []Knob{
 		Type:    TStr,
 		Default: "30 4 * * *",
 		Scopes:  Flat,
-		Desc:    "when the sweep runs, a cron line; empty is the default time",
+		Desc:    "five-field cron. Empty is 4:30 daily.",
 	},
 	{
 		Key:      "registry_cleanup_schedule",
@@ -226,7 +226,7 @@ var Catalogue = []Knob{
 		Default:  "15 4 * * *",
 		Scopes:   Flat,
 		EmptyOff: true,
-		Desc:     "when unused registry versions are deleted and the registry's disk is collected, a cron line; empty is off",
+		Desc:     "five-field cron. Empty is off.",
 	},
 	{
 		Key:     "registry_keep",
@@ -234,7 +234,7 @@ var Catalogue = []Knob{
 		Type:    TInt,
 		Default: "3",
 		Scopes:  Flat,
-		Desc:    "versions per registry repository the cleanup always keeps, newest first; older ones go unless an env uses them",
+		Desc:    "newest versions kept per repository. A version an env runs is always kept.",
 	},
 	{
 		Key:     "orphans_enabled",
@@ -250,7 +250,7 @@ var Catalogue = []Knob{
 		Type:    TStr,
 		Default: "@daily",
 		Scopes:  Flat,
-		Desc:    "when orphaned volumes past retention are backed up and deleted, a cron line; empty is the default time",
+		Desc:    "five-field cron. Empty is 0:00 daily.",
 	},
 	{
 		Key:     "panel_backup_enabled",
@@ -266,7 +266,7 @@ var Catalogue = []Knob{
 		Type:    TStr,
 		Default: "0 3 * * *",
 		Scopes:  Flat,
-		Desc:    "when the panel archives itself, a cron line; empty is the default time",
+		Desc:    "five-field cron. Empty is 3:00 daily.",
 	},
 	{
 		Key:     "panel_backup_keep",
@@ -314,7 +314,7 @@ var Catalogue = []Knob{
 		Type:    TBool,
 		Default: "true",
 		Scopes:  Flat,
-		Desc:    "keep logs in the stackr-observe container (with observe_enabled)",
+		Desc:    "keep logs in the stackr-observe container, with metrics history on",
 	},
 	{
 		Key:     "observe_logs_retention",

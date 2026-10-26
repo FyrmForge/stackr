@@ -131,7 +131,9 @@ templ placementForm(f PlacementFormView, id string, withName bool) {
 		}
 		<div class="text-sm">
 			@c.Share(placementShare(f))
-			<p class="mt-1 text-xs text-rw-faint">Envs already here stay, even for orgs you take off.</p>
+			if !withName {
+				<p class="mt-1 text-xs text-rw-faint">Envs already here stay, even for orgs you take off.</p>
+			}
 		</div>
 		<button type="submit" class="btn btn-primary btn-sm">
 			if withName {

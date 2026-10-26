@@ -35,7 +35,7 @@ templ Config(v ConfigView) {
 		@c.Section("Export", "instance", "This server's live state as a stackr-server.yml, the way into config-as-code. Secrets come out as names, never values.") {
 			<a href={ templ.SafeURL(v.Export) } download="stackr-server.yml" class="btn btn-ghost btn-sm">Download stackr-server.yml</a>
 		}
-		@c.Section("Config as code", "instance", "One file declares the server. Its plans wait for an admin's approval unless Auto apply is on.") {
+		@c.Section("Repository", "instance", "One file declares the server. Its plans wait for an admin's approval unless Auto apply is on.") {
 			if len(v.Connectors) == 0 && v.Repo == "" {
 				<p class="text-sm text-rw-muted">Create a server connector first, in Connectors. The server file is fetched through it.</p>
 			} else {

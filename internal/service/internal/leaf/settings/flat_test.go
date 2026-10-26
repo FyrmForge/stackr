@@ -182,10 +182,10 @@ func TestRefusalsNameTheLabel(t *testing.T) {
 		key  string
 		want string
 	}{
-		{settings.Check("observe_metrics_retention", "0"), "observe_metrics_retention", "Metrics retention (days): must be at least 1"},
-		{settings.Check("observe_max_memory", "100"), "observe_max_memory", "Memory cap (MB): 100 MB is under the 256 MB floor"},
-		{settings.Check("workers", "two"), "workers", `Job workers: "two" is not a whole number`},
-		{settings.Set(&settings.Settings{}, "cpu_limit", "-1"), "cpu_limit", "CPU limit (cores): must be 0 or more"},
+		{settings.Check("observe_metrics_retention", "0"), "observe_metrics_retention", "Metrics retention (days): Use 1 or more."},
+		{settings.Check("observe_max_memory", "100"), "observe_max_memory", "Memory cap (MB): Use 256 MB or more."},
+		{settings.Check("workers", "two"), "workers", `Job workers: Use a whole number, not "two".`},
+		{settings.Set(&settings.Settings{}, "cpu_limit", "-1"), "cpu_limit", "CPU limit (cores): Use 0 or more."},
 	} {
 		inv, ok := errs.IsInvalid(c.err)
 		if !ok || inv.Field != c.key || c.err.Error() != c.want {

@@ -131,10 +131,12 @@ func parseOpt[T any](k Knob, raw string, parse func(string) (T, error)) (*T, err
 	}
 	v, err := parse(raw)
 	if err != nil {
-		return nil, invalid(k, "%q is not a valid %s", raw, k.Type)
+		return nil, invalid(k, "Use %s, not %q.", typeWords[k.Type], raw)
 	}
 	return &v, nil
 }
+
+var typeWords = map[Type]string{TInt: "a whole number", TFloat: "a number", TBool: "true or false", TStr: "text"}
 
 // invalid is a knob's refusal: Field is its key, for the form to put the
 // message under, and the message names its label, never the key.
@@ -159,11 +161,11 @@ func parseNum[T int | float64](k Knob, raw string, parse func(string) (T, error)
 func usable[T int | float64](k Knob, v T) error {
 	switch {
 	case v < 0 && k.AllowZero:
-		return invalid(k, "must be 0 or more")
+		return invalid(k, "Use 0 or more.")
 	case v < 1 && k.Type == TInt && !k.AllowZero:
-		return invalid(k, "must be at least 1")
+		return invalid(k, "Use 1 or more.")
 	case v <= 0 && !k.AllowZero:
-		return invalid(k, "must be more than 0")
+		return invalid(k, "Use a number above 0.")
 	}
 	return nil
 }
@@ -178,7 +180,7 @@ func Merge(s Settings, vals map[string]string, at Scope) (Settings, error) {
 			continue
 		}
 		if k.Scopes&at == 0 {
-			return s, invalid(k, "cannot be set on a %s", at)
+			return s, invalid(k, "This cannot be set on a %s.", at)
 		}
 		if err := Set(&out, k.Key, raw); err != nil {
 			return s, err

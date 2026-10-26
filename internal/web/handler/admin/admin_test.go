@@ -64,7 +64,7 @@ func TestAdminPage(t *testing.T) {
 	}
 	if rec := s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{
 		"workers": {"lots"},
-	}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not a whole number") {
+	}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Use a whole number") {
 		t.Errorf("bad value = %d %s", rec.Code, rec.Body)
 	}
 	if rec := s.As(t, root, "POST", "/-/admin/settings/nope", url.Values{"workers": {"2"}}); rec.Code != http.StatusNotFound {
@@ -486,5 +486,35 @@ func TestAdminRecoveryKey(t *testing.T) {
 	}
 	if rec := post("show", "correct horse battery"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `hx-history="false" data-recovery-key`) {
 		t.Errorf("show with the password = %d", rec.Code)
+	}
+}
+
+// An answer's words sit in the card that posted: a save's note under its
+// form, a refusal about one field under that field, nothing over the top
+// of the section.
+func TestAdminAnswerInItsCard(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	body := s.As(t, root, "POST", "/-/admin/caddy", url.Values{"proxy_custom": {"[]"}}).Body.String()
+	form, note := strings.Index(body, `hx-post="/-/admin/caddy"`), strings.Index(body, `role="status" hx-history="false">Saved.`)
+	if form < 0 || note < form {
+		t.Errorf("the note is not under the form that saved (form %d, note %d):\n%s", form, note, body)
+	}
+	rec := s.As(t, root, "POST", "/-/admin/dests", url.Values{
+		"dest_name": {"offsite"}, "endpoint": {"https://s3.example.test"}, "bucket": {"b"}, "secret_key": {"sk"},
+	})
+	body = rec.Body.String()
+	if rec.Code != http.StatusUnprocessableEntity || !regexp.MustCompile(`id="error-access_key" data-has-error="true"[^>]*>[^<]+`).MatchString(body) {
+		t.Errorf("the refusal is not on the access key field: %d\n%s", rec.Code, body)
+	}
+	if strings.Contains(body, `banner banner-danger`) {
+		t.Errorf("a refusal a field shows is drawn again as a banner:\n%s", body)
+	}
+	// Turn off takes its own button away: the note lands in the card above it.
+	s.As(t, root, "POST", "/-/admin/alerts/heartbeat", url.Values{"url": {"https://hb.example.test/ping"}})
+	body = s.As(t, root, "POST", "/-/admin/alerts/heartbeat/clear", nil).Body.String()
+	form, note = strings.Index(body, `hx-post="/-/admin/alerts/heartbeat"`), strings.Index(body, "Heartbeat is off.")
+	if form < 0 || note < form || !strings.Contains(body, "Status: off.") {
+		t.Errorf("turning the heartbeat off is not told in its card (form %d, note %d):\n%s", form, note, body)
 	}
 }

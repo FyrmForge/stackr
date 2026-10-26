@@ -35,8 +35,14 @@ templ Form(id, action string) {
 // FormError is the form-wide message (the "general" key of the errors map).
 templ FormError(msg string) {
 	if msg != "" {
-		<div class="banner banner-danger" role="alert">{ msg }</div>
+		<div class="banner banner-danger" role="alert">@ErrText(msg)</div>
 	}
+}
+
+// Note is what a save did. It may hold a one-time token: kept out of htmx's
+// history cache.
+templ Note(msg string) {
+	<p class="banner" role="status" hx-history="false">{ msg }</p>
 }
 
 templ Field(f FieldView) {
@@ -91,12 +97,12 @@ templ Submit(label string) {
 // FieldError renders a validation error for a form field.
 // Always renders the element so it can be targeted by OOB swaps.
 templ FieldError(field string, err string) {
-	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite">{ err }</span>
+	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite">@ErrText(err)</span>
 }
 
 // FieldErrorOOB renders an out-of-band swap for a field error (used with HTMX blur validation).
 templ FieldErrorOOB(field string, err string) {
-	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite" hx-swap-oob="true">{ err }</span>
+	<span class="field-error" id={ "error-" + field } data-has-error={ strconv.FormatBool(err != "") } aria-live="polite" hx-swap-oob="true">@ErrText(err)</span>
 }
 
 // fieldValue is the stored value, or the typed one of a refused save; a
@@ -144,7 +150,7 @@ templ AuthCard(title string, sub templ.Component) {
 // Section is v0's settings card (form.Section): a titled panel, its scope
 // chip ("org", "stack") and one help line over the controls. Title "" drops
 // the heading and the chip, for a card the page heading already names.
-templ Section(title, scope, help string) {
+templ section(title, scope, help string, note templ.Component) {
 	<section class="panel p-6 mb-6">
 		if title != "" {
 			<div class="flex items-baseline gap-3 mb-1">
@@ -160,7 +166,16 @@ templ Section(title, scope, help string) {
 			<div class="mb-4"></div>
 		}
 		{ children... }
+		if note != nil {
+			<div class="mt-4">
+				@note
+			</div>
+		}
 	</section>
+}
+
+templ errDetailLine(d string) {
+	<span class="mt-0.5 block font-mono text-[11px] opacity-80 [overflow-wrap:anywhere]">{ d }</span>
 }
 
 // PanelSection is a titled block inside a drawer's settings tab (v0

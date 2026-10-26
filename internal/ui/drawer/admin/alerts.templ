@@ -59,11 +59,16 @@ templ Alerts(v AlertsView) {
 				@c.Field(c.FieldView{Name: "url", Label: "Heartbeat URL", Type: "url", Value: v.HeartbeatDraft, Placeholder: alertsPlaceholder(v.Heartbeat), Help: heartbeatURLHelp(v.Heartbeat)})
 				<button type="submit" class="btn btn-primary btn-sm">Save</button>
 			</form>
-			if v.HeartbeatClear.Action != "" {
-				<div class="mt-5 pt-5 border-t border-rw-border">
+			<div class="mt-5 pt-5 border-t border-rw-border space-y-3">
+				if v.Heartbeat != "" {
+					<p class="text-sm text-rw-muted">Status: on.</p>
+				} else {
+					<p class="text-sm text-rw-muted">Status: off.</p>
+				}
+				if v.HeartbeatClear.Action != "" {
 					@c.Confirm(v.HeartbeatClear)
-				</div>
-			}
+				}
+			</div>
 		}
 	</div>
 }

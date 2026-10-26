@@ -21,10 +21,10 @@ type ObserveView struct {
 }
 
 // Each panel saves its own knobs: part names them to the handler, so an
-// unticked box in another panel is never read as off.
+// unticked box in another panel is never read as off. The part rides in the
+// URL too, so the answer's note lands on this panel.
 templ observeForm(action, part string) {
-	<form hx-post={ action } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
-		<input type="hidden" name="part" value={ part }/>
+	<form hx-post={ action + "?part=" + part } hx-target={ target() } hx-swap="outerHTML" class="space-y-3">
 		{ children... }
 		<button type="submit" class="btn btn-primary btn-sm">Save</button>
 	</form>

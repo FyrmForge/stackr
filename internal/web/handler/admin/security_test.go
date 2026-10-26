@@ -35,6 +35,10 @@ func TestAdminSecurityTab(t *testing.T) {
 	if strings.Contains(body, "203.0.113.9") || !strings.Contains(body, "Nothing matches") {
 		t.Errorf("action filter kept the other rows:\n%s", body)
 	}
+	// a target that is gone reads as such, never as its id
+	if got := s.Orch.ScopePath(ctx, service.ScopeEnv, "00000000-0000-0000-0000-000000000000"); got != "a removed env" {
+		t.Errorf("a removed env reads %q", got)
+	}
 }
 
 // The log words every action in plain words: the listed ones by label, any

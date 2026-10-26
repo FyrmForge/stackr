@@ -222,6 +222,7 @@ func (h *handler) Upgrade(c echo.Context) error {
 func (h *handler) answer(c echo.Context, section, note string, x extra, actErr error) error {
 	status := http.StatusOK
 	var msg string
+	var ref *comp.Refused
 	if actErr != nil {
 		var ok bool
 		if msg, ok = render.Refused(actErr); !ok {
@@ -229,12 +230,20 @@ func (h *handler) answer(c echo.Context, section, note string, x extra, actErr e
 		}
 		status, note = http.StatusUnprocessableEntity, ""
 		c.Set(refusedKey, true)
+		// a refusal about one field sits under it; refill keeps the values
+		if bad, ok := errs.IsInvalid(actErr); ok && bad.Field != "" {
+			ref = &comp.Refused{Field: bad.Field, Msg: msg}
+			c.SetRequest(c.Request().WithContext(comp.WithRefused(c.Request().Context(), ref)))
+		}
 	}
 	f, body, err := h.view(c, section, x)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	f.Note, f.Error = note, msg
+	f.Note, f.Error, f.Ref = note, msg, ref
+	if c.Request().Method == http.MethodPost {
+		f.At = c.Request().URL.RequestURI()
+	}
 	return respond.HTML(c, status, ui.View(f, body))
 }
 

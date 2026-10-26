@@ -278,7 +278,7 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Prob
 	if err := probe(ctx, *d); err != nil {
 		// An S3 error can quote the request; never let a key through.
 		msg := strings.NewReplacer(d.SecretKey, "***", d.AccessKey, "***").Replace(err.Error())
-		return errs.Invalidf("endpoint", "a test write to bucket %s failed: %s", d.Bucket, msg)
+		return errs.Invalidf("endpoint", "A test file could not be written to bucket %s. Check the endpoint, bucket and keys.\n%s", d.Bucket, msg)
 	}
 	return nil
 }

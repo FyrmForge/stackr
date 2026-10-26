@@ -31,7 +31,7 @@ func TestRefusedSaveKeepsTyped(t *testing.T) {
 	body = rec.Body.String()
 	_, general, _ := strings.Cut(body, `id="stack-settings-general"`)
 	general, _, _ = strings.Cut(general, "</details>")
-	if rec.Code != 422 || !strings.Contains(general, `data-acc="general" open`) || !strings.Contains(general, `<span class="flex-1 min-w-0 truncate text-sm text-rw-muted">shop`) ||
+	if rec.Code != 422 || !strings.Contains(general, `data-acc="general" open`) || !strings.Contains(general, `data-acc-sum>shop<`) ||
 		!strings.Contains(general, `data-has-error="true"`) || strings.Contains(body, "name:") {
 		t.Errorf("rename = %d\n%s", rec.Code, general)
 	}

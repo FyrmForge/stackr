@@ -1,7 +1,11 @@
 package admin
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"strconv"
+	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -93,6 +97,56 @@ type ViewFrame struct {
 	Section     string
 	Badges      map[string]Badge
 	Note, Error string
+	// At is the path the answered POST went to: the card holding that form
+	// shows Note or Error, the top of the section only when none does. Ref
+	// is the refusal a field may show instead.
+	At  string
+	Ref *c.Refused
+}
+
+// framed is the section with what the action said: in the card it came
+// from, else over the section. An action that took its own control away
+// (Turn off, Remove) is told in the card of the path above it.
+func framed(f ViewFrame, body templ.Component) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		var buf bytes.Buffer
+		var a *c.Acted
+		for at := f.At; ; at = parentPath(at) {
+			a = &c.Acted{Path: at, Note: f.Note, Err: f.Error, Ref: f.Ref, Below: at != f.At}
+			buf.Reset()
+			if err := body.Render(c.WithActed(ctx, a), &buf); err != nil {
+				return err
+			}
+			if at == "" || !a.Unclaimed() {
+				break
+			}
+		}
+		if a.Unclaimed() {
+			note, msg := a.Words()
+			if err := c.FormError(msg).Render(ctx, w); err != nil {
+				return err
+			}
+			if msg == "" {
+				if err := c.Note(note).Render(ctx, w); err != nil {
+					return err
+				}
+			}
+		}
+		_, err := w.Write(buf.Bytes())
+		return err
+	})
+}
+
+// parentPath is uri without its query, else without its last segment; ""
+// once it would leave the section ("/-/admin/x").
+func parentPath(uri string) string {
+	if p, _, ok := strings.Cut(uri, "?"); ok {
+		return p
+	}
+	if i := strings.LastIndex(uri, "/"); i > len(Base) {
+		return uri[:i]
+	}
+	return ""
 }
 
 func navClass(on bool) string {
@@ -172,14 +226,7 @@ templ View(f ViewFrame, body templ.Component) {
 					<p class="text-sm text-rw-muted">{ it.Sub }</p>
 				</div>
 			}
-			if f.Error != "" {
-				<p class="banner banner-danger" role="alert">{ f.Error }</p>
-			}
-			if f.Note != "" {
-				// a note may hold a one-time token: keep it out of htmx's history cache
-				<p class="banner" role="status" hx-history="false">{ f.Note }</p>
-			}
-			@body
+			@framed(f, body)
 		</div>
 	</div>
 }
