@@ -1,5 +1,7 @@
 package components
 
+import "strings"
+
 // ConfirmView guards a destructive action. Kept says what survives
 // ("archives already in the bucket are kept"); a type-the-name confirm
 // (Word set) must fill it, and Confirm panics without it so the gallery
@@ -32,6 +34,18 @@ func Confirm(v ConfirmView) templ.Component {
 	return confirm(v, swapOf(v.Target))
 }
 
+// disinherit is what the wrapper keeps from Body: its Vals and Include.
+func disinherit(v ConfirmView) string {
+	var a []string
+	if v.Vals != "" {
+		a = append(a, "hx-vals")
+	}
+	if v.Include != "" {
+		a = append(a, "hx-include")
+	}
+	return strings.Join(a, " ")
+}
+
 func swapOf(target string) string {
 	if target == "" {
 		return "none"
@@ -40,7 +54,9 @@ func swapOf(target string) string {
 }
 
 // confirm is v0's typed Modal look (.modal-panel/head/body/foot) on a
-// native <dialog>; the X in the head is a second [data-cancel].
+// native <dialog>; the X in the head is a second [data-cancel]. Vals and
+// Include stay on the wrapper: a form in Body (the plan's scope) posts its
+// own fields.
 templ confirm(v ConfirmView, swap string) {
 	<div
 		if v.Action != "" {
@@ -54,6 +70,9 @@ templ confirm(v ConfirmView, swap string) {
 		}
 		if v.Include != "" {
 			hx-include={ "find " + v.Include }
+		}
+		if d := disinherit(v); d != "" {
+			hx-disinherit={ d }
 		}
 	>
 		<confirm-dialog word={ v.Word } open?={ v.Open }>

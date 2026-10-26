@@ -297,6 +297,9 @@ templ plan(v DomainsView, p PlanView) {
 			</ul>
 		</div>
 	}
+	if len(p.Writes) == 0 && len(p.Adopt) == 0 && len(p.LeftAlone) == 0 && p.UnderError == "" {
+		<p class="text-sm text-rw-muted">Nothing changes in the zone now.</p>
+	}
 	if len(p.LeftAlone) > 0 {
 		<details>
 			<summary class="cursor-pointer text-xs font-medium text-rw-muted">Left alone: { leftAlone(p) }</summary>

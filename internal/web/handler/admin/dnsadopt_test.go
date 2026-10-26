@@ -47,9 +47,9 @@ func TestAdminManageAsksToAdopt(t *testing.T) {
 		t.Error("the preview managed the domain")
 	}
 
-	// nothing to ask: managed straight away
+	// an empty zone still asks: the scope is the plan's first question
 	rec = s.As(t, root, "POST", base+"/preview", url.Values{"domain": {"shop.io"}})
-	if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Contains(body, "Manage shop.io?") || !strings.Contains(body, "Saved.") {
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Manage shop.io?") || !strings.Contains(body, "Nothing changes in the zone now.") {
 		t.Fatalf("preview of an empty zone = %d\n%s", rec.Code, body)
 	}
 

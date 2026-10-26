@@ -80,9 +80,6 @@ func (p Panel) preview(c echo.Context) error {
 	if err != nil {
 		return p.answer(c, "", err)
 	}
-	if len(plan.Writes) == 0 && len(plan.Adopt) == 0 && len(plan.LeftAlone) == 0 {
-		return p.manage(c)
-	}
 	v.Scope = plan.Scope
 	for _, w := range plan.Writes {
 		v.Writes = append(v.Writes, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
