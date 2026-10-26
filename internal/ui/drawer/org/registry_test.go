@@ -3,6 +3,7 @@ package org
 import (
 	"strings"
 	"testing"
+	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -18,7 +19,7 @@ func TestRegistryVersions(t *testing.T) {
 		t.Errorf("the row does not open its versions:\n%s", list)
 	}
 	v := RegistryView{Repo: "acme/docker.io/library/postgres", Back: "/acme/-/drawer?tab=registry", Versions: []VersionRow{
-		{Tag: "16", Size: "4.0 MB", Platforms: "amd64", Arrived: "2 h ago", Source: "imported from postgres:16", UsedBy: []string{"shop/dev"},
+		{Tag: "16", Size: "4.0 MB", Platforms: "amd64", Arrived: time.Date(2026, 10, 26, 7, 0, 0, 0, time.UTC), Source: "imported from postgres:16", UsedBy: []string{"shop/dev"},
 			Delete: c.ConfirmView{Button: "Delete", Title: "Delete x?", Warning: "Running in shop/dev.", Action: "/acme/-/drawer/registry/delete?tag=16", Target: "#x"}},
 		{Tag: "15", Size: "n/a", Source: "built"},
 	}}

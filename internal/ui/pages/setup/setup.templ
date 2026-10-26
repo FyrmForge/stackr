@@ -118,7 +118,7 @@ type Person struct {
 	Email   string
 	Role    string
 	State   string // member | pending | expired
-	Expires string // an invite's expiry
+	Expires time.Time // an invite's expiry
 	Link    string // a pending invite's link
 	Self    bool
 }
@@ -749,9 +749,9 @@ templ peopleList(v TeamView) {
 						case "member":
 							<span class="block text-xs text-rw-faint truncate">{ p.Email }</span>
 						case "expired":
-							<span class="block text-xs text-rw-danger truncate">Invite expired { p.Expires }</span>
+							<span class="block text-xs text-rw-danger truncate">Invite expired @c.When(p.Expires)</span>
 						default:
-							<span class="block text-xs text-rw-warning truncate">Invited, expires { p.Expires }</span>
+							<span class="block text-xs text-rw-warning truncate">Invited, expires @c.When(p.Expires)</span>
 					}
 				</span>
 				if p.State == "member" && !p.Self {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -27,8 +26,6 @@ func (h *handler) panelURL(ctx context.Context, path string) string {
 	host, _ := h.orch.Setting(ctx, "panel_domain")
 	return comp.PanelURL(host, path)
 }
-
-func day(t time.Time) string { return t.Format("2 Jan 2006") }
 
 // mintedKey carries a just-minted token from the mint to the keys tab it
 // answers with.
@@ -358,7 +355,7 @@ func (h *handler) membersView(c echo.Context, cd card, base string) (orgui.Membe
 			ID:      i.ID,
 			Email:   i.Email,
 			Role:    i.Role,
-			Expires: i.ExpiresAt.Format("Jan 2 2006"),
+			Expires: i.ExpiresAt,
 			Link:    h.panelURL(ctx, "/invite/"+i.ID),
 		})
 	}

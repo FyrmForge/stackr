@@ -644,7 +644,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		}
 		v.Certs = append(v.Certs, ui.CertRow{
 			Serial: ce.Serial, State: st,
-			Issued: ce.IssuedAt.Format("Jan 2, 2006"), Expires: ce.NotAfter.Format("Jan 2, 2006"),
+			Issued: ce.IssuedAt, Expires: ce.NotAfter.Format("Jan 2, 2006"),
 			RenewFrom: ce.RenewFrom.Format("Jan 2"),
 		})
 	}

@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"time"
+
 	"github.com/FyrmForge/stackr/internal/ui/access"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -24,7 +26,8 @@ type WaitingStack struct {
 type AccessRow struct {
 	Org, Stack, Tile string
 	Perms            []access.Perm
-	By, When         string
+	By               string
+	When             time.Time
 	Revoke           c.ConfirmView
 }
 
@@ -85,7 +88,7 @@ templ Access(v AccessView) {
 							<div class="mt-2">
 								@access.Rows(r.Perms)
 							</div>
-							<div class="mt-2 text-xs text-rw-faint">approved by { r.By } · { r.When }</div>
+							<div class="mt-2 text-xs text-rw-faint">approved by { r.By } · @c.When(r.When)</div>
 						</li>
 					}
 				</ul>

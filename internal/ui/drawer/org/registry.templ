@@ -1,6 +1,10 @@
 package org
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // RegistryView is the Registry tab: how to log in and push, then the org's
 // repositories, or with Repo set that repository's versions. Host "" = no
@@ -18,15 +22,19 @@ type RegistryView struct {
 	Versions []VersionRow
 }
 
-// RepoRow is one repository; Latest is "tag · when", "" when unknown. Open is
-// the GET that shows its versions.
-type RepoRow struct{ Name, Tags, Latest, Size, Open string }
+// RepoRow is one repository; Latest is its newest tag, "" when unknown,
+// pushed at LatestAt. Open is the GET that shows its versions.
+type RepoRow struct {
+	Name, Tags, Latest, Size, Open string
+	LatestAt                       time.Time
+}
 
 // VersionRow is one version. UsedBy names the envs that run it. Delete.Action
 // is "" when the viewer may not delete.
 type VersionRow struct {
-	Tag, Size, Platforms, Arrived, Source string
-	UsedBy                                []string
+	Tag, Size, Platforms, Source string
+	Arrived                      time.Time // zero = unknown
+	UsedBy                       []string
 	Delete                                c.ConfirmView
 }
 
@@ -72,7 +80,11 @@ templ registryRepos(v RegistryView) {
 							<tr class="border-t border-rw-border hover:bg-rw-surface">
 								<td class="py-2 pr-3 font-mono text-rw-text break-all"><button type="button" class="font-mono text-left hover:underline" hx-get={ r.Open } hx-target={ target() } hx-swap="outerHTML">{ r.Name }</button></td>
 								<td class="py-2 pr-3 text-rw-muted">{ r.Tags }</td>
-								<td class="py-2 pr-3 font-mono text-xs text-rw-muted hidden sm:table-cell">{ r.Latest }</td>
+								<td class="py-2 pr-3 font-mono text-xs text-rw-muted hidden sm:table-cell">
+									if r.Latest != "" {
+										{ r.Latest } · @c.When(r.LatestAt)
+									}
+								</td>
 								<td class="py-2 text-right text-rw-muted whitespace-nowrap">{ r.Size }</td>
 							</tr>
 						}
@@ -99,7 +111,7 @@ templ registryVersions(v RegistryView) {
 						<span class="font-mono text-rw-text">{ r.Tag }</span>
 						<span class="text-rw-muted">{ r.Size }</span>
 						<span class="text-xs text-rw-faint">{ r.Platforms }</span>
-						<span class="text-xs text-rw-faint">{ r.Arrived }</span>
+						<span class="text-xs text-rw-faint">@c.When(r.Arrived)</span>
 						<span class="text-xs text-rw-muted">{ r.Source }</span>
 						if len(r.UsedBy) == 0 {
 							<span class="text-xs text-rw-faint">Not in use</span>

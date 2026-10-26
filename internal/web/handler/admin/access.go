@@ -156,7 +156,7 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 				Org: st.org, Stack: st.name, Tile: t.Tile,
 				Perms: t.Perms,
 				By:    by,
-				When:  g.CreatedAt.Local().Format("Jan 2"),
+				When:  g.CreatedAt,
 				Revoke: comp.ConfirmView{
 					Button:  "Revoke",
 					Title:   "Revoke " + t.Tile + "'s access?",

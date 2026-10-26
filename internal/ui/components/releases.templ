@@ -1,6 +1,9 @@
 package components
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // ReleasesView is v0's releases page as a drawer tab (stack and env): the
 // ladder strip (what each env runs), one row per release with the envs
@@ -22,7 +25,7 @@ type ReleaseRow struct {
 	By     string // who or what cut it
 	Commit string // full commit sha ("" = none)
 	Message string // commit message, first line ("" = none)
-	When   string
+	When   time.Time
 	Envs   []EnvRun // the envs running it
 	Moves  []ReleaseMove
 }
@@ -78,16 +81,19 @@ templ Releases(v ReleasesView) {
 		} else {
 			<ul class="panel divide-y divide-rw-border">
 				for _, r := range v.Rows {
-					<li class="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm min-w-0">
-						<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
-						<span class="font-mono text-xs text-rw-muted">#{ r.Number }</span>
-						<span class="min-w-0 flex-1">
-							<span class="block text-rw-text truncate">Release { r.Number }</span>
-							<span class="block text-[10px] text-rw-faint truncate">{ r.By } · { r.When }</span>
-							if r.Message != "" {
-								<span class="block text-[10px] text-rw-muted truncate" title={ r.Message }>{ r.Message }</span>
-							}
+					<li class="flex flex-col gap-1.5 px-4 py-2.5 text-sm min-w-0 sm:flex-row sm:items-center sm:gap-2">
+						<span class="flex items-center gap-2 min-w-0 flex-1">
+							<span class="flex h-5 w-5 items-center justify-center rounded bg-rw-inset text-[9px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
+							<span class="font-mono text-xs text-rw-muted shrink-0">#{ r.Number }</span>
+							<span class="min-w-0 flex-1">
+								<span class="block text-rw-text sm:truncate [overflow-wrap:anywhere]">Release { r.Number }</span>
+								<span class="block text-[10px] text-rw-faint sm:truncate [overflow-wrap:anywhere]">{ r.By } · @When(r.When)</span>
+								if r.Message != "" {
+									<span class="block text-[10px] text-rw-muted sm:truncate [overflow-wrap:anywhere]" title={ r.Message }>{ r.Message }</span>
+								}
+							</span>
 						</span>
+						<span class="flex flex-wrap items-center gap-2 pl-7 sm:pl-0 sm:shrink-0 empty:hidden">
 						if r.Commit != "" {
 							<span class="font-mono text-[10px] text-rw-faint" title={ r.Commit }>{ r.Commit[:min(12, len(r.Commit))] }</span>
 						}
@@ -109,6 +115,7 @@ templ Releases(v ReleasesView) {
 								}
 							</button>
 						}
+						</span>
 					</li>
 				}
 			</ul>
@@ -152,7 +159,7 @@ templ askRow(r ReleaseRow) {
 		<span class="font-mono text-rw-muted">#{ r.Number }</span>
 		<span class="flex h-4 w-4 items-center justify-center rounded bg-rw-inset text-[8px] font-bold uppercase text-rw-accentHi shrink-0">{ Initials(r.By) }</span>
 		<span class="min-w-0 flex-1 truncate text-rw-text">{ r.By }</span>
-		<span class="text-rw-faint shrink-0">{ r.When }</span>
+		<span class="text-rw-faint shrink-0">@When(r.When)</span>
 	</li>
 }
 

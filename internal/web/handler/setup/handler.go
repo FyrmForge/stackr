@@ -336,7 +336,7 @@ func (h *handler) team(c echo.Context, og *service.Org) (pages.Frame, templ.Comp
 			Email:   i.Email,
 			Role:    i.Role,
 			State:   "pending",
-			Expires: i.ExpiresAt.Local().Format("Jan 2 2006"),
+			Expires: i.ExpiresAt,
 			Link:    h.panelURL(ctx, "/invite/"+i.ID),
 		}
 		if i.ExpiresAt.Before(now) {

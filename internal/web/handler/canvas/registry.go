@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -42,7 +41,7 @@ func (h *handler) orgRegistry(c echo.Context, cd card) (orgui.RegistryView, erro
 			row.Tags = "1 tag"
 		}
 		if r.Latest != "" {
-			row.Latest = r.Latest + " · " + ago(r.LatestAt)
+			row.Latest, row.LatestAt = r.Latest, r.LatestAt
 			row.Size = render.Size(r.Size)
 		}
 		v.Repos = append(v.Repos, row)
@@ -75,9 +74,7 @@ func (h *handler) orgVersions(c echo.Context, cd card, v orgui.RegistryView, bas
 		if x.Size > 0 {
 			row.Size = render.Size(x.Size)
 		}
-		if !x.CreatedAt.IsZero() {
-			row.Arrived = ago(x.CreatedAt)
-		}
+		row.Arrived = x.CreatedAt
 		if mayDelete {
 			row.Delete = comp.ConfirmView{
 				Button:  "Delete",
@@ -117,19 +114,4 @@ func (h *handler) mountRegistry(site *echo.Group, a *middleware.Access) {
 		err := h.orch.DeleteRegistryVersion(c.Request().Context(), og.ID, repo, tag, c.QueryParam("force") == "true")
 		return "Deleted " + repo + ":" + tag + ".", err
 	}), a.Require("registry.tag.delete"))
-}
-
-func ago(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%d min ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%d h ago", int(d.Hours()))
-	case d < 48*time.Hour:
-		return "yesterday"
-	}
-	return t.Format("Jan 2")
 }

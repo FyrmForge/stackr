@@ -245,7 +245,10 @@ type IfaceRow struct{ Group, Name, Addr, Label string }
 // TunnelRow is one peer of the node. Open is a GET answering the tunnel drawer.
 type TunnelRow struct{ Name, Dials, Ping, Open string }
 
-type CertRow struct{ Serial, Issued, Expires, RenewFrom, State string }
+type CertRow struct {
+	Serial, Expires, RenewFrom, State string
+	Issued                           time.Time
+}
 
 // WarningRow is one of the node's warnings, said in full.
 type WarningRow struct {
@@ -720,7 +723,7 @@ templ NodeBody(tab string, v NodeView) {
 							<dt class="text-rw-muted">Serial</dt>
 							<dd class="font-mono text-xs text-rw-text">{ ce.Serial }</dd>
 							<dt class="text-rw-muted">Issued</dt>
-							<dd class="text-rw-text">{ ce.Issued }</dd>
+							<dd class="text-rw-text">@c.When(ce.Issued)</dd>
 							<dt class="text-rw-muted">Expires</dt>
 							<dd class="text-rw-text">{ ce.Expires } · renews on its own from { ce.RenewFrom }</dd>
 							<dt class="text-rw-muted">State</dt>
