@@ -12,6 +12,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
 
 // Problems: every check reconciles an open-problem row, problem.<key> (the
@@ -183,7 +184,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "/-/admin/keys", "Open keys", true
 	case "observe":
 		return "/-/admin/metrics", "Open metrics and logs", true
-	case "crash":
+	case "crash", "down":
 		t, err := o.store.Tiles.Get(ctx, rest)
 		if errors.Is(err, errs.ErrNotFound) {
 			return "", "", false
@@ -211,4 +212,34 @@ func (o *Orchestrator) scheduleLink(ctx context.Context, id string) (href, text 
 		return "/" + o.scopePath(ctx, ScopeEnv, ts[0].EnvironmentID) + "?drawer=" + ts[0].ID + "&tab=settings&open=storage", "Open storage", true
 	}
 	return "/" + o.scopePath(ctx, v.ScopeKind, v.ScopeID), "Open env", true
+}
+
+// downAlertKey is the problem of a tile whose deploy failed and left it with
+// no container: after a restore that lost its image, or a first deploy that
+// never came up. A deploy that works or a stop clears it; a deleted tile
+// drops it (problemLink).
+func downAlertKey(tileID string) string { return "alert.down." + tileID }
+
+// downAfterFailedDeploy opens the down problem when a deploy failed for real
+// (not parked on approval or an unset param, not cancelled) and the tile has
+// no container left. A failed deploy with the old container still up is the
+// canvas's "degraded", not a banner line.
+func (o *Orchestrator) downAfterFailedDeploy(ctx context.Context, tileID string, err error) {
+	_, unset := errs.IsUnset(err)
+	_, approval := errs.IsNeedsApproval(err)
+	if unset || approval || ctx.Err() != nil {
+		return
+	}
+	t, terr := o.store.Tiles.Get(ctx, tileID)
+	if terr != nil || t.Kind == tile.Slice || tile.RunToCompletion(t.Kind) {
+		return // no containers to be down
+	}
+	if cs, rerr := o.tiles.Replicas(ctx, t); rerr != nil || len(cs) > 0 {
+		return
+	}
+	env := ""
+	if e, eerr := o.store.Environments.Get(ctx, t.EnvironmentID); eerr == nil {
+		env = " in " + e.Name
+	}
+	o.openProblem(ctx, downAlertKey(tileID), SevCritical, t.Name+env+" is down: its deploy failed: "+err.Error())
 }

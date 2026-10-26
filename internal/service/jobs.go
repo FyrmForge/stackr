@@ -183,6 +183,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			o.ensureMesh(ctx)
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
+				o.downAfterFailedDeploy(ctx, p.TileID, err)
 				return parkOnApproval(r, err)
 			}
 			return o.afterDeploy(ctx, []string{p.TileID}, false)
@@ -252,7 +253,13 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Restart(ctx, t, r.Log) })
 		}),
 		kindStop: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Stop(ctx, t, r.Log) })
+			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error {
+				if err := o.container.Stop(ctx, t, r.Log); err != nil {
+					return err
+				}
+				o.clearProblem(ctx, downAlertKey(t.ID)) // stopped on purpose is not down
+				return nil
+			})
 		}),
 		kindStart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Start(ctx, t, r.Log) })

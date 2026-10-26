@@ -154,6 +154,7 @@ func (o *Orchestrator) ranThisDeployOrBefore(ctx context.Context, t Tile) (bool,
 // paused one), an on_deploy function queues one run.
 func (o *Orchestrator) afterDeploy(ctx context.Context, tileIDs []string, reload bool) error {
 	for _, id := range tileIDs {
+		o.clearProblem(ctx, downAlertKey(id))
 		t, err := o.tiles.Get(ctx, id)
 		if err != nil {
 			return err

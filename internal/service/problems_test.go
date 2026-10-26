@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -183,5 +184,40 @@ func TestProblemsOrder(t *testing.T) {
 	o.diskAlert(ctx, h3, 50<<30, 100<<30) // recovered: the problem goes with it
 	if ps, _ = o.Problems(ctx); len(ps) != 2 {
 		t.Errorf("after clear: %+v", ps)
+	}
+}
+
+// A deploy that fails and leaves the tile with no container (a restore that
+// lost its image) opens a banner line; the next deploy that works clears it.
+// A failed deploy with the old container still up is no banner line.
+func TestFailedDeployOfDownTileOpensProblem(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	down := w.tile(t, "web", false)
+	up := w.tile(t, "api", true)
+	w.fake.Err = map[string]error{"Pull": errors.New("the cluster registry has no such image")}
+	for _, tl := range []Tile{down, up} {
+		j, err := w.orch.Deploy(ctx, tl.ID)
+		must(t, err)
+		if j = w.wait(t, j.ID); j.State != "failed" {
+			t.Fatalf("%s: deploy %s", tl.Name, j.State)
+		}
+	}
+	ps, err := w.orch.Problems(ctx)
+	must(t, err)
+	if len(ps) != 1 || ps[0].Key != "down."+down.ID || ps[0].Severity != SevCritical ||
+		!strings.Contains(ps[0].Message, "web in dev is down") || ps[0].LinkText != "Open app" {
+		t.Fatalf("after failed deploys: %+v", ps)
+	}
+	w.fake.Err = nil
+	w.fake.RunID = "c1"
+	w.fake.Details = map[string]docker.Detail{"c1": {Running: true, Health: "healthy", Networks: map[string]string{"n": "10.0.0.5"}}}
+	j, err := w.orch.Deploy(ctx, down.ID)
+	must(t, err)
+	if j = w.wait(t, j.ID); j.State != "done" {
+		t.Fatalf("redeploy %s: %s", j.State, j.Error)
+	}
+	if ps, _ = w.orch.Problems(ctx); len(ps) != 0 {
+		t.Errorf("after a deploy that worked: %+v", ps)
 	}
 }
