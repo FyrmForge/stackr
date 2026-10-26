@@ -329,9 +329,9 @@ func nodeLink(m Map, id string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var17 string
-		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(NodePush(id, ""))
+		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(templ.SafeURL(NodePush(id, "")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/cluster/tunnel.templ`, Line: 70, Col: 130}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/cluster/tunnel.templ`, Line: 70, Col: 145}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -344,7 +344,7 @@ func nodeLink(m Map, id string) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(nodeName(m, id))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/cluster/tunnel.templ`, Line: 70, Col: 189}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/cluster/tunnel.templ`, Line: 70, Col: 204}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {

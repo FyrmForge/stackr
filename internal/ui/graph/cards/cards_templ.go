@@ -88,9 +88,9 @@ func Card(v CardView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs("?drawer=" + v.ID + "&tab=" + v.Tab)
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(templ.SafeURL("?drawer=" + v.ID + "&tab=" + v.Tab))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/cards/cards.templ`, Line: 15, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/cards/cards.templ`, Line: 15, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -901,9 +901,9 @@ func Subs(v CardView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var43 string
-				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs("?drawer=" + s.ID + "&tab=" + s.Tab)
+				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(templ.SafeURL("?drawer=" + s.ID + "&tab=" + s.Tab))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/cards/cards.templ`, Line: 180, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/graph/cards/cards.templ`, Line: 180, Col: 69}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 				if templ_7745c5c3_Err != nil {

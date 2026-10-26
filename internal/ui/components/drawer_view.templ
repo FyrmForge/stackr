@@ -80,7 +80,7 @@ templ Drawer(v DrawerView, body templ.Component) {
 						hx-get={ v.Base + "?tab=" + t }
 						hx-target={ "#" + DrawerRoot }
 						hx-swap="outerHTML"
-						hx-push-url={ "?drawer=" + v.Node + "&tab=" + t }
+						hx-push-url={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + t) }
 						class={ "px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors whitespace-nowrap",
 							templ.KV("border-rw-accent text-rw-text font-medium", t == v.Tab),
 							templ.KV("border-transparent text-rw-muted hover:text-rw-text", t != v.Tab) }

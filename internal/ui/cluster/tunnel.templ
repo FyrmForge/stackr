@@ -67,7 +67,7 @@ func TunnelEvents(a, b string) string {
 
 // nodeLink opens a node's drawer in place of this one.
 templ nodeLink(m Map, id string) {
-	<a href={ templ.SafeURL(NodePush(id, "")) } hx-get={ NodeDrawer(id, "") } hx-target="#drawer-body" hx-push-url={ NodePush(id, "") } class="text-rw-accent hover:underline">{ nodeName(m, id) }</a>
+	<a href={ templ.SafeURL(NodePush(id, "")) } hx-get={ NodeDrawer(id, "") } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(NodePush(id, "")) } class="text-rw-accent hover:underline">{ nodeName(m, id) }</a>
 }
 
 func nodeName(m Map, id string) string {

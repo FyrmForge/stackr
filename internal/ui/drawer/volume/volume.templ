@@ -89,8 +89,9 @@ templ Overview(o OverviewView) {
 		if !o.Orphaned.IsZero() {
 			<p class="mt-1 text-xs text-rw-warn">
 				{ "Orphaned since " }
-				@c.When(o.Orphaned)
-				{ ": no tile mounts it." }
+				@c.When(o.Orphaned) {
+					{ ": no tile mounts it." }
+				}
 			</p>
 		}
 	</div>

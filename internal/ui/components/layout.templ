@@ -269,7 +269,7 @@ templ problems(s Shell) {
 // settings opens the level's own drawer (v0's bar link to its settings
 // page): beside the crumbs on an env, at the right elsewhere.
 templ settings(url, push string) {
-	<button type="button" hx-get={ url } hx-target="#drawer-body" hx-push-url={ push } class="text-sm text-rw-faint hover:text-rw-text transition-colors">Settings</button>
+	<button type="button" hx-get={ url } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(push) } class="text-sm text-rw-faint hover:text-rw-text transition-colors">Settings</button>
 }
 
 templ orgHead(l Link) {

@@ -60,8 +60,9 @@ templ Registry(v RegistryView) {
 				} else {
 					<p class="text-rw-muted">
 						{ "Last cleanup: " }
-						@c.When(v.LastAt)
-						{ ", " + v.Last }
+						@c.When(v.LastAt) {
+							{ ", " + v.Last }
+						}
 					</p>
 				}
 				for _, e := range v.LastErrors {

@@ -176,7 +176,7 @@ templ galleryNode(id, name, detail, x, y string, system bool) {
 		<input type="hidden" name="node_id" value={ id }/>
 		<input type="hidden" name="x" value={ x }/>
 		<input type="hidden" name="y" value={ y }/>
-		<div class="card h-full cursor-pointer" hx-get={ "/dev/components/drawer?node=" + id + "&tab=status" } hx-target="#drawer-body" hx-push-url={ "?drawer=" + id + "&tab=status" }>
+		<div class="card h-full cursor-pointer" hx-get={ "/dev/components/drawer?node=" + id + "&tab=status" } hx-target="#drawer-body" hx-push-url={ templ.SafeURL("?drawer=" + id + "&tab=status") }>
 			<p class="font-semibold text-rw-text">{ name }</p>
 			<p class="text-xs text-rw-faint">{ detail }</p>
 		</div>
@@ -219,7 +219,7 @@ templ drawerBody(node, tab string) {
 				href={ templ.SafeURL("?drawer=" + node + "&tab=" + t) }
 				hx-get={ "/dev/components/drawer?node=" + node + "&tab=" + t }
 				hx-target="#drawer-body"
-				hx-push-url={ "?drawer=" + node + "&tab=" + t }
+				hx-push-url={ templ.SafeURL("?drawer=" + node + "&tab=" + t) }
 				class="link aria-[current=page]:font-semibold"
 				if t == tab {
 					aria-current="page"

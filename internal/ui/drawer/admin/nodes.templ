@@ -430,7 +430,7 @@ templ Nodes(v NodesView) {
 				for _, r := range v.Rows {
 					<li class="panel px-4 py-3 text-sm">
 						<div class="flex flex-wrap items-center gap-2">
-							<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url={ r.Push } class="text-rw-text font-medium hover:underline">{ r.Name }</button>
+							<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(r.Push) } class="text-rw-text font-medium hover:underline">{ r.Name }</button>
 							@c.Chip(r.Role, "")
 							for _, t := range r.Tags {
 								@c.Chip(t, "accent")
@@ -483,8 +483,9 @@ templ trustSection(t TrustView) {
 			<dd class="text-rw-text">
 				if t.RollingOver {
 					{ "Running since " }
-					@c.When(t.Since)
-					{ ". " }
+					@c.When(t.Since) {
+						{ ". " }
+					}
 					if len(t.OnOldRoot) > 0 {
 						Still on the old root: { strings.Join(t.OnOldRoot, ", ") }.
 					}

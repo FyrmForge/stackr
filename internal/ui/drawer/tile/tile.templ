@@ -79,7 +79,7 @@ templ tabLink(v View, query, label string) {
 		hx-get={ v.Base + "?tab=" + query }
 		hx-target={ "#" + Root }
 		hx-swap="outerHTML"
-		hx-push-url={ "?drawer=" + v.Node + "&tab=" + query }
+		hx-push-url={ templ.SafeURL("?drawer=" + v.Node + "&tab=" + query) }
 		class="link"
 	>{ label }</a>
 }
@@ -548,7 +548,7 @@ templ volumes(rows []VolumeRow) {
 						href={ templ.SafeURL("?drawer=" + r.ID + "&tab=backups") }
 						hx-get={ r.Drawer }
 						hx-target="#drawer-body"
-						hx-push-url={ "?drawer=" + r.ID + "&tab=backups" }
+						hx-push-url={ templ.SafeURL("?drawer=" + r.ID + "&tab=backups") }
 						class="link font-mono"
 					>{ r.Name }</a>
 					<span class="ml-auto text-xs text-rw-faint">{ r.State }</span>

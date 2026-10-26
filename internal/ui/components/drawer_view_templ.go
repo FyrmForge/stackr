@@ -262,9 +262,9 @@ func Drawer(v DrawerView, body templ.Component) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var12 string
-				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("?drawer=" + v.Node + "&tab=" + t)
+				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(templ.SafeURL("?drawer=" + v.Node + "&tab=" + t))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 83, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/drawer_view.templ`, Line: 83, Col: 68}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
