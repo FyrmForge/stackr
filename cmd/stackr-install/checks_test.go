@@ -144,13 +144,13 @@ func TestDoneText(t *testing.T) {
 func TestLoginCLIWritesTheConfig(t *testing.T) {
 	in := installspec.Input{Root: "example.com", PanelHost: "stkr.example.com", HTTPS: true, HTTPSPort: "443", DataDir: t.TempDir()}
 	p := filepath.Join(in.DataDir, "cli.json")
-	if err := (runner{dry: true, out: &strings.Builder{}}).loginCLI(in, "k3y"); err != nil {
+	if err := (runner{dry: true, out: &strings.Builder{}}).loginCLI(in, "k3y", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Fatalf("a dry run wrote %s", p)
 	}
-	if err := (runner{out: &strings.Builder{}}).loginCLI(in, "k3y"); err != nil {
+	if err := (runner{out: &strings.Builder{}}).loginCLI(in, "k3y", ""); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(p)

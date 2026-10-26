@@ -31,8 +31,9 @@ import (
 // any panel backup): the database and master key from the archive, the panel
 // container on the build the archive names. The way back when an upgraded
 // panel passed its gate and still turned out broken. The archive opens with
-// the recovery key; this box's own recovery.pub is kept, never replaced from
-// the archive.
+// the recovery key, and that key stays the box's recovery key (adoptRecovery):
+// the one the admin restored with keeps opening new backups. The install id
+// comes back too, so backups land in (and prune) the old prefix.
 func restore(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("stackr-install restore", flag.ContinueOnError)
 	keyStdin := fs.Bool("key-stdin", false, "read the recovery key from the first line of stdin (or set "+recoveryKeyEnv+", or type it at the prompt)")
@@ -88,6 +89,9 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		return fmt.Errorf("read archive (nothing changed): %w", withNeededGen(err, archiveName))
 	}
 	ver := info.version
+	if fi, err := f.Stat(); err == nil {
+		info.size = fi.Size()
+	}
 	keyWarn := masterKeyChange(dataDir, stage, info.masterGen)
 	if keyWarn != "" {
 		_, _ = fmt.Fprintln(out, "Warning:", keyWarn)
@@ -151,6 +155,13 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if err := os.Remove(filepath.Join(dataDir, installspec.KeyNextFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if keyWarn != "" {
+		// The box's generation note is the replaced key's; the archive's
+		// stamp is the restored key's (0 = an archive from before the stamp).
+		if err := writeMasterGen(dataDir, info.masterGen); err != nil {
+			return err
+		}
+	}
 	if keyWarn != "" && *rotate {
 		// The first boot re-seals everything under a fresh key (rotation).
 		raw := make([]byte, 32)
@@ -160,15 +171,28 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		if err := installspec.WriteKeyFile(filepath.Join(dataDir, installspec.KeyNextFile), []byte(hex.EncodeToString(raw)+"\n")); err != nil {
 			return err
 		}
-		r.say("  the panel rotates to a new master key on its first boot")
+		r.say("  the panel re-seals every secret under a new master key on its first boot")
 	}
 	// Certificates are re-issuable (rate limits aside), the database is not:
 	// a proxy volume that fails to restore warns and the restore goes on.
 	if err := restoreCaddy(ctx, r, *image, stage); err != nil {
 		r.say("  warning: proxy volume not restored, certificates will be re-issued:", err)
 	}
-	// The restored panel's first boot redeploys the controller's tiles.
-	if err := os.WriteFile(filepath.Join(dataDir, installspec.RestoredMarker), nil, 0o600); err != nil {
+	msg, err := adoptRecovery(dataDir, id, info.gen)
+	if err != nil {
+		return err
+	}
+	r.say(msg)
+	if iid := restoredInstallID(info, archiveName); iid != "" && iid != in.InstallID {
+		in.InstallID = iid
+		if err := installspec.Save(in); err != nil {
+			return err
+		}
+		r.say("  backups go on under install id", iid, "(the old install's prefix)")
+	}
+	// The restored panel's first boot redeploys the controller's tiles and
+	// closes the panel backup run the archive came from (settleRestored).
+	if err := os.WriteFile(filepath.Join(dataDir, installspec.RestoredMarker), []byte(markerBody(info.size, archiveName)), 0o600); err != nil {
 		return err
 	}
 	if err := r.docker(ctx, installspec.Panel(*image, in).RunArgs()...); err != nil {
@@ -270,10 +294,15 @@ func (r runner) relogCLI(ctx context.Context, in installspec.Input, image string
 	if key == "" {
 		return errors.New("the panel minted no key")
 	}
-	if err := r.loginCLI(in, key); err != nil {
+	org := outLine(string(b), "org: ")
+	if err := r.loginCLI(in, key, org); err != nil {
 		return err
 	}
-	r.say("  the CLI on this box is logged in as the admin again")
+	if org != "" {
+		r.say("  the CLI on this box is logged in as the admin again, on org", org)
+	} else {
+		r.say("  the CLI on this box is logged in as the admin again")
+	}
 	return nil
 }
 
@@ -342,13 +371,16 @@ const caddyMember = installspec.CaddyMember
 type archiveInfo struct {
 	version   string
 	gen       int
-	masterGen int // 0 = the archive predates the stamp
+	masterGen int    // 0 = the archive predates the stamp
+	installID string // "" = the archive predates the stamp
+	size      int64  // bytes of the encrypted archive, set by restore
 }
 
 // unpack decrypts a panel archive into dir. Only the members of
 // installspec.PanelState are accepted; the optional ones (cluster keys, the
 // proxy volume's tar) may be missing. VERSION and RECOVERY are read, not
-// written, and recovery.pub is no member, so the box keeps its own.
+// written (INSTALLID too). recovery.pub is no member: restore writes it from
+// the key that opened the archive.
 func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
 	var info archiveInfo
 	plain, err := age.Decrypt(src, id)
@@ -387,7 +419,8 @@ func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
 			return info, fmt.Errorf("unexpected entry %q; not a panel archive", h.Name)
 		}
 		delete(want, h.Name)
-		if h.Name == installspec.VersionMember || h.Name == installspec.RecoveryMember || h.Name == installspec.MasterGenMember {
+		switch h.Name {
+		case installspec.VersionMember, installspec.RecoveryMember, installspec.MasterGenMember, installspec.InstallIDMember:
 			b, err := io.ReadAll(io.LimitReader(tr, 256))
 			if err != nil {
 				return info, err
@@ -398,6 +431,8 @@ func unpack(src io.Reader, id age.Identity, dir string) (archiveInfo, error) {
 				info.version = body
 			case installspec.RecoveryMember:
 				info.gen, _ = strconv.Atoi(body)
+			case installspec.InstallIDMember:
+				info.installID = body
 			default:
 				info.masterGen, _ = strconv.Atoi(body)
 			}
@@ -444,5 +479,83 @@ func masterKeyChange(dataDir, stage string, thisGen int) string {
 			return fmt.Sprintf("This backup uses an older master key; key %s replaced it on %s; restoring brings the old key back.", f[0], at.Format("2006-01-02"))
 		}
 	}
-	return "This backup uses a different master key than this box; restoring brings its key back."
+	// No rotation on this box: most likely a fresh install, whose own key
+	// sealed nothing worth keeping.
+	return "The backup brings its own master key; it replaces the key this box was installed with."
+}
+
+// writeMasterGen sets keys/master.gen to the restored key's generation, so
+// the panel's count (and a rotation's +1) follows the archive's lineage, not
+// the replaced box's. gen 0 (an unstamped archive) leaves the note alone;
+// gen 1 is "never rotated", which is no note at all.
+// ponytail: the date is the restore's; the archive carries no rotation date.
+func writeMasterGen(dataDir string, gen int) error {
+	p := filepath.Join(dataDir, "keys/master.gen")
+	switch {
+	case gen == 0:
+		return nil
+	case gen == 1:
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return installspec.WriteKeyFile(p, []byte(strconv.Itoa(gen)+"\n"+time.Now().UTC().Format(time.RFC3339)+"\n"))
+}
+
+// adoptRecovery makes the key that opened the archive (generation gen) the
+// box's recovery key, so it keeps opening every new backup, and drops a
+// fresh install's unsaved key. A box already on a newer generation (rolled
+// back on itself after a rotation) keeps its own. The line says which.
+func adoptRecovery(dataDir string, id *age.X25519Identity, gen int) (string, error) {
+	gen = max(gen, 1)
+	pub, boxGen, err := installspec.LoadRecovery(dataDir)
+	if err != nil {
+		return "", err
+	}
+	restored := id.Recipient().String()
+	switch {
+	case pub == restored:
+		return fmt.Sprintf("  new backups stay encrypted to the recovery key you restored with (generation %d)", gen), nil
+	case pub != "" && boxGen > gen:
+		return fmt.Sprintf("  WARNING: new backups are encrypted to this box's recovery key (generation %d), not the one you restored with (generation %d)", boxGen, gen), nil
+	}
+	if err := installspec.SaveRecovery(dataDir, restored, gen); err != nil {
+		return "", err
+	}
+	if err := os.Remove(filepath.Join(dataDir, installspec.RecoveryPendingFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return fmt.Sprintf("  new backups stay encrypted to the recovery key you restored with (generation %d); a key this box's install printed opens nothing", gen), nil
+}
+
+// restoredInstallID is the install id the archive came from: its INSTALLID
+// member, else the <id> in a stackr/_panel/<id>/ name. "" = unknown.
+func restoredInstallID(info archiveInfo, name string) string {
+	id := info.installID
+	if id == "" {
+		if m := installIDInName.FindStringSubmatch(name); m != nil {
+			id = m[1]
+		}
+	}
+	if !validInstallID.MatchString(id) {
+		return ""
+	}
+	return id
+}
+
+var (
+	installIDInName = regexp.MustCompile(`(?:^|/)_panel/([^/]+)/`)
+	validInstallID  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+)
+
+// markerBody is the restored marker's content: the archive's size and, when
+// its name holds one, its object key (stackr/_panel/...), for the backup run
+// the archive was taken by, whose row was copied mid-run.
+func markerBody(size int64, name string) string {
+	key := ""
+	if i := strings.Index(name, "stackr/_panel/"); i >= 0 {
+		key = name[i:]
+	}
+	return strconv.FormatInt(size, 10) + "\n" + key + "\n"
 }

@@ -62,11 +62,11 @@ func archive(t *testing.T, id *age.X25519Identity, files map[string]string) *byt
 }
 
 func TestUnpack(t *testing.T) {
-	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n", "MASTERGEN": "2\n"}
+	good := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "3\n", "MASTERGEN": "2\n", "INSTALLID": "b1195bbc\n"}
 	k := newKey(t)
 	dir := t.TempDir()
 	info, err := unpack(archive(t, k, good), k, dir)
-	if err != nil || info.version != "v0.1.0" || info.gen != 3 || info.masterGen != 2 {
+	if err != nil || info.version != "v0.1.0" || info.gen != 3 || info.masterGen != 2 || info.installID != "b1195bbc" {
 		t.Fatalf("unpack = %+v %v", info, err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "keys/master.key")); string(b) != "k\n" {
@@ -101,9 +101,9 @@ func TestUnpack(t *testing.T) {
 	}
 }
 
-// A restore on a new box keeps the box's own recovery.pub: it is no archive
-// member, so an archive carrying one is refused and a normal one stages none.
-func TestRestoreKeepsBoxRecoveryKey(t *testing.T) {
+// recovery.pub is no archive member: an archive carrying one is refused and
+// a normal one stages none (restore writes it from the key it was opened with).
+func TestRecoveryPubIsNoArchiveMember(t *testing.T) {
 	k := newKey(t)
 	files := map[string]string{"stackr.db": "db", "keys/master.key": "k\n", "VERSION": "v0.1.0\n", "RECOVERY": "1\n", "MASTERGEN": "1\n"}
 	stage := t.TempDir()
@@ -226,7 +226,7 @@ func TestUnpackPanelState(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range installspec.PanelState {
-		if m.Name == "VERSION" || m.Name == "RECOVERY" || m.Name == "MASTERGEN" {
+		if m.Name == "VERSION" || m.Name == "RECOVERY" || m.Name == "MASTERGEN" || m.Name == "INSTALLID" {
 			continue
 		}
 		if b, err := os.ReadFile(filepath.Join(dir, m.Name)); err != nil || string(b) != "body-"+m.Name {
@@ -330,5 +330,58 @@ func TestFetchS3NeedsKeys(t *testing.T) {
 	_, _, err := fetchS3(context.Background(), "s3://b/k", t.TempDir(), func(k string) string { return env[k] })
 	if err == nil || !strings.Contains(err.Error(), s3SecretKeyEnv) {
 		t.Fatalf("err = %v, want one naming %s", err, s3SecretKeyEnv)
+	}
+}
+
+// The key the archive was opened with becomes the box's recovery key and a
+// fresh install's unsaved key goes; a box on a newer generation keeps its own.
+func TestAdoptRecovery(t *testing.T) {
+	data, k := t.TempDir(), newKey(t)
+	fresh := newKey(t)
+	if err := installspec.SaveRecovery(data, fresh.Recipient().String(), 1); err != nil {
+		t.Fatal(err)
+	}
+	pending := filepath.Join(data, installspec.RecoveryPendingFile)
+	if err := os.WriteFile(pending, []byte(fresh.String()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := adoptRecovery(data, k, 2)
+	if err != nil || !strings.Contains(msg, "restored with (generation 2)") {
+		t.Fatalf("adopt = %q %v", msg, err)
+	}
+	if pub, gen, _ := installspec.LoadRecovery(data); pub != k.Recipient().String() || gen != 2 {
+		t.Errorf("recovery.pub = %s gen %d", pub, gen)
+	}
+	if _, err := os.Stat(pending); err == nil {
+		t.Error("the fresh install's pending key was kept")
+	}
+	if err := installspec.SaveRecovery(data, fresh.Recipient().String(), 3); err != nil {
+		t.Fatal(err)
+	}
+	if msg, _ := adoptRecovery(data, k, 2); !strings.Contains(msg, "WARNING") {
+		t.Errorf("rollback over a rotation = %q", msg)
+	}
+	if pub, gen, _ := installspec.LoadRecovery(data); pub != fresh.Recipient().String() || gen != 3 {
+		t.Errorf("a newer box key was replaced: %s gen %d", pub, gen)
+	}
+}
+
+// The install id comes from the archive's member, else its name; junk is none.
+func TestRestoredInstallID(t *testing.T) {
+	for _, tt := range []struct {
+		member, name, want string
+	}{
+		{"b1195bbc", "/tmp/x.age", "b1195bbc"},
+		{"", "stackr/_panel/b1195bbc/manual/20261026-165728-panel-g2.tar.gz.age", "b1195bbc"},
+		{"", "/var/lib/stackr/backups/stackr/_panel/default/upgrade/x.age", "default"},
+		{"", "/root/panel.tar.gz.age", ""},
+		{"a b", "", ""},
+	} {
+		if got := restoredInstallID(archiveInfo{installID: tt.member}, tt.name); got != tt.want {
+			t.Errorf("%q %q = %q, want %q", tt.member, tt.name, got, tt.want)
+		}
+	}
+	if got := markerBody(42, "/x/backups/stackr/_panel/i1/manual/a.age"); got != "42\nstackr/_panel/i1/manual/a.age\n" {
+		t.Errorf("marker = %q", got)
 	}
 }

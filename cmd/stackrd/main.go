@@ -329,6 +329,9 @@ func restartPanel() { _ = syscall.Kill(os.Getpid(), syscall.SIGTERM) }
 // key; stackr-install reads it.
 const adminKeyPrefix = "api key: "
 
+// adminOrgPrefix starts admin-key's line naming the org the CLI starts on.
+const adminOrgPrefix = "org: "
+
 // errHasAdmin is --check's "nothing to do": the install has its admin.
 var errHasAdmin = errors.New("this install already has an admin")
 
@@ -384,12 +387,15 @@ func adminKey(out io.Writer) error {
 		return err
 	}
 	cfg := service.Config{DataDir: envDataDir, DBPath: envDatabasePath, SecretsKey: mk}
-	u, key, err := service.MintAdminKey(context.Background(), cfg)
+	u, key, org, err := service.MintAdminKey(context.Background(), cfg)
 	if err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(out, "key minted for", u.Email)
 	_, _ = fmt.Fprintln(out, adminKeyPrefix+key)
+	if org != "" {
+		_, _ = fmt.Fprintln(out, adminOrgPrefix+org)
+	}
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -15,12 +16,12 @@ import (
 func TestMintAdminKey(t *testing.T) {
 	ctx := context.Background()
 	cfg := Config{DataDir: t.TempDir(), SecretsKey: testKey}
-	if _, _, err := MintAdminKey(ctx, cfg); err == nil {
+	if _, _, _, err := MintAdminKey(ctx, cfg); err == nil {
 		t.Fatal("minted a key with no admin")
 	}
 	admin, _, err := CreateAdmin(ctx, cfg, "admin@example.com", "correct horse battery", "Admin")
 	must(t, err)
-	u, key, err := MintAdminKey(ctx, cfg)
+	u, key, _, err := MintAdminKey(ctx, cfg)
 	must(t, err)
 	if u.ID != admin.ID || key == "" {
 		t.Fatalf("minted for %s (key %t), want %s", u.Email, key != "", admin.Email)
@@ -41,7 +42,7 @@ func TestMintAdminKey(t *testing.T) {
 		other = k.ID
 		return err
 	}))
-	_, key2, err := MintAdminKey(ctx, cfg)
+	_, key2, _, err := MintAdminKey(ctx, cfg)
 	must(t, err)
 	must(t, withStore(ctx, cfg, func(st *store.Store) error {
 		l := user.New(st.Users, st.Sessions, st.APIKeys)
@@ -75,4 +76,34 @@ func TestMintAdminKey(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+// The restore's CLI starts on the admin's oldest org membership, else the
+// oldest org, else none.
+func TestMintAdminKeyOrg(t *testing.T) {
+	ctx := context.Background()
+	cfg := Config{DataDir: t.TempDir(), SecretsKey: testKey}
+	admin, _, err := CreateAdmin(ctx, cfg, "admin@example.com", "correct horse battery", "Admin")
+	must(t, err)
+	if _, _, org, err := MintAdminKey(ctx, cfg); err != nil || org != "" {
+		t.Fatalf("no org: %q %v", org, err)
+	}
+	now := time.Now()
+	must(t, withStore(ctx, cfg, func(st *store.Store) error {
+		for i, slug := range []string{"old", "dnsqa"} {
+			if err := st.Orgs.Create(ctx, store.Org{ID: slug, Name: slug, Slug: slug, EnvColors: "{}", Settings: "{}", CreatedAt: now.Add(time.Duration(i) * time.Hour)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	if _, _, org, _ := MintAdminKey(ctx, cfg); org != "old" {
+		t.Errorf("no membership: %q, want the oldest org", org)
+	}
+	must(t, withStore(ctx, cfg, func(st *store.Store) error {
+		return st.OrgMembers.Create(ctx, store.OrgMember{ID: "m1", OrgID: "dnsqa", UserID: admin.ID, Role: "owner", CreatedAt: now})
+	}))
+	if _, _, org, _ := MintAdminKey(ctx, cfg); org != "dnsqa" {
+		t.Errorf("member of dnsqa: %q", org)
+	}
 }

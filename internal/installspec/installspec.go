@@ -52,9 +52,10 @@ const (
 	// removes a leftover one, it belongs to the box that was replaced.
 	KeyNextFile = "keys/master.key.next"
 	// RecoveryPubFile is the recovery key's public half (age X25519) and its
-	// generation, two lines. This box's own, never in an archive: a restore on
-	// a new box keeps the box's key. RecoveryPendingFile holds the private
-	// half until an admin has saved it.
+	// generation, two lines. Never in an archive: a restore on a new box
+	// writes it from the key the archive was opened with, so that key keeps
+	// opening new backups. RecoveryPendingFile holds the private half until
+	// an admin has saved it.
 	RecoveryPubFile     = "keys/recovery.pub"
 	RecoveryPendingFile = "keys/recovery.pending"
 	// RestoredMarker is what stackr-install restore leaves in the data dir:
@@ -88,6 +89,9 @@ const (
 	// MasterGenMember stamps an archive with the generation of the master
 	// key it carries.
 	MasterGenMember = "MASTERGEN"
+	// InstallIDMember names the install the archive came from, so a restore
+	// on a new box keeps writing to (and pruning) the same prefix.
+	InstallIDMember = "INSTALLID"
 )
 
 // Member is one entry of the panel archive.
@@ -110,6 +114,7 @@ var PanelState = []Member{
 	{Name: VersionMember, Mode: 0o644},
 	{Name: RecoveryMember, Mode: 0o644},
 	{Name: MasterGenMember, Mode: 0o644},
+	{Name: InstallIDMember, Mode: 0o644, Optional: true},
 	{Name: ClusterCAKeyFile, Mode: 0o600, Optional: true, OnDisk: true},
 	{Name: ClusterCACertFile, Mode: 0o644, Optional: true, OnDisk: true},
 	{Name: ClusterCAPrevCertFile, Mode: 0o644, Optional: true, OnDisk: true},

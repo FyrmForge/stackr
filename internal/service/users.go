@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"path/filepath"
+	"slices"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
 
@@ -46,11 +47,10 @@ func CreateAdmin(ctx context.Context, cfg Config, email, password, name string) 
 // MintAdminKey mints a new API key, bound to no org, for the oldest active
 // stackr admin: the restore's way to log the controller's CLI back in, since
 // the old key went with the old box's cli.json. Like CreateAdmin, only the
-// installer reaches it (stackrd admin-key).
-func MintAdminKey(ctx context.Context, cfg Config) (User, string, error) {
-	var u User
-	var tok string
-	err := withStore(ctx, cfg, func(st *store.Store) error {
+// installer reaches it (stackrd admin-key). org is the slug the CLI starts
+// on: the admin's oldest membership, else the oldest org, "" with none.
+func MintAdminKey(ctx context.Context, cfg Config) (u User, tok, org string, err error) {
+	err = withStore(ctx, cfg, func(st *store.Store) error {
 		return st.Tx(ctx, func(tx store.Tx) error {
 			l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
 			all, err := l.List(ctx)
@@ -76,10 +76,32 @@ func MintAdminKey(ctx context.Context, cfg Config) (User, string, error) {
 			}); err != nil {
 				return err
 			}
+			if org, err = firstOrg(ctx, tx, u.ID); err != nil {
+				return err
+			}
 			return revokeBoxKeys(ctx, tx, l, u.ID, k.ID)
 		})
 	})
-	return u, tok, err
+	return u, tok, org, err
+}
+
+// firstOrg is the slug of the user's oldest membership, else of the oldest
+// org; "" when there is no org.
+func firstOrg(ctx context.Context, tx store.Tx, userID string) (string, error) {
+	ms, err := tx.OrgMembers.ListByUser(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if len(ms) > 0 {
+		m := slices.MinFunc(ms, func(a, b store.OrgMember) int { return a.CreatedAt.Compare(b.CreatedAt) })
+		og, err := tx.Orgs.Get(ctx, m.OrgID)
+		return og.Slug, err
+	}
+	all, err := tx.Orgs.List(ctx)
+	if err != nil || len(all) == 0 {
+		return "", err
+	}
+	return slices.MinFunc(all, func(a, b store.Org) int { return a.CreatedAt.Compare(b.CreatedAt) }).Slug, nil
 }
 
 // revokeBoxKeys revokes the user's earlier box CLI keys (named installer or

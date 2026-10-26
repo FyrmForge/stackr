@@ -29,7 +29,7 @@ func TestMasterKeyChangeWarnsOnOlderKey(t *testing.T) {
 		t.Errorf("same key warned: %q", w)
 	}
 	put(stage, installspec.KeyFile, "old\n")
-	if w := masterKeyChange(data, stage, 0); !strings.Contains(w, "different master key") {
+	if w := masterKeyChange(data, stage, 0); !strings.Contains(w, "replaces the key this box was installed with") {
 		t.Errorf("warning = %q", w)
 	}
 	put(data, "keys/master.gen", "3\n2026-10-20T10:00:00Z\n")
@@ -40,5 +40,29 @@ func TestMasterKeyChangeWarnsOnOlderKey(t *testing.T) {
 	want = "This backup uses master key 2; key 3 replaced it on 2026-10-20; restoring brings key 2 back."
 	if w := masterKeyChange(data, stage, 2); w != want {
 		t.Errorf("stamped warning = %q", w)
+	}
+}
+
+// The generation note follows the restored key: 1 is no note, 0 leaves it.
+func TestWriteMasterGen(t *testing.T) {
+	data := t.TempDir()
+	p := filepath.Join(data, "keys/master.gen")
+	if err := writeMasterGen(data, 2); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(p); !strings.HasPrefix(string(b), "2\n") {
+		t.Errorf("gen 2 note = %q", b)
+	}
+	if err := writeMasterGen(data, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Error("an unstamped archive dropped the note")
+	}
+	if err := writeMasterGen(data, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Error("gen 1 kept a note")
 	}
 }

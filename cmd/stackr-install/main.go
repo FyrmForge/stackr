@@ -257,7 +257,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		if apiKey != "" {
 			// Not fatal: the recovery key below is shown only this once.
-			if err := r.loginCLI(in, apiKey); err != nil {
+			if err := r.loginCLI(in, apiKey, ""); err != nil {
 				r.say("  cli login:", err.Error())
 			} else {
 				cli = true
@@ -418,9 +418,12 @@ func (r runner) createAdmin(ctx context.Context, in installspec.Input, image, em
 }
 
 // adminKey is the API key on stackrd create-admin's "api key: " line.
-func adminKey(out string) string {
+func adminKey(out string) string { return outLine(out, "api key: ") }
+
+// outLine is the rest of the first line of out that starts with prefix.
+func outLine(out, prefix string) string {
 	for l := range strings.Lines(out) {
-		if k, ok := strings.CutPrefix(strings.TrimSpace(l), "api key: "); ok {
+		if k, ok := strings.CutPrefix(strings.TrimSpace(l), prefix); ok {
 			return k
 		}
 	}
@@ -671,10 +674,10 @@ func quote(args []string) string {
 // writing its config: no call, so it works before DNS and the certificate
 // do, and the key never reaches an argument or the screen. The admin has no
 // org yet, so none is stored.
-func (r runner) loginCLI(in installspec.Input, key string) error {
+func (r runner) loginCLI(in installspec.Input, key, org string) error {
 	p := filepath.Join(in.DataDir, "cli.json")
 	return r.write(p, func() error {
-		return cliconfig.Save(p, cliconfig.Config{Server: strings.TrimRight(in.BaseURL(), "/"), Key: key})
+		return cliconfig.Save(p, cliconfig.Config{Server: strings.TrimRight(in.BaseURL(), "/"), Key: key, Org: org})
 	})
 }
 

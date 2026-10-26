@@ -617,6 +617,10 @@ func panelTar(w io.Writer, db, caddy string, p Panel) error {
 			err = tarBytes(tw, m, strconv.Itoa(p.RecoveryGen)+"\n", now)
 		case installspec.MasterGenMember:
 			err = tarBytes(tw, m, strconv.Itoa(p.MasterGen)+"\n", now)
+		case installspec.InstallIDMember:
+			if p.InstallID != "" {
+				err = tarBytes(tw, m, p.InstallID+"\n", now)
+			}
 		case installspec.CaddyMember:
 			if caddy != "" {
 				err = tarFile(tw, m, caddy, now)

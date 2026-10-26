@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -47,7 +48,8 @@ const restoredNote = "The panel was restored from this archive."
 // still running; both finish done with restoredNote instead of "stackrd
 // restarted". The marker stays for redeployRestored.
 func (o *Orchestrator) settleRestored(ctx context.Context) {
-	if _, err := os.Stat(filepath.Join(o.cfg.DataDir, installspec.RestoredMarker)); err != nil {
+	marker, err := os.ReadFile(filepath.Join(o.cfg.DataDir, installspec.RestoredMarker))
+	if err != nil {
 		return
 	}
 	js, err := o.jobRows.List(ctx, job.Running)
@@ -63,7 +65,10 @@ func (o *Orchestrator) settleRestored(ctx context.Context) {
 			slog.Warn("restore: panel backup job not settled", "job", j.ID, "err", err)
 		}
 	}
-	if err := o.backups.SettleRestored(ctx, restoredNote); err != nil {
+	// The marker is "<archive bytes>\n<object key>\n"; empty from an older installer.
+	sz, key, _ := strings.Cut(string(marker), "\n")
+	size, _ := strconv.ParseInt(strings.TrimSpace(sz), 10, 64)
+	if err := o.backups.SettleRestored(ctx, restoredNote, strings.TrimSpace(key), size); err != nil {
 		slog.Warn("restore: panel backup run not settled", "err", err)
 	}
 }

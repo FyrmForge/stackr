@@ -265,7 +265,7 @@ func TestPanelArchive(t *testing.T) {
 	for h, err := tr.Next(); err == nil; h, err = tr.Next() {
 		names = append(names, h.Name)
 	}
-	if !slices.Equal(names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "MASTERGEN"}) {
+	if !slices.Equal(names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "MASTERGEN", "INSTALLID"}) {
 		t.Errorf("members = %v", names)
 	}
 	p.MasterKey = ""
@@ -298,7 +298,7 @@ func TestPanelArchiveCaddy(t *testing.T) {
 		t.Errorf("trigger = %q", r.Trigger)
 	}
 	got := panelMembers(t, filepath.Join(w.dest.Endpoint, r.ObjectKey))
-	if !slices.Equal(got.names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "MASTERGEN", "caddy.tar.gz"}) {
+	if !slices.Equal(got.names, []string{"stackr.db", "keys/master.key", "VERSION", "RECOVERY", "MASTERGEN", "INSTALLID", "caddy.tar.gz"}) {
 		t.Fatalf("members = %v", got.names)
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(got.bodies["caddy.tar.gz"]))
@@ -338,7 +338,7 @@ func TestPanelArchiveState(t *testing.T) {
 	var req, all []string
 	for _, m := range installspec.PanelState {
 		all = append(all, m.Name)
-		if !m.Optional {
+		if !m.Optional || m.Name == installspec.InstallIDMember { // p has an install id
 			req = append(req, m.Name)
 		}
 	}

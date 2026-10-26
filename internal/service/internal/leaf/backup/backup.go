@@ -520,18 +520,22 @@ func (l *Leaf) Finish(
 
 // SettleRestored closes the panel runs a restored database still has as
 // running: the archive was taken while its own run was writing it. They
-// finish done, with note, since that archive is the one restored.
-func (l *Leaf) SettleRestored(ctx context.Context, note string) error {
+// finish done, with note, since that archive is the one restored. With one
+// such run, it is that archive's: it gets key and size (the restore read
+// them; "" and 0 = unknown).
+func (l *Leaf) SettleRestored(ctx context.Context, note, key string, size int64) error {
 	rs, err := l.runs.ListByKind(ctx, KindPanel)
 	if err != nil {
 		return err
 	}
+	rs = slices.DeleteFunc(rs, func(r store.BackupRun) bool { return r.Status != Running })
 	for _, r := range rs {
-		if r.Status != Running {
-			continue
-		}
 		now := time.Now().UTC()
 		r.Status, r.Error, r.FinishedAt = Done, note, &now
+		if len(rs) == 1 {
+			r.ObjectKey = cmp.Or(r.ObjectKey, key)
+			r.SizeBytes = cmp.Or(r.SizeBytes, size)
+		}
 		if err := l.runs.Update(ctx, r); err != nil {
 			return err
 		}
