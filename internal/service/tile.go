@@ -260,11 +260,47 @@ func (o *Orchestrator) DeleteTile(ctx context.Context, id string) (Job, error) {
 	// a database still holding slices is refused here, where the drawer
 	// shows it; the job would fail on it out of sight
 	if m, err := o.managed.GetByTile(ctx, id); err == nil {
-		if _, err := o.managed.Teardown(ctx, m, false); err != nil {
+		aimed, err := o.slicesAimedAt(ctx, id)
+		if err != nil {
+			return Job{}, err
+		}
+		if err := o.managed.Deletable(ctx, m, aimed); err != nil {
 			return Job{}, err
 		}
 	}
 	return o.enqueue(ctx, kindDelete, tileJob{TileID: id}, id)
+}
+
+// slicesAimedAt counts the slice tiles not cut anywhere yet whose target a
+// deploy would resolve to tile id now. A target that resolves nowhere
+// (a missing env, an unset param) aims at nothing.
+func (o *Orchestrator) slicesAimedAt(ctx context.Context, id string) (int, error) {
+	ss, err := o.tiles.ListByKind(ctx, tile.Slice)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, s := range ss {
+		_, cut, err := o.managed.ProvisionOf(ctx, s.ID)
+		if err != nil {
+			return 0, err
+		}
+		if cut {
+			continue // counted by the instance's own provisions
+		}
+		it, err := o.deploy.Target(ctx, s)
+		_, conflict := errs.IsConflict(err)
+		_, unset := errs.IsUnset(err)
+		_, invalid := errs.IsInvalid(err)
+		switch {
+		case conflict || unset || invalid || errors.Is(err, errs.ErrNotFound):
+		case err != nil:
+			return 0, err
+		case it.ID == id:
+			n++
+		}
+	}
+	return n, nil
 }
 
 // Deploy queues a (re)deploy on the image the env's release pins (B34); a

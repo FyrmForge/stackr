@@ -142,14 +142,34 @@ func (l *Leaf) Teardown(ctx context.Context, m store.ManagedInstance, force bool
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case force || len(held) == 0:
-	case len(held) == 1:
-		return nil, errs.Conflictf("A slice still lives on this database. Delete its slice tile first.")
-	default:
-		return nil, errs.Conflictf("%d slices still live on this database. Delete their slice tiles first.", len(held))
+	if !force {
+		if err := slicesLive(len(held)); err != nil {
+			return nil, err
+		}
 	}
 	return held, nil
+}
+
+// Deletable refuses removing m while slices live on it: the ones cut from
+// it, plus aimed, the slice tiles not cut yet whose target resolves to it
+// (the caller resolves them). Deleting it would leave them pointing at
+// nothing.
+func (l *Leaf) Deletable(ctx context.Context, m store.ManagedInstance, aimed int) error {
+	held, err := l.provisions.ListByInstance(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	return slicesLive(len(held) + aimed)
+}
+
+func slicesLive(n int) error {
+	switch n {
+	case 0:
+		return nil
+	case 1:
+		return errs.Conflictf("A slice still lives on this database. Delete its slice tile first.")
+	}
+	return errs.Conflictf("%d slices still live on this database. Delete their slice tiles first.", n)
 }
 
 // Delete removes the instance row; every provision still pointing at it

@@ -472,6 +472,21 @@ func TestInstanceDeleteWithSlicesRefused(t *testing.T) {
 	}
 }
 
+// A slice tile not cut yet still points at the database: deleting it is
+// refused the same way, or the slice would aim at nothing.
+func TestInstanceDeleteWithUncutSliceRefused(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	managed(t, s)
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
+		t.Fatal(err)
+	}
+	rec := s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/delete", nil)
+	if rec.Code != 422 || rec.Header().Get("HX-Redirect") != "" || !strings.Contains(rec.Body.String(), "still lives on this database") {
+		t.Errorf("delete with an uncut slice = %d, HX-Redirect %q\n%s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body)
+	}
+}
+
 // A database and a slice are renamed from their own drawers; the drawer
 // answers at the new name, a clash on the Name field.
 func TestInstanceAndSliceRename(t *testing.T) {
