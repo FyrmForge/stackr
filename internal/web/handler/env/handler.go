@@ -189,14 +189,21 @@ func (h *handler) CreateTile(c echo.Context) error {
 		if !ok {
 			return middleware.HTTPError(err)
 		}
-		field := "general"
-		if inv, ok := errs.IsInvalid(err); ok && inv.Field != "" {
-			field, msg = inv.Field, inv.Msg
+		v.Errors = map[string]string{}
+		var over []string // a field the form does not show
+		for field, m := range render.FieldErrs(render.AsFields(err, map[string]string{"image": "image_ref"})) {
+			if slices.Contains(createFields, field) {
+				v.Errors[field] = m
+			} else {
+				over = append(over, field+": "+m)
+			}
 		}
-		v.Errors = map[string]string{field: msg}
-		if field != "general" &&
-			!slices.Contains(createFields, field) {
-			v.Errors["general"] = field + ": " + msg // a field the form does not show
+		slices.Sort(over)
+		if len(v.Errors) == 0 && len(over) == 0 {
+			over = []string{msg}
+		}
+		if len(over) > 0 {
+			v.Errors["general"] = strings.Join(over, " ")
 		}
 		return respond.HTML(c, http.StatusUnprocessableEntity, dialog.CreateTile(v))
 	}

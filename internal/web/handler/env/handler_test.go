@@ -33,6 +33,11 @@ func TestCreateTileRoundTrip(t *testing.T) {
 		!strings.Contains(rec.Body.String(), `id="error-schedule"`) {
 		t.Fatalf("bad schedule = %d\n%s", rec.Code, rec.Body)
 	}
+	// a bad image is the Image field's, without the service's key
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{"source": {"image"}, "name": {"web2"}, "image_ref": {"Bad Image!!"}})
+	if body := rec.Body.String(); rec.Code != 422 || !strings.Contains(body, `aria-describedby="error-image_ref"`) || strings.Contains(body, "image: ") {
+		t.Errorf("bad image = %d\n%s", rec.Code, body)
+	}
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/new-tile", url.Values{
 		"source":    {"cron"},
 		"name":      {"nightly"},
