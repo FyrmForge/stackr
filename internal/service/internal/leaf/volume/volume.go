@@ -234,6 +234,34 @@ func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
 	return info.SizeBytes
 }
 
+// Sizes is each of vs' sizes by id, from one Docker read on the node the
+// first lives on (vs share a scope, so a node); -1 = Docker cannot tell.
+// ponytail: still one disk-usage scan per call; load it lazily if a big
+// volume makes the caller's page slow.
+func (l *Leaf) Sizes(ctx context.Context, vs []store.Volume) map[string]int64 {
+	out := map[string]int64{}
+	for _, v := range vs {
+		out[v.ID] = -1
+	}
+	if len(vs) == 0 {
+		return out
+	}
+	ctx, err := l.at(ctx, vs[0])
+	if err != nil {
+		return out
+	}
+	infos, err := l.docker.ListVolumes(ctx, nil)
+	if err != nil {
+		return out
+	}
+	for _, v := range vs {
+		if i := slices.IndexFunc(infos, func(x docker.VolumeInfo) bool { return x.Name == v.Name }); i >= 0 {
+			out[v.ID] = infos[i].SizeBytes
+		}
+	}
+	return out
+}
+
 // EnsureTool pulls the tar helper on the volume's node; call it before freezing anything.
 func (l *Leaf) EnsureTool(ctx context.Context, v store.Volume) error {
 	ctx, err := l.at(ctx, v)

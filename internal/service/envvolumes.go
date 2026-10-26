@@ -60,11 +60,10 @@ func (o *Orchestrator) ListEnvVolumes(ctx context.Context, envID string) (EnvVol
 		}
 		owners[m.ID] = t.Slug
 	}
+	vs = slices.DeleteFunc(vs, func(v Volume) bool { return v.OrphanedAt != nil })
+	sizes := o.volumes.Sizes(ctx, vs)
 	for _, v := range vs {
-		if v.OrphanedAt != nil {
-			continue
-		}
-		ev := EnvVolume{Volume: v, SizeBytes: o.volumes.SizeBytes(ctx, v), MountedBy: mountedBy(ts, v.Slug)}
+		ev := EnvVolume{Volume: v, SizeBytes: sizes[v.ID], MountedBy: mountedBy(ts, v.Slug)}
 		if v.InstanceID != nil {
 			ev.OwnedBy = cmp.Or(owners[*v.InstanceID], "a managed instance")
 		}

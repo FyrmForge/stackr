@@ -47,8 +47,14 @@ func TestEnvVolumesRow(t *testing.T) {
 	}
 
 	rec = s.Do(t, "POST", remove, url.Values{"open": {"volumes"}})
-	if b := rec.Body.String(); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(b, "mounted by api") {
-		t.Errorf("remove in use = %d\n%s", rec.Code, b)
+	b = rec.Body.String()
+	form, why := strings.Index(b, `hx-post="`+remove+`"`), strings.Index(b, "take it out of their Storage")
+	if rec.Code != http.StatusUnprocessableEntity || form < 0 || why < form {
+		t.Errorf("remove in use = %d, reason at %d, form at %d\n%s", rec.Code, why, form, b)
+	}
+	// the tile Storage link (a fresh load) opens this row
+	if page := s.DoNoCSRF(t, "GET", "/acme/shop/dev?drawer=env:"+s.Tile.Env+"&tab=settings&open=volumes").Body.String(); !strings.Contains(page, `data-acc="volumes" data-changed open`) {
+		t.Errorf("the Storage link does not open Volumes:\n%s", page)
 	}
 
 	viewer := s.User(t, "viewer@acme.test", false)

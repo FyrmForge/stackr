@@ -100,6 +100,9 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 	if err := o.envBranch(ctx, &t); err != nil {
 		return Tile{}, err
 	}
+	if err := o.checkTileVolumes(ctx, t); err != nil {
+		return Tile{}, err
+	}
 	if t.CPULimit > 0 || t.MemLimitMB > 0 {
 		n, err := o.nodeOfEnvID(ctx, t.EnvironmentID)
 		if err != nil {

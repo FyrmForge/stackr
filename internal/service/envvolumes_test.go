@@ -23,6 +23,9 @@ func TestEnvVolumes(t *testing.T) {
 	if _, _, err := w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "data:/data"; return nil }); !invalidOn(err, "volumes", "does not declare data") {
 		t.Fatalf("undeclared mount = %v", err)
 	}
+	if _, err := w.orch.CreateTile(ctx, Tile{StackID: w.stack, EnvironmentID: w.env, Name: "web", Kind: "image", ImageRef: "nginx:1", Volumes: "data:/data"}); !invalidOn(err, "volumes", "does not declare data") {
+		t.Fatalf("create with an undeclared mount = %v", err)
+	}
 	v, adopted, err := w.orch.DeclareEnvVolume(ctx, w.env, "data")
 	must(t, err)
 	if adopted {

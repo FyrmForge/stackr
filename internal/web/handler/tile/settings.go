@@ -296,8 +296,9 @@ func at(vs []string, i int) string {
 	return ""
 }
 
-// mountRows splits a volumes value into its volume lines, as rows, and
-// the rest (host: and share: lines, or a line that does not parse).
+// mountRows splits a volumes value into its volume lines, as rows (one
+// that does not parse too, so a refused row stays where it was typed), and
+// the host: and share: lines.
 func mountRows(v string) (rows []ui.MountRow, other string) {
 	var rest []string
 	for l := range strings.SplitSeq(v, "\n") {
@@ -305,11 +306,17 @@ func mountRows(v string) (rows []ui.MountRow, other string) {
 		if l == "" {
 			continue
 		}
-		if name, path, ok := service.MountedVolume(l); ok {
-			rows = append(rows, ui.MountRow{Volume: name, Path: path, RO: strings.HasSuffix(l, ":ro")})
-		} else {
+		name, path, ok := service.MountedVolume(l)
+		switch {
+		case ok:
+		case strings.HasPrefix(l, "host:"), strings.HasPrefix(l, "share:"):
 			rest = append(rest, l)
+			continue
+		default: // a row typed half ("uploads:") stays a row
+			name, path, _ = strings.Cut(l, ":")
+			path = strings.TrimSuffix(path, ":ro")
 		}
+		rows = append(rows, ui.MountRow{Volume: name, Path: path, RO: strings.HasSuffix(l, ":ro")})
 	}
 	return rows, strings.Join(rest, "\n")
 }

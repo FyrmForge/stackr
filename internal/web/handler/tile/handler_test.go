@@ -484,6 +484,12 @@ func TestStorageMounts(t *testing.T) {
 	if rec.Code != 422 {
 		t.Errorf("undeclared = %d", rec.Code)
 	}
+	// a row with no path stays a row, refused, never moved to the other mounts
+	half := url.Values{"fields": {"files volumes"}, "mount_volume": {"uploads"}, "mount_path": {""}, "mount_mode": {""}, "mount_other": {""}}
+	rec = s.Do(t, "POST", drawer+"/settings?open=storage", half)
+	if b := rec.Body.String(); rec.Code != 422 || !strings.Contains(b, `<option value="uploads" selected>uploads</option>`) || !strings.Contains(b, `></textarea><span class="field-error" id="error-volumes" data-has-error="true"`) {
+		t.Errorf("half row = %d\n%s", rec.Code, b)
+	}
 	form["mount_volume"], form["mount_path"], form["mount_mode"] = []string{"uploads", ""}, []string{"/data", ""}, []string{"ro", ""}
 	form["mount_other"] = []string{"host:/srv/x:/x"}
 	if rec := s.Do(t, "POST", drawer+"/settings?open=storage", form); rec.Code != 200 {
