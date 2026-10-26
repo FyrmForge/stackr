@@ -161,11 +161,15 @@ func (l *Leaf) Get(ctx context.Context, id string) (store.BackupDest, error) {
 }
 
 // For returns a destination as orgID sees it: its own, or a shared global
-// one. Anything else, an unshared global or another org's, is not found.
+// one. An unshared global is refused by name (an admin can share it);
+// another org's is not found.
 func (l *Leaf) For(ctx context.Context, orgID, id string) (store.BackupDest, error) {
 	d, err := l.dests.Get(ctx, id)
 	if err != nil {
 		return d, err
+	}
+	if d.OrgID == nil && !d.Shared {
+		return store.BackupDest{}, errs.Refusedf("the server destination %s is not shared with this org; an admin can share it (stackr dest set %s --server --shared)", d.Name, d.Name)
 	}
 	if !visible(d, orgID) {
 		return store.BackupDest{}, errs.ErrNotFound

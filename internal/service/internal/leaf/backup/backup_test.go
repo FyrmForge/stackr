@@ -99,9 +99,15 @@ func TestVisibility(t *testing.T) {
 		{org, local.ID, true},
 	} {
 		_, err := l.For(ctx, c.org, c.id)
-		if c.ok != (err == nil) || (!c.ok && !errors.Is(err, errs.ErrNotFound)) {
+		var refused errs.Refused
+		isRefused := errors.As(err, &refused)
+		if c.ok != (err == nil) || (!c.ok && !errors.Is(err, errs.ErrNotFound) && !isRefused) {
 			t.Errorf("For(%s) = %v, want ok=%v", c.id, err, c.ok)
 		}
+	}
+	// an unshared server destination is refused by name, not "not found"
+	if _, err := l.For(ctx, org, private.ID); !strings.Contains(fmt.Sprint(err), "panel is not shared with this org") {
+		t.Errorf("unshared = %v", err)
 	}
 	vis, _ := l.Visible(ctx, other)
 	var names []string
