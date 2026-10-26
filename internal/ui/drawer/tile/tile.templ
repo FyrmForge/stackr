@@ -602,7 +602,7 @@ templ general(v View, s SettingsView) {
 	} else {
 		<form novalidate hx-post={ v.Base + "/rename?open=general" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 			@generalFields(s)
-			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
 		</form>
 	}
 }

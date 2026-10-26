@@ -43,10 +43,8 @@ class SettingsFind extends HTMLElement {
             let hit = !q;
             if (q) {
                 for (const el of row.querySelectorAll(LABELS)) {
-                    const named = el.matches("option")
-                        ? pattern(q).test((el.textContent ?? "").toLowerCase())
-                        : el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label").toLowerCase());
-                    if (!el.closest("[data-field][hidden]") && (named || (!el.matches("option") && this.mark(el, q)))) {
+                    const opt = el.matches("option"), said = opt ? (el.textContent ?? "") : el.getAttribute("aria-label");
+                    if (!el.closest("[data-field][hidden]") && ((said !== null && pattern(q).test(said.toLowerCase())) || (!opt && this.mark(el, q)))) {
                         hit = true;
                         this.opened.push(...openTo(el, row));
                     }

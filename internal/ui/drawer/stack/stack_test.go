@@ -119,7 +119,7 @@ func TestSummaries(t *testing.T) {
 		{ConfigSummary("https://github.com/FyrmForge/stackr-test.git", "", ""), "FyrmForge/stackr-test · stackr-compose.yml"},
 		{ConfigSummary("acme/infra", "main", "deploy/stack.yml"), "acme/infra · main · deploy/stack.yml"},
 		{ResourcesSummary([]c.SettingRowView{{Key: "cpu_limit", Effective: "2 cores", From: "org"}}), "2 cores (from org)"},
-		{ResourcesSummary([]c.SettingRowView{{Key: "cpu_limit", Value: "2"}, {Key: "protect", Value: "true"}}), "2 cores · protect on"},
+		{ResourcesSummary([]c.SettingRowView{{Key: "cpu_limit", Value: "2"}, {Key: "protect", Value: "true"}}), "2 cores · password protected"},
 		{PlacementSummary("", "", ""), "inherits org (default)"},
 		{PlacementSummary("", "h4", ""), "runs on h4 (from org)"},
 		{PlacementSummary("h3", "h3", "h4"), "runs on h3 · ingress h4"},

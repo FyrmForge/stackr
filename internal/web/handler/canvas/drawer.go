@@ -152,7 +152,27 @@ func (h *handler) render(c echo.Context, cd card, f comp.DrawerView) (templ.Comp
 	if err != nil {
 		return nil, err
 	}
+	fixTabURL(c, f.Tab)
 	return comp.Drawer(f, body), nil
+}
+
+// fixTabURL: a drawer opened on a tab the viewer may not see shows its
+// first tab; the page URL then names that tab, not the one asked for.
+func fixTabURL(c echo.Context, shown string) {
+	r := c.Request()
+	asked := c.QueryParam("tab")
+	if r.Method != http.MethodGet || asked == "" || asked == shown || r.Header.Get("HX-Request") == "" {
+		return
+	}
+	u, err := neturl.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil || u.Query().Get("tab") != asked {
+		return
+	}
+	q := u.Query()
+	q.Set("tab", shown)
+	q.Del("open")
+	u.RawQuery = q.Encode()
+	c.Response().Header().Set("HX-Replace-Url", u.RequestURI())
 }
 
 // after answers an action with the tab it belongs to: a refusal shows over

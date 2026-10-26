@@ -73,7 +73,7 @@ func ConfigSummary(repo, branch, path string) string {
 }
 
 // ResourcesSummary is the values in effect, as the env's row says them:
-// "2 cores · 512 MB (from org) · protect off".
+// "2 cores · 512 MB (from org) · no password".
 func ResourcesSummary(rows []c.SettingRowView) string { return env.ResourcesSummary(rows) }
 
 // granted: a server admin gave a tile host access, which no tile has unset.

@@ -68,7 +68,7 @@ func DeploysSummary(from, branch string, auto bool, below string) string {
 }
 
 // ResourcesSummary is the limits and protection in effect, each inherited
-// one with where it comes from: "2 cores (from org) · 2048 MB · protect off".
+// one with where it comes from: "2 cores (from org) · 2048 MB · no password".
 func ResourcesSummary(rows []c.SettingRowView) string {
 	var parts []string
 	for _, r := range rows {
@@ -87,9 +87,9 @@ func ResourcesSummary(rows []c.SettingRowView) string {
 			if on == "" {
 				on = r.Effective
 			}
-			val = "protect off"
+			val = "no password"
 			if b, _ := strconv.ParseBool(on); b {
-				val = "protect on"
+				val = "password protected"
 			}
 		default:
 			continue

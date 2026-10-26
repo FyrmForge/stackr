@@ -226,7 +226,7 @@ templ nameBody(v SettingsView) {
 	<form novalidate if v.Rename != "" { hx-post={ v.Rename } } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: v.Name, Required: true, Help: "Renaming breaks old links.", Disabled: v.Rename == "", Why: "Only an owner can rename this organization."})
 		if v.Rename != "" {
-			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
 		}
 	</form>
 }

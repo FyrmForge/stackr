@@ -3,8 +3,7 @@
 // lives in ?open= (history.replaceState, so Back does not walk every
 // toggle) and a fresh load opens the row ?open= names. [data-find] filters the
 // rows by their title, summary, labels, headings, hints, a nested <details>'
-// summary (Show advanced carries data-hint), a field's aria-label and a select's option words (found, not
-// marked: an <option> draws no <mark>), opens the hits and marks them; [data-only-changed]
+// summary (Show advanced carries data-hint), a field's aria-label and option words (an <option> takes no <mark>), opens the hits and marks them; [data-only-changed]
 // hides the [data-field]s without data-changed and the rows with none. While a
 // filter runs the rows leave the name group and the URL is left alone; clearing
 // it restores the row open before. [data-find-skip] and .sr-only are never searched.
@@ -56,10 +55,8 @@ class SettingsFind extends HTMLElement {
       let hit = !q;
       if (q) {
         for (const el of row.querySelectorAll(LABELS)) {
-          const named = el.matches("option")
-            ? pattern(q).test((el.textContent ?? "").toLowerCase())
-            : el.matches("[aria-label]") && pattern(q).test(el.getAttribute("aria-label")!.toLowerCase());
-          if (!el.closest("[data-field][hidden]") && (named || (!el.matches("option") && this.mark(el, q)))) {
+          const opt = el.matches("option"), said = opt ? (el.textContent ?? "") : el.getAttribute("aria-label");
+          if (!el.closest("[data-field][hidden]") && ((said !== null && pattern(q).test(said.toLowerCase())) || (!opt && this.mark(el, q)))) {
             hit = true;
             this.opened.push(...openTo(el, row));
           }

@@ -231,7 +231,7 @@ func TestEnvResourcesChanged(t *testing.T) {
 	for _, w := range []string{
 		`data-acc="resources" data-changed>`,
 		`<div data-field data-changed><label for="env-cascade-cpu_limit"`,
-		"2 cores · 512 MB (from stack) · protect off</span>",
+		"2 cores · 512 MB (from stack) · no password</span>",
 	} {
 		if !strings.Contains(body, w) {
 			t.Errorf("no %s in\n%s", w, body)
