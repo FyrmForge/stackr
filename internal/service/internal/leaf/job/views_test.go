@@ -79,6 +79,16 @@ func TestPoll(t *testing.T) {
 	if len(lg.Chunk) != 0 || !lg.End {
 		t.Errorf("tail = %+v", lg)
 	}
+
+	// finished with no log file (never ran, or restored from another box)
+	_ = os.Remove(j.LogPath)
+	_, lg, _ = l.Poll(ctx, j.ID, 0)
+	if string(lg.Chunk) != job.NoLog || !lg.End {
+		t.Errorf("no log = %+v", lg)
+	}
+	if _, lg, _ = l.Poll(ctx, j.ID, lg.Next); len(lg.Chunk) != 0 || !lg.End {
+		t.Errorf("no log, next poll = %+v", lg)
+	}
 }
 
 // Requeue only brings back a row that is still waiting: a job cancelled or

@@ -187,6 +187,9 @@ const MaxChunk = 64 << 10
 // Log is one poll's slice of a job's log. Next is the offset to ask for
 // next; End means the job is terminal and the whole log has been read, so
 // the client can stop polling.
+// NoLog is the log of a finished job with no log file on this box.
+const NoLog = "(no log on this box for this job)\n"
+
 type Log struct {
 	Chunk []byte `json:"chunk"` // base64 in JSON
 	Next  int64  `json:"next"`
@@ -194,7 +197,9 @@ type Log struct {
 }
 
 // Poll is the job row plus its log from offset (B25: every job is a row to
-// poll). A log that does not exist yet reads as empty.
+// poll). A log that does not exist yet reads as empty; a finished job with
+// none (it never ran, or its log is not on this box, as after a restore)
+// says so in one line.
 func (l *Leaf) Poll(ctx context.Context, id string, offset int64) (store.Job, Log, error) {
 	j, err := l.jobs.Get(ctx, id)
 	if err != nil {
@@ -204,6 +209,10 @@ func (l *Leaf) Poll(ctx context.Context, id string, offset int64) (store.Job, Lo
 	f, err := os.Open(j.LogPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		out.End = Terminal(j.State)
+		if out.End && offset == 0 {
+			out.Chunk = []byte(NoLog)
+			out.Next = int64(len(NoLog))
+		}
 		return j, out, nil
 	}
 	if err != nil {
