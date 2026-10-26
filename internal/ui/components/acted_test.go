@@ -51,7 +51,7 @@ func TestAccRowAnswerAfterItsForm(t *testing.T) {
 func TestAnswerOutsideFoldedForm(t *testing.T) {
 	html := `<ul><li>x</li></ul><details><summary>Edit</summary><div><form hx-post="/t/env?open=variables"></form></div></details><p>after</p>`
 	at, ok := postAt(html, "/t/env?open=variables", false)
-	if !ok || html[:at] != html[:strings.Index(html, "<p>after")] {
+	if want := strings.Index(html, "<p>after"); !ok || at != want {
 		t.Errorf("answer at %d (%q), want right after </details>", at, html[:at])
 	}
 	ctx := WithActed(context.Background(), &Acted{Path: "/t/env?open=variables", Note: "Saved."})
