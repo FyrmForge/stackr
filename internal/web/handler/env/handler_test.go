@@ -190,12 +190,16 @@ func TestManagedEnvPairs(t *testing.T) {
 		"add_from": {"qa"},
 		"add_to":   {"prod"},
 	})
-	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "prod is not an env of this stack") {
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "prod is not an environment of this stack.") {
 		t.Errorf("bad pair = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.Do(t, "POST", d, url.Values{"from": {"staging"}})
 	if rec.Code != 400 {
 		t.Errorf("unpaired from = %d, want 400", rec.Code)
+	}
+	rec = s.Do(t, "POST", d, url.Values{"adding": {"1"}, "from": {"staging"}, "to": {"dev"}, "add_from": {""}, "add_to": {"dev"}})
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "Name the consumer env to pair.") {
+		t.Errorf("add with no consumer env = %d, want the field refused\n%s", rec.Code, rec.Body)
 	}
 }
 

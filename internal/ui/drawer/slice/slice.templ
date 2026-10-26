@@ -88,7 +88,7 @@ templ Overview(v View) {
 			@c.Table(c.TableView{
 				Headers:   []string{"Consumer", "Kind", "Access", "User", "Since"},
 				Rows:      consumerRows(v),
-				EmptyText: "No tile holds a cred on it yet. A consumer binds at its next deploy.",
+				EmptyText: "No tile uses it yet. A consumer gets access at its next deploy.",
 			})
 		}
 		@c.PanelSection("slice-status", "Status", "") {
@@ -225,7 +225,7 @@ templ deleteRow(v View) {
 		@c.Confirm(c.ConfirmView{
 			Button:  "Delete tile",
 			Title:   "Delete " + v.Name + "?",
-			Warning: "Its consumers lose their cred; the data is " + onRemoveWord(v.OnRemove) + ".",
+			Warning: "Its consumers lose their access; the data is " + onRemoveWord(v.OnRemove) + ".",
 			Kept:    []string{kept(v.OnRemove)},
 			Word:    v.Name,
 			Action:  v.Base + "/delete",

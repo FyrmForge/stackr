@@ -124,8 +124,10 @@ func (l *Leaf) SetEnvPairs(
 	pairs map[string]string,
 ) (store.ManagedInstance, error) {
 	for k, v := range pairs {
-		if !slug.Valid(k) || !slug.Valid(v) {
-			return m, errs.Invalidf("env_pairs", "%s: %s: both are environment names", k, v)
+		for _, name := range []string{k, v} {
+			if !slug.Valid(name) {
+				return m, errs.Invalidf("env_pairs", "%s is not an environment name. Use lower-case letters, digits and single hyphens.", name)
+			}
 		}
 	}
 	m.EnvPairs = pairs

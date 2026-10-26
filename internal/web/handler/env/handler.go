@@ -280,6 +280,8 @@ func (h *handler) EnvPairs(c echo.Context) error {
 	}
 	if typed.AddFrom != "" {
 		pairs[typed.AddFrom] = typed.AddTo
+	} else if form.Get("adding") != "" { // Add with nothing typed; a remove posts no adding
+		return h.saved(c, "env_pairs", errs.Invalidf("env_pairs", "Name the consumer env to pair."), typed)
 	}
 	_, err = h.orch.SetManagedEnvPairs(c.Request().Context(), scope(c).Tile.ID, pairs)
 	return h.saved(c, "env_pairs", err, typed)

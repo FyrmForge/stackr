@@ -295,13 +295,14 @@ templ pairsRow(v View, s SettingsView) {
 			<p class="text-xs text-rw-faint">Only members and owners can change the pairs.</p>
 		} else {
 		<form hx-post={ v.Base + "/env-pairs" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+			<input type="hidden" name="adding" value="1"/>
 			for _, q := range s.Pairs {
 				<input type="hidden" name="from" value={ q.From }/>
 				<input type="hidden" name="to" value={ q.To }/>
 			}
 			<div class="flex-1 min-w-32">
 				<label for="pair-from" class="label">Consumer env</label>
-				<input id="pair-from" name="add_from" value={ s.AddFrom } placeholder="staging" class="input font-mono"/>
+				<input id="pair-from" name="add_from" value={ s.AddFrom } placeholder="staging" class="input font-mono" { c.Invalid("env_pairs", s.Errors["env_pairs"])... }/>
 			</div>
 			<div class="flex-1 min-w-32">
 				<label for="pair-to" class="label">This stack's env</label>

@@ -208,7 +208,7 @@ func Overview(v View) templ.Component {
 			templ_7745c5c3_Err = c.Table(c.TableView{
 				Headers:   []string{"Consumer", "Kind", "Access", "User", "Since"},
 				Rows:      consumerRows(v),
-				EmptyText: "No tile holds a cred on it yet. A consumer binds at its next deploy.",
+				EmptyText: "No tile uses it yet. A consumer gets access at its next deploy.",
 			}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -807,7 +807,7 @@ func deleteRow(v View) templ.Component {
 			templ_7745c5c3_Err = c.Confirm(c.ConfirmView{
 				Button:  "Delete tile",
 				Title:   "Delete " + v.Name + "?",
-				Warning: "Its consumers lose their cred; the data is " + onRemoveWord(v.OnRemove) + ".",
+				Warning: "Its consumers lose their access; the data is " + onRemoveWord(v.OnRemove) + ".",
 				Kept:    []string{kept(v.OnRemove)},
 				Word:    v.Name,
 				Action:  v.Base + "/delete",

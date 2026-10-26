@@ -127,11 +127,11 @@ func (o *Orchestrator) SetManagedEnvPairs(
 	if err != nil {
 		return m, err
 	}
-	for k, v := range pairs {
+	for _, v := range pairs {
 		if !slices.ContainsFunc(envs, func(e Environment) bool {
 			return e.Slug == v
 		}) {
-			return m, errs.Invalidf("env_pairs", "%s: %s is not an env of this stack", k, v)
+			return m, errs.Invalidf("env_pairs", "%s is not an environment of this stack.", v)
 		}
 	}
 	if pairs == nil {

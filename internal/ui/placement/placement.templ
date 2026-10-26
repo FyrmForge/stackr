@@ -6,6 +6,7 @@ package placement
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -93,6 +94,14 @@ func (v View) scopeWord() string {
 	return v.Scope
 }
 
+// inherited makes a "From org: w1." hint a sentence: "Inherited from org: w1."
+func inherited(from string) string {
+	if rest, ok := strings.CutPrefix(from, "From "); ok {
+		return "Inherited from " + rest
+	}
+	return from
+}
+
 templ Placement(v View) {
 	<div id={ Root } class="space-y-6">
 		<p class="text-sm text-rw-muted">Where it runs and how traffic gets in and out.</p>
@@ -138,7 +147,7 @@ templ runsOn(v View) {
 				New envs below this start here. A change that moves a running env asks first.
 			}
 			if v.PinFrom != "" {
-				{ " " + v.PinFrom }
+				{ " " + inherited(v.PinFrom) }
 			}
 		</p>
 		</div>
@@ -206,7 +215,7 @@ templ ingress(v View) {
 		<p class="mt-2 text-xs text-rw-faint">
 			Public traffic comes in here.
 			if v.IngressFrom != "" {
-				{ " " + v.IngressFrom }
+				{ " " + inherited(v.IngressFrom) }
 			}
 		</p>
 		</div>

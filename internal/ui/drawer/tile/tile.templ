@@ -264,7 +264,11 @@ templ Metrics(v View, m c.MetricsView) {
 templ Jobs(v View, j JobsView) {
 	<div id="tab-jobs">
 		if len(j.Rows) == 0 {
-			<p class="text-rw-muted text-sm">No deployments yet. Hit Deploy to build the first one.</p>
+			if v.Kind == "cron" || v.Kind == "function" {
+				<p class="text-rw-muted text-sm">No runs yet.</p>
+			} else {
+				<p class="text-rw-muted text-sm">No deployments yet. Hit Deploy to build the first one.</p>
+			}
 		} else {
 			<ul class="space-y-2">
 				for _, r := range j.Rows {
@@ -382,7 +386,7 @@ templ Access(v View, a AccessView) {
 			@c.Table(c.TableView{
 				Headers:   []string{"Slice", "Access", "User", "Since"},
 				Rows:      bindingRows(a),
-				EmptyText: "No cred yet: the tile binds at its next deploy.",
+				EmptyText: "No database access yet. The tile gets it at its next deploy.",
 			})
 		}
 		@c.PanelSection("access-add", "Add access", "") {
@@ -642,9 +646,9 @@ templ buildRow(v View, s SettingsView) {
 
 templ scheduleRow(v View, s SettingsView) {
 	@rowForm(v, s, "schedule", scheduleKeys) {
-		@text(s, "schedule", "Schedule", "0 3 * * *", "Cron, with an optional CRON_TZ= prefix.", true)
+		@text(s, "schedule", "Schedule", "0 3 * * *", "Five-field cron, in the server's time zone.", true)
 		@choice(s, "trigger", "Runs", []opt{{"manual", "manually"}, {"on_deploy", "on every deploy"}}, "")
-		@number(s, "timeout_minutes", "Max runtime (minutes)", "30", "1", "")
+		@number(s, "timeout_minutes", "Max runtime (minutes)", "30", "1", "Empty or 0 is 30 minutes.")
 	}
 }
 
@@ -678,7 +682,7 @@ templ networkRow(v View, s SettingsView) {
 	}
 	if s.Domains != nil {
 		<div class="space-y-3">
-			<p class="label">Domains <span class="font-normal text-rw-faint" data-find-skip>saves on its own</span></p>
+			<p class="label">Domains</p>
 			@domains(v, *s.Domains)
 		</div>
 	}
