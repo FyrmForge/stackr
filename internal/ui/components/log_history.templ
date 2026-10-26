@@ -92,7 +92,7 @@ templ LogHistory(v LogHistoryView) {
 templ LogHistoryMore(v LogHistoryView) {
 	for _, l := range v.Lines {
 		<div class="flex flex-wrap sm:flex-nowrap gap-x-2" data-source={ l.Source }>
-			<span class="shrink-0 text-rw-faint">@Time(l.Time, "Jan 02 15:04:05")</span>
+			<span class="shrink-0 text-rw-faint">@Time(l.Time, "Jan 2, 15:04:05")</span>
 			if len(v.Tiles) > 0 {
 				<span class="shrink-0 text-rw-muted">{ l.Tile }</span>
 			}

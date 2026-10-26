@@ -822,7 +822,7 @@ templ check(s SettingsView, key, label, warn string) {
 				<input type="checkbox" name={ key } value="1" checked?={ s.on(ctx, key) } class="accent-rw-accent" { c.Invalid(key, keptErr(ctx, key))... }/>
 				<span>{ label }</span>
 				@c.FieldMarks(s.Changed(key), "")
-				<span class="text-xs text-rw-danger" data-find-skip>{ warn }</span>
+				<span class="text-xs text-rw-danger">{ warn }</span>
 			</label>
 			@c.FieldError(key, keptErr(ctx, key))
 		</div>

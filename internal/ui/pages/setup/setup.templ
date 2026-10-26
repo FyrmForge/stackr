@@ -503,7 +503,7 @@ templ Plan(v PlanView) {
 				<span class="text-rw-faint font-mono">{ v.Commit }</span>
 			}
 			if !v.When.IsZero() {
-				<span class="text-rw-faint">@c.Time(v.When, "Jan 2 15:04:05")</span>
+				<span class="text-rw-faint">@c.Time(v.When, "Jan 2, 15:04:05")</span>
 			}
 			if v.Replan != "" {
 				<form novalidate hx-post={ v.Replan } class="ml-auto">

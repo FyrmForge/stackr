@@ -298,7 +298,7 @@ func LogHistoryMore(v LogHistoryView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = Time(l.Time, "Jan 02 15:04:05").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = Time(l.Time, "Jan 2, 15:04:05").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

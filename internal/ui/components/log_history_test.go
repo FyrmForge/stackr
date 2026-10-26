@@ -30,7 +30,7 @@ func TestLogHistory(t *testing.T) {
 	for _, w := range []string{
 		`hx-get="/a/s/e/-/logs"`, `name="tile"`, `name="kind"`, `name="since"`, `<option value="1h" selected>`,
 		`GET /a 200 12ms`, `text-rw-danger`, `Times in <local-time zone>UTC</local-time>`,
-		`<local-time fmt="Jan 02 15:04:05"><time datetime="2026-10-21T10:00:00Z" title="2026-10-21T10:00:00Z">Oct 21 10:00:00</time></local-time>`, `id="log-older"`, `hx-get="/a/s/e/-/logs?before=x"`,
+		`<local-time fmt="Jan 2, 15:04:05"><time datetime="2026-10-21T10:00:00Z" title="2026-10-21T10:00:00Z">Oct 21, 10:00:00</time></local-time>`, `id="log-older"`, `hx-get="/a/s/e/-/logs?before=x"`,
 	} {
 		if !strings.Contains(env, w) {
 			t.Errorf("env viewer lacks %s\n%s", w, env)

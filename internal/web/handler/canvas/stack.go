@@ -187,10 +187,14 @@ func redirect(c echo.Context, url string) (string, error) {
 // card's canvas (canvas). query is the drawer's ?drawer=&tab=&open=. warn
 // is what the rename could not carry, read with the flash.
 func renamed(c echo.Context, name string, warn []string, own, moved, canvas, query string) (string, error) {
+	said := "Renamed to " + name
+	if !strings.ContainsAny(name[len(name)-1:], ".!?") { // "Bad Name!" ends its own sentence
+		said += "."
+	}
 	if len(warn) > 0 {
-		hamrmw.SetFlash(c, "Renamed to "+name+". "+strings.Join(warn, " "), hamrmw.FlashInfo)
+		hamrmw.SetFlash(c, said+" "+strings.Join(warn, " "), hamrmw.FlashInfo)
 	} else {
-		hamrmw.SetFlash(c, "Renamed to "+name+".", hamrmw.FlashSuccess)
+		hamrmw.SetFlash(c, said, hamrmw.FlashSuccess)
 	}
 	if cur, err := neturl.Parse(c.Request().Header.Get("HX-Current-URL")); err == nil && cur.Path == own {
 		return redirect(c, moved+"?"+query)

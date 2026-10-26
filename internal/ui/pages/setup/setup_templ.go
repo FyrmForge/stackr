@@ -1927,7 +1927,7 @@ func Plan(v PlanView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Time(v.When, "Jan 2 15:04:05").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Time(v.When, "Jan 2, 15:04:05").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
