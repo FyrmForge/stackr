@@ -5854,6 +5854,9 @@
           "consumer_id": {
             "type": "string"
           },
+          "consumer_name": {
+            "type": "string"
+          },
           "kind": {
             "type": "string"
           },
@@ -5868,6 +5871,7 @@
         "required": [
           "consumer_id",
           "consumer",
+          "consumer_name",
           "kind",
           "access",
           "user",

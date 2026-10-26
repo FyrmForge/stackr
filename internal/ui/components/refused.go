@@ -259,7 +259,10 @@ func postAt(html, path string, below bool) (at int, ok bool) {
 		i += off
 		off = i + len(attr)
 		rest := html[off:]
-		if !strings.HasPrefix(rest, `"`) && !(anyQuery && strings.HasPrefix(rest, "?")) && !(below && strings.HasPrefix(rest, "/")) {
+		exact := strings.HasPrefix(rest, `"`)
+		query := anyQuery && strings.HasPrefix(rest, "?")
+		under := below && strings.HasPrefix(rest, "/")
+		if !exact && !query && !under {
 			continue
 		}
 		ok = true // a button posting there; a form posting there wins
