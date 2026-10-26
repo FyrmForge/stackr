@@ -94,7 +94,7 @@ func TestAdminSuggestsPanelScope(t *testing.T) {
 		t.Fatalf("bad scope = %d\n%s", rec.Code, body)
 	}
 
-	body = s.As(t, root, "POST", base+"/preview", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"stackr"}}).Body.String()
+	body = s.As(t, root, "POST", base+"/preview", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"stackr.acme.dev"}}).Body.String() // the full name pasted
 	if !strings.Contains(body, "Manage stackr.acme.dev?") || !strings.Contains(body, "Left alone: 1 record outside stackr.acme.dev") || !strings.Contains(body, "www.acme.dev") {
 		t.Fatalf("scoped plan:\n%s", body)
 	}

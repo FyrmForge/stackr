@@ -349,7 +349,17 @@ func (o *Orchestrator) forgetDomain(ctx context.Context, c Connector, p dnscap.P
 	if len(users) > 0 {
 		return &InUse{Msg: dnscap.Normal(name) + " is in use by", Tail: "; remove those domains first", Usages: users}
 	}
-	if err := o.dns.Forget(ctx, p, dnscap.Normal(name)); err != nil {
+	keep := map[string]bool{} // the panel's and nodes' names keep resolving
+	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == dnscap.Normal(name) }); i >= 0 {
+		names, err := o.nameWants(ctx, rows[i:i+1])
+		if err != nil {
+			return err
+		}
+		for _, w := range names {
+			keep[strings.ToLower(w.Name)] = true
+		}
+	}
+	if err := o.dns.Forget(ctx, p, dnscap.Normal(name), keep); err != nil {
 		return err
 	}
 	row, err := o.dns.Unmanage(ctx, c.ID, name)

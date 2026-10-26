@@ -88,11 +88,10 @@ func listID(id string) string { return "dns-domains-" + id }
 
 // leftAlone reads "3 records outside stackr.example.com".
 func leftAlone(p PlanView) string {
-	n := "1 record"
-	if len(p.LeftAlone) != 1 {
-		n = strconv.Itoa(len(p.LeftAlone)) + " records"
+	if len(p.LeftAlone) == 1 {
+		return "1 record outside " + p.Scope + ". stackr never changes it."
 	}
-	return n + " outside " + p.Scope + ". stackr never changes them."
+	return strconv.Itoa(len(p.LeftAlone)) + " records outside " + p.Scope + ". stackr never changes them."
 }
 
 // share is a managed domain's "Available to": every org when none is
@@ -195,7 +194,7 @@ templ Domains(v DomainsView) {
 								<button type="button" class="btn btn-ghost btn-sm" hx-post={ cmp.Or(d.Preview, d.Manage) } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
 							}
 							if d.Unmanage != "" && d.State == "managed" {
-								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the records it made. Other records stay.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
+								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the tile records it made. Other records stay, the panel and node records too.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
 							}
 							if d.TakeOver != "" && d.State == "dns_elsewhere" {
 								@c.Confirm(c.ConfirmView{
@@ -260,7 +259,7 @@ templ scopeForm(v DomainsView, p PlanView) {
 			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="radio" name="part" value="all" checked?={ p.Under == "" && p.UnderError == "" } class="accent-rw-accent"/> All of { p.Domain }</label>
 			<label class="flex flex-wrap items-center gap-2 text-sm text-rw-text">
 				<input type="radio" name="part" value="under" checked?={ p.Under != "" || p.UnderError != "" } class="accent-rw-accent"/> Only under
-				<input type="text" name="under" value={ p.Under } aria-label={ "Name under " + p.Domain } placeholder="stackr" class="input !w-36 font-mono" { c.Invalid("under", p.UnderError)... }/>
+				<input type="text" name="under" value={ p.Under } aria-label={ "Name under " + p.Domain } placeholder="stackr" class="input !w-32 font-mono" { c.Invalid("under", p.UnderError)... }/>
 				<span class="font-mono text-xs text-rw-muted">.{ p.Domain }</span>
 			</label>
 			@c.FieldError("under", p.UnderError)

@@ -499,7 +499,9 @@ func (l *Leaf) Records(ctx context.Context) ([]store.DNSRecord, error) { return 
 
 // Forget deletes the records stackr made in zone, from the provider then
 // the table: what unmanaging a domain does before the domain row goes.
-func (l *Leaf) Forget(ctx context.Context, a Provider, zone string) error {
+// Records at keep's names (relative, lower case: the panel's and nodes'
+// own) stay in the zone; only their rows go, so the names keep working.
+func (l *Leaf) Forget(ctx context.Context, a Provider, zone string, keep map[string]bool) error {
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
 	rows, err := l.recs.List(ctx)
@@ -512,7 +514,7 @@ func (l *Leaf) Forget(ctx context.Context, a Provider, zone string) error {
 	}
 	var del []libdns.Record
 	for _, r := range rows {
-		if !r.Adopted { // an adopted record stays in the zone; only its row goes
+		if !r.Adopted && !keep[strings.ToLower(r.Name)] { // an adopted or kept record stays in the zone; only its row goes
 			del = append(del, rr(r.Name, r.Type, r.Value))
 		}
 	}

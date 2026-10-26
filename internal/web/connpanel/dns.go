@@ -52,9 +52,15 @@ func (p Panel) Synced(c echo.Context) string {
 func (p Panel) domains(c echo.Context) error { return p.answer(c, "", nil) }
 
 // under is the scope a form asks for: the name under the domain typed in
-// under, unless part is all ("" = the whole domain).
+// under (the full name pasted reads the same), unless part is all ("" =
+// the whole domain).
 func under(c echo.Context, domain string) string {
-	sub := strings.TrimSpace(c.FormValue("under"))
+	d := strings.ToLower(strings.Trim(strings.TrimSpace(domain), "."))
+	sub := strings.ToLower(strings.Trim(strings.TrimSpace(c.FormValue("under")), "."))
+	if sub == d {
+		sub = ""
+	}
+	sub = strings.TrimSuffix(sub, "."+d)
 	if c.FormValue("part") == "all" || sub == "" {
 		return ""
 	}
@@ -69,8 +75,8 @@ func (p Panel) preview(c echo.Context) error {
 	domain := c.FormValue("domain")
 	base := p.DNSBase(c) + "/" + c.Param("connector")
 	v := &ui.PlanView{Domain: domain, Preview: base + "/preview", Manage: base + "/manage"}
-	if under(c, domain) != "" {
-		v.Under = strings.TrimSpace(c.FormValue("under"))
+	if u := under(c, domain); u != "" {
+		v.Under = strings.TrimSuffix(u, "."+strings.ToLower(strings.Trim(strings.TrimSpace(domain), ".")))
 	}
 	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain), nil)
 	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {

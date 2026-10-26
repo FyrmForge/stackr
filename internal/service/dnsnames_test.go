@@ -233,3 +233,22 @@ func TestDNSSuggestions(t *testing.T) {
 		t.Errorf("an org connector got %+v", got)
 	}
 }
+
+// Stop managing deletes the tile records stackr made but keeps the
+// panel's: the panel stays reachable by name.
+func TestUnmanageKeepsPanelRecord(t *testing.T) {
+	env, _, id := scopedRig(t)
+	ctx := context.Background()
+	if !has(env.DNS.Zone("acme.dev"), "stackr", "A", "198.51.100.1") {
+		t.Fatalf("no panel record: %v", env.DNS.Zone("acme.dev"))
+	}
+	if err := env.Orch.UnmanageDNSDomain(ctx, nil, id, "acme.dev"); err != nil {
+		t.Fatal(err)
+	}
+	if !has(env.DNS.Zone("acme.dev"), "stackr", "A", "198.51.100.1") {
+		t.Errorf("stop managing took the panel's record: %v", env.DNS.Zone("acme.dev"))
+	}
+	if rs, _ := env.Store.DNSRecords.List(ctx); len(rs) != 0 {
+		t.Errorf("rows left: %v", rs)
+	}
+}
