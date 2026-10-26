@@ -190,6 +190,7 @@ func routes(h *v1.H) []Route {
 		{PUT, tile + "/name", "tile.rename", "tile.write", h.RenameTile()},
 		{DELETE, tile, "tile.delete", "tile.write", h.DeleteTile()},
 		{POST, tile + "/deploy", "tile.deploy", "tile.write", h.Deploy()},
+		{POST, tile + "/rebuild", "tile.rebuild", "tile.write", h.RebuildTile()},
 		{POST, tile + "/restart", "tile.restart", "tile.write", h.RestartTile()},
 		{POST, tile + "/stop", "tile.stop", "tile.write", h.StopTile()},
 		{POST, tile + "/start", "tile.start", "tile.write", h.StartTile()},

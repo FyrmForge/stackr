@@ -60,6 +60,7 @@ type View struct {
 	Status   string // a TileBadge word; "" = unknown
 	Stopped  bool   // offer Start, not Stop / Restart
 	Paused   bool   // cron: offer Resume
+	Rebuild  bool   // a git tile: offer Rebuild
 	Terminal bool   // the viewer may open a shell (tile.write): show the Terminal tab
 	ReadOnly bool   // the viewer may not write: no action buttons; Settings read-only, no Database access or Delete row
 	Location string // "stack / env"

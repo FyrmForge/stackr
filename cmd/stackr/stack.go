@@ -1027,6 +1027,7 @@ func (a *app) tiles() *cobra.Command {
 			"Remove tile %s and its containers? Its volumes are kept until removed.",
 		),
 		a.deploy(),
+		a.tileJob(POST, "rebuild [tile]", "tile.rebuild", "Build the running commit without the build cache and deploy it", "/rebuild", "rebuild", ""),
 		a.restart(),
 		a.stop(),
 		a.tileJob(POST, "start [tile]", "tile.start", "Start the tile's containers", "/start", "start", ""),

@@ -27,6 +27,9 @@ templ actions(v View) {
 				</button>
 			case "function":
 				@c.PrimaryPost("Run now", v.Base+"/run")
+				if v.Rebuild {
+					@c.PostButton("Rebuild", v.Base+"/rebuild")
+				}
 				@c.PostButton("Deploy", v.Base+"/deploy")
 			default:
 				if v.Stopped {
@@ -34,6 +37,9 @@ templ actions(v View) {
 				} else if v.Status != "none" {
 					@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
 					@c.PostButton("Restart", v.Base+"/restart")
+				}
+				if v.Rebuild {
+					@c.PostButton("Rebuild", v.Base+"/rebuild")
 				}
 				@c.PrimaryPost("Deploy", v.Base+"/deploy")
 		}

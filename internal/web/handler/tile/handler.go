@@ -46,6 +46,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(d+"/metrics/events", h.MetricsEvents, read)
 	for verb, f := range map[string]func(context.Context, string) (service.Job, error){
 		"deploy":  h.orch.Deploy,
+		"rebuild": h.orch.RebuildTile,
 		"restart": h.orch.RestartTile,
 		"stop":    h.orch.StopTile,
 		"start":   h.orch.StartTile,
@@ -122,6 +123,7 @@ func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
 		Status:   st.Word,
 		Stopped:  st.Word == "stopped",
 		Paused:   t.Paused,
+		Rebuild:  service.Rebuildable(*t),
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
 	}

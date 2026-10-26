@@ -213,6 +213,10 @@ func (h *H) Deploy() Endpoint {
 	return tileJob(h.Orch.Deploy)
 }
 
+func (h *H) RebuildTile() Endpoint {
+	return tileJob(h.Orch.RebuildTile)
+}
+
 func (h *H) RestartTile() Endpoint {
 	return tileJob(h.Orch.RestartTile)
 }
