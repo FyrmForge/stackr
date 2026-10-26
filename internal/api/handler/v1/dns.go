@@ -56,7 +56,7 @@ func (h *H) DNSDomains(l Level) Endpoint {
 
 func (h *H) ManageDNSDomain(l Level) Endpoint {
 	return JSON(200, func(c echo.Context, in ManageIn) (service.DNSDomain, error) {
-		return h.Orch.ManageDNSDomainAdopting(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), in.OrgIDs, in.Adopt)
+		return h.Orch.ManageDNSDomainAdopting(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), "", in.OrgIDs, in.Adopt)
 	})
 }
 
@@ -64,7 +64,7 @@ func (h *H) ManageDNSDomain(l Level) Endpoint {
 // records it may adopt (?org_id=, repeated, as org_ids in the body).
 func (h *H) PlanDNSDomain(l Level) Endpoint {
 	return Get(func(c echo.Context) (service.DNSManagePlan, error) {
-		return h.Orch.PlanManageDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), c.QueryParams()["org_id"])
+		return h.Orch.PlanManageDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), "", c.QueryParams()["org_id"])
 	})
 }
 

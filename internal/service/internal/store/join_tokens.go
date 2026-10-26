@@ -13,6 +13,7 @@ type JoinToken struct {
 	ID          string     `db:"id" json:"id"`
 	Hash        string     `db:"hash" json:"-"`
 	NodeName    string     `db:"node_name" json:"node_name"`
+	NodeAddress string     `db:"node_address" json:"node_address"`
 	Tags        string     `db:"tags" json:"tags"`
 	CreatedBy   string     `db:"created_by" json:"created_by"`
 	CreatedAt   time.Time  `db:"created_at" json:"created_at"`

@@ -41,7 +41,7 @@ func adoptRig(t *testing.T) (env *servicetest.Env, connector string) {
 // and records pointing elsewhere are never listed.
 func TestManagePlanListsWritesAndAdoptable(t *testing.T) {
 	env, id := adoptRig(t)
-	plan, err := env.Orch.PlanManageDNSDomain(context.Background(), nil, id, "acme.dev", nil)
+	plan, err := env.Orch.PlanManageDNSDomain(context.Background(), nil, id, "acme.dev", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestManagePlanListsWritesAndAdoptable(t *testing.T) {
 	}
 }
 
-// An empty plan marshals both lists as [], never null: the API schema requires arrays.
+// An empty plan marshals its lists as [], never null: the API schema requires arrays.
 func TestManagePlanEmptyListsAreArrays(t *testing.T) {
 	env, _, _ := dnsRig(t)
 	setIP(t, env, "198.51.100.1")
@@ -75,12 +75,12 @@ func TestManagePlanEmptyListsAreArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := env.Orch.PlanManageDNSDomain(context.Background(), nil, srv.Connector.ID, "acme.dev", nil)
+	plan, err := env.Orch.PlanManageDNSDomain(context.Background(), nil, srv.Connector.ID, "acme.dev", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(plan)
-	if string(b) != `{"writes":[],"adopt":[]}` {
+	if string(b) != `{"writes":[],"adopt":[],"left_alone":[]}` {
 		t.Errorf("plan = %s", b)
 	}
 }
@@ -95,7 +95,7 @@ func TestAdoptedRecordsAreNeverDeleted(t *testing.T) {
 		{Name: "www", Type: "A", Value: "198.51.100.1"},
 		{Name: "old", Type: "A", Value: "203.0.113.9"}, // not ours to take
 	}
-	if _, err := env.Orch.ManageDNSDomainAdopting(ctx, nil, id, "acme.dev", nil, adopt); err != nil {
+	if _, err := env.Orch.ManageDNSDomainAdopting(ctx, nil, id, "acme.dev", "", nil, adopt); err != nil {
 		t.Fatal(err)
 	}
 	env.Orch.WaitDNS()
@@ -158,7 +158,7 @@ func TestAdoptedRecordRepoints(t *testing.T) {
 	env, id := adoptRig(t)
 	ctx := context.Background()
 	adopt := []service.DNSRef{{Name: "shop", Type: "A", Value: "198.51.100.1"}}
-	if _, err := env.Orch.ManageDNSDomainAdopting(ctx, nil, id, "acme.dev", nil, adopt); err != nil {
+	if _, err := env.Orch.ManageDNSDomainAdopting(ctx, nil, id, "acme.dev", "", nil, adopt); err != nil {
 		t.Fatal(err)
 	}
 	env.Orch.WaitDNS()

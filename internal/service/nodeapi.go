@@ -496,7 +496,7 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 	if _, err := o.store.JoinTokens.ExpireUnspentFor(ctx, n.Name, time.Now().UTC()); err != nil {
 		return JoinTokenOut{}, err
 	}
-	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0)
+	out, err := o.mintJoin(ctx, by, n.Name, "", node.Tags(n), 0)
 	if err != nil {
 		return out, err
 	}

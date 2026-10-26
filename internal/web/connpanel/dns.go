@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	ui "github.com/FyrmForge/stackr/internal/ui/dns"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
@@ -46,24 +47,48 @@ func (p Panel) Synced(c echo.Context) string {
 	return p.Orch.DNSSyncError()
 }
 
-// POST <dns>/:connector/domains: the list, asked of the provider.
+// POST <dns>/:connector/domains (not_now): the list, asked of the
+// provider; not_now leaves the setup suggestion out.
 func (p Panel) domains(c echo.Context) error { return p.answer(c, "", nil) }
 
-// POST <dns>/:connector/preview (domain): the confirm before managing it,
-// listing the records stackr writes and the existing ones it may adopt.
-// With neither, there is nothing to ask: it manages the domain.
+// under is the scope a form asks for: the name under the domain typed in
+// under, unless part is all ("" = the whole domain).
+func under(c echo.Context, domain string) string {
+	sub := strings.TrimSpace(c.FormValue("under"))
+	if c.FormValue("part") == "all" || sub == "" {
+		return ""
+	}
+	return service.ManagedHost(domain, sub)
+}
+
+// POST <dns>/:connector/preview (domain, part, under): the confirm before
+// managing it, listing the records stackr writes, the existing ones it may
+// adopt and the ones it leaves alone outside the scope. With none of them,
+// there is nothing to ask: it manages the domain.
 func (p Panel) preview(c echo.Context) error {
 	domain := c.FormValue("domain")
-	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, nil)
+	base := p.DNSBase(c) + "/" + c.Param("connector")
+	v := &ui.PlanView{Domain: domain, Preview: base + "/preview", Manage: base + "/manage"}
+	if under(c, domain) != "" {
+		v.Under = strings.TrimSpace(c.FormValue("under"))
+	}
+	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain), nil)
+	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
+		v.UnderError, v.Manage = bad.Msg, ""
+		return p.list(c, "", nil, v)
+	}
 	if err != nil {
 		return p.answer(c, "", err)
 	}
-	if len(plan.Writes) == 0 && len(plan.Adopt) == 0 {
+	if len(plan.Writes) == 0 && len(plan.Adopt) == 0 && len(plan.LeftAlone) == 0 {
 		return p.manage(c)
 	}
-	v := &ui.PlanView{Domain: domain, Manage: p.DNSBase(c) + "/" + c.Param("connector") + "/manage"}
+	v.Scope = plan.Scope
 	for _, w := range plan.Writes {
 		v.Writes = append(v.Writes, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
+	}
+	for _, w := range plan.LeftAlone {
+		v.LeftAlone = append(v.LeftAlone, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
 	}
 	for _, a := range plan.Adopt {
 		v.Adopt = append(v.Adopt, ui.PlanAdopt{
@@ -74,8 +99,9 @@ func (p Panel) preview(c echo.Context) error {
 	return p.list(c, "", nil, v)
 }
 
-// POST <dns>/:connector/manage (domain, scope=all|only, org..., adopt...):
-// manage it, or set who may use it (all: every org, as none ticked is).
+// POST <dns>/:connector/manage (domain, part, under, scope=all|only, org...,
+// adopt...): manage it, or set who may use it (all: every org, as none
+// ticked is). part and under are what to manage, as preview reads them;
 // adopt is name|type|value of the existing records to take over.
 func (p Panel) manage(c echo.Context) error {
 	form, err := c.FormParams()
@@ -92,7 +118,7 @@ func (p Panel) manage(c echo.Context) error {
 			adopt = append(adopt, service.DNSRef{Name: f[0], Type: f[1], Value: f[2]})
 		}
 	}
-	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), orgs, adopt)
+	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), orgs, adopt)
 	return p.answer(c, "Saved.", err)
 }
 
@@ -128,6 +154,9 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 	base := p.DNSBase(c) + "/" + id
 	v := ui.DomainsView{ID: id, Provider: label, Shared: org == nil, Note: note, Plan: plan}
 	status := http.StatusOK
+	if plan != nil && plan.UnderError != "" {
+		status = http.StatusUnprocessableEntity
+	}
 	if actErr != nil {
 		msg, ok := render.Refusal(actErr)
 		if !ok {
@@ -144,6 +173,14 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 		}
 		v.Error = msg
 		return respond.HTML(c, status, ui.Domains(v))
+	}
+	if c.FormValue("not_now") == "" && plan == nil {
+		for _, s := range p.Orch.DNSSuggestions(ctx, org, ds) {
+			v.Suggest = append(v.Suggest, ui.Suggestion{
+				Domain: s.Domain, Host: s.Host, Sub: s.Sub, Panel: s.Panel,
+				Preview: base + "/preview", NotNow: base + "/domains",
+			})
+		}
 	}
 	var orgs []service.Org
 	if org == nil {
@@ -164,6 +201,7 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 			Unmanage: base + "/unmanage",
 			TakeOver: base + "/takeover",
 			All:      d.ShareAll,
+			Scope:    d.Scope,
 		}
 		for _, og := range orgs {
 			r.Orgs = append(r.Orgs, ui.Org{ID: og.ID, Name: og.Name, On: !d.ShareAll && slices.Contains(d.OrgIDs, og.ID)})

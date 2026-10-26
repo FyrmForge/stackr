@@ -17,8 +17,11 @@ type DNSDomain struct {
 	OrgIDs      StringList `db:"org_ids" json:"org_ids"`
 	// ResourceID is the domain resource stackr made for the domain; nil
 	// when one already held its host.
-	ResourceID *string   `db:"resource_id" json:"resource_id"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	ResourceID *string `db:"resource_id" json:"resource_id"`
+	// Scope is the name stackr manages at and under, inside Name; "" =
+	// the whole domain.
+	Scope     string    `db:"scope" json:"scope"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type DNSDomainStore interface {

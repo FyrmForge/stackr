@@ -125,7 +125,7 @@ func (o *Orchestrator) IngressSwitchPlan(ctx context.Context, by *Principal, ref
 	if err != nil {
 		return plan, err
 	}
-	if panel != "" {
+	if panel != "" && !o.dnsOwns(ctx, panel) { // stackr repoints a managed panel record itself
 		plan.Hosts = append(plan.Hosts, o.checkHost(ctx, panel, true, plan))
 	}
 	for _, h := range others {

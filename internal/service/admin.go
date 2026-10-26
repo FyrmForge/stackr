@@ -264,6 +264,9 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 		}
 		o.startSyncObserve() // a first pull takes a while; the tab shows how it went
 	}
+	if p, ok := vals["panel_domain"]; ok && p != panelWas {
+		o.defaultControllerAddress(ctx) // before the push: its records sync names it
+	}
 	err := o.sync.Sync(ctx)
 	if p, ok := vals["panel_domain"]; ok && p != panelWas {
 		// connectors keep the webhook URL they were made with; a failure is

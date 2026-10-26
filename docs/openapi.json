@@ -1149,6 +1149,15 @@
             },
             "type": "array"
           },
+          "left_alone": {
+            "items": {
+              "$ref": "#/components/schemas/DNSWrite"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
           "writes": {
             "items": {
               "$ref": "#/components/schemas/DNSWrite"
@@ -1158,7 +1167,8 @@
         },
         "required": [
           "writes",
-          "adopt"
+          "adopt",
+          "left_alone"
         ],
         "type": "object"
       },
@@ -1296,6 +1306,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "scope": {
+            "type": "string"
           },
           "share_all": {
             "type": "boolean"
@@ -2615,6 +2628,9 @@
       },
       "JoinTokenSpec": {
         "properties": {
+          "node_address": {
+            "type": "string"
+          },
           "node_name": {
             "type": "string"
           },

@@ -11,12 +11,13 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// Names is every managed domain, sorted.
+// Names is the name every managed domain covers (its scope, else the
+// domain), sorted by domain.
 func (l *Leaf) Names(ctx context.Context) ([]string, error) {
 	rows, err := l.rows.List(ctx)
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, r.Name)
+		out = append(out, Under(r))
 	}
 	return out, err
 }
@@ -24,8 +25,8 @@ func (l *Leaf) Names(ctx context.Context) ([]string, error) {
 // Challenge checks an ACME DNS-01 call from a proxy, which anything on the
 // box could make: zone must be a managed domain and every record a TXT with
 // a value named _acme-challenge or _acme-challenge.<labels>, relative to
-// zone. An empty value would match every TXT on delete. The row's connector
-// answers the call.
+// zone and inside its scope. An empty value would match every TXT on
+// delete. The row's connector answers the call.
 func (l *Leaf) Challenge(ctx context.Context, zone string, rs []libdns.RR) (store.DNSDomain, error) {
 	if len(rs) == 0 {
 		return store.DNSDomain{}, errs.Invalidf("records", "no records")
@@ -40,5 +41,13 @@ func (l *Leaf) Challenge(ctx context.Context, zone string, rs []libdns.RR) (stor
 	if errors.Is(err, errs.ErrNotFound) {
 		return row, errs.Refusedf("%s is not a managed domain", Normal(zone))
 	}
-	return row, err
+	if err != nil {
+		return row, err
+	}
+	for _, r := range rs {
+		if !InScope(row, r.Name) {
+			return store.DNSDomain{}, errs.Refusedf("%s is outside %s, the part of %s stackr manages", fqdn(row.Name, r.Name), Under(row), row.Name)
+		}
+	}
+	return row, nil
 }
