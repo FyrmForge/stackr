@@ -1,19 +1,9 @@
 package cluster
 
 import "github.com/FyrmForge/stackr/internal/ui/graph"
-// Page is the Cluster page: its own bar (the shell's top bar shows only
-// where the URL has crumbs), then #graph, which holds the canvas and swaps
+// Page is the Cluster page under the shell's top bar: #graph, which holds the canvas and swaps
 // its inside on a timer. The swap waits while someone is typing in a note.
 templ Page(v graph.View, m Map) {
-	<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 border-b border-rw-border bg-rw-surface shrink-0">
-		<h1 class="text-lg font-semibold text-rw-text tracking-tight">Cluster</h1>
-		<span class="text-xs text-rw-faint">{ Subtitle(m) }</span>
-		if len(v.Create) > 0 {
-			<div class="ml-auto flex items-center gap-2">
-				@graph.Actions(v.Create)
-			</div>
-		}
-	</div>
 	<div
 		id="graph"
 		class="flex min-h-0 flex-1 flex-col"

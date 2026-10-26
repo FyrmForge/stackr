@@ -54,8 +54,10 @@ func render(t *testing.T) string {
 
 func TestMapDraws(t *testing.T) {
 	body := render(t)
+	if got := cluster.Subtitle(sample()); got != "4 nodes · 2 networks" { // the shell's bar shows it
+		t.Errorf("subtitle %q", got)
+	}
 	for _, want := range []string{
-		"4 nodes · 2 networks",
 		`node-id="node:h"`, `node-id="node:f"`,
 		`hx-get="/-/admin/nodes/f"`, `hx-push-url="?drawer=node:f"`, // a node opens its drawer
 		`node-id="nat:192.168.1.0/24"`, ">NAT<", "192.168.1.0/24", "behind a router",

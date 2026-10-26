@@ -186,13 +186,18 @@ templ topBar(s Shell, oob bool) {
 			hx-swap-oob="true"
 		}
 	>
-		if len(s.Crumbs) > 0 {
+		if len(s.Crumbs) > 0 || s.Heading != "" {
 			<div
 				class={ "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 bg-rw-surface",
 					templ.KV(envClass(s.EnvColor)+" shadow-[inset_0_-3px_0_var(--env-c)]", envClass(s.EnvColor) != ""),
 					templ.KV("border-b border-rw-border", envClass(s.EnvColor) == "") }
 			>
-				if len(s.Crumbs) == 1 {
+				if len(s.Crumbs) == 0 {
+					<h1 class="text-lg font-semibold text-rw-text tracking-tight">{ s.Heading }</h1>
+					if s.Sub != "" {
+						<span class="text-xs text-rw-faint">{ s.Sub }</span>
+					}
+				} else if len(s.Crumbs) == 1 {
 					@orgHead(s.Crumbs[0])
 				} else {
 					<a href={ templ.SafeURL(up(s.Crumbs)) } hx-get={ up(s.Crumbs) } hx-target="#main" hx-push-url="true" class="text-rw-muted hover:text-rw-text transition-colors" title="Up one level" aria-label="Up one level">&larr;</a>

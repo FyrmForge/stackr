@@ -38,7 +38,18 @@ func Page(c echo.Context, status int, title string, body templ.Component) error 
 // where the bar does) and the drawer a fresh load of ?drawer=&tab= opens
 // (nil = none). An htmx navigation leaves the drawer to its own GET.
 func PageWith(c echo.Context, status int, title string, body, actions, drawer templ.Component) error {
+	return page(c, status, Shell(c, title), body, actions, drawer)
+}
+
+// PageBar is PageWith for a page with no crumbs: the top bar shows title,
+// sub and actions, so the admin problem banner sits below it.
+func PageBar(c echo.Context, status int, title, sub string, body, actions, drawer templ.Component) error {
 	s := Shell(c, title)
+	s.Heading, s.Sub = title, sub
+	return page(c, status, s, body, actions, drawer)
+}
+
+func page(c echo.Context, status int, s components.Shell, body, actions, drawer templ.Component) error {
 	s.Actions = actions
 	// a node's drawer opens over any page
 	if d := c.QueryParam("drawer"); drawer == nil && s.Admin {

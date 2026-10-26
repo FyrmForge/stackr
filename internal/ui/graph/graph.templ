@@ -7,21 +7,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/ui/graph/cards"
 )
 
-// Page is a canvas page: home's "Organizations" bar (every other level
-// has the shell's top bar), then #graph, which fills the shell's column.
+// Page is a canvas page under the shell's top bar: #graph, which fills the shell's column.
 // #graph holds the stream and swaps its inside on "graph", so the stream
 // outlives the canvas it replaces; reset and notes answer into it too.
 templ Page(v View) {
-	if v.Base == "" {
-		<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6 py-3 min-h-14 border-b border-rw-border bg-rw-surface shrink-0">
-			<h1 class="text-lg font-semibold text-rw-text tracking-tight">Organizations</h1>
-			if len(v.Create) > 0 {
-				<div class="ml-auto flex items-center gap-2">
-					@Actions(v.Create)
-				</div>
-			}
-		</div>
-	}
 	if v.Banner != nil {
 		<a
 			href={ templ.SafeURL(v.Banner.Href) }

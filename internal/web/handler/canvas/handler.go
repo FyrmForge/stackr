@@ -164,10 +164,13 @@ func (h *handler) Page(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
-	// The top bar holds the create buttons; home has no bar, so its canvas does.
+	// The top bar holds the create buttons.
 	var actions templ.Component
-	if l := where(c); l.scope.Kind == service.CanvasHome {
-		v.Create = createButtons(c, l)
+	home := where(c).scope.Kind == service.CanvasHome
+	if l := where(c); home {
+		if cs := createButtons(c, l); len(cs) > 0 {
+			actions = ui.Actions(cs)
+		}
 	} else {
 		cs := createButtons(c, l)
 		sync, err := h.syncButton(c, l)
@@ -199,6 +202,9 @@ func (h *handler) Page(c echo.Context) error {
 	body := ui.Page(v)
 	if drawer != nil && isHTMX(c) { // Drop and Undo move the canvas; the open drawer follows
 		body = templ.Join(body, ui.DrawerOOB(drawer))
+	}
+	if home {
+		return render.PageBar(c, http.StatusOK, "Organizations", "", body, actions, drawer)
 	}
 	return render.PageWith(c, http.StatusOK, where(c).title, body, actions, drawer)
 }

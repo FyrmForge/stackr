@@ -89,7 +89,7 @@ func (h *handler) Page(c echo.Context) error {
 			drawer = components.DrawerLoad(cluster.TunnelDrawer(a, b))
 		}
 	}
-	return render.PageWith(c, http.StatusOK, "Cluster", cluster.Page(v, m), nil, drawer)
+	return render.PageBar(c, http.StatusOK, "Cluster", cluster.Subtitle(m), cluster.Page(v, m), ui.Actions(v.Create), drawer)
 }
 
 // GET /-/cluster/map: the canvas alone, for the timer's swap into #graph.

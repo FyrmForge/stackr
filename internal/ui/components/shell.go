@@ -47,8 +47,11 @@ type Shell struct {
 	// pushed so a reload or Back keeps it.
 	SettingsPush string
 	// Actions is the top bar's right side (a canvas's create buttons);
-	// nil = none. It shows only where the bar does (Crumbs set).
+	// nil = none. It shows only where the bar does (Crumbs or Heading set).
 	Actions templ.Component
+	// Heading and Sub are the bar's title on a page with no crumbs (home's
+	// Organizations, Cluster); "" = no bar there.
+	Heading, Sub string
 	// Drawer is the drawer body a fresh load of ?drawer=&tab= opens with;
 	// nil = closed. Tab is the ?tab= it shows.
 	Drawer templ.Component
