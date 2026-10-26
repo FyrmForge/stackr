@@ -253,7 +253,7 @@ templ allowRow(v View, s SettingsView) {
 				}
 				<div class="flex-1 min-w-48">
 					<label for="allow-add" class="label">Add a pattern</label>
-					<input id="allow-add" name="add" value={ s.Add } placeholder="acme:shop:*" class="input font-mono"/>
+					<input id="allow-add" name="add" value={ s.Add } placeholder="acme:shop:*" class="input font-mono" { c.Invalid("allow", s.Errors["allow"])... }/>
 				</div>
 				<button type="submit" class="btn btn-ghost btn-sm">Add</button>
 				<div class="w-full">

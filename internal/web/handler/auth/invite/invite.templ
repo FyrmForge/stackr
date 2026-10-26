@@ -53,7 +53,7 @@ templ register(base string, f Form) {
 		@c.Field(c.FieldView{Name: "name", Label: "Name", Value: f.Name, Autocomplete: "name", Required: true, Error: f.Errors["name"]})
 		<div>
 			<label for="email" class="label">Email</label>
-			<input id="email" name="email" type="email" value={ f.Email } class="input" readonly autocomplete="username"/>
+			<input id="email" name="email" type="email" value={ f.Email } class="input" readonly autocomplete="username" { c.Invalid("email", f.Errors["email"])... }/>
 			@c.FieldError("email", f.Errors["email"])
 		</div>
 		@c.Field(c.FieldView{Name: "password", Label: "Password", Type: "password", Autocomplete: "new-password", Required: true, Error: f.Errors["password"],

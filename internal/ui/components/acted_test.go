@@ -45,3 +45,21 @@ func TestAccRowAnswerAfterItsForm(t *testing.T) {
 	check("refused", WithRefused(posted, &Refused{Row: "placement", Msg: "No node there."}), "No node there.")
 	check("saved", WithActed(posted, &Acted{Note: "Saved."}), "Saved.")
 }
+
+// A form folded in a <details> (Edit variables, Sharing) answers after the
+// details, never inside it, where a closed one would hide the words.
+func TestAnswerOutsideFoldedForm(t *testing.T) {
+	html := `<ul><li>x</li></ul><details><summary>Edit</summary><div><form hx-post="/t/env?open=variables"></form></div></details><p>after</p>`
+	at, ok := postAt(html, "/t/env?open=variables", false)
+	if !ok || html[:at] != html[:strings.Index(html, "<p>after")] {
+		t.Errorf("answer at %d (%q), want right after </details>", at, html[:at])
+	}
+	ctx := WithActed(context.Background(), &Acted{Path: "/t/env?open=variables", Note: "Saved."})
+	var b strings.Builder
+	if err := Section("x", "", "").Render(templ.WithChildren(ctx, templ.Raw(html)), &b); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); strings.Index(got, "Saved.") < strings.Index(got, "</details>") {
+		t.Errorf("note inside the folded details:\n%s", got)
+	}
+}

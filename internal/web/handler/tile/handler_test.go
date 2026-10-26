@@ -137,6 +137,25 @@ func TestSettingsRows(t *testing.T) {
 	}
 }
 
+// A rename onto a taken name answers right after the rename form, through
+// the real server (render.Posted carries the posted URI).
+func TestRenameRefusedByItsForm(t *testing.T) {
+	s := webtest.New(t)
+	if _, err := s.Orch.CreateTile(context.Background(), service.Tile{
+		StackID: s.Tile.Stack, EnvironmentID: s.Tile.Env, Name: "other", Kind: "image", ImageRef: "nginx:1", ContainerPort: 80,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := s.Do(t, "POST", drawer+"/rename?open=general", url.Values{"name": {"other"}})
+	body := rec.Body.String()
+	form := strings.Index(body, `hx-post="`+drawer+`/rename?open=general"`)
+	end := form + strings.Index(body[form:], "</form>")
+	msg := strings.Index(body, "Another tile in this environment is already called other.")
+	if rec.Code != 422 || form < 0 || msg < end || strings.Count(body, "already called other") != 1 {
+		t.Errorf("refused rename = %d, reason at %d, form ends at %d\n%s", rec.Code, msg, end, body)
+	}
+}
+
 // A row save refused over a field another row holds (a volume while the
 // Run row asks for 2 replicas): the reason in the Storage row, opened, the
 // typed volume kept, every summary still the stored values, the Run row

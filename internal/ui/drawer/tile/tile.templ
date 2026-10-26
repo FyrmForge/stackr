@@ -264,8 +264,8 @@ templ Metrics(v View, m c.MetricsView) {
 templ Jobs(v View, j JobsView) {
 	<div id="tab-jobs">
 		if len(j.Rows) == 0 {
-			if v.Kind == "cron" || v.Kind == "function" {
-				<p class="text-rw-muted text-sm">No runs yet.</p>
+			if v.Kind == "cron" {
+				<p class="text-rw-muted text-sm">No deployments yet.</p>
 			} else {
 				<p class="text-rw-muted text-sm">No deployments yet. Hit Deploy to build the first one.</p>
 			}

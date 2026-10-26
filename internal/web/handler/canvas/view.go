@@ -210,7 +210,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		Up:      n.Running,
 		Want:    n.Replicas,
 	}
-	if n.Status == "none" && (n.Kind == "cron" || n.Kind == "function") { // no runs yet: idle
+	if n.Status == "none" && (n.Kind == "cron" || n.Kind == "function" || n.Kind == "slice") { // no runs or provision yet: idle, as their drawers say
 		f.Status = ""
 	}
 	if n.Kind == "function" {

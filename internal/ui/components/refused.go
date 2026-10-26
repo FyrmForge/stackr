@@ -269,9 +269,25 @@ func postAt(html, path string, below bool) (at int, ok bool) {
 		lt := strings.LastIndex(html[:i], "<")
 		end := strings.Index(rest, "</form>")
 		if lt >= 0 && strings.HasPrefix(html[lt:], "<form") && end >= 0 {
-			return off + end + len("</form>"), true
+			return outside(html, off+end+len("</form>")), true
 		}
 	}
+}
+
+// outside moves at past every <details> or <dialog> still open before it:
+// a form folded inside one would hide the words with it on the redraw.
+func outside(html string, at int) int {
+	for moved := true; moved; {
+		moved = false
+		for _, tag := range []string{"details", "dialog"} {
+			if strings.Count(html[:at], "<"+tag) > strings.Count(html[:at], "</"+tag+">") {
+				if i := strings.Index(html[at:], "</"+tag+">"); i >= 0 {
+					at, moved = at+i+len("</"+tag+">"), true
+				}
+			}
+		}
+	}
+	return at
 }
 
 // Section is v0's settings card (form.Section): a titled panel, its scope

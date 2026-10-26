@@ -109,10 +109,10 @@ templ field(f Field) {
 		<div>
 			<label for={ f.Name } class="label">{ f.Label }</label>
 			if f.Multiline {
-				<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" placeholder={ storedDots } class="input font-mono text-xs"></textarea>
+				<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" placeholder={ storedDots } class="input font-mono text-xs" { c.Invalid(f.Name, f.Error)... }></textarea>
 			} else {
 				<password-toggle class="relative block">
-					<input id={ f.Name } name={ f.Name } type="password" autocomplete="new-password" placeholder={ storedDots } class="input pr-14 peer"/>
+					<input id={ f.Name } name={ f.Name } type="password" autocomplete="new-password" placeholder={ storedDots } class="input pr-14 peer" { c.Invalid(f.Name, f.Error)... }/>
 					<button type="button" data-toggle aria-pressed="false" class="absolute inset-y-0 right-0 hidden px-3 text-xs text-rw-faint hover:text-rw-text peer-[:not(:placeholder-shown)]:block">Show</button>
 				</password-toggle>
 			}
@@ -133,7 +133,7 @@ templ field(f Field) {
 				<summary class="link cursor-pointer text-xs">Enter by hand</summary>
 				<div class="mt-2">
 					<label for={ f.Name } class="label">Address</label>
-					<input id={ f.Name } name={ f.Name } type="text" value={ f.Value } autocomplete="off" class="input" required?={ f.Required }/>
+					<input id={ f.Name } name={ f.Name } type="text" value={ f.Value } autocomplete="off" class="input" required?={ f.Required } { c.Invalid(f.Name, f.Error)... }/>
 				</div>
 			</details>
 			@c.FieldError(f.Name, f.Error)
@@ -141,7 +141,7 @@ templ field(f Field) {
 	} else if f.Multiline {
 		<div>
 			<label for={ f.Name } class="label">{ f.Label }</label>
-			<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" class="input font-mono text-xs" required?={ f.Required }>{ f.Value }</textarea>
+			<textarea id={ f.Name } name={ f.Name } rows="5" autocomplete="off" class="input font-mono text-xs" required?={ f.Required } { c.Invalid(f.Name, f.Error)... }>{ f.Value }</textarea>
 			if f.Help != "" {
 				<p class="mt-1.5 text-xs text-rw-faint">{ f.Help }</p>
 			}

@@ -1174,8 +1174,8 @@ func Jobs(v View, j JobsView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if len(j.Rows) == 0 {
-			if v.Kind == "cron" || v.Kind == "function" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "<p class=\"text-rw-muted text-sm\">No runs yet.</p>")
+			if v.Kind == "cron" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "<p class=\"text-rw-muted text-sm\">No deployments yet.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

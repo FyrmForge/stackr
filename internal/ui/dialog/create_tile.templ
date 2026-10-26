@@ -57,7 +57,7 @@ templ CreateTile(v CreateTileView) {
 				case "managed":
 					<div>
 						<label for="engine" class="label">Engine</label>
-						<select id="engine" name="engine" class="input">
+						<select id="engine" name="engine" class="input" { c.Invalid("engine", v.Errors["engine"])... }>
 							<option value="postgres" selected?={ v.Engine != "s3" }>postgres</option>
 							<option value="s3" selected?={ v.Engine == "s3" }>s3</option>
 						</select>
@@ -67,7 +67,7 @@ templ CreateTile(v CreateTileView) {
 					@c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The managed tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]})
 					<div>
 						<label for="default_access" class="label">Default access</label>
-						<select id="default_access" name="default_access" class="input">
+						<select id="default_access" name="default_access" class="input" { c.Invalid("default_access", v.Errors["default_access"])... }>
 							<option value="write" selected?={ v.Access != "read" }>write</option>
 							<option value="read" selected?={ v.Access == "read" }>read</option>
 						</select>
