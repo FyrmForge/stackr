@@ -143,7 +143,7 @@ func TestManagedAllow(t *testing.T) {
 		"add":   {"acme:x:y"},
 	})
 	body := rec.Body.String()
-	if rec.Code != 422 || !strings.Contains(body, "four segments or a trailing *") ||
+	if rec.Code != 422 || !strings.Contains(body, "Use four parts, org:stack:env:tile, or end with *.") ||
 		!strings.Contains(body, `name="add" value="acme:x:y"`) || len(allow()) != 2 {
 		t.Errorf("bad pattern = %d %v\n%s", rec.Code, allow(), body)
 	}
@@ -217,8 +217,6 @@ func TestSliceDrawer(t *testing.T) {
 		`<div id="drawer-view"`,
 		`href="/acme/shop/dev?drawer=` + pg.ID + `&amp;tab=slices"`,
 		"shop/dev/pg",
-		`name="consumer" value="api"`,
-		`<option value="read" selected>`,
 		s.Tile.ID + "_user",
 		"slice_db",
 		`bg-rw-success"></span>provisioned`,
@@ -226,6 +224,19 @@ func TestSliceDrawer(t *testing.T) {
 		if rec.Code != 200 || !strings.Contains(body, w) {
 			t.Errorf("slice drawer = %d, lacks %q", rec.Code, w)
 		}
+	}
+	if strings.Contains(body, "stackr-managed") || strings.Contains(body, "provision_from") {
+		t.Errorf("the overview shows a docker network or a config key:\n%s", body)
+	}
+	// Settings: one row each with its own Save, nothing posts on change
+	body = s.Do(t, "GET", "/acme/shop/dev/-/slices/main?tab=settings", nil).Body.String()
+	for _, w := range []string{`data-acc="access"`, `data-acc="consumers"`, `data-acc="remove"`, `name="consumer" value="api"`, `<option value="read" selected>`} {
+		if !strings.Contains(body, w) {
+			t.Errorf("slice settings lack %q", w)
+		}
+	}
+	if _, tab, _ := strings.Cut(body, `id="tab-settings"`); strings.Contains(tab, `hx-trigger="change"`) || strings.Contains(body, "slice_access") {
+		t.Errorf("slice settings autosave or name a config key:\n%s", body)
 	}
 
 	worker, err := s.Orch.CreateTile(ctx, service.Tile{
@@ -259,9 +270,12 @@ func TestSliceDrawer(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `<option value="drop" selected>`) {
 		t.Errorf("on remove = %d\n%s", rec.Code, rec.Body)
 	}
-	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/default-access", url.Values{"access": {"read"}})
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Saved.") {
-		t.Errorf("default access = %d\n%s", rec.Code, rec.Body)
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/default-access", url.Values{"access": {"read"}, "open": {"access"}})
+	body = rec.Body.String()
+	_, row, _ := strings.Cut(body, `data-acc="access"`)
+	row, _, _ = strings.Cut(row, "</details>")
+	if rec.Code != 200 || !strings.Contains(row, "Saved.") || !strings.Contains(body, `data-acc="access" data-changed`) {
+		t.Errorf("default access = %d, the note is not in its row or the row is not changed\n%s", rec.Code, body)
 	}
 
 	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "far", "shop:nope:pg", ""); err != nil {
@@ -271,6 +285,11 @@ func TestSliceDrawer(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `text-rw-danger" role="alert"`) ||
 		!strings.Contains(rec.Body.String(), "nope") {
 		t.Errorf("blocked slice = %d\n%s", rec.Code, rec.Body)
+	}
+	// a delete leaves the drawer for the env, as a tile's does
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/far/delete", nil)
+	if rec.Code != 200 || rec.Header().Get("HX-Redirect") != "/acme/shop/dev" {
+		t.Errorf("slice delete = %d, HX-Redirect %q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
 }
 

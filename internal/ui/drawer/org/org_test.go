@@ -114,3 +114,17 @@ func TestTabs(t *testing.T) {
 		}
 	}
 }
+
+// The org's defaults row is changed when it sets a knob, with that knob's
+// field marked; the rest of General holds no inherited value to differ from.
+func TestGeneralRowsChanged(t *testing.T) {
+	v := SettingsView{Name: "acme", Cascade: c.SettingsFormView{ID: "d", Rows: []c.SettingRowView{{Key: "cpu_limit", Label: "CPU", Type: "float", Value: "1", Changed: true}}}}
+	for _, r := range generalRows(v) {
+		if r.Changed != (r.Key == "defaults") {
+			t.Errorf("%s changed = %v", r.Key, r.Changed)
+		}
+		if r.Key == "defaults" && !strings.Contains(html(t, r.Body), "data-changed") {
+			t.Error("the defaults row is changed but no field in it is")
+		}
+	}
+}

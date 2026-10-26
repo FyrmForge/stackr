@@ -45,3 +45,17 @@ func TestEditorLead(t *testing.T) {
 		t.Errorf("lead not used in\n%s", got)
 	}
 }
+
+// A grid row set at this level is a changed field, so Only changed keeps
+// the variables a scope sets itself.
+func TestGridRowChanged(t *testing.T) {
+	var b strings.Builder
+	_ = Editor(View{Grid: &Grid{
+		ReadOnly: true,
+		Cols:     []Col{{Token: "env:1", Label: "dev"}},
+		Groups:   []Group{{Name: "app", Rows: []Row{{Name: "mode", Cells: []Cell{{Value: "prod", Set: true}}}, {Name: "gone", Cells: []Cell{{}}}}}},
+	}}).Render(context.Background(), &b)
+	if n := strings.Count(b.String(), "data-field data-changed"); n != 1 {
+		t.Errorf("%d changed rows, want the one set:\n%s", n, b.String())
+	}
+}

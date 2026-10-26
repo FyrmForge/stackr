@@ -121,7 +121,7 @@ templ Approve(v ApproveView) {
 templ Rows(ps []Perm) {
 	<ul class="space-y-1 text-sm text-rw-muted">
 		for _, p := range ps {
-			<li class="flex flex-wrap items-center gap-2">
+			<li class="flex flex-wrap items-center gap-2" data-field data-changed?={ !p.Waiting }>
 				<span class="text-rw-text">{ p.Label }</span>
 				if p.Detail != "" {
 					<span class="font-mono text-xs">{ p.Detail }</span>

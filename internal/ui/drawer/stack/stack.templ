@@ -29,8 +29,10 @@ type SettingsView struct {
 	Path          string
 	Unbind        c.ConfirmView // Action "" = nothing bound, or read-only
 	Vars          string        // the Variables row's summary
+	VarsSet       bool          // a variable is set on this stack
 	VarsBody      templ.Component
 	Placement     string // the row's summary
+	PlacementSet  bool   // the stack pins, picks an ingress or lists its own exits
 	PlacementBody templ.Component
 	Delete        c.ConfirmView
 	Host          HostView

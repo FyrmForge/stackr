@@ -13,11 +13,11 @@ func Rows(v SettingsView) []c.AccRow {
 	rs := []c.AccRow{
 		{Key: "general", Title: "General", Summary: GeneralSummary(v.Name, v.Slug), Body: general(v)},
 		{Key: "order", Title: "Env order", Summary: OrderSummary(v.Order.Rungs), Body: order(v.Order)},
-		{Key: "config", Title: "Config as code", Summary: ConfigSummary(v.Repo, v.Branch, v.Path), Body: config(v)},
+		{Key: "config", Title: "Config as code", Summary: ConfigSummary(v.Repo, v.Branch, v.Path), Changed: v.Repo != "", Body: config(v)},
 		{Key: "resources", Title: "Resources", Summary: ResourcesSummary(v.Cascade.Rows), Changed: anyChanged(v.Cascade.Rows), Body: resources(v.Cascade)},
-		{Key: "variables", Title: "Variables", Summary: v.Vars, Body: v.VarsBody},
-		{Key: "placement", Title: "Placement", Summary: v.Placement, Body: v.PlacementBody},
-		{Key: "host", Title: "Host access", Summary: HostSummary(v.Host.Tiles), Body: host(v.Host)},
+		{Key: "variables", Title: "Variables", Summary: v.Vars, Changed: v.VarsSet, Body: v.VarsBody},
+		{Key: "placement", Title: "Placement", Summary: v.Placement, Changed: v.PlacementSet, Body: v.PlacementBody},
+		{Key: "host", Title: "Host access", Summary: HostSummary(v.Host.Tiles), Changed: granted(v.Host.Tiles), Body: host(v.Host)},
 	}
 	if v.Base != "" {
 		rs = append(rs, c.AccRow{Key: "delete", Title: "Delete", Summary: DeleteSummary(len(v.Order.Rungs)), Body: danger(v)})
@@ -83,6 +83,18 @@ func ResourcesSummary(rows []c.SettingRowView) string {
 		return "inherits org"
 	}
 	return strconv.Itoa(n) + " set here"
+}
+
+// granted: a server admin gave a tile host access, which no tile has unset.
+func granted(ts []access.TilePerms) bool {
+	for _, t := range ts {
+		for _, p := range t.Perms {
+			if !p.Waiting {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func anyChanged(rows []c.SettingRowView) bool {

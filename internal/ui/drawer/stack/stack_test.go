@@ -133,3 +133,31 @@ func TestSummaries(t *testing.T) {
 		}
 	}
 }
+
+// A row is Changed when the stack sets something in it itself (a bound
+// repo, a variable, a placement pick, a host grant), and a field in its
+// body says so; a bare stack marks nothing.
+func TestRowsChanged(t *testing.T) {
+	set := SettingsView{
+		Name: "shop", Repo: "acme/infra", VarsSet: true, PlacementSet: true,
+		Host: HostView{Tiles: access.Group([]string{"web privileged"}, nil)},
+	}
+	for _, r := range Rows(set) {
+		want := map[string]bool{"config": true, "variables": true, "placement": true, "host": true}[r.Key]
+		if r.Changed != want {
+			t.Errorf("%s changed = %v, want %v", r.Key, r.Changed, want)
+		}
+		if r.Changed && r.Body != nil && (r.Key == "config" || r.Key == "host") {
+			var b strings.Builder
+			_ = r.Body.Render(context.Background(), &b)
+			if !strings.Contains(b.String(), "data-changed") {
+				t.Errorf("%s is changed but no field in it is:\n%s", r.Key, b.String())
+			}
+		}
+	}
+	for _, r := range Rows(SettingsView{Name: "bare", Host: HostView{Tiles: access.Group(nil, []string{"web privileged"})}}) {
+		if r.Changed {
+			t.Errorf("a bare stack marks %s changed", r.Key)
+		}
+	}
+}

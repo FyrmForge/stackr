@@ -491,8 +491,8 @@ func Settings(v View, s SettingsView) templ.Component {
 
 func settingsRows(v View, s SettingsView) []c.AccRow {
 	return []c.AccRow{
-		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Body: allowRow(v, s)},
-		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Body: pairsRow(v, s)},
+		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Changed: len(s.Allow) > 0, Body: allowRow(v, s)},
+		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Changed: len(s.Pairs) > 0, Body: pairsRow(v, s)},
 		{Key: "delete", Title: "Delete", Body: deleteRow(v)},
 	}
 }
@@ -553,7 +553,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			for i, p := range s.Allow {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<li class=\"panel px-4 py-2.5 flex items-center gap-3 text-sm\"><span class=\"flex-1 font-mono text-rw-text break-all\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<li class=\"panel px-4 py-2.5 flex items-center gap-3 text-sm\" data-field data-changed><span class=\"flex-1 font-mono text-rw-text break-all\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -758,7 +758,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 			templ_7745c5c3_Var23 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"text-xs text-rw-faint\" data-hint>Which of this stack's envs a slice lands in, by the env its provision_from names. One map for this tile in every env of the stack.</p><div class=\"space-y-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"text-xs text-rw-faint\" data-hint>Which of this stack's envs a slice lands in, by the env the slice asks for.</p><div class=\"space-y-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -773,7 +773,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			for i, p := range s.Pairs {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<li class=\"panel px-4 py-2.5 flex items-center gap-3 text-sm font-mono\"><span class=\"text-rw-text\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<li class=\"panel px-4 py-2.5 flex items-center gap-3 text-sm font-mono\" data-field data-changed><span class=\"text-rw-text\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

@@ -192,8 +192,8 @@ templ Settings(v View, s SettingsView) {
 
 func settingsRows(v View, s SettingsView) []c.AccRow {
 	return []c.AccRow{
-		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Body: allowRow(v, s)},
-		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Body: pairsRow(v, s)},
+		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Changed: len(s.Allow) > 0, Body: allowRow(v, s)},
+		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Changed: len(s.Pairs) > 0, Body: pairsRow(v, s)},
 		{Key: "delete", Title: "Delete", Body: deleteRow(v)},
 	}
 }
@@ -226,7 +226,7 @@ templ allowRow(v View, s SettingsView) {
 		} else {
 			<ul class="space-y-1.5">
 				for i, p := range s.Allow {
-					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm">
+					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm" data-field data-changed>
 						<span class="flex-1 font-mono text-rw-text break-all">{ p }</span>
 						if s.CanAllow {
 							<form hx-post={ v.Base + "/allow" } hx-target={ "#" + Root } hx-swap="outerHTML">
@@ -261,14 +261,14 @@ templ allowRow(v View, s SettingsView) {
 }
 
 templ pairsRow(v View, s SettingsView) {
-	<p class="text-xs text-rw-faint" data-hint>Which of this stack's envs a slice lands in, by the env its provision_from names. One map for this tile in every env of the stack.</p>
+	<p class="text-xs text-rw-faint" data-hint>Which of this stack's envs a slice lands in, by the env the slice asks for.</p>
 	<div class="space-y-4">
 		if len(s.Pairs) == 0 {
 			<p class="text-sm text-rw-muted">No pair yet: a slice lands in the env it names.</p>
 		} else {
 			<ul class="space-y-1.5">
 				for i, p := range s.Pairs {
-					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm font-mono">
+					<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm font-mono" data-field data-changed>
 						<span class="text-rw-text">{ p.From }</span>
 						<span class="text-rw-faint">→</span>
 						<span class="flex-1 text-rw-text">{ p.To }</span>

@@ -63,6 +63,7 @@ templ SettingsAccordion(v SettingsAcc) {
 					</summary>
 					<div class="px-4 pb-5 pt-4 space-y-4 border-t border-rw-border">
 						@accBody(r.Key, r.Body)
+						@rowNote(r.Key == accOpen(ctx, v.Rows, v.Open))
 					</div>
 				</details>
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"slices"
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -39,6 +40,11 @@ type Row struct {
 	Name   string
 	Secret bool // every set cell is secret; an unset cell then takes a secret
 	Cells  []Cell // one per Col
+}
+
+// Set: a cell of this row is set here, so Only changed keeps it.
+func (r Row) Set() bool {
+	return slices.ContainsFunc(r.Cells, func(c Cell) bool { return c.Set })
 }
 
 type Cell struct {
@@ -94,7 +100,7 @@ templ groupPanel(g Grid, grp Group) {
 				</thead>
 				<tbody>
 					for _, r := range grp.Rows {
-						<tr class="border-t border-rw-border">
+						<tr class="border-t border-rw-border" data-field data-changed?={ r.Set() }>
 							<td class="py-1.5 pr-3 align-middle">
 								<span class="font-mono text-sm text-rw-text">{ r.Name }</span>
 								if r.Secret {

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
@@ -54,7 +55,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/instances/:tile", h.Instance, a.Require("tile.read"))
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/delete", h.instanceJob("delete queued", h.orch.DeleteTile), a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
@@ -234,6 +235,14 @@ func (h *handler) instanceJob(note string, f func(context.Context, string) (serv
 		_, err := f(c.Request().Context(), scope(c).Tile.ID)
 		return h.instance(c, "slices", note, err, instance.SettingsView{})
 	}
+}
+
+// POST …/-/instances/:tile/delete: queued, the drawer goes back to its env.
+func (h *handler) InstanceDelete(c echo.Context) error {
+	if _, err := h.orch.DeleteTile(c.Request().Context(), scope(c).Tile.ID); err != nil {
+		return h.instance(c, "settings", "", err, instance.SettingsView{})
+	}
+	return deleting(c)
 }
 
 // POST …/-/instances/:tile/allow: the whole list (allow, repeated) plus
@@ -491,15 +500,35 @@ func (h *handler) SliceOnRemove(c echo.Context) error {
 
 // POST …/-/slices/:tile/delete
 func (h *handler) SliceDelete(c echo.Context) error {
-	_, err := h.orch.DeleteTile(c.Request().Context(), scope(c).Tile.ID)
-	return h.slice(c, "delete queued", err)
+	if _, err := h.orch.DeleteTile(c.Request().Context(), scope(c).Tile.ID); err != nil {
+		return h.slice(c, "", err)
+	}
+	return deleting(c)
 }
 
-// slice is the slice tile drawer: SliceOf and Bindings.
+// deleting sends a drawer whose tile is queued for removal back to its
+// env's canvas, as a tile's own delete does: the drawer would read a tile
+// that is about to be gone.
+func deleting(c echo.Context) error {
+	hamrmw.SetFlash(c, "Deleting "+scope(c).Tile.Name+".", hamrmw.FlashInfo)
+	c.Response().Header().Set("HX-Redirect", render.EnvURL(c))
+	return c.NoContent(http.StatusOK)
+}
+
+// slice is the slice tile drawer: SliceOf and Bindings. A GET opens ?tab=;
+// a save answers Settings with its row open, a refusal in that row.
 func (h *handler) slice(c echo.Context, note string, actErr error) error {
-	msg, status, fail := refused(actErr)
-	if fail != nil {
-		return fail
+	status, msg := http.StatusOK, ""
+	tab := c.QueryParam("tab")
+	if c.Request().Method == http.MethodPost {
+		tab = "settings"
+	}
+	if actErr != nil {
+		var ok bool
+		if msg, ok = render.Refuse(c, c.FormValue("open"), actErr); !ok {
+			return middleware.HTTPError(actErr)
+		}
+		status, note = http.StatusUnprocessableEntity, ""
 	}
 	ctx := c.Request().Context()
 	s := scope(c)
@@ -521,6 +550,8 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		Node:          t.ID,
 		Name:          t.Name,
 		Base:          render.EnvURL(c) + "/-/slices/" + t.Slug,
+		Tab:           slice.Tab(tab),
+		Open:          c.FormValue("open"),
 		Status:        word,
 		Location:      s.Stack.Name + " / " + s.Env.Name,
 		EnvColor:      s.Env.Color,
@@ -533,10 +564,7 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		OnRemove:      sv.OnRemove,
 		Provisioned:   sv.Provisioned,
 		DBName:        sv.Name,
-		Network:       sv.Network,
-	}
-	if msg == "" {
-		v.Note = note
+		Note:          note,
 	}
 	// Target is <stack>:<env>:<tile>; a slug never holds a colon.
 	if at := strings.Split(sv.Target, ":"); len(at) == 3 {
@@ -553,7 +581,11 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 			Since:  b.Since,
 		})
 	}
-	return respond.HTML(c, status, slice.Drawer(v, slice.Overview(v)))
+	body := slice.Overview(v)
+	if v.Tab == "settings" {
+		body = slice.Settings(v)
+	}
+	return respond.HTML(c, status, slice.Drawer(v, body))
 }
 
 // ---- proxy ----

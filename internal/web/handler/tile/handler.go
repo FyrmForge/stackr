@@ -273,6 +273,8 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 		return sv, err
 	}
 	sv.Placement = base(c) + "/placement"
+	sv.OwnExits = !pv.Inherited && len(pv.Rungs) > 0
+	sv.PlacementSet = sv.OwnExits || pv.Ingress != ""
 	if !runKind(t.Kind) {
 		sv.Ingress = ingressWord(pv.IngressName, pv.Ingress, pv.IngressFrom)
 		ds, err := h.orch.Domains(ctx, t.ID)

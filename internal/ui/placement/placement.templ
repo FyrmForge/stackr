@@ -75,6 +75,16 @@ type View struct {
 
 func (v View) editable() bool { return v.Base != "" }
 
+// Changed is what a level sets itself: a pin (an env always has one, so
+// never its), an ingress, or its own exits. The Settings row of the level
+// is marked changed by it.
+func Changed(scope, pin, ingress string, inherited bool, rungs int) bool {
+	return (scope != "env" && pin != "") || ingress != "" || (!inherited && rungs > 0)
+}
+
+func (v View) pinSet() bool   { return v.Scope != "env" && v.Pin != "" }
+func (v View) exitsSet() bool { return !v.Inherited && len(v.Rungs) > 0 }
+
 // scopeWord is the section chip, as the other drawers name the level.
 func (v View) scopeWord() string {
 	if v.Scope == "org" {
@@ -110,6 +120,7 @@ templ runsOn(v View) {
 		if v.Moving != "" {
 			<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
 		}
+		<div data-field data-changed?={ v.pinSet() }>
 		<form if v.editable() { hx-post={ v.Base + "/pin" } } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="runs-on" class="sr-only">Runs on</label>
 			<select id="runs-on" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
@@ -134,6 +145,7 @@ templ runsOn(v View) {
 				{ " " + v.PinFrom }
 			}
 		</p>
+		</div>
 		if v.Move != nil {
 			@v.Move
 		}
@@ -182,6 +194,7 @@ func yesNo(b bool) string {
 
 templ ingress(v View) {
 	@c.Section("Ingress", v.scopeWord(), "") {
+		<div data-field data-changed?={ v.Ingress != "" }>
 		<form if v.editable() { hx-post={ v.Base + "/ingress" } } hx-target={ target() } hx-swap="outerHTML" class="flex flex-wrap items-center gap-2">
 			<label for="ingress-node" class="sr-only">Ingress</label>
 			<select id="ingress-node" name="placement" class="input w-auto max-w-full" disabled?={ !v.editable() }>
@@ -200,6 +213,7 @@ templ ingress(v View) {
 				{ " " + v.IngressFrom }
 			}
 		</p>
+		</div>
 		if v.IngressAsk != nil {
 			@v.IngressAsk
 		}
@@ -365,6 +379,7 @@ templ hostList(hosts []string) {
 
 templ exits(v View) {
 	@c.Section("Exits", v.scopeWord(), "") {
+		<div data-field data-changed?={ v.exitsSet() }>
 		if v.NoNet {
 			<div class="banner banner-danger mb-3" role="alert">
 				<p class="font-medium">No internet for these apps.</p>
@@ -422,6 +437,7 @@ templ exits(v View) {
 			</form>
 		}
 		<p class="mt-2 text-xs text-rw-faint">Tried top to bottom. Never falls back unless listed.</p>
+		</div>
 	}
 }
 

@@ -108,7 +108,9 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 		Resources:        envui.ResourcesSummary(cascade.Rows),
 		ResourcesChanged: changed,
 		Variables:        comp.VarsSummary(set, secret),
+		VariablesChanged: set > 0,
 		Placement:        envui.PlacementSummary(pv.PinName, pv.IngressName, exitOf(pv.Rungs)),
+		PlacementChanged: placementui.Changed(service.ScopeEnv, pv.Pin, pv.Ingress, pv.Inherited, len(pv.Rungs)),
 	}
 	if write {
 		v.Base = f.Base

@@ -216,3 +216,37 @@ func ErrText(msg string) templ.Component {
 		return nil
 	})
 }
+
+// noted is a drawer's body with what a save did: under the accordion row
+// it opened again (the row its form named), else over the body.
+func noted(note string, body templ.Component) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if note == "" {
+			return body.Render(ctx, w)
+		}
+		a := &Acted{Note: note}
+		var buf bytes.Buffer
+		if err := body.Render(WithActed(ctx, a), &buf); err != nil {
+			return err
+		}
+		if a.Unclaimed() {
+			if err := Note(note).Render(ctx, w); err != nil {
+				return err
+			}
+		}
+		_, err := w.Write(buf.Bytes())
+		return err
+	})
+}
+
+// rowNote draws the drawer's note under the open row, once.
+func rowNote(open bool) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		a, _ := ctx.Value(actedKey{}).(*Acted)
+		if !open || a == nil || a.used || a.Path != "" || a.Note == "" {
+			return nil
+		}
+		a.used = true
+		return Note(a.Note).Render(ctx, w)
+	})
+}

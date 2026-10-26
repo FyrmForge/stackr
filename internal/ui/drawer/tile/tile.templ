@@ -311,7 +311,7 @@ templ Env(v View, e EnvView) {
 		} else {
 			<ul class="space-y-1.5">
 				for _, r := range e.Rows {
-					<li class="panel px-4 py-2.5 flex items-start gap-3 text-sm font-mono">
+					<li class="panel px-4 py-2.5 flex items-start gap-3 text-sm font-mono" data-field data-changed>
 						<span class="text-rw-accentHi shrink-0">{ r.Name }</span>
 						<span class="text-rw-faint">=</span>
 						<span class="flex-1 break-all text-rw-text">{ r.Value }</span>
@@ -357,7 +357,7 @@ templ Access(v View, a AccessView) {
 			} else {
 				<ul class="space-y-1.5">
 					for _, e := range a.Entries {
-						<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm">
+						<li class="panel px-4 py-2.5 flex items-center gap-3 text-sm" data-field data-changed>
 							<span class="flex-1 font-mono">
 								@sliceLink(e.Slice, e.Link)
 							</span>
@@ -924,7 +924,7 @@ templ domainList(v View, d DomainsView) {
 	} else {
 		<ul class="space-y-2">
 			for _, r := range d.Rows {
-				<li class="panel px-4 py-3">
+				<li class="panel px-4 py-3" data-field data-changed>
 					<div class="flex flex-wrap items-center justify-between gap-2">
 						<span class="text-sm text-rw-text min-w-0">
 							<a href={ templ.SafeURL(scheme(r.HTTPS) + r.Host) } target="_blank" rel="noopener" class="hover:underline hover:text-rw-accentHi transition-colors">{ scheme(r.HTTPS) + r.Host }</a>

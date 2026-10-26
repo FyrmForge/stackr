@@ -62,19 +62,19 @@ func parsePattern(orgSlug, entry string) (Pattern, error) {
 	segs := strings.Split(entry, ":")
 	switch {
 	case slices.Contains(segs, ""):
-		return Pattern{}, errs.Invalidf("allow", "%s: a segment is empty", entry)
+		return Pattern{}, errs.Invalidf("allow", "A part is empty. Use org:stack:env:tile, or end with *.")
 	case segs[0] != orgSlug:
-		return Pattern{}, errs.Invalidf("allow", "%s: the first segment must be this org, %s", entry, orgSlug)
+		return Pattern{}, errs.Invalidf("allow", "Start with this org, %s.", orgSlug)
 	case len(segs) > 4:
-		return Pattern{}, errs.Invalidf("allow", "%s: more than four segments", entry)
+		return Pattern{}, errs.Invalidf("allow", "Use at most four parts, org:stack:env:tile.")
 	}
 	for _, s := range segs {
 		if s != star && !slug.Valid(s) {
-			return Pattern{}, errs.Invalidf("allow", "%s: %q is not a slug (lower-case letters, digits and single hyphens) or *", entry, s)
+			return Pattern{}, errs.Invalidf("allow", "%q is not a name. Use lower-case letters, digits and single hyphens, or *.", s)
 		}
 	}
 	if len(segs) < 4 && segs[len(segs)-1] != star {
-		return Pattern{}, errs.Invalidf("allow", "%s: four segments or a trailing *", entry)
+		return Pattern{}, errs.Invalidf("allow", "Use four parts, org:stack:env:tile, or end with *.")
 	}
 	var p Pattern
 	for i := range p.segs {

@@ -294,6 +294,32 @@ func TestSettingsRowsChanged(t *testing.T) {
 	if got["source"] || got["run"] || got["resources"] || !got["network"] {
 		t.Errorf("changed rows = %v", got)
 	}
+
+	// the lists a tile fills itself: domains or its own ingress and exits,
+	// variables, database access; each changed row marks a field
+	cron := SettingsView{Kind: "cron", Vals: map[string]string{"image": "alpine", "schedule": "0 3 * * *"},
+		PlacementSet: true, OwnExits: true,
+		Env:    EnvView{Rows: []EnvRow{{Name: "A", Value: "1"}}},
+		Access: AccessView{Entries: []AccessEntry{{Slice: "db", Access: "read"}}}}
+	for _, r := range settingsRows(View{Base: "/t"}, cron) {
+		want := r.Key == "network" || r.Key == "variables" || r.Key == "dbaccess"
+		if r.Changed != want {
+			t.Errorf("cron %s changed = %v, want %v", r.Key, r.Changed, want)
+		}
+		if r.Key == "variables" || r.Key == "dbaccess" {
+			var b strings.Builder
+			_ = r.Body.Render(context.Background(), &b)
+			if !strings.Contains(b.String(), "data-field data-changed") {
+				t.Errorf("%s is changed but no field in it is", r.Key)
+			}
+		}
+		if r.Key == "network" && r.Summary != "own exits" {
+			t.Errorf("cron network summary = %q", r.Summary)
+		}
+	}
+	if s := networkSummary(SettingsView{Kind: "cron"}); s != "exits from the env" {
+		t.Errorf("a cron tile with no own exits sums up as %q", s)
+	}
 }
 
 // Restart is safe to repeat, so it posts without a dialog; Stop still asks.

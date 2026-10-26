@@ -133,3 +133,27 @@ func TestSettingsSummaries(t *testing.T) {
 		}
 	}
 }
+
+// Allow and Env pairs are changed once they hold an entry, each entry a
+// changed field; empty, nothing is.
+func TestSettingsRowsChanged(t *testing.T) {
+	s := SettingsView{Allow: []string{"acme:*"}, Pairs: []Pair{{"staging", "dev"}}}
+	for _, r := range settingsRows(View{Base: "/i"}, s) {
+		if want := r.Key != "delete"; r.Changed != want {
+			t.Errorf("%s changed = %v", r.Key, r.Changed)
+		}
+		var b strings.Builder
+		_ = r.Body.Render(context.Background(), &b)
+		if r.Changed && !strings.Contains(b.String(), "data-field data-changed") {
+			t.Errorf("%s is changed but no field in it is", r.Key)
+		}
+		if strings.Contains(b.String(), "provision_from") {
+			t.Errorf("%s names a config key", r.Key)
+		}
+	}
+	for _, r := range settingsRows(View{}, SettingsView{}) {
+		if r.Changed {
+			t.Errorf("empty %s is changed", r.Key)
+		}
+	}
+}

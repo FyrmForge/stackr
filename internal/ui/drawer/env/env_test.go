@@ -89,3 +89,21 @@ func TestDNSBannerShowsRecordAndCurrent(t *testing.T) {
 		t.Errorf("banner row = %s", b.String())
 	}
 }
+
+// An env marks Resources, Variables and Placement changed when it sets
+// them itself; their bodies (the cascade, the vars grid, the placement
+// tab) mark the fields.
+func TestRowsChanged(t *testing.T) {
+	v := SettingsView{Sums: Sums{ResourcesChanged: true, VariablesChanged: true, PlacementChanged: true}}
+	for _, r := range rows(v) {
+		want := r.Key == "resources" || r.Key == "variables" || r.Key == "placement"
+		if r.Changed != want {
+			t.Errorf("%s changed = %v, want %v", r.Key, r.Changed, want)
+		}
+	}
+	for _, r := range rows(SettingsView{}) {
+		if r.Changed {
+			t.Errorf("a bare env marks %s changed", r.Key)
+		}
+	}
+}

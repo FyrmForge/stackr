@@ -104,3 +104,28 @@ func TestDNSListHeldHosts(t *testing.T) {
 		}
 	}
 }
+
+// What a level sets itself is changed: a pin (never an env's, which always
+// has one), an ingress, its own exits; the tab marks that section's field.
+func TestChanged(t *testing.T) {
+	for _, c := range []struct {
+		scope, pin, ingress string
+		inherited           bool
+		rungs               int
+		want                bool
+	}{
+		{"stack", "", "", true, 1, false},
+		{"stack", "eu", "", true, 0, true},
+		{"env", "eu", "", true, 0, false},
+		{"env", "eu", "h4", true, 0, true},
+		{"tile", "", "", false, 2, true},
+	} {
+		if got := ui.Changed(c.scope, c.pin, c.ingress, c.inherited, c.rungs); got != c.want {
+			t.Errorf("%+v = %v", c, got)
+		}
+	}
+	body := render(t, ui.Placement(ui.View{Scope: "env", RunsOn: true, Pin: "p1", Ingress: "p2", Inherited: true}))
+	if strings.Count(body, "data-field data-changed") != 1 || !strings.Contains(body, `data-field data-changed><form hx-target="#placement" hx-swap="outerHTML" class="flex flex-wrap items-center gap-2"><label for="ingress-node"`) {
+		t.Errorf("only the env's ingress pick should be marked:\n%s", body)
+	}
+}

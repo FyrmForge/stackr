@@ -182,7 +182,7 @@ type ConfigRepoView struct {
 }
 
 templ ConfigRepoFields(v ConfigRepoView) {
-	<div data-field>
+	<div data-field data-changed?={ v.Connector != "" }>
 		<label for={ v.ID + "-connector" } class="label">Connector</label>
 		<select id={ v.ID + "-connector" } name="connector" class="input">
 			<option value="">None (a public repository)</option>
@@ -193,12 +193,12 @@ templ ConfigRepoFields(v ConfigRepoView) {
 		<p class="mt-1.5 text-xs text-rw-faint" data-hint>Which connector supplies the credentials.</p>
 		@FieldError("connector", KeptErr(ctx, "connector", ""))
 	</div>
-	@Field(FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Placeholder: v.Placeholder, Help: "owner/name or the https URL, either works."})
-	@Field(FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Empty uses the repository's default branch."})
-	@Field(FieldView{Name: "path", Label: "Config path", Value: v.Path, Placeholder: v.File, Help: "Empty uses " + v.File + "."})
+	@Field(FieldView{Name: "repo", Label: "Repository", Value: v.Repo, Changed: v.Repo != "", Placeholder: v.Placeholder, Help: "owner/name or the https URL, either works."})
+	@Field(FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Changed: v.Branch != "", Placeholder: "main", Help: "Empty uses the repository's default branch."})
+	@Field(FieldView{Name: "path", Label: "Config path", Value: v.Path, Changed: v.Path != "", Placeholder: v.File, Help: "Empty uses " + v.File + "."})
 	if v.AutoApply {
 		<input type="hidden" name="fields" value="auto"/>
-		<label class="flex items-center gap-2 text-sm text-rw-text" data-field><input type="checkbox" name="auto" value="1" checked?={ KeptOn(ctx, "auto", v.Auto) } class="accent-rw-accent"/> <span class="settings-label">Auto apply a plan with no impact lines and no removals</span></label>
+		<label class="flex items-center gap-2 text-sm text-rw-text" data-field data-changed?={ v.Auto }><input type="checkbox" name="auto" value="1" checked?={ KeptOn(ctx, "auto", v.Auto) } class="accent-rw-accent"/> <span class="settings-label">Auto apply a plan with no impact lines and no removals</span></label>
 	}
 }
 

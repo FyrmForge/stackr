@@ -32,30 +32,30 @@ func TestString(t *testing.T) {
 func TestParseAllowRefuses(t *testing.T) {
 	for entry, want := range map[string]string{
 		// own org only (DECIDE 194 call 2)
-		"*":                     "allow: *: the first segment must be this org, testorg",
-		"*:shop:*":              "allow: *:shop:*: the first segment must be this org, testorg",
-		"otherorg:*":            "allow: otherorg:*: the first segment must be this org, testorg",
-		"otherorg:shop:prod:db": "allow: otherorg:shop:prod:db: the first segment must be this org, testorg",
+		"*":                     "allow: Start with this org, testorg.",
+		"*:shop:*":              "allow: Start with this org, testorg.",
+		"otherorg:*":            "allow: Start with this org, testorg.",
+		"otherorg:shop:prod:db": "allow: Start with this org, testorg.",
 		// segment counts
-		"testorg":           "allow: testorg: four segments or a trailing *",
-		"testorg:shop":      "allow: testorg:shop: four segments or a trailing *",
-		"testorg:shop:prod": "allow: testorg:shop:prod: four segments or a trailing *",
-		"testorg:*:prod":    "allow: testorg:*:prod: four segments or a trailing *",
-		"testorg:a:b:c:d":   "allow: testorg:a:b:c:d: more than four segments",
-		"testorg:a:b:c:*":   "allow: testorg:a:b:c:*: more than four segments",
-		"testorg:a:b:c:d:e": "allow: testorg:a:b:c:d:e: more than four segments",
+		"testorg":           "allow: Use four parts, org:stack:env:tile, or end with *.",
+		"testorg:shop":      "allow: Use four parts, org:stack:env:tile, or end with *.",
+		"testorg:shop:prod": "allow: Use four parts, org:stack:env:tile, or end with *.",
+		"testorg:*:prod":    "allow: Use four parts, org:stack:env:tile, or end with *.",
+		"testorg:a:b:c:d":   "allow: Use at most four parts, org:stack:env:tile.",
+		"testorg:a:b:c:*":   "allow: Use at most four parts, org:stack:env:tile.",
+		"testorg:a:b:c:d:e": "allow: Use at most four parts, org:stack:env:tile.",
 		// empty segments
-		"":                   "allow: : a segment is empty",
-		":shop:*":            "allow: :shop:*: a segment is empty",
-		"testorg::*":         "allow: testorg::*: a segment is empty",
-		"testorg:shop:prod:": "allow: testorg:shop:prod:: a segment is empty",
-		"testorg:*:":         "allow: testorg:*:: a segment is empty",
+		"":                   "allow: A part is empty. Use org:stack:env:tile, or end with *.",
+		":shop:*":            "allow: A part is empty. Use org:stack:env:tile, or end with *.",
+		"testorg::*":         "allow: A part is empty. Use org:stack:env:tile, or end with *.",
+		"testorg:shop:prod:": "allow: A part is empty. Use org:stack:env:tile, or end with *.",
+		"testorg:*:":         "allow: A part is empty. Use org:stack:env:tile, or end with *.",
 		// slugs: the tile slug is a DNS alias, so "_" is out (DECIDE 5 a);
 		// darthvader's tile_b example is written tile-b below
-		"testorg:stacka:*:tile_b": `allow: testorg:stacka:*:tile_b: "tile_b" is not a slug (lower-case letters, digits and single hyphens) or *`,
-		"testorg:Shop:*":          `allow: testorg:Shop:*: "Shop" is not a slug (lower-case letters, digits and single hyphens) or *`,
-		"testorg:api-*":           `allow: testorg:api-*: "api-*" is not a slug (lower-case letters, digits and single hyphens) or *`,
-		"testorg:shop:**":         `allow: testorg:shop:**: "**" is not a slug (lower-case letters, digits and single hyphens) or *`,
+		"testorg:stacka:*:tile_b": `allow: "tile_b" is not a name. Use lower-case letters, digits and single hyphens, or *.`,
+		"testorg:Shop:*":          `allow: "Shop" is not a name. Use lower-case letters, digits and single hyphens, or *.`,
+		"testorg:api-*":           `allow: "api-*" is not a name. Use lower-case letters, digits and single hyphens, or *.`,
+		"testorg:shop:**":         `allow: "**" is not a name. Use lower-case letters, digits and single hyphens, or *.`,
 	} {
 		_, err := ParseAllow(org, []string{entry})
 		if err == nil {

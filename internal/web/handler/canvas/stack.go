@@ -72,8 +72,10 @@ func (h *handler) stackTab(c echo.Context, cd card, f *comp.DrawerView) (templ.C
 		Branch:        st.ConfigBranch,
 		Path:          st.ConfigPath,
 		Vars:          comp.VarsSummary(set, secret),
+		VarsSet:       set > 0,
 		VarsBody:      vars,
 		Placement:     stackui.PlacementSummary(pv.Pin, pv.PinName, pv.Ingress),
+		PlacementSet:  placementui.Changed(service.ScopeStack, pv.Pin, pv.Ingress, pv.Inherited, len(pv.Rungs)),
 		PlacementBody: placementui.Load(urlOf(cd.s) + "/-/placement"),
 	}
 	v.Host = stackui.HostView{Tiles: access.Group(g.Lines, g.Pending)}

@@ -252,6 +252,9 @@ type SettingsView struct {
 	Volumes    []VolumeRow
 	Placement  string // the ingress and exits fragment's URL
 	Ingress    string // where traffic comes in, "h4 (from env)"; "" = not known
+	OwnExits   bool   // the tile lists its own exits
+	// PlacementSet: the tile picks its own ingress or exits
+	PlacementSet bool
 }
 
 // rowRefused: the refusal drawn here came from a row's settings form (it
@@ -448,7 +451,11 @@ func networkSummary(s SettingsView) string {
 	if s.Ingress != "" {
 		ing = "ingress " + s.Ingress
 	}
-	return join(port, doms, ing)
+	exits := ""
+	if s.OwnExits {
+		exits = "own exits"
+	}
+	return cmp.Or(join(port, doms, ing, exits), "exits from the env")
 }
 
 func storageSummary(s SettingsView) string {
@@ -539,6 +546,20 @@ func hostSummary(s SettingsView) string {
 	return strings.Join(parts, ", ")
 }
 
+// rowSet: a row whose list the tile fills itself (domains, ingress and
+// exits, variables, database access) differs from a bare tile.
+func rowSet(s SettingsView, key string) bool {
+	switch key {
+	case "network":
+		return s.PlacementSet || (s.Domains != nil && len(s.Domains.Rows) > 0)
+	case "variables":
+		return len(s.Env.Rows) > 0
+	case "dbaccess":
+		return len(s.Access.Entries) > 0
+	}
+	return false
+}
+
 // settingsRows are the accordion's rows the kind has, in order; a row is
 // marked when one of its fields is.
 func settingsRows(v View, s SettingsView) []c.AccRow {
@@ -566,7 +587,7 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 	var out []c.AccRow
 	for _, r := range all {
 		if r.on {
-			out = append(out, c.AccRow{Key: r.key, Title: r.name, Summary: r.sum(s), Changed: slices.ContainsFunc(r.keys, s.Changed), Body: r.body})
+			out = append(out, c.AccRow{Key: r.key, Title: r.name, Summary: r.sum(s), Changed: slices.ContainsFunc(r.keys, s.Changed) || rowSet(s, r.key), Body: r.body})
 		}
 	}
 	return out

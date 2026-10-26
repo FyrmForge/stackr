@@ -98,11 +98,7 @@ templ Drawer(v DrawerView, body templ.Component) {
 			if v.Error != "" {
 				<p class="banner banner-danger" role="alert">{ v.Error }</p>
 			}
-			if v.Note != "" {
-				// a note may hold a one-time token: keep it out of htmx's history cache
-				<p class="banner" role="status" hx-history="false">{ v.Note }</p>
-			}
-			@body
+			@noted(v.Note, body)
 		</div>
 	</div>
 }

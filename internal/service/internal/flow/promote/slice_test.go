@@ -113,7 +113,7 @@ func TestGrammarSlices(t *testing.T) {
 		},
 		"allow other org": {
 			tiles("    db:\n      engine: postgres\n      allow:\n        - acme:*\n"),
-			"tile db: allow: acme:*: the first segment must be this org, testorg",
+			"tile db: allow: Start with this org, testorg.",
 		},
 		"env_pairs not slugs": {
 			tiles("    db:\n      engine: postgres\n      env_pairs:\n        Dev: staging\n"),
