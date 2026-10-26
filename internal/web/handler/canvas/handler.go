@@ -189,6 +189,12 @@ func (h *handler) Page(c echo.Context) error {
 		if drawer, err = h.drawer(c, v, id, c.QueryParam("tab")); err != nil {
 			return middleware.HTTPError(err)
 		}
+		if shown, ok := c.Get(shownTabKey).(string); ok { // the address names the tab it shows
+			q := c.QueryParams()
+			q.Set("tab", shown)
+			q.Del("open")
+			return c.Redirect(http.StatusSeeOther, c.Request().URL.Path+"?"+q.Encode())
+		}
 	}
 	body := ui.Page(v)
 	if drawer != nil && isHTMX(c) { // Drop and Undo move the canvas; the open drawer follows

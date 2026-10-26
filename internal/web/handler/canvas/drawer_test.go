@@ -445,3 +445,16 @@ func TestViewerSettingsReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// A fresh load asking for a tab the viewer cannot see is sent to the URL
+// of the tab the drawer shows.
+func TestFreshLoadHiddenTabRedirects(t *testing.T) {
+	b := newBrowser(t, "member")
+	rec := b.do(t, "GET", "/acme?drawer=org:"+b.org+"&tab=domains&open=x", nil, false)
+	if loc := rec.Header().Get("Location"); rec.Code != 303 || !strings.Contains(loc, "tab=general") || strings.Contains(loc, "open=") {
+		t.Errorf("hidden tab = %d, Location %q", rec.Code, loc)
+	}
+	if rec := b.do(t, "GET", "/acme?drawer=org:"+b.org+"&tab=general", nil, false); rec.Code != 200 {
+		t.Errorf("shown tab = %d", rec.Code)
+	}
+}

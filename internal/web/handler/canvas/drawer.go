@@ -158,10 +158,15 @@ func (h *handler) render(c echo.Context, cd card, f comp.DrawerView) (templ.Comp
 
 // fixTabURL: a drawer opened on a tab the viewer may not see shows its
 // first tab; the page URL then names that tab, not the one asked for.
+// A fresh page load is redirected to that URL instead (shownTabKey).
 func fixTabURL(c echo.Context, shown string) {
 	r := c.Request()
 	asked := c.QueryParam("tab")
-	if r.Method != http.MethodGet || asked == "" || asked == shown || r.Header.Get("HX-Request") == "" {
+	if r.Method != http.MethodGet || asked == "" || asked == shown {
+		return
+	}
+	if r.Header.Get("HX-Request") == "" {
+		c.Set(shownTabKey, shown)
 		return
 	}
 	u, err := neturl.Parse(r.Header.Get("HX-Current-URL"))
@@ -174,6 +179,10 @@ func fixTabURL(c echo.Context, shown string) {
 	u.RawQuery = q.Encode()
 	c.Response().Header().Set("HX-Replace-Url", u.RequestURI())
 }
+
+// shownTabKey is the tab a fresh load's drawer shows in place of the one
+// its URL asked for.
+const shownTabKey = "drawer_shown_tab"
 
 // after answers an action with the tab it belongs to: a refusal shows over
 // it (422), a done action says what it did.
