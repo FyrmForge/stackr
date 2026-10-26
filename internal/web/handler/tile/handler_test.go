@@ -325,12 +325,12 @@ func TestViewerDrawerReadOnly(t *testing.T) {
 		}
 	}
 	body := s.As(t, vs, "GET", drawer+"?tab=settings", nil).Body.String()
-	for _, w := range []string{`id="tab-settings"`, `data-acc="general"`, `data-acc="network"`, `data-acc="variables"`, "app.acme.dev", "<fieldset disabled"} {
+	for _, w := range []string{`id="tab-settings"`, `data-acc="general"`, `data-acc="network"`, `data-acc="variables"`, `data-acc="dbaccess"`, "app.acme.dev", "<fieldset disabled", "Only members and owners can change"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("viewer settings lacks %q\n%s", w, body)
 		}
 	}
-	for _, w := range []string{"hx-post", `method="post"`, `data-acc="delete"`, `data-acc="dbaccess"`, "Raw Caddy", "/detach"} {
+	for _, w := range []string{"hx-post", `method="post"`, `data-acc="delete"`, "Raw Caddy", "/detach"} {
 		if strings.Contains(body, w) {
 			t.Errorf("viewer settings shows %q", w)
 		}

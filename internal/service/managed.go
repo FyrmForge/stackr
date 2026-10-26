@@ -332,7 +332,8 @@ func (o *Orchestrator) SetSliceDefaultAccess(ctx context.Context, sliceTileID, a
 // SliceBinding is one consumer's cred on a slice, its secret left out.
 type SliceBinding struct {
 	ConsumerID string    `json:"consumer_id"`
-	Consumer   string    `json:"consumer"` // the consumer tile's slug
+	Consumer   string    `json:"consumer"`      // the consumer tile's slug
+	Name       string    `json:"consumer_name"` // and its name, as people read it
 	Kind       string    `json:"kind"`
 	Access     string    `json:"access"`
 	User       string    `json:"user"`
@@ -363,6 +364,7 @@ func (o *Orchestrator) Bindings(ctx context.Context, sliceTileID string) ([]Slic
 		out = append(out, SliceBinding{
 			ConsumerID: c.ID,
 			Consumer:   c.Slug,
+			Name:       c.Name,
 			Kind:       c.Kind,
 			Access:     b.Access,
 			User:       b.DBUser,

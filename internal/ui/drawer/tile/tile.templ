@@ -30,7 +30,7 @@ templ actions(v View) {
 			default:
 				if v.Stopped {
 					@c.PostButton("Start", v.Base+"/start")
-				} else {
+				} else if v.Status != "none" {
 					@c.Confirm(quiet(dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)))
 					@c.PostButton("Restart", v.Base+"/restart")
 				}
@@ -347,6 +347,8 @@ templ Env(v View, e EnvView) {
 					</div>
 				</form>
 			</details>
+		} else {
+			@readOnlyWhy()
 		}
 	</div>
 }
@@ -366,6 +368,9 @@ templ Access(v View, a AccessView) {
 							<span class="flex-1 font-mono">
 								@sliceLink(e.Slice, e.Link)
 							</span>
+							if v.ReadOnly {
+								<span class="text-rw-muted">{ e.Access }</span>
+							} else {
 							<form novalidate hx-post={ v.Base + "/access?open=dbaccess" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex items-center gap-2">
 								<input type="hidden" name="slice" value={ e.Slice }/>
 								<label for={ "access-entry-" + e.Slice } class="sr-only">{ e.Slice } access</label>
@@ -377,6 +382,7 @@ templ Access(v View, a AccessView) {
 								<input type="hidden" name="access" value="default"/>
 								<button type="submit" class="text-rw-faint hover:text-rw-danger" title="Use default" aria-label={ "Use the default access on " + e.Slice }>×</button>
 							</form>
+							}
 						</li>
 					}
 				</ul>
@@ -389,6 +395,9 @@ templ Access(v View, a AccessView) {
 				EmptyText: "No database access yet. The tile gets it at its next deploy.",
 			})
 		}
+		if v.ReadOnly {
+			<p class="mt-4 text-xs text-rw-faint">Only members and owners can change its access.</p>
+		} else {
 		@c.PanelSection("access-add", "Add access", "") {
 			if len(a.Slices) == 0 {
 				if len(a.Entries) > 0 {
@@ -413,6 +422,7 @@ templ Access(v View, a AccessView) {
 					<button type="submit" class="btn btn-ghost btn-sm">Add</button>
 				</form>
 			}
+		}
 		}
 	</div>
 }
@@ -563,6 +573,7 @@ templ rowForm(v View, s SettingsView, row string, keys []string) {
 		<fieldset disabled class="space-y-4">
 			{ children... }
 		</fieldset>
+		@readOnlyWhy()
 	} else {
 		<form novalidate hx-post={ v.Base + "/settings?open=" + row } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 			<input type="hidden" name="fields" value={ s.Keys(keys...) }/>
@@ -587,12 +598,18 @@ templ general(v View, s SettingsView) {
 		<fieldset disabled>
 			@generalFields(s)
 		</fieldset>
+		@readOnlyWhy()
 	} else {
 		<form novalidate hx-post={ v.Base + "/rename?open=general" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 			@generalFields(s)
 			<button type="submit" class="btn btn-primary btn-sm">Save</button>
 		</form>
 	}
+}
+
+// readOnlyWhy says why a viewer's row has no Save, as the env rows do.
+templ readOnlyWhy() {
+	<p class="mt-3 text-xs text-rw-faint">Only members and owners can change it.</p>
 }
 
 templ generalFields(s SettingsView) {

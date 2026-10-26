@@ -580,7 +580,7 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 		{s.Any(healthKeys...), "health", "Health", healthSummary, healthKeys, healthRow(v, s)},
 		{s.Any(resourceKeys...), "resources", "Resources", resourcesSummary, resourceKeys, resourcesRow(v, s)},
 		{true, "variables", "Variables", variablesSummary, nil, Env(v, s.Env)},
-		{!v.ReadOnly, "dbaccess", "Database access", accessSummary, nil, Access(v, s.Access)},
+		{true, "dbaccess", "Database access", accessSummary, nil, Access(v, s.Access)},
 		{s.Any(hostKeys...), "host", "Host access", hostSummary, hostKeys, hostRow(v, s)},
 		{!v.ReadOnly, "delete", "Delete", func(SettingsView) string { return "" }, nil, deleteRow(v)},
 	}

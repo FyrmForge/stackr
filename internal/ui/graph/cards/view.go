@@ -195,6 +195,8 @@ func word(status, waiting string) (tone, text string) {
 		return "warn", status
 	case "":
 		return "faint", "idle"
+	case "none": // never deployed, as its drawer says
+		return "faint", "not deployed"
 	}
 	return "faint", status
 }

@@ -53,8 +53,8 @@ type View struct {
 
 // Consumer is one tile holding a cred on the slice.
 type Consumer struct {
-	Slug, Link, Kind, Access, User string
-	Since                          time.Time
+	Slug, Name, Link, Kind, Access, User string // Slug posts; Name shows
+	Since                                time.Time
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
@@ -172,12 +172,16 @@ templ accessRow(v View) {
 }
 
 templ consumersRow(v View) {
-	<p class="text-xs text-rw-faint" data-hint>Each consumer keeps its own access until you change it here.</p>
+	if v.ReadOnly {
+		<p class="text-xs text-rw-faint" data-hint>Each consumer keeps its own access. Only members and owners can change it.</p>
+	} else {
+		<p class="text-xs text-rw-faint" data-hint>Each consumer keeps its own access until you change it here.</p>
+	}
 	<ul class="space-y-1.5">
 		for _, cs := range v.Consumers {
 			<li class="panel px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm" data-field>
 				<span class="flex-1 min-w-0">
-					<label for={ "access-" + cs.Slug } class="settings-label font-mono">{ cs.Slug }</label>
+					<label for={ "access-" + cs.Slug } class="settings-label">{ cmp.Or(cs.Name, cs.Slug) }</label>
 				</span>
 				if v.ReadOnly {
 					<span class="font-mono text-rw-text">{ cs.Access }</span>
@@ -250,7 +254,7 @@ func consumerRows(v View) [][]templ.Component {
 	rows := make([][]templ.Component, 0, len(v.Consumers))
 	for _, cs := range v.Consumers {
 		rows = append(rows, []templ.Component{
-			link(cs.Slug, cs.Link),
+			link(cmp.Or(cs.Name, cs.Slug), cs.Link),
 			c.Text(cs.Kind),
 			c.Text(cs.Access),
 			c.Text(cs.User),
