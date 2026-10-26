@@ -1,7 +1,7 @@
 # Schema reference: https://github.com/FyrmForge/hamr/blob/master/docs/guide/hamr-toml.md
 
 [hamr]
-version = "0.38.0"
+version = "0.45.1"
 scaffolded_at = "2026-09-24"
 
 [options]
