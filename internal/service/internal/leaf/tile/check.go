@@ -461,12 +461,12 @@ func checkLists(t *store.Tile) error {
 			}
 		}
 	}
+	bad = append(bad, checkMounts(t.Volumes)...)
 	for _, list := range []struct {
 		key   string
 		v     string
 		parse func(string) error
 	}{
-		{"volumes", t.Volumes, parseMount},
 		{"files", t.Files, func(l string) error {
 			_, _, err := ParseFileMount(l)
 			return err
@@ -527,37 +527,69 @@ type Mount struct {
 // ParseMount: "volume:/abs[:ro]", "host:/host/path:/abs[:ro]" or
 // "share:slug/sub:/abs[:ro]". A line whose first word is "host" with a
 // second absolute path, or "share" with a relative source, is the long form;
-// "host:/abs" stays a volume named host.
+// "host:/abs" stays a volume named host. The container path is never "/".
+// A refusal is one plain sentence per mistake, no closing period: the
+// Storage row's half-filled rows ("data:", ":/data") read as such.
 func ParseMount(l string) (Mount, error) {
 	parts := strings.Split(l, ":")
 	m := Mount{Kind: MountVolume}
-	rest := parts[1:]
+	rest, what := parts[1:], parts[0] // what: the source, as a refusal names it
+	notMount := errs.Invalidf("", "%q is not a mount. Write volume:/path, host:/host/path:/path or share:name/sub:/path, each with :ro for read-only", l)
 	switch {
 	case len(parts) >= 3 && parts[0] == "host" && path.IsAbs(parts[2]):
 		m.Kind = MountHost
 		// A "," would split the line apart in the host access ask text.
 		if strings.Contains(l, ",") || !cleanAbs(parts[1]) {
-			return m, fmt.Errorf("%q: the host path is absolute, with no .. or // and no commas", l)
+			return m, errs.Invalidf("", "%q: the host path is absolute, with no .. or // and no commas", l)
 		}
-		m.Host, rest = parts[1], parts[2:]
+		m.Host, rest, what = parts[1], parts[2:], parts[1]
 	case len(parts) >= 3 && parts[0] == "share" && !path.IsAbs(parts[1]):
 		m.Kind = MountShare
 		name, sub, _ := strings.Cut(parts[1], "/")
 		if !slug.Valid(name) || strings.HasPrefix(sub, "/") || hasDotDot(sub) {
-			return m, fmt.Errorf("%q is not a share mount: write share:name/sub/path:/container/path, with :ro for read-only", l)
+			return m, errs.Invalidf("", "%q is not a share mount. Write share:name/sub/path:/container/path, with :ro for read-only", l)
 		}
-		m.Share, m.Sub, rest = name, path.Clean("/" + sub)[1:], parts[2:]
+		m.Share, m.Sub, rest, what = name, path.Clean("/" + sub)[1:], parts[2:], "share "+name
+	case len(parts) >= 2 && parts[0] == "" && parts[1] != "":
+		return m, errs.Invalidf("", "Pick a volume for %s", parts[1])
 	default:
 		if len(parts) < 2 || !slug.Valid(parts[0]) {
-			return m, fmt.Errorf("%q is not a mount: write volume:/container/path, with :ro for read-only", l)
+			return m, notMount
 		}
 		m.Volume = parts[0]
 	}
-	if len(rest) < 1 || len(rest) > 2 || !path.IsAbs(rest[0]) || (len(rest) == 2 && rest[1] != "ro") {
-		return m, fmt.Errorf("%q is not a mount: write volume:/path, host:/host/path:/path or share:name/sub:/path, each with :ro for read-only", l)
+	switch {
+	case len(rest) < 1 || len(rest) > 2 || (len(rest) == 2 && rest[1] != "ro"):
+		return m, notMount
+	case rest[0] == "":
+		return m, errs.Invalidf("", "Add a path for %s", what)
+	case !path.IsAbs(rest[0]):
+		return m, errs.Invalidf("", "Start the path for %s with /", what)
+	case path.Clean(rest[0]) == "/":
+		return m, errs.Invalidf("", "Mount %s at a path under /, not at / itself", what)
 	}
 	m.Path, m.RO = rest[0], len(rest) == 2
 	return m, nil
+}
+
+// checkMounts is every refused volumes line, each with its line (1-based,
+// as Lines counts them): a line that does not parse, and a container path a
+// line before it already took (Docker refuses two mounts on one path).
+func checkMounts(v string) []error {
+	var bad []error
+	taken := map[string]bool{}
+	for i, l := range Lines(v) {
+		m, err := ParseMount(l)
+		switch p := path.Clean(m.Path); {
+		case err != nil:
+			bad = append(bad, errs.Invalid{Field: "volumes", Line: i + 1, Msg: err.Error() + "."})
+		case taken[p]:
+			bad = append(bad, errs.Invalid{Field: "volumes", Line: i + 1, Msg: "Two mounts use " + p + ". Give each its own path."})
+		default:
+			taken[p] = true
+		}
+	}
+	return bad
 }
 
 // cleanAbs: an absolute path already in its cleaned form.
@@ -570,11 +602,6 @@ func hasDotDot(p string) bool {
 		}
 	}
 	return false
-}
-
-func parseMount(l string) error {
-	_, err := ParseMount(l)
-	return err
 }
 
 // ParsePort: "host:container[/udp]", both 1-65535; proto is "tcp" or "udp".

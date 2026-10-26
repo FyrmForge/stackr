@@ -106,6 +106,22 @@ func (l *Leaf) BySlug(ctx context.Context, s Scope, sl string) (store.Volume, er
 	return vs[i], nil
 }
 
+// MaxName caps a volume name: the panel shows it in narrow rows.
+const MaxName = 40
+
+// CheckName refuses a volume name that is not a slug or runs past MaxName.
+func CheckName(sl string) error {
+	switch {
+	case sl == "":
+		return errs.Invalidf("volume", "Enter a name.")
+	case len(sl) > MaxName:
+		return errs.Invalidf("volume", "Keep the name to %d characters or fewer.", MaxName)
+	case !slug.Valid(sl):
+		return errs.Invalidf("volume", "Use lower-case letters, digits and single hyphens.")
+	}
+	return nil
+}
+
 // Declare is the row for a volume the stack file (or an instance) names.
 // An orphan with the same slug in the same scope is re-adopted, data and
 // all; adopted says so. instanceID is the owning managed instance, if any.
@@ -115,8 +131,8 @@ func (l *Leaf) Declare(
 	sl string,
 	instanceID *string,
 ) (v store.Volume, adopted bool, err error) {
-	if !slug.Valid(sl) {
-		return v, false, errs.Invalidf("volume", "%q: a volume name is lower-case letters, digits and single hyphens", sl)
+	if err := CheckName(sl); err != nil {
+		return v, false, err
 	}
 	v, err = l.BySlug(ctx, s, sl)
 	switch {

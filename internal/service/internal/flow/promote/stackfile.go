@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 )
@@ -798,6 +799,9 @@ func checkSlice(name string, tc TileConf) error {
 func checkVolume(name string, v VolumeConf) error {
 	if !slug.Valid(name) {
 		return fmt.Errorf("volume %q: a volume name is lower-case letters, digits and single hyphens", name)
+	}
+	if len(name) > volume.MaxName {
+		return fmt.Errorf("volume %s: keep the name to %d characters or fewer", name, volume.MaxName)
 	}
 	b := v.Backup
 	if b == nil {

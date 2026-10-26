@@ -170,6 +170,8 @@ func TestKindWhitelist(t *testing.T) {
 		{"file outside the repo", func(t *store.Tile) { t.Files = "../x:/etc/x" }, "files"},
 		{"replicas with a mount", func(t *store.Tile) { t.Volumes, t.Replicas = "data:/data", 2 }, "replicas"},
 		{"replicas without a mount", func(t *store.Tile) { t.Replicas = 3 }, ""},
+		{"two mounts on one path", func(t *store.Tile) { t.Volumes = "a:/data\nhost:/srv/x:/data/" }, "volumes"},
+		{"mounts on their own paths", func(t *store.Tile) { t.Volumes = "a:/data\nb:/data2" }, ""},
 		{"lan ok", func(t *store.Tile) { t.Lan = "192.168.1.10:8123\n10.0.0.0/24\n0.0.0.0/0" }, ""},
 		{"bad lan", func(t *store.Tile) { t.Lan = "router" }, "lan"},
 		{"lan port out of range", func(t *store.Tile) { t.Lan = "10.0.0.1:70000" }, "lan"},
@@ -207,6 +209,9 @@ func TestParseMount(t *testing.T) {
 		{"share:media:/data:ro", tile.Mount{Kind: tile.MountShare, Share: "media", Path: "/data", RO: true}, true},
 		{"share:media/../x:/data", tile.Mount{}, false},
 		{"share:Bad Slug/a:/data", tile.Mount{}, false},
+		{"data:/", tile.Mount{}, false},
+		{"data:/x/..", tile.Mount{}, false},
+		{"share:media:/", tile.Mount{}, false},
 		{"data:rel", tile.Mount{}, false},
 		{"data", tile.Mount{}, false},
 	} {

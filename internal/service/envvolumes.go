@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
 
@@ -111,7 +112,19 @@ func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID stri
 	if err != nil {
 		return err
 	}
-	if by := mountedBy(ts, v.Slug); len(by) > 0 {
+	// a tile whose delete is queued or running lets go: right after a
+	// tile delete, its row is still there for a few seconds
+	var keep []Tile
+	for _, t := range ts {
+		j, ok, err := o.jobRows.Last(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if !ok || j.Kind != string(kindDelete) || !job.Live(j.State) {
+			keep = append(keep, t)
+		}
+	}
+	if by := mountedBy(keep, v.Slug); len(by) > 0 {
 		return errs.Conflictf("%s is mounted by %s; take it out of their Storage first", v.Slug, strings.Join(by, ", "))
 	}
 	_, err = o.volumes.Orphan(ctx, v)
@@ -136,26 +149,39 @@ func (o *Orchestrator) envVolumesWritable(ctx context.Context, envID string) err
 }
 
 // checkTileVolumes refuses a volumes line naming a volume the env does not
-// declare (or has orphaned): deploy would refuse it later, less helpfully.
+// declare (or has orphaned), or a share the org does not have: deploy would
+// refuse it later, less helpfully. Each refusal carries its line.
 func (o *Orchestrator) checkTileVolumes(ctx context.Context, t Tile) error {
 	vs, err := o.volumes.List(ctx, VolumeScope{Kind: "env", ID: t.EnvironmentID})
 	if err != nil {
 		return err
 	}
-	var missing []string
-	for _, l := range tile.Lines(t.Volumes) {
-		sl, _, ok := MountedVolume(l)
-		if !ok || slices.Contains(missing, sl) {
-			continue
-		}
-		if !slices.ContainsFunc(vs, func(v Volume) bool { return v.Slug == sl && v.OrphanedAt == nil }) {
-			missing = append(missing, sl)
+	var shares []Share
+	sharesRead := false
+	var bad []error
+	for i, l := range tile.Lines(t.Volumes) {
+		m, err := tile.ParseMount(l)
+		switch {
+		case err != nil:
+		case m.Kind == tile.MountVolume && !slices.ContainsFunc(vs, func(v Volume) bool { return v.Slug == m.Volume && v.OrphanedAt == nil }):
+			bad = append(bad, errs.Invalid{Field: "volumes", Line: i + 1, Msg: "This environment does not declare " + m.Volume + ". Declare it in env Settings first."})
+		case m.Kind == tile.MountShare:
+			if !sharesRead {
+				st, err := o.stacks.Get(ctx, t.StackID)
+				if err != nil {
+					return err
+				}
+				if shares, err = o.volumes.Shares(ctx, st.OrgID); err != nil {
+					return err
+				}
+				sharesRead = true
+			}
+			if !slices.ContainsFunc(shares, func(s Share) bool { return s.Slug == m.Share }) {
+				bad = append(bad, errs.Invalid{Field: "volumes", Line: i + 1, Msg: "This organization has no share " + m.Share + ". Add it in org Settings first."})
+			}
 		}
 	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return errs.Invalidf("volumes", "This environment does not declare %s. Declare it in env Settings first.", strings.Join(missing, ", "))
+	return errors.Join(bad...)
 }
 
 // mountedBy are the slugs of the tiles in ts whose volumes lines name sl.

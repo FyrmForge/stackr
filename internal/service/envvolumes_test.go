@@ -34,8 +34,16 @@ func TestEnvVolumes(t *testing.T) {
 	if _, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "data"); !invalidOn(err, "volume", "already has") {
 		t.Errorf("duplicate = %v", err)
 	}
-	if _, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "Bad Name"); !invalidOn(err, "volume", "lower-case") {
-		t.Errorf("bad name = %v", err)
+	for name, says := range map[string]string{"Bad Name": "Use lower-case", "": "Enter a name.", strings.Repeat("a", 41): "40 characters"} {
+		if _, _, err := w.orch.DeclareEnvVolume(ctx, w.env, name); !invalidOn(err, "volume", says) {
+			t.Errorf("name %q = %v", name, err)
+		}
+	}
+	// a share the org does not have is refused like an undeclared volume,
+	// on its own line
+	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "data:/data\nshare:nope/x:/s"; return nil })
+	if bads := errs.Invalids(err); len(bads) != 1 || bads[0].Line != 2 || !strings.Contains(bads[0].Msg, "no share nope") {
+		t.Errorf("missing share = %+v", bads)
 	}
 	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "data:/data:ro"; return nil })
 	must(t, err)
@@ -68,6 +76,17 @@ func TestEnvVolumes(t *testing.T) {
 	back, adopted, err := w.orch.DeclareEnvVolume(ctx, w.env, "data")
 	if err != nil || !adopted || back.ID != v.ID {
 		t.Errorf("re-declare = %+v %v %v, want the orphan adopted", back, adopted, err)
+	}
+	// a tile whose delete is queued no longer holds the volume
+	_, _, err = w.orch.UpdateTile(ctx, api.ID, func(t *Tile) error { t.Volumes = "data:/data"; return nil })
+	must(t, err)
+	_, err = w.orch.DeleteTile(ctx, api.ID)
+	must(t, err)
+	if ts, err := w.orch.Tiles(ctx, w.env); err != nil || len(ts) != 1 {
+		t.Fatalf("tile gone before its delete ran: %d %v", len(ts), err)
+	}
+	if err := w.orch.RemoveEnvVolume(ctx, w.env, v.ID); err != nil {
+		t.Errorf("remove after the tile's delete = %v", err)
 	}
 }
 

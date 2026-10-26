@@ -50,10 +50,13 @@ func (e Refused) Is(target error) bool {
 // empty when the fault is the request as a whole.
 // Label, when set, is how a person knows the field ("Retention (days)"):
 // the message says it in place of Field.
+// Line, when set, is the line of a list field (1-based, blanks not
+// counted) the reason is about, so a form marks that row alone.
 type Invalid struct {
 	Field string
 	Label string
 	Msg   string
+	Line  int
 }
 
 func (e Invalid) Error() string {
