@@ -72,7 +72,7 @@ templ nodeCard(n Node) {
 		class="card-face relative flex h-full flex-col overflow-hidden rounded-xl border bg-rw-surface border-rw-border hover:border-rw-accent/60 shadow-rw"
 		hx-get={ NodeDrawer(n.ID, "") }
 		hx-target="#drawer-body"
-		hx-push-url={ NodePush(n.ID, "") }
+		hx-push-url={ templ.SafeURL(NodePush(n.ID, "")) }
 		tabindex="0"
 		role="button"
 	>
@@ -147,7 +147,7 @@ templ nodeCard(n Node) {
 							if e.Health == "more" {
 								hx-get={ NodeDrawer(n.ID, "envs") }
 								hx-target="#drawer-body"
-								hx-push-url={ NodePush(n.ID, "envs") }
+								hx-push-url={ templ.SafeURL(NodePush(n.ID, "envs")) }
 							} else {
 								hx-get={ e.Href }
 								hx-target="#main"

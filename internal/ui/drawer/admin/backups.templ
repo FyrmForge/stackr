@@ -51,8 +51,9 @@ templ Backups(v BackupsView) {
 						if g := lastGood(v.Rows); g != nil {
 							<p class="text-rw-faint mt-0.5">
 								{ "Last good backup " }
-								@c.When(g.When)
-								{ "." }
+								@c.When(g.When) {
+									{ "." }
+								}
 							</p>
 						}
 					</div>
@@ -61,8 +62,9 @@ templ Backups(v BackupsView) {
 				} else {
 					<p class="text-sm text-rw-muted">
 						{ "Last run: " }
-						@c.When(v.Rows[0].When)
-						{ ", " + v.Rows[0].Status + ", to " + v.Rows[0].Dest + "." }
+						@c.When(v.Rows[0].When) {
+							{ ", " + v.Rows[0].Status + ", to " + v.Rows[0].Dest + "." }
+						}
 					</p>
 				}
 				if v.Sched.Action != "" {

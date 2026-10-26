@@ -29,7 +29,10 @@ templ ZoneNote() {
 // WhenLayout is the one way a moment reads across the panel: "Oct 25, 21:57".
 const WhenLayout = "Jan 2, 15:04"
 
-// When is t as WhenLayout, in the viewer's zone.
+// When is t as WhenLayout, in the viewer's zone. Children follow the time
+// with no space, as in Time ("Jul 2, 10:00.").
 templ When(t time.Time) {
-	@Time(t, WhenLayout)
+	@Time(t, WhenLayout) {
+		{ children... }
+	}
 }

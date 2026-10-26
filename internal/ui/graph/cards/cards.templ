@@ -12,7 +12,7 @@ templ Card(v CardView) {
 		if v.Drawer != "" {
 			hx-get={ v.Drawer }
 			hx-target="#drawer-body"
-			hx-push-url={ "?drawer=" + v.ID + "&tab=" + v.Tab }
+			hx-push-url={ templ.SafeURL("?drawer=" + v.ID + "&tab=" + v.Tab) }
 			tabindex="0"
 			role="button"
 		}
@@ -177,7 +177,7 @@ templ Subs(v CardView) {
 				if s.Drawer != "" {
 					hx-get={ s.Drawer }
 					hx-target="#drawer-body"
-					hx-push-url={ "?drawer=" + s.ID + "&tab=" + s.Tab }
+					hx-push-url={ templ.SafeURL("?drawer=" + s.ID + "&tab=" + s.Tab) }
 					tabindex="0"
 					role="button"
 				}

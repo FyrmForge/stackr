@@ -161,7 +161,7 @@ templ row(r Row) {
 			}
 			for _, a := range r.Actions {
 				if a.Drawer {
-					<button type="button" class="btn btn-ghost btn-sm" hx-get={ a.URL } hx-target="#drawer-body" hx-push-url={ a.Push }>{ a.Label }</button>
+					<button type="button" class="btn btn-ghost btn-sm" hx-get={ a.URL } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(a.Push) }>{ a.Label }</button>
 				} else {
 					<button type="button" class="btn btn-ghost btn-sm" hx-get={ a.URL } hx-target={ "#" + SlotID }>{ a.Label }</button>
 				}
@@ -169,7 +169,7 @@ templ row(r Row) {
 			if len(r.Actions) == 0 && r.Settings != "" {
 				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Settings } hx-target={ "#" + SlotID }>Settings</button>
 			} else if len(r.Actions) == 0 && r.Drawer != "" {
-				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Drawer } hx-target="#drawer-body" hx-push-url={ r.Push }>Manage</button>
+				<button type="button" class="btn btn-ghost btn-sm" hx-get={ r.Drawer } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(r.Push) }>Manage</button>
 			}
 			if r.Remove.Action != "" {
 				<span class="ml-auto">
