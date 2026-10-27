@@ -126,6 +126,8 @@ func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
 		Rebuild:  service.Rebuildable(*t),
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
+
+		OutsideFile: h.orch.TileOutsideStackFile(ctx, *t),
 	}
 	hd := head{status: st}
 	if !pulls(*t) {

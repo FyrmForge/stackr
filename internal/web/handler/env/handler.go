@@ -129,6 +129,7 @@ func createView(c echo.Context) dialog.CreateTileView {
 		Command:  c.FormValue("command"),
 		From:     c.FormValue("provision_from"),
 		Access:   c.FormValue("default_access"),
+		FromFile: scope(c).Stack.ConfigRepo != "",
 	}
 	if !slices.ContainsFunc(dialog.Sources, func(o dialog.Option) bool { return o.Value == v.Source }) {
 		v.Source = "image"

@@ -508,6 +508,16 @@ func Load(data []byte, fetch Fetcher, orgSlug string) (*Resolved, error) {
 	return resolve(f, orgSlug)
 }
 
+// EnvFor is the file's section for env slug; a PR env the file does not
+// name is shaped like its base env's (base "" = none).
+func (r *Resolved) EnvFor(slug, base string) (ResolvedEnv, bool) {
+	re, ok := r.Envs[slug]
+	if !ok && base != "" {
+		re, ok = r.Envs[base]
+	}
+	return re, ok
+}
+
 func resolve(f *File, orgSlug string) (*Resolved, error) {
 	if f.Stack == "" {
 		return nil, fmt.Errorf("stack name required")

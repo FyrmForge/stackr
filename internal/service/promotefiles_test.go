@@ -163,3 +163,37 @@ func member(t *testing.T, tgz []byte, name string) string {
 		}
 	}
 }
+
+// A tile the stack file its env took does not declare is outside the file
+// (the next promote removes it); a declared one is not, nor is any tile of
+// a stack with no file.
+func TestTileOutsideStackFile(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	web, extra := w.tile(t, "web", false), w.tile(t, "extra", false)
+	if w.orch.TileOutsideStackFile(ctx, extra) {
+		t.Fatal("no stack file: extra is outside it")
+	}
+	// the clone a promote leaves under the data dir
+	sha := gitCommit(t, filepath.Join(w.orch.cfg.DataDir, "repos"), "config-"+w.stack, map[string]string{
+		"stackr-compose.yml": "version: 1\nstack: shop\nladder: [dev]\nhead: main\nbase:\n  tiles:\n    web:\n      image: nginx:1\n      port: 80\n",
+	})
+	st, err := w.st.Stacks.Get(ctx, w.stack)
+	must(t, err)
+	st.ConfigRepo, st.ConfigBranch = "https://github.com/acme/shop", "main"
+	must(t, w.st.Stacks.Update(ctx, st))
+	rel, err := w.orch.releases.Create(ctx, w.stack, "test", []release.Pin{{Slug: release.ConfigSlug, Repo: st.ConfigRepo, CommitSHA: sha}})
+	must(t, err)
+	e, err := w.orch.envs.Get(ctx, w.env)
+	must(t, err)
+	_, err = w.orch.envs.SetRelease(ctx, e, rel.ID)
+	must(t, err)
+	if w.orch.TileOutsideStackFile(ctx, web) {
+		t.Error("web is declared, yet outside the file")
+	}
+	if !w.orch.TileOutsideStackFile(ctx, extra) {
+		t.Error("extra is not declared, yet not outside the file")
+	}
+}

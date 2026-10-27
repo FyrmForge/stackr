@@ -58,6 +58,17 @@ func pauseVals(paused bool) string {
 	return `{"paused":"false"}`
 }
 
+// strips are the lines under the header: the image update and the
+// stack file note.
+templ strips(v View) {
+	if v.NewDigest != "" {
+		@imageStrip(v)
+	}
+	if v.OutsideFile {
+		<p class="px-6 py-2 bg-rw-warn/10 border-y border-rw-warn/40 text-sm text-rw-warn">Not in the stack file. The next promote removes it.</p>
+	}
+}
+
 // imageStrip is v0's "New image version available" line above the tabs.
 templ imageStrip(v View) {
 	<div class="px-6 py-2 bg-rw-warn/10 border-y border-rw-warn/40 text-sm text-rw-warn flex items-center gap-2 flex-wrap">

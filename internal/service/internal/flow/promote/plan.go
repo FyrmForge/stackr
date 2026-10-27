@@ -263,11 +263,7 @@ func (f *Flow) plan(ctx context.Context, envID, releaseID string, log io.Writer)
 				w.base = base.Slug
 			}
 		}
-		re, ok := r.Envs[e.Slug]
-		if !ok && w.base != "" {
-			// A PR env is shaped like its base env's section.
-			re, ok = r.Envs[w.base]
-		}
+		re, ok := r.EnvFor(e.Slug, w.base)
 		if !ok {
 			p.block("the stack file at %s has no environment %s", short(cp.CommitSHA), e.Slug)
 			return p, w, nil

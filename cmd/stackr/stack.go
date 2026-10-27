@@ -924,6 +924,17 @@ func (a *app) firstReplica(p string) (string, error) {
 	return cell(r["id"]), nil
 }
 
+// fileHint warns on stderr, after a tile is added by hand to the env at
+// envPath, when its stack runs from a stack file. Best effort: a failed
+// read prints nothing.
+func (a *app) fileHint(envPath string) {
+	stack, _, _ := strings.Cut(envPath, "/envs/")
+	v, err := a.call(GET, stack, nil)
+	if m, _ := v.(map[string]any); err == nil && m["config_repo"] != nil && m["config_repo"] != "" {
+		_, _ = fmt.Fprintln(a.errw, "This stack runs from its stack file. The next promote removes apps that are not in it.")
+	}
+}
+
 func (a *app) tiles() *cobra.Command {
 	var kind string
 	create := leaf("create <name>", "tile.create", "Make a tile in --env", exact(1), nil)
@@ -943,6 +954,7 @@ func (a *app) tiles() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		a.fileHint(p)
 		return a.show(v, tileCols...)
 	})
 	set := leaf("set [tile]", "tile.update", "Change tile settings; only the flags given are sent", upTo(1), nil)
@@ -1505,6 +1517,7 @@ func (a *app) managed() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		a.fileHint(p)
 		return a.show(v)
 	})
 	return scoped(noun("managed", "Managed tiles",

@@ -41,8 +41,8 @@ func Drawer(v View, body templ.Component) templ.Component {
 		EnvColor: v.EnvColor,
 		Actions:  actions(v),
 	}
-	if v.NewDigest != "" {
-		d.Strip = imageStrip(v)
+	if v.NewDigest != "" || v.OutsideFile {
+		d.Strip = strips(v)
 	}
 	return c.Drawer(d, body)
 }
@@ -66,6 +66,9 @@ type View struct {
 	Location string // "stack / env"
 	EnvColor string
 	Domained bool // the tile has a domain: only then does it see requests (Metrics tab)
+	// OutsideFile: the stack runs from its file and the file does not
+	// declare this tile, so the next promote removes it.
+	OutsideFile bool
 
 	NewDigest  string // a newer image than the one running; "" = none
 	AutoUpdate bool   // the watcher deploys it by itself

@@ -33,6 +33,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -346,6 +347,11 @@ func (o *Orchestrator) stackFile(
 	if err != nil {
 		return nil, nil, err
 	}
+	return clonedStackFile(ctx, r, st, commit)
+}
+
+// clonedStackFile is stackFile read from the local clone r, no fetch.
+func clonedStackFile(ctx context.Context, r git.Repo, st store.Stack, commit string) ([]byte, promote.Fetcher, error) {
 	path := st.ConfigPath
 	if path == "" {
 		path = promote.DefaultPath
@@ -362,6 +368,49 @@ func (o *Orchestrator) stackFile(
 		return r.ReadFile(ctx, commit, p)
 	}
 	return data, fetch, err
+}
+
+// TileOutsideStackFile: t's stack runs from a stack file and the file its
+// env took last does not declare t, so the next promote removes it (the
+// same test as the plan's deletes). It reads the local clone only, never
+// fetches: anything it cannot read (no release yet, no clone, a bad file)
+// answers false.
+func (o *Orchestrator) TileOutsideStackFile(ctx context.Context, t Tile) bool {
+	st, err := o.stacks.Get(ctx, t.StackID)
+	if err != nil || st.ConfigRepo == "" {
+		return false
+	}
+	e, err := o.envs.Get(ctx, t.EnvironmentID)
+	if err != nil || e.ReleaseID == nil {
+		return false
+	}
+	pins, err := o.releases.Pins(ctx, *e.ReleaseID)
+	commit := pins[release.ConfigSlug].CommitSHA
+	r := git.Repo{Dir: filepath.Join(o.cfg.DataDir, "repos", "config-"+st.ID)}
+	if err != nil || commit == "" || !r.Has(ctx, commit) {
+		return false
+	}
+	og, err := o.orgs.Get(ctx, st.OrgID)
+	if err != nil {
+		return false
+	}
+	data, fetch, err := clonedStackFile(ctx, r, st, commit)
+	if err != nil {
+		return false
+	}
+	f, err := promote.Load(data, fetch, og.Slug)
+	if err != nil {
+		return false
+	}
+	base := ""
+	if e.BaseEnvID != nil {
+		if b, err := o.envs.Get(ctx, *e.BaseEnvID); err == nil {
+			base = b.Slug
+		}
+	}
+	re, ok := f.EnvFor(e.Slug, base)
+	_, declared := re.Tiles[t.Slug]
+	return ok && !declared
 }
 
 // orgFile is the org's config file at commit ("" = the bound branch's
