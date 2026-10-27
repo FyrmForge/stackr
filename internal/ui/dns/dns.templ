@@ -250,9 +250,11 @@ templ suggestion(v DomainsView, s Suggestion) {
 }
 
 // scopeForm is the plan's first question: all of the domain, or only a
-// name under it. Changing it asks for the plan again.
+// name under it. Changing it asks for the plan again. hx-vals="unset": htmx
+// merges every ancestor's hx-vals over form fields and ignores hx-disinherit,
+// so the Confirm wrapper's part and under would replace the picked ones.
 templ scopeForm(v DomainsView, p PlanView) {
-	<form hx-post={ p.Preview } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML" class="space-y-2" novalidate>
+	<form hx-post={ p.Preview } hx-vals="unset" hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML" class="space-y-2" novalidate>
 		<input type="hidden" name="domain" value={ p.Domain }/>
 		<fieldset class="space-y-1">
 			<legend class="label">What stackr manages</legend>
