@@ -241,5 +241,5 @@ func (o *Orchestrator) downAfterFailedDeploy(ctx context.Context, tileID string,
 	if e, eerr := o.store.Environments.Get(ctx, t.EnvironmentID); eerr == nil {
 		env = " in " + e.Name
 	}
-	o.openProblem(ctx, downAlertKey(tileID), SevCritical, t.Name+env+" is down: its deploy failed: "+err.Error())
+	o.openProblem(ctx, downAlertKey(tileID), SevCritical, t.Name+env+" is down: its deploy failed.")
 }

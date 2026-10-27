@@ -95,7 +95,7 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 	}
 	// Detached HEAD by design: one path for a branch and a raw SHA; -f
 	// throws away whatever the last build left in the tree.
-	if err := run(r.Dir, "checkout", "-f", "FETCH_HEAD"); err != nil {
+	if err := run(r.Dir, "-c", "advice.detachedHead=false", "checkout", "-f", "FETCH_HEAD"); err != nil {
 		return "", fmt.Errorf("git checkout: %w", err)
 	}
 	out, err := r.git(ctx, "rev-parse", "HEAD")

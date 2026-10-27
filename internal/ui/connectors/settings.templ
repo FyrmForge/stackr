@@ -272,18 +272,22 @@ templ Used(rows []UsageRow) {
 	}
 }
 
-// InUse is a refusal that lists where something is used.
-templ InUse(msg string, rows []UsageRow) {
+// InUse is a refusal that lists where something is used: msg, the list,
+// then tail.
+templ InUse(msg, tail string, rows []UsageRow) {
 	<div class="text-sm text-rw-danger space-y-1" role="alert">
 		<p>{ msg }</p>
 		<ul class="list-disc pl-5">
 			for _, u := range rows {
 				<li>
 					@usage(u)
-					<span class="text-xs">{ u.What }</span>
+					<span class="text-xs">{ " " + u.What }</span>
 				</li>
 			}
 		</ul>
+		if tail != "" {
+			<p>{ tail }</p>
+		}
 	</div>
 }
 

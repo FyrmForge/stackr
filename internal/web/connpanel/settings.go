@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -241,7 +242,17 @@ func InUse(err error) templ.Component {
 	if !errors.As(err, &in) {
 		return nil
 	}
-	return connectors.InUse(in.Msg+in.Tail, Usages(in.Usages))
+	return connectors.InUse(in.Msg, sentence(in.Tail), Usages(in.Usages))
+}
+
+// sentence is an InUse tail ("; unbind it first.") on its own line below
+// the list: "Unbind it first."
+func sentence(tail string) string {
+	t := strings.TrimLeft(tail, "; .")
+	if t == "" {
+		return ""
+	}
+	return strings.ToUpper(t[:1]) + strings.TrimSuffix(t[1:], ".") + "."
 }
 
 // RemoveRefused answers a Remove refused because the connection is used:

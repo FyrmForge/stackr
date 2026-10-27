@@ -473,7 +473,7 @@ func (d *Client) Build(
 ) (string, error) {
 	args := []string{"buildx", "build", "--builder", d.builderName(builder), "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
 	if noCache(ctx) {
-		args = append(args, "--no-cache")
+		args = append(args, "--no-cache", "--pull") // a rebuild picks up a moved base tag too
 	}
 	for k, v := range buildArgs {
 		args = append(args, "--build-arg", k+"="+v)
