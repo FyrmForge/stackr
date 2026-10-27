@@ -1,4 +1,4 @@
-FROM golang:1.27.2-alpine AS builder
+FROM golang:1.27.3-alpine AS builder
 
 ARG VERSION=dev
 
@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackrd ./c
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr ./cmd/stackr
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr-install ./cmd/stackr-install
 
-FROM alpine:3.21
+FROM alpine:3.24
 # stackr-install uninstall --purge finds stackr's images by this label,
 # an old release's too once a newer one took its tag.
 LABEL stackr.image=stackrd
