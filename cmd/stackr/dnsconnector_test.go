@@ -22,13 +22,13 @@ func TestDNSConnectorVerbs(t *testing.T) {
 	for _, tc := range []struct{ args, want string }{
 		{"server connectors ls --dns", "GET " + s + " "},
 		{"server connectors domains c1", "GET " + s + "/c1/domains "},
-		{"server connectors manage c1 acme.dev -y", "PUT " + s + `/c1/domains/acme.dev {"org_ids":[]}`},
-		{"server connectors manage c1 acme.dev --org o1 --org o2", "PUT " + s + `/c1/domains/acme.dev {"org_ids":["o1","o2"]}`},
+		{"server connectors manage c1 acme.dev -y", "PUT " + s + `/c1/domains/acme.dev {"adopt":[],"org_ids":[]}`},
+		{"server connectors manage c1 acme.dev --adopt=false --org o1 --org o2", "PUT " + s + `/c1/domains/acme.dev {"org_ids":["o1","o2"]}`},
 		{"server connectors unmanage c1 acme.dev", "DELETE " + s + "/c1/domains/acme.dev "},
 		{"server connectors takeover c1 acme.dev --confirm acme.dev", "POST " + s + `/c1/domains/acme.dev/takeover {"confirm":"acme.dev"}`},
 		{"org connectors ls --dns", "GET " + o + " "},
 		{"org connectors domains c1 --org beta", "GET " + b + "/c1/domains "},
-		{"org connectors manage c1 acme.dev", "PUT " + o + `/c1/domains/acme.dev {"org_ids":[]}`},
+		{"org connectors manage c1 acme.dev", "PUT " + o + `/c1/domains/acme.dev {"adopt":[],"org_ids":[]}`},
 		{"org connectors unmanage c1 acme.dev", "DELETE " + o + "/c1/domains/acme.dev "},
 		{"org connectors takeover c1 acme.dev --confirm acme.dev", "POST " + o + `/c1/domains/acme.dev/takeover {"confirm":"acme.dev"}`},
 		{"org connectors rm c1 --dns -y", "DELETE " + o + "/c1 "},
@@ -103,7 +103,7 @@ func slicesHasWrite(reqs []string) bool {
 // a scoped domain reads "managed under".
 func TestDNSUnder(t *testing.T) {
 	r := fake(t, map[string]string{
-		"/plan":       `{"scope":"stackr.acme.dev","writes":[],"adopt":[],"left_alone":[{"host":"www.acme.dev","type":"A","value":"192.0.2.1"}]}`,
+		"/plan":       `{"scope":"stackr.acme.dev","writes":[],"adopt":[{"name":"stackr.acme.dev","type":"A","value":"192.0.2.9","host":"stackr","serves":true},{"name":"old.stackr.acme.dev","type":"A","value":"192.0.2.9","host":"old.stackr","serves":false}],"left_alone":[{"host":"www.acme.dev","type":"A","value":"192.0.2.1"}]}`,
 		"/acme.dev":   `{"name":"acme.dev","state":"managed","scope":"stackr.acme.dev","share_all":true,"org_ids":[]}`,
 		"/c1/domains": `[{"name":"acme.dev","state":"managed","scope":"stackr.acme.dev"},{"name":"b.dev","state":"managed"}]`,
 	})
@@ -117,7 +117,7 @@ func TestDNSUnder(t *testing.T) {
 	if code, out, errw = cli(t, "-y", "server", "connectors", "manage", "c1", "acme.dev", "--under", "stackr"); code != 0 || !strings.Contains(out, "managed under stackr.acme.dev") {
 		t.Fatalf("manage = %d %q %q", code, out, errw)
 	}
-	if w := writes(r); w[len(w)-1] != `PUT /api/v1/admin/dns-connectors/c1/domains/acme.dev {"org_ids":[],"under":"stackr"}` {
+	if w := writes(r); w[len(w)-1] != `PUT /api/v1/admin/dns-connectors/c1/domains/acme.dev {"adopt":[{"name":"stackr.acme.dev","type":"A","value":"192.0.2.9"}],"org_ids":[],"under":"stackr"}` {
 		t.Errorf("manage sent %q", w)
 	}
 	if code, out, _ = cli(t, "server", "connectors", "domains", "c1"); code != 0 || !strings.Contains(out, "managed under stackr.acme.dev") || strings.Contains(out, "under (none)") {
@@ -125,5 +125,14 @@ func TestDNSUnder(t *testing.T) {
 	}
 	if code, out, _ = cli(t, "--json", "server", "connectors", "domains", "c1"); code != 0 || !strings.Contains(out, `"scope": "stackr.acme.dev"`) {
 		t.Errorf("domains --json = %d %q", code, out)
+	}
+}
+
+// A list of plain names prints one per line, not an empty table.
+func TestShowPlainList(t *testing.T) {
+	fake(t, map[string]string{"/managed-domains": `["acme.dev","test.b.dev"]`})
+	code, out, errw := cli(t, "tile", "domain", "managed", "web", "--stack", "shop", "--env", "dev")
+	if code != 0 || out != "acme.dev\ntest.b.dev\n" {
+		t.Errorf("managed = %d %q %q", code, out, errw)
 	}
 }

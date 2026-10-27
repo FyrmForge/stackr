@@ -82,6 +82,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 	}
 
 	var orgs []string
+	var adopt bool
 	manage := leaf("manage <connector> <domain>", op("manage"),
 		"Let stackr manage a domain's DNS records", exact(2),
 		func(c *cobra.Command, args []string) error {
@@ -94,17 +95,36 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 					return err
 				}
 			}
+			path := b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1])
 			body := map[string]any{"org_ids": append([]string{}, orgs...)}
 			if under != "" {
 				body["under"] = under
 			}
-			v, err := a.call(PUT, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1]), body)
+			if adopt { // what the panel ticks: the plan's records a tile serves
+				q := ""
+				if under != "" {
+					q = "?under=" + url.QueryEscape(under)
+				}
+				p, err := a.call(GET, path+"/plan"+q, nil)
+				if err != nil {
+					return err
+				}
+				take := []map[string]any{}
+				for _, r := range asList(asMap(p)["adopt"]) {
+					if r := asMap(r); r["serves"] == true {
+						take = append(take, map[string]any{"name": r["name"], "type": r["type"], "value": r["value"]})
+					}
+				}
+				body["adopt"] = take
+			}
+			v, err := a.call(PUT, path, body)
 			if err != nil {
 				return err
 			}
 			return a.showDomains(v)
 		})
 	manage.Flags().StringVar(&under, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
+	manage.Flags().BoolVar(&adopt, "adopt", true, "take over the existing records the plan lists as serving a tile")
 	if server {
 		manage.Short += "; --org limits who may use it (default: every organization)"
 		manage.Flags().StringArrayVar(&orgs, "org", nil, "available to this organization id only (repeatable)")

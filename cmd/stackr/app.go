@@ -344,6 +344,12 @@ func (a *app) show(v any, cols ...string) error {
 	}
 	switch v := v.(type) {
 	case []any:
+		if _, rec := firstOf(v).(map[string]any); len(cols) == 0 && !rec { // plain values, one per line
+			for _, it := range v {
+				_, _ = fmt.Fprintln(a.out, cell(it))
+			}
+			return nil
+		}
 		rows := make([][]string, 0, len(v))
 		for _, it := range v {
 			m, _ := it.(map[string]any)
@@ -379,6 +385,13 @@ func (a *app) show(v any, cols ...string) error {
 		_, _ = fmt.Fprintln(a.out, cell(v))
 	}
 	return nil
+}
+
+func firstOf(v []any) any {
+	if len(v) == 0 {
+		return nil
+	}
+	return v[0]
 }
 
 // cell is a column's value as shown: a time (*_at, next_run) on this

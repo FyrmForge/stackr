@@ -48,6 +48,8 @@ stackr server connectors unmanage <connector> example.com
 stackr server connectors takeover <connector> example.com --confirm example.com
 ```
 
+`manage` takes over the existing records a tile already serves, as the panel ticks them. `--adopt=false` leaves them alone.
+
 To manage only part of a domain, give the name below it. stackr then writes only at and under `stackr.example.com` and never touches the rest. The plan lists the records it leaves alone. The domain list shows `managed under stackr.example.com`.
 
 ```bash
