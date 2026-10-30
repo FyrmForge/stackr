@@ -56,14 +56,15 @@ func TestPgSeedArgv(t *testing.T) {
 	}
 }
 
-// The plain filter drops owners and grants, never COPY rows that read the
-// same.
+// The plain filter drops owners, grants and the dump's own \restrict lines,
+// never COPY rows that read the same.
 func TestPgSeedFilter(t *testing.T) {
 	awk, err := exec.LookPath("awk")
 	if err != nil {
 		t.Skip("no awk")
 	}
 	in := strings.Join([]string{
+		`\restrict k1`,
 		"CREATE TABLE public.t (v text);",
 		"ALTER TABLE public.t OWNER TO alice;",
 		"COPY public.t (v) FROM stdin;",
@@ -74,6 +75,7 @@ func TestPgSeedFilter(t *testing.T) {
 		"ALTER DEFAULT PRIVILEGES FOR ROLE alice GRANT ALL ON TABLES TO bob;",
 		"SET SESSION AUTHORIZATION alice;",
 		"CREATE INDEX t_v ON public.t (v);",
+		`\unrestrict k1`,
 	}, "\n") + "\n"
 	cmd := exec.Command(awk, pgSeedFilter)
 	cmd.Stdin = strings.NewReader(in)

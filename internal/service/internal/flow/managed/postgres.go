@@ -328,12 +328,14 @@ fi`
 }
 
 // pgSeedFilter drops what ties a plain dump to its source's roles (owners,
-// grants, session authorization), outside COPY data, where a row can read
-// the same. ponytail: a function body line starting with GRANT is dropped
-// too; such a dump loads as pg_dump -Fc instead.
+// grants, session authorization) and the dump's own \restrict lines,
+// outside COPY data, where a row can read the same. ponytail: a function
+// body line starting with GRANT is dropped too; such a dump loads as
+// pg_dump -Fc instead.
 const pgSeedFilter = `/^COPY .* FROM stdin;$/ { copy = 1 }
 copy { print; if ($0 == "\\.") copy = 0; next }
 /^(ALTER .* OWNER TO |GRANT |REVOKE |ALTER DEFAULT PRIVILEGES |SET SESSION AUTHORIZATION )/ { next }
+/^\\(un)?restrict / { next }
 { print }`
 
 // Seed loads a pg_dump into slice s as its owner, so the slice's own cred
@@ -349,7 +351,10 @@ func (pg) Seed(format string, _ Instance, s Slice) []string {
 		return append(env, "pg_restore", "--no-owner", "--no-privileges", "--exit-on-error",
 			"--single-transaction", "-U", s.User, "-d", s.Name)
 	case DumpPlain:
-		script := `LC_ALL=C awk '` + pgSeedFilter + `' | ` +
+		// psql runs in restricted mode under a key the dump cannot know: a
+		// meta-command in it (\! runs a shell) fails the load.
+		script := `k=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); ` +
+			`{ printf '\\restrict %s\n' "$k"; LC_ALL=C awk '` + pgSeedFilter + `'; } | ` +
 			`psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$0" -d "$1" -f - >/dev/null`
 		return append(env, "sh", "-c", script, s.User, s.Name)
 	}

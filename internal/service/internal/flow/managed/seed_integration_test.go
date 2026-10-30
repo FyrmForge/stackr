@@ -111,4 +111,13 @@ func TestSeedAgainstPostgres(t *testing.T) {
 	if strings.TrimSpace(got) != "0" {
 		t.Errorf("a failed load kept its tables: %q", got)
 	}
+
+	// a meta-command in a plain dump does not run: \! would be a shell
+	evil := []byte("CREATE TABLE kept (id int);\n\\! touch /tmp/seeded\n")
+	if _, err := run(pg{}.Seed(DumpPlain, i, s), evil); err == nil || !strings.Contains(err.Error(), "restricted") {
+		t.Errorf("meta-command load = %v, want refused", err)
+	}
+	if _, err := run([]string{"test", "-e", "/tmp/seeded"}, nil); err == nil {
+		t.Error("a dump's \\! ran a shell command")
+	}
 }
