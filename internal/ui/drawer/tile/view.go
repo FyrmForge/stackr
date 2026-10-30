@@ -230,9 +230,11 @@ type AccessBinding struct {
 type JobsView struct{ Rows []JobRow }
 
 // Cancel is the cancel action's URL; "" = no button (finished, or no verb).
+// Line is the release line the job makes ("rebuild"), Waits why a queued
+// job has not started; "" = none.
 type JobRow struct {
-	Kind, State, Error, Cancel string
-	When                       time.Time
+	Kind, Line, State, Error, Cancel, Waits string
+	When                                    time.Time
 }
 
 type ImageView struct {

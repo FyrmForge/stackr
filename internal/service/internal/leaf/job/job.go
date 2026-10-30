@@ -5,6 +5,7 @@ package job
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -54,9 +55,74 @@ func LockSet(tileIDs ...string) []string {
 	return slices.Compact(s)
 }
 
-// Overlaps reports whether two lock sets share a tile.
+// All is the lock key that overlaps every job, an empty lock set included:
+// the panel upgrade and the worker rollout take it, so they wait for the
+// jobs ahead of them and every job queued after them waits for them.
+const All = "*"
+
+// Overlaps reports whether two lock sets share a tile, or either holds All.
 func Overlaps(a, b []string) bool {
+	if slices.Contains(a, All) || slices.Contains(b, All) {
+		return true
+	}
 	return slices.ContainsFunc(a, func(t string) bool { return slices.Contains(b, t) })
+}
+
+// Ahead is the live jobs queued job j waits behind, in the runner's order:
+// every running job and every older queued one whose lock overlaps j's.
+// A parked job holds no lock. live is any slice of jobs; j itself is skipped.
+func Ahead(j store.Job, live []store.Job) []store.Job {
+	var out []store.Job
+	for _, o := range live {
+		if o.ID == j.ID || !Overlaps(j.LockSet, o.LockSet) {
+			continue
+		}
+		if o.State == Running || (o.State == Queued && o.CreatedAt.Before(j.CreatedAt)) {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// RunningAhead counts the running jobs queued job j waits for. Older queued
+// ones ahead of it are not counted: they run first, and count then.
+func RunningAhead(j store.Job, live []store.Job) int {
+	n := 0
+	for _, o := range Ahead(j, live) {
+		if o.State == Running {
+			n++
+		}
+	}
+	return n
+}
+
+// RunningJobs is "1 running job" or "N running jobs".
+func RunningJobs(n int) string {
+	if n == 1 {
+		return "1 running job"
+	}
+	return fmt.Sprintf("%d running jobs", n)
+}
+
+// Waits is why queued job j has not started, for the jobs lists: an All
+// job counts the jobs it waits for, any other job names an All job ahead
+// of it. "" = nothing to say (not queued, or a plain tile wait).
+// held: the runner holds the queue while the upgraded panel takes over.
+func Waits(j store.Job, live []store.Job, held bool) string {
+	if j.State != Queued {
+		return ""
+	}
+	ahead := Ahead(j, live)
+	switch {
+	case slices.Contains(j.LockSet, All):
+		if n := RunningAhead(j, live); n > 0 {
+			return "Waits for " + RunningJobs(n)
+		}
+		return ""
+	case held || slices.ContainsFunc(ahead, func(o store.Job) bool { return slices.Contains(o.LockSet, All) }):
+		return "Waits for the panel upgrade"
+	}
+	return ""
 }
 
 // Supersedes is the Railway rule's other half, next to the lock key: a newer

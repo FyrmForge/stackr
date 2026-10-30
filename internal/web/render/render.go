@@ -98,6 +98,9 @@ func Shell(c echo.Context, title string) components.Shell {
 		if count, ok := c.Get(waitingKey).(func() int); ok && s.Admin {
 			s.Waiting = count()
 		}
+		if up, ok := c.Get(upgradingKey).(func() bool); ok {
+			s.Upgrading = up()
+		}
 		if ps, ok := c.Get(problemsKey).(func() []service.Problem); ok && s.Admin {
 			for _, p := range ps() {
 				s.Problems = append(s.Problems, components.Problem{Critical: p.Severity == service.SevCritical,
@@ -166,13 +169,16 @@ const waitingKey = "host_waiting"
 const problemsKey = "admin_problems"
 const nodeDownKey = "env_node_down"
 const ingressDownKey = "env_ingress_down"
+const upgradingKey = "panel_upgrading"
 
 // NodeDown lets the shell show the offline banner on env and tile pages. It
 // leaves a lazy func, which Shell calls only when the URL has an env; the
-// answer is "" while the env's node is up.
+// answer is "" while the env's node is up. It also leaves the upgrade
+// banner's lazy check, which every signed-in page reads.
 func NodeDown(orch *service.Orchestrator) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			c.Set(upgradingKey, func() bool { return orch.UpgradeUnderway(c.Request().Context()) })
 			c.Set(nodeDownKey, func(envID string) string {
 				d, ok := orch.EnvNodeDown(c.Request().Context(), envID)
 				if !ok {

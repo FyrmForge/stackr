@@ -2440,6 +2440,9 @@
           "kind": {
             "type": "string"
           },
+          "line": {
+            "type": "string"
+          },
           "lock_set": {
             "items": {
               "type": "string"
@@ -2482,6 +2485,9 @@
                 "type": "null"
               }
             ]
+          },
+          "waits": {
+            "type": "string"
           }
         },
         "required": [

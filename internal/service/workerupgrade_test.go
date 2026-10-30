@@ -545,6 +545,48 @@ func TestUpgradeUnderway(t *testing.T) {
 	}
 }
 
+// The jobs lists say why a queued job waits and mark a rebuild; the Update
+// tab counts what the queued upgrade waits for.
+func TestJobsWaitsAndLine(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	n.orch.upgradeLaunched.Store(time.Now().UnixNano()) // holds the runner: these rows stay put
+	at := time.Now().Add(-time.Minute)
+	row := func(kind, state, payload string, lock ...string) string {
+		id := uuid.NewString()
+		must(t, n.st.Jobs.Create(ctx, store.Job{
+			ID: id, Kind: kind, State: state, LockSet: lock, Payload: payload, CreatedAt: at,
+		}))
+		at = at.Add(time.Second)
+		return id
+	}
+	rebuild := row(string(kindDeploy), job.Running, `{"tile_id":"t1","rebuild":true}`, "t1")
+	up := row(string(kindUpgrade), job.Queued, "{}", job.All)
+	after := row(string(kindDeploy), job.Queued, `{"tile_id":"t9"}`, "t9")
+
+	js, err := n.orch.Jobs(ctx, 0)
+	must(t, err)
+	got := map[string]Job{}
+	for _, j := range js {
+		got[j.ID] = j
+	}
+	if j := got[rebuild]; j.Line != "rebuild" || j.Waits != "" {
+		t.Errorf("rebuild: line %q waits %q", j.Line, j.Waits)
+	}
+	if j := got[up]; j.Waits != "Waits for 1 running job" || j.Line != "" {
+		t.Errorf("upgrade: line %q waits %q", j.Line, j.Waits)
+	}
+	if j := got[after]; j.Waits != "Waits for the panel upgrade" || j.Line != "" {
+		t.Errorf("after: line %q waits %q", j.Line, j.Waits)
+	}
+	if w, err := n.orch.UpgradeWaits(ctx); err != nil || w != "Upgrade waits for 1 running job" {
+		t.Errorf("UpgradeWaits = %q, %v", w, err)
+	}
+	if j, err := n.orch.GetJob(ctx, after); err != nil || j.Waits == "" {
+		t.Errorf("GetJob waits %q, %v", j.Waits, err)
+	}
+}
+
 // Before the boot publish (which runs after the boot's Docker log cap) no
 // rollout is queued, by the boot or by a worker reconnecting; after it, it is.
 func TestRolloutWaitsForTheBootPublish(t *testing.T) {

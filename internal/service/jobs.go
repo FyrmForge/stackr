@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
@@ -741,9 +742,41 @@ func (o *Orchestrator) rejoinProxy(ctx context.Context) error {
 	return o.sync.Sync(ctx)
 }
 
-// GetJob returns one job row.
+// GetJob returns one job row, with what the jobs lists say about it.
 func (o *Orchestrator) GetJob(ctx context.Context, id string) (Job, error) {
-	return o.jobs.Get(ctx, id)
+	j, err := o.jobs.Get(ctx, id)
+	if err != nil {
+		return j, err
+	}
+	js, err := o.annotate(ctx, []Job{j})
+	return js[0], err
+}
+
+// annotate fills the jobs lists' Line and Waits, which are never stored.
+func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
+	var live []Job
+	if slices.ContainsFunc(js, func(j Job) bool { return j.State == job.Queued }) {
+		var err error
+		if live, err = o.jobRows.List(ctx, job.Queued, job.Running); err != nil {
+			return js, err
+		}
+	}
+	held := o.upgradeSwapping()
+	for i := range js {
+		js[i].Waits = job.Waits(js[i], live, held)
+		js[i].Line = jobLine(js[i])
+	}
+	return js, nil
+}
+
+// jobLine is the release line a job makes, for the lists: a rebuild is a
+// deploy job, recognisable only by its payload.
+func jobLine(j Job) string {
+	var p tileJob
+	if j.Kind == string(kindDeploy) && json.Unmarshal([]byte(j.Payload), &p) == nil && p.Rebuild {
+		return deploy.RebuildLine
+	}
+	return ""
 }
 
 // PollJob returns the job and its log from offset on, for a follow view.
@@ -754,12 +787,20 @@ func (o *Orchestrator) PollJob(ctx context.Context, id string, offset int64) (Jo
 // Jobs lists jobs in the given states (none = every state), newest first,
 // at most limit (0 = no cap).
 func (o *Orchestrator) Jobs(ctx context.Context, limit int, states ...string) ([]Job, error) {
-	return o.jobRows.Recent(ctx, limit, states...)
+	js, err := o.jobRows.Recent(ctx, limit, states...)
+	if err != nil {
+		return nil, err
+	}
+	return o.annotate(ctx, js)
 }
 
 // TileJobs is the newest jobs touching the tiles, newest first.
 func (o *Orchestrator) TileJobs(ctx context.Context, tileIDs []string, limit int) ([]Job, error) {
-	return o.jobRows.History(ctx, tileIDs, limit)
+	js, err := o.jobRows.History(ctx, tileIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	return o.annotate(ctx, js)
 }
 
 // CancelJob stops a queued, waiting or building job. Mid-swap is a
