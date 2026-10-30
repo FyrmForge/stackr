@@ -82,6 +82,7 @@ func (p Panel) preview(c echo.Context) error {
 	}
 	v.Scope = plan.Scope
 	v.Writes, v.LeftAlone, v.Adopt = planWrites(plan.Writes), planWrites(plan.LeftAlone), planAdopts(plan.Adopt)
+	v.Nothing = len(plan.Writes) == 0 && len(plan.Adopt) == 0 && len(plan.LeftAlone) == 0
 	return p.list(c, "", nil, v)
 }
 
@@ -103,6 +104,7 @@ func (p Panel) rescopePreview(c echo.Context) error {
 	}
 	v.Scope, v.Resource = plan.Scope, plan.Resource
 	v.HandBack, v.Writes, v.Adopt = planWrites(plan.HandBack), planWrites(plan.Writes), planAdopts(plan.Adopt)
+	v.Nothing = len(plan.HandBack) == 0 && len(plan.Writes) == 0 && len(plan.Adopt) == 0 && plan.Resource == ""
 	return p.list(c, "", nil, v)
 }
 
@@ -250,10 +252,12 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 			Manage:   base + "/manage",
 			Preview:  base + "/preview",
 			Unmanage: base + "/unmanage",
-			Rescope:  base + "/rescope-preview",
 			TakeOver: base + "/takeover",
 			All:      d.ShareAll,
 			Scope:    d.Scope,
+		}
+		if d.State == service.DNSManaged {
+			r.Rescope = base + "/rescope-preview"
 		}
 		for _, og := range orgs {
 			r.Orgs = append(r.Orgs, ui.Org{ID: og.ID, Name: og.Name, On: !d.ShareAll && slices.Contains(d.OrgIDs, og.ID)})

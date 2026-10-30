@@ -75,6 +75,7 @@ type PlanView struct {
 	Rescope  bool
 	HandBack []PlanWrite
 	Resource string
+	Nothing  bool // the plan changes nothing in the zone
 }
 
 // PlanWrite is a record stackr writes now.
@@ -223,7 +224,7 @@ func Load(id, url, provider string) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(listID(id)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 166, Col: 21}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 167, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -236,7 +237,7 @@ func Load(id, url, provider string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(url).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 166, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 167, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -249,7 +250,7 @@ func Load(id, url, provider string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(provider)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 166, Col: 142}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 167, Col: 142}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -298,7 +299,7 @@ func Domains(v DomainsView) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templruntime.NewAttributeExpression(listID(v.ID)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 181, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 182, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -321,7 +322,7 @@ func Domains(v DomainsView) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 185, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 186, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -340,7 +341,7 @@ func Domains(v DomainsView) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.Note)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 188, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 189, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -391,7 +392,7 @@ func Domains(v DomainsView) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(d.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 213, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 214, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
@@ -413,7 +414,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(d.Scope)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 216, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 217, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -436,7 +437,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templruntime.NewAttributeExpression(cmp.Or(d.Preview, d.Manage)).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 220, Col: 96}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 221, Col: 96}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 				if templ_7745c5c3_Err != nil {
@@ -449,7 +450,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templruntime.NewAttributeExpression(vals(map[string]string{"domain": d.Name})).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 220, Col: 150}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 221, Col: 150}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 				if templ_7745c5c3_Err != nil {
@@ -462,7 +463,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + listID(v.ID)).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 220, Col: 183}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 221, Col: 183}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
 				if templ_7745c5c3_Err != nil {
@@ -473,7 +474,7 @@ func Domains(v DomainsView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			if d.Rescope != "" && d.State == "managed" {
+			if d.Rescope != "" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<button type=\"button\" class=\"btn btn-ghost btn-sm\" hx-post=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -481,7 +482,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templruntime.NewAttributeExpression(d.Rescope).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 223, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 224, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 				if templ_7745c5c3_Err != nil {
@@ -494,7 +495,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templruntime.NewAttributeExpression(rescopeVals(d)).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 223, Col: 105}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 224, Col: 105}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 				if templ_7745c5c3_Err != nil {
@@ -507,7 +508,7 @@ func Domains(v DomainsView) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + listID(v.ID)).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 223, Col: 138}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 224, Col: 138}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 				if templ_7745c5c3_Err != nil {
@@ -620,7 +621,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(s.Host)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 262, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 263, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -633,7 +634,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(s.Domain)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 262, Col: 110}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 263, Col: 110}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -651,7 +652,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(s.Host)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 264, Col: 87}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 265, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
@@ -664,7 +665,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(s.Domain)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 264, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 265, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
@@ -683,7 +684,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(s.Host)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 267, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 268, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -696,7 +697,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(s.Domain)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 267, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 268, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
@@ -714,7 +715,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(s.Domain)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 269, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 270, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -732,7 +733,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.Preview).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 272, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 273, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 		if templ_7745c5c3_Err != nil {
@@ -745,7 +746,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templruntime.NewAttributeExpression(vals(map[string]string{"domain": s.Domain, "part": "under", "under": s.Sub})).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 272, Col: 164}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 273, Col: 164}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 		if templ_7745c5c3_Err != nil {
@@ -758,7 +759,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + listID(v.ID)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 272, Col: 197}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 273, Col: 197}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 		if templ_7745c5c3_Err != nil {
@@ -771,7 +772,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(s.Host)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 272, Col: 235}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 273, Col: 235}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -789,7 +790,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.Preview).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 274, Col: 74}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 275, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 			if templ_7745c5c3_Err != nil {
@@ -802,7 +803,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templruntime.NewAttributeExpression(vals(map[string]string{"domain": s.Domain, "part": "all"})).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 274, Col: 145}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 275, Col: 145}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 			if templ_7745c5c3_Err != nil {
@@ -815,7 +816,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + listID(v.ID)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 274, Col: 178}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 275, Col: 178}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 			if templ_7745c5c3_Err != nil {
@@ -828,7 +829,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(s.Domain)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 274, Col: 225}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 275, Col: 225}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -846,7 +847,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var35 string
 		templ_7745c5c3_Var35, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.NotNow).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 276, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 277, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 		if templ_7745c5c3_Err != nil {
@@ -859,7 +860,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var36 string
 		templ_7745c5c3_Var36, templ_7745c5c3_Err = templruntime.NewAttributeExpression(vals(map[string]string{"not_now": "1"})).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 276, Col: 124}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 277, Col: 124}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 		if templ_7745c5c3_Err != nil {
@@ -872,7 +873,7 @@ func suggestion(v DomainsView, s Suggestion) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + listID(v.ID)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 276, Col: 157}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 277, Col: 157}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 		if templ_7745c5c3_Err != nil {
@@ -914,7 +915,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Preview).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 286, Col: 26}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 287, Col: 26}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -927,7 +928,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + listID(v.ID)).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 286, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 287, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 		if templ_7745c5c3_Err != nil {
@@ -940,7 +941,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Domain).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 287, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 288, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 		if templ_7745c5c3_Err != nil {
@@ -963,7 +964,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(p.Domain)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 290, Col: 200}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 291, Col: 200}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 		if templ_7745c5c3_Err != nil {
@@ -994,7 +995,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Under).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 293, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 294, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 			if templ_7745c5c3_Err != nil {
@@ -1007,7 +1008,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Name under " + p.Domain).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 293, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 294, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 			if templ_7745c5c3_Err != nil {
@@ -1038,7 +1039,7 @@ func scopeForm(v DomainsView, p PlanView) templ.Component {
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(p.Domain)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 294, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 295, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 		if templ_7745c5c3_Err != nil {
@@ -1084,7 +1085,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if len(p.HandBack) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<div><p class=\"mb-1.5 text-xs font-medium text-rw-muted\">These become yours. They stay in the zone, stackr stops updating them.</p><ul class=\"modal-list\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<div><p class=\"mb-1.5 text-xs font-medium text-rw-muted\">These become yours.</p><ul class=\"modal-list\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1096,7 +1097,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var47 string
 				templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(w.Host)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 311, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 312, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 				if templ_7745c5c3_Err != nil {
@@ -1109,7 +1110,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var48 string
 				templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(w.Value)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 311, Col: 87}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 312, Col: 87}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 				if templ_7745c5c3_Err != nil {
@@ -1133,7 +1134,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(p.Resource)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 317, Col: 96}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 318, Col: 96}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
@@ -1157,7 +1158,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(w.Type)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 324, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 325, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 				if templ_7745c5c3_Err != nil {
@@ -1170,7 +1171,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var51 string
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(w.Host)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 324, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 325, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1183,7 +1184,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var52 string
 				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(w.Value)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 324, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 325, Col: 94}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 				if templ_7745c5c3_Err != nil {
@@ -1212,7 +1213,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templruntime.NewAttributeExpression(a.Value).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 336, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 337, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 				if templ_7745c5c3_Err != nil {
@@ -1235,7 +1236,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var54 string
 				templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(a.Type)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 337, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 338, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 				if templ_7745c5c3_Err != nil {
@@ -1248,7 +1249,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var55 string
 				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(a.Host)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 337, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 338, Col: 26}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 				if templ_7745c5c3_Err != nil {
@@ -1261,7 +1262,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var56 string
 				templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(a.Address)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 337, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 338, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 				if templ_7745c5c3_Err != nil {
@@ -1277,7 +1278,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if len(p.Writes) == 0 && len(p.Adopt) == 0 && len(p.LeftAlone) == 0 && len(p.HandBack) == 0 && p.Resource == "" && p.UnderError == "" {
+		if p.Nothing {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<p class=\"text-sm text-rw-muted\">Nothing changes in the zone now.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1291,7 +1292,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 			var templ_7745c5c3_Var57 string
 			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(leftAlone(p))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 349, Col: 95}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 350, Col: 95}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 			if templ_7745c5c3_Err != nil {
@@ -1309,7 +1310,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var58 string
 				templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(w.Type)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 352, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 353, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 				if templ_7745c5c3_Err != nil {
@@ -1322,7 +1323,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(w.Host)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 352, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 353, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1335,7 +1336,7 @@ func plan(v DomainsView, p PlanView) templ.Component {
 				var templ_7745c5c3_Var60 string
 				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(w.Value)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 352, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dns/dns.templ`, Line: 353, Col: 94}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {

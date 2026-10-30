@@ -143,7 +143,7 @@ func TestRescopeWidenThenNarrow(t *testing.T) {
 }
 
 // A narrowing that would leave a generated hostname outside the scope is
-// refused, naming it; so is moving a resource tile domains are named by.
+// refused, naming it.
 func TestRescopeRefusesGeneratedHosts(t *testing.T) {
 	env, id, tl := rescopeRig(t)
 	ctx := context.Background()

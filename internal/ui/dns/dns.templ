@@ -62,6 +62,7 @@ type PlanView struct {
 	Rescope  bool
 	HandBack []PlanWrite
 	Resource string
+	Nothing  bool // the plan changes nothing in the zone
 }
 
 // PlanWrite is a record stackr writes now.
@@ -219,7 +220,7 @@ templ Domains(v DomainsView) {
 							if d.Manage != "" && d.State == "not_managed" {
 								<button type="button" class="btn btn-ghost btn-sm" hx-post={ cmp.Or(d.Preview, d.Manage) } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
 							}
-							if d.Rescope != "" && d.State == "managed" {
+							if d.Rescope != "" {
 								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Rescope } hx-vals={ rescopeVals(d) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Change scope</button>
 							}
 							if d.Unmanage != "" && d.State == "managed" {
@@ -305,7 +306,7 @@ templ plan(v DomainsView, p PlanView) {
 	@scopeForm(v, p)
 	if len(p.HandBack) > 0 {
 		<div>
-			<p class="mb-1.5 text-xs font-medium text-rw-muted">These become yours. They stay in the zone, stackr stops updating them.</p>
+			<p class="mb-1.5 text-xs font-medium text-rw-muted">These become yours.</p>
 			<ul class="modal-list">
 				for _, w := range p.HandBack {
 					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Host } → { w.Value }</li>
@@ -341,7 +342,7 @@ templ plan(v DomainsView, p PlanView) {
 			</ul>
 		</div>
 	}
-	if len(p.Writes) == 0 && len(p.Adopt) == 0 && len(p.LeftAlone) == 0 && len(p.HandBack) == 0 && p.Resource == "" && p.UnderError == "" {
+	if p.Nothing {
 		<p class="text-sm text-rw-muted">Nothing changes in the zone now.</p>
 	}
 	if len(p.LeftAlone) > 0 {
