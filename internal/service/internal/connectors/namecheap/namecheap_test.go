@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,20 @@ func TestNamecheapHostsRoundTrip(t *testing.T) {
 	got = "|" + strings.Join(set, "|") + "|"
 	if strings.Contains(got, "109.148.70.232") || !strings.Contains(got, "|HostName1=mail|") || !strings.Contains(got, "|EmailType=FWD|") {
 		t.Errorf("after delete: %s", got)
+	}
+
+	// an MX reads as "pref target" and writes back split
+	live, err := n.Get(ctx, "shop.co.uk")
+	if err != nil || !slices.ContainsFunc(live, func(r libdns.Record) bool { return r.RR().Type == "MX" && strings.HasPrefix(r.RR().Data, "20 ") }) {
+		t.Fatalf("MX read: %v %v", live, err)
+	}
+	set = nil
+	if _, err := n.Append(ctx, "shop.co.uk", []libdns.Record{libdns.RR{Name: "@", Type: "MX", Data: "10 mx.example.net"}}); err != nil {
+		t.Fatal(err)
+	}
+	got = "|" + strings.Join(set, "|") + "|"
+	if !strings.Contains(got, "|Address3=mx.example.net|") || !strings.Contains(got, "|MXPref3=10|") {
+		t.Errorf("MX append: %s", got)
 	}
 }
 

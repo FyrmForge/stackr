@@ -217,13 +217,19 @@ func toHost(r libdns.Record) host {
 	}
 	if mx, ok := r.(libdns.MX); ok {
 		h.MXPref, h.Address = strconv.Itoa(int(mx.Preference)), mx.Target
+	} else if pref, target, ok := strings.Cut(rr.Data, " "); ok && strings.EqualFold(rr.Type, "MX") {
+		h.MXPref, h.Address = pref, target // an RR's MX data is "10 mx.example.net"
 	}
 	return h
 }
 
 func (h host) record() libdns.Record {
 	ttl, _ := strconv.Atoi(h.TTL)
-	return libdns.RR{Name: h.Name, Type: h.Type, Data: h.Address, TTL: time.Duration(ttl) * time.Second}
+	data := h.Address
+	if strings.EqualFold(h.Type, "MX") && h.MXPref != "" {
+		data = h.MXPref + " " + h.Address
+	}
+	return libdns.RR{Name: h.Name, Type: h.Type, Data: data, TTL: time.Duration(ttl) * time.Second}
 }
 
 // same: one record, by name, type and value.

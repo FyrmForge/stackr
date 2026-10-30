@@ -193,7 +193,12 @@ func (o *Orchestrator) dnsWants(ctx context.Context) ([]dnscap.Want, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(out, names...), errors.Join(bad...)
+	custom, err := o.customWants(ctx, zones)
+	if err != nil {
+		return nil, err
+	}
+	return append(append(out, names...), custom...), errors.Join(bad...)
+
 }
 
 // addrWants is w as an A to v4 and an AAAA to v6, each when set.
@@ -244,8 +249,9 @@ func (o *Orchestrator) nameWants(ctx context.Context, zones []store.DNSDomain) (
 		if !ok || x.node == "" {
 			continue
 		}
-		w := dnscap.Want{DNSDomainID: z.ID, Zone: z.Name, Name: dnscap.Name(x.host, z.Name)}
+		w := dnscap.Want{DNSDomainID: z.ID, Zone: z.Name, Name: dnscap.Name(x.host, z.Name), Kind: store.RecordName}
 		v4, v6, _, err := o.nodeAddrs(ctx, x.node)
+
 		if err != nil {
 			return nil, err
 		}
