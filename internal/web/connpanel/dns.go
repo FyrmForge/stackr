@@ -3,6 +3,7 @@ package connpanel
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -24,6 +25,8 @@ func (p Panel) MountDNS(g *echo.Group, prefix string, gate echo.MiddlewareFunc) 
 	g.POST(prefix+"/:connector/domains", p.domains, gate)
 	g.POST(prefix+"/:connector/preview", p.preview, gate)
 	g.POST(prefix+"/:connector/manage", p.manage, gate)
+	g.POST(prefix+"/:connector/rescope-preview", p.rescopePreview, gate)
+	g.POST(prefix+"/:connector/rescope", p.rescope, gate)
 	g.POST(prefix+"/:connector/unmanage", p.unmanage, gate)
 	g.POST(prefix+"/:connector/takeover", p.takeover, gate)
 }
@@ -68,10 +71,7 @@ func under(c echo.Context, domain string) string {
 func (p Panel) preview(c echo.Context) error {
 	domain := c.FormValue("domain")
 	base := p.DNSBase(c) + "/" + c.Param("connector")
-	v := &ui.PlanView{Domain: domain, Preview: base + "/preview", Manage: base + "/manage"}
-	if u := under(c, domain); u != "" {
-		v.Under = strings.TrimSuffix(u, "."+strings.ToLower(strings.Trim(strings.TrimSpace(domain), ".")))
-	}
+	v := planView(c, domain, base+"/preview", base+"/manage")
 	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain), nil)
 	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
 		v.UnderError, v.Manage = bad.Msg, ""
@@ -81,19 +81,68 @@ func (p Panel) preview(c echo.Context) error {
 		return p.answer(c, "", err)
 	}
 	v.Scope = plan.Scope
-	for _, w := range plan.Writes {
-		v.Writes = append(v.Writes, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
+	v.Writes, v.LeftAlone, v.Adopt = planWrites(plan.Writes), planWrites(plan.LeftAlone), planAdopts(plan.Adopt)
+	return p.list(c, "", nil, v)
+}
+
+// POST <dns>/:connector/rescope-preview (domain, part, under): the confirm
+// before changing a managed domain's scope, listing the records handed
+// back, the ones stackr writes and the ones it may adopt.
+func (p Panel) rescopePreview(c echo.Context) error {
+	domain := c.FormValue("domain")
+	base := p.DNSBase(c) + "/" + c.Param("connector")
+	v := planView(c, domain, base+"/rescope-preview", base+"/rescope")
+	v.Rescope = true
+	plan, err := p.Orch.PlanRescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain))
+	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
+		v.UnderError, v.Manage = bad.Msg, ""
+		return p.list(c, "", nil, v)
 	}
-	for _, w := range plan.LeftAlone {
-		v.LeftAlone = append(v.LeftAlone, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
+	if err != nil {
+		return p.answer(c, "", err)
 	}
-	for _, a := range plan.Adopt {
-		v.Adopt = append(v.Adopt, ui.PlanAdopt{
+	v.Scope, v.Resource = plan.Scope, plan.Resource
+	v.HandBack, v.Writes, v.Adopt = planWrites(plan.HandBack), planWrites(plan.Writes), planAdopts(plan.Adopt)
+	return p.list(c, "", nil, v)
+}
+
+// planView is a confirm's scope form for domain as the form asks it.
+func planView(c echo.Context, domain, preview, act string) *ui.PlanView {
+	v := &ui.PlanView{Domain: domain, Preview: preview, Manage: act}
+	if u := under(c, domain); u != "" {
+		v.Under = strings.TrimSuffix(u, "."+strings.ToLower(strings.Trim(strings.TrimSpace(domain), ".")))
+	}
+	return v
+}
+
+func planWrites(ws []service.DNSWrite) []ui.PlanWrite {
+	var out []ui.PlanWrite
+	for _, w := range ws {
+		out = append(out, ui.PlanWrite{Host: w.Host, Type: w.Type, Value: w.Value})
+	}
+	return out
+}
+
+func planAdopts(as []service.DNSAdopt) []ui.PlanAdopt {
+	var out []ui.PlanAdopt
+	for _, a := range as {
+		out = append(out, ui.PlanAdopt{
 			Host: a.Host, Type: a.Type, Address: a.Value, On: a.Serves,
 			Value: strings.Join([]string{a.Name, a.Type, a.Value}, "|"),
 		})
 	}
-	return p.list(c, "", nil, v)
+	return out
+}
+
+// adoptOf is the ticked adopt values (name|type|value) of form.
+func adoptOf(form url.Values) []service.DNSRef {
+	var out []service.DNSRef
+	for _, a := range form["adopt"] {
+		if f := strings.SplitN(a, "|", 3); len(f) == 3 {
+			out = append(out, service.DNSRef{Name: f[0], Type: f[1], Value: f[2]})
+		}
+	}
+	return out
 }
 
 // POST <dns>/:connector/manage (domain, part, under, scope=all|only, org...,
@@ -109,14 +158,19 @@ func (p Panel) manage(c echo.Context) error {
 	if form.Get("scope") == "all" {
 		orgs = nil
 	}
-	var adopt []service.DNSRef
-	for _, a := range form["adopt"] {
-		if f := strings.SplitN(a, "|", 3); len(f) == 3 {
-			adopt = append(adopt, service.DNSRef{Name: f[0], Type: f[1], Value: f[2]})
-		}
-	}
-	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), orgs, adopt)
+	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), orgs, adoptOf(form))
 	return p.answer(c, "Saved.", err)
+}
+
+// POST <dns>/:connector/rescope (domain, part, under, adopt...): change
+// what part of a managed domain stackr manages.
+func (p Panel) rescope(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	_, err = p.Orch.RescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), adoptOf(form))
+	return p.answer(c, "Scope changed.", err)
 }
 
 func (p Panel) unmanage(c echo.Context) error {
@@ -196,6 +250,7 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 			Manage:   base + "/manage",
 			Preview:  base + "/preview",
 			Unmanage: base + "/unmanage",
+			Rescope:  base + "/rescope-preview",
 			TakeOver: base + "/takeover",
 			All:      d.ShareAll,
 			Scope:    d.Scope,

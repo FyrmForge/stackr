@@ -103,3 +103,50 @@ func TestAdminSuggestsPanelScope(t *testing.T) {
 		t.Fatalf("manage = %d\n%s", rec.Code, body)
 	}
 }
+
+// A managed row offers Change scope on its own scope; widening plans the
+// records now inside, narrowing lists what becomes the user's, and the
+// change lands with the row reading its new scope.
+func TestAdminChangeScope(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	s.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}}
+	ns, _ := s.Store.Nodes.List(ctx)
+	ns[0].PublicIP = "198.51.100.1"
+	if err := s.Store.Nodes.Update(ctx, ns[0]); err != nil {
+		t.Fatal(err)
+	}
+	s.DNS.Put("acme.dev", libdns.RR{Name: "www", Type: "A", Data: "198.51.100.1", TTL: 300 * time.Second})
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	c, err := s.Orch.AddConnector(ctx, service.ConnectorAdd{Kind: "namecheap", Values: map[string]string{"user": "jo", "key": panelKey, "client_ip": "203.0.113.7"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Orch.ManageDNSDomainAdopting(ctx, nil, c.Connector.ID, "acme.dev", "test.acme.dev", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	base := "/-/admin/dns/" + c.Connector.ID
+
+	body := s.As(t, root, "POST", base+"/domains", nil).Body.String()
+	if !strings.Contains(body, ">Change scope</button>") || !strings.Contains(body, base+"/rescope-preview") {
+		t.Fatalf("no Change scope on the managed row:\n%s", body)
+	}
+	rec := s.As(t, root, "POST", base+"/rescope-preview", url.Values{"domain": {"acme.dev"}, "part": {"all"}})
+	body = rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "Change what stackr manages on acme.dev?") || !strings.Contains(body, `name="adopt" value="www|A|198.51.100.1"`) {
+		t.Fatalf("widen preview = %d\n%s", rec.Code, body)
+	}
+	rec = s.As(t, root, "POST", base+"/rescope", url.Values{"domain": {"acme.dev"}, "part": {"all"}, "adopt": {"www|A|198.51.100.1"}})
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Scope changed.") || strings.Contains(body, "under <span") {
+		t.Fatalf("widen = %d\n%s", rec.Code, body)
+	}
+
+	body = s.As(t, root, "POST", base+"/rescope-preview", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"test"}}).Body.String()
+	if !strings.Contains(body, "These become yours.") || !strings.Contains(body, "www.acme.dev → 198.51.100.1") {
+		t.Fatalf("narrow preview:\n%s", body)
+	}
+	rec = s.As(t, root, "POST", base+"/rescope", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"test"}})
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "under <span class=\"font-mono\">test.acme.dev</span>") {
+		t.Fatalf("narrow = %d\n%s", rec.Code, body)
+	}
+}

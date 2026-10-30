@@ -57,6 +57,22 @@ stackr server connectors plan <connector> example.com --under stackr
 stackr server connectors manage <connector> example.com --under stackr
 ```
 
+### Change scope
+
+Change scope on a managed domain picks again between all of it and only under a name. The domain stays managed and no tile gives up a hostname. stackr shows the plan first, then asks.
+
+- **Widening** (only under `test` to all): records now inside that point at your nodes are offered for adoption, ticked when a tile serves them. stackr writes the records tiles now need.
+- **Narrowing** (all to only under `test`): records stackr wrote outside the new scope become yours. They stay in the zone so sites keep answering; stackr stops updating them. The plan lists them first.
+
+The domain resource stackr made for the domain moves with the scope, so generated names go under the new one. Change scope is refused, naming the hosts, while a generated or wildcard hostname would fall outside the new scope, or while tile domains are named after the resource that moves. Remove those domains first.
+
+```bash
+stackr server connectors rescope <connector> example.com --under test
+stackr server connectors rescope <connector> example.com
+```
+
+Without `--under` it widens to the whole domain. `rescope` prints the plan and asks; `-y` skips the question. `--adopt=false` leaves the existing records alone.
+
 Stop managing, or removing the connector, is refused while a tile uses the domain; the message names the tiles. Once nothing uses it, stackr deletes only the records it created and forgets the domain.
 
 ## Records
