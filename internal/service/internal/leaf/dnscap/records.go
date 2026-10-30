@@ -467,21 +467,79 @@ func (l *Leaf) Adopt(ctx context.Context, id, zone string, refs []Ref) error {
 	}
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
-	ds, err := l.rows.ListByConnector(ctx, id)
+	d, err := l.byName(ctx, id, zone)
 	if err != nil {
 		return err
 	}
+	return l.adopt(ctx, d, refs)
+}
+
+// byName is the managed domain zone of connector id.
+func (l *Leaf) byName(ctx context.Context, id, zone string) (store.DNSDomain, error) {
+	ds, err := l.rows.ListByConnector(ctx, id)
+	if err != nil {
+		return store.DNSDomain{}, err
+	}
 	i := slices.IndexFunc(ds, func(d store.DNSDomain) bool { return d.Name == Normal(zone) })
 	if i < 0 {
-		return errs.ErrNotFound
+		return store.DNSDomain{}, errs.ErrNotFound
 	}
+	return ds[i], nil
+}
+
+// HandBack is the records of rows stackr made in d's zone that sit outside
+// d's scope: what a change to that scope gives back to the user.
+func HandBack(d store.DNSDomain, rows []store.DNSRecord) []store.DNSRecord {
+	var out []store.DNSRecord
+	for _, r := range rows {
+		if r.Zone == d.Name && !InScope(d, r.Name) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Rescope sets managed domain zone's scope ("" = the whole domain) and
+// adopts refs inside it. The records stackr made outside the new scope are
+// handed back: they stay in the zone, their rows go, and stackr stops
+// updating them. One step under the records lock, so a reconcile never
+// sees the new scope without its rows. Running it again is harmless.
+func (l *Leaf) Rescope(ctx context.Context, id, zone, scope string, refs []Ref) (store.DNSDomain, error) {
+	scope, err := Scope(zone, scope)
+	if err != nil {
+		return store.DNSDomain{}, err
+	}
+	l.recMu.Lock()
+	defer l.recMu.Unlock()
+	d, err := l.byName(ctx, id, zone)
+	if err != nil {
+		return d, err
+	}
+	d.Scope = scope
+	if err := l.rows.Update(ctx, d); err != nil {
+		return d, err
+	}
+	rows, err := l.recs.List(ctx)
+	if err != nil {
+		return d, err
+	}
+	for _, r := range HandBack(d, rows) {
+		if err := l.recs.Delete(ctx, r.ID); err != nil {
+			return d, err
+		}
+	}
+	return d, l.adopt(ctx, d, slices.DeleteFunc(slices.Clone(refs), func(f Ref) bool { return !InScope(d, f.Name) }))
+}
+
+// adopt is Adopt's write, the records lock held.
+func (l *Leaf) adopt(ctx context.Context, d store.DNSDomain, refs []Ref) error {
 	rows, err := l.recs.List(ctx)
 	if err != nil {
 		return err
 	}
 	for _, f := range refs {
 		r := store.DNSRecord{
-			ID: uuid.NewString(), DNSDomainID: &ds[i].ID, Zone: ds[i].Name, Name: f.Name, Type: f.Type,
+			ID: uuid.NewString(), DNSDomainID: &d.ID, Zone: d.Name, Name: f.Name, Type: f.Type,
 			Value: f.Value, TTL: TTL, Adopted: true, CreatedAt: time.Now().UTC(),
 		}
 		if slices.ContainsFunc(rows, func(x store.DNSRecord) bool { return rowKey(x) == rowKey(r) }) {

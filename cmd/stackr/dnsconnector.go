@@ -130,6 +130,55 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		manage.Flags().StringArrayVar(&orgs, "org", nil, "available to this organization id only (repeatable)")
 	}
 
+	var reUnder string
+	var reAdopt bool
+	rescope := leaf("rescope <connector> <domain>", op("rescope-plan")+","+op("rescope"),
+		"Change what part of a managed domain stackr manages; shows the plan, then asks", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			path := b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1]) + "/rescope"
+			q := ""
+			if reUnder != "" {
+				q = "?under=" + url.QueryEscape(reUnder)
+			}
+			p, err := a.call(GET, path+q, nil)
+			if err != nil {
+				return err
+			}
+			m := asMap(p)
+			if !a.json {
+				if err := a.showRescope(m); err != nil {
+					return err
+				}
+			}
+			if err := a.confirm("Change the scope of " + args[1] + "?"); err != nil {
+				return err
+			}
+			body := map[string]any{"adopt": []map[string]any{}}
+			if reUnder != "" {
+				body["under"] = reUnder
+			}
+			if reAdopt { // what the panel ticks: the plan's records a tile serves
+				take := []map[string]any{}
+				for _, r := range asList(m["adopt"]) {
+					if r := asMap(r); r["serves"] == true {
+						take = append(take, map[string]any{"name": r["name"], "type": r["type"], "value": r["value"]})
+					}
+				}
+				body["adopt"] = take
+			}
+			v, err := a.call(POST, path, body)
+			if err != nil {
+				return err
+			}
+			return a.showDomains(v)
+		})
+	rescope.Flags().StringVar(&reUnder, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
+	rescope.Flags().BoolVar(&reAdopt, "adopt", true, "take over the existing records the plan lists as serving a tile")
+
 	unmanage := leaf("unmanage <connector> <domain>", op("unmanage"),
 		"Stop managing a domain; stackr deletes the records it made, other records stay", exact(2),
 		func(c *cobra.Command, args []string) error {
@@ -163,7 +212,34 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		})
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
-	return []*cobra.Command{domains, plan, manage, unmanage, takeover}
+	return []*cobra.Command{domains, plan, manage, rescope, unmanage, takeover}
+}
+
+// showRescope prints a rescope plan: the records handed back first, then
+// what stackr writes and may adopt, and where generated names go.
+func (a *app) showRescope(m map[string]any) error {
+	if back := asList(m["hand_back"]); len(back) > 0 {
+		a.say("These become yours; stackr stops updating them:")
+		if err := a.show(back, "host", "type", "value"); err != nil {
+			return err
+		}
+	}
+	if w := asList(m["writes"]); len(w) > 0 {
+		a.say("stackr writes:")
+		if err := a.show(w, "host", "type", "value"); err != nil {
+			return err
+		}
+	}
+	if ad := asList(m["adopt"]); len(ad) > 0 {
+		a.say("Already pointing at your nodes (serves = adopted):")
+		if err := a.show(ad, "host", "type", "value", "serves"); err != nil {
+			return err
+		}
+	}
+	if r := cell(m["resource"]); r != "(none)" {
+		a.say("Generated names go under %s.", r)
+	}
+	return nil
 }
 
 // showDomains is a domain or a list of them; a managed domain with a scope
