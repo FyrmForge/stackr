@@ -245,6 +245,7 @@ var byVerb = map[string]bool{
 	"kind":       true, // a registered connector kind's name; nothing org-owned
 	"section":    true, // a Server settings section's name; nothing org-owned
 	"form":       true, // a Server settings form's name; nothing org-owned
+	"record":     true, // a custom DNS record's id inside the domain or zone the route names
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;

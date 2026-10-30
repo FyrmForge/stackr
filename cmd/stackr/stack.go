@@ -1228,6 +1228,7 @@ func (a *app) domains() *cobra.Command {
 		add,
 		set,
 		caddy,
+		a.tileRecords(),
 		leaf("rm <host>", "domain.list,domain.detach", "Stop routing a host to the tile", exact(1),
 			a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
 				cur, err := a.find(p+"/domains", "domain", args[0], "host", "id")
