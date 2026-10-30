@@ -43,6 +43,10 @@ func TestCreateManagedFromDump(t *testing.T) {
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "gunzip") {
 		t.Errorf("gzip = %d, want 422 with the hint: %s", rec.Code, rec.Body)
 	}
+	rec = post("empty", nil)
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "empty") {
+		t.Errorf("empty dump = %d, want 422: %s", rec.Code, rec.Body)
+	}
 	rec = post("pg", append([]byte("PGDMP"), bytes.Repeat([]byte("x"), 3<<20)...))
 	if rec.Code != 200 || !strings.Contains(rec.Header().Get("HX-Redirect"), "?drawer=") {
 		t.Fatalf("from dump = %d %s", rec.Code, rec.Body)

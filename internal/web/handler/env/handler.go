@@ -172,7 +172,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 	var err error
 	switch v.Source {
 	case "managed":
-		if fh, ferr := c.FormFile("dump"); ferr == nil && fh.Size > 0 {
+		if fh, ferr := c.FormFile("dump"); ferr == nil && fh.Filename != "" { // an empty file is refused, not dropped
 			t, err = h.createFromDump(c, t, v.Engine, fh)
 		} else {
 			t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
