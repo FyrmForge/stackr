@@ -22,28 +22,56 @@ type (
 // CreateManagedTile makes a managed tile (postgres | s3) and its env-scoped
 // instance row. Nothing runs until Deploy.
 func (o *Orchestrator) CreateManagedTile(ctx context.Context, t Tile, engine string) (Tile, error) {
+	out, _, err := o.createManaged(ctx, t, engine, "")
+	return out, err
+}
+
+// createManaged is CreateManagedTile, plus slice tile slice cut from the
+// instance in the same transaction when slice is set ("-" = <tile>-db).
+func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice string) (Tile, Tile, error) {
 	if !deploy.KnownEngine(engine) {
-		return Tile{}, errs.Invalidf("engine", "%q is not an engine stackr runs.", engine)
+		return Tile{}, Tile{}, errs.Invalidf("engine", "%q is not an engine stackr runs.", engine)
 	}
 	e, err := o.envs.Get(ctx, t.EnvironmentID)
 	if err != nil {
-		return Tile{}, err
+		return Tile{}, Tile{}, err
 	}
 	st, err := o.stacks.Get(ctx, e.StackID)
 	if err != nil {
-		return Tile{}, err
+		return Tile{}, Tile{}, err
+	}
+	if slice != "" && st.ConfigRepo != "" {
+		return Tile{}, Tile{}, errs.Conflictf("stack %s is config-managed; declare the slice tile in its stack file", st.Slug)
 	}
 	t.Kind, t.StackID = tile.Managed, st.ID
-	var out Tile
+	var out, sl Tile
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		tl := tile.New(tx.Tiles, o.docker, nil)
 		var err error
-		if out, err = tile.New(tx.Tiles, o.docker, nil).Create(ctx, t); err != nil {
+		if out, err = tl.Create(ctx, t); err != nil {
 			return err
 		}
-		_, err = managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings).Create(ctx, out.ID, engine, "stackr", "")
+		if _, err = managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings).Create(ctx, out.ID, engine, "stackr", ""); err != nil {
+			return err
+		}
+		if slice == "" {
+			return nil
+		}
+		if slice == "-" {
+			slice = out.Slug + "-db"
+		}
+		from := st.Slug + ":" + e.Slug + ":" + out.Slug
+		sl, err = tl.Create(ctx, Tile{
+			StackID:       st.ID,
+			EnvironmentID: e.ID,
+			Name:          slice,
+			Slug:          slice,
+			Kind:          tile.Slice,
+			ProvisionFrom: &from,
+		})
 		return err
 	})
-	return out, err
+	return out, sl, err
 }
 
 // ManagedInstances are the env's own instances. Another env or stack reaches

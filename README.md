@@ -12,6 +12,7 @@ Step-by-step guides, in the order you need them:
 4. [Backups](docs/guide/backups.md), including Back up node
 5. [Remove a node](docs/guide/remove.md) and `stackr-install uninstall`
 6. [Domains and DNS](docs/guide/domains.md): Namecheap, managed domains, records that follow ingress
+7. [Managed databases](docs/guide/managed.md): postgres and s3 tiles, slices, start from a dump
 
 ## System requirements
 
