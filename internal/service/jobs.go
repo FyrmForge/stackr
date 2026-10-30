@@ -55,6 +55,7 @@ const (
 	kindRegistryClean  jobs.Kind = "registry-clean"
 	kindMoveEnv        jobs.Kind = "move-env"
 	kindShareReconcile jobs.Kind = "share-reconcile"
+	kindSeed           jobs.Kind = "seed"
 )
 
 type runJob struct {
@@ -294,6 +295,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			return err
 		}),
 		kindRestore: payload(o.runRestore),
+		kindSeed:    payload(o.runSeed),
 		kindOrphans: func(ctx context.Context, r *jobs.Run) error {
 			ctx, err := o.withController(ctx)
 			if err != nil {

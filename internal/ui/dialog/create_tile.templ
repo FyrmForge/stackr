@@ -35,11 +35,19 @@ func hostsHelp(hosts string) string {
 	return "Builds from this environment's branch; private repos on " + hosts + " clone through the org's connector."
 }
 
+// encoding is the form's: multipart where it can carry a dump.
+func encoding(source string) string {
+	if source == "managed" {
+		return "multipart/form-data"
+	}
+	return "application/x-www-form-urlencoded"
+}
+
 // Sources are the create form's source switch.
 var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"managed", "Managed"}, {"slice", "Slice"}}
 
 templ CreateTile(v CreateTileView) {
-	<form id="create-tile" hx-post={ v.Action } hx-target="#create-tile" hx-swap="outerHTML">
+	<form id="create-tile" hx-post={ v.Action } hx-target="#create-tile" hx-swap="outerHTML" hx-encoding={ encoding(v.Source) }>
 		@c.DrawerHead("New tile", "")
 		<div class="p-6 space-y-4">
 			if v.FromFile {
@@ -66,6 +74,12 @@ templ CreateTile(v CreateTileView) {
 							<option value="s3" selected?={ v.Engine == "s3" }>s3</option>
 						</select>
 						@c.FieldError("engine", v.Errors["engine"])
+					</div>
+					<div>
+						<label for="dump" class="label">Start from a dump</label>
+						<input type="file" id="dump" name="dump" class="input" aria-describedby="dump-help" { c.Invalid("dump", v.Errors["dump"])... }/>
+						<p id="dump-help" class="mt-1.5 text-xs text-rw-faint" data-hint>Optional. A postgres pg_dump, custom or plain SQL.</p>
+						@c.FieldError("dump", v.Errors["dump"])
 					</div>
 				case "slice":
 					@c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The managed tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]})

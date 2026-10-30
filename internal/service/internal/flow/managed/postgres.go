@@ -326,3 +326,32 @@ PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" ` +
 fi`
 	return []string{"sh", "-c", script, i.AdminPassword, i.AdminUser, target}
 }
+
+// pgSeedFilter drops what ties a plain dump to its source's roles (owners,
+// grants, session authorization), outside COPY data, where a row can read
+// the same. ponytail: a function body line starting with GRANT is dropped
+// too; such a dump loads as pg_dump -Fc instead.
+const pgSeedFilter = `/^COPY .* FROM stdin;$/ { copy = 1 }
+copy { print; if ($0 == "\\.") copy = 0; next }
+/^(ALTER .* OWNER TO |GRANT |REVOKE |ALTER DEFAULT PRIVILEGES |SET SESSION AUTHORIZATION )/ { next }
+{ print }`
+
+// Seed loads a pg_dump into slice s as its owner, so the slice's own cred
+// and every bound one reach what it makes: no owners and no grants from
+// the source, one transaction, the first error stops it. Notices stay out
+// of stderr so a failure's tail is the error. A pg_dumpall or a -C dump
+// (CREATE DATABASE, \connect) fails and says so.
+// ponytail: an extension only a superuser may create fails the load.
+func (pg) Seed(format string, _ Instance, s Slice) []string {
+	env := []string{"env", "PGPASSWORD=" + s.Password, "PGOPTIONS=-c client_min_messages=warning"}
+	switch format {
+	case DumpCustom:
+		return append(env, "pg_restore", "--no-owner", "--no-privileges", "--exit-on-error",
+			"--single-transaction", "-U", s.User, "-d", s.Name)
+	case DumpPlain:
+		script := `LC_ALL=C awk '` + pgSeedFilter + `' | ` +
+			`psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$0" -d "$1" -f - >/dev/null`
+		return append(env, "sh", "-c", script, s.User, s.Name)
+	}
+	return nil
+}

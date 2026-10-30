@@ -3,9 +3,12 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"reflect"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -180,6 +183,40 @@ func (h *H) CreateManagedTile() Endpoint {
 		}
 		return h.Orch.CreateManagedTile(rc(c), t, in.Engine)
 	})
+}
+
+// ManagedSeeded is a managed tile made from a dump: the instance, the
+// slice the dump loads into, and the job doing it.
+type ManagedSeeded struct {
+	Tile service.Tile `json:"tile"`
+	Job  service.Job  `json:"job"`
+}
+
+// CreateManagedFromDump makes a postgres managed tile from the request
+// body, a pg_dump (custom or plain SQL), streamed to disk. ?slice= names
+// the slice tile it loads into ("" = <name>-db). Past the 30s request
+// timeout: the upload runs as long as the dump takes to arrive.
+func (h *H) CreateManagedFromDump() Endpoint {
+	e := Endpoint{
+		Status: http.StatusAccepted,
+		Out:    reflect.TypeFor[ManagedSeeded](),
+		InRaw:  "application/octet-stream",
+		Handle: func(c echo.Context) error {
+			t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: c.QueryParam("name")}
+			out, j, err := h.Orch.CreateManagedTileFromDump(
+				context.WithoutCancel(rc(c)),
+				t,
+				c.QueryParam("engine"),
+				c.QueryParam("slice"),
+				middleware.Body(c),
+			)
+			if err != nil {
+				return err
+			}
+			return c.JSON(http.StatusAccepted, ManagedSeeded{Tile: out, Job: j})
+		},
+	}
+	return e.Q("name", "engine", "slice")
 }
 
 func (h *H) GetTile() Endpoint {
