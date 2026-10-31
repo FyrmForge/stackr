@@ -204,6 +204,25 @@ func (o *Orchestrator) checkNotCustom(ctx context.Context, host string) error {
 	return nil
 }
 
+// checkMovedRecords runs a tile domain's records through checkCustom at
+// host, its new name: they move with it. No provider read; a clash there
+// is the records sync's to report.
+func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord) error {
+	if len(rs) == 0 {
+		return nil
+	}
+	org, err := o.tileOrg(ctx, t)
+	if err != nil {
+		return err
+	}
+	for _, r := range rs {
+		if _, _, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // customWants is the custom records stackr should have now: each tile
 // domain's in the managed domain the record's name sits in (one its org
 // may use), and each managed domain's own inside its scope.
@@ -466,18 +485,18 @@ func (o *Orchestrator) CheckFileRecords(ctx context.Context, orgID, host string,
 	if err := o.checkNotCustom(ctx, host); err != nil {
 		return nil, nil, err
 	}
-	if len(recs) == 0 {
-		if !managed {
-			return nil, nil, nil
-		}
-		_, err := o.recordZone(ctx, orgID, dnscap.Normal(host))
-		return nil, nil, err
+	if len(recs) == 0 && !managed {
+		return nil, nil, nil
 	}
-	if strings.HasPrefix(host, "*.") {
+	if len(recs) > 0 && strings.HasPrefix(host, "*.") {
 		return nil, nil, errs.Invalidf("records", "a wildcard host takes no records")
 	}
+	z, err := o.recordZone(ctx, orgID, dnscap.Normal(host))
+	if err != nil {
+		return nil, nil, err
+	}
 	var out []store.CustomRecord
-	var notes []string
+	notes := []string{o.recordSource(ctx, z)}
 	for _, in := range recs {
 		rec, _, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: orgID, Hosts: hosts}, CustomRecordIn{in.Name, in.Type, in.Value}, false)
 		if err != nil {

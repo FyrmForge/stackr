@@ -212,7 +212,8 @@ func TestCustomRecordNotManaged(t *testing.T) {
 	}
 	env.DNS.Put("acme.dev", libdns.RR{Name: "new", Type: "TXT", Data: "hand"})
 	recs, notes, err := env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Type: "txt", Value: "v=1"}}, nil, false, nil)
-	if err != nil || len(recs) != 1 || recs[0].ID == "" || recs[0].Type != "TXT" || len(notes) != 1 || !strings.Contains(notes[0], "added (1 other there stays)") {
+	if err != nil || len(recs) != 1 || recs[0].ID == "" || recs[0].Type != "TXT" || len(notes) != 2 ||
+		notes[0] != "Managed by acme.dev via Namecheap (server)" || !strings.Contains(notes[1], "added (1 other there stays)") {
 		t.Fatalf("file records = %+v %v %v", recs, notes, err)
 	}
 	_, _, err = env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Name: "api", Type: "TXT", Value: "v"}}, nil, false, []string{"api.new.acme.dev"})
