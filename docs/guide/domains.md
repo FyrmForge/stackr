@@ -93,7 +93,7 @@ You can keep extra records in stackr too: site verification TXT, mail (MX, SPF, 
 
 **On the domain itself.** Records no app owns, like an apex MX or a verification TXT. Open Records on the managed domain's row in the connector's settings.
 
-Each record shows where it is written, for example "managed by example.com via Namecheap (server)".
+Each record shows where it is written, for example "Managed by example.com via Namecheap (server)".
 
 The rules:
 

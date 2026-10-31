@@ -254,7 +254,7 @@ func TestCustomRecordPutBack(t *testing.T) {
 	if err != nil || len(rs.Records) != 1 || rs.Records[0].PutBackAt == nil || !rs.Records[0].Written {
 		t.Fatalf("drawer = %+v %v", rs, err)
 	}
-	if rs.Source != "managed by acme.dev via Namecheap (server)" {
+	if rs.Source != "Managed by acme.dev via Namecheap (server)" {
 		t.Errorf("source = %q", rs.Source)
 	}
 	dr, err := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev")
