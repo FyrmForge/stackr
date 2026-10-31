@@ -15,8 +15,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	orgui "github.com/FyrmForge/stackr/internal/ui/drawer/org"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 )
 
 // panelURL is path on the panel's public address (comp.PanelURL with the
@@ -47,6 +49,8 @@ func orgTabs(c echo.Context, s service.Scope) []string {
 		switch t {
 		case "domains":
 			return !can(c, s, "domain.resource")
+		case "dns":
+			return !can(c, s, "dns.manage")
 		case "connectors":
 			return !can(c, s, "connector.write") && !can(c, s, "connector.manage") && !can(c, s, "dns.manage")
 		}
@@ -103,6 +107,9 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.vars(c, cd.s, "", "")
 	case "domains":
 		return h.orgDomains(c, cd, f.Base)
+	case "dns":
+		ds, err := h.orch.ManagedDomains(ctx, &og.ID)
+		return dnsui.Page(connpanel.ManagedPage(ds, "")), err
 	case "connectors":
 		return h.connectorsTab(c, og)
 	case "storage":

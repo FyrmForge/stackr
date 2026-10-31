@@ -26,10 +26,10 @@ import (
 )
 
 // Tabs in strip order; the handler hides the ones a role cannot use.
-var Tabs = []string{"general", "people", "variables", "domains", "connectors", "storage", "config", "placement"}
+var Tabs = []string{"general", "people", "variables", "domains", "dns", "connectors", "storage", "config", "placement"}
 
 // Labels are the strip's words where the key's capitalised form is not.
-var Labels = map[string]string{"config": "Config as code"}
+var Labels = map[string]string{"config": "Config as code", "dns": "Managed DNS"}
 
 type SettingsView struct {
 	Name     string

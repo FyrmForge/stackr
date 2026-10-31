@@ -169,6 +169,12 @@ templ Load(id, url, provider string) {
 	<div id={ listID(id) } hx-post={ url } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Asking { provider }…</div>
 }
 
+// LoadWith is Load posting form, to open the list on one domain's Change
+// scope or records.
+templ LoadWith(id, url string, form map[string]string, provider string) {
+	<div id={ listID(id) } hx-post={ url } hx-vals={ vals(form) } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Asking { provider }…</div>
+}
+
 func stateWord(s string) (string, string) {
 	switch s {
 	case "managed":

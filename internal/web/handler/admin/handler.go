@@ -20,7 +20,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/admin"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -365,6 +367,9 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		return ui.Domains(ui.DomainsView{Settings: s, Caddy: ui.CaddyView{Action: ui.Base + "/caddy", Sync: ui.Base + "/caddy/sync", Value: val}}), err
 	case "connectors":
 		return h.connectorsTab(c)
+	case "managed-dns":
+		ds, err := h.orch.ManagedDomains(ctx, nil)
+		return dnsui.Page(connpanel.ManagedPage(ds, ui.Href("connectors"))), err
 	case "backups":
 		return h.backupsTab(c, job)
 	case "registry":
