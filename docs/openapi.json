@@ -1216,6 +1216,40 @@
         ],
         "type": "object"
       },
+      "DNSRescopePlan": {
+        "properties": {
+          "adopt": {
+            "items": {
+              "$ref": "#/components/schemas/DNSAdopt"
+            },
+            "type": "array"
+          },
+          "hand_back": {
+            "items": {
+              "$ref": "#/components/schemas/DNSWrite"
+            },
+            "type": "array"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "writes": {
+            "items": {
+              "$ref": "#/components/schemas/DNSWrite"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "hand_back",
+          "writes",
+          "adopt"
+        ],
+        "type": "object"
+      },
       "DNSWrite": {
         "properties": {
           "host": {
@@ -3392,6 +3426,21 @@
         ],
         "type": "object"
       },
+      "ManagedSeeded": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "tile": {
+            "$ref": "#/components/schemas/Tile"
+          }
+        },
+        "required": [
+          "tile",
+          "job"
+        ],
+        "type": "object"
+      },
       "Member": {
         "properties": {
           "created_at": {
@@ -5135,6 +5184,23 @@
           "latest",
           "latest_at",
           "size"
+        ],
+        "type": "object"
+      },
+      "RescopeIn": {
+        "properties": {
+          "adopt": {
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "type": "array"
+          },
+          "under": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "adopt"
         ],
         "type": "object"
       },
@@ -9069,6 +9135,113 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DNSManagePlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      }
+    },
+    "/api/v1/admin/dns-connectors/{connector}/domains/{zone}/rescope": {
+      "get": {
+        "operationId": "admin.dns-rescope-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "under",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSRescopePlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "connector.admin"
+      },
+      "post": {
+        "operationId": "admin.dns-rescope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RescopeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
                 }
               }
             },
@@ -13514,6 +13687,129 @@
         "x-verb": "dns.manage"
       }
     },
+    "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}/rescope": {
+      "get": {
+        "operationId": "dns.rescope-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "under",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DNSRescopePlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      },
+      "post": {
+        "operationId": "dns.rescope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connector",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RescopeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
     "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}/takeover": {
       "post": {
         "operationId": "dns.takeover",
@@ -16818,6 +17114,87 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/managed/from-dump": {
+      "post": {
+        "operationId": "managed.from-dump",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "engine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "slice",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {}
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedSeeded"
+                }
+              }
+            },
+            "description": "Accepted"
           },
           "default": {
             "content": {

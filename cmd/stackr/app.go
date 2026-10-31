@@ -273,7 +273,9 @@ func (a *app) request(method, path string, body any) (*http.Response, error) {
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
-	if body != nil {
+	if _, raw := body.(io.Reader); raw {
+		req.Header.Set("Content-Type", "application/octet-stream")
+	} else if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	res, err := a.client.Do(req)

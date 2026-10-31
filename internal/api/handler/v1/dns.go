@@ -21,13 +21,21 @@ type (
 		Adopt  []service.DNSRef `json:"adopt"`
 		Under  string           `json:"under,omitempty"`
 	}
+	// RescopeIn is a managed domain's new scope: the name below it stackr
+	// manages at and under ("" = the whole domain), and the existing
+	// records to take over, as the rescope plan lists them.
+	RescopeIn struct {
+		Under string           `json:"under,omitempty"`
+		Adopt []service.DNSRef `json:"adopt"`
+	}
 	// TakeOverIn is the domain typed out.
 	TakeOverIn struct {
 		Confirm string `json:"confirm"`
 	}
 )
 
-func (ManageIn) BodyOptional() {}
+func (ManageIn) BodyOptional()  {}
+func (RescopeIn) BodyOptional() {}
 
 // Level picks whose connectors a handler reaches.
 type Level bool
@@ -71,6 +79,22 @@ func (h *H) PlanDNSDomain(l Level) Endpoint {
 		under := service.DNSScope(c.Param("zone"), c.QueryParam("under"))
 		return h.Orch.PlanManageDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), under, c.QueryParams()["org_id"])
 	}).Q("org_id", "under")
+}
+
+// PlanRescopeDNSDomain is what changing a managed zone's scope to ?under=
+// ("" = the whole domain) would do: the records handed back, written and
+// adoptable, or the refusal.
+func (h *H) PlanRescopeDNSDomain(l Level) Endpoint {
+	return Get(func(c echo.Context) (service.DNSRescopePlan, error) {
+		under := service.DNSScope(c.Param("zone"), c.QueryParam("under"))
+		return h.Orch.PlanRescopeDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), under)
+	}).Q("under")
+}
+
+func (h *H) RescopeDNSDomain(l Level) Endpoint {
+	return JSON(200, func(c echo.Context, in RescopeIn) (service.DNSDomain, error) {
+		return h.Orch.RescopeDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), service.DNSScope(c.Param("zone"), in.Under), in.Adopt)
+	})
 }
 
 func (h *H) UnmanageDNSDomain(l Level) Endpoint {

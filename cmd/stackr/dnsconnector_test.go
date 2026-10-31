@@ -128,6 +128,30 @@ func TestDNSUnder(t *testing.T) {
 	}
 }
 
+// rescope shows the plan, records handed back first, asks, then posts the
+// new scope with the adopted records a tile serves.
+func TestDNSRescope(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/rescope": `{"scope":"test.acme.dev","hand_back":[{"host":"shop.acme.dev","type":"A","value":"192.0.2.9"}],"writes":[],"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9","host":"app.test.acme.dev","serves":true}],"resource":"test.acme.dev"}`,
+	})
+	code, out, _ := cli(t, "server", "connectors", "rescope", "c1", "acme.dev", "--under", "test")
+	if code == 0 || slicesHasWrite(r.reqs) {
+		t.Fatalf("rescope without -y = %d, sent %v", code, r.reqs)
+	}
+	if !strings.Contains(out, "These become yours") || !strings.Contains(out, "shop.acme.dev") || !strings.Contains(out, "go under test.acme.dev") {
+		t.Errorf("plan = %q", out)
+	}
+	if got := r.reqs[0]; got != "GET /api/v1/admin/dns-connectors/c1/domains/acme.dev/rescope?under=test " {
+		t.Errorf("plan sent %q", got)
+	}
+	if code, _, errw := cli(t, "-y", "server", "connectors", "rescope", "c1", "acme.dev", "--under", "test"); code != 0 {
+		t.Fatalf("rescope -y = %d %q", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/dns-connectors/c1/domains/acme.dev/rescope {"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9"}],"under":"test"}` {
+		t.Errorf("rescope sent %q", w)
+	}
+}
+
 // A list of plain names prints one per line, not an empty table.
 func TestShowPlainList(t *testing.T) {
 	fake(t, map[string]string{"/managed-domains": `["acme.dev","test.b.dev"]`})

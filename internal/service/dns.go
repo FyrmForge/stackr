@@ -369,7 +369,14 @@ func (o *Orchestrator) nodeIPs(ctx context.Context) (map[string]bool, error) {
 }
 
 func (o *Orchestrator) planManage(ctx context.Context, c Connector, p dnscap.Provider, domain, scope string, orgIDs []string) (DNSManagePlan, error) {
-	zone := dnscap.Normal(domain)
+	// the zone as it will be managed: who may use it decides whose tiles count
+	z := store.DNSDomain{Name: dnscap.Normal(domain), OrgID: c.OrgID, ShareAll: c.OrgID == nil && len(orgIDs) == 0, OrgIDs: orgIDs, Scope: scope}
+	return o.planZone(ctx, p, z)
+}
+
+// planZone is planManage for z, the managed domain row as it will be.
+func (o *Orchestrator) planZone(ctx context.Context, p dnscap.Provider, z store.DNSDomain) (DNSManagePlan, error) {
+	zone, scope := z.Name, z.Scope
 	all, err := o.dns.Live(ctx, p, zone)
 	if err != nil {
 		return DNSManagePlan{}, err
@@ -383,8 +390,6 @@ func (o *Orchestrator) planManage(ctx context.Context, c Connector, p dnscap.Pro
 	if err != nil {
 		return DNSManagePlan{}, err
 	}
-	// the zone as it will be managed: who may use it decides whose tiles count
-	z := store.DNSDomain{Name: zone, OrgID: c.OrgID, ShareAll: c.OrgID == nil && len(orgIDs) == 0, OrgIDs: orgIDs, Scope: scope}
 	hosts, wants, err := o.zoneWants(ctx, z)
 	if err != nil {
 		return DNSManagePlan{}, err

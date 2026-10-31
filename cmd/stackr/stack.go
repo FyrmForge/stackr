@@ -1499,15 +1499,26 @@ func (a *app) sliceTiles() *cobra.Command {
 }
 
 func (a *app) managed() *cobra.Command {
-	var engine string
-	create := leaf("create <name>", "managed.create", "Make a managed tile (postgres, s3) in --env", exact(1), nil)
+	var engine, dump, slice string
+	create := waits(leaf("create <name>", "managed.create,managed.from-dump", "Make a managed tile (postgres, s3) in --env", exact(1), nil))
 	keys := tileFlags(create)
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")
+	create.Flags().StringVar(&dump, "from-dump", "", "load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin")
+	create.Flags().StringVar(&slice, "slice", "", "the slice tile the dump loads into (default <name>-db)")
 	_ = create.MarkFlagRequired("engine")
 	create.RunE = a.at(atEnv, func(c *cobra.Command, p string, args []string) error {
 		body, err := changed(c, keys)
 		if err != nil {
 			return err
+		}
+		if dump != "" {
+			if body != nil {
+				return usage("--from-dump takes no tile flags; set them once the tile is made")
+			}
+			return a.managedFromDump(c, p, args[0], engine, dump, slice)
+		}
+		if slice != "" {
+			return usage("--slice goes with --from-dump")
 		}
 		if body == nil {
 			body = map[string]any{}
@@ -1524,6 +1535,40 @@ func (a *app) managed() *cobra.Command {
 		a.get("ls", "managed.list", "List the env's managed tiles", atEnv, "/managed", managedCols...),
 		create,
 	), true)
+}
+
+// managedFromDump streams the dump (a file, or stdin for -) to the panel,
+// which makes the tile and its slice and queues the load; the load's job is
+// followed to its end, so a failed load exits non-zero with its error.
+func (a *app) managedFromDump(c *cobra.Command, envPath, name, engine, dump, slice string) error {
+	var in io.Reader = a.in
+	if dump != "-" {
+		f, err := os.Open(dump)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		in = f
+	}
+	q := url.Values{"name": {name}, "engine": {engine}}
+	if slice != "" {
+		q.Set("slice", slice)
+	}
+	v, err := a.call(POST, envPath+"/managed/from-dump?"+q.Encode(), in)
+	if err != nil {
+		return err
+	}
+	m, _ := v.(map[string]any)
+	t, _ := m["tile"].(map[string]any)
+	a.say("created %s; loading the dump", cell(t["slug"]))
+	if nw, _ := c.Flags().GetBool("no-wait"); nw {
+		return a.show(m["job"], "id", "kind", "state")
+	}
+	base, err := a.orgPath()
+	if err != nil {
+		return err
+	}
+	return a.follow(base, m["job"], "load")
 }
 
 // ---- params ----

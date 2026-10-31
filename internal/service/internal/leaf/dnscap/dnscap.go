@@ -196,8 +196,8 @@ func (l *Leaf) zone(ctx context.Context, p Provider, name string) (Zone, error) 
 // connector's domain is available to orgIDs, or every org when none; an
 // org connector's is only ever its org's. The domain must be on the
 // account, served by the provider's DNS. scope is the name stackr manages
-// at and under ("" = the whole domain); it is set once: a managed domain
-// keeps its own, and asking for another is refused.
+// at and under ("" = the whole domain): a managed domain keeps its own, and
+// asking for another is refused (Rescope changes it).
 func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, p Provider, name, scope string, orgIDs []string) (Domain, error) {
 	name = Normal(name)
 	if orgID != nil && len(orgIDs) > 0 {
@@ -218,7 +218,7 @@ func (l *Leaf) Manage(ctx context.Context, id string, orgID *string, p Provider,
 	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == name }); i >= 0 {
 		r := rows[i]
 		if scope != "" && scope != r.Scope {
-			return Domain{}, errs.Conflictf("%s is already managed. Stop managing it first to change what stackr manages.", name)
+			return Domain{}, errs.Conflictf("%s is already managed. Use Change scope to change what stackr manages.", name)
 		}
 		r.ShareAll, r.OrgIDs = d.ShareAll, store.StringList(orgIDs)
 		d.Scope = r.Scope
@@ -268,7 +268,8 @@ func (l *Leaf) ByConnector(ctx context.Context, id string) ([]store.DNSDomain, e
 	return l.rows.ListByConnector(ctx, id)
 }
 
-// Linked records the domain resource stackr made for managed domain name.
+// Linked records the domain resource stackr made for managed domain name;
+// "" unlinks it.
 func (l *Leaf) Linked(ctx context.Context, id, name, resourceID string) error {
 	rows, err := l.rows.ListByConnector(ctx, id)
 	if err != nil {
@@ -278,7 +279,7 @@ func (l *Leaf) Linked(ctx context.Context, id, name, resourceID string) error {
 	if i < 0 {
 		return errs.ErrNotFound
 	}
-	rows[i].ResourceID = &resourceID
+	rows[i].ResourceID = optID(resourceID)
 	return l.rows.Update(ctx, rows[i])
 }
 

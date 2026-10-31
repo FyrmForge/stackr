@@ -91,6 +91,8 @@ func routes(h *v1.H) []Route {
 		{DELETE, org + "/dns-connectors/:connector/domains/:zone", "dns.unmanage", "dns.manage", h.UnmanageDNSDomain(v1.OrgLevel)},
 		{POST, org + "/dns-connectors/:connector/domains/:zone/takeover", "dns.takeover", "dns.manage", h.TakeOverDNSDomain(v1.OrgLevel)},
 		{GET, org + "/dns-connectors/:connector/domains/:zone/plan", "dns.plan", "dns.manage", h.PlanDNSDomain(v1.OrgLevel)},
+		{GET, org + "/dns-connectors/:connector/domains/:zone/rescope", "dns.rescope-plan", "dns.manage", h.PlanRescopeDNSDomain(v1.OrgLevel)},
+		{POST, org + "/dns-connectors/:connector/domains/:zone/rescope", "dns.rescope", "dns.manage", h.RescopeDNSDomain(v1.OrgLevel)},
 		{GET, org + "/backup-dests", "dest.list", "org.read", h.BackupDests()},
 		{POST, org + "/backup-dests", "dest.create", "destination.write", h.CreateBackupDest()},
 		{PUT, org + "/backup-dests/:dest", "dest.update", "destination.write", h.UpdateBackupDest()},
@@ -182,6 +184,7 @@ func routes(h *v1.H) []Route {
 		{POST, env + "/tiles", "tile.create", "tile.write", h.CreateTile()},
 		{GET, env + "/managed", "managed.list", "tile.read", h.ManagedInstances()},
 		{POST, env + "/managed", "managed.create", "tile.write", h.CreateManagedTile()},
+		{POST, env + "/managed/from-dump", "managed.from-dump", "tile.write", h.CreateManagedFromDump()},
 		{POST, env + "/slices", "slice.create", "tile.write", h.CreateSliceTile()},
 
 		// tiles
@@ -338,6 +341,8 @@ func routes(h *v1.H) []Route {
 		{DELETE, "/admin/dns-connectors/:connector/domains/:zone", "admin.dns-unmanage", "connector.admin", h.UnmanageDNSDomain(v1.ServerLevel)},
 		{POST, "/admin/dns-connectors/:connector/domains/:zone/takeover", "admin.dns-takeover", "connector.admin", h.TakeOverDNSDomain(v1.ServerLevel)},
 		{GET, "/admin/dns-connectors/:connector/domains/:zone/plan", "admin.dns-plan", "connector.admin", h.PlanDNSDomain(v1.ServerLevel)},
+		{GET, "/admin/dns-connectors/:connector/domains/:zone/rescope", "admin.dns-rescope-plan", "connector.admin", h.PlanRescopeDNSDomain(v1.ServerLevel)},
+		{POST, "/admin/dns-connectors/:connector/domains/:zone/rescope", "admin.dns-rescope", "connector.admin", h.RescopeDNSDomain(v1.ServerLevel)},
 	}
 }
 

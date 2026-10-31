@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
@@ -55,6 +56,13 @@ type PlanView struct {
 	Writes     []PlanWrite
 	Adopt      []PlanAdopt
 	LeftAlone  []PlanWrite
+	// Rescope: the confirm changes a managed domain's scope. HandBack is
+	// stackr's records outside the new scope, which become the user's;
+	// Resource the host generated names go under now ("" = unchanged).
+	Rescope  bool
+	HandBack []PlanWrite
+	Resource string
+	Nothing  bool // the plan changes nothing in the zone
 }
 
 // PlanWrite is a record stackr writes now.
@@ -74,6 +82,7 @@ type DomainRow struct {
 	Name, State, Scope         string
 	Manage, Unmanage, TakeOver string
 	Preview                    string // the confirm before managing; posts domain
+	Rescope                    string // the confirm before changing a managed domain's scope
 	All                        bool
 	Orgs                       []Org
 }
@@ -116,7 +125,25 @@ func planVals(p PlanView) string {
 	return vals(map[string]string{"domain": p.Domain, "part": part, "under": p.Under})
 }
 
+// rescopeVals opens Change scope on a managed row's own scope.
+func rescopeVals(d DomainRow) string {
+	if d.Scope == "" {
+		return vals(map[string]string{"domain": d.Name, "part": "all"})
+	}
+	return vals(map[string]string{"domain": d.Name, "part": "under", "under": strings.TrimSuffix(d.Scope, "."+d.Name)})
+}
+
+func planButton(p PlanView) string {
+	if p.Rescope {
+		return "Change scope"
+	}
+	return "Manage"
+}
+
 func planTitle(p PlanView) string {
+	if p.Rescope {
+		return "Change what stackr manages on " + p.Domain + "?"
+	}
 	if p.Scope != "" {
 		return "Manage " + p.Scope + "?"
 	}
@@ -171,7 +198,7 @@ templ Domains(v DomainsView) {
 			@c.Confirm(c.ConfirmView{
 				Open:    true,
 				Primary: true,
-				Button:  "Manage",
+				Button:  planButton(*v.Plan),
 				Title:   planTitle(*v.Plan),
 				Action:  v.Plan.Manage,
 				Target:  "#" + listID(v.ID),
@@ -192,6 +219,9 @@ templ Domains(v DomainsView) {
 						<span class="ml-auto flex gap-2">
 							if d.Manage != "" && d.State == "not_managed" {
 								<button type="button" class="btn btn-ghost btn-sm" hx-post={ cmp.Or(d.Preview, d.Manage) } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Manage</button>
+							}
+							if d.Rescope != "" {
+								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Rescope } hx-vals={ rescopeVals(d) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Change scope</button>
 							}
 							if d.Unmanage != "" && d.State == "managed" {
 								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the tile records it made. Other records stay, the panel and node records too.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
@@ -274,6 +304,19 @@ templ scopeForm(v DomainsView, p PlanView) {
 // may adopt, then what it leaves alone.
 templ plan(v DomainsView, p PlanView) {
 	@scopeForm(v, p)
+	if len(p.HandBack) > 0 {
+		<div>
+			<p class="mb-1.5 text-xs font-medium text-rw-muted">These become yours.</p>
+			<ul class="modal-list">
+				for _, w := range p.HandBack {
+					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Host } → { w.Value }</li>
+				}
+			</ul>
+		</div>
+	}
+	if p.Resource != "" {
+		<p class="text-xs text-rw-muted">Generated names go under <span class="font-mono">{ p.Resource }</span>.</p>
+	}
 	if len(p.Writes) > 0 {
 		<div>
 			<p class="mb-1.5 text-xs font-medium text-rw-muted">stackr writes these now.</p>
@@ -299,7 +342,7 @@ templ plan(v DomainsView, p PlanView) {
 			</ul>
 		</div>
 	}
-	if len(p.Writes) == 0 && len(p.Adopt) == 0 && len(p.LeftAlone) == 0 && p.UnderError == "" {
+	if p.Nothing {
 		<p class="text-sm text-rw-muted">Nothing changes in the zone now.</p>
 	}
 	if len(p.LeftAlone) > 0 {
