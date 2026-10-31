@@ -49,6 +49,8 @@ type View struct {
 	Consumers     []Consumer
 	Provisioned   bool
 	DBName        string // the database or bucket, once provisioned
+	Job           *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
+	JobWhen       time.Time
 }
 
 // Consumer is one tile holding a cred on the slice.
@@ -95,6 +97,13 @@ templ Overview(v View) {
 			@c.Facts() {
 				@c.Fact("Provisioned", yesNo(v.Provisioned))
 				@c.Fact("Name", v.DBName)
+			}
+		}
+		if v.Job != nil {
+			@c.PanelSection("slice-job", "Last job", "") {
+				@c.JobStatus(*v.Job)
+				<div class="text-xs text-rw-faint mt-1.5">@c.When(v.JobWhen)
+</div>
 			}
 		}
 	</div>

@@ -436,6 +436,10 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			Endpoint:  m.Endpoint,
 			AdminUser: m.AdminUser,
 		}
+		if st.LastJob != nil {
+			j := render.JobView(render.EnvURL(c), *st.LastJob)
+			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+		}
 		for _, p := range ps {
 			r := instance.SliceRow{
 				Slice:    p.Slice,
@@ -606,6 +610,10 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	js, err := h.orch.TileJobs(ctx, []string{t.ID}, 1)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
 	// A slice has no container: its header word is whether it is provisioned.
 	word := "idle"
 	if sv.Provisioned {
@@ -630,6 +638,10 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		Provisioned:   sv.Provisioned,
 		DBName:        sv.Name,
 		Note:          note,
+	}
+	if len(js) > 0 {
+		j := render.JobView(render.EnvURL(c), js[0])
+		v.Job, v.JobWhen = &j, js[0].CreatedAt
 	}
 	// Target is <stack>:<env>:<tile>; a slug never holds a colon.
 	if at := strings.Split(sv.Target, ":"); len(at) == 3 {

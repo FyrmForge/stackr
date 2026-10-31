@@ -3,12 +3,15 @@ package env_test
 import (
 	"bytes"
 	"context"
+	"html"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -61,5 +64,39 @@ func TestCreateManagedFromDump(t *testing.T) {
 	}
 	if got := " " + strings.Join(made, " ") + " "; !strings.Contains(got, " pg ") || !strings.Contains(got, " pg-db ") {
 		t.Errorf("tiles = %s, want pg and pg-db", got)
+	}
+}
+
+// A failed seed shows in the instance and the slice drawer, error and all:
+// neither has a deploy tab, so this is the only place it reads.
+func TestFailedSeedShowsInDrawers(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	in := service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}
+	pg, j, err := s.Orch.CreateManagedTileFromDump(ctx, in, "postgres", "", strings.NewReader("PGDMP"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the fake runs no postgres, so the seed fails
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if j, err = s.Orch.GetJob(ctx, j.ID); err != nil {
+			t.Fatal(err)
+		}
+		if j.FinishedAt != nil || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if j.State != "failed" || j.Error == "" {
+		t.Fatalf("seed job = %s %q, want failed with an error", j.State, j.Error)
+	}
+	for _, d := range []string{"/acme/shop/dev/-/instances/" + pg.Slug, "/acme/shop/dev/-/slices/pg-db"} {
+		rec := s.Do(t, "GET", d, nil)
+		body := rec.Body.String()
+		if rec.Code != 200 || !strings.Contains(body, "Last job") || !strings.Contains(body, ">seed<") ||
+			!strings.Contains(body, html.EscapeString(j.Error)) {
+			t.Errorf("%s = %d, lacks the failed seed %q:\n%s", d, rec.Code, j.Error, body)
+		}
 	}
 }

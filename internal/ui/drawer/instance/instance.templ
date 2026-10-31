@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
@@ -80,6 +81,8 @@ func stop(v View) c.ConfirmView {
 type OverviewView struct {
 	Endpoint, AdminUser string
 	Slices              []SliceRow
+	Job                 *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
+	JobWhen             time.Time
 }
 
 // SliceRow is one slice cut from the instance: its slice tile, which may
@@ -101,6 +104,14 @@ templ Overview(v View, o OverviewView) {
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
+		}
+		if o.Job != nil {
+			<h3 class="section-title">Last job</h3>
+			<div class="panel p-4">
+				@c.JobStatus(*o.Job)
+				<div class="text-xs text-rw-faint mt-1.5">@c.When(o.JobWhen)
+</div>
+			</div>
 		}
 		<h3 class="section-title">Slices on this instance</h3>
 		if len(o.Slices) == 0 {
