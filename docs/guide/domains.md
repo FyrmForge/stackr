@@ -140,6 +140,31 @@ domains:
 - The plan refuses a host no managed domain covers, a domain the org may not use, a bad value, a CNAME clash and a name another app holds. Each error names the host and the domain. The plan row says how each new record lands, for example "added (1 other there stays)".
 - Export writes `records:` back. `dns: managed` is a plan check only and is not exported.
 
+## See every domain and its records
+
+One page shows every managed domain and the records stackr wrote on it. Admins open Server settings, Managed DNS, which lists every domain. Org owners open the org drawer's Managed DNS tab. It lists the domains their org may use, and on them only their own apps' records. On the org's own connectors' domains it also shows the domain's records and unused ones.
+
+Each domain shows its scope ("All of example.com" or "Only under test"), its connector ("via Namecheap (server)") and, for admins, which orgs may use it. Each record shows its name, type, value and whose it is:
+
+- **App**: written for an app's hostname, its A and its custom records. It links to the app's Domains tab.
+- **Domain**: a custom record on the domain itself.
+- **Unused**: written for a hostname no app wants any more.
+- **Panel** and **Node**: the panel's and the nodes' own addresses (admins only).
+- **Handed back**: a narrowing gave it to you. It stays in the zone and stackr no longer touches it.
+
+A custom record stackr put back after it changed at the DNS host says "Changed outside stackr; put back".
+
+The page reads stackr's own table, never the provider. Records stackr did not write are not listed; see them at your DNS host. It has no actions of its own: Change scope and Records on a domain row open that connector's settings on them, where the viewer may change them.
+
+```bash
+stackr server domains
+stackr server domains example.com
+stackr org domains
+stackr org domains example.com
+```
+
+Without a domain it lists the domains; with one it prints the domain and its records.
+
 ## Certificates
 
 For a managed domain stackr gets wildcard certificates through DNS. A wildcard covers one level only, so stackr gets one per level in use:
