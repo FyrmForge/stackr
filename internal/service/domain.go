@@ -343,6 +343,12 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			if err := o.checkRouteHost(ctx, host); err != nil {
 				return err
 			}
+			if err := o.checkNotCustom(ctx, host); err != nil {
+				return err
+			}
+			if err := o.checkMovedRecords(ctx, t, host, d.Records); err != nil {
+				return err
+			}
 			s, err := specOf(d)
 			if err != nil {
 				return err
