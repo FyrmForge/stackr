@@ -96,6 +96,9 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/dns-connectors/:connector/domains/:zone/records", "dns.records", "dns.manage", h.DNSDomainRecords(v1.OrgLevel)},
 		{POST, org + "/dns-connectors/:connector/domains/:zone/records", "dns.record-add", "dns.manage", h.AddDNSDomainRecord(v1.OrgLevel)},
 		{DELETE, org + "/dns-connectors/:connector/domains/:zone/records/:record", "dns.record-rm", "dns.manage", h.RemoveDNSDomainRecord(v1.OrgLevel)},
+		// the Domains page: the managed domains the org may use, its own records on them
+		{GET, org + "/managed-domains", "dns.managed-list", "dns.manage", h.ManagedDomains(v1.OrgLevel)},
+		{GET, org + "/managed-domains/:zone", "dns.managed-get", "dns.manage", h.ManagedDomain(v1.OrgLevel)},
 		{GET, org + "/backup-dests", "dest.list", "org.read", h.BackupDests()},
 		{POST, org + "/backup-dests", "dest.create", "destination.write", h.CreateBackupDest()},
 		{PUT, org + "/backup-dests/:dest", "dest.update", "destination.write", h.UpdateBackupDest()},
@@ -352,6 +355,9 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/dns-connectors/:connector/domains/:zone/records", "admin.dns-records", "connector.admin", h.DNSDomainRecords(v1.ServerLevel)},
 		{POST, "/admin/dns-connectors/:connector/domains/:zone/records", "admin.dns-record-add", "connector.admin", h.AddDNSDomainRecord(v1.ServerLevel)},
 		{DELETE, "/admin/dns-connectors/:connector/domains/:zone/records/:record", "admin.dns-record-rm", "connector.admin", h.RemoveDNSDomainRecord(v1.ServerLevel)},
+		// the Domains page: every managed domain and the records stackr wrote
+		{GET, "/admin/managed-domains", "admin.dns-managed-list", "admin.read", h.ManagedDomains(v1.ServerLevel)},
+		{GET, "/admin/managed-domains/:zone", "admin.dns-managed-get", "admin.read", h.ManagedDomain(v1.ServerLevel)},
 	}
 }
 

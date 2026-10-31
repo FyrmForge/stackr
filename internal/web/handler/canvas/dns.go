@@ -146,6 +146,11 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 	var open templ.Component
 	if c.QueryParam("add") != "" {
 		open = h.addDialog(c)
+	} else if can(c, middleware.ScopeOf(c), "dns.manage") {
+		// the Managed DNS tab links a domain's Change scope and records here
+		if open, err = h.panel().OpenDomain(c); err != nil {
+			return nil, err
+		}
 	}
 	return connectors.Tab(v, open), nil
 }

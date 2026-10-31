@@ -3077,6 +3077,58 @@
         ],
         "type": "object"
       },
+      "ManagedDomain": {
+        "properties": {
+          "all_orgs": {
+            "type": "boolean"
+          },
+          "can_edit": {
+            "type": "boolean"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "connector_org": {
+            "type": "string"
+          },
+          "connector_org_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "orgs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedRecord"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "scope_text": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "scope_text",
+          "via",
+          "connector_id",
+          "can_edit",
+          "records"
+        ],
+        "type": "object"
+      },
       "ManagedIn": {
         "properties": {
           "build_args": {
@@ -3505,6 +3557,71 @@
           "admin_user",
           "endpoint",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ManagedRecord": {
+        "properties": {
+          "drift": {
+            "type": "string"
+          },
+          "handed_back_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "put_back_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tile": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Usage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "whose": {
+            "type": "string"
+          },
+          "whose_text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "value",
+          "whose",
+          "whose_text"
         ],
         "type": "object"
       },
@@ -5163,7 +5280,7 @@
           },
           "orgs": {
             "items": {
-              "$ref": "#/components/schemas/Usage"
+              "$ref": "#/components/schemas/registry.Usage"
             },
             "type": "array"
           },
@@ -7599,20 +7716,28 @@
       },
       "Usage": {
         "properties": {
-          "bytes": {
-            "type": "integer"
-          },
-          "org": {
+          "id": {
             "type": "string"
           },
-          "versions": {
-            "type": "integer"
+          "level": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "what": {
+            "type": "string"
           }
         },
         "required": [
-          "org",
-          "versions",
-          "bytes"
+          "path",
+          "what",
+          "level",
+          "id",
+          "org_id"
         ],
         "type": "object"
       },
@@ -7845,6 +7970,25 @@
           "stack",
           "env",
           "changes"
+        ],
+        "type": "object"
+      },
+      "registry.Usage": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "org": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "org",
+          "versions",
+          "bytes"
         ],
         "type": "object"
       },
@@ -10294,6 +10438,76 @@
           }
         },
         "x-verb": "user.admin"
+      }
+    },
+    "/api/v1/admin/managed-domains": {
+      "get": {
+        "operationId": "admin.dns-managed-list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedDomain"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/managed-domains/{zone}": {
+      "get": {
+        "operationId": "admin.dns-managed-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedDomain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
       }
     },
     "/api/v1/admin/node-defaults": {
@@ -15139,6 +15353,93 @@
           }
         },
         "x-verb": "org.read"
+      }
+    },
+    "/api/v1/orgs/{org}/managed-domains": {
+      "get": {
+        "operationId": "dns.managed-list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedDomain"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
+      }
+    },
+    "/api/v1/orgs/{org}/managed-domains/{zone}": {
+      "get": {
+        "operationId": "dns.managed-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedDomain"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "dns.manage"
       }
     },
     "/api/v1/orgs/{org}/members": {

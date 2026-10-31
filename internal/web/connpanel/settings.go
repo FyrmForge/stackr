@@ -13,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -58,18 +59,53 @@ func (p Panel) Settings(c echo.Context) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	v := p.settingsView(c, k, tab, body)
+	if c.QueryParam("tab") != "" && c.Request().Header.Get("HX-Target") == connectors.BodyID {
+		return respond.HTML(c, http.StatusOK, connectors.Settings(v))
+	}
+	return respond.HTML(c, http.StatusOK, connectors.Modal(k.Name, p.Refresh(c), connectors.Settings(v)))
+}
+
+// settingsView is k's settings dialog on tab, body its content.
+func (p Panel) settingsView(c echo.Context, k service.Connector, tab string, body templ.Component) connectors.SettingsView {
 	url := p.Base(c) + "/" + k.ID + "/settings?tab="
 	v := connectors.SettingsView{Body: body}
-	for _, t := range ts {
+	for _, t := range tabs(k) {
 		v.Tabs = append(v.Tabs, connectors.TabLink{Label: t[1], URL: url + t[0], On: t[0] == tab})
 	}
 	if p.Delete != nil {
 		v.Delete = p.Delete(c, k)
 	}
-	if c.QueryParam("tab") != "" && c.Request().Header.Get("HX-Target") == connectors.BodyID {
-		return respond.HTML(c, http.StatusOK, connectors.Settings(v))
+	return v
+}
+
+// OpenDomain is ?conn=&domain=&act=&under= on a connectors list, as the
+// Domains page links it: connector conn's settings dialog on its Domains
+// tab with Change scope on the domain's scope (act=rescope, under its
+// name below the domain, "" all of it) or its records (act=records) open.
+// nil without conn.
+func (p Panel) OpenDomain(c echo.Context) (templ.Component, error) {
+	id, domain := c.QueryParam("conn"), c.QueryParam("domain")
+	if id == "" {
+		return nil, nil
 	}
-	return respond.HTML(c, http.StatusOK, connectors.Modal(k.Name, p.Refresh(c), connectors.Settings(v)))
+	k, err := p.Orch.ConnectorStatus(c.Request().Context(), p.Org(c), id)
+	if errors.Is(err, errs.ErrNotFound) {
+		return nil, nil // a stale link opens the list alone
+	}
+	if err != nil {
+		return nil, err
+	}
+	base := p.DNSBase(c) + "/" + k.ID
+	url, vals := base+"/records", map[string]string{"domain": domain}
+	if c.QueryParam("act") == "rescope" {
+		url, vals = base+"/rescope-preview", map[string]string{"domain": domain, "part": "all"}
+		if u := c.QueryParam("under"); u != "" {
+			vals["part"], vals["under"] = "under", u
+		}
+	}
+	body := dnsui.LoadWith(k.ID, url, vals, p.label(k))
+	return connectors.Modal(k.Name, p.Refresh(c), connectors.Settings(p.settingsView(c, k, "domains", body))), nil
 }
 
 func (p Panel) tab(c echo.Context, k service.Connector, tab string) (templ.Component, error) {

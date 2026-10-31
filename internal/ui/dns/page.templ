@@ -1,0 +1,90 @@
+package dns
+
+// PageView is the Domains page: every managed domain the viewer sees and
+// the records stackr wrote on it, server or org level.
+type PageView struct {
+	Domains []PageDomain
+}
+
+// PageDomain is one managed domain: Scope and Via as the service words
+// them, Who who may use it ("" = not shown). Rescope and Records are links
+// to its connector's Change scope and records; "" = the viewer may not.
+type PageDomain struct {
+	Name, Scope, Via, Who string
+	Rescope, Records      string
+	Rows                  []PageRecord
+}
+
+// PageRecord is one record: Whose the word, Tile the app it is for and
+// Href its Domains tab (App only), Host the app hostname when not the
+// record's own name, Drift what happened outside stackr.
+type PageRecord struct {
+	Name, Type, Value, Whose, Tile, Href, Host, Drift string
+}
+
+// Page is the Domains page body.
+templ Page(v PageView) {
+	<div class="space-y-4 text-sm">
+		<p class="text-xs text-rw-faint">Only records stackr wrote are listed. The rest are at your DNS host.</p>
+		if len(v.Domains) == 0 {
+			<p class="text-rw-faint">No managed domains yet. Manage one from a DNS connector.</p>
+		}
+		for _, d := range v.Domains {
+			<section class="space-y-2 border-t border-rw-border pt-3" aria-label={ d.Name }>
+				<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+					<h3 class="font-mono text-sm text-rw-text">{ d.Name }</h3>
+					<span class="text-xs text-rw-muted">{ d.Scope }</span>
+					<span class="text-xs text-rw-muted">{ d.Via }</span>
+					if d.Who != "" {
+						<span class="text-xs text-rw-muted">For { d.Who }</span>
+					}
+					<span class="ml-auto flex gap-2">
+						if d.Rescope != "" {
+							<a class="btn btn-ghost btn-sm" href={ templ.SafeURL(d.Rescope) }>Change scope</a>
+						}
+						if d.Records != "" {
+							<a class="btn btn-ghost btn-sm" href={ templ.SafeURL(d.Records) }>Records</a>
+						}
+					</span>
+				</div>
+				if len(d.Rows) == 0 {
+					<p class="text-xs text-rw-faint">No records here.</p>
+				} else {
+					<div class="overflow-x-auto">
+						<table class="w-full text-xs">
+							<thead class="text-left text-rw-faint">
+								<tr>
+									<th scope="col" class="py-1 pr-3 font-medium">Name</th>
+									<th scope="col" class="py-1 pr-3 font-medium">Type</th>
+									<th scope="col" class="py-1 pr-3 font-medium">Value</th>
+									<th scope="col" class="py-1 font-medium">Whose</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-rw-border">
+								for _, r := range d.Rows {
+									<tr>
+										<td class="py-1 pr-3 font-mono text-rw-text [overflow-wrap:anywhere]">{ r.Name }</td>
+										<td class="py-1 pr-3 text-rw-muted">{ r.Type }</td>
+										<td class="py-1 pr-3 font-mono text-rw-text [overflow-wrap:anywhere]">{ r.Value }</td>
+										<td class="py-1">
+											<span class="text-rw-muted">{ r.Whose }</span>
+											if r.Href != "" {
+												<a class="text-rw-accent hover:underline" href={ templ.SafeURL(r.Href) }>{ r.Tile }</a>
+											}
+											if r.Host != "" {
+												<span class="font-mono text-rw-faint">{ r.Host }</span>
+											}
+											if r.Drift != "" {
+												<span class="block text-rw-warn">{ r.Drift }</span>
+											}
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</section>
+		}
+	</div>
+}

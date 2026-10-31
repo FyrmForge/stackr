@@ -160,3 +160,26 @@ func TestShowPlainList(t *testing.T) {
 		t.Errorf("managed = %d %q %q", code, out, errw)
 	}
 }
+
+// `server|org domains [domain]` read the Domains page's routes.
+func TestManagedDomainsVerbs(t *testing.T) {
+	r := &recorder{}
+	r.serve(t)
+	for _, tc := range []struct{ args, want string }{
+		{"server domains", "GET /api/v1/admin/managed-domains "},
+		{"server domains acme.dev", "GET /api/v1/admin/managed-domains/acme.dev "},
+		{"org domains", "GET /api/v1/orgs/acme/managed-domains "},
+		{"org domains acme.dev --org beta", "GET /api/v1/orgs/beta/managed-domains/acme.dev "},
+	} {
+		r.reqs = nil
+		var out, errw bytes.Buffer
+		code := run(context.Background(), strings.Fields(tc.args), strings.NewReader(""), &out, &errw, false)
+		if code != 0 {
+			t.Errorf("%s = %d %s", tc.args, code, errw.String())
+			continue
+		}
+		if len(r.reqs) == 0 || r.reqs[len(r.reqs)-1] != tc.want {
+			t.Errorf("%s sent %q, want last %q", tc.args, r.reqs, tc.want)
+		}
+	}
+}

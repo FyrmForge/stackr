@@ -84,5 +84,7 @@ func (h *handler) connectorsTab(c echo.Context) (templ.Component, error) {
 	if v.Rows, err = h.panel().Rows(c); err != nil {
 		return nil, err
 	}
-	return connectors.Tab(v, nil), nil
+	// the Managed DNS page links a domain's Change scope and records here
+	open, err := h.panel().OpenDomain(c)
+	return connectors.Tab(v, open), err
 }
