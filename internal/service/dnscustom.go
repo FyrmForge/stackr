@@ -100,14 +100,20 @@ func (o *Orchestrator) recordZone(ctx context.Context, orgID, host string) (stor
 // recordSource is where z's records are written, as the drawer and the
 // plan say it: "Managed by fyrmforge.dev via Namecheap (server)".
 func (o *Orchestrator) recordSource(ctx context.Context, z store.DNSDomain) string {
+	return "Managed by " + z.Name + " " + o.viaOf(ctx, z.ConnectorID)
+}
+
+// viaOf is the connector a managed domain is written through, as the
+// screens say it: "via Namecheap (server)".
+func (o *Orchestrator) viaOf(ctx context.Context, connectorID string) string {
 	level, via := "org", "a DNS connector"
-	if c, err := o.store.Connectors.Get(ctx, z.ConnectorID); err == nil {
+	if c, err := o.store.Connectors.Get(ctx, connectorID); err == nil {
 		via = o.label(c.Kind)
 		if c.OrgID == nil {
 			level = "server"
 		}
 	}
-	return fmt.Sprintf("Managed by %s via %s (%s)", z.Name, via, level)
+	return fmt.Sprintf("via %s (%s)", via, level)
 }
 
 // customOwner is whose record checkCustom checks: an app hostname (App,
