@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/url"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -109,4 +110,62 @@ func (a *app) dnsRecords(op func(string) string, base func(c *cobra.Command) (st
 			}
 			return b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1]) + "/records", nil
 		})
+}
+
+var (
+	managedDomainCols       = []string{"name", "scope_text", "via", "orgs", "records"}
+	managedRecordCols = []string{"name", "type", "value", "whose_text", "host", "drift"}
+)
+
+// managedDomains is `stackr server|org domains [domain]`: every managed
+// domain (scope, connector, who may use it), or one and the records
+// stackr wrote on it. base is the level's managed-domains path.
+func (a *app) managedDomains(ops string, base func() (string, error)) *cobra.Command {
+	return leaf("domains [domain]", ops, "List the managed domains, or one domain's records stackr wrote", upTo(1),
+		func(_ *cobra.Command, args []string) error {
+			p, err := base()
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				p += "/" + url.PathEscape(args[0])
+			}
+			v, err := a.call(GET, p, nil)
+			if err != nil || a.json {
+				if err == nil {
+					err = a.show(v)
+				}
+				return err
+			}
+			if len(args) == 0 {
+				var rows []any
+				for _, d := range asList(v) {
+					m := asMap(d)
+					m["orgs"] = whoMay(m)
+					m["records"] = len(asList(m["records"]))
+					rows = append(rows, m)
+				}
+				return a.show(rows, managedDomainCols...)
+			}
+			m := asMap(v)
+			a.say("%s: %s, %s", cell(m["name"]), cell(m["scope_text"]), cell(m["via"]))
+			if who := whoMay(m); who != "" {
+				a.say("Available to %s", who)
+			}
+			a.say("Only records stackr wrote are listed; the rest are at the DNS host.")
+			return a.show(m["records"], managedRecordCols...)
+		})
+}
+
+// whoMay says who may use a managed domain; "" when the server does not
+// say (an org's view).
+func whoMay(m map[string]any) string {
+	if m["all_orgs"] == true {
+		return "every org"
+	}
+	var out []string
+	for _, o := range asList(m["orgs"]) {
+		out = append(out, cell(o))
+	}
+	return strings.Join(out, ", ")
 }

@@ -136,3 +136,17 @@ func (h *H) RemoveConnector(l Level) Endpoint {
 		return h.Orch.RemoveConnector(rc(c), l.org(c), c.Param("connector"))
 	})
 }
+
+// ManagedDomains is every managed domain the level sees and the records
+// stackr wrote on it (the Domains page); an org only its own tiles'.
+func (h *H) ManagedDomains(l Level) Endpoint {
+	return Get(func(c echo.Context) ([]service.ManagedDomain, error) {
+		return list(h.Orch.ManagedDomains(rc(c), l.org(c)))
+	})
+}
+
+func (h *H) ManagedDomain(l Level) Endpoint {
+	return Get(func(c echo.Context) (service.ManagedDomain, error) {
+		return h.Orch.ManagedDomainNamed(rc(c), l.org(c), c.Param("zone"))
+	})
+}

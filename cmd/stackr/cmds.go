@@ -429,7 +429,13 @@ func (a *app) orgs() *cobra.Command {
 			return a.show(v, orgCols...)
 		})
 
-	n := noun("org", "Orgs, members, invites, credentials, connectors, the org's config file",
+	domains := a.managedDomains("dns.managed-list,dns.managed-get", func() (string, error) {
+		p, err := a.orgPath()
+		return p + "/managed-domains", err
+	})
+	a.orgFlag(domains)
+
+	n := noun("org","Orgs, members, invites, credentials, connectors, the org's config file",
 		leaf("ls", "org.list", "List your orgs", exact(0), func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {
@@ -542,6 +548,7 @@ func (a *app) orgs() *cobra.Command {
 				}),
 		),
 		a.orgConnectors(org),
+		domains,
 	)
 	n.AddCommand(a.orgConfig(org)...)
 	return n

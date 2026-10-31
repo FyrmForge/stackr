@@ -164,6 +164,7 @@ func (a *app) serverConfig() *cobra.Command {
 			}),
 		export,
 		a.serverConnectors(),
+		a.managedDomains("admin.dns-managed-list,admin.dns-managed-get", func() (string, error) { return "/admin/managed-domains", nil }),
 	)
 }
 
