@@ -16,6 +16,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/FyrmForge/stackr/internal/ui/access"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
@@ -188,6 +189,9 @@ type DomainRow struct {
 	HTTPS, Auto          bool
 	Redirect             string
 	Raw                  string
+	// Records is the host's custom DNS records; nil = no managed domain
+	// covers it.
+	Records *dnsui.RecordsView
 }
 
 // RedirectCode is the status the Caddy route sends: a generated redirect

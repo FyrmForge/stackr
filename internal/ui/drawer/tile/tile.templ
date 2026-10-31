@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	"github.com/FyrmForge/stackr/internal/ui/dialog"
 	placementui "github.com/FyrmForge/stackr/internal/ui/placement"
 )
@@ -1033,6 +1034,14 @@ templ domainList(v View, d DomainsView) {
 							</span>
 						}
 					</div>
+					if r.Records != nil {
+						<details class="mt-1" open?={ len(r.Records.Rows) > 0 }>
+							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">DNS records</summary>
+							<div class="mt-2">
+								@dnsui.Records(*r.Records)
+							</div>
+						</details>
+					}
 					if d.Admin && !v.ReadOnly {
 						<details class="mt-1" open?={ r.Raw != "" }>
 							<summary class="text-xs text-rw-faint hover:text-rw-text cursor-pointer select-none">Raw Caddy route (admin)</summary>

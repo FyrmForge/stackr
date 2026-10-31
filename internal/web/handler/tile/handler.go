@@ -29,6 +29,7 @@ import (
 	clusterui "github.com/FyrmForge/stackr/internal/ui/cluster"
 	comp "github.com/FyrmForge/stackr/internal/ui/components"
 	ui "github.com/FyrmForge/stackr/internal/ui/drawer/tile"
+	"github.com/FyrmForge/stackr/internal/web/connpanel"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -61,6 +62,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(d+"/domains", h.AttachDomain, require("domain.write"))
 	g.POST(d+"/domains/:domain/detach", h.DetachDomain, require("domain.write"))
 	g.POST(d+"/domains/:domain/raw", h.SetRawCaddy, require("proxy.admin"))
+	g.POST(d+"/domains/:domain/records", h.AddRecord, require("domain.write"))
+	g.POST(d+"/domains/:domain/records/remove", h.RemoveRecord, require("domain.write"))
 	g.POST(d+"/env", h.SetEnv, write)
 	g.POST(d+"/access", h.SetAccess, write)
 	g.POST(d+"/settings", h.SetSettings, write)
@@ -313,7 +316,23 @@ func (h *handler) settings(c echo.Context, t service.Tile, hd head) (ui.Settings
 			return sv, err
 		}
 		p := middleware.Principal(c)
-		sv.Domains = &ui.DomainsView{Rows: domainRows(ds), Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
+		rows := domainRows(ds)
+		for i := range rows {
+			rs, err := h.orch.TileDomainRecords(ctx, t.ID, rows[i].ID)
+			if err != nil {
+				return sv, err
+			}
+			if rs.Source == "" {
+				continue // no managed domain covers the host: no records
+			}
+			at := base(c) + "/domains/" + rows[i].ID + "/records"
+			v := connpanel.Records(rs, rows[i].ID, at+"?open=network", at+"/remove?open=network", "#"+ui.Root)
+			if !can(c, "domain.write") {
+				v.Add, v.Remove = "", ""
+			}
+			rows[i].Records = &v
+		}
+		sv.Domains = &ui.DomainsView{Rows: rows, Admin: p != nil && p.Access.Admin, Managed: managed, AutoHost: auto}
 		if t.ContainerPort != 0 {
 			sv.Domains.Port = strconv.Itoa(t.ContainerPort)
 		}
@@ -574,6 +593,19 @@ func autoRefusal(err error) error {
 func (h *handler) DetachDomain(c echo.Context) error {
 	err := h.orch.DetachDomain(c.Request().Context(), c.Param("domain"))
 	return h.after(c, "settings", "Detached.", err)
+}
+
+// POST …/domains/:domain/records (rec_name, rec_type, rec_value): a custom
+// DNS record on the host; the note says how it landed.
+func (h *handler) AddRecord(c echo.Context) error {
+	r, err := h.orch.AddTileDomainRecord(c.Request().Context(), tileOf(c).ID, c.Param("domain"), connpanel.RecordIn(c))
+	return h.after(c, "settings", connpanel.RecordNote(r), err)
+}
+
+// POST …/domains/:domain/records/remove (record).
+func (h *handler) RemoveRecord(c echo.Context) error {
+	err := h.orch.RemoveTileDomainRecord(c.Request().Context(), tileOf(c).ID, c.Param("domain"), c.FormValue("record"))
+	return h.after(c, "settings", "Record removed.", err)
 }
 
 func (h *handler) SetRawCaddy(c echo.Context) error {

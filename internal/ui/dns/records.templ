@@ -1,0 +1,117 @@
+package dns
+
+import (
+	"context"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// RecordsView is the custom DNS records of one owner (an app hostname or
+// a managed domain): where stackr writes them, the list, and the add form.
+// Key names the owner: a refused add's typed values come back only into
+// the form whose record_of is Key. Vals is posted with every action (the
+// domain, in the connector settings). Add "" = read only.
+type RecordsView struct {
+	Key         string
+	Source      string
+	Rows        []RecordRow
+	Add, Remove string
+	Target      string
+	Vals        map[string]string
+	Error, Note string
+}
+
+// RecordRow is one declared record; PutBack: it changed outside stackr and
+// stackr put it back.
+type RecordRow struct {
+	ID, Host, Type, Value string
+	PutBack               bool
+}
+
+// ListTarget is the swap target of connector id's domain list.
+func ListTarget(id string) string { return "#" + listID(id) }
+
+// RecordTypes is the add form's type list.
+var RecordTypes = []string{"TXT", "MX", "CNAME", "A", "AAAA"}
+
+func with(m map[string]string, k, v string) string {
+	out := map[string]string{k: v}
+	for a, b := range m {
+		out[a] = b
+	}
+	return vals(out)
+}
+
+// kept is a refused add's typed value when it was this owner's form.
+func (v RecordsView) kept(ctx context.Context, name string) string {
+	if c.Kept(ctx, "record_of", "") != v.Key {
+		return ""
+	}
+	return c.Kept(ctx, name, "")
+}
+
+func (v RecordsView) keptErr(ctx context.Context, name string) string {
+	if c.Kept(ctx, "record_of", "") != v.Key {
+		return ""
+	}
+	return c.KeptErr(ctx, name, "")
+}
+
+// Records is an owner's custom records section.
+templ Records(v RecordsView) {
+	<div class="space-y-2 text-sm">
+		<p class="text-xs text-rw-faint">{ v.Source }</p>
+		if v.Error != "" {
+			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+		}
+		if v.Note != "" {
+			<p class="text-sm text-rw-success" role="status">{ v.Note }</p>
+		}
+		if len(v.Rows) > 0 {
+			<ul class="space-y-1">
+				for _, r := range v.Rows {
+					<li class="flex flex-wrap items-center gap-2">
+						<span class="font-mono text-xs text-rw-text">{ r.Host }</span>
+						<span class="text-xs text-rw-muted">{ r.Type }</span>
+						<span class="font-mono text-xs text-rw-text [overflow-wrap:anywhere] min-w-0">{ r.Value }</span>
+						if r.PutBack {
+							<span class="text-xs text-rw-faint">Changed outside stackr; put back.</span>
+						}
+						if v.Add != "" {
+							<span class="ml-auto">
+								@c.Confirm(c.ConfirmView{
+									Button:  "Remove",
+									Quiet:   true,
+									Title:   "Remove " + r.Type + " " + r.Host + "?",
+									Warning: "stackr deletes it from the zone.",
+									Action:  v.Remove,
+									Target:  v.Target,
+									Vals:    with(v.Vals, "record", r.ID),
+								})
+							</span>
+						}
+					</li>
+				}
+			</ul>
+		}
+		if v.Add != "" {
+			<form novalidate hx-post={ v.Add } hx-vals={ vals(v.Vals) } hx-target={ v.Target } hx-swap="outerHTML" class="flex flex-wrap gap-2 items-start">
+				<input type="hidden" name="record_of" value={ v.Key }/>
+				<select name="rec_type" aria-label="Record type" class="input !w-auto">
+					for _, t := range RecordTypes {
+						<option value={ t } selected?={ v.kept(ctx, "rec_type") == t }>{ t }</option>
+					}
+				</select>
+				<span>
+					<input type="text" name="rec_name" value={ v.kept(ctx, "rec_name") } aria-label="Name below" placeholder="name below (optional)" title="Leave empty for the name itself" class="input !w-40"/>
+					@c.FieldError("rec_name", v.keptErr(ctx, "name"))
+				</span>
+				<span>
+					<input type="text" name="rec_value" value={ v.kept(ctx, "rec_value") } aria-label="Value" placeholder="value" required class="input !w-64"/>
+					@c.FieldError("rec_value", v.keptErr(ctx, "value"))
+				</span>
+				<button type="submit" class="btn btn-ghost btn-sm">Add record</button>
+			</form>
+		}
+	</div>
+}
