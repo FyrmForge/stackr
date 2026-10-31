@@ -38,6 +38,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	// stackr's own Prometheus metrics, for an admin key or session.
 	srv.Echo().GET("/metrics", echo.WrapHandler(selfmetrics.Handler()), deps.Access.Load(), deps.Access.Require("admin.read"))
 
+	// A dump upload is as big as the database it seeds.
+	srv.Echo().Pre(middleware.LiftBodyLimit("/managed/from-dump"))
 	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
 	for _, r := range Routes(h) {
 		g.Add(r.Method, r.Path, r.E.Handle, gate(deps.Access, r))

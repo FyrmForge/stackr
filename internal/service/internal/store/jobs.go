@@ -23,6 +23,11 @@ type Job struct {
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
 	StartedAt    *time.Time `db:"started_at" json:"started_at"`
 	FinishedAt   *time.Time `db:"finished_at" json:"finished_at"`
+	// Line and Waits are filled by the orchestrator for the jobs lists,
+	// never stored: Line is the release line a job makes ("rebuild"), Waits
+	// why a queued job has not started.
+	Line  string `db:"-" json:"line,omitempty"`
+	Waits string `db:"-" json:"waits,omitempty"`
 }
 
 type JobStore interface {

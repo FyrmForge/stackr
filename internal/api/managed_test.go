@@ -64,3 +64,25 @@ func TestManagedAndSliceRoutes(t *testing.T) {
 	want(member, "PUT", env+"/tiles/db/on-remove", `{"on_remove":"drop"}`, 200, `"on_remove":"drop"`)
 	want(member, "PUT", env+"/tiles/api/on-remove", `{"on_remove":"drop"}`, 400)
 }
+
+// A dump upload is past the server's 2M body limit, which still holds
+// everywhere else; a viewer is refused.
+func TestManagedFromDumpRoute(t *testing.T) {
+	w := newWorld(t)
+	v := w.env.User(t, "viewer@x", false)
+	w.env.Member(t, w.acme, v, "viewer")
+	viewer := w.env.APIKey(t, v, w.acme)
+	const env = "/orgs/acme/stacks/shop/envs/dev"
+	big := "PGDMP" + strings.Repeat("x", 3<<20)
+
+	if code, out := w.do(t, viewer, "POST", env+"/managed/from-dump?name=pg&engine=postgres", big); code != 403 {
+		t.Errorf("viewer = %d %s, want 403", code, out)
+	}
+	code, out := w.do(t, w.owner, "POST", env+"/managed/from-dump?name=pg&engine=postgres", big)
+	if code != 202 || !strings.Contains(out, `"kind":"seed"`) || !strings.Contains(out, `"slug":"pg"`) {
+		t.Errorf("from-dump = %d %s, want 202 with the tile and its seed job", code, out)
+	}
+	if code, _ := w.do(t, w.owner, "POST", env+"/managed", `{"name":"`+big+`"}`); code != 413 {
+		t.Errorf("a 3M JSON body = %d, want 413", code)
+	}
+}

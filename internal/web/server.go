@@ -66,7 +66,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		ContentSecurityPolicy: csp,
 	}))
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: CookieSecure(deps.BaseURL)}))
-	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: CookieSecure(deps.BaseURL)}))
+	// The token rides in the hx-headers header only: a form lookup would
+	// parse a multipart body (a dump upload) before the route's auth.
+	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: CookieSecure(deps.BaseURL), TokenLookup: "header:X-CSRF-Token"}))
+	// The create-tile form can carry a dump; the handler reads it after auth.
+	e.Pre(middleware.LiftBodyLimit("/-/new-tile"))
 
 	site.Use(deps.Access.LoadSession())
 	site.Use(render.Theme)

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
@@ -37,8 +36,6 @@ type Flow struct {
 	// DataDir is the install's data dir, where the registry's socket sits;
 	// "" = the registry is left alone (dev, tests).
 	DataDir string
-
-	upgrading sync.Mutex
 }
 
 // ProxyDocker is the slice of the daemon the proxy recreate uses.
@@ -102,14 +99,11 @@ func (f *Flow) Available(latest string) (string, bool) {
 
 // Upgrade: validate, pull, archive, then launch the helper that swaps the
 // panel and gates the new one, keeping the old until it passes. Everything
-// that can fail runs before the launch. Returns the archive path.
+// that can fail runs before the launch. Returns the archive path. Never two
+// at once: the job takes the lock key that overlaps every job (job.All).
 // ponytail: the caller records upgrade_archive at launch, not after the
 // swap: the old panel is gone by then, and the archive restores either way.
 func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, error) {
-	if !f.upgrading.TryLock() {
-		return "", errs.Conflictf("an upgrade is already running")
-	}
-	defer f.upgrading.Unlock()
 	if !f.Upgradable() {
 		return "", errs.Conflictf("A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.")
 	}

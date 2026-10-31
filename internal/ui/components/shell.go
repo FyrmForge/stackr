@@ -26,6 +26,8 @@ type Shell struct {
 	// NodeDown is the offline banner on an env or tile page whose node is
 	// down: the whole sentence, "" = none.
 	NodeDown string
+	// Upgrading is the panel upgrade banner: jobs queue until it is done.
+	Upgrading bool
 	// MoveIngress is the banner's link when it is the env's ingress that is
 	// down: the env's Placement tab, where its ingress moves.
 	MoveIngress string

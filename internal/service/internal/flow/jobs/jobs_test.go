@@ -474,3 +474,55 @@ func TestCancelBeatsPark(t *testing.T) {
 	start(t, r)
 	waitState(t, l, id, job.Cancelled)
 }
+
+// The All lock (the panel upgrade): it waits for every running job, an
+// empty lock set included, and for older queued ones; a job queued after it
+// waits for it even on a tile nothing else holds.
+func TestAllLock(t *testing.T) {
+	a, e, c, up, b := newGate(false), newGate(false), newGate(false), newGate(false), newGate(false)
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": a.run, "e": e.run, "c": c.run, "up": up.run, "b": b.run}, jobs.Options{})
+	start(t, r)
+
+	a1 := enqueue(t, r, "a", "t1")
+	started(t, a)
+	e1 := enqueue(t, r, "e") // no lock at all
+	started(t, e)
+	q0 := enqueue(t, r, "c", "t1") // older, blocked on t1
+	notStarted(t, c)
+	u := enqueue(t, r, "up", job.All)
+	notStarted(t, up)
+	b1 := enqueue(t, r, "b", "t9")
+	notStarted(t, b)
+
+	close(a.release)
+	waitState(t, l, a1, job.Done)
+	started(t, c) // the older queued job goes first
+	notStarted(t, up)
+	close(e.release)
+	waitState(t, l, e1, job.Done)
+	notStarted(t, up)
+	close(c.release)
+	waitState(t, l, q0, job.Done)
+	started(t, up)
+	notStarted(t, b)
+	close(up.release)
+	waitState(t, l, u, job.Done)
+	started(t, b)
+	close(b.release)
+	waitState(t, l, b1, job.Done)
+}
+
+// Hold starts nothing while it answers true.
+func TestHold(t *testing.T) {
+	g := newGate(false)
+	var held atomic.Bool
+	held.Store(true)
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": g.run}, jobs.Options{Hold: held.Load})
+	start(t, r)
+	id := enqueue(t, r, "a", "t1")
+	notStarted(t, g)
+	held.Store(false)
+	started(t, g)
+	close(g.release)
+	waitState(t, l, id, job.Done)
+}

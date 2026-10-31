@@ -63,6 +63,9 @@ func OpenAPI() ([]byte, error) {
 		if r.E.In != nil {
 			op["requestBody"] = map[string]any{"required": true, "content": jsonBody(s.of(r.E.In))}
 		}
+		if r.E.InRaw != "" {
+			op["requestBody"] = map[string]any{"required": true, "content": map[string]any{r.E.InRaw: map[string]any{}}}
+		}
 		if paths[path] == nil {
 			paths[path] = map[string]any{}
 		}
