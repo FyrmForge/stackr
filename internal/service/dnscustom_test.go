@@ -202,6 +202,25 @@ func TestCustomRecordNotManaged(t *testing.T) {
 	if _, _, err := env.Orch.CheckFileRecords(ctx, acme, "x.example.org", nil, nil, false, nil); err != nil {
 		t.Errorf("no dns: managed, no records: %v", err)
 	}
+	_, _, err = env.Orch.CheckFileRecords(ctx, acme, "x.example.org", []store.CustomRecord{{Type: "TXT", Value: "v"}}, nil, false, nil)
+	conflict(t, err, "x.example.org is not in a managed domain")
+
+	// a file's records on a host in the managed part: checked and noted;
+	// one on a hostname the same file adds for another app is refused
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.Put("acme.dev", libdns.RR{Name: "new", Type: "TXT", Data: "hand"})
+	recs, notes, err := env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Type: "txt", Value: "v=1"}}, nil, false, nil)
+	if err != nil || len(recs) != 1 || recs[0].ID == "" || recs[0].Type != "TXT" || len(notes) != 1 || !strings.Contains(notes[0], "added (1 other there stays)") {
+		t.Fatalf("file records = %+v %v %v", recs, notes, err)
+	}
+	_, _, err = env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Name: "api", Type: "TXT", Value: "v"}}, nil, false, []string{"api.new.acme.dev"})
+	conflict(t, err, "another app's hostname")
+	_, _, err = env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Type: "A", Value: "1.2.3"}}, nil, false, nil)
+	if _, ok := errs.IsInvalid(err); !ok {
+		t.Errorf("a bad A value: %v", err)
+	}
 }
 
 // Decision 5: a declared record changed or deleted at the DNS host is put

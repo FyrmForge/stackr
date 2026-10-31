@@ -366,7 +366,6 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	return nil
 }
 
-
 func checkExtras(e Extras) error {
 	if e.BasicAuth != nil && e.BasicAuth.User == "" {
 		return errs.Invalidf("proxy.basic_auth.user", "basic auth needs a user")

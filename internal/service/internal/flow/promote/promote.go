@@ -42,6 +42,12 @@ type Flow struct {
 	// RouteHeld reports whether an external route holds a host: a stack
 	// file domain on it is blocked, as a UI domain is refused.
 	RouteHeld func(ctx context.Context, host string) (bool, error)
+	// CheckDNS checks a domain entry's records: and dns: managed for a
+	// stack of orgID (have: the row's records today; hosts: the file's
+	// other hostnames) and returns the records as stored, a note per new
+	// one, or the plan error. It also refuses a host a custom record holds.
+	// Nil takes the file's records unchecked.
+	CheckDNS func(ctx context.Context, orgID, host string, recs, have []store.CustomRecord, managed bool, hosts []string) ([]store.CustomRecord, []string, error)
 	// WriteParams runs a params write through the service's change path, so
 	// readers in other envs than skipEnv (the env being rolled out) redeploy.
 	// Nil runs the write as is.

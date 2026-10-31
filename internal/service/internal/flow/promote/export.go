@@ -534,5 +534,18 @@ func exportDomain(row store.Domain, t store.Tile, res []store.DomainResource) (o
 	if len(p) > 0 {
 		x.put("proxy", p)
 	}
+	if len(row.Records) > 0 {
+		var rs []any
+		for _, r := range row.Records {
+			e := omap{}
+			if r.Name != "" {
+				e.put("name", r.Name)
+			}
+			e.put("type", r.Type)
+			e.put("value", r.Value)
+			rs = append(rs, e)
+		}
+		x.put("records", rs)
+	}
 	return x, warn, true
 }
