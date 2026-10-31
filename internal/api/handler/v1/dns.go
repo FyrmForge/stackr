@@ -97,6 +97,26 @@ func (h *H) RescopeDNSDomain(l Level) Endpoint {
 	})
 }
 
+// DNSDomainRecords is the custom records declared on a managed domain
+// itself.
+func (h *H) DNSDomainRecords(l Level) Endpoint {
+	return Get(func(c echo.Context) (service.CustomRecords, error) {
+		return h.Orch.DNSDomainRecords(rc(c), l.org(c), c.Param("connector"), c.Param("zone"))
+	})
+}
+
+func (h *H) AddDNSDomainRecord(l Level) Endpoint {
+	return JSON(201, func(c echo.Context, in service.CustomRecordIn) (service.CustomRecord, error) {
+		return h.Orch.AddDNSDomainRecord(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), in)
+	})
+}
+
+func (h *H) RemoveDNSDomainRecord(l Level) Endpoint {
+	return Done(func(c echo.Context, _ None) error {
+		return h.Orch.RemoveDNSDomainRecord(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), c.Param("record"))
+	})
+}
+
 func (h *H) UnmanageDNSDomain(l Level) Endpoint {
 	return Done(func(c echo.Context, _ None) error {
 		return h.Orch.UnmanageDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"))

@@ -22,6 +22,8 @@ type DNSDomain struct {
 	// the whole domain.
 	Scope     string    `db:"scope" json:"scope"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	// Records is the custom DNS records declared on the domain itself.
+	Records CustomRecords `db:"records" json:"records"`
 }
 
 type DNSDomainStore interface {

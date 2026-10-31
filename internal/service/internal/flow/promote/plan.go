@@ -164,6 +164,7 @@ type work struct {
 	updates    [][2]store.Tile // old, new
 	deletes    []store.Tile
 	domains    map[string]domainWork   // by tile slug
+	hosts      []string                // the file's literal hostnames, for the records checks
 	instances  map[string]instanceWork // managed tiles whose allow or env_pairs moved, by slug
 	list       Lister                  // reads the config repo's tree at the pinned commit
 	sliced     []string                // slice tiles created or moved: their consumers redeploy
@@ -408,6 +409,13 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	byslug := map[string]store.Tile{}
 	for _, t := range live {
 		byslug[t.Slug] = t
+	}
+	for _, tc := range re.Tiles {
+		for _, dc := range tc.Domains {
+			if dc.Host != "" {
+				w.hosts = append(w.hosts, strings.ToLower(dc.Host))
+			}
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[name]
@@ -706,6 +714,10 @@ func (f *Flow) planDomains(
 			}
 		}
 		row, ok := findDomain(have, key)
+		notes, err := f.planRecords(ctx, p, w, name, dc, host, row, &sp)
+		if err != nil {
+			return err
+		}
 		if !ok && f.RouteHeld != nil {
 			held, err := f.RouteHeld(ctx, host)
 			if err != nil {
@@ -717,7 +729,7 @@ func (f *Flow) planDomains(
 		}
 		switch {
 		case !ok:
-			p.add(Change{Kind: "domain", Tile: name, New: key})
+			p.add(Change{Kind: "domain", Tile: name, New: key, Note: notes})
 			dw.add = append(dw.add, sp)
 		case sigOf(sp) != sigRow(row):
 			p.add(Change{
@@ -725,7 +737,7 @@ func (f *Flow) planDomains(
 				Tile: name,
 				Old:  key,
 				New:  key,
-				Note: "settings change",
+				Note: strings.TrimSuffix("settings change; "+notes, "; "),
 			})
 			dw.update[row.ID] = sp
 		}
@@ -746,6 +758,34 @@ func (f *Flow) planDomains(
 		w.sync = true
 	}
 	return nil
+}
+
+// planRecords: a domain entry's records: and dns: managed through
+// CheckDNS, onto sp. A refusal blocks the plan naming the host; the notes
+// say how each new record lands ("added (1 other there stays)", "taken
+// over").
+func (f *Flow) planRecords(ctx context.Context, p *Plan, w *work, name string, dc DomainConf, host string, row store.Domain, sp *domain.Spec) (string, error) {
+	var recs []store.CustomRecord
+	for _, r := range dc.Records {
+		recs = append(recs, store.CustomRecord{Name: r.Name, Type: r.Type, Value: r.Value})
+	}
+	if f.CheckDNS == nil {
+		sp.Records = recs
+		return "", nil
+	}
+	hosts := slices.DeleteFunc(slices.Clone(w.hosts), func(h string) bool { return strings.EqualFold(h, host) })
+	out, notes, err := f.CheckDNS(ctx, w.st.OrgID, host, recs, row.Records, dc.DNS == "managed", hosts)
+	_, invalid := errs.IsInvalid(err)
+	_, conflict := errs.IsConflict(err)
+	if invalid || conflict {
+		p.block("tile %s: domain %s: %v", name, host, err)
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	sp.Records = out
+	return strings.Join(notes, "; "), nil
 }
 
 // planInstance: a managed tile's allow list and env pairs against its
@@ -1448,11 +1488,23 @@ func sigOf(s domain.Spec) string {
 		string(x),
 		s.Auto,
 		deref(s.ResourceID),
+		sigRecords(s.Records),
 	)
+
 }
 
 func sigRow(d store.Domain) string {
-	return fmt.Sprint(d.ContainerPort, d.HTTPS, d.ForceHTTPS, d.RedirectTo, d.ProxyJSON, d.Auto, deref(d.ResourceID))
+	return fmt.Sprint(d.ContainerPort, d.HTTPS, d.ForceHTTPS, d.RedirectTo, d.ProxyJSON, d.Auto, deref(d.ResourceID), sigRecords(d.Records))
+}
+
+// sigRecords is records in one comparable form: ids aside, order aside.
+func sigRecords(rs []store.CustomRecord) string {
+	var out []string
+	for _, r := range rs {
+		out = append(out, strings.ToLower(r.Name+"|"+r.Type)+"|"+r.Value) // a TXT keeps its case
+	}
+	slices.Sort(out)
+	return strings.Join(out, ",")
 }
 
 func findDomain(ds []store.Domain, key string) (store.Domain, bool) {

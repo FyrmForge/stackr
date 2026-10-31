@@ -86,6 +86,9 @@ func (o *Orchestrator) AttachDomainReplace(ctx context.Context, tileID string, s
 	} else if err := o.checkSquat(ctx, t, s.Host); err != nil {
 		return Domain{}, err
 	}
+	if err := o.checkNotCustom(ctx, s.Host); err != nil {
+		return Domain{}, err
+	}
 	zone, err := o.checkManagedHost(ctx, t, s.Host, s.Auto, replace)
 	if err != nil {
 		return Domain{}, err
@@ -238,7 +241,14 @@ func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s Dom
 		if err := o.checkSquat(ctx, t, s.Host); err != nil {
 			return d, err
 		}
+		if err := o.checkNotCustom(ctx, s.Host); err != nil {
+			return d, err
+		}
+		if err := o.checkMovedRecords(ctx, t, s.Host, d.Records); err != nil {
+			return d, err
+		}
 		if zone, err = o.checkManagedHost(ctx, t, s.Host, false, replace); err != nil {
+
 			return d, err
 		}
 	}
@@ -246,6 +256,7 @@ func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s Dom
 		s.Port = d.ContainerPort
 	}
 	s.RawCaddy = d.RawCaddy
+	s.Records = d.Records // only the records verbs change them
 	s.ResourceID = nil
 	s.Auto = false
 	if sameHost {
@@ -297,8 +308,10 @@ func specOf(d Domain) (DomainSpec, error) {
 		ResourceID: d.ResourceID,
 		Extras:     x,
 		RawCaddy:   d.RawCaddy,
+		Records:    d.Records,
 	}
 	return s, err
+
 }
 
 // refreshAutoHosts runs after a rename moved a slug an auto domain's host
@@ -328,6 +341,12 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 				continue
 			}
 			if err := o.checkRouteHost(ctx, host); err != nil {
+				return err
+			}
+			if err := o.checkNotCustom(ctx, host); err != nil {
+				return err
+			}
+			if err := o.checkMovedRecords(ctx, t, host, d.Records); err != nil {
 				return err
 			}
 			s, err := specOf(d)

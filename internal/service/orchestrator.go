@@ -602,21 +602,21 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
-			Preflight:  orch.preflight,
-			Remote:     func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
-			LinkHost:   orch.linkHost,
-			Tiles:      orch.tiles,
-			Envs:       orch.envs,
-			Stacks:     orch.stacks,
-			Orgs:       orch.orgs,
-			Volumes:    orch.volumes,
-			Images:     orch.images,
-			Releases:   orch.releases,
-			Params:     orch.params,
-			Tiers:      orch.tiers,
-			Managed:    orch.managed,
-			Domains:    orch.domains,
-			Import:     orch.importForDeploy,
+			Preflight: orch.preflight,
+			Remote:    func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
+			LinkHost:  orch.linkHost,
+			Tiles:     orch.tiles,
+			Envs:      orch.envs,
+			Stacks:    orch.stacks,
+			Orgs:      orch.orgs,
+			Volumes:   orch.volumes,
+			Images:    orch.images,
+			Releases:  orch.releases,
+			Params:    orch.params,
+			Tiers:     orch.tiers,
+			Managed:   orch.managed,
+			Domains:   orch.domains,
+			Import:    orch.importForDeploy,
 			Build: func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) (string, error) {
 				st, err := orch.stacks.Get(ctx, t.StackID)
 				if err != nil {
@@ -648,6 +648,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Build:       b,
 			DNS01:       orch.dns01,
 			RouteHeld:   orch.routes.Covers,
+			CheckDNS:    orch.CheckFileRecords,
 			WriteParams: orch.writeParams,
 			Placements:  orch.stackPlacements,
 		}

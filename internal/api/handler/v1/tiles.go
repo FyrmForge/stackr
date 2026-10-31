@@ -375,6 +375,29 @@ func (h *H) DetachDomain() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.DetachDomain(rc(c), c.Param("domain")) })
 }
 
+// DomainRecords is the custom DNS records declared on a tile domain's
+// host, and where they are written.
+func (h *H) DomainRecords() Endpoint {
+	return Get(func(c echo.Context) (service.CustomRecords, error) {
+		return h.Orch.TileDomainRecords(rc(c), tileID(c), c.Param("domain"))
+	})
+}
+
+// AddDomainRecord declares a custom record on a tile domain's host; the
+// answer's note says how it landed ("taken over", "added (1 other there
+// stays)").
+func (h *H) AddDomainRecord() Endpoint {
+	return JSON(201, func(c echo.Context, in service.CustomRecordIn) (service.CustomRecord, error) {
+		return h.Orch.AddTileDomainRecord(rc(c), tileID(c), c.Param("domain"), in)
+	})
+}
+
+func (h *H) RemoveDomainRecord() Endpoint {
+	return Done(func(c echo.Context, _ None) error {
+		return h.Orch.RemoveTileDomainRecord(rc(c), tileID(c), c.Param("domain"), c.Param("record"))
+	})
+}
+
 // ---- managed tiles and slices ----
 
 func (h *H) SetManagedAllow() Endpoint {

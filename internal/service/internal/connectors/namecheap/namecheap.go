@@ -217,18 +217,35 @@ func toHost(r libdns.Record) host {
 	}
 	if mx, ok := r.(libdns.MX); ok {
 		h.MXPref, h.Address = strconv.Itoa(int(mx.Preference)), mx.Target
+	} else if pref, target, ok := strings.Cut(rr.Data, " "); ok && strings.EqualFold(rr.Type, "MX") {
+		h.MXPref, h.Address = pref, target // an RR's MX data is "10 mx.example.net"
 	}
 	return h
 }
 
 func (h host) record() libdns.Record {
 	ttl, _ := strconv.Atoi(h.TTL)
-	return libdns.RR{Name: h.Name, Type: h.Type, Data: h.Address, TTL: time.Duration(ttl) * time.Second}
+	data := h.Address
+	if strings.EqualFold(h.Type, "MX") && h.MXPref != "" {
+		data = h.MXPref + " " + h.Address
+	}
+	return libdns.RR{Name: h.Name, Type: h.Type, Data: data, TTL: time.Duration(ttl) * time.Second}
 }
 
-// same: one record, by name, type and value.
+// same: one record, by name, type and value. An MX's priority is part of
+// its value, and an MX's or CNAME's host matches without case or trailing
+// dot, so a hand MX 20 never goes with stackr's MX 10 on the same host.
 func (h host) same(o host) bool {
-	return strings.EqualFold(h.Name, o.Name) && strings.EqualFold(h.Type, o.Type) && h.Address == o.Address
+	if !strings.EqualFold(h.Name, o.Name) || !strings.EqualFold(h.Type, o.Type) {
+		return false
+	}
+	switch strings.ToUpper(h.Type) {
+	case "MX":
+		return h.MXPref == o.MXPref && strings.EqualFold(strings.TrimSuffix(h.Address, "."), strings.TrimSuffix(o.Address, "."))
+	case "CNAME":
+		return strings.EqualFold(strings.TrimSuffix(h.Address, "."), strings.TrimSuffix(o.Address, "."))
+	}
+	return h.Address == o.Address
 }
 
 func (n *Account) get(ctx context.Context, zone string) ([]libdns.Record, error) {

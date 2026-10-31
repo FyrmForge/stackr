@@ -83,6 +83,8 @@ type DomainRow struct {
 	Manage, Unmanage, TakeOver string
 	Preview                    string // the confirm before managing; posts domain
 	Rescope                    string // the confirm before changing a managed domain's scope
+	Records                    string // opens the domain's custom records; posts domain
+	Open                       *RecordsView // the custom records, open under the row; nil = closed
 	All                        bool
 	Orgs                       []Org
 }
@@ -223,6 +225,9 @@ templ Domains(v DomainsView) {
 							if d.Rescope != "" {
 								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Rescope } hx-vals={ rescopeVals(d) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Change scope</button>
 							}
+							if d.Records != "" && d.Open == nil {
+								<button type="button" class="btn btn-ghost btn-sm" hx-post={ d.Records } hx-vals={ vals(map[string]string{"domain": d.Name}) } hx-target={ "#" + listID(v.ID) } hx-swap="outerHTML">Records</button>
+							}
 							if d.Unmanage != "" && d.State == "managed" {
 								@c.Confirm(c.ConfirmView{Button: "Stop managing", Quiet: true, Title: "Stop managing " + d.Name + "?", Warning: "stackr deletes the tile records it made. Other records stay, the panel and node records too.", Action: d.Unmanage, Target: "#" + listID(v.ID), Vals: vals(map[string]string{"domain": d.Name})})
 							}
@@ -241,6 +246,9 @@ templ Domains(v DomainsView) {
 							}
 						</span>
 					</div>
+					if d.Open != nil {
+						@Records(*d.Open)
+					}
 					if v.Shared && d.State == "managed" && d.Manage != "" {
 						@connectors.Share(share(v, d))
 					}

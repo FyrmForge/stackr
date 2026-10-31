@@ -212,7 +212,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 		})
 	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
 
-	return []*cobra.Command{domains, plan, manage, rescope, unmanage, takeover}
+	return []*cobra.Command{domains, plan, manage, rescope, unmanage, takeover, a.dnsRecords(op, base)}
 }
 
 // showRescope prints a rescope plan: the records handed back first, then

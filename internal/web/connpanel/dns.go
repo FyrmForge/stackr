@@ -27,6 +27,9 @@ func (p Panel) MountDNS(g *echo.Group, prefix string, gate echo.MiddlewareFunc) 
 	g.POST(prefix+"/:connector/manage", p.manage, gate)
 	g.POST(prefix+"/:connector/rescope-preview", p.rescopePreview, gate)
 	g.POST(prefix+"/:connector/rescope", p.rescope, gate)
+	g.POST(prefix+"/:connector/records", p.openRecords, gate)
+	g.POST(prefix+"/:connector/record-add", p.addRecord, gate)
+	g.POST(prefix+"/:connector/record-rm", p.removeRecord, gate)
 	g.POST(prefix+"/:connector/unmanage", p.unmanage, gate)
 	g.POST(prefix+"/:connector/takeover", p.takeover, gate)
 }
@@ -75,7 +78,7 @@ func (p Panel) preview(c echo.Context) error {
 	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain), nil)
 	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
 		v.UnderError, v.Manage = bad.Msg, ""
-		return p.list(c, "", nil, v)
+		return p.list(c, "", nil, v, nil)
 	}
 	if err != nil {
 		return p.answer(c, "", err)
@@ -83,7 +86,7 @@ func (p Panel) preview(c echo.Context) error {
 	v.Scope = plan.Scope
 	v.Writes, v.LeftAlone, v.Adopt = planWrites(plan.Writes), planWrites(plan.LeftAlone), planAdopts(plan.Adopt)
 	v.Nothing = len(plan.Writes) == 0 && len(plan.Adopt) == 0 && len(plan.LeftAlone) == 0
-	return p.list(c, "", nil, v)
+	return p.list(c, "", nil, v, nil)
 }
 
 // POST <dns>/:connector/rescope-preview (domain, part, under): the confirm
@@ -97,7 +100,7 @@ func (p Panel) rescopePreview(c echo.Context) error {
 	plan, err := p.Orch.PlanRescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain))
 	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
 		v.UnderError, v.Manage = bad.Msg, ""
-		return p.list(c, "", nil, v)
+		return p.list(c, "", nil, v, nil)
 	}
 	if err != nil {
 		return p.answer(c, "", err)
@@ -105,7 +108,7 @@ func (p Panel) rescopePreview(c echo.Context) error {
 	v.Scope, v.Resource = plan.Scope, plan.Resource
 	v.HandBack, v.Writes, v.Adopt = planWrites(plan.HandBack), planWrites(plan.Writes), planAdopts(plan.Adopt)
 	v.Nothing = len(plan.HandBack) == 0 && len(plan.Writes) == 0 && len(plan.Adopt) == 0 && plan.Resource == ""
-	return p.list(c, "", nil, v)
+	return p.list(c, "", nil, v, nil)
 }
 
 // planView is a confirm's scope form for domain as the form asks it.
@@ -175,6 +178,70 @@ func (p Panel) rescope(c echo.Context) error {
 	return p.answer(c, "Scope changed.", err)
 }
 
+// POST <dns>/:connector/records (domain): openRecords is the list with the domain's
+// custom records open under its row.
+func (p Panel) openRecords(c echo.Context) error { return p.withRecords(c, "", nil) }
+
+// POST <dns>/:connector/record-add (domain, rec_name, rec_type, rec_value).
+func (p Panel) addRecord(c echo.Context) error {
+	r, err := p.Orch.AddDNSDomainRecord(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"), RecordIn(c))
+	return p.withRecords(c, RecordNote(r), err)
+}
+
+// POST <dns>/:connector/record-rm (domain, record).
+func (p Panel) removeRecord(c echo.Context) error {
+	err := p.Orch.RemoveDNSDomainRecord(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"), c.FormValue("record"))
+	return p.withRecords(c, "Record removed.", err)
+}
+
+// withRecords is the list with the posted domain's records open, the
+// action's refusal or note in them.
+func (p Panel) withRecords(c echo.Context, note string, actErr error) error {
+	id, domain := c.Param("connector"), c.FormValue("domain")
+	rs, err := p.Orch.DNSDomainRecords(c.Request().Context(), p.Org(c), id, domain)
+	if err != nil {
+		return p.answer(c, "", err)
+	}
+	base := p.DNSBase(c) + "/" + id
+	v := Records(rs, domain, base+"/record-add", base+"/record-rm", ui.ListTarget(id))
+	v.Vals = map[string]string{"domain": domain}
+	v.Note = note
+	if actErr != nil {
+		msg, ok := render.Refuse(c, "", actErr)
+		if !ok {
+			return middleware.HTTPError(actErr)
+		}
+		v.Error, v.Note = msg, ""
+	}
+	return p.list(c, "", nil, nil, &v)
+}
+
+// RecordIn is the posted add record form.
+func RecordIn(c echo.Context) service.CustomRecordIn {
+	return service.CustomRecordIn{Name: c.FormValue("rec_name"), Type: c.FormValue("rec_type"), Value: c.FormValue("rec_value")}
+}
+
+// RecordNote says how an add landed.
+func RecordNote(r service.CustomRecord) string {
+	if r.Note != "" {
+		return "Record " + r.Note + "."
+	}
+	return "Record added."
+}
+
+// Records is an owner's custom records as the shared section draws them:
+// key the owner, add and remove the actions, target what they answer.
+func Records(rs service.CustomRecords, key, add, remove, target string) ui.RecordsView {
+	v := ui.RecordsView{Key: key, Add: add, Remove: remove, Target: target}
+	if rs.Source != "" {
+		v.Source = strings.ToUpper(rs.Source[:1]) + rs.Source[1:]
+	}
+	for _, r := range rs.Records {
+		v.Rows = append(v.Rows, ui.RecordRow{ID: r.ID, Host: r.Host, Type: r.Type, Value: r.Value, PutBack: r.PutBackAt != nil})
+	}
+	return v
+}
+
 func (p Panel) unmanage(c echo.Context) error {
 	err := p.Orch.UnmanageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"))
 	return p.answer(c, "No longer managed.", err)
@@ -189,11 +256,11 @@ func (p Panel) takeover(c echo.Context) error {
 // note is the provider). A provider that does not answer is the list's
 // text, not an error page.
 func (p Panel) answer(c echo.Context, note string, actErr error) error {
-	return p.list(c, note, actErr, nil)
+	return p.list(c, note, actErr, nil, nil)
 }
 
 // list is answer with a manage confirm on top when plan is set.
-func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView) error {
+func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView, recs *ui.RecordsView) error {
 	ctx, id := c.Request().Context(), c.Param("connector")
 	org := p.Org(c)
 	k, err := p.Orch.ConnectorAt(ctx, org, id)
@@ -207,7 +274,7 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 	base := p.DNSBase(c) + "/" + id
 	v := ui.DomainsView{ID: id, Provider: label, Shared: org == nil, Note: note, Plan: plan}
 	status := http.StatusOK
-	if plan != nil && plan.UnderError != "" {
+	if plan != nil && plan.UnderError != "" || recs != nil && recs.Error != "" {
 		status = http.StatusUnprocessableEntity
 	}
 	if actErr != nil {
@@ -257,7 +324,10 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 			Scope:    d.Scope,
 		}
 		if d.State == service.DNSManaged {
-			r.Rescope = base + "/rescope-preview"
+			r.Rescope, r.Records = base+"/rescope-preview", base+"/records"
+			if recs != nil && recs.Key == d.Name {
+				r.Open = recs
+			}
 		}
 		for _, og := range orgs {
 			r.Orgs = append(r.Orgs, ui.Org{ID: og.ID, Name: og.Name, On: !d.ShareAll && slices.Contains(d.OrgIDs, og.ID)})

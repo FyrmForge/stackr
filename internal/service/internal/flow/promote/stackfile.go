@@ -277,6 +277,19 @@ type DomainConf struct {
 	ForceHTTPS *bool      `yaml:"force_https"`
 	RedirectTo string     `yaml:"redirect_to"`
 	Proxy      *ProxyConf `yaml:"proxy"`
+	// Records are custom DNS records on the host, Name relative to it ("" =
+	// the host). They imply a managed host, as DNS "managed" says without
+	// records: the plan refuses a host no managed domain covers.
+	Records []RecordConf `yaml:"records"`
+	DNS     string       `yaml:"dns"`
+}
+
+// RecordConf is one custom DNS record: TXT, MX ("10 mx.example.net"),
+// CNAME, A or AAAA.
+type RecordConf struct {
+	Name  string `yaml:"name,omitempty"`
+	Type  string `yaml:"type"`
+	Value string `yaml:"value"`
 }
 
 // ProxyConf is the named, safe-by-construction extras; raw Caddy config is
@@ -742,6 +755,9 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 		}
 		if (d.Apex != "" || d.Auto) && (d.Path != "" || d.RedirectTo != "") {
 			return fmt.Errorf("tile %s: apex/auto domains take no path or redirect", name)
+		}
+		if d.DNS != "" && d.DNS != "managed" {
+			return fmt.Errorf("tile %s: dns: is managed, or left out", name)
 		}
 	}
 	return nil

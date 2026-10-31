@@ -1,7 +1,9 @@
 package dnscap
 
 import (
+	"cmp"
 	"context"
+
 	"errors"
 	"maps"
 	"slices"
@@ -19,14 +21,16 @@ import (
 const TTL = 300
 
 // Want is a record stackr should have on a managed domain: an A or AAAA
-// for a tile domain's host, to its ingress node.
+// for a tile domain's host, to its ingress node, the panel's or a node's
+// own (Kind name), or a custom record (Kind custom).
 type Want struct {
 	DNSDomainID string
 	Zone        string
 	Name        string // relative to Zone, "@" the apex
-	Type        string // A or AAAA
+	Type        string // A or AAAA; any of CustomTypes for a custom one
 	Value       string
 	DomainID    string // the tile domain
+	Kind        string // store.RecordApp ("" reads the same), RecordName or RecordCustom
 	// Hold keeps whatever stackr has at Zone and Name as it is: the
 	// serving node has no address to point at right now, and deleting a
 	// live record over that would take the host down.
@@ -35,9 +39,16 @@ type Want struct {
 
 func (w Want) key() string { return w.Zone + "|" + strings.ToLower(w.Name) + "|" + w.Type }
 
+func (w Want) kind() string { return cmp.Or(w.Kind, store.RecordApp) }
+
+// ckey is a custom record's key: a name holds several values of one type.
+func (w Want) ckey() string { return w.key() + "|" + valueKey(w.Type, w.Value) }
+
 func rowKey(r store.DNSRecord) string {
 	return r.Zone + "|" + strings.ToLower(r.Name) + "|" + r.Type
 }
+
+func rowCKey(r store.DNSRecord) string { return rowKey(r) + "|" + valueKey(r.Type, r.Value) }
 
 // Accounts opens a connector's provider by connector id.
 type Accounts func(ctx context.Context, connectorID string, orgID *string) (Provider, error)
@@ -101,7 +112,7 @@ func blocks(r libdns.RR, name string) bool {
 
 func ours(r libdns.RR, rows []store.DNSRecord, zone string) bool {
 	return slices.ContainsFunc(rows, func(x store.DNSRecord) bool {
-		return x.Zone == zone && strings.EqualFold(x.Name, r.Name) && x.Type == r.Type && x.Value == r.Data
+		return x.Zone == zone && strings.EqualFold(x.Name, r.Name) && x.Type == r.Type && sameData(x.Type, x.Value, r.Data)
 	})
 }
 
@@ -143,7 +154,7 @@ func InScope(d store.DNSDomain, name string) bool {
 // It runs before the first provider write, so a refusal writes nothing.
 func checkWrite(d store.DNSDomain, live, del, put []libdns.Record, mine func(libdns.RR) bool) error {
 	same := func(a, b libdns.RR) bool {
-		return strings.EqualFold(a.Name, b.Name) && strings.EqualFold(a.Type, b.Type) && a.Data == b.Data
+		return strings.EqualFold(a.Name, b.Name) && strings.EqualFold(a.Type, b.Type) && sameData(a.Type, a.Data, b.Data)
 	}
 	in := func(rs []libdns.Record, x libdns.RR) bool {
 		return slices.ContainsFunc(rs, func(r libdns.Record) bool { return same(r.RR(), x) })
@@ -197,6 +208,13 @@ func (l *Leaf) Taken(ctx context.Context, a Provider, zone, host string) (bool, 
 // host: then that record goes and stackr's takes its place. A record
 // someone edited since is theirs now: left alone. Records of a zone no
 // longer managed are dropped from the table only; Forget deleted them.
+//
+// Custom wants are matched by value too, and their zones are read every
+// time: a custom record gone or changed at the provider is put back (the
+// row's PutBackAt), one the zone already has is taken over, and one its
+// name cannot hold (a CNAME next to anything) is a *RecordClash.
+// ponytail: one zone read per sync for zones with custom records; throttle
+// per zone if a provider's rate limit bites.
 func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]bool, acct Accounts) error {
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
@@ -209,6 +227,7 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		add         []Want            // new, or a moved row's new value
 		move        []store.DNSRecord // rows whose value changes, the old value
 		drop        []store.DNSRecord
+		custom      []Want // every custom want: checked against the zone each time
 	}
 	zones := map[string]*plan{}
 	at := func(zone, id string) *plan {
@@ -222,7 +241,16 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 	}
 	want := map[string]Want{}
 	held := map[string]bool{}
+	custom := map[string]bool{}
 	for _, w := range wants {
+		if w.kind() == store.RecordCustom {
+			if !custom[w.ckey()] {
+				custom[w.ckey()] = true
+				p := at(w.Zone, w.DNSDomainID)
+				p.custom = append(p.custom, w)
+			}
+			continue
+		}
 		if w.Hold {
 			held[w.Zone+"|"+strings.ToLower(w.Name)] = true
 			continue
@@ -233,6 +261,13 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 	}
 	have := map[string]store.DNSRecord{}
 	for _, r := range rows {
+		if r.Kind == store.RecordCustom {
+			if !custom[rowCKey(r)] {
+				p := at(r.Zone, deref(r.DNSDomainID))
+				p.drop = append(p.drop, r)
+			}
+			continue
+		}
 		have[rowKey(r)] = r
 		w, ok := want[rowKey(r)]
 		switch {
@@ -247,15 +282,15 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 		case w.Value != r.Value:
 			p := at(r.Zone, w.DNSDomainID)
 			p.move, p.add = append(p.move, r), append(p.add, w)
-		case deref(r.DomainID) != w.DomainID:
-			r.DomainID = optID(w.DomainID)
+		case deref(r.DomainID) != w.DomainID || r.Kind != w.kind():
+			r.DomainID, r.Kind = optID(w.DomainID), w.kind()
 			if err := l.recs.Update(ctx, r); err != nil {
 				return err
 			}
 		}
 	}
 	for _, w := range wants {
-		if _, ok := have[w.key()]; !ok && !w.Hold && want[w.key()] == w {
+		if _, ok := have[w.key()]; !ok && !w.Hold && w.kind() != store.RecordCustom && want[w.key()] == w {
 			p := at(w.Zone, w.DNSDomainID)
 			p.add = append(p.add, w)
 		}
@@ -264,7 +299,7 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 	var errsOut []error
 	for _, zone := range slices.Sorted(maps.Keys(zones)) {
 		p := zones[zone]
-		t, err := l.apply(ctx, zone, p.dnsDomainID, p.add, p.move, p.drop, rows, replace, acct)
+		t, err := l.apply(ctx, zone, p.dnsDomainID, zoneWork{p.add, p.move, p.drop, p.custom}, rows, replace, acct)
 		taken = append(taken, t...)
 		if err != nil {
 			errsOut = append(errsOut, &ZoneError{Zone: zone, Err: err})
@@ -277,9 +312,17 @@ func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]b
 	return errors.Join(errsOut...)
 }
 
+// zoneWork is one zone's part of a reconcile.
+type zoneWork struct {
+	add        []Want
+	move, drop []store.DNSRecord
+	custom     []Want
+}
+
 // apply is one zone's changes under its lock, then the table.
-func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, move, drop []store.DNSRecord,
+func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	rows []store.DNSRecord, replace map[string]bool, acct Accounts) ([]string, error) {
+	add, move, drop := zw.add, zw.move, zw.drop
 	d, err := l.rows.Get(ctx, dnsDomainID)
 	if dnsDomainID == "" || errors.Is(err, errs.ErrNotFound) {
 		// the zone is no longer managed: nothing to call, forget the rows
@@ -299,6 +342,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 	}
 	var taken []string
 	var made []Want
+	var cw customWork
 	gone := map[string]bool{} // row ids whose record is off the zone
 	err = l.WithZone(ctx, a, zone, func(pv Provider) error {
 		live, err := pv.Get(ctx, zone)
@@ -308,7 +352,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 		isLive := func(r store.DNSRecord) bool {
 			return slices.ContainsFunc(live, func(x libdns.Record) bool {
 				rr := x.RR()
-				return strings.EqualFold(rr.Name, r.Name) && rr.Type == r.Type && rr.Data == r.Value
+				return strings.EqualFold(rr.Name, r.Name) && rr.Type == r.Type && sameData(r.Type, rr.Data, r.Value)
 			})
 		}
 		var del, put []libdns.Record
@@ -338,9 +382,16 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 			put = append(put, rr(w.Name, w.Type, w.Value))
 			made = append(made, w)
 		}
-		mine := func(x libdns.RR) bool { return ours(x, rows, zone) || replace[fqdn(zone, x.Name)] }
+		cw = customs(zone, live, del, zw.custom, rows)
+		del, put = append(del, cw.del...), append(put, cw.put...)
+		mine := func(x libdns.RR) bool {
+			return ours(x, rows, zone) || replace[fqdn(zone, x.Name)] || slices.ContainsFunc(cw.del, func(r libdns.Record) bool {
+				y := r.RR()
+				return strings.EqualFold(y.Name, x.Name) && y.Type == x.Type && y.Data == x.Data
+			})
+		}
 		if err := checkWrite(d, live, del, put, mine); err != nil {
-			made, taken = nil, nil
+			made, taken, cw = nil, nil, customWork{}
 			return err
 		}
 		if len(del) > 0 {
@@ -363,6 +414,9 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 			return taken, err
 		}
 	}
+	if err := l.customRows(ctx, d, cw); err != nil {
+		return taken, err
+	}
 	for _, w := range made {
 		i := slices.IndexFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() })
 		if i >= 0 {
@@ -375,7 +429,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 		}
 		if err := l.recs.Create(ctx, store.DNSRecord{
 			ID: uuid.NewString(), DNSDomainID: &d.ID, Zone: zone, Name: w.Name, Type: w.Type,
-			Value: w.Value, TTL: TTL, DomainID: optID(w.DomainID), CreatedAt: time.Now().UTC(),
+			Value: w.Value, TTL: TTL, DomainID: optID(w.DomainID), Kind: w.kind(), CreatedAt: time.Now().UTC(),
 		}); err != nil {
 			return taken, err
 		}
@@ -388,7 +442,105 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, add []Want, 
 			}
 		}
 	}
-	return taken, nil
+	return taken, errors.Join(cw.clash...)
+}
+
+// customWork is a zone's custom records against its live records: what to
+// write, the rows to make (new or taken over), the ones put back, and the
+// ones their name cannot hold.
+type customWork struct {
+	del, put []libdns.Record
+	made     []Want            // written or taken over: new rows
+	back     []store.DNSRecord // rows put back
+	moved    []store.DNSRecord // rows whose tile domain changed
+	clash    []error
+}
+
+// customs is customWork for wants in zone. del is what the zone's other
+// changes delete already: a record about to go is no clash.
+func customs(zone string, live, del []libdns.Record, wants []Want, rows []store.DNSRecord) customWork {
+	var cw customWork
+	gone := func(x libdns.RR) bool {
+		return slices.ContainsFunc(del, func(r libdns.Record) bool {
+			y := r.RR()
+			return strings.EqualFold(y.Name, x.Name) && y.Type == x.Type && sameData(x.Type, y.Data, x.Data)
+		})
+	}
+	var left []libdns.Record // live less what goes
+	for _, r := range live {
+		if !gone(r.RR()) {
+			left = append(left, r)
+		}
+	}
+	for _, w := range wants {
+		i := slices.IndexFunc(rows, func(r store.DNSRecord) bool { return r.Kind == store.RecordCustom && rowCKey(r) == w.ckey() })
+		there := slices.ContainsFunc(left, func(r libdns.Record) bool {
+			x := r.RR()
+			return strings.EqualFold(x.Name, w.Name) && x.Type == w.Type && sameData(w.Type, x.Data, w.Value)
+		})
+		switch {
+		case there && i >= 0:
+			if deref(rows[i].DomainID) != w.DomainID {
+				r := rows[i]
+				r.DomainID = optID(w.DomainID)
+				cw.moved = append(cw.moved, r)
+			}
+			continue
+		case there: // the same record by hand: taken over, no duplicate
+			cw.made = append(cw.made, w)
+			continue
+		}
+		look := left
+		if i >= 0 && w.Type == "CNAME" {
+			// put back over a hand edit: the edited CNAME goes, a name holds one
+			look = nil
+			for _, r := range left {
+				if x := r.RR(); strings.EqualFold(x.Name, w.Name) && x.Type == "CNAME" {
+					cw.del = append(cw.del, r)
+					continue
+				}
+				look = append(look, r)
+			}
+		}
+		// what this sync queued already counts: a CNAME and a TXT declared
+		// on one empty name clash too
+		if err := clash(append(slices.Clone(look), cw.put...), zone, w.Name, w.Type, w.Value); err != nil {
+			cw.clash = append(cw.clash, err)
+			continue
+		}
+		cw.put = append(cw.put, rr(w.Name, w.Type, w.Value))
+		if i >= 0 {
+			cw.back = append(cw.back, rows[i])
+		} else {
+			cw.made = append(cw.made, w)
+		}
+	}
+	return cw
+}
+
+// customRows writes cw's rows once its records are in the zone.
+func (l *Leaf) customRows(ctx context.Context, d store.DNSDomain, cw customWork) error {
+	now := time.Now().UTC()
+	for _, r := range cw.back {
+		r.PutBackAt = &now
+		if err := l.recs.Update(ctx, r); err != nil {
+			return err
+		}
+	}
+	for _, r := range cw.moved {
+		if err := l.recs.Update(ctx, r); err != nil {
+			return err
+		}
+	}
+	for _, w := range cw.made {
+		if err := l.recs.Create(ctx, store.DNSRecord{
+			ID: uuid.NewString(), DNSDomainID: &d.ID, Zone: d.Name, Name: w.Name, Type: w.Type,
+			Value: w.Value, TTL: TTL, DomainID: optID(w.DomainID), Kind: store.RecordCustom, CreatedAt: now,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func deref(s *string) string {
@@ -501,9 +653,12 @@ func HandBack(d store.DNSDomain, rows []store.DNSRecord) []store.DNSRecord {
 
 // Rescope sets managed domain zone's scope ("" = the whole domain) and
 // adopts refs inside it. The records stackr made outside the new scope are
-// handed back: they stay in the zone, their rows go, and stackr stops
-// updating them. One step under the records lock, so a reconcile never
-// sees the new scope without its rows. Running it again is harmless.
+// handed back: they stay in the zone, their rows are marked handed back
+// (List no longer has them), and stackr stops updating them. Marks inside
+// the new scope go: a widening manages the name again. The domain's own
+// custom records outside the new scope go with them. One step under the
+// records lock, so a reconcile never sees the new scope without its rows.
+// Running it again is harmless.
 func (l *Leaf) Rescope(ctx context.Context, id, zone, scope string, refs []Ref) (store.DNSDomain, error) {
 	scope, err := Scope(zone, scope)
 	if err != nil {
@@ -516,6 +671,9 @@ func (l *Leaf) Rescope(ctx context.Context, id, zone, scope string, refs []Ref) 
 		return d, err
 	}
 	d.Scope = scope
+	d.Records = slices.DeleteFunc(d.Records, func(c store.CustomRecord) bool {
+		return !InScope(d, Name(CustomFQDN(c.Name, d.Name), d.Name))
+	})
 	if err := l.rows.Update(ctx, d); err != nil {
 		return d, err
 	}
@@ -523,9 +681,22 @@ func (l *Leaf) Rescope(ctx context.Context, id, zone, scope string, refs []Ref) 
 	if err != nil {
 		return d, err
 	}
+	now := time.Now().UTC()
 	for _, r := range HandBack(d, rows) {
-		if err := l.recs.Delete(ctx, r.ID); err != nil {
+		r.HandedBackAt = &now
+		if err := l.recs.Update(ctx, r); err != nil {
 			return d, err
+		}
+	}
+	back, err := l.recs.ListHandedBack(ctx)
+	if err != nil {
+		return d, err
+	}
+	for _, r := range back {
+		if r.Zone == d.Name && InScope(d, r.Name) {
+			if err := l.recs.Delete(ctx, r.ID); err != nil {
+				return d, err
+			}
 		}
 	}
 	return d, l.adopt(ctx, d, slices.DeleteFunc(slices.Clone(refs), func(f Ref) bool { return !InScope(d, f.Name) }))
@@ -540,7 +711,7 @@ func (l *Leaf) adopt(ctx context.Context, d store.DNSDomain, refs []Ref) error {
 	for _, f := range refs {
 		r := store.DNSRecord{
 			ID: uuid.NewString(), DNSDomainID: &d.ID, Zone: d.Name, Name: f.Name, Type: f.Type,
-			Value: f.Value, TTL: TTL, Adopted: true, CreatedAt: time.Now().UTC(),
+			Value: f.Value, TTL: TTL, Adopted: true, Kind: store.RecordApp, CreatedAt: time.Now().UTC(),
 		}
 		if slices.ContainsFunc(rows, func(x store.DNSRecord) bool { return rowKey(x) == rowKey(r) }) {
 			continue
@@ -567,9 +738,21 @@ func (l *Leaf) Forget(ctx context.Context, a Provider, zone string, keep map[str
 		return err
 	}
 	rows = slices.DeleteFunc(rows, func(r store.DNSRecord) bool { return r.Zone != zone })
+	back, err := l.recs.ListHandedBack(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range back { // the user's already: only the mark goes
+		if r.Zone == zone {
+			if err := l.recs.Delete(ctx, r.ID); err != nil {
+				return err
+			}
+		}
+	}
 	if len(rows) == 0 {
 		return nil
 	}
+
 	var del []libdns.Record
 	for _, r := range rows {
 		if !r.Adopted && !keep[strings.ToLower(r.Name)] { // an adopted or kept record stays in the zone; only its row goes

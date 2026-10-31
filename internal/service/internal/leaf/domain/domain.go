@@ -88,6 +88,9 @@ type Spec struct {
 	ResourceID *string // the domain resource that named an auto or apex host; nil for a literal
 	Extras     Extras
 	RawCaddy   string // admin-only: replaces the generated route verbatim
+	// Records is the custom DNS records declared on the host, checked by
+	// the service; the row keeps them as given.
+	Records []store.CustomRecord
 }
 
 // On is the one nil-vs-false rule for HTTPS (B31): unset means on.
@@ -359,6 +362,7 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	d.ResourceID = s.ResourceID
 	d.ProxyJSON = string(extras)
 	d.RawCaddy = raw
+	d.Records = s.Records
 	return nil
 }
 

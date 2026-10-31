@@ -171,6 +171,8 @@ type Domain struct {
 	ProxyJSON     string    `db:"proxy_json" json:"proxy_json"`
 	RawCaddy      string    `db:"raw_caddy" json:"raw_caddy"`
 	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	// Records is the custom DNS records declared on the host.
+	Records CustomRecords `db:"records" json:"records"`
 }
 
 type DomainStore interface {

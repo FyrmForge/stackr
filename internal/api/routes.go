@@ -93,6 +93,9 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/dns-connectors/:connector/domains/:zone/plan", "dns.plan", "dns.manage", h.PlanDNSDomain(v1.OrgLevel)},
 		{GET, org + "/dns-connectors/:connector/domains/:zone/rescope", "dns.rescope-plan", "dns.manage", h.PlanRescopeDNSDomain(v1.OrgLevel)},
 		{POST, org + "/dns-connectors/:connector/domains/:zone/rescope", "dns.rescope", "dns.manage", h.RescopeDNSDomain(v1.OrgLevel)},
+		{GET, org + "/dns-connectors/:connector/domains/:zone/records", "dns.records", "dns.manage", h.DNSDomainRecords(v1.OrgLevel)},
+		{POST, org + "/dns-connectors/:connector/domains/:zone/records", "dns.record-add", "dns.manage", h.AddDNSDomainRecord(v1.OrgLevel)},
+		{DELETE, org + "/dns-connectors/:connector/domains/:zone/records/:record", "dns.record-rm", "dns.manage", h.RemoveDNSDomainRecord(v1.OrgLevel)},
 		{GET, org + "/backup-dests", "dest.list", "org.read", h.BackupDests()},
 		{POST, org + "/backup-dests", "dest.create", "destination.write", h.CreateBackupDest()},
 		{PUT, org + "/backup-dests/:dest", "dest.update", "destination.write", h.UpdateBackupDest()},
@@ -217,6 +220,9 @@ func routes(h *v1.H) []Route {
 		{PUT, tile + "/domains/:domain", "domain.update", "domain.write", h.UpdateDomain()},
 		{PUT, tile + "/domains/:domain/raw-caddy", "domain.raw-caddy", "proxy.admin", h.SetRawCaddy()},
 		{DELETE, tile + "/domains/:domain", "domain.detach", "domain.write", h.DetachDomain()},
+		{GET, tile + "/domains/:domain/records", "domain.records", "tile.read", h.DomainRecords()},
+		{POST, tile + "/domains/:domain/records", "domain.record-add", "domain.write", h.AddDomainRecord()},
+		{DELETE, tile + "/domains/:domain/records/:record", "domain.record-rm", "domain.write", h.RemoveDomainRecord()},
 		{PUT, tile + "/allow", "managed.allow", "managed.allow", h.SetManagedAllow()},
 		{PUT, tile + "/env-pairs", "managed.env-pairs", "tile.write", h.SetManagedEnvPairs()},
 		{PUT, tile + "/slice-access", "slice.access", "tile.write", h.SetSliceAccess()},
@@ -343,6 +349,9 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/dns-connectors/:connector/domains/:zone/plan", "admin.dns-plan", "connector.admin", h.PlanDNSDomain(v1.ServerLevel)},
 		{GET, "/admin/dns-connectors/:connector/domains/:zone/rescope", "admin.dns-rescope-plan", "connector.admin", h.PlanRescopeDNSDomain(v1.ServerLevel)},
 		{POST, "/admin/dns-connectors/:connector/domains/:zone/rescope", "admin.dns-rescope", "connector.admin", h.RescopeDNSDomain(v1.ServerLevel)},
+		{GET, "/admin/dns-connectors/:connector/domains/:zone/records", "admin.dns-records", "connector.admin", h.DNSDomainRecords(v1.ServerLevel)},
+		{POST, "/admin/dns-connectors/:connector/domains/:zone/records", "admin.dns-record-add", "connector.admin", h.AddDNSDomainRecord(v1.ServerLevel)},
+		{DELETE, "/admin/dns-connectors/:connector/domains/:zone/records/:record", "admin.dns-record-rm", "connector.admin", h.RemoveDNSDomainRecord(v1.ServerLevel)},
 	}
 }
 

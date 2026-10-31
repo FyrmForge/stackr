@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,20 @@ func TestNamecheapHostsRoundTrip(t *testing.T) {
 	if strings.Contains(got, "109.148.70.232") || !strings.Contains(got, "|HostName1=mail|") || !strings.Contains(got, "|EmailType=FWD|") {
 		t.Errorf("after delete: %s", got)
 	}
+
+	// an MX reads as "pref target" and writes back split
+	live, err := n.Get(ctx, "shop.co.uk")
+	if err != nil || !slices.ContainsFunc(live, func(r libdns.Record) bool { return r.RR().Type == "MX" && strings.HasPrefix(r.RR().Data, "20 ") }) {
+		t.Fatalf("MX read: %v %v", live, err)
+	}
+	set = nil
+	if _, err := n.Append(ctx, "shop.co.uk", []libdns.Record{libdns.RR{Name: "@", Type: "MX", Data: "10 mx.example.net"}}); err != nil {
+		t.Fatal(err)
+	}
+	got = "|" + strings.Join(set, "|") + "|"
+	if !strings.Contains(got, "|Address3=mx.example.net|") || !strings.Contains(got, "|MXPref3=10|") {
+		t.Errorf("MX append: %s", got)
+	}
 }
 
 // A record call's refusal keeps Namecheap's number.
@@ -176,5 +191,15 @@ func TestNamecheapZones(t *testing.T) {
 	want := []connectors.Zone{{Name: "a.com", OurDNS: true}, {Name: "b.io"}, {Name: "c.co.uk", OurDNS: true}}
 	if err != nil || len(zs) != 3 || zs[0] != want[0] || zs[1] != want[1] || zs[2] != want[2] {
 		t.Errorf("zones = %v %v, want %v", zs, err, want)
+	}
+}
+
+func TestHostSameMX(t *testing.T) {
+	ours := toHost(libdns.RR{Name: "@", Type: "MX", Data: "10 mx.example.net"})
+	if ours.same(host{Name: "@", Type: "MX", Address: "mx.example.net.", MXPref: "20"}) {
+		t.Error("a hand MX 20 matched stackr's MX 10 on the same host")
+	}
+	if !ours.same(host{Name: "@", Type: "MX", Address: "MX.example.net.", MXPref: "10"}) {
+		t.Error("the same MX read back with a trailing dot did not match")
 	}
 }
