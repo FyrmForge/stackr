@@ -543,6 +543,11 @@ func TestUpgradeUnderway(t *testing.T) {
 	if !n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("not underway with an upgrade job running")
 	}
+	// A second upgrade is refused, not queued to supersede the first.
+	n.orch.upgrade.Version = "v1.0.0"
+	if _, err := n.orch.Upgrade(ctx, "v1.0.1"); !isConflictErr(err) {
+		t.Fatalf("second upgrade: %v, want a conflict", err)
+	}
 }
 
 // The jobs lists say why a queued job waits and mark a rebuild; the Update

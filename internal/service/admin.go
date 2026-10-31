@@ -459,6 +459,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if !o.upgrade.Upgradable() {
 		return Job{}, errs.Conflictf("A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.")
 	}
+	// Refused, not superseded: a running upgrade cannot be stopped (its flow
+	// outlives the request), so a second one would only fail at its launch
+	// after moving the worker rollout target.
+	upgradeEnqueue.Lock()
+	defer upgradeEnqueue.Unlock()
+	if o.UpgradeUnderway(ctx) {
+		return Job{}, errs.Conflictf("An upgrade is already underway.")
+	}
 	// The new panel rolls the workers onto its build once it has published
 	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.
 	if err := o.store.Settings.Delete(ctx, keyRolloutStopped); err != nil {
@@ -469,6 +477,10 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	}
 	return o.enqueue(ctx, kindUpgrade, upgradeJob{Tag: tag}, job.All)
 }
+
+// upgradeEnqueue makes Upgrade's check and enqueue one step (a double click).
+// ponytail: one controller process, so a process lock is enough.
+var upgradeEnqueue sync.Mutex
 
 // upgradeSwapWindow is how long after launching its successor a panel still
 // says it is being replaced.
