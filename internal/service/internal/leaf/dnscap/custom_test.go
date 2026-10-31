@@ -75,3 +75,30 @@ func TestClash(t *testing.T) {
 		}
 	}
 }
+
+func TestSameData(t *testing.T) {
+	for _, c := range []struct {
+		typ, a, b string
+		want      bool
+	}{
+		{"AAAA", "2001:db8::1", "2001:0db8:0:0::1", true},
+		{"A", "1.2.3.4", "1.2.3.5", false},
+		{"MX", "10 mx.example.net", "10 MX.example.net.", true},
+		{"TXT", "v=spf1", "V=SPF1", false},
+	} {
+		if got := sameData(c.typ, c.a, c.b); got != c.want {
+			t.Errorf("sameData(%s, %q, %q) = %v", c.typ, c.a, c.b, got)
+		}
+	}
+}
+
+func TestCustomsQueuedClash(t *testing.T) {
+	wants := []Want{
+		{Zone: "acme.dev", Name: "new", Type: "CNAME", Value: "a.example.net", Kind: "custom"},
+		{Zone: "acme.dev", Name: "new", Type: "TXT", Value: "x", Kind: "custom"},
+	}
+	cw := customs("acme.dev", nil, nil, wants, nil)
+	if len(cw.put) != 1 || len(cw.clash) != 1 {
+		t.Fatalf("put %d, clash %d; want the CNAME written and the TXT refused", len(cw.put), len(cw.clash))
+	}
+}

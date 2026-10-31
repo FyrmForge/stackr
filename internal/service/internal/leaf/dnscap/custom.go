@@ -103,13 +103,38 @@ func targetHost(v string) (string, bool) {
 }
 
 // sameData says whether two values of type typ are one record's: a CNAME's
-// and an MX's host match without case or trailing dot.
+// and an MX's host match without case or trailing dot, an A's and an
+// AAAA's address in any spelling (a provider may hand back 2001:db8:0::1).
 func sameData(typ, a, b string) bool {
-	if t := strings.ToUpper(typ); t == "CNAME" || t == "MX" {
+	switch strings.ToUpper(typ) {
+	case "CNAME", "MX":
 		return strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(b, "."))
+	case "A", "AAAA":
+		x, errA := netip.ParseAddr(a)
+		y, errB := netip.ParseAddr(b)
+		if errA == nil && errB == nil {
+			return x == y
+		}
 	}
 	return a == b
 }
+
+// valueKey is a value as sameData compares it: a CNAME's and an MX's host
+// lower case without trailing dot; a TXT keeps its case.
+func valueKey(typ, v string) string {
+	switch strings.ToUpper(typ) {
+	case "CNAME", "MX":
+		return strings.TrimSuffix(strings.ToLower(v), ".")
+	case "A", "AAAA":
+		if a, err := netip.ParseAddr(v); err == nil {
+			return a.String()
+		}
+	}
+	return v
+}
+
+// SameValue says whether a and b are one value of a record of typ.
+func SameValue(typ, a, b string) bool { return sameData(typ, a, b) }
 
 // CustomFQDN is a custom record's full name: name under owner.
 func CustomFQDN(name, owner string) string {
