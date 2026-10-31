@@ -193,3 +193,13 @@ func TestNamecheapZones(t *testing.T) {
 		t.Errorf("zones = %v %v, want %v", zs, err, want)
 	}
 }
+
+func TestHostSameMX(t *testing.T) {
+	ours := toHost(libdns.RR{Name: "@", Type: "MX", Data: "10 mx.example.net"})
+	if ours.same(host{Name: "@", Type: "MX", Address: "mx.example.net.", MXPref: "20"}) {
+		t.Error("a hand MX 20 matched stackr's MX 10 on the same host")
+	}
+	if !ours.same(host{Name: "@", Type: "MX", Address: "MX.example.net.", MXPref: "10"}) {
+		t.Error("the same MX read back with a trailing dot did not match")
+	}
+}
