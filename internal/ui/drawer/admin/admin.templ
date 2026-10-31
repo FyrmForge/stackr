@@ -35,6 +35,9 @@ type UpdateView struct {
 	// Upgrading: an upgrade is queued, running, or this panel is about to
 	// be swapped for the new one; no buttons until it is back.
 	Upgrading bool
+	// Waits is the queued upgrade's line ("Upgrade waits for 2 running
+	// jobs"); "" = not waiting.
+	Waits string
 	// Live is the tab's GET, re-polled while something moves (an upgrade,
 	// a rollout) so a panel restart cannot leave it stale; "" = settled.
 	Live string
@@ -226,6 +229,9 @@ templ Update(v UpdateView) {
 				}
 				if v.Upgrading {
 					<p class="text-rw-text" role="status">Upgrading. The panel restarts and this tab reloads when it is back.</p>
+				}
+				if v.Waits != "" {
+					<p class="text-rw-muted" role="status">{ v.Waits }</p>
 				}
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)

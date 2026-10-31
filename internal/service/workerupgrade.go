@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -48,10 +49,8 @@ const (
 
 const (
 	// kindWorkerRollout is the rollout job; its handler is runWorkerRollout
-	// and its lock is rolloutLock.
+	// and its lock is job.All: no job runs beside a worker swap.
 	kindWorkerRollout jobs.Kind = "worker-rollout"
-
-	rolloutLock = "worker-rollout"
 
 	// hostHelperName is the one helper container a node may have.
 	hostHelperName = "stackr-host-helper"
@@ -161,7 +160,7 @@ func (o *Orchestrator) enqueueRollout(ctx context.Context) (Job, error) {
 	if o.rolloutActive(ctx) {
 		return Job{}, errs.Conflictf("A worker rollout is already running.")
 	}
-	return o.enqueue(ctx, kindWorkerRollout, struct{}{}, rolloutLock)
+	return o.enqueue(ctx, kindWorkerRollout, struct{}{}, job.All)
 }
 
 // rolloutWanted: the admin's target is this build and the rollout has not

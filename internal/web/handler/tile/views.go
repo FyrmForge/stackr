@@ -222,9 +222,11 @@ func jobsView(base string, js []service.Job) ui.JobsView {
 	for _, j := range js {
 		r := ui.JobRow{
 			Kind:  j.Kind,
+			Line:  j.Line,
 			State: j.State,
 			When:  j.CreatedAt,
 			Error: j.Error,
+			Waits: j.Waits,
 		}
 		if base != "" && j.FinishedAt == nil {
 			r.Cancel = base + "/jobs/" + j.ID + "/cancel"

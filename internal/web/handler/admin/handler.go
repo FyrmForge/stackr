@@ -437,6 +437,11 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 	}
 	v.Version, v.Job = h.orch.Version(), job
 	v.Upgrading = v.Upgrading || h.orch.UpgradeUnderway(ctx)
+	waits, err := h.orch.UpgradeWaits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v.Waits = waits
 	if job != nil {
 		job.Refresh = ui.Href("update")
 	}
