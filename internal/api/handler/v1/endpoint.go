@@ -37,6 +37,7 @@ type Endpoint struct {
 	In, Out reflect.Type // nil = no body
 	Status  int          // the success code
 	Stream  string       // non-empty: the response media type (SSE, raw)
+	InRaw   string       // non-empty: the request body's media type, read raw
 	Query   []string     // the query params the handler reads
 }
 

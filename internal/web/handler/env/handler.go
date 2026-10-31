@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"slices"
 	"strconv"
@@ -157,8 +158,10 @@ func (h *handler) NewTile(c echo.Context) error {
 }
 
 // POST …/-/new-tile creates the tile and opens its drawer on the env
-// page; a refusal re-renders the form with the field marked (422).
+// page; a refusal re-renders the form with the field marked (422). A
+// managed tile may carry a dump (multipart "dump"), past the body limit.
 func (h *handler) CreateTile(c echo.Context) error {
+	middleware.UnlimitBody(c)
 	v, s := createView(c), scope(c)
 	t := service.Tile{
 		StackID:       s.Stack.ID,
@@ -169,7 +172,11 @@ func (h *handler) CreateTile(c echo.Context) error {
 	var err error
 	switch v.Source {
 	case "managed":
-		t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
+		if fh, ferr := c.FormFile("dump"); ferr == nil && fh.Filename != "" { // an empty file is refused, not dropped
+			t, err = h.createFromDump(c, t, v.Engine, fh)
+		} else {
+			t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
+		}
 	case "slice":
 		t, err = h.orch.CreateSliceTile(c.Request().Context(), s.Env.ID, v.Name, v.From, v.Access)
 	default:
@@ -216,6 +223,18 @@ func (h *handler) CreateTile(c echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// createFromDump is a managed tile seeded from the uploaded dump; the
+// upload outlives the request timeout, so the verb runs without it.
+func (h *handler) createFromDump(c echo.Context, t service.Tile, engine string, fh *multipart.FileHeader) (service.Tile, error) {
+	f, err := fh.Open()
+	if err != nil {
+		return t, err
+	}
+	defer func() { _ = f.Close() }()
+	out, _, err := h.orch.CreateManagedTileFromDump(context.WithoutCancel(c.Request().Context()), t, engine, "", f)
+	return out, err
+}
+
 // createFields are the fields the create form marks; another field's
 // refusal shows over the form.
 var createFields = []string{
@@ -226,6 +245,7 @@ var createFields = []string{
 	"engine",
 	"provision_from",
 	"default_access",
+	"dump",
 }
 
 // ---- managed instance ----
@@ -416,6 +436,10 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			Endpoint:  m.Endpoint,
 			AdminUser: m.AdminUser,
 		}
+		if st.LastJob != nil {
+			j := render.JobView(render.EnvURL(c), *st.LastJob)
+			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+		}
 		for _, p := range ps {
 			r := instance.SliceRow{
 				Slice:    p.Slice,
@@ -586,6 +610,10 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	js, err := h.orch.TileJobs(ctx, []string{t.ID}, 1)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
 	// A slice has no container: its header word is whether it is provisioned.
 	word := "idle"
 	if sv.Provisioned {
@@ -610,6 +638,10 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		Provisioned:   sv.Provisioned,
 		DBName:        sv.Name,
 		Note:          note,
+	}
+	if len(js) > 0 {
+		j := render.JobView(render.EnvURL(c), js[0])
+		v.Job, v.JobWhen = &j, js[0].CreatedAt
 	}
 	// Target is <stack>:<env>:<tile>; a slug never holds a colon.
 	if at := strings.Split(sv.Target, ":"); len(at) == 3 {

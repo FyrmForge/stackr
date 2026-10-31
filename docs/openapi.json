@@ -2556,6 +2556,9 @@
           "kind": {
             "type": "string"
           },
+          "line": {
+            "type": "string"
+          },
           "lock_set": {
             "items": {
               "type": "string"
@@ -2598,6 +2601,9 @@
                 "type": "null"
               }
             ]
+          },
+          "waits": {
+            "type": "string"
           }
         },
         "required": [
@@ -3616,6 +3622,21 @@
           "value",
           "whose",
           "whose_text"
+        ],
+        "type": "object"
+      },
+      "ManagedSeeded": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "tile": {
+            "$ref": "#/components/schemas/Tile"
+          }
+        },
+        "required": [
+          "tile",
+          "job"
         ],
         "type": "object"
       },
@@ -17824,6 +17845,87 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/managed/from-dump": {
+      "post": {
+        "operationId": "managed.from-dump",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "engine",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "slice",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {}
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedSeeded"
+                }
+              }
+            },
+            "description": "Accepted"
           },
           "default": {
             "content": {

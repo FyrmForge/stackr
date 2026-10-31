@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -458,6 +459,14 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if !o.upgrade.Upgradable() {
 		return Job{}, errs.Conflictf("A dev build cannot upgrade itself. Run stackr-install from the release to move this box onto it.")
 	}
+	// Refused, not superseded: a running upgrade cannot be stopped (its flow
+	// outlives the request), so a second one would only fail at its launch
+	// after moving the worker rollout target.
+	upgradeEnqueue.Lock()
+	defer upgradeEnqueue.Unlock()
+	if o.UpgradeUnderway(ctx) {
+		return Job{}, errs.Conflictf("An upgrade is already underway.")
+	}
 	// The new panel rolls the workers onto its build once it has published
 	// its image (rolloutAfterBoot); a stop from an earlier rollout is over.
 	if err := o.store.Settings.Delete(ctx, keyRolloutStopped); err != nil {
@@ -466,8 +475,12 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 	if err := o.setRolloutTarget(ctx, tag); err != nil {
 		return Job{}, err
 	}
-	return o.enqueue(ctx, kindUpgrade, upgradeJob{Tag: tag}, "panel")
+	return o.enqueue(ctx, kindUpgrade, upgradeJob{Tag: tag}, job.All)
 }
+
+// upgradeEnqueue makes Upgrade's check and enqueue one step (a double click).
+// ponytail: one controller process, so a process lock is enough.
+var upgradeEnqueue sync.Mutex
 
 // upgradeSwapWindow is how long after launching its successor a panel still
 // says it is being replaced.
@@ -475,15 +488,39 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 // a helper that rolls back leaves the old panel saying so until it passes.
 const upgradeSwapWindow = 10 * time.Minute
 
+// upgradeSwapping: this panel launched the helper that replaces it moments
+// ago. The job queue starts nothing meanwhile (jobs.Options.Hold).
+// ponytail: a helper that rolls back leaves the queue held until the window
+// passes; report the helper's outcome back if that wait bites.
+func (o *Orchestrator) upgradeSwapping() bool {
+	at := o.upgradeLaunched.Load()
+	return at != 0 && time.Since(time.Unix(0, at)) < upgradeSwapWindow
+}
+
 // UpgradeUnderway: an upgrade job is queued or running, or this panel launched
 // the helper that replaces it moments ago and is still serving. The Update tab
 // keeps itself live through the restart on it, and offers no buttons.
 func (o *Orchestrator) UpgradeUnderway(ctx context.Context) bool {
-	if at := o.upgradeLaunched.Load(); at != 0 && time.Since(time.Unix(0, at)) < upgradeSwapWindow {
+	if o.upgradeSwapping() {
 		return true
 	}
 	js, err := o.store.Jobs.ListByState(ctx, "queued", "running")
 	return err == nil && slices.ContainsFunc(js, func(j store.Job) bool { return j.Kind == string(kindUpgrade) })
+}
+
+// UpgradeWaits is the Update tab's line while the queued upgrade waits for
+// running jobs; "" = none queued, or it starts on the next pass.
+func (o *Orchestrator) UpgradeWaits(ctx context.Context) (string, error) {
+	live, err := o.jobRows.List(ctx, job.Queued, job.Running)
+	for _, j := range live {
+		if j.Kind != string(kindUpgrade) || j.State != job.Queued {
+			continue
+		}
+		if n := job.RunningAhead(j, live); n > 0 {
+			return "Upgrade waits for " + job.RunningJobs(n), err
+		}
+	}
+	return "", err
 }
 
 // splitList reads a comma, space or newline separated setting.

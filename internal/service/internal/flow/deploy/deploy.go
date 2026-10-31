@@ -189,13 +189,16 @@ func (f *Flow) Rebuild(ctx context.Context, tileID string, log io.Writer) error 
 		return err
 	}
 	p.ImageID = &id
-	r, err := f.Releases.Derive(ctx, t.StackID, *e.ReleaseID, "rebuild", p)
+	r, err := f.Releases.Derive(ctx, t.StackID, *e.ReleaseID, RebuildLine, p)
 	if err != nil {
 		return err
 	}
 	_, err = f.Envs.SetRelease(ctx, e, r.ID)
 	return err
 }
+
+// RebuildLine is the message of the release a rebuild cuts.
+const RebuildLine = "rebuild"
 
 // BuiltPin is the pin env e's release has for git tile t, and its image's ref.
 func (f *Flow) BuiltPin(ctx context.Context, t store.Tile, e store.Environment) (release.Pin, string, error) {

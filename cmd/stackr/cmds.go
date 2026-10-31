@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	jobCols   = []string{"id", "kind", "state", "error", "created_at"}
+	jobCols   = []string{"id", "kind", "line", "state", "waits", "error", "created_at"}
 	keyCols   = []string{"id", "name", "org_id", "level", "stack", "created_at"}
 	destCols  = []string{"id", "name", "kind", "endpoint", "bucket", "shared", "org_id"}
 	orgCols   = []string{"slug", "name", "id"}

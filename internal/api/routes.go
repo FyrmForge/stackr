@@ -190,6 +190,7 @@ func routes(h *v1.H) []Route {
 		{POST, env + "/tiles", "tile.create", "tile.write", h.CreateTile()},
 		{GET, env + "/managed", "managed.list", "tile.read", h.ManagedInstances()},
 		{POST, env + "/managed", "managed.create", "tile.write", h.CreateManagedTile()},
+		{POST, env + "/managed/from-dump", "managed.from-dump", "tile.write", h.CreateManagedFromDump()},
 		{POST, env + "/slices", "slice.create", "tile.write", h.CreateSliceTile()},
 
 		// tiles

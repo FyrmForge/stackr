@@ -756,6 +756,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
+			Hold:     orch.upgradeSwapping,
 		})
 	})
 	orch.sched = build("flow/schedule", func() *schedule.Runner {

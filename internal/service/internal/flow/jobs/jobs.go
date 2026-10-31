@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,9 @@ type Options struct {
 	// now. nil = requeue every parked job each poll and let the handler
 	// re-check.
 	ParamSet func(ctx context.Context, j store.Job) (bool, error)
+	// Hold, when it answers true, starts nothing: the panel launched its
+	// upgraded successor, and a job started now dies with this one. nil = never.
+	Hold func() bool
 }
 
 type Runner struct {
@@ -249,6 +253,9 @@ func (r *Runner) unpark(ctx context.Context) {
 // that cannot start still holds its tiles against newer ones, so each tile
 // sees its jobs in order.
 func (r *Runner) pass(ctx context.Context) error {
+	if r.opt.Hold != nil && r.opt.Hold() {
+		return nil
+	}
 	n, err := r.opt.Workers(ctx)
 	if err != nil {
 		return err
@@ -262,19 +269,21 @@ func (r *Runner) pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var busy []string
+	// One entry per job, not one flat list: job.All overlaps a job with an
+	// empty lock set too.
+	var busy [][]string
 	for _, a := range r.running {
-		busy = append(busy, a.lock...)
+		busy = append(busy, a.lock)
 	}
 	for _, j := range queued {
 		if len(r.running) >= n {
 			return nil
 		}
-		if job.Overlaps(j.LockSet, busy) {
-			busy = append(busy, j.LockSet...)
+		blocked := slices.ContainsFunc(busy, func(b []string) bool { return job.Overlaps(j.LockSet, b) })
+		busy = append(busy, j.LockSet)
+		if blocked {
 			continue
 		}
-		busy = append(busy, j.LockSet...)
 		if err := r.start(j); err != nil {
 			return err
 		}
