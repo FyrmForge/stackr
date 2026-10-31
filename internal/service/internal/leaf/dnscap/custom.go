@@ -103,10 +103,18 @@ func targetHost(v string) (string, bool) {
 }
 
 // sameData says whether two values of type typ are one record's: a CNAME's
-// and an MX's host match without case or trailing dot.
+// and an MX's host match without case or trailing dot, an A's and an
+// AAAA's address in any spelling (a provider may hand back 2001:db8:0::1).
 func sameData(typ, a, b string) bool {
-	if t := strings.ToUpper(typ); t == "CNAME" || t == "MX" {
+	switch strings.ToUpper(typ) {
+	case "CNAME", "MX":
 		return strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(b, "."))
+	case "A", "AAAA":
+		x, errA := netip.ParseAddr(a)
+		y, errB := netip.ParseAddr(b)
+		if errA == nil && errB == nil {
+			return x == y
+		}
 	}
 	return a == b
 }

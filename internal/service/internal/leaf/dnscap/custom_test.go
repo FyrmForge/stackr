@@ -75,3 +75,19 @@ func TestClash(t *testing.T) {
 		}
 	}
 }
+
+func TestSameData(t *testing.T) {
+	for _, c := range []struct {
+		typ, a, b string
+		want      bool
+	}{
+		{"AAAA", "2001:db8::1", "2001:0db8:0:0::1", true},
+		{"A", "1.2.3.4", "1.2.3.5", false},
+		{"MX", "10 mx.example.net", "10 MX.example.net.", true},
+		{"TXT", "v=spf1", "V=SPF1", false},
+	} {
+		if got := sameData(c.typ, c.a, c.b); got != c.want {
+			t.Errorf("sameData(%s, %q, %q) = %v", c.typ, c.a, c.b, got)
+		}
+	}
+}
