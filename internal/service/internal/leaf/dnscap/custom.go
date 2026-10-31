@@ -119,6 +119,23 @@ func sameData(typ, a, b string) bool {
 	return a == b
 }
 
+// valueKey is a value as sameData compares it: a CNAME's and an MX's host
+// lower case without trailing dot; a TXT keeps its case.
+func valueKey(typ, v string) string {
+	switch strings.ToUpper(typ) {
+	case "CNAME", "MX":
+		return strings.TrimSuffix(strings.ToLower(v), ".")
+	case "A", "AAAA":
+		if a, err := netip.ParseAddr(v); err == nil {
+			return a.String()
+		}
+	}
+	return v
+}
+
+// SameValue says whether a and b are one value of a record of typ.
+func SameValue(typ, a, b string) bool { return sameData(typ, a, b) }
+
 // CustomFQDN is a custom record's full name: name under owner.
 func CustomFQDN(name, owner string) string {
 	if name == "" {

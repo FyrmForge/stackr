@@ -1501,7 +1501,7 @@ func sigRow(d store.Domain) string {
 func sigRecords(rs []store.CustomRecord) string {
 	var out []string
 	for _, r := range rs {
-		out = append(out, strings.ToLower(r.Name+"|"+r.Type+"|"+r.Value))
+		out = append(out, strings.ToLower(r.Name+"|"+r.Type)+"|"+r.Value) // a TXT keeps its case
 	}
 	slices.Sort(out)
 	return strings.Join(out, ",")

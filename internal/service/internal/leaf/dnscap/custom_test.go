@@ -91,3 +91,14 @@ func TestSameData(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomsQueuedClash(t *testing.T) {
+	wants := []Want{
+		{Zone: "acme.dev", Name: "new", Type: "CNAME", Value: "a.example.net", Kind: "custom"},
+		{Zone: "acme.dev", Name: "new", Type: "TXT", Value: "x", Kind: "custom"},
+	}
+	cw := customs("acme.dev", nil, nil, wants, nil)
+	if len(cw.put) != 1 || len(cw.clash) != 1 {
+		t.Fatalf("put %d, clash %d; want the CNAME written and the TXT refused", len(cw.put), len(cw.clash))
+	}
+}

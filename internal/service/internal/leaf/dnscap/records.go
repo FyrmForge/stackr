@@ -42,13 +42,13 @@ func (w Want) key() string { return w.Zone + "|" + strings.ToLower(w.Name) + "|"
 func (w Want) kind() string { return cmp.Or(w.Kind, store.RecordApp) }
 
 // ckey is a custom record's key: a name holds several values of one type.
-func (w Want) ckey() string { return w.key() + "|" + strings.ToLower(w.Value) }
+func (w Want) ckey() string { return w.key() + "|" + valueKey(w.Type, w.Value) }
 
 func rowKey(r store.DNSRecord) string {
 	return r.Zone + "|" + strings.ToLower(r.Name) + "|" + r.Type
 }
 
-func rowCKey(r store.DNSRecord) string { return rowKey(r) + "|" + strings.ToLower(r.Value) }
+func rowCKey(r store.DNSRecord) string { return rowKey(r) + "|" + valueKey(r.Type, r.Value) }
 
 // Accounts opens a connector's provider by connector id.
 type Accounts func(ctx context.Context, connectorID string, orgID *string) (Provider, error)
@@ -502,7 +502,9 @@ func customs(zone string, live, del []libdns.Record, wants []Want, rows []store.
 				look = append(look, r)
 			}
 		}
-		if err := clash(look, zone, w.Name, w.Type, w.Value); err != nil {
+		// what this sync queued already counts: a CNAME and a TXT declared
+		// on one empty name clash too
+		if err := clash(append(slices.Clone(look), cw.put...), zone, w.Name, w.Type, w.Value); err != nil {
 			cw.clash = append(cw.clash, err)
 			continue
 		}

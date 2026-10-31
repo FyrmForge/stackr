@@ -283,7 +283,7 @@ func (o *Orchestrator) customOut(ctx context.Context, rs []store.CustomRecord, o
 		c := CustomRecord{ID: r.ID, Name: r.Name, Type: r.Type, Value: r.Value, Host: dnscap.CustomFQDN(r.Name, owner)}
 		for _, x := range rows {
 			if x.Kind == store.RecordCustom && deref(x.DomainID) == deref(domainID) && x.Type == r.Type &&
-				strings.EqualFold(zoneHost(x.Name, x.Zone), c.Host) && strings.EqualFold(x.Value, r.Value) {
+				strings.EqualFold(zoneHost(x.Name, x.Zone), c.Host) && dnscap.SameValue(r.Type, x.Value, r.Value) {
 				c.Written, c.PutBackAt = true, x.PutBackAt
 			}
 		}
@@ -395,7 +395,7 @@ func (o *Orchestrator) RemoveTileDomainRecord(ctx context.Context, tileID, id, r
 
 func hasRecord(rs []store.CustomRecord, r store.CustomRecord) bool {
 	return slices.ContainsFunc(rs, func(x store.CustomRecord) bool {
-		return x.Name == r.Name && x.Type == r.Type && strings.EqualFold(x.Value, r.Value)
+		return x.Name == r.Name && x.Type == r.Type && dnscap.SameValue(r.Type, x.Value, r.Value)
 	})
 }
 
