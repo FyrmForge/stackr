@@ -85,6 +85,61 @@ stackr only touches records it created. A name that already has a record it did 
 
 If a records update fails, Admin, Connectors shows the error over the DNS connectors. stackr tries again on the next change.
 
+## Custom records
+
+You can keep extra records in stackr too: site verification TXT, mail (MX, SPF, DKIM, DMARC), a CNAME to an outside service. Types are TXT, MX, CNAME, A and AAAA, written with stackr's TTL of 300 seconds. They have two homes.
+
+**On an app's hostname.** Add them in the drawer's Domains tab, under the hostname. A record sits on the hostname itself or a name below it (`_dmarc` under `shop.example.com` is `_dmarc.shop.example.com`), never on another app's name. They live and die with the hostname: removing the domain, deleting the app or a promote whose file drops it removes them too.
+
+**On the domain itself.** Records no app owns, like an apex MX or a verification TXT. Open Records on the managed domain's row in the connector's settings.
+
+Each record shows where it is written, for example "managed by example.com via Namecheap (server)".
+
+The rules:
+
+- The name must be in a domain stackr manages, inside its scope, and the domain must be available to the app's org. Otherwise the record is refused, naming the host and the domain. Add such records at your DNS host.
+- Values are checked before anything is written: an A is an IPv4 address, an AAAA an IPv6 one, a CNAME a host name, an MX a priority and a host (`10 mx.example.net`), a TXT one line of text.
+- TXT, MX, A and AAAA go next to what the name already has. The answer says so: "added (2 others there stay)". The same record already made by hand is taken over ("taken over"), not doubled; from then on stackr deletes it with the hostname.
+- A CNAME needs its name to itself. It is refused where the name has any other record, and nothing else is added where the name has a CNAME.
+- A name is either an app hostname or a custom record, not both. Only TXT and MX can sit next to an app. This is refused both ways with the same message.
+- If someone changes or deletes a custom record at the DNS host, stackr puts it back on the next records sync, and the record shows "Changed outside stackr; put back". The A records stackr writes for apps keep the old rule: a hand edit makes the record yours.
+- Narrowing a domain's scope drops the domain's own custom records outside the new scope. Their records stay in the zone as yours.
+
+From the CLI:
+
+```bash
+stackr tile domain records ls shop.example.com
+stackr tile domain records add shop.example.com TXT "google-site-verification=abc"
+stackr tile domain records add shop.example.com TXT "v=DMARC1; p=none" --name _dmarc
+stackr tile domain records rm shop.example.com <id or value>
+
+stackr server connectors records ls <connector> example.com
+stackr server connectors records add <connector> example.com MX "10 mx.example.net"
+stackr server connectors records rm <connector> example.com <id or value>
+```
+
+`stackr org connectors records` does the same for an org's own connector.
+
+### In the stack file
+
+A domain entry takes `records:` and `dns:`.
+
+```yaml
+domains:
+  - host: shop.example.com
+    records:
+      - {type: TXT, value: "google-site-verification=..."}
+      - {name: _dmarc, type: TXT, value: "v=DMARC1; p=none"}
+      - {type: MX, value: "10 mx.example.net"}
+  - host: api.example.com
+    dns: managed
+```
+
+- `records:` is a list of `{name, type, value}`. `name` is relative to the host; left out, it is the host itself.
+- `records:` means the host must be managed. `dns: managed` asks the same without records.
+- The plan refuses a host no managed domain covers, a domain the org may not use, a bad value, a CNAME clash and a name another app holds. Each error names the host and the domain. The plan row says how each new record lands, for example "added (1 other there stays)".
+- Export writes `records:` back. `dns: managed` is a plan check only and is not exported.
+
 ## Certificates
 
 For a managed domain stackr gets wildcard certificates through DNS. A wildcard covers one level only, so stackr gets one per level in use:
