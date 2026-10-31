@@ -41,8 +41,8 @@ func tileWithDomains(now time.Time) []stmt {
 		{`INSERT INTO domain_resources VALUES ('dr1','org','o1',NULL,'acme.example.com',0,'',1,?)`, []any{now}},
 		{`INSERT INTO domain_resources VALUES ('dr2','stack',NULL,'s1','shop.io',0,'',1,?)`, []any{now}},
 		{`INSERT INTO tiles VALUES ('t1','s1','e1','api','api','image','','','nginx:1','','','','{}','','','',80,'','','','',0,0,0,0,0,0,'',0,0,'','','','','',1,'manual','','','',0,0,NULL,NULL,NULL,'[]',?,?,'',0)`, []any{now, now}},
-		{`INSERT INTO domains VALUES ('dm1','t1','api.shop.io','/',80,1,0,'',1,'dr2',0,'{}','',?)`, []any{now}},
-		{`INSERT INTO domains VALUES ('dm2','t1','api.shop.acme.example.com','/',80,1,0,'',1,'dr1',1,'{}','',?)`, []any{now}},
+		{`INSERT INTO domains VALUES ('dm1','t1','api.shop.io','/',80,1,0,'',1,'dr2',0,'{}','',?,'[]')`, []any{now}},
+		{`INSERT INTO domains VALUES ('dm2','t1','api.shop.acme.example.com','/',80,1,0,'',1,'dr1',1,'{}','',?,'[]')`, []any{now}},
 	}
 }
 
