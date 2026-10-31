@@ -27,6 +27,7 @@ func TestAdminSections(t *testing.T) {
 		"traffic":      {"External routes", `name="route_host"`},
 		"domains":      {`name="panel_domain"`, `name="root_domain"`, `name="acme_email"`, `name="trusted_proxies"`, `name="ipv6"`, `<textarea id="proxy_custom"`, "/-/admin/caddy/sync"},
 		"connectors":   {"/-/admin/connectors/new"},
+		"managed-dns":  {"No managed domains yet.", "Only records stackr wrote are listed."},
 		"backups":      {`name="panel_backup_schedule"`, `name="panel_backup_dest"`, "Encrypted to recovery key generation", `href="/-/admin/keys"`, "History"},
 		"registry":     {`name="registry_cleanup_schedule"`, `name="registry_keep"`, "Clean up now"},
 		"cleanup":      {`name="image_check_interval"`, `name="cleanup_enabled"`, `name="cleanup_schedule"`, `name="orphans_enabled"`, `name="orphans_schedule"`, `name="orphan_retention_days"`},
