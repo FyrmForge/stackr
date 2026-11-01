@@ -77,7 +77,18 @@ templ CreateTile(v CreateTileView) {
 					</div>
 					<div>
 						<label for="dump" class="label">Start from a dump</label>
-						<input type="file" id="dump" name="dump" class="input" aria-describedby="dump-help" { c.Invalid("dump", v.Errors["dump"])... }/>
+						<input
+							type="file"
+							id="dump"
+							name="dump"
+							class="input"
+							if v.Errors["dump"] != "" {
+								aria-invalid="true"
+								aria-describedby="dump-help error-dump"
+							} else {
+								aria-describedby="dump-help"
+							}
+						/>
 						<p id="dump-help" class="mt-1.5 text-xs text-rw-faint" data-hint>Optional. A postgres pg_dump, custom or plain SQL.</p>
 						@c.FieldError("dump", v.Errors["dump"])
 					</div>
