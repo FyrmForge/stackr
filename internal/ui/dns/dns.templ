@@ -152,7 +152,12 @@ func planTitle(p PlanView) string {
 	return "Manage " + p.Domain + "?"
 }
 
+// vals is an hx-vals object; none is {} (htmx reads "null" as "{null}" and
+// logs a JSON error on every request).
 func vals(m map[string]string) string {
+	if len(m) == 0 {
+		return "{}"
+	}
 	b, _ := json.Marshal(m)
 	return string(b)
 }
