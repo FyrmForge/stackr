@@ -75,8 +75,11 @@ func (a *app) records(use string, n int, ops [3]string, path func(c *cobra.Comma
 			if err := a.confirm("Remove " + cell(hit[0]["type"]) + " " + cell(hit[0]["host"]) + "? stackr deletes it from the zone."); err != nil {
 				return err
 			}
-			_, err = a.call(DELETE, p+"/"+url.PathEscape(cell(hit[0]["id"])), nil)
-			return err
+			if _, err = a.call(DELETE, p+"/"+url.PathEscape(cell(hit[0]["id"])), nil); err != nil {
+				return err
+			}
+			a.say("%s %s: removed", cell(hit[0]["type"]), cell(hit[0]["host"]))
+			return nil
 		})
 	return noun("records", "Custom DNS records (TXT, MX, CNAME, A, AAAA)", ls, add, rm)
 }

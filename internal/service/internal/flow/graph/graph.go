@@ -606,6 +606,9 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		if s.word, err = f.Slice(ctx, t); err != nil {
 			return s, err
 		}
+		if s.word == "running" { // a running instance serves it: a failed seed is not a crash
+			up = 1
+		}
 	default:
 		s.state, err = f.Tiles.State(ctx, t)
 		switch {
@@ -703,11 +706,12 @@ func LayerJob(word string, up int, runKind bool, j store.Job) string {
 	return word
 }
 
-// rollout are the one-tile job kinds that put a version on it (service's
-// kindDeploy, kindStart, kindRestart). A backup or an image watch failing
-// says nothing of the tile's health; a promote, env sync or PR job locks
-// every tile of the env, so its failure would paint the neighbours too.
-var rollout = map[string]bool{"deploy": true, "start": true, "restart": true}
+// rollout are the job kinds whose failure says the tile is unwell (service's
+// kindDeploy, kindStart, kindRestart, and kindSeed, a dump that did not
+// load). A backup or an image watch failing says nothing of the tile's
+// health; a promote, env sync or PR job locks every tile of the env, so its
+// failure would paint the neighbours too.
+var rollout = map[string]bool{"deploy": true, "start": true, "restart": true, "seed": true}
 
 // ---- env -------------------------------------------------------------------
 

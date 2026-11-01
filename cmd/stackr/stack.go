@@ -1238,8 +1238,11 @@ func (a *app) domains() *cobra.Command {
 				if err := a.confirm("Remove domain " + args[0] + "? It stops routing at once."); err != nil {
 					return err
 				}
-				_, err = a.call(DELETE, p+"/domains/"+cell(cur["id"]), nil)
-				return err
+				if _, err = a.call(DELETE, p+"/domains/"+cell(cur["id"]), nil); err != nil {
+					return err
+				}
+				a.say("%s: removed", args[0])
+				return nil
 			})),
 	)
 }

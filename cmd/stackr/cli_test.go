@@ -1105,6 +1105,16 @@ func TestListAndCreateDefaults(t *testing.T) {
 	}
 }
 
+// A multi-line job error (psql output) keeps job ls one row per job; the
+// whole error is job get's.
+func TestJobLsErrorFirstLine(t *testing.T) {
+	fake(t, map[string]string{"/admin/jobs": `[{"id":"j1","state":"failed","error":"  seed failed\npsql: ERROR: boom\n"}]`})
+	_, out, _ := cli(t, "job", "ls")
+	if strings.Count(out, "\n") != 1 || !strings.Contains(out, "\tseed failed\t") {
+		t.Errorf("job ls = %q, want one row with the first error line", out)
+	}
+}
+
 // env sync is promote's shape: the plan first, a refusal on blockers, a yes
 // before the POST; --tile names the kept tiles and re-reads the plan with
 // the rest dropped.
