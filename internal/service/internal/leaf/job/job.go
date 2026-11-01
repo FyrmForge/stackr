@@ -60,6 +60,10 @@ func LockSet(tileIDs ...string) []string {
 // jobs ahead of them and every job queued after them waits for them.
 const All = "*"
 
+// WorkerRollout is the worker rollout's kind: the All holder Waits names
+// apart from the panel upgrade.
+const WorkerRollout = "worker-rollout"
+
 // Overlaps reports whether two lock sets share a tile, or either holds All.
 func Overlaps(a, b []string) bool {
 	if slices.Contains(a, All) || slices.Contains(b, All) {
@@ -106,7 +110,7 @@ func RunningJobs(n int) string {
 
 // Waits is why queued job j has not started, for the jobs lists: an All
 // job counts the jobs it waits for, any other job names an All job ahead
-// of it. "" = nothing to say (not queued, or a plain tile wait).
+// of it (the worker rollout, else the panel upgrade). "" = nothing to say (not queued, or a plain tile wait).
 // held: the runner holds the queue while the upgraded panel takes over.
 func Waits(j store.Job, live []store.Job, held bool) string {
 	if j.State != Queued {
@@ -119,7 +123,13 @@ func Waits(j store.Job, live []store.Job, held bool) string {
 			return "Waits for " + RunningJobs(n)
 		}
 		return ""
-	case held || slices.ContainsFunc(ahead, func(o store.Job) bool { return slices.Contains(o.LockSet, All) }):
+	case held:
+		return "Waits for the panel upgrade"
+	}
+	if i := slices.IndexFunc(ahead, func(o store.Job) bool { return slices.Contains(o.LockSet, All) }); i >= 0 {
+		if ahead[i].Kind == WorkerRollout {
+			return "Waits for the worker upgrade"
+		}
 		return "Waits for the panel upgrade"
 	}
 	return ""

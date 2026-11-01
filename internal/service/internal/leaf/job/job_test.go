@@ -136,6 +136,7 @@ func TestWaits(t *testing.T) {
 		{"queued after the upgrade", after, live, false, "Waits for the panel upgrade"},
 		{"queued before the upgrade", older, live, false, ""},
 		{"queue held", older, nil, true, "Waits for the panel upgrade"},
+		{"queued after the worker rollout", after, []store.Job{{ID: "wr", Kind: WorkerRollout, State: Queued, LockSet: []string{All}, CreatedAt: at(3)}, after}, false, "Waits for the worker upgrade"},
 		{"not queued", run1, live, true, ""},
 		{"plain tile wait", store.Job{ID: "q2", State: Queued, LockSet: []string{"t1"}, CreatedAt: at(0)}, []store.Job{run1}, false, ""},
 	}

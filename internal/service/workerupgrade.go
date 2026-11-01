@@ -50,7 +50,7 @@ const (
 const (
 	// kindWorkerRollout is the rollout job; its handler is runWorkerRollout
 	// and its lock is job.All: no job runs beside a worker swap.
-	kindWorkerRollout jobs.Kind = "worker-rollout"
+	kindWorkerRollout jobs.Kind = job.WorkerRollout
 
 	// hostHelperName is the one helper container a node may have.
 	hostHelperName = "stackr-host-helper"
