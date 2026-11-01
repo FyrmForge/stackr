@@ -160,6 +160,15 @@ type DNS interface {
 	TakeOver(ctx context.Context, zone string) error
 }
 
+// MailDNS is a DNS account with a zone-wide mail setting that can drop MX
+// records written through its API (Namecheap's Mail Settings). Without
+// it, a zone takes MX records.
+type MailDNS interface {
+	// GetMail is Get, and why the zone takes no MX record: one sentence
+	// for the user, "" when it does.
+	GetMail(ctx context.Context, zone string) ([]libdns.Record, string, error)
+}
+
 // GitSource is the Git source capability: a git host account.
 type GitSource interface {
 	// Host is the host its repositories are on; a repository URL on it

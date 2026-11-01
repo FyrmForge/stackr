@@ -28,6 +28,17 @@ type (
 	Zone     = connectors.Zone
 )
 
+// readZone is zone's records and why it takes no MX ("" = it does, the
+// only answer from a provider without a mail setting). Call it on the
+// raw provider: Locked hides connectors.MailDNS.
+func readZone(ctx context.Context, p Provider, zone string) ([]libdns.Record, string, error) {
+	if m, ok := p.(connectors.MailDNS); ok {
+		return m.GetMail(ctx, zone)
+	}
+	live, err := p.Get(ctx, zone)
+	return live, "", err
+}
+
 // Normal is a domain as stored: lower case, no trailing dot.
 func Normal(d string) string { return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(d), ".")) }
 

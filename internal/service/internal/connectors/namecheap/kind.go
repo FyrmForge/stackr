@@ -127,6 +127,11 @@ func (a *Account) Get(ctx context.Context, zone string) ([]libdns.Record, error)
 	return rs, a.explain(err)
 }
 
+func (a *Account) GetMail(ctx context.Context, zone string) ([]libdns.Record, string, error) {
+	rs, email, err := a.getMail(ctx, zone)
+	return rs, noMX(email), a.explain(err)
+}
+
 func (a *Account) Append(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	out, err := a.append(ctx, zone, rs)
 	return out, a.explain(err)

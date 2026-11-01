@@ -28,7 +28,8 @@ type DNS struct {
 	Deleted  []string
 	Overlap  bool
 	inZone   map[string]int
-	fail     error // set by Fail: what every record write returns
+	fail     error             // set by Fail: what every record write returns
+	noMX     map[string]string // set by NoMX: zone -> why it drops MX records
 }
 
 // record logs rs under zone into to, holding the zone a moment so two
@@ -87,6 +88,29 @@ func (a fakeAccount) Get(_ context.Context, zone string) ([]libdns.Record, error
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// NoMX makes zone drop MX records as Namecheap's mail forwarding does:
+// reads hide them and GetMail says why ("" = takes them again).
+func (d *DNS) NoMX(zone, why string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.noMX == nil {
+		d.noMX = map[string]string{}
+	}
+	d.noMX[zone] = why
+}
+
+// GetMail is Get and the zone's NoMX reason.
+func (a fakeAccount) GetMail(ctx context.Context, zone string) ([]libdns.Record, string, error) {
+	rs, err := a.Get(ctx, zone)
+	a.d.mu.Lock()
+	defer a.d.mu.Unlock()
+	why := a.d.noMX[zone]
+	if why != "" {
+		rs = slices.DeleteFunc(rs, func(r libdns.Record) bool { return r.RR().Type == "MX" })
+	}
+	return rs, why, err
 }
 
 // Fail makes every record append answer err (nil: answer again).
