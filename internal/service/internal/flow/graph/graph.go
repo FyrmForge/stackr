@@ -606,6 +606,9 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		if s.word, err = f.Slice(ctx, t); err != nil {
 			return s, err
 		}
+		if s.word == "running" { // a running instance serves it: a failed seed is not a crash
+			up = 1
+		}
 	default:
 		s.state, err = f.Tiles.State(ctx, t)
 		switch {
