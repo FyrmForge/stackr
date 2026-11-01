@@ -516,9 +516,10 @@ func (o *Orchestrator) DNSSuggestions(ctx context.Context, orgID *string, ds []D
 	panel := o.panelDomain(ctx)
 	root, _ := o.settings.Get(ctx, "root_domain")
 	root = strings.TrimPrefix(dnscap.Normal(root), "*.")
+	managed := o.managedZones(ctx) // through another connector: not this one's to offer
 	var out []DNSSuggestion
 	for _, d := range ds {
-		if d.State != DNSNotManaged {
+		if d.State != DNSNotManaged || slices.ContainsFunc(managed, func(z store.DNSDomain) bool { return z.Name == d.Name }) {
 			continue
 		}
 		p, r := panel != "" && dnscap.Name(panel, d.Name) != "", root != "" && dnscap.Name(root, d.Name) != ""

@@ -104,6 +104,48 @@ func TestAdminSuggestsPanelScope(t *testing.T) {
 	}
 }
 
+// The setup card is the plain list's: an action's answer (Change scope,
+// Records) is about its own domain and leaves it out. A domain managed
+// through another connector is never offered.
+func TestAdminSuggestionOnlyOnList(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	s.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}, {Name: "vulpe.dev", OurDNS: true}}
+	if err := s.Orch.SetSettings(ctx, map[string]string{"panel_domain": "stackr.vulpe.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	add := func(user string) string {
+		c, err := s.Orch.AddConnector(ctx, service.ConnectorAdd{Kind: "namecheap", Values: map[string]string{"user": user, "key": panelKey, "client_ip": "203.0.113.7"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "/-/admin/dns/" + c.Connector.ID
+	}
+	base := add("jo")
+	if _, err := s.Orch.ManageDNSDomainAdopting(ctx, nil, strings.TrimPrefix(base, "/-/admin/dns/"), "acme.dev", "test.acme.dev", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if body := s.As(t, root, "POST", base+"/domains", nil).Body.String(); !strings.Contains(body, "Your panel runs at") {
+		t.Fatalf("no card on the list:\n%s", body)
+	}
+	rec := s.As(t, root, "POST", base+"/rescope", url.Values{"domain": {"acme.dev"}, "part": {"all"}})
+	if body := rec.Body.String(); !strings.Contains(body, "Scope changed.") || strings.Contains(body, "Your panel runs at") {
+		t.Fatalf("rescope answer = %d\n%s", rec.Code, body)
+	}
+	if body := s.As(t, root, "POST", base+"/records", url.Values{"domain": {"acme.dev"}}).Body.String(); strings.Contains(body, "Your panel runs at") {
+		t.Errorf("card on the records answer:\n%s", body)
+	}
+
+	// vulpe.dev managed through jo's connector: a second one lists it too
+	if _, err := s.Orch.ManageDNSDomain(ctx, nil, strings.TrimPrefix(base, "/-/admin/dns/"), "vulpe.dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	if body := s.As(t, root, "POST", add("ann")+"/domains", nil).Body.String(); strings.Contains(body, "Your panel runs at") {
+		t.Errorf("card for a domain another connector manages:\n%s", body)
+	}
+}
+
 // A managed row offers Change scope on its own scope; widening plans the
 // records now inside, narrowing lists what becomes the user's, and the
 // change lands with the row reading its new scope.
