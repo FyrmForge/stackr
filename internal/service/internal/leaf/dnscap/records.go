@@ -345,7 +345,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	var cw customWork
 	gone := map[string]bool{} // row ids whose record is off the zone
 	err = l.WithZone(ctx, a, zone, func(pv Provider) error {
-		live, err := pv.Get(ctx, zone)
+		live, noMX, err := readZone(ctx, pv, zone)
 		if err != nil {
 			return err
 		}
@@ -382,7 +382,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 			put = append(put, rr(w.Name, w.Type, w.Value))
 			made = append(made, w)
 		}
-		cw = customs(zone, live, del, zw.custom, rows)
+		cw = customs(zone, live, del, zw.custom, rows, noMX)
 		del, put = append(del, cw.del...), append(put, cw.put...)
 		mine := func(x libdns.RR) bool {
 			return ours(x, rows, zone) || replace[fqdn(zone, x.Name)] || slices.ContainsFunc(cw.del, func(r libdns.Record) bool {
@@ -457,9 +457,12 @@ type customWork struct {
 }
 
 // customs is customWork for wants in zone. del is what the zone's other
-// changes delete already: a record about to go is no clash.
-func customs(zone string, live, del []libdns.Record, wants []Want, rows []store.DNSRecord) customWork {
+// changes delete already: a record about to go is no clash. noMX is why
+// the zone drops MX records: an MX not there is reported, never written,
+// so it is not put back on every sync.
+func customs(zone string, live, del []libdns.Record, wants []Want, rows []store.DNSRecord, noMX string) customWork {
 	var cw customWork
+	mxRefused := false
 	gone := func(x libdns.RR) bool {
 		return slices.ContainsFunc(del, func(r libdns.Record) bool {
 			y := r.RR()
@@ -488,6 +491,13 @@ func customs(zone string, live, del []libdns.Record, wants []Want, rows []store.
 			continue
 		case there: // the same record by hand: taken over, no duplicate
 			cw.made = append(cw.made, w)
+			continue
+		}
+		if w.Type == "MX" && noMX != "" {
+			if !mxRefused {
+				mxRefused = true
+				cw.clash = append(cw.clash, errs.Conflictf("MX on %s not written. %s", fqdn(zone, w.Name), noMX))
+			}
 			continue
 		}
 		look := left

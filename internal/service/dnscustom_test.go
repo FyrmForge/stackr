@@ -274,3 +274,74 @@ func TestCustomRecordPutBack(t *testing.T) {
 		}
 	}
 }
+
+// A zone whose mail setting drops MX records (Namecheap mail forwarding)
+// refuses a custom MX on every path before anything is saved; a TXT still
+// goes. An MX stackr already has there is reported by the sync, never put
+// back run after run.
+func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	const why = "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
+	mx := service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}
+
+	// one MX written while the zone took them, then the mail setting flips
+	if _, err := env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Type: "MX", Value: "20 old.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("acme.dev", why)
+
+	_, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, mx)
+	conflict(t, err, why)
+	_, err = env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", mx)
+	conflict(t, err, why)
+	orgs, _ := env.Store.Orgs.List(ctx)
+	acme := ""
+	for _, o := range orgs {
+		if o.Slug == "acme" {
+			acme = o.ID
+		}
+	}
+	_, _, err = env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Type: "MX", Value: "10 mx.example.net"}}, nil, false, nil)
+	conflict(t, err, why)
+	if rs, _ := env.Orch.TileDomainRecords(ctx, tl.ID, d.ID); len(rs.Records) != 0 {
+		t.Errorf("refused MX saved: %+v", rs.Records)
+	}
+	if dr, _ := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev"); len(dr.Records) != 1 {
+		t.Errorf("refused MX saved on the domain: %+v", dr.Records)
+	}
+
+	// the sync: the MX it has reads gone (Namecheap hides it); it says why
+	// and writes nothing, run after run
+	before, _, _ := env.DNS.Log()
+	for range 2 {
+		if err := env.Orch.SyncProxy(ctx); err != nil {
+			t.Fatal(err)
+		}
+		env.Orch.WaitDNS()
+		if got := env.Orch.DNSSyncError(); !strings.Contains(got, why) || !strings.Contains(got, "MX on acme.dev not written") {
+			t.Fatalf("sync error = %q", got)
+		}
+	}
+	after, _, _ := env.DNS.Log()
+	for _, a := range after[len(before):] {
+		if strings.Contains(a, "old.example.net") {
+			t.Errorf("MX put back: %s", a)
+		}
+	}
+	rows, _ := env.Store.DNSRecords.List(ctx)
+	for _, x := range rows {
+		if x.Type == "MX" && x.PutBackAt != nil {
+			t.Errorf("MX row marked put back: %+v", x)
+		}
+	}
+
+	// a TXT in the same zone is written; the MX's reason comes with it
+	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
+	if r.ID == "" || err == nil || !strings.Contains(err.Error(), why) {
+		t.Fatalf("TXT add = %+v %v", r, err)
+	}
+	if count(env.DNS.Zone("acme.dev"), "shop", "TXT", "v=1") != 1 {
+		t.Errorf("TXT not written: %v", env.DNS.Zone("acme.dev"))
+	}
+}
