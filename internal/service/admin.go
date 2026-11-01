@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -482,24 +483,28 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 // ponytail: one controller process, so a process lock is enough.
 var upgradeEnqueue sync.Mutex
 
-// upgradeSwapWindow is how long after launching its successor a panel still
-// says it is being replaced.
-// ponytail: a fixed window, as the helper's gate reports nothing back here;
-// a helper that rolls back leaves the old panel saying so until it passes.
-const upgradeSwapWindow = 10 * time.Minute
-
-// upgradeSwapping: this panel launched the helper that replaces it moments
-// ago. The job queue starts nothing meanwhile (jobs.Options.Hold).
-// ponytail: a helper that rolls back leaves the queue held until the window
-// passes; report the helper's outcome back if that wait bites.
+// upgradeSwapping: an upgrade helper runs on the controller. It runs from
+// the old panel's launch through the new panel's trial, then exits: on a pass
+// the new panel stays, on a fail the old one is back. The job queue starts
+// nothing meanwhile (jobs.Options.Hold), since the old panel's jobs die with
+// it and a rollback restores the database under the new panel's jobs.
+// A Docker error reads not swapping: jobs need Docker anyway.
+// ponytail: a helper stuck running holds the queue until it exits (its gate
+// is bounded by panel.Leaf.Deadline); add a cap if one ever hangs.
 func (o *Orchestrator) upgradeSwapping() bool {
-	at := o.upgradeLaunched.Load()
-	return at != 0 && time.Since(time.Unix(0, at)) < upgradeSwapWindow
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx, err := o.withController(ctx)
+	if err != nil {
+		return false
+	}
+	cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
+	return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" })
 }
 
-// UpgradeUnderway: an upgrade job is queued or running, or this panel launched
-// the helper that replaces it moments ago and is still serving. The Update tab
-// keeps itself live through the restart on it, and offers no buttons.
+// UpgradeUnderway: an upgrade job is queued or running, or its helper is
+// still swapping the panel. The Update tab keeps itself live through the
+// restart on it, and offers no buttons.
 func (o *Orchestrator) UpgradeUnderway(ctx context.Context) bool {
 	if o.upgradeSwapping() {
 		return true

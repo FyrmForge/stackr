@@ -85,8 +85,9 @@ type Options struct {
 	// now. nil = requeue every parked job each poll and let the handler
 	// re-check.
 	ParamSet func(ctx context.Context, j store.Job) (bool, error)
-	// Hold, when it answers true, starts nothing: the panel launched its
-	// upgraded successor, and a job started now dies with this one. nil = never.
+	// Hold, when it answers true, starts nothing: an upgrade helper is
+	// swapping the panel, and a job started now dies with the old panel or
+	// outlives a rollback of the new one's database. nil = never.
 	Hold func() bool
 }
 

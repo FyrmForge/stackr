@@ -326,10 +326,6 @@ type Orchestrator struct {
 	// pull waits on it after an upgrade (systemimages.go).
 	stackrPublished chan struct{}
 	stackrOnce      sync.Once
-	// upgradeLaunched is when this process launched the helper that swaps it
-	// for a new panel (unix nanos, 0 = never): process memory, so the new
-	// panel starts without it (UpgradeUnderway).
-	upgradeLaunched atomic.Int64
 	metrics         metricsState
 	observe         observeState                          // stackr-observe, metrics history (observe.go)
 	logship         logShip                               // container, access and run logs to the log store (logship.go)
