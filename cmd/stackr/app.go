@@ -358,7 +358,10 @@ func (a *app) show(v any, cols ...string) error {
 			row := make([]string, len(cols))
 			for i, c := range cols {
 				if x, ok := m[c]; ok {
-					row[i] = a.cell(c, x)
+					// a row is one line: a multi-line value (a job's psql
+					// error) shows its first line; get prints it whole
+					first, _, _ := strings.Cut(strings.TrimSpace(a.cell(c, x)), "\n")
+					row[i] = strings.TrimSpace(first)
 				} else {
 					row[i] = "n/a" // this kind has no such field
 				}
