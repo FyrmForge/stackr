@@ -20,6 +20,7 @@ const (
 	LoginLimited         = "login.limited" // refused by the rate limit
 	KeyMint              = "key.mint"
 	KeyRevoke            = "key.revoke"
+	KeyRotate            = "key.rotate" // a key got a new secret
 	GrantApprove         = "grant.approve"
 	GrantRevoke          = "grant.revoke"
 	SecretReveal         = "secrets.reveal"

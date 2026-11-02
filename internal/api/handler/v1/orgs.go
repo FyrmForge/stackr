@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"time"
+
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
@@ -190,15 +192,16 @@ func (h *H) Keys() Endpoint {
 // KeyIn is a key to mint: Level is the optional ceiling (viewer, member,
 // owner), Stack the optional stack slug.
 type KeyIn struct {
-	Name  string `json:"name"`
-	Level string `json:"level,omitempty"`
-	Stack string `json:"stack,omitempty"`
+	Name      string     `json:"name"`
+	Level     string     `json:"level,omitempty" enum:"viewer,member,owner,admin"`
+	Stack     string     `json:"stack,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"` // the key stops working then; none = never
 }
 
 // MintKey binds the key to the route's org with the caller's live role (B36).
 func (h *H) MintKey() Endpoint {
 	return JSON(201, func(c echo.Context, in KeyIn) (KeyOut, error) {
-		tok, k, err := h.Orch.MintKey(rc(c), middleware.Principal(c), orgID(c), in.Name, in.Level, in.Stack)
+		tok, k, err := h.Orch.MintKeyUntil(rc(c), middleware.Principal(c), orgID(c), in.Name, in.Level, in.Stack, in.ExpiresAt)
 		return KeyOut{tok, k}, err
 	})
 }

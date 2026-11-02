@@ -18,6 +18,12 @@ type APIKey struct {
 	// StackID narrows the key to one stack; Stack is its slug, filled on list.
 	StackID *string `db:"stack_id" json:"-"`
 	Stack   string  `db:"-" json:"stack"`
+	// ExpiresAt nil = never. LastUsedAt is stamped by a request the key
+	// opens, at most once a minute.
+	ExpiresAt  *time.Time `db:"expires_at" json:"expires_at"`
+	LastUsedAt *time.Time `db:"last_used_at" json:"last_used_at"`
+	// Owner is the account's email, filled on the org and admin lists.
+	Owner string `db:"-" json:"owner,omitempty"`
 }
 
 type APIKeyStore interface {
@@ -25,6 +31,11 @@ type APIKeyStore interface {
 	Get(ctx context.Context, id string) (APIKey, error)
 	GetByHash(ctx context.Context, hash string) (APIKey, error)
 	ListByUser(ctx context.Context, userID string) ([]APIKey, error)
+	// ListByOrg is the keys bound to an org; List is every key.
+	ListByOrg(ctx context.Context, orgID string) ([]APIKey, error)
+	List(ctx context.Context) ([]APIKey, error)
+	// Touch stamps last_used_at unless it is already within the last minute.
+	Touch(ctx context.Context, id string, now time.Time) error
 	Update(ctx context.Context, k APIKey) error
 	Delete(ctx context.Context, id string) error
 	// DeleteByUser removes every key of a user; orgID non-nil narrows it to
@@ -42,6 +53,21 @@ func (s apiKeys) GetByHash(ctx context.Context, hash string) (APIKey, error) {
 
 func (s apiKeys) ListByUser(ctx context.Context, userID string) ([]APIKey, error) {
 	return s.many(ctx, "user_id = ?", userID)
+}
+
+func (s apiKeys) ListByOrg(ctx context.Context, orgID string) ([]APIKey, error) {
+	return s.many(ctx, "org_id = ? ORDER BY created_at", orgID)
+}
+
+func (s apiKeys) List(ctx context.Context) ([]APIKey, error) {
+	return s.many(ctx, "1 = 1 ORDER BY created_at")
+}
+
+func (s apiKeys) Touch(ctx context.Context, id string, now time.Time) error {
+	_, err := s.q.ExecContext(ctx,
+		`UPDATE api_keys SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)`,
+		now, id, now.Add(-time.Minute))
+	return err
 }
 
 func (s apiKeys) DeleteByUser(ctx context.Context, userID string, orgID *string) error {
