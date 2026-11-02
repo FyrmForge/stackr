@@ -150,9 +150,14 @@ func Can(u User, v Verb, r Resource) error {
 		}
 	}
 	if have < need {
-		return errs.ErrRefused
+		return errs.Refusedf("%s needs %s access", v, roleOf(need))
 	}
 	return nil
+}
+
+// roleOf names a level the way an org role or a key ceiling does.
+func roleOf(l Level) string {
+	return [...]string{"viewer", "member", "owner", "admin"}[l]
 }
 
 // Self gates the routes about the caller alone (/me, their org list): a
