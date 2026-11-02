@@ -35,8 +35,11 @@ type (
 	}
 	// CustomRecord is a declared record as read back. Host is its full
 	// name. Note is how an add landed ("taken over", "added (1 other
-	// there stays)"). Written: stackr has it in the zone. PutBackAt: it
-	// changed outside stackr and stackr put it back then.
+	// there stays)"). Written: stackr has it in the zone. NotLive: why a
+	// record stackr wrote is not in the zone now, as the last sync read it
+	// (an MX on a zone whose mail setting drops them); it goes live again
+	// once the setting takes MX. PutBackAt: it changed outside stackr and
+	// stackr put it back then.
 	CustomRecord struct {
 		ID        string     `json:"id"`
 		Name      string     `json:"name"`
@@ -45,6 +48,7 @@ type (
 		Host      string     `json:"host"`
 		Note      string     `json:"note,omitempty"`
 		Written   bool       `json:"written"`
+		NotLive   string     `json:"not_live,omitempty"`
 		PutBackAt *time.Time `json:"put_back_at,omitempty"`
 	}
 	// CustomRecords is an owner's declared records and where they are
@@ -306,6 +310,9 @@ func (o *Orchestrator) customOut(ctx context.Context, rs []store.CustomRecord, o
 			if x.Kind == store.RecordCustom && deref(x.DomainID) == deref(domainID) && x.Type == r.Type &&
 				strings.EqualFold(zoneHost(x.Name, x.Zone), c.Host) && dnscap.SameValue(r.Type, x.Value, r.Value) {
 				c.Written, c.PutBackAt = true, x.PutBackAt
+				if why := o.dns.NoMX(x.Zone); x.Type == "MX" && why != "" { // the sync skips it, the row stays
+					c.Written, c.NotLive = false, why
+				}
 			}
 		}
 		out = append(out, c)

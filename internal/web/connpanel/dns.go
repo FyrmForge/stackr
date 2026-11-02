@@ -246,7 +246,11 @@ func Records(rs service.CustomRecords, key, add, remove, target string) ui.Recor
 		v.Source = strings.ToUpper(rs.Source[:1]) + rs.Source[1:]
 	}
 	for _, r := range rs.Records {
-		v.Rows = append(v.Rows, ui.RecordRow{ID: r.ID, Host: r.Host, Type: r.Type, Value: r.Value, PutBack: r.PutBackAt != nil})
+		row := ui.RecordRow{ID: r.ID, Host: r.Host, Type: r.Type, Value: r.Value, PutBack: r.PutBackAt != nil}
+		if r.NotLive != "" {
+			row.NotLive = "Not live: " + strings.ToLower(r.NotLive[:1]) + r.NotLive[1:]
+		}
+		v.Rows = append(v.Rows, row)
 	}
 	return v
 }

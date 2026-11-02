@@ -349,6 +349,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 		if err != nil {
 			return err
 		}
+		l.noMX.Store(Normal(zone), noMX)
 		isLive := func(r store.DNSRecord) bool {
 			return slices.ContainsFunc(live, func(x libdns.Record) bool {
 				rr := x.RR()
