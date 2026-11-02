@@ -642,9 +642,14 @@ func (o *Orchestrator) watchNodeClients() {
 			o.controllerDiskAlert(ctx)
 			o.dockerAlert(ctx)
 			o.retryDNS()
-			if err := o.sync.Retry(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("proxy: retry", "err", err)
-			}
+			// Off this goroutine: a push can run for minutes (domain.Timeout)
+			// and must not hold up the node refresh below. The Syncer
+			// serialises runs and folds the callers waiting behind one.
+			o.detach(ctx, func(ctx context.Context) {
+				if err := o.sync.Retry(ctx); err != nil && ctx.Err() == nil {
+					slog.Warn("proxy: retry", "err", err)
+				}
+			})
 			if _, err := o.SweepPendingConnectors(ctx, time.Now()); err != nil {
 				slog.Warn("connectors: pending sweep failed", "err", err)
 			}

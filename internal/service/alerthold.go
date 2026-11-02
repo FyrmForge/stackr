@@ -14,6 +14,8 @@ import (
 const (
 	alertHoldMax = 256 // beyond it the oldest is dropped, counted and shown
 	alertHoldAge = 6 * time.Hour
+
+	alertDropShown = 24 * time.Hour // how long a drop stays on the banner
 )
 
 // alertRetryEvery is how often held alerts are tried again; a var for tests.
@@ -30,6 +32,7 @@ type alertHold struct {
 	mu      sync.Mutex
 	held    []heldAlert
 	dropped int
+	dropAt  time.Time // the last drop
 }
 
 func (h *alertHold) add(a Alert) {
@@ -37,7 +40,7 @@ func (h *alertHold) add(a Alert) {
 	defer h.mu.Unlock()
 	if len(h.held) >= alertHoldMax {
 		h.held = h.held[1:]
-		h.dropped++
+		h.dropped, h.dropAt = h.dropped+1, time.Now()
 	}
 	h.held = append(h.held, heldAlert{a, time.Now()})
 }
@@ -58,7 +61,7 @@ func (o *Orchestrator) retryHeld(ctx context.Context) {
 	for i, x := range batch {
 		if time.Since(x.at) > alertHoldAge {
 			h.mu.Lock()
-			h.dropped++
+			h.dropped, h.dropAt = h.dropped+1, time.Now()
 			h.mu.Unlock()
 			continue
 		}
@@ -74,16 +77,18 @@ func (o *Orchestrator) retryHeld(ctx context.Context) {
 		}
 	}
 	h.mu.Lock()
-	dropped, empty := h.dropped, len(h.held) == 0
-	if empty {
+	// The note outlives the queue: a drop stays on the banner for a day, so
+	// an admin who was away still sees that alerts were lost.
+	if len(h.held) == 0 && h.dropped > 0 && time.Since(h.dropAt) > alertDropShown {
 		h.dropped = 0
 	}
+	dropped := h.dropped
 	h.mu.Unlock()
 	switch {
 	case dropped > 0:
 		o.openProblem(ctx, alertDropKey, SevWarning,
 			fmt.Sprintf("%d alerts could not be delivered and were dropped. Check the alert webhook.", dropped))
-	case empty:
+	default:
 		o.clearProblem(ctx, alertDropKey)
 	}
 }

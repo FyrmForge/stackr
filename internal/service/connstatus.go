@@ -89,7 +89,11 @@ func (o *Orchestrator) checkConnectors(ctx context.Context) {
 		if c.CheckedAt != nil && time.Since(*c.CheckedAt) < connCheckEvery {
 			continue
 		}
-		o.check(ctx, c)
+		// Of marks a connector whose setup is still out at the provider
+		// (pending): check leaves those alone.
+		if c, err := o.conns.Of(ctx, c.OrgID, c.ID); err == nil {
+			o.check(ctx, c)
+		}
 	}
 }
 
