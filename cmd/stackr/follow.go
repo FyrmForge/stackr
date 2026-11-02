@@ -115,9 +115,11 @@ func (a *app) follow(base string, job any, what string) error {
 	err = events(res.Body, func(name string, data []byte) (bool, error) {
 		var ev jobOut
 		if name == "error" {
-			var msg string
-			_ = json.Unmarshal(data, &msg)
-			return true, errors.New(msg)
+			var body struct {
+				Error string `json:"error"`
+			}
+			_ = json.Unmarshal(data, &body)
+			return true, errors.New(body.Error)
 		}
 		if err := json.Unmarshal(data, &ev); err != nil {
 			return true, err
