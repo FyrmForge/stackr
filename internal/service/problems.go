@@ -166,7 +166,14 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "?drawer=node:" + id, "Open node", nodes[id]
 	}
 	switch kind {
-	case "backup": // backup.panel, backup.schedule.<id>
+	case "backup": // backup.panel, backup.schedule.<id>, backup.stale.<volume id>
+		if vid, stale := strings.CutPrefix(rest, "stale."); stale {
+			v, err := o.volumes.Get(ctx, vid)
+			if errors.Is(err, errs.ErrNotFound) {
+				return "", "", false
+			}
+			return o.volumeLink(ctx, v)
+		}
 		id, ok := strings.CutPrefix(rest, "schedule.")
 		if !ok {
 			return "/-/admin/backups", "Open backups", true
@@ -207,6 +214,12 @@ func (o *Orchestrator) scheduleLink(ctx context.Context, id string) (href, text 
 	if errors.Is(err, errs.ErrNotFound) {
 		return "", "", false
 	}
+	return o.volumeLink(ctx, v)
+}
+
+// volumeLink is where a volume is fixed: the Storage row of the first tile
+// that mounts it, else its env.
+func (o *Orchestrator) volumeLink(ctx context.Context, v Volume) (href, text string, ok bool) {
 	if ts, _ := o.mounters(ctx, v); len(ts) > 0 {
 		// the tile URL itself is a placeholder; its drawer opens over the env canvas
 		return "/" + o.scopePath(ctx, ScopeEnv, ts[0].EnvironmentID) + "?drawer=" + ts[0].ID + "&tab=settings&open=storage", "Open storage", true
