@@ -427,7 +427,43 @@ func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) erro
 	if err := o.checkPanelTaken(ctx, host); err != nil {
 		return err
 	}
+	if err := o.checkOtherOrgHost(ctx, t, st.OrgID, host); err != nil {
+		return err
+	}
 	return o.checkRouteHost(ctx, host)
+}
+
+// hostsOverlap says whether two hosts can answer the same name: equal, or one
+// a wildcard covering the other.
+func hostsOverlap(a, b string) bool {
+	under := func(w, h string) bool { return strings.HasPrefix(w, "*.") && strings.HasSuffix(h, w[1:]) }
+	return a == b || under(a, b) || under(b, a)
+}
+
+// checkOtherOrgHost refuses a host another org's tile already holds, on any
+// path, wildcards counted.
+func (o *Orchestrator) checkOtherOrgHost(ctx context.Context, t Tile, orgID, host string) error {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range ds {
+		if d.TileID == t.ID || !hostsOverlap(host, d.Host) {
+			continue
+		}
+		ot, err := o.tiles.Get(ctx, d.TileID)
+		if err != nil {
+			return err
+		}
+		ost, err := o.stacks.Get(ctx, ot.StackID)
+		if err != nil {
+			return err
+		}
+		if ost.OrgID != orgID {
+			return errs.Conflictf("%s is already attached to a tile", host)
+		}
+	}
+	return nil
 }
 
 // Wildcard says whether any domain is managed, so wildcard certificates
