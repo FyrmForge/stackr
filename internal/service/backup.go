@@ -18,6 +18,7 @@ import (
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -466,6 +467,33 @@ func (o *Orchestrator) subject(ctx context.Context, v store.Volume, method strin
 	var err error
 	s.Holders, err = o.mounters(ctx, v)
 	return s, err
+}
+
+// dumpBeforeDrop takes a dump of the instance a slice lives on, to the
+// panel's disk, before on_remove: drop destroys the slice's database.
+func (o *Orchestrator) dumpBeforeDrop(ctx context.Context, envID string, p store.Provision, log io.Writer) error {
+	vs, err := o.volumes.List(ctx, volume.Scope{Kind: "env", ID: envID})
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(vs, func(v store.Volume) bool { return v.InstanceID != nil && *v.InstanceID == p.InstanceID })
+	if i < 0 {
+		return nil
+	}
+	v, org, _, err := o.volumeFacts(ctx, vs[i].ID)
+	if err != nil {
+		return err
+	}
+	sub, err := o.subject(ctx, v, "dump")
+	if err != nil {
+		return err
+	}
+	local, err := o.localDest(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = o.backup.Backup(ctx, sub, fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, ""), Trigger: "manual", Mode: backup.Live}, log)
+	return err
 }
 
 func (o *Orchestrator) instanceTile(ctx context.Context, instanceID string) (store.Tile, error) {

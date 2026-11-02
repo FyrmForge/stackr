@@ -638,16 +638,17 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			b = o.build
 		}
 		return &promote.Flow{
-			D:           orch.deploy,
-			Resources:   orch.domainres,
-			Config:      orch.stackFile,
-			Build:       b,
-			DNS01:       orch.dns01,
-			RouteHeld:   orch.routes.Covers,
-			CheckDNS:    orch.CheckFileRecords,
-			WriteParams: orch.writeParams,
-			Placements:  orch.stackPlacements,
-			Forget:      orch.forgetTileClone,
+			D:              orch.deploy,
+			Resources:      orch.domainres,
+			Config:         orch.stackFile,
+			Build:          b,
+			DNS01:          orch.dns01,
+			RouteHeld:      orch.routes.Covers,
+			CheckDNS:       orch.CheckFileRecords,
+			WriteParams:    orch.writeParams,
+			Placements:     orch.stackPlacements,
+			Forget:         orch.forgetTileClone,
+			DumpBeforeDrop: orch.dumpBeforeDrop,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
