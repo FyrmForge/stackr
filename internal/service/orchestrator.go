@@ -313,7 +313,8 @@ type Orchestrator struct {
 	// alerts is the alert queue (alerts.go); alertsDone waits for its
 	// delivery goroutine.
 	alerts     chan Alert
-	alertHold  alertHold // alerts to send again (alerthold.go)
+	alertHold  alertHold      // alerts to send again (alerthold.go)
+	loops      sync.WaitGroup // mesh and node loops (track); Close waits
 	alertsDone sync.WaitGroup
 	// helperReady puts the mesh's helper image in the cluster registry
 	// (rsyncSteps); tests swap it.
@@ -939,6 +940,7 @@ func (o *Orchestrator) Close() error {
 		}
 	})
 	o.trustAsync.Wait()
+	o.loops.Wait()
 	o.alertsDone.Wait()
 	o.sched.Stop()
 	o.jobs.Close()

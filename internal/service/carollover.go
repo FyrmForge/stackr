@@ -113,13 +113,14 @@ func (o *Orchestrator) detach(ctx context.Context, f func(context.Context)) {
 	}()
 }
 
-// track runs f on a goroutine Close waits for. f must end when its own
+// track runs a loop on a goroutine Close waits for (loops, apart from
+// trustAsync: tests wait for the boot chores, and a loop never ends before Close). f must end when its own
 // context (stopNodes or the mesh context) is cancelled, which Close does
 // before it waits.
 func (o *Orchestrator) track(f func()) {
-	o.trustAsync.Add(1)
+	o.loops.Add(1)
 	go func() {
-		defer o.trustAsync.Done()
+		defer o.loops.Done()
 		f()
 	}()
 }
