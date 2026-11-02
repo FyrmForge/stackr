@@ -51,6 +51,28 @@ func (r *Run) Swap() error {
 	return nil
 }
 
+type idleKey struct{}
+
+// Idle is called by a handler that is about to only wait on other jobs: until
+// the returned func runs, this job does not count against the workers, so
+// the jobs it waits for can start (two such waits would otherwise hold both
+// workers). Its lock set still holds. Outside a job it does nothing.
+func Idle(ctx context.Context) (resume func()) {
+	rn, ok := ctx.Value(idleKey{}).(*Run)
+	if !ok {
+		return func() {}
+	}
+	rn.r.mu.Lock()
+	rn.a.idle = true
+	rn.r.mu.Unlock()
+	rn.r.poke()
+	return func() {
+		rn.r.mu.Lock()
+		rn.a.idle = false
+		rn.r.mu.Unlock()
+	}
+}
+
 // ErrFinished is Cancel on a job already past cancelling (a Conflict).
 var ErrFinished = errs.Conflictf("the job already finished")
 
@@ -69,6 +91,7 @@ type active struct {
 	cancel     context.CancelCauseFunc
 	swapping   bool
 	superseded bool
+	idle       bool // waiting on other jobs: not counted against the workers
 }
 
 // Options are the runner's clock and hooks; zero values are the defaults.
@@ -276,7 +299,7 @@ func (r *Runner) pass(ctx context.Context) error {
 		busy = append(busy, a.lock)
 	}
 	for _, j := range queued {
-		if len(r.running) >= n {
+		if r.busyWorkers() >= n {
 			return nil
 		}
 		blocked := slices.ContainsFunc(busy, func(b []string) bool { return job.Overlaps(j.LockSet, b) })
@@ -289,6 +312,17 @@ func (r *Runner) pass(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// busyWorkers is the running jobs that hold a worker. Called with mu held.
+func (r *Runner) busyWorkers() int {
+	n := 0
+	for _, a := range r.running {
+		if !a.idle {
+			n++
+		}
+	}
+	return n
 }
 
 // start runs j on its own goroutine. Called with mu held.
@@ -375,7 +409,7 @@ func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string
 		}
 	}()
 	rn.Log = onceLog{r: r, id: j.ID, w: f}
-	err = h(ctx, rn)
+	err = h(context.WithValue(ctx, idleKey{}, rn), rn)
 
 	switch cause := context.Cause(ctx); {
 	case err == nil:
