@@ -86,6 +86,8 @@ type HostInfo struct {
 	Arch string
 	// Version is the daemon's server version; "" = not reported.
 	Version string
+	// RootDir is the daemon's data root; "" = not reported.
+	RootDir string
 }
 
 // NetAttach is one network the container joins, with its DNS aliases there.

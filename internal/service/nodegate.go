@@ -223,9 +223,24 @@ func (o *Orchestrator) diskOf(ctx context.Context, nodeID string) (free, total u
 		free, total = f.DiskFree, f.DiskTotal
 	}
 	if n.Role == node.Controller && free == 0 && total == 0 {
-		free, total = o.dataDirDisk()
+		free, total = o.controllerDisk(ctx, n.ID)
 	}
 	return free, total
+}
+
+// controllerDisk is the disk under Docker's data root when the panel can
+// see that path, else the one under the data dir. A panel in a container
+// whose data dir is a bind mount reads the wrong disk otherwise.
+func (o *Orchestrator) controllerDisk(ctx context.Context, nodeID string) (free, total uint64) {
+	cctx, cancel := context.WithTimeout(docker.WithNode(ctx, nodeID), 3*time.Second)
+	defer cancel()
+	if h, err := o.docker.HostInfo(cctx); err == nil && h.RootDir != "" {
+		var st syscall.Statfs_t
+		if syscall.Statfs(h.RootDir, &st) == nil {
+			return st.Bavail * uint64(st.Bsize), st.Blocks * uint64(st.Bsize)
+		}
+	}
+	return o.dataDirDisk()
 }
 
 // dataDirDisk is the free and total bytes of the disk under the data dir.
