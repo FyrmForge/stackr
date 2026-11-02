@@ -365,8 +365,9 @@ func (o *Orchestrator) TileDomainRecords(ctx context.Context, tileID, id string)
 }
 
 // AddTileDomainRecord declares a custom record on a tile domain's host and
-// writes it. The record is saved before the write: a provider error is
-// returned with it, and the records sync tries again.
+// writes it. The record is saved before the write: one the sync could not
+// write comes back Written false, the reason in its Note, and the records
+// sync tries again (addedOut).
 func (o *Orchestrator) AddTileDomainRecord(ctx context.Context, tileID, id string, in CustomRecordIn) (CustomRecord, error) {
 	d, _, org, err := o.tileDomain(ctx, tileID, id)
 	if err != nil {
@@ -391,10 +392,30 @@ func (o *Orchestrator) AddTileDomainRecord(ctx context.Context, tileID, id strin
 	if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return CustomRecord{}, err
 	}
-	out := CustomRecord{ID: rec.ID, Name: rec.Name, Type: rec.Type, Value: rec.Value, Host: dnscap.CustomFQDN(rec.Name, d.Host), Note: note}
-	err = dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, d.Host)
-	out.Written = err == nil
-	return out, err
+	return o.addedOut(ctx, rec, d.Host, &d.ID, note, dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, d.Host))
+}
+
+// addedOut is a just saved record as its add answers: Written as the
+// records table says after the sync. Not written, its Note is why (the
+// sync's error about its zone, or the zone's mail setting), never the
+// add's error: the record is saved and the sync tries again.
+func (o *Orchestrator) addedOut(ctx context.Context, rec store.CustomRecord, owner string, domainID *string, note string, syncErr error) (CustomRecord, error) {
+	rs, err := o.customOut(ctx, []store.CustomRecord{rec}, owner, domainID)
+	if err != nil {
+		return CustomRecord{}, err
+	}
+	out := rs[0]
+	out.Note = note
+	if !out.Written {
+		why := "the next sync writes it"
+		if out.NotLive != "" {
+			why = out.NotLive
+		} else if syncErr != nil {
+			why = syncErr.Error()
+		}
+		out.Note = "saved, not written yet: " + strings.TrimSuffix(why, ".")
+	}
+	return out, nil
 }
 
 // RemoveTileDomainRecord drops a custom record from a tile domain; stackr
@@ -482,10 +503,7 @@ func (o *Orchestrator) AddDNSDomainRecord(ctx context.Context, orgID *string, id
 	if _, err := o.dns.SetRecords(ctx, z.ID, append(slices.Clone(z.Records), rec)); err != nil {
 		return CustomRecord{}, err
 	}
-	out := CustomRecord{ID: rec.ID, Name: rec.Name, Type: rec.Type, Value: rec.Value, Host: dnscap.CustomFQDN(rec.Name, z.Name), Note: note}
-	err = dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, "")
-	out.Written = err == nil
-	return out, err
+	return o.addedOut(ctx, rec, z.Name, nil, note, dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, ""))
 }
 
 // RemoveDNSDomainRecord drops a managed domain's custom record; stackr

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -351,9 +352,9 @@ func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
 		t.Errorf("reading records called the provider %d times", env.DNS.Calls-calls)
 	}
 
-	// a TXT in the same zone is written; the MX's reason comes with it
+	// a TXT in the same zone is written; the MX's reason is not its own
 	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
-	if r.ID == "" || err == nil || !strings.Contains(err.Error(), why) {
+	if r.ID == "" || err != nil || !r.Written || strings.Contains(r.Note, why) {
 		t.Fatalf("TXT add = %+v %v", r, err)
 	}
 	if count(env.DNS.Zone("acme.dev"), "shop", "TXT", "v=1") != 1 {
@@ -428,5 +429,29 @@ func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
 	}
 	if env.DNS.Calls != calls {
 		t.Errorf("the rename read the provider %d times", env.DNS.Calls-calls)
+	}
+}
+
+// An add the sync cannot write is saved, not an error: it answers written
+// false with the reason, and the next sync writes it.
+func TestAddRecordSyncFailureIsANote(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	env.DNS.Fail(errors.New("provider down"))
+	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
+	if err != nil || r.ID == "" || r.Written || !strings.Contains(r.Note, "provider down") {
+		t.Fatalf("tile add = %+v %v", r, err)
+	}
+	r, err = env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Name: "verify", Type: "TXT", Value: "v=1"})
+	if err != nil || r.ID == "" || r.Written || !strings.Contains(r.Note, "provider down") {
+		t.Fatalf("domain add = %+v %v", r, err)
+	}
+	env.DNS.Fail(nil)
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if rs, _ := env.Orch.TileDomainRecords(ctx, tl.ID, d.ID); len(rs.Records) != 1 || !rs.Records[0].Written {
+		t.Errorf("after the provider is back: %+v", rs.Records)
 	}
 }
