@@ -81,7 +81,7 @@ func TestControllerLogCapQuietDuringSwap(t *testing.T) {
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n.ctlFake.Containers = append(n.ctlFake.Containers, docker.Container{ID: "up", State: "running", Labels: map[string]string{"stackr.role": "upgrader"}})
+	n.orch.upgrading.Store(true) // the helper runs
 	var buf bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))

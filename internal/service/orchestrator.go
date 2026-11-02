@@ -298,6 +298,7 @@ type Orchestrator struct {
 	hostIfaces   func() []worker.Iface // this host's interfaces (WithHostInterfaces)
 	gitEnv       []string              // WithGit: clone env that replaces the connector's
 	proxyStarted atomic.Value          // the proxy container's last seen start time
+	upgrading    atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
 	vipAsync     sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
 	trustAsync   sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
@@ -753,7 +754,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
-			Hold:     orch.upgradeSwapping,
+			Hold:     orch.upgrading.Load,
+			// The upgrade that swapped this panel in: its row was still
+			// running when the helper stopped the old panel.
+			Survived: orch.upgradeLanded,
 			Ended:    seedEnded,
 		})
 	})
@@ -826,6 +830,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.sweepRepos(ctx); err != nil {
 		slog.Warn("repos: boot sweep skipped", "err", err)
 	}
+	orch.bootUpgradeHold(ctx) // before the queue starts: it holds while a helper runs
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)

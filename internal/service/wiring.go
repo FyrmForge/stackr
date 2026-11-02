@@ -634,7 +634,7 @@ func (o *Orchestrator) controllerLogCap(ctx context.Context) {
 	// Kept: it may be the only database the old panel can open.
 	// While the helper still runs, the copy belongs to the swap that booted this panel.
 	// Only a running helper counts: a dead one stays as an exited container.
-	busy := o.upgradeSwapping()
+	busy := o.UpgradeHeld()
 	for _, f := range panel.Leftovers(o.cfg.DBPath) {
 		if busy {
 			break

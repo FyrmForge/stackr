@@ -333,6 +333,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
 			if err == nil {
+				o.holdUpgrade() // the helper runs: hold until it exits
 				// The local destination is <data>/backups; the key is the path under it.
 				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n"+
 					"way back if the new panel misbehaves, on the host: stackr-install restore %s\n",
@@ -762,7 +763,7 @@ func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
 			return js, err
 		}
 	}
-	held := o.upgradeSwapping()
+	held := o.UpgradeHeld()
 	for i := range js {
 		js[i].Waits = job.Waits(js[i], live, held)
 		js[i].Line = jobLine(js[i])
