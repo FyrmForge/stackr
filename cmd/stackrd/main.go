@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
-	_ "github.com/joho/godotenv/autoload"
 	_ "time/tzdata" // CRON_TZ and --tz beyond UTC, on hosts without zoneinfo
 
 	"github.com/FyrmForge/hamr/pkg/config"
@@ -196,6 +196,11 @@ func run(log *slog.Logger, generate bool) error {
 	}
 	// open event streams end on shutdown instead of holding it to its timeout
 	srv.Echo().Server.RegisterOnShutdown(stream.Stop)
+	// hamr sets no timeouts of its own. Header and idle cut slow-loris
+	// clients; no Read/WriteTimeout, since dump uploads and event streams
+	// are long on purpose.
+	srv.Echo().Server.ReadHeaderTimeout = 10 * time.Second
+	srv.Echo().Server.IdleTimeout = 2 * time.Minute
 	srv.Echo().Use(selfmetrics.Middleware(api.Gzip.Skipper))
 
 	if baseOrigin != "" {
