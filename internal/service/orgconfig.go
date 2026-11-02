@@ -373,6 +373,9 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 	}
 	// a removal row applies only when the approver ticked it
 	plan.Plan = plan.OnlyTicked(pl.Ticked)
+	if err := newRisk(pl.Plan, pl.Confirmed, plan.Plan); err != nil {
+		return err
+	}
 	bound, err := o.walkOrgPlan(ctx, og, f, live, plan, log)
 	if err != nil {
 		return err
@@ -475,7 +478,7 @@ func (o *Orchestrator) walkOrgPlan(
 			_, err = o.SetOrgEnvColors(ctx, og.ID, c.New)
 		case "create", "rebind":
 			var st Stack
-			if st, err = o.bindOrgStack(ctx, og, stackIDs[c.Tile], c.Tile, f.Stacks[c.Tile]); err == nil {
+			if st, err = o.bindOrgStack(ctx, og, live.Connectors, stackIDs[c.Tile], c.Tile, f.Stacks[c.Tile]); err == nil {
 				stackIDs[c.Tile] = st.ID
 				bound = append(bound, st)
 			}
@@ -605,6 +608,7 @@ func orgParams(f *orgconfig.File, plan orgconfig.Plan, tile string) []ParamEntry
 func (o *Orchestrator) bindOrgStack(
 	ctx context.Context,
 	og store.Org,
+	conns []store.Connector,
 	id, slug string,
 	ref orgconfig.StackRef,
 ) (Stack, error) {
@@ -615,7 +619,7 @@ func (o *Orchestrator) bindOrgStack(
 		}
 		id = st.ID
 	}
-	b := ref.Binding(og)
+	b := ref.Binding(og, conns)
 	return o.SetConfigRepo(ctx, id, b.ConnectorID, b.Repo, b.Branch, b.Path)
 }
 

@@ -46,8 +46,13 @@ const AlertURLParam = "alerts.webhook_url"
 // alertURLKey is the one setting the file gives as a ref.
 const alertURLKey = "alert_webhook_url"
 
-// heartbeatKey is a secret-bearing URL the file never carries.
+// heartbeatKey is a secret-bearing URL: the file gives it as a ref, and the
+// export leaves it out (it cannot know the param).
 const heartbeatKey = "heartbeat_url"
+
+// RefOnly says the file gives this setting as a server param ref, never the
+// value: the URL's path is often a token and the file goes in git.
+func RefOnly(key string) bool { return key == alertURLKey || key == heartbeatKey }
 
 func destRef(name, key string) string {
 	return fmt.Sprintf("${{ server.params.%s.%s }}", DestParamCollection(name), key)
