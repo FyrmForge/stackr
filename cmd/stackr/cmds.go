@@ -87,6 +87,7 @@ func (a *app) login() *cobra.Command {
 	c := leaf("login <url>", "key.exchange,org.list", "Log in to a stackr server", exact(1),
 		func(c *cobra.Command, args []string) error {
 			a.noEnv = true
+			old := a.cfg // this profile's login before this one replaces it
 			server := strings.TrimRight(args[0], "/")
 			if !strings.HasPrefix(server, "http://") && !strings.HasPrefix(server, "https://") {
 				return usage("the server is a URL: https://stackr.example.com")
@@ -132,6 +133,13 @@ func (a *app) login() *cobra.Command {
 			// the key is saved either way: a browser login minted it already
 			if err := a.save(); err != nil {
 				return err
+			}
+			if old.KeyID != "" && old.Key != "" && old.Server != "" && old.KeyID != a.cfg.KeyID {
+				// the key an earlier browser login minted would outlive its login
+				now := a.cfg
+				a.cfg = old
+				_, _ = a.call(DELETE, "/me/keys/"+url.PathEscape(old.KeyID), nil)
+				a.cfg = now
 			}
 			if a.cfg.Org == "" && org != "" {
 				return usage("logged in, but you are in no org %q (stackr org ls lists yours)", org)

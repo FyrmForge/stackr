@@ -456,7 +456,10 @@ func (r runner) createAdmin(ctx context.Context, in installspec.Input, image, em
 	cmd.Stdin = strings.NewReader(password + "\n")
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s", strings.TrimSpace(string(b)))
+		if msg := strings.TrimSpace(string(b)); msg != "" {
+			return "", errors.New(msg)
+		}
+		return "", err
 	}
 	return adminKey(string(b)), nil
 }

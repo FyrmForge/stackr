@@ -105,6 +105,29 @@ func (o *Orchestrator) jobChild(ctx context.Context, p map[string]any) Child {
 	return Child{}
 }
 
+// jobEnv is the env a job payload is about, by any id that names one: a
+// tile, an env, or a volume of an env. "" for a job above the envs.
+func (o *Orchestrator) jobEnv(ctx context.Context, p map[string]any) string {
+	str := func(k string) string {
+		s, _ := p[k].(string)
+		return s
+	}
+	for _, k := range []string{"tile_id", "consumer_id", "TileID"} {
+		if c, err := o.tileChild(ctx, str(k)); err == nil && c.Env != "" {
+			return c.Env
+		}
+	}
+	if c, err := o.scopeChild(ctx, "env", str("env_id")); err == nil && c.Env != "" {
+		return c.Env
+	}
+	for _, k := range []string{"volume_id", "target_volume_id"} {
+		if c, err := o.volumeChild(ctx, str(k)); err == nil && c.Env != "" {
+			return c.Env
+		}
+	}
+	return ""
+}
+
 func (o *Orchestrator) tileChild(ctx context.Context, id string) (Child, error) {
 	t, err := o.tiles.Get(ctx, id)
 	if err != nil {

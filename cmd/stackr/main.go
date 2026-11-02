@@ -87,6 +87,9 @@ Environment (each beats the config file; nothing here is written to disk):
 	root.PersistentFlags().StringVar(&a.profile, "profile", "", "the saved login to use (stackr profile ls); login makes it")
 	root.PersistentPreRunE = func(c *cobra.Command, _ []string) error {
 		name, login := a.profile, c.Name() == "login"
+		if c.Parent() != nil && c.Parent().Name() == "profile" { // they list and pick profiles
+			return nil
+		}
 		if name == "" && !login { // login's own arguments, not STACKR_*, say where
 			name = os.Getenv("STACKR_PROFILE")
 		}

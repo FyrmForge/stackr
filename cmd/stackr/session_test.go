@@ -210,6 +210,28 @@ func TestBrowserLogin(t *testing.T) {
 	}
 }
 
+// A new login revokes the browser-minted key it replaces; the profile
+// commands run even when STACKR_PROFILE names a profile that is gone.
+func TestReloginRevokesOldKeyAndProfileCmdsRun(t *testing.T) {
+	r := fake(t, map[string]string{"/orgs": `[{"slug":"acme"}]`})
+	c := readConfig(t)
+	c.KeyID = "old1"
+	writeConfig(t, c)
+	if code, _, errw := cli(t, "login", c.Server, "--with-key", "newkey"); code != 0 {
+		t.Fatalf("login = %d %s", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != "DELETE /api/v1/me/keys/old1 " {
+		t.Errorf("sent %q, want one DELETE of old1", w)
+	}
+	if c := readConfig(t); c.Key != "newkey" || c.KeyID != "" {
+		t.Errorf("config after relogin: %+v", c)
+	}
+	t.Setenv("STACKR_PROFILE", "gone")
+	if code, _, errw := cli(t, "profile", "ls"); code != 0 {
+		t.Errorf("profile ls = %d %s", code, errw)
+	}
+}
+
 // A follow whose stream ends without an end event says how to pick it up.
 func TestFollowStreamEndedEarly(t *testing.T) {
 	fake(t, nil)

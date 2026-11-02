@@ -790,7 +790,7 @@ func (a *app) logs() *cobra.Command {
 				}
 				m, _ := v.(map[string]any)
 				if a.json { // NDJSON, the shape --follow streams
-					if cell(m["log"]) == "" {
+					if s, _ := m["log"].(string); s == "" {
 						return nil
 					}
 					for _, l := range strings.Split(strings.TrimSuffix(cell(m["log"]), "\n"), "\n") {
@@ -1853,7 +1853,7 @@ func (a *app) redeploying(c *cobra.Command, v any) error {
 			return err
 		}
 	}
-	if !wait {
+	if !wait || len(rs) == 0 {
 		return nil
 	}
 	base, err := a.orgPath()

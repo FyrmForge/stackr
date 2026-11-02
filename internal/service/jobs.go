@@ -799,7 +799,7 @@ func (o *Orchestrator) Jobs(ctx context.Context, limit int, states ...string) ([
 // ScopeJobs lists the jobs of one org, narrowed to a stack and an env when
 // given (ids), newest first, at most limit (0 = no cap). The org and stack
 // are read off the payload stamped at enqueue; an env is placed by its
-// first id, as ChildOf does.
+// tile, env or volume id.
 // ponytail: scans every job row of the states; a SQL filter on the payload
 // when an install holds enough jobs to feel it.
 func (o *Orchestrator) ScopeJobs(ctx context.Context, orgID, stackID, envID string, limit int, states ...string) ([]Job, error) {
@@ -817,7 +817,7 @@ func (o *Orchestrator) ScopeJobs(ctx context.Context, orgID, stackID, envID stri
 		if s, _ := p["stack_id"].(string); stackID != "" && s != stackID {
 			continue
 		}
-		if envID != "" && o.jobChild(ctx, p).Env != envID {
+		if envID != "" && o.jobEnv(ctx, p) != envID {
 			continue
 		}
 		if out = append(out, j); limit > 0 && len(out) == limit {
