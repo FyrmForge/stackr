@@ -22,7 +22,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -265,6 +267,11 @@ func (o *Orchestrator) AlertSettings(ctx context.Context) (AlertSettings, error)
 func (o *Orchestrator) SetAlerts(ctx context.Context, rawURL string, secret *string) error {
 	if rawURL = strings.TrimSpace(rawURL); rawURL != "" {
 		if err := o.SetSetting(ctx, alertURLKey, rawURL); err != nil {
+			return err
+		}
+		// the file's ref follows the tab, so the two stay in step
+		coll, name, _ := strings.Cut(serverconfig.AlertURLParam, ".")
+		if _, err := o.SetParams(ctx, ServerParamScope, []ParamEntry{{Collection: coll, Name: name, Kind: params.Secret, Value: rawURL}}); err != nil {
 			return err
 		}
 	} else if cur, err := o.settings.Get(ctx, alertURLKey); err != nil || cur == "" {

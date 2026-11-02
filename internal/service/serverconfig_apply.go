@@ -191,11 +191,12 @@ func (o *Orchestrator) seedDestParams(ctx context.Context) error {
 			}
 		}
 	}
-	// The alert webhook goes as a ref too (its path is often a token); the
-	// param follows the live URL, which is what the export writes.
+	// The alert webhook goes as a ref too (its path is often a token). The
+	// param is seeded only when missing; the Alerts tab keeps it in step
+	// (SetAlerts), so planning an old file never overwrites a changed one.
 	if u, err := o.settings.Get(ctx, alertURLKey); err != nil {
 		return err
-	} else if coll, name, _ := strings.Cut(serverconfig.AlertURLParam, "."); u != "" && have[serverconfig.AlertURLParam].V != u {
+	} else if coll, name, _ := strings.Cut(serverconfig.AlertURLParam, "."); u != "" && have[serverconfig.AlertURLParam].V == "" {
 		es = append(es, ParamEntry{Collection: coll, Name: name, Kind: params.Secret, Value: u})
 	}
 	if len(es) == 0 {
