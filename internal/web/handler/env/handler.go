@@ -51,6 +51,9 @@ func scope(c echo.Context) service.Scope {
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	e := "/:org/:stack/:env/-"
 	g.GET(e+"/jobs/:job/events", h.JobEvents, a.Require("deployment.read"))
+	logPage := func(c echo.Context) error { return render.JobLogPage(c, h.orch, render.EnvURL(c)) }
+	g.GET(e+"/jobs/:job", logPage, a.Require("deployment.read"))
+	g.GET(e+"/jobs/:job/log", logPage, a.Require("deployment.read"))
 	g.POST(e+"/rollback/:release", h.Rollback, a.Require("env.write"))
 	g.GET(e+"/new-tile", h.NewTile, a.Require("tile.write"))
 	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
@@ -145,14 +148,16 @@ func (h *handler) NewTile(c echo.Context) error {
 	if ok, err := render.ToShellTab(c, "", "", ""); ok { // no link of its own: the env page
 		return err
 	}
-	cs, err := h.orch.Connectors(c.Request().Context(), scope(c).Org.ID)
+	cs, err := h.orch.ConnectedConnectors(c.Request().Context(), scope(c).Org.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	v := createView(c)
 	var hosts []string
 	for _, x := range cs {
-		hosts = append(hosts, x.Host)
+		if !slices.Contains(hosts, x.Host) {
+			hosts = append(hosts, x.Host)
+		}
 	}
 	v.Hosts = strings.Join(hosts, ", ")
 	return respond.HTML(c, http.StatusOK, dialog.CreateTile(v))
@@ -780,7 +785,7 @@ func (h *handler) Volume(c echo.Context) error {
 }
 
 func (h *handler) BackupNow(c echo.Context) error {
-	_, err := h.orch.BackupNow(c.Request().Context(), c.Param("volume"), c.FormValue("dest"), c.FormValue("method"), "")
+	_, err := h.orch.BackupNow(c.Request().Context(), c.Param("volume"), c.FormValue("dest"), c.FormValue("method"), c.FormValue("mode"))
 	return h.volume(c, "backups", "backup queued", err)
 }
 

@@ -223,8 +223,8 @@ func TestActionNeedsCSRF(t *testing.T) {
 func TestAutoDomain(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	if body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String(); !strings.Contains(body, `name="auto"`) {
-		t.Errorf("no auto domain form:\n%s", body)
+	if body := s.Do(t, "GET", drawer+"?tab=settings", nil).Body.String(); strings.Contains(body, `name="auto"`) {
+		t.Errorf("auto domain form with no domain resource:\n%s", body)
 	}
 	rec := s.Do(t, "POST", drawer+"/domains", url.Values{"auto": {"1"}})
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "No domain resource to nest under") {

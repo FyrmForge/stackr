@@ -1,0 +1,56 @@
+package components
+
+import "strconv"
+
+func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
+
+// JobLogView is a job's log page: its status, the log so far and, while the
+// job is not over, where the next chunk comes from (Next is the offset).
+type JobLogView struct {
+	Kind   string
+	State  string
+	Error  string
+	Chunk  string
+	PollTo string // GET <PollTo>?offset=<Next>
+	Next   int64
+	End    bool
+	Back   string // "" = no link back
+}
+
+// JobLog is the page: it follows the log by polling for more.
+templ JobLog(v JobLogView) {
+	<div class="page space-y-4">
+		if v.Back != "" {
+			@NavLink(Link{Label: "Back", Href: v.Back})
+		}
+		@jobLogHead(v, false)
+		<pre id="job-log" role="log" aria-label="Job log" class="panel p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words overflow-x-auto">{ v.Chunk }@JobLogTail(v)</pre>
+	</div>
+}
+
+// JobLogMore is one poll's answer: the new text, the next poll, and the
+// status line, which swaps out of band.
+templ JobLogMore(v JobLogView) {
+	{ v.Chunk }
+	@JobLogTail(v)
+	@jobLogHead(v, true)
+}
+
+// JobLogTail asks for the next chunk until the job's log is over.
+templ JobLogTail(v JobLogView) {
+	if !v.End {
+		<span hx-get={ v.PollTo + "?offset=" + itoa64(v.Next) } hx-trigger="load delay:2s" hx-swap="outerHTML"></span>
+	}
+}
+
+templ jobLogHead(v JobLogView, oob bool) {
+	<div id="job-head" class="space-y-1" if oob { hx-swap-oob="true" }>
+		<div class="flex items-center gap-2 text-sm">
+			<span class="text-rw-faint font-mono">{ v.Kind }</span>
+			@JobBadge(v.State)
+		</div>
+		if v.Error != "" {
+			<p class="text-xs text-rw-danger">{ v.Error }</p>
+		}
+	</div>
+}

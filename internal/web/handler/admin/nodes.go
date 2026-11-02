@@ -253,7 +253,7 @@ func (h *handler) mintNode(c echo.Context) error {
 	return h.answer(c, "nodes", "", extra{adder: &ui.AddNodeView{
 		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
 		Expires: "in " + fmt.Sprint(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes",
-		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName),
+		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName) + "&until=" + fmt.Sprint(out.ExpiresAt.Unix()),
 		Cancel:  ui.Href("nodes"),
 	}}, nil)
 }
@@ -263,6 +263,10 @@ func (h *handler) mintNode(c echo.Context) error {
 func (h *handler) pollNode(c echo.Context) error {
 	p, err := h.orch.PendingNodeByName(c.Request().Context(), c.QueryParam("name"))
 	if errors.Is(err, errs.ErrNotFound) {
+		// The join command is dead past its expiry: 286 stops htmx polling.
+		if until, _ := strconv.ParseInt(c.QueryParam("until"), 10, 64); until > 0 && time.Now().Unix() > until {
+			return respond.HTML(c, 286, ui.AddNode(ui.AddNodeView{Step: 2, Name: c.QueryParam("name"), Expired: true, Cancel: ui.Href("nodes")}))
+		}
 		return c.NoContent(http.StatusNoContent)
 	}
 	if err != nil {
@@ -698,7 +702,7 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		}
 		v.Remove = comp.ConfirmView{
 			Button: "Remove node", Title: "Remove " + d.Name + "?",
-			Warning: "Stops everything on " + d.Name + ", backs it up, checks the backups, then cleans the box and removes it. A failed backup stops here and starts the apps again.",
+			Warning: "Refused while envs, a placement or a default role still sit on " + d.Name + ": move them first. Then it stops everything on " + d.Name + ", backs it up, checks the backups, then cleans the box and removes it. A failed backup stops here and starts the apps again.",
 			Kept:    []string{"the backups, and the volumes and images on the box"},
 			Action:  base + "/remove", Target: "#" + comp.DrawerRoot,
 		}

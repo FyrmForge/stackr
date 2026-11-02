@@ -188,8 +188,8 @@ func (h *handler) SetVars(c echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	_, err = h.orch.SetParams(ctx, col.ps, render.ParamEntries(form))
-	return h.varsAfter(c, s, "Saved.", err)
+	rs, err := h.orch.SetParams(ctx, col.ps, render.ParamEntries(form))
+	return h.varsAfter(c, s, saved("Saved.", rs), err)
 }
 
 // addVar is an Add row: a group, a name and a value in at least one
@@ -215,13 +215,16 @@ func (h *handler) addVar(c echo.Context, s service.Scope, cs []col, form url.Val
 	if err := errors.Join(bad...); err != nil {
 		return h.varsAfter(c, s, "", err)
 	}
+	var all []service.Redeploy
 	for _, col := range set {
 		e.Value = form.Get(field + col.Token)
-		if _, err := h.orch.SetParams(ctx, col.ps, []service.ParamEntry{e}); err != nil {
+		rs, err := h.orch.SetParams(ctx, col.ps, []service.ParamEntry{e})
+		if err != nil {
 			return h.varsAfter(c, s, "", render.AsFields(err, map[string]string{"collection": "add_group", "name": "add_name"}))
 		}
+		all = append(all, rs...)
 	}
-	return h.varsAfter(c, s, "Saved.", nil)
+	return h.varsAfter(c, s, saved("Saved.", all), nil)
 }
 
 // POST <level>/-/vars/delete (collection, name).
@@ -236,8 +239,22 @@ func (h *handler) DeleteVar(c echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest)
 	}
-	_, err = h.orch.DeleteParam(ctx, col.ps, c.FormValue("collection"), c.FormValue("name"))
-	return h.varsAfter(c, s, "Deleted.", err)
+	rs, err := h.orch.DeleteParam(ctx, col.ps, c.FormValue("collection"), c.FormValue("name"))
+	return h.varsAfter(c, s, saved("Deleted.", rs), err)
+}
+
+// saved is the note plus the tiles the change redeploys.
+func saved(note string, rs []service.Redeploy) string {
+	var names []string
+	for _, r := range rs {
+		if n := r.Env + "/" + r.Tile; !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return note
+	}
+	return note + " Redeploying " + strings.Join(names, ", ") + "."
 }
 
 func (h *handler) varsAfter(c echo.Context, s service.Scope, note string, err error) error {

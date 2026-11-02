@@ -42,6 +42,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
 		a.Require("admin.read"),
 	)
+	jobLog := func(c echo.Context) error { return render.JobLogPage(c, h.orch, "") }
+	g.GET("/-/jobs/:job", jobLog, a.Require("admin.read"))
+	g.GET("/-/jobs/:job/log", jobLog, a.Require("admin.read"))
 	g.POST(b+"/settings/:form", h.SaveSettings, a.Require("serverdefaults.set"))
 	h.mountParams(g, a)
 	h.mountAccess(g, a)
@@ -389,7 +392,7 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		return h.securityTab(c)
 	case "org-defaults":
 		s, err := h.settings(c, "org-defaults", nil)
-		return ui.Knobs("", s), err
+		return ui.KnobsDesc("", "A changed limit or protect setting redeploys every running tile in every org.", s), err
 	case "jobs":
 		s, err := h.settings(c, "jobs", nil)
 		return ui.Knobs("", s), err
@@ -665,6 +668,17 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	for _, k := range keys {
 		if vs := f[k]; len(vs) > 0 {
 			vals[k] = vs[0]
+		}
+	}
+	if form == "domains" && f.Get("confirm_root") == "" {
+		if q := h.rootMoveConfirm(c.Request().Context(), ui.Base+"/settings/"+form, vals); q != nil {
+			c.Set(refusedKey, true) // draw the form again as typed
+			v, err := h.settings(c, form, nil)
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			v.Confirm = q
+			return respond.HTML(c, http.StatusOK, comp.SettingsForm(v))
 		}
 	}
 	actErr := h.orch.SetServerSettings(c.Request().Context(), vals)
