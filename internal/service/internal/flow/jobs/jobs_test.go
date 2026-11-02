@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -525,4 +526,35 @@ func TestHold(t *testing.T) {
 	started(t, g)
 	close(g.release)
 	waitState(t, l, id, job.Done)
+}
+
+// Ended hears of a job that ends without its handler running (cancelled or
+// superseded while queued) as well as one that ran.
+func TestEnded(t *testing.T) {
+	g := newGate(false)
+	var mu sync.Mutex
+	ended := map[string]bool{}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": g.run}, jobs.Options{Ended: func(j store.Job) {
+		mu.Lock()
+		ended[j.ID] = true
+		mu.Unlock()
+	}})
+	cancelled := enqueue(t, r, "a", "t1") // the runner is off: it stays queued
+	if err := r.Cancel(ctx, cancelled); err != nil {
+		t.Fatal(err)
+	}
+	superseded := enqueue(t, r, "a", "t2")
+	ran := enqueue(t, r, "a", "t2")
+	waitState(t, l, superseded, job.Superseded)
+	start(t, r)
+	started(t, g)
+	close(g.release)
+	waitState(t, l, ran, job.Done)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range []string{cancelled, superseded, ran} {
+		if !ended[id] {
+			t.Errorf("job %s: Ended not called", id)
+		}
+	}
 }
