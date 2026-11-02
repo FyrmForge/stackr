@@ -37,6 +37,7 @@ type Syncer struct {
 	done uint64          // requests covered by a finished run
 	err  error           // that run's error
 	soft map[string]bool // Soft nodes whose last push failed
+	hard bool            // the last run's push failed hard (the controller's own Caddy)
 }
 
 // Timeout caps one run; the run never uses the caller's context, so a
@@ -67,7 +68,7 @@ func (s *Syncer) Sync(ctx context.Context) error {
 		s.After()
 	}
 	s.mu.Lock()
-	s.done, s.err = covers, err
+	s.done, s.err, s.hard = covers, err, !pushed
 	s.mu.Unlock()
 	return err
 }
@@ -110,10 +111,11 @@ func (s *Syncer) once(ctx context.Context) (pushed bool, err error) {
 	return pushed, errors.Join(errs...)
 }
 
-// Retry runs a sync when a Soft node's last push failed.
+// Retry runs a sync when a Soft node's last push failed, or the last run's
+// push failed hard (a boot push to a Caddy not up yet, a deploy's lost push).
 func (s *Syncer) Retry(ctx context.Context) error {
 	s.mu.Lock()
-	failed := false
+	failed := s.hard
 	for _, f := range s.soft {
 		failed = failed || f
 	}

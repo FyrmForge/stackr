@@ -533,7 +533,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.refreshNodeClients(ctx); err != nil {
 		slog.Warn("nodes: worker clients not all built", "err", err)
 	}
-	go orch.watchNodeClients()
+	orch.track(orch.watchNodeClients)
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		return auth.NewSessionManager(st.Sessions,
 			auth.WithCookieSecure(cfg.CookieSecure),

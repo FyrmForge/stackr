@@ -61,7 +61,7 @@ func (o *Orchestrator) startMesh(ctlID string) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	o.stopMesh, o.meshCtx, o.localWorker = cancel, ctx, local
-	go o.rotateSchedule(ctx)
+	o.track(func() { o.rotateSchedule(ctx) })
 	if local != nil {
 		o.mesh.ctlID, o.mesh.Panel = ctlID, o.panelURL()
 		if addr, ok := o.registryWGAddr(); ok {
@@ -70,10 +70,10 @@ func (o *Orchestrator) startMesh(ctlID string) {
 		o.mesh.Trust = o.meshTrust
 	}
 	// Not started here: its first sync reads leaves New builds after this.
-	o.runMesh = func() { go o.mesh.Run(ctx) }
+	o.runMesh = func() { o.track(func() { o.mesh.Run(ctx) }) }
 	if local != nil {
-		go o.serveRegistryWG(ctx)
-		go func() {
+		o.track(func() { o.serveRegistryWG(ctx) })
+		o.track(func() {
 			defer local.Stop()
 			t := time.NewTicker(30 * time.Second)
 			defer t.Stop()
@@ -85,12 +85,9 @@ func (o *Orchestrator) startMesh(ctlID string) {
 					if err := local.Reassert(ctx); err != nil && ctx.Err() == nil {
 						slog.Warn("mesh: controller exit rules", "err", err)
 					}
-					if err := o.sync.Retry(ctx); err != nil && ctx.Err() == nil {
-						slog.Warn("proxy: retry", "err", err)
-					}
 				}
 			}
-		}()
+		})
 	}
 }
 
@@ -344,6 +341,8 @@ const registryTokenKeep = 7 * 24 * time.Hour
 // dailyChores renews and announces the controller cert (announceControllerCert;
 // New also runs it once at boot) and prunes expired registry tokens.
 func (o *Orchestrator) dailyChores(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, dailyChoresBudget)
+	defer cancel()
 	// The contract stubs answer errors.ErrUnsupported until their workers land.
 	if err := o.announceControllerCert(ctx); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 		slog.Warn("cluster: controller cert announce failed", "err", err)

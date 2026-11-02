@@ -64,6 +64,34 @@ func TestSyncSoftNodeRetries(t *testing.T) {
 	}
 }
 
+// A hard failure (the controller's own Caddy not up yet) is retried too.
+func TestSyncRetriesAHardFailure(t *testing.T) {
+	down, calls := true, 0
+	s := &domain.Syncer{
+		Build: func(context.Context) (json.RawMessage, error) { return json.RawMessage(`1`), nil },
+		Push: func(context.Context, json.RawMessage) error {
+			calls++
+			if down {
+				return errors.New("caddy down")
+			}
+			return nil
+		},
+	}
+	ctx := context.Background()
+	if s.Sync(ctx) == nil {
+		t.Fatal("the failed run returned no error")
+	}
+	down = false
+	for range 2 {
+		if err := s.Retry(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2 (one retry, none once healed)", calls)
+	}
+}
+
 // Saves that land while a push runs collapse into exactly one follow-up run,
 // and that run sees the last save.
 func TestSyncCoalesces(t *testing.T) {
