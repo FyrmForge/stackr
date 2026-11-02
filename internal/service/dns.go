@@ -28,6 +28,7 @@ const (
 	DNSManaged    = dnscap.Managed
 	DNSNotManaged = dnscap.NotManaged
 	DNSElsewhere  = dnscap.Elsewhere
+	DNSTaken      = dnscap.Taken
 )
 
 // DNSDomain is a domain on a DNS connector's account and its state.
@@ -139,6 +140,13 @@ func (o *Orchestrator) ManageDNSDomainAdopting(ctx context.Context, orgID *strin
 	c, p, err := o.dnsAccount(ctx, orgID, id)
 	if err != nil {
 		return DNSDomain{}, err
+	}
+	rows, err := o.dns.ByConnector(ctx, c.ID)
+	if err != nil {
+		return DNSDomain{}, err
+	}
+	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == dnscap.Normal(domain) }); i >= 0 {
+		defer o.rowLock(rows[i].ID)() // managed already: who may use it changes, not under a rescope
 	}
 	scope, err := o.scopeOf(ctx, c.ID, domain, under)
 	if err != nil {
@@ -516,10 +524,9 @@ func (o *Orchestrator) DNSSuggestions(ctx context.Context, orgID *string, ds []D
 	panel := o.panelDomain(ctx)
 	root, _ := o.settings.Get(ctx, "root_domain")
 	root = strings.TrimPrefix(dnscap.Normal(root), "*.")
-	managed := o.managedZones(ctx) // through another connector: not this one's to offer
 	var out []DNSSuggestion
 	for _, d := range ds {
-		if d.State != DNSNotManaged || slices.ContainsFunc(managed, func(z store.DNSDomain) bool { return z.Name == d.Name }) {
+		if d.State != DNSNotManaged { // managed here or through another connector: nothing to offer
 			continue
 		}
 		p, r := panel != "" && dnscap.Name(panel, d.Name) != "", root != "" && dnscap.Name(root, d.Name) != ""

@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -486,30 +487,106 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 // ponytail: one controller process, so a process lock is enough.
 var upgradeEnqueue sync.Mutex
 
-// upgradeSwapping: an upgrade helper runs on the controller. It runs from
-// the old panel's launch through the new panel's trial, then exits: on a pass
-// the new panel stays, on a fail the old one is back. The job queue starts
-// nothing meanwhile (jobs.Options.Hold), since the old panel's jobs die with
-// it and a rollback restores the database under the new panel's jobs.
-// A Docker error reads not swapping: jobs need Docker anyway.
-// ponytail: a helper stuck running holds the queue until it exits (its gate
-// is bounded by panel.Leaf.Deadline); add a cap if one ever hangs.
-func (o *Orchestrator) upgradeSwapping() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// UpgradeHeld: an upgrade helper runs on the controller. It runs from the
+// old panel's launch through the new panel's trial, then exits: on a pass
+// the new panel stays, on a fail the old one is back. Meanwhile the job
+// queue starts nothing (jobs.Options.Hold), since the old panel's jobs die
+// with it and a rollback restores the database under the new panel's jobs,
+// and the panel and API refuse changes for the same reason. A flag, never a
+// Docker call: set when this panel launches the helper or finds one running
+// at boot, cleared when it exits (watchUpgrader).
+func (o *Orchestrator) UpgradeHeld() bool { return o.upgrading.Load() }
+
+// How long a hold lasts at most, and how often watchUpgrader asks again
+// after a Docker error. The helper's gate is bounded by panel.Leaf.Deadline.
+var upgradeHoldCap, upgradeRetry = 15 * time.Minute, 2 * time.Second
+
+// runningUpgrader is the upgrade helper running on the controller; "" = none.
+func (o *Orchestrator) runningUpgrader(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	ctx, err := o.withController(ctx)
-	if err != nil {
-		return false
-	}
 	cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
-	return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" })
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(cs, func(c docker.Container) bool { return c.State == "running" }); i >= 0 {
+		return cs[i].ID, nil
+	}
+	return "", nil
+}
+
+// bootUpgradeHold is the boot's one Docker check: a helper running means
+// this panel is on trial (or back after a rollback), so it holds until the
+// helper exits. A Docker error holds too, and watchUpgrader asks again: a
+// change let through mid-trial could be lost. No controller row: no helper.
+func (o *Orchestrator) bootUpgradeHold(ctx context.Context) {
+	cctx, err := o.withController(ctx)
+	if err != nil {
+		return
+	}
+	if id, err := o.runningUpgrader(cctx); err == nil && id == "" {
+		return
+	}
+	o.holdUpgrade()
+}
+
+// holdUpgrade sets the hold and watches the helper until it exits.
+func (o *Orchestrator) holdUpgrade() {
+	o.upgrading.Store(true)
+	o.detach(context.Background(), o.watchUpgrader)
+}
+
+// watchUpgrader waits on the running helper and clears the hold once none
+// runs. A Docker error keeps the hold and asks again; after upgradeHoldCap
+// the hold ends anyway, with a warning, so a stuck helper never freezes the
+// panel for good.
+func (o *Orchestrator) watchUpgrader(ctx context.Context) {
+	defer func() {
+		o.upgrading.Store(false)
+		if o.jobs != nil {
+			o.jobs.Wake()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, upgradeHoldCap)
+	defer cancel()
+	for {
+		cctx, err := o.withController(ctx)
+		id := ""
+		if err == nil {
+			id, err = o.runningUpgrader(cctx)
+		}
+		if err == nil && id == "" {
+			return
+		}
+		if err == nil {
+			if _, err = o.docker.Wait(cctx, id); err == nil {
+				continue // exited: make sure no other one runs
+			}
+		}
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				slog.Warn("upgrade: hold released without seeing the helper exit", "err", err)
+			}
+			return
+		case <-time.After(upgradeRetry):
+		}
+	}
+}
+
+// upgradeLanded: j is an upgrade to the build running now. Its row was
+// still running when the helper stopped the old panel; it succeeded.
+func (o *Orchestrator) upgradeLanded(j store.Job) bool {
+	var p upgradeJob
+	return j.Kind == string(kindUpgrade) && json.Unmarshal([]byte(j.Payload), &p) == nil &&
+		p.Tag != "" && strings.TrimPrefix(p.Tag, "v") == strings.TrimPrefix(o.cfg.Version, "v")
 }
 
 // UpgradeUnderway: an upgrade job is queued or running, or its helper is
 // still swapping the panel. The Update tab keeps itself live through the
 // restart on it, and offers no buttons.
 func (o *Orchestrator) UpgradeUnderway(ctx context.Context) bool {
-	if o.upgradeSwapping() {
+	if o.UpgradeHeld() {
 		return true
 	}
 	js, err := o.store.Jobs.ListByState(ctx, "queued", "running")

@@ -81,16 +81,16 @@ func (o *Orchestrator) PlanRescopeDNSDomain(ctx context.Context, orgID *string, 
 // from is the plan's From (nil = no plan): refused once the scope moved
 // on since. One rescope of a domain at a time.
 func (o *Orchestrator) RescopeDNSDomain(ctx context.Context, orgID *string, id, domain, under string, from *string, adopt []DNSRef) (DNSDomain, error) {
-	// ponytail: per-domain lock in the repo lock map, one process; a db lock if rescopes ever run on two controllers
-	m, _ := o.repoLocks.LoadOrStore("rescope "+dnscap.Normal(domain), &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
-	c, p, row, scope, err := o.rescopeOf(ctx, orgID, id, domain, under)
+	_, _, row, _, err := o.rescopeOf(ctx, orgID, id, domain, under)
 	if err != nil {
 		return DNSDomain{}, err
 	}
-	if from != nil && dnscap.Normal(*from) != row.Scope {
+	defer o.rowLock(row.ID)()
+	c, p, row, scope, err := o.rescopeOf(ctx, orgID, id, domain, under) // read again under the lock
+	if err != nil {
+		return DNSDomain{}, err
+	}
+	if from != nil && !sameScope(row, *from) {
 		return DNSDomain{}, errs.Conflictf("The scope of %s changed since this plan. Review the plan again.", row.Name)
 	}
 	plan, res, err := o.rescopePlan(ctx, c, p, row, scope)
@@ -116,6 +116,25 @@ func (o *Orchestrator) RescopeDNSDomain(ctx context.Context, orgID *string, id, 
 		ids = []string{}
 	}
 	return DNSDomain{Name: d.Name, State: DNSManaged, ShareAll: d.ShareAll, OrgIDs: ids, Scope: d.Scope}, nil
+}
+
+// sameScope says whether from, a plan's From, is row's scope now. Both
+// in Scope's form: "" for the whole domain, however it was typed.
+func sameScope(row store.DNSDomain, from string) bool {
+	s, err := dnscap.Scope(row.Name, from)
+	return err == nil && s == row.Scope
+}
+
+// rowLock locks managed domain row id: a rescope holds it through its plan
+// and writes, and every other write of the row (managing it again, its
+// custom records) takes it, so none lands on a row read before the other.
+// ponytail: a process lock, one entry per managed domain never freed; a db
+// lock if two controllers ever write.
+func (o *Orchestrator) rowLock(id string) (unlock func()) {
+	m, _ := o.repoLocks.LoadOrStore("dns row "+id, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // moveResource does what res says to managed domain zone's resource.
@@ -177,7 +196,7 @@ func (o *Orchestrator) rescopePlan(ctx context.Context, c Connector, p dnscap.Pr
 	if err != nil {
 		return DNSRescopePlan{}, rescopeRes{}, err
 	}
-	plan := DNSRescopePlan{From: row.Scope, Scope: scope,HandBack: []DNSWrite{}, Writes: mp.Writes, Adopt: mp.Adopt}
+	plan := DNSRescopePlan{From: row.Scope, Scope: scope, HandBack: []DNSWrite{}, Writes: mp.Writes, Adopt: mp.Adopt}
 	if res.rename != nil || res.drop != nil || res.make != nil {
 		plan.Resource = res.host
 	}

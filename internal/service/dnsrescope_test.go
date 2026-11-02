@@ -253,4 +253,54 @@ func TestRescopeStaleConfirm(t *testing.T) {
 	if got := resourceHosts(t, env); !slices.Equal(got, []string{"test.acme.dev"}) {
 		t.Errorf("resources = %v", got)
 	}
+	// from is compared as a scope, however it was typed: the domain itself
+	// is the whole domain
+	for _, step := range []struct{ from, to string }{{"Test.Acme.dev.", ""}, {"acme.dev", "test.acme.dev"}} {
+		if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", step.to, &step.from, nil); err != nil {
+			t.Errorf("from %q: %v", step.from, err)
+		}
+	}
+}
+
+// A narrowing keeps the domain's own custom records outside the new scope
+// declared: a widening writes them again.
+func TestRescopeKeepsCustomRecordsOutside(t *testing.T) {
+	env, id, _ := rescopeRig(t)
+	ctx := context.Background()
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.AddDNSDomainRecord(ctx, nil, id, "acme.dev", service.CustomRecordIn{Name: "verify", Type: "TXT", Value: "v=1"}); err != nil {
+		t.Fatal(err)
+	}
+	written := func() (bool, bool) {
+		t.Helper()
+		rs, err := env.Orch.DNSDomainRecords(ctx, nil, id, "acme.dev")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Records) != 1 {
+			return false, false
+		}
+		return true, rs.Records[0].Written
+	}
+	if declared, ok := written(); !declared || !ok {
+		t.Fatalf("after add: declared %v written %v", declared, ok)
+	}
+	for _, scope := range []string{"test.acme.dev", ""} {
+		if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", scope, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		env.Orch.WaitDNS()
+		declared, ok := written()
+		if !declared {
+			t.Fatalf("scope %q dropped the declaration", scope)
+		}
+		if ok != (scope == "") {
+			t.Errorf("scope %q: written %v", scope, ok)
+		}
+	}
+	if _, ok := recordNames(t, env)["verify"]; !ok || !has(env.DNS.Zone("acme.dev"), "verify", "TXT", "v=1") {
+		t.Errorf("verify after widening: row %v, zone %v", ok, env.DNS.Zone("acme.dev"))
+	}
 }

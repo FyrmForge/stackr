@@ -29,7 +29,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	api.GET("/health", healthHandler.Health)
 
 	h := &v1.H{Orch: deps.Orch}
-	srv.Echo().POST("/hooks/connectors/:connector", h.Hook, middleware.Logging(), middleware.JSONErrors())
+	// Changes wait out an upgrade's trial; the nodes' own calls and the CLI
+	// login go through (middleware.UpgradeHold).
+	hold := middleware.UpgradeHold(deps.Orch.UpgradeHeld,
+		"/api/v1/join", "/api/v1/nodes/recover", "/api/v1/nodes/renew", "/api/v1/auth/exchange", "/api/v1/me/cli-codes")
+	srv.Echo().POST("/hooks/connectors/:connector", h.Hook, middleware.Logging(), middleware.JSONErrors(), hold)
 	// The one-line join (curl .../join/<token> | sh): outside the site, so
 	// no login redirect ever lands an HTML page in sh.
 	srv.Echo().GET("/join/:token", h.JoinScript, middleware.Logging())
@@ -40,7 +44,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// A dump upload is as big as the database it seeds.
 	srv.Echo().Pre(middleware.LiftBodyLimit("/managed/from-dump"))
-	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
+	g := api.Group("/v1", middleware.JSONErrors(), hold, deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
 	for _, r := range Routes(h) {
 		g.Add(r.Method, r.Path, r.E.Handle, gate(deps.Access, r))
 	}

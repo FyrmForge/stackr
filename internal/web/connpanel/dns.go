@@ -44,18 +44,15 @@ func managed(n int) string {
 	return fmt.Sprintf("%d managed domains", n)
 }
 
-// Synced is the last records sync's failure; it can name any org's
-// hosts, so only the server level shows it.
+// Synced is the last records sync's failure, at an org level only the
+// parts about its own connectors' domains.
 func (p Panel) Synced(c echo.Context) string {
-	if p.Org(c) != nil {
-		return ""
-	}
-	return p.Orch.DNSSyncError()
+	return p.Orch.DNSSyncErrorFor(c.Request().Context(), p.Org(c))
 }
 
 // POST <dns>/:connector/domains (not_now): the list, asked of the
-// provider; not_now leaves the setup suggestion out. Only this plain list
-// offers it: an action's answer is about its own domain.
+// provider; not_now leaves the setup suggestion out. This list and a
+// manage, unmanage or take over that worked (done) offer it.
 func (p Panel) domains(c echo.Context) error {
 	return p.list(c, "", nil, nil, nil, c.FormValue("not_now") == "")
 }
@@ -167,7 +164,7 @@ func (p Panel) manage(c echo.Context) error {
 		orgs = nil
 	}
 	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), orgs, adoptOf(form))
-	return p.answer(c, "Saved.", err)
+	return p.done(c, "Saved.", err)
 }
 
 // POST <dns>/:connector/rescope (domain, part, under, from, adopt...):
@@ -257,12 +254,12 @@ func Records(rs service.CustomRecords, key, add, remove, target string) ui.Recor
 
 func (p Panel) unmanage(c echo.Context) error {
 	err := p.Orch.UnmanageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"))
-	return p.answer(c, "No longer managed.", err)
+	return p.done(c, "No longer managed.", err)
 }
 
 func (p Panel) takeover(c echo.Context) error {
 	err := p.Orch.TakeOverDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"), c.FormValue("confirm"))
-	return p.answer(c, "Switched to %s DNS.", err)
+	return p.done(c, "Switched to %s DNS.", err)
 }
 
 // answer is the list again, the action's refusal or note on top (%s in a
@@ -270,6 +267,12 @@ func (p Panel) takeover(c echo.Context) error {
 // text, not an error page.
 func (p Panel) answer(c echo.Context, note string, actErr error) error {
 	return p.list(c, note, actErr, nil, nil, false)
+}
+
+// done is answer after a manage, unmanage or take over: once it worked,
+// the next setup suggestion comes with it.
+func (p Panel) done(c echo.Context, note string, actErr error) error {
+	return p.list(c, note, actErr, nil, nil, actErr == nil)
 }
 
 // list is answer with a manage confirm on top when plan is set, and the

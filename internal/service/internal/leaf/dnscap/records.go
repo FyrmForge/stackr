@@ -667,7 +667,8 @@ func HandBack(d store.DNSDomain, rows []store.DNSRecord) []store.DNSRecord {
 // handed back: they stay in the zone, their rows are marked handed back
 // (List no longer has them), and stackr stops updating them. Marks inside
 // the new scope go: a widening manages the name again. The domain's own
-// custom records outside the new scope go with them. One step under the
+// custom records stay declared; the ones outside the scope are not written
+// (customWants filters them) until a widening brings them back. One step under the
 // records lock, so a reconcile never sees the new scope without its rows.
 // Running it again is harmless.
 func (l *Leaf) Rescope(ctx context.Context, id, zone, scope string, refs []Ref) (store.DNSDomain, error) {
@@ -682,9 +683,6 @@ func (l *Leaf) Rescope(ctx context.Context, id, zone, scope string, refs []Ref) 
 		return d, err
 	}
 	d.Scope = scope
-	d.Records = slices.DeleteFunc(d.Records, func(c store.CustomRecord) bool {
-		return !InScope(d, Name(CustomFQDN(c.Name, d.Name), d.Name))
-	})
 	if err := l.rows.Update(ctx, d); err != nil {
 		return d, err
 	}

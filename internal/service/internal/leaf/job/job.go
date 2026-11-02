@@ -118,13 +118,13 @@ func Waits(j store.Job, live []store.Job, held bool) string {
 	}
 	ahead := Ahead(j, live)
 	switch {
+	case held: // every kind, a worker rollout too
+		return "Waits for the panel upgrade"
 	case slices.Contains(j.LockSet, All):
 		if n := RunningAhead(j, live); n > 0 {
 			return "Waits for " + RunningJobs(n)
 		}
 		return ""
-	case held:
-		return "Waits for the panel upgrade"
 	}
 	if i := slices.IndexFunc(ahead, func(o store.Job) bool { return slices.Contains(o.LockSet, All) }); i >= 0 {
 		if ahead[i].Kind == WorkerRollout {

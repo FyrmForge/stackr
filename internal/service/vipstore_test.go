@@ -23,9 +23,10 @@ func TestRebuildOneListPerNode(t *testing.T) {
 			docker.Container{ID: "r" + tl.ID, State: "running", Labels: map[string]string{tile.LabelTile: tl.ID, tile.LabelRole: "replica"},
 				Nets: map[string]string{n.dev.Network: fmt.Sprintf("10.213.1.%d", 130+i)}})
 	}
+	before := len(n.ctlFake.Calls()) // the boot's own (its upgrade helper check)
 	must(t, n.orch.rebuildVIPs(ctx))
 	lists, other := 0, 0
-	for _, c := range n.ctlFake.Calls() {
+	for _, c := range n.ctlFake.Calls()[before:] {
 		switch c.Method {
 		case "List":
 			lists++

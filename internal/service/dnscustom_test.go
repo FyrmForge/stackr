@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -351,9 +352,9 @@ func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
 		t.Errorf("reading records called the provider %d times", env.DNS.Calls-calls)
 	}
 
-	// a TXT in the same zone is written; the MX's reason comes with it
+	// a TXT in the same zone is written; the MX's reason is not its own
 	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
-	if r.ID == "" || err == nil || !strings.Contains(err.Error(), why) {
+	if r.ID == "" || err != nil || !r.Written || strings.Contains(r.Note, why) {
 		t.Fatalf("TXT add = %+v %v", r, err)
 	}
 	if count(env.DNS.Zone("acme.dev"), "shop", "TXT", "v=1") != 1 {
@@ -404,4 +405,63 @@ func TestMoveRefusesMXWithoutCustomMX(t *testing.T) {
 	i := slices.IndexFunc(orgs, func(o store.Org) bool { return o.Slug == "acme" })
 	_, _, err = env.Orch.CheckFileRecords(ctx, orgs[i].ID, "b.shop.io", []store.CustomRecord{{Type: "MX", Value: "10 mx.example.net"}}, nil, false, nil)
 	conflict(t, err, why)
+}
+
+// A rename moving a generated hostname with an MX is never refused for the
+// zone's mail setting: the rename is committed, the MX reads not live.
+func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
+	env, _, tl, _ := customRig(t)
+	ctx := context.Background()
+	d, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Auto: true})
+	if err != nil || !strings.HasSuffix(d.Host, ".acme.dev") {
+		t.Fatalf("auto domain = %+v %v", d, err)
+	}
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("acme.dev", "forwarding")
+	calls := env.DNS.Calls
+	if _, _, err := env.Orch.RenameTile(ctx, tl.ID, "renamed"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if got, _ := env.Store.Domains.Get(ctx, d.ID); got.Host == d.Host {
+		t.Errorf("host did not move: %s", got.Host)
+	}
+	if env.DNS.Calls != calls {
+		t.Errorf("the rename read the provider %d times", env.DNS.Calls-calls)
+	}
+}
+
+// An add the sync cannot write is saved, not an error: it answers written
+// false with the reason, and the next sync writes it.
+func TestAddRecordSyncFailureIsANote(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	env.DNS.Fail(errors.New("provider down"))
+	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
+	if err != nil || r.ID == "" || r.Written || !strings.Contains(r.Note, "provider down") {
+		t.Fatalf("tile add = %+v %v", r, err)
+	}
+	r, err = env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Name: "verify", Type: "TXT", Value: "v=1"})
+	if err != nil || r.ID == "" || r.Written || !strings.Contains(r.Note, "provider down") {
+		t.Fatalf("domain add = %+v %v", r, err)
+	}
+	env.DNS.Fail(nil)
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if rs, _ := env.Orch.TileDomainRecords(ctx, tl.ID, d.ID); len(rs.Records) != 1 || !rs.Records[0].Written {
+		t.Errorf("after the provider is back: %+v", rs.Records)
+	}
+}
+
+// A record whose full name runs past 253 characters is refused on its name.
+func TestCustomRecordNameTooLong(t *testing.T) {
+	env, _, tl, d := customRig(t)
+	long := strings.TrimSuffix(strings.Repeat(strings.Repeat("a", 60)+".", 4), ".") // 243, then .shop.acme.dev
+	_, err := env.Orch.AddTileDomainRecord(context.Background(), tl.ID, d.ID, service.CustomRecordIn{Name: long, Type: "TXT", Value: "v"})
+	if inv, ok := errs.IsInvalid(err); !ok || inv.Field != "name" {
+		t.Errorf("long name = %v", err)
+	}
 }

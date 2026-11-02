@@ -321,3 +321,33 @@ func TestRecordAAAAFollowsIPv6Setting(t *testing.T) {
 		t.Fatalf("ipv6 on wrote no AAAA: %v", z)
 	}
 }
+
+// An org sees the sync's failure about the domains its own connectors
+// manage, never another org's; the server level sees it all.
+func TestSyncErrorPerOrg(t *testing.T) {
+	env, acme, other := dnsRig(t)
+	ctx := context.Background()
+	setIP(t, env, "198.51.100.1")
+	mine, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.ManageDNSDomain(ctx, &acme, mine.Connector.ID, "acme.dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.Fail(errors.New("provider down"))
+	_, _ = env.Orch.AttachDomain(ctx, env.Tile(t, acme).ID, service.DomainSpec{Host: "shop.acme.dev"}) // its write fails; the sync below keeps why
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if got := env.Orch.DNSSyncErrorFor(ctx, nil); !strings.Contains(got, "provider down") {
+		t.Fatalf("server sync error = %q", got)
+	}
+	if got := env.Orch.DNSSyncErrorFor(ctx, &acme); !strings.Contains(got, "acme.dev") {
+		t.Errorf("acme's sync error = %q", got)
+	}
+	if got := env.Orch.DNSSyncErrorFor(ctx, &other); got != "" {
+		t.Errorf("other's sync error = %q", got)
+	}
+}

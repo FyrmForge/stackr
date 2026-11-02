@@ -455,6 +455,25 @@ func TestRestartRecovery(t *testing.T) {
 	}
 }
 
+// A running row the restart itself completed (Survived) ends done.
+func TestRestartSurvived(t *testing.T) {
+	r, l := setup(t, nil, jobs.Options{Survived: func(j store.Job) bool { return j.Kind == "upgrade" }})
+	var ids []string
+	for _, kind := range []string{"upgrade", "a"} {
+		j, err := l.Create(ctx, kind, []string{job.All}, "{}", nil, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.Start(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, j.ID)
+	}
+	start(t, r)
+	waitState(t, l, ids[0], job.Done)
+	waitState(t, l, ids[1], job.Failed)
+}
+
 // A cancel that lands after the handler returned and before the job parks
 // wins: the job ends cancelled, not parked.
 func TestCancelBeatsPark(t *testing.T) {

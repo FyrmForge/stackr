@@ -115,7 +115,8 @@ func (h *handler) newOrgConnector(c echo.Context) error {
 func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Component, error) {
 	v := connectors.ListView{
 		Title: "Connectors", Scope: "organization",
-		Help: "Git hosts and DNS accounts this organization uses.",
+		Help:   "Git hosts and DNS accounts this organization uses.",
+		Synced: h.panel().Synced(c),
 	}
 	if len(h.kinds(c)) > 0 {
 		v.Add = connBase(c) + "/new"
