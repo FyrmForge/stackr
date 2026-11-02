@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -399,7 +400,8 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 	if err != nil {
 		return Job{}, err
 	}
-	return o.jobs.Enqueue(ctx, kind, lock, string(o.withOrg(ctx, b)), nil)
+	j, err := o.jobs.Enqueue(ctx, kind, lock, string(o.withOrg(ctx, b)), nil)
+	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind="+string(kind))
 }
 
 // enqueuePromote locks the env and every tile it runs now.
@@ -416,7 +418,8 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 		lock = append(lock, t.ID)
 	}
 	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked, MayPlace: mayPlace})
-	return o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
+	j, err := o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
+	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind=promote release="+releaseID)
 }
 
 // onTile runs f on the tile's node.

@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -165,7 +166,7 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 	if err != nil {
 		return err
 	}
-	return o.orgs.Delete(ctx, og, len(sts))
+	return o.noted(ctx, o.orgs.Delete(ctx, og, len(sts)), securitylog.OrgDelete, "org", orgID, "slug="+og.Slug)
 }
 
 // claims is every host with its org: tile domains, and org and stack domain
@@ -244,9 +245,9 @@ func (o *Orchestrator) SetRole(ctx context.Context, orgID, userID, role string) 
 		return err
 	}
 	if closeIt, scope := authz.StandingChanged(orgID, from, role); closeIt {
-		return o.users.CloseAccess(ctx, userID, scope)
+		err = o.users.CloseAccess(ctx, userID, scope)
 	}
-	return nil
+	return o.noted(ctx, err, securitylog.MemberRole, "user", userID, "org="+orgID+" "+from+" -> "+role)
 }
 
 // Invite makes a single-use invite link token (the invite id).

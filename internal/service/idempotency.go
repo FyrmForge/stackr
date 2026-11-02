@@ -12,10 +12,10 @@ import (
 // replayed.
 const idempotencyKeep = 24 * time.Hour
 
-// WithActor marks ctx with the user a request acts for: the jobs it queues
-// record them (Job.ActorID).
-func WithActor(ctx context.Context, userID string) context.Context {
-	return store.WithActor(ctx, userID)
+// WithActor marks ctx with the user (and API key, "" for a session) a request
+// acts for: the jobs it queues and the audit events it writes record them.
+func WithActor(ctx context.Context, userID, keyID string) context.Context {
+	return store.WithActor(ctx, userID, keyID)
 }
 
 // Answer is a request's first response, kept to replay.

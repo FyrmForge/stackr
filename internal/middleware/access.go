@@ -162,7 +162,7 @@ func setupOpen(c echo.Context) bool {
 // request queues record who asked.
 func acting(c echo.Context, p *service.Principal) {
 	r := c.Request()
-	c.SetRequest(r.WithContext(service.WithActor(r.Context(), p.User.ID)))
+	c.SetRequest(r.WithContext(service.WithActor(r.Context(), p.User.ID, p.KeyID)))
 }
 
 // Authed gates the routes about the caller alone: /me, the org list.
