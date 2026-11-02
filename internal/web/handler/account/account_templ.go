@@ -330,7 +330,7 @@ func page(v PageView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.Section("Password", "you", "Changing your password does not sign out your other sessions.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Section("Password", "you", "Changing your password signs out every session and revokes your API keys.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

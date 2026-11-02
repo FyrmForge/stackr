@@ -108,7 +108,7 @@ templ page(v PageView) {
 							@c.Field(c.FieldView{Name: "email", Label: "Email", Type: "email", Value: v.Email, Disabled: true, Why: "Your sign-in identifier; it can not be changed here yet."})
 						</div>
 					}
-					@c.Section("Password", "you", "Changing your password does not sign out your other sessions.") {
+					@c.Section("Password", "you", "Changing your password signs out every session and revokes your API keys.") {
 						@password(v.Pw)
 					}
 				}
