@@ -178,9 +178,17 @@ func TestAdminChangeScope(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(body, "Change what stackr manages on acme.dev?") || !strings.Contains(body, `name="adopt" value="www|A|198.51.100.1"`) {
 		t.Fatalf("widen preview = %d\n%s", rec.Code, body)
 	}
-	rec = s.As(t, root, "POST", base+"/rescope", url.Values{"domain": {"acme.dev"}, "part": {"all"}, "adopt": {"www|A|198.51.100.1"}})
+	if !strings.Contains(body, `&#34;from&#34;:&#34;test.acme.dev&#34;`) {
+		t.Fatalf("widen preview posts no from:\n%s", body)
+	}
+	confirm := url.Values{"domain": {"acme.dev"}, "part": {"all"}, "from": {"test.acme.dev"}, "adopt": {"www|A|198.51.100.1"}}
+	rec = s.As(t, root, "POST", base+"/rescope", confirm)
 	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, "Scope changed.") || strings.Contains(body, "under <span") {
 		t.Fatalf("widen = %d\n%s", rec.Code, body)
+	}
+	// the same confirm again: its plan is stale now
+	if body := s.As(t, root, "POST", base+"/rescope", confirm).Body.String(); !strings.Contains(body, "The scope of acme.dev changed since this plan. Review the plan again.") {
+		t.Fatalf("stale confirm:\n%s", body)
 	}
 
 	body = s.As(t, root, "POST", base+"/rescope-preview", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"test"}}).Body.String()

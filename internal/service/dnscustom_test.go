@@ -172,7 +172,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 	_, err = env.Orch.AddTileDomainRecord(ctx, tl.ID, other.ID, service.CustomRecordIn{Type: "TXT", Value: "v"})
 	conflict(t, err, "shop.example.org is not in a managed domain: stackr does not manage example.org")
 
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "test.acme.dev", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// the narrowing marks shop's A handed back: kept for the Domains page,
@@ -207,7 +207,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 
 	// a file's records on a host in the managed part: checked and noted;
 	// one on a hostname the same file adds for another app is refused
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	env.DNS.Put("acme.dev", libdns.RR{Name: "new", Type: "TXT", Data: "hand"})

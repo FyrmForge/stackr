@@ -23,9 +23,11 @@ type (
 	}
 	// RescopeIn is a managed domain's new scope: the name below it stackr
 	// manages at and under ("" = the whole domain), and the existing
-	// records to take over, as the rescope plan lists them.
+	// records to take over, as the rescope plan lists them. From is the
+	// plan's from: a confirm of a plan gone stale is refused.
 	RescopeIn struct {
 		Under string           `json:"under,omitempty"`
+		From  *string          `json:"from,omitempty"`
 		Adopt []service.DNSRef `json:"adopt"`
 	}
 	// TakeOverIn is the domain typed out.
@@ -93,7 +95,7 @@ func (h *H) PlanRescopeDNSDomain(l Level) Endpoint {
 
 func (h *H) RescopeDNSDomain(l Level) Endpoint {
 	return JSON(200, func(c echo.Context, in RescopeIn) (service.DNSDomain, error) {
-		return h.Orch.RescopeDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), service.DNSScope(c.Param("zone"), in.Under), in.Adopt)
+		return h.Orch.RescopeDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), service.DNSScope(c.Param("zone"), in.Under), in.From, in.Adopt)
 	})
 }
 

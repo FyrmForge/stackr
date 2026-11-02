@@ -58,10 +58,12 @@ type PlanView struct {
 	LeftAlone  []PlanWrite
 	// Rescope: the confirm changes a managed domain's scope. HandBack is
 	// stackr's records outside the new scope, which become the user's;
-	// Resource the host generated names go under now ("" = unchanged).
+	// Resource the host generated names go under now ("" = unchanged);
+	// From the scope it was planned from, posted back.
 	Rescope  bool
 	HandBack []PlanWrite
 	Resource string
+	From     string
 	Nothing  bool // the plan changes nothing in the zone
 }
 
@@ -124,7 +126,11 @@ func planVals(p PlanView) string {
 	if p.Under != "" {
 		part = "under"
 	}
-	return vals(map[string]string{"domain": p.Domain, "part": part, "under": p.Under})
+	m := map[string]string{"domain": p.Domain, "part": part, "under": p.Under}
+	if p.Rescope {
+		m["from"] = p.From
+	}
+	return vals(m)
 }
 
 // rescopeVals opens Change scope on a managed row's own scope.
