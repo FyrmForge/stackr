@@ -58,7 +58,7 @@ func (v ApproveView) confirm() c.ConfirmView {
 }
 
 templ Approve(v ApproveView) {
-	<form id={ v.ID } novalidate onsubmit="return false" class="space-y-3">
+	<form id={ v.ID } novalidate data-nosubmit class="space-y-3">
 		for _, l := range v.Pending {
 			<input type="hidden" name="pending" value={ l }/>
 		}

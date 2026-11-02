@@ -536,9 +536,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	go orch.watchNodeClients()
 	orch.sessions = build("sessions", func() *auth.SessionManager {
-		return auth.NewSessionManager(st.Sessions,
-			auth.WithCookieSecure(cfg.CookieSecure),
-			auth.WithCookieDomain(cfg.CookieDomain))
+		opts := []auth.SessionOption{auth.WithCookieSecure(cfg.CookieSecure), auth.WithCookieDomain(cfg.CookieDomain)}
+		if cfg.CookieSecure && cfg.CookieDomain == "" {
+			// __Host-: the browser takes the cookie only Secure, on this
+			// host alone, so a sibling subdomain cannot plant a session.
+			opts = append(opts, auth.WithCookieName("__Host-session_token"))
+		}
+		return auth.NewSessionManager(st.Sessions, opts...)
 	})
 	orch.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
 	orch.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
@@ -550,7 +554,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.tiers = build("leaf/tier", func() *tier.Leaf { return tier.New(st.Tiers) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
-	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
+	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d).WithSubnets(nodes) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
 	orch.volumes = build("leaf/volume", func() *volume.Leaf {
 		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
@@ -56,9 +57,32 @@ func (o *Orchestrator) DialTile(ctx context.Context, tileID, container string, p
 	if err != nil {
 		return nil, 0, err
 	}
+	if ip == "127.0.0.1" { // a host-network tile: the host is its node
+		if ip, err = o.hostNetAddr(ctx); err != nil {
+			return nil, 0, err
+		}
+	}
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, strconv.Itoa(port)), 5*time.Second)
 	if err != nil {
 		return nil, 0, errs.Conflictf("cannot reach %s:%d (%v)", t.Slug, port, err)
 	}
 	return conn, port, nil
+}
+
+// hostNetAddr is where a host-network tile on the node in ctx listens: the
+// panel's own loopback on the controller, the worker's mesh address on a
+// worker (the panel's loopback is some other host's, never the tile's).
+func (o *Orchestrator) hostNetAddr(ctx context.Context) (string, error) {
+	id, ok := docker.NodeFrom(ctx)
+	if !ok {
+		return "127.0.0.1", nil
+	}
+	if c, err := o.controllerID(ctx); err == nil && c == id {
+		return "127.0.0.1", nil
+	}
+	n, err := o.store.Nodes.Get(ctx, id)
+	if err != nil || n.WGAddress == "" {
+		return "", errs.Conflictf("the node of this tile has no mesh address")
+	}
+	return n.WGAddress, nil
 }

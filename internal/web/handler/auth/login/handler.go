@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,8 +122,23 @@ func (h *handler) Logout(c echo.Context) error {
 const (
 	triesPerAccount = 10
 	triesPerAddress = 100
-	triesWindow     = 15 * time.Minute
+	// triesPerEmail caps one account across every address, so a botnet cannot
+	// guess it slowly from many; the cost is that anyone can lock an account
+	// out for one window.
+	triesPerEmail = 30
+	triesWindow   = 15 * time.Minute
 )
+
+// bucket is the address a limit counts: an IPv6 client is its /64, which one
+// host owns whole, so rotating inside it buys nothing.
+func bucket(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || a.Unmap().Is4() {
+		return ip
+	}
+	p, _ := a.Prefix(64)
+	return p.String()
+}
 
 // failedKey marks a request whose password was wrong; only those count.
 const failedKey = "login.failed"
@@ -195,23 +211,35 @@ func (h *handler) Limit() echo.MiddlewareFunc {
 	t := &tries{m: map[string]window{}}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			ip := c.RealIP()
+			ip := bucket(c.RealIP())
 			email := strings.ToLower(strings.TrimSpace(c.FormValue("email")))
-			acct, addr := "acct:"+ip+"|"+email, "addr:"+ip
 			// The address first: a blocked address adds no key per email.
-			okAddr, reset := t.take(addr, triesPerAddress)
-			if okAddr {
-				okAcct, resetAcct := t.take(acct, triesPerAccount)
-				if okAcct {
-					err := next(c)
-					if failed, _ := c.Get(failedKey).(bool); !failed {
-						t.give(acct)
-						t.give(addr)
-					}
-					return err
+			keys := []struct {
+				key   string
+				limit int
+			}{{"addr:" + ip, triesPerAddress}, {"acct:" + ip + "|" + email, triesPerAccount}, {"email:" + email, triesPerEmail}}
+			var held []string
+			var reset time.Time
+			ok := true
+			for _, k := range keys {
+				var r time.Time
+				if ok, r = t.take(k.key, k.limit); !ok {
+					reset = r
+					break
 				}
-				t.give(addr)
-				reset = resetAcct
+				held = append(held, k.key)
+			}
+			if ok {
+				err := next(c)
+				if failed, _ := c.Get(failedKey).(bool); !failed {
+					for _, k := range held {
+						t.give(k)
+					}
+				}
+				return err
+			}
+			for _, k := range held {
+				t.give(k)
 			}
 			if err := h.orch.LoginRefused(c.Request().Context(), c.FormValue("email"), meta(c)); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, "session error")

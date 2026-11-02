@@ -29,6 +29,7 @@ type resolved struct {
 	extraHosts  []string // "name:ip" for linked instances on other nodes
 	cpu         float64
 	memMB       int
+	pids        int64
 }
 
 // spec arranges a tile row and its resolved facts into a container. No store
@@ -46,6 +47,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		ExtraHosts:         r.extraHosts,
 		CPULimit:           r.cpu,
 		MemLimitMB:         r.memMB,
+		PidsLimit:          r.pids,
 		User:               t.User,
 		ShmSizeMB:          t.ShmSizeMB,
 		Privileged:         r.privileged,

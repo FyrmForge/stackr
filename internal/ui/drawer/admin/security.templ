@@ -45,7 +45,7 @@ type SecurityDetail struct{ Label, Value string }
 templ Security(v SecurityView) {
 	<div id="tab-security">
 		@c.Section("", "", "Kept forever.") {
-			<form hx-get={ Href("security-log") } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
+			<form hx-get={ Href("security-log") } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate data-nosubmit class="mb-4 flex flex-wrap gap-2">
 				@securityPicker("action", "Action", "Any action", v.Actions, v.Filter.Action)
 				@securityPicker("actor", "Actor", "Anyone", v.Actors, v.Filter.Actor)
 				@securityPicker("window", "Time", "All time", v.Windows, v.Filter.Window)

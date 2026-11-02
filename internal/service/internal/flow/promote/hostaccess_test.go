@@ -42,7 +42,10 @@ func TestHostAccessParksUntilApproved(t *testing.T) {
 
 	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
 	must(t, err)
-	want := "elevated access: mon host:/var/run/docker.sock:/var/run/docker.sock:ro"
+	if len(p.Blockers) != 1 || !strings.HasPrefix(p.Blockers[0], "elevated access: mon host:/var/run/docker.sock:/var/run/docker.sock:ro, mon src:") {
+		t.Fatalf("blockers = %q", p.Blockers)
+	}
+	want := p.Blockers[0]
 	if len(p.Blockers) != 1 || p.Blockers[0] != want {
 		t.Fatalf("blockers = %q; want %q", p.Blockers, want)
 	}

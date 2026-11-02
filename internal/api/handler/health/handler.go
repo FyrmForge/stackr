@@ -1,6 +1,7 @@
 package health
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -20,10 +21,9 @@ func NewHandler(orch *service.Orchestrator) *handler {
 // GET /api/health
 func (h *handler) Health(c echo.Context) error {
 	if err := h.orch.Ping(c.Request().Context()); err != nil {
-		return c.JSON(http.StatusServiceUnavailable, map[string]string{
-			"status": "unhealthy",
-			"error":  err.Error(),
-		})
+		// Public: the error names the database path. The log has it.
+		slog.Warn("health: ping failed", "err", err)
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"status": "unhealthy"})
 	}
 	return c.JSON(http.StatusOK, map[string]string{
 		"status": "healthy",

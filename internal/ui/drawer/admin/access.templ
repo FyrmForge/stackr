@@ -55,7 +55,7 @@ templ Access(v AccessView) {
 			}
 		}
 		@c.Section("Grants", "instance", "Every grant on this server, per tile.") {
-			<form hx-get={ Href("host-access") } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate onsubmit="return false" class="mb-4 flex flex-wrap gap-2">
+			<form hx-get={ Href("host-access") } hx-target={ target() } hx-swap="outerHTML" hx-trigger="change" novalidate data-nosubmit class="mb-4 flex flex-wrap gap-2">
 				<select name="org" class="input w-auto" aria-label="Organization">
 					<option value="">All orgs</option>
 					for _, o := range v.Filter.Orgs {

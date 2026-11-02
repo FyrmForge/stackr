@@ -31,7 +31,7 @@ type BackupDestStore interface {
 }
 
 var backupDestsT = newTable("backup_destinations", func(d *BackupDest) []*string {
-	return []*string{&d.SecretKey, &d.ArchiveKey}
+	return []*string{&d.AccessKey, &d.SecretKey, &d.ArchiveKey}
 })
 
 type backupDests struct{ crud[BackupDest] }

@@ -163,7 +163,7 @@ func Access(v AccessView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-swap=\"outerHTML\" hx-trigger=\"change\" novalidate onsubmit=\"return false\" class=\"mb-4 flex flex-wrap gap-2\"><select name=\"org\" class=\"input w-auto\" aria-label=\"Organization\"><option value=\"\">All orgs</option> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" hx-swap=\"outerHTML\" hx-trigger=\"change\" novalidate data-nosubmit class=\"mb-4 flex flex-wrap gap-2\"><select name=\"org\" class=\"input w-auto\" aria-label=\"Organization\"><option value=\"\">All orgs</option> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

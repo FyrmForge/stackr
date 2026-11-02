@@ -57,7 +57,7 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 	const ask = "elevated access: mon host:/var/run/docker.sock:/var/run/docker.sock:ro"
 	j, err := w.orch.Deploy(ctx, tl.ID)
 	must(t, err)
-	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || *j.WaitingParam != ask {
+	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || askNoSrc(*j.WaitingParam) != ask {
 		t.Fatalf("deploy = %s %v %q, want parked on %q", j.State, j.WaitingParam, j.Error, ask)
 	}
 	if len(w.fake.Specs) != 0 {
@@ -65,13 +65,13 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 	}
 	g, err := w.orch.HostGrant(ctx, w.stack)
 	must(t, err)
-	if g.Granted || len(g.Pending) != 1 {
+	if g.Granted || len(g.Pending) != 2 {
 		t.Fatalf("grant before approval = %+v", g)
 	}
 
 	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, nil)
 	must(t, err)
-	if !g.Granted || g.ApprovedBy != "adm" || !slices.Equal(g.Lines, []string{"mon host:/var/run/docker.sock:/var/run/docker.sock:ro"}) || len(g.Pending) != 0 {
+	if !g.Granted || g.ApprovedBy != "adm" || !slices.Equal(noSrc(g.Lines), []string{"mon host:/var/run/docker.sock:/var/run/docker.sock:ro"}) || len(g.Pending) != 0 {
 		t.Fatalf("grant after approval = %+v", g)
 	}
 	if j = w.wait(t, j.ID); j.State != job.Done {
@@ -126,7 +126,7 @@ func TestPromoteParksOnHostAccess(t *testing.T) {
 	j, err := w.orch.Promote(ctx, nil, w.env, rel.ID)
 	must(t, err)
 	const ask = "elevated access: mon host:/var/run/docker.sock:/s:ro"
-	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || *j.WaitingParam != ask {
+	if j = w.waiting(t, j.ID); j.State != job.Waiting || j.WaitingParam == nil || askNoSrc(*j.WaitingParam) != ask {
 		t.Fatalf("promote = %s %v %q, want parked on %q", j.State, j.WaitingParam, j.Error, ask)
 	}
 	pg, err := w.orch.HostGrant(ctx, w.stack)
@@ -172,12 +172,12 @@ func TestApproveHostGrantRefusesChangedAsk(t *testing.T) {
 	if !isConflict(err) || !strings.Contains(err.Error(), "the ask changed; review it again") {
 		t.Fatalf("approve of the old set = %v", err)
 	}
-	if g, _ = w.orch.HostGrant(ctx, w.stack); g.Granted || len(g.Pending) != 2 {
+	if g, _ = w.orch.HostGrant(ctx, w.stack); g.Granted || len(g.Pending) != 4 {
 		t.Fatalf("a refused approval granted: %+v", g)
 	}
 	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, nil)
 	must(t, err)
-	if !slices.Equal(g.Lines, []string{"a host:/srv/a:/a", "b host:/:/h"}) {
+	if !slices.Equal(noSrc(g.Lines), []string{"a host:/srv/a:/a", "b host:/:/h"}) {
 		t.Fatalf("grant = %+v", g)
 	}
 }
@@ -204,12 +204,12 @@ func TestApproveHostGrantSubset(t *testing.T) {
 	w.waiting(t, j.ID)
 	g, err := w.orch.HostGrant(ctx, w.stack)
 	must(t, err)
-	if len(g.Pending) != 2 {
+	if len(g.Pending) != 3 {
 		t.Fatalf("pending = %v", g.Pending)
 	}
 	g, err = w.orch.ApproveHostGrant(ctx, w.stack, "adm", g.Pending, []string{"mon host:/srv/a:/a"})
 	must(t, err)
-	if !slices.Equal(g.Lines, []string{"mon host:/srv/a:/a"}) {
+	if !slices.Equal(noSrc(g.Lines), []string{"mon host:/srv/a:/a"}) {
 		t.Fatalf("grant = %+v", g)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -472,4 +472,18 @@ func TestDropTileGrantReadErrorAborts(t *testing.T) {
 	if got != row {
 		t.Fatalf("grant touched: %+v", got)
 	}
+}
+
+// noSrc drops the source lines a grant binds to a tile's image and command.
+func noSrc(lines []string) []string {
+	return slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.Contains(l, " src:") })
+}
+
+// askNoSrc is an approval text without its source items.
+func askNoSrc(s string) string {
+	rest, ok := strings.CutPrefix(s, "elevated access: ")
+	if !ok {
+		return s
+	}
+	return "elevated access: " + strings.Join(noSrc(strings.Split(rest, ", ")), ", ")
 }

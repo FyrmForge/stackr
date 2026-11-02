@@ -48,6 +48,7 @@ type ContainerSpec struct {
 	CapDrop    []string // e.g. NET_RAW
 	CPULimit   float64  // cores, 0 = unlimited
 	MemLimitMB int      // MB, 0 = unlimited
+	PidsLimit  int64    // processes and threads, 0 = unlimited
 
 	User       string   // "uid[:gid]" ("" = image default)
 	ShmSizeMB  int      // 0 = docker default (64MB)

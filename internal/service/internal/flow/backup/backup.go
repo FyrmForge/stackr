@@ -424,6 +424,9 @@ func (f *Flow) fetch(ctx context.Context, d store.BackupDest, key, id string) (*
 	return spool, nil
 }
 
+// maxVerify caps what verify decompresses (1 TiB): a bomb costs bounded time.
+const maxVerify = 1 << 40
+
 // verify reads the archive end to end: a gzip stream, and for a volume a
 // tar whose headers all parse. A truncated download fails here.
 func verify(f *os.File, isTar bool) error {
@@ -435,7 +438,10 @@ func verify(f *os.File, isTar bool) error {
 		return fmt.Errorf("not a gzip archive: %w", err)
 	}
 	if !isTar {
-		_, err = io.Copy(io.Discard, gz)
+		n, err := io.Copy(io.Discard, io.LimitReader(gz, maxVerify))
+		if err == nil && n == maxVerify {
+			err = errors.New("archive expands past the verify limit")
+		}
 		return err
 	}
 	tr := tar.NewReader(gz)
@@ -739,6 +745,9 @@ func open(d store.BackupDest) s3.Destination {
 		Bucket:    d.Bucket,
 		AccessKey: d.AccessKey,
 		SecretKey: d.SecretKey,
+		// An org's endpoint stays off the server's network; the owner's
+		// own destinations may be private (a LAN bucket).
+		PublicOnly: d.OrgID != nil,
 	}
 }
 

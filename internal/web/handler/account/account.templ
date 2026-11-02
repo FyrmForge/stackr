@@ -128,7 +128,7 @@ templ password(v PasswordView) {
 	@c.Form("account-password", "/account/password") {
 		@c.FormError(v.Errors["general"])
 		if v.Done {
-			<p class="text-sm text-rw-success" role="status">Password changed.</p>
+			<p class="text-sm text-rw-success" role="status">Password changed. Sign in again.</p>
 		}
 		@c.Field(c.FieldView{Name: "current_password", Label: "Current password", Type: "password", Autocomplete: "current-password", Required: true, Error: v.Errors["current_password"]})
 		@c.Field(c.FieldView{Name: "password", Label: "New password", Type: "password", Autocomplete: "new-password", Required: true, Error: v.Errors["password"],

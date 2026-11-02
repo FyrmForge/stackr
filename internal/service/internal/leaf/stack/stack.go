@@ -100,6 +100,6 @@ func (l *Leaf) SetConfigRepo(
 // SetSettings stores the defaults cascade slot as given; leaf/settings owns
 // its shape and the merge.
 func (l *Leaf) SetSettings(ctx context.Context, s store.Stack, blob string) (store.Stack, error) {
-	s.Settings = blob
+	s.Settings = store.KeepSecret(s.Settings, blob)
 	return s, l.stacks.Update(ctx, s)
 }

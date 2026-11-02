@@ -31,6 +31,26 @@ func TestCSPAllowsDataImages(t *testing.T) {
 	}
 }
 
+// Outside dev no script runs inline; the policy pins base and form targets,
+// and an https panel sends HSTS.
+func TestCSPNoInlineScripts(t *testing.T) {
+	env := servicetest.New(t)
+	srv, err := server.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), BaseURL: "https://panel.example.com"})
+	rec := httptest.NewRecorder()
+	srv.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || !strings.Contains(csp, "base-uri 'self'") || !strings.Contains(csp, "form-action 'self'") {
+		t.Errorf("CSP = %q", csp)
+	}
+	if rec.Header().Get("Strict-Transport-Security") == "" {
+		t.Error("no HSTS on an https panel")
+	}
+}
+
 // Cookies are Secure for an https BASE_URL whoever terminates TLS, and only
 // for that. The session cookie takes the same helper; CSRF is checked on the wire.
 func TestCookiesSecureFollowBaseURL(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +36,8 @@ type Docker interface {
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
+	EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error
+	UsedSubnets(ctx context.Context) ([]netip.Prefix, error)
 	Build(
 		ctx context.Context,
 		builder, dir, dockerfile, tag string,
@@ -49,6 +52,14 @@ const Builder = "stackr-builder"
 type Leaf struct {
 	images store.ImageStore
 	docker Docker
+	res    docker.Reserver // leaf/node; set by WithSubnets
+}
+
+// WithSubnets makes the builder's network a block of the cluster pool, so the
+// node's tenant filter covers build steps like any tile.
+func (l *Leaf) WithSubnets(r docker.Reserver) *Leaf {
+	l.res = r
+	return l
 }
 
 func New(images store.ImageStore, d Docker) *Leaf {
@@ -150,6 +161,11 @@ func (l *Leaf) Build(
 	args map[string]string,
 	log io.Writer,
 ) (store.Image, error) {
+	if l.res != nil {
+		if _, err := docker.EnsureReserved(ctx, l.docker, l.res, docker.BuilderNetwork, nil, nil, nil); err != nil {
+			return store.Image{}, err
+		}
+	}
 	if err := l.docker.EnsureBuilder(ctx, Builder, 0); err != nil {
 		return store.Image{}, err
 	}

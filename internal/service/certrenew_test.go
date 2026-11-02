@@ -27,7 +27,7 @@ func renewRig(t *testing.T) (*Orchestrator, tls.Certificate) {
 		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
 		WGPublicKey: "wg-w1", Status: node.StatusOnline, CreatedAt: time.Now(),
 	}))
-	return o, nodeCert(t, o, "w1")
+	return o, nodeCertAt(t, o, "w1", time.Now().Add(-70*24*time.Hour)) // in its last third
 }
 
 func newCSR(t *testing.T) string {
@@ -171,5 +171,27 @@ func TestMeshTrustOneRoot(t *testing.T) {
 	o.cluster.setSerials([]string{"ab"})
 	if _, s := o.meshTrust(context.Background()); len(s) != 1 || s[0] != "ab" {
 		t.Fatalf("serials %v", s)
+	}
+}
+
+// A cert not yet in its last third cannot renew, over the tunnel or through
+// the panel.
+func TestRenewNotDue(t *testing.T) {
+	o, _ := renewRig(t)
+	own := nodeCert(t, o, "w1")
+	leaf, err := x509.ParseCertificate(own.Certificate[0])
+	must(t, err)
+	body, _ := json.Marshal(worker.RenewRequest{CSR: newCSR(t)})
+	r := httptest.NewRequest(http.MethodPost, worker.RenewTunnelPath, strings.NewReader(string(body)))
+	r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}}
+	w := httptest.NewRecorder()
+	o.meshHandler().ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("tunnel: status %d", w.Code)
+	}
+	req, err := worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "nd", Purpose: worker.PurposeRenew, CSR: newCSR(t)})
+	must(t, err)
+	if _, err := o.RenewNodeCert(context.Background(), req); err == nil {
+		t.Fatal("panel renewal of a fresh cert accepted")
 	}
 }

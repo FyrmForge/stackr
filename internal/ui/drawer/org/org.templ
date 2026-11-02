@@ -526,7 +526,7 @@ templ Domains(v DomainsView) {
 								</span>
 							}
 							if r.Rename != "" {
-								<form novalidate onsubmit="return false" class="basis-full flex flex-wrap items-center gap-2">
+								<form novalidate data-nosubmit class="basis-full flex flex-wrap items-center gap-2">
 									<label for={ "rename-" + r.Host } class="sr-only">New host for { r.Host }</label>
 									<input id={ "rename-" + r.Host } name="host" type="text" required placeholder="new host" class="input font-mono flex-1 min-w-40"/>
 									@c.Confirm(c.ConfirmView{

@@ -434,7 +434,7 @@ func (l *Leaf) SetRelease(ctx context.Context, e store.Environment, releaseID st
 
 // SetSettings stores the defaults cascade slot as given (leaf/settings merges).
 func (l *Leaf) SetSettings(ctx context.Context, e store.Environment, blob string) (store.Environment, error) {
-	e.Settings = blob
+	e.Settings = store.KeepSecret(e.Settings, blob)
 	return e, l.envs.Update(ctx, e)
 }
 

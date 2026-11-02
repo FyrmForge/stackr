@@ -32,7 +32,7 @@ func parkTwo(t *testing.T, s *webtest.Site) []string {
 			t.Fatal(err)
 		}
 	}
-	waitPending(t, s, 2)
+	waitPending(t, s, 4) // each tile asks for its device and its source
 	g, _ := s.Orch.HostGrant(ctx, s.Tile.Stack)
 	return g.Pending
 }
@@ -88,8 +88,8 @@ func TestAdminAccessTab(t *testing.T) {
 	if rec := s.As(t, root, "POST", "/-/admin/access/approve", url.Values{"stack": {s.Tile.Stack}, "pending": pending}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("nothing ticked = %d", rec.Code)
 	}
-	g := waitPending(t, s, 1)
-	if !slices.Equal(g.Lines, pending[:1]) || !slices.Equal(g.Pending, pending[1:]) {
+	g := waitPending(t, s, 2)
+	if !slices.Equal(g.Lines, pending[:2]) || !slices.Equal(g.Pending, pending[2:]) {
 		t.Fatalf("lines %v pending %v", g.Lines, g.Pending)
 	}
 	if _, err := s.Orch.ApproveHostGrant(ctx, s.Tile.Stack, rootID, g.Pending, nil); err != nil {
@@ -129,7 +129,7 @@ func TestAdminAccessTab(t *testing.T) {
 		t.Fatalf("revoke = %d", rec.Code)
 	}
 	g, _ = s.Orch.HostGrant(ctx, s.Tile.Stack)
-	if len(g.Lines) != 1 || !strings.HasPrefix(g.Lines[0], "api ") {
+	if len(g.Lines) != 2 || !strings.HasPrefix(g.Lines[0], "api ") || !strings.HasPrefix(g.Lines[1], "api ") {
 		t.Errorf("lines after revoking cache: %v", g.Lines)
 	}
 }

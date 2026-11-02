@@ -296,6 +296,11 @@ func (l *Leaf) fill(ctx context.Context, d *store.BackupDest, s Dest, probe Prob
 	}
 	if err := probe(ctx, *d); err != nil {
 		// An S3 error can quote the request; never let a key through.
+		if d.OrgID != nil {
+			// A member's endpoint is a probe from the panel: say nothing of
+			// what answered.
+			return errs.Invalidf("endpoint", "A test file could not be written to bucket %s. Check the endpoint, bucket and keys. The endpoint must be a public host.", d.Bucket)
+		}
 		msg := redact(err.Error(), d.SecretKey, d.AccessKey)
 		return errs.Invalidf("endpoint", "A test file could not be written to bucket %s. Check the endpoint, bucket and keys.\n%s", d.Bucket, msg)
 	}

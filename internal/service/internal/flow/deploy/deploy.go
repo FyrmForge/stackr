@@ -787,6 +787,11 @@ func (f *Flow) resolve(
 		levels = append(levels, s)
 	}
 	r.cpu, r.memMB = settings.Resolve(levels...).EffectiveLimits(t.CPULimit, t.MemLimitMB)
+	if n, err := f.Settings.Int(ctx, "pids_limit"); err == nil {
+		r.pids = int64(n)
+	} else {
+		return r, err
+	}
 
 	r.extraHosts = rr.Hosts()
 	if r.hostNet {

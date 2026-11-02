@@ -143,7 +143,7 @@ func JSON[In, Out any](status int, f func(c echo.Context, in In) (Out, error)) E
 			if _, empty := any(out).(None); empty {
 				return c.NoContent(status)
 			}
-			return c.JSON(status, out)
+			return c.JSON(status, maskSecrets(out))
 		},
 	}
 	if t := reflect.TypeFor[In](); t != reflect.TypeFor[None]() {
@@ -247,4 +247,41 @@ func who(c echo.Context) string {
 
 func rc(c echo.Context) context.Context {
 	return c.Request().Context()
+}
+
+// maskSecrets hides the one password a settings blob holds (protect_password)
+// in the org, stack and env rows the API returns; a blob written back with
+// the mask keeps the stored one. Every other body passes through.
+func maskSecrets(v any) any {
+	switch x := v.(type) {
+	case service.Org:
+		x.Settings = service.MaskSettings(x.Settings)
+		return x
+	case []service.Org:
+		return maskAll(x, func(o *service.Org) *string { return &o.Settings })
+	case service.Stack:
+		x.Settings = service.MaskSettings(x.Settings)
+		return x
+	case []service.Stack:
+		return maskAll(x, func(s *service.Stack) *string { return &s.Settings })
+	case service.Environment:
+		x.Settings = service.MaskSettings(x.Settings)
+		return x
+	case EnvOut:
+		x.Settings = service.MaskSettings(x.Settings)
+		return x
+	case []EnvOut:
+		return maskAll(x, func(e *EnvOut) *string { return &e.Settings })
+	}
+	return v
+}
+
+func maskAll[T any](xs []T, f func(*T) *string) []T {
+	out := make([]T, len(xs))
+	copy(out, xs)
+	for i := range out {
+		p := f(&out[i])
+		*p = service.MaskSettings(*p)
+	}
+	return out
 }

@@ -80,7 +80,7 @@ func TestStackHostAccess(t *testing.T) {
 		t.Fatalf("a refused approval granted: %+v", g)
 	}
 	// the docker socket is full trust: the stack's name must be typed
-	form := url.Values{"pending": {line}, "grant": {line}}
+	form := url.Values{"pending": pending, "grant": {line}}
 	if rec := admin.do(t, "POST", approveURL, form, true); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("approve without the name = %d", rec.Code)
 	}
@@ -100,7 +100,7 @@ func TestStackApproveNarrowed(t *testing.T) {
 	b := newBrowser(t, "owner")
 	ctx := context.Background()
 	stack, pending := park(t, b, "host:/srv:/data", "/dev/ttyUSB0", false)
-	if len(pending) != 2 {
+	if len(pending) != 3 { // device, folder and the tile's source
 		t.Fatalf("pending = %v", pending)
 	}
 	admin := asAdmin(b, t)
@@ -122,10 +122,13 @@ func TestStackApproveNarrowed(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !slices.Equal(g.Lines, []string{pending[dev]}) || !slices.Equal(g.Pending, []string{pending[1-dev]}) {
+	folder := slices.IndexFunc(pending, func(l string) bool { return strings.Contains(l, "host:") })
+	src := slices.IndexFunc(pending, func(l string) bool { return strings.Contains(l, " src:") })
+	// the device is granted with the tile's source line; the folder keeps waiting
+	if !slices.Equal(g.Lines, []string{pending[dev], pending[src]}) || !slices.Equal(g.Pending, []string{pending[folder]}) {
 		t.Errorf("lines %v pending %v", g.Lines, g.Pending)
 	}
-	if body := admin.do(t, "GET", "/acme/shop/-/drawer?tab=settings", nil, true).Body.String(); !strings.Contains(body, `name="grant" value="`+pending[1-dev]+`"`) {
+	if body := admin.do(t, "GET", "/acme/shop/-/drawer?tab=settings", nil, true).Body.String(); !strings.Contains(body, `name="grant" value="`+pending[folder]+`"`) {
 		t.Errorf("the rest is not offered again:\n%s", body)
 	}
 }
@@ -175,7 +178,7 @@ func TestCardAccessChip(t *testing.T) {
 		t.Fatalf("approve = %d", rec.Code)
 	}
 	g, _ := b.env.Orch.HostGrant(context.Background(), stack)
-	if len(g.Lines) != 2 {
+	if len(g.Lines) != 3 {
 		t.Fatalf("lines %v", g.Lines)
 	}
 	body = b.do(t, "GET", canvas, nil, true).Body.String()

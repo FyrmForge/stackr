@@ -384,7 +384,7 @@ func password(v PasswordView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.Done {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<p class=\"text-sm text-rw-success\" role=\"status\">Password changed.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<p class=\"text-sm text-rw-success\" role=\"status\">Password changed. Sign in again.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

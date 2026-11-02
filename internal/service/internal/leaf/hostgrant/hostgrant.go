@@ -32,6 +32,9 @@ const (
 	Port = "port:"
 	// NetworkHost is the perm of the host network flag.
 	NetworkHost = "network:host"
+	// Source binds a tile's grant to what it runs: "src:<fingerprint>" of
+	// the image or git URL and command. A change asks again.
+	Source = "src:"
 	// Prefix starts the text of a NeedsApproval for elevated access.
 	Prefix = "elevated access: "
 )

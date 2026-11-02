@@ -4795,7 +4795,7 @@ func addDomain(v View, d DomainsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 366, "\" hx-swap=\"outerHTML\" class=\"group/dom space-y-3 mt-3\" oninput=\"var f=this,h=(f.domain&&f.domain.value)?((f.sub.value.trim()?f.sub.value.trim()+'.':'')+f.domain.value):f.host.value.trim();var m=f.querySelector('[data-dom]');if(m&&f.domain.value)m.textContent=f.domain.value;f.querySelector('[data-preview]').textContent='http'+(f.https.checked?'s':'')+'://'+h\"><div class=\"flex flex-wrap gap-2 items-center\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 366, "\" hx-swap=\"outerHTML\" class=\"group/dom space-y-3 mt-3\" data-dom-preview><div class=\"flex flex-wrap gap-2 items-center\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

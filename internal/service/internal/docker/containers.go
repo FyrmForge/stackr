@@ -77,9 +77,10 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		CapDrop:       spec.CapDrop,
 		ShmSize:       int64(spec.ShmSizeMB) << 20,
 		Resources: container.Resources{
-			NanoCPUs: int64(spec.CPULimit * 1e9),
-			Memory:   int64(spec.MemLimitMB) << 20,
-			Devices:  devices,
+			NanoCPUs:  int64(spec.CPULimit * 1e9),
+			Memory:    int64(spec.MemLimitMB) << 20,
+			PidsLimit: pids(spec.PidsLimit),
+			Devices:   devices,
 		},
 	}
 	if spec.PidHost {
@@ -367,4 +368,12 @@ func restartPolicy(s string) container.RestartPolicy {
 	name, n, _ := strings.Cut(s, ":")
 	max, _ := strconv.Atoi(n)
 	return container.RestartPolicy{Name: container.RestartPolicyMode(name), MaximumRetryCount: max}
+}
+
+// pids is the PidsLimit docker takes: 0 or less is unlimited (-1 to docker).
+func pids(n int64) *int64 {
+	if n <= 0 {
+		n = -1
+	}
+	return &n
 }
