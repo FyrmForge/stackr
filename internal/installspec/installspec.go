@@ -107,7 +107,9 @@ type Member struct {
 // PanelState is everything the panel needs to come back, in archive order.
 // PanelBackup writes exactly these members and `stackr-install restore`
 // accepts exactly these; any other entry is refused. A new key file is added
-// here and nowhere else. Later: registry storage.
+// here and nowhere else. Not state, so not here: install.json (the new box
+// brings its own answers), registry images (built tiles rebuild; pushed ones are pushed again), job
+// logs, metrics and logs (history), local backups (volume data).
 var PanelState = []Member{
 	{Name: DBFile, Mode: 0o600, OnDisk: true},
 	{Name: KeyFile, Mode: 0o600, OnDisk: true},

@@ -133,7 +133,11 @@ func TestProtectPairKeptWhenOmitted(t *testing.T) {
 		t.Errorf("export diffs against itself: %+v", p)
 	}
 	for name, pair := range map[string]string{"clear": "''", "change": "other"} {
-		f, err := orgconfig.Parse([]byte("version: 1\norg: Acme\ndefaults: {cpu_limit: 1, protect_user: " + pair + ", protect_password: " + pair + "}\n"))
+		pw := pair
+		if pair == "other" {
+			pw = `"${{ params.a.b }}"`
+		}
+		f, err := orgconfig.Parse([]byte("version: 1\norg: Acme\ndefaults: {cpu_limit: 1, protect_user: " + pair + ", protect_password: " + pw + "}\n"))
 		if err != nil {
 			t.Fatal(err)
 		}

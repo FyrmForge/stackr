@@ -182,7 +182,7 @@ func (f *File) checkSettings() error {
 		if err != nil {
 			return fmt.Errorf("settings.%s: %w", key, err)
 		}
-		if key == alertURLKey && raw != "" {
+		if RefOnly(key) && raw != "" {
 			if _, ok := ServerRef(raw); !ok {
 				return fmt.Errorf("settings.%s is a ${{ server.params.<collection>.<name> }} ref, never the URL (its path is often a token)", key)
 			}
@@ -275,6 +275,9 @@ func (f *File) checkDefaults() error {
 	}
 	if (d.CPULimit != nil && *d.CPULimit < 0) || (d.MemLimitMB != nil && *d.MemLimitMB < 0) {
 		return fmt.Errorf("defaults: a limit is not negative")
+	}
+	if err := d.CheckProtect(); err != nil {
+		return fmt.Errorf("defaults: %w", err)
 	}
 	if err := settings.Settings(*d).Check(); err != nil {
 		return fmt.Errorf("defaults: %w", err)

@@ -387,6 +387,23 @@ type Defaults struct {
 	ProtectPassword *string  `yaml:"protect_password,omitempty" json:"protect_password,omitempty"`
 }
 
+// CheckSecretRef refuses a credential that is a literal: it must be one
+// ${{ }} reference, since the file goes in git. "" is allowed (it clears).
+func CheckSecretRef(what, v string) error {
+	if v != "" && !IsRef(v) {
+		return fmt.Errorf("%s is a ${{ ... }} reference, never the value (the file goes in git)", what)
+	}
+	return nil
+}
+
+// CheckProtect is CheckSecretRef for a defaults block's protect_password.
+func (d Defaults) CheckProtect() error {
+	if d.ProtectPassword == nil {
+		return nil
+	}
+	return CheckSecretRef("protect_password", *d.ProtectPassword)
+}
+
 // Check is one line of a move's CI-style checks.
 type Check struct {
 	Name   string `json:"name"` // "target online", "mesh link", "tags", "disk", "memory", "cpu arch", "source online"

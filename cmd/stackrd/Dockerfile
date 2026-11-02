@@ -6,7 +6,7 @@ WORKDIR /app
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackrd ./cmd/stackrd
+RUN CGO_ENABLED=0 go build -tags release -ldflags "-X main.version=${VERSION}" -o /stackrd ./cmd/stackrd
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr ./cmd/stackr
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /stackr-install ./cmd/stackr-install
 

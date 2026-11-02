@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"testing"
 )
 
@@ -41,5 +42,30 @@ func TestNodeJobKindsHaveHandlers(t *testing.T) {
 		if hs[k] == nil {
 			t.Errorf("no handler for job kind %q", k)
 		}
+	}
+}
+
+// An apply refuses any row the approved plan did not show, and a risky row
+// the approver did not confirm.
+func TestNewRisk(t *testing.T) {
+	was := planfile.Plan{Changes: []planfile.Change{
+		{Kind: "settings", Field: "workers"},
+		{Kind: "settings", Field: "acme_email", Impact: "certs"},
+	}}
+	b, _ := json.Marshal(was)
+	now := planfile.Plan{Changes: []planfile.Change{{Kind: "settings", Field: "workers"}}}
+	if err := newRisk(string(b), false, now); err != nil {
+		t.Errorf("same rows: %v", err)
+	}
+	now.Changes = append(now.Changes, planfile.Change{Kind: "settings", Field: "log_level"})
+	if err := newRisk(string(b), true, now); err == nil {
+		t.Error("a panel edit since the plan applied silently")
+	}
+	now.Changes = []planfile.Change{{Kind: "settings", Field: "acme_email", Impact: "certs"}}
+	if err := newRisk(string(b), false, now); err == nil {
+		t.Error("an unconfirmed risky row applied")
+	}
+	if err := newRisk(string(b), true, now); err != nil {
+		t.Errorf("a confirmed risky row: %v", err)
 	}
 }

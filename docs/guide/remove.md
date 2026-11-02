@@ -3,17 +3,15 @@
 ## Remove a healthy worker
 
 1. Check what the node still carries. Remove refuses while any of these remain.
-   - Envs: move them with `stackr env move --stack shop --env prod --to <node>`.
+   - A placement on it, with its envs: repoint the placement with `stackr admin placement move <placement> <other-node>`.
    - The default ingress: pick another with `stackr ingress set <other> --default`.
    - Being another node's default exit: point that node elsewhere with `stackr node exit <node> <other>`.
 
-2. Remove it. `--move-to` moves its envs to that node first, so you can skip the moves above.
+2. Remove it. In the panel: Admin, Nodes, the node, Remove this node.
 
    ```bash
-   stackr node remove vps-fsn1 --move-to home
+   stackr node remove vps-fsn1
    ```
-
-   With no envs on it, leave out `--move-to`. In the panel: Admin, Nodes, the node, Remove this node.
 
 What remove does, in order:
 

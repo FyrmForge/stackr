@@ -156,6 +156,8 @@ func TestParseRefuses(t *testing.T) {
 		{"bad cidr", v1 + "settings:\n  trusted_proxies: 10.0.0.0/99\n", "not an IP, a CIDR or cloudflare"},
 		{"proxy_custom not an array", v1 + "settings:\n  proxy_custom: '{}'\n", "JSON array"},
 		{"wildcard panel", v1 + "settings:\n  panel_domain: '*.example.com'\n", "wildcard"},
+		{"literal protect password", v1 + "defaults:\n  protect_user: bob\n  protect_password: hunter2\n", "reference"},
+		{"literal heartbeat", v1 + "settings:\n  heartbeat_url: https://hc.example.com/abc\n", "ref"},
 		{"half a basic auth pair", v1 + "defaults:\n  protect_user: bob\n", "password"},
 		{"negative limit", v1 + "defaults:\n  mem_limit_mb: -1\n", "negative"},
 		{"secret with a value", v1 + "params:\n  a:\n    b:\n      type: secret\n      value: x\n", "never goes in the file"},
@@ -343,7 +345,7 @@ func TestDiffDefaults(t *testing.T) {
 			changes: []string{"defaults:cpu_limit"},
 		},
 		{
-			name: "protect changes basic auth", file: "defaults:\n  cpu_limit: 1\n  protect: true\n  protect_user: bob\n  protect_password: s3cret\n",
+			name: "protect changes basic auth", file: "defaults:\n  cpu_limit: 1\n  protect: true\n  protect_user: bob\n  protect_password: \"${{ server.params.a.b }}\"\n",
 			changes: []string{"defaults:protect", "defaults:protect_user", "defaults:protect_password"}, impact: "basic auth in front of every URL",
 		},
 	} {
