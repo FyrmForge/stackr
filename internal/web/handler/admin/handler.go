@@ -593,7 +593,7 @@ var knobForms = map[string][]string{
 	"domains":      {"panel_domain", "root_domain", "acme_email", "trusted_proxies", "ipv6"},
 	"registry":     {"registry_cleanup_schedule", "registry_keep"},
 	"cleanup":      {"image_check_interval", "cleanup_enabled", "cleanup_schedule", "orphans_enabled", "orphans_schedule", "orphan_retention_days"},
-	"org-defaults": {"cpu_limit", "mem_limit_mb", "protect", "protect_user", "protect_password"},
+	"org-defaults": {"cpu_limit", "mem_limit_mb", "protect", "protect_user", "protect_password", "pids_limit"},
 	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency", "seed_max_gb"},
 }
 
