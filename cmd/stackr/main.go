@@ -99,6 +99,7 @@ Environment (each beats the config file; nothing here is written to disk):
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageErr{err.Error()} })
 	root.AddCommand(a.commands()...)
+	groupCommands(root)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about any command",
@@ -111,6 +112,36 @@ Environment (each beats the config file; nothing here is written to disk):
 		},
 	})
 	return root
+}
+
+// helpGroups sort the root help: the commands of each group, in the order
+// the groups show.
+var helpGroups = []struct {
+	id, title string
+	cmds      []string
+}{
+	{"session", "Session:", []string{"login", "logout", "profile", "link", "unlink", "status", "password", "key"}},
+	{"work", "Stacks and tiles:", []string{
+		"stack", "env", "tile", "deploy", "restart", "promote", "rollback", "release", "logs", "metrics", "ssh", "forward",
+		"job", "params", "domain", "volume", "backup", "managed", "slice",
+	}},
+	{"org", "Org and server:", []string{
+		"org", "tier", "dest", "share", "registry", "host-grant", "placements", "pin", "ingress", "exit",
+		"node", "cluster", "admin", "server", "knobs",
+	}},
+}
+
+// groupCommands files the root's commands under helpGroups; one in no group
+// (completion, help) stays under "Additional Commands".
+func groupCommands(root *cobra.Command) {
+	for _, g := range helpGroups {
+		root.AddGroup(&cobra.Group{ID: g.id, Title: g.title})
+		for _, c := range root.Commands() {
+			if slices.Contains(g.cmds, c.Name()) {
+				c.GroupID = g.id
+			}
+		}
+	}
 }
 
 // group is the RunE of every command that only holds others: bare, it
