@@ -1,0 +1,1 @@
+DROP TRIGGER backup_destinations_keep_runs;

@@ -133,8 +133,9 @@ func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest, probe Pro
 
 // Delete refuses the local destination and one a schedule or the panel's own
 // backup (usedByPanel, a fact from the caller) still points at: they would
-// silently fall back to local. Its run rows go with it; the archives stay in
-// the bucket.
+// silently fall back to local. One that still has run rows is refused too:
+// the row holds the only copy of the archive key, so deleting it makes every
+// archive in the bucket unreadable.
 func (l *Leaf) Delete(ctx context.Context, d store.BackupDest, usedByPanel bool) error {
 	if d.Kind == Local {
 		return errs.Refusedf("the local destination is part of the install")
@@ -151,6 +152,13 @@ func (l *Leaf) Delete(ctx context.Context, d store.BackupDest, usedByPanel bool)
 	})
 	if inUse {
 		return errs.Conflictf("a volume's backup schedule still uses %s", d.Name)
+	}
+	runs, err := l.runs.ListByDest(ctx, d.ID)
+	if err != nil {
+		return err
+	}
+	if len(runs) > 0 {
+		return errs.Conflictf("%s still holds backups. Delete them first.", d.Name)
 	}
 	return l.dests.Delete(ctx, d.ID)
 }

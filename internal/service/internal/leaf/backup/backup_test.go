@@ -378,6 +378,26 @@ func TestDeleteRefusesPanelDest(t *testing.T) {
 	}
 }
 
+// A destination that still has run rows is refused, in the leaf and in the
+// database (the trigger), so its archive key is never lost with it.
+func TestDeleteRefusesDestWithRuns(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	d, err := l.Create(ctx, nil, s3("offsite", false), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Start(ctx, backup.KindPanel, nil, nil, d.ID, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := errs.IsConflict(l.Delete(ctx, d, false)); !ok {
+		t.Error("deleted a destination that holds backups")
+	}
+	if err := st.BackupDests.Delete(ctx, d.ID); err == nil {
+		t.Error("the database dropped a destination that holds runs")
+	}
+}
+
 // A run whose job was cancelled still closes: the finish does not use the
 // cancelled context.
 func TestFinishSurvivesCancel(t *testing.T) {
