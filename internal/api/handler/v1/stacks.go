@@ -99,11 +99,13 @@ func (h *H) SetConfigRepo() Endpoint {
 func (h *H) SetStackSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in Blob) (service.Stack, error) {
 		return h.Orch.SetStackSettings(rc(c), stackID(c), string(in))
-	})
+	}).Describe("A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).")
 }
 
 func (h *H) DeleteStack() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteStack(rc(c), stackID(c)) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteStack(rc(c), stackID(c)) }).Describe(
+		"Deletes the stack row at once (204), refused with 409 while it has environments. " +
+			"POST .../teardown removes the environments and tiles first, in a job.")
 }
 
 // TeardownIn names the stack being removed: Confirm is its slug.
@@ -292,9 +294,10 @@ func (h *H) SetEnvFrom() Endpoint {
 func (h *H) SetEnvSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in Blob) (EnvOut, error) {
 		return h.envOut(c)(h.Orch.SetEnvSettings(rc(c), envID(c), string(in)))
-	})
+	}).Describe("A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).")
 }
 
 func (h *H) DeleteEnv() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteEnv(rc(c), envID(c)) })
+	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteEnv(rc(c), envID(c)) }).Describe(
+		"Deletes the environment row at once (204), refused with 409 while it has tiles; a tile is removed by DELETE on the tile, which queues a job (202).")
 }

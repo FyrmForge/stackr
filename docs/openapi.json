@@ -3,11 +3,20 @@
     "schemas": {
       "APIError": {
         "properties": {
+          "code": {
+            "type": "string"
+          },
           "error": {
             "type": "string"
           },
           "field": {
             "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            },
+            "type": "array"
           },
           "status": {
             "type": "integer"
@@ -15,7 +24,8 @@
         },
         "required": [
           "error",
-          "status"
+          "status",
+          "code"
         ],
         "type": "object"
       },
@@ -25,8 +35,30 @@
             "format": "date-time",
             "type": "string"
           },
+          "expires_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "level": {
             "type": "string"
@@ -43,6 +75,9 @@
                 "type": "null"
               }
             ]
+          },
+          "owner": {
+            "type": "string"
           },
           "stack": {
             "type": "string"
@@ -745,6 +780,7 @@
           }
         },
         "required": [
+          "public",
           "id",
           "name",
           "role",
@@ -766,8 +802,7 @@
           "behind",
           "too_old",
           "warnings",
-          "default_exit",
-          "public"
+          "default_exit"
         ],
         "type": "object"
       },
@@ -1164,11 +1199,11 @@
           }
         },
         "required": [
+          "host",
+          "serves",
           "name",
           "type",
-          "value",
-          "host",
-          "serves"
+          "value"
         ],
         "type": "object"
       },
@@ -1756,6 +1791,7 @@
           }
         },
         "required": [
+          "placement",
           "id",
           "stack_id",
           "name",
@@ -1770,10 +1806,8 @@
           "auto",
           "created_at",
           "locked",
-          "node_id",
           "subnet",
-          "placement_id",
-          "placement"
+          "placement_id"
         ],
         "type": "object"
       },
@@ -2164,6 +2198,21 @@
         ],
         "type": "object"
       },
+      "FieldError": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "error"
+        ],
+        "type": "object"
+      },
       "ForgetOut": {
         "properties": {
           "job": {
@@ -2532,6 +2581,9 @@
       },
       "Job": {
         "properties": {
+          "actor_id": {
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -2613,7 +2665,8 @@
           "lock_set",
           "payload",
           "error",
-          "created_at"
+          "created_at",
+          "actor_id"
         ],
         "type": "object"
       },
@@ -2816,7 +2869,24 @@
       },
       "KeyIn": {
         "properties": {
+          "expires_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "level": {
+            "enum": [
+              "viewer",
+              "member",
+              "owner",
+              "admin"
+            ],
             "type": "string"
           },
           "name": {
@@ -3663,12 +3733,12 @@
           }
         },
         "required": [
+          "email",
           "id",
           "org_id",
           "user_id",
           "role",
-          "created_at",
-          "email"
+          "created_at"
         ],
         "type": "object"
       },
@@ -4117,6 +4187,9 @@
           }
         },
         "required": [
+          "env_list",
+          "exit_for",
+          "ingress_for",
           "id",
           "name",
           "role",
@@ -4138,10 +4211,7 @@
           "behind",
           "too_old",
           "warnings",
-          "default_exit",
-          "env_list",
-          "exit_for",
-          "ingress_for"
+          "default_exit"
         ],
         "type": "object"
       },
@@ -5108,7 +5178,7 @@
           "plan": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/promote.Plan"
+                "$ref": "#/components/schemas/PromotePlan"
               },
               {
                 "type": "null"
@@ -5280,7 +5350,7 @@
           },
           "orgs": {
             "items": {
-              "$ref": "#/components/schemas/registry.Usage"
+              "$ref": "#/components/schemas/RegistryUsage"
             },
             "type": "array"
           },
@@ -5290,6 +5360,25 @@
         },
         "required": [
           "orgs",
+          "versions",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "RegistryUsage": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "org": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "org",
           "versions",
           "bytes"
         ],
@@ -5912,6 +6001,7 @@
           }
         },
         "required": [
+          "org_ids",
           "id",
           "kind",
           "name",
@@ -5921,8 +6011,7 @@
           "capabilities",
           "check_error",
           "shared",
-          "pending",
-          "org_ids"
+          "pending"
         ],
         "type": "object"
       },
@@ -5996,6 +6085,38 @@
           "source",
           "ticked",
           "confirmed"
+        ],
+        "type": "object"
+      },
+      "ServerconfigPlan": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "type": "array"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "changes"
         ],
         "type": "object"
       },
@@ -6374,6 +6495,106 @@
         ],
         "type": "object"
       },
+      "StoreCustomRecord": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "value"
+        ],
+        "type": "object"
+      },
+      "StoreDomain": {
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "container_port": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "force_https": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "proxy_json": {
+            "type": "string"
+          },
+          "raw_caddy": {
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/StoreCustomRecord"
+            },
+            "type": "array"
+          },
+          "redirect_to": {
+            "type": "string"
+          },
+          "resource_id": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tile_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tile_id",
+          "host",
+          "path",
+          "container_port",
+          "https",
+          "force_https",
+          "redirect_to",
+          "auto",
+          "position",
+          "proxy_json",
+          "raw_caddy",
+          "created_at",
+          "records"
+        ],
+        "type": "object"
+      },
       "Subject": {
         "properties": {
           "PrefBase": {
@@ -6441,12 +6662,12 @@
           }
         },
         "required": [
-          "stack",
-          "env",
-          "changes",
           "from",
           "tiles",
-          "sig"
+          "sig",
+          "stack",
+          "env",
+          "changes"
         ],
         "type": "object"
       },
@@ -7929,200 +8150,6 @@
           "slug"
         ],
         "type": "object"
-      },
-      "promote.Plan": {
-        "properties": {
-          "blockers": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "changes": {
-            "items": {
-              "$ref": "#/components/schemas/Change"
-            },
-            "type": "array"
-          },
-          "env": {
-            "type": "string"
-          },
-          "gaps": {
-            "items": {
-              "$ref": "#/components/schemas/Gap"
-            },
-            "type": "array"
-          },
-          "release": {
-            "type": "integer"
-          },
-          "stack": {
-            "type": "string"
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "stack",
-          "env",
-          "changes"
-        ],
-        "type": "object"
-      },
-      "registry.Usage": {
-        "properties": {
-          "bytes": {
-            "type": "integer"
-          },
-          "org": {
-            "type": "string"
-          },
-          "versions": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "org",
-          "versions",
-          "bytes"
-        ],
-        "type": "object"
-      },
-      "serverconfig.Plan": {
-        "properties": {
-          "blockers": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "changes": {
-            "items": {
-              "$ref": "#/components/schemas/Change"
-            },
-            "type": "array"
-          },
-          "gaps": {
-            "items": {
-              "$ref": "#/components/schemas/Gap"
-            },
-            "type": "array"
-          },
-          "notes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "changes"
-        ],
-        "type": "object"
-      },
-      "store.CustomRecord": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "type",
-          "value"
-        ],
-        "type": "object"
-      },
-      "store.Domain": {
-        "properties": {
-          "auto": {
-            "type": "boolean"
-          },
-          "container_port": {
-            "type": "integer"
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "force_https": {
-            "type": "boolean"
-          },
-          "host": {
-            "type": "string"
-          },
-          "https": {
-            "type": "boolean"
-          },
-          "id": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "position": {
-            "type": "integer"
-          },
-          "proxy_json": {
-            "type": "string"
-          },
-          "raw_caddy": {
-            "type": "string"
-          },
-          "records": {
-            "items": {
-              "$ref": "#/components/schemas/store.CustomRecord"
-            },
-            "type": "array"
-          },
-          "redirect_to": {
-            "type": "string"
-          },
-          "resource_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tile_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "tile_id",
-          "host",
-          "path",
-          "container_port",
-          "https",
-          "force_https",
-          "redirect_to",
-          "auto",
-          "position",
-          "proxy_json",
-          "raw_caddy",
-          "created_at",
-          "records"
-        ],
-        "type": "object"
       }
     },
     "securitySchemes": {
@@ -8138,6 +8165,21 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "Liveness: 200 while the panel serves."
+      }
+    },
     "/api/v1/admin/alerts": {
       "delete": {
         "operationId": "admin.alerts-clear",
@@ -8680,7 +8722,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/serverconfig.Plan"
+                  "$ref": "#/components/schemas/ServerconfigPlan"
                 }
               }
             },
@@ -8781,6 +8823,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -8791,7 +8842,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "202": {
@@ -9323,7 +9374,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -9637,7 +9688,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -9942,7 +9993,17 @@
     "/api/v1/admin/image-check": {
       "post": {
         "operationId": "admin.image-check",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "content": {
@@ -10008,14 +10069,17 @@
             "in": "query",
             "name": "state",
             "schema": {
-              "type": "string"
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           {
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -10166,7 +10230,7 @@
             "in": "query",
             "name": "offset",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -10402,6 +10466,51 @@
       }
     },
     "/api/v1/admin/keys": {
+      "get": {
+        "operationId": "admin.key-list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/APIKey"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "user.admin"
+      },
       "post": {
         "operationId": "admin.key-mint",
         "parameters": [],
@@ -10425,6 +10534,37 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "user.admin"
+      }
+    },
+    "/api/v1/admin/keys/{key}": {
+      "delete": {
+        "operationId": "admin.key-revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
           "default": {
             "content": {
@@ -10572,6 +10712,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10656,6 +10805,15 @@
             "name": "node",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -11194,7 +11352,17 @@
       },
       "post": {
         "operationId": "admin.panel-backup",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11203,7 +11371,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "202": {
@@ -11533,6 +11701,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -11667,6 +11844,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -11748,7 +11934,17 @@
     "/api/v1/admin/registry/clean": {
       "post": {
         "operationId": "admin.registry-clean",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "content": {
@@ -11924,7 +12120,7 @@
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -12063,7 +12259,17 @@
       },
       "post": {
         "operationId": "admin.upgrade",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -12102,7 +12308,17 @@
     "/api/v1/admin/upgrade/workers": {
       "post": {
         "operationId": "admin.upgrade-workers",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "content": {
@@ -12683,6 +12899,44 @@
         "x-verb": "@self"
       }
     },
+    "/api/v1/me/keys/{key}/rotate": {
+      "post": {
+        "operationId": "key.rotate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "@self"
+      }
+    },
     "/api/v1/me/password": {
       "put": {
         "operationId": "me.password",
@@ -12868,7 +13122,22 @@
     "/api/v1/orgs": {
       "get": {
         "operationId": "org.list",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -13455,6 +13724,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -13465,7 +13743,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "202": {
@@ -14065,7 +14343,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -14427,7 +14705,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
@@ -14969,6 +15247,20 @@
             "in": "query",
             "name": "all",
             "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
               "type": "string"
             }
           }
@@ -15237,7 +15529,7 @@
             "in": "query",
             "name": "offset",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -15267,6 +15559,59 @@
       }
     },
     "/api/v1/orgs/{org}/keys": {
+      "get": {
+        "operationId": "key.org-list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/APIKey"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "member.manage"
+      },
       "post": {
         "operationId": "key.mint",
         "parameters": [
@@ -15312,6 +15657,45 @@
           }
         },
         "x-verb": "org.read"
+      }
+    },
+    "/api/v1/orgs/{org}/keys/{key}": {
+      "delete": {
+        "operationId": "key.org-revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "member.manage"
       }
     },
     "/api/v1/orgs/{org}/lost-envs": {
@@ -15450,6 +15834,20 @@
             "in": "path",
             "name": "org",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
             "schema": {
               "type": "string"
             }
@@ -16243,7 +16641,7 @@
             "in": "query",
             "name": "force",
             "schema": {
-              "type": "string"
+              "type": "boolean"
             }
           }
         ],
@@ -16278,6 +16676,20 @@
           {
             "in": "query",
             "name": "repo",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
             "schema": {
               "type": "string"
             }
@@ -16406,6 +16818,7 @@
     },
     "/api/v1/orgs/{org}/settings": {
       "put": {
+        "description": "A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).",
         "operationId": "org.settings",
         "parameters": [
           {
@@ -16420,7 +16833,9 @@
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {}
+              "schema": {
+                "type": "object"
+              }
             }
           },
           "required": true
@@ -16587,6 +17002,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -16665,6 +17094,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}": {
       "delete": {
+        "description": "Deletes the stack row at once (204), refused with 409 while it has environments. POST .../teardown removes the environments and tiles first, in a job.",
         "operationId": "stack.delete",
         "parameters": [
           {
@@ -17012,6 +17442,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}": {
       "delete": {
+        "description": "Deletes the environment row at once (204), refused with 409 while it has tiles; a tile is removed by DELETE on the tile, which queues a job (202).",
         "operationId": "env.delete",
         "parameters": [
           {
@@ -18534,6 +18965,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -18544,7 +18984,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "202": {
@@ -18606,6 +19046,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -18635,6 +19084,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/settings": {
       "put": {
+        "description": "A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).",
         "operationId": "env.settings",
         "parameters": [
           {
@@ -18665,7 +19115,9 @@
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {}
+              "schema": {
+                "type": "object"
+              }
             }
           },
           "required": true
@@ -18863,6 +19315,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -19052,6 +19513,15 @@
             "name": "tile",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -19383,6 +19853,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -19453,7 +19932,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/store.Domain"
+                    "$ref": "#/components/schemas/StoreDomain"
                   },
                   "type": "array"
                 }
@@ -19525,7 +20004,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/store.Domain"
+                  "$ref": "#/components/schemas/StoreDomain"
                 }
               }
             },
@@ -19666,7 +20145,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/store.Domain"
+                  "$ref": "#/components/schemas/StoreDomain"
                 }
               }
             },
@@ -19746,7 +20225,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/store.Domain"
+                  "$ref": "#/components/schemas/StoreDomain"
                 }
               }
             },
@@ -20059,6 +20538,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/exec": {
       "post": {
+        "description": "The request body is the command's stdin (optional); the response is its stdout and stderr interleaved, and its exit code arrives in the X-Exit-Code HTTP trailer. cmd repeats, one argv word each.",
         "operationId": "tile.exec",
         "parameters": [
           {
@@ -20097,7 +20577,10 @@
             "in": "query",
             "name": "cmd",
             "schema": {
-              "type": "string"
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           {
@@ -20108,6 +20591,12 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {}
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -20263,6 +20752,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/forward": {
       "get": {
+        "description": "A websocket upgrade: each socket is one TCP connection to the port in one replica; binary frames are the bytes both ways, a text frame {\"type\":\"eof\"} half-closes the client's side. The port reached comes back in the X-Stackr-Port response header.",
         "operationId": "tile.forward",
         "parameters": [
           {
@@ -20308,16 +20798,13 @@
             "in": "query",
             "name": "port",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "websocket": {}
-            },
-            "description": "OK"
+          "101": {
+            "description": "Switching Protocols: the connection is now a websocket"
           },
           "default": {
             "content": {
@@ -20366,6 +20853,15 @@
             "name": "tile",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -20567,7 +21063,7 @@
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -20653,7 +21149,7 @@
             "in": "query",
             "name": "tail",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -20736,7 +21232,7 @@
             "in": "query",
             "name": "tail",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -21153,6 +21649,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -21215,6 +21720,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -21275,6 +21789,15 @@
             "name": "tile",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -21344,7 +21867,7 @@
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -21676,6 +22199,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -21800,6 +22332,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -21829,6 +22370,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/terminal": {
       "get": {
+        "description": "A websocket upgrade: binary frames are the terminal's bytes both ways; a text frame {\"type\":\"resize\",\"cols\":n,\"rows\":n} resizes it, and the last frame out is text {\"type\":\"exit\",\"code\":n}.",
         "operationId": "tile.terminal",
         "parameters": [
           {
@@ -21879,11 +22421,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "websocket": {}
-            },
-            "description": "OK"
+          "101": {
+            "description": "Switching Protocols: the connection is now a websocket"
           },
           "default": {
             "content": {
@@ -22373,6 +22912,15 @@
             "name": "stack",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -23005,6 +23553,20 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -23091,6 +23653,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/settings": {
       "put": {
+        "description": "A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).",
         "operationId": "stack.settings",
         "parameters": [
           {
@@ -23113,7 +23676,9 @@
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": {}
+              "schema": {
+                "type": "object"
+              }
             }
           },
           "required": true
@@ -23160,6 +23725,15 @@
             "name": "stack",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -23947,6 +24521,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -24050,6 +24633,15 @@
             "name": "volume",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
               "type": "string"
             }
           }
@@ -24300,6 +24892,65 @@
           }
         },
         "x-verb": "@self"
+      }
+    },
+    "/hooks/connectors/{connector}": {
+      "post": {
+        "operationId": "hook.connector",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "A git host's push or webhook delivery for one connector, verified by its signature, not a key."
+      }
+    },
+    "/join/{token}": {
+      "get": {
+        "operationId": "join.script",
+        "responses": {
+          "200": {
+            "content": {
+              "text/x-shellscript": {}
+            },
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "The one-line join script (curl | sh) for a join token."
+      }
+    },
+    "/join/{token}/stackr-install": {
+      "get": {
+        "operationId": "join.installer",
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "The stackr-install binary a join script downloads."
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {}
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "stackr's own Prometheus metrics (admin key or session)."
       }
     }
   },

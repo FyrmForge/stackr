@@ -69,7 +69,7 @@ func (h *H) GetOrg() Endpoint {
 func (h *H) SetOrgSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in Blob) (service.Org, error) {
 		return h.Orch.SetOrgSettings(rc(c), orgID(c), string(in))
-	})
+	}).Describe("A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).")
 }
 
 func (h *H) RenameOrg() Endpoint {

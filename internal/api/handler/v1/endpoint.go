@@ -85,6 +85,19 @@ type Endpoint struct {
 	InRaw   string       // non-empty: the request body's media type, read raw
 	Query   []string     // the query params the handler reads
 	Idem    bool         // honours an Idempotency-Key header: a retry gets the first answer
+	Note    string       // prose for the OpenAPI operation: what the schema cannot say
+}
+
+// Describe sets the operation's description in the OpenAPI dump.
+func (e Endpoint) Describe(note string) Endpoint {
+	e.Note = note
+	return e
+}
+
+// Raw says the request body is read raw as mediaType (stdin of an exec).
+func (e Endpoint) Raw(mediaType string) Endpoint {
+	e.InRaw = mediaType
+	return e
 }
 
 // Idempotent marks an endpoint that queues work as safe to retry with an
