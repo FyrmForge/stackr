@@ -187,6 +187,12 @@ func (s *Server) PromoteKeys() error {
 	return s.reapply()
 }
 
+// WGPublicKey is the node's current WireGuard public key.
+func (s *Server) WGPublicKey() string {
+	wg, _ := s.publicKeys()
+	return wg
+}
+
 // publicKeys are the node's current public keys, for a recovery call.
 func (s *Server) publicKeys() (wg, exit string) {
 	_, wg, _ = loadKey(s.wgKeyPath())

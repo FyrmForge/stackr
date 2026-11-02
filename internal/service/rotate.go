@@ -201,12 +201,29 @@ func (o *Orchestrator) rotateController(ctx context.Context, n store.Node, trigg
 	m.syncMu.Lock() // no sync may push the old key between these pushes
 	defer m.syncMu.Unlock()
 	m.mu.Lock()
-	old := m.wgPK[n.ID]
+	old, oldExit := m.wgPK[n.ID], m.exitPK[n.ID]
 	m.mu.Unlock()
 	m.tookKeys(n.ID, old, wg, exit)
+	// rollback puts the old keys back and tells the workers, so a failed
+	// switch does not leave every tunnel on a key the controller never took.
+	rollback := func(cause error) error {
+		m.tookKeys(n.ID, wg, old, oldExit)
+		if in, specs, err := m.plan(ctx); err == nil {
+			var ids []string
+			for id := range specs {
+				if id != n.ID {
+					ids = append(ids, id)
+				}
+			}
+			pctx, cancel := context.WithTimeout(ctx, rotatePushWait)
+			_ = m.push(pctx, in, specs, ids, true)
+			cancel()
+		}
+		return cause
+	}
 	in, specs, err := m.plan(ctx)
 	if err != nil {
-		return err
+		return rollback(err)
 	}
 	var workers []string
 	for id := range specs {
@@ -225,7 +242,13 @@ func (o *Orchestrator) rotateController(ctx context.Context, n store.Node, trigg
 		cancel()
 	}
 	if err := o.localWorker.PromoteKeys(); err != nil {
-		return err
+		if o.localWorker.WGPublicKey() == wg {
+			// Keys swapped, the re-apply failed: the new key is the truth.
+			_ = m.push(ctx, in, specs, []string{n.ID}, true)
+			m.Kick()
+			return err
+		}
+		return rollback(err)
 	}
 	_ = m.push(ctx, in, specs, []string{n.ID}, true)
 	o.auditRotate(ctx, n, old, wg, trigger)
