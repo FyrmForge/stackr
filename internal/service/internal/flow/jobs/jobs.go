@@ -85,8 +85,9 @@ type Options struct {
 	// now. nil = requeue every parked job each poll and let the handler
 	// re-check.
 	ParamSet func(ctx context.Context, j store.Job) (bool, error)
-	// Hold, when it answers true, starts nothing: the panel launched its
-	// upgraded successor, and a job started now dies with this one. nil = never.
+	// Hold, when it answers true, starts nothing: an upgrade helper is
+	// swapping the panel, and a job started now dies with the old panel or
+	// outlives a rollback of the new one's database. nil = never.
 	Hold func() bool
 }
 
@@ -253,9 +254,6 @@ func (r *Runner) unpark(ctx context.Context) {
 // that cannot start still holds its tiles against newer ones, so each tile
 // sees its jobs in order.
 func (r *Runner) pass(ctx context.Context) error {
-	if r.opt.Hold != nil && r.opt.Hold() {
-		return nil
-	}
 	n, err := r.opt.Workers(ctx)
 	if err != nil {
 		return err
@@ -283,6 +281,10 @@ func (r *Runner) pass(ctx context.Context) error {
 		busy = append(busy, j.LockSet)
 		if blocked {
 			continue
+		}
+		// Asked only when a job would start, so an idle queue costs Hold nothing.
+		if r.opt.Hold != nil && r.opt.Hold() {
+			return nil
 		}
 		if err := r.start(j); err != nil {
 			return err
