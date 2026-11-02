@@ -556,6 +556,38 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 			dest = d
 		}
 	}
+	r, err := o.panelBackupTo(ctx, log, trigger, dest, keep)
+	if err != nil || trigger != "schedule" || dest.Kind != "local" {
+		return r, err
+	}
+	// The archive keys live only in the panel database: a scheduled backup on
+	// this box's disk also goes to an off-box destination when there is one,
+	// so losing the box does not lose the keys to the volume backups.
+	off, ok, err := o.offBoxDest(ctx)
+	if err != nil || !ok {
+		return r, err
+	}
+	_, err = o.panelBackupTo(ctx, log, trigger, off, keep)
+	return r, err
+}
+
+// offBoxDest is the first admin destination that is not this server's disk.
+func (o *Orchestrator) offBoxDest(ctx context.Context) (store.BackupDest, bool, error) {
+	ds, err := o.backups.Global(ctx)
+	if err != nil {
+		return store.BackupDest{}, false, err
+	}
+	for _, d := range ds {
+		if d.Kind != "local" {
+			// Global blanks the keys; the flow needs them.
+			full, err := o.backups.Get(ctx, d.ID)
+			return full, err == nil, err
+		}
+	}
+	return store.BackupDest{}, false, nil
+}
+
+func (o *Orchestrator) panelBackupTo(ctx context.Context, log io.Writer, trigger string, dest store.BackupDest, keep int) (store.BackupRun, error) {
 	_, _ = fmt.Fprintf(log, "panel backup to %s\n", dest.Name)
 	// rollMu: no controller cert renewal or root rollover rewrites key files
 	// while they are copied. Nothing here takes rolloverMu, so no lock order

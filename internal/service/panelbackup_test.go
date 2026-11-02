@@ -120,6 +120,28 @@ func TestScheduledPanelBackupToDest(t *testing.T) {
 	}
 }
 
+// With panel_backup_dest unset and an off-box destination present, a
+// scheduled backup goes to local and to the off-box one.
+func TestScheduledPanelBackupAlsoOffBox(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	s3, srv := newFakeS3(t)
+	w.globalS3(t, srv.URL)
+	r, err := w.orch.panelBackup(ctx, io.Discard, "schedule", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local, _ := w.orch.localDest(ctx); r.DestID != local.ID {
+		t.Errorf("first run on %q, want local", r.DestID)
+	}
+	if got := s3.keys("stackr/_panel/" + w.orch.cfg.InstallID + "/scheduled/"); len(got) != 1 {
+		t.Errorf("off-box copies = %v", got)
+	}
+	if _, err := w.orch.panelBackup(ctx, io.Discard, "manual", ""); err != nil || len(s3.keys("stackr/_panel/"+w.orch.cfg.InstallID+"/manual/")) != 0 {
+		t.Errorf("a manual local backup went off-box: %v", err)
+	}
+}
+
 // A destination that is gone falls back to local, and the log says so.
 func TestScheduledPanelBackupDestGone(t *testing.T) {
 	w := newWorld(t)

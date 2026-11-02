@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// The panel backup is off the box only once panel_backup_dest names a
-// non-local destination.
+// The panel backup is off the box once an off-box destination exists: named
+// in panel_backup_dest, or receiving a copy of the local backup.
 func TestPanelBackupOffBox(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
@@ -27,4 +27,6 @@ func TestPanelBackupOffBox(t *testing.T) {
 	_, srv := newFakeS3(t)
 	must(t, w.orch.SetSetting(ctx, "panel_backup_dest", w.globalS3(t, srv.URL).ID))
 	check(true, "S3 destination")
+	must(t, w.orch.SetSetting(ctx, "panel_backup_dest", local.ID))
+	check(true, "local named, S3 exists")
 }
