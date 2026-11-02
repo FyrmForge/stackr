@@ -7,6 +7,7 @@ package env
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"mime/multipart"
@@ -50,6 +51,9 @@ func scope(c echo.Context) service.Scope {
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	e := "/:org/:stack/:env/-"
 	g.GET(e+"/jobs/:job/events", h.JobEvents, a.Require("deployment.read"))
+	logPage := func(c echo.Context) error { return render.JobLogPage(c, h.orch, render.EnvURL(c)) }
+	g.GET(e+"/jobs/:job", logPage, a.Require("deployment.read"))
+	g.GET(e+"/jobs/:job/log", logPage, a.Require("deployment.read"))
 	g.POST(e+"/rollback/:release", h.Rollback, a.Require("env.write"))
 	g.GET(e+"/new-tile", h.NewTile, a.Require("tile.write"))
 	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
@@ -144,14 +148,16 @@ func (h *handler) NewTile(c echo.Context) error {
 	if ok, err := render.ToShellTab(c, "", "", ""); ok { // no link of its own: the env page
 		return err
 	}
-	cs, err := h.orch.Connectors(c.Request().Context(), scope(c).Org.ID)
+	cs, err := h.orch.ConnectedConnectors(c.Request().Context(), scope(c).Org.ID)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	v := createView(c)
 	var hosts []string
 	for _, x := range cs {
-		hosts = append(hosts, x.Host)
+		if !slices.Contains(hosts, x.Host) {
+			hosts = append(hosts, x.Host)
+		}
 	}
 	v.Hosts = strings.Join(hosts, ", ")
 	return respond.HTML(c, http.StatusOK, dialog.CreateTile(v))
@@ -161,7 +167,11 @@ func (h *handler) NewTile(c echo.Context) error {
 // page; a refusal re-renders the form with the field marked (422). A
 // managed tile may carry a dump (multipart "dump"), past the body limit.
 func (h *handler) CreateTile(c echo.Context) error {
-	middleware.UnlimitBody(c)
+	lim, err := h.orch.SeedLimit(c.Request().Context())
+	if err != nil {
+		lim = 0 // no room: a dump is refused below; the other kinds carry only form fields
+	}
+	middleware.UnlimitBody(c, lim+1<<20) // the dump and the form's other fields
 	v, s := createView(c), scope(c)
 	t := service.Tile{
 		StackID:       s.Stack.ID,
@@ -169,12 +179,15 @@ func (h *handler) CreateTile(c echo.Context) error {
 		Name:          v.Name,
 		Kind:          v.Source,
 	}
-	var err error
 	switch v.Source {
 	case "managed":
-		if fh, ferr := c.FormFile("dump"); ferr == nil && fh.Filename != "" { // an empty file is refused, not dropped
+		fh, ferr := c.FormFile("dump")
+		switch {
+		case errors.As(ferr, new(*http.MaxBytesError)):
+			err = errs.TooLarge{Msg: "That dump is larger than this server takes."}
+		case ferr == nil && fh.Filename != "": // an empty file is refused, not dropped
 			t, err = h.createFromDump(c, t, v.Engine, fh)
-		} else {
+		default:
 			t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
 		}
 	case "slice":
@@ -772,7 +785,7 @@ func (h *handler) Volume(c echo.Context) error {
 }
 
 func (h *handler) BackupNow(c echo.Context) error {
-	_, err := h.orch.BackupNow(c.Request().Context(), c.Param("volume"), c.FormValue("dest"), c.FormValue("method"), "")
+	_, err := h.orch.BackupNow(c.Request().Context(), c.Param("volume"), c.FormValue("dest"), c.FormValue("method"), c.FormValue("mode"))
 	return h.volume(c, "backups", "backup queued", err)
 }
 

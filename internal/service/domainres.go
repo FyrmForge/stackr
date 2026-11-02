@@ -221,6 +221,27 @@ func (o *Orchestrator) DomainResourceImpact(ctx context.Context, id string) (Ren
 	return imp, nil
 }
 
+// DomainResourceMoves lists the old -> new hosts renaming id to host would
+// change, resources first, then the tiles' hosts. Nothing is written.
+func (o *Orchestrator) DomainResourceMoves(ctx context.Context, id, host string) ([][2]string, error) {
+	r, err := o.domainres.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	p, err := o.planRename(ctx, r, host)
+	if err != nil {
+		return nil, err
+	}
+	var out [][2]string
+	for i, c := range p.res {
+		out = append(out, [2]string{c.Host, p.to[i]})
+	}
+	for i, d := range p.rows {
+		out = append(out, [2]string{d.Host, p.rowTo[i]})
+	}
+	return out, nil
+}
+
 // planRename checks the whole rename and writes nothing: the new host of
 // every resource and every tile domain against the squat check, the
 // external routes, the panel host and the other rows that hold a name.

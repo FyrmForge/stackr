@@ -87,3 +87,30 @@ func TestCreateManagedTileFromDump(t *testing.T) {
 		t.Errorf("%d dumps left in %s", len(left), seeds)
 	}
 }
+
+// A seed job cancelled while it is still queued takes its dump along.
+func TestCancelledSeedDropsDump(t *testing.T) {
+	ctx := context.Background()
+	env := servicetest.New(t)
+	tl := env.Tile(t, env.Org(t, "acme"))
+	// a running upgrade helper holds the queue: the seed stays queued
+	env.Orch.SetUpgradeHeld(true)
+	_, j, err := env.Orch.CreateManagedTileFromDump(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", "",
+		strings.NewReader("PGDMP"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeds := filepath.Join(env.Config.DataDir, "seeds")
+	if left, _ := os.ReadDir(seeds); len(left) != 1 {
+		t.Fatalf("%d dumps spooled, want 1", len(left))
+	}
+	if err := env.Orch.CancelJob(ctx, j.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := env.Orch.GetJob(ctx, j.ID); got.State != "cancelled" {
+		t.Fatalf("seed job = %s, want cancelled before it ran", got.State)
+	}
+	if left, _ := os.ReadDir(seeds); len(left) != 0 {
+		t.Errorf("%d dumps left after the cancel", len(left))
+	}
+}

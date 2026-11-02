@@ -324,7 +324,7 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 	if err != nil {
 		return err
 	}
-	sp := fbackup.Spec{Trigger: "manual", Mode: p.Mode}
+	sp := fbackup.Spec{Trigger: "manual", Mode: p.Mode, Keep: panelFixedKeep}
 	destID, method := p.DestID, p.Method
 	if p.ScheduleID != "" {
 		if err := o.skipUnreachable(ctx, o.volumeNode(ctx, v.ID)); err != nil {
@@ -397,7 +397,7 @@ func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob
 		RunID:          p.RunID,
 		SourceVolumeID: p.SourceVolumeID,
 		Target:         sub,
-		Pre:            fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, "")},
+		Pre:            fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, ""), Keep: panelFixedKeep},
 		Cluster:        cluster,
 	}, r.Log)
 }
@@ -550,7 +550,7 @@ func (o *Orchestrator) localDest(ctx context.Context) (store.BackupDest, error) 
 	return o.backups.EnsureLocal(ctx, filepath.Join(o.cfg.DataDir, "backups"))
 }
 
-// panelFixedKeep is how many manual and pre-upgrade archives stay; only the
+// panelFixedKeep is how many manual, pre-restore and pre-upgrade archives stay; only the
 // scheduled ones follow panel_backup_keep.
 const panelFixedKeep = 14
 

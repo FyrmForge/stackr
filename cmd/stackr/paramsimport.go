@@ -138,13 +138,16 @@ func (a *app) paramsImport() *cobra.Command {
 				return nil
 			}
 			v, err := a.call(PATCH, p+"/params", body)
-			a.redeploying(v)
-			return err
+			if err != nil {
+				return err
+			}
+			return a.redeploying(c, v)
 		})
 	c.Example = "  stackr params import .env --scope env --stack shop --env dev --collection app --secret"
 	c.Flags().StringVar(&scope, "scope", "", "org or env (same as --level)")
 	c.Flags().StringVar(&collection, "collection", "", "the collection every name lands in")
 	c.Flags().BoolVar(&secret, "secret", false, "store the values as secrets")
+	waitFlag(c)
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the names that would be set, never the values")
 	return c
 }

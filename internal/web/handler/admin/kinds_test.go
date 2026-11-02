@@ -69,8 +69,8 @@ func TestKindSetupAndCallback(t *testing.T) {
 	}
 	cb := "/-/connectors/callback?" + url.Values{"state": {m[1]}, "code": {"c0de"}}.Encode()
 
-	if rec := s.As(t, other, "GET", cb, nil); rec.Header().Get("Location") != "/" {
-		t.Errorf("another admin's callback = %d %q, want a refusal home", rec.Code, rec.Header().Get("Location"))
+	if rec := s.As(t, other, "GET", cb, nil); rec.Header().Get("Location") != "/-/admin/connectors" {
+		t.Errorf("another admin's callback = %d %q, want a refusal on Connectors", rec.Code, rec.Header().Get("Location"))
 	}
 	if cs, _ := s.Orch.ConnectorsAt(ctx, nil); len(cs) != 0 {
 		t.Fatalf("another admin finished it: %v", cs)

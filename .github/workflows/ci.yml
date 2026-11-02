@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version-file: go.mod
 
       - name: Download Go modules
         run: go mod download
@@ -72,10 +72,51 @@ jobs:
             exit 1
           fi
       - name: Run tests
-        run: make test
+        run: go test -race -timeout 30m ./...
 
-      - name: Lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
+        with:
+          install-only: true
+
+      - name: Lint (golangci, ts, openapi.json staleness)
+        run: make lint
 
       - name: Lint templ files
         run: make templint
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # GO-2026-4887 and GO-2026-4883: docker daemon plugin code, no fix released.
+          rc=0; out=$(govulncheck ./...) || rc=$?
+          echo "$out" | tail -20
+          # 3 = vulnerabilities found (judged below); anything else is a scanner failure.
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then echo "::error::govulncheck failed ($rc)"; exit 1; fi
+          bad=$(echo "$out" | grep -oE '^Vulnerability #[0-9]+: GO-[0-9]+-[0-9]+' | awk '{print $3}' | grep -vE '^GO-2026-(4887|4883)$' || true)
+          if [ -n "$bad" ]; then echo "::error::new vulnerabilities: $bad"; exit 1; fi
+
+      - name: Secret scan
+        run: |
+          go install github.com/gitleaks/gitleaks/v8@latest
+          gitleaks git --redact --no-banner .
+
+  # Packages that use a local Docker daemon. Left out: internal/service/internal/vip
+  # (root and NET_ADMIN) and internal/service/internal/registry (live Docker Hub).
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Integration tests
+        run: >
+          go test -tags integration -count=1 -timeout 20m
+          ./internal/service/internal/docker/
+          ./internal/service/internal/proxy/
+          ./internal/service/internal/s3/
+          ./internal/service/internal/flow/managed/
+          ./internal/service/internal/leaf/registry/

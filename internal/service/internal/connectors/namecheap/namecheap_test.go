@@ -150,10 +150,15 @@ func TestCheckErrors(t *testing.T) {
 			_, _ = w.Write([]byte(answer(tc.number, "nope")))
 		}))
 		_, err := account(srv.URL).Zones(context.Background())
-		srv.Close()
 		inv, ok := errs.IsInvalid(err)
 		if !ok || inv.Field != tc.field || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: got %v, want an Invalid on %s naming %q", tc.number, err, tc.field, tc.want)
+		}
+		// past the setup and the check: a plain refusal, no user, no IP
+		_, err = account(srv.URL).Get(context.Background(), "acme.dev")
+		srv.Close()
+		if _, typed := errs.IsInvalid(err); typed || !errors.Is(err, errs.ErrRefused) || strings.Contains(err.Error(), "203.0.113.7") || strings.Contains(err.Error(), " u ") {
+			t.Errorf("%s: Get = %v, want a plain refusal", tc.number, err)
 		}
 	}
 	// an unknown number is a refusal carrying Namecheap's words
@@ -226,6 +231,22 @@ func TestNamecheapRefusesWriteOnEmptyRead(t *testing.T) {
 		srv.Close()
 		if wrote || !errors.Is(e1, errs.ErrRefused) || !errors.Is(e2, errs.ErrRefused) {
 			t.Errorf("%s: wrote=%v append=%v set=%v", name, wrote, e1, e2)
+		}
+	}
+}
+
+// GetMail says why a zone drops MX records: only Custom MX keeps them.
+func TestGetMailNoMX(t *testing.T) {
+	var set []string
+	srv := hostsServer(t, &set)
+	defer srv.Close()
+	rs, why, err := account(srv.URL).GetMail(context.Background(), "shop.co.uk")
+	if err != nil || len(rs) != 2 || why != "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first." {
+		t.Fatalf("GetMail = %d records, %q, %v", len(rs), why, err)
+	}
+	for email, refused := range map[string]bool{"MX": false, "mx": false, "": false, "NONE": true, "OX": true, "GMAIL": true, "MXE": true} {
+		if got := noMX(email) != ""; got != refused {
+			t.Errorf("noMX(%q) refuses = %v", email, got)
 		}
 	}
 }

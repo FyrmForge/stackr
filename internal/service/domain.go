@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -113,7 +114,7 @@ func (o *Orchestrator) AttachDomainReplace(ctx context.Context, tileID string, s
 	if err != nil {
 		return d, err
 	}
-	return redact(d), o.syncWithDNS(ctx, zone, d.Host, replace)
+	return redact(d), o.noted(ctx, o.syncWithDNS(ctx, zone, d.Host, replace), securitylog.DomainAttach, "domain", d.ID, "host="+d.Host)
 }
 
 // checkManagedHost is the managed domain host sits in ("" = none) when the
@@ -244,7 +245,7 @@ func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s Dom
 		if err := o.checkNotCustom(ctx, s.Host); err != nil {
 			return d, err
 		}
-		if err := o.checkMovedRecords(ctx, t, s.Host, d.Records); err != nil {
+		if err := o.checkMovedRecords(ctx, t, s.Host, d.Records, true); err != nil {
 			return d, err
 		}
 		if zone, err = o.checkManagedHost(ctx, t, s.Host, false, replace); err != nil {
@@ -272,7 +273,7 @@ func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s Dom
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return d, err
 	}
-	return redact(d), o.syncWithDNS(ctx, zone, d.Host, replace)
+	return redact(d), o.noted(ctx, o.syncWithDNS(ctx, zone, d.Host, replace), securitylog.DomainUpdate, "domain", d.ID, "host="+d.Host)
 }
 
 // SetRawCaddy replaces the domain's generated route with raw, verbatim; ""
@@ -290,7 +291,7 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return d, err
 	}
-	return redact(d), o.sync.Sync(ctx)
+	return redact(d), o.noted(ctx, o.sync.Sync(ctx), securitylog.DomainRawCaddy, "domain", d.ID, "host="+d.Host)
 }
 
 // specOf is a stored row as the spec that writes it back unchanged: its raw
@@ -346,7 +347,7 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			if err := o.checkNotCustom(ctx, host); err != nil {
 				return err
 			}
-			if err := o.checkMovedRecords(ctx, t, host, d.Records); err != nil {
+			if err := o.checkMovedRecords(ctx, t, host, d.Records, false); err != nil {
 				return err
 			}
 			s, err := specOf(d)
@@ -402,7 +403,7 @@ func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {
 	if err := o.domains.Detach(ctx, d); err != nil {
 		return err
 	}
-	return o.sync.Sync(ctx)
+	return o.noted(ctx, o.sync.Sync(ctx), securitylog.DomainDetach, "domain", id, "host="+d.Host)
 }
 
 // SyncProxy rebuilds and pushes the whole proxy config now.
@@ -427,7 +428,46 @@ func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) erro
 	if err := o.checkPanelTaken(ctx, host); err != nil {
 		return err
 	}
+	if err := o.checkOtherOrgHost(ctx, t, st.OrgID, host); err != nil {
+		return err
+	}
 	return o.checkRouteHost(ctx, host)
+}
+
+// hostsOverlap says whether two hosts can answer the same name: equal, or one
+// a wildcard covering the other.
+func hostsOverlap(a, b string) bool {
+	under := func(w, h string) bool { // a wildcard covers one label
+		l, ok := strings.CutSuffix(h, w[1:])
+		return strings.HasPrefix(w, "*.") && ok && l != "" && !strings.Contains(l, ".")
+	}
+	return a == b || under(a, b) || under(b, a)
+}
+
+// checkOtherOrgHost refuses a host another org's tile already holds, on any
+// path, wildcards counted.
+func (o *Orchestrator) checkOtherOrgHost(ctx context.Context, t Tile, orgID, host string) error {
+	ds, err := o.domains.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range ds {
+		if d.TileID == t.ID || !hostsOverlap(host, d.Host) {
+			continue
+		}
+		ot, err := o.tiles.Get(ctx, d.TileID)
+		if err != nil {
+			return err
+		}
+		ost, err := o.stacks.Get(ctx, ot.StackID)
+		if err != nil {
+			return err
+		}
+		if ost.OrgID != orgID {
+			return errs.Conflictf("%s is already attached to a tile", host)
+		}
+	}
+	return nil
 }
 
 // Wildcard says whether any domain is managed, so wildcard certificates

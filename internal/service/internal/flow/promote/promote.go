@@ -57,6 +57,9 @@ type Flow struct {
 	// Placements gathers the facts the stack file's pin, ingress and exits
 	// are checked against, for the env being planned. Nil = no checks.
 	Placements func(ctx context.Context, envID string) (PlacementLive, error)
+	// Forget runs once a tile's row is deleted: what the service keeps for
+	// it outside the store (its build clone) goes. Nil = nothing.
+	Forget func(ctx context.Context, t store.Tile)
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -426,6 +429,9 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 		}
 		if err := d.Tiles.Delete(ctx, t.ID); err != nil {
 			return removed, err
+		}
+		if f.Forget != nil {
+			f.Forget(ctx, t)
 		}
 		removed = append(removed, t.ID)
 		logf(log, "removed %s\n", t.Slug)

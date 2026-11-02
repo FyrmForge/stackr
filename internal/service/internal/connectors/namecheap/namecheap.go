@@ -250,12 +250,33 @@ func (h host) same(o host) bool {
 }
 
 func (n *Account) get(ctx context.Context, zone string) ([]libdns.Record, error) {
+	rs, _, err := n.getMail(ctx, zone)
+	return rs, err
+}
+
+// getMail is get and the zone's EmailType.
+func (n *Account) getMail(ctx context.Context, zone string) ([]libdns.Record, string, error) {
 	z, err := n.getHosts(ctx, zone)
 	out := make([]libdns.Record, 0, len(z.Hosts))
 	for _, h := range z.Hosts {
 		out = append(out, h.record())
 	}
-	return out, err
+	return out, z.EmailType, err
+}
+
+// noMX is why a zone of mail setting email drops the MX records setHosts
+// sends: only Custom MX (MX) keeps them. "" when it does, or when
+// Namecheap did not say.
+func noMX(email string) string {
+	switch strings.ToUpper(email) {
+	case "", "MX":
+		return ""
+	case "FWD":
+		return "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
+	case "NONE":
+		return "This domain has Namecheap mail turned off. Switch Mail Settings to Custom MX first."
+	}
+	return "This domain uses another Namecheap mail service. Switch Mail Settings to Custom MX first."
 }
 
 // edit is a read, fn on the records, and a write when fn changed them.

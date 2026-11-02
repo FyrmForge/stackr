@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/FyrmForge/stackr/internal/cliconfig"
 )
 
 const (
@@ -50,6 +52,7 @@ func (a *app) commands() []*cobra.Command {
 	return append([]*cobra.Command{
 		a.login(),
 		a.logout(),
+		a.profiles(),
 		a.linkCmd(),
 		a.unlink(),
 		a.status(),
@@ -84,6 +87,7 @@ func (a *app) login() *cobra.Command {
 	c := leaf("login <url>", "key.exchange,org.list", "Log in to a stackr server", exact(1),
 		func(c *cobra.Command, args []string) error {
 			a.noEnv = true
+			old := a.cfg // this profile's login before this one replaces it
 			server := strings.TrimRight(args[0], "/")
 			if !strings.HasPrefix(server, "http://") && !strings.HasPrefix(server, "https://") {
 				return usage("the server is a URL: https://stackr.example.com")
@@ -109,8 +113,10 @@ func (a *app) login() *cobra.Command {
 				}
 				m, _ := v.(map[string]any)
 				a.cfg.Key, _ = m["token"].(string)
+				k, _ := m["key"].(map[string]any)
+				a.cfg.KeyID, _ = k["id"].(string) // logout revokes this one
 			} else {
-				a.cfg.Key = key
+				a.cfg.Key, a.cfg.KeyID = key, "" // the user's own key: logout keeps it
 			}
 			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {
@@ -128,12 +134,29 @@ func (a *app) login() *cobra.Command {
 			if err := a.save(); err != nil {
 				return err
 			}
-			if a.cfg.Org == "" && (org != "" || len(orgs) > 0) {
-				return usage("logged in, which org? stackr org use <slug> (stackr org ls lists them)")
+			if old.KeyID != "" && old.Key != "" && old.Server != "" && old.KeyID != a.cfg.KeyID {
+				// the key an earlier browser login minted would outlive its login
+				now := a.cfg
+				a.cfg = old
+				_, _ = a.call(DELETE, "/me/keys/"+url.PathEscape(old.KeyID), nil)
+				a.cfg = now
+			}
+			if a.cfg.Org == "" && org != "" {
+				return usage("logged in, but you are in no org %q (stackr org ls lists yours)", org)
+			}
+			if a.cfg.Org == "" && len(orgs) > 0 {
+				a.say("logged in to %s; which org? stackr org use <slug> (stackr org ls lists them)", server)
+				return nil
 			}
 			a.say("logged in to %s, org %s", server, cell(a.cfg.Org))
 			return nil
 		})
+	c.Long = `Log in to a stackr server.
+
+Without --with-key it opens the panel in your browser to approve the login;
+set STACKR_NO_BROWSER to print the link only. --with-key (or STACKR_KEY, which
+keeps it off argv) saves a key made in the panel instead. --profile saves the
+login under a name, to keep several servers.`
 	c.Example = "  stackr login https://stackr.example.com\n  stackr login https://stackr.example.com --with-key $KEY --org acme"
 	c.Flags().StringVar(&key, "with-key", "", "an API key made in the panel, instead of the browser flow (or STACKR_KEY, which keeps it off argv)")
 	c.Flags().StringVar(&org, "org", "", "the org to work in (its slug)")
@@ -143,10 +166,48 @@ func (a *app) login() *cobra.Command {
 }
 
 func (a *app) logout() *cobra.Command {
-	return leaf("logout", "", "Forget the stored key", exact(0), func(*cobra.Command, []string) error {
-		a.cfg.Key = ""
-		return a.save()
-	})
+	return leaf("logout", "key.revoke", "Forget the stored key; a browser login's key is revoked", exact(0),
+		func(*cobra.Command, []string) error {
+			a.noEnv = true // the stored login, not STACKR_*
+			if a.cfg.KeyID != "" && a.cfg.Key != "" && a.cfg.Server != "" {
+				var e *apiErr
+				_, err := a.call(DELETE, "/me/keys/"+url.PathEscape(a.cfg.KeyID), nil)
+				gone := errors.As(err, &e) && (e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound)
+				if err != nil && !gone { // a 401 or 404 means the key is already gone
+					_, _ = fmt.Fprintf(a.errw, "warning: the key was not revoked (%v); revoke it in the panel\n", err)
+				}
+			}
+			a.cfg.Key, a.cfg.KeyID = "", ""
+			return a.save()
+		})
+}
+
+// profiles are the saved logins: one server each, one current.
+func (a *app) profiles() *cobra.Command {
+	return noun("profile", "Saved logins, one per server",
+		leaf("ls", "", "List the saved logins", exact(0), func(*cobra.Command, []string) error {
+			row := func(name, server, org string) any {
+				cur := ""
+				if name == a.base.Name() {
+					cur = "*"
+				}
+				return map[string]any{"profile": name, "server": server, "org": org, "current": cur}
+			}
+			rows := []any{row(a.base.Name(), a.base.Server, a.base.Org)}
+			for _, n := range a.base.Names()[1:] {
+				p := a.base.Profiles[n]
+				rows = append(rows, row(n, p.Server, p.Org))
+			}
+			return a.show(rows, "profile", "server", "org", "current")
+		}),
+		leaf("use <name>", "", "Make a saved login the current one", exact(1), func(_ *cobra.Command, args []string) error {
+			v, ok := a.base.Use(args[0], false)
+			if !ok {
+				return usage("no profile %q; stackr profile ls lists them", args[0])
+			}
+			return cliconfig.Save(a.cfgPath, v)
+		}),
+	)
 }
 
 func (a *app) linkCmd() *cobra.Command {
@@ -210,7 +271,7 @@ func (a *app) status() *cobra.Command {
 }
 
 func (a *app) password() *cobra.Command {
-	return leaf("password", "me.password", "Change your password", exact(0), func(*cobra.Command, []string) error {
+	c := leaf("password", "me.password", "Change your password", exact(0), func(*cobra.Command, []string) error {
 		cur, err := a.secret("", "STACKR_PASSWORD", "Current password")
 		if err != nil {
 			return err
@@ -222,6 +283,13 @@ func (a *app) password() *cobra.Command {
 		_, err = a.call(PUT, "/me/password", map[string]string{"current": cur, "next": next})
 		return err
 	})
+	c.Long = `Change your password.
+
+Each password comes from its environment variable, else a masked prompt, else
+one line of stdin. The current password comes first, then the new one:
+  STACKR_PASSWORD      the current password
+  STACKR_NEW_PASSWORD  the new password`
+	return c
 }
 
 func (a *app) knobs() *cobra.Command {
@@ -435,7 +503,7 @@ func (a *app) orgs() *cobra.Command {
 	})
 	a.orgFlag(domains)
 
-	n := noun("org","Orgs, members, invites, credentials, connectors, the org's config file",
+	n := noun("org", "Orgs, members, invites, credentials, connectors, the org's config file",
 		leaf("ls", "org.list", "List your orgs", exact(0), func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {
@@ -829,7 +897,7 @@ func (a *app) domainResources() *cobra.Command {
 			return a.show(v, resCols...)
 		},
 	)
-	add.Flags().StringVar(&level, "level", "", "instance (admin), org or stack")
+	add.Flags().StringVar(&level, "level", "", "instance (admin), org or stack (default: org, or stack for an org/stack owner)")
 	add.Flags().StringVar(&owner, "owner", "", "the org's slug, or the stack as org/stack (default: the logged-in org)")
 	add.Flags().StringVar(&host, "host", "", "a bare hostname, e.g. example.com")
 	add.Flags().BoolVar(&includeEnv, "include-env", false, "keep the env label on the default env (api.prod.shop, not api.shop)")
@@ -885,6 +953,12 @@ func (a *app) domainResources() *cobra.Command {
 // instance, the org, or the stack (org/stack; a bare stack, or no owner at
 // org level, is in the logged-in org).
 func (a *app) resourceOwner(level, owner string) (string, error) {
+	if level == "" { // org, or the stack an org/stack owner names
+		level = "org"
+		if strings.Contains(owner, "/") {
+			level = "stack"
+		}
+	}
 	switch level {
 	case "instance":
 		return "/admin", nil
@@ -916,21 +990,26 @@ func (a *app) resourceOwner(level, owner string) (string, error) {
 // server job (it has no org) without --admin.
 func (a *app) jobs() *cobra.Command {
 	var admin, follow bool
-	base := func(id string) (string, error) {
+	// onJob sends method to the job's path (suffix after its id) in one
+	// request: under /admin with --admin, else in the org, falling back to
+	// /admin on the org's 404. It answers where the job was found.
+	onJob := func(method, id, suffix string) (any, string, error) {
 		if admin {
-			return "/admin", nil
+			v, err := a.call(method, "/admin/jobs/"+id+suffix, nil)
+			return v, "/admin", err
 		}
 		p, err := a.orgPath()
 		if err == nil {
+			var v any
 			var e *apiErr
-			if _, err = a.call(GET, p+"/jobs/"+id, nil); err == nil || !errors.As(err, &e) || e.Status != http.StatusNotFound {
-				return p, err
+			if v, err = a.call(method, p+"/jobs/"+id+suffix, nil); err == nil || !errors.As(err, &e) || e.Status != http.StatusNotFound {
+				return v, p, err
 			}
 		}
-		if _, aerr := a.call(GET, "/admin/jobs/"+id, nil); aerr == nil {
-			return "/admin", nil
+		if v, aerr := a.call(method, "/admin/jobs/"+id+suffix, nil); aerr == nil {
+			return v, "/admin", nil
 		}
-		return "", err
+		return nil, "", err
 	}
 	log := leaf(
 		"log <id>",
@@ -938,14 +1017,14 @@ func (a *app) jobs() *cobra.Command {
 		"Print a job's log; --follow waits for its end",
 		exact(1),
 		func(c *cobra.Command, args []string) error {
-			b, err := base(args[0])
-			if err != nil {
-				return err
-			}
 			if follow {
+				_, b, err := onJob(GET, args[0], "")
+				if err != nil {
+					return err
+				}
 				return a.follow(b, map[string]any{"id": args[0]}, "job")
 			}
-			v, err := a.call(GET, b+"/jobs/"+args[0]+"/log", nil)
+			v, _, err := onJob(GET, args[0], "/log")
 			if err != nil || a.json {
 				if err == nil {
 					err = a.show(v)
@@ -961,27 +1040,41 @@ func (a *app) jobs() *cobra.Command {
 	log.Flags().BoolVarP(&follow, "follow", "f", false, "stream until the job ends")
 	var states []string
 	var limit int
-	ls := leaf("ls", "admin.jobs", "List every job, newest first (admin)", exact(0), func(*cobra.Command, []string) error {
-		q := fmt.Sprintf("limit=%d", limit)
-		for _, s := range states {
-			q += "&state=" + url.QueryEscape(s)
-		}
-		v, err := a.call(GET, "/admin/jobs?"+q, nil)
-		if err != nil {
-			return err
-		}
-		return a.show(v, jobCols...)
-	})
-	ls.Flags().StringSliceVar(&states, "state", nil, "only these states (queued, running, waiting, done, failed, …)")
-	ls.Flags().IntVar(&limit, "limit", 20, "at most this many (0: all)")
-	c := noun("job", "Jobs: deploys, promotes, backups, everything queued",
-		ls,
-		leaf("get <id>", "job.get,admin.job-get", "Show a job", exact(1), func(_ *cobra.Command, args []string) error {
-			b, err := base(args[0])
+	var stack, env string
+	ls := leaf("ls", "job.list,stack.jobs,env.jobs,admin.jobs", "List the org's jobs, newest first", exact(0),
+		func(c *cobra.Command, _ []string) error {
+			path := "/admin"
+			if !admin {
+				lv := atOrg
+				if stack != "" {
+					lv = atStack
+				}
+				if env != "" {
+					lv = atEnv
+				}
+				var err error
+				if path, err = a.path(c, lv, ""); err != nil {
+					return err
+				}
+			}
+			q := fmt.Sprintf("limit=%d", limit)
+			for _, s := range states {
+				q += "&state=" + url.QueryEscape(s)
+			}
+			v, err := a.call(GET, path+"/jobs?"+q, nil)
 			if err != nil {
 				return err
 			}
-			v, err := a.call(GET, b+"/jobs/"+args[0], nil)
+			return a.show(v, jobCols...)
+		})
+	ls.Flags().StringSliceVar(&states, "state", nil, "only these states (queued, running, waiting, done, failed, ...)")
+	ls.Flags().IntVar(&limit, "limit", 20, "at most this many (0: all)")
+	ls.Flags().StringVar(&stack, "stack", "", "only this stack's jobs")
+	ls.Flags().StringVar(&env, "env", "", "only this env's jobs (with --stack, or the linked stack)")
+	c := noun("job", "Jobs: deploys, promotes, backups, everything queued",
+		ls,
+		leaf("get <id>", "job.get,admin.job-get", "Show a job", exact(1), func(_ *cobra.Command, args []string) error {
+			v, _, err := onJob(GET, args[0], "")
 			if err != nil {
 				return err
 			}
@@ -990,14 +1083,10 @@ func (a *app) jobs() *cobra.Command {
 		log,
 		leaf("cancel <id>", "job.cancel,admin.job-cancel", "Cancel a queued or running job", exact(1),
 			func(_ *cobra.Command, args []string) error {
-				b, err := base(args[0])
-				if err != nil {
-					return err
-				}
 				if err := a.confirm("Cancel job " + args[0] + "? Work it already did stays done."); err != nil {
 					return err
 				}
-				_, err = a.call(POST, b+"/jobs/"+args[0]+"/cancel", nil)
+				_, _, err := onJob(POST, args[0], "/cancel")
 				return err
 			}),
 	)
@@ -1208,6 +1297,31 @@ func (a *app) orgSettings() *cobra.Command {
 	return c
 }
 
+// knobValue types a --set value for a rung, which is a JSON object: JSON
+// when it parses (5, true), a bare word as the string it is. A string knob
+// keeps what looks like a number or a bool as text, by the catalogue. (The
+// server rung is sent as strings, which the server parses by the same types.)
+func (a *app) knobValue(key, v string) (any, error) {
+	var x any
+	if json.Unmarshal([]byte(v), &x) != nil {
+		return v, nil
+	}
+	if _, ok := x.(string); ok {
+		return x, nil
+	}
+	cat, err := a.call(GET, "/settings", nil)
+	if err != nil {
+		return nil, err
+	}
+	ks, _ := cat.([]any)
+	for _, k := range ks {
+		if m, _ := k.(map[string]any); m["key"] == key && m["type"] == "string" {
+			return v, nil
+		}
+	}
+	return x, nil
+}
+
 // settingsCmd is `defaults` at a stack or env: the rung is a JSON object,
 // read from getPath's "settings" and written whole to putPath; --set and
 // --clear change only the knobs named.
@@ -1237,9 +1351,9 @@ func (a *app) settingsCmd(op, short string, lv level) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var x any
-			if json.Unmarshal([]byte(v), &x) != nil {
-				x = v // a bare word is a string
+			x, err := a.knobValue(k, v)
+			if err != nil {
+				return err
 			}
 			rung[k] = x
 		}

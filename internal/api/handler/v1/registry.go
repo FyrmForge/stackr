@@ -18,8 +18,8 @@ func (h *H) RegistryRepos() Endpoint {
 // envs that run each.
 func (h *H) RegistryVersions() Endpoint {
 	return Get(func(c echo.Context) ([]service.RegistryVersion, error) {
-		return list(h.Orch.RegistryVersions(rc(c), orgID(c), c.QueryParam("repo")))
-	}).Q("repo")
+		return paged[service.RegistryVersion](c)(h.Orch.RegistryVersions(rc(c), orgID(c), c.QueryParam("repo")))
+	}).Q("repo").Paged()
 }
 
 // DeleteRegistryVersion removes the version ?repo= and ?tag= name. One an env

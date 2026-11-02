@@ -24,10 +24,10 @@ type DomainsView struct {
 	Provider string
 	Error    string
 	Note     string
-	Shared   bool // a server connector: managed domains say who may use them
+	Shared   bool            // a server connector: managed domains say who may use them
 	InUse    templ.Component // a refusal that lists where a domain is used, linked; nil = Error alone
 	Rows     []DomainRow
-	Plan     *PlanView // the confirm that comes before managing a domain; nil = none
+	Plan     *PlanView    // the confirm that comes before managing a domain; nil = none
 	Suggest  []Suggestion // the setup card: a domain the panel or the tiles sit on
 }
 
@@ -58,10 +58,12 @@ type PlanView struct {
 	LeftAlone  []PlanWrite
 	// Rescope: the confirm changes a managed domain's scope. HandBack is
 	// stackr's records outside the new scope, which become the user's;
-	// Resource the host generated names go under now ("" = unchanged).
+	// Resource the host generated names go under now ("" = unchanged);
+	// From the scope it was planned from, posted back.
 	Rescope  bool
 	HandBack []PlanWrite
 	Resource string
+	From     string
 	Nothing  bool // the plan changes nothing in the zone
 }
 
@@ -75,15 +77,15 @@ type PlanAdopt struct {
 	On                         bool
 }
 
-// DomainRow is one domain. State is managed, not_managed or
-// dns_elsewhere; the action URLs post domain (and org, confirm). Scope is
+// DomainRow is one domain. State is managed, not_managed, dns_elsewhere
+// or managed_elsewhere (through another connector); the action URLs post domain (and org, confirm). Scope is
 // the name a managed domain is managed under, "" = all of it.
 type DomainRow struct {
 	Name, State, Scope         string
 	Manage, Unmanage, TakeOver string
-	Preview                    string // the confirm before managing; posts domain
-	Rescope                    string // the confirm before changing a managed domain's scope
-	Records                    string // opens the domain's custom records; posts domain
+	Preview                    string       // the confirm before managing; posts domain
+	Rescope                    string       // the confirm before changing a managed domain's scope
+	Records                    string       // opens the domain's custom records; posts domain
 	Open                       *RecordsView // the custom records, open under the row; nil = closed
 	All                        bool
 	Orgs                       []Org
@@ -124,7 +126,11 @@ func planVals(p PlanView) string {
 	if p.Under != "" {
 		part = "under"
 	}
-	return vals(map[string]string{"domain": p.Domain, "part": part, "under": p.Under})
+	m := map[string]string{"domain": p.Domain, "part": part, "under": p.Under}
+	if p.Rescope {
+		m["from"] = p.From
+	}
+	return vals(m)
 }
 
 // rescopeVals opens Change scope on a managed row's own scope.
@@ -186,6 +192,8 @@ func stateWord(s string) (string, string) {
 		return "Managed", "success"
 	case "dns_elsewhere":
 		return "DNS elsewhere", "warn"
+	case "managed_elsewhere":
+		return "Managed by another connector", ""
 	}
 	return "Not managed", ""
 }
@@ -328,7 +336,7 @@ templ plan(v DomainsView, p PlanView) {
 			<p class="mb-1.5 text-xs font-medium text-rw-muted">These become yours.</p>
 			<ul class="modal-list">
 				for _, w := range p.HandBack {
-					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Host } → { w.Value }</li>
+					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Type } { w.Host } { w.Value }</li>
 				}
 			</ul>
 		</div>

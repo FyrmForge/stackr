@@ -186,14 +186,38 @@ func clash(live []libdns.Record, zone, name, typ, value string) error {
 	return &RecordClash{Host: fqdn(zone, name), Type: typ, With: with}
 }
 
+// MXRefused is Fit's refusal of an MX at zone, whose mail setting drops
+// MX records; nil when it takes them. A read, no write.
+func (l *Leaf) MXRefused(ctx context.Context, p Provider, zone string) error {
+	var noMX string
+	if err := l.WithZone(ctx, p, zone, func(p Provider) (err error) {
+		_, noMX, err = readZone(ctx, p, zone)
+		return err
+	}); err != nil {
+		return err
+	}
+	if noMX != "" {
+		return errs.Conflictf("%s", noMX)
+	}
+	return nil
+}
+
 // Fit is how a custom record lands at name (relative to zone): "taken
 // over" when the zone already has the same record, "added (N others there
 // stay)" next to others, "" on a name of its own; a *RecordClash when the
-// name cannot hold it. A read, no write.
+// name cannot hold it; a conflict for an MX on a zone whose mail setting
+// drops MX records. A read, no write.
 func (l *Leaf) Fit(ctx context.Context, p Provider, zone, name, typ, value string) (string, error) {
-	live, err := l.Locked(p).Get(ctx, zone)
-	if err != nil {
+	var live []libdns.Record
+	var noMX string
+	if err := l.WithZone(ctx, p, zone, func(p Provider) (err error) {
+		live, noMX, err = readZone(ctx, p, zone)
+		return err
+	}); err != nil {
 		return "", err
+	}
+	if typ == "MX" && noMX != "" {
+		return "", errs.Conflictf("%s", noMX)
 	}
 	if name == "" {
 		name = "@"

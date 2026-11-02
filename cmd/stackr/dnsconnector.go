@@ -149,15 +149,17 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 				return err
 			}
 			m := asMap(p)
-			if !a.json {
-				if err := a.showRescope(m); err != nil {
-					return err
-				}
+			show := a.showRescope
+			if a.json { // the plan as plan prints it, then the answer
+				show = func(m map[string]any) error { return a.show(m) }
+			}
+			if err := show(m); err != nil {
+				return err
 			}
 			if err := a.confirm("Change the scope of " + args[1] + "?"); err != nil {
 				return err
 			}
-			body := map[string]any{"adopt": []map[string]any{}}
+			body := map[string]any{"adopt": []map[string]any{}, "from": m["from"]}
 			if reUnder != "" {
 				body["under"] = reUnder
 			}

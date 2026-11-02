@@ -425,7 +425,7 @@ templ ServerFile(v ServerFileView) {
 				</select>
 				@fieldError("connector_id")
 				if len(v.Connectors) == 0 {
-					<p class="mt-1.5 text-xs text-rw-faint">No server connector yet. Add one under admin, connectors.</p>
+					<p class="mt-1.5 text-xs text-rw-faint">No server connector yet. Add one in the <a class="link" href={ templ.SafeURL(v.Base + "/ui/git") }>connectors step</a>.</p>
 				}
 			</div>
 			<div>

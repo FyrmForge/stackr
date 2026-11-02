@@ -521,22 +521,63 @@ func TestWorkerRolloutPending(t *testing.T) {
 	}
 }
 
-// UpgradeUnderway: a queued or running upgrade job, or a launched successor
-// within the swap window; a launch long ago is over.
+// upgrader is the panel upgrade helper container in state.
+func upgrader(state string) docker.Container {
+	return docker.Container{ID: "u", State: state, Labels: map[string]string{"stackr.role": "upgrader"}}
+}
+
+// watchFast makes watchUpgrader's waits short: the fake's Wait returns
+// after a millisecond, as a real one returns when the helper exits.
+func watchFast(t *testing.T, n *twoNodes) {
+	t.Helper()
+	n.ctlFake.WaitFor = time.Millisecond
+	old := upgradeRetry
+	upgradeRetry = time.Millisecond
+	t.Cleanup(func() { upgradeRetry = old })
+}
+
+// released waits for the upgrade hold to end.
+func released(t *testing.T, n *twoNodes) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); n.orch.UpgradeHeld(); {
+		if time.Now().After(deadline) {
+			t.Fatal("the hold never ended")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// UpgradeUnderway: a queued or running upgrade job, or a running upgrade
+// helper; a helper that exited is over. The helper is looked up once at
+// boot, then waited on: no Docker call per ask.
 func TestUpgradeUnderway(t *testing.T) {
 	n := newTwoNodes(t)
+	watchFast(t, n)
 	ctx := context.Background()
 	if n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("underway with nothing done")
 	}
-	n.orch.upgradeLaunched.Store(time.Now().UnixNano())
-	if !n.orch.UpgradeUnderway(ctx) {
-		t.Fatal("not underway just after the launch")
-	}
-	n.orch.upgradeLaunched.Store(time.Now().Add(-upgradeSwapWindow - time.Second).UnixNano())
+	n.ctlFake.Containers = []docker.Container{upgrader("running")}
 	if n.orch.UpgradeUnderway(ctx) {
-		t.Fatal("underway past the swap window")
+		t.Fatal("a helper started behind this panel's back held it before a boot")
 	}
+	n.orch.bootUpgradeHold(ctx)
+	if !n.orch.UpgradeUnderway(ctx) {
+		t.Fatal("not underway while the helper runs")
+	}
+	n.ctlFake.Containers = []docker.Container{upgrader("exited")}
+	released(t, n)
+	if n.orch.UpgradeUnderway(ctx) {
+		t.Fatal("underway after the helper exited")
+	}
+	// a Docker error at boot holds, and the hold ends once Docker answers
+	n.ctlFake.Err = map[string]error{"List": errors.New("daemon down")}
+	n.orch.bootUpgradeHold(ctx)
+	if !n.orch.UpgradeHeld() {
+		t.Fatal("a Docker error at boot did not hold")
+	}
+	n.ctlFake.Err = nil
+	released(t, n)
 	must(t, n.st.Jobs.Create(ctx, store.Job{
 		ID: uuid.NewString(), Kind: string(kindUpgrade), State: job.Running, Payload: "{}", CreatedAt: time.Now(),
 	}))
@@ -550,12 +591,68 @@ func TestUpgradeUnderway(t *testing.T) {
 	}
 }
 
+// The upgrade row still running at the new panel's boot landed when its
+// tag is the running build; any other ends as a restart.
+func TestUpgradeLanded(t *testing.T) {
+	n := newTwoNodes(t)
+	n.orch.cfg.Version = "v1.2.0"
+	for kind, payload := range map[jobs.Kind]string{kindUpgrade: `{"tag":"v1.1.0"}`, kindOrphans: `{"tag":"v1.2.0"}`} {
+		if n.orch.upgradeLanded(store.Job{Kind: string(kind), Payload: payload}) {
+			t.Errorf("%s %s landed", kind, payload)
+		}
+	}
+	if !n.orch.upgradeLanded(store.Job{Kind: string(kindUpgrade), Payload: `{"tag":"v1.2.0"}`}) {
+		t.Error("the upgrade to the running build did not land")
+	}
+}
+
+// The queue starts nothing while the upgrade helper runs: the old panel
+// right after the launch, the new one through its trial. The helper's exit
+// releases it, whether it passed (the new panel stays) or rolled back (the
+// old panel is back); a panel with no helper running is never held.
+func TestUpgradeHoldsQueue(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	state := func(id string) string {
+		j, err := n.st.Jobs.Get(ctx, id)
+		must(t, err)
+		return j.State
+	}
+	started := func(id string) {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); state(id) == job.Queued; {
+			if time.Now().After(deadline) {
+				t.Fatal("the job never started")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	watchFast(t, n)
+	for _, end := range []string{"passed", "rolled back"} {
+		n.ctlFake.Containers = []docker.Container{upgrader("running")}
+		n.orch.bootUpgradeHold(ctx) // the new panel on trial, or the old one back
+		j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
+		must(t, err)
+		time.Sleep(300 * time.Millisecond) // the enqueue pokes the runner
+		if got := state(j.ID); got != job.Queued {
+			t.Fatalf("%s: job %s while the helper runs, want queued", end, got)
+		}
+		// Either way the helper exits; its code is only for its logs.
+		n.ctlFake.Containers = []docker.Container{upgrader("exited")}
+		started(j.ID)
+	}
+	n.ctlFake.Containers = nil // a restart with no upgrade
+	j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
+	must(t, err)
+	started(j.ID)
+}
+
 // The jobs lists say why a queued job waits and mark a rebuild; the Update
 // tab counts what the queued upgrade waits for.
 func TestJobsWaitsAndLine(t *testing.T) {
 	n := newTwoNodes(t)
 	ctx := context.Background()
-	n.orch.upgradeLaunched.Store(time.Now().UnixNano()) // holds the runner: these rows stay put
+	n.orch.upgrading.Store(true) // holds the runner: these rows stay put
 	at := time.Now().Add(-time.Minute)
 	row := func(kind, state, payload string, lock ...string) string {
 		id := uuid.NewString()
@@ -578,7 +675,7 @@ func TestJobsWaitsAndLine(t *testing.T) {
 	if j := got[rebuild]; j.Line != "rebuild" || j.Waits != "" {
 		t.Errorf("rebuild: line %q waits %q", j.Line, j.Waits)
 	}
-	if j := got[up]; j.Waits != "Waits for 1 running job" || j.Line != "" {
+	if j := got[up]; j.Waits != "Waits for the panel upgrade" || j.Line != "" { // held: every kind says so
 		t.Errorf("upgrade: line %q waits %q", j.Line, j.Waits)
 	}
 	if j := got[after]; j.Waits != "Waits for the panel upgrade" || j.Line != "" {
@@ -677,6 +774,7 @@ func TestControllerLogCap(t *testing.T) {
 
 	// The swap is still running: no cap now, and the build is not recorded.
 	f.Containers = []docker.Container{panel, upgrader}
+	n.orch.upgrading.Store(true) // the hold the boot set for it
 	n.orch.controllerLogCap(ctx)
 	if len(f.Specs) != 0 {
 		t.Fatal("the cap ran while the upgrade helper still ran")
@@ -687,6 +785,7 @@ func TestControllerLogCap(t *testing.T) {
 
 	upgrader.State = "exited"
 	f.Containers = []docker.Container{panel, upgrader}
+	n.orch.upgrading.Store(false)
 	n.orch.controllerLogCap(ctx)
 	if len(f.Specs) != 1 {
 		t.Fatalf("helper runs = %d, want 1", len(f.Specs))
@@ -714,11 +813,13 @@ func TestClearUpgrader(t *testing.T) {
 	up := map[string]string{"stackr.role": "upgrader"}
 
 	f.Containers = []docker.Container{{ID: "busy", State: "running", Labels: up}}
+	n.orch.upgrading.Store(true)
 	n.orch.clearUpgrader(context.Background())
 	if sawCall(f, "StopRemove(") {
 		t.Fatal("a running helper was removed")
 	}
 
+	n.orch.upgrading.Store(false)
 	f.Containers = []docker.Container{{ID: "ok", State: "exited", Labels: up}, {ID: "bad", State: "exited", Labels: up}}
 	f.Details = map[string]docker.Detail{"ok": {State: "exited"}, "bad": {State: "exited", ExitCode: 1}}
 	n.orch.clearUpgrader(context.Background())
