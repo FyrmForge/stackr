@@ -223,7 +223,7 @@ func (l *Leaf) SetSetupMode(ctx context.Context, o store.Org, mode string) (stor
 // SetSettings stores the org's rung of the defaults cascade as given;
 // leaf/settings owns its shape and the merge.
 func (l *Leaf) SetSettings(ctx context.Context, o store.Org, blob string) (store.Org, error) {
-	o.Settings = blob
+	o.Settings = store.KeepSecret(o.Settings, blob)
 	return o, l.orgs.Update(ctx, o)
 }
 

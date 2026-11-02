@@ -32,7 +32,7 @@ type StackStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-var stacksT = newTable[Stack]("stacks", nil)
+var stacksT = newTable("stacks", func(s *Stack) []*string { return []*string{&s.Settings} })
 
 type stacks struct{ crud[Stack] }
 
@@ -100,7 +100,7 @@ type EnvironmentStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-var environmentsT = newTable[Environment]("environments", nil)
+var environmentsT = newTable("environments", func(e *Environment) []*string { return []*string{&e.Settings} })
 
 type environments struct{ crud[Environment] }
 

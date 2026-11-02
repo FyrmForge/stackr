@@ -34,7 +34,7 @@ type OrgStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-var orgsT = newTable[Org]("orgs", nil)
+var orgsT = newTable("orgs", func(o *Org) []*string { return []*string{&o.Settings} })
 
 type orgs struct{ crud[Org] }
 

@@ -197,6 +197,11 @@ type table[T any] struct {
 	secret func(*T) []*string
 }
 
+// plainOK lists the tables whose encrypted columns were plaintext before they
+// were sealed: an unsealed value there is read as it is and sealed by the
+// next write.
+var plainOK = map[string]bool{"orgs": true, "stacks": true, "environments": true, "backup_destinations": true}
+
 // resealers has one entry per table with encrypted columns, added by newTable,
 // so a table cannot be left out of a key rotation.
 var resealers []func(ctx context.Context, q querier, old, next *secrets.Box) error
@@ -241,6 +246,14 @@ func (t table[T]) reseal(ctx context.Context, q querier, old, next *secrets.Box)
 	}
 	for i := range rows {
 		for _, p := range t.secret(&rows[i]) {
+			if plainOK[t.name] && !secrets.Sealed(*p) {
+				enc, err := next.Encrypt(*p)
+				if err != nil {
+					return err
+				}
+				*p = enc
+				continue
+			}
 			v, err := old.Decrypt(*p)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t.name, err)
@@ -302,6 +315,9 @@ func (c crud[T]) open(row *T) error {
 		return nil
 	}
 	for _, p := range c.t.secret(row) {
+		if plainOK[c.t.name] && !secrets.Sealed(*p) {
+			continue
+		}
 		v, err := c.box.Decrypt(*p)
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.t.name, err)
