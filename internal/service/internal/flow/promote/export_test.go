@@ -194,3 +194,16 @@ func TestExportWarnsPREnvsWithConfigRepo(t *testing.T) {
 		t.Fatal("warned without a config repo")
 	}
 }
+
+// A secret-looking env value never reaches the file: it becomes a params
+// ref and a warning; a plain value and an existing ref stay.
+func TestRefSecrets(t *testing.T) {
+	var warns []string
+	m := refSecrets(map[string]string{"DB_PASSWORD": "hunter2", "MODE": "fast", "API_KEY": "${{ params.a.k }}"}, "api", "env", &warns)
+	if m["DB_PASSWORD"] != "${{ params.api.db_password }}" || m["MODE"] != "fast" || m["API_KEY"] != "${{ params.a.k }}" {
+		t.Errorf("m = %v", m)
+	}
+	if len(warns) != 1 || strings.Contains(warns[0], "hunter2") {
+		t.Errorf("warns = %v", warns)
+	}
+}

@@ -62,6 +62,9 @@ func (d Defaults) check() error {
 	if (d.ProtectUser == nil) != (d.ProtectPassword == nil) {
 		return fmt.Errorf("protect_user and protect_password go together")
 	}
+	if d.ProtectPassword != nil {
+		return planfile.CheckSecretRef("protect_password", *d.ProtectPassword)
+	}
 	return nil
 }
 
@@ -412,7 +415,7 @@ var removedKeys = map[string]string{
 // Parse decodes and checks the top level.
 func Parse(data []byte) (*File, error) {
 	var f File
-	if err := strictYAML(data, &f); err != nil {
+	if err := planfile.ParseFile(data, &f, removedKeys); err != nil {
 		return nil, fmt.Errorf("yaml: %w", err)
 	}
 	if f.Version != 1 {
@@ -759,6 +762,11 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 		if d.DNS != "" && d.DNS != "managed" {
 			return fmt.Errorf("tile %s: dns: is managed, or left out", name)
 		}
+		if b := d.Proxy; b != nil && b.BasicAuth != nil {
+			if err := planfile.CheckSecretRef("tile "+name+": proxy.basic_auth.password", b.BasicAuth.Password); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -855,6 +863,28 @@ func refBodies(tc TileConf) []string {
 	return append(out, params.Refs(tc.Command)...)
 }
 
+// serverRefBodies: the ${{ ... }} bodies in every other string of a tile
+// that a ref can reach (build args, files, image, healthcheck, domain hosts
+// and paths), so a server param is refused here and not at deploy.
+func serverRefBodies(tc TileConf) []string {
+	var out []string
+	for _, v := range slices.Sorted(maps.Values(tc.BuildArgs)) {
+		out = append(out, params.Refs(v)...)
+	}
+	for _, v := range tc.Files {
+		out = append(out, params.Refs(v)...)
+	}
+	for _, v := range []string{tc.Image, tc.Healthcheck, tc.GitURL, tc.Branch} {
+		out = append(out, params.Refs(v)...)
+	}
+	for _, d := range tc.Domains {
+		for _, v := range []string{d.Host, d.Path, d.RedirectTo} {
+			out = append(out, params.Refs(v)...)
+		}
+	}
+	return out
+}
+
 // checkRefs: every volume line names a declared volume, a tile ref and
 // depends_on name a tile of the env, slice_access a slice tile of the env,
 // no cycles.
@@ -872,10 +902,12 @@ func checkRefs(env string, re ResolvedEnv) error {
 				return fmt.Errorf("environment %s tile %s: volume %q is not declared under volumes", env, n, m.Volume)
 			}
 		}
-		for _, body := range refBodies(tc) {
+		for _, body := range append(serverRefBodies(tc), refBodies(tc)...) {
 			if r, err := params.Parse(body); err == nil && r.Kind == params.KindServerParam {
 				return fmt.Errorf("environment %s tile %s: refs ${{ %s }}: server params are readable only in stackr-server.yml, never in a stack file", env, n, body)
 			}
+		}
+		for _, body := range refBodies(tc) {
 			if !strings.HasPrefix(body, "tile.") {
 				continue
 			}

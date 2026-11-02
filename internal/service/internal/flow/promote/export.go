@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -295,6 +296,23 @@ func jsonStrings(blob string) map[string]string {
 	return m
 }
 
+var secretName = regexp.MustCompile(`(?i)pass|secret|token|key|credential|private|auth|dsn`)
+
+// refSecrets swaps the literal value of each secret-looking name for a
+// params ref (collection = the tile, name = the key in lower case): the file
+// goes in git. The param is the admin's to create, so each one is warned.
+func refSecrets(m map[string]string, tile, what string, warns *[]string) map[string]string {
+	for k, v := range m {
+		if v == "" || strings.Contains(v, "${{") || !secretName.MatchString(k) {
+			continue
+		}
+		ref := "${{ params." + tile + "." + strings.ToLower(k) + " }}"
+		m[k] = ref
+		*warns = append(*warns, fmt.Sprintf("tile %s %s %s: looks like a secret; written as %s, create that param", tile, what, k, ref))
+	}
+	return m
+}
+
 // exportTile is toRow backwards: every key the row sets that the file would
 // not default to.
 func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res []store.DomainResource, warns *[]string) (omap, error) {
@@ -348,7 +366,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if len(bd) > 0 {
 			b.put("build", bd)
 		}
-		if m := jsonStrings(t.BuildArgs); len(m) > 0 {
+		if m := refSecrets(jsonStrings(t.BuildArgs), t.Name, "build_args", warns); len(m) > 0 {
 			b.put("build_args", m)
 		}
 		list("watch_paths", t.WatchPaths)
@@ -396,7 +414,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 	if t.Replicas > 1 {
 		b.put("replicas", t.Replicas)
 	}
-	if m := jsonStrings(t.EnvJSON); len(m) > 0 {
+	if m := refSecrets(jsonStrings(t.EnvJSON), t.Name, "env", warns); len(m) > 0 {
 		b.put("env", m)
 	}
 	str("schedule", t.Schedule)
