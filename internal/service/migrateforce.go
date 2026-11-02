@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/FyrmForge/hamr/pkg/db/sqlite"
@@ -20,6 +21,9 @@ import (
 func ForceMigration(ctx context.Context, cfg Config, version int, out io.Writer) error {
 	if cfg.DBPath == "" {
 		cfg.DBPath = filepath.Join(cfg.DataDir, "stackr.db")
+	}
+	if _, err := os.Stat(cfg.DBPath); err != nil {
+		return fmt.Errorf("no database to force: %w", err) // connecting would create an empty one
 	}
 	db, err := sqlite.ConnectContext(ctx, cfg.DBPath)
 	if err != nil {
