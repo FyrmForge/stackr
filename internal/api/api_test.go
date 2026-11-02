@@ -229,6 +229,12 @@ func TestDeployIsAccepted(t *testing.T) {
 	if code, _ := w.do(t, w.owner, "GET", "/orgs/acme/jobs/"+j.ID+"/log?offset=abc", ""); code != 400 {
 		t.Errorf("offset typo = %d, want 400 (B24)", code)
 	}
+	// the job lists at org, stack and env level hold it
+	for _, p := range []string{"/orgs/acme", "/orgs/acme/stacks/shop", "/orgs/acme/stacks/shop/envs/dev"} {
+		if code, body := w.do(t, w.owner, "GET", p+"/jobs", ""); code != 200 || !strings.Contains(body, j.ID) {
+			t.Errorf("%s/jobs = %d %s, want job %s", p, code, body, j.ID)
+		}
+	}
 }
 
 // The env's events stream opens with a traffic event (no sample yet: an

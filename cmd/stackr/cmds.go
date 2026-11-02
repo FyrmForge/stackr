@@ -916,21 +916,26 @@ func (a *app) resourceOwner(level, owner string) (string, error) {
 // server job (it has no org) without --admin.
 func (a *app) jobs() *cobra.Command {
 	var admin, follow bool
-	base := func(id string) (string, error) {
+	// onJob sends method to the job's path (suffix after its id) in one
+	// request: under /admin with --admin, else in the org, falling back to
+	// /admin on the org's 404. It answers where the job was found.
+	onJob := func(method, id, suffix string) (any, string, error) {
 		if admin {
-			return "/admin", nil
+			v, err := a.call(method, "/admin/jobs/"+id+suffix, nil)
+			return v, "/admin", err
 		}
 		p, err := a.orgPath()
 		if err == nil {
+			var v any
 			var e *apiErr
-			if _, err = a.call(GET, p+"/jobs/"+id, nil); err == nil || !errors.As(err, &e) || e.Status != http.StatusNotFound {
-				return p, err
+			if v, err = a.call(method, p+"/jobs/"+id+suffix, nil); err == nil || !errors.As(err, &e) || e.Status != http.StatusNotFound {
+				return v, p, err
 			}
 		}
-		if _, aerr := a.call(GET, "/admin/jobs/"+id, nil); aerr == nil {
-			return "/admin", nil
+		if v, aerr := a.call(method, "/admin/jobs/"+id+suffix, nil); aerr == nil {
+			return v, "/admin", nil
 		}
-		return "", err
+		return nil, "", err
 	}
 	log := leaf(
 		"log <id>",
@@ -938,14 +943,14 @@ func (a *app) jobs() *cobra.Command {
 		"Print a job's log; --follow waits for its end",
 		exact(1),
 		func(c *cobra.Command, args []string) error {
-			b, err := base(args[0])
-			if err != nil {
-				return err
-			}
 			if follow {
+				_, b, err := onJob(GET, args[0], "")
+				if err != nil {
+					return err
+				}
 				return a.follow(b, map[string]any{"id": args[0]}, "job")
 			}
-			v, err := a.call(GET, b+"/jobs/"+args[0]+"/log", nil)
+			v, _, err := onJob(GET, args[0], "/log")
 			if err != nil || a.json {
 				if err == nil {
 					err = a.show(v)
@@ -961,27 +966,41 @@ func (a *app) jobs() *cobra.Command {
 	log.Flags().BoolVarP(&follow, "follow", "f", false, "stream until the job ends")
 	var states []string
 	var limit int
-	ls := leaf("ls", "admin.jobs", "List every job, newest first (admin)", exact(0), func(*cobra.Command, []string) error {
-		q := fmt.Sprintf("limit=%d", limit)
-		for _, s := range states {
-			q += "&state=" + url.QueryEscape(s)
-		}
-		v, err := a.call(GET, "/admin/jobs?"+q, nil)
-		if err != nil {
-			return err
-		}
-		return a.show(v, jobCols...)
-	})
-	ls.Flags().StringSliceVar(&states, "state", nil, "only these states (queued, running, waiting, done, failed, …)")
-	ls.Flags().IntVar(&limit, "limit", 20, "at most this many (0: all)")
-	c := noun("job", "Jobs: deploys, promotes, backups, everything queued",
-		ls,
-		leaf("get <id>", "job.get,admin.job-get", "Show a job", exact(1), func(_ *cobra.Command, args []string) error {
-			b, err := base(args[0])
+	var stack, env string
+	ls := leaf("ls", "job.list,stack.jobs,env.jobs,admin.jobs", "List the org's jobs, newest first", exact(0),
+		func(c *cobra.Command, _ []string) error {
+			path := "/admin"
+			if !admin {
+				lv := atOrg
+				if stack != "" {
+					lv = atStack
+				}
+				if env != "" {
+					lv = atEnv
+				}
+				var err error
+				if path, err = a.path(c, lv, ""); err != nil {
+					return err
+				}
+			}
+			q := fmt.Sprintf("limit=%d", limit)
+			for _, s := range states {
+				q += "&state=" + url.QueryEscape(s)
+			}
+			v, err := a.call(GET, path+"/jobs?"+q, nil)
 			if err != nil {
 				return err
 			}
-			v, err := a.call(GET, b+"/jobs/"+args[0], nil)
+			return a.show(v, jobCols...)
+		})
+	ls.Flags().StringSliceVar(&states, "state", nil, "only these states (queued, running, waiting, done, failed, ...)")
+	ls.Flags().IntVar(&limit, "limit", 20, "at most this many (0: all)")
+	ls.Flags().StringVar(&stack, "stack", "", "only this stack's jobs")
+	ls.Flags().StringVar(&env, "env", "", "only this env's jobs (with --stack, or the linked stack)")
+	c := noun("job", "Jobs: deploys, promotes, backups, everything queued",
+		ls,
+		leaf("get <id>", "job.get,admin.job-get", "Show a job", exact(1), func(_ *cobra.Command, args []string) error {
+			v, _, err := onJob(GET, args[0], "")
 			if err != nil {
 				return err
 			}
@@ -990,14 +1009,10 @@ func (a *app) jobs() *cobra.Command {
 		log,
 		leaf("cancel <id>", "job.cancel,admin.job-cancel", "Cancel a queued or running job", exact(1),
 			func(_ *cobra.Command, args []string) error {
-				b, err := base(args[0])
-				if err != nil {
-					return err
-				}
 				if err := a.confirm("Cancel job " + args[0] + "? Work it already did stays done."); err != nil {
 					return err
 				}
-				_, err = a.call(POST, b+"/jobs/"+args[0]+"/cancel", nil)
+				_, _, err := onJob(POST, args[0], "/cancel")
 				return err
 			}),
 	)

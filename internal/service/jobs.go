@@ -796,6 +796,37 @@ func (o *Orchestrator) Jobs(ctx context.Context, limit int, states ...string) ([
 	return o.annotate(ctx, js)
 }
 
+// ScopeJobs lists the jobs of one org, narrowed to a stack and an env when
+// given (ids), newest first, at most limit (0 = no cap). The org and stack
+// are read off the payload stamped at enqueue; an env is placed by its
+// first id, as ChildOf does.
+// ponytail: scans every job row of the states; a SQL filter on the payload
+// when an install holds enough jobs to feel it.
+func (o *Orchestrator) ScopeJobs(ctx context.Context, orgID, stackID, envID string, limit int, states ...string) ([]Job, error) {
+	all, err := o.jobRows.Recent(ctx, 0, states...)
+	if err != nil {
+		return nil, err
+	}
+	var out []Job
+	for _, j := range all {
+		var p map[string]any
+		_ = json.Unmarshal([]byte(j.Payload), &p)
+		if s, _ := p["org_id"].(string); s != orgID {
+			continue
+		}
+		if s, _ := p["stack_id"].(string); stackID != "" && s != stackID {
+			continue
+		}
+		if envID != "" && o.jobChild(ctx, p).Env != envID {
+			continue
+		}
+		if out = append(out, j); limit > 0 && len(out) == limit {
+			break
+		}
+	}
+	return o.annotate(ctx, out)
+}
+
 // TileJobs is the newest jobs touching the tiles, newest first.
 func (o *Orchestrator) TileJobs(ctx context.Context, tileIDs []string, limit int) ([]Job, error) {
 	js, err := o.jobRows.History(ctx, tileIDs, limit)
