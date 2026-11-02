@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -54,6 +55,22 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return dockerLogCap(ctx, out)
 	}
 	fs := flag.NewFlagSet("stackr-install", flag.ContinueOnError)
+	fs.Usage = func() {
+		_, _ = fmt.Fprint(fs.Output(), `Usage: stackr-install [flags]
+       stackr-install restore | join | uninstall | docker-logcap [flags]
+
+With no subcommand it installs stackr on this host, or converges an install
+on the answers it saved. The subcommands:
+  restore        bring a panel back from a backup on a bare host
+  join           join this host to a stackr server as a node
+  uninstall      take stackr off this host
+  docker-logcap  cap Docker's container logs (stackrd runs it on the host)
+Each takes -h for its own flags.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
 	in := installspec.Input{DataDir: "/var/lib/stackr"}
 	if d := os.Getenv("STACKR_DATA_DIR"); d != "" {
 		in.DataDir = d
@@ -70,13 +87,16 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	adminEmail := fs.String("admin-email", "", "the stackr admin's email; the password comes from "+passwordEnv+" or a prompt")
 	fs.IntVar(&in.WGPort, "wg-port", 0, fmt.Sprintf("UDP port of the controller's mesh WireGuard (default %d)", mesh.DefaultPort))
 	allowDown := fs.Bool("allow-downgrade", false, "move the panel to an older release than it runs (migrations may not reverse)")
-	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
+	yes := fs.Bool("yes", false, "ask nothing: install Docker with Docker's install script when it is missing, and skip the questions (flags give the answers)")
 	verbose := fs.Bool("verbose", false, "show each command's own output: image pulls, container ids")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unknown command %q: run with flags only, or one of restore, join, uninstall", fs.Arg(0))
+		return fmt.Errorf("unknown command %q: run with flags only, or one of restore, join, uninstall, docker-logcap (-h lists them)", fs.Arg(0))
 	}
 	if in.WGPort != 0 {
 		if err := checkWGPort(in.WGPort); err != nil {
@@ -127,7 +147,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	password := os.Getenv(passwordEnv)
 	needAdmin := fresh || given["admin-email"]
-	if term.IsTerminal(int(os.Stdin.Fd())) && fresh {
+	if term.IsTerminal(int(os.Stdin.Fd())) && fresh && !*yes {
 		a := answers{root: in.Root, panel: in.PanelHost, email: in.Email, proxies: in.Proxies, adminEmail: *adminEmail,
 			https: map[bool]string{true: "Yes", false: "No"}[in.HTTPS]} // a given --https steers the follow-ups
 		summary := func() string { return summaryText(a) }
@@ -166,6 +186,11 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if err := check(&in, busy); err != nil {
 		return err
+	}
+	if in.HTTPS && fresh && !r.dry {
+		if note := dnsNote(in.PanelHost, net.LookupHost, net.InterfaceAddrs); note != "" {
+			r.say("warning:", note)
+		}
 	}
 	in.Bind = r.bridgeGateway(ctx)
 	in.BridgeSubnet = r.bridgeSubnet(ctx)
@@ -253,7 +278,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if needAdmin {
 		apiKey, err := r.createAdmin(ctx, in, image, *adminEmail, password)
 		if err != nil {
-			return fmt.Errorf("admin: %w; re-run with --admin-email to try again", err)
+			return fmt.Errorf("admin: %w; stackr is installed without its admin. Re-run: %s=<password> stackr-install --admin-email %s",
+				err, passwordEnv, *adminEmail)
 		}
 		if apiKey != "" {
 			// Not fatal: the recovery key below is shown only this once.
@@ -270,6 +296,24 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	_, _ = fmt.Fprint(out, doneText(in, newKey, admin, cli, r.dry))
 	return nil
+}
+
+// dnsNote is what to say before the certificate is asked for when host does
+// not point at this box: "" when it does, or when that cannot be told (an
+// address behind NAT or a CDN shows as someone else's, so a mismatch is
+// only a heads-up).
+func dnsNote(host string, lookup func(string) ([]string, error), addrs func() ([]net.Addr, error)) string {
+	ips, err := lookup(host)
+	if err != nil || len(ips) == 0 {
+		return host + " does not resolve yet; point its DNS at this server before the certificate can be issued"
+	}
+	local, _ := addrs()
+	for _, a := range local {
+		if ipn, ok := a.(*net.IPNet); ok && slices.Contains(ips, ipn.IP.String()) {
+			return ""
+		}
+	}
+	return host + " resolves to " + strings.Join(ips, ", ") + ", none of this box's addresses; fine behind NAT or a CDN, else fix its DNS before the certificate is asked for"
 }
 
 // ensureProxy creates the proxy, or replaces one made from another spec (an
@@ -412,7 +456,10 @@ func (r runner) createAdmin(ctx context.Context, in installspec.Input, image, em
 	cmd.Stdin = strings.NewReader(password + "\n")
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s", strings.TrimSpace(string(b)))
+		if msg := strings.TrimSpace(string(b)); msg != "" {
+			return "", errors.New(msg)
+		}
+		return "", err
 	}
 	return adminKey(string(b)), nil
 }

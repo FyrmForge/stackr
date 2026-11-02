@@ -14,7 +14,7 @@ func TestCLIPlumbing(t *testing.T) {
 			return
 		}
 		w.WriteHeader(400)
-		_, _ = w.Write([]byte(`{"error":"mem_limit_mb: must not be negative"}`))
+		_, _ = w.Write([]byte(`{"error":"mem_limit_mb: must not be negative","field":"mem_limit_mb"}`))
 	}))
 	useServer(t, srv.URL)
 	if code, _, errw := cli(t, "tile", "get", "x", "--stack", "shop", "--env", "dev"); code != 1 || !strings.Contains(errw, `no tile "x" in shop/dev`) {

@@ -45,3 +45,22 @@ func (h *H) Jobs() Endpoint {
 		return list(h.Orch.Jobs(rc(c), limit, c.QueryParams()["state"]...))
 	}).Q("state", "limit")
 }
+
+// ScopeJobs is the org's jobs, or one stack's or env's (the route's level);
+// ?state= repeated filters, ?limit= caps.
+func (h *H) ScopeJobs(atStack, atEnv bool) Endpoint {
+	return Get(func(c echo.Context) ([]service.Job, error) {
+		limit := 20
+		if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil {
+			return nil, err
+		}
+		var stack, env string
+		if atStack {
+			stack = stackID(c)
+		}
+		if atEnv {
+			env = envID(c)
+		}
+		return list(h.Orch.ScopeJobs(rc(c), orgID(c), stack, env, limit, c.QueryParams()["state"]...))
+	}).Q("state", "limit")
+}
