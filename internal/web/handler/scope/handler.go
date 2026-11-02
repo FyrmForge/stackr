@@ -17,5 +17,5 @@ func NewHandler() *handler { return &handler{} }
 // GET /:org/:stack/:env/:tile
 func (h *handler) Page(c echo.Context) error {
 	s := middleware.ScopeOf(c)
-	return respond.Redirect(c, "/"+s.Org.Slug+"/"+s.Stack.Slug+"/"+s.Env.Slug+"?drawer=tile:"+s.Tile.ID)
+	return respond.Redirect(c, "/"+s.Org.Slug+"/"+s.Stack.Slug+"/"+s.Env.Slug+"?drawer="+s.Tile.ID)
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/FyrmForge/hamr/pkg/htmx"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
@@ -515,16 +516,26 @@ func JobLogPage(c echo.Context, orch *service.Orchestrator, page string) error {
 	id := c.Param("job")
 	poll := c.QueryParam("offset") != ""
 	var off int64
-	if err := echo.QueryParamsBinder(c).Int64("offset", &off).BindError(); err != nil {
+	if err := echo.QueryParamsBinder(c).Int64("offset", &off).BindError(); err != nil || off < 0 {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad offset")
 	}
 	j, l, err := orch.PollJob(c.Request().Context(), id, off)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
+	// A rune cut by the chunk edge waits for the next chunk.
+	chunk, next := l.Chunk, l.Next
+	for i := 1; !l.End && i < utf8.UTFMax && i <= len(chunk); i++ {
+		if utf8.RuneStart(chunk[len(chunk)-i]) {
+			if !utf8.FullRune(chunk[len(chunk)-i:]) {
+				chunk, next = chunk[:len(chunk)-i], next-int64(i)
+			}
+			break
+		}
+	}
 	v := components.JobLogView{
-		Kind: j.Kind, State: j.State, Error: j.Error, Chunk: string(l.Chunk),
-		PollTo: page + "/-/jobs/" + j.ID + "/log", Next: l.Next, End: l.End,
+		Kind: j.Kind, State: j.State, Error: j.Error, Chunk: string(chunk),
+		PollTo: page + "/-/jobs/" + j.ID + "/log", Next: next, End: l.End,
 	}
 	if poll {
 		return respond.HTML(c, http.StatusOK, components.JobLogMore(v))
