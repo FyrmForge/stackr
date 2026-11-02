@@ -172,7 +172,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 	_, err = env.Orch.AddTileDomainRecord(ctx, tl.ID, other.ID, service.CustomRecordIn{Type: "TXT", Value: "v"})
 	conflict(t, err, "shop.example.org is not in a managed domain: stackr does not manage example.org")
 
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "test.acme.dev", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// the narrowing marks shop's A handed back: kept for the Domains page,
@@ -207,7 +207,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 
 	// a file's records on a host in the managed part: checked and noted;
 	// one on a hostname the same file adds for another app is refused
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	env.DNS.Put("acme.dev", libdns.RR{Name: "new", Type: "TXT", Data: "hand"})
@@ -344,4 +344,39 @@ func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
 	if count(env.DNS.Zone("acme.dev"), "shop", "TXT", "v=1") != 1 {
 		t.Errorf("TXT not written: %v", env.DNS.Zone("acme.dev"))
 	}
+}
+
+// Moving a hostname into a zone whose mail setting drops MX records is
+// refused when it carries an MX, as adding one there is; without an MX it
+// moves.
+func TestMoveRefusesMXWithoutCustomMX(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	const why = "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
+	if _, err := env.Orch.ManageDNSDomain(ctx, nil, conn, "shop.io", nil); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("shop.io", why)
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.UpdateDomain(ctx, d.ID, service.DomainSpec{Host: "a.shop.io"}); err != nil {
+		t.Fatalf("TXT only move: %v", err)
+	}
+	if _, err := env.Orch.UpdateDomain(ctx, d.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.Orch.UpdateDomain(ctx, d.ID, service.DomainSpec{Host: "b.shop.io"})
+	conflict(t, err, why)
+	if got, _ := env.Store.Domains.Get(ctx, d.ID); got.Host != "shop.acme.dev" {
+		t.Errorf("refused move saved: %s", got.Host)
+	}
+	// a stack file renaming the host: a new entry, checked as an add
+	orgs, _ := env.Store.Orgs.List(ctx)
+	i := slices.IndexFunc(orgs, func(o store.Org) bool { return o.Slug == "acme" })
+	_, _, err = env.Orch.CheckFileRecords(ctx, orgs[i].ID, "b.shop.io", []store.CustomRecord{{Type: "MX", Value: "10 mx.example.net"}}, nil, false, nil)
+	conflict(t, err, why)
 }

@@ -1306,6 +1306,9 @@
             },
             "type": "array"
           },
+          "from": {
+            "type": "string"
+          },
           "hand_back": {
             "items": {
               "$ref": "#/components/schemas/DNSWrite"
@@ -1326,6 +1329,7 @@
           }
         },
         "required": [
+          "from",
           "hand_back",
           "writes",
           "adopt"
@@ -5393,6 +5397,16 @@
               "$ref": "#/components/schemas/Ref"
             },
             "type": "array"
+          },
+          "from": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "under": {
             "type": "string"

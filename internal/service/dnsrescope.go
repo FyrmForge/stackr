@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
@@ -22,8 +23,10 @@ import (
 // DNSRescopePlan is what changing a managed domain's scope does: the
 // records handed back (outside the new scope, they become the user's), the
 // ones stackr writes, the existing ones it may adopt, and the domain
-// resource generated names hang under when it moves ("" = it stays).
+// resource generated names hang under when it moves ("" = it stays). From
+// is the scope it was planned from, which the confirm sends back.
 type DNSRescopePlan struct {
+	From     string     `json:"from"`
 	Scope    string     `json:"scope,omitempty"`
 	HandBack []DNSWrite `json:"hand_back"`
 	Writes   []DNSWrite `json:"writes"`
@@ -75,10 +78,20 @@ func (o *Orchestrator) PlanRescopeDNSDomain(ctx context.Context, orgID *string, 
 // domain) and adopts the records in adopt the plan lists. Refused while a
 // generated or wildcard hostname would fall outside the new scope, or
 // while tile domains carry the name of a domain resource that would move.
-func (o *Orchestrator) RescopeDNSDomain(ctx context.Context, orgID *string, id, domain, under string, adopt []DNSRef) (DNSDomain, error) {
+// from is the plan's From (nil = no plan): refused once the scope moved
+// on since. One rescope of a domain at a time.
+func (o *Orchestrator) RescopeDNSDomain(ctx context.Context, orgID *string, id, domain, under string, from *string, adopt []DNSRef) (DNSDomain, error) {
+	// ponytail: per-domain lock in the repo lock map, one process; a db lock if rescopes ever run on two controllers
+	m, _ := o.repoLocks.LoadOrStore("rescope "+dnscap.Normal(domain), &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
 	c, p, row, scope, err := o.rescopeOf(ctx, orgID, id, domain, under)
 	if err != nil {
 		return DNSDomain{}, err
+	}
+	if from != nil && dnscap.Normal(*from) != row.Scope {
+		return DNSDomain{}, errs.Conflictf("The scope of %s changed since this plan. Review the plan again.", row.Name)
 	}
 	plan, res, err := o.rescopePlan(ctx, c, p, row, scope)
 	if err != nil {
@@ -164,7 +177,7 @@ func (o *Orchestrator) rescopePlan(ctx context.Context, c Connector, p dnscap.Pr
 	if err != nil {
 		return DNSRescopePlan{}, rescopeRes{}, err
 	}
-	plan := DNSRescopePlan{Scope: scope, HandBack: []DNSWrite{}, Writes: mp.Writes, Adopt: mp.Adopt}
+	plan := DNSRescopePlan{From: row.Scope, Scope: scope,HandBack: []DNSWrite{}, Writes: mp.Writes, Adopt: mp.Adopt}
 	if res.rename != nil || res.drop != nil || res.make != nil {
 		plan.Resource = res.host
 	}

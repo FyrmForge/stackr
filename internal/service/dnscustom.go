@@ -211,8 +211,9 @@ func (o *Orchestrator) checkNotCustom(ctx context.Context, host string) error {
 }
 
 // checkMovedRecords runs a tile domain's records through checkCustom at
-// host, its new name: they move with it. No provider read; a clash there
-// is the records sync's to report.
+// host, its new name: they move with it. One provider read per zone an MX
+// lands in, none without one: the zone's mail setting may drop it, refused
+// as an add is. Any other clash there is the records sync's to report.
 func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord) error {
 	if len(rs) == 0 {
 		return nil
@@ -221,8 +222,22 @@ func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host strin
 	if err != nil {
 		return err
 	}
+	var mx []store.DNSDomain // the zones an MX lands in
 	for _, r := range rs {
-		if _, _, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false); err != nil {
+		_, z, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false)
+		if err != nil {
+			return err
+		}
+		if r.Type == "MX" && !slices.ContainsFunc(mx, func(x store.DNSDomain) bool { return x.Name == z.Name }) {
+			mx = append(mx, z)
+		}
+	}
+	for _, z := range mx {
+		p, err := o.dnsAccounts(ctx, z.ConnectorID, z.OrgID)
+		if err != nil {
+			return err
+		}
+		if err := o.dns.MXRefused(ctx, p, z.Name); err != nil {
 			return err
 		}
 	}

@@ -108,7 +108,7 @@ func (p Panel) rescopePreview(c echo.Context) error {
 	if err != nil {
 		return p.answer(c, "", err)
 	}
-	v.Scope, v.Resource = plan.Scope, plan.Resource
+	v.Scope, v.Resource, v.From = plan.Scope, plan.Resource, plan.From
 	v.HandBack, v.Writes, v.Adopt = planWrites(plan.HandBack), planWrites(plan.Writes), planAdopts(plan.Adopt)
 	v.Nothing = len(plan.HandBack) == 0 && len(plan.Writes) == 0 && len(plan.Adopt) == 0 && plan.Resource == ""
 	return p.list(c, "", nil, v, nil, false)
@@ -170,14 +170,20 @@ func (p Panel) manage(c echo.Context) error {
 	return p.answer(c, "Saved.", err)
 }
 
-// POST <dns>/:connector/rescope (domain, part, under, adopt...): change
-// what part of a managed domain stackr manages.
+// POST <dns>/:connector/rescope (domain, part, under, from, adopt...):
+// change what part of a managed domain stackr manages. from is the scope
+// the confirm was planned from.
 func (p Panel) rescope(c echo.Context) error {
 	form, err := c.FormParams()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	_, err = p.Orch.RescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), adoptOf(form))
+	var from *string
+	if form.Has("from") {
+		f := form.Get("from")
+		from = &f
+	}
+	_, err = p.Orch.RescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), from, adoptOf(form))
 	return p.answer(c, "Scope changed.", err)
 }
 
