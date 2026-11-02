@@ -170,39 +170,75 @@ func (o *Orchestrator) stageParams(ctx context.Context, s ParamScope, skipEnv st
 // pushPRSecrets copies a changed secret of the stack's pr block into every
 // open PR env's own scope (a deleted one is deleted there) and returns their
 // readers. A plain change never reaches a PR env: it took its copy at creation.
-// ponytail: copies are not one transaction; a store error midway leaves later
-// PR envs on the old secret until the next stack_pr change.
+// The copies are one transaction: all PR envs take the change or none does.
 func (o *Orchestrator) pushPRSecrets(ctx context.Context, s ParamScope, before, after map[string]params.Value, keys map[string]bool) ([]Tile, error) {
 	es, err := o.envs.List(ctx, s.ID)
 	if err != nil {
 		return nil, err
 	}
-	var out []Tile
+	var scopes []ParamScope
+	var olds []map[string]params.Value
 	for _, e := range es {
 		if e.Type != environment.Ephemeral {
 			continue
 		}
 		sc := ParamScope{Kind: "env", ID: e.ID}
-		more, err := o.stageParams(ctx, sc, "", func() error {
+		old, err := o.params.Values(ctx, sc, true)
+		if err != nil {
+			return nil, err
+		}
+		scopes, olds = append(scopes, sc), append(olds, old)
+	}
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		pl := params.New(tx.Params)
+		for _, sc := range scopes {
 			for _, k := range slices.Sorted(maps.Keys(keys)) {
 				c, n, _ := strings.Cut(k, ".")
 				switch v, ok := after[k]; {
 				case ok && v.Secret:
-					if err := o.params.Merge(ctx, sc, []params.Entry{{Collection: c, Name: n, Kind: params.Secret, Value: v.V}}); err != nil {
+					if err := pl.Merge(ctx, sc, []params.Entry{{Collection: c, Name: n, Kind: params.Secret, Value: v.V}}); err != nil {
 						return err
 					}
 				case !ok && before[k].Secret:
-					if err := o.params.Delete(ctx, sc, c, n); err != nil && !errors.Is(err, errs.ErrNotFound) {
+					if err := pl.Delete(ctx, sc, c, n); err != nil && !errors.Is(err, errs.ErrNotFound) {
 						return err
 					}
 				}
 			}
-			return nil
-		})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out []Tile
+	for i, sc := range scopes {
+		now, err := o.params.Values(ctx, sc, true)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, more...)
+		moved := map[string]bool{}
+		for k, v := range now {
+			if b, ok := olds[i][k]; !ok || b != v {
+				moved[k] = true
+			}
+		}
+		for k := range olds[i] {
+			if _, ok := now[k]; !ok {
+				moved[k] = true
+			}
+		}
+		if len(moved) == 0 {
+			continue
+		}
+		ts, err := o.scopeTiles(ctx, sc)
+		if err != nil {
+			return nil, err
+		}
+		if ts, err = o.readers(ctx, sc, ts, moved, false); err != nil {
+			return nil, err
+		}
+		out = append(out, ts...)
 	}
 	return out, nil
 }
