@@ -77,7 +77,11 @@ func (o *Orchestrator) CreateManagedTileFromDump(
 	if err != nil {
 		return Tile{}, Job{}, err
 	}
-	src, err := o.spool(br)
+	limit, err := o.SeedLimit(ctx)
+	if err != nil {
+		return Tile{}, Job{}, err
+	}
+	src, err := o.spool(br, limit)
 	if err != nil {
 		return Tile{}, Job{}, err
 	}
@@ -99,7 +103,7 @@ func (o *Orchestrator) CreateManagedTileFromDump(
 // spool writes an upload under <data>/seeds for the seed job to read.
 // The job drops it when it ends however it ends (seedEnded), and the boot
 // sweep (sweepSeeds) takes whatever a crash left.
-func (o *Orchestrator) spool(r io.Reader) (seedSource, error) {
+func (o *Orchestrator) spool(r io.Reader, limit int64) (seedSource, error) {
 	dir := filepath.Join(o.cfg.DataDir, "seeds")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return seedSource{}, err
@@ -109,12 +113,38 @@ func (o *Orchestrator) spool(r io.Reader) (seedSource, error) {
 		return seedSource{}, err
 	}
 	src := seedSource{Kind: "upload", Path: f.Name()}
-	_, err = io.Copy(f, r)
+	n, err := io.Copy(f, io.LimitReader(r, limit+1))
 	if err = errors.Join(err, f.Close()); err != nil {
 		src.drop()
 		return seedSource{}, fmt.Errorf("receiving the dump: %w", err)
 	}
+	if n > limit {
+		src.drop()
+		return seedSource{}, errs.TooLarge{Msg: "That dump is larger than this server takes."}
+	}
 	return src, nil
+}
+
+// seedReserve is the free space an upload leaves on the data disk.
+const seedReserve = 1 << 30
+
+// SeedLimit is the most bytes an upload may be: the seed_max_gb knob, cut to
+// the data disk's free space less seedReserve (an unreadable disk is not
+// judged).
+func (o *Orchestrator) SeedLimit(ctx context.Context) (int64, error) {
+	gbs, err := o.settings.Int(ctx, "seed_max_gb")
+	if err != nil {
+		return 0, err
+	}
+	limit := int64(gbs) << 30
+	if free, total := o.dataDirDisk(); total > 0 {
+		room := int64(min(free, 1<<62)) - seedReserve
+		if room <= 0 {
+			return 0, errs.TooLarge{Msg: "This server has no room for a dump."}
+		}
+		limit = min(limit, room)
+	}
+	return limit, nil
 }
 
 // runSeed deploys the instance (which waits until postgres answers), then

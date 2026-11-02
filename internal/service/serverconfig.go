@@ -133,6 +133,9 @@ func (o *Orchestrator) PreviewServerConfig(ctx context.Context, file []byte) (Se
 // a repo is bound. A file that does not parse is refused, not stored: the
 // sender has it in hand.
 func (o *Orchestrator) PlanServerFile(ctx context.Context, file []byte) (ServerPlan, error) {
+	if err := o.seedDestParams(ctx); err != nil { // the file refers to them
+		return ServerPlan{}, err
+	}
 	f, err := o.parseServerFile(ctx, file)
 	if err != nil {
 		return ServerPlan{}, errs.Invalidf("file", "%s", err.Error())
@@ -245,13 +248,9 @@ func (o *Orchestrator) queueServerPlan(
 }
 
 // ExportServerConfig writes the live server as a stackr-server.yml. A backup
-// destination's keys are written as server param refs, so it first stores
-// the keys of every destination that has no such param yet (an existing
-// param is never overwritten); then the export plans clean on this server.
+// destination's keys are written as server param refs. It only reads: the
+// params those refs name are stored when the file is planned (seedDestParams).
 func (o *Orchestrator) ExportServerConfig(ctx context.Context) ([]byte, error) {
-	if err := o.seedDestParams(ctx); err != nil {
-		return nil, err
-	}
 	live, err := o.serverLive(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -296,6 +295,9 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 	}
 	if b.Repo == "" {
 		return ServerPlan{}, errs.Conflictf("The server has no config repo; bind one first.")
+	}
+	if err := o.seedDestParams(ctx); err != nil { // the file refers to them
+		return ServerPlan{}, err
 	}
 	data, sha, err := o.serverFile(ctx, "", log)
 	var f *serverconfig.File
