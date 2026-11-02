@@ -545,7 +545,7 @@ func (o *Orchestrator) certAlert(ctx context.Context, id, nodeName, subject stri
 
 // certAlerts checks the cluster root, the controller cert and every
 // worker's newest cert. Called from dailyChores.
-// ponytail: Let's Encrypt certs live in Caddy's storage, not read here.
+// Let's Encrypt certs are probed per host in hostCertAlerts (certcheck.go).
 func (o *Orchestrator) certAlerts(ctx context.Context) {
 	o.hostCertAlerts(ctx)
 	c := o.cluster

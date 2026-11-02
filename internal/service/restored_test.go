@@ -40,11 +40,17 @@ func TestSettleRestoredPanelBackup(t *testing.T) {
 	must(t, err)
 
 	w.orch.settleRestored(ctx) // no marker
+	if _, ok, _ := w.st.Settings.Get(ctx, keyPruneHold); ok {
+		t.Fatal("no marker: prune hold set")
+	}
 	if j, _ := w.st.Jobs.Get(ctx, pb.ID); j.State != job.Running {
 		t.Fatalf("no marker: panel backup job is %s", j.State)
 	}
 	must(t, os.WriteFile(filepath.Join(w.orch.cfg.DataDir, installspec.RestoredMarker), []byte("4096\nstackr/_panel/i1/manual/a.age\n"), 0o600))
 	w.orch.settleRestored(ctx)
+	if _, ok, _ := w.st.Settings.Get(ctx, keyPruneHold); !ok {
+		t.Error("restore did not hold pruning")
+	}
 	if j, _ := w.st.Jobs.Get(ctx, pb.ID); j.State != job.Done || j.Error != restoredNote {
 		t.Errorf("panel backup job = %s %q", j.State, j.Error)
 	}

@@ -552,7 +552,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
 	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
-	orch.volumes = build("leaf/volume", func() *volume.Leaf { return volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode) })
+	orch.volumes = build("leaf/volume", func() *volume.Leaf {
+		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode)
+		v.Created = orch.defaultBackup
+		return v
+	})
 	orch.domains = build("leaf/domain", func() *domain.Leaf {
 		return domain.New(st.Domains, d, ProxyContainer).WithSubnets(nodes).WithController(orch.controllerID)
 	})
@@ -663,6 +667,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Volumes: orch.volumes,
 			Tiles:   orch.tiles,
 			Scratch: scratch,
+			PruneHold: func(ctx context.Context) time.Time {
+				v, ok, err := st.Settings.Get(ctx, keyPruneHold)
+				if err != nil || !ok {
+					return time.Time{}
+				}
+				t, _ := time.Parse(time.RFC3339, v)
+				return t
+			},
 		}
 	})
 	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })
@@ -820,6 +832,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	orch.vipLegacy(ctx)
 	orch.settleRestored(ctx)
+	orch.sweepMoveTemps()
 	if err := orch.backups.Interrupted(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted backups: %w", err)

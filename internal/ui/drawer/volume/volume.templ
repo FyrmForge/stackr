@@ -311,11 +311,11 @@ templ Settings(v View, blocked string) {
 		if blocked != "" {
 			<p class="text-sm text-rw-muted">{ blocked }</p>
 		} else {
-			@c.DangerZone("Deleting this volume removes its data now, before the retention window ends.", v.Name, "Backups already in a destination are kept.") {
+			@c.DangerZone("Deleting this volume keeps its data for the retention window, then backs it up once and removes it.", v.Name, "Backups already in a destination are kept.") {
 				@c.Confirm(c.ConfirmView{
 					Button:  "Delete volume",
 					Title:   "Delete " + v.Name + "?",
-					Warning: "Its data goes now, before the retention window ends.",
+					Warning: "Its data is kept for the retention window, then backed up once and removed.",
 					Kept:    []string{"backups already in a destination"},
 					Word:    v.Name,
 					Action:  v.Base + "/delete",

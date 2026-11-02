@@ -153,22 +153,23 @@ func (s connectors) ShareOrgs(ctx context.Context, id string) ([]string, error) 
 	return ids, mapErr(err)
 }
 
-// SetShares clears then inserts, so a crash between the two leaves fewer
-// shares, never more. ponytail: not one statement; a transaction when a
-// caller needs the swap atomic.
+// SetShares clears then inserts in one transaction (or the caller's, when the
+// store is already bound to one).
 func (s connectors) SetShares(ctx context.Context, id string, orgIDs []string) error {
-	if _, err := s.q.ExecContext(ctx, "DELETE FROM connector_shares WHERE connector_id = ?", id); err != nil {
-		return mapErr(err)
-	}
-	for _, o := range orgIDs {
-		if _, err := s.q.ExecContext(
-			ctx,
-			"INSERT OR IGNORE INTO connector_shares (connector_id, org_id) VALUES (?, ?)",
-			id,
-			o,
-		); err != nil {
+	return inTx(ctx, s.q, func(q querier) error {
+		if _, err := q.ExecContext(ctx, "DELETE FROM connector_shares WHERE connector_id = ?", id); err != nil {
 			return mapErr(err)
 		}
-	}
-	return nil
+		for _, o := range orgIDs {
+			if _, err := q.ExecContext(
+				ctx,
+				"INSERT OR IGNORE INTO connector_shares (connector_id, org_id) VALUES (?, ?)",
+				id,
+				o,
+			); err != nil {
+				return mapErr(err)
+			}
+		}
+		return nil
+	})
 }

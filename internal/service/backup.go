@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -87,6 +88,42 @@ func (o *Orchestrator) ownDest(ctx context.Context, orgID, id string) (BackupDes
 		return BackupDest{}, errs.ErrNotFound
 	}
 	return d, nil
+}
+
+// defaultSchedule is the schedule a new volume gets when its org can see an
+// off-box destination.
+// ponytail: fixed daily, keep 7; the volume's Backups tab changes it.
+var defaultSchedule = ScheduleSpec{Cron: "@daily", Keep: 7}
+
+// defaultBackup gives a new volume a daily backup to the first off-box
+// destination its org can use. With none it does nothing (no warning exists
+// for a volume without a schedule). Best effort, never fails a declare.
+func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
+	org, err := o.volumeOrg(ctx, v)
+	if err != nil {
+		return
+	}
+	ds, err := o.backups.Visible(ctx, org)
+	if err != nil {
+		return
+	}
+	i := slices.IndexFunc(ds, func(d BackupDest) bool { return d.Kind != "local" })
+	if i < 0 {
+		return
+	}
+	ms, err := o.methods(ctx, v)
+	if err != nil {
+		return
+	}
+	s := defaultSchedule
+	s.DestID = &ds[i].ID
+	if _, err := o.backups.AddSchedule(ctx, v.ID, org, ms, s); err != nil {
+		slog.Warn("backup: default schedule not added", "volume", v.ID, "err", err)
+		return
+	}
+	if o.sched != nil {
+		o.sched.Reload(ctx)
+	}
 }
 
 // BackupMethods are what a volume can be backed up with: its engine's
@@ -556,6 +593,38 @@ func (o *Orchestrator) panelBackup(ctx context.Context, log io.Writer, trigger, 
 			dest = d
 		}
 	}
+	r, err := o.panelBackupTo(ctx, log, trigger, dest, keep)
+	if err != nil || trigger != "schedule" || dest.Kind != "local" {
+		return r, err
+	}
+	// The archive keys live only in the panel database: a scheduled backup on
+	// this box's disk also goes to an off-box destination when there is one,
+	// so losing the box does not lose the keys to the volume backups.
+	off, ok, err := o.offBoxDest(ctx)
+	if err != nil || !ok {
+		return r, err
+	}
+	_, err = o.panelBackupTo(ctx, log, trigger, off, keep)
+	return r, err
+}
+
+// offBoxDest is the first admin destination that is not this server's disk.
+func (o *Orchestrator) offBoxDest(ctx context.Context) (store.BackupDest, bool, error) {
+	ds, err := o.backups.Global(ctx)
+	if err != nil {
+		return store.BackupDest{}, false, err
+	}
+	for _, d := range ds {
+		if d.Kind != "local" {
+			// Global blanks the keys; the flow needs them.
+			full, err := o.backups.Get(ctx, d.ID)
+			return full, err == nil, err
+		}
+	}
+	return store.BackupDest{}, false, nil
+}
+
+func (o *Orchestrator) panelBackupTo(ctx context.Context, log io.Writer, trigger string, dest store.BackupDest, keep int) (store.BackupRun, error) {
 	_, _ = fmt.Fprintf(log, "panel backup to %s\n", dest.Name)
 	// rollMu: no controller cert renewal or root rollover rewrites key files
 	// while they are copied. Nothing here takes rolloverMu, so no lock order

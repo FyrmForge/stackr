@@ -389,3 +389,21 @@ func mapErr(err error) error {
 	}
 	return err
 }
+
+// inTx runs fn in a transaction when q is the pool, and straight on q when it
+// already is one.
+func inTx(ctx context.Context, q querier, fn func(querier) error) error {
+	db, ok := q.(*sqlx.DB)
+	if !ok {
+		return fn(q)
+	}
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return mapErr(err)
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return mapErr(tx.Commit())
+}

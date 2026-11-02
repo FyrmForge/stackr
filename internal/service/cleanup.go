@@ -82,6 +82,8 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 		})
 	}
 
+	o.prunePulledImages(ctx, note)
+
 	n, b := 0, int64(0)
 	keep, pinned, running, err := o.cleanupKeep(ctx)
 	var plan image.Plan

@@ -96,6 +96,7 @@ type TileStore interface {
 	ListByEnv(ctx context.Context, envID string) ([]Tile, error)
 	ListByStack(ctx context.Context, stackID string) ([]Tile, error)
 	ListByKind(ctx context.Context, kind string) ([]Tile, error)
+	ListAll(ctx context.Context) ([]Tile, error)
 	Update(ctx context.Context, t Tile) error
 	Delete(ctx context.Context, id string) error
 }
@@ -107,6 +108,8 @@ type tiles struct{ crud[Tile] }
 func (s tiles) GetBySlug(ctx context.Context, envID, slug string) (Tile, error) {
 	return s.one(ctx, "environment_id = ? AND slug = ?", envID, slug)
 }
+
+func (s tiles) ListAll(ctx context.Context) ([]Tile, error) { return s.many(ctx, "1 = 1") }
 
 func (s tiles) ListByEnv(ctx context.Context, envID string) ([]Tile, error) {
 	return s.many(ctx, "environment_id = ?", envID)

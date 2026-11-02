@@ -39,6 +39,12 @@ type Flow struct {
 	Volumes *volume.Leaf
 	Tiles   *tile.Leaf
 	Scratch string // spool dir, e.g. <data>/backups/scratch
+	// PruneHold is when the panel was last restored from an archive (zero =
+	// never). Until a prefix has had one good backup after it, the first
+	// backup under that prefix prunes nothing: the restored schedules may be
+	// backing up volumes that came back empty, and newest-N would push the
+	// good archives out.
+	PruneHold func(ctx context.Context) time.Time
 
 	mu      sync.Mutex
 	running map[string]bool // volume id → claimed
@@ -106,12 +112,22 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 	}
 	// Never on the pre-restore run: it is the newest under the prefix, and
 	// pruning to keep could delete the very archive about to be restored.
-	if sp.Trigger != bk.PreRestore {
+	if sp.Trigger != bk.PreRestore && f.pruneHeld(ctx, sp.Prefix, r.ID) {
+		logf(log, "not pruning yet: the panel was restored and this is the first backup since\n")
+	} else if sp.Trigger != bk.PreRestore {
 		if gone := f.Backups.Prune(ctx, open(sp.Dest), sp.Prefix, sp.Keep); len(gone) > 0 {
 			logf(log, "pruned %d old archive(s)\n", len(gone))
 		}
 	}
 	return f.Backups.GetRun(ctx, r.ID)
+}
+
+func (f *Flow) pruneHeld(ctx context.Context, prefix, runID string) bool {
+	if f.PruneHold == nil {
+		return false
+	}
+	since := f.PruneHold(ctx)
+	return !since.IsZero() && f.Backups.FirstSince(ctx, prefix, since, runID)
 }
 
 // write produces the archive and uploads it: streamed for a live copy or a

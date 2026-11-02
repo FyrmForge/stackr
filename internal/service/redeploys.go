@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
@@ -41,9 +42,8 @@ var redeployPoll = 100 * time.Millisecond
 // await waits for the redeploys the apply queued and fails when any failed,
 // naming them, so an apply never reads done over failed deploys. A parked
 // deploy (waiting on a param) is not waited for.
-// ponytail: it holds a job worker while it waits, so with one worker (the
-// deploys could never start) it only lists what it queued; two applies
-// waiting at once on two workers stall until the 30 minute cap.
+// It waits idle (jobs.Idle): its worker slot is free for the deploys it
+// waits on, so two applies waiting at once do not starve them.
 func (q *redeploys) await(ctx context.Context, o *Orchestrator, log io.Writer) error {
 	q.mu.Lock()
 	list := q.list
@@ -51,11 +51,8 @@ func (q *redeploys) await(ctx context.Context, o *Orchestrator, log io.Writer) e
 	if len(list) == 0 {
 		return nil
 	}
-	if n, err := o.settings.Int(ctx, "workers"); err == nil && n < 2 {
-		_, _ = fmt.Fprintf(log, "%s queued; with one job worker this apply cannot wait for them\n", plural(len(list), "redeploy"))
-		return nil
-	}
 	_, _ = fmt.Fprintf(log, "waiting for %s\n", plural(len(list), "redeploy"))
+	defer jobs.Idle(ctx)()
 	var failed []string
 	for _, rd := range list {
 		j, err := o.jobRows.Get(ctx, rd.Job)

@@ -1937,7 +1937,7 @@ func (a *app) volumes() *cobra.Command {
 				return a.show(v, volumeCols...)
 			}),
 		add,
-		leaf("rm <volume>", "org.volumes,stack.volumes,env.volumes,volume.delete", "Delete a volume and its data", exact(1),
+		leaf("rm <volume>", "org.volumes,stack.volumes,env.volumes,volume.delete", "Delete a volume (its data is kept for the retention window, then backed up and removed)", exact(1),
 			a.at(atOrg, func(c *cobra.Command, p string, args []string) error {
 				id, name, err := a.volume(c, args[0])
 				if err != nil {

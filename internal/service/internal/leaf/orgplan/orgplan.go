@@ -97,8 +97,8 @@ func (m *Machine[T, P]) Create(ctx context.Context, p T) (T, error) {
 // they ticked and whether they confirmed its impact lines (the service has
 // checked both against the plan). The plan stays pending until the apply job
 // ends it. One apply per plan: a second approve is a Conflict.
-// ponytail: read then write; two approves in the same instant both pass.
-// A conditional UPDATE (invites' Burn) if that ever bites.
+// Read then write: call it on a store.Tx's table (the service does), so two
+// approves in the same instant do not both pass.
 func (m *Machine[T, P]) Approve(ctx context.Context, id string, ticked []string, confirmed bool) (T, error) {
 	p, err := m.plans.Get(ctx, id)
 	if err != nil {

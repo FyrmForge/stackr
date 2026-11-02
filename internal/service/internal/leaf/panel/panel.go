@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,6 +38,13 @@ const (
 	// SpecEnv carries the new panel's spec into the helper, as JSON.
 	SpecEnv = installspec.SwapSpecEnv
 )
+
+// RetryEnv marks a helper that Docker restarts when it dies (set by Launch).
+const RetryEnv = "STACKR_SWAP_DOCKER_RETRY"
+
+// ErrRolledBack wraps a swap error when the old panel is running again: the
+// helper has nothing left to retry (it exits 0 on it).
+var ErrRolledBack = errors.New("rolled back to the old panel")
 
 type Leaf struct {
 	docker Docker
@@ -91,9 +99,14 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 		Name:    "stackr-upgrader",
 		Image:   spec.Image,
 		Cmd:     []string{"upgrade-swap"},
-		Env:     []string{SpecEnv + "=" + string(body)},
+		Env:     []string{SpecEnv + "=" + string(body), RetryEnv + "=1"},
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: vols,
+		// A helper that dies mid-swap (killed, or the daemon restarted) runs
+		// again, and Swap starts over from whatever the first try left. A
+		// swap that failed cleanly and rolled back also exits non-zero, so
+		// the retries are bounded: three, then the old panel stays up.
+		Restart: "on-failure:3",
 	})
 	return err
 }
@@ -196,9 +209,38 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		spec.Labels = map[string]string{}
 	}
 	spec.Labels[LabelRole] = "panel"
+	// A rerun (the helper died and Docker started it again) finds the new
+	// panel of the first try, named spec.Name. It is not an old panel: it
+	// goes, and the database copy of the first try goes back, so the swap
+	// starts again from the panel that was running before.
+	var stale []docker.Container
+	old = slices.DeleteFunc(old, func(c docker.Container) bool {
+		if c.Name == spec.Name {
+			stale = append(stale, c)
+		}
+		return c.Name == spec.Name
+	})
+	// The first try died after its gate passed: the new panel is up and
+	// healthy, and it has been writing. Finish the pass instead of undoing it.
+	if len(stale) == 1 {
+		if d, err := l.docker.Inspect(ctx, stale[0].ID); err == nil && d.Running && d.Health == "healthy" {
+			if db := dbPath(spec); db != "" {
+				dropDB(copyName(db, spec))
+			}
+			for _, c := range old {
+				_ = l.docker.StopRemove(ctx, c.ID)
+			}
+			return nil
+		}
+	}
 	for _, c := range old {
 		if err := l.docker.Stop(ctx, c.ID); err != nil {
 			return fmt.Errorf("stop old panel: %w", err)
+		}
+	}
+	for _, c := range stale {
+		if err := l.docker.StopRemove(ctx, c.ID); err != nil {
+			return fmt.Errorf("remove the new panel of the first try: %w", err)
 		}
 	}
 	back := func(cause error) error {
@@ -207,7 +249,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 				return errors.Join(cause, fmt.Errorf("start old panel: %w", err))
 			}
 		}
-		return cause
+		return fmt.Errorf("%w: %w", ErrRolledBack, cause)
 	}
 	db := dbPath(spec)
 	if _, err := os.Stat(db); db != "" && err != nil {
@@ -217,6 +259,11 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 	cp := copyName(db, spec)
 	if db != "" {
+		if _, err := os.Stat(cp); err == nil { // left by the first try
+			if err := restoreDB(db, cp); err != nil {
+				return back(fmt.Errorf("restore the database of the first try: %w", err))
+			}
+		}
 		if err := saveDB(db, cp); err != nil {
 			return back(fmt.Errorf("copy database: %w", err))
 		}

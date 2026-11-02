@@ -3676,7 +3676,7 @@ stackr volume ls [flags]
 
 ### `stackr volume rm`
 
-Delete a volume and its data
+Delete a volume (its data is kept for the retention window, then backed up and removed)
 
 ```
 stackr volume rm <volume> [flags]

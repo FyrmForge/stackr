@@ -164,6 +164,62 @@ func TestSwapPassDropsCopy(t *testing.T) {
 	}
 }
 
+// A helper that died mid-swap runs again: the new panel of the first try goes,
+// the first try's database copy goes back, and the swap starts over from the
+// old panel.
+func TestSwapRerunStartsOver(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "stackr.db")
+	for suf, body := range map[string]string{"": "migrated by the first try", ".pre-0.2.0": "old db"} {
+		if err := os.WriteFile(db+suf, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := dockerfake.New()
+	fake.RunID = "new2"
+	fake.Containers = []docker.Container{
+		{ID: "old", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+		{ID: "new1", Name: "stackr-0.2.0", State: "running", Labels: map[string]string{LabelRole: "panel"}},
+	}
+	fake.Details = map[string]docker.Detail{"new2": {Running: true, Health: "healthy"}}
+	sp := &spy{Fake: fake, db: db}
+	l := New(sp)
+	l.Poll, l.Deadline = time.Millisecond, 20*time.Millisecond
+	err := l.Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0", Env: []string{"DATABASE_PATH=" + db}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := calls(fake), "Stop old; StopRemove new1; Run stackr-0.2.0 img:0.2.0; StopRemove old"; got != want {
+		t.Errorf("got %s\nwant %s", got, want)
+	}
+}
+
+// A helper that died after the gate passed finds the new panel healthy: the
+// rerun finishes the pass, it does not tear the running panel down.
+func TestSwapRerunAfterPassFinishes(t *testing.T) {
+	fake := dockerfake.New()
+	fake.Containers = []docker.Container{
+		{ID: "old", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+		{ID: "new1", Name: "stackr-0.2.0", State: "running", Labels: map[string]string{LabelRole: "panel"}},
+	}
+	fake.Details = map[string]docker.Detail{"new1": {Running: true, Health: "healthy"}}
+	if err := New(fake).Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := calls(fake), "StopRemove old"; got != want {
+		t.Errorf("got %s want %s", got, want)
+	}
+}
+
+func TestLaunchHelperRestartsOnFailure(t *testing.T) {
+	fake := dockerfake.New()
+	if err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.Specs[0].Restart; got != "on-failure:3" {
+		t.Errorf("helper restart policy = %q", got)
+	}
+}
+
 func TestLaunchMountsDataDir(t *testing.T) {
 	fake := dockerfake.New()
 	err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0", Env: []string{"DATABASE_PATH=/srv/stackr/stackr.db"}})

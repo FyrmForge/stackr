@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -24,8 +25,11 @@ func (o *Orchestrator) DeclareVolume(ctx context.Context, s VolumeScope, slug st
 	return v, err
 }
 
-// DeleteVolume refuses while a tile mounts it (leaf/volume). On a forgotten
-// node only the row goes: there is no Docker volume left to reach.
+// DeleteVolume refuses while a tile mounts it (leaf/volume). Otherwise the
+// volume is orphaned like a removed env volume: its data stays for the
+// retention window, then the orphan job backs it up and removes it, so its
+// backups keep their volume and stay restorable. Its schedules go now. On a
+// forgotten node only the row goes: there is no Docker volume left to reach.
 func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
 	v, err := o.volumes.Get(ctx, id)
 	if err != nil {
@@ -44,7 +48,14 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
 	} else if gone {
 		return o.volumes.DeleteRow(ctx, v, by)
 	}
-	return o.volumes.Delete(ctx, v, by)
+	if err := o.volumes.Retire(ctx, v, by); err != nil {
+		return err
+	}
+	ss, err := o.backups.Schedules(ctx, v.ID)
+	for _, s := range ss {
+		err = errors.Join(err, o.DeleteBackupSchedule(ctx, s.ID))
+	}
+	return err
 }
 
 // MountedVolume reads a volumes line that names an env volume: its slug and

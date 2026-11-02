@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -625,7 +626,15 @@ func RunPanelSwap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return panel.New(d).Swap(ctx, spec)
+	err = panel.New(d).Swap(ctx, spec)
+	if errors.Is(err, panel.ErrRolledBack) && os.Getenv(panel.RetryEnv) != "" {
+		// The panel's helper (it has a restart policy): the old panel runs
+		// again, and a non-zero exit would make Docker run the whole swap
+		// again. The installer's foreground run keeps the exit code.
+		slog.Error("upgrade: swap failed, old panel restored", "err", err)
+		return nil
+	}
+	return err
 }
 
 // keyLogCapVersion is the build whose boot last ran controllerLogCap.

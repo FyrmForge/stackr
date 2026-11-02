@@ -43,6 +43,9 @@ type JoinTokenStore interface {
 	ExpireUnspent(ctx context.Context, now time.Time) (int, error)
 	// ExpireUnspentFor ends the tokens for one node name not yet spent.
 	ExpireUnspentFor(ctx context.Context, nodeName string, now time.Time) (int, error)
+	// DeleteDeadBefore drops tokens created and expired before t that are
+	// unspent, rejected or belong to a node that no longer exists.
+	DeleteDeadBefore(ctx context.Context, t time.Time) error
 }
 
 var joinTokensT = newTable[JoinToken]("join_tokens", nil)
@@ -61,6 +64,12 @@ func (s joinTokens) Spend(ctx context.Context, hash string, now time.Time) error
 	res, err := s.q.ExecContext(ctx,
 		"UPDATE join_tokens SET used_at = ? WHERE hash = ? AND used_at IS NULL AND expires_at > ?", now, hash, now)
 	return affected(res, err)
+}
+
+func (s joinTokens) DeleteDeadBefore(ctx context.Context, t time.Time) error {
+	_, err := s.q.ExecContext(ctx, `DELETE FROM join_tokens WHERE created_at < ? AND expires_at < ?
+		AND (used_at IS NULL OR rejected_at IS NOT NULL OR node_id NOT IN (SELECT id FROM nodes))`, t, t)
+	return mapErr(err)
 }
 
 func (s joinTokens) Used(ctx context.Context) ([]JoinToken, error) {

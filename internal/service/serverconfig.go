@@ -183,7 +183,11 @@ func (o *Orchestrator) approveServerPlan(ctx context.Context, pl ServerPlan, opt
 		return Job{}, err
 	}
 	ctx = context.WithoutCancel(ctx)
-	if _, err := o.serverPlans.Approve(ctx, pl.ID, opts.Ticked, opts.Confirm); err != nil {
+	// In a transaction, like approveOrgPlan.
+	if err := o.store.Tx(ctx, func(tx store.Tx) error {
+		_, err := orgplan.NewServer(tx.ServerPlans).Approve(ctx, pl.ID, opts.Ticked, opts.Confirm)
+		return err
+	}); err != nil {
 		return Job{}, err
 	}
 	return o.enqueue(ctx, kindServerApply, serverApplyJob{PlanID: pl.ID, ApproverID: opts.ApproverID}, locks...)
@@ -225,7 +229,11 @@ func (o *Orchestrator) serverApplyLocks(ctx context.Context, pl ServerPlan) ([]s
 
 // RejectServerPlan ends a pending plan nobody approved.
 func (o *Orchestrator) RejectServerPlan(ctx context.Context, id string) (ServerPlan, error) {
-	pl, err := o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	var pl ServerPlan
+	err := o.store.Tx(ctx, func(tx store.Tx) (err error) {
+		pl, err = orgplan.NewServer(tx.ServerPlans).SetStatus(ctx, id, orgplan.Rejected)
+		return err
+	})
 	if err == nil {
 		o.clearConfigDrift(ctx, "server")
 	}
