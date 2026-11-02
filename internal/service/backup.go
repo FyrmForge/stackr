@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -87,6 +88,42 @@ func (o *Orchestrator) ownDest(ctx context.Context, orgID, id string) (BackupDes
 		return BackupDest{}, errs.ErrNotFound
 	}
 	return d, nil
+}
+
+// defaultSchedule is the schedule a new volume gets when its org can see an
+// off-box destination.
+// ponytail: fixed daily, keep 7; the volume's Backups tab changes it.
+var defaultSchedule = ScheduleSpec{Cron: "@daily", Keep: 7}
+
+// defaultBackup gives a new volume a daily backup to the first off-box
+// destination its org can use. With none it does nothing: the problems list
+// already says volumes have no backup. Best effort, never fails a declare.
+func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
+	org, err := o.volumeOrg(ctx, v)
+	if err != nil {
+		return
+	}
+	ds, err := o.backups.Visible(ctx, org)
+	if err != nil {
+		return
+	}
+	i := slices.IndexFunc(ds, func(d BackupDest) bool { return d.Kind != "local" })
+	if i < 0 {
+		return
+	}
+	ms, err := o.methods(ctx, v)
+	if err != nil {
+		return
+	}
+	s := defaultSchedule
+	s.DestID = &ds[i].ID
+	if _, err := o.backups.AddSchedule(ctx, v.ID, org, ms, s); err != nil {
+		slog.Warn("backup: default schedule not added", "volume", v.ID, "err", err)
+		return
+	}
+	if o.sched != nil {
+		o.sched.Reload(ctx)
+	}
 }
 
 // BackupMethods are what a volume can be backed up with: its engine's

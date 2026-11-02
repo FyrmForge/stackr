@@ -42,6 +42,10 @@ type Leaf struct {
 	// Node, when set, is the node a scope's volumes live on: an env's own
 	// node; "" (a stack, an org, a share) is the controller.
 	Node func(ctx context.Context, scopeKind, scopeID string) (nodeID string, err error)
+	// Created, when set, is called with each volume Declare makes new (never
+	// an adopted orphan). The service uses it to give the volume its default
+	// backup schedule; a failure there never fails the declare.
+	Created func(ctx context.Context, v store.Volume)
 }
 
 // WithNode sets how the leaf finds the node a scope's volumes live on.
@@ -147,7 +151,13 @@ func (l *Leaf) Declare(
 			Name:       "stackr-vol-" + id,
 			CreatedAt:  time.Now().UTC(),
 		}
-		return v, false, l.volumes.Create(ctx, v)
+		if err := l.volumes.Create(ctx, v); err != nil {
+			return v, false, err
+		}
+		if l.Created != nil {
+			l.Created(ctx, v)
+		}
+		return v, false, nil
 	case err != nil:
 		return v, false, err
 	}
