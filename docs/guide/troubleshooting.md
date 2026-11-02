@@ -35,7 +35,7 @@ The node shows offline in Admin, Nodes, and the alerts webhook fires `node.offli
 2. Not running: `systemctl restart stackr-worker`.
 3. Running but offline: the mesh needs UDP 51871 and TCP 7443 and 7444 open between the worker and the controller. `stackr node show <name>` on the controller has the state and the last error.
 4. The log says `certificate expired` or `not rejoined`, or the box was reinstalled: [rejoin it](nodes.md#rejoin-a-broken-worker).
-5. A worker with a wrong clock is refused. `clock.skew` fires first (see [Alerts](alerts.md)). Fix time sync.
+5. A clock more than 30 seconds off the controller's fires `clock.skew` (see [Alerts](alerts.md)). Nothing is refused, but certificates and tokens misbehave. Fix time sync.
 
 Apps on an offline worker keep running. Deploys to it wait.
 
@@ -43,7 +43,7 @@ Apps on an offline worker keep running. Deploys to it wait.
 
 **Panel.** The upgrade archives the database, starts the new image next to the old one and waits for it to be healthy. If it is not, the new one is removed, the database goes back to the copy taken before the swap and the old panel starts again. The Update page says the upgrade failed. Check `docker logs stackr` for the old panel and the Update page for the reason, fix it, then try again. The pre-upgrade archive is listed in Backups.
 
-If the old panel did not come back, the swap's own error names the copy of the database it could not restore. Do not start the panel until the database is right. Restore the pre-upgrade archive ([below](#restore-from-a-backup)) or move the copy back over `/var/lib/stackr/stackr.db`.
+If the old panel did not come back, the swap's own error names the copy of the database it could not restore. Do not start the panel until the database is right. Restore the pre-upgrade archive ([below](#restore-from-a-backup)) or stop the panel, delete `stackr.db-wal` and `stackr.db-shm`, and move the copy back over `/var/lib/stackr/stackr.db`.
 
 **Workers.** The rollout goes one worker at a time. A worker that does not come back on the new build rolls itself back and the rollout stops. The Workers list on the Update page shows `<node> failed to upgrade, rolled back` and the error. Fix the node, then press **Retry** or run `stackr admin upgrade-workers`. A worker that is offline is upgraded when it reconnects.
 
@@ -56,7 +56,7 @@ The installer refuses an older version than the one running, since migrations ma
 A migration that fails leaves the database marked dirty at that version. Every start then refuses it with `Dirty database version N`. The migration ran in a transaction, so its changes were rolled back. A normal upgrade puts the database back by itself; this is for a panel that was restarted or swapped by hand.
 
 1. Stop the panel: `docker stop stackr`.
-2. Back up the file: `cp /var/lib/stackr/stackr.db /var/lib/stackr/stackr.db.before-force`.
+2. Copy the database with its journal files: `mkdir /var/lib/stackr/before-force && cp /var/lib/stackr/stackr.db* /var/lib/stackr/before-force/`.
 3. Read the state. This runs the panel image once and touches nothing:
 
    ```bash
@@ -76,7 +76,7 @@ A migration that fails leaves the database marked dirty at that version. Every s
    docker start stackr
    ```
 
-   It sets the version without running anything, so the start runs migration N again. If it fails again, the log has the SQL error. That is a bug in the release: go back to the previous image (the installer with `--allow-downgrade`, on the database copy from step 2) and report it.
+   It sets the version without running anything, so the start runs migration N again. If it fails again, the log has the SQL error. That is a bug in the release: go back to the previous image (the installer with `--allow-downgrade`, with the files from step 2 put back) and report it.
 
 Forcing the wrong version skips or repeats a migration. When unsure, restore the last backup instead.
 
@@ -95,6 +95,6 @@ Use it when the box or its database is lost. The full steps are in [Backups](bac
 
 4. Workers reconnect by themselves. Tiles that ran on the controller are deployed again, and their empty volumes are restored from the newest backup first.
 
-The replaced database stays as `stackr.db.before-restore-<time>` with its `-wal` file. If the restored panel is wrong, stop it and move that file back.
+The replaced database stays as `stackr.db.before-restore-<time>` with its `-wal` file. If the restored panel is wrong, stop it, delete the new `stackr.db-wal` and `stackr.db-shm`, and move both old files back.
 
 A volume that has no reachable backup starts empty. A backup kept only on the old controller's disk went with it, so keep an S3 destination (see [Backups](backups.md#destinations)).
