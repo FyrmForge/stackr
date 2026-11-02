@@ -103,7 +103,7 @@ type AlertSettings struct {
 	Last      *AlertDelivery `json:"last_delivery,omitempty"`
 }
 
-// alert queues a for delivery; a full queue drops it (logged).
+// alert queues a for delivery; a full queue parks it for the retry timer.
 func (o *Orchestrator) alert(a Alert) {
 	if a.At == "" {
 		a.At = time.Now().UTC().Format(time.RFC3339)
@@ -112,19 +112,26 @@ func (o *Orchestrator) alert(a Alert) {
 	select {
 	case o.alerts <- a:
 	default:
-		slog.Warn("alerts: queue full, dropped", "event", a.Event, "subject", a.Subject)
+		slog.Warn("alerts: queue full, held for retry", "event", a.Event, "subject", a.Subject)
+		o.alertHold.add(a)
 	}
 }
 
 // deliverAlerts posts queued alerts until the panel stops.
 func (o *Orchestrator) deliverAlerts(ctx context.Context) {
 	defer o.alertsDone.Done()
+	t := time.NewTicker(alertRetryEvery)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case a := <-o.alerts:
-			_ = o.sendAlert(ctx, a, alertTries)
+			if err := o.sendAlert(ctx, a, alertTries); err != nil && !errors.Is(err, errAlertsOff) && ctx.Err() == nil {
+				o.alertHold.add(a) // the debounce row says it went out: send it again later
+			}
+		case <-t.C:
+			o.retryHeld(ctx)
 		}
 	}
 }

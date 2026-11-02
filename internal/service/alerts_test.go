@@ -163,6 +163,33 @@ func TestAlertRetries(t *testing.T) {
 	}
 }
 
+// An alert the webhook refused is held and goes out on the next retry; a
+// held queue past its cap drops the oldest and says so.
+func TestHeldAlertsAreSentAgain(t *testing.T) {
+	ctx := context.Background()
+	o := newWorld(t).orch
+	h := newHook(t, 500)
+	alertsTo(t, o, h, "")
+	o.alertHold.add(Alert{Event: "node.offline"})
+	o.retryHeld(ctx) // 500: stays held
+	if x := h.next(t); x.a.Event != "node.offline" {
+		t.Fatalf("first post = %s", x.a.Event)
+	}
+	o.retryHeld(ctx)
+	if x := h.next(t); x.a.Event != "node.offline" {
+		t.Fatalf("retry post = %s", x.a.Event)
+	}
+	if n := len(o.alertHold.take()); n != 0 {
+		t.Errorf("%d still held after delivery", n)
+	}
+	for range alertHoldMax + 2 {
+		o.alertHold.add(Alert{Event: "x"})
+	}
+	if o.alertHold.dropped != 2 {
+		t.Errorf("dropped = %d, want 2", o.alertHold.dropped)
+	}
+}
+
 // A worker that drops alerts once as it goes offline; its first join says
 // nothing.
 func TestNodeOfflineAlertsOnce(t *testing.T) {
