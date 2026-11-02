@@ -108,6 +108,9 @@ func (p Panel) gitView(c echo.Context, k service.Connector) (connectors.GitView,
 // POST <base>/:connector/share (scope=all|only, org...): who may use a
 // server git connection; the tab again with the answer.
 func (p Panel) share(c echo.Context) error {
+	if p.Org(c) != nil { // only the server admin shares a server connector
+		return echo.NewHTTPError(http.StatusNotFound)
+	}
 	form, err := c.FormParams()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")

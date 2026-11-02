@@ -38,6 +38,9 @@ type UpdateView struct {
 	// Waits is the queued upgrade's line ("Upgrade waits for 2 running
 	// jobs"); "" = not waiting.
 	Waits string
+	// LastErr is how the last upgrade failed ("Rolled back: ..."); "" = it
+	// did not, or none ran.
+	LastErr string
 	// Live is the tab's GET, re-polled while something moves (an upgrade,
 	// a rollout) so a panel restart cannot leave it stale; "" = settled.
 	Live string
@@ -232,6 +235,9 @@ templ Update(v UpdateView) {
 				}
 				if v.Waits != "" {
 					<p class="text-rw-muted" role="status">{ v.Waits }</p>
+				}
+				if v.LastErr != "" && !v.Upgrading {
+					<p class="text-rw-danger" role="status">{ v.LastErr }</p>
 				}
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)

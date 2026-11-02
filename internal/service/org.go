@@ -166,7 +166,11 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 	if err != nil {
 		return err
 	}
-	return o.noted(ctx, o.orgs.Delete(ctx, og, len(sts)), securitylog.OrgDelete, "org", orgID, "slug="+og.Slug)
+	if err := o.orgs.Delete(ctx, og, len(sts)); err != nil {
+		return err
+	}
+	o.dropClone("orgconfig-" + og.ID)
+	return o.noted(ctx, nil, securitylog.OrgDelete, "org", orgID, "slug="+og.Slug)
 }
 
 // claims is every host with its org: tile domains, and org and stack domain

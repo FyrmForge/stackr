@@ -157,7 +157,7 @@ func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error))
 			if err := a.confirm("Change the scope of " + args[1] + "?"); err != nil {
 				return err
 			}
-			body := map[string]any{"adopt": []map[string]any{}}
+			body := map[string]any{"adopt": []map[string]any{}, "from": m["from"]}
 			if reUnder != "" {
 				body["under"] = reUnder
 			}

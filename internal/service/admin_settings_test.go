@@ -107,8 +107,8 @@ func customRoute(host string) string {
 // the bad one must not undo the good one.
 func TestProxyCustomTakeBackRace(t *testing.T) {
 	ctx := context.Background()
+	w := newPickyWorld(t) // one world: a new one costs ~2s
 	for i := range 40 {
-		w := newPickyWorld(t)
 		must(t, w.orch.SetSetting(ctx, "proxy_custom", customRoute("old.example.com")))
 		good := customRoute("good.example.com")
 		var wg sync.WaitGroup

@@ -35,8 +35,11 @@ type (
 	}
 	// CustomRecord is a declared record as read back. Host is its full
 	// name. Note is how an add landed ("taken over", "added (1 other
-	// there stays)"). Written: stackr has it in the zone. PutBackAt: it
-	// changed outside stackr and stackr put it back then.
+	// there stays)"). Written: stackr has it in the zone. NotLive: why a
+	// record stackr wrote is not in the zone now, as the last sync read it
+	// (an MX on a zone whose mail setting drops them); it goes live again
+	// once the setting takes MX. PutBackAt: it changed outside stackr and
+	// stackr put it back then.
 	CustomRecord struct {
 		ID        string     `json:"id"`
 		Name      string     `json:"name"`
@@ -45,6 +48,7 @@ type (
 		Host      string     `json:"host"`
 		Note      string     `json:"note,omitempty"`
 		Written   bool       `json:"written"`
+		NotLive   string     `json:"not_live,omitempty"`
 		PutBackAt *time.Time `json:"put_back_at,omitempty"`
 	}
 	// CustomRecords is an owner's declared records and where they are
@@ -211,8 +215,9 @@ func (o *Orchestrator) checkNotCustom(ctx context.Context, host string) error {
 }
 
 // checkMovedRecords runs a tile domain's records through checkCustom at
-// host, its new name: they move with it. No provider read; a clash there
-// is the records sync's to report.
+// host, its new name: they move with it. One provider read per zone an MX
+// lands in, none without one: the zone's mail setting may drop it, refused
+// as an add is. Any other clash there is the records sync's to report.
 func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord) error {
 	if len(rs) == 0 {
 		return nil
@@ -221,8 +226,22 @@ func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host strin
 	if err != nil {
 		return err
 	}
+	var mx []store.DNSDomain // the zones an MX lands in
 	for _, r := range rs {
-		if _, _, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false); err != nil {
+		_, z, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false)
+		if err != nil {
+			return err
+		}
+		if r.Type == "MX" && !slices.ContainsFunc(mx, func(x store.DNSDomain) bool { return x.Name == z.Name }) {
+			mx = append(mx, z)
+		}
+	}
+	for _, z := range mx {
+		p, err := o.dnsAccounts(ctx, z.ConnectorID, z.OrgID)
+		if err != nil {
+			return err
+		}
+		if err := o.dns.MXRefused(ctx, p, z.Name); err != nil {
 			return err
 		}
 	}
@@ -291,6 +310,9 @@ func (o *Orchestrator) customOut(ctx context.Context, rs []store.CustomRecord, o
 			if x.Kind == store.RecordCustom && deref(x.DomainID) == deref(domainID) && x.Type == r.Type &&
 				strings.EqualFold(zoneHost(x.Name, x.Zone), c.Host) && dnscap.SameValue(r.Type, x.Value, r.Value) {
 				c.Written, c.PutBackAt = true, x.PutBackAt
+				if why := o.dns.NoMX(x.Zone); x.Type == "MX" && why != "" { // the sync skips it, the row stays
+					c.Written, c.NotLive = false, why
+				}
 			}
 		}
 		out = append(out, c)

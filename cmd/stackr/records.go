@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var recordCols = []string{"id", "host", "type", "value", "written", "put_back_at"}
+var recordCols = []string{"id", "host", "type", "value", "written", "not_live", "put_back_at"}
 
 // records is the custom DNS record verbs of one owner (a tile domain's
 // host, or a managed domain): use names the owner's args, n of them, and

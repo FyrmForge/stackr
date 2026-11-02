@@ -67,6 +67,7 @@ func (o *Orchestrator) DeleteStack(ctx context.Context, id string) error {
 	if err := o.stacks.Delete(ctx, id); err != nil {
 		return err
 	}
+	o.dropStackClones(id)
 	o.cancelWaiting(ctx, func(j Job) bool {
 		var p struct {
 			HostAccess *hostAccess `json:"host_access"`

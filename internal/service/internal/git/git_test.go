@@ -24,6 +24,97 @@ func TestUnder(t *testing.T) {
 	}
 }
 
+// A clone keeps symlinks, so Under resolves them: a committed link out of
+// the repo is refused as a build context, Dockerfile or deeper path, one
+// inside it still works and comes back resolved.
+func TestUnderSymlinks(t *testing.T) {
+	data := t.TempDir()
+	if err := os.WriteFile(filepath.Join(data, "stackr.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(data, "repos", "t1")
+	if err := os.MkdirAll(filepath.Join(dir, "docker", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docker", "Dockerfile.prod"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		"ctx":        "../..",
+		"Dockerfile": "/etc/passwd",
+		"sib":        "../t2",
+		"dangling":   "../t3",
+		"in":         "docker",
+		"Df":         "docker/Dockerfile.prod",
+	} {
+		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := Repo{Dir: dir}
+	for _, p := range []string{"ctx", "ctx/stackr.db", "Dockerfile", "sib", "sib/x", "dangling", "dangling/x", "in/../ctx"} {
+		if got, err := r.Under(p); err == nil {
+			t.Errorf("Under(%q) allowed: %s", p, got)
+		}
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]string{
+		"in":          filepath.Join(real, "docker"),
+		"in/app":      filepath.Join(real, "docker", "app"),
+		"Df":          filepath.Join(real, "docker", "Dockerfile.prod"),
+		"in/new/file": filepath.Join(real, "docker", "new", "file"),
+		".":           real,
+		"missing":     filepath.Join(real, "missing"),
+	} {
+		if got, err := r.Under(p); err != nil || got != want {
+			t.Errorf("Under(%q) = %q %v, want %q", p, got, err, want)
+		}
+	}
+}
+
+// files: entries are read from git's objects, never the work tree: a
+// committed link reads as its target text, and a path through a linked
+// folder is not there.
+func TestReadFileSymlink(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q", "-b", "main")
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc", filepath.Join(dir, "etc")); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-q", "-m", "links")
+	sha := run("rev-parse", "HEAD")
+	r := Repo{Dir: dir}
+	ctx := context.Background()
+	if b, err := r.ReadFile(ctx, sha, "leak"); err != nil || string(b) != "/etc/passwd" {
+		t.Fatalf("read link: %q %v", b, err)
+	}
+	if b, err := r.ReadFile(ctx, sha, "etc/passwd"); err == nil {
+		t.Fatalf("read through a linked folder: %d bytes", len(b))
+	}
+	if d, err := r.IsDir(ctx, sha, "etc"); err != nil || d {
+		t.Fatalf("linked folder read as a folder: %v %v", d, err)
+	}
+}
+
 func TestImageName(t *testing.T) {
 	if got := ImageName("stkr/acme_shop_api", "9f3c1ab22", "job-1234567890"); got != "stkr/acme_shop_api:9f3c1ab" {
 		t.Error(got)

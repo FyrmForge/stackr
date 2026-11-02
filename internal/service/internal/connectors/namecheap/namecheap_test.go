@@ -203,3 +203,19 @@ func TestHostSameMX(t *testing.T) {
 		t.Error("the same MX read back with a trailing dot did not match")
 	}
 }
+
+// GetMail says why a zone drops MX records: only Custom MX keeps them.
+func TestGetMailNoMX(t *testing.T) {
+	var set []string
+	srv := hostsServer(t, &set)
+	defer srv.Close()
+	rs, why, err := account(srv.URL).GetMail(context.Background(), "shop.co.uk")
+	if err != nil || len(rs) != 2 || why != "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first." {
+		t.Fatalf("GetMail = %d records, %q, %v", len(rs), why, err)
+	}
+	for email, refused := range map[string]bool{"MX": false, "mx": false, "": false, "NONE": true, "OX": true, "GMAIL": true, "MXE": true} {
+		if got := noMX(email) != ""; got != refused {
+			t.Errorf("noMX(%q) refuses = %v", email, got)
+		}
+	}
+}

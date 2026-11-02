@@ -1,11 +1,13 @@
 package dnscap
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/libdns/libdns"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // Values are checked per type before anything is planned, and come back
@@ -97,8 +99,24 @@ func TestCustomsQueuedClash(t *testing.T) {
 		{Zone: "acme.dev", Name: "new", Type: "CNAME", Value: "a.example.net", Kind: "custom"},
 		{Zone: "acme.dev", Name: "new", Type: "TXT", Value: "x", Kind: "custom"},
 	}
-	cw := customs("acme.dev", nil, nil, wants, nil)
+	cw := customs("acme.dev", nil, nil, wants, nil, "")
 	if len(cw.put) != 1 || len(cw.clash) != 1 {
 		t.Fatalf("put %d, clash %d; want the CNAME written and the TXT refused", len(cw.put), len(cw.clash))
+	}
+}
+
+// A zone that drops MX records: no MX is written (new or put back), one
+// error says why, a TXT still goes.
+func TestCustomsNoMX(t *testing.T) {
+	wants := []Want{
+		{Zone: "acme.dev", Name: "@", Type: "MX", Value: "10 mx.example.net", Kind: "custom"},
+		{Zone: "acme.dev", Name: "@", Type: "MX", Value: "20 mx2.example.net", Kind: "custom"},
+		{Zone: "acme.dev", Name: "@", Type: "TXT", Value: "v=spf1", Kind: "custom"},
+	}
+	rows := []store.DNSRecord{{ID: "1", Zone: "acme.dev", Name: "@", Type: "MX", Value: "10 mx.example.net", Kind: "custom"}}
+	cw := customs("acme.dev", nil, nil, wants, rows, "Switch it.")
+	if len(cw.put) != 1 || cw.put[0].RR().Type != "TXT" || len(cw.back) != 0 || len(cw.clash) != 1 ||
+		!strings.Contains(cw.clash[0].Error(), "Switch it.") {
+		t.Fatalf("put %v back %v clash %v", cw.put, cw.back, cw.clash)
 	}
 }

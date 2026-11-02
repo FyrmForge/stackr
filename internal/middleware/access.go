@@ -355,6 +355,9 @@ func HTTPError(err error) error {
 	if errors.As(err, &be) {
 		return echo.NewHTTPError(http.StatusBadRequest, be.Field+": "+fmt.Sprint(be.Message))
 	}
+	if v, ok := errs.IsTooLarge(err); ok {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, v.Msg)
+	}
 	if v, ok := errs.IsConflict(err); ok {
 		return echo.NewHTTPError(http.StatusConflict, v.Msg)
 	}

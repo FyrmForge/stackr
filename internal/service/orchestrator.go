@@ -326,10 +326,6 @@ type Orchestrator struct {
 	// pull waits on it after an upgrade (systemimages.go).
 	stackrPublished chan struct{}
 	stackrOnce      sync.Once
-	// upgradeLaunched is when this process launched the helper that swaps it
-	// for a new panel (unix nanos, 0 = never): process memory, so the new
-	// panel starts without it (UpgradeUnderway).
-	upgradeLaunched atomic.Int64
 	metrics         metricsState
 	observe         observeState                          // stackr-observe, metrics history (observe.go)
 	logship         logShip                               // container, access and run logs to the log store (logship.go)
@@ -624,6 +620,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				}
 				return orch.buildInto(ctx, st, t, commit, ref, log)
 			},
+			Head:       orch.tileHead,
 			Cred:       orch.pullCred,
 			Settings:   orch.settings,
 			Jobs:       orch.jobRows,
@@ -651,6 +648,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			CheckDNS:    orch.CheckFileRecords,
 			WriteParams: orch.writeParams,
 			Placements:  orch.stackPlacements,
+			Forget:      orch.forgetTileClone,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -757,6 +755,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
 			Hold:     orch.upgradeSwapping,
+			Ended:    seedEnded,
 		})
 	})
 	orch.sched = build("flow/schedule", func() *schedule.Runner {
@@ -821,6 +820,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted backups: %w", err)
 	}
+	// Before the workers start, so no job holds a dump or a clone yet.
+	if err := orch.sweepSeeds(ctx); err != nil {
+		slog.Warn("seeds: boot sweep skipped", "err", err)
+	}
+	if err := orch.sweepRepos(ctx); err != nil {
+		slog.Warn("repos: boot sweep skipped", "err", err)
+	}
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
@@ -869,6 +875,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			if err != nil {
 				slog.Warn("registry: not ensured", "err", err)
 			}
+			// First: a failed upgrade's rollback must fix the proxy before the
+			// publish reads its image, and a trial must end before a publish.
+			orch.undoFailedUpgrade(orch.meshCtx)
 			// Before the publish, which starts the worker rollout: a Docker
 			// restart for the cap must not land mid-rollout.
 			orch.controllerLogCap(orch.meshCtx)
@@ -885,8 +894,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	return orch, nil
 }
 
+// seedDB is a migrated empty database the tests set (main_test.go), so a new
+// orchestrator skips running every migration. nil in a real panel.
+var seedDB []byte
+
 // openDB connects and brings the schema up to date.
 func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
+	if _, err := os.Stat(path); seedDB != nil && errors.Is(err, os.ErrNotExist) {
+		_ = os.WriteFile(path, seedDB, 0o600)
+	}
 	db, err := sqlite.ConnectContext(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)

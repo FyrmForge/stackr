@@ -1109,6 +1109,9 @@
           "name": {
             "type": "string"
           },
+          "not_live": {
+            "type": "string"
+          },
           "note": {
             "type": "string"
           },
@@ -1341,6 +1344,9 @@
             },
             "type": "array"
           },
+          "from": {
+            "type": "string"
+          },
           "hand_back": {
             "items": {
               "$ref": "#/components/schemas/DNSWrite"
@@ -1361,6 +1367,7 @@
           }
         },
         "required": [
+          "from",
           "hand_back",
           "writes",
           "adopt"
@@ -5483,11 +5490,15 @@
             },
             "type": "array"
           },
+          "from": {
+            "type": "string"
+          },
           "under": {
             "type": "string"
           }
         },
         "required": [
+          "from",
           "adopt"
         ],
         "type": "object"
@@ -9688,7 +9699,7 @@
               }
             }
           },
-          "required": false
+          "required": true
         },
         "responses": {
           "200": {
@@ -14721,7 +14732,7 @@
               }
             }
           },
-          "required": false
+          "required": true
         },
         "responses": {
           "200": {

@@ -1,0 +1,7 @@
+# Test fixtures, generated templ and vendored xterm: no real secrets.
+00bc90e6c002642ee39a85e25a84715cab17beb6:frontend/static/js/xterm.min.js:generic-api-key:7
+093fb624ccda81cb0b25ff520db025e27a1c0b37:internal/service/connectorsmigrate_test.go:generic-api-key:55
+533ffbdca067f5ab2d80cfee345260dadc3e5309:internal/ui/graph/cards/cards_templ.go:generic-api-key:951
+c0bb577396935b59a82493296b3dd1204ab67678:internal/ui/components/settings_form_templ.go:generic-api-key:421
+d3f0f93472a8a04a638d3246026c690c94b67616:ui/static/js/vendor/xterm.js:generic-api-key:1
+e6dda54ca95da8595a40dfb65e6982b6b07a429f:internal/api/stream/ws_test.go:generic-api-key:37

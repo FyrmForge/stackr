@@ -243,6 +243,9 @@ func (s *schemas) object(t reflect.Type) map[string]any {
 				name = f.Name
 			}
 			prop := s.of(f.Type)
+			if f.Tag.Get("api") == "required" { // a pointer the API refuses when missing or null
+				prop = s.of(f.Type.Elem())
+			}
 			if enum := f.Tag.Get("enum"); enum != "" {
 				if m, ok := prop.(map[string]any); ok && m["type"] == "string" {
 					m["enum"] = strings.Split(enum, ",")
@@ -252,7 +255,7 @@ func (s *schemas) object(t reflect.Type) map[string]any {
 				continue // a field of the outer struct hides the embedded one of the same name
 			}
 			props[name] = prop
-			if !strings.Contains(opts, "omitempty") && f.Type.Kind() != reflect.Pointer {
+			if f.Tag.Get("api") == "required" || (!strings.Contains(opts, "omitempty") && f.Type.Kind() != reflect.Pointer) {
 				required = append(required, name)
 			}
 		}

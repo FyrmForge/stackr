@@ -22,10 +22,10 @@ type RecordsView struct {
 }
 
 // RecordRow is one declared record; PutBack: it changed outside stackr and
-// stackr put it back.
+// stackr put it back. NotLive: why it is not in the zone ("" = it is).
 type RecordRow struct {
-	ID, Host, Type, Value string
-	PutBack               bool
+	ID, Host, Type, Value, NotLive string
+	PutBack                        bool
 }
 
 // ListTarget is the swap target of connector id's domain list.
@@ -76,6 +76,9 @@ templ Records(v RecordsView) {
 						<span class="font-mono text-xs text-rw-text [overflow-wrap:anywhere] min-w-0">{ r.Value }</span>
 						if r.PutBack {
 							<span class="text-xs text-rw-faint">Changed outside stackr; put back.</span>
+						}
+						if r.NotLive != "" {
+							<span class="text-xs text-rw-warn">{ r.NotLive }</span>
 						}
 						if v.Add != "" {
 							<span class="ml-auto">

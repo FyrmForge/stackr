@@ -7,6 +7,7 @@ package env
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"mime/multipart"
@@ -161,7 +162,11 @@ func (h *handler) NewTile(c echo.Context) error {
 // page; a refusal re-renders the form with the field marked (422). A
 // managed tile may carry a dump (multipart "dump"), past the body limit.
 func (h *handler) CreateTile(c echo.Context) error {
-	middleware.UnlimitBody(c)
+	lim, err := h.orch.SeedLimit(c.Request().Context())
+	if err != nil {
+		lim = 0 // no room: a dump is refused below; the other kinds carry only form fields
+	}
+	middleware.UnlimitBody(c, lim+1<<20) // the dump and the form's other fields
 	v, s := createView(c), scope(c)
 	t := service.Tile{
 		StackID:       s.Stack.ID,
@@ -169,12 +174,15 @@ func (h *handler) CreateTile(c echo.Context) error {
 		Name:          v.Name,
 		Kind:          v.Source,
 	}
-	var err error
 	switch v.Source {
 	case "managed":
-		if fh, ferr := c.FormFile("dump"); ferr == nil && fh.Filename != "" { // an empty file is refused, not dropped
+		fh, ferr := c.FormFile("dump")
+		switch {
+		case errors.As(ferr, new(*http.MaxBytesError)):
+			err = errs.TooLarge{Msg: "That dump is larger than this server takes."}
+		case ferr == nil && fh.Filename != "": // an empty file is refused, not dropped
 			t, err = h.createFromDump(c, t, v.Engine, fh)
-		} else {
+		default:
 			t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
 		}
 	case "slice":
