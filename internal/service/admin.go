@@ -330,6 +330,9 @@ func (o *Orchestrator) checkSetting(ctx context.Context, vals map[string]string,
 		if err := o.checkPanelRoutes(ctx, host); err != nil {
 			return err
 		}
+		if err := o.checkPanelResolves(ctx, host); err != nil {
+			return err
+		}
 	}
 	if key == "root_domain" {
 		if err := o.checkRootDomain(ctx, raw); err != nil {

@@ -620,6 +620,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				}
 				return orch.buildInto(ctx, st, t, commit, ref, log)
 			},
+			Head:       orch.tileHead,
 			Cred:       orch.pullCred,
 			Settings:   orch.settings,
 			Jobs:       orch.jobRows,

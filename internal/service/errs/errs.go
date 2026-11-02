@@ -127,6 +127,16 @@ func Invalids(err error) []Invalid {
 	return out
 }
 
+// TooLarge is an upload past what this server takes (413).
+type TooLarge struct{ Msg string }
+
+func (e TooLarge) Error() string { return e.Msg }
+
+func IsTooLarge(err error) (TooLarge, bool) {
+	var v TooLarge
+	return v, errors.As(err, &v)
+}
+
 func IsConflict(err error) (Conflict, bool) {
 	var v Conflict
 	return v, errors.As(err, &v)
