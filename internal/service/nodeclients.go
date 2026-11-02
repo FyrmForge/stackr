@@ -617,6 +617,7 @@ func (o *Orchestrator) watchNodeClients() {
 			o.dnsKick.Kick() // releases held DNS hosts that now match
 		case <-t.C:
 			o.controllerDiskAlert(context.Background())
+			o.dockerAlert(context.Background())
 			if _, err := o.SweepPendingConnectors(context.Background(), time.Now()); err != nil {
 				slog.Warn("connectors: pending sweep failed", "err", err)
 			}
