@@ -600,6 +600,11 @@ func TestParseRefuses(t *testing.T) {
 		want string
 	}{
 		{
+			name: "literal protect password",
+			file: v1 + "defaults: {protect_user: bob, protect_password: hunter2}\n",
+			want: "protect_password is a ${{ ... }} reference",
+		},
+		{
 			name: "inline stack",
 			file: v1 + `stacks:
   shop:
@@ -1016,5 +1021,21 @@ func TestExportUntieredParams(t *testing.T) {
 	}
 	if p := orgconfig.Diff(f, l); len(p.Changes) != 0 {
 		t.Errorf("export diffs: %s", rowKinds(p))
+	}
+}
+
+// The file names a connector; the org's own wins over a shared one of the
+// same name, and an unknown name comes back as written for the plan to block.
+func TestConnectorNames(t *testing.T) {
+	org := "o1"
+	conns := []store.Connector{{ID: "s1", Name: "hub"}, {ID: "c1", Name: "hub", OrgID: &org}}
+	if got := orgconfig.ConnectorID(conns, "hub"); got != "c1" {
+		t.Errorf("id = %q", got)
+	}
+	if got := orgconfig.ConnectorID(conns, "nope"); got != "nope" {
+		t.Errorf("unknown = %q", got)
+	}
+	if got := orgconfig.ConnectorName(conns, "s1"); got != "hub" {
+		t.Errorf("name = %q", got)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -45,9 +46,14 @@ func (o *Orchestrator) SetParams(ctx context.Context, s ParamScope, es []ParamEn
 	if err := o.refuseTieredOrg(ctx, s); err != nil {
 		return nil, err
 	}
-	return o.changeParams(ctx, s, func() error {
+	rs, err := o.changeParams(ctx, s, func() error {
 		return o.store.Tx(ctx, func(tx store.Tx) error { return params.New(tx.Params).Merge(ctx, s, es) })
 	})
+	names := make([]string, len(es))
+	for i, e := range es {
+		names[i] = e.Collection + "/" + e.Name
+	}
+	return rs, o.noted(ctx, err, securitylog.ParamSet, s.Kind, s.ID, "set "+strings.Join(names, ", "))
 }
 
 // CheckParam is an entry's shape (group, name, kind) without writing it,
@@ -60,7 +66,8 @@ func (o *Orchestrator) DeleteParam(ctx context.Context, s ParamScope, collection
 	if err := o.refuseTieredOrg(ctx, s); err != nil {
 		return nil, err
 	}
-	return o.changeParams(ctx, s, func() error { return o.params.Delete(ctx, s, collection, name) })
+	rs, err := o.changeParams(ctx, s, func() error { return o.params.Delete(ctx, s, collection, name) })
+	return rs, o.noted(ctx, err, securitylog.ParamDelete, s.Kind, s.ID, "deleted "+collection+"/"+name)
 }
 
 // refuseTieredOrg: a tiered org's org-scope values are read by no env, so a

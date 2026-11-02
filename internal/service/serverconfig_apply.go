@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -189,11 +191,12 @@ func (o *Orchestrator) seedDestParams(ctx context.Context) error {
 			}
 		}
 	}
-	// The alert webhook goes as a ref too (its path is often a token); the
-	// param follows the live URL, which is what the export writes.
+	// The alert webhook goes as a ref too (its path is often a token). The
+	// param is seeded only when missing; the Alerts tab keeps it in step
+	// (SetAlerts), so planning an old file never overwrites a changed one.
 	if u, err := o.settings.Get(ctx, alertURLKey); err != nil {
 		return err
-	} else if coll, name, _ := strings.Cut(serverconfig.AlertURLParam, "."); u != "" && have[serverconfig.AlertURLParam].V != u {
+	} else if coll, name, _ := strings.Cut(serverconfig.AlertURLParam, "."); u != "" && have[serverconfig.AlertURLParam].V == "" {
 		es = append(es, ParamEntry{Collection: coll, Name: name, Kind: params.Secret, Value: u})
 	}
 	if len(es) == 0 {
@@ -232,7 +235,7 @@ func (o *Orchestrator) applyServerPlan(ctx context.Context, job serverApplyJob, 
 	}
 	// a removal row applies only when the approver ticked it
 	plan.Plan = plan.OnlyTicked(pl.Ticked)
-	if err := newRisk(pl, plan); err != nil {
+	if err := newRisk(pl.Plan, pl.Confirmed, plan.Plan); err != nil {
 		return err
 	}
 	w := &serverWalk{o: o, ctx: ctx, f: f, live: live, plan: plan, approver: job.ApproverID, log: log, orgIDs: map[string]string{}}
@@ -245,22 +248,28 @@ func (o *Orchestrator) applyServerPlan(ctx context.Context, job serverApplyJob, 
 	return queued.await(ctx, o, log)
 }
 
-// newRisk refuses an apply whose re-diff holds a change with an impact line
-// the approved plan did not: the approver confirmed (or the plan needed no
-// confirm, auto-applied ones included) only for what the plan showed.
-func newRisk(pl ServerPlan, now serverconfig.Plan) error {
-	var was serverconfig.Plan
-	_ = json.Unmarshal([]byte(pl.Plan), &was) // an unreadable stored plan knows nothing: every risk is new
-	seen := map[string]bool{}
-	if pl.Confirmed {
-		for _, c := range was.Changes {
-			if c.Impact != "" {
-				seen[c.Kind+"|"+c.Tile+"|"+c.Field] = true
-			}
+// newRisk refuses an apply whose re-diff holds a change the approved plan
+// did not show: the approver confirmed (or the plan needed no confirm,
+// auto-applied ones included) only for what the plan showed. A panel edit
+// since the plan is a new row, so it waits for a new plan, never silently
+// reverted. A risky row also needs the plan to have been confirmed.
+func newRisk(stored string, confirmed bool, now planfile.Plan) error {
+	var was planfile.Plan
+	_ = json.Unmarshal([]byte(stored), &was) // an unreadable stored plan knows nothing: every row is new
+	shown, risky := map[string]bool{}, map[string]bool{}
+	for _, c := range was.Changes {
+		k := c.Kind + "|" + c.Tile + "|" + c.Field
+		shown[k] = true
+		if confirmed && c.Impact != "" {
+			risky[k] = true
 		}
 	}
 	for _, c := range now.Changes {
-		if c.Impact != "" && !seen[c.Kind+"|"+c.Tile+"|"+c.Field] {
+		k := c.Kind + "|" + c.Tile + "|" + c.Field
+		switch {
+		case !shown[k]:
+			return fmt.Errorf("the server changed since the plan (%s %s); plan again", c.Kind, c.Tile)
+		case c.Impact != "" && !risky[k]:
 			return fmt.Errorf("the server changed since the approve (%s); plan again", c.Impact)
 		}
 	}
@@ -414,7 +423,7 @@ func (w *serverWalk) settings() error {
 		}
 		w.say(c)
 		v, _ := w.f.Settings[c.Field].(string)
-		if c.Field == alertURLKey {
+		if serverconfig.RefOnly(c.Field) {
 			var err error
 			if v, err = w.o.ExpandServerRefs(w.ctx, v); err != nil {
 				return fmt.Errorf("settings.%s: %w", c.Field, err)
@@ -623,10 +632,13 @@ func (w *serverWalk) routes() error {
 			return fmt.Errorf("no routes: entry for %s", c.Tile)
 		}
 		fr := w.f.Routes[i]
+		var old *ExternalRoute
 		if c.Kind == "route-update" { // the service has no route update: replace it
-			if err := w.deleteRoute(fr.Host); err != nil {
+			o, err := w.takeRoute(fr.Host)
+			if err != nil {
 				return fmt.Errorf("route-update %s: %w", fr.Host, err)
 			}
+			old = &o
 		}
 		_, err := w.o.CreateExternalRoute(w.ctx, ExternalRouteSpec{
 			Host:     fr.Host,
@@ -635,6 +647,10 @@ func (w *serverWalk) routes() error {
 			Insecure: fr.Insecure,
 		})
 		if err != nil {
+			if old != nil { // a refused update keeps the live route
+				_, rerr := w.o.CreateExternalRoute(w.ctx, ExternalRouteSpec{Host: old.Host, Mode: old.Mode, Target: old.Target, Insecure: old.Insecure})
+				err = errors.Join(err, rerr)
+			}
 			return fmt.Errorf("%s %s: %w", c.Kind, fr.Host, err)
 		}
 	}
@@ -642,12 +658,18 @@ func (w *serverWalk) routes() error {
 }
 
 func (w *serverWalk) deleteRoute(host string) error {
+	_, err := w.takeRoute(host)
+	return err
+}
+
+// takeRoute deletes the route on host and returns it.
+func (w *serverWalk) takeRoute(host string) (ExternalRoute, error) {
 	rs, err := w.o.ExternalRoutes(w.ctx)
 	i := slices.IndexFunc(rs, func(r ExternalRoute) bool { return r.Host == host })
 	if err != nil || i < 0 {
-		return cmp.Or(err, errs.ErrNotFound)
+		return ExternalRoute{}, cmp.Or(err, errs.ErrNotFound)
 	}
-	return w.o.DeleteExternalRoute(w.ctx, rs[i].ID)
+	return rs[i], w.o.DeleteExternalRoute(w.ctx, rs[i].ID)
 }
 
 // orgs creates the orgs the file names (the approver is the owner), grants

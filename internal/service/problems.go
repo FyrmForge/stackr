@@ -193,6 +193,15 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "/-/admin/connectors", "Open connectors", true
 	case "dns": // dns.records
 		return "/-/admin/connectors", "Open connectors", true
+	case "config": // config.invalid.server, config.drift.server, ....<org id>
+		if strings.HasSuffix(rest, ".server") {
+			return "/-/admin/config", "Open config", true
+		}
+		_, id, _ := strings.Cut(rest, ".")
+		if _, err := o.orgs.Get(ctx, id); errors.Is(err, errs.ErrNotFound) {
+			return "", "", false
+		}
+		return "/-/admin/overview", "Open overview", true
 	case "observe":
 		return "/-/admin/metrics", "Open metrics and logs", true
 	case "crash", "down":

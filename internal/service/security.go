@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
@@ -22,6 +23,25 @@ type RequestMeta struct{ IP, UserAgent string }
 // audit is the log bound to a transaction: the act and its row commit or
 // roll back together.
 func audit(tx store.Tx) *securitylog.Leaf { return securitylog.New(tx.SecurityEvents) }
+
+// noted records what a request just did to what, after it succeeded, and
+// passes err through: a failed act writes nothing. The actor is the user and
+// key in ctx ("" for the system).
+// ponytail: appended after the act, not in its transaction, so a failed append
+// is logged and the act stands; wrap the verb in store.Tx where the log must
+// be as certain as the act.
+func (o *Orchestrator) noted(ctx context.Context, err error, action, kind, id, detail string) error {
+	if err != nil {
+		return err
+	}
+	user, key := store.ActorFrom(ctx)
+	if aerr := securitylog.New(o.store.SecurityEvents).Append(ctx, securitylog.Event{
+		Action: action, ActorID: user, KeyID: key, TargetKind: kind, TargetID: id, Detail: detail,
+	}); aerr != nil {
+		slog.Error("audit", "action", action, "error", aerr.Error())
+	}
+	return nil
+}
 
 // SecurityLog (server admin) lists audit events, newest first.
 func (o *Orchestrator) SecurityLog(ctx context.Context, f SecurityFilter) ([]SecurityEvent, error) {

@@ -279,7 +279,7 @@ type Restore struct {
 // claim the target, check the run, download, verify (and, for a
 // whole-instance dump, vet it), back the target up (the way back), then
 // stop, wipe and untar (or load the dump), start.
-func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
+func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) (err error) {
 	t := in.Target
 	if !f.claim(t.Volume.ID) {
 		return errs.Conflictf("a backup or restore of %s is already running", t.Volume.Slug)
@@ -323,6 +323,13 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("pre-restore backup (nothing was touched): %w", err)
 	}
+	// Only after a good restore: a failed one may be retried from a run in
+	// the same prefix, and pre-restore runs never prune themselves.
+	defer func() {
+		if err == nil && pre.Keep > 0 {
+			f.Backups.Prune(ctx, open(pre.Dest), pre.Prefix, pre.Keep)
+		}
+	}()
 	if _, err := plain.Seek(0, io.SeekStart); err != nil {
 		return err
 	}

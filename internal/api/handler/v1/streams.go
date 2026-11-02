@@ -102,7 +102,9 @@ func (h *H) Exec() Endpoint {
 		}
 		c.Response().Header().Set("X-Exit-Code", strconv.Itoa(code))
 		return nil
-	}).Q("cmd", "container")
+	}).Q("cmd", "container").Raw("application/octet-stream").Describe(
+		"The request body is the command's stdin (optional); the response is its stdout and stderr interleaved, " +
+			"and its exit code arrives in the X-Exit-Code HTTP trailer. cmd repeats, one argv word each.")
 }
 
 // ForwardPortHeader carries the port the tunnel reached back on the upgrade
@@ -176,7 +178,10 @@ func (h *H) Forward() Endpoint {
 		_, _ = io.Copy(websocket.NetConn(ctx, ws, websocket.MessageBinary), conn)
 		_ = ws.Close(websocket.StatusNormalClosure, "") // the tile ended: a clean end, not a dropped line
 		return nil
-	}).Q("container", "port")
+	}).Q("container", "port").Describe(
+		"A websocket upgrade: each socket is one TCP connection to the port in one replica; binary frames are the bytes " +
+			"both ways, a text frame {\"type\":\"eof\"} half-closes the client's side. The port reached comes back in the " +
+			"X-Stackr-Port response header.")
 }
 
 // Terminal is an interactive shell in one replica over a websocket
@@ -248,5 +253,7 @@ func (h *H) Terminal() Endpoint {
 			finish()
 		}
 		return nil
-	}).Q("container", "shell")
+	}).Q("container", "shell").Describe(
+		"A websocket upgrade: binary frames are the terminal's bytes both ways; a text frame " +
+			"{\"type\":\"resize\",\"cols\":n,\"rows\":n} resizes it, and the last frame out is text {\"type\":\"exit\",\"code\":n}.")
 }

@@ -4,16 +4,72 @@ package cliconfig
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
-// Config is the one file the CLI keeps, 0600.
+// Default names the profile a file without profiles holds.
+const Default = "default"
+
+// Config is the one file the CLI keeps, 0600. Server, Key, KeyID and Org are
+// the current profile's; the others wait in Profiles.
 type Config struct {
 	Server string          `json:"server"`
 	Key    string          `json:"key"`
+	KeyID  string          `json:"key_id,omitempty"` // the key a browser login minted: logout revokes it
 	Org    string          `json:"org"`
 	Links  map[string]Link `json:"links,omitempty"` // directory -> link
+
+	Profile  string             `json:"profile,omitempty"` // the current profile's name; "" is Default
+	Profiles map[string]Profile `json:"profiles,omitempty"`
+}
+
+// Profile is a server login that is not the current one.
+type Profile struct {
+	Server string `json:"server"`
+	Key    string `json:"key"`
+	KeyID  string `json:"key_id,omitempty"`
+	Org    string `json:"org"`
+}
+
+// Name is the current profile's name.
+func (c Config) Name() string {
+	if c.Profile == "" {
+		return Default
+	}
+	return c.Profile
+}
+
+// Use returns c with profile name current and the old current stashed. A
+// profile that does not exist comes back empty when create is set, else
+// ok is false.
+func (c Config) Use(name string, create bool) (Config, bool) {
+	if name == "" || name == c.Name() {
+		return c, true
+	}
+	p, ok := c.Profiles[name]
+	if !ok && !create {
+		return c, false
+	}
+	m := maps.Clone(c.Profiles)
+	if m == nil {
+		m = map[string]Profile{}
+	}
+	m[c.Name()] = Profile{c.Server, c.Key, c.KeyID, c.Org}
+	delete(m, name)
+	c.Server, c.Key, c.KeyID, c.Org = p.Server, p.Key, p.KeyID, p.Org
+	c.Profile, c.Profiles = name, m
+	if name == Default {
+		c.Profile = ""
+	}
+	return c, true
+}
+
+// Names are every profile's name, current first.
+func (c Config) Names() []string {
+	return append([]string{c.Name()}, slices.Sorted(maps.Keys(c.Profiles))...)
 }
 
 type Link struct {

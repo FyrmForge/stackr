@@ -42,7 +42,7 @@ func TestInstallReturnsWhereItBegan(t *testing.T) {
 	if got := s.As(t, root, "GET", back+"?state="+url.QueryEscape(bad), nil).Header().Get("Location"); got != "/-/admin/connectors" {
 		t.Errorf("return with a forged state = %q", got)
 	}
-	if got := s.As(t, root, "GET", "/settings/github/callback?state=nope.nope&code=c", nil).Header().Get("Location"); got != "/" {
-		t.Errorf("a stray callback on the registered path = %q, want a refusal home", got)
+	if got := s.As(t, root, "GET", "/settings/github/callback?state=nope.nope&code=c", nil).Header().Get("Location"); got != "/-/admin/connectors" {
+		t.Errorf("a stray callback on the registered path = %q, want a refusal on Connectors", got)
 	}
 }

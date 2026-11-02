@@ -260,7 +260,7 @@ func TestAccountKeyLogin(t *testing.T) {
 	env.Member(t, env.Org(t, "beta"), u, "viewer")
 	t.Setenv("STACKR_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 
-	if code, _, errw := cli(t, "login", ts.URL, "--with-key", env.APIKey(t, u, "")); code != 2 || !strings.Contains(errw, "which org") {
+	if code, out, errw := cli(t, "login", ts.URL, "--with-key", env.APIKey(t, u, "")); code != 0 || !strings.Contains(out, "which org") {
 		t.Fatalf("login with two orgs = %d %s", code, errw)
 	}
 	for _, slug := range []string{"acme", "beta"} {
@@ -399,6 +399,14 @@ func TestDomainResourceRoutes(t *testing.T) {
 		},
 		{
 			"add --level stack --owner acme/shop --host shop.io",
+			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
+		},
+		{
+			"add --host acme.io",
+			"POST " + org + `/domain-resources {"acme_email":"","host":"acme.io","include_env_on_default":false}`,
+		},
+		{
+			"add --owner acme/shop --host shop.io",
 			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
 		},
 		{
@@ -1088,13 +1096,21 @@ func TestEnvAuthenticatesWithoutConfig(t *testing.T) {
 	}
 }
 
-// job ls asks for the newest 20 unless told; env create leaves --from-kind
+// job ls asks for the org's newest 20 unless told; --stack and --env narrow
+// it, --admin lists every org's; env create leaves --from-kind
 // to the server (branch for the first env, promote after) and asks nothing.
 func TestListAndCreateDefaults(t *testing.T) {
 	r := fake(t, nil)
 	cli(t, "job", "ls")
 	cli(t, "job", "ls", "--limit", "0", "--state", "failed")
-	want := []string{"GET /api/v1/admin/jobs?limit=20 ", "GET /api/v1/admin/jobs?limit=0&state=failed "}
+	cli(t, "job", "ls", "--stack", "shop")
+	cli(t, "job", "ls", "--stack", "shop", "--env", "dev")
+	cli(t, "job", "ls", "--admin")
+	want := []string{
+		"GET /api/v1/orgs/acme/jobs?limit=20 ", "GET /api/v1/orgs/acme/jobs?limit=0&state=failed ",
+		"GET /api/v1/orgs/acme/stacks/shop/jobs?limit=20 ", "GET /api/v1/orgs/acme/stacks/shop/envs/dev/jobs?limit=20 ",
+		"GET /api/v1/admin/jobs?limit=20 ",
+	}
 	if !slices.Equal(r.reqs, want) {
 		t.Errorf("job ls sent %q, want %q", r.reqs, want)
 	}
@@ -1108,7 +1124,7 @@ func TestListAndCreateDefaults(t *testing.T) {
 // A multi-line job error (psql output) keeps job ls one row per job; the
 // whole error is job get's.
 func TestJobLsErrorFirstLine(t *testing.T) {
-	fake(t, map[string]string{"/admin/jobs": `[{"id":"j1","state":"failed","error":"  seed failed\npsql: ERROR: boom\n"}]`})
+	fake(t, map[string]string{"/orgs/acme/jobs": `[{"id":"j1","state":"failed","error":"  seed failed\npsql: ERROR: boom\n"}]`})
 	_, out, _ := cli(t, "job", "ls")
 	if strings.Count(out, "\n") != 1 || !strings.Contains(out, "\tseed failed\t") {
 		t.Errorf("job ls = %q, want one row with the first error line", out)
@@ -1274,7 +1290,7 @@ func TestParamsRmNamesRedeploys(t *testing.T) {
 func TestBlankNameError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_, _ = io.WriteString(w, `{"error":"name: Give the stack a name."}`)
+		_, _ = io.WriteString(w, `{"error":"name: Give the stack a name.","field":"name"}`)
 	}))
 	t.Cleanup(srv.Close)
 	useServer(t, srv.URL)

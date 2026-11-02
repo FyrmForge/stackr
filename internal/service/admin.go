@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -68,6 +69,11 @@ func (o *Orchestrator) SetPassword(ctx context.Context, userID, next string) err
 // ceiling (viewer|member|owner|admin) and stack an optional stack slug in the
 // org; the ceiling may not exceed the minter's role. The token is shown once.
 func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, level, stack string) (string, APIKey, error) {
+	return o.MintKeyUntil(ctx, by, orgID, name, level, stack, nil)
+}
+
+// MintKeyUntil is MintKey for a key that stops working at expires (nil = never).
+func (o *Orchestrator) MintKeyUntil(ctx context.Context, by *Principal, orgID, name, level, stack string, expires *time.Time) (string, APIKey, error) {
 	// a stack key mints nothing; a capped key cannot mint past its own
 	// ceiling (no level = no ceiling)
 	if acc := by.Access; orgID == "" && (!acc.Admin || acc.KeyOrg != "") {
@@ -79,13 +85,13 @@ func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, 
 			return "", APIKey{}, errs.Refusedf("a key cannot mint above its own level")
 		}
 	}
-	return o.mintKey(ctx, by.User.ID, by.KeyID, orgID, name, level, stack)
+	return o.mintKey(ctx, by.User.ID, by.KeyID, orgID, name, level, stack, expires)
 }
 
 // mintKey is the one place a key is made (the CLI browser exchange too); keyID
 // is the key behind the request, "" for a session or an exchange. The key row
 // and its audit event commit together.
-func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, level, stack string) (string, APIKey, error) {
+func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, level, stack string, expires *time.Time) (string, APIKey, error) {
 	u, err := o.users.Get(ctx, userID)
 	if err != nil {
 		return "", APIKey{}, err
@@ -117,7 +123,7 @@ func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, 
 	var tok string
 	var k APIKey
 	err = o.store.Tx(ctx, func(tx store.Tx) (err error) {
-		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).MintKey(ctx, u, orgID, role, name, level, stackID); err != nil {
+		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).MintKeyUntil(ctx, u, orgID, role, name, level, stackID, expires); err != nil {
 			return err
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
@@ -144,6 +150,81 @@ func (o *Orchestrator) Keys(ctx context.Context, userID string) ([]APIKey, error
 		}
 	}
 	return ks, err
+}
+
+// RotateKey gives one of the caller's keys a new secret, shown once: the id,
+// scope, level and expiry stay, the old secret stops working. A capped or
+// stack key may rotate only itself.
+func (o *Orchestrator) RotateKey(ctx context.Context, by *Principal, keyID string) (string, APIKey, error) {
+	if (by.Access.KeyCapped || by.Access.KeyStack != "") && keyID != by.KeyID {
+		return "", APIKey{}, errs.Refusedf("a limited key can rotate only itself")
+	}
+	var tok string
+	var k APIKey
+	err := o.store.Tx(ctx, func(tx store.Tx) (err error) {
+		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).RotateKey(ctx, by.User.ID, keyID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyRotate, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "api_key", TargetID: keyID,
+		})
+	})
+	if err != nil {
+		return "", APIKey{}, err
+	}
+	return tok, k, o.fillKeyStacks(ctx, []APIKey{k})
+}
+
+// OrgKeys lists every key bound to the org, whoever minted it: an org owner
+// sees and can revoke them. AllKeys lists every key on the server (admin).
+func (o *Orchestrator) OrgKeys(ctx context.Context, orgID string) ([]APIKey, error) {
+	ks, err := user.New(o.store.Users, o.store.Sessions, o.store.APIKeys).OrgKeys(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return ks, o.fillKeyStacks(ctx, ks)
+}
+
+func (o *Orchestrator) AllKeys(ctx context.Context) ([]APIKey, error) {
+	ks, err := user.New(o.store.Users, o.store.Sessions, o.store.APIKeys).AllKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return ks, o.fillKeyStacks(ctx, ks)
+}
+
+func (o *Orchestrator) fillKeyStacks(ctx context.Context, ks []APIKey) error {
+	for i := range ks {
+		if ks[i].StackID == nil {
+			continue
+		}
+		if st, err := o.stacks.Get(ctx, *ks[i].StackID); err == nil {
+			ks[i].Stack = st.Slug
+		}
+	}
+	return nil
+}
+
+// RevokeOrgKey deletes a key bound to the org, whoever owns it; a key of
+// another org is not found. orgID "" is the admin's: any key.
+func (o *Orchestrator) RevokeOrgKey(ctx context.Context, by *Principal, orgID, keyID string) error {
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
+		k, err := l.KeyOf(ctx, keyID)
+		if err != nil {
+			return err
+		}
+		if orgID != "" && (k.OrgID == nil || *k.OrgID != orgID) {
+			return errs.ErrNotFound
+		}
+		if err := l.DeleteKey(ctx, keyID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyRevoke, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "api_key", TargetID: keyID,
+			Detail: "owner=" + k.UserID,
+		})
+	})
 }
 
 // RevokeKey deletes one of the caller's keys; a capped or stack key may
@@ -330,6 +411,9 @@ func (o *Orchestrator) checkSetting(ctx context.Context, vals map[string]string,
 		if err := o.checkPanelRoutes(ctx, host); err != nil {
 			return err
 		}
+		if err := o.checkPanelResolves(ctx, host); err != nil {
+			return err
+		}
 	}
 	if key == "root_domain" {
 		if err := o.checkRootDomain(ctx, raw); err != nil {
@@ -483,30 +567,106 @@ func (o *Orchestrator) Upgrade(ctx context.Context, tag string) (Job, error) {
 // ponytail: one controller process, so a process lock is enough.
 var upgradeEnqueue sync.Mutex
 
-// upgradeSwapping: an upgrade helper runs on the controller. It runs from
-// the old panel's launch through the new panel's trial, then exits: on a pass
-// the new panel stays, on a fail the old one is back. The job queue starts
-// nothing meanwhile (jobs.Options.Hold), since the old panel's jobs die with
-// it and a rollback restores the database under the new panel's jobs.
-// A Docker error reads not swapping: jobs need Docker anyway.
-// ponytail: a helper stuck running holds the queue until it exits (its gate
-// is bounded by panel.Leaf.Deadline); add a cap if one ever hangs.
-func (o *Orchestrator) upgradeSwapping() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// UpgradeHeld: an upgrade helper runs on the controller. It runs from the
+// old panel's launch through the new panel's trial, then exits: on a pass
+// the new panel stays, on a fail the old one is back. Meanwhile the job
+// queue starts nothing (jobs.Options.Hold), since the old panel's jobs die
+// with it and a rollback restores the database under the new panel's jobs,
+// and the panel and API refuse changes for the same reason. A flag, never a
+// Docker call: set when this panel launches the helper or finds one running
+// at boot, cleared when it exits (watchUpgrader).
+func (o *Orchestrator) UpgradeHeld() bool { return o.upgrading.Load() }
+
+// How long a hold lasts at most, and how often watchUpgrader asks again
+// after a Docker error. The helper's gate is bounded by panel.Leaf.Deadline.
+var upgradeHoldCap, upgradeRetry = 15 * time.Minute, 2 * time.Second
+
+// runningUpgrader is the upgrade helper running on the controller; "" = none.
+func (o *Orchestrator) runningUpgrader(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	ctx, err := o.withController(ctx)
-	if err != nil {
-		return false
-	}
 	cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
-	return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" })
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(cs, func(c docker.Container) bool { return c.State == "running" }); i >= 0 {
+		return cs[i].ID, nil
+	}
+	return "", nil
+}
+
+// bootUpgradeHold is the boot's one Docker check: a helper running means
+// this panel is on trial (or back after a rollback), so it holds until the
+// helper exits. A Docker error holds too, and watchUpgrader asks again: a
+// change let through mid-trial could be lost. No controller row: no helper.
+func (o *Orchestrator) bootUpgradeHold(ctx context.Context) {
+	cctx, err := o.withController(ctx)
+	if err != nil {
+		return
+	}
+	if id, err := o.runningUpgrader(cctx); err == nil && id == "" {
+		return
+	}
+	o.holdUpgrade()
+}
+
+// holdUpgrade sets the hold and watches the helper until it exits.
+func (o *Orchestrator) holdUpgrade() {
+	o.upgrading.Store(true)
+	o.detach(context.Background(), o.watchUpgrader)
+}
+
+// watchUpgrader waits on the running helper and clears the hold once none
+// runs. A Docker error keeps the hold and asks again; after upgradeHoldCap
+// the hold ends anyway, with a warning, so a stuck helper never freezes the
+// panel for good.
+func (o *Orchestrator) watchUpgrader(ctx context.Context) {
+	defer func() {
+		o.upgrading.Store(false)
+		if o.jobs != nil {
+			o.jobs.Wake()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, upgradeHoldCap)
+	defer cancel()
+	for {
+		cctx, err := o.withController(ctx)
+		id := ""
+		if err == nil {
+			id, err = o.runningUpgrader(cctx)
+		}
+		if err == nil && id == "" {
+			return
+		}
+		if err == nil {
+			if _, err = o.docker.Wait(cctx, id); err == nil {
+				continue // exited: make sure no other one runs
+			}
+		}
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				slog.Warn("upgrade: hold released without seeing the helper exit", "err", err)
+			}
+			return
+		case <-time.After(upgradeRetry):
+		}
+	}
+}
+
+// upgradeLanded: j is an upgrade to the build running now. Its row was
+// still running when the helper stopped the old panel; it succeeded.
+func (o *Orchestrator) upgradeLanded(j store.Job) bool {
+	var p upgradeJob
+	return j.Kind == string(kindUpgrade) && json.Unmarshal([]byte(j.Payload), &p) == nil &&
+		p.Tag != "" && strings.TrimPrefix(p.Tag, "v") == strings.TrimPrefix(o.cfg.Version, "v")
 }
 
 // UpgradeUnderway: an upgrade job is queued or running, or its helper is
 // still swapping the panel. The Update tab keeps itself live through the
 // restart on it, and offers no buttons.
 func (o *Orchestrator) UpgradeUnderway(ctx context.Context) bool {
-	if o.upgradeSwapping() {
+	if o.UpgradeHeld() {
 		return true
 	}
 	js, err := o.store.Jobs.ListByState(ctx, "queued", "running")

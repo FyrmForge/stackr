@@ -152,6 +152,8 @@ type AddNodeView struct {
 	TwoStep string // "" = not needed
 	Expires string
 	Poll    string // GET, 204 until the node has called in
+	// Expired: the join command ran out; polling stops.
+	Expired bool
 	// Step 3
 	Pending *PendingRow
 	// Target is what the steps' answers replace; "" = the drawer (the
@@ -558,7 +560,7 @@ templ addSteps(step int) {
 
 // AddNode is the add-node dialog's body: the three steps on the join API.
 templ AddNode(v AddNodeView) {
-	<div id="add-node" class="panel px-4 py-4 mb-4 space-y-4" if v.Step == 2 { hx-get={ v.Poll } hx-trigger="every 3s" hx-target="#add-node" hx-swap="outerHTML" }>
+	<div id="add-node" class="panel px-4 py-4 mb-4 space-y-4" if v.Step == 2 && !v.Expired { hx-get={ v.Poll } hx-trigger="every 3s" hx-target="#add-node" hx-swap="outerHTML" }>
 		<h3 class="text-sm font-semibold text-rw-text">Add a node</h3>
 		@addSteps(v.Step)
 		if v.Error != "" {
@@ -589,10 +591,15 @@ templ AddNode(v AddNodeView) {
 					</div>
 				</form>
 			case 2:
+				if v.Expired {
+					<p class="text-sm text-rw-muted" role="alert">The join command for { v.Name } expired. Start again for a new one.</p>
+					<button type="button" hx-get={ v.Cancel } hx-target={ v.target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Close</button>
+				} else {
 				<p class="text-sm text-rw-muted">Run this on the new machine as root. It works once and expires { v.Expires }.</p>
 				@joinCommand(v.Command, v.TwoStep)
 				<p class="text-sm text-rw-muted" aria-live="polite">Waiting for { v.Name } to call in…</p>
 				<button type="button" hx-get={ v.Cancel } hx-target={ v.target() } hx-swap="outerHTML" class="btn btn-ghost btn-sm">Cancel</button>
+				}
 			case 3:
 				if v.Pending != nil {
 					<p class="text-sm text-rw-muted">{ v.Pending.Name } called in. Check it is the machine you expect.</p>

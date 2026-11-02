@@ -74,6 +74,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	site.Use(deps.Access.LoadSession())
 	site.Use(render.Theme)
+	// Changes wait out an upgrade's trial; signing in and out go through.
+	site.Use(middleware.UpgradeHold(deps.Orch.UpgradeHeld, "/login", "/logout", "/cli/authorize"))
 	site.Use(render.Waiting(deps.Orch))
 	site.Use(render.NodeDown(deps.Orch))
 	site.Use(render.DrawerTab)

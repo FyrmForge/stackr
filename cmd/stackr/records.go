@@ -116,7 +116,7 @@ func (a *app) dnsRecords(op func(string) string, base func(c *cobra.Command) (st
 }
 
 var (
-	managedDomainCols       = []string{"name", "scope_text", "via", "orgs", "records"}
+	managedDomainCols = []string{"name", "scope_text", "via", "orgs", "records"}
 	managedRecordCols = []string{"name", "type", "value", "whose_text", "host", "drift"}
 )
 

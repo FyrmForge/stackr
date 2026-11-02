@@ -33,6 +33,17 @@ The archive is encrypted to the recovery key. The installer shows it once, and t
 
 To change the key, use Rotate the key in Admin, Backups. It asks for your password and shows the new key once. Older archives still need the key they were made with. The archive's name says which: `...-panel-g2.tar.gz.age` needs generation 2.
 
+### What the archive holds
+
+The database, the master key, the cluster and controller keys and the proxy certificates. It leaves out on purpose:
+
+- `install.json`: a restore starts from an install on the new box, with that box's own answers (addresses, bridge subnet).
+- Registry images: a tile that builds from its repo is built again when the restored panel redeploys it. An image you pushed to the registry yourself has to be pushed again.
+- Job logs, metrics and logs: history, not state. They start empty.
+- Local backups: they are volume data on the old disk. Use an S3 destination for anything that has to outlive the box.
+
+The recovery key is never in the archive; keep it off the box.
+
 ### Restore the panel
 
 1. On a new box, install first with the same flags as the old one (see [Install](install.md)). Restore needs that install's answers.
@@ -56,7 +67,7 @@ The recovery key can also come on stdin with `--key-stdin`, or at the prompt in 
 
 After a restore the key you restored with stays the box's recovery key, so it opens every new backup too. The key the fresh install printed is dropped. A box that rotated its key after the archive was made keeps its newer one, and restore says so. Restore also brings back the old install's id, so new backups land under the same `_panel/<install id>/` prefix and old scheduled ones keep being pruned. It removes a leftover `master.key.next`.
 
-The old database is kept as `stackr.db.before-restore-<time>`. Workers reconnect by themselves and keep their tiles running.
+The old database is kept as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
 
 On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, managed databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
 

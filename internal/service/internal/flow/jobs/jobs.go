@@ -92,6 +92,10 @@ type Options struct {
 	// swapping the panel, and a job started now dies with the old panel or
 	// outlives a rollback of the new one's database. nil = never.
 	Hold func() bool
+	// Survived reports a job still running at boot that the restart itself
+	// completed (the upgrade that swapped this panel in): it is finished
+	// done, not failed. nil = none.
+	Survived func(j store.Job) bool
 	// Ended runs after a job's row is finished for good (any end but a
 	// park), whether or not its handler ran: a job cancelled or superseded
 	// while queued or waiting still lets go of what it holds. Called with
@@ -187,7 +191,11 @@ func (r *Runner) Start(ctx context.Context) error {
 		return err
 	}
 	for _, j := range stale {
-		if err := r.jobs.Finish(ctx, j, job.Failed, "stackrd restarted while this job ran; run it again"); err != nil {
+		state, reason := job.Failed, "stackrd restarted while this job ran; run it again"
+		if r.opt.Survived != nil && r.opt.Survived(j) {
+			state, reason = job.Done, ""
+		}
+		if err := r.jobs.Finish(ctx, j, state, reason); err != nil {
 			return err
 		}
 		r.ended(j)
@@ -198,6 +206,9 @@ func (r *Runner) Start(ctx context.Context) error {
 	go r.loop(loop)
 	return nil
 }
+
+// Wake runs a pass now: a hold ended.
+func (r *Runner) Wake() { r.poke() }
 
 // Close stops picking jobs, cancels the running ones and waits for them.
 func (r *Runner) Close() {

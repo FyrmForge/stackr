@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 // TilePatch is every field a caller may edit. A field left out stays as
@@ -84,7 +85,7 @@ type (
 		Log string `json:"log"`
 	}
 	RunStarted struct {
-		Job *service.Job `json:"job"` // nil: refused, the last run is still going
+		Job *service.Job `json:"job"`
 		Run service.Run  `json:"run"`
 	}
 	PauseIn struct {
@@ -298,12 +299,11 @@ func (h *H) Logs() Endpoint {
 func (h *H) RunTile() Endpoint {
 	return JSON(202, func(c echo.Context, _ None) (RunStarted, error) {
 		j, r, err := h.Orch.RunTile(rc(c), tileID(c))
-		out := RunStarted{Run: r}
-		if j.ID != "" {
-			out.Job = &j
+		if err == nil && j.ID == "" { // the tile's last run is still going: nothing was queued
+			return RunStarted{}, errs.Conflictf("the last run of this tile is still going")
 		}
-		return out, err
-	})
+		return RunStarted{Run: r, Job: &j}, err
+	}).Idempotent()
 }
 
 func (h *H) PauseTile() Endpoint {

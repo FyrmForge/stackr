@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -333,6 +334,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			archive, err := o.upgrade.Upgrade(ctx, p.Tag, r.Log)
 			if err == nil {
+				o.holdUpgrade() // the helper runs: hold until it exits
 				// The local destination is <data>/backups; the key is the path under it.
 				_, _ = fmt.Fprintf(r.Log, "pre-upgrade archive %s; the helper swaps the panel now\n"+
 					"way back if the new panel misbehaves, on the host: stackr-install restore %s\n",
@@ -398,7 +400,8 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 	if err != nil {
 		return Job{}, err
 	}
-	return o.jobs.Enqueue(ctx, kind, lock, string(o.withOrg(ctx, b)), nil)
+	j, err := o.jobs.Enqueue(ctx, kind, lock, string(o.withOrg(ctx, b)), nil)
+	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind="+string(kind))
 }
 
 // enqueuePromote locks the env and every tile it runs now.
@@ -415,7 +418,8 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 		lock = append(lock, t.ID)
 	}
 	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked, MayPlace: mayPlace})
-	return o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
+	j, err := o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
+	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind=promote release="+releaseID)
 }
 
 // onTile runs f on the tile's node.
@@ -762,7 +766,7 @@ func (o *Orchestrator) annotate(ctx context.Context, js []Job) ([]Job, error) {
 			return js, err
 		}
 	}
-	held := o.upgradeSwapping()
+	held := o.UpgradeHeld()
 	for i := range js {
 		js[i].Waits = job.Waits(js[i], live, held)
 		js[i].Line = jobLine(js[i])
@@ -793,6 +797,37 @@ func (o *Orchestrator) Jobs(ctx context.Context, limit int, states ...string) ([
 		return nil, err
 	}
 	return o.annotate(ctx, js)
+}
+
+// ScopeJobs lists the jobs of one org, narrowed to a stack and an env when
+// given (ids), newest first, at most limit (0 = no cap). The org and stack
+// are read off the payload stamped at enqueue; an env is placed by its
+// tile, env or volume id.
+// ponytail: scans every job row of the states; a SQL filter on the payload
+// when an install holds enough jobs to feel it.
+func (o *Orchestrator) ScopeJobs(ctx context.Context, orgID, stackID, envID string, limit int, states ...string) ([]Job, error) {
+	all, err := o.jobRows.Recent(ctx, 0, states...)
+	if err != nil {
+		return nil, err
+	}
+	var out []Job
+	for _, j := range all {
+		var p map[string]any
+		_ = json.Unmarshal([]byte(j.Payload), &p)
+		if s, _ := p["org_id"].(string); s != orgID {
+			continue
+		}
+		if s, _ := p["stack_id"].(string); stackID != "" && s != stackID {
+			continue
+		}
+		if envID != "" && o.jobEnv(ctx, p) != envID {
+			continue
+		}
+		if out = append(out, j); limit > 0 && len(out) == limit {
+			break
+		}
+	}
+	return o.annotate(ctx, out)
 }
 
 // TileJobs is the newest jobs touching the tiles, newest first.

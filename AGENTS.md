@@ -650,9 +650,12 @@ and `serverconfig_apply.go`.
   domain resource (`SetSettings`); the old hosts stay as generated redirects
   (`Auto && RedirectTo != ""`). The panel host is `panel_domain`, never
   `BASE_URL`.
-- **Exports are sensitive.** Secrets are named, never written, but
-  `defaults.protect_password` is exported as stored; keep the file out of a
-  public repo.
+- **Exports are sensitive.** Secrets are named, never written. A credential
+  field in a file (`defaults.protect_password`, `proxy.basic_auth.password`,
+  the `heartbeat_url` and `alert_webhook_url` settings) must be a `${{ }}`
+  ref; a literal is refused at parse. An export drops a stored literal
+  instead of writing it, and the stack export swaps a secret-looking env or
+  build arg value for a `params` ref and warns to create the param.
 - Migrations: 005 (server connectors, server plans) and 006 (server params)
   are applied on dev boxes and frozen; the next one is 007.
 - Generated files stay generated: `go run ./cmd/stackrd --dump-openapi >
@@ -662,9 +665,12 @@ and `serverconfig_apply.go`.
 
 - `DATA_DIR` — database, job logs and other state (default `./data`)
 - `DATABASE_PATH` — overrides `$DATA_DIR/stackr.db`
-- `STACKR_MASTER_KEY` — 64 hex chars, encrypts secrets at rest. Required;
-  stackrd refuses to start without it and never generates one (the
-  installer writes it). Dev: `openssl rand -hex 32` into `.env`.
+- `STACKR_MASTER_KEY` — 64 hex chars, encrypts secrets at rest. Unset,
+  stackrd reads `$DATA_DIR/keys/master.key` (the installer writes it) and
+  refuses to start with neither. It never generates one. Dev: `openssl rand
+  -hex 32` into `.env`.
+- `.env` is read only by source builds (hamr dev, make build). The release
+  image is built with `-tags release` and reads the environment alone.
 
 ## Code Style
 

@@ -66,6 +66,9 @@ templ grid(v View) {
 			<span class="flex items-center gap-1.5"><span class="text-rw-warn">@lockIcon(true)</span> locked, read from inside only</span>
 			<span class="flex items-center gap-1.5"><span class="inline-block h-3 w-6 rounded border border-dashed border-rw-border"></span> unset</span>
 		</div>
+		if !v.Grid.ReadOnly {
+			<p class="text-xs text-rw-faint" data-hint>Saving or unsetting a value redeploys the running tiles that read it.</p>
+		}
 		if len(v.Grid.Groups) == 0 {
 			<p class="text-sm text-rw-faint">Nothing here yet.</p>
 		}

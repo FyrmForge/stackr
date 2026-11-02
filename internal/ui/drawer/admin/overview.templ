@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -143,7 +144,24 @@ templ Domains(v DomainsView) {
 // Knobs is a section of plain server knobs: one settings form, its Save.
 // title "" = the section heading names it already.
 templ Knobs(title string, v c.SettingsFormView) {
-	@c.Section(title, "instance", "") {
+	@KnobsDesc(title, "", v)
+}
+
+// KnobsDesc is Knobs with a line under the title.
+templ KnobsDesc(title, desc string, v c.SettingsFormView) {
+	@c.Section(title, "instance", desc) {
 		@c.SettingsForm(v)
 	}
+}
+
+// HostMoves is the hosts a save renames, old to new; more counts the rest.
+templ HostMoves(pairs [][2]string, more int) {
+	<ul class="modal-list">
+		for _, p := range pairs {
+			<li class="modal-list-row font-mono text-xs text-rw-text">{ p[0] } to { p[1] }</li>
+		}
+		if more > 0 {
+			<li class="modal-list-row text-xs text-rw-muted">and { fmt.Sprint(more) } more</li>
+		}
+	</ul>
 }

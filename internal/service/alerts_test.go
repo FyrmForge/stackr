@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
@@ -498,5 +499,31 @@ func TestHeartbeatPingsOnSchedule(t *testing.T) {
 	}
 	if err := o.SetHeartbeat(ctx, "ftp://x"); err == nil {
 		t.Error("a non-http URL was accepted")
+	}
+}
+
+// An invalid config file opens a problem and alerts once; a plan that
+// parses again clears it, and waiting changes read as a drift problem.
+func TestConfigStateAlertsOnce(t *testing.T) {
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	h := newHook(t)
+	alertsTo(t, o, h, "")
+	for range 3 {
+		o.configState(ctx, "server", "The server config file", orgplan.Error, "bad key", "")
+	}
+	if !o.hasProblem(ctx, "alert.config.invalid.server") {
+		t.Error("no invalid problem")
+	}
+	if got := h.events(t, o); len(got) != 1 || got[0] != AlertConfigBad+":"+SevWarning {
+		t.Errorf("events = %v", got)
+	}
+	o.configState(ctx, "server", "The server config file", orgplan.Pending, "", "2 changes")
+	if o.hasProblem(ctx, "alert.config.invalid.server") || !o.hasProblem(ctx, "alert.config.drift.server") {
+		t.Error("pending should swap invalid for drift")
+	}
+	o.configState(ctx, "server", "The server config file", orgplan.Clean, "", "")
+	if o.hasProblem(ctx, "alert.config.drift.server") {
+		t.Error("clean left the drift problem")
 	}
 }

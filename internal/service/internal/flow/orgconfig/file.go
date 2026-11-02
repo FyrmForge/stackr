@@ -195,7 +195,7 @@ type StackRef struct {
 	Repo      string `yaml:"repo,omitempty"`
 	Branch    string `yaml:"branch,omitempty"`
 	Path      string `yaml:"path,omitempty"`
-	Connector string `yaml:"connector,omitempty"` // a connector id; "" = the org's connector for the repo's host
+	Connector string `yaml:"connector,omitempty"` // a connector name; "" = the org's connector for the repo's host
 }
 
 // UnmarshalYAML refuses every key but the four: anything else is v0's
@@ -234,9 +234,36 @@ func (f *File) RepoURLs(spell func(string) string) {
 	}
 }
 
+// ConnectorID is the id of the connector the file names: the org's own by
+// name first, then a shared server one. A name nothing matches comes back
+// as written, and the plan blocks it.
+func ConnectorID(conns []store.Connector, name string) string {
+	if name == "" {
+		return ""
+	}
+	for _, own := range []bool{true, false} {
+		for _, c := range conns {
+			if c.Name == name && (c.OrgID != nil) == own {
+				return c.ID
+			}
+		}
+	}
+	return name
+}
+
+// ConnectorName is the name of the connector with that id, "" when none.
+func ConnectorName(conns []store.Connector, id string) string {
+	for _, c := range conns {
+		if c.ID == id {
+			return c.Name
+		}
+	}
+	return ""
+}
+
 // Binding is what the stack's config repo columns should hold. A path-alone
 // entry is a file in the org repo, so it takes the org's binding.
-func (r StackRef) Binding(org store.Org) Binding {
+func (r StackRef) Binding(org store.Org, conns []store.Connector) Binding {
 	if r.Repo == "" {
 		return Binding{
 			ConnectorID: org.ConfigConnectorID,
@@ -246,7 +273,7 @@ func (r StackRef) Binding(org store.Org) Binding {
 		}
 	}
 	return Binding{
-		ConnectorID: r.Connector,
+		ConnectorID: ConnectorID(conns, r.Connector),
 		Repo:        strings.TrimSpace(r.Repo),
 		Branch:      r.Branch,
 		Path:        r.Path,
@@ -331,6 +358,14 @@ func Parse(data []byte) (*File, error) {
 	for sl, sh := range f.Shares {
 		if err := params.RefuseServerRefs(params.InEnv, sh.User, sh.Password); err != nil {
 			return nil, fmt.Errorf("shares.%s: %w", sl, err)
+		}
+		if err := planfile.CheckSecretRef("shares."+sl+".password", sh.Password); err != nil {
+			return nil, err
+		}
+	}
+	if f.Defaults != nil {
+		if err := f.Defaults.CheckProtect(); err != nil {
+			return nil, fmt.Errorf("defaults: %w", err)
 		}
 	}
 	if f.Defaults != nil && (f.Defaults.ProtectUser == nil) != (f.Defaults.ProtectPassword == nil) {

@@ -11,7 +11,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -95,9 +94,7 @@ func TestCancelledSeedDropsDump(t *testing.T) {
 	env := servicetest.New(t)
 	tl := env.Tile(t, env.Org(t, "acme"))
 	// a running upgrade helper holds the queue: the seed stays queued
-	env.Docker.Containers = append(env.Docker.Containers, docker.Container{
-		ID: "up", State: "running", Labels: map[string]string{"stackr.role": "upgrader"},
-	})
+	env.Orch.SetUpgradeHeld(true)
 	_, j, err := env.Orch.CreateManagedTileFromDump(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", "",
 		strings.NewReader("PGDMP"))
 	if err != nil {

@@ -92,6 +92,7 @@ func (o *Orchestrator) BindServerConfig(
 	repo = o.repoURL(ctx, repo)
 	if repo == "" {
 		connectorID, branch, path, auto = "", "", "", false
+		o.clearConfig(ctx, "server")
 	} else if _, err := o.conns.Server(ctx, connectorID); err != nil {
 		return ServerBinding{}, err // an org's connector, or none, is not there
 	}
@@ -136,6 +137,9 @@ func (o *Orchestrator) PreviewServerConfig(ctx context.Context, file []byte) (Se
 // a repo is bound. A file that does not parse is refused, not stored: the
 // sender has it in hand.
 func (o *Orchestrator) PlanServerFile(ctx context.Context, file []byte) (ServerPlan, error) {
+	if err := o.seedDestParams(ctx); err != nil { // the file refers to them
+		return ServerPlan{}, err
+	}
 	f, err := o.parseServerFile(ctx, file)
 	if err != nil {
 		return ServerPlan{}, errs.Invalidf("file", "%s", err.Error())
@@ -224,7 +228,11 @@ func (o *Orchestrator) serverApplyLocks(ctx context.Context, pl ServerPlan) ([]s
 
 // RejectServerPlan ends a pending plan nobody approved.
 func (o *Orchestrator) RejectServerPlan(ctx context.Context, id string) (ServerPlan, error) {
-	return o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	pl, err := o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	if err == nil {
+		o.clearConfigDrift(ctx, "server")
+	}
+	return pl, err
 }
 
 // queueServerPlan queues a plan of the server file when a push lands on the
@@ -248,13 +256,9 @@ func (o *Orchestrator) queueServerPlan(
 }
 
 // ExportServerConfig writes the live server as a stackr-server.yml. A backup
-// destination's keys are written as server param refs, so it first stores
-// the keys of every destination that has no such param yet (an existing
-// param is never overwritten); then the export plans clean on this server.
+// destination's keys are written as server param refs. It only reads: the
+// params those refs name are stored when the file is planned (seedDestParams).
 func (o *Orchestrator) ExportServerConfig(ctx context.Context) ([]byte, error) {
-	if err := o.seedDestParams(ctx); err != nil {
-		return nil, err
-	}
 	live, err := o.serverLive(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -279,6 +283,9 @@ func (o *Orchestrator) runServerApply(ctx context.Context, r *jobs.Run, p server
 		return errors.Join(err, serr)
 	}
 	_, err = o.serverPlans.SetStatus(done, p.PlanID, orgplan.Applied)
+	if err == nil {
+		o.clearConfigDrift(done, "server")
+	}
 	return err
 }
 
@@ -300,6 +307,9 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 	if b.Repo == "" {
 		return ServerPlan{}, errs.Conflictf("The server has no config repo; bind one first.")
 	}
+	if err := o.seedDestParams(ctx); err != nil { // the file refers to them
+		return ServerPlan{}, err
+	}
 	data, sha, err := o.serverFile(ctx, "", log)
 	var f *serverconfig.File
 	if err == nil {
@@ -307,6 +317,7 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "server config: %v\n", err)
+		o.configState(ctx, "server", "The server config file", orgplan.Error, err.Error(), "")
 		return o.createServerPlan(ctx, ServerPlan{
 			Source:  sourceRepo,
 			Commit:  sha,
@@ -320,6 +331,9 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 		return ServerPlan{}, err
 	}
 	row, err := o.storeServerPlan(ctx, p, ServerPlan{Source: sourceRepo, Commit: sha})
+	if err == nil {
+		o.configState(ctx, "server", "The server config file", row.Status, "", row.Summary)
+	}
 	_, _ = fmt.Fprintf(log, "server plan at %s: %s\n", sha, p.Summary())
 	if err != nil || row.Status != orgplan.Pending || !p.AutoOK() || !b.Auto {
 		return row, err

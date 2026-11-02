@@ -13,10 +13,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
-	_ "github.com/joho/godotenv/autoload"
 	_ "time/tzdata" // CRON_TZ and --tz beyond UTC, on hosts without zoneinfo
 
 	"github.com/FyrmForge/hamr/pkg/config"
@@ -126,6 +127,14 @@ func main() {
 		}
 		return
 	}
+	if flag.Arg(0) == "migrate-force" {
+		// The operator's way past a failed migration; see docs/guide/troubleshooting.md.
+		if err := migrateForce(flag.Args()[1:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "stackrd migrate-force:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if flag.Arg(0) == "upgrade-swap" {
 		// The one-shot helper the self-upgrade launches from the new image.
 		if err := service.RunPanelSwap(context.Background()); err != nil {
@@ -151,6 +160,11 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+
+	if flag.NArg() > 0 { // only the subcommands above take an argument
+		fmt.Fprintf(os.Stderr, "stackrd: unknown command %q\nusage: stackrd [-generate | -version | -dump-openapi] | proxy | worker | create-admin | admin-key | upgrade-swap | worker-swap | host-run\n", flag.Arg(0))
+		os.Exit(2)
 	}
 
 	log := logging.New(!envDevMode)
@@ -196,6 +210,11 @@ func run(log *slog.Logger, generate bool) error {
 	}
 	// open event streams end on shutdown instead of holding it to its timeout
 	srv.Echo().Server.RegisterOnShutdown(stream.Stop)
+	// hamr sets no timeouts of its own. Header and idle cut slow-loris
+	// clients; no Read/WriteTimeout, since dump uploads and event streams
+	// are long on purpose.
+	srv.Echo().Server.ReadHeaderTimeout = 10 * time.Second
+	srv.Echo().Server.IdleTimeout = 2 * time.Minute
 	srv.Echo().Use(selfmetrics.Middleware(api.Gzip.Skipper))
 
 	if baseOrigin != "" {
@@ -397,6 +416,25 @@ func adminKey(out io.Writer) error {
 		_, _ = fmt.Fprintln(out, adminOrgPrefix+org)
 	}
 	return nil
+}
+
+// migrateForce: no argument reports the schema version, a number forces it.
+//
+//	stackrd migrate-force      report the version and whether it is dirty
+//	stackrd migrate-force 41   set it to 41 without running anything
+func migrateForce(args []string, out io.Writer) error {
+	version := -1
+	if len(args) > 1 {
+		return errors.New("usage: stackrd migrate-force [version]")
+	}
+	if len(args) == 1 {
+		n, err := strconv.Atoi(args[0])
+		if err != nil || n < 0 {
+			return fmt.Errorf("not a version: %q", args[0])
+		}
+		version = n
+	}
+	return service.ForceMigration(context.Background(), service.Config{DataDir: envDataDir, DBPath: envDatabasePath}, version, out)
 }
 
 // proxySpec builds the upgrade's proxy container from the install spec.

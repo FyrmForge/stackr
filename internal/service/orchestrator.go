@@ -298,12 +298,13 @@ type Orchestrator struct {
 	hostIfaces   func() []worker.Iface // this host's interfaces (WithHostInterfaces)
 	gitEnv       []string              // WithGit: clone env that replaces the connector's
 	proxyStarted atomic.Value          // the proxy container's last seen start time
+	upgrading    atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
 	vipAsync     sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
 	trustAsync   sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
 	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	earlyMu      sync.Mutex            // guards earlyIPs
 	earlyIPs     map[string]earlyEnt   // container id -> address holding early lan rules
-	repoLocks    sync.Map              // clone dir -> *sync.Mutex
+	repoLocks    sync.Map              // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
 	alertMem     *alertState           // the alert tick's memory (alerts.go)
 	platforms    platformCache         // each node's CPU type (imports.go)
 	cli          cliCodes
@@ -622,6 +623,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				}
 				return orch.buildInto(ctx, st, t, commit, ref, log)
 			},
+			Head:       orch.tileHead,
 			Cred:       orch.pullCred,
 			Settings:   orch.settings,
 			Jobs:       orch.jobRows,
@@ -756,7 +758,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
-			Hold:     orch.upgradeSwapping,
+			Hold:     orch.upgrading.Load,
+			// The upgrade that swapped this panel in: its row was still
+			// running when the helper stopped the old panel.
+			Survived: orch.upgradeLanded,
 			Ended:    seedEnded,
 		})
 	})
@@ -829,6 +834,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.sweepRepos(ctx); err != nil {
 		slog.Warn("repos: boot sweep skipped", "err", err)
 	}
+	orch.bootUpgradeHold(ctx) // before the queue starts: it holds while a helper runs
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("start job runner: %w", err)
@@ -877,6 +883,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			if err != nil {
 				slog.Warn("registry: not ensured", "err", err)
 			}
+			// First: a failed upgrade's rollback must fix the proxy before the
+			// publish reads its image, and a trial must end before a publish.
+			orch.undoFailedUpgrade(orch.meshCtx)
 			// Before the publish, which starts the worker rollout: a Docker
 			// restart for the cap must not land mid-rollout.
 			orch.controllerLogCap(orch.meshCtx)
@@ -893,8 +902,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	return orch, nil
 }
 
+// seedDB is a migrated empty database the tests set (main_test.go), so a new
+// orchestrator skips running every migration. nil in a real panel.
+var seedDB []byte
+
 // openDB connects and brings the schema up to date.
 func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
+	if _, err := os.Stat(path); seedDB != nil && errors.Is(err, os.ErrNotExist) {
+		_ = os.WriteFile(path, seedDB, 0o600)
+	}
 	db, err := sqlite.ConnectContext(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)

@@ -164,6 +164,27 @@ func TestLocalRoundTripAndRestoreOrder(t *testing.T) {
 	}
 }
 
+// Pre-restore archives are pruned after a good restore, not before and not
+// after a failed one.
+func TestPreRestorePrunedAfterRestore(t *testing.T) {
+	w := setup(t)
+	sub := Subject{Volume: w.vol, Holders: []store.Tile{w.api}}
+	r, err := w.f.Backup(ctx, sub, w.spec(0), io.Discard)
+	must(t, err)
+	pre := Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, ""), Keep: 1}
+	dir := filepath.Join(w.dest.Endpoint, pre.Prefix)
+	must(t, os.MkdirAll(dir, 0o755))
+	for _, n := range []string{"20200101-000000-old.tar.gz.age", "20200102-000000-old.tar.gz.age"} {
+		must(t, os.WriteFile(filepath.Join(dir, n), nil, 0o600))
+	}
+	must(t, w.f.Restore(ctx, Restore{RunID: r.ID, SourceVolumeID: w.vol.ID, Target: sub, Pre: pre}, io.Discard))
+	keys, err := open(w.dest).List(ctx, pre.Prefix+"/")
+	must(t, err)
+	if len(keys) != 1 || strings.Contains(keys[0], "-old.") {
+		t.Errorf("after restore: %v", keys)
+	}
+}
+
 // A corrupt archive fails verification before anything is stopped or wiped.
 func TestCorruptArchiveTouchesNothing(t *testing.T) {
 	w := setup(t)
