@@ -774,6 +774,7 @@ func TestControllerLogCap(t *testing.T) {
 
 	// The swap is still running: no cap now, and the build is not recorded.
 	f.Containers = []docker.Container{panel, upgrader}
+	n.orch.upgrading.Store(true) // the hold the boot set for it
 	n.orch.controllerLogCap(ctx)
 	if len(f.Specs) != 0 {
 		t.Fatal("the cap ran while the upgrade helper still ran")
@@ -784,6 +785,7 @@ func TestControllerLogCap(t *testing.T) {
 
 	upgrader.State = "exited"
 	f.Containers = []docker.Container{panel, upgrader}
+	n.orch.upgrading.Store(false)
 	n.orch.controllerLogCap(ctx)
 	if len(f.Specs) != 1 {
 		t.Fatalf("helper runs = %d, want 1", len(f.Specs))
@@ -811,11 +813,13 @@ func TestClearUpgrader(t *testing.T) {
 	up := map[string]string{"stackr.role": "upgrader"}
 
 	f.Containers = []docker.Container{{ID: "busy", State: "running", Labels: up}}
+	n.orch.upgrading.Store(true)
 	n.orch.clearUpgrader(context.Background())
 	if sawCall(f, "StopRemove(") {
 		t.Fatal("a running helper was removed")
 	}
 
+	n.orch.upgrading.Store(false)
 	f.Containers = []docker.Container{{ID: "ok", State: "exited", Labels: up}, {ID: "bad", State: "exited", Labels: up}}
 	f.Details = map[string]docker.Detail{"ok": {State: "exited"}, "bad": {State: "exited", ExitCode: 1}}
 	n.orch.clearUpgrader(context.Background())

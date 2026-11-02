@@ -617,7 +617,8 @@ func RunPanelSwap(ctx context.Context) error {
 // keyLogCapVersion is the build whose boot last ran controllerLogCap.
 const keyLogCapVersion = "controller_logcap_version"
 
-// How long controllerLogCap waits for the upgrade helper, and how often it looks.
+// How long the boot waits for the upgrade hold to end (upgraderDone), and
+// how often it looks.
 var logCapWait, logCapPoll = 5 * time.Minute, 2 * time.Second
 
 // controllerLogCap sets Docker's log cap on the controller once per build,
@@ -698,16 +699,10 @@ func (o *Orchestrator) runningPanelImage(ctx context.Context) (string, error) {
 }
 
 // upgraderDone waits until no upgrade helper runs and returns the helpers
-// left behind.
+// left behind. The wait is the upgrade hold's (watchUpgrader waits on the
+// helper): one wait, read from memory, then one list.
 func (o *Orchestrator) upgraderDone(ctx context.Context) ([]docker.Container, error) {
-	for deadline := time.Now().Add(logCapWait); ; {
-		cs, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
-		if err != nil {
-			return nil, err
-		}
-		if !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
-			return cs, nil
-		}
+	for deadline := time.Now().Add(logCapWait); o.UpgradeHeld(); {
 		if time.Now().After(deadline) {
 			return nil, errors.New("the upgrade helper is still running")
 		}
@@ -717,6 +712,7 @@ func (o *Orchestrator) upgraderDone(ctx context.Context) ([]docker.Container, er
 		case <-time.After(logCapPoll):
 		}
 	}
+	return o.docker.List(ctx, map[string]string{installspec.LabelRole: "upgrader"})
 }
 
 // clearUpgrader removes the panel Update's helper once it is done: one that
