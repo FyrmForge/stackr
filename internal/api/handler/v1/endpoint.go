@@ -6,12 +6,14 @@ package v1
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -30,6 +32,48 @@ func list[T any](xs []T, err error) ([]T, error) {
 		xs = []T{}
 	}
 	return xs, err
+}
+
+// paged is list for a collection that grows: ?limit= caps the page and
+// ?cursor= (the X-Next-Cursor of the page before) picks up after it. The
+// next cursor is an offset, so a row added between pages can shift one;
+// good enough for lists a person reads. No limit is the whole list.
+func paged[T any](c echo.Context) func([]T, error) ([]T, error) {
+	return func(xs []T, err error) ([]T, error) { return pageOf(c, xs, err) }
+}
+
+func pageOf[T any](c echo.Context, xs []T, err error) ([]T, error) {
+	xs, err = list(xs, err)
+	if err != nil {
+		return xs, err
+	}
+	var limit int
+	if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil || limit < 0 {
+		return nil, errs.Invalidf("limit", "limit is a whole number of rows, 0 or more")
+	}
+	start := 0
+	if cur := c.QueryParam("cursor"); cur != "" {
+		raw, derr := base64.RawURLEncoding.DecodeString(cur)
+		n, aerr := strconv.Atoi(string(raw))
+		if derr != nil || aerr != nil || n < 0 {
+			return nil, errs.Invalidf("cursor", "cursor is not one this list gave")
+		}
+		start = min(n, len(xs))
+	}
+	xs = xs[start:]
+	if limit > 0 && len(xs) > limit {
+		next := base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(start + limit)))
+		c.Response().Header().Set("X-Next-Cursor", next)
+		xs = xs[:limit]
+	}
+	return xs, nil
+}
+
+// Paged names ?limit= and ?cursor= next to the other query params the
+// handler reads, for the OpenAPI dump.
+func (e Endpoint) Paged() Endpoint {
+	e.Query = append(e.Query, "limit", "cursor")
+	return e
 }
 
 // Endpoint is one handler plus the shapes the OpenAPI dump reads.

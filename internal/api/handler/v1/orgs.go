@@ -48,7 +48,7 @@ func orgID(c echo.Context) string { return scope(c).Org.ID }
 // ---- orgs ----
 
 func (h *H) Orgs() Endpoint {
-	return Get(func(c echo.Context) ([]service.Org, error) { return list(h.Orch.Orgs(rc(c), who(c))) })
+	return Get(func(c echo.Context) ([]service.Org, error) { return paged[service.Org](c)(h.Orch.Orgs(rc(c), who(c))) }).Paged()
 }
 
 func (h *H) CreateOrg() Endpoint {
@@ -88,7 +88,9 @@ func (h *H) DeleteOrg() Endpoint {
 // ---- members and invites ----
 
 func (h *H) Members() Endpoint {
-	return Get(func(c echo.Context) ([]service.Member, error) { return list(h.Orch.Members(rc(c), orgID(c))) })
+	return Get(func(c echo.Context) ([]service.Member, error) {
+		return paged[service.Member](c)(h.Orch.Members(rc(c), orgID(c)))
+	}).Paged()
 }
 
 func (h *H) SetRole() Endpoint {
@@ -105,10 +107,10 @@ func (h *H) RemoveMember() Endpoint {
 func (h *H) Invites() Endpoint {
 	return Get(func(c echo.Context) ([]service.Invite, error) {
 		if c.QueryParam("all") == "true" {
-			return list(h.Orch.Invites(rc(c), orgID(c)))
+			return paged[service.Invite](c)(h.Orch.Invites(rc(c), orgID(c)))
 		}
-		return list(h.Orch.PendingInvites(rc(c), orgID(c)))
-	}).Q("all")
+		return paged[service.Invite](c)(h.Orch.PendingInvites(rc(c), orgID(c)))
+	}).Q("all").Paged()
 }
 
 func (h *H) Invite() Endpoint {

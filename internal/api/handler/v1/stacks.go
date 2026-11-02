@@ -68,7 +68,9 @@ func envID(c echo.Context) string {
 // ---- stacks ----
 
 func (h *H) Stacks() Endpoint {
-	return Get(func(c echo.Context) ([]service.Stack, error) { return list(h.Orch.Stacks(rc(c), orgID(c))) })
+	return Get(func(c echo.Context) ([]service.Stack, error) {
+		return paged[service.Stack](c)(h.Orch.Stacks(rc(c), orgID(c)))
+	}).Paged()
 }
 
 func (h *H) CreateStack() Endpoint {
@@ -124,7 +126,9 @@ func (h *H) CheckStackImages() Endpoint {
 // ---- releases and promote ----
 
 func (h *H) Releases() Endpoint {
-	return Get(func(c echo.Context) ([]service.Release, error) { return list(h.Orch.Releases(rc(c), stackID(c))) })
+	return Get(func(c echo.Context) ([]service.Release, error) {
+		return paged[service.Release](c)(h.Orch.Releases(rc(c), stackID(c)))
+	}).Paged()
 }
 
 func (h *H) Release() Endpoint {
