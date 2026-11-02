@@ -52,6 +52,9 @@ func TestUpdateConnectorCredentials(t *testing.T) {
 	if c, err := env.Orch.CheckConnector(ctx, &acme, id); err != nil || c.CheckError != "The provider refused the API key" {
 		t.Errorf("check = %q %v", c.CheckError, err)
 	}
+	if ps, _ := env.Orch.Problems(ctx); len(ps) != 1 || !strings.Contains(ps[0].Message, "refused the API key") {
+		t.Errorf("a failing check opened no banner problem: %+v", ps)
+	}
 	if _, err := env.Orch.ConnectorStatus(ctx, nil, id); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("the server reached an org's connector: %v", err)
 	}

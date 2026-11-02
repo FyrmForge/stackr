@@ -618,10 +618,18 @@ func (o *Orchestrator) watchNodeClients() {
 	defer t.Stop()
 	day := time.NewTicker(24 * time.Hour)
 	defer day.Stop()
+	conn := time.NewTicker(connCheckEvery)
+	defer conn.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-conn.C:
+			o.detach(ctx, func(ctx context.Context) {
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+				defer cancel()
+				o.checkConnectors(ctx)
+			})
 		case <-day.C:
 			o.detach(ctx, func(ctx context.Context) {
 				ctx, cancel := context.WithTimeout(ctx, dailyChoresBudget)
@@ -633,6 +641,7 @@ func (o *Orchestrator) watchNodeClients() {
 		case <-t.C:
 			o.controllerDiskAlert(ctx)
 			o.dockerAlert(ctx)
+			o.retryDNS()
 			if err := o.sync.Retry(ctx); err != nil && ctx.Err() == nil {
 				slog.Warn("proxy: retry", "err", err)
 			}

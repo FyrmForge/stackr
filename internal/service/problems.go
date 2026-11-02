@@ -182,6 +182,17 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 			return onNode(id)
 		}
 		return "/-/admin/keys", "Open keys", true
+	case "conn": // conn.<connector id>
+		c, err := o.store.Connectors.Get(ctx, rest)
+		if err != nil {
+			return "", "", false
+		}
+		if c.OrgID != nil {
+			return "/" + o.scopePath(ctx, ScopeOrg, *c.OrgID), "Open org", true
+		}
+		return "/-/admin/connectors", "Open connectors", true
+	case "dns": // dns.records
+		return "/-/admin/connectors", "Open connectors", true
 	case "observe":
 		return "/-/admin/metrics", "Open metrics and logs", true
 	case "crash", "down":
