@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -39,6 +40,9 @@ func (o *Orchestrator) redeployRestored(ctx context.Context) {
 	}
 }
 
+// keyPruneHold is the settings row holding when the panel was last restored.
+const keyPruneHold = "backup_prune_hold_since"
+
 // restoredNote closes the panel backup an archive was taken by.
 const restoredNote = "The panel was restored from this archive."
 
@@ -51,6 +55,11 @@ func (o *Orchestrator) settleRestored(ctx context.Context) {
 	marker, err := os.ReadFile(filepath.Join(o.cfg.DataDir, installspec.RestoredMarker))
 	if err != nil {
 		return
+	}
+	// Restored schedules may back up volumes that came back empty; hold
+	// pruning until each prefix has one good backup (flow/backup PruneHold).
+	if err := o.store.Settings.Set(ctx, keyPruneHold, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		slog.Warn("restore: prune hold not set", "err", err)
 	}
 	js, err := o.jobRows.List(ctx, job.Running)
 	if err != nil {

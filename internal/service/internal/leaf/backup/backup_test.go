@@ -416,3 +416,42 @@ func TestFinishSurvivesCancel(t *testing.T) {
 		t.Errorf("run after a cancelled finish = %q (%v), want failed", got.Status, err)
 	}
 }
+
+// Prune keeps the newest successful run's archive even when newer keys
+// (runs that did not finish well) push it out of the newest N.
+func TestPruneKeepsNewestGood(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	local, err := l.EnsureLocal(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vol := "vol-1"
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.Volumes.Create(ctx, store.Volume{ID: vol, ScopeKind: "org", ScopeID: "o", Slug: "v", Name: "v", CreatedAt: time.Now()}))
+	p := backup.Prefix("o", vol, "s1")
+	day := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
+	obj := &objects{}
+	for i := range 3 {
+		obj.keys = append(obj.keys, backup.ObjectKey(p, "v.tar.gz.age", day.AddDate(0, 0, i)))
+	}
+	good, err := l.Start(ctx, backup.KindVolume, &vol, nil, local.ID, "schedule")
+	must(err)
+	_, err = l.Finish(ctx, good, obj.keys[0], 1, nil)
+	must(err)
+	for _, k := range obj.keys[1:] {
+		bad, err := l.Start(ctx, backup.KindVolume, &vol, nil, local.ID, "schedule")
+		must(err)
+		_, err = l.Finish(ctx, bad, k, 0, errors.New("upload cut"))
+		must(err)
+	}
+	gone := l.Prune(ctx, obj, p, 1)
+	if slices.Contains(gone, obj.keys[0]) || !slices.Contains(obj.keys, obj.keys[0]) {
+		t.Errorf("pruned the last good archive: gone %v", gone)
+	}
+}

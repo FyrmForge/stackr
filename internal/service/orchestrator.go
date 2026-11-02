@@ -664,6 +664,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Volumes: orch.volumes,
 			Tiles:   orch.tiles,
 			Scratch: scratch,
+			PruneHold: func(ctx context.Context) time.Time {
+				v, ok, err := st.Settings.Get(ctx, keyPruneHold)
+				if err != nil || !ok {
+					return time.Time{}
+				}
+				t, _ := time.Parse(time.RFC3339, v)
+				return t
+			},
 		}
 	})
 	orch.container = build("flow/container", func() *container.Flow { return &container.Flow{Tiles: orch.tiles} })

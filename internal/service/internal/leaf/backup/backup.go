@@ -692,7 +692,9 @@ type Objects interface {
 // with their run rows. keep <= 0 keeps everything. Best effort: a failed
 // delete is skipped (its row stays), never an error, because a prune must
 // not fail a run that already uploaded. The pre-restore run never calls it.
-// A protect key (the one the run just wrote) is never deleted.
+// A protect key (the one the run just wrote) is never deleted, nor is the
+// newest successful run's, whatever keep says: a prefix always keeps one
+// archive that restores.
 func (l *Leaf) Prune(ctx context.Context, obj Objects, prefix string, keep int, protect ...string) []string {
 	if keep <= 0 {
 		return nil
@@ -701,6 +703,10 @@ func (l *Leaf) Prune(ctx context.Context, obj Objects, prefix string, keep int, 
 	if err != nil || len(keys) <= keep {
 		return nil
 	}
+	rows, _ := l.runs.ListByPrefix(ctx, prefix+"/")
+	if r, ok := newestDone(rows); ok {
+		protect = append(protect, r.ObjectKey)
+	}
 	slices.Sort(keys)
 	var gone []string
 	for _, k := range keys[:len(keys)-keep] {
@@ -708,11 +714,35 @@ func (l *Leaf) Prune(ctx context.Context, obj Objects, prefix string, keep int, 
 			gone = append(gone, k)
 		}
 	}
-	rows, _ := l.runs.ListByPrefix(ctx, prefix+"/")
 	for _, r := range rows {
 		if slices.Contains(gone, r.ObjectKey) {
 			_ = l.runs.Delete(ctx, r.ID)
 		}
 	}
 	return gone
+}
+
+// newestDone is the finished run with the newest archive (keys sort by time).
+func newestDone(rows []store.BackupRun) (store.BackupRun, bool) {
+	var best store.BackupRun
+	found := false
+	for _, r := range rows {
+		if r.Status == Done && r.ObjectKey != "" && (!found || r.ObjectKey > best.ObjectKey) {
+			best, found = r, true
+		}
+	}
+	return best, found
+}
+
+// FirstSince reports whether no run under prefix other than skipID finished
+// well after since: the pruning hold after a panel restore lifts once a
+// backup of the prefix has succeeded.
+func (l *Leaf) FirstSince(ctx context.Context, prefix string, since time.Time, skipID string) bool {
+	rows, err := l.runs.ListByPrefix(ctx, prefix+"/")
+	if err != nil {
+		return true // cannot tell: hold
+	}
+	return !slices.ContainsFunc(rows, func(r store.BackupRun) bool {
+		return r.ID != skipID && r.Status == Done && r.CreatedAt.After(since)
+	})
 }
