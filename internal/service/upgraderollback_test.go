@@ -91,6 +91,7 @@ func TestUndoFailedUpgrade(t *testing.T) {
 func TestUndoFailedUpgradeLeavesASuccess(t *testing.T) {
 	r := newRollbackRig(t, 0)
 	ctx := context.Background()
+	r.n.orch.cfg.Version = "0.9.1" // this panel is the target
 	r.n.orch.undoFailedUpgrade(ctx)
 	if len(r.n.ctlFake.Specs) != 0 || !r.reg.has(stackrRepo, "0.9.1") {
 		t.Error("a passed upgrade was touched")
@@ -100,5 +101,23 @@ func TestUndoFailedUpgradeLeavesASuccess(t *testing.T) {
 	}
 	if r.n.orch.LastUpgradeError(ctx) != "" {
 		t.Error("error line on a good upgrade")
+	}
+}
+
+// A helper that rolled back cleanly exits 0 (so Docker does not rerun it);
+// this panel is not the target, so the rollback still runs.
+func TestUndoFailedUpgradeAfterCleanExit(t *testing.T) {
+	r := newRollbackRig(t, 0)
+	ctx := context.Background()
+	r.n.orch.cfg.Version = "v0.9.0"
+	r.n.orch.undoFailedUpgrade(ctx)
+	if r.reg.has(stackrRepo, "0.9.1") {
+		t.Error("target tag kept")
+	}
+	if j, _ := r.n.st.Jobs.Get(ctx, r.job.ID); j.State != "failed" || j.Error != upgradeRolledBackMsg {
+		t.Errorf("job = %s %q", j.State, j.Error)
+	}
+	if !slices.ContainsFunc(r.n.ctlFake.Calls(), func(c dockerfake.Call) bool { return c.Method == "StopRemove" && c.Args[0] == "up" }) {
+		t.Error("helper kept")
 	}
 }

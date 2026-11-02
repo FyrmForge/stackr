@@ -16,7 +16,8 @@ import (
 const upgradeRolledBackMsg = "Rolled back: the new panel did not pass its trial."
 
 // undoFailedUpgrade runs at boot, before anything is published. A helper that
-// exited non-zero left this (old) panel in place: the upgrade put stackr-proxy
+// exited non-zero, or exited 0 with this panel not at the target version (a
+// clean rollback), left this (old) panel in place: the upgrade put stackr-proxy
 // on the target image and the new panel's database is gone, so it puts the
 // proxy back on this panel's image, drops the target's tag from the cluster
 // registry and the worker rollout aimed at it, and fails the upgrade job (it
@@ -36,7 +37,7 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 	}
 	for _, c := range cs {
 		d, err := o.docker.Inspect(ctx, c.ID)
-		if err != nil || d.State != "exited" || d.ExitCode == 0 {
+		if err != nil || d.State != "exited" || (d.ExitCode == 0 && !o.cleanRollback(ctx)) {
 			continue
 		}
 		logs, _ := o.docker.Logs(ctx, c.ID, 20)
@@ -50,6 +51,30 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 			slog.Warn("upgrade helper: not removed", "err", err)
 		}
 	}
+}
+
+// cleanRollback: a helper that exited 0 after a clean rollback (the on-failure
+// restart policy must not rerun it) left this panel in place, not the
+// upgrade's target. Exit 0 with this panel AT the target is a pass. A dev
+// build or an unknown target is never a rollback.
+func (o *Orchestrator) cleanRollback(ctx context.Context) bool {
+	v := strings.TrimPrefix(o.cfg.Version, "v")
+	if v == "" || v == "dev" {
+		return false
+	}
+	js, err := o.store.Jobs.ListByState(ctx, "done", "failed") // newest first
+	if err != nil {
+		return false
+	}
+	for _, j := range js {
+		if j.Kind != string(kindUpgrade) {
+			continue
+		}
+		var p upgradeJob
+		_ = json.Unmarshal([]byte(j.Payload), &p)
+		return p.Tag != "" && strings.TrimPrefix(p.Tag, "v") != v
+	}
+	return false
 }
 
 // rollBackUpgrade undoes the newest upgrade job's effects and fails it.
