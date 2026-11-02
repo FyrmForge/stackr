@@ -18,13 +18,19 @@ import (
 // nodeCert is a cert and key for id from the panel's cluster CA.
 func nodeCert(t *testing.T, o *Orchestrator, id string) tls.Certificate {
 	t.Helper()
+	return nodeCertAt(t, o, id, time.Now())
+}
+
+// nodeCertAt is a node cert issued at a given time (an old one is due).
+func nodeCertAt(t *testing.T, o *Orchestrator, id string, at time.Time) tls.Certificate {
+	t.Helper()
 	ca, err := clusterca.LoadCA(o.cfg.DataDir)
 	must(t, err)
 	key, err := clusterca.NewKey()
 	must(t, err)
 	csr, err := clusterca.NewCSR(key)
 	must(t, err)
-	iss, err := ca.IssueNode(csr, id, time.Now())
+	iss, err := ca.IssueNode(csr, id, at)
 	must(t, err)
 	kb, err := clusterca.KeyPEM(key)
 	must(t, err)

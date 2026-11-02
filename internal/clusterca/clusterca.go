@@ -62,6 +62,8 @@ type Peer struct {
 	NodeID string
 	Serial string
 	Issuer string // Fingerprint of the root that vouched for it
+	// Due is whether the cert is in its last third (NeedsRenewal).
+	Due bool
 }
 
 // Roots is the trust list: the roots a cert may chain to. It is a func so a
@@ -238,7 +240,7 @@ func Verify(roots []*x509.Certificate, chain []*x509.Certificate, role, nodeID s
 	if got != role {
 		return Peer{}, fmt.Errorf("clusterca: role is %q, want %q", got, role)
 	}
-	p := Peer{Role: got, Serial: hex.EncodeToString(leaf.SerialNumber.Bytes()), Issuer: Fingerprint(ca)}
+	p := Peer{Role: got, Serial: hex.EncodeToString(leaf.SerialNumber.Bytes()), Issuer: Fingerprint(ca), Due: NeedsRenewal(leaf, now)}
 	if got == RoleWorker {
 		p.NodeID = leaf.Subject.CommonName
 	}
@@ -295,6 +297,9 @@ func ServerConfig(ca Roots, own tls.Certificate, revoked func(serial string) boo
 		Certificates:          []tls.Certificate{own},
 		ClientAuth:            tls.RequireAnyClientCert,
 		VerifyPeerCertificate: verifier(ca, RoleController, "", revoked),
+		// A resumed handshake skips VerifyPeerCertificate, and with it the
+		// revocation check: no tickets, every handshake is verified.
+		SessionTicketsDisabled: true,
 	}
 }
 
@@ -324,6 +329,8 @@ func WorkerServerConfig(ca Roots, own func() tls.Certificate, revoked func(seria
 		},
 		ClientAuth:            tls.RequireAnyClientCert,
 		VerifyPeerCertificate: verifier(ca, RoleWorker, "", revoked),
+		// See ServerConfig: no resumption past the revocation check.
+		SessionTicketsDisabled: true,
 	}
 }
 

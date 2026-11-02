@@ -31,6 +31,15 @@ const NodeCertExpired = "cert-expired"
 // During a root rollover the asking cert may be from either root (roots()
 // holds both) while the answer is always from the new one (cluster.ca): this
 // is how a worker moves over, since the controller cannot hand it a cert.
+// renewDue is whether a peer may ask: its cert is in its last third, or, in a
+// root rollover, was issued by a root other than the one signing now (the
+// worker moves over at once). A stolen cert cannot be turned into a stream of
+// fresh ones.
+func (o *Orchestrator) renewDue(p clusterca.Peer) bool {
+	roots := o.cluster.roots()
+	return p.Due || (len(roots) > 1 && p.Issuer != clusterca.Fingerprint(o.cluster.ca.Cert))
+}
+
 // renewNodeCert issues the renewal for nodeID and audits it with how it came.
 func (o *Orchestrator) renewNodeCert(ctx context.Context, nodeID string, csr []byte, via string) ([]byte, error) {
 	n, err := o.store.Nodes.Get(ctx, nodeID)
@@ -71,6 +80,10 @@ func (o *Orchestrator) renewTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker cert required", http.StatusForbidden)
 		return
 	}
+	if !o.renewDue(peer) {
+		http.Error(w, "not due for renewal", http.StatusForbidden)
+		return
+	}
 	var in worker.RenewRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -92,7 +105,7 @@ func (o *Orchestrator) RenewNodeCert(ctx context.Context, req worker.RecoverRequ
 	if err != nil {
 		return worker.RenewAnswer{}, err
 	}
-	if p.CSR == "" {
+	if p.CSR == "" || !o.renewDue(peer) {
 		return worker.RenewAnswer{}, errs.Refusedf("not a node of this cluster")
 	}
 	c, err := o.renewNodeCert(ctx, peer.NodeID, []byte(p.CSR), "panel")

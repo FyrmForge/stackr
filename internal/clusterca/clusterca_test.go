@@ -436,3 +436,13 @@ func TestBundlePEM(t *testing.T) {
 		t.Fatal("junk accepted")
 	}
 }
+
+// A resumed handshake skips the revocation check, so the servers hand out no
+// tickets.
+func TestServersIssueNoSessionTickets(t *testing.T) {
+	roots := StaticRoots(nil)
+	if !ServerConfig(roots, tls.Certificate{}, nil).SessionTicketsDisabled ||
+		!WorkerServerConfig(roots, func() tls.Certificate { return tls.Certificate{} }, nil).SessionTicketsDisabled {
+		t.Fatal("a server config allows session resumption")
+	}
+}
