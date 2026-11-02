@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -205,5 +206,12 @@ func TestRefSecrets(t *testing.T) {
 	}
 	if len(warns) != 1 || strings.Contains(warns[0], "hunter2") {
 		t.Errorf("warns = %v", warns)
+	}
+	// a tile name with a hyphen still gives a ref the grammar accepts
+	m = refSecrets(map[string]string{"DB-PASSWORD": "x"}, "my-api", "env", &warns)
+	for _, ref := range m {
+		if r, err := params.Parse(strings.TrimSuffix(strings.TrimPrefix(ref, "${{ "), " }}")); err != nil || !slug.ValidName(r.Slug) || !slug.ValidName(r.Name) {
+			t.Errorf("ref %q does not parse as a param ref", ref)
+		}
 	}
 }

@@ -396,7 +396,7 @@ var removedKeys = map[string]string{
 	"security_headers": "use proxy: security_headers: on the domain",
 	"default":          "use generate: <length> on a type: secret param",
 	"length":           "use generate: <length> on a type: secret param",
-	"backup":           "backup: goes under the volume in volumes:",
+	"backup":           "backup: is not applied from the file; set a volume's schedule in the panel",
 }
 
 // Parse decodes and checks the top level.
@@ -839,26 +839,12 @@ func refBodies(tc TileConf) []string {
 	return append(out, params.Refs(tc.Command)...)
 }
 
-// serverRefBodies: the ${{ ... }} bodies in every other string of a tile
-// that a ref can reach (build args, files, image, healthcheck, domain hosts
-// and paths), so a server param is refused here and not at deploy.
+// serverRefBodies: the ${{ ... }} bodies anywhere in a tile (build args,
+// files, image, domains, proxy headers, ...), so a server param is refused
+// at load and not at deploy.
 func serverRefBodies(tc TileConf) []string {
-	var out []string
-	for _, v := range slices.Sorted(maps.Values(tc.BuildArgs)) {
-		out = append(out, params.Refs(v)...)
-	}
-	for _, v := range tc.Files {
-		out = append(out, params.Refs(v)...)
-	}
-	for _, v := range []string{tc.Image, tc.Healthcheck, tc.GitURL, tc.Branch} {
-		out = append(out, params.Refs(v)...)
-	}
-	for _, d := range tc.Domains {
-		for _, v := range []string{d.Host, d.Path, d.RedirectTo} {
-			out = append(out, params.Refs(v)...)
-		}
-	}
-	return out
+	b, _ := yaml.Marshal(tc)
+	return params.Refs(string(b))
 }
 
 // checkRefs: every volume line names a declared volume, a tile ref and

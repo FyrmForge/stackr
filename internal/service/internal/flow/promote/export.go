@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
+	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -302,11 +304,12 @@ var secretName = regexp.MustCompile(`(?i)pass|secret|token|key|credential|privat
 // params ref (collection = the tile, name = the key in lower case): the file
 // goes in git. The param is the admin's to create, so each one is warned.
 func refSecrets(m map[string]string, tile, what string, warns *[]string) map[string]string {
-	for k, v := range m {
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		v := m[k]
 		if v == "" || strings.Contains(v, "${{") || !secretName.MatchString(k) {
 			continue
 		}
-		ref := "${{ params." + tile + "." + strings.ToLower(k) + " }}"
+		ref := "${{ params." + slug.Suggest(tile) + "." + slug.Suggest(strings.ToLower(k)) + " }}"
 		m[k] = ref
 		*warns = append(*warns, fmt.Sprintf("tile %s %s %s: looks like a secret; written as %s, create that param", tile, what, k, ref))
 	}

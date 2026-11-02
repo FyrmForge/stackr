@@ -359,6 +359,9 @@ func Parse(data []byte) (*File, error) {
 		if err := params.RefuseServerRefs(params.InEnv, sh.User, sh.Password); err != nil {
 			return nil, fmt.Errorf("shares.%s: %w", sl, err)
 		}
+		if err := planfile.CheckSecretRef("shares."+sl+".password", sh.Password); err != nil {
+			return nil, err
+		}
 	}
 	if f.Defaults != nil {
 		if err := f.Defaults.CheckProtect(); err != nil {
