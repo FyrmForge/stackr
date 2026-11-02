@@ -2,6 +2,8 @@ package deploy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -22,6 +24,7 @@ func HostLine(m tile.Mount) string {
 func HostSet(ts ...store.Tile) hostgrant.Set {
 	var s hostgrant.Set
 	for _, t := range ts {
+		n := len(s.Lines)
 		add := func(perm string) { s.Lines = append(s.Lines, hostgrant.Line(t.Slug, perm)) }
 		for _, l := range tile.Lines(t.Volumes) {
 			if m, err := tile.ParseMount(l); err == nil && m.Kind == tile.MountHost {
@@ -51,8 +54,23 @@ func HostSet(ts ...store.Tile) hostgrant.Set {
 		if t.HostNetwork {
 			add(hostgrant.NetworkHost)
 		}
+		if len(s.Lines) > n {
+			add(hostgrant.Source + tileSource(t))
+		}
 	}
 	return s.Norm()
+}
+
+// tileSource fingerprints what the tile runs: its image (or git URL for
+// a build) and command. A grant is bound to it, so a changed image or
+// command drops the grant until it is approved again.
+func tileSource(t store.Tile) string {
+	src := t.ImageRef
+	if src == "" {
+		src = "git:" + t.GitURL
+	}
+	h := sha256.Sum256([]byte(src + "\x00" + t.Command))
+	return hex.EncodeToString(h[:6])
 }
 
 // checkAccess parks (errs.NeedsApproval) a tile whose host access the

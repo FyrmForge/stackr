@@ -29,7 +29,7 @@ func TestHostAccessGate(t *testing.T) {
 	if !ok || n.Stack != tl.StackID {
 		t.Fatalf("run without a grant = %v", err)
 	}
-	if ask, _ := hostgrant.Parse(n.What); len(ask.Lines) != 3 || !ask.Has(hostgrant.Line(tl.Slug, hostgrant.Privileged)) {
+	if ask, _ := hostgrant.Parse(n.What); len(ask.Lines) != 4 || !ask.Has(hostgrant.Line(tl.Slug, hostgrant.Privileged)) {
 		t.Errorf("asked for %+v (%q)", ask, n.What)
 	}
 	if len(w.fake.Specs) != 0 {
@@ -75,11 +75,18 @@ func TestHostSetLines(t *testing.T) {
 		"a device:/dev/dri", "a host:/srv:/srv:ro", "a lan:10.0.0.0/8", "a lan:192.168.1.10:8123",
 		"a network:host", "a port:5353/udp", "a port:8080", "a privileged",
 	}
-	if got := deploy.HostSet(a).Lines; !slices.Equal(got, want) {
+	got := slices.DeleteFunc(slices.Clone(deploy.HostSet(a).Lines), func(l string) bool { return strings.HasPrefix(l, "a src:") })
+	if !slices.Equal(got, want) {
 		t.Fatalf("lines = %v", got)
 	}
+	// The grant is bound to what runs: a new image or command asks again.
+	a.ImageRef = "evil:1"
+	if m := deploy.HostSet(a).Missing(deploy.HostSet(store.Tile{Slug: "a", ImageRef: "good:1", Volumes: a.Volumes, Devices: a.Devices, Privileged: true,
+		Lan: a.Lan, PublishedPorts: a.PublishedPorts, HostNetwork: true})); len(m) != 1 || !strings.HasPrefix(m[0], "a src:") {
+		t.Fatalf("image swap missing = %v", m)
+	}
 	b := store.Tile{Slug: "b", Volumes: "host:/srv:/srv:ro"}
-	if m := deploy.HostSet(a, b).Missing(deploy.HostSet(a)); !slices.Equal(m, []string{"b host:/srv:/srv:ro"}) {
+	if m := deploy.HostSet(a, b).Missing(deploy.HostSet(a)); len(m) != 2 || m[0] != "b host:/srv:/srv:ro" {
 		t.Fatalf("tile b covered by tile a: %v", m)
 	}
 }
