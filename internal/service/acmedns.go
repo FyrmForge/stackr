@@ -35,6 +35,11 @@ func (o *Orchestrator) ACMEChallenge(ctx context.Context, del bool, zone string,
 	if err != nil {
 		return nil, err
 	}
+	if nodeID, ok := ctx.Value(acmeNode{}).(string); ok {
+		if err := o.acmeHostsServed(ctx, nodeID, row.Name, rs); err != nil {
+			return nil, err
+		}
+	}
 	_, raw, err := o.dnsAccount(ctx, row.OrgID, row.ConnectorID)
 	if err != nil {
 		return nil, err
@@ -57,6 +62,34 @@ func (o *Orchestrator) ACMEChallenge(ctx context.Context, del bool, zone string,
 		out[i] = r.RR()
 	}
 	return out, nil
+}
+
+// acmeNode marks a challenge call that came from a worker, by its node id.
+type acmeNode struct{}
+
+// acmeHostsServed refuses a challenge from node nodeID for a name it does
+// not serve: the controller's own proxy may answer for any host, an ingress
+// worker only for hosts routed to it (a wildcard host is challenged at its
+// base name).
+func (o *Orchestrator) acmeHostsServed(ctx context.Context, nodeID, zone string, rs []libdns.RR) error {
+	all, complete := o.certHostsOf(ctx, true)
+	if !complete {
+		return providerError{errors.New("hosts of the node could not be read")}
+	}
+	served := map[string]bool{}
+	for _, h := range all[nodeID] {
+		served[strings.ToLower(h.Host)] = true
+	}
+	for _, r := range rs {
+		host := strings.ToLower(zone)
+		if rest, ok := strings.CutPrefix(r.Name, "_acme-challenge."); ok {
+			host = strings.ToLower(rest + "." + zone)
+		}
+		if !served[host] && !served["*."+host] {
+			return errs.Refusedf("%s is not served by this node", host)
+		}
+	}
+	return nil
 }
 
 // providerError is the provider's own failure on a challenge call: a 502
@@ -125,7 +158,7 @@ func (o *Orchestrator) meshDNS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "only an ingress node may answer a DNS challenge", http.StatusForbidden)
 		return
 	}
-	o.dnsHandler(w, r)
+	o.dnsHandler(w, r.WithContext(context.WithValue(r.Context(), acmeNode{}, peer.NodeID)))
 }
 
 // dnsSocket is the controller's DNS socket on the host, next to Caddy's

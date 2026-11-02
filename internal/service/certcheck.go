@@ -55,6 +55,12 @@ type certHost struct {
 // bare names and addresses, which have no public certificate. complete is
 // false when a read failed, so a host may be missing. TLS off serves none.
 func (o *Orchestrator) certHosts(ctx context.Context) (out map[string][]certHost, complete bool) {
+	return o.certHostsOf(ctx, false)
+}
+
+// certHostsOf is certHosts, wildcards kept when wild (a challenge for one
+// is for its base name).
+func (o *Orchestrator) certHostsOf(ctx context.Context, wild bool) (out map[string][]certHost, complete bool) {
 	out = map[string][]certHost{}
 	if o.cfg.TLSOff {
 		return out, true
@@ -66,7 +72,7 @@ func (o *Orchestrator) certHosts(ctx context.Context) (out map[string][]certHost
 	ing, err := o.listIngressNodes(ctx)
 	complete = err == nil
 	add := func(nodeID, host string, added time.Time) {
-		if _, err := netip.ParseAddr(host); err != nil && strings.Contains(host, ".") && !strings.HasPrefix(host, "*.") {
+		if _, err := netip.ParseAddr(host); err != nil && strings.Contains(host, ".") && (wild || !strings.HasPrefix(host, "*.")) {
 			out[nodeID] = append(out[nodeID], certHost{host, added})
 		}
 	}
