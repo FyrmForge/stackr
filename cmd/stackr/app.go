@@ -121,6 +121,7 @@ func usage(format string, a ...any) error {
 type apiErr struct {
 	Msg    string `json:"error"`
 	Status int    `json:"status"`
+	Field  string `json:"field,omitempty"` // the request key a 400 names
 }
 
 func (e *apiErr) Error() string { return e.Msg }
@@ -134,18 +135,32 @@ func newClient() *http.Client {
 	return &http.Client{Transport: t}
 }
 
-// flagNames turns API field names in a server message into the flags that
-// set them: tile fields by the flag map in stack.go, limits.* by hand. It
-// also drops the "name: " prefix of a positional argument's field error.
-var flagNames = sync.OnceValue(func() *strings.Replacer {
-	pairs := []string{"limits.memory_mb", "--memory", "limits.cpu", "--cpus", "name: ", "", "slug: ", ""}
+// fieldFlags maps an API field name to the flag that sets it: tile fields
+// by the flag map in stack.go, limits.* by hand.
+var fieldFlags = sync.OnceValue(func() map[string]string {
+	m := map[string]string{"limits.memory_mb": "memory", "limits.cpu": "cpus"}
 	for flag, field := range tileFlags(&cobra.Command{}) {
-		if strings.Contains(field, "_") { // plain words (user, image) would mangle prose
-			pairs = append(pairs, field, "--"+flag)
-		}
+		m[field] = flag
 	}
-	return strings.NewReplacer(pairs...)
+	return m
 })
+
+// flagMsg words a 400 about field for the command line: the flag that sets
+// the field leads the message, and a positional argument's field name
+// (name, slug) is dropped.
+func flagMsg(field, msg string) string {
+	rest, ok := strings.CutPrefix(msg, field+": ")
+	if field == "" || !ok {
+		return msg
+	}
+	if f := fieldFlags()[field]; f != "" {
+		return "--" + f + ": " + rest
+	}
+	if field == "name" || field == "slug" {
+		return rest
+	}
+	return msg
+}
 
 // settingsPath is a defaults rung write (`--set knob=value`), whose errors
 // already name the knob the user typed.
@@ -236,6 +251,9 @@ func (a *app) fail(err error) int {
 		var e *apiErr
 		if errors.As(err, &e) {
 			body["status"] = e.Status
+			if e.Field != "" {
+				body["field"] = e.Field
+			}
 		}
 		b, _ := json.Marshal(body)
 		_, _ = fmt.Fprintln(a.errw, string(b))
@@ -302,7 +320,7 @@ func (a *app) request(method, path string, body any) (*http.Response, error) {
 			e.Msg = notFound(path)
 		}
 		if !settingsPath(path) { // --set takes knob names: keep them
-			e.Msg = flagNames().Replace(e.Msg)
+			e.Msg = flagMsg(e.Field, e.Msg)
 		}
 		return nil, e
 	}
