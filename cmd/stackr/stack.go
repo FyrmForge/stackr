@@ -785,13 +785,22 @@ func (a *app) logs() *cobra.Command {
 			}
 			if !follow {
 				v, err := a.call(GET, p+"/logs"+q, nil)
-				if err != nil || a.json {
-					if err == nil {
-						err = a.show(v)
-					}
+				if err != nil {
 					return err
 				}
 				m, _ := v.(map[string]any)
+				if a.json { // NDJSON, the shape --follow streams
+					if cell(m["log"]) == "" {
+						return nil
+					}
+					for _, l := range strings.Split(strings.TrimSuffix(cell(m["log"]), "\n"), "\n") {
+						b, _ := json.Marshal(l)
+						if _, err := fmt.Fprintf(a.out, "{\"line\":%s}\n", b); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
 				_, err = fmt.Fprint(a.out, m["log"])
 				return err
 			}

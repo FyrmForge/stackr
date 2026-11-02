@@ -1283,6 +1283,31 @@ func (a *app) orgSettings() *cobra.Command {
 	return c
 }
 
+// knobValue types a --set value for a rung, which is a JSON object: JSON
+// when it parses (5, true), a bare word as the string it is. A string knob
+// keeps what looks like a number or a bool as text, by the catalogue. (The
+// server rung is sent as strings, which the server parses by the same types.)
+func (a *app) knobValue(key, v string) (any, error) {
+	var x any
+	if json.Unmarshal([]byte(v), &x) != nil {
+		return v, nil
+	}
+	if _, ok := x.(string); ok {
+		return x, nil
+	}
+	cat, err := a.call(GET, "/settings", nil)
+	if err != nil {
+		return nil, err
+	}
+	ks, _ := cat.([]any)
+	for _, k := range ks {
+		if m, _ := k.(map[string]any); m["key"] == key && m["type"] == "string" {
+			return v, nil
+		}
+	}
+	return x, nil
+}
+
 // settingsCmd is `defaults` at a stack or env: the rung is a JSON object,
 // read from getPath's "settings" and written whole to putPath; --set and
 // --clear change only the knobs named.
@@ -1312,9 +1337,9 @@ func (a *app) settingsCmd(op, short string, lv level) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var x any
-			if json.Unmarshal([]byte(v), &x) != nil {
-				x = v // a bare word is a string
+			x, err := a.knobValue(k, v)
+			if err != nil {
+				return err
 			}
 			rung[k] = x
 		}

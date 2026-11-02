@@ -134,3 +134,28 @@ func TestParamsSetJSONHasJobs(t *testing.T) {
 		t.Errorf("params set --json = %d %q %q", code, out, errw)
 	}
 }
+
+// tile logs --json is NDJSON with or without --follow.
+func TestLogsJSONIsNDJSON(t *testing.T) {
+	fake(t, map[string]string{"/logs": `{"log":"a\nb\n"}`})
+	code, out, errw := cli(t, "--json", "tile", "logs", "api", "--stack", "shop", "--env", "dev")
+	if code != 0 || out != "{\"line\":\"a\"}\n{\"line\":\"b\"}\n" {
+		t.Errorf("logs --json = %d %q %q", code, out, errw)
+	}
+}
+
+// A rung's --set value is JSON, except for a string knob, which keeps
+// digits as text.
+func TestKnobValueByType(t *testing.T) {
+	r := fake(t, map[string]string{
+		"/settings":    `[{"key":"protect_user","type":"string"},{"key":"mem_limit_mb","type":"int"}]`,
+		"/stacks/shop": `{"settings":""}`,
+	})
+	if code, _, errw := cli(t, "stack", "defaults", "--stack", "shop", "--set", "protect_user=123", "--set", "mem_limit_mb=512"); code != 0 {
+		t.Fatalf("set = %d %s", code, errw)
+	}
+	w := writes(r)
+	if len(w) != 1 || !strings.HasSuffix(w[0], `{"mem_limit_mb":512,"protect_user":"123"}`) {
+		t.Errorf("sent %q", w)
+	}
+}
