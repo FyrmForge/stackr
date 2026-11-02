@@ -147,6 +147,27 @@ func TestBranchesAndYAMLFiles(t *testing.T) {
 	}
 }
 
+func TestBranchesPastFirstPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := 100
+		if r.URL.Query().Get("page") == "2" {
+			n = 5
+		}
+		var out []map[string]string
+		for i := 0; i < n; i++ {
+			out = append(out, map[string]string{"name": "b"})
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	}))
+	defer srv.Close()
+	c := New()
+	c.apiURL = srv.URL
+	bs, err := c.Branches(context.Background(), "t", "acme/cfg")
+	if err != nil || len(bs) != 105 {
+		t.Fatalf("branches = %d %v", len(bs), err)
+	}
+}
+
 func TestSetHookURL(t *testing.T) {
 	_, pemKey := testKey(t)
 	var got struct{ URL string }

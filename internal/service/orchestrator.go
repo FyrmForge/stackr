@@ -894,8 +894,15 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	return orch, nil
 }
 
+// seedDB is a migrated empty database the tests set (main_test.go), so a new
+// orchestrator skips running every migration. nil in a real panel.
+var seedDB []byte
+
 // openDB connects and brings the schema up to date.
 func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
+	if _, err := os.Stat(path); seedDB != nil && errors.Is(err, os.ErrNotExist) {
+		_ = os.WriteFile(path, seedDB, 0o600)
+	}
 	db, err := sqlite.ConnectContext(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)

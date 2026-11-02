@@ -225,33 +225,48 @@ func (c *Client) Token(ctx context.Context, app App) (string, error) {
 
 // Repos lists the repositories the installation token may read. It doubles
 // as the install check: an installed app with no repos picked lists none.
-// ponytail: first 100 only, paginate when someone has more.
+// ponytail: pages of 100, at most maxPages (5000 repos).
 func (c *Client) Repos(ctx context.Context, token string) ([]Repo, error) {
-	var out struct {
-		Repositories []Repo `json:"repositories"`
+	var all []Repo
+	for page := 1; page <= maxPages; page++ {
+		var out struct {
+			Repositories []Repo `json:"repositories"`
+		}
+		if err := c.api(ctx, http.MethodGet, fmt.Sprintf("/installation/repositories?per_page=100&page=%d", page), token, &out); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Repositories...)
+		if len(out.Repositories) < 100 {
+			break
+		}
 	}
-	if err := c.api(ctx, http.MethodGet, "/installation/repositories?per_page=100", token, &out); err != nil {
-		return nil, err
-	}
-	return out.Repositories, nil
+	return all, nil
 }
 
+// maxPages bounds a paged list: 100 a page.
+const maxPages = 50
+
 // Branches lists repo's branch names (owner/name), for the config picker.
-// ponytail: first 100 only, paginate when someone has more.
+// ponytail: pages of 100, at most maxPages.
 func (c *Client) Branches(ctx context.Context, token, repo string) ([]string, error) {
 	p, err := repoPath(repo)
 	if err != nil {
 		return nil, err
 	}
-	var out []struct {
-		Name string `json:"name"`
-	}
-	if err := c.api(ctx, http.MethodGet, p+"/branches?per_page=100", token, &out); err != nil {
-		return nil, err
-	}
-	names := make([]string, len(out))
-	for i, b := range out {
-		names[i] = b.Name
+	var names []string
+	for page := 1; page <= maxPages; page++ {
+		var out []struct {
+			Name string `json:"name"`
+		}
+		if err := c.api(ctx, http.MethodGet, fmt.Sprintf("%s/branches?per_page=100&page=%d", p, page), token, &out); err != nil {
+			return nil, err
+		}
+		for _, b := range out {
+			names = append(names, b.Name)
+		}
+		if len(out) < 100 {
+			break
+		}
 	}
 	return names, nil
 }
