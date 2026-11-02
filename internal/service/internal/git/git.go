@@ -98,6 +98,10 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 	if err := run(r.Dir, "-c", "advice.detachedHead=false", "checkout", "-f", "FETCH_HEAD"); err != nil {
 		return "", fmt.Errorf("git checkout: %w", err)
 	}
+	// Housekeeping the fetch above skipped: gc --auto only does work past git's
+	// thresholds, and runs here in the foreground so it never outlives the job.
+	// Best effort: a failed gc never fails a checkout.
+	_ = run(r.Dir, "-c", "gc.autoDetach=false", "gc", "--auto", "--quiet")
 	out, err := r.git(ctx, "rev-parse", "HEAD")
 	return strings.TrimSpace(string(out)), err
 }
