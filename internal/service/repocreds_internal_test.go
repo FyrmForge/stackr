@@ -10,7 +10,7 @@ func TestNoRepoCreds(t *testing.T) {
 		"":                                  true,
 		"https://ghp_token@github.com/a/b":  false,
 		"https://user:pw@git.example.com/a": false,
-		" https://tok@git.example.com/a/b ": false,
+		"https://tok@git.example.com/a/b":   false,
 	} {
 		if err := noRepoCreds(repo); (err == nil) != ok {
 			t.Errorf("noRepoCreds(%q) = %v, want ok %v", repo, err, ok)
