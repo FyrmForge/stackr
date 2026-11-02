@@ -469,22 +469,27 @@ func (o *Orchestrator) subject(ctx context.Context, v store.Volume, method strin
 	return s, err
 }
 
-// dumpBeforeDrop takes a dump of the instance a slice lives on, to the
-// panel's disk, before on_remove: drop destroys the slice's database.
-func (o *Orchestrator) dumpBeforeDrop(ctx context.Context, envID string, p store.Provision, log io.Writer) error {
-	vs, err := o.volumes.List(ctx, volume.Scope{Kind: "env", ID: envID})
+// dumpBeforeDrop backs up the instance a slice lives on, to the panel's
+// disk, before on_remove: drop destroys the slice's data. The instance's
+// volume sits in the instance tile's env, which is not always the slice's.
+func (o *Orchestrator) dumpBeforeDrop(ctx context.Context, _ string, p store.Provision, log io.Writer) error {
+	it, err := o.instanceTile(ctx, p.InstanceID)
+	if err != nil {
+		return err
+	}
+	vs, err := o.volumes.List(ctx, volume.Scope{Kind: "env", ID: it.EnvironmentID})
 	if err != nil {
 		return err
 	}
 	i := slices.IndexFunc(vs, func(v store.Volume) bool { return v.InstanceID != nil && *v.InstanceID == p.InstanceID })
 	if i < 0 {
-		return nil
+		return fmt.Errorf("no volume found for the instance holding %s", p.DBName)
 	}
 	v, org, _, err := o.volumeFacts(ctx, vs[i].ID)
 	if err != nil {
 		return err
 	}
-	sub, err := o.subject(ctx, v, "dump")
+	sub, err := o.subject(ctx, v, "") // the engine's first method, as a scheduled backup picks
 	if err != nil {
 		return err
 	}
