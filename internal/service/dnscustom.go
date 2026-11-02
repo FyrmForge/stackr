@@ -473,6 +473,21 @@ func (o *Orchestrator) managedRow(ctx context.Context, orgID *string, id, domain
 	return rows[i], nil
 }
 
+// lockedRow is managedRow under its rowLock, read again once locked: a
+// write of its records never lands on a row a rescope changed meanwhile.
+func (o *Orchestrator) lockedRow(ctx context.Context, orgID *string, id, domain string) (store.DNSDomain, func(), error) {
+	z, err := o.managedRow(ctx, orgID, id, domain)
+	if err != nil {
+		return z, nil, err
+	}
+	unlock := o.rowLock(z.ID)
+	if z, err = o.managedRow(ctx, orgID, id, domain); err != nil {
+		unlock()
+		return z, nil, err
+	}
+	return z, unlock, nil
+}
+
 // DNSDomainRecords is the custom records declared on a managed domain
 // itself (an apex MX, a verification TXT).
 func (o *Orchestrator) DNSDomainRecords(ctx context.Context, orgID *string, id, domain string) (CustomRecords, error) {
@@ -488,10 +503,11 @@ func (o *Orchestrator) DNSDomainRecords(ctx context.Context, orgID *string, id, 
 // AddDNSDomainRecord declares a custom record on a managed domain and
 // writes it; saved before the write, as AddTileDomainRecord.
 func (o *Orchestrator) AddDNSDomainRecord(ctx context.Context, orgID *string, id, domain string, in CustomRecordIn) (CustomRecord, error) {
-	z, err := o.managedRow(ctx, orgID, id, domain)
+	z, unlock, err := o.lockedRow(ctx, orgID, id, domain)
 	if err != nil {
 		return CustomRecord{}, err
 	}
+	defer unlock()
 	rec, _, note, err := o.checkCustom(ctx, customOwner{Zone: z}, in, true)
 	if err != nil {
 		return CustomRecord{}, err
@@ -509,10 +525,11 @@ func (o *Orchestrator) AddDNSDomainRecord(ctx context.Context, orgID *string, id
 // RemoveDNSDomainRecord drops a managed domain's custom record; stackr
 // deletes it from the zone.
 func (o *Orchestrator) RemoveDNSDomainRecord(ctx context.Context, orgID *string, id, domain, recordID string) error {
-	z, err := o.managedRow(ctx, orgID, id, domain)
+	z, unlock, err := o.lockedRow(ctx, orgID, id, domain)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	i := slices.IndexFunc(z.Records, func(r store.CustomRecord) bool { return r.ID == recordID })
 	if i < 0 {
 		return errs.ErrNotFound

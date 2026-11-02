@@ -253,6 +253,13 @@ func TestRescopeStaleConfirm(t *testing.T) {
 	if got := resourceHosts(t, env); !slices.Equal(got, []string{"test.acme.dev"}) {
 		t.Errorf("resources = %v", got)
 	}
+	// from is compared as a scope, however it was typed: the domain itself
+	// is the whole domain
+	for _, step := range []struct{ from, to string }{{"Test.Acme.dev.", ""}, {"acme.dev", "test.acme.dev"}} {
+		if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", step.to, &step.from, nil); err != nil {
+			t.Errorf("from %q: %v", step.from, err)
+		}
+	}
 }
 
 // A narrowing keeps the domain's own custom records outside the new scope

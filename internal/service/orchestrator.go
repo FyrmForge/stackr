@@ -304,7 +304,7 @@ type Orchestrator struct {
 	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	earlyMu      sync.Mutex            // guards earlyIPs
 	earlyIPs     map[string]earlyEnt   // container id -> address holding early lan rules
-	repoLocks    sync.Map              // clone dir -> *sync.Mutex
+	repoLocks    sync.Map              // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
 	alertMem     *alertState           // the alert tick's memory (alerts.go)
 	platforms    platformCache         // each node's CPU type (imports.go)
 	cli          cliCodes

@@ -140,6 +140,13 @@ func (o *Orchestrator) ManageDNSDomainAdopting(ctx context.Context, orgID *strin
 	if err != nil {
 		return DNSDomain{}, err
 	}
+	rows, err := o.dns.ByConnector(ctx, c.ID)
+	if err != nil {
+		return DNSDomain{}, err
+	}
+	if i := slices.IndexFunc(rows, func(r store.DNSDomain) bool { return r.Name == dnscap.Normal(domain) }); i >= 0 {
+		defer o.rowLock(rows[i].ID)() // managed already: who may use it changes, not under a rescope
+	}
 	scope, err := o.scopeOf(ctx, c.ID, domain, under)
 	if err != nil {
 		return DNSDomain{}, err
