@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -630,10 +631,13 @@ func (w *serverWalk) routes() error {
 			return fmt.Errorf("no routes: entry for %s", c.Tile)
 		}
 		fr := w.f.Routes[i]
+		var old *ExternalRoute
 		if c.Kind == "route-update" { // the service has no route update: replace it
-			if err := w.deleteRoute(fr.Host); err != nil {
+			o, err := w.takeRoute(fr.Host)
+			if err != nil {
 				return fmt.Errorf("route-update %s: %w", fr.Host, err)
 			}
+			old = &o
 		}
 		_, err := w.o.CreateExternalRoute(w.ctx, ExternalRouteSpec{
 			Host:     fr.Host,
@@ -642,6 +646,10 @@ func (w *serverWalk) routes() error {
 			Insecure: fr.Insecure,
 		})
 		if err != nil {
+			if old != nil { // a refused update keeps the live route
+				_, rerr := w.o.CreateExternalRoute(w.ctx, ExternalRouteSpec{Host: old.Host, Mode: old.Mode, Target: old.Target, Insecure: old.Insecure})
+				err = errors.Join(err, rerr)
+			}
 			return fmt.Errorf("%s %s: %w", c.Kind, fr.Host, err)
 		}
 	}
@@ -649,12 +657,18 @@ func (w *serverWalk) routes() error {
 }
 
 func (w *serverWalk) deleteRoute(host string) error {
+	_, err := w.takeRoute(host)
+	return err
+}
+
+// takeRoute deletes the route on host and returns it.
+func (w *serverWalk) takeRoute(host string) (ExternalRoute, error) {
 	rs, err := w.o.ExternalRoutes(w.ctx)
 	i := slices.IndexFunc(rs, func(r ExternalRoute) bool { return r.Host == host })
 	if err != nil || i < 0 {
-		return cmp.Or(err, errs.ErrNotFound)
+		return ExternalRoute{}, cmp.Or(err, errs.ErrNotFound)
 	}
-	return w.o.DeleteExternalRoute(w.ctx, rs[i].ID)
+	return rs[i], w.o.DeleteExternalRoute(w.ctx, rs[i].ID)
 }
 
 // orgs creates the orgs the file names (the approver is the owner), grants

@@ -203,4 +203,9 @@ func (h *handler) mountOrgConfig(site *echo.Group, a *middleware.Access) {
 	site.GET("/:org/-/jobs/:job/events", func(c echo.Context) error {
 		return render.JobStream(c, h.orch, "/"+middleware.ScopeOf(c).Org.Slug)
 	}, a.Require("deployment.read"))
+	orgLog := func(c echo.Context) error {
+		return render.JobLogPage(c, h.orch, "/"+middleware.ScopeOf(c).Org.Slug)
+	}
+	site.GET("/:org/-/jobs/:job", orgLog, a.Require("deployment.read"))
+	site.GET("/:org/-/jobs/:job/log", orgLog, a.Require("deployment.read"))
 }

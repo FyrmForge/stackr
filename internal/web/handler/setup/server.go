@@ -740,6 +740,7 @@ func (h *handler) serverApprove(c echo.Context) error {
 	vals, _ := c.FormParams()
 	if _, err := h.orch.ApproveServerPlan(c.Request().Context(), c.Param("plan"), service.ApproveOpts{
 		Ticked: vals["ticked"], Confirm: c.FormValue("confirm") != "",
+		ApproverID: middleware.Principal(c).User.ID, // owns the orgs the apply creates
 	}); err != nil {
 		return back(c, err, ServerBase+"/config/plan")
 	}

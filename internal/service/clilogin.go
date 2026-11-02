@@ -73,5 +73,5 @@ func (o *Orchestrator) ExchangeCLICode(ctx context.Context, code string) (string
 	if !ok || time.Now().After(v.exp) {
 		return "", APIKey{}, errs.Invalidf("code", "login code is unknown, used or expired")
 	}
-	return o.mintKey(ctx, v.userID, "", "", v.name, "", "") // a CLI login: no org, no ceiling, no stack
+	return o.mintKey(ctx, v.userID, "", "", v.name, "", "", nil) // a CLI login: no org, no ceiling, no stack
 }

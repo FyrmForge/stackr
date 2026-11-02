@@ -235,6 +235,9 @@ templ topBar(s Shell, oob bool) {
 				if s.MoveIngress != "" {
 					<a href={ templ.SafeURL(s.MoveIngress) } class="underline hover:text-rw-text ml-1">Move ingress</a>
 				}
+				if s.OpenNodes != "" {
+					<a href={ templ.SafeURL(s.OpenNodes) } class="underline hover:text-rw-text ml-1">Open nodes</a>
+				}
 			</div>
 		}
 	</header>

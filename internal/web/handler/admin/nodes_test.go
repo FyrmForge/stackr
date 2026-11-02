@@ -54,6 +54,10 @@ func TestAdminNodes(t *testing.T) {
 	if rec := s.As(t, root, "GET", "/-/admin/nodes/add/poll?name=w9", nil); rec.Code != http.StatusNoContent {
 		t.Errorf("poll = %d, want 204", rec.Code)
 	}
+	// past the command's expiry the poll says so and htmx stops (286)
+	if rec := s.As(t, root, "GET", "/-/admin/nodes/add/poll?name=w9&until=1", nil); rec.Code != 286 || !strings.Contains(rec.Body.String(), "expired") {
+		t.Errorf("expired poll = %d\n%s", rec.Code, rec.Body)
+	}
 
 	// the controller's drawer, and the refusal to untag its ingress
 	ns, err := s.Orch.Nodes(t.Context())
@@ -250,7 +254,7 @@ func TestAdminNodeBackupAndRemove(t *testing.T) {
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	h4 := s.Worker(t, "h4", "fp")
 	rec := s.As(t, root, "GET", "/-/admin/nodes/"+h4+"?tab=security", nil)
-	for _, want := range []string{"Stops everything on h4, backs it up, checks the backups, then cleans the box and removes it. A failed backup stops here and starts the apps again.", "the backups, and the volumes and images on the box"} {
+	for _, want := range []string{"Refused while envs, a placement or a default role still sit on h4: move them first. Then it stops everything on h4, backs it up, checks the backups, then cleans the box and removes it. A failed backup stops here and starts the apps again.", "the backups, and the volumes and images on the box"} {
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("security = %d, no %q in\n%s", rec.Code, want, rec.Body)
 		}

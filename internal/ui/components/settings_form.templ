@@ -18,6 +18,9 @@ type SettingsFormView struct {
 	// Keys is the rows the form shows, in this order; nil = every row. A
 	// key with no row is skipped.
 	Keys []string
+	// Confirm asks before the save is applied, inside the form; its yes
+	// posts the form again with what Vals adds.
+	Confirm *ConfirmView
 }
 
 // SettingRowView mirrors a settings.Knob plus the cascade's answer.
@@ -235,6 +238,9 @@ templ SettingsForm(v SettingsFormView) {
 			@actedNote(FormError(v.Error))
 		} else if v.Note != "" {
 			@actedNote(Note(v.Note))
+		}
+		if v.Confirm != nil {
+			@Confirm(*v.Confirm)
 		}
 	</form>
 }

@@ -85,9 +85,19 @@ type Options struct {
 	// now. nil = requeue every parked job each poll and let the handler
 	// re-check.
 	ParamSet func(ctx context.Context, j store.Job) (bool, error)
-	// Hold, when it answers true, starts nothing: the panel launched its
-	// upgraded successor, and a job started now dies with this one. nil = never.
+	// Hold, when it answers true, starts nothing: an upgrade helper is
+	// swapping the panel, and a job started now dies with the old panel or
+	// outlives a rollback of the new one's database. nil = never.
 	Hold func() bool
+	// Survived reports a job still running at boot that the restart itself
+	// completed (the upgrade that swapped this panel in): it is finished
+	// done, not failed. nil = none.
+	Survived func(j store.Job) bool
+	// Ended runs after a job's row is finished for good (any end but a
+	// park), whether or not its handler ran: a job cancelled or superseded
+	// while queued or waiting still lets go of what it holds. Called with
+	// the runner's lock held; it must not call back into the Runner. nil = nothing.
+	Ended func(j store.Job)
 }
 
 type Runner struct {
@@ -178,9 +188,14 @@ func (r *Runner) Start(ctx context.Context) error {
 		return err
 	}
 	for _, j := range stale {
-		if err := r.jobs.Finish(ctx, j, job.Failed, "stackrd restarted while this job ran; run it again"); err != nil {
+		state, reason := job.Failed, "stackrd restarted while this job ran; run it again"
+		if r.opt.Survived != nil && r.opt.Survived(j) {
+			state, reason = job.Done, ""
+		}
+		if err := r.jobs.Finish(ctx, j, state, reason); err != nil {
 			return err
 		}
+		r.ended(j)
 	}
 	loop, stop := context.WithCancel(context.Background())
 	r.stop = stop
@@ -188,6 +203,9 @@ func (r *Runner) Start(ctx context.Context) error {
 	go r.loop(loop)
 	return nil
 }
+
+// Wake runs a pass now: a hold ended.
+func (r *Runner) Wake() { r.poke() }
 
 // Close stops picking jobs, cancels the running ones and waits for them.
 func (r *Runner) Close() {
@@ -253,9 +271,6 @@ func (r *Runner) unpark(ctx context.Context) {
 // that cannot start still holds its tiles against newer ones, so each tile
 // sees its jobs in order.
 func (r *Runner) pass(ctx context.Context) error {
-	if r.opt.Hold != nil && r.opt.Hold() {
-		return nil
-	}
 	n, err := r.opt.Workers(ctx)
 	if err != nil {
 		return err
@@ -283,6 +298,10 @@ func (r *Runner) pass(ctx context.Context) error {
 		busy = append(busy, j.LockSet)
 		if blocked {
 			continue
+		}
+		// Asked only when a job would start, so an idle queue costs Hold nothing.
+		if r.opt.Hold != nil && r.opt.Hold() {
+			return nil
 		}
 		if err := r.start(j); err != nil {
 			return err
@@ -349,6 +368,9 @@ func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 		delete(r.deployed, j.ID)
 		err = r.jobs.Finish(fresh, j, state, reason)
 		selfmetrics.Job(j.Kind, state, time.Since(start))
+		if err == nil {
+			r.ended(rn.Job)
+		}
 	}
 	if err != nil {
 		slog.Error("recording job result failed", "job", j.ID, "state", state, "error", err)
@@ -448,6 +470,7 @@ func (r *Runner) Enqueue(
 			if err := r.jobs.Finish(ctx, o, job.Superseded, ""); err != nil {
 				return j, err
 			}
+			r.ended(o)
 		}
 	}
 	r.poke()
@@ -491,7 +514,17 @@ func (r *Runner) Cancel(ctx context.Context, id string) error {
 	if !job.Cancellable(j.State) {
 		return ErrFinished
 	}
-	return r.jobs.Finish(ctx, j, job.Cancelled, "")
+	if err := r.jobs.Finish(ctx, j, job.Cancelled, ""); err != nil {
+		return err
+	}
+	r.ended(j)
+	return nil
+}
+
+func (r *Runner) ended(j store.Job) {
+	if r.opt.Ended != nil {
+		r.opt.Ended(j)
+	}
 }
 
 // Get returns one job row.

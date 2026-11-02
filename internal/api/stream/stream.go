@@ -80,6 +80,13 @@ func event(c echo.Context, name string, v any) error {
 	return nil
 }
 
+// failed ends a stream that broke after its first byte with an "error"
+// event shaped like the API's error body (error, status, code), since the
+// 200 is long sent.
+func failed(c echo.Context, err error) error {
+	return event(c, "error", map[string]any{"error": err.Error(), "status": http.StatusInternalServerError, "code": "internal"})
+}
+
 func ping(c echo.Context) error {
 	if _, err := io.WriteString(c.Response(), ": ping\n\n"); err != nil {
 		return err
@@ -129,7 +136,7 @@ func PollAs(
 		}
 		time.Sleep(PollEvery)
 		if v, next, end, err = poll(ctx, offset); err != nil {
-			return event(c, "error", err.Error())
+			return failed(c, err)
 		}
 	}
 }
@@ -218,7 +225,7 @@ func Watch(c echo.Context, poll func(ctx context.Context) ([]Msg, error)) error 
 		}
 		time.Sleep(PollEvery)
 		if ms, err = poll(ctx); err != nil {
-			return event(c, "error", err.Error())
+			return failed(c, err)
 		}
 	}
 }

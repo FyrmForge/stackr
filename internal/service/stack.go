@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -66,13 +67,14 @@ func (o *Orchestrator) DeleteStack(ctx context.Context, id string) error {
 	if err := o.stacks.Delete(ctx, id); err != nil {
 		return err
 	}
+	o.dropStackClones(id)
 	o.cancelWaiting(ctx, func(j Job) bool {
 		var p struct {
 			HostAccess *hostAccess `json:"host_access"`
 		}
 		return json.Unmarshal([]byte(j.Payload), &p) == nil && p.HostAccess != nil && p.HostAccess.Stack == id
 	})
-	return nil
+	return o.noted(ctx, nil, securitylog.StackDelete, "stack", id, "")
 }
 
 const kindStackTeardown jobs.Kind = "stack-teardown"

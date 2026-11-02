@@ -45,7 +45,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, 
 	root.SetOut(out)
 	root.SetErr(errw)
 	if err := a.load(); err != nil {
-		return a.fail(err)
+		// login and logout replace a file they cannot read
+		if len(args) == 0 || (args[0] != "login" && args[0] != "logout") {
+			return a.fail(err)
+		}
+		a.cfg, a.base = config{}, config{}
 	}
 	if err := helpOnUnknown(root, args); err != nil {
 		return a.fail(err)
@@ -69,6 +73,7 @@ Environment (each beats the config file; nothing here is written to disk):
   STACKR_KEY     API key, so CI needs no login
   STACKR_SERVER  server URL
   STACKR_ORG     org slug
+  STACKR_PROFILE login to use (see stackr profile ls); --profile beats it
   STACKR_CONFIG  config file path`,
 		Version:       version,
 		SilenceErrors: true,
@@ -79,8 +84,25 @@ Environment (each beats the config file; nothing here is written to disk):
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON; errors go to stderr as {error, status, code}")
 	root.PersistentFlags().BoolVar(&a.utc, "utc", false, "print times in UTC, not this machine's zone")
 	root.PersistentFlags().BoolVarP(&a.yes, "yes", "y", false, "skip confirmation prompts (never overrides a server refusal)")
+	root.PersistentFlags().StringVar(&a.profile, "profile", "", "the saved login to use (stackr profile ls); login makes it")
+	root.PersistentPreRunE = func(c *cobra.Command, _ []string) error {
+		name, login := a.profile, c.Name() == "login"
+		if c.Parent() != nil && c.Parent().Name() == "profile" { // they list and pick profiles
+			return nil
+		}
+		if name == "" && !login { // login's own arguments, not STACKR_*, say where
+			name = os.Getenv("STACKR_PROFILE")
+		}
+		v, ok := a.cfg.Use(name, login)
+		if !ok {
+			return usage("no profile %q; stackr profile ls lists them, stackr login <url> --profile %s makes it", name, name)
+		}
+		a.cfg = v
+		return nil
+	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageErr{err.Error()} })
 	root.AddCommand(a.commands()...)
+	groupCommands(root)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about any command",
@@ -93,6 +115,36 @@ Environment (each beats the config file; nothing here is written to disk):
 		},
 	})
 	return root
+}
+
+// helpGroups sort the root help: the commands of each group, in the order
+// the groups show.
+var helpGroups = []struct {
+	id, title string
+	cmds      []string
+}{
+	{"session", "Session:", []string{"login", "logout", "profile", "link", "unlink", "status", "password", "key"}},
+	{"work", "Stacks and tiles:", []string{
+		"stack", "env", "tile", "deploy", "restart", "promote", "rollback", "release", "logs", "metrics", "ssh", "forward",
+		"job", "params", "domain", "volume", "backup", "managed", "slice",
+	}},
+	{"org", "Org and server:", []string{
+		"org", "tier", "dest", "share", "registry", "host-grant", "placements", "pin", "ingress", "exit",
+		"node", "cluster", "admin", "server", "knobs",
+	}},
+}
+
+// groupCommands files the root's commands under helpGroups; one in no group
+// (completion, help) stays under "Additional Commands".
+func groupCommands(root *cobra.Command) {
+	for _, g := range helpGroups {
+		root.AddGroup(&cobra.Group{ID: g.id, Title: g.title})
+		for _, c := range root.Commands() {
+			if slices.Contains(g.cmds, c.Name()) {
+				c.GroupID = g.id
+			}
+		}
+	}
 }
 
 // group is the RunE of every command that only holds others: bare, it

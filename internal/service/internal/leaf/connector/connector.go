@@ -37,7 +37,9 @@ func New(conns store.ConnectorStore, kinds []connectors.Kind) *Leaf {
 // a typed error the promote diff shows.
 type NoConnector struct{ Host string }
 
-func (e NoConnector) Error() string { return "no connected git connector for " + e.Host }
+func (e NoConnector) Error() string {
+	return "no connected git connector for " + e.Host + ". A private repo needs one under Connectors."
+}
 
 // Ambiguous is a git_url whose host several shared server connectors serve,
 // and the org has none of its own: the binding must name one.

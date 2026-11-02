@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -172,7 +173,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 	_, err = env.Orch.AddTileDomainRecord(ctx, tl.ID, other.ID, service.CustomRecordIn{Type: "TXT", Value: "v"})
 	conflict(t, err, "shop.example.org is not in a managed domain: stackr does not manage example.org")
 
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "test.acme.dev", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// the narrowing marks shop's A handed back: kept for the Domains page,
@@ -207,7 +208,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 
 	// a file's records on a host in the managed part: checked and noted;
 	// one on a hostname the same file adds for another app is refused
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, conn, "acme.dev", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	env.DNS.Put("acme.dev", libdns.RR{Name: "new", Type: "TXT", Data: "hand"})
@@ -272,5 +273,195 @@ func TestCustomRecordPutBack(t *testing.T) {
 		if r.Kind != want {
 			t.Errorf("%s %s kind %q", r.Type, r.Name, r.Kind)
 		}
+	}
+}
+
+// A zone whose mail setting drops MX records (Namecheap mail forwarding)
+// refuses a custom MX on every path before anything is saved; a TXT still
+// goes. An MX stackr already has there is reported by the sync, never put
+// back run after run.
+func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	const why = "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
+	mx := service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}
+
+	// one MX written while the zone took them, then the mail setting flips
+	if _, err := env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Type: "MX", Value: "20 old.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("acme.dev", why)
+
+	_, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, mx)
+	conflict(t, err, why)
+	_, err = env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", mx)
+	conflict(t, err, why)
+	orgs, _ := env.Store.Orgs.List(ctx)
+	acme := ""
+	for _, o := range orgs {
+		if o.Slug == "acme" {
+			acme = o.ID
+		}
+	}
+	_, _, err = env.Orch.CheckFileRecords(ctx, acme, "new.acme.dev", []store.CustomRecord{{Type: "MX", Value: "10 mx.example.net"}}, nil, false, nil)
+	conflict(t, err, why)
+	if rs, _ := env.Orch.TileDomainRecords(ctx, tl.ID, d.ID); len(rs.Records) != 0 {
+		t.Errorf("refused MX saved: %+v", rs.Records)
+	}
+	if dr, _ := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev"); len(dr.Records) != 1 {
+		t.Errorf("refused MX saved on the domain: %+v", dr.Records)
+	}
+
+	// the sync: the MX it has reads gone (Namecheap hides it); it says why
+	// and writes nothing, run after run
+	before, _, _ := env.DNS.Log()
+	for range 2 {
+		if err := env.Orch.SyncProxy(ctx); err != nil {
+			t.Fatal(err)
+		}
+		env.Orch.WaitDNS()
+		if got := env.Orch.DNSSyncError(); !strings.Contains(got, why) || !strings.Contains(got, "MX on acme.dev not written") {
+			t.Fatalf("sync error = %q", got)
+		}
+	}
+	after, _, _ := env.DNS.Log()
+	for _, a := range after[len(before):] {
+		if strings.Contains(a, "old.example.net") {
+			t.Errorf("MX put back: %s", a)
+		}
+	}
+	rows, _ := env.Store.DNSRecords.List(ctx)
+	for _, x := range rows {
+		if x.Type == "MX" && x.PutBackAt != nil {
+			t.Errorf("MX row marked put back: %+v", x)
+		}
+	}
+	// read back, the MX says it is not live and why, from the last sync:
+	// no provider call
+	calls := env.DNS.Calls
+	dr, err := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev")
+	if err != nil || len(dr.Records) != 1 || dr.Records[0].Written || dr.Records[0].NotLive != why {
+		t.Errorf("MX read back = %+v %v", dr.Records, err)
+	}
+	md, err := env.Orch.ManagedDomainNamed(ctx, nil, "acme.dev")
+	if i := slices.IndexFunc(md.Records, func(r service.ManagedRecord) bool { return r.Type == "MX" }); err != nil || i < 0 ||
+		md.Records[i].Drift != "Not live: this domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first." {
+		t.Errorf("Domains page MX = %+v %v", md.Records, err)
+	}
+	if env.DNS.Calls != calls {
+		t.Errorf("reading records called the provider %d times", env.DNS.Calls-calls)
+	}
+
+	// a TXT in the same zone is written; the MX's reason is not its own
+	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
+	if r.ID == "" || err != nil || !r.Written || strings.Contains(r.Note, why) {
+		t.Fatalf("TXT add = %+v %v", r, err)
+	}
+	if count(env.DNS.Zone("acme.dev"), "shop", "TXT", "v=1") != 1 {
+		t.Errorf("TXT not written: %v", env.DNS.Zone("acme.dev"))
+	}
+
+	// back on Custom MX: the next sync clears the reason, the row is live
+	env.DNS.NoMX("acme.dev", "")
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if dr, _ := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev"); len(dr.Records) != 1 || !dr.Records[0].Written || dr.Records[0].NotLive != "" {
+		t.Errorf("MX after Custom MX = %+v", dr.Records)
+	}
+}
+
+// Moving a hostname into a zone whose mail setting drops MX records is
+// refused when it carries an MX, as adding one there is; without an MX it
+// moves.
+func TestMoveRefusesMXWithoutCustomMX(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	const why = "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
+	if _, err := env.Orch.ManageDNSDomain(ctx, nil, conn, "shop.io", nil); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("shop.io", why)
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.UpdateDomain(ctx, d.ID, service.DomainSpec{Host: "a.shop.io"}); err != nil {
+		t.Fatalf("TXT only move: %v", err)
+	}
+	if _, err := env.Orch.UpdateDomain(ctx, d.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.Orch.UpdateDomain(ctx, d.ID, service.DomainSpec{Host: "b.shop.io"})
+	conflict(t, err, why)
+	if got, _ := env.Store.Domains.Get(ctx, d.ID); got.Host != "shop.acme.dev" {
+		t.Errorf("refused move saved: %s", got.Host)
+	}
+	// a stack file renaming the host: a new entry, checked as an add
+	orgs, _ := env.Store.Orgs.List(ctx)
+	i := slices.IndexFunc(orgs, func(o store.Org) bool { return o.Slug == "acme" })
+	_, _, err = env.Orch.CheckFileRecords(ctx, orgs[i].ID, "b.shop.io", []store.CustomRecord{{Type: "MX", Value: "10 mx.example.net"}}, nil, false, nil)
+	conflict(t, err, why)
+}
+
+// A rename moving a generated hostname with an MX is never refused for the
+// zone's mail setting: the rename is committed, the MX reads not live.
+func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
+	env, _, tl, _ := customRig(t)
+	ctx := context.Background()
+	d, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Auto: true})
+	if err != nil || !strings.HasSuffix(d.Host, ".acme.dev") {
+		t.Fatalf("auto domain = %+v %v", d, err)
+	}
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("acme.dev", "forwarding")
+	calls := env.DNS.Calls
+	if _, _, err := env.Orch.RenameTile(ctx, tl.ID, "renamed"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if got, _ := env.Store.Domains.Get(ctx, d.ID); got.Host == d.Host {
+		t.Errorf("host did not move: %s", got.Host)
+	}
+	if env.DNS.Calls != calls {
+		t.Errorf("the rename read the provider %d times", env.DNS.Calls-calls)
+	}
+}
+
+// An add the sync cannot write is saved, not an error: it answers written
+// false with the reason, and the next sync writes it.
+func TestAddRecordSyncFailureIsANote(t *testing.T) {
+	env, conn, tl, d := customRig(t)
+	ctx := context.Background()
+	env.DNS.Fail(errors.New("provider down"))
+	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
+	if err != nil || r.ID == "" || r.Written || !strings.Contains(r.Note, "provider down") {
+		t.Fatalf("tile add = %+v %v", r, err)
+	}
+	r, err = env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Name: "verify", Type: "TXT", Value: "v=1"})
+	if err != nil || r.ID == "" || r.Written || !strings.Contains(r.Note, "provider down") {
+		t.Fatalf("domain add = %+v %v", r, err)
+	}
+	env.DNS.Fail(nil)
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if rs, _ := env.Orch.TileDomainRecords(ctx, tl.ID, d.ID); len(rs.Records) != 1 || !rs.Records[0].Written {
+		t.Errorf("after the provider is back: %+v", rs.Records)
+	}
+}
+
+// A record whose full name runs past 253 characters is refused on its name.
+func TestCustomRecordNameTooLong(t *testing.T) {
+	env, _, tl, d := customRig(t)
+	long := strings.TrimSuffix(strings.Repeat(strings.Repeat("a", 60)+".", 4), ".") // 243, then .shop.acme.dev
+	_, err := env.Orch.AddTileDomainRecord(context.Background(), tl.ID, d.ID, service.CustomRecordIn{Name: long, Type: "TXT", Value: "v"})
+	if inv, ok := errs.IsInvalid(err); !ok || inv.Field != "name" {
+		t.Errorf("long name = %v", err)
 	}
 }

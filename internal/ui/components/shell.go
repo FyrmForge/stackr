@@ -31,6 +31,9 @@ type Shell struct {
 	// MoveIngress is the banner's link when it is the env's ingress that is
 	// down: the env's Placement tab, where its ingress moves.
 	MoveIngress string
+	// OpenNodes is the banner's link for an admin when the env's own node is
+	// down: the Nodes tab.
+	OpenNodes string
 	// Problems is the admin's problem banner, worst first; nil = none (and
 	// always nil for a non-admin). ProblemsMore is where "and N more" goes.
 	Problems     []Problem

@@ -129,10 +129,10 @@ func TestDNSUnder(t *testing.T) {
 }
 
 // rescope shows the plan, records handed back first, asks, then posts the
-// new scope with the adopted records a tile serves.
+// new scope with the adopted records a tile serves and the plan's from.
 func TestDNSRescope(t *testing.T) {
 	r := fake(t, map[string]string{
-		"/rescope": `{"scope":"test.acme.dev","hand_back":[{"host":"shop.acme.dev","type":"A","value":"192.0.2.9"}],"writes":[],"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9","host":"app.test.acme.dev","serves":true}],"resource":"test.acme.dev"}`,
+		"/rescope": `{"from":"","scope":"test.acme.dev","hand_back":[{"host":"shop.acme.dev","type":"A","value":"192.0.2.9"}],"writes":[],"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9","host":"app.test.acme.dev","serves":true}],"resource":"test.acme.dev"}`,
 	})
 	code, out, _ := cli(t, "server", "connectors", "rescope", "c1", "acme.dev", "--under", "test")
 	if code == 0 || slicesHasWrite(r.reqs) {
@@ -147,8 +147,12 @@ func TestDNSRescope(t *testing.T) {
 	if code, _, errw := cli(t, "-y", "server", "connectors", "rescope", "c1", "acme.dev", "--under", "test"); code != 0 {
 		t.Fatalf("rescope -y = %d %q", code, errw)
 	}
-	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/dns-connectors/c1/domains/acme.dev/rescope {"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9"}],"under":"test"}` {
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/dns-connectors/c1/domains/acme.dev/rescope {"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9"}],"from":"","under":"test"}` {
 		t.Errorf("rescope sent %q", w)
+	}
+	// --json prints the plan too, before the answer
+	if code, out, errw := cli(t, "--json", "-y", "server", "connectors", "rescope", "c1", "acme.dev", "--under", "test"); code != 0 || !strings.Contains(out, `"hand_back"`) {
+		t.Errorf("rescope --json -y = %d %q %q", code, out, errw)
 	}
 }
 

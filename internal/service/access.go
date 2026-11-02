@@ -6,6 +6,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -157,7 +158,7 @@ func (o *Orchestrator) RemoveMember(ctx context.Context, orgID, userID string) e
 		return err
 	}
 	if closeIt, scope := authz.StandingChanged(orgID, role, ""); closeIt {
-		return o.users.CloseAccess(ctx, userID, scope)
+		err = o.users.CloseAccess(ctx, userID, scope)
 	}
-	return nil
+	return o.noted(ctx, err, securitylog.MemberRemove, "user", userID, "org="+orgID+" role="+role)
 }

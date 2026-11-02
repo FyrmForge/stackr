@@ -6,12 +6,15 @@ package v1
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -31,6 +34,48 @@ func list[T any](xs []T, err error) ([]T, error) {
 	return xs, err
 }
 
+// paged is list for a collection that grows: ?limit= caps the page and
+// ?cursor= (the X-Next-Cursor of the page before) picks up after it. The
+// next cursor is an offset, so a row added between pages can shift one;
+// good enough for lists a person reads. No limit is the whole list.
+func paged[T any](c echo.Context) func([]T, error) ([]T, error) {
+	return func(xs []T, err error) ([]T, error) { return pageOf(c, xs, err) }
+}
+
+func pageOf[T any](c echo.Context, xs []T, err error) ([]T, error) {
+	xs, err = list(xs, err)
+	if err != nil {
+		return xs, err
+	}
+	var limit int
+	if err := echo.QueryParamsBinder(c).Int("limit", &limit).BindError(); err != nil || limit < 0 {
+		return nil, errs.Invalidf("limit", "limit is a whole number of rows, 0 or more")
+	}
+	start := 0
+	if cur := c.QueryParam("cursor"); cur != "" {
+		raw, derr := base64.RawURLEncoding.DecodeString(cur)
+		n, aerr := strconv.Atoi(string(raw))
+		if derr != nil || aerr != nil || n < 0 {
+			return nil, errs.Invalidf("cursor", "cursor is not one this list gave")
+		}
+		start = min(n, len(xs))
+	}
+	xs = xs[start:]
+	if limit > 0 && len(xs) > limit {
+		next := base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(start + limit)))
+		c.Response().Header().Set("X-Next-Cursor", next)
+		xs = xs[:limit]
+	}
+	return xs, nil
+}
+
+// Paged names ?limit= and ?cursor= next to the other query params the
+// handler reads, for the OpenAPI dump.
+func (e Endpoint) Paged() Endpoint {
+	e.Query = append(e.Query, "limit", "cursor")
+	return e
+}
+
 // Endpoint is one handler plus the shapes the OpenAPI dump reads.
 type Endpoint struct {
 	Handle  echo.HandlerFunc
@@ -39,6 +84,27 @@ type Endpoint struct {
 	Stream  string       // non-empty: the response media type (SSE, raw)
 	InRaw   string       // non-empty: the request body's media type, read raw
 	Query   []string     // the query params the handler reads
+	Idem    bool         // honours an Idempotency-Key header: a retry gets the first answer
+	Note    string       // prose for the OpenAPI operation: what the schema cannot say
+}
+
+// Describe sets the operation's description in the OpenAPI dump.
+func (e Endpoint) Describe(note string) Endpoint {
+	e.Note = note
+	return e
+}
+
+// Raw says the request body is read raw as mediaType (stdin of an exec).
+func (e Endpoint) Raw(mediaType string) Endpoint {
+	e.InRaw = mediaType
+	return e
+}
+
+// Idempotent marks an endpoint that queues work as safe to retry with an
+// Idempotency-Key header.
+func (e Endpoint) Idempotent() Endpoint {
+	e.Idem = true
+	return e
 }
 
 // Q names the query params the handler reads, for the OpenAPI dump.
@@ -102,7 +168,7 @@ func Streamed(mediaType string, f echo.HandlerFunc) Endpoint {
 
 // Job answers 202 with the queued job: the caller follows it with PollJob.
 func Job[In any](f func(c echo.Context, in In) (service.Job, error)) Endpoint {
-	return JSON(http.StatusAccepted, f)
+	return JSON(http.StatusAccepted, f).Idempotent()
 }
 
 // Done answers 204 after a verb that returns only an error.
@@ -132,9 +198,42 @@ func decode(c echo.Context, v any) error {
 		return errs.Invalidf("", "request body is required")
 	}
 	if err != nil {
-		return errs.Invalidf("", "%s", err.Error())
+		return badBody(err)
 	}
 	return nil
+}
+
+// badBody says what is wrong with a body that did not decode, in the API's
+// words and with the field, never encoding/json's.
+func badBody(err error) error {
+	var typ *json.UnmarshalTypeError
+	var syn *json.SyntaxError
+	switch {
+	case errors.As(err, &typ):
+		return errs.Invalidf(typ.Field, "must be %s", jsonKind(typ.Type))
+	case errors.As(err, &syn), errors.Is(err, io.ErrUnexpectedEOF):
+		return errs.Invalidf("", "the request body is not valid JSON")
+	}
+	// encoding/json has no typed error for an unknown field
+	if name, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		name = strings.Trim(name, `"`)
+		return errs.Invalidf(name, "unknown field")
+	}
+	return errs.Invalidf("", "the request body could not be read")
+}
+
+func jsonKind(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	case reflect.Map, reflect.Struct:
+		return "an object"
+	}
+	return "a number"
 }
 
 // scope and who read what the middleware resolved.

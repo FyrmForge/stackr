@@ -4,6 +4,8 @@ package dns
 // the records stackr wrote on it, server or org level.
 type PageView struct {
 	Domains []PageDomain
+	// Connectors is where a DNS connector is added; "" = no link.
+	Connectors string
 }
 
 // PageDomain is one managed domain: Scope and Via as the service words
@@ -27,7 +29,13 @@ templ Page(v PageView) {
 	<div class="space-y-4 text-sm">
 		<p class="text-xs text-rw-faint">Only records stackr wrote are listed. The rest are at your DNS host.</p>
 		if len(v.Domains) == 0 {
-			<p class="text-rw-faint">No managed domains yet. Manage one from a DNS connector.</p>
+			<p class="text-rw-faint">
+				No managed domains yet. Manage one from a DNS connector
+				if v.Connectors != "" {
+					{ " in " }<a class="text-rw-accent hover:underline" href={ templ.SafeURL(v.Connectors) }>Connectors</a>
+				}
+				{ "." }
+			</p>
 		}
 		for _, d := range v.Domains {
 			<section class="space-y-2 border-t border-rw-border pt-3" aria-label={ d.Name }>

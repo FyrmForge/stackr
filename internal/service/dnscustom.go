@@ -35,8 +35,11 @@ type (
 	}
 	// CustomRecord is a declared record as read back. Host is its full
 	// name. Note is how an add landed ("taken over", "added (1 other
-	// there stays)"). Written: stackr has it in the zone. PutBackAt: it
-	// changed outside stackr and stackr put it back then.
+	// there stays)"). Written: stackr has it in the zone. NotLive: why a
+	// record stackr wrote is not in the zone now, as the last sync read it
+	// (an MX on a zone whose mail setting drops them); it goes live again
+	// once the setting takes MX. PutBackAt: it changed outside stackr and
+	// stackr put it back then.
 	CustomRecord struct {
 		ID        string     `json:"id"`
 		Name      string     `json:"name"`
@@ -45,6 +48,7 @@ type (
 		Host      string     `json:"host"`
 		Note      string     `json:"note,omitempty"`
 		Written   bool       `json:"written"`
+		NotLive   string     `json:"not_live,omitempty"`
 		PutBackAt *time.Time `json:"put_back_at,omitempty"`
 	}
 	// CustomRecords is an owner's declared records and where they are
@@ -145,6 +149,9 @@ func (o *Orchestrator) checkCustom(ctx context.Context, own customOwner, in Cust
 		owner = own.Zone.Name
 	}
 	host := dnscap.CustomFQDN(name, owner)
+	if len(host) > 253 {
+		return rec, store.DNSDomain{}, "", errs.Invalidf("name", "The full name is longer than 253 characters.")
+	}
 	z := own.Zone
 	if own.App {
 		if z, err = o.recordZone(ctx, own.Org, host); err != nil {
@@ -211,9 +218,12 @@ func (o *Orchestrator) checkNotCustom(ctx context.Context, host string) error {
 }
 
 // checkMovedRecords runs a tile domain's records through checkCustom at
-// host, its new name: they move with it. No provider read; a clash there
-// is the records sync's to report.
-func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord) error {
+// host, its new name: they move with it. live: one provider read per zone
+// an MX lands in, none without one: the zone's mail setting may drop it,
+// refused as an add is. Renames pass false (the row is committed by then;
+// a dropped MX reads not live). Any other clash there is the records
+// sync's to report.
+func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord, live bool) error {
 	if len(rs) == 0 {
 		return nil
 	}
@@ -221,8 +231,22 @@ func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host strin
 	if err != nil {
 		return err
 	}
+	var mx []store.DNSDomain // the zones an MX lands in
 	for _, r := range rs {
-		if _, _, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false); err != nil {
+		_, z, _, err := o.checkCustom(ctx, customOwner{App: true, Host: dnscap.Normal(host), Org: org}, CustomRecordIn{r.Name, r.Type, r.Value}, false)
+		if err != nil {
+			return err
+		}
+		if live && r.Type == "MX" && !slices.ContainsFunc(mx, func(x store.DNSDomain) bool { return x.Name == z.Name }) {
+			mx = append(mx, z)
+		}
+	}
+	for _, z := range mx {
+		p, err := o.dnsAccounts(ctx, z.ConnectorID, z.OrgID)
+		if err != nil {
+			return err
+		}
+		if err := o.dns.MXRefused(ctx, p, z.Name); err != nil {
 			return err
 		}
 	}
@@ -291,6 +315,9 @@ func (o *Orchestrator) customOut(ctx context.Context, rs []store.CustomRecord, o
 			if x.Kind == store.RecordCustom && deref(x.DomainID) == deref(domainID) && x.Type == r.Type &&
 				strings.EqualFold(zoneHost(x.Name, x.Zone), c.Host) && dnscap.SameValue(r.Type, x.Value, r.Value) {
 				c.Written, c.PutBackAt = true, x.PutBackAt
+				if why := o.dns.NoMX(x.Zone); x.Type == "MX" && why != "" { // the sync skips it, the row stays
+					c.Written, c.NotLive = false, why
+				}
 			}
 		}
 		out = append(out, c)
@@ -341,8 +368,9 @@ func (o *Orchestrator) TileDomainRecords(ctx context.Context, tileID, id string)
 }
 
 // AddTileDomainRecord declares a custom record on a tile domain's host and
-// writes it. The record is saved before the write: a provider error is
-// returned with it, and the records sync tries again.
+// writes it. The record is saved before the write: one the sync could not
+// write comes back Written false, the reason in its Note, and the records
+// sync tries again (addedOut).
 func (o *Orchestrator) AddTileDomainRecord(ctx context.Context, tileID, id string, in CustomRecordIn) (CustomRecord, error) {
 	d, _, org, err := o.tileDomain(ctx, tileID, id)
 	if err != nil {
@@ -367,10 +395,30 @@ func (o *Orchestrator) AddTileDomainRecord(ctx context.Context, tileID, id strin
 	if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return CustomRecord{}, err
 	}
-	out := CustomRecord{ID: rec.ID, Name: rec.Name, Type: rec.Type, Value: rec.Value, Host: dnscap.CustomFQDN(rec.Name, d.Host), Note: note}
-	err = dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, d.Host)
-	out.Written = err == nil
-	return out, err
+	return o.addedOut(ctx, rec, d.Host, &d.ID, note, dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, d.Host))
+}
+
+// addedOut is a just saved record as its add answers: Written as the
+// records table says after the sync. Not written, its Note is why (the
+// sync's error about its zone, or the zone's mail setting), never the
+// add's error: the record is saved and the sync tries again.
+func (o *Orchestrator) addedOut(ctx context.Context, rec store.CustomRecord, owner string, domainID *string, note string, syncErr error) (CustomRecord, error) {
+	rs, err := o.customOut(ctx, []store.CustomRecord{rec}, owner, domainID)
+	if err != nil {
+		return CustomRecord{}, err
+	}
+	out := rs[0]
+	out.Note = note
+	if !out.Written {
+		why := "the next sync writes it"
+		if out.NotLive != "" {
+			why = out.NotLive
+		} else if syncErr != nil {
+			why = syncErr.Error()
+		}
+		out.Note = "saved, not written yet: " + strings.TrimSuffix(why, ".")
+	}
+	return out, nil
 }
 
 // RemoveTileDomainRecord drops a custom record from a tile domain; stackr
@@ -428,6 +476,21 @@ func (o *Orchestrator) managedRow(ctx context.Context, orgID *string, id, domain
 	return rows[i], nil
 }
 
+// lockedRow is managedRow under its rowLock, read again once locked: a
+// write of its records never lands on a row a rescope changed meanwhile.
+func (o *Orchestrator) lockedRow(ctx context.Context, orgID *string, id, domain string) (store.DNSDomain, func(), error) {
+	z, err := o.managedRow(ctx, orgID, id, domain)
+	if err != nil {
+		return z, nil, err
+	}
+	unlock := o.rowLock(z.ID)
+	if z, err = o.managedRow(ctx, orgID, id, domain); err != nil {
+		unlock()
+		return z, nil, err
+	}
+	return z, unlock, nil
+}
+
 // DNSDomainRecords is the custom records declared on a managed domain
 // itself (an apex MX, a verification TXT).
 func (o *Orchestrator) DNSDomainRecords(ctx context.Context, orgID *string, id, domain string) (CustomRecords, error) {
@@ -443,10 +506,11 @@ func (o *Orchestrator) DNSDomainRecords(ctx context.Context, orgID *string, id, 
 // AddDNSDomainRecord declares a custom record on a managed domain and
 // writes it; saved before the write, as AddTileDomainRecord.
 func (o *Orchestrator) AddDNSDomainRecord(ctx context.Context, orgID *string, id, domain string, in CustomRecordIn) (CustomRecord, error) {
-	z, err := o.managedRow(ctx, orgID, id, domain)
+	z, unlock, err := o.lockedRow(ctx, orgID, id, domain)
 	if err != nil {
 		return CustomRecord{}, err
 	}
+	defer unlock()
 	rec, _, note, err := o.checkCustom(ctx, customOwner{Zone: z}, in, true)
 	if err != nil {
 		return CustomRecord{}, err
@@ -458,19 +522,17 @@ func (o *Orchestrator) AddDNSDomainRecord(ctx context.Context, orgID *string, id
 	if _, err := o.dns.SetRecords(ctx, z.ID, append(slices.Clone(z.Records), rec)); err != nil {
 		return CustomRecord{}, err
 	}
-	out := CustomRecord{ID: rec.ID, Name: rec.Name, Type: rec.Type, Value: rec.Value, Host: dnscap.CustomFQDN(rec.Name, z.Name), Note: note}
-	err = dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, "")
-	out.Written = err == nil
-	return out, err
+	return o.addedOut(ctx, rec, z.Name, nil, note, dnsErrFor(o.reconcileDNS(ctx, nil), z.Name, ""))
 }
 
 // RemoveDNSDomainRecord drops a managed domain's custom record; stackr
 // deletes it from the zone.
 func (o *Orchestrator) RemoveDNSDomainRecord(ctx context.Context, orgID *string, id, domain, recordID string) error {
-	z, err := o.managedRow(ctx, orgID, id, domain)
+	z, unlock, err := o.lockedRow(ctx, orgID, id, domain)
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	i := slices.IndexFunc(z.Records, func(r store.CustomRecord) bool { return r.ID == recordID })
 	if i < 0 {
 		return errs.ErrNotFound

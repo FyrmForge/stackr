@@ -44,18 +44,18 @@ func managed(n int) string {
 	return fmt.Sprintf("%d managed domains", n)
 }
 
-// Synced is the last records sync's failure; it can name any org's
-// hosts, so only the server level shows it.
+// Synced is the last records sync's failure, at an org level only the
+// parts about its own connectors' domains.
 func (p Panel) Synced(c echo.Context) string {
-	if p.Org(c) != nil {
-		return ""
-	}
-	return p.Orch.DNSSyncError()
+	return p.Orch.DNSSyncErrorFor(c.Request().Context(), p.Org(c))
 }
 
 // POST <dns>/:connector/domains (not_now): the list, asked of the
-// provider; not_now leaves the setup suggestion out.
-func (p Panel) domains(c echo.Context) error { return p.answer(c, "", nil) }
+// provider; not_now leaves the setup suggestion out. This list and a
+// manage, unmanage or take over that worked (done) offer it.
+func (p Panel) domains(c echo.Context) error {
+	return p.list(c, "", nil, nil, nil, c.FormValue("not_now") == "")
+}
 
 // under is the scope a form asks for: the name under the domain typed in
 // under (the full name pasted reads the same), unless part is all ("" =
@@ -78,7 +78,7 @@ func (p Panel) preview(c echo.Context) error {
 	plan, err := p.Orch.PlanManageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain), nil)
 	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
 		v.UnderError, v.Manage = bad.Msg, ""
-		return p.list(c, "", nil, v, nil)
+		return p.list(c, "", nil, v, nil, false)
 	}
 	if err != nil {
 		return p.answer(c, "", err)
@@ -86,7 +86,7 @@ func (p Panel) preview(c echo.Context) error {
 	v.Scope = plan.Scope
 	v.Writes, v.LeftAlone, v.Adopt = planWrites(plan.Writes), planWrites(plan.LeftAlone), planAdopts(plan.Adopt)
 	v.Nothing = len(plan.Writes) == 0 && len(plan.Adopt) == 0 && len(plan.LeftAlone) == 0
-	return p.list(c, "", nil, v, nil)
+	return p.list(c, "", nil, v, nil, false)
 }
 
 // POST <dns>/:connector/rescope-preview (domain, part, under): the confirm
@@ -100,15 +100,15 @@ func (p Panel) rescopePreview(c echo.Context) error {
 	plan, err := p.Orch.PlanRescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), domain, under(c, domain))
 	if bad, ok := errs.IsInvalid(err); ok && bad.Field == "under" {
 		v.UnderError, v.Manage = bad.Msg, ""
-		return p.list(c, "", nil, v, nil)
+		return p.list(c, "", nil, v, nil, false)
 	}
 	if err != nil {
 		return p.answer(c, "", err)
 	}
-	v.Scope, v.Resource = plan.Scope, plan.Resource
+	v.Scope, v.Resource, v.From = plan.Scope, plan.Resource, plan.From
 	v.HandBack, v.Writes, v.Adopt = planWrites(plan.HandBack), planWrites(plan.Writes), planAdopts(plan.Adopt)
 	v.Nothing = len(plan.HandBack) == 0 && len(plan.Writes) == 0 && len(plan.Adopt) == 0 && plan.Resource == ""
-	return p.list(c, "", nil, v, nil)
+	return p.list(c, "", nil, v, nil, false)
 }
 
 // planView is a confirm's scope form for domain as the form asks it.
@@ -164,17 +164,23 @@ func (p Panel) manage(c echo.Context) error {
 		orgs = nil
 	}
 	_, err = p.Orch.ManageDNSDomainAdopting(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), orgs, adoptOf(form))
-	return p.answer(c, "Saved.", err)
+	return p.done(c, "Saved.", err)
 }
 
-// POST <dns>/:connector/rescope (domain, part, under, adopt...): change
-// what part of a managed domain stackr manages.
+// POST <dns>/:connector/rescope (domain, part, under, from, adopt...):
+// change what part of a managed domain stackr manages. from is the scope
+// the confirm was planned from.
 func (p Panel) rescope(c echo.Context) error {
 	form, err := c.FormParams()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
-	_, err = p.Orch.RescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), adoptOf(form))
+	var from *string
+	if form.Has("from") {
+		f := form.Get("from")
+		from = &f
+	}
+	_, err = p.Orch.RescopeDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), form.Get("domain"), under(c, form.Get("domain")), from, adoptOf(form))
 	return p.answer(c, "Scope changed.", err)
 }
 
@@ -213,7 +219,7 @@ func (p Panel) withRecords(c echo.Context, note string, actErr error) error {
 		}
 		v.Error, v.Note = msg, ""
 	}
-	return p.list(c, "", nil, nil, &v)
+	return p.list(c, "", nil, nil, &v, false)
 }
 
 // RecordIn is the posted add record form.
@@ -237,30 +243,41 @@ func Records(rs service.CustomRecords, key, add, remove, target string) ui.Recor
 		v.Source = strings.ToUpper(rs.Source[:1]) + rs.Source[1:]
 	}
 	for _, r := range rs.Records {
-		v.Rows = append(v.Rows, ui.RecordRow{ID: r.ID, Host: r.Host, Type: r.Type, Value: r.Value, PutBack: r.PutBackAt != nil})
+		row := ui.RecordRow{ID: r.ID, Host: r.Host, Type: r.Type, Value: r.Value, PutBack: r.PutBackAt != nil}
+		if r.NotLive != "" {
+			row.NotLive = "Not live: " + strings.ToLower(r.NotLive[:1]) + r.NotLive[1:]
+		}
+		v.Rows = append(v.Rows, row)
 	}
 	return v
 }
 
 func (p Panel) unmanage(c echo.Context) error {
 	err := p.Orch.UnmanageDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"))
-	return p.answer(c, "No longer managed.", err)
+	return p.done(c, "No longer managed.", err)
 }
 
 func (p Panel) takeover(c echo.Context) error {
 	err := p.Orch.TakeOverDNSDomain(c.Request().Context(), p.Org(c), c.Param("connector"), c.FormValue("domain"), c.FormValue("confirm"))
-	return p.answer(c, "Switched to %s DNS.", err)
+	return p.done(c, "Switched to %s DNS.", err)
 }
 
 // answer is the list again, the action's refusal or note on top (%s in a
 // note is the provider). A provider that does not answer is the list's
 // text, not an error page.
 func (p Panel) answer(c echo.Context, note string, actErr error) error {
-	return p.list(c, note, actErr, nil, nil)
+	return p.list(c, note, actErr, nil, nil, false)
 }
 
-// list is answer with a manage confirm on top when plan is set.
-func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView, recs *ui.RecordsView) error {
+// done is answer after a manage, unmanage or take over: once it worked,
+// the next setup suggestion comes with it.
+func (p Panel) done(c echo.Context, note string, actErr error) error {
+	return p.list(c, note, actErr, nil, nil, actErr == nil)
+}
+
+// list is answer with a manage confirm on top when plan is set, and the
+// setup suggestion when suggest.
+func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView, recs *ui.RecordsView, suggest bool) error {
 	ctx, id := c.Request().Context(), c.Param("connector")
 	org := p.Org(c)
 	k, err := p.Orch.ConnectorAt(ctx, org, id)
@@ -294,7 +311,7 @@ func (p Panel) list(c echo.Context, note string, actErr error, plan *ui.PlanView
 		v.Error = msg
 		return respond.HTML(c, status, ui.Domains(v))
 	}
-	if c.FormValue("not_now") == "" && plan == nil {
+	if suggest {
 		for _, s := range p.Orch.DNSSuggestions(ctx, org, ds) {
 			v.Suggest = append(v.Suggest, ui.Suggestion{
 				Domain: s.Domain, Host: s.Host, Sub: s.Sub, Panel: s.Panel,

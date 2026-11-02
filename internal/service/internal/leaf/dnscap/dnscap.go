@@ -28,6 +28,17 @@ type (
 	Zone     = connectors.Zone
 )
 
+// readZone is zone's records and why it takes no MX ("" = it does, the
+// only answer from a provider without a mail setting). Call it on the
+// raw provider: Locked hides connectors.MailDNS.
+func readZone(ctx context.Context, p Provider, zone string) ([]libdns.Record, string, error) {
+	if m, ok := p.(connectors.MailDNS); ok {
+		return m.GetMail(ctx, zone)
+	}
+	live, err := p.Get(ctx, zone)
+	return live, "", err
+}
+
 // Normal is a domain as stored: lower case, no trailing dot.
 func Normal(d string) string { return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(d), ".")) }
 
@@ -36,6 +47,9 @@ const (
 	Managed    = "managed"
 	NotManaged = "not_managed"
 	Elsewhere  = "dns_elsewhere"
+	// Taken is a domain managed through another connector: not this
+	// one's to manage.
+	Taken = "managed_elsewhere"
 )
 
 // Domain is a domain on a connector's account as its manager sees it.
@@ -79,6 +93,18 @@ type Leaf struct {
 	recs  store.DNSRecordStore
 	locks sync.Map   // zone -> *sync.Mutex
 	recMu sync.Mutex // one reconcile at a time: the table and the zones agree
+	// noMX is zone -> why it drops MX records, as the last reconcile read
+	// it. ponytail: memory only, empty after a restart until the boot
+	// push's records sync; a column on dns_domains if that gap matters.
+	noMX sync.Map
+}
+
+// NoMX is why zone drops MX records as the last reconcile read it: ""
+// when it takes them, or no reconcile read it yet. No provider call.
+func (l *Leaf) NoMX(zone string) string {
+	why, _ := l.noMX.Load(Normal(zone))
+	s, _ := why.(string)
+	return s
 }
 
 func New(rows store.DNSDomainStore, recs store.DNSRecordStore) *Leaf {
@@ -129,17 +155,30 @@ func (p locked) TakeOver(ctx context.Context, zone string) error {
 }
 
 // Domains is every domain on connector id's account with its state, plus
-// managed ones the account no longer lists.
+// managed ones the account no longer lists. One another connector manages
+// is Taken.
 func (l *Leaf) Domains(ctx context.Context, id string, p Provider) ([]Domain, error) {
 	zs, err := p.Zones(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := l.rows.ListByConnector(ctx, id)
+	all, err := l.rows.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return merge(zs, rows), nil
+	var rows []store.DNSDomain
+	for _, r := range all {
+		if r.ConnectorID == id {
+			rows = append(rows, r)
+		}
+	}
+	ds := merge(zs, rows)
+	for i, d := range ds {
+		if d.State != Managed && slices.ContainsFunc(all, func(r store.DNSDomain) bool { return r.Name == d.Name }) {
+			ds[i].State = Taken
+		}
+	}
+	return ds, nil
 }
 
 // Managed is how many domains connector id manages, from stackr's own

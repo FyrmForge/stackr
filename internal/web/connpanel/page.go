@@ -12,7 +12,7 @@ import (
 // edit links its connector's Change scope and records: on the server's
 // Connectors section (serverConns) or the owning org's Connectors tab.
 func ManagedPage(ds []service.ManagedDomain, serverConns string) dnsui.PageView {
-	var v dnsui.PageView
+	v := dnsui.PageView{Connectors: serverConns}
 	for _, d := range ds {
 		pd := dnsui.PageDomain{Name: d.Name, Scope: d.ScopeText, Via: d.Via}
 		switch {

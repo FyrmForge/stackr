@@ -118,13 +118,13 @@ func Waits(j store.Job, live []store.Job, held bool) string {
 	}
 	ahead := Ahead(j, live)
 	switch {
+	case held: // every kind, a worker rollout too
+		return "Waits for the panel upgrade"
 	case slices.Contains(j.LockSet, All):
 		if n := RunningAhead(j, live); n > 0 {
 			return "Waits for " + RunningJobs(n)
 		}
 		return ""
-	case held:
-		return "Waits for the panel upgrade"
 	}
 	if i := slices.IndexFunc(ahead, func(o store.Job) bool { return slices.Contains(o.LockSet, All) }); i >= 0 {
 		if ahead[i].Kind == WorkerRollout {
@@ -186,6 +186,7 @@ func (l *Leaf) Create(
 	logDir string,
 ) (store.Job, error) {
 	id := uuid.NewString()
+	actor, _ := store.ActorFrom(ctx)
 	j := store.Job{
 		ID:        id,
 		Kind:      kind,
@@ -195,6 +196,7 @@ func (l *Leaf) Create(
 		Payload:   payload,
 		LogPath:   logDir + "/" + id + ".log",
 		CreatedAt: time.Now().UTC(),
+		ActorID:   actor,
 	}
 	return j, l.jobs.Create(ctx, j)
 }

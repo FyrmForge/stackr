@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -454,6 +455,25 @@ func TestRestartRecovery(t *testing.T) {
 	}
 }
 
+// A running row the restart itself completed (Survived) ends done.
+func TestRestartSurvived(t *testing.T) {
+	r, l := setup(t, nil, jobs.Options{Survived: func(j store.Job) bool { return j.Kind == "upgrade" }})
+	var ids []string
+	for _, kind := range []string{"upgrade", "a"} {
+		j, err := l.Create(ctx, kind, []string{job.All}, "{}", nil, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.Start(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, j.ID)
+	}
+	start(t, r)
+	waitState(t, l, ids[0], job.Done)
+	waitState(t, l, ids[1], job.Failed)
+}
+
 // A cancel that lands after the handler returned and before the job parks
 // wins: the job ends cancelled, not parked.
 func TestCancelBeatsPark(t *testing.T) {
@@ -525,4 +545,35 @@ func TestHold(t *testing.T) {
 	started(t, g)
 	close(g.release)
 	waitState(t, l, id, job.Done)
+}
+
+// Ended hears of a job that ends without its handler running (cancelled or
+// superseded while queued) as well as one that ran.
+func TestEnded(t *testing.T) {
+	g := newGate(false)
+	var mu sync.Mutex
+	ended := map[string]bool{}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"a": g.run}, jobs.Options{Ended: func(j store.Job) {
+		mu.Lock()
+		ended[j.ID] = true
+		mu.Unlock()
+	}})
+	cancelled := enqueue(t, r, "a", "t1") // the runner is off: it stays queued
+	if err := r.Cancel(ctx, cancelled); err != nil {
+		t.Fatal(err)
+	}
+	superseded := enqueue(t, r, "a", "t2")
+	ran := enqueue(t, r, "a", "t2")
+	waitState(t, l, superseded, job.Superseded)
+	start(t, r)
+	started(t, g)
+	close(g.release)
+	waitState(t, l, ran, job.Done)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, id := range []string{cancelled, superseded, ran} {
+		if !ended[id] {
+			t.Errorf("job %s: Ended not called", id)
+		}
+	}
 }
