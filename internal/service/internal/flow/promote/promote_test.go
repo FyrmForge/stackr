@@ -941,7 +941,7 @@ func TestPlanProtectPair(t *testing.T) {
 	if !has(base + tiles + "environments:\n  dev:\n    defaults: {protect: true, protect_user: '', protect_password: ''}\n  prd: {from: promote}\n") {
 		t.Error("explicit empty pair did not clear")
 	}
-	if !has(base + tiles + "environments:\n  dev:\n    defaults: {protect: true, protect_user: bob, protect_password: other}\n  prd: {from: promote}\n") {
+	if !has(base + tiles + "environments:\n  dev:\n    defaults: {protect: true, protect_user: bob, protect_password: \"${{ params.a.b }}\"}\n  prd: {from: promote}\n") {
 		t.Error("new password did not diff")
 	}
 }

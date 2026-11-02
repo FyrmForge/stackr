@@ -449,7 +449,7 @@ func (d *differ) settings() {
 		want, _ := d.f.setting(key)
 		have := d.live.eff(key)
 		ref := ""
-		if key == alertURLKey && want != "" {
+		if RefOnly(key) && want != "" {
 			pk, _ := ServerRef(want)
 			v, set := d.param(pk)
 			if !set {
@@ -489,7 +489,7 @@ func (d *differ) settings() {
 			d.block("settings.panel_domain: %s is already a tile domain or domain resource; the panel would shadow it", want)
 		}
 		c := Change{Kind: "settings", Field: key, Old: show(have), New: show(want), Impact: d.settingImpact(key, have, want)}
-		if key == alertURLKey { // the path is often a token: never in a plan row
+		if RefOnly(key) { // the path is often a token: never in a plan row
 			c.Old, c.New = settings.MaskURL(have), ref
 		}
 		if want == "" {

@@ -62,6 +62,9 @@ func (d Defaults) check() error {
 	if (d.ProtectUser == nil) != (d.ProtectPassword == nil) {
 		return fmt.Errorf("protect_user and protect_password go together")
 	}
+	if d.ProtectPassword != nil {
+		return planfile.CheckSecretRef("protect_password", *d.ProtectPassword)
+	}
 	return nil
 }
 
@@ -77,21 +80,8 @@ type Reservation struct {
 // VolumeConf is one entry of volumes:. A volume is its own thing, scoped to
 // its env; promote never carries one across envs.
 type VolumeConf struct {
-	Backup *BackupConf `yaml:"backup"`
-}
-
-// BackupConf: the destination is a reference, never a literal (bucket
-// credentials in git). The kind is not declared: a managed db dumps with
-// its engine, a volume tars.
-// ponytail: parsed and checked here; promote does not write schedules yet,
-// they are set from the panel (flow/backup runs them).
-type BackupConf struct {
-	Dest     string `yaml:"dest"`
-	Schedule string `yaml:"schedule"`
-	TZ       string `yaml:"tz"`
-	Keep     int    `yaml:"keep"`
-	Mode     string `yaml:"mode"` // pause (default) | stop | live
-	Enabled  *bool  `yaml:"enabled"`
+	// Backup is read only to refuse it with a reason; schedules are set from the panel.
+	Backup any `yaml:"backup"`
 }
 
 // VolumeNode is a volumes: entry: a body, or false to drop a base volume.
@@ -406,13 +396,13 @@ var removedKeys = map[string]string{
 	"security_headers": "use proxy: security_headers: on the domain",
 	"default":          "use generate: <length> on a type: secret param",
 	"length":           "use generate: <length> on a type: secret param",
-	"backup":           "backup: goes under the volume in volumes:",
+	"backup":           "backup: is not applied from the file; set a volume's schedule in the panel",
 }
 
 // Parse decodes and checks the top level.
 func Parse(data []byte) (*File, error) {
 	var f File
-	if err := strictYAML(data, &f); err != nil {
+	if err := planfile.ParseFile(data, &f, removedKeys); err != nil {
 		return nil, fmt.Errorf("yaml: %w", err)
 	}
 	if f.Version != 1 {
@@ -759,6 +749,11 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 		if d.DNS != "" && d.DNS != "managed" {
 			return fmt.Errorf("tile %s: dns: is managed, or left out", name)
 		}
+		if b := d.Proxy; b != nil && b.BasicAuth != nil {
+			if err := planfile.CheckSecretRef("tile "+name+": proxy.basic_auth.password", b.BasicAuth.Password); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -829,19 +824,8 @@ func checkVolume(name string, v VolumeConf) error {
 	if len(name) > volume.MaxName {
 		return fmt.Errorf("volume %s: keep the name to %d characters or fewer", name, volume.MaxName)
 	}
-	b := v.Backup
-	if b == nil {
-		return nil
-	}
-	switch {
-	case !strings.HasPrefix(strings.TrimSpace(b.Dest), "${{") || strings.Count(b.Dest, "${{") != 1:
-		return fmt.Errorf("volume %s: backup dest is one ${{ org.backups.NAME }} reference, never a literal", name)
-	case strings.TrimSpace(b.Schedule) == "":
-		return fmt.Errorf("volume %s: backup needs a schedule", name)
-	case b.Keep < 0:
-		return fmt.Errorf("volume %s: keep must not be negative", name)
-	case b.Mode != "" && b.Mode != "pause" && b.Mode != "stop" && b.Mode != "live":
-		return fmt.Errorf("volume %s: mode %q must be pause, stop or live", name, b.Mode)
+	if v.Backup != nil {
+		return fmt.Errorf("volume %s: backup: is not applied from the file; set the schedule on the volume in the panel", name)
 	}
 	return nil
 }
@@ -853,6 +837,14 @@ func refBodies(tc TileConf) []string {
 		out = append(out, params.Refs(v)...)
 	}
 	return append(out, params.Refs(tc.Command)...)
+}
+
+// serverRefBodies: the ${{ ... }} bodies anywhere in a tile (build args,
+// files, image, domains, proxy headers, ...), so a server param is refused
+// at load and not at deploy.
+func serverRefBodies(tc TileConf) []string {
+	b, _ := yaml.Marshal(tc)
+	return params.Refs(string(b))
 }
 
 // checkRefs: every volume line names a declared volume, a tile ref and
@@ -872,10 +864,12 @@ func checkRefs(env string, re ResolvedEnv) error {
 				return fmt.Errorf("environment %s tile %s: volume %q is not declared under volumes", env, n, m.Volume)
 			}
 		}
-		for _, body := range refBodies(tc) {
+		for _, body := range append(serverRefBodies(tc), refBodies(tc)...) {
 			if r, err := params.Parse(body); err == nil && r.Kind == params.KindServerParam {
 				return fmt.Errorf("environment %s tile %s: refs ${{ %s }}: server params are readable only in stackr-server.yml, never in a stack file", env, n, body)
 			}
+		}
+		for _, body := range refBodies(tc) {
 			if !strings.HasPrefix(body, "tile.") {
 				continue
 			}

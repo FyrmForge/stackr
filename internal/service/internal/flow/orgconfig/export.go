@@ -52,7 +52,7 @@ func Export(live Live) ([]byte, error) {
 			Repo:      st.ConfigRepo,
 			Branch:    st.ConfigBranch,
 			Path:      st.ConfigPath,
-			Connector: st.ConfigConnectorID,
+			Connector: ConnectorName(live.Connectors, st.ConfigConnectorID),
 		}
 	}
 	for _, d := range live.Domains {

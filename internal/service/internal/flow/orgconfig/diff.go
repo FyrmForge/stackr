@@ -367,7 +367,7 @@ func (p *Plan) tierParams(blocks map[string]map[string]planfile.Entry, scopes ma
 // name is left alone, hand-made or file-made (DECIDE 188).
 func (p *Plan) stacks(refs map[string]StackRef, live Live, stacks map[string]StackLive) {
 	for _, s := range slices.Sorted(maps.Keys(refs)) {
-		want := refs[s].Binding(live.Org)
+		want := refs[s].Binding(live.Org, live.Connectors)
 		if want.Repo == "" {
 			p.block("stacks.%s: path alone is a file in the org repo, and this org is bound to none", s)
 			continue

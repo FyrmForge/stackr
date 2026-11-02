@@ -89,6 +89,7 @@ func (o *Orchestrator) BindServerConfig(
 	repo = o.repoURL(ctx, repo)
 	if repo == "" {
 		connectorID, branch, path, auto = "", "", "", false
+		o.clearConfig(ctx, "server")
 	} else if _, err := o.conns.Server(ctx, connectorID); err != nil {
 		return ServerBinding{}, err // an org's connector, or none, is not there
 	}
@@ -224,7 +225,11 @@ func (o *Orchestrator) serverApplyLocks(ctx context.Context, pl ServerPlan) ([]s
 
 // RejectServerPlan ends a pending plan nobody approved.
 func (o *Orchestrator) RejectServerPlan(ctx context.Context, id string) (ServerPlan, error) {
-	return o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	pl, err := o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	if err == nil {
+		o.clearConfigDrift(ctx, "server")
+	}
+	return pl, err
 }
 
 // queueServerPlan queues a plan of the server file when a push lands on the
@@ -275,6 +280,9 @@ func (o *Orchestrator) runServerApply(ctx context.Context, r *jobs.Run, p server
 		return errors.Join(err, serr)
 	}
 	_, err = o.serverPlans.SetStatus(done, p.PlanID, orgplan.Applied)
+	if err == nil {
+		o.clearConfigDrift(done, "server")
+	}
 	return err
 }
 
@@ -306,6 +314,7 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "server config: %v\n", err)
+		o.configState(ctx, "server", "The server config file", orgplan.Error, err.Error(), "")
 		return o.createServerPlan(ctx, ServerPlan{
 			Source:  sourceRepo,
 			Commit:  sha,
@@ -319,6 +328,9 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 		return ServerPlan{}, err
 	}
 	row, err := o.storeServerPlan(ctx, p, ServerPlan{Source: sourceRepo, Commit: sha})
+	if err == nil {
+		o.configState(ctx, "server", "The server config file", row.Status, "", row.Summary)
+	}
 	_, _ = fmt.Fprintf(log, "server plan at %s: %s\n", sha, p.Summary())
 	if err != nil || row.Status != orgplan.Pending || !p.AutoOK() || !b.Auto {
 		return row, err

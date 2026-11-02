@@ -358,6 +358,10 @@ func TestServerExportSeedsDestKeys(t *testing.T) {
 	if len(pv.Blockers) > 0 {
 		t.Errorf("export blocks: %+v\n%s", pv.Blockers, out)
 	}
+	// the keys are seeded when the file is planned, not at export
+	if _, err := r.env.Orch.PlanServerFile(ctx, out); err != nil {
+		t.Fatal(err)
+	}
 	vals, err := r.env.Orch.Params(ctx, service.ServerParamScope, true)
 	if err != nil {
 		t.Fatal(err)
@@ -535,11 +539,21 @@ func TestAlertWebhookURLNeverInFull(t *testing.T) {
 	if pv, err := o.PreviewServerConfig(ctx, out); err != nil || len(pv.Changes) > 0 || len(pv.Blockers) > 0 {
 		t.Fatalf("export previews %+v, %v; want clean\n%s", pv, err, out)
 	}
-	// The tab moves the URL; the old file takes it back, the row masked.
-	if err := o.SetAlerts(ctx, "https://other.example.com/x/y", nil); err != nil {
+	pl, err := o.PlanServerFile(ctx, out)
+	if err != nil {
 		t.Fatal(err)
 	}
-	pl, err := o.PlanServerFile(ctx, out)
+	if pl.Status != "clean" {
+		t.Fatalf("plan of the export = %s (%s); want clean", pl.Status, pl.Plan)
+	}
+	// The param moves (an edit in the panel); the file's ref now reads a new
+	// URL, which plans as a masked row and applies.
+	if _, err := o.SetParams(ctx, service.ServerParamScope, []service.ParamEntry{
+		{Collection: "alerts", Name: "webhook_url", Kind: "secret", Value: "https://other.example.com/x/y"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pl, err = o.PlanServerFile(ctx, out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +564,7 @@ func TestAlertWebhookURLNeverInFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.applied(t, pl.ID)
-	if s, _ := o.AlertSettings(ctx); s.URL != "https://hooks.example.com/…" {
+	if s, _ := o.AlertSettings(ctx); s.URL != "https://other.example.com/…" {
 		t.Errorf("after apply the webhook is %q", s.URL)
 	}
 	if _, err := o.PreviewServerConfig(ctx, []byte("version: 1\nsettings:\n  alert_webhook_url: https://hooks.example.com/"+token+"\n")); err == nil {
