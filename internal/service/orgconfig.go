@@ -121,7 +121,12 @@ func (o *Orchestrator) ApproveOrgPlan(ctx context.Context, id string, opts Appro
 
 // RejectOrgPlan ends a pending plan nobody approved.
 func (o *Orchestrator) RejectOrgPlan(ctx context.Context, id string) (OrgPlan, error) {
-	return o.orgPlans.SetStatus(ctx, id, orgplan.Rejected)
+	var p OrgPlan
+	err := o.store.Tx(ctx, func(tx store.Tx) (err error) {
+		p, err = orgplan.New(tx.OrgPlans).SetStatus(ctx, id, orgplan.Rejected)
+		return err
+	})
+	return p, err
 }
 
 // ExportOrgConfig writes the org as a stackr-org.yml (orgconfig.Export).
@@ -232,7 +237,12 @@ func (o *Orchestrator) approveOrgPlan(ctx context.Context, pl OrgPlan, opts Appr
 		}
 	}
 	ctx = context.WithoutCancel(ctx)
-	if _, err := o.orgPlans.Approve(ctx, pl.ID, opts.Ticked, opts.Confirm); err != nil {
+	// In a transaction: the connection is one, so a second approve of the
+	// same plan waits and then reads it approved (a Conflict).
+	if err := o.store.Tx(ctx, func(tx store.Tx) error {
+		_, err := orgplan.New(tx.OrgPlans).Approve(ctx, pl.ID, opts.Ticked, opts.Confirm)
+		return err
+	}); err != nil {
 		return Job{}, err
 	}
 	return o.enqueue(
