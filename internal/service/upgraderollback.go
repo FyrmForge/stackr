@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -40,7 +41,11 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 		}
 		logs, _ := o.docker.Logs(ctx, c.ID, 20)
 		slog.Warn("upgrade: the new panel failed its trial, rolling back", "helper", logs)
-		o.rollBackUpgrade(ctx)
+		// Kept on an error: the helper is the marker the next boot retries from.
+		if err := o.rollBackUpgrade(ctx); err != nil {
+			slog.Warn("upgrade rollback: not finished, retried at next boot", "err", err)
+			continue
+		}
 		if err := o.docker.StopRemove(ctx, c.ID); err != nil {
 			slog.Warn("upgrade helper: not removed", "err", err)
 		}
@@ -48,13 +53,12 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 }
 
 // rollBackUpgrade undoes the newest upgrade job's effects and fails it.
-func (o *Orchestrator) rollBackUpgrade(ctx context.Context) {
+func (o *Orchestrator) rollBackUpgrade(ctx context.Context) error {
 	// done: as the old panel left it; failed: a restored database that still
 	// had it running, which boot fails as interrupted.
 	js, err := o.store.Jobs.ListByState(ctx, "done", "failed") // newest first
 	if err != nil {
-		slog.Warn("upgrade rollback: jobs", "err", err)
-		return
+		return err
 	}
 	for _, j := range js {
 		if j.Kind != string(kindUpgrade) {
@@ -62,41 +66,30 @@ func (o *Orchestrator) rollBackUpgrade(ctx context.Context) {
 		}
 		var p upgradeJob
 		_ = json.Unmarshal([]byte(j.Payload), &p)
-		o.undoUpgradeEffects(ctx, p.Tag)
-		if err := o.jobRows.Finish(ctx, j, job.Failed, upgradeRolledBackMsg); err != nil {
-			slog.Warn("upgrade rollback: job not failed", "err", err)
-		}
-		return
+		return errors.Join(o.undoUpgradeEffects(ctx, p.Tag), o.jobRows.Finish(ctx, j, job.Failed, upgradeRolledBackMsg))
 	}
+	return nil
 }
 
 // undoUpgradeEffects puts back what the upgrade changed before the swap:
 // stackr-proxy (Flow.EnsureProxy), and what the target's boot publish put in
 // the registry and aimed the workers at.
-func (o *Orchestrator) undoUpgradeEffects(ctx context.Context, tag string) {
+func (o *Orchestrator) undoUpgradeEffects(ctx context.Context, tag string) error {
 	img, err := o.runningPanelImage(ctx)
 	if err == nil {
 		err = o.upgrade.EnsureProxy(ctx, img)
 	}
-	if err != nil {
-		slog.Warn("upgrade rollback: proxy not put back", "err", err)
-	}
 	if tag == "" {
-		return
+		return err
 	}
 	ref := stackrTagRef(upgrade.ImageRef(tag))
 	t := ref[strings.LastIndex(ref, ":")+1:]
 	stackrDigests.Delete(t)
-	if dg, err := o.regs.Resolve(ctx, stackrRepo, t); err != nil {
-		slog.Warn("upgrade rollback: registry", "err", err)
-	} else if dg != "" {
-		if err := o.regs.Delete(ctx, stackrRepo, dg); err != nil {
-			slog.Warn("upgrade rollback: registry", "err", err)
-		}
+	dg, rerr := o.regs.Resolve(ctx, stackrRepo, t)
+	if rerr == nil && dg != "" {
+		rerr = o.regs.Delete(ctx, stackrRepo, dg)
 	}
-	if err := o.store.Settings.Delete(ctx, keyRolloutTarget); err != nil {
-		slog.Warn("upgrade rollback: rollout target", "err", err)
-	}
+	return errors.Join(err, rerr, o.store.Settings.Delete(ctx, keyRolloutTarget))
 }
 
 // LastUpgradeError is the Update tab's line for the newest upgrade job, when
