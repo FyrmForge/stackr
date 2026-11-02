@@ -1048,7 +1048,7 @@ func Settings(v View, blocked string) templ.Component {
 				templ_7745c5c3_Err = c.Confirm(c.ConfirmView{
 					Button:  "Delete volume",
 					Title:   "Delete " + v.Name + "?",
-					Warning: "Its data goes now, before the retention window ends.",
+					Warning: "Its data is kept for the retention window, then backed up once and removed.",
 					Kept:    []string{"backups already in a destination"},
 					Word:    v.Name,
 					Action:  v.Base + "/delete",
@@ -1059,7 +1059,7 @@ func Settings(v View, blocked string) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = c.DangerZone("Deleting this volume removes its data now, before the retention window ends.", v.Name, "Backups already in a destination are kept.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.DangerZone("Deleting this volume keeps its data for the retention window, then backs it up once and removes it.", v.Name, "Backups already in a destination are kept.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

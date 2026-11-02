@@ -232,6 +232,18 @@ func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) e
 	return l.volumes.Delete(ctx, v.ID)
 }
 
+// Retire is the user's delete: the volume leaves its scope as an orphan, its
+// data kept for the retention window and backed up once before the orphan job
+// removes it (flow/backup Orphans), so its runs stay restorable. mountedBy
+// are the tiles whose volumes lines still name it.
+func (l *Leaf) Retire(ctx context.Context, v store.Volume, mountedBy []string) error {
+	if err := detached(mountedBy); err != nil {
+		return err
+	}
+	_, err := l.Orphan(ctx, v)
+	return err
+}
+
 // DeleteRow is Delete for a volume whose node is gone: the row only.
 func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string) error {
 	if err := detached(mountedBy); err != nil {
