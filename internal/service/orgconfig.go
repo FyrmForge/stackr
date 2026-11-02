@@ -62,6 +62,7 @@ func (o *Orchestrator) SetOrgConfigRepo(
 		return og, err
 	}
 	if og.ConfigRepo == "" {
+		o.clearConfig(ctx, og.ID)
 		return og, o.orgPlans.RejectPending(ctx, og.ID)
 	}
 	_, err = o.planOrg(ctx, og.ID, io.Discard)
@@ -121,7 +122,11 @@ func (o *Orchestrator) ApproveOrgPlan(ctx context.Context, id string, opts Appro
 
 // RejectOrgPlan ends a pending plan nobody approved.
 func (o *Orchestrator) RejectOrgPlan(ctx context.Context, id string) (OrgPlan, error) {
-	return o.orgPlans.SetStatus(ctx, id, orgplan.Rejected)
+	pl, err := o.orgPlans.SetStatus(ctx, id, orgplan.Rejected)
+	if err == nil {
+		o.clearConfigDrift(ctx, pl.OrgID)
+	}
+	return pl, err
 }
 
 // ExportOrgConfig writes the org as a stackr-org.yml (orgconfig.Export).
@@ -171,6 +176,7 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "org config: %v\n", err)
+		o.configState(ctx, og.ID, "The config file of "+og.Name, orgplan.Error, err.Error(), "")
 		return o.createOrgPlan(ctx, OrgPlan{
 			OrgID:   og.ID,
 			Commit:  sha,
@@ -203,6 +209,9 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 		Status:  status,
 	})
 	_, _ = fmt.Fprintf(log, "org plan at %s: %s\n", sha, p.Summary())
+	if err == nil {
+		o.configState(ctx, og.ID, "The config file of "+og.Name, row.Status, "", row.Summary)
+	}
 	if err != nil || status != orgplan.Pending || !p.AutoOK() || !og.ConfigAuto {
 		return row, err
 	}
@@ -335,7 +344,10 @@ func (o *Orchestrator) runOrgApply(ctx context.Context, r *jobs.Run, p orgApplyJ
 		_, serr := o.orgPlans.SetError(done, p.PlanID, err.Error())
 		return errors.Join(err, serr)
 	}
-	_, err = o.orgPlans.SetStatus(done, p.PlanID, orgplan.Applied)
+	pl, err := o.orgPlans.SetStatus(done, p.PlanID, orgplan.Applied)
+	if err == nil {
+		o.clearConfigDrift(done, pl.OrgID)
+	}
 	return err
 }
 
@@ -373,6 +385,9 @@ func (o *Orchestrator) applyOrgPlan(ctx context.Context, planID string, log io.W
 	}
 	// a removal row applies only when the approver ticked it
 	plan.Plan = plan.OnlyTicked(pl.Ticked)
+	if err := newRisk(pl.Plan, pl.Confirmed, plan.Plan); err != nil {
+		return err
+	}
 	bound, err := o.walkOrgPlan(ctx, og, f, live, plan, log)
 	if err != nil {
 		return err
@@ -475,7 +490,7 @@ func (o *Orchestrator) walkOrgPlan(
 			_, err = o.SetOrgEnvColors(ctx, og.ID, c.New)
 		case "create", "rebind":
 			var st Stack
-			if st, err = o.bindOrgStack(ctx, og, stackIDs[c.Tile], c.Tile, f.Stacks[c.Tile]); err == nil {
+			if st, err = o.bindOrgStack(ctx, og, live.Connectors, stackIDs[c.Tile], c.Tile, f.Stacks[c.Tile]); err == nil {
 				stackIDs[c.Tile] = st.ID
 				bound = append(bound, st)
 			}
@@ -605,6 +620,7 @@ func orgParams(f *orgconfig.File, plan orgconfig.Plan, tile string) []ParamEntry
 func (o *Orchestrator) bindOrgStack(
 	ctx context.Context,
 	og store.Org,
+	conns []store.Connector,
 	id, slug string,
 	ref orgconfig.StackRef,
 ) (Stack, error) {
@@ -615,7 +631,7 @@ func (o *Orchestrator) bindOrgStack(
 		}
 		id = st.ID
 	}
-	b := ref.Binding(og)
+	b := ref.Binding(og, conns)
 	return o.SetConfigRepo(ctx, id, b.ConnectorID, b.Repo, b.Branch, b.Path)
 }
 

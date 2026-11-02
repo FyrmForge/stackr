@@ -270,7 +270,11 @@ func TestProtectPairKeptWhenOmitted(t *testing.T) {
 		t.Errorf("export diffs against itself: %+v", p)
 	}
 	for name, pair := range map[string]string{"clear": "''", "change": "other"} {
-		f := parse(t, "defaults: {protect_user: "+pair+", protect_password: "+pair+"}\n")
+		pw := pair
+		if pair == "other" {
+			pw = `"${{ server.params.a.b }}"`
+		}
+		f := parse(t, "defaults: {protect_user: "+pair+", protect_password: "+pw+"}\n")
 		var got []string
 		for _, c := range serverconfig.Diff(f, l).Changes {
 			got = append(got, c.Kind+":"+c.Field)

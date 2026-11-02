@@ -85,13 +85,13 @@ make db-sh          # Open sqlite3 shell to local dev DB
 ## Project Structure
 
 ```
-cmd/stackrd/             Panel (web UI + API), later also `stackrd proxy`
+cmd/stackrd/             Panel (web UI + API); also `stackrd proxy` and `stackrd worker`
 cmd/stackr/              CLI
 cmd/stackr-install/      Installer
 internal/
-  config/                Environment configuration
+  api/                   REST API, OpenAPI spec
   db/                    Database + migrations
-  repo/                  Data access layer
+  service/               The orchestrator: flows, leaves, store
   web/                   HTTP handlers + components
 ui/                      Static assets, CSS source, npm config, dist/
 docs/                    Documentation

@@ -254,7 +254,7 @@ func (o *Orchestrator) orgFileNeeds(ctx context.Context, live *orgconfig.Live, f
 		if !ok { // the apply creates it; its clone gets a directory of its own
 			st = store.Stack{ID: "new-" + live.Org.ID + "-" + slug, OrgID: live.Org.ID, Slug: slug}
 		}
-		b := ref.Binding(live.Org)
+		b := ref.Binding(live.Org, live.Connectors)
 		st.ConfigRepo, st.ConfigBranch, st.ConfigPath, st.ConfigConnectorID = b.Repo, b.Branch, b.Path, b.ConnectorID
 		covered[slug] = st
 	}
