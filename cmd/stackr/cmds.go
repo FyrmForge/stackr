@@ -495,7 +495,7 @@ func (a *app) orgs() *cobra.Command {
 	})
 	a.orgFlag(domains)
 
-	n := noun("org","Orgs, members, invites, credentials, connectors, the org's config file",
+	n := noun("org", "Orgs, members, invites, credentials, connectors, the org's config file",
 		leaf("ls", "org.list", "List your orgs", exact(0), func(*cobra.Command, []string) error {
 			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {

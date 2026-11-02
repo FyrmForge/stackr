@@ -973,11 +973,26 @@ func (a *app) tiles() *cobra.Command {
 			return err
 		}
 		m, _ := v.(map[string]any)
-		if j, ok := m["job"].(map[string]any); ok {
+		j, hasJob := m["job"].(map[string]any)
+		wait, _ := c.Flags().GetBool("wait")
+		if hasJob && !wait {
 			_, _ = fmt.Fprintf(a.errw, "redeploying: stackr job log %s --follow\n", cell(j["id"]))
 		}
-		return a.show(m["tile"], tileCols...)
+		if a.json && hasJob {
+			err = a.show(m) // the tile and the job, so CI can follow it
+		} else {
+			err = a.show(m["tile"], tileCols...)
+		}
+		if err != nil || !hasJob || !wait {
+			return err
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		return a.follow(base, j, "redeploy")
 	})
+	waitFlag(set)
 	var exCont string
 	exec := leaf(
 		"exec [tile] -- <cmd>...",
@@ -1673,8 +1688,10 @@ func (a *app) params() *cobra.Command {
 			return usage("nothing to set")
 		}
 		v, err := a.call(PATCH, p+"/params", body)
-		a.redeploying(v)
-		return err
+		if err != nil {
+			return err
+		}
+		return a.redeploying(c, v)
 	}
 	set := leaf("set <collection.NAME[=value]>...", "org.params-set,env.params-set,tier.params-set,org-pr.params-set,stack-pr.params-set,admin.params-set",
 		"Set params; others at the level stay", atLeast(1),
@@ -1699,6 +1716,7 @@ func (a *app) params() *cobra.Command {
 	merge.Flags().StringVarP(&file, "file", "f", "-", "the file (\"-\" for stdin)")
 	for _, c := range []*cobra.Command{set, merge} {
 		c.Flags().BoolVar(&secret, "secret", false, "store the values as secrets")
+		waitFlag(c)
 	}
 	set.Flags().BoolVar(&gen, "generate", false, "set each NAME to a fresh random secret (no =value)")
 	set.Flags().IntVar(&length, "length", 32, "length of a generated secret, 16 to 128")
@@ -1751,7 +1769,7 @@ func (a *app) params() *cobra.Command {
 		merge,
 		a.paramsImport(),
 		export,
-		leaf(
+		waitFlag(leaf(
 			"rm <collection.NAME>",
 			"org.param-delete,env.param-delete,tier.param-delete,org-pr.param-delete,stack-pr.param-delete,admin.param-delete",
 			"Delete a param at the level",
@@ -1781,10 +1799,12 @@ func (a *app) params() *cobra.Command {
 					return err
 				}
 				v, err := a.call(DELETE, p+"/params/"+url.PathEscape(col)+"/"+url.PathEscape(name), nil)
-				a.redeploying(v)
-				return err
+				if err != nil {
+					return err
+				}
+				return a.redeploying(c, v)
 			},
-		),
+		)),
 	), true)
 }
 
@@ -1800,14 +1820,46 @@ func (a *app) envLock(locked bool) *cobra.Command {
 	}))
 }
 
-// redeploying prints a line per tile a param change redeploys.
-func (a *app) redeploying(v any) {
+// waitFlag gives a change that redeploys --wait.
+func waitFlag(c *cobra.Command) *cobra.Command {
+	c.Flags().Bool("wait", false, "follow the redeploys to their end; exit 1 if one fails")
+	return c
+}
+
+// redeploying reports the jobs a change started ({tile, env, job} rows): a
+// line per tile, the rows themselves under --json, and with --wait each job
+// followed to its end (the first failure is the error).
+func (a *app) redeploying(c *cobra.Command, v any) error {
 	rs, _ := v.([]any)
+	wait, _ := c.Flags().GetBool("wait")
 	for _, r := range rs {
 		m, _ := r.(map[string]any)
-		_, _ = fmt.Fprintf(a.errw, "redeploying %s (%s): stackr job log %s --follow\n",
-			cell(m["tile"]), cell(m["env"]), cell(m["job"]))
+		if !wait {
+			_, _ = fmt.Fprintf(a.errw, "redeploying %s (%s): stackr job log %s --follow\n",
+				cell(m["tile"]), cell(m["env"]), cell(m["job"]))
+		}
 	}
+	if a.json && len(rs) > 0 {
+		if err := a.show(v); err != nil {
+			return err
+		}
+	}
+	if !wait {
+		return nil
+	}
+	base, err := a.orgPath()
+	if err != nil {
+		return err
+	}
+	var first error
+	for _, r := range rs {
+		m, _ := r.(map[string]any)
+		err := a.follow(base, map[string]any{"id": cell(m["job"])}, "redeploy of "+cell(m["tile"]))
+		if first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // paramNames is collection.NAME for each param in the level's list.

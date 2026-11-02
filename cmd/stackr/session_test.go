@@ -124,3 +124,13 @@ func TestLinkUnlink(t *testing.T) {
 		t.Errorf("links after unlink: %+v", c.Links)
 	}
 }
+
+// A param change that redeploys prints the job ids under --json, so CI can
+// follow them; --wait is the same follow, inline.
+func TestParamsSetJSONHasJobs(t *testing.T) {
+	fake(t, map[string]string{"/params": `[{"env":"dev","tile":"web","job":"j1"}]`})
+	code, out, errw := cli(t, "--json", "params", "set", "app.mode=prod", "--env", "dev", "--stack", "shop")
+	if code != 0 || !strings.Contains(out, `"job": "j1"`) || errw != "redeploying web (dev): stackr job log j1 --follow\n" {
+		t.Errorf("params set --json = %d %q %q", code, out, errw)
+	}
+}
