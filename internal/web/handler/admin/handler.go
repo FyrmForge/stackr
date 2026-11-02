@@ -219,6 +219,8 @@ func (h *handler) Upgrade(c echo.Context) error {
 	if err != nil {
 		return h.answer(c, "update", "", extra{}, err)
 	}
+	// The banner is in the shell, outside the section: reload the page.
+	c.Response().Header().Set("HX-Refresh", "true")
 	return h.answer(c, "update", "", extra{job: &j, check: &ui.UpdateView{Upgrading: true}}, nil)
 }
 
@@ -447,6 +449,7 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 		return nil, err
 	}
 	v.Waits = waits
+	v.LastErr = h.orch.LastUpgradeError(ctx)
 	if job != nil {
 		job.Refresh = ui.Href("update")
 	}
