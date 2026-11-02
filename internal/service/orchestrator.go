@@ -874,6 +874,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			if err != nil {
 				slog.Warn("registry: not ensured", "err", err)
 			}
+			// First: a failed upgrade's rollback must fix the proxy before the
+			// publish reads its image, and a trial must end before a publish.
+			orch.undoFailedUpgrade(orch.meshCtx)
 			// Before the publish, which starts the worker rollout: a Docker
 			// restart for the cap must not land mid-rollout.
 			orch.controllerLogCap(orch.meshCtx)
