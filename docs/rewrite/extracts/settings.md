@@ -351,9 +351,11 @@ level-less k/v table (old `keys.go`), which the catalogue swallows.
   "instance-wide, only read at the server level" in a comment, so a stack could
   store `build_node` and nothing read it. Cheap here, and it is what stops the
   `later` rows from being set on levels that will never grow them.
-- Explicit zero is the whole reason the fields are pointers: `cpu_limit: 0` at a
-  lower level is how a tile says "unlimited" once a parent sets a cap. Nothing
-  about this may go through a value field with `omitempty`.
+- Explicit zero is the whole reason the fields are pointers, so a level can say
+  "unlimited" when no level above sets a cap. Once a parent sets a cap it is a
+  ceiling (review SEC6): a lower level may lower it, but neither raise it nor
+  lift it with 0. Nothing about this may go through a value field with
+  `omitempty`.
 - `later` knobs stay in the catalogue but out of `Settings`/`Resolved` until
   their feature lands — the name is reserved, not implemented. A surface
   enumerating the catalogue skips `Later` entries.

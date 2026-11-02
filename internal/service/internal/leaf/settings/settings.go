@@ -47,16 +47,26 @@ func (s Settings) JSON() string {
 	return string(b)
 }
 
+// capped is a lower rung's limit under its parent's: a parent with a limit
+// is a ceiling, so a child may lower it but neither raise it nor lift it
+// with 0 (unlimited). A parent of 0 is no ceiling.
+func capped(child, parent float64) float64 {
+	if parent > 0 && (child == 0 || child > parent) {
+		return parent
+	}
+	return child
+}
+
 // Resolve applies the levels in order (server, org, stack, env); a later
 // level wins where set, unset falls through to the catalogue default.
 func Resolve(levels ...Settings) Resolved {
 	var r Resolved // every cascade default is the zero value
 	for _, s := range levels {
 		if s.CPULimit != nil {
-			r.CPULimit = *s.CPULimit
+			r.CPULimit = capped(*s.CPULimit, r.CPULimit)
 		}
 		if s.MemLimitMB != nil {
-			r.MemLimitMB = *s.MemLimitMB
+			r.MemLimitMB = int(capped(float64(*s.MemLimitMB), float64(r.MemLimitMB)))
 		}
 		if s.Protect != nil {
 			r.Protect = *s.Protect
@@ -78,14 +88,10 @@ func deref(p *string) string {
 }
 
 // EffectiveLimits folds a tile's own limits (the fifth rung) over the
-// resolved ones; a tile's zero means inherit.
+// resolved ones; a tile's zero means inherit, and it cannot exceed them.
 func (r Resolved) EffectiveLimits(cpu float64, memMB int) (float64, int) {
-	if cpu == 0 {
-		cpu = r.CPULimit
-	}
-	if memMB == 0 {
-		memMB = r.MemLimitMB
-	}
+	cpu = capped(cpu, r.CPULimit)
+	memMB = int(capped(float64(memMB), float64(r.MemLimitMB)))
 	return cpu, memMB
 }
 

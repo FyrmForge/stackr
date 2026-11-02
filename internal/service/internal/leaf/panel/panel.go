@@ -70,6 +70,12 @@ func (l *Leaf) Pull(ctx context.Context, image string, log io.Writer) error {
 	return l.docker.Pull(ctx, image, "", log)
 }
 
+// Digest is the registry digest the local image was pulled as ("" when it
+// has none, a hand-fed or locally built one).
+func (l *Leaf) Digest(ctx context.Context, image string) (string, error) {
+	return l.docker.LocalDigest(ctx, image)
+}
+
 // Launch starts the helper that swaps the panel to spec: the new image
 // running `stackrd upgrade-swap` with the socket. Refused while a helper
 // still runs, which is the "already running" guard across panel restarts.

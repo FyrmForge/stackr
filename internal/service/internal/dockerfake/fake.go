@@ -335,8 +335,13 @@ func (f *Fake) UntarVolume(_ context.Context, name string, src io.Reader) error 
 	return f.rec("UntarVolume", name)
 }
 
+// Pull fetches ref: one listed in Gone is there afterwards.
 func (f *Fake) Pull(_ context.Context, ref, _ string, _ io.Writer) error {
-	return f.rec("Pull", ref)
+	err := f.rec("Pull", ref)
+	if err == nil {
+		f.Gone = slices.DeleteFunc(f.Gone, func(g string) bool { return g == ref })
+	}
+	return err
 }
 
 func (f *Fake) LocalDigest(_ context.Context, ref string) (string, error) {

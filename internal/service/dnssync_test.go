@@ -81,11 +81,17 @@ func TestSlowDNSNeverHoldsTheProxyPush(t *testing.T) {
 	if got := n.orch.DNSSyncError(); !strings.Contains(got, "timed out") {
 		t.Fatalf("sync error = %q, want the provider's failure", got)
 	}
+	if !n.orch.hasProblem(ctx, dnsAlertKey) {
+		t.Error("a failed records sync opened no banner problem")
+	}
 
 	p = slow.zoneFake // the provider answers again
 	must(t, n.orch.SyncProxy(ctx))
 	n.orch.WaitDNS()
 	if got := n.orch.DNSSyncError(); got != "" {
 		t.Errorf("after a clean sync: %q", got)
+	}
+	if n.orch.hasProblem(ctx, dnsAlertKey) {
+		t.Error("a clean sync kept the banner problem")
 	}
 }

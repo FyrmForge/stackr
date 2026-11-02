@@ -42,6 +42,9 @@ type Run struct {
 // for this one instead of cancelling it. It refuses when a newer job has
 // already superseded this one; the handler must stop then.
 func (r *Run) Swap() error {
+	if r.r == nil { // a Run made outside a Runner (a test) has nothing to swap
+		return nil
+	}
 	r.r.mu.Lock()
 	defer r.r.mu.Unlock()
 	if r.a.superseded {
@@ -241,8 +244,18 @@ func (r *Runner) Close() {
 		a.cancel(errors.New("stackrd is shutting down"))
 	}
 	r.mu.Unlock()
-	r.wg.Wait()
+	// A handler stuck past the grace must not keep the process (and db.Close)
+	// from ending; boot fails what is left running.
+	done := make(chan struct{})
+	go func() { r.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(closeGrace):
+		slog.Warn("jobs still running at shutdown; giving up waiting")
+	}
 }
+
+var closeGrace = 30 * time.Second
 
 func (r *Runner) poke() {
 	select {

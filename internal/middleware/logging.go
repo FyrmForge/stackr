@@ -15,13 +15,28 @@ import (
 // HeaderRequestID is the HTTP header used to propagate request IDs.
 const HeaderRequestID = "X-Request-ID"
 
+// validRequestID: 1 to 64 of letters, digits, dash, underscore, dot.
+func validRequestID(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // Logging generates or propagates a request ID, attaches a structured logger
 // to the request context, and logs request completion.
 func Logging() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			reqID := c.Request().Header.Get(HeaderRequestID)
-			if reqID == "" {
+			if !validRequestID(reqID) { // echoed into logs and the response: bound it
 				reqID = uuid.New().String()
 			}
 

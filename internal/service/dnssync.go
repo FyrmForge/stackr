@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -53,7 +54,13 @@ func (k *coalesce) Wait() { k.wg.Wait() }
 type dnsState struct {
 	mu  sync.Mutex
 	err error
+	at  time.Time // when it failed
 }
+
+const dnsAlertKey = "alert.dns.records"
+
+// dnsRetryEvery is how long a failed records sync waits before the tick runs it again.
+const dnsRetryEvery = 5 * time.Minute
 
 // syncDNS is the proxy push's follow-up, kicked after a run whose pushes
 // landed: the records sync runs on its own, under its own time limit, so a
@@ -68,8 +75,23 @@ func (o *Orchestrator) syncDNS() {
 	defer o.dnsSync.mu.Unlock()
 	if err != nil {
 		slog.Warn("dns: records", "err", err)
+		o.dnsSync.err, o.dnsSync.at = err, time.Now()
+		o.openProblem(context.Background(), dnsAlertKey, SevWarning, "DNS records are not in sync: "+err.Error())
+		return
 	}
-	o.dnsSync.err = err
+	o.dnsSync.err = nil
+	o.clearProblem(context.Background(), dnsAlertKey)
+}
+
+// retryDNS runs the records sync again once a failed one is dnsRetryEvery
+// old; the 30s tick calls it, so an outage heals without a deploy.
+func (o *Orchestrator) retryDNS() {
+	o.dnsSync.mu.Lock()
+	due := o.dnsSync.err != nil && time.Since(o.dnsSync.at) >= dnsRetryEvery
+	o.dnsSync.mu.Unlock()
+	if due {
+		o.dnsKick.Kick()
+	}
 }
 
 // DNSSyncError is the last background records sync's failure; "" while

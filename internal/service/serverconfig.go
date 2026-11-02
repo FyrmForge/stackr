@@ -86,6 +86,9 @@ func (o *Orchestrator) BindServerConfig(
 	connectorID, repo, branch, path string,
 	auto bool,
 ) (ServerBinding, error) {
+	if err := noRepoCreds(repo); err != nil {
+		return ServerBinding{}, err
+	}
 	repo = o.repoURL(ctx, repo)
 	if repo == "" {
 		connectorID, branch, path, auto = "", "", "", false

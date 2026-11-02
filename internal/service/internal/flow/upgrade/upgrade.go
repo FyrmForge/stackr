@@ -116,9 +116,23 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	if err := f.Panel.Pull(ctx, image, log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", image, err)
 	}
+	// The tag is resolved once, here. Everything after runs the local copy,
+	// and the swap is refused if the tag points at another image by then.
+	pinned, err := f.Panel.Digest(ctx, image)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", image, err)
+	}
+	if pinned != "" {
+		_, _ = fmt.Fprintf(log, "upgrading to %s\n", pinned)
+	}
 	archive, err := f.Archive(ctx, log)
 	if err != nil {
 		return "", fmt.Errorf("pre-upgrade backup: %w", err)
+	}
+	if pinned != "" {
+		if now, err := f.Panel.Digest(ctx, image); err != nil || now != pinned {
+			return "", errs.Conflictf("%s changed on this box during the upgrade; run it again", image)
+		}
 	}
 	// Before the panel moves: the new panel finds the admin socket mounted,
 	// and stackrd re-pushes the config when it sees the proxy start (watchTick).

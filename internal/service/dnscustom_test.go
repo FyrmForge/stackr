@@ -161,6 +161,26 @@ func TestCustomRecordNameClash(t *testing.T) {
 	conflict(t, err, "another app's hostname")
 }
 
+// A node's own address is stackr's: an A there (which would split the
+// node's traffic with an attacker's) is refused, a TXT is not.
+func TestCustomRecordNotOnANodeAddress(t *testing.T) {
+	env, conn, _, _ := customRig(t)
+	ctx := context.Background()
+	ns, err := env.Store.Nodes.List(ctx)
+	if err != nil || len(ns) == 0 {
+		t.Fatalf("nodes %v %v", ns, err)
+	}
+	ns[0].Address = "node1.acme.dev"
+	if err := env.Store.Nodes.Update(ctx, ns[0]); err != nil {
+		t.Fatal(err)
+	}
+	_, err = env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Name: "node1", Type: "A", Value: "203.0.113.9"})
+	conflict(t, err, "own address")
+	if _, err := env.Orch.AddDNSDomainRecord(ctx, nil, conn, "acme.dev", service.CustomRecordIn{Name: "node1", Type: "TXT", Value: "v"}); err != nil {
+		t.Fatalf("a TXT on a node address: %v", err)
+	}
+}
+
 // Decisions 2, 4 and 8: a record on a name stackr does not manage, outside
 // its scope, or on a domain the org may not use is refused naming both.
 func TestCustomRecordNotManaged(t *testing.T) {

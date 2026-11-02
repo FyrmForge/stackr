@@ -28,7 +28,7 @@ func (h *handler) mountParams(g *echo.Group, a *middleware.Access) {
 
 // params is the server scope's editor. A secret's value never reaches the view.
 func (h *handler) params(c echo.Context, errMsg, note string) (templ.Component, error) {
-	rows, err := h.orch.RevealSecrets(c.Request().Context(), middleware.Principal(c), service.ServerParamScope)
+	rows, err := h.orch.MaskedParams(c.Request().Context(), service.ServerParamScope) // names only: a view reveals nothing and logs nothing
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (h *handler) params(c echo.Context, errMsg, note string) (templ.Component, 
 			v.Editor.Secrets = append(v.Editor.Secrets, comp.SecretRowView{
 				Collection: p.Collection,
 				Name:       p.Name,
-				Set:        p.Value != "",
+				Set:        true,
 				DecidedBy:  "server",
 			})
 		} else {

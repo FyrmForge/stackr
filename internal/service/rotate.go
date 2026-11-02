@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 )
 
 // Mesh key rotation: a node's WireGuard and exit keys are replaced without a
@@ -201,31 +202,51 @@ func (o *Orchestrator) rotateController(ctx context.Context, n store.Node, trigg
 	m.syncMu.Lock() // no sync may push the old key between these pushes
 	defer m.syncMu.Unlock()
 	m.mu.Lock()
-	old := m.wgPK[n.ID]
+	old, oldExit := m.wgPK[n.ID], m.exitPK[n.ID]
 	m.mu.Unlock()
 	m.tookKeys(n.ID, old, wg, exit)
-	in, specs, err := m.plan(ctx)
-	if err != nil {
-		return err
-	}
-	var workers []string
-	for id := range specs {
-		if id != n.ID {
-			workers = append(workers, id)
+	// pushWorkers pushes every worker the current plan, farthest first, so a
+	// routed node hears a key while its hop still talks the old one. A direct
+	// worker applies the new key mid-request, so its reply crosses the tunnel
+	// it just rekeyed and never arrives: do not wait the client's full
+	// timeout for it. The spec is applied either way; a push that really
+	// failed is retried by recovery.
+	pushWorkers := func(in meshIn, specs map[string]worker.MeshSpec) {
+		var workers []string
+		for id := range specs {
+			if id != n.ID {
+				workers = append(workers, id)
+			}
+		}
+		slices.SortStableFunc(workers, func(a, b string) int { return hops(in.Next, n.ID, b) - hops(in.Next, n.ID, a) })
+		for _, id := range workers {
+			pctx, cancel := context.WithTimeout(ctx, rotatePushWait)
+			_ = m.push(pctx, in, specs, []string{id}, true)
+			cancel()
 		}
 	}
-	slices.SortStableFunc(workers, func(a, b string) int { return hops(in.Next, n.ID, b) - hops(in.Next, n.ID, a) })
-	for _, id := range workers {
-		// A direct worker applies the new key mid-request, so its reply
-		// crosses the tunnel it just rekeyed and never arrives: do not wait
-		// the client's full timeout for it. The spec is applied either way;
-		// a push that really failed is retried by recovery.
-		pctx, cancel := context.WithTimeout(ctx, rotatePushWait)
-		_ = m.push(pctx, in, specs, []string{id}, true)
-		cancel()
+	// rollback puts the old keys back and tells the workers, so a failed
+	// switch does not leave every tunnel on a key the controller never took.
+	rollback := func(cause error) error {
+		m.tookKeys(n.ID, wg, old, oldExit)
+		if in, specs, err := m.plan(ctx); err == nil {
+			pushWorkers(in, specs)
+		}
+		return cause
 	}
+	in, specs, err := m.plan(ctx)
+	if err != nil {
+		return rollback(err)
+	}
+	pushWorkers(in, specs)
 	if err := o.localWorker.PromoteKeys(); err != nil {
-		return err
+		if o.localWorker.WGPublicKey() == wg {
+			// Keys swapped, the re-apply failed: the new key is the truth.
+			_ = m.push(ctx, in, specs, []string{n.ID}, true)
+			m.Kick()
+			return err
+		}
+		return rollback(err)
 	}
 	_ = m.push(ctx, in, specs, []string{n.ID}, true)
 	o.auditRotate(ctx, n, old, wg, trigger)

@@ -601,31 +601,67 @@ func (o *Orchestrator) refreshNodeClients(ctx context.Context) error {
 	return errors.Join(failed...)
 }
 
-// watchNodeClients keeps the clients fresh until Close.
+// watchNodeClients keeps the clients fresh until Close. Every call runs
+// under a context Close cancels; the daily chores run detached with a
+// deadline, so a slow host never stalls the 30s refresh (offline detection).
 func (o *Orchestrator) watchNodeClients() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-o.stopNodes:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	day := time.NewTicker(24 * time.Hour)
 	defer day.Stop()
+	conn := time.NewTicker(connCheckEvery)
+	defer conn.Stop()
 	for {
 		select {
-		case <-o.stopNodes:
+		case <-ctx.Done():
 			return
+		case <-conn.C:
+			o.detach(ctx, func(ctx context.Context) {
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+				defer cancel()
+				o.checkConnectors(ctx)
+			})
 		case <-day.C:
-			o.dailyChores(context.Background())
-			o.reconcileShares(context.Background())
-			o.dnsKick.Kick() // releases held DNS hosts that now match
+			o.detach(ctx, func(ctx context.Context) {
+				ctx, cancel := context.WithTimeout(ctx, dailyChoresBudget)
+				defer cancel()
+				o.dailyChores(ctx)
+				o.reconcileShares(ctx)
+				o.dnsKick.Kick() // releases held DNS hosts that now match
+			})
 		case <-t.C:
-			o.controllerDiskAlert(context.Background())
-			if _, err := o.SweepPendingConnectors(context.Background(), time.Now()); err != nil {
+			o.controllerDiskAlert(ctx)
+			o.dockerAlert(ctx)
+			o.retryDNS()
+			// Off this goroutine: a push can run for minutes (domain.Timeout)
+			// and must not hold up the node refresh below. The Syncer
+			// serialises runs and folds the callers waiting behind one.
+			o.detach(ctx, func(ctx context.Context) {
+				if err := o.sync.Retry(ctx); err != nil && ctx.Err() == nil {
+					slog.Warn("proxy: retry", "err", err)
+				}
+			})
+			if _, err := o.SweepPendingConnectors(ctx, time.Now()); err != nil {
 				slog.Warn("connectors: pending sweep failed", "err", err)
 			}
-			if err := o.refreshNodeClients(context.Background()); err != nil {
+			if err := o.refreshNodeClients(ctx); err != nil {
 				slog.Warn("nodes: client refresh failed", "err", err)
 			}
 		}
 	}
 }
+
+// dailyChoresBudget is the deadline of one day's chores.
+const dailyChoresBudget = 30 * time.Minute
 
 // nodeExtras is the extras API client for a worker node (facts, iptables,
 // wg, saved state, Caddy). The controller has none: it is local.

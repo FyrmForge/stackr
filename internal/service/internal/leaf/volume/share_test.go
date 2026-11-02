@@ -41,6 +41,9 @@ func TestCheckShare(t *testing.T) {
 		"options space":   {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "ro nolock"},
 		"options device":  {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "device=/x"},
 		"options secrets": {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "password=x"},
+		"options unknown": {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "ro,bind"},
+		"options foreign": {Slug: "a", Kind: "nfs", Source: "nas:/e", Options: "cache=none"},
+		"options value":   {Slug: "a", Kind: "smb", Source: "//nas/e", Options: "vers=3.0/../x"},
 	} {
 		if err := volume.CheckShare(sp); err == nil {
 			t.Errorf("%s: accepted %+v", name, sp)

@@ -43,6 +43,16 @@ var (
 	plainUser = regexp.MustCompile(`^[^\s,]+$`)
 )
 
+// shareOpts are the options a share may carry. The kernel mounts the share
+// on the host with whatever an org owner writes here, so only options that
+// tune the transport or the file view pass.
+var shareOpts = map[string][]string{
+	NFS: {"nfsvers", "vers", "ro", "rw", "soft", "hard", "timeo", "retrans", "rsize", "wsize", "proto", "port", "nolock", "noatime", "nconnect", "sec", "noresvport", "actimeo", "lookupcache"},
+	SMB: {"vers", "ro", "rw", "uid", "gid", "file_mode", "dir_mode", "domain", "sec", "iocharset", "noperm", "nounix", "cache", "soft", "hard", "rsize", "wsize", "actimeo", "mfsymlinks", "seal", "nobrl", "port"},
+}
+
+var optValue = regexp.MustCompile(`^[A-Za-z0-9._:-]*$`)
+
 // ShareSpec is what a caller says about a share. User and PasswordRef are
 // ${{ org.params }} refs (a plain User is fine), never a password.
 type ShareSpec struct {
@@ -88,9 +98,18 @@ func CheckShare(s ShareSpec) error {
 		return errs.Invalidf("options", "comma-separated mount options, no spaces")
 	}
 	for _, o := range strings.Split(s.Options, ",") {
-		k, _, _ := strings.Cut(o, "=")
+		if o == "" {
+			continue
+		}
+		k, v, _ := strings.Cut(o, "=")
 		if slices.Contains([]string{"type", "device", "addr", "username", "password", "user", "pass"}, k) {
 			return errs.Invalidf("options", "%s is set by stackr", k)
+		}
+		if !slices.Contains(shareOpts[s.Kind], k) {
+			return errs.Invalidf("options", "%s is not an allowed %s option", k, s.Kind)
+		}
+		if !optValue.MatchString(v) {
+			return errs.Invalidf("options", "%s: the value is letters, digits and . _ : -", k)
 		}
 	}
 	return nil

@@ -56,7 +56,45 @@ func (o *Orchestrator) check(ctx context.Context, c store.Connector) store.Conne
 		err = o.ask(ctx, k, conn)
 	}
 	o.noteCheck(ctx, &c, err)
+	o.connProblem(ctx, c)
 	return c
+}
+
+// connCheckEvery is how often the background pass asks each provider.
+const connCheckEvery = 15 * time.Minute
+
+func connAlertKey(id string) string { return "alert.conn." + id }
+
+// connProblem keeps a banner problem open while c's last check failed.
+func (o *Orchestrator) connProblem(ctx context.Context, c store.Connector) {
+	if c.CheckError == "" {
+		o.clearProblem(ctx, connAlertKey(c.ID))
+		return
+	}
+	o.openProblem(ctx, connAlertKey(c.ID), SevWarning, "Connector "+c.Name+" fails: "+c.CheckError)
+}
+
+// checkConnectors asks every connector whose last check is older than
+// connCheckEvery, so a revoked token or a provider outage shows in the
+// banner without anyone opening the page. Runs on the 30s tick.
+func (o *Orchestrator) checkConnectors(ctx context.Context) {
+	cs, err := o.store.Connectors.ListAll(ctx)
+	if err != nil {
+		return
+	}
+	for _, c := range cs {
+		if ctx.Err() != nil {
+			return
+		}
+		if c.CheckedAt != nil && time.Since(*c.CheckedAt) < connCheckEvery {
+			continue
+		}
+		// Of marks a connector whose setup is still out at the provider
+		// (pending): check leaves those alone.
+		if c, err := o.conns.Of(ctx, c.OrgID, c.ID); err == nil {
+			o.check(ctx, c)
+		}
+	}
 }
 
 // noteCheck keeps a check's answer on c: err nil is working.

@@ -21,12 +21,14 @@ func TestResolveCascade(t *testing.T) {
 		{"server only", []Settings{server}, Resolved{CPULimit: 2, MemLimitMB: 1024}},
 		{"org overrides server", []Settings{server, org}, Resolved{CPULimit: 2, MemLimitMB: 512}},
 		{"empty stack inherits", []Settings{server, org, stack}, Resolved{CPULimit: 2, MemLimitMB: 512}},
-		{"explicit zero at env is unlimited", []Settings{server, org, stack, env}, Resolved{
-			CPULimit:        0,
+		{"zero under a limited parent cannot lift it", []Settings{server, org, stack, env}, Resolved{
+			CPULimit:        2,
 			MemLimitMB:      512,
 			ProtectUser:     "u",
 			ProtectPassword: "p",
 		}},
+		{"a child cannot raise its parent's limit", []Settings{server, {CPULimit: ptr(8.0), MemLimitMB: ptr(64)}}, Resolved{CPULimit: 2, MemLimitMB: 64}},
+		{"zero with no parent limit is unlimited", []Settings{{CPULimit: ptr(0.0)}}, Resolved{}},
 		{"protect pair is one unit", []Settings{env, {ProtectUser: ptr("v")}}, Resolved{ProtectUser: "v"}},
 	}
 	for _, tt := range tests {
@@ -37,6 +39,9 @@ func TestResolveCascade(t *testing.T) {
 	cpu, mem := Resolve(server).EffectiveLimits(0.5, 0)
 	if cpu != 0.5 || mem != 1024 {
 		t.Errorf("tile rung: %v %v, want 0.5 1024", cpu, mem)
+	}
+	if cpu, mem = Resolve(server).EffectiveLimits(16, 1<<20); cpu != 2 || mem != 1024 {
+		t.Errorf("tile above its parents: %v %v, want 2 1024", cpu, mem)
 	}
 }
 

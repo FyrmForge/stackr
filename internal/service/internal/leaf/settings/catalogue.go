@@ -84,7 +84,7 @@ var Catalogue = []Knob{
 		Default:   "0",
 		Scopes:    All | Tile,
 		AllowZero: true,
-		Desc:      "CPU cores; 0 is unlimited",
+		Desc:      "CPU cores; 0 is unlimited; a lower level stays within a higher one",
 	},
 	{
 		Key:       "mem_limit_mb",
@@ -93,7 +93,7 @@ var Catalogue = []Knob{
 		Default:   "0",
 		Scopes:    All | Tile,
 		AllowZero: true,
-		Desc:      "memory cap in MB; 0 is unlimited",
+		Desc:      "memory cap in MB; 0 is unlimited; a lower level stays within a higher one",
 	},
 	{
 		Key:     "protect",

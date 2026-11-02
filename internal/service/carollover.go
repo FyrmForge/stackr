@@ -113,6 +113,18 @@ func (o *Orchestrator) detach(ctx context.Context, f func(context.Context)) {
 	}()
 }
 
+// track runs a loop on a goroutine Close waits for (loops, apart from
+// trustAsync: tests wait for the boot chores, and a loop never ends before Close). f must end when its own
+// context (stopNodes or the mesh context) is cancelled, which Close does
+// before it waits.
+func (o *Orchestrator) track(f func()) {
+	o.loops.Add(1)
+	go func() {
+		defer o.loops.Done()
+		f()
+	}()
+}
+
 // FinishRollover (node admin) drops the old root now. Workers still
 // holding an old-root cert can no longer be reached: they are marked
 // needs-rejoin and their certs revoked, each in the security log.

@@ -52,6 +52,9 @@ func (o *Orchestrator) SetOrgConfigRepo(
 	if err != nil {
 		return og, err
 	}
+	if err := noRepoCreds(repo); err != nil {
+		return og, err
+	}
 	if connectorID != "" && repo != "" {
 		// the org's own connector, or a server one shared with it
 		if _, err := o.conns.Usable(ctx, og.ID, connectorID); err != nil {

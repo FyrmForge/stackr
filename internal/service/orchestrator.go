@@ -314,6 +314,8 @@ type Orchestrator struct {
 	// alerts is the alert queue (alerts.go); alertsDone waits for its
 	// delivery goroutine.
 	alerts     chan Alert
+	alertHold  alertHold      // alerts to send again (alerthold.go)
+	loops      sync.WaitGroup // mesh and node loops (track); Close waits
 	alertsDone sync.WaitGroup
 	// helperReady puts the mesh's helper image in the cluster registry
 	// (rsyncSteps); tests swap it.
@@ -534,7 +536,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.refreshNodeClients(ctx); err != nil {
 		slog.Warn("nodes: worker clients not all built", "err", err)
 	}
-	go orch.watchNodeClients()
+	orch.track(orch.watchNodeClients)
 	orch.sessions = build("sessions", func() *auth.SessionManager {
 		opts := []auth.SessionOption{auth.WithCookieSecure(cfg.CookieSecure), auth.WithCookieDomain(cfg.CookieDomain)}
 		if cfg.CookieSecure && cfg.CookieDomain == "" {
@@ -648,16 +650,17 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			b = o.build
 		}
 		return &promote.Flow{
-			D:           orch.deploy,
-			Resources:   orch.domainres,
-			Config:      orch.stackFile,
-			Build:       b,
-			DNS01:       orch.dns01,
-			RouteHeld:   orch.routes.Covers,
-			CheckDNS:    orch.CheckFileRecords,
-			WriteParams: orch.writeParams,
-			Placements:  orch.stackPlacements,
-			Forget:      orch.forgetTileClone,
+			D:              orch.deploy,
+			Resources:      orch.domainres,
+			Config:         orch.stackFile,
+			Build:          b,
+			DNS01:          orch.dns01,
+			RouteHeld:      orch.routes.Covers,
+			CheckDNS:       orch.CheckFileRecords,
+			WriteParams:    orch.writeParams,
+			Placements:     orch.stackPlacements,
+			Forget:         orch.forgetTileClone,
+			DumpBeforeDrop: orch.dumpBeforeDrop,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -930,6 +933,12 @@ func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
 	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
+		// A crash inside a migration leaves the version marked dirty and
+		// every boot after it refuses; say what to do instead of the bare
+		// driver error.
+		if v, dirty, verr := sqlite.MigrateVersion(db, appdb.MigrateConfig()); verr == nil && dirty {
+			err = fmt.Errorf("%w (migration %d was interrupted and left the database marked dirty; restore the last pre-upgrade archive: stackr-install restore <archive>)", err, v)
+		}
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -970,6 +979,7 @@ func (o *Orchestrator) Close() error {
 		}
 	})
 	o.trustAsync.Wait()
+	o.loops.Wait()
 	o.alertsDone.Wait()
 	o.sched.Stop()
 	o.jobs.Close()

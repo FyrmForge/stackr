@@ -25,6 +25,14 @@ func (h *handler) Health(c echo.Context) error {
 		slog.Warn("health: ping failed", "err", err)
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"status": "unhealthy"})
 	}
+	// Docker down stays a 200: the panel is up, the installer and upgrade
+	// gates wait on the status code, and the banner already says why.
+	if h.orch.DockerDown(c.Request().Context()) {
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "degraded",
+			"docker": "down",
+		})
+	}
 	return c.JSON(http.StatusOK, map[string]string{
 		"status": "healthy",
 	})

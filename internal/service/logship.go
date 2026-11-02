@@ -78,7 +78,7 @@ func (o *Orchestrator) logBase() context.Context {
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() { <-o.stopNodes; cancel() }()
 		s.base, s.wake = ctx, make(chan struct{}, 1)
-		go o.logLoop(ctx)
+		o.track(func() { o.logLoop(ctx) })
 	})
 	return s.base
 }
@@ -107,6 +107,8 @@ func (o *Orchestrator) logLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			// The last batch goes out before the panel stops.
+			o.flushLogs(context.WithoutCancel(ctx))
 			return
 		case <-t.C:
 		case <-o.logship.wake:
