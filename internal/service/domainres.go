@@ -7,6 +7,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -325,55 +326,72 @@ func (o *Orchestrator) panelDomain(ctx context.Context) string {
 }
 
 // applyRename writes a checked rename: the resources, then the tile domains
-// (each old host keeps a generated redirect to its new one), no proxy push.
-// Managed tiles whose domain moved then re-publish their URLs and redeploy
-// the tiles that read them.
-// ponytail: no transaction across the writes, so a store error mid-way leaves
-// a partial rename (the caller still pushes so the proxy matches what landed);
-// one store transaction around the writes would make it all-or-nothing.
+// (each old host keeps a generated redirect to its new one), no proxy push, all
+// in one transaction so a store error leaves no partial rename. Managed tiles
+// whose domain moved then re-publish their URLs and redeploy the tiles that
+// read them.
+// Inside the transaction nothing reads through o: the pool is one connection.
+// The leaves are rebuilt on tx, and the Docker half of Detach and Attach (an
+// ingress network opens with a tile's first domain and closes with its last)
+// never runs: every tile touched here keeps its renamed row.
 func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []store.Org) error {
-	for i, c := range p.res {
-		if _, err := o.domainres.Rename(ctx, c, p.to[i], ownerOf(c), orgs); err != nil {
-			return err
-		}
+	wild := map[string]bool{} // host -> dns01, asked before the transaction
+	for _, h := range p.rowTo {
+		wild[h] = o.dns01(ctx, h)
 	}
-	for _, d := range p.reclaim {
-		if err := o.domains.Detach(ctx, d); err != nil {
-			return err
-		}
+	for _, d := range append(slices.Clone(p.rows), p.repoint...) {
+		wild[d.Host] = o.dns01(ctx, d.Host)
 	}
-	for i, d := range p.rows {
-		s, err := specOf(d)
-		if err != nil {
-			return err
+	err := o.store.Tx(ctx, func(tx store.Tx) error {
+		res := domainres.New(tx.DomainResources)
+		doms := domain.New(tx.Domains, o.docker, ProxyContainer)
+		for i, c := range p.res {
+			if _, err := res.Rename(ctx, c, p.to[i], ownerOf(c), orgs); err != nil {
+				return err
+			}
 		}
-		s.Host = p.rowTo[i]
-		if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
-			return err
+		for _, d := range p.reclaim {
+			if err := doms.Detach(ctx, d); err != nil {
+				return err
+			}
 		}
-	}
-	for _, d := range p.repoint {
-		s, err := specOf(d)
-		if err != nil {
-			return err
+		for i, d := range p.rows {
+			s, err := specOf(d)
+			if err != nil {
+				return err
+			}
+			s.Host = p.rowTo[i]
+			if _, err := doms.Update(ctx, d, s, wild[s.Host]); err != nil {
+				return err
+			}
 		}
-		s.RedirectTo = p.repointT[d.ID]
-		if _, err := o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
-			return err
+		for _, d := range p.repoint {
+			s, err := specOf(d)
+			if err != nil {
+				return err
+			}
+			s.RedirectTo = p.repointT[d.ID]
+			if _, err := doms.Update(ctx, d, s, wild[s.Host]); err != nil {
+				return err
+			}
 		}
-	}
-	for i, d := range p.rows {
-		_, err := o.domains.Attach(ctx, d.TileID, DomainSpec{
-			Host:       d.Host,
-			Path:       d.Path,
-			HTTPS:      &d.HTTPS,
-			ForceHTTPS: &d.ForceHTTPS,
-			RedirectTo: p.rowTo[i],
-			Auto:       true,
-		}, o.dns01(ctx, d.Host), nil)
-		if err != nil {
-			return err
+		for i, d := range p.rows {
+			_, err := doms.Attach(ctx, d.TileID, DomainSpec{
+				Host:       d.Host,
+				Path:       d.Path,
+				HTTPS:      &d.HTTPS,
+				ForceHTTPS: &d.ForceHTTPS,
+				RedirectTo: p.rowTo[i],
+				Auto:       true,
+			}, wild[d.Host], nil)
+			if err != nil {
+				return err
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	return o.republishManaged(ctx, p.rows)
 }
