@@ -521,21 +521,26 @@ func TestWorkerRolloutPending(t *testing.T) {
 	}
 }
 
-// UpgradeUnderway: a queued or running upgrade job, or a launched successor
-// within the swap window; a launch long ago is over.
+// upgrader is the panel upgrade helper container in state.
+func upgrader(state string) docker.Container {
+	return docker.Container{ID: "u", State: state, Labels: map[string]string{"stackr.role": "upgrader"}}
+}
+
+// UpgradeUnderway: a queued or running upgrade job, or a running upgrade
+// helper; a helper that exited is over.
 func TestUpgradeUnderway(t *testing.T) {
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	if n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("underway with nothing done")
 	}
-	n.orch.upgradeLaunched.Store(time.Now().UnixNano())
+	n.ctlFake.Containers = []docker.Container{upgrader("running")}
 	if !n.orch.UpgradeUnderway(ctx) {
-		t.Fatal("not underway just after the launch")
+		t.Fatal("not underway while the helper runs")
 	}
-	n.orch.upgradeLaunched.Store(time.Now().Add(-upgradeSwapWindow - time.Second).UnixNano())
+	n.ctlFake.Containers = []docker.Container{upgrader("exited")}
 	if n.orch.UpgradeUnderway(ctx) {
-		t.Fatal("underway past the swap window")
+		t.Fatal("underway after the helper exited")
 	}
 	must(t, n.st.Jobs.Create(ctx, store.Job{
 		ID: uuid.NewString(), Kind: string(kindUpgrade), State: job.Running, Payload: "{}", CreatedAt: time.Now(),
@@ -550,12 +555,51 @@ func TestUpgradeUnderway(t *testing.T) {
 	}
 }
 
+// The queue starts nothing while the upgrade helper runs: the old panel
+// right after the launch, the new one through its trial. The helper's exit
+// releases it, whether it passed (the new panel stays) or rolled back (the
+// old panel is back); a panel with no helper running is never held.
+func TestUpgradeHoldsQueue(t *testing.T) {
+	n := newTwoNodes(t)
+	ctx := context.Background()
+	state := func(id string) string {
+		j, err := n.st.Jobs.Get(ctx, id)
+		must(t, err)
+		return j.State
+	}
+	started := func(id string) {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); state(id) == job.Queued; {
+			if time.Now().After(deadline) {
+				t.Fatal("the job never started")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	for _, end := range []string{"passed", "rolled back"} {
+		n.ctlFake.Containers = []docker.Container{upgrader("running")}
+		j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
+		must(t, err)
+		time.Sleep(300 * time.Millisecond) // the enqueue pokes the runner
+		if got := state(j.ID); got != job.Queued {
+			t.Fatalf("%s: job %s while the helper runs, want queued", end, got)
+		}
+		// Either way the helper exits; its code is only for its logs.
+		n.ctlFake.Containers = []docker.Container{upgrader("exited")}
+		started(j.ID)
+	}
+	n.ctlFake.Containers = nil // a restart with no upgrade
+	j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
+	must(t, err)
+	started(j.ID)
+}
+
 // The jobs lists say why a queued job waits and mark a rebuild; the Update
 // tab counts what the queued upgrade waits for.
 func TestJobsWaitsAndLine(t *testing.T) {
 	n := newTwoNodes(t)
 	ctx := context.Background()
-	n.orch.upgradeLaunched.Store(time.Now().UnixNano()) // holds the runner: these rows stay put
+	n.ctlFake.Containers = []docker.Container{upgrader("running")} // holds the runner: these rows stay put
 	at := time.Now().Add(-time.Minute)
 	row := func(kind, state, payload string, lock ...string) string {
 		id := uuid.NewString()
