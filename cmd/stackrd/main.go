@@ -153,6 +153,11 @@ func main() {
 		return
 	}
 
+	if flag.NArg() > 0 { // only the subcommands above take an argument
+		fmt.Fprintf(os.Stderr, "stackrd: unknown command %q\nusage: stackrd [-generate | -version | -dump-openapi] | proxy | worker | create-admin | admin-key | upgrade-swap | worker-swap | host-run\n", flag.Arg(0))
+		os.Exit(2)
+	}
+
 	log := logging.New(!envDevMode)
 	slog.SetDefault(log)
 
