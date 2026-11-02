@@ -292,6 +292,20 @@ func (o *Orchestrator) configHead(ctx context.Context, st store.Stack) (branch, 
 	return r.Head(ctx)
 }
 
+// tileHead is the tip of git tile t's branch: the branch and its commit.
+func (o *Orchestrator) tileHead(ctx context.Context, t store.Tile) (branch, sha string, err error) {
+	st, err := o.stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return "", "", err
+	}
+	env, err := o.cloneEnv(ctx, st.OrgID, o.tileConnector(ctx, st, t.GitURL), t.GitURL)
+	if err != nil {
+		return "", "", err
+	}
+	r := git.Repo{URL: t.GitURL, Branch: t.GitBranch, Auth: func(context.Context) []string { return env }}
+	return r.Head(ctx)
+}
+
 // cloneEnv is the connector's auth env lines for url, or WithGit's.
 func (o *Orchestrator) cloneEnv(ctx context.Context, orgID, connectorID, url string) ([]string, error) {
 	if o.gitEnv != nil {
