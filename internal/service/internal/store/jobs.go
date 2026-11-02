@@ -46,6 +46,8 @@ type JobStore interface {
 	// in any other state (cancelled meanwhile) is left as it is.
 	ParkIfRunning(ctx context.Context, id, param, payload string) error
 	Delete(ctx context.Context, id string) error
+	// ListFinishedBefore is the jobs that finished before t, oldest first, at most limit.
+	ListFinishedBefore(ctx context.Context, t time.Time, limit int) ([]Job, error)
 }
 
 var jobsT = newTable[Job]("jobs", nil)
@@ -61,6 +63,10 @@ func (s jobs) ListByState(ctx context.Context, states ...string) ([]Job, error) 
 		args[i] = st
 	}
 	return s.many(ctx, "state IN (?"+strings.Repeat(", ?", len(states)-1)+") ORDER BY created_at DESC", args...)
+}
+
+func (s jobs) ListFinishedBefore(ctx context.Context, t time.Time, limit int) ([]Job, error) {
+	return s.many(ctx, "finished_at IS NOT NULL AND finished_at < ? ORDER BY finished_at LIMIT ?", t, limit)
 }
 
 func (s jobs) RequeueIfWaiting(ctx context.Context, id string) error {

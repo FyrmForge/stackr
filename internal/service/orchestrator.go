@@ -829,6 +829,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	orch.vipLegacy(ctx)
 	orch.settleRestored(ctx)
+	orch.sweepMoveTemps()
 	if err := orch.backups.Interrupted(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted backups: %w", err)

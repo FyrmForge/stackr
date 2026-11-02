@@ -353,6 +353,7 @@ func (o *Orchestrator) dailyChores(ctx context.Context) {
 	}
 	o.certAlerts(ctx)
 	o.backupWatch(ctx)
+	o.pruneOld(ctx)
 	if err := o.store.RegistryTokens.DeleteExpiredBefore(ctx, time.Now().UTC().Add(-registryTokenKeep)); err != nil {
 		slog.Warn("registry: prune expired tokens", "err", err)
 	}
