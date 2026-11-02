@@ -402,6 +402,14 @@ func TestDomainResourceRoutes(t *testing.T) {
 			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
 		},
 		{
+			"add --host acme.io",
+			"POST " + org + `/domain-resources {"acme_email":"","host":"acme.io","include_env_on_default":false}`,
+		},
+		{
+			"add --owner acme/shop --host shop.io",
+			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
+		},
+		{
 			"add shop.io --level stack --owner shop",
 			"POST " + org + "/stacks/shop/domain-resources " + stackBody,
 		},

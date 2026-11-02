@@ -889,7 +889,7 @@ func (a *app) domainResources() *cobra.Command {
 			return a.show(v, resCols...)
 		},
 	)
-	add.Flags().StringVar(&level, "level", "", "instance (admin), org or stack")
+	add.Flags().StringVar(&level, "level", "", "instance (admin), org or stack (default: org, or stack for an org/stack owner)")
 	add.Flags().StringVar(&owner, "owner", "", "the org's slug, or the stack as org/stack (default: the logged-in org)")
 	add.Flags().StringVar(&host, "host", "", "a bare hostname, e.g. example.com")
 	add.Flags().BoolVar(&includeEnv, "include-env", false, "keep the env label on the default env (api.prod.shop, not api.shop)")
@@ -945,6 +945,12 @@ func (a *app) domainResources() *cobra.Command {
 // instance, the org, or the stack (org/stack; a bare stack, or no owner at
 // org level, is in the logged-in org).
 func (a *app) resourceOwner(level, owner string) (string, error) {
+	if level == "" { // org, or the stack an org/stack owner names
+		level = "org"
+		if strings.Contains(owner, "/") {
+			level = "stack"
+		}
+	}
 	switch level {
 	case "instance":
 		return "/admin", nil
