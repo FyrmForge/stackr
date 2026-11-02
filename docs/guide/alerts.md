@@ -11,6 +11,7 @@ stackr posts to one webhook when something needs you:
 | `disk.low` | A node's Docker disk drops under 10% or 1 GB free. |
 | `observe.disk` | Metrics history is on and the controller's free disk drops, less what the logs may still grow to (`observe_logs_max_size`), under twice `observe_min_free`. History stops being written at that floor. |
 | `clock.skew` | A worker's clock is more than 30 seconds off the controller's. Nothing is refused; check time sync on the node. |
+| `config.invalid` | A bound config file (server or org) does not fetch or parse. Once, until it parses again. See [Config files](config-files.md). |
 | `test` | You press Send test. |
 
 Each event fires once per crossing. It fires again only after the condition clears and comes back, except the daily `backup.failed` reminder. A panel restart does not send again. Let's Encrypt certificates are not checked.
