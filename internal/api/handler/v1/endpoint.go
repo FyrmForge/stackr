@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -132,9 +133,42 @@ func decode(c echo.Context, v any) error {
 		return errs.Invalidf("", "request body is required")
 	}
 	if err != nil {
-		return errs.Invalidf("", "%s", err.Error())
+		return badBody(err)
 	}
 	return nil
+}
+
+// badBody says what is wrong with a body that did not decode, in the API's
+// words and with the field, never encoding/json's.
+func badBody(err error) error {
+	var typ *json.UnmarshalTypeError
+	var syn *json.SyntaxError
+	switch {
+	case errors.As(err, &typ):
+		return errs.Invalidf(typ.Field, "must be %s", jsonKind(typ.Type))
+	case errors.As(err, &syn), errors.Is(err, io.ErrUnexpectedEOF):
+		return errs.Invalidf("", "the request body is not valid JSON")
+	}
+	// encoding/json has no typed error for an unknown field
+	if name, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		name = strings.Trim(name, `"`)
+		return errs.Invalidf(name, "unknown field")
+	}
+	return errs.Invalidf("", "the request body could not be read")
+}
+
+func jsonKind(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	case reflect.Map, reflect.Struct:
+		return "an object"
+	}
+	return "a number"
 }
 
 // scope and who read what the middleware resolved.
