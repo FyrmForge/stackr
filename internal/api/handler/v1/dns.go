@@ -4,6 +4,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 // Connectors of a registered kind, and the DNS capability's verbs on them,
@@ -24,10 +25,11 @@ type (
 	// RescopeIn is a managed domain's new scope: the name below it stackr
 	// manages at and under ("" = the whole domain), and the existing
 	// records to take over, as the rescope plan lists them. From is the
-	// plan's from: a confirm of a plan gone stale is refused.
+	// plan's from, required ("" is a scope, so a pointer tells missing
+	// apart): a confirm of a plan gone stale is refused.
 	RescopeIn struct {
 		Under string           `json:"under,omitempty"`
-		From  *string          `json:"from,omitempty"`
+		From  *string          `json:"from" api:"required"`
 		Adopt []service.DNSRef `json:"adopt"`
 	}
 	// TakeOverIn is the domain typed out.
@@ -36,8 +38,7 @@ type (
 	}
 )
 
-func (ManageIn) BodyOptional()  {}
-func (RescopeIn) BodyOptional() {}
+func (ManageIn) BodyOptional() {}
 
 // Level picks whose connectors a handler reaches.
 type Level bool
@@ -95,6 +96,9 @@ func (h *H) PlanRescopeDNSDomain(l Level) Endpoint {
 
 func (h *H) RescopeDNSDomain(l Level) Endpoint {
 	return JSON(200, func(c echo.Context, in RescopeIn) (service.DNSDomain, error) {
+		if in.From == nil {
+			return service.DNSDomain{}, errs.Invalidf("from", "from is required: the from of the rescope plan this confirms")
+		}
 		return h.Orch.RescopeDNSDomain(rc(c), l.org(c), c.Param("connector"), c.Param("zone"), service.DNSScope(c.Param("zone"), in.Under), in.From, in.Adopt)
 	})
 }

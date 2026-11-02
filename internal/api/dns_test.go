@@ -64,6 +64,18 @@ func TestDNSConnectorRoutes(t *testing.T) {
 	if code, out := w.do(t, w.owner, "PUT", base+"/domains/acme.dev", ""); code != 200 || !strings.Contains(out, `"managed"`) {
 		t.Errorf("manage = %d %s", code, out)
 	}
+	// a rescope confirms a plan: no from, no stale check, so it is refused
+	for _, body := range []string{"", `{"adopt":[]}`} {
+		if code, out := w.do(t, w.owner, "POST", base+"/domains/acme.dev/rescope", body); code != 400 {
+			t.Errorf("rescope body %q = %d %s, want 400", body, code, out)
+		}
+	}
+	if code, out := w.do(t, w.owner, "POST", base+"/domains/acme.dev/rescope", `{"adopt":[]}`); !strings.Contains(out, `"field":"from"`) {
+		t.Errorf("rescope without from = %d %s, want a from field error", code, out)
+	}
+	if code, out := w.do(t, w.owner, "POST", base+"/domains/acme.dev/rescope", `{"from":"","under":"test","adopt":[]}`); code != 200 {
+		t.Errorf("rescope with from = %d %s", code, out)
+	}
 	if code, _ := w.do(t, w.owner, "POST", base+"/domains/away.com/takeover", `{"confirm":"away"}`); code != 400 && code != 422 {
 		t.Errorf("take over without the domain typed = %d, want 4xx", code)
 	}

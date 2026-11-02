@@ -1074,6 +1074,9 @@
           "name": {
             "type": "string"
           },
+          "not_live": {
+            "type": "string"
+          },
           "note": {
             "type": "string"
           },
@@ -5399,20 +5402,14 @@
             "type": "array"
           },
           "from": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": "string"
           },
           "under": {
             "type": "string"
           }
         },
         "required": [
+          "from",
           "adopt"
         ],
         "type": "object"

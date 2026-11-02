@@ -172,7 +172,10 @@ func (s *schemas) object(t reflect.Type) map[string]any {
 				name = f.Name
 			}
 			props[name] = s.of(f.Type)
-			if !strings.Contains(opts, "omitempty") && f.Type.Kind() != reflect.Pointer {
+			if f.Tag.Get("api") == "required" { // a pointer the API refuses when missing or null
+				props[name] = s.of(f.Type.Elem())
+				required = append(required, name)
+			} else if !strings.Contains(opts, "omitempty") && f.Type.Kind() != reflect.Pointer {
 				required = append(required, name)
 			}
 		}
