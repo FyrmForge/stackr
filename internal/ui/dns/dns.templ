@@ -24,10 +24,10 @@ type DomainsView struct {
 	Provider string
 	Error    string
 	Note     string
-	Shared   bool // a server connector: managed domains say who may use them
+	Shared   bool            // a server connector: managed domains say who may use them
 	InUse    templ.Component // a refusal that lists where a domain is used, linked; nil = Error alone
 	Rows     []DomainRow
-	Plan     *PlanView // the confirm that comes before managing a domain; nil = none
+	Plan     *PlanView    // the confirm that comes before managing a domain; nil = none
 	Suggest  []Suggestion // the setup card: a domain the panel or the tiles sit on
 }
 
@@ -77,15 +77,15 @@ type PlanAdopt struct {
 	On                         bool
 }
 
-// DomainRow is one domain. State is managed, not_managed or
-// dns_elsewhere; the action URLs post domain (and org, confirm). Scope is
+// DomainRow is one domain. State is managed, not_managed, dns_elsewhere
+// or managed_elsewhere (through another connector); the action URLs post domain (and org, confirm). Scope is
 // the name a managed domain is managed under, "" = all of it.
 type DomainRow struct {
 	Name, State, Scope         string
 	Manage, Unmanage, TakeOver string
-	Preview                    string // the confirm before managing; posts domain
-	Rescope                    string // the confirm before changing a managed domain's scope
-	Records                    string // opens the domain's custom records; posts domain
+	Preview                    string       // the confirm before managing; posts domain
+	Rescope                    string       // the confirm before changing a managed domain's scope
+	Records                    string       // opens the domain's custom records; posts domain
 	Open                       *RecordsView // the custom records, open under the row; nil = closed
 	All                        bool
 	Orgs                       []Org
@@ -192,6 +192,8 @@ func stateWord(s string) (string, string) {
 		return "Managed", "success"
 	case "dns_elsewhere":
 		return "DNS elsewhere", "warn"
+	case "managed_elsewhere":
+		return "Managed by another connector", ""
 	}
 	return "Not managed", ""
 }

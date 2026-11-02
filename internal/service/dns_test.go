@@ -182,3 +182,40 @@ func TestDNSDomainAvailableTo(t *testing.T) {
 		t.Errorf("manage after take over: %v", err)
 	}
 }
+
+// A domain managed through another connector reads so on this one's list,
+// and nothing offers managing it here.
+func TestDomainManagedByAnotherConnector(t *testing.T) {
+	env, acme, _ := dnsRig(t)
+	ctx := context.Background()
+	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.ManageDNSDomain(ctx, nil, srv.Connector.ID, "acme.dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	mine, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := env.Orch.DNSDomains(ctx, &acme, mine.Connector.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range ds {
+		want := service.DNSNotManaged
+		switch d.Name {
+		case "acme.dev":
+			want = service.DNSTaken
+		case "away.com":
+			want = service.DNSElsewhere
+		}
+		if d.State != want {
+			t.Errorf("%s = %s, want %s", d.Name, d.State, want)
+		}
+	}
+	if ds, _ := env.Orch.DNSDomains(ctx, nil, srv.Connector.ID); ds[0].Name != "acme.dev" || ds[0].State != service.DNSManaged {
+		t.Errorf("the managing connector's list = %+v", ds)
+	}
+}

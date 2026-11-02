@@ -47,6 +47,9 @@ const (
 	Managed    = "managed"
 	NotManaged = "not_managed"
 	Elsewhere  = "dns_elsewhere"
+	// Taken is a domain managed through another connector: not this
+	// one's to manage.
+	Taken = "managed_elsewhere"
 )
 
 // Domain is a domain on a connector's account as its manager sees it.
@@ -152,17 +155,30 @@ func (p locked) TakeOver(ctx context.Context, zone string) error {
 }
 
 // Domains is every domain on connector id's account with its state, plus
-// managed ones the account no longer lists.
+// managed ones the account no longer lists. One another connector manages
+// is Taken.
 func (l *Leaf) Domains(ctx context.Context, id string, p Provider) ([]Domain, error) {
 	zs, err := p.Zones(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := l.rows.ListByConnector(ctx, id)
+	all, err := l.rows.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return merge(zs, rows), nil
+	var rows []store.DNSDomain
+	for _, r := range all {
+		if r.ConnectorID == id {
+			rows = append(rows, r)
+		}
+	}
+	ds := merge(zs, rows)
+	for i, d := range ds {
+		if d.State != Managed && slices.ContainsFunc(all, func(r store.DNSDomain) bool { return r.Name == d.Name }) {
+			ds[i].State = Taken
+		}
+	}
+	return ds, nil
 }
 
 // Managed is how many domains connector id manages, from stackr's own
