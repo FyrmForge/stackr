@@ -89,6 +89,7 @@ func (o *Orchestrator) BindServerConfig(
 	repo = o.repoURL(ctx, repo)
 	if repo == "" {
 		connectorID, branch, path, auto = "", "", "", false
+		o.clearConfig(ctx, "server")
 	} else if _, err := o.conns.Server(ctx, connectorID); err != nil {
 		return ServerBinding{}, err // an org's connector, or none, is not there
 	}
@@ -221,7 +222,11 @@ func (o *Orchestrator) serverApplyLocks(ctx context.Context, pl ServerPlan) ([]s
 
 // RejectServerPlan ends a pending plan nobody approved.
 func (o *Orchestrator) RejectServerPlan(ctx context.Context, id string) (ServerPlan, error) {
-	return o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	pl, err := o.serverPlans.SetStatus(ctx, id, orgplan.Rejected)
+	if err == nil {
+		o.clearConfigDrift(ctx, "server")
+	}
+	return pl, err
 }
 
 // queueServerPlan queues a plan of the server file when a push lands on the
@@ -276,6 +281,9 @@ func (o *Orchestrator) runServerApply(ctx context.Context, r *jobs.Run, p server
 		return errors.Join(err, serr)
 	}
 	_, err = o.serverPlans.SetStatus(done, p.PlanID, orgplan.Applied)
+	if err == nil {
+		o.clearConfigDrift(done, "server")
+	}
 	return err
 }
 

@@ -39,6 +39,16 @@ func (o *Orchestrator) clearConfigInvalid(ctx context.Context, key string) {
 	o.clearProblem(ctx, key)
 }
 
+func (o *Orchestrator) clearConfigDrift(ctx context.Context, scope string) {
+	o.clearProblem(ctx, "alert.config.drift."+scope)
+}
+
+// clearConfig drops both config problems of a scope: it has no file now.
+func (o *Orchestrator) clearConfig(ctx context.Context, scope string) {
+	o.clearConfigDrift(ctx, scope)
+	o.clearConfigInvalid(ctx, "alert.config.invalid."+scope)
+}
+
 // replanConfigs queues a fresh plan of every bound config file, so a panel
 // edit the file does not hold surfaces as a plan (and the drift problem)
 // without waiting for the next push. Called from dailyChores.
