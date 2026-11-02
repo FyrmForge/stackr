@@ -45,6 +45,9 @@ func TestHostAccessGate(t *testing.T) {
 		t.Fatalf("run with the grant: %v", err)
 	}
 	s := w.fake.Specs[len(w.fake.Specs)-1]
+	if s.PidsLimit != 4096 {
+		t.Errorf("PidsLimit = %d, want the 4096 default", s.PidsLimit)
+	}
 	if !slices.Contains(s.Volumes, "/var/run/docker.sock:/var/run/docker.sock:ro") || !s.Privileged {
 		t.Errorf("spec = binds %v privileged %v", s.Volumes, s.Privileged)
 	}

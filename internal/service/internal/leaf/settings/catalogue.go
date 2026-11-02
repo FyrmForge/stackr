@@ -145,6 +145,15 @@ var Catalogue = []Knob{
 		Desc:    "days an orphaned volume is kept before its last backup and delete",
 	},
 	{
+		Key:       "pids_limit",
+		Label:     "Process limit per container",
+		Type:      TInt,
+		Default:   "4096",
+		Scopes:    Flat,
+		AllowZero: true,
+		Desc:      "processes and threads one container may hold, so a fork bomb stays in it; 0 is unlimited",
+	},
+	{
 		Key:     "backup_run_concurrency",
 		Label:   "Backups at once",
 		Type:    TInt,
