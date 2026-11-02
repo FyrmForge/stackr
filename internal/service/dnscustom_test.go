@@ -335,6 +335,21 @@ func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
 			t.Errorf("MX row marked put back: %+v", x)
 		}
 	}
+	// read back, the MX says it is not live and why, from the last sync:
+	// no provider call
+	calls := env.DNS.Calls
+	dr, err := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev")
+	if err != nil || len(dr.Records) != 1 || dr.Records[0].Written || dr.Records[0].NotLive != why {
+		t.Errorf("MX read back = %+v %v", dr.Records, err)
+	}
+	md, err := env.Orch.ManagedDomainNamed(ctx, nil, "acme.dev")
+	if i := slices.IndexFunc(md.Records, func(r service.ManagedRecord) bool { return r.Type == "MX" }); err != nil || i < 0 ||
+		md.Records[i].Drift != "Not live: this domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first." {
+		t.Errorf("Domains page MX = %+v %v", md.Records, err)
+	}
+	if env.DNS.Calls != calls {
+		t.Errorf("reading records called the provider %d times", env.DNS.Calls-calls)
+	}
 
 	// a TXT in the same zone is written; the MX's reason comes with it
 	r, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "TXT", Value: "v=1"})
@@ -343,6 +358,16 @@ func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
 	}
 	if count(env.DNS.Zone("acme.dev"), "shop", "TXT", "v=1") != 1 {
 		t.Errorf("TXT not written: %v", env.DNS.Zone("acme.dev"))
+	}
+
+	// back on Custom MX: the next sync clears the reason, the row is live
+	env.DNS.NoMX("acme.dev", "")
+	if err := env.Orch.SyncProxy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	if dr, _ := env.Orch.DNSDomainRecords(ctx, nil, conn, "acme.dev"); len(dr.Records) != 1 || !dr.Records[0].Written || dr.Records[0].NotLive != "" {
+		t.Errorf("MX after Custom MX = %+v", dr.Records)
 	}
 }
 

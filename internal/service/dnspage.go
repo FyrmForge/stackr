@@ -143,6 +143,8 @@ func (o *Orchestrator) ManagedDomains(ctx context.Context, orgID *string) ([]Man
 			}
 			if r.HandedBackAt != nil {
 				m.Whose = WhoseHandedBack
+			} else if why := o.dns.NoMX(r.Zone); r.Kind == store.RecordCustom && r.Type == "MX" && why != "" {
+				m.Drift = "Not live: " + strings.ToLower(why[:1]) + why[1:] // the sync skips it, the row stays
 			} else if r.PutBackAt != nil {
 				m.Drift = "Changed outside stackr; put back"
 			}

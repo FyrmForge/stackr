@@ -90,6 +90,18 @@ type Leaf struct {
 	recs  store.DNSRecordStore
 	locks sync.Map   // zone -> *sync.Mutex
 	recMu sync.Mutex // one reconcile at a time: the table and the zones agree
+	// noMX is zone -> why it drops MX records, as the last reconcile read
+	// it. ponytail: memory only, empty after a restart until the boot
+	// push's records sync; a column on dns_domains if that gap matters.
+	noMX sync.Map
+}
+
+// NoMX is why zone drops MX records as the last reconcile read it: ""
+// when it takes them, or no reconcile read it yet. No provider call.
+func (l *Leaf) NoMX(zone string) string {
+	why, _ := l.noMX.Load(Normal(zone))
+	s, _ := why.(string)
+	return s
 }
 
 func New(rows store.DNSDomainStore, recs store.DNSRecordStore) *Leaf {

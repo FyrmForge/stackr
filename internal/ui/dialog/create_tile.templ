@@ -69,29 +69,31 @@ templ CreateTile(v CreateTileView) {
 				case "managed":
 					<div>
 						<label for="engine" class="label">Engine</label>
-						<select id="engine" name="engine" class="input" { c.Invalid("engine", v.Errors["engine"])... }>
+						<select id="engine" name="engine" class="input" hx-get={ v.Switch } hx-trigger="change" hx-include="#create-tile" hx-target="#create-tile" hx-swap="outerHTML" { c.Invalid("engine", v.Errors["engine"])... }>
 							<option value="postgres" selected?={ v.Engine != "s3" }>postgres</option>
 							<option value="s3" selected?={ v.Engine == "s3" }>s3</option>
 						</select>
 						@c.FieldError("engine", v.Errors["engine"])
 					</div>
-					<div>
-						<label for="dump" class="label">Start from a dump</label>
-						<input
-							type="file"
-							id="dump"
-							name="dump"
-							class="input"
-							if v.Errors["dump"] != "" {
-								aria-invalid="true"
-								aria-describedby="dump-help error-dump"
-							} else {
-								aria-describedby="dump-help"
-							}
-						/>
-						<p id="dump-help" class="mt-1.5 text-xs text-rw-faint" data-hint>Optional. A postgres pg_dump, custom or plain SQL.</p>
-						@c.FieldError("dump", v.Errors["dump"])
-					</div>
+					if v.Engine != "s3" {
+						<div>
+							<label for="dump" class="label">Start from a dump</label>
+							<input
+								type="file"
+								id="dump"
+								name="dump"
+								class="input"
+								if v.Errors["dump"] != "" {
+									aria-invalid="true"
+									aria-describedby="dump-help error-dump"
+								} else {
+									aria-describedby="dump-help"
+								}
+							/>
+							<p id="dump-help" class="mt-1.5 text-xs text-rw-faint" data-hint>Optional. A postgres pg_dump, custom or plain SQL.</p>
+							@c.FieldError("dump", v.Errors["dump"])
+						</div>
+					}
 				case "slice":
 					@c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The managed tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]})
 					<div>
