@@ -47,9 +47,10 @@ func Body(c echo.Context) io.Reader {
 }
 
 // UnlimitBody puts the raw body back on the request, for a handler that
-// parses a multipart form (c.FormFile) rather than reading Body.
-func UnlimitBody(c echo.Context) {
+// parses a multipart form (c.FormFile) rather than reading Body, capped at
+// max bytes (a longer one fails the form read with *http.MaxBytesError).
+func UnlimitBody(c echo.Context, max int64) {
 	if b, ok := c.Get(rawBodyKey).(io.ReadCloser); ok {
-		c.Request().Body = b
+		c.Request().Body = http.MaxBytesReader(c.Response(), b, max)
 	}
 }

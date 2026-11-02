@@ -588,7 +588,7 @@ var knobForms = map[string][]string{
 	"registry":     {"registry_cleanup_schedule", "registry_keep"},
 	"cleanup":      {"image_check_interval", "cleanup_enabled", "cleanup_schedule", "orphans_enabled", "orphans_schedule", "orphan_retention_days"},
 	"org-defaults": {"cpu_limit", "mem_limit_mb", "protect", "protect_user", "protect_password"},
-	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency"},
+	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency", "seed_max_gb"},
 }
 
 // ownEditor is the server knobs a section edits with a form of its own:

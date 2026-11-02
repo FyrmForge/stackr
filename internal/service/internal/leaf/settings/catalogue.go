@@ -137,6 +137,14 @@ var Catalogue = []Knob{
 		Desc:      "minutes between checks for newer images; 0 is off",
 	},
 	{
+		Key:     "seed_max_gb",
+		Label:   "Largest seed dump (GB)",
+		Type:    TInt,
+		Default: "10",
+		Scopes:  Flat,
+		Desc:    "the biggest dump a new database may start from",
+	},
+	{
 		Key:     "orphan_retention_days",
 		Label:   "Orphan retention (days)",
 		Type:    TInt,
