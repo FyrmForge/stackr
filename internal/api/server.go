@@ -40,7 +40,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// A dump upload is as big as the database it seeds.
 	srv.Echo().Pre(middleware.LiftBodyLimit("/managed/from-dump"))
-	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APICSRF(!deps.DevMode))
+	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APIRateLimit(), middleware.APICSRF(!deps.DevMode))
 	for _, r := range Routes(h) {
 		g.Add(r.Method, r.Path, r.E.Handle, gate(deps.Access, r))
 	}
