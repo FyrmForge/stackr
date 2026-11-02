@@ -108,7 +108,7 @@ type Member struct {
 // PanelBackup writes exactly these members and `stackr-install restore`
 // accepts exactly these; any other entry is refused. A new key file is added
 // here and nowhere else. Not state, so not here: install.json (the new box
-// brings its own answers), registry images (redeploys rebuild them), job
+// brings its own answers), registry images (built tiles rebuild; pushed ones are pushed again), job
 // logs, metrics and logs (history), local backups (volume data).
 var PanelState = []Member{
 	{Name: DBFile, Mode: 0o600, OnDisk: true},

@@ -38,7 +38,7 @@ To change the key, use Rotate the key in Admin, Backups. It asks for your passwo
 The database, the master key, the cluster and controller keys and the proxy certificates. It leaves out on purpose:
 
 - `install.json`: a restore starts from an install on the new box, with that box's own answers (addresses, bridge subnet).
-- Registry images: they are rebuilt or pulled again when the restored panel redeploys the tiles.
+- Registry images: a tile that builds from its repo is built again when the restored panel redeploys it. An image you pushed to the registry yourself has to be pushed again.
 - Job logs, metrics and logs: history, not state. They start empty.
 - Local backups: they are volume data on the old disk. Use an S3 destination for anything that has to outlive the box.
 

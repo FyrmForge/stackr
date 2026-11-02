@@ -18,7 +18,7 @@ Every file starts with `version: 1`. An unknown key is refused with its line num
 4. `stackr server apply -f FILE` plans and applies a local file from any machine with an admin key.
 5. `export` writes the live install as a file. A fresh export plans clean.
 
-With `auto` on, a plan with no impact lines and no removals is approved by itself.
+With `auto` on, a plan with no impact lines and no removals is approved by itself. That includes the daily re-plan and the one at panel start: a panel edit the file does not hold is put back.
 
 An apply does only what the approved plan showed. It re-reads the file and the install first; if anything differs from the plan (a panel edit since, a change that landed), it stops with "plan again" and the next plan shows the new rows.
 
