@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
@@ -156,10 +158,23 @@ func (o *Orchestrator) runStackTeardown(ctx context.Context, r *jobs.Run, p stac
 	return o.sync.Sync(ctx)
 }
 
+// noRepoCreds refuses a repo URL that carries a user or token
+// (https://token@host/...): it would be echoed in plans and job logs. A
+// connector holds the credential; scp-like user@host:path stays (an ssh user).
+func noRepoCreds(repo string) error {
+	if u, err := url.Parse(strings.TrimSpace(repo)); err == nil && u.User != nil {
+		return errs.Invalidf("repo", "Leave the user and token out of the URL; connect the host instead.")
+	}
+	return nil
+}
+
 // SetConfigRepo points the stack at its stackr-compose.yml (config-as-code).
 func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo, branch, path string) (Stack, error) {
 	st, err := o.stacks.Get(ctx, id)
 	if err != nil {
+		return st, err
+	}
+	if err := noRepoCreds(repo); err != nil {
 		return st, err
 	}
 	if connectorID != "" && repo != "" {
