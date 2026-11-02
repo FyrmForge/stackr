@@ -215,10 +215,12 @@ func (o *Orchestrator) checkNotCustom(ctx context.Context, host string) error {
 }
 
 // checkMovedRecords runs a tile domain's records through checkCustom at
-// host, its new name: they move with it. One provider read per zone an MX
-// lands in, none without one: the zone's mail setting may drop it, refused
-// as an add is. Any other clash there is the records sync's to report.
-func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord) error {
+// host, its new name: they move with it. live: one provider read per zone
+// an MX lands in, none without one: the zone's mail setting may drop it,
+// refused as an add is. Renames pass false (the row is committed by then;
+// a dropped MX reads not live). Any other clash there is the records
+// sync's to report.
+func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host string, rs []store.CustomRecord, live bool) error {
 	if len(rs) == 0 {
 		return nil
 	}
@@ -232,7 +234,7 @@ func (o *Orchestrator) checkMovedRecords(ctx context.Context, t Tile, host strin
 		if err != nil {
 			return err
 		}
-		if r.Type == "MX" && !slices.ContainsFunc(mx, func(x store.DNSDomain) bool { return x.Name == z.Name }) {
+		if live && r.Type == "MX" && !slices.ContainsFunc(mx, func(x store.DNSDomain) bool { return x.Name == z.Name }) {
 			mx = append(mx, z)
 		}
 	}

@@ -244,7 +244,7 @@ func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s Dom
 		if err := o.checkNotCustom(ctx, s.Host); err != nil {
 			return d, err
 		}
-		if err := o.checkMovedRecords(ctx, t, s.Host, d.Records); err != nil {
+		if err := o.checkMovedRecords(ctx, t, s.Host, d.Records, true); err != nil {
 			return d, err
 		}
 		if zone, err = o.checkManagedHost(ctx, t, s.Host, false, replace); err != nil {
@@ -346,7 +346,7 @@ func (o *Orchestrator) refreshAutoHosts(ctx context.Context, ts []Tile) error {
 			if err := o.checkNotCustom(ctx, host); err != nil {
 				return err
 			}
-			if err := o.checkMovedRecords(ctx, t, host, d.Records); err != nil {
+			if err := o.checkMovedRecords(ctx, t, host, d.Records, false); err != nil {
 				return err
 			}
 			s, err := specOf(d)

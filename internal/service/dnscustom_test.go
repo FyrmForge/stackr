@@ -405,3 +405,28 @@ func TestMoveRefusesMXWithoutCustomMX(t *testing.T) {
 	_, _, err = env.Orch.CheckFileRecords(ctx, orgs[i].ID, "b.shop.io", []store.CustomRecord{{Type: "MX", Value: "10 mx.example.net"}}, nil, false, nil)
 	conflict(t, err, why)
 }
+
+// A rename moving a generated hostname with an MX is never refused for the
+// zone's mail setting: the rename is committed, the MX reads not live.
+func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
+	env, _, tl, _ := customRig(t)
+	ctx := context.Background()
+	d, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Auto: true})
+	if err != nil || !strings.HasSuffix(d.Host, ".acme.dev") {
+		t.Fatalf("auto domain = %+v %v", d, err)
+	}
+	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}); err != nil {
+		t.Fatal(err)
+	}
+	env.DNS.NoMX("acme.dev", "forwarding")
+	calls := env.DNS.Calls
+	if _, _, err := env.Orch.RenameTile(ctx, tl.ID, "renamed"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if got, _ := env.Store.Domains.Get(ctx, d.ID); got.Host == d.Host {
+		t.Errorf("host did not move: %s", got.Host)
+	}
+	if env.DNS.Calls != calls {
+		t.Errorf("the rename read the provider %d times", env.DNS.Calls-calls)
+	}
+}
