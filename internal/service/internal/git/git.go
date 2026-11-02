@@ -75,7 +75,15 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 		cmd.Stderr = w
 		return cmd.Run()
 	}
-	if _, err := os.Stat(filepath.Join(r.Dir, ".git")); err != nil {
+	_, err := os.Stat(filepath.Join(r.Dir, ".git"))
+	if err == nil {
+		// A clone of another repo (its owner was bound to a new URL since)
+		// would keep fetching the old one: start over.
+		if out, gerr := r.git(ctx, "config", "--get", "remote.origin.url"); gerr != nil || strings.TrimSpace(string(out)) != r.URL {
+			err = errors.New("another repo")
+		}
+	}
+	if err != nil {
 		// Anything there without a .git is a half-written clone from a killed
 		// job, and not repairable. Start over.
 		_ = os.RemoveAll(r.Dir)

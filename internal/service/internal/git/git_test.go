@@ -285,6 +285,30 @@ func TestIsDirError(t *testing.T) {
 	}
 }
 
+// A clone made from one repo, its owner bound to another since, is cloned
+// again from the new one: never fetched from the old.
+func TestCheckoutRebound(t *testing.T) {
+	old, _, _ := fixture(t)
+	now, _, head := fixture(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	r := Repo{Dir: filepath.Join(root, "config-s1"), Root: root, URL: old, Branch: "main"}
+	var log strings.Builder
+	if _, err := r.Checkout(ctx, "", &log); err != nil {
+		t.Fatalf("first checkout: %v\n%s", err, log.String())
+	}
+	if err := os.RemoveAll(old); err != nil {
+		t.Fatal(err)
+	}
+	r.URL = now
+	if sha, err := r.Checkout(ctx, "", &log); err != nil || sha != head {
+		t.Fatalf("checkout after the rebind: %q %v\n%s", sha, err, log.String())
+	}
+	if out, err := r.git(ctx, "config", "--get", "remote.origin.url"); err != nil || strings.TrimSpace(string(out)) != now {
+		t.Errorf("origin = %q %v", out, err)
+	}
+}
+
 // A clone whose folder is the repos root itself (an empty path element, as
 // a tile with no id once made), outside it or deeper is refused before
 // anything is deleted: the other clones in the root survive.
