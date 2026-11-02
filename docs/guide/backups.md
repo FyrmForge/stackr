@@ -33,6 +33,17 @@ The archive is encrypted to the recovery key. The installer shows it once, and t
 
 To change the key, use Rotate the key in Admin, Backups. It asks for your password and shows the new key once. Older archives still need the key they were made with. The archive's name says which: `...-panel-g2.tar.gz.age` needs generation 2.
 
+### What the archive holds
+
+The database, the master key, the cluster and controller keys and the proxy certificates. It leaves out on purpose:
+
+- `install.json`: a restore starts from an install on the new box, with that box's own answers (addresses, bridge subnet).
+- Registry images: they are rebuilt or pulled again when the restored panel redeploys the tiles.
+- Job logs, metrics and logs: history, not state. They start empty.
+- Local backups: they are volume data on the old disk. Use an S3 destination for anything that has to outlive the box.
+
+The recovery key is never in the archive; keep it off the box.
+
 ### Restore the panel
 
 1. On a new box, install first with the same flags as the old one (see [Install](install.md)). Restore needs that install's answers.
