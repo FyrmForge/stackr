@@ -18,10 +18,10 @@ func TestAccount(t *testing.T) {
 	ctx := context.Background()
 	u := s.User(t, "me@x.test", false)
 	s.Member(t, s.Org, u, "owner")
-	sess := s.Session(t, u)
 	if err := s.Orch.SetPassword(ctx, u, "0ld!Password"); err != nil {
 		t.Fatal(err)
 	}
+	sess := s.Session(t, u)
 	_, k, err := s.Orch.MintKey(ctx, &service.Principal{User: service.User{ID: u}}, s.Org, "laptop", "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +45,10 @@ func TestAccount(t *testing.T) {
 	}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "do not match") {
 		t.Errorf("mismatch = %d %s", rec.Code, rec.Body)
 	}
+	rec := s.As(t, sess, "POST", "/account/keys/"+k.ID+"/revoke", nil)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "laptop") {
+		t.Errorf("revoke = %d %s", rec.Code, rec.Body)
+	}
 	if rec := s.As(t, sess, "POST", "/account/password", url.Values{
 		"current_password": {"0ld!Password"},
 		"password":         {"N3w!password"},
@@ -52,9 +56,9 @@ func TestAccount(t *testing.T) {
 	}); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Password changed") {
 		t.Errorf("change = %d %s", rec.Code, rec.Body)
 	}
-	rec := s.As(t, sess, "POST", "/account/keys/"+k.ID+"/revoke", nil)
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "laptop") {
-		t.Errorf("revoke = %d %s", rec.Code, rec.Body)
+	// The change ended the session.
+	if rec := s.As(t, sess, "GET", "/account", nil); rec.Code != http.StatusUnauthorized && rec.Code != http.StatusSeeOther {
+		t.Errorf("session survived a password change: %d", rec.Code)
 	}
 }
 

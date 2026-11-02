@@ -246,3 +246,37 @@ func TestLosePowers(t *testing.T) {
 		}
 	}
 }
+
+// A password change or reset ends every session and key of the user.
+func TestSetPasswordClosesAccess(t *testing.T) {
+	st := servicetest.Store(t)
+	l := user.New(st.Users, st.Sessions, st.APIKeys)
+	u := seed(t, st, "a@x.io", true)
+	org := seedOrg(t, st)
+	tok, _, err := l.MintKey(ctx, u, org, "owner", "k", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	se := &auth.Session{ID: uuid.NewString(), SubjectID: u.ID, Token: uuid.NewString(), ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now()}
+	if err := st.Sessions.Create(ctx, se); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.SetPassword(ctx, u.ID, "a-new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := l.ByKey(ctx, tok); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("key survived a reset: %v", err)
+	}
+	if got, _ := st.Sessions.GetByToken(ctx, se.Token); got != nil {
+		t.Error("session survived a reset")
+	}
+}
+
+// An unknown email gets the same refusal as a wrong password.
+func TestAuthenticateUnknownEmail(t *testing.T) {
+	st := servicetest.Store(t)
+	l := user.New(st.Users, st.Sessions, st.APIKeys)
+	if _, err := l.Authenticate(ctx, "nobody@x.io", "whatever-pw"); !errors.Is(err, user.ErrBadLogin) {
+		t.Fatalf("err = %v", err)
+	}
+}

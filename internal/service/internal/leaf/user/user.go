@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
@@ -131,13 +132,17 @@ func (l *Leaf) VerifyPassword(ctx context.Context, id, password string) error {
 	return nil
 }
 
-// SetPassword is the admin's reset (no reset flow in v1).
+// SetPassword is the admin's reset (no reset flow in v1). Every session and
+// API key of the user ends with the old password, the caller's own included.
 func (l *Leaf) SetPassword(ctx context.Context, id, next string) error {
 	hash, err := hashPassword(next)
 	if err != nil {
 		return err
 	}
-	return l.update(ctx, id, func(u *store.User) { u.PasswordHash = hash })
+	if err := l.update(ctx, id, func(u *store.User) { u.PasswordHash = hash }); err != nil {
+		return err
+	}
+	return l.CloseAccess(ctx, id, "")
 }
 
 // Themes are the looks a user may pick: follow the OS, or pin one.
@@ -166,6 +171,8 @@ func (l *Leaf) SetTimeZone(ctx context.Context, id, zone string) error {
 func (l *Leaf) Authenticate(ctx context.Context, email, password string) (store.User, error) {
 	u, err := l.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if errors.Is(err, errs.ErrNotFound) {
+		// Hash anyway, so an unknown email costs what a known one does.
+		_, _ = auth.CheckPassword(password, dummyHash())
 		return store.User{}, ErrBadLogin
 	}
 	if err != nil {
@@ -180,6 +187,13 @@ func (l *Leaf) Authenticate(ctx context.Context, email, password string) (store.
 	}
 	return u, nil
 }
+
+// dummyHash is a valid hash of a throwaway password, made once with the
+// same parameters as a real one.
+var dummyHash = sync.OnceValue(func() string {
+	h, _ := auth.HashPassword("not-a-real-password")
+	return h
+})
 
 // HashToken is how an API key's secret is stored: never the token itself.
 func HashToken(token string) string {
