@@ -149,6 +149,9 @@ func (o *Orchestrator) checkCustom(ctx context.Context, own customOwner, in Cust
 		owner = own.Zone.Name
 	}
 	host := dnscap.CustomFQDN(name, owner)
+	if len(host) > 253 {
+		return rec, store.DNSDomain{}, "", errs.Invalidf("name", "The full name is longer than 253 characters.")
+	}
 	z := own.Zone
 	if own.App {
 		if z, err = o.recordZone(ctx, own.Org, host); err != nil {

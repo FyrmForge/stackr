@@ -200,7 +200,7 @@ func TestAdminChangeScope(t *testing.T) {
 	}
 
 	body = s.As(t, root, "POST", base+"/rescope-preview", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"test"}}).Body.String()
-	if !strings.Contains(body, "These become yours.") || !strings.Contains(body, "www.acme.dev → 198.51.100.1") {
+	if !strings.Contains(body, "These become yours.") || !strings.Contains(body, "A www.acme.dev 198.51.100.1") {
 		t.Fatalf("narrow preview:\n%s", body)
 	}
 	rec = s.As(t, root, "POST", base+"/rescope", url.Values{"domain": {"acme.dev"}, "part": {"under"}, "under": {"test"}})

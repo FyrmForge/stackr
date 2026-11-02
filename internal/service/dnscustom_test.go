@@ -455,3 +455,13 @@ func TestAddRecordSyncFailureIsANote(t *testing.T) {
 		t.Errorf("after the provider is back: %+v", rs.Records)
 	}
 }
+
+// A record whose full name runs past 253 characters is refused on its name.
+func TestCustomRecordNameTooLong(t *testing.T) {
+	env, _, tl, d := customRig(t)
+	long := strings.TrimSuffix(strings.Repeat(strings.Repeat("a", 60)+".", 4), ".") // 243, then .shop.acme.dev
+	_, err := env.Orch.AddTileDomainRecord(context.Background(), tl.ID, d.ID, service.CustomRecordIn{Name: long, Type: "TXT", Value: "v"})
+	if inv, ok := errs.IsInvalid(err); !ok || inv.Field != "name" {
+		t.Errorf("long name = %v", err)
+	}
+}

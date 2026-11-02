@@ -336,7 +336,7 @@ templ plan(v DomainsView, p PlanView) {
 			<p class="mb-1.5 text-xs font-medium text-rw-muted">These become yours.</p>
 			<ul class="modal-list">
 				for _, w := range p.HandBack {
-					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Host } → { w.Value }</li>
+					<li class="modal-list-row font-mono text-xs text-rw-text">{ w.Type } { w.Host } { w.Value }</li>
 				}
 			</ul>
 		</div>
