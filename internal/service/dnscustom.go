@@ -174,6 +174,13 @@ func (o *Orchestrator) checkCustom(ctx context.Context, own customOwner, in Cust
 			return rec, z, "", nameClash(host, typ)
 		}
 	}
+	mine, err := o.ownHosts(ctx)
+	if err != nil {
+		return rec, z, "", err
+	}
+	if !alongside(typ) && slices.ContainsFunc(mine, func(h string) bool { return strings.EqualFold(h, host) }) {
+		return rec, z, "", errs.Conflictf("%s is the panel's or a node's own address; only TXT and MX can sit on it", host)
+	}
 	if !live {
 		return rec, z, "", nil
 	}
@@ -183,6 +190,27 @@ func (o *Orchestrator) checkCustom(ctx context.Context, own customOwner, in Cust
 	}
 	note, err := o.dns.Fit(ctx, p, z.Name, dnscap.Name(host, z.Name), typ, value)
 	return rec, z, note, err
+}
+
+// ownHosts is the names stackr points at its own machines: the panel domain
+// and each node's address (nameWants writes their records). A custom
+// record on one could send the panel's traffic or its certificate checks
+// elsewhere.
+func (o *Orchestrator) ownHosts(ctx context.Context) ([]string, error) {
+	var out []string
+	if p := o.panelDomain(ctx); p != "" {
+		out = append(out, p)
+	}
+	ns, err := o.store.Nodes.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range ns {
+		if n.Address != "" {
+			out = append(out, n.Address)
+		}
+	}
+	return out, nil
 }
 
 // checkNotCustom refuses host as an app hostname while a custom record
