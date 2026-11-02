@@ -8,6 +8,24 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
+// Deleting an org still takes its own destinations and their runs with it;
+// the trigger only guards a destination deleted on its own.
+func TestOrgDeleteTakesItsDestinationRuns(t *testing.T) {
+	st := servicetest.Store(t)
+	l := leaf(st)
+	org := seedOrg(t, st)
+	d, err := l.Create(ctx, &org, s3("mine", false), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Start(ctx, backup.KindPanel, nil, nil, d.ID, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Orgs.Delete(ctx, org); err != nil {
+		t.Fatalf("org delete with a destination that holds runs: %v", err)
+	}
+}
+
 // The pruning hold lifts once a run other than the current one has finished
 // well after the restore.
 func TestFirstSince(t *testing.T) {
