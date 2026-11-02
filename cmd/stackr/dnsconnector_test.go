@@ -150,6 +150,10 @@ func TestDNSRescope(t *testing.T) {
 	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/dns-connectors/c1/domains/acme.dev/rescope {"adopt":[{"name":"app.test","type":"A","value":"192.0.2.9"}],"from":"","under":"test"}` {
 		t.Errorf("rescope sent %q", w)
 	}
+	// --json prints the plan too, before the answer
+	if code, out, errw := cli(t, "--json", "-y", "server", "connectors", "rescope", "c1", "acme.dev", "--under", "test"); code != 0 || !strings.Contains(out, `"hand_back"`) {
+		t.Errorf("rescope --json -y = %d %q %q", code, out, errw)
+	}
 }
 
 // A list of plain names prints one per line, not an empty table.
