@@ -193,6 +193,23 @@ func TestSwapRerunStartsOver(t *testing.T) {
 	}
 }
 
+// A helper that died after the gate passed finds the new panel healthy: the
+// rerun finishes the pass, it does not tear the running panel down.
+func TestSwapRerunAfterPassFinishes(t *testing.T) {
+	fake := dockerfake.New()
+	fake.Containers = []docker.Container{
+		{ID: "old", State: "exited", Labels: map[string]string{LabelRole: "panel"}},
+		{ID: "new1", Name: "stackr-0.2.0", State: "running", Labels: map[string]string{LabelRole: "panel"}},
+	}
+	fake.Details = map[string]docker.Detail{"new1": {Running: true, Health: "healthy"}}
+	if err := New(fake).Swap(context.Background(), docker.ContainerSpec{Name: "stackr-0.2.0", Image: "img:0.2.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := calls(fake), "StopRemove old"; got != want {
+		t.Errorf("got %s want %s", got, want)
+	}
+}
+
 func TestLaunchHelperRestartsOnFailure(t *testing.T) {
 	fake := dockerfake.New()
 	if err := New(fake).Launch(context.Background(), docker.ContainerSpec{Image: "img:0.2.0"}); err != nil {

@@ -39,6 +39,13 @@ const (
 	SpecEnv = installspec.SwapSpecEnv
 )
 
+// RetryEnv marks a helper that Docker restarts when it dies (set by Launch).
+const RetryEnv = "STACKR_SWAP_DOCKER_RETRY"
+
+// ErrRolledBack wraps a swap error when the old panel is running again: the
+// helper has nothing left to retry (it exits 0 on it).
+var ErrRolledBack = errors.New("rolled back to the old panel")
+
 type Leaf struct {
 	docker Docker
 	// Gate for the new panel: migrations may run before it answers.
@@ -92,7 +99,7 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 		Name:    "stackr-upgrader",
 		Image:   spec.Image,
 		Cmd:     []string{"upgrade-swap"},
-		Env:     []string{SpecEnv + "=" + string(body)},
+		Env:     []string{SpecEnv + "=" + string(body), RetryEnv + "=1"},
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: vols,
 		// A helper that dies mid-swap (killed, or the daemon restarted) runs
@@ -213,6 +220,19 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 		return c.Name == spec.Name
 	})
+	// The first try died after its gate passed: the new panel is up and
+	// healthy, and it has been writing. Finish the pass instead of undoing it.
+	if len(stale) == 1 {
+		if d, err := l.docker.Inspect(ctx, stale[0].ID); err == nil && d.Running && d.Health == "healthy" {
+			if db := dbPath(spec); db != "" {
+				dropDB(copyName(db, spec))
+			}
+			for _, c := range old {
+				_ = l.docker.StopRemove(ctx, c.ID)
+			}
+			return nil
+		}
+	}
 	for _, c := range old {
 		if err := l.docker.Stop(ctx, c.ID); err != nil {
 			return fmt.Errorf("stop old panel: %w", err)
@@ -229,7 +249,7 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 				return errors.Join(cause, fmt.Errorf("start old panel: %w", err))
 			}
 		}
-		return cause
+		return fmt.Errorf("%w: %w", ErrRolledBack, cause)
 	}
 	db := dbPath(spec)
 	if _, err := os.Stat(db); db != "" && err != nil {

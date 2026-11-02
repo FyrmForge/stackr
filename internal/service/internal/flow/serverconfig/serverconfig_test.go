@@ -28,7 +28,7 @@ func live() serverconfig.Live {
 			"panel_domain":      "panel.example.com",
 			"root_domain":       "example.com",
 			"workers":           "4",
-			"cleanup_enabled":   "true",
+			"cleanup_enabled":   "false",
 			"panel_backup_dest": "d-off",
 			"acme_email":        "ops@example.com",
 		},
@@ -247,7 +247,7 @@ func TestDiffSettings(t *testing.T) {
 		note    string
 	}{
 		{name: "nothing named says nothing", file: ""},
-		{name: "same value, typed", file: "settings:\n  workers: 4\n  cleanup_enabled: true\n  acme_email: ops@example.com\n"},
+		{name: "same value, typed", file: "settings:\n  workers: 4\n  cleanup_enabled: false\n  acme_email: ops@example.com\n"},
 		{name: "int change", file: "settings:\n  workers: 3\n", changes: []string{"settings:workers"}},
 		{name: "default is the live value when unset", file: "settings:\n  orphans_enabled: true\n"},
 		{name: "reset to default", file: "settings:\n  workers:\n", changes: []string{"settings:workers"}},
@@ -946,7 +946,7 @@ func TestExportThenDiffIsClean(t *testing.T) {
 	}
 	for _, want := range []string{
 		"workers: 4",
-		"cleanup_enabled: true",
+		"cleanup_enabled: false",
 		"panel_backup_dest: offsite",
 		"panel_domain: panel.ops.net",
 		"cpu_limit: 1.5",
