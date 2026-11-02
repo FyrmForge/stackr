@@ -150,10 +150,15 @@ func TestCheckErrors(t *testing.T) {
 			_, _ = w.Write([]byte(answer(tc.number, "nope")))
 		}))
 		_, err := account(srv.URL).Zones(context.Background())
-		srv.Close()
 		inv, ok := errs.IsInvalid(err)
 		if !ok || inv.Field != tc.field || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: got %v, want an Invalid on %s naming %q", tc.number, err, tc.field, tc.want)
+		}
+		// past the setup and the check: a plain refusal, no user, no IP
+		_, err = account(srv.URL).Get(context.Background(), "acme.dev")
+		srv.Close()
+		if _, typed := errs.IsInvalid(err); typed || !errors.Is(err, errs.ErrRefused) || strings.Contains(err.Error(), "203.0.113.7") || strings.Contains(err.Error(), " u ") {
+			t.Errorf("%s: Get = %v, want a plain refusal", tc.number, err)
 		}
 	}
 	// an unknown number is a refusal carrying Namecheap's words

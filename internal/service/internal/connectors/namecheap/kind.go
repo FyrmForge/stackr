@@ -115,7 +115,23 @@ func (a *Account) explain(err error) error {
 	return errs.Refusedf("Namecheap refused: %s (error %s)", ae.Text, ae.Number)
 }
 
-// The DNS capability: every call's refusal explained.
+// plainWords names the setting a field-typed refusal is about.
+var plainWords = map[string]string{"key": "API key", "client_ip": "allowed IP", "user": "API user"}
+
+// plain is explain for the calls an org reaches through a shared server
+// connector (records, the sync): the cause without the account's user or
+// allowed IP, never a form field.
+func (a *Account) plain(err error) error {
+	err = a.explain(err)
+	if inv, ok := errs.IsInvalid(err); ok {
+		return errs.Refusedf("Namecheap refused this connector's %s. Check the connector.", plainWords[inv.Field])
+	}
+	return err
+}
+
+// The DNS capability: every call's refusal explained. Zones is the setup's
+// and the status check's read, so its refusal names the form's field;
+// the rest say it plainly.
 
 func (a *Account) Zones(ctx context.Context) ([]connectors.Zone, error) {
 	zs, err := a.zones(ctx)
@@ -124,29 +140,29 @@ func (a *Account) Zones(ctx context.Context) ([]connectors.Zone, error) {
 
 func (a *Account) Get(ctx context.Context, zone string) ([]libdns.Record, error) {
 	rs, err := a.get(ctx, zone)
-	return rs, a.explain(err)
+	return rs, a.plain(err)
 }
 
 func (a *Account) GetMail(ctx context.Context, zone string) ([]libdns.Record, string, error) {
 	rs, email, err := a.getMail(ctx, zone)
-	return rs, noMX(email), a.explain(err)
+	return rs, noMX(email), a.plain(err)
 }
 
 func (a *Account) Append(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	out, err := a.append(ctx, zone, rs)
-	return out, a.explain(err)
+	return out, a.plain(err)
 }
 
 func (a *Account) Set(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	out, err := a.set(ctx, zone, rs)
-	return out, a.explain(err)
+	return out, a.plain(err)
 }
 
 func (a *Account) Delete(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	out, err := a.delete(ctx, zone, rs)
-	return out, a.explain(err)
+	return out, a.plain(err)
 }
 
 func (a *Account) TakeOver(ctx context.Context, zone string) error {
-	return a.explain(a.takeOver(ctx, zone))
+	return a.plain(a.takeOver(ctx, zone))
 }
