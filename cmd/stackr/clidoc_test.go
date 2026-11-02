@@ -2,7 +2,6 @@ package main
 
 import (
 	stdflag "flag"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -69,6 +68,6 @@ func TestCLIReference(t *testing.T) {
 	}
 	got, err := os.ReadFile(cliDoc)
 	if err != nil || string(got) != want {
-		t.Fatal(fmt.Sprintf("%s is stale: go test ./cmd/stackr -run TestCLIReference -update", cliDoc))
+		t.Fatalf("%s is stale: go test ./cmd/stackr -run TestCLIReference -update", cliDoc)
 	}
 }

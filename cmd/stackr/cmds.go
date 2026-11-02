@@ -163,9 +163,9 @@ func (a *app) logout() *cobra.Command {
 			a.noEnv = true // the stored login, not STACKR_*
 			if a.cfg.KeyID != "" && a.cfg.Key != "" && a.cfg.Server != "" {
 				var e *apiErr
-				// 401 or 404: the key is already gone
-				if _, err := a.call(DELETE, "/me/keys/"+url.PathEscape(a.cfg.KeyID), nil); err != nil &&
-					!(errors.As(err, &e) && (e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound)) {
+				_, err := a.call(DELETE, "/me/keys/"+url.PathEscape(a.cfg.KeyID), nil)
+				gone := errors.As(err, &e) && (e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound)
+				if err != nil && !gone { // a 401 or 404 means the key is already gone
 					_, _ = fmt.Fprintf(a.errw, "warning: the key was not revoked (%v); revoke it in the panel\n", err)
 				}
 			}
