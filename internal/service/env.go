@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -216,7 +217,7 @@ func (o *Orchestrator) DeleteEnv(ctx context.Context, id string) error {
 	}
 	o.cancelWaitingFor(ctx, "env:"+id)
 	o.kickMesh()
-	return nil
+	return o.noted(ctx, nil, securitylog.EnvDelete, "environment", id, "slug="+e.Slug)
 }
 
 func (o *Orchestrator) onEnv(

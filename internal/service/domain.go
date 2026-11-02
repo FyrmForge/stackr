@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -113,7 +114,7 @@ func (o *Orchestrator) AttachDomainReplace(ctx context.Context, tileID string, s
 	if err != nil {
 		return d, err
 	}
-	return redact(d), o.syncWithDNS(ctx, zone, d.Host, replace)
+	return redact(d), o.noted(ctx, o.syncWithDNS(ctx, zone, d.Host, replace), securitylog.DomainAttach, "domain", d.ID, "host="+d.Host)
 }
 
 // checkManagedHost is the managed domain host sits in ("" = none) when the
@@ -272,7 +273,7 @@ func (o *Orchestrator) UpdateDomainReplace(ctx context.Context, id string, s Dom
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return d, err
 	}
-	return redact(d), o.syncWithDNS(ctx, zone, d.Host, replace)
+	return redact(d), o.noted(ctx, o.syncWithDNS(ctx, zone, d.Host, replace), securitylog.DomainUpdate, "domain", d.ID, "host="+d.Host)
 }
 
 // SetRawCaddy replaces the domain's generated route with raw, verbatim; ""
@@ -290,7 +291,7 @@ func (o *Orchestrator) SetRawCaddy(ctx context.Context, id, raw string) (Domain,
 	if d, err = o.domains.Update(ctx, d, s, o.dns01(ctx, s.Host)); err != nil {
 		return d, err
 	}
-	return redact(d), o.sync.Sync(ctx)
+	return redact(d), o.noted(ctx, o.sync.Sync(ctx), securitylog.DomainRawCaddy, "domain", d.ID, "host="+d.Host)
 }
 
 // specOf is a stored row as the spec that writes it back unchanged: its raw
@@ -402,7 +403,7 @@ func (o *Orchestrator) DetachDomain(ctx context.Context, id string) error {
 	if err := o.domains.Detach(ctx, d); err != nil {
 		return err
 	}
-	return o.sync.Sync(ctx)
+	return o.noted(ctx, o.sync.Sync(ctx), securitylog.DomainDetach, "domain", id, "host="+d.Host)
 }
 
 // SyncProxy rebuilds and pushes the whole proxy config now.

@@ -69,6 +69,11 @@ func (o *Orchestrator) SetPassword(ctx context.Context, userID, next string) err
 // ceiling (viewer|member|owner|admin) and stack an optional stack slug in the
 // org; the ceiling may not exceed the minter's role. The token is shown once.
 func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, level, stack string) (string, APIKey, error) {
+	return o.MintKeyUntil(ctx, by, orgID, name, level, stack, nil)
+}
+
+// MintKeyUntil is MintKey for a key that stops working at expires (nil = never).
+func (o *Orchestrator) MintKeyUntil(ctx context.Context, by *Principal, orgID, name, level, stack string, expires *time.Time) (string, APIKey, error) {
 	// a stack key mints nothing; a capped key cannot mint past its own
 	// ceiling (no level = no ceiling)
 	if acc := by.Access; orgID == "" && (!acc.Admin || acc.KeyOrg != "") {
@@ -80,13 +85,13 @@ func (o *Orchestrator) MintKey(ctx context.Context, by *Principal, orgID, name, 
 			return "", APIKey{}, errs.Refusedf("a key cannot mint above its own level")
 		}
 	}
-	return o.mintKey(ctx, by.User.ID, by.KeyID, orgID, name, level, stack)
+	return o.mintKey(ctx, by.User.ID, by.KeyID, orgID, name, level, stack, expires)
 }
 
 // mintKey is the one place a key is made (the CLI browser exchange too); keyID
 // is the key behind the request, "" for a session or an exchange. The key row
 // and its audit event commit together.
-func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, level, stack string) (string, APIKey, error) {
+func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, level, stack string, expires *time.Time) (string, APIKey, error) {
 	u, err := o.users.Get(ctx, userID)
 	if err != nil {
 		return "", APIKey{}, err
@@ -118,7 +123,7 @@ func (o *Orchestrator) mintKey(ctx context.Context, userID, keyID, orgID, name, 
 	var tok string
 	var k APIKey
 	err = o.store.Tx(ctx, func(tx store.Tx) (err error) {
-		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).MintKey(ctx, u, orgID, role, name, level, stackID); err != nil {
+		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).MintKeyUntil(ctx, u, orgID, role, name, level, stackID, expires); err != nil {
 			return err
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
@@ -145,6 +150,81 @@ func (o *Orchestrator) Keys(ctx context.Context, userID string) ([]APIKey, error
 		}
 	}
 	return ks, err
+}
+
+// RotateKey gives one of the caller's keys a new secret, shown once: the id,
+// scope, level and expiry stay, the old secret stops working. A capped or
+// stack key may rotate only itself.
+func (o *Orchestrator) RotateKey(ctx context.Context, by *Principal, keyID string) (string, APIKey, error) {
+	if (by.Access.KeyCapped || by.Access.KeyStack != "") && keyID != by.KeyID {
+		return "", APIKey{}, errs.Refusedf("a limited key can rotate only itself")
+	}
+	var tok string
+	var k APIKey
+	err := o.store.Tx(ctx, func(tx store.Tx) (err error) {
+		if tok, k, err = user.New(tx.Users, tx.Sessions, tx.APIKeys).RotateKey(ctx, by.User.ID, keyID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyRotate, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "api_key", TargetID: keyID,
+		})
+	})
+	if err != nil {
+		return "", APIKey{}, err
+	}
+	return tok, k, o.fillKeyStacks(ctx, []APIKey{k})
+}
+
+// OrgKeys lists every key bound to the org, whoever minted it: an org owner
+// sees and can revoke them. AllKeys lists every key on the server (admin).
+func (o *Orchestrator) OrgKeys(ctx context.Context, orgID string) ([]APIKey, error) {
+	ks, err := user.New(o.store.Users, o.store.Sessions, o.store.APIKeys).OrgKeys(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return ks, o.fillKeyStacks(ctx, ks)
+}
+
+func (o *Orchestrator) AllKeys(ctx context.Context) ([]APIKey, error) {
+	ks, err := user.New(o.store.Users, o.store.Sessions, o.store.APIKeys).AllKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return ks, o.fillKeyStacks(ctx, ks)
+}
+
+func (o *Orchestrator) fillKeyStacks(ctx context.Context, ks []APIKey) error {
+	for i := range ks {
+		if ks[i].StackID == nil {
+			continue
+		}
+		if st, err := o.stacks.Get(ctx, *ks[i].StackID); err == nil {
+			ks[i].Stack = st.Slug
+		}
+	}
+	return nil
+}
+
+// RevokeOrgKey deletes a key bound to the org, whoever owns it; a key of
+// another org is not found. orgID "" is the admin's: any key.
+func (o *Orchestrator) RevokeOrgKey(ctx context.Context, by *Principal, orgID, keyID string) error {
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
+		k, err := l.KeyOf(ctx, keyID)
+		if err != nil {
+			return err
+		}
+		if orgID != "" && (k.OrgID == nil || *k.OrgID != orgID) {
+			return errs.ErrNotFound
+		}
+		if err := l.DeleteKey(ctx, keyID); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.KeyRevoke, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "api_key", TargetID: keyID,
+			Detail: "owner=" + k.UserID,
+		})
+	})
 }
 
 // RevokeKey deletes one of the caller's keys; a capped or stack key may

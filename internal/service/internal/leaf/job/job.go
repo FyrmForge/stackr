@@ -186,6 +186,7 @@ func (l *Leaf) Create(
 	logDir string,
 ) (store.Job, error) {
 	id := uuid.NewString()
+	actor, _ := store.ActorFrom(ctx)
 	j := store.Job{
 		ID:        id,
 		Kind:      kind,
@@ -195,6 +196,7 @@ func (l *Leaf) Create(
 		Payload:   payload,
 		LogPath:   logDir + "/" + id + ".log",
 		CreatedAt: time.Now().UTC(),
+		ActorID:   actor,
 	}
 	return j, l.jobs.Create(ctx, j)
 }
