@@ -647,6 +647,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			CheckDNS:    orch.CheckFileRecords,
 			WriteParams: orch.writeParams,
 			Placements:  orch.stackPlacements,
+			Forget:      orch.forgetTileClone,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
@@ -753,6 +754,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
 			Hold:     orch.upgradeSwapping,
+			Ended:    seedEnded,
 		})
 	})
 	orch.sched = build("flow/schedule", func() *schedule.Runner {
@@ -816,6 +818,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.backups.Interrupted(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("close interrupted backups: %w", err)
+	}
+	// Before the workers start, so no job holds a dump or a clone yet.
+	if err := orch.sweepSeeds(ctx); err != nil {
+		slog.Warn("seeds: boot sweep skipped", "err", err)
+	}
+	if err := orch.sweepRepos(ctx); err != nil {
+		slog.Warn("repos: boot sweep skipped", "err", err)
 	}
 	if err := orch.jobs.Start(ctx); err != nil {
 		_ = db.Close()
