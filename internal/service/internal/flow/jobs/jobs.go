@@ -254,9 +254,6 @@ func (r *Runner) unpark(ctx context.Context) {
 // that cannot start still holds its tiles against newer ones, so each tile
 // sees its jobs in order.
 func (r *Runner) pass(ctx context.Context) error {
-	if r.opt.Hold != nil && r.opt.Hold() {
-		return nil
-	}
 	n, err := r.opt.Workers(ctx)
 	if err != nil {
 		return err
@@ -284,6 +281,10 @@ func (r *Runner) pass(ctx context.Context) error {
 		busy = append(busy, j.LockSet)
 		if blocked {
 			continue
+		}
+		// Asked only when a job would start, so an idle queue costs Hold nothing.
+		if r.opt.Hold != nil && r.opt.Hold() {
+			return nil
 		}
 		if err := r.start(j); err != nil {
 			return err
