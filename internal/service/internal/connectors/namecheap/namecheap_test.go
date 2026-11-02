@@ -203,3 +203,29 @@ func TestHostSameMX(t *testing.T) {
 		t.Error("the same MX read back with a trailing dot did not match")
 	}
 }
+
+// An OK read with no hosts, or hosts that did not parse, never turns into a
+// write: setHosts would replace the zone with nothing.
+func TestNamecheapRefusesWriteOnEmptyRead(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty":    `<DomainDNSGetHostsResult Domain="shop.co.uk" EmailType="FWD"></DomainDNSGetHostsResult>`,
+		"missing":  ``,
+		"unparsed": `<DomainDNSGetHostsResult Domain="shop.co.uk"><host HostId="1" Name="@"/></DomainDNSGetHostsResult>`,
+	} {
+		wrote := false
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.FormValue("Command") == "namecheap.domains.dns.setHosts" {
+				wrote = true
+			}
+			_, _ = w.Write([]byte(`<ApiResponse Status="OK"><Errors/><CommandResponse>` + body + `</CommandResponse></ApiResponse>`))
+		}))
+		n := account(srv.URL)
+		rec := []libdns.Record{libdns.RR{Name: "api", Type: "A", Data: "198.51.100.1"}}
+		_, e1 := n.Append(context.Background(), "shop.co.uk", rec)
+		_, e2 := n.Set(context.Background(), "shop.co.uk", rec)
+		srv.Close()
+		if wrote || !errors.Is(e1, errs.ErrRefused) || !errors.Is(e2, errs.ErrRefused) {
+			t.Errorf("%s: wrote=%v append=%v set=%v", name, wrote, e1, e2)
+		}
+	}
+}

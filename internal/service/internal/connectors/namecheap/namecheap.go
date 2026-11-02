@@ -15,6 +15,7 @@ import (
 	"github.com/libdns/libdns"
 	"golang.org/x/net/publicsuffix"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 )
 
@@ -262,6 +263,11 @@ func (n *Account) edit(ctx context.Context, zone string, fn func([]host) ([]host
 	z, err := n.getHosts(ctx, zone)
 	if err != nil {
 		return err
+	}
+	// setHosts replaces the whole zone with what was read. An OK answer with
+	// no hosts, or one that did not parse, would wipe it: never write then.
+	if len(z.Hosts) == 0 || slices.ContainsFunc(z.Hosts, func(h host) bool { return h.Type == "" }) {
+		return errs.Refusedf("Namecheap returned no readable records for %s; not changing the zone", zone)
 	}
 	hs, changed := fn(z.Hosts)
 	if !changed {
