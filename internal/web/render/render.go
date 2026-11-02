@@ -112,7 +112,11 @@ func Shell(c echo.Context, title string) components.Shell {
 	sc := middleware.ScopeOf(c)
 	if sc.Env != nil {
 		if down, ok := c.Get(nodeDownKey).(func(envID string) string); ok {
-			s.NodeDown = down(sc.Env.ID)
+			if s.NodeDown = down(sc.Env.ID); s.NodeDown != "" {
+				if p := middleware.Principal(c); p != nil && authz.Can(p.Access, "node.manage", authz.Resource{}) == nil {
+					s.OpenNodes = "/-/admin/nodes"
+				}
+			}
 		}
 		if s.NodeDown == "" && sc.Org != nil && sc.Stack != nil {
 			if d, ok := c.Get(ingressDownKey).(func(envID string) string); ok {
@@ -439,6 +443,7 @@ func JobView(page string, j service.Job) components.JobStatusView {
 		Kind:      j.Kind,
 		State:     j.State,
 		Error:     j.Error,
+		Href:      page + "/-/jobs/" + j.ID,
 		StreamURL: page + "/-/jobs/" + j.ID + "/events",
 		Live:      j.FinishedAt == nil,
 	}
@@ -501,6 +506,30 @@ func JobStream(c echo.Context, orch *service.Orchestrator, page string) error {
 		ended = j.FinishedAt != nil
 		return last, seq, false, nil
 	})
+}
+
+// JobLogPage answers GET <page>/-/jobs/:job (the log so far, then polls for
+// more) and GET <page>/-/jobs/:job/log?offset= (the next chunk), from the
+// log the API and CLI follow.
+func JobLogPage(c echo.Context, orch *service.Orchestrator, page string) error {
+	id := c.Param("job")
+	poll := c.QueryParam("offset") != ""
+	var off int64
+	if err := echo.QueryParamsBinder(c).Int64("offset", &off).BindError(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad offset")
+	}
+	j, l, err := orch.PollJob(c.Request().Context(), id, off)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v := components.JobLogView{
+		Kind: j.Kind, State: j.State, Error: j.Error, Chunk: string(l.Chunk),
+		PollTo: page + "/-/jobs/" + j.ID + "/log", Next: l.Next, End: l.End,
+	}
+	if poll {
+		return respond.HTML(c, http.StatusOK, components.JobLogMore(v))
+	}
+	return Page(c, http.StatusOK, "Job log", components.JobLog(v))
 }
 
 // Size is a byte count for people.

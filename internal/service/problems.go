@@ -124,6 +124,11 @@ func (o *Orchestrator) Problems(ctx context.Context) ([]Problem, error) {
 			out = append(out, p)
 		}
 	}
+	// Derived, never stored: it goes the moment the key is confirmed saved.
+	if _, unsaved := o.RecoveryStatus(); unsaved {
+		out = append(out, Problem{Key: "recovery", Severity: SevCritical, Link: "/-/admin/backups", LinkText: "Save the key",
+			Message: "The backup recovery key is not saved. Backups cannot be restored without it."})
+	}
 	rows, err := o.store.Settings.ListPrefix(ctx, problemPrefix)
 	if err != nil {
 		return nil, err
