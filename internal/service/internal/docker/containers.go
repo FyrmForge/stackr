@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,7 +70,7 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		Binds:         spec.Volumes,
 		Mounts:        mounts(spec.Mounts),
 		LogConfig:     logConfig,
-		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyMode(spec.Restart)},
+		RestartPolicy: restartPolicy(spec.Restart),
 		Privileged:    spec.Privileged,
 		CapAdd:        spec.CapAdd,
 		ExtraHosts:    spec.ExtraHosts,
@@ -358,4 +359,12 @@ func (d *Client) Stats(ctx context.Context, id string) (Usage, error) {
 		}
 	}
 	return Usage{MemBytes: mem, CPUNs: s.CPUStats.CPUUsage.TotalUsage}, nil
+}
+
+// restartPolicy reads docker's word, with a retry cap for on-failure
+// ("on-failure:3").
+func restartPolicy(s string) container.RestartPolicy {
+	name, n, _ := strings.Cut(s, ":")
+	max, _ := strconv.Atoi(n)
+	return container.RestartPolicy{Name: container.RestartPolicyMode(name), MaximumRetryCount: max}
 }

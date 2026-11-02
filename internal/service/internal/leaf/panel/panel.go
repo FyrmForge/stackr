@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -94,6 +95,11 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 		Env:     []string{SpecEnv + "=" + string(body)},
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: vols,
+		// A helper that dies mid-swap (killed, or the daemon restarted) runs
+		// again, and Swap starts over from whatever the first try left. A
+		// swap that failed cleanly and rolled back also exits non-zero, so
+		// the retries are bounded: three, then the old panel stays up.
+		Restart: "on-failure:3",
 	})
 	return err
 }
@@ -196,9 +202,25 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		spec.Labels = map[string]string{}
 	}
 	spec.Labels[LabelRole] = "panel"
+	// A rerun (the helper died and Docker started it again) finds the new
+	// panel of the first try, named spec.Name. It is not an old panel: it
+	// goes, and the database copy of the first try goes back, so the swap
+	// starts again from the panel that was running before.
+	var stale []docker.Container
+	old = slices.DeleteFunc(old, func(c docker.Container) bool {
+		if c.Name == spec.Name {
+			stale = append(stale, c)
+		}
+		return c.Name == spec.Name
+	})
 	for _, c := range old {
 		if err := l.docker.Stop(ctx, c.ID); err != nil {
 			return fmt.Errorf("stop old panel: %w", err)
+		}
+	}
+	for _, c := range stale {
+		if err := l.docker.StopRemove(ctx, c.ID); err != nil {
+			return fmt.Errorf("remove the new panel of the first try: %w", err)
 		}
 	}
 	back := func(cause error) error {
@@ -217,6 +239,11 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 	}
 	cp := copyName(db, spec)
 	if db != "" {
+		if _, err := os.Stat(cp); err == nil { // left by the first try
+			if err := restoreDB(db, cp); err != nil {
+				return back(fmt.Errorf("restore the database of the first try: %w", err))
+			}
+		}
 		if err := saveDB(db, cp); err != nil {
 			return back(fmt.Errorf("copy database: %w", err))
 		}
