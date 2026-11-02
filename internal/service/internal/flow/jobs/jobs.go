@@ -42,6 +42,9 @@ type Run struct {
 // for this one instead of cancelling it. It refuses when a newer job has
 // already superseded this one; the handler must stop then.
 func (r *Run) Swap() error {
+	if r.r == nil { // a Run made outside a Runner (a test) has nothing to swap
+		return nil
+	}
 	r.r.mu.Lock()
 	defer r.r.mu.Unlock()
 	if r.a.superseded {
