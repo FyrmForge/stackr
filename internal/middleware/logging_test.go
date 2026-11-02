@@ -24,3 +24,18 @@ func TestLoggingHidesTokens(t *testing.T) {
 		t.Errorf("log = %s", s)
 	}
 }
+
+// A client's request id is used only when it is short and plain.
+func TestLoggingBoundsTheRequestID(t *testing.T) {
+	e := echo.New()
+	e.GET("/", func(c echo.Context) error { return c.NoContent(http.StatusOK) }, Logging())
+	for id, keep := range map[string]bool{"abc-123_x.y": true, strings.Repeat("a", 65): false, "a b": false} {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set(HeaderRequestID, id)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if got := rec.Header().Get(HeaderRequestID); (got == id) != keep {
+			t.Errorf("id %q came back as %q, keep %v", id, got, keep)
+		}
+	}
+}
