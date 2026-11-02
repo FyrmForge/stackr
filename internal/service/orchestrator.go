@@ -539,9 +539,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	go orch.watchNodeClients()
 	orch.sessions = build("sessions", func() *auth.SessionManager {
-		return auth.NewSessionManager(st.Sessions,
-			auth.WithCookieSecure(cfg.CookieSecure),
-			auth.WithCookieDomain(cfg.CookieDomain))
+		opts := []auth.SessionOption{auth.WithCookieSecure(cfg.CookieSecure), auth.WithCookieDomain(cfg.CookieDomain)}
+		if cfg.CookieSecure && cfg.CookieDomain == "" {
+			// __Host-: the browser takes the cookie only Secure, on this
+			// host alone, so a sibling subdomain cannot plant a session.
+			opts = append(opts, auth.WithCookieName("__Host-session_token"))
+		}
+		return auth.NewSessionManager(st.Sessions, opts...)
 	})
 	orch.users = build("leaf/user", func() *user.Leaf { return user.New(st.Users, st.Sessions, st.APIKeys) })
 	orch.orgs = build("leaf/org", func() *org.Leaf { return org.New(st.Orgs, st.OrgMembers, st.Invites) })
