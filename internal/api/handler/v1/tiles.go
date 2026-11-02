@@ -303,7 +303,7 @@ func (h *H) RunTile() Endpoint {
 			return RunStarted{}, errs.Conflictf("the last run of this tile is still going")
 		}
 		return RunStarted{Run: r, Job: &j}, err
-	})
+	}).Idempotent()
 }
 
 func (h *H) PauseTile() Endpoint {

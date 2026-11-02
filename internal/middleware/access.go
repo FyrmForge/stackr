@@ -125,6 +125,7 @@ func (a *Access) Require(v authz.Verb) echo.MiddlewareFunc {
 			if err := authz.Can(p.Access, v, r); err != nil {
 				return HTTPError(err)
 			}
+			acting(c, p)
 			if s.Org != nil && s.Org.SetupDoneAt == nil && !setupOpen(c) {
 				return SetupPending{
 					Slug:  s.Org.Slug,
@@ -157,6 +158,13 @@ func setupOpen(c echo.Context) bool {
 	return strings.HasPrefix(p, "/:org/-/setup") || strings.HasPrefix(p, "/api/")
 }
 
+// acting puts the principal's user in the request context, so the jobs the
+// request queues record who asked.
+func acting(c echo.Context, p *service.Principal) {
+	r := c.Request()
+	c.SetRequest(r.WithContext(service.WithActor(r.Context(), p.User.ID)))
+}
+
 // Authed gates the routes about the caller alone: /me, the org list.
 func (a *Access) Authed() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -168,6 +176,7 @@ func (a *Access) Authed() echo.MiddlewareFunc {
 			if err := authz.Self(p.Access); err != nil {
 				return HTTPError(err)
 			}
+			acting(c, p)
 			return next(c)
 		}
 	}

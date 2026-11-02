@@ -195,6 +195,7 @@ func (l *Leaf) Create(
 		Payload:   payload,
 		LogPath:   logDir + "/" + id + ".log",
 		CreatedAt: time.Now().UTC(),
+		ActorID:   store.ActorFrom(ctx),
 	}
 	return j, l.jobs.Create(ctx, j)
 }

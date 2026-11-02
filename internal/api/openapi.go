@@ -41,6 +41,14 @@ func OpenAPI() ([]byte, error) {
 				"schema": map[string]any{"type": "string"},
 			})
 		}
+		if r.E.Idem {
+			params = append(params, map[string]any{
+				"name":        middleware.IdempotencyHeader,
+				"in":          "header",
+				"description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+				"schema":      map[string]any{"type": "string", "maxLength": 200},
+			})
+		}
 		ok := map[string]any{"description": http.StatusText(r.E.Status)}
 		switch {
 		case r.E.Stream != "":

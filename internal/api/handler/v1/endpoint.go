@@ -84,6 +84,14 @@ type Endpoint struct {
 	Stream  string       // non-empty: the response media type (SSE, raw)
 	InRaw   string       // non-empty: the request body's media type, read raw
 	Query   []string     // the query params the handler reads
+	Idem    bool         // honours an Idempotency-Key header: a retry gets the first answer
+}
+
+// Idempotent marks an endpoint that queues work as safe to retry with an
+// Idempotency-Key header.
+func (e Endpoint) Idempotent() Endpoint {
+	e.Idem = true
+	return e
 }
 
 // Q names the query params the handler reads, for the OpenAPI dump.
@@ -147,7 +155,7 @@ func Streamed(mediaType string, f echo.HandlerFunc) Endpoint {
 
 // Job answers 202 with the queued job: the caller follows it with PollJob.
 func Job[In any](f func(c echo.Context, in In) (service.Job, error)) Endpoint {
-	return JSON(http.StatusAccepted, f)
+	return JSON(http.StatusAccepted, f).Idempotent()
 }
 
 // Done answers 204 after a verb that returns only an error.

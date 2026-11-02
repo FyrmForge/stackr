@@ -42,7 +42,11 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	srv.Echo().Pre(middleware.LiftBodyLimit("/managed/from-dump"))
 	g := api.Group("/v1", middleware.JSONErrors(), deps.Access.Load(), middleware.APIRateLimit(), middleware.APICSRF(!deps.DevMode))
 	for _, r := range Routes(h) {
-		g.Add(r.Method, r.Path, r.E.Handle, gate(deps.Access, r))
+		mw := []echo.MiddlewareFunc{gate(deps.Access, r)}
+		if r.E.Idem {
+			mw = append(mw, deps.Access.Idempotent())
+		}
+		g.Add(r.Method, r.Path, r.E.Handle, mw...)
 	}
 }
 
