@@ -900,6 +900,12 @@ func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
 	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
+		// A crash inside a migration leaves the version marked dirty and
+		// every boot after it refuses; say what to do instead of the bare
+		// driver error.
+		if v, dirty, verr := sqlite.MigrateVersion(db, appdb.MigrateConfig()); verr == nil && dirty {
+			err = fmt.Errorf("%w (migration %d was interrupted and left the database marked dirty; restore the last pre-upgrade archive: stackr-install restore <archive>)", err, v)
+		}
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
