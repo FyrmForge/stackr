@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -28,10 +31,14 @@ const (
 func (o *Orchestrator) pruneOld(ctx context.Context) {
 	now := time.Now().UTC()
 	cut := now.Add(-jobKeep)
+	keep := o.jobsToKeep(ctx)
 	if js, err := o.store.Jobs.ListFinishedBefore(ctx, cut, jobPruneBatch); err != nil {
 		slog.Warn("prune: jobs not listed", "err", err)
 	} else {
 		for _, j := range js {
+			if keep[j.ID] {
+				continue
+			}
 			if j.LogPath != "" {
 				_ = os.Remove(j.LogPath)
 			}
@@ -66,6 +73,44 @@ func (o *Orchestrator) pruneOld(ctx context.Context) {
 	if err := o.store.JoinTokens.DeleteDeadBefore(ctx, cut); err != nil {
 		slog.Warn("prune: join tokens not pruned", "err", err)
 	}
+}
+
+// jobsToKeep are the finished jobs the rest of the panel reads as state, however
+// old: each tile's or env's newest done job (what a tile last did: whether it
+// ran before a panel restore, whether it was stopped), and the newest
+// rollbackDepth done jobs that carry a release per tile or env (what the image
+// sweep keeps for a rollback, and what a tile runs).
+// ponytail: reads every done job, newest first; fine into the tens of
+// thousands, and the 30 day prune keeps it there.
+func (o *Orchestrator) jobsToKeep(ctx context.Context) map[string]bool {
+	keep := map[string]bool{}
+	js, err := o.jobRows.Recent(ctx, 0, job.Done)
+	if err != nil {
+		slog.Warn("prune: jobs not read, keeping them all", "err", err)
+		return nil
+	}
+	newest := map[string]bool{}
+	withRelease := map[string]int{}
+	for _, j := range js { // newest first
+		for _, id := range j.LockSet {
+			if !newest[id] {
+				newest[id], keep[j.ID] = true, true
+			}
+		}
+		if j.ReleaseID == nil {
+			continue
+		}
+		key := strings.Join(j.LockSet, ",")
+		var p promoteJob
+		if j.Kind == string(kindPromote) && json.Unmarshal([]byte(j.Payload), &p) == nil && p.EnvID != "" {
+			key = p.EnvID
+		}
+		if withRelease[key] < rollbackDepth {
+			keep[j.ID] = true
+		}
+		withRelease[key]++
+	}
+	return keep
 }
 
 // sweepMoveTemps removes the temp files an env move leaves in the data dir

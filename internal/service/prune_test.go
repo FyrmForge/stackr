@@ -28,6 +28,13 @@ func TestPruneOld(t *testing.T) {
 	}
 	mk("old", 40*24*time.Hour)
 	mk("new", 2*24*time.Hour)
+	// older but the newest done job of its tile: what the tile last did stays
+	mk("t1-only", 50*24*time.Hour)
+	must(t, w.st.Jobs.Update(ctx, func() store.Job {
+		j, _ := w.st.Jobs.Get(ctx, "t1-only")
+		j.LockSet = store.StringList{"tile-1"}
+		return j
+	}()))
 	stale := filepath.Join(logs, "stray.log")
 	must(t, os.WriteFile(stale, []byte("x"), 0o600))
 	old := time.Now().Add(-40 * 24 * time.Hour)
@@ -39,6 +46,9 @@ func TestPruneOld(t *testing.T) {
 
 	if _, err := w.st.Jobs.Get(ctx, "old"); err == nil {
 		t.Error("old job kept")
+	}
+	if _, err := w.st.Jobs.Get(ctx, "t1-only"); err != nil {
+		t.Errorf("a tile's newest done job was pruned: %v", err)
 	}
 	if _, err := w.st.Jobs.Get(ctx, "new"); err != nil {
 		t.Errorf("new job: %v", err)
