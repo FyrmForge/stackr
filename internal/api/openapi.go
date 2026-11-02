@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,6 +48,12 @@ func OpenAPI() ([]byte, error) {
 		}
 		ok := map[string]any{"description": http.StatusText(r.E.Status)}
 		code := itoa(r.E.Status)
+		if slices.Contains(r.E.Query, "cursor") {
+			ok["headers"] = map[string]any{"X-Next-Cursor": map[string]any{
+				"description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+				"schema":      map[string]any{"type": "string"},
+			}}
+		}
 		switch {
 		case r.E.Stream == "websocket":
 			code, ok = "101", map[string]any{"description": "Switching Protocols: the connection is now a websocket"}

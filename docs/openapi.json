@@ -10496,7 +10496,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -13150,7 +13158,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -15277,7 +15293,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -15597,7 +15621,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -15865,7 +15897,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -16707,7 +16747,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -17030,7 +17078,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -23581,7 +23637,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "X-Next-Cursor": {
+                "description": "Present when more rows follow: pass it as ?cursor= with the same ?limit= for the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
