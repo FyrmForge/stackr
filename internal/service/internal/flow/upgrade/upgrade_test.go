@@ -47,7 +47,7 @@ func TestCheckAndUpgrade(t *testing.T) {
 	}))
 	defer gh.Close()
 	fake := dockerfake.New()
-	fake.Err = map[string]error{"LocalDigest": errors.New("no such image")}
+	fake.Gone = []string{"ghcr.io/fyrmforge/stackr:0.2.0"} // not here until pulled
 	var order []string
 	f := &Flow{
 		Panel:   panel.New(fake),
@@ -89,6 +89,20 @@ func TestCheckAndUpgrade(t *testing.T) {
 	if sp, err = panel.SpecFromEnv(); err != nil || sp.Name != "stackr-0.2.0" ||
 		sp.Env[0] != "STACKR_IMAGE=ghcr.io/fyrmforge/stackr:0.2.0" {
 		t.Errorf("new panel spec = %+v %v", sp, err)
+	}
+
+	// A tag that moved to another image since the pull is not swapped in.
+	fake3 := dockerfake.New()
+	fake3.Digests = map[string]string{"ghcr.io/fyrmforge/stackr:0.2.0": "sha256:aaa"}
+	f.Panel = panel.New(fake3)
+	moved := false
+	f.Archive = func(context.Context, io.Writer) (string, error) {
+		fake3.Digests["ghcr.io/fyrmforge/stackr:0.2.0"] = "sha256:bbb"
+		moved = true
+		return "/data/backups/x.tar.gz", nil
+	}
+	if _, err := f.Upgrade(ctx, tag, io.Discard); err == nil || !moved || len(fake3.Specs) != 0 {
+		t.Errorf("a moved tag: %v, runs %d", err, len(fake3.Specs))
 	}
 
 	// A failed archive never reaches the helper.
