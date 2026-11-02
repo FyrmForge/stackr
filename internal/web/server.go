@@ -56,7 +56,15 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	e := srv.Echo()
 
 	// Content Security Policy.
-	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+	// No inline scripts or handlers: an injected one does not run. Styles stay
+	// inline (the terminal and htmx write style elements). hamr dev's reload
+	// may inject a script, so dev keeps the old script-src.
+	script := "'self'"
+	if deps.DevMode {
+		script += " 'unsafe-inline'"
+	}
+	csp := "default-src 'self'; script-src " + script + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+		"base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'"
 
 	// Site routes.
 	site := e.Group("")
@@ -65,6 +73,16 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.SecureWithConfig(hamrmw.SecureConfig{
 		ContentSecurityPolicy: csp,
 	}))
+	if CookieSecure(deps.BaseURL) {
+		// Browsers ignore this over plain http; over https the panel is
+		// https-only for a year.
+		site.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				c.Response().Header().Set("Strict-Transport-Security", "max-age=31536000")
+				return next(c)
+			}
+		})
+	}
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: CookieSecure(deps.BaseURL)}))
 	// The token rides in the hx-headers header only: a form lookup would
 	// parse a multipart body (a dump upload) before the route's auth.

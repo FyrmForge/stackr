@@ -924,7 +924,7 @@ templ addDomain(v View, d DomainsView) {
 		<summary class="btn btn-ghost btn-sm cursor-pointer inline-flex items-center gap-1.5 select-none list-none">
 			<span class="text-rw-accentHi">+</span> Add domain
 		</summary>
-		<form novalidate hx-post={ v.Base + "/domains?open=network" } hx-target={ "#" + Root } hx-swap="outerHTML" class="group/dom space-y-3 mt-3" oninput="var f=this,h=(f.domain&&f.domain.value)?((f.sub.value.trim()?f.sub.value.trim()+'.':'')+f.domain.value):f.host.value.trim();var m=f.querySelector('[data-dom]');if(m&&f.domain.value)m.textContent=f.domain.value;f.querySelector('[data-preview]').textContent='http'+(f.https.checked?'s':'')+'://'+h">
+		<form novalidate hx-post={ v.Base + "/domains?open=network" } hx-target={ "#" + Root } hx-swap="outerHTML" class="group/dom space-y-3 mt-3" data-dom-preview>
 			<div class="flex flex-wrap gap-2 items-center">
 				if len(d.Managed) > 0 {
 					<input type="text" name="sub" value={ d.typed("sub") } aria-label="Subdomain" placeholder="subdomain" class="input !w-32 group-has-[.dns-other:checked]/dom:hidden"/>

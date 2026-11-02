@@ -278,3 +278,20 @@ document.addEventListener('input', function (evt) {
         f.value = t.value.trim() && suffix ? t.value.trim() + suffix : '';
     });
 });
+
+// Forms that must not submit natively (htmx drives them, or a change event
+// does): the script-free form of onsubmit="return false", which the CSP
+// refuses.
+document.addEventListener('submit', function (evt) {
+    if (evt.target.hasAttribute && evt.target.hasAttribute('data-nosubmit')) evt.preventDefault();
+});
+
+// The add-domain form's live preview of the address being added.
+document.addEventListener('input', function (evt) {
+    var f = evt.target.closest && evt.target.closest('form[data-dom-preview]');
+    if (!f) return;
+    var h = (f.domain && f.domain.value) ? ((f.sub.value.trim() ? f.sub.value.trim() + '.' : '') + f.domain.value) : f.host.value.trim();
+    var m = f.querySelector('[data-dom]');
+    if (m && f.domain.value) m.textContent = f.domain.value;
+    f.querySelector('[data-preview]').textContent = 'http' + (f.https.checked ? 's' : '') + '://' + h;
+});
