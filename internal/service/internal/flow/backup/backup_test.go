@@ -594,3 +594,23 @@ func TestClusterRestoreIsVettedFirst(t *testing.T) {
 		t.Error("an admin-only dump was vetted as a cluster dump")
 	}
 }
+
+func TestRestoreSwapsBeforeTheWipe(t *testing.T) {
+	w := setup(t)
+	sub := Subject{Volume: w.vol, Holders: []store.Tile{w.api}}
+	r, err := w.f.Backup(ctx, sub, w.spec(0), io.Discard)
+	must(t, err)
+	in := Restore{RunID: r.ID, SourceVolumeID: w.vol.ID, Target: sub,
+		Pre: Spec{Dest: w.dest, Prefix: bk.Prefix("o1", w.vol.ID, "")}}
+	calls := 0
+	in.Swap = func() error { calls++; return errors.New("superseded") }
+	before := len(w.fake.Calls())
+	if err := w.f.Restore(ctx, in, io.Discard); err == nil || calls != 1 {
+		t.Fatalf("err = %v, swaps = %d", err, calls)
+	}
+	for _, c := range w.fake.Calls()[before:] {
+		if c.Method == "Stop" || c.Method == "UntarVolume" {
+			t.Errorf("%s ran after a refused swap", c.Method)
+		}
+	}
+}

@@ -269,6 +269,10 @@ type Restore struct {
 	// Cluster vets a whole-instance dump (first line Target.Marker) before
 	// anything is touched; its error ends the restore. nil = no check.
 	Cluster func(ctx context.Context) error
+	// Swap marks the point of no return (the wipe): a Stop after it is
+	// refused, a Stop before it ends the restore with nothing touched. An
+	// error means a newer job took over; the restore ends untouched. nil = none.
+	Swap func() error
 }
 
 // Restore, in the order that makes every recoverable failure come first:
@@ -321,6 +325,11 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) error {
 	}
 	if _, err := plain.Seek(0, io.SeekStart); err != nil {
 		return err
+	}
+	if in.Swap != nil {
+		if err := in.Swap(); err != nil {
+			return err
+		}
 	}
 	if t.dumps() {
 		if err := f.load(ctx, t, plain, log); err != nil {

@@ -362,6 +362,7 @@ func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob
 		Target:         sub,
 		Pre:            fbackup.Spec{Dest: local, Prefix: backup.Prefix(org, v.ID, "")},
 		Cluster:        cluster,
+		Swap:           r.Swap,
 	}, r.Log)
 }
 
