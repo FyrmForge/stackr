@@ -44,13 +44,10 @@ func managed(n int) string {
 	return fmt.Sprintf("%d managed domains", n)
 }
 
-// Synced is the last records sync's failure; it can name any org's
-// hosts, so only the server level shows it.
+// Synced is the last records sync's failure, at an org level only the
+// parts about its own connectors' domains.
 func (p Panel) Synced(c echo.Context) string {
-	if p.Org(c) != nil {
-		return ""
-	}
-	return p.Orch.DNSSyncError()
+	return p.Orch.DNSSyncErrorFor(c.Request().Context(), p.Org(c))
 }
 
 // POST <dns>/:connector/domains (not_now): the list, asked of the
