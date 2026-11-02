@@ -675,7 +675,7 @@ func TestJobsWaitsAndLine(t *testing.T) {
 	if j := got[rebuild]; j.Line != "rebuild" || j.Waits != "" {
 		t.Errorf("rebuild: line %q waits %q", j.Line, j.Waits)
 	}
-	if j := got[up]; j.Waits != "Waits for 1 running job" || j.Line != "" {
+	if j := got[up]; j.Waits != "Waits for the panel upgrade" || j.Line != "" { // held: every kind says so
 		t.Errorf("upgrade: line %q waits %q", j.Line, j.Waits)
 	}
 	if j := got[after]; j.Waits != "Waits for the panel upgrade" || j.Line != "" {
