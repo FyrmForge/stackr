@@ -171,6 +171,7 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "org config: %v\n", err)
+		o.configState(ctx, og.ID, "The config file of "+og.Name, orgplan.Error, err.Error(), "")
 		return o.createOrgPlan(ctx, OrgPlan{
 			OrgID:   og.ID,
 			Commit:  sha,
@@ -203,6 +204,9 @@ func (o *Orchestrator) planOrg(ctx context.Context, orgID string, log io.Writer)
 		Status:  status,
 	})
 	_, _ = fmt.Fprintf(log, "org plan at %s: %s\n", sha, p.Summary())
+	if err == nil {
+		o.configState(ctx, og.ID, "The config file of "+og.Name, row.Status, "", row.Summary)
+	}
 	if err != nil || status != orgplan.Pending || !p.AutoOK() || !og.ConfigAuto {
 		return row, err
 	}

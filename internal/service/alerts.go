@@ -59,6 +59,7 @@ const (
 	AlertCrashOK      = "container.recovered"
 	AlertMemoryLow    = "memory.low"
 	AlertMemoryOK     = "memory.ok"
+	AlertConfigBad    = "config.invalid"
 	AlertTest         = "test"
 )
 

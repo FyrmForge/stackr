@@ -304,6 +304,7 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(log, "server config: %v\n", err)
+		o.configState(ctx, "server", "The server config file", orgplan.Error, err.Error(), "")
 		return o.createServerPlan(ctx, ServerPlan{
 			Source:  sourceRepo,
 			Commit:  sha,
@@ -317,6 +318,9 @@ func (o *Orchestrator) planServer(ctx context.Context, log io.Writer) (ServerPla
 		return ServerPlan{}, err
 	}
 	row, err := o.storeServerPlan(ctx, p, ServerPlan{Source: sourceRepo, Commit: sha})
+	if err == nil {
+		o.configState(ctx, "server", "The server config file", row.Status, "", row.Summary)
+	}
 	_, _ = fmt.Fprintf(log, "server plan at %s: %s\n", sha, p.Summary())
 	if err != nil || row.Status != orgplan.Pending || !p.AutoOK() || !b.Auto {
 		return row, err
