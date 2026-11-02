@@ -138,6 +138,14 @@ func (o *Orchestrator) ApproveHostGrant(ctx context.Context, stackID, userID str
 			}
 		}
 		ask = hostgrant.Set{Lines: grant}.Norm()
+		// A tile's source line goes with any of its lines: access granted
+		// to an image nobody approved would never cover the deploy.
+		for _, l := range g.Pending {
+			if slug, perm := hostgrant.Split(l); strings.HasPrefix(perm, hostgrant.Source) && len(ask.ForTile(slug).Lines) > 0 {
+				ask.Lines = append(ask.Lines, l)
+			}
+		}
+		ask = ask.Norm()
 	}
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		if _, err := hostgrant.New(tx.HostGrants).Approve(ctx, stackID, userID, ask); err != nil {

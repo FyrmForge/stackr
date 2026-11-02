@@ -51,29 +51,31 @@ func TestHostGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 500 {
-		if len(read(w.owner).Pending) == 2 {
+		if len(read(w.owner).Pending) == 3 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	sock, dev := "api host:/var/run/docker.sock:/s", "api device:/dev/dri"
-	if g := read(w.owner); len(g.Pending) != 2 || g.Pending[0] != dev || g.Pending[1] != sock {
+	if g := read(w.owner); len(g.Pending) != 3 || g.Pending[0] != dev || g.Pending[1] != sock || !strings.HasPrefix(g.Pending[2], "api src:") {
 		t.Fatalf("pending = %+v", g)
 	}
-	shown := `"pending":["` + dev + `","` + sock + `"]`
+	src := read(w.owner).Pending[2]
+	shown := `"pending":["` + dev + `","` + sock + `","` + src + `"]`
 	if code, out := w.do(t, w.admin, "POST", path+"/approve", `{"pending":["x host:/:/h"]}`); code != 409 || !strings.Contains(out, "the ask changed; review it again") {
 		t.Fatalf("approve of a set that is not the ask = %d %s", code, out)
 	}
-	if g := read(w.owner); g.Granted || len(g.Pending) != 2 {
+	if g := read(w.owner); g.Granted || len(g.Pending) != 3 {
 		t.Fatalf("a refused approval granted: %+v", g)
 	}
 	if code, _ := w.do(t, w.admin, "POST", path+"/approve", `{`+shown+`,"grant":["z privileged"]}`); code != 400 {
 		t.Fatalf("approve of a line that was not asked = %d, want 400", code)
 	}
-	// Narrowing: the socket is granted, the device keeps the job waiting.
+	// Narrowing: the socket is granted (with the tile's source line), the
+	// device keeps the job waiting.
 	code, out := w.do(t, w.admin, "POST", path+"/approve", `{`+shown+`,"grant":["`+sock+`"]}`)
 	var g service.HostGrant
-	if err := json.Unmarshal([]byte(out), &g); code != 200 || err != nil || !g.Granted || len(g.Lines) != 1 {
+	if err := json.Unmarshal([]byte(out), &g); code != 200 || err != nil || !g.Granted || len(g.Lines) != 2 {
 		t.Fatalf("partial approve = %d %s", code, out)
 	}
 	for range 500 {
@@ -92,7 +94,7 @@ func TestHostGrant(t *testing.T) {
 		t.Errorf("owner admin host-grants = %d, want 403", code)
 	}
 	code, out = w.do(t, w.admin, "POST", path+"/approve", `{"pending":["`+dev+`"]}`)
-	if err := json.Unmarshal([]byte(out), &g); code != 200 || err != nil || len(g.Lines) != 2 || len(g.Pending) != 0 {
+	if err := json.Unmarshal([]byte(out), &g); code != 200 || err != nil || len(g.Lines) != 3 || len(g.Pending) != 0 {
 		t.Fatalf("approve = %d %s", code, out)
 	}
 	if code, _ := w.do(t, w.owner, "DELETE", path, ""); code != 403 {
