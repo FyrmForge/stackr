@@ -96,8 +96,8 @@ func (o *Orchestrator) ownDest(ctx context.Context, orgID, id string) (BackupDes
 var defaultSchedule = ScheduleSpec{Cron: "@daily", Keep: 7}
 
 // defaultBackup gives a new volume a daily backup to the first off-box
-// destination its org can use. With none it does nothing: the problems list
-// already says volumes have no backup. Best effort, never fails a declare.
+// destination its org can use. With none it does nothing (no warning exists
+// for a volume without a schedule). Best effort, never fails a declare.
 func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
 	org, err := o.volumeOrg(ctx, v)
 	if err != nil {
