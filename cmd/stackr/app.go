@@ -37,7 +37,9 @@ type app struct {
 	in        *bufio.Reader
 	out, errw io.Writer
 	cfgPath   string
-	cfg       config
+	cfg       config // the selected profile is current here
+	base      config // the file as loaded: its current profile, whatever --profile picked
+	profile   string // --profile
 	client    *http.Client
 	ctx       context.Context
 	orgSlug   string // --org on a placement command: beats STACKR_ORG and the config
@@ -81,12 +83,21 @@ func (a *app) load() error {
 		return err
 	}
 	if err := json.Unmarshal(b, &a.cfg); err != nil {
-		return fmt.Errorf("%s is corrupt: %w", a.cfgPath, err)
+		return fmt.Errorf("%s is corrupt (%w); delete it, or stackr login replaces it", a.cfgPath, err)
 	}
+	a.base = a.cfg
 	return nil
 }
 
-func (a *app) save() error { return cliconfig.Save(a.cfgPath, a.cfg) }
+// save writes the config with the file's own current profile current, so
+// --profile never moves it; only stackr profile use does.
+func (a *app) save() error {
+	out := a.cfg
+	if out.Name() != a.base.Name() {
+		out, _ = out.Use(a.base.Name(), true)
+	}
+	return cliconfig.Save(a.cfgPath, out)
+}
 
 // here is the link of this directory or the nearest parent that has one.
 func (a *app) here() (string, link) {

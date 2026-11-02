@@ -260,7 +260,7 @@ func TestAccountKeyLogin(t *testing.T) {
 	env.Member(t, env.Org(t, "beta"), u, "viewer")
 	t.Setenv("STACKR_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 
-	if code, _, errw := cli(t, "login", ts.URL, "--with-key", env.APIKey(t, u, "")); code != 2 || !strings.Contains(errw, "which org") {
+	if code, out, errw := cli(t, "login", ts.URL, "--with-key", env.APIKey(t, u, "")); code != 0 || !strings.Contains(out, "which org") {
 		t.Fatalf("login with two orgs = %d %s", code, errw)
 	}
 	for _, slug := range []string{"acme", "beta"} {

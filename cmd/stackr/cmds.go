@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/FyrmForge/stackr/internal/cliconfig"
 )
 
 const (
@@ -50,6 +52,7 @@ func (a *app) commands() []*cobra.Command {
 	return append([]*cobra.Command{
 		a.login(),
 		a.logout(),
+		a.profiles(),
 		a.linkCmd(),
 		a.unlink(),
 		a.status(),
@@ -109,8 +112,10 @@ func (a *app) login() *cobra.Command {
 				}
 				m, _ := v.(map[string]any)
 				a.cfg.Key, _ = m["token"].(string)
+				k, _ := m["key"].(map[string]any)
+				a.cfg.KeyID, _ = k["id"].(string) // logout revokes this one
 			} else {
-				a.cfg.Key = key
+				a.cfg.Key, a.cfg.KeyID = key, "" // the user's own key: logout keeps it
 			}
 			v, err := a.call(GET, "/orgs", nil)
 			if err != nil {
@@ -128,12 +133,22 @@ func (a *app) login() *cobra.Command {
 			if err := a.save(); err != nil {
 				return err
 			}
-			if a.cfg.Org == "" && (org != "" || len(orgs) > 0) {
-				return usage("logged in, which org? stackr org use <slug> (stackr org ls lists them)")
+			if a.cfg.Org == "" && org != "" {
+				return usage("logged in, but you are in no org %q (stackr org ls lists yours)", org)
+			}
+			if a.cfg.Org == "" && len(orgs) > 0 {
+				a.say("logged in to %s; which org? stackr org use <slug> (stackr org ls lists them)", server)
+				return nil
 			}
 			a.say("logged in to %s, org %s", server, cell(a.cfg.Org))
 			return nil
 		})
+	c.Long = `Log in to a stackr server.
+
+Without --with-key it opens the panel in your browser to approve the login;
+set STACKR_NO_BROWSER to print the link only. --with-key (or STACKR_KEY, which
+keeps it off argv) saves a key made in the panel instead. --profile saves the
+login under a name, to keep several servers.`
 	c.Example = "  stackr login https://stackr.example.com\n  stackr login https://stackr.example.com --with-key $KEY --org acme"
 	c.Flags().StringVar(&key, "with-key", "", "an API key made in the panel, instead of the browser flow (or STACKR_KEY, which keeps it off argv)")
 	c.Flags().StringVar(&org, "org", "", "the org to work in (its slug)")
@@ -143,10 +158,48 @@ func (a *app) login() *cobra.Command {
 }
 
 func (a *app) logout() *cobra.Command {
-	return leaf("logout", "", "Forget the stored key", exact(0), func(*cobra.Command, []string) error {
-		a.cfg.Key = ""
-		return a.save()
-	})
+	return leaf("logout", "key.revoke", "Forget the stored key; a browser login's key is revoked", exact(0),
+		func(*cobra.Command, []string) error {
+			a.noEnv = true // the stored login, not STACKR_*
+			if a.cfg.KeyID != "" && a.cfg.Key != "" && a.cfg.Server != "" {
+				var e *apiErr
+				// 401 or 404: the key is already gone
+				if _, err := a.call(DELETE, "/me/keys/"+url.PathEscape(a.cfg.KeyID), nil); err != nil &&
+					!(errors.As(err, &e) && (e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound)) {
+					_, _ = fmt.Fprintf(a.errw, "warning: the key was not revoked (%v); revoke it in the panel\n", err)
+				}
+			}
+			a.cfg.Key, a.cfg.KeyID = "", ""
+			return a.save()
+		})
+}
+
+// profiles are the saved logins: one server each, one current.
+func (a *app) profiles() *cobra.Command {
+	return noun("profile", "Saved logins, one per server",
+		leaf("ls", "", "List the saved logins", exact(0), func(*cobra.Command, []string) error {
+			row := func(name, server, org string) any {
+				cur := ""
+				if name == a.base.Name() {
+					cur = "*"
+				}
+				return map[string]any{"profile": name, "server": server, "org": org, "current": cur}
+			}
+			rows := []any{row(a.base.Name(), a.base.Server, a.base.Org)}
+			for _, n := range a.base.Names()[1:] {
+				p := a.base.Profiles[n]
+				rows = append(rows, row(n, p.Server, p.Org))
+			}
+			return a.show(rows, "profile", "server", "org", "current")
+		}),
+		leaf("use <name>", "", "Make a saved login the current one", exact(1), func(_ *cobra.Command, args []string) error {
+			v, ok := a.base.Use(args[0], false)
+			if !ok {
+				return usage("no profile %q; stackr profile ls lists them", args[0])
+			}
+			return cliconfig.Save(a.cfgPath, v)
+		}),
+	)
 }
 
 func (a *app) linkCmd() *cobra.Command {
@@ -210,7 +263,7 @@ func (a *app) status() *cobra.Command {
 }
 
 func (a *app) password() *cobra.Command {
-	return leaf("password", "me.password", "Change your password", exact(0), func(*cobra.Command, []string) error {
+	c := leaf("password", "me.password", "Change your password", exact(0), func(*cobra.Command, []string) error {
 		cur, err := a.secret("", "STACKR_PASSWORD", "Current password")
 		if err != nil {
 			return err
@@ -222,6 +275,13 @@ func (a *app) password() *cobra.Command {
 		_, err = a.call(PUT, "/me/password", map[string]string{"current": cur, "next": next})
 		return err
 	})
+	c.Long = `Change your password.
+
+Each password comes from its environment variable, else a masked prompt, else
+one line of stdin. The current password comes first, then the new one:
+  STACKR_PASSWORD      the current password
+  STACKR_NEW_PASSWORD  the new password`
+	return c
 }
 
 func (a *app) knobs() *cobra.Command {

@@ -45,7 +45,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, 
 	root.SetOut(out)
 	root.SetErr(errw)
 	if err := a.load(); err != nil {
-		return a.fail(err)
+		// login and logout replace a file they cannot read
+		if len(args) == 0 || (args[0] != "login" && args[0] != "logout") {
+			return a.fail(err)
+		}
+		a.cfg, a.base = config{}, config{}
 	}
 	if err := helpOnUnknown(root, args); err != nil {
 		return a.fail(err)
@@ -69,6 +73,7 @@ Environment (each beats the config file; nothing here is written to disk):
   STACKR_KEY     API key, so CI needs no login
   STACKR_SERVER  server URL
   STACKR_ORG     org slug
+  STACKR_PROFILE login to use (see stackr profile ls); --profile beats it
   STACKR_CONFIG  config file path`,
 		Version:       version,
 		SilenceErrors: true,
@@ -79,6 +84,19 @@ Environment (each beats the config file; nothing here is written to disk):
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON; errors go to stderr as {error, status, code}")
 	root.PersistentFlags().BoolVar(&a.utc, "utc", false, "print times in UTC, not this machine's zone")
 	root.PersistentFlags().BoolVarP(&a.yes, "yes", "y", false, "skip confirmation prompts (never overrides a server refusal)")
+	root.PersistentFlags().StringVar(&a.profile, "profile", "", "the saved login to use (stackr profile ls); login makes it")
+	root.PersistentPreRunE = func(c *cobra.Command, _ []string) error {
+		name, login := a.profile, c.Name() == "login"
+		if name == "" && !login { // login's own arguments, not STACKR_*, say where
+			name = os.Getenv("STACKR_PROFILE")
+		}
+		v, ok := a.cfg.Use(name, login)
+		if !ok {
+			return usage("no profile %q; stackr profile ls lists them, stackr login <url> --profile %s makes it", name, name)
+		}
+		a.cfg = v
+		return nil
+	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageErr{err.Error()} })
 	root.AddCommand(a.commands()...)
 	root.SetHelpCommand(&cobra.Command{
