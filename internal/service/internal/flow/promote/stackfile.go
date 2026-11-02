@@ -80,21 +80,8 @@ type Reservation struct {
 // VolumeConf is one entry of volumes:. A volume is its own thing, scoped to
 // its env; promote never carries one across envs.
 type VolumeConf struct {
-	Backup *BackupConf `yaml:"backup"`
-}
-
-// BackupConf: the destination is a reference, never a literal (bucket
-// credentials in git). The kind is not declared: a managed db dumps with
-// its engine, a volume tars.
-// ponytail: parsed and checked here; promote does not write schedules yet,
-// they are set from the panel (flow/backup runs them).
-type BackupConf struct {
-	Dest     string `yaml:"dest"`
-	Schedule string `yaml:"schedule"`
-	TZ       string `yaml:"tz"`
-	Keep     int    `yaml:"keep"`
-	Mode     string `yaml:"mode"` // pause (default) | stop | live
-	Enabled  *bool  `yaml:"enabled"`
+	// Backup is read only to refuse it with a reason; schedules are set from the panel.
+	Backup any `yaml:"backup"`
 }
 
 // VolumeNode is a volumes: entry: a body, or false to drop a base volume.
@@ -837,19 +824,8 @@ func checkVolume(name string, v VolumeConf) error {
 	if len(name) > volume.MaxName {
 		return fmt.Errorf("volume %s: keep the name to %d characters or fewer", name, volume.MaxName)
 	}
-	b := v.Backup
-	if b == nil {
-		return nil
-	}
-	switch {
-	case !strings.HasPrefix(strings.TrimSpace(b.Dest), "${{") || strings.Count(b.Dest, "${{") != 1:
-		return fmt.Errorf("volume %s: backup dest is one ${{ org.backups.NAME }} reference, never a literal", name)
-	case strings.TrimSpace(b.Schedule) == "":
-		return fmt.Errorf("volume %s: backup needs a schedule", name)
-	case b.Keep < 0:
-		return fmt.Errorf("volume %s: keep must not be negative", name)
-	case b.Mode != "" && b.Mode != "pause" && b.Mode != "stop" && b.Mode != "live":
-		return fmt.Errorf("volume %s: mode %q must be pause, stop or live", name, b.Mode)
+	if v.Backup != nil {
+		return fmt.Errorf("volume %s: backup: is not applied from the file; set the schedule on the volume in the panel", name)
 	}
 	return nil
 }
