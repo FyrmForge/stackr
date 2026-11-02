@@ -1,21 +1,21 @@
-// Package scope is the placeholder behind /:org/:stack/:env/:tile, so the
-// access middleware is mounted on every level and the layout's crumbs have
-// a page to follow. ponytail: the org, stack, env and tile pages replace it.
+// Package scope is the page behind /:org/:stack/:env/:tile: it sends the
+// viewer to the env canvas with the tile's drawer open, so crumbs and shared
+// links land on something.
 package scope
 
 import (
-	"net/http"
-
+	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/web/render"
+	"github.com/FyrmForge/stackr/internal/middleware"
 )
 
 type handler struct{}
 
 func NewHandler() *handler { return &handler{} }
 
-// GET /:org, /:org/:stack, /:org/:stack/:env, /:org/:stack/:env/:tile
+// GET /:org/:stack/:env/:tile
 func (h *handler) Page(c echo.Context) error {
-	return render.Page(c, http.StatusOK, "Overview", placeholder())
+	s := middleware.ScopeOf(c)
+	return respond.Redirect(c, "/"+s.Org.Slug+"/"+s.Stack.Slug+"/"+s.Env.Slug+"?drawer=tile:"+s.Tile.ID)
 }
