@@ -325,6 +325,8 @@ func HTTPError(err error) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, NodeOfflineMsg).SetInternal(down)
 	case errors.Is(err, errs.ErrBusy):
 		return echo.NewHTTPError(http.StatusServiceUnavailable)
+	case errors.As(err, new(errs.NeedsApproval)):
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	case service.DockerUnreachable(err):
 		return echo.NewHTTPError(http.StatusServiceUnavailable,
 			"Docker is not reachable on this server. Try again once it is back.")
@@ -353,11 +355,64 @@ func HTTPError(err error) error {
 	return err
 }
 
-// APIError is every API error body.
+// APIError is every API error body. Code is the stable machine name of the
+// failure (not_found, refused, invalid, conflict, ...); Field is the first
+// invalid input and Fields all of them, for a save refused on several.
 type APIError struct {
-	Error  string `json:"error"`
-	Status int    `json:"status"`
-	Field  string `json:"field,omitempty"`
+	Error  string       `json:"error"`
+	Status int          `json:"status"`
+	Code   string       `json:"code"`
+	Field  string       `json:"field,omitempty"`
+	Fields []FieldError `json:"fields,omitempty"`
+}
+
+// FieldError is one rejected input of an invalid request.
+type FieldError struct {
+	Field string `json:"field"`
+	Error string `json:"error"`
+}
+
+// retryAfter is the seconds a 503 asks a client to wait.
+const retryAfter = "5"
+
+// codeOf names a failure for APIError.Code: the typed error first, the
+// status for what is left.
+func codeOf(err error, status int) string {
+	switch {
+	case errors.As(err, new(SetupPending)):
+		return "setup_pending"
+	case errors.Is(err, errs.ErrRefused):
+		return "refused"
+	case errors.As(err, new(errs.NeedsApproval)):
+		return "needs_approval"
+	case errors.As(err, new(errs.Unset)):
+		return "unset"
+	case errors.As(err, new(errs.Conflict)), errors.As(err, new(*service.RecordTaken)):
+		return "conflict"
+	case len(errs.Invalids(err)) > 0:
+		return "invalid"
+	case errors.Is(err, errs.ErrBusy):
+		return "busy"
+	}
+	switch status {
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusBadRequest:
+		return "bad_request"
+	case http.StatusRequestEntityTooLarge:
+		return "too_large"
+	case http.StatusTooManyRequests:
+		return "rate_limited"
+	case http.StatusServiceUnavailable:
+		return "unavailable"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusForbidden:
+		return "refused"
+	}
+	return "internal"
 }
 
 // JSONErrors renders every error under /api as an APIError, through
@@ -370,8 +425,13 @@ func JSONErrors() echo.MiddlewareFunc {
 				return err
 			}
 			body := APIError{Status: http.StatusInternalServerError, Error: "internal error"}
-			if v, ok := errs.IsInvalid(err); ok {
-				body.Field = v.Field
+			if all := errs.Invalids(err); len(all) > 0 {
+				body.Field = all[0].Field
+				if len(all) > 1 {
+					for _, v := range all {
+						body.Fields = append(body.Fields, FieldError{v.Field, v.Msg})
+					}
+				}
 			}
 			var he *echo.HTTPError
 			if errors.As(HTTPError(err), &he) {
@@ -386,6 +446,10 @@ func JSONErrors() echo.MiddlewareFunc {
 				}
 			} else {
 				logging.FromContext(c.Request().Context()).Error("api", "error", err.Error())
+			}
+			body.Code = codeOf(err, body.Status)
+			if body.Status == http.StatusServiceUnavailable {
+				c.Response().Header().Set(echo.HeaderRetryAfter, retryAfter)
 			}
 			return c.JSON(body.Status, body)
 		}
