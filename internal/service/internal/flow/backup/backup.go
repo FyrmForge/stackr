@@ -716,6 +716,9 @@ func open(d store.BackupDest) s3.Destination {
 		Bucket:    d.Bucket,
 		AccessKey: d.AccessKey,
 		SecretKey: d.SecretKey,
+		// An org's endpoint stays off the server's network; the owner's
+		// own destinations may be private (a LAN bucket).
+		PublicOnly: d.OrgID != nil,
 	}
 }
 

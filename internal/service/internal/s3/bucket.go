@@ -24,6 +24,9 @@ type Bucket struct {
 	Bucket    string
 	AccessKey string
 	SecretKey string
+	// PublicOnly refuses any address that is not public: set for a member's
+	// destination, whose endpoint must not reach the panel's own network.
+	PublicOnly bool
 }
 
 func (b Bucket) client() *s3.Client {
@@ -31,7 +34,7 @@ func (b Bucket) client() *s3.Client {
 	if region == "" {
 		region = defaultRegion
 	}
-	return s3.New(s3.Options{
+	o := s3.Options{
 		Region:       region,
 		BaseEndpoint: aws.String(b.Endpoint),
 		UsePathStyle: true, // MinIO/RustFS/Garage; real S3 accepts it too
@@ -40,7 +43,11 @@ func (b Bucket) client() *s3.Client {
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
 		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
 		Credentials:                credentials.NewStaticCredentialsProvider(b.AccessKey, b.SecretKey, ""),
-	})
+	}
+	if b.PublicOnly {
+		o.HTTPClient = publicClient()
+	}
+	return s3.New(o)
 }
 
 // partSize: S3 allows 10000 parts, so 16 MiB parts lift one object to about
