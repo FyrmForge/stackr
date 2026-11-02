@@ -171,22 +171,60 @@ func (o *Orchestrator) dnsSocket() string {
 	return filepath.Join(filepath.Dir(admin), worker.DNSSocket)
 }
 
+// dnsSocketCheck is how often a panel checks that something still serves its DNS socket.
+var dnsSocketCheck = 30 * time.Second
+
 // startDNSSocket serves the DNS socket to the controller's proxy until Close.
+// A self-upgrade runs the new panel next to the old one and the new one takes
+// the socket over. If its trial fails it stops and leaves a dead socket file,
+// so the old panel, still running, checks the socket and serves it again.
 func (o *Orchestrator) startDNSSocket() {
 	sock := o.dnsSocket()
-	if sock == "" {
+	if sock == "" || !o.serveDNSSocket(sock) {
 		return
 	}
+	every := dnsSocketCheck
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-o.stopNodes:
+				return
+			case <-t.C:
+				if dnsSocketServed(sock) {
+					continue
+				}
+				// A new panel takes the socket over between its remove and
+				// its listen: look twice before taking it back.
+				time.Sleep(time.Second)
+				if dnsSocketServed(sock) {
+					continue
+				}
+				slog.Warn("acme dns: socket not served, serving it again", "sock", sock)
+				o.serveDNSSocket(sock)
+			}
+		}
+	}()
+}
+
+func dnsSocketServed(sock string) bool {
+	c, err := net.DialTimeout("unix", sock, time.Second)
+	if err == nil {
+		_ = c.Close()
+	}
+	return err == nil
+}
+
+// serveDNSSocket takes the socket path over and serves it until Close.
+func (o *Orchestrator) serveDNSSocket(sock string) bool {
 	_ = os.Remove(sock) // a stale socket from the last run
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		slog.Error("acme dns: socket", "sock", sock, "err", err)
-		return
+		return false
 	}
-	// A self-upgrade runs the new panel next to the old one: the old one's
-	// exit must not unlink the socket the new one now serves.
-	// ponytail: a new panel that fails leaves the old one without its socket
-	// until it restarts.
+	// The old panel's exit must not unlink the socket the new one now serves.
 	ln.(*net.UnixListener).SetUnlinkOnClose(false)
 	srv := &http.Server{Handler: http.HandlerFunc(o.dnsHandler), ReadHeaderTimeout: 10 * time.Second}
 	go func() { <-o.stopNodes; _ = srv.Close() }()
@@ -195,4 +233,5 @@ func (o *Orchestrator) startDNSSocket() {
 			slog.Error("acme dns: socket", "sock", sock, "err", err)
 		}
 	}()
+	return true
 }

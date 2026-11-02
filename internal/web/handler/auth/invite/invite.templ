@@ -10,6 +10,8 @@ type View struct {
 	Gone   bool
 	Role   string
 	Signed bool
+	// WrongUser is the signed-in email when it is not the invited one.
+	WrongUser string
 	Form   Form
 }
 
@@ -24,6 +26,12 @@ templ page(v View) {
 		@c.AuthCard("This invite link is no longer valid", nil) {
 			<p class="text-sm text-rw-muted text-center">It may have expired, been revoked, or already been used. Ask the org owner for a new one.</p>
 		}
+	} else if v.WrongUser != "" {
+		@c.AuthCard("Join "+v.Form.Org, nil) {
+			<p class="text-sm text-rw-muted text-center">This invite is for { v.Form.Email }. You are signed in as { v.WrongUser }.</p>
+			<button type="button" hx-post="/logout" class="btn btn-primary w-full">Log out</button>
+			<p class="text-xs text-rw-faint text-center">Then open the invite link again.</p>
+		}
 	} else if v.Signed {
 		@c.AuthCard("Join "+v.Form.Org, invited(v.Role, "")) {
 			@accept(v.Base, "")
@@ -31,7 +39,7 @@ templ page(v View) {
 	} else {
 		@c.AuthCard("Join "+v.Form.Org, invited(v.Role, " Create your account to join.")) {
 			@register(v.Base, v.Form)
-			<p class="text-xs text-rw-faint text-center">Already have an account? <a class="link" href={ templ.SafeURL("/login?next=" + v.Base) }>Log in</a> first, then reopen the invite link.</p>
+			<p class="text-xs text-rw-faint text-center">Already have an account? <a class="link" href={ templ.SafeURL("/login?next=" + v.Base) }>Log in</a> and you come back here.</p>
 		}
 	}
 }

@@ -75,6 +75,7 @@ type Tables struct {
 	ClusterCA        ClusterCAStore
 	ExitLadders      ExitLadderStore
 	RegistryTokens   RegistryTokenStore
+	IdempotencyKeys  IdempotencyKeyStore
 	Moves            MoveStore
 	JoinTokens       JoinTokenStore
 	Placements       PlacementStore
@@ -132,6 +133,7 @@ func bind(q querier, box *secrets.Box) Tables {
 		ClusterCA:        clusterCAs{q},
 		ExitLadders:      exitLadders{q},
 		RegistryTokens:   registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
+		IdempotencyKeys:  idempotencyKeys{crud[IdempotencyKey]{q, box, idempotencyKeysT}},
 		Moves:            moves{crud[EnvMove]{q, box, movesT}},
 		JoinTokens:       joinTokens{crud[JoinToken]{q, box, joinTokensT}},
 		Placements:       placements{crud[Placement]{q, box, placementsT}},

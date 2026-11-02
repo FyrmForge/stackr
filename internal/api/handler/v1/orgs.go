@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"time"
+
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
@@ -48,7 +50,7 @@ func orgID(c echo.Context) string { return scope(c).Org.ID }
 // ---- orgs ----
 
 func (h *H) Orgs() Endpoint {
-	return Get(func(c echo.Context) ([]service.Org, error) { return list(h.Orch.Orgs(rc(c), who(c))) })
+	return Get(func(c echo.Context) ([]service.Org, error) { return paged[service.Org](c)(h.Orch.Orgs(rc(c), who(c))) }).Paged()
 }
 
 func (h *H) CreateOrg() Endpoint {
@@ -67,7 +69,7 @@ func (h *H) GetOrg() Endpoint {
 func (h *H) SetOrgSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in Blob) (service.Org, error) {
 		return h.Orch.SetOrgSettings(rc(c), orgID(c), string(in))
-	})
+	}).Describe("A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).")
 }
 
 func (h *H) RenameOrg() Endpoint {
@@ -88,7 +90,9 @@ func (h *H) DeleteOrg() Endpoint {
 // ---- members and invites ----
 
 func (h *H) Members() Endpoint {
-	return Get(func(c echo.Context) ([]service.Member, error) { return list(h.Orch.Members(rc(c), orgID(c))) })
+	return Get(func(c echo.Context) ([]service.Member, error) {
+		return paged[service.Member](c)(h.Orch.Members(rc(c), orgID(c)))
+	}).Paged()
 }
 
 func (h *H) SetRole() Endpoint {
@@ -105,10 +109,10 @@ func (h *H) RemoveMember() Endpoint {
 func (h *H) Invites() Endpoint {
 	return Get(func(c echo.Context) ([]service.Invite, error) {
 		if c.QueryParam("all") == "true" {
-			return list(h.Orch.Invites(rc(c), orgID(c)))
+			return paged[service.Invite](c)(h.Orch.Invites(rc(c), orgID(c)))
 		}
-		return list(h.Orch.PendingInvites(rc(c), orgID(c)))
-	}).Q("all")
+		return paged[service.Invite](c)(h.Orch.PendingInvites(rc(c), orgID(c)))
+	}).Q("all").Paged()
 }
 
 func (h *H) Invite() Endpoint {
@@ -188,15 +192,16 @@ func (h *H) Keys() Endpoint {
 // KeyIn is a key to mint: Level is the optional ceiling (viewer, member,
 // owner), Stack the optional stack slug.
 type KeyIn struct {
-	Name  string `json:"name"`
-	Level string `json:"level,omitempty"`
-	Stack string `json:"stack,omitempty"`
+	Name      string     `json:"name"`
+	Level     string     `json:"level,omitempty" enum:"viewer,member,owner,admin"`
+	Stack     string     `json:"stack,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"` // the key stops working then; none = never
 }
 
 // MintKey binds the key to the route's org with the caller's live role (B36).
 func (h *H) MintKey() Endpoint {
 	return JSON(201, func(c echo.Context, in KeyIn) (KeyOut, error) {
-		tok, k, err := h.Orch.MintKey(rc(c), middleware.Principal(c), orgID(c), in.Name, in.Level, in.Stack)
+		tok, k, err := h.Orch.MintKeyUntil(rc(c), middleware.Principal(c), orgID(c), in.Name, in.Level, in.Stack, in.ExpiresAt)
 		return KeyOut{tok, k}, err
 	})
 }

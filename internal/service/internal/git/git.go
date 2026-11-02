@@ -5,8 +5,10 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,7 +75,15 @@ func (r Repo) Checkout(ctx context.Context, ref string, w io.Writer) (string, er
 		cmd.Stderr = w
 		return cmd.Run()
 	}
-	if _, err := os.Stat(filepath.Join(r.Dir, ".git")); err != nil {
+	_, err := os.Stat(filepath.Join(r.Dir, ".git"))
+	if err == nil {
+		// A clone of another repo (its owner was bound to a new URL since)
+		// would keep fetching the old one: start over.
+		if out, gerr := r.git(ctx, "config", "--get", "remote.origin.url"); gerr != nil || strings.TrimSpace(string(out)) != r.URL {
+			err = errors.New("another repo")
+		}
+	}
+	if err != nil {
 		// Anything there without a .git is a half-written clone from a killed
 		// job, and not repairable. Start over.
 		_ = os.RemoveAll(r.Dir)
@@ -278,14 +288,55 @@ func (r Repo) Head(ctx context.Context) (branch, sha string, err error) {
 // Under resolves a repo-relative path (build context, Dockerfile, a files:
 // entry) against the clone and refuses one that lands outside it: the clone
 // sits next to every other clone, and "../../keys" with a one-line COPY
-// Dockerfile would ship them all in a pullable image.
+// Dockerfile would ship them all in a pullable image. Symlinks are resolved
+// first, since a clone keeps them: a committed "ctx -> ../.." is as far out
+// as "../..". The answer is the resolved path, so the caller (docker) never
+// follows a link again.
 func (r Repo) Under(p string) (string, error) {
 	full := filepath.Join(r.Dir, filepath.FromSlash(p))
-	rel, err := filepath.Rel(r.Dir, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	root, err := resolve(r.Dir)
+	if err != nil {
+		return "", err
+	}
+	real, err := resolve(full)
+	if err != nil {
+		return "", err
+	}
+	if !inside(r.Dir, full) || !inside(root, real) {
 		return "", fmt.Errorf("%q escapes the repo", p)
 	}
-	return full, nil
+	return real, nil
+}
+
+// resolve is filepath.EvalSymlinks for a path that may not exist yet: the
+// deepest existing parent is resolved and the missing rest joined on. A
+// dangling link is an error, not a missing path: its target could appear.
+func resolve(p string) (string, error) {
+	p, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	tail := ""
+	for {
+		real, err := filepath.EvalSymlinks(p)
+		if err == nil {
+			return filepath.Join(real, tail), nil
+		}
+		if _, lerr := os.Lstat(p); !errors.Is(lerr, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "", err
+		}
+		tail = filepath.Join(filepath.Base(p), tail)
+		p = parent
+	}
+}
+
+func inside(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // ImageName is the name of an image built from a commit: repoName (the

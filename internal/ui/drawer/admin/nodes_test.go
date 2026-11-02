@@ -199,3 +199,21 @@ func TestJoinCommandKeptOutOfHistory(t *testing.T) {
 		t.Errorf("join command cached by history:\n%s", out)
 	}
 }
+
+// The last upgrade's failure shows on the tab, and not while another runs.
+func TestUpdateLastErr(t *testing.T) {
+	const line = "Rolled back: the new panel did not pass its trial."
+	render := func(v UpdateView) string {
+		var b strings.Builder
+		if err := Update(v).Render(t.Context(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	if out := render(UpdateView{Version: "1.0", LastErr: line}); !strings.Contains(out, line) {
+		t.Errorf("no failure line in\n%s", out)
+	}
+	if out := render(UpdateView{Version: "1.0", LastErr: line, Upgrading: true}); strings.Contains(out, line) {
+		t.Errorf("failure line shown during a new upgrade\n%s", out)
+	}
+}

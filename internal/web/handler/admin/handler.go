@@ -42,6 +42,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
 		a.Require("admin.read"),
 	)
+	jobLog := func(c echo.Context) error { return render.JobLogPage(c, h.orch, "") }
+	g.GET("/-/jobs/:job", jobLog, a.Require("admin.read"))
+	g.GET("/-/jobs/:job/log", jobLog, a.Require("admin.read"))
 	g.POST(b+"/settings/:form", h.SaveSettings, a.Require("serverdefaults.set"))
 	h.mountParams(g, a)
 	h.mountAccess(g, a)
@@ -219,6 +222,8 @@ func (h *handler) Upgrade(c echo.Context) error {
 	if err != nil {
 		return h.answer(c, "update", "", extra{}, err)
 	}
+	// The banner is in the shell, outside the section: reload the page.
+	c.Response().Header().Set("HX-Refresh", "true")
 	return h.answer(c, "update", "", extra{job: &j, check: &ui.UpdateView{Upgrading: true}}, nil)
 }
 
@@ -387,7 +392,7 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		return h.securityTab(c)
 	case "org-defaults":
 		s, err := h.settings(c, "org-defaults", nil)
-		return ui.Knobs("", s), err
+		return ui.KnobsDesc("", "A changed limit or protect setting redeploys every running tile in every org.", s), err
 	case "jobs":
 		s, err := h.settings(c, "jobs", nil)
 		return ui.Knobs("", s), err
@@ -447,6 +452,7 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 		return nil, err
 	}
 	v.Waits = waits
+	v.LastErr = h.orch.LastUpgradeError(ctx)
 	if job != nil {
 		job.Refresh = ui.Href("update")
 	}
@@ -588,7 +594,7 @@ var knobForms = map[string][]string{
 	"registry":     {"registry_cleanup_schedule", "registry_keep"},
 	"cleanup":      {"image_check_interval", "cleanup_enabled", "cleanup_schedule", "orphans_enabled", "orphans_schedule", "orphan_retention_days"},
 	"org-defaults": {"cpu_limit", "mem_limit_mb", "protect", "protect_user", "protect_password"},
-	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency"},
+	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency", "seed_max_gb"},
 }
 
 // ownEditor is the server knobs a section edits with a form of its own:
@@ -662,6 +668,17 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	for _, k := range keys {
 		if vs := f[k]; len(vs) > 0 {
 			vals[k] = vs[0]
+		}
+	}
+	if form == "domains" && f.Get("confirm_root") == "" {
+		if q := h.rootMoveConfirm(c.Request().Context(), ui.Base+"/settings/"+form, vals); q != nil {
+			c.Set(refusedKey, true) // draw the form again as typed
+			v, err := h.settings(c, form, nil)
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			v.Confirm = q
+			return respond.HTML(c, http.StatusOK, comp.SettingsForm(v))
 		}
 	}
 	actErr := h.orch.SetServerSettings(c.Request().Context(), vals)

@@ -963,15 +963,15 @@ templ addDomain(v View, d DomainsView) {
 		if d.Replace != nil && !d.Replace.Adopt {
 			<p class="mt-2 text-sm text-rw-muted">{ d.Replace.Host } already has a DNS record.</p>
 		}
-		<form novalidate hx-post={ v.Base + "/domains?open=network" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
-			<input type="hidden" name="auto" value="1"/>
-			<button type="submit" class="btn btn-ghost btn-sm" title="Generate a hostname under the nearest domain resource (stack, organization, or server)">
-				Use the generated name
-				if d.AutoHost != "" {
+		if d.AutoHost != "" {
+			<form novalidate hx-post={ v.Base + "/domains?open=network" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
+				<input type="hidden" name="auto" value="1"/>
+				<button type="submit" class="btn btn-ghost btn-sm" title="Generate a hostname under the nearest domain resource (stack, organization, or server)">
+					Use the generated name
 					<span class="font-mono ml-1">{ d.AutoHost }</span>
-				}
-			</button>
-		</form>
+				</button>
+			</form>
+		}
 	</details>
 	if d.Replace != nil && d.Replace.Adopt {
 		@c.Confirm(c.ConfirmView{

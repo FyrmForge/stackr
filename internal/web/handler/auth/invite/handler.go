@@ -5,6 +5,7 @@ package invite
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	hamrauth "github.com/FyrmForge/hamr/pkg/auth"
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -46,6 +47,9 @@ func (h *handler) Page(c echo.Context) error {
 		Signed: middleware.Principal(c) != nil,
 		Form:   Form{Email: inv.Email, Org: org},
 	}
+	if p := middleware.Principal(c); p != nil && !strings.EqualFold(p.User.Email, inv.Email) {
+		v.WrongUser, v.Form.Email = p.User.Email, inv.Email
+	}
 	return render.Page(c, http.StatusOK, "Join "+org, page(v))
 }
 
@@ -68,6 +72,9 @@ func (h *handler) orgName(c echo.Context, orgID string) (string, error) {
 func (h *handler) Accept(c echo.Context) error {
 	ctx, token := c.Request().Context(), c.Param("token")
 	inv, err := h.orch.LookupInvite(ctx, token)
+	if me := middleware.Principal(c).User; err == nil && !strings.EqualFold(me.Email, inv.Email) {
+		return respond.HTML(c, http.StatusUnprocessableEntity, accept(base(c), "This invite is for "+inv.Email+", not "+me.Email+". Log out and open the link again."))
+	}
 	if err == nil {
 		err = h.orch.AcceptInvite(ctx, token, middleware.Principal(c).User.ID)
 	}

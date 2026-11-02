@@ -201,10 +201,18 @@ func HashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ByKey finds the key behind a bearer token and its owner, live.
+// ByKey finds the key behind a bearer token and its owner, live. An expired
+// key is as unknown as a wrong one. A good one is stamped as used.
 func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKey, error) {
 	k, err := l.keys.GetByHash(ctx, HashToken(token))
 	if err != nil {
+		return store.User{}, store.APIKey{}, err
+	}
+	now := time.Now().UTC()
+	if k.ExpiresAt != nil && !now.Before(*k.ExpiresAt) {
+		return store.User{}, store.APIKey{}, errs.ErrNotFound
+	}
+	if err := l.keys.Touch(ctx, k.ID, now); err != nil {
 		return store.User{}, store.APIKey{}, err
 	}
 	u, err := l.users.Get(ctx, k.UserID)
@@ -220,6 +228,11 @@ func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKe
 // exceed the minter's rung in that org; stackID narrows it to one stack
 // (the caller checked it is in the org).
 func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name, level, stackID string) (string, store.APIKey, error) {
+	return l.MintKeyUntil(ctx, u, orgID, roleInOrg, name, level, stackID, nil)
+}
+
+// MintKeyUntil is MintKey for a key that stops working at expires (nil = never).
+func (l *Leaf) MintKeyUntil(ctx context.Context, u store.User, orgID, roleInOrg, name, level, stackID string, expires *time.Time) (string, store.APIKey, error) {
 	admin := u.Role == "admin"
 	name = strings.TrimSpace(name)
 	switch {
@@ -229,6 +242,8 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 		return "", store.APIKey{}, errs.Invalidf("name", "a name is required")
 	case orgID != "" && roleInOrg == "" && !admin:
 		return "", store.APIKey{}, errs.ErrNotFound
+	case expires != nil && !expires.After(time.Now()):
+		return "", store.APIKey{}, errs.Invalidf("expires_at", "expires_at must be in the future")
 	}
 	if level != "" {
 		ceiling, ok := authz.ParseLevel(level)
@@ -256,6 +271,10 @@ func (l *Leaf) MintKey(ctx context.Context, u store.User, orgID, roleInOrg, name
 		TokenHash: HashToken(token),
 		CreatedAt: time.Now().UTC(),
 	}
+	if expires != nil {
+		e := expires.UTC()
+		k.ExpiresAt = &e
+	}
 	if orgID != "" {
 		k.OrgID = &orgID
 	}
@@ -279,6 +298,66 @@ func (l *Leaf) RevokeKey(ctx context.Context, userID, keyID string) error {
 	if k.UserID != userID {
 		return errs.ErrNotFound
 	}
+	return l.keys.Delete(ctx, keyID)
+}
+
+// RotateKey gives one of the user's keys a new secret and returns it, shown
+// once. The key keeps its id, scope, level and expiry; the old token stops
+// working at once. Someone else's key is ErrNotFound.
+func (l *Leaf) RotateKey(ctx context.Context, userID, keyID string) (string, store.APIKey, error) {
+	k, err := l.keys.Get(ctx, keyID)
+	if err != nil {
+		return "", k, err
+	}
+	if k.UserID != userID {
+		return "", store.APIKey{}, errs.ErrNotFound
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", store.APIKey{}, err
+	}
+	token := hex.EncodeToString(b)
+	k.TokenHash, k.LastUsedAt = HashToken(token), nil
+	return token, k, l.keys.Update(ctx, k)
+}
+
+// OrgKeys lists the keys bound to an org, Owner filled; AllKeys lists every
+// key. Hashes never leave the store row (json:"-").
+func (l *Leaf) OrgKeys(ctx context.Context, orgID string) ([]store.APIKey, error) {
+	return l.withOwners(ctx)(l.keys.ListByOrg(ctx, orgID))
+}
+
+func (l *Leaf) AllKeys(ctx context.Context) ([]store.APIKey, error) {
+	return l.withOwners(ctx)(l.keys.List(ctx))
+}
+
+func (l *Leaf) withOwners(ctx context.Context) func([]store.APIKey, error) ([]store.APIKey, error) {
+	return func(ks []store.APIKey, err error) ([]store.APIKey, error) {
+		if err != nil {
+			return nil, err
+		}
+		emails := map[string]string{}
+		for i := range ks {
+			e, seen := emails[ks[i].UserID]
+			if !seen {
+				if u, err := l.users.Get(ctx, ks[i].UserID); err == nil {
+					e = u.Email
+				}
+				emails[ks[i].UserID] = e
+			}
+			ks[i].Owner = e
+		}
+		return ks, nil
+	}
+}
+
+// KeyOf is one key by id, for the checks above the leaf (its org, its owner).
+func (l *Leaf) KeyOf(ctx context.Context, keyID string) (store.APIKey, error) {
+	return l.keys.Get(ctx, keyID)
+}
+
+// DeleteKey removes a key by id; the caller has checked it may.
+func (l *Leaf) DeleteKey(ctx context.Context, keyID string) error {
 	return l.keys.Delete(ctx, keyID)
 }
 

@@ -21,13 +21,47 @@ type Job struct {
 	LogPath      string     `db:"log_path" json:"-"`
 	Error        string     `db:"error" json:"error"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
-	StartedAt    *time.Time `db:"started_at" json:"started_at"`
-	FinishedAt   *time.Time `db:"finished_at" json:"finished_at"`
+	// ActorID is the user who asked for the job, "" when the system did.
+	ActorID    string     `db:"actor_id" json:"actor_id"`
+	StartedAt  *time.Time `db:"started_at" json:"started_at"`
+	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
 	// Line and Waits are filled by the orchestrator for the jobs lists,
 	// never stored: Line is the release line a job makes ("rebuild"), Waits
 	// why a queued job has not started.
 	Line  string `db:"-" json:"line,omitempty"`
 	Waits string `db:"-" json:"waits,omitempty"`
+}
+
+// MarshalJSON renders the payload as the object it holds, not a string of
+// JSON inside JSON.
+func (j Job) MarshalJSON() ([]byte, error) {
+	type plain Job
+	out := struct {
+		plain
+		Payload json.RawMessage `json:"payload"`
+	}{plain: plain(j), Payload: json.RawMessage(j.Payload)}
+	if !json.Valid(out.Payload) {
+		out.Payload, _ = json.Marshal(j.Payload)
+	}
+	return json.Marshal(out)
+}
+
+// UnmarshalJSON reads MarshalJSON's shape back.
+func (j *Job) UnmarshalJSON(b []byte) error {
+	type plain Job
+	aux := struct {
+		*plain
+		Payload json.RawMessage `json:"payload"`
+	}{plain: (*plain)(j)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	j.Payload = string(aux.Payload)
+	var s string
+	if json.Unmarshal(aux.Payload, &s) == nil {
+		j.Payload = s
+	}
+	return nil
 }
 
 type JobStore interface {

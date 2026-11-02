@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service"
@@ -92,7 +93,7 @@ func TestRescopeWidenThenNarrow(t *testing.T) {
 		t.Errorf("widen hand back = %v, resource = %q", plan.HandBack, plan.Resource)
 	}
 
-	d, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", []service.DNSRef{plan.Adopt[0].DNSRef})
+	d, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, []service.DNSRef{plan.Adopt[0].DNSRef})
 	if err != nil || d.Scope != "" {
 		t.Fatalf("widen = %+v %v", d, err)
 	}
@@ -119,7 +120,7 @@ func TestRescopeWidenThenNarrow(t *testing.T) {
 	if !slices.Equal(back, []string{"shop.acme.dev", "www.acme.dev"}) {
 		t.Errorf("hand back = %+v", plan.HandBack)
 	}
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	env.Orch.WaitDNS()
@@ -137,7 +138,7 @@ func TestRescopeWidenThenNarrow(t *testing.T) {
 	}
 
 	// the same scope again changes nothing
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Errorf("same scope: %v", err)
 	}
 }
@@ -147,7 +148,7 @@ func TestRescopeWidenThenNarrow(t *testing.T) {
 func TestRescopeRefusesGeneratedHosts(t *testing.T) {
 	env, id, tl := rescopeRig(t)
 	ctx := context.Background()
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	d, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Auto: true})
@@ -169,7 +170,7 @@ func TestRescopeRefusesGeneratedHosts(t *testing.T) {
 			t.Errorf("narrow over %s = %v, want a conflict naming it", d.Host, err)
 		}
 	}
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", nil); err == nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", nil, nil); err == nil {
 		t.Error("a narrowing that strands a generated host went through")
 	}
 }
@@ -190,17 +191,116 @@ func TestRescopeLeavesExistingResource(t *testing.T) {
 	if _, err := env.Orch.ManageDNSDomainAdopting(ctx, nil, srv.Connector.ID, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, srv.Connector.ID, "acme.dev", "", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, srv.Connector.ID, "acme.dev", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := resourceHosts(t, env); !slices.Equal(got, []string{"acme.dev", "test.acme.dev"}) {
 		t.Errorf("resources = %v", got)
 	}
 	// back again: the made one is dropped for the one already there
-	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, srv.Connector.ID, "acme.dev", "test.acme.dev", nil); err != nil {
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, srv.Connector.ID, "acme.dev", "test.acme.dev", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := resourceHosts(t, env); !slices.Equal(got, []string{"test.acme.dev"}) {
 		t.Errorf("resources after narrowing back = %v", got)
+	}
+}
+
+// A confirm planned before another rescope landed is refused: the plan it
+// showed is stale. Rescopes of one domain run one at a time, so of many
+// confirms of one plan exactly one goes.
+func TestRescopeStaleConfirm(t *testing.T) {
+	env, id, _ := rescopeRig(t)
+	ctx := context.Background()
+	plan, err := env.Orch.PlanRescopeDNSDomain(ctx, nil, id, "acme.dev", "")
+	if err != nil || plan.From != "test.acme.dev" {
+		t.Fatalf("plan = %+v %v", plan, err)
+	}
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	stale := func(err error) bool {
+		c, ok := errs.IsConflict(err)
+		return ok && strings.Contains(c.Msg, "Review the plan again")
+	}
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", &plan.From, nil); !stale(err) {
+		t.Fatalf("stale confirm = %v", err)
+	}
+
+	from := ""
+	results := make(chan error, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			_, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "test.acme.dev", &from, nil)
+			results <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	went := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			went++
+		case !stale(err):
+			t.Errorf("concurrent confirm = %v", err)
+		}
+	}
+	if went != 1 {
+		t.Errorf("%d confirms went, want 1", went)
+	}
+	if got := resourceHosts(t, env); !slices.Equal(got, []string{"test.acme.dev"}) {
+		t.Errorf("resources = %v", got)
+	}
+	// from is compared as a scope, however it was typed: the domain itself
+	// is the whole domain
+	for _, step := range []struct{ from, to string }{{"Test.Acme.dev.", ""}, {"acme.dev", "test.acme.dev"}} {
+		if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", step.to, &step.from, nil); err != nil {
+			t.Errorf("from %q: %v", step.from, err)
+		}
+	}
+}
+
+// A narrowing keeps the domain's own custom records outside the new scope
+// declared: a widening writes them again.
+func TestRescopeKeepsCustomRecordsOutside(t *testing.T) {
+	env, id, _ := rescopeRig(t)
+	ctx := context.Background()
+	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Orch.AddDNSDomainRecord(ctx, nil, id, "acme.dev", service.CustomRecordIn{Name: "verify", Type: "TXT", Value: "v=1"}); err != nil {
+		t.Fatal(err)
+	}
+	written := func() (bool, bool) {
+		t.Helper()
+		rs, err := env.Orch.DNSDomainRecords(ctx, nil, id, "acme.dev")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Records) != 1 {
+			return false, false
+		}
+		return true, rs.Records[0].Written
+	}
+	if declared, ok := written(); !declared || !ok {
+		t.Fatalf("after add: declared %v written %v", declared, ok)
+	}
+	for _, scope := range []string{"test.acme.dev", ""} {
+		if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", scope, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		env.Orch.WaitDNS()
+		declared, ok := written()
+		if !declared {
+			t.Fatalf("scope %q dropped the declaration", scope)
+		}
+		if ok != (scope == "") {
+			t.Errorf("scope %q: written %v", scope, ok)
+		}
+	}
+	if _, ok := recordNames(t, env)["verify"]; !ok || !has(env.DNS.Zone("acme.dev"), "verify", "TXT", "v=1") {
+		t.Errorf("verify after widening: row %v, zone %v", ok, env.DNS.Zone("acme.dev"))
 	}
 }

@@ -29,7 +29,12 @@ func Callback(orch *service.Orchestrator) echo.HandlerFunc {
 				return err
 			}
 			hamrmw.SetFlash(c, "Connection failed: "+fmt.Sprint(he.Message), hamrmw.FlashError)
-			return c.Redirect(http.StatusSeeOther, "/")
+			// An admin lands on Connectors, where the pending row waits.
+			to := "/"
+			if pr := middleware.Principal(c); pr.Access.Admin {
+				to = "/-/admin/connectors"
+			}
+			return c.Redirect(http.StatusSeeOther, to)
 		}
 		hamrmw.SetFlash(c, "Connected.", hamrmw.FlashSuccess)
 		if ret == "" {

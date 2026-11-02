@@ -39,7 +39,10 @@ func TestServerConfigAdminFlow(t *testing.T) {
 		t.Fatalf("plan = %s (%v); want pending", out, err)
 	}
 	code, out = w.do(t, w.admin, "POST", "/admin/config/plans/"+plan.ID+"/approve", "")
-	var job struct{ Kind, Payload string }
+	var job struct {
+		Kind    string
+		Payload json.RawMessage
+	}
 	if err := json.Unmarshal([]byte(out), &job); code != 202 || err != nil || job.Kind != "server-apply" {
 		t.Fatalf("approve = %d %s (%v)", code, out, err)
 	}
@@ -48,7 +51,7 @@ func TestServerConfigAdminFlow(t *testing.T) {
 		ApproverID string `json:"approver_id"`
 	}
 	_, me := w.do(t, w.admin, "GET", "/me", "")
-	if err := json.Unmarshal([]byte(job.Payload), &pl); err != nil || pl.PlanID != plan.ID ||
+	if err := json.Unmarshal(job.Payload, &pl); err != nil || pl.PlanID != plan.ID ||
 		pl.ApproverID == "" || !strings.Contains(me, pl.ApproverID) {
 		t.Errorf("apply payload = %s; want the plan and the approving admin (%s)", job.Payload, me)
 	}

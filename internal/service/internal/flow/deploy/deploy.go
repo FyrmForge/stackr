@@ -104,6 +104,11 @@ type Flow struct {
 	// "". nil = a missing build is an error.
 	Build func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) (string, error)
 
+	// Head is the tip of git tile t's branch (its default when it names
+	// none): the branch and its commit. nil = a git tile must be built by a
+	// push before it deploys.
+	Head func(ctx context.Context, t store.Tile) (branch, sha string, err error)
+
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
 	// Engines is flow/managed (the deploy -> managed edge): a managed
@@ -134,6 +139,10 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 		return err
 	}
 	ref, pinned, err := f.Current(ctx, t, e)
+	if _, conflict := errs.IsConflict(err); conflict && f.Head != nil && f.Build != nil && t.GitURL != "" && !tile.Pulls(t) {
+		// A git tile nothing has built yet: its first deploy builds the head.
+		ref, pinned, err = f.firstBuild(ctx, t, e, log)
+	}
 	if err != nil {
 		return err
 	}
@@ -164,6 +173,30 @@ func (f *Flow) Redeploy(ctx context.Context, tileID string, log io.Writer, swap 
 	}
 	_, err = f.Envs.SetRelease(ctx, e, r.ID)
 	return err
+}
+
+// firstBuild builds the head of git tile t's branch, pins it in a new release
+// of e and returns the image's ref.
+func (f *Flow) firstBuild(ctx context.Context, t store.Tile, e store.Environment, log io.Writer) (string, bool, error) {
+	branch, sha, err := f.Head(ctx, t)
+	if err != nil {
+		return "", false, fmt.Errorf("head of %s: %w", t.GitURL, err)
+	}
+	logf(log, "Building %s at %s.\n", branch, sha7(sha))
+	id, err := f.Build(ctx, t, sha, "", log)
+	if err != nil {
+		return "", false, err
+	}
+	r, err := f.Releases.Derive(ctx, t.StackID, deref(e.ReleaseID), "deploy",
+		release.Pin{Slug: t.Slug, Repo: t.GitURL, Branch: branch, CommitSHA: sha, ImageID: &id})
+	if err != nil {
+		return "", false, err
+	}
+	if _, err = f.Envs.SetRelease(ctx, e, r.ID); err != nil {
+		return "", false, err
+	}
+	im, err := f.Images.Get(ctx, id)
+	return im.Ref, true, err
 }
 
 // Rebuild builds the commit the env's release pins for git tile tileID

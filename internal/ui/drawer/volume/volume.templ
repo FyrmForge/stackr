@@ -186,7 +186,16 @@ templ Backups(b BackupsView) {
 						}
 					</select>
 				</label>
+				<label class="block">
+					<span class="block text-xs text-rw-faint mb-1">While it runs</span>
+					<select name="mode" class="input" aria-describedby="backup-mode-help">
+						<option value="pause">Pause tiles</option>
+						<option value="stop">Stop tiles</option>
+						<option value="live">Leave running</option>
+					</select>
+				</label>
 			</div>
+			<p id="backup-mode-help" class="text-xs text-rw-faint" data-hint>Pausing or stopping holds the tiles on this volume until the copy is done.</p>
 			<button type="submit" class="btn btn-primary btn-sm">Back up now</button>
 		</form>
 		}

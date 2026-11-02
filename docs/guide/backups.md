@@ -56,7 +56,7 @@ The recovery key can also come on stdin with `--key-stdin`, or at the prompt in 
 
 After a restore the key you restored with stays the box's recovery key, so it opens every new backup too. The key the fresh install printed is dropped. A box that rotated its key after the archive was made keeps its newer one, and restore says so. Restore also brings back the old install's id, so new backups land under the same `_panel/<install id>/` prefix and old scheduled ones keep being pruned. It removes a leftover `master.key.next`.
 
-The old database is kept as `stackr.db.before-restore-<time>`. Workers reconnect by themselves and keep their tiles running.
+The old database is kept as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
 
 On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, managed databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
 

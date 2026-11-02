@@ -123,7 +123,10 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 		!errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	_ = os.Remove(db + "-wal")
+	// The -wal holds commits the .db file lacks: it moves with its copy.
+	if err := os.Rename(db+"-wal", replaced+"-wal"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	_ = os.Remove(db + "-shm")
 	for _, m := range installspec.PanelState {
 		if !m.OnDisk {
