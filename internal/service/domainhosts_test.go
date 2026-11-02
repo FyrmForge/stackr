@@ -12,6 +12,7 @@ func TestHostsOverlap(t *testing.T) {
 		{"x.a.io", "*.a.io", true},
 		{"*.a.io", "a.io", false},
 		{"x.a.io", "y.a.io", false},
+		{"*.a.io", "x.y.a.io", false},
 		{"*.a.io", "*.b.io", false},
 	} {
 		if got := hostsOverlap(c.a, c.b); got != c.want {

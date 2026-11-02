@@ -436,7 +436,10 @@ func (o *Orchestrator) checkSquat(ctx context.Context, t Tile, host string) erro
 // hostsOverlap says whether two hosts can answer the same name: equal, or one
 // a wildcard covering the other.
 func hostsOverlap(a, b string) bool {
-	under := func(w, h string) bool { return strings.HasPrefix(w, "*.") && strings.HasSuffix(h, w[1:]) }
+	under := func(w, h string) bool { // a wildcard covers one label
+		l, ok := strings.CutSuffix(h, w[1:])
+		return strings.HasPrefix(w, "*.") && ok && l != "" && !strings.Contains(l, ".")
+	}
 	return a == b || under(a, b) || under(b, a)
 }
 
