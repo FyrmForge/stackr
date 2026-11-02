@@ -12,7 +12,7 @@ func TestSetSettingReloadsSchedule(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	has := func(name string) bool { return slices.Contains(w.orch.sched.Names(), name) }
-	if !has("panel-backup") || !has("orphans") || has("cleanup") {
+	if !has("panel-backup") || !has("orphans") || !has("cleanup") {
 		t.Fatalf("defaults: %v", w.orch.sched.Names())
 	}
 	if err := w.orch.SetSetting(ctx, "panel_backup_schedule", "off"); err == nil {
@@ -32,6 +32,12 @@ func TestSetSettingReloadsSchedule(t *testing.T) {
 	}
 	if err := w.orch.SetSetting(ctx, "orphans_enabled", ""); err != nil {
 		t.Fatal(err)
+	}
+	if err := w.orch.SetSetting(ctx, "cleanup_enabled", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if has("cleanup") {
+		t.Errorf("cleanup_enabled=false did not reload: %v", w.orch.sched.Names())
 	}
 	if err := w.orch.SetSetting(ctx, "cleanup_enabled", "true"); err != nil {
 		t.Fatal(err)

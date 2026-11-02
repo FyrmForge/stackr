@@ -99,13 +99,16 @@ func settingsDrivers() Drivers {
 // The knobs drive the entries: defaults, an override, cleanup off, off, a bad line.
 func TestSettingEntries(t *testing.T) {
 	d := settingsDrivers()
-	// Defaults: cleanup_enabled is false, so no cleanup entry.
+	// Defaults: cleanup_enabled is true, so cleanup runs at its default time.
 	got := specs(Entries(d, nil, nil, nil))
 	if got["orphans"] != "@daily" || got["panel-backup"] != "0 3 * * *" || got["image-watch"] == "" {
 		t.Errorf("defaults = %v", got)
 	}
-	if _, ok := got["cleanup"]; ok {
-		t.Errorf("cleanup scheduled while disabled: %v", got)
+	if _, ok := got["cleanup"]; !ok {
+		t.Errorf("cleanup not scheduled by default: %v", got)
+	}
+	if _, ok := specs(Entries(d, nil, nil, map[string]string{"cleanup_enabled": "false"}))["cleanup"]; ok {
+		t.Error("cleanup scheduled while disabled")
 	}
 	// Overrides, cleanup on at its default time.
 	got = specs(Entries(d, nil, nil, map[string]string{

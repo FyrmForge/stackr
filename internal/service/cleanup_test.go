@@ -178,6 +178,7 @@ func TestCleanupDepthIsPerEnv(t *testing.T) {
 
 func TestCleanupOffDoesNothing(t *testing.T) {
 	w := newWorld(t)
+	must(t, w.orch.SetSetting(context.Background(), "cleanup_enabled", "false"))
 	w.builtImage(t, "stkr/gone:1")
 	before := len(w.fake.Calls())
 	if log := w.cleanup(t); log != "" {

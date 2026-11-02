@@ -321,7 +321,7 @@ level-less k/v table (old `keys.go`), which the catalogue swallows.
 | `upgrade_archive` | string | `""` | flat | v1 |
 | `image_check_interval` | int min | `""`→5, `"0"`→off | flat | v1 — the janitor ticks every minute, which is what makes the cadence runtime-changeable |
 | `image_check_last` | RFC3339 | `""` | flat | v1 |
-| `cleanup_enabled` | bool | off | flat | v1 — the nightly docker/registry sweep |
+| `cleanup_enabled` | bool | on | flat | v1 — the nightly docker/registry sweep |
 | `install_seeded` | bool | `""` | flat | v1 — set once; after first boot the panel owns the installer's answers, and a value the operator removed must not come back on the next restart |
 | `prplan.<stack>.<pr>` | markdown | `""` | flat | later — PR comments |
 

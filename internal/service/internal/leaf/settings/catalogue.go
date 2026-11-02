@@ -207,7 +207,7 @@ var Catalogue = []Knob{
 		Key:     "cleanup_enabled",
 		Label:   "Nightly cleanup",
 		Type:    TBool,
-		Default: "false",
+		Default: "true",
 		Scopes:  Flat,
 		Desc:    "nightly image and build cache sweep",
 	},
