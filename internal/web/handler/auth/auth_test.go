@@ -201,7 +201,7 @@ func TestLoginRateLimit(t *testing.T) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("HX-Request", "true")
 		req.Header.Set("X-CSRF-Token", "tok") // as webtest's send does
-		req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
+		req.AddCookie(&http.Cookie{Name: "__Host-csrf", Value: "tok"})
 		req.RemoteAddr = ip + ":1234"
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, req)
@@ -234,7 +234,7 @@ func TestLoginRateLimit(t *testing.T) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("HX-Request", "true")
 		req.Header.Set("X-CSRF-Token", "tok")
-		req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
+		req.AddCookie(&http.Cookie{Name: "__Host-csrf", Value: "tok"})
 		req.RemoteAddr = "203.0.113.50:1234"
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, req)
