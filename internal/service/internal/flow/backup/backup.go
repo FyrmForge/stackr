@@ -463,8 +463,23 @@ func verify(f *os.File, isTar bool) error {
 	}
 }
 
-// Orphans backs every expired orphan up to dest, then deletes it. A volume
-// whose backup fails is kept for the next run.
+// offBox is the destination the volume's scheduled backups last went to when
+// that is not the local disk (its schedules are gone by now, its runs are
+// not); ok is false when there is none.
+func (f *Flow) offBox(ctx context.Context, v store.Volume) (store.BackupDest, bool) {
+	rs, _ := f.Backups.Runs(ctx, v.ID)
+	for _, r := range rs {
+		if r.Trigger == "schedule" && r.Status == bk.Done {
+			d, err := f.Backups.Get(ctx, r.DestID)
+			return d, err == nil && d.Kind != bk.Local
+		}
+	}
+	return store.BackupDest{}, false
+}
+
+// Orphans backs every expired orphan up, then deletes it: to the destination
+// its schedule used when that was off-box (dest if that fails), else to
+// dest. A volume whose backup fails is kept for the next run.
 func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.BackupDest, log io.Writer) error {
 	vs, err := f.Volumes.Expired(ctx, retention, time.Now())
 	if err != nil {
@@ -473,14 +488,18 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 	var failed []error
 	for _, v := range vs {
 		if f.Volumes.HoldsData(ctx, v) {
-			sp := Spec{
-				Dest:    dest,
-				Prefix:  bk.OrphanPrefix(v.ID),
-				Trigger: "orphan",
-				Mode:    bk.Live,
-				Keep:    1,
+			dests := []store.BackupDest{dest}
+			if off, ok := f.offBox(ctx, v); ok {
+				dests = []store.BackupDest{off, dest}
 			}
-			if _, err := f.Backup(ctx, Subject{Volume: v}, sp, log); err != nil {
+			var err error
+			for _, d := range dests {
+				sp := Spec{Dest: d, Prefix: bk.OrphanPrefix(v.ID), Trigger: "orphan", Mode: bk.Live, Keep: 1}
+				if _, err = f.Backup(ctx, Subject{Volume: v}, sp, log); err == nil {
+					break
+				}
+			}
+			if err != nil {
 				failed = append(failed, fmt.Errorf("%s: %w", v.Slug, err))
 				continue
 			}

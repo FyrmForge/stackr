@@ -166,8 +166,12 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "?drawer=node:" + id, "Open node", nodes[id]
 	}
 	switch kind {
-	case "backup": // backup.panel, backup.schedule.<id>, backup.stale.<volume id>
-		if vid, stale := strings.CutPrefix(rest, "stale."); stale {
+	case "backup": // backup.panel, backup.schedule.<id>, backup.stale.<volume id>, backup.none.<volume id>
+		vid, stale := strings.CutPrefix(rest, "stale.")
+		if !stale {
+			vid, stale = strings.CutPrefix(rest, "none.")
+		}
+		if stale {
 			v, err := o.volumes.Get(ctx, vid)
 			if errors.Is(err, errs.ErrNotFound) {
 				return "", "", false
