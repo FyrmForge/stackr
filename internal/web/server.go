@@ -51,15 +51,6 @@ func CookieSecure(baseURL string) bool {
 	return !strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseURL)), "http://")
 }
 
-// CSRFCookie is the CSRF cookie's name: __Host- (Secure, Path=/, no Domain,
-// all true of it) wherever cookies are Secure, plain on http dev.
-func CSRFCookie(baseURL string) string {
-	if CookieSecure(baseURL) {
-		return "__Host-csrf"
-	}
-	return "csrf"
-}
-
 // RegisterRoutes registers all web route handlers on the server.
 func RegisterRoutes(srv *server.Server, deps *Deps) {
 	e := srv.Echo()
@@ -95,7 +86,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: CookieSecure(deps.BaseURL)}))
 	// The token rides in the hx-headers header only: a form lookup would
 	// parse a multipart body (a dump upload) before the route's auth.
-	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{CookieName: CSRFCookie(deps.BaseURL), Secure: CookieSecure(deps.BaseURL), TokenLookup: "header:X-CSRF-Token"}))
+	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: CookieSecure(deps.BaseURL), TokenLookup: "header:X-CSRF-Token"}))
 	// The create-tile form can carry a dump; the handler reads it after auth.
 	e.Pre(middleware.LiftBodyLimit("/-/new-tile"))
 

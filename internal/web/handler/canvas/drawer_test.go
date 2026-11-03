@@ -52,7 +52,7 @@ func (b browser) do(t *testing.T, method, path string, form url.Values, htmx boo
 		req.Header.Set("HX-Request", "true")
 	}
 	req.Header.Set("X-CSRF-Token", "tok")
-	req.AddCookie(&http.Cookie{Name: "__Host-csrf", Value: "tok"})
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
 	req.AddCookie(&http.Cookie{Name: b.env.Orch.Sessions().CookieName(), Value: b.session})
 	rec := httptest.NewRecorder()
 	b.h.ServeHTTP(rec, req)
