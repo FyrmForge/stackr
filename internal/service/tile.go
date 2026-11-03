@@ -593,10 +593,14 @@ func (o *Orchestrator) redeployIfRunning(ctx context.Context, t Tile) (*Job, err
 
 // Redeploy names one tile a change queued a deploy for.
 type Redeploy struct {
-	Env  string `json:"env"`
-	Tile string `json:"tile"`
-	Job  string `json:"job"`
+	Stack string `json:"stack"`
+	Env   string `json:"env"`
+	Tile  string `json:"tile"`
+	Job   string `json:"job"`
 }
+
+// Path is stack/env/tile, unambiguous across stacks.
+func (r Redeploy) Path() string { return r.Stack + "/" + r.Env + "/" + r.Tile }
 
 // redeployRunning: a param or settings change reaches every running tile
 // it may touch, on the image its env's release pins (B34).
@@ -620,7 +624,11 @@ func (o *Orchestrator) redeploy(ctx context.Context, ts []Tile) ([]Redeploy, err
 		if err != nil {
 			return out, err
 		}
-		out = append(out, Redeploy{Env: e.Slug, Tile: t.Slug, Job: j.ID})
+		st, err := o.stacks.Get(ctx, t.StackID)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, Redeploy{Stack: st.Slug, Env: e.Slug, Tile: t.Slug, Job: j.ID})
 		noteRedeploy(ctx, out[len(out)-1])
 	}
 	return out, nil

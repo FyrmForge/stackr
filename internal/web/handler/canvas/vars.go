@@ -247,7 +247,7 @@ func (h *handler) DeleteVar(c echo.Context) error {
 func saved(note string, rs []service.Redeploy) string {
 	var names []string
 	for _, r := range rs {
-		if n := r.Env + "/" + r.Tile; !slices.Contains(names, n) {
+		if n := r.Path(); !slices.Contains(names, n) {
 			names = append(names, n)
 		}
 	}

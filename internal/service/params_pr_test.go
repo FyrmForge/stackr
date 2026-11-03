@@ -58,7 +58,7 @@ func (w *world) val(t *testing.T, s ParamScope) map[string]string {
 func names(rs []Redeploy) string {
 	var out []string
 	for _, r := range rs {
-		out = append(out, r.Env+"/"+r.Tile)
+		out = append(out, r.Path())
 	}
 	return strings.Join(out, " ")
 }
@@ -94,7 +94,7 @@ func TestPREnvParamsCopy(t *testing.T) {
 	if got := w.val(t, own); got["c.mode"] != "sandbox" || got["c.tok"] != "secret:t2" {
 		t.Errorf("after the pr secret changed: %v", got)
 	}
-	if names(rs) != "pr-1/web" {
+	if names(rs) != "shop/pr-1/web" {
 		t.Errorf("redeploys = %q, want only the reader of the secret", names(rs))
 	}
 
@@ -119,8 +119,8 @@ func TestPromoteParamWriteRedeploysOtherEnvs(t *testing.T) {
 		return w.orch.params.Set(ctx, dev, ParamEntry{Collection: "c", Name: "n", Kind: "param", Value: "v"})
 	})
 	must(t, err)
-	if names(rs) != "prod/far" {
-		t.Errorf("redeploys = %q, want prod/far only", names(rs))
+	if names(rs) != "shop/prod/far" {
+		t.Errorf("redeploys = %q, want shop/prod/far only", names(rs))
 	}
 	if err := w.orch.writeParams(ctx, dev, w.env, func() error {
 		return w.orch.params.Set(ctx, dev, ParamEntry{Collection: "c", Name: "n", Kind: "param", Value: "w"})

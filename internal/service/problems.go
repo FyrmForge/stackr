@@ -185,7 +185,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		}
 		if stale {
 			v, err := o.volumes.Get(ctx, vid)
-			if errors.Is(err, errs.ErrNotFound) {
+			if errors.Is(err, errs.ErrNotFound) || (err == nil && v.OrphanedAt != nil) {
 				return "", "", false
 			}
 			return o.volumeLink(ctx, v)
