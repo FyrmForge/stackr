@@ -16,7 +16,7 @@ import (
 // keeps its since; the next good run clears it. The panel's the same.
 func TestBackupFailureOpensProblem(t *testing.T) {
 	ctx := context.Background()
-	w := newWorld(t)
+	w := quietWorld(t)
 	o := w.orch
 	backupSchedule(t, w, "s1")
 	for _, tt := range []struct{ key, subject, want, link string }{
@@ -49,7 +49,7 @@ func TestBackupFailureOpensProblem(t *testing.T) {
 // backups only. A crash loop opens the app the same way.
 func TestAppProblemsOpenTileDrawer(t *testing.T) {
 	ctx := context.Background()
-	w := newWorld(t)
+	w := quietWorld(t)
 	backupSchedule(t, w, "s1")
 	tl := w.tile(t, "web", false)
 	tl.Volumes = "data-s1:/data"
@@ -89,7 +89,7 @@ func hasRow(t *testing.T, o *Orchestrator, key string) bool {
 // the banner next reads it.
 func TestBackupProblemGoesWithItsSchedule(t *testing.T) {
 	ctx := context.Background()
-	w := newWorld(t)
+	w := quietWorld(t)
 	o := w.orch
 	backupSchedule(t, w, "s1")
 	backupSchedule(t, w, "s2")
@@ -158,7 +158,7 @@ func TestObserveOffClearsItsProblem(t *testing.T) {
 // oldest first; a row about a node that is gone is left out.
 func TestProblemsOrder(t *testing.T) {
 	ctx := context.Background()
-	o := newWorld(t).orch
+	o := quietWorld(t).orch
 	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w1", Name: "h3", Slug: "h3", Role: node.Worker, Tags: "[]",
 		Status: node.StatusOffline, CreatedAt: time.Now()}))
 	o.openProblem(ctx, "alert.disk.w1", SevWarning, "h3 is low on disk.")
@@ -192,7 +192,7 @@ func TestProblemsOrder(t *testing.T) {
 // A failed deploy with the old container still up is no banner line.
 func TestFailedDeployOfDownTileOpensProblem(t *testing.T) {
 	ctx := context.Background()
-	w := newWorld(t)
+	w := quietWorld(t)
 	down := w.tile(t, "web", false)
 	up := w.tile(t, "api", true)
 	w.fake.Err = map[string]error{"Pull": errors.New("the cluster registry has no such image")}
@@ -219,5 +219,26 @@ func TestFailedDeployOfDownTileOpensProblem(t *testing.T) {
 	}
 	if ps, _ = w.orch.Problems(ctx); len(ps) != 0 {
 		t.Errorf("after a deploy that worked: %+v", ps)
+	}
+}
+
+// quietWorld is newWorld with the boot recovery key saved, so the problems
+// list holds only what a test makes.
+func quietWorld(t *testing.T) *world {
+	w := newWorld(t)
+	must(t, w.orch.ConfirmRecoveryKey())
+	return w
+}
+
+// An unsaved recovery key is a critical problem until it is saved.
+func TestUnsavedRecoveryKeyIsAProblem(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	if ps, _ := w.orch.Problems(ctx); len(ps) != 1 || ps[0].Key != "recovery.unsaved" || ps[0].Severity != SevCritical {
+		t.Fatalf("problems = %+v", ps)
+	}
+	must(t, w.orch.ConfirmRecoveryKey())
+	if ps, _ := w.orch.Problems(ctx); len(ps) != 0 {
+		t.Errorf("problems after saving = %+v", ps)
 	}
 }

@@ -48,6 +48,7 @@ func seedRow(t *testing.T, w *world, state, path string) {
 func TestBootSweepsSeedsAndRepos(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
+	w.orch.gitEnv = []string{} // no connector in this world
 	dir := w.orch.cfg.DataDir
 	tl, err := w.orch.CreateTile(ctx, Tile{
 		StackID: w.stack, EnvironmentID: w.env, Name: "api",
@@ -129,6 +130,7 @@ func TestSeedEndedDropsDump(t *testing.T) {
 func TestDeleteRemovesClones(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
+	w.orch.gitEnv = []string{} // no connector in this world
 	repos := filepath.Join(w.orch.cfg.DataDir, "repos")
 	edge := w.newEnv(t, "edge", "static")
 	var ids []string
