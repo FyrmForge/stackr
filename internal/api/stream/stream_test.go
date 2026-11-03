@@ -35,3 +35,18 @@ func TestStopEndsStreams(t *testing.T) {
 		}
 	}
 }
+
+// A client back with Last-Event-ID resumes the poll at that offset.
+func TestPollResumesFromLastEventID(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Last-Event-ID", "7")
+	c := echo.New().NewContext(r, httptest.NewRecorder())
+	got := int64(-1)
+	_ = Poll(c, func(_ context.Context, off int64) (any, int64, bool, error) {
+		got = off
+		return "x", 9, true, nil
+	})
+	if got != 7 {
+		t.Fatalf("polled from %d, want 7", got)
+	}
+}

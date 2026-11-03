@@ -121,7 +121,7 @@ func (p Panel) share(c echo.Context) error {
 	if all {
 		orgs = nil
 	}
-	_, actErr := p.Orch.ShareConnector(ctx, id, orgs, all)
+	_, actErr := p.Orch.ShareConnector(ctx, middleware.Principal(c), id, orgs, all)
 	k, err := p.Orch.ConnectorAt(ctx, p.Org(c), id)
 	if err != nil {
 		return middleware.HTTPError(err)

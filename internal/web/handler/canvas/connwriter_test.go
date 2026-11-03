@@ -47,7 +47,7 @@ func TestRemoveRefusalLinksUsages(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	srv := s.ServerConnector(t, "main", "sec")
-	if _, err := s.Orch.ShareConnector(ctx, srv, nil, true); err != nil {
+	if _, err := s.Orch.ShareConnector(ctx, nil, srv, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Orch.SetConfigRepo(ctx, s.Tile.Stack, srv, "https://github.com/acme/shop", "main", ""); err != nil {

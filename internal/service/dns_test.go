@@ -101,7 +101,7 @@ func TestDNSConnectorIsOrgs(t *testing.T) {
 			t.Errorf("%s = %v, want not found", name, err)
 		}
 	}
-	if _, err := env.Orch.ShareConnector(ctx, srv.Connector.ID, nil, true); err == nil {
+	if _, err := env.Orch.ShareConnector(ctx, nil, srv.Connector.ID, nil, true); err == nil {
 		t.Error("a DNS connector was shared like a git one")
 	}
 	if _, err := env.Orch.ManageDNSDomain(ctx, &acme, id, "acme.dev", []string{other}); err == nil {

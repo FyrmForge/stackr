@@ -209,3 +209,25 @@ func TestShareVolumeNameIgnoresSecretValue(t *testing.T) {
 		t.Error("another password ref kept the name")
 	}
 }
+
+// A row saved before the options allowlist reads back without the options
+// CheckShare would refuse, so its next edit saves.
+func TestShareOldOptionsReadClean(t *testing.T) {
+	st := storetest.Store(t)
+	l := volume.New(st.Volumes, dockerfake.New()).WithShares(st.Shares)
+	if err := st.Orgs.Create(ctx, store.Org{ID: "o1", Name: "o1", Slug: "o1", EnvColors: "{}", Settings: "{}",
+		CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	old := store.Share{ID: "s1", OrgID: "o1", Slug: "media", Kind: "nfs", Source: "nas:/e", Options: "ro,bind,nfsvers=4,x=/../y", CreatedAt: time.Now()}
+	if err := st.Shares.Create(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	s, err := l.ShareOf(ctx, "o1", "media")
+	if err != nil || s.Options != "ro,nfsvers=4" {
+		t.Fatalf("read = %q, %v", s.Options, err)
+	}
+	if _, err := l.UpdateShare(ctx, s, volume.ShareSpec{Kind: s.Kind, Source: s.Source, Options: s.Options}); err != nil {
+		t.Errorf("edit of an old row: %v", err)
+	}
+}

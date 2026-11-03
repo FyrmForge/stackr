@@ -53,6 +53,29 @@ var shareOpts = map[string][]string{
 
 var optValue = regexp.MustCompile(`^[A-Za-z0-9._:-]*$`)
 
+// tidyShare drops, from a row read back, the options CheckShare would refuse
+// (a row older than the allowlist), so it mounts without them and saves
+// cleanly. Every read of a row goes through it: the volume name hashes the
+// options, and the sweeps and the mount must agree on it.
+func tidyShare(s store.Share) store.Share {
+	var keep []string
+	for _, o := range strings.Split(s.Options, ",") {
+		k, v, _ := strings.Cut(o, "=")
+		if o != "" && !strings.ContainsAny(o, " \t\n") && slices.Contains(shareOpts[s.Kind], k) && optValue.MatchString(v) {
+			keep = append(keep, o)
+		}
+	}
+	s.Options = strings.Join(keep, ",")
+	return s
+}
+
+func tidyShares(ss []store.Share, err error) ([]store.Share, error) {
+	for i := range ss {
+		ss[i] = tidyShare(ss[i])
+	}
+	return ss, err
+}
+
 // ShareSpec is what a caller says about a share. User and PasswordRef are
 // ${{ org.params }} refs (a plain User is fine), never a password.
 type ShareSpec struct {
@@ -116,7 +139,7 @@ func CheckShare(s ShareSpec) error {
 }
 
 func (l *Leaf) Shares(ctx context.Context, orgID string) ([]store.Share, error) {
-	return l.shares.ListByOrg(ctx, orgID)
+	return tidyShares(l.shares.ListByOrg(ctx, orgID))
 }
 
 // ShareOf is one of the org's shares by slug or id; another org's is not
@@ -129,13 +152,14 @@ func (l *Leaf) ShareOf(ctx context.Context, orgID, ref string) (store.Share, err
 			return store.Share{}, errs.ErrNotFound
 		}
 	}
-	return s, err
+	return tidyShare(s), err
 }
 
 // ShareBySlug is one of the org's shares by slug alone: what a tile line
 // names, so an id never stands in for it.
 func (l *Leaf) ShareBySlug(ctx context.Context, orgID, slug string) (store.Share, error) {
-	return l.shares.GetBySlug(ctx, orgID, slug)
+	s, err := l.shares.GetBySlug(ctx, orgID, slug)
+	return tidyShare(s), err
 }
 
 // CreateShare adds a share; the slug is the org's own.
@@ -195,7 +219,7 @@ func (l *Leaf) ReconcileShares(ctx context.Context, usesByOrg map[string][]Share
 	if l.shares == nil {
 		return nil, nil
 	}
-	ss, err := l.shares.ListAll(ctx)
+	ss, err := tidyShares(l.shares.ListAll(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +267,7 @@ func (l *Leaf) SweepShares(ctx context.Context, orgID string, uses []ShareUse) (
 	if ctx, err = l.orController(ctx); err != nil {
 		return nil, err
 	}
-	ss, err := l.shares.ListByOrg(ctx, orgID)
+	ss, err := tidyShares(l.shares.ListByOrg(ctx, orgID))
 	if err != nil {
 		return nil, err
 	}
