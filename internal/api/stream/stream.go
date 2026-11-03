@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,11 @@ func start(c echo.Context) {
 // streams send rendered templ for htmx to swap. Everything else is JSON.
 type HTML string
 
-func event(c echo.Context, name string, v any) error {
+func event(c echo.Context, name string, v any) error { return eventID(c, name, "", v) }
+
+// eventID is event with an SSE id: line, so a reconnecting client sends it
+// back as Last-Event-ID.
+func eventID(c echo.Context, name, id string, v any) error {
 	b, err := json.Marshal(v)
 	if h, ok := v.(HTML); ok {
 		b, err = []byte(strings.ReplaceAll(string(h), "\n", "\ndata: ")), nil
@@ -73,7 +78,10 @@ func event(c echo.Context, name string, v any) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(c.Response(), "event: %s\ndata: %s\n\n", name, b); err != nil {
+	if id != "" {
+		id = "id: " + id + "\n"
+	}
+	if _, err := fmt.Fprintf(c.Response(), "%sevent: %s\ndata: %s\n\n", id, name, b); err != nil {
 		return err
 	}
 	c.Response().Flush()
@@ -97,19 +105,34 @@ func ping(c echo.Context) error {
 
 // Poll follows something read by offset: poll returns what to send, the
 // next offset and whether it has ended. An "update" event goes out whenever
-// the offset moves, and once more at the end ("end").
+// the offset moves, and once more at the end ("end"). Each update carries
+// its offset as the SSE id; a client back with Last-Event-ID resumes there.
 func Poll(c echo.Context, poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error)) error {
-	return PollAs(c, "update", poll)
+	return pollAs(c, "update", true, poll)
 }
 
-// PollAs is Poll with the moving event named name.
+// PollAs is Poll with the moving event named name, and no ids: its offset
+// is a counter, not a place to resume from.
 func PollAs(
 	c echo.Context,
 	name string,
 	poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error),
 ) error {
+	return pollAs(c, name, false, poll)
+}
+
+func pollAs(
+	c echo.Context,
+	name string,
+	resumable bool,
+	poll func(ctx context.Context, offset int64) (v any, next int64, end bool, err error),
+) error {
 	ctx, gone := detach(c)
-	v, next, end, err := poll(ctx, 0)
+	var from int64
+	if resumable {
+		from, _ = strconv.ParseInt(c.Request().Header.Get("Last-Event-ID"), 10, 64)
+	}
+	v, next, end, err := poll(ctx, max(from, 0))
 	if err != nil {
 		return err // before any byte: the JSON error path still applies
 	}
@@ -121,7 +144,11 @@ func PollAs(
 		case end:
 			return event(c, "end", v)
 		case next != offset:
-			if err := event(c, name, v); err != nil {
+			id := ""
+			if resumable {
+				id = strconv.FormatInt(next, 10)
+			}
+			if err := eventID(c, name, id, v); err != nil {
 				return nil
 			}
 			offset, lastWrite = next, time.Now()
