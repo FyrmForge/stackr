@@ -5253,11 +5253,15 @@
           "job": {
             "type": "string"
           },
+          "stack": {
+            "type": "string"
+          },
           "tile": {
             "type": "string"
           }
         },
         "required": [
+          "stack",
           "env",
           "tile",
           "job"
