@@ -8,6 +8,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 type (
@@ -52,9 +53,6 @@ type (
 		Branch string `json:"branch"`
 		Auto   bool   `json:"auto"`
 	}
-	OrderIn struct {
-		IDs []string `json:"ids"`
-	} // bottom rung first
 )
 
 func stackID(c echo.Context) string {
@@ -255,7 +253,25 @@ func (h *H) CreateEnv() Endpoint {
 }
 
 func (h *H) ReorderEnvs() Endpoint {
-	return Done(func(c echo.Context, in OrderIn) error { return h.Orch.ReorderEnvs(rc(c), stackID(c), in.IDs) })
+	return Done(func(c echo.Context, in SlugsIn) error {
+		envs, err := h.Orch.Envs(rc(c), stackID(c))
+		if err != nil {
+			return err
+		}
+		byslug := make(map[string]string, len(envs))
+		for _, e := range envs {
+			byslug[e.Slug] = e.ID
+		}
+		ids := make([]string, 0, len(in.Slugs))
+		for _, s := range in.Slugs {
+			id, ok := byslug[s]
+			if !ok {
+				return errs.Invalidf("slugs", "no environment %s", s)
+			}
+			ids = append(ids, id)
+		}
+		return h.Orch.ReorderEnvs(rc(c), stackID(c), ids)
+	})
 }
 
 func (h *H) GetEnv() Endpoint {

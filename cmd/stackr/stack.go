@@ -494,15 +494,15 @@ func (a *app) envs() *cobra.Command {
 		a.settingsCmd("env.get,env.settings", "Show or change the environment's settings defaults", atEnv),
 		leaf("reorder <env>...", "env.list,env.reorder", "Set the promote order, bottom rung first", atLeast(1),
 			a.at(atStack, func(_ *cobra.Command, p string, args []string) error {
-				ids := make([]string, 0, len(args))
+				slugs := make([]string, 0, len(args))
 				for _, n := range args {
 					e, err := a.find(p+"/envs", "environment", n, "slug", "name", "id")
 					if err != nil {
 						return err
 					}
-					ids = append(ids, cell(e["id"]))
+					slugs = append(slugs, cell(e["slug"]))
 				}
-				_, err := a.call(PUT, p+"/envs-order", map[string]any{"ids": ids})
+				_, err := a.call(PUT, p+"/envs-order", map[string]any{"slugs": slugs})
 				return err
 			})),
 		leaf("rm [env]", "env.delete", "Delete the environment", upTo(1),

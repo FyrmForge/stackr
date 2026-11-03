@@ -4532,20 +4532,6 @@
         ],
         "type": "object"
       },
-      "OrderIn": {
-        "properties": {
-          "ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "ids"
-        ],
-        "type": "object"
-      },
       "Org": {
         "properties": {
           "avatar_path": {
@@ -15429,14 +15415,17 @@
             "in": "query",
             "name": "state",
             "schema": {
-              "type": "string"
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           {
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -17538,7 +17527,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OrderIn"
+                "$ref": "#/components/schemas/SlugsIn"
               }
             }
           },
@@ -18104,14 +18093,17 @@
             "in": "query",
             "name": "state",
             "schema": {
-              "type": "string"
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           {
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
@@ -23267,14 +23259,17 @@
             "in": "query",
             "name": "state",
             "schema": {
-              "type": "string"
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           {
             "in": "query",
             "name": "limit",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ],
