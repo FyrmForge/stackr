@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,8 +49,8 @@ type ProxyDocker interface {
 	Run(ctx context.Context, spec docker.ContainerSpec) (string, error)
 }
 
-// Upgradable is false for dev builds: no release to compare, no image of
-// their own to go back to. Checked by every verb, so no path reaches a swap.
+// Upgradable is false for a build with no release tag ("dev"): no release to
+// compare, no image of its own to go back to. Checked by every verb, so no path reaches a swap.
 func (f *Flow) Upgradable() bool { return parseTag(f.Version) != nil }
 
 // Check asks GitHub for the latest release tag. The caller stores it
@@ -83,7 +84,8 @@ func (f *Flow) Check(ctx context.Context) (string, error) {
 	if err := json.NewDecoder(res.Body).Decode(&rel); err != nil {
 		return "", fmt.Errorf("check for updates: %w", err)
 	}
-	if parseTag(rel.TagName) == nil {
+	// A dev tag is offered only to a build already on the dev channel.
+	if parseTag(rel.TagName) == nil || isDevTag(rel.TagName) && !isDevTag(f.Version) {
 		return "", fmt.Errorf("check for updates: unexpected release tag %q", rel.TagName)
 	}
 	return rel.TagName, nil
@@ -233,14 +235,21 @@ func (f *Flow) rollback(ctx context.Context, oldID, name string, cause error) er
 // ImageRef maps a release tag (v0.1.1) to its image, as the installer does.
 func ImageRef(tag string) string { return installspec.Image(tag) }
 
-// parseTag reads vMAJOR.MINOR.PATCH, nil for anything else.
+// parseTag reads vMAJOR.MINOR.PATCH or a rig build vMAJOR.MINOR.PATCH-dev.N,
+// nil for anything else. The fourth field ranks a dev build below its
+// release (v0.8.10-dev.2 < v0.8.10) and above the release before it.
 func parseTag(tag string) []int {
-	parts := strings.Split(strings.TrimPrefix(tag, "v"), ".")
+	core, dev, isDev := strings.Cut(strings.TrimPrefix(tag, "v"), "-dev.")
+	parts := strings.Split(core, ".")
 	if !strings.HasPrefix(tag, "v") || len(parts) != 3 {
 		return nil
 	}
-	out := make([]int, 3)
-	for i, p := range parts {
+	out := make([]int, 4)
+	out[3] = math.MaxInt
+	for i, p := range append(parts, dev) {
+		if i == 3 && !isDev {
+			break
+		}
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 {
 			return nil
@@ -249,6 +258,8 @@ func parseTag(tag string) []int {
 	}
 	return out
 }
+
+func isDevTag(tag string) bool { return strings.Contains(tag, "-dev.") }
 
 // Newer: tag a is a later release than b, field by field ("v0.10.0" >
 // "v0.9.0" is what a string compare gets wrong).
