@@ -58,6 +58,7 @@ func (o *Orchestrator) proxyConfigs(ctx context.Context) (map[string]json.RawMes
 		IPv4Only:       !o.ipv6On(ctx),
 		PanelHost:      get("panel_domain"),
 		PanelUpstream:  o.cfg.PanelUpstream,
+		PanelAliases:   o.panelAliases(ctx),
 		TrustedProxies: splitList(get("trusted_proxies")),
 		Custom:         get("proxy_custom"),
 	}

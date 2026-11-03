@@ -143,3 +143,21 @@ func TestCustomHostRedirectsOnPlain(t *testing.T) {
 		t.Errorf("no :80 redirect for the custom host:\n%s", cfg)
 	}
 }
+
+// An earlier panel host redirects to the current one, unless a tile took it.
+func TestPanelAliasRedirects(t *testing.T) {
+	in := install
+	in.PanelHost, in.PanelUpstream = "panel.example.com", "stackrd:8080"
+	in.PanelAliases = []string{"old.example.com", "app.example.com"}
+	cfg, err := domain.Build(in, one(row("app.example.com", domain.Extras{})), nil, expand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(cfg)
+	if !strings.Contains(s, `"https://panel.example.com{http.request.uri}"`) || !strings.Contains(s, `"old.example.com"`) {
+		t.Errorf("no redirect for the old panel host:\n%s", s)
+	}
+	if strings.Count(s, `"https://panel.example.com{http.request.uri}"`) != 2 { // old host on https and http; the tile host keeps its own route
+		t.Errorf("redirects to the panel:\n%s", s)
+	}
+}
