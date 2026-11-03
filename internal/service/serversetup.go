@@ -96,6 +96,14 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 	if ms := o.managedDomains(ctx); len(ms) > 0 {
 		certs.Detail = "wildcards and DNS records for " + strings.Join(ms, ", ")
 	}
+	switch failing, _ := o.store.Settings.ListPrefix(ctx, problemPrefix+"certfail."); {
+	case o.cfg.TLSOff:
+		certs.State, certs.Detail = "off", "HTTPS is off on this install"
+	case l.State == "skipped" && len(o.managedDomains(ctx)) == 0:
+		certs.State, certs.Detail = "skipped", "no domain yet"
+	case len(failing) > 0:
+		certs.State, certs.Detail = "failing", plural(len(failing), "certificate")+" not issued"
+	}
 	out = append(out, l, certs)
 
 	cs, err := o.conns.ListServer(ctx)

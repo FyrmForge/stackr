@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -123,6 +126,15 @@ func (o *Orchestrator) Problems(ctx context.Context) ([]Problem, error) {
 			p.Link, p.LinkText, _ = o.problemLink(ctx, p.Key, nodes)
 			out = append(out, p)
 		}
+	}
+	if _, unsaved := o.RecoveryStatus(); unsaved {
+		since := time.Now().UTC()
+		if fi, err := os.Stat(filepath.Join(o.cfg.DataDir, installspec.RecoveryPendingFile)); err == nil {
+			since = fi.ModTime().UTC()
+		}
+		out = append(out, Problem{Key: "recovery.unsaved", Severity: SevCritical, Since: since,
+			Message: "The recovery key is not saved. Without it the panel backups cannot be opened.",
+			Link:    "/-/admin/backups", LinkText: "Open backups"})
 	}
 	rows, err := o.store.Settings.ListPrefix(ctx, problemPrefix)
 	if err != nil {

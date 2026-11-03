@@ -447,7 +447,7 @@ func (h *handler) serverMintNode(c echo.Context) error {
 	return h.answerNodes(c, &admin.AddNodeView{
 		Step: 2, Name: out.NodeName, Command: out.OneLine, TwoStep: out.TwoStep,
 		Expires: "in " + strconv.Itoa(int(time.Until(out.ExpiresAt).Round(time.Minute).Minutes())) + " minutes",
-		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName),
+		Poll:    nodesBase + "/add/poll?name=" + url.QueryEscape(out.NodeName) + "&until=" + strconv.FormatInt(out.ExpiresAt.Unix(), 10),
 		Cancel:  nodesBase, Target: "#" + pages.NodesPanelID,
 	}, out.NodeName)
 }
@@ -457,6 +457,10 @@ func (h *handler) serverMintNode(c echo.Context) error {
 func (h *handler) serverPollNode(c echo.Context) error {
 	p, err := h.orch.PendingNodeByName(c.Request().Context(), c.QueryParam("name"))
 	if errors.Is(err, errs.ErrNotFound) {
+		// The join command is dead past its expiry: 286 stops htmx polling.
+		if until, _ := strconv.ParseInt(c.QueryParam("until"), 10, 64); until > 0 && time.Now().Unix() > until {
+			return respond.HTML(c, 286, admin.AddNode(admin.AddNodeView{Step: 2, Name: c.QueryParam("name"), Expired: true, Cancel: nodesBase, Target: "#" + pages.NodesPanelID}))
+		}
 		return c.NoContent(http.StatusNoContent)
 	}
 	if err != nil {

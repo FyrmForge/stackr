@@ -6,6 +6,9 @@ type PageView struct {
 	Domains []PageDomain
 	// Connectors is where a DNS connector is added; "" = no link.
 	Connectors string
+	// Resync is the POST that runs the records sync again, answered into
+	// Target; "" = no button (an org cannot).
+	Resync, Target string
 }
 
 // PageDomain is one managed domain: Scope and Via as the service words
@@ -28,6 +31,9 @@ type PageRecord struct {
 templ Page(v PageView) {
 	<div class="space-y-4 text-sm">
 		<p class="text-xs text-rw-faint">Only records stackr wrote are listed. The rest are at your DNS host.</p>
+		if v.Resync != "" && len(v.Domains) > 0 {
+			<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Resync } hx-target={ v.Target } hx-swap="outerHTML">Sync records now</button>
+		}
 		if len(v.Domains) == 0 {
 			<p class="text-rw-faint">
 				No managed domains yet. Manage one from a DNS connector
