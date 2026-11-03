@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -198,5 +199,41 @@ func TestCleanupPartialError(t *testing.T) {
 	}
 	if _, err := l.Get(ctx, gone.ID); err == nil {
 		t.Error("row of a removed image kept after a partial error")
+	}
+}
+
+type noReserve struct{}
+
+func (noReserve) Reserve(context.Context, string, []netip.Prefix) (netip.Prefix, error) {
+	return netip.Prefix{}, errors.New("unused")
+}
+
+// The node's filter is applied after the builder network exists and before
+// the builder runs; a filter that fails stops the build.
+func TestBuildAppliesFilterFirst(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	var seen []string
+	l := image.New(st.Images, fake).WithSubnets(noReserve{}).WithFilter(func(context.Context) error {
+		for _, c := range fake.Calls() {
+			seen = append(seen, c.Method)
+		}
+		return nil
+	})
+	if _, err := l.Build(ctx, "/src", "Dockerfile", "stkr/a:1", nil, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seen, []string{"EnsureNetwork"}) {
+		t.Errorf("before the filter: %v", seen)
+	}
+	l = image.New(st.Images, fake).WithSubnets(noReserve{}).WithFilter(func(context.Context) error { return errors.New("no") })
+	n := len(fake.Calls())
+	if _, err := l.Build(ctx, "/src", "Dockerfile", "stkr/a:2", nil, io.Discard); err == nil {
+		t.Fatal("build ran past a failed filter")
+	}
+	for _, c := range fake.Calls()[n:] {
+		if c.Method == "EnsureBuilder" || c.Method == "Build" {
+			t.Errorf("ran %s", c)
+		}
 	}
 }

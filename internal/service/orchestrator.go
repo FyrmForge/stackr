@@ -556,7 +556,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.tiers = build("leaf/tier", func() *tier.Leaf { return tier.New(st.Tiers) })
 	orch.tiles = build("leaf/tile", func() *tile.Leaf { return tile.New(st.Tiles, d, o.vip) })
-	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d).WithSubnets(nodes) })
+	orch.images = build("leaf/image", func() *image.Leaf { return image.New(st.Images, d).WithSubnets(nodes).WithFilter(orch.filterBuildNode) })
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
 	orch.volumes = build("leaf/volume", func() *volume.Leaf {
 		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode)

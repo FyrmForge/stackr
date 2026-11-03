@@ -52,7 +52,16 @@ const Builder = "stackr-builder"
 type Leaf struct {
 	images store.ImageStore
 	docker Docker
-	res    docker.Reserver // leaf/node; set by WithSubnets
+	res    docker.Reserver                 // leaf/node; set by WithSubnets
+	filter func(ctx context.Context) error // set by WithFilter
+}
+
+// WithFilter installs f, run once the builder's network is there and before
+// the builder starts: the node's tenant filter must cover the network before
+// any build step runs, not at the next minute tick.
+func (l *Leaf) WithFilter(f func(ctx context.Context) error) *Leaf {
+	l.filter = f
+	return l
 }
 
 // WithSubnets makes the builder's network a block of the cluster pool, so the
@@ -164,6 +173,11 @@ func (l *Leaf) Build(
 	if l.res != nil {
 		if _, err := docker.EnsureReserved(ctx, l.docker, l.res, docker.BuilderNetwork, nil, nil, nil); err != nil {
 			return store.Image{}, err
+		}
+		if l.filter != nil {
+			if err := l.filter(ctx); err != nil {
+				return store.Image{}, fmt.Errorf("apply the network filter before building: %w", err)
+			}
 		}
 	}
 	if err := l.docker.EnsureBuilder(ctx, Builder, 0); err != nil {
