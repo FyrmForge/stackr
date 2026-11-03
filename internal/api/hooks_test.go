@@ -27,6 +27,7 @@ func hookWorld(t *testing.T) (*world, string) {
 			return img, nil
 		}))
 	img = w.env.Image(t, "stkr/acme_shop_web:abc")
+	conn := w.env.Connector(t, w.acme, "whsec") // the tile's host needs one
 	if _, err := w.env.Orch.CreateTile(context.Background(), service.Tile{
 		StackID:       w.tile.Stack,
 		EnvironmentID: w.tile.Env,
@@ -38,7 +39,7 @@ func hookWorld(t *testing.T) (*world, string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return w, w.env.Connector(t, w.acme, "whsec")
+	return w, conn
 }
 
 func (w *world) hook(t *testing.T, conn, event, secret, body string) int {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -99,4 +100,15 @@ func (o *Orchestrator) reachedByRedeploy(ctx context.Context, t Tile) (bool, err
 	}
 	_, ok, err = o.jobRows.LastDone(ctx, t.ID, string(kindDeploy))
 	return ok, err
+}
+
+// CollectRedeploys puts a collector on ctx: after the call, the returned func
+// lists the deploys the change queued.
+func CollectRedeploys(ctx context.Context) (context.Context, func() []Redeploy) {
+	ctx, q := withRedeploys(ctx)
+	return ctx, func() []Redeploy {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return slices.Clone(q.list)
+	}
 }

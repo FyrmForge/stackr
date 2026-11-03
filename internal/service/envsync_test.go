@@ -28,6 +28,7 @@ func newSyncRig(t *testing.T) *syncRig {
 	e := servicetest.New(t)
 	org := e.Org(t, "acme")
 	dev := e.Tile(t, org)
+	e.Connector(t, org, "sec") // git tiles need their host connected
 	st, err := e.Orch.CreateEnv(
 		context.Background(),
 		dev.Stack,

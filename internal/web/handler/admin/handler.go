@@ -69,6 +69,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(b+"/caddy/sync", h.act("domains", func(c echo.Context) (string, *service.Job, error) {
 		return "Proxy config re-pushed.", nil, h.orch.SyncProxy(c.Request().Context())
 	}), a.Require("proxy.admin"))
+	g.POST(b+"/managed-dns/sync", h.act("managed-dns", func(c echo.Context) (string, *service.Job, error) {
+		return "Records synced.", nil, h.orch.SyncProxy(c.Request().Context())
+	}), a.Require("proxy.admin"))
 	g.POST(b+"/backups", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		j, err := h.orch.PanelBackupNow(c.Request().Context(), c.FormValue("dest"))
 		return "Backup queued.", &j, err
@@ -374,7 +377,9 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		return h.connectorsTab(c)
 	case "managed-dns":
 		ds, err := h.orch.ManagedDomains(ctx, nil)
-		return dnsui.Page(connpanel.ManagedPage(ds, ui.Href("connectors"))), err
+		pv := connpanel.ManagedPage(ds, ui.Href("connectors"))
+		pv.Resync, pv.Target = ui.Base+"/managed-dns/sync", ui.Target
+		return dnsui.Page(pv), err
 	case "backups":
 		return h.backupsTab(c, job)
 	case "registry":
@@ -681,7 +686,8 @@ func (h *handler) SaveSettings(c echo.Context) error {
 			return respond.HTML(c, http.StatusOK, comp.SettingsForm(v))
 		}
 	}
-	actErr := h.orch.SetServerSettings(c.Request().Context(), vals)
+	ctx, redeployed := service.CollectRedeploys(c.Request().Context())
+	actErr := h.orch.SetServerSettings(ctx, vals)
 	if _, ok := render.Refused(actErr); actErr != nil && !ok {
 		return middleware.HTTPError(actErr)
 	}
@@ -693,8 +699,12 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	switch {
 	case actErr != nil:
 		status = http.StatusUnprocessableEntity
-	case form == "org-defaults":
-		v.Note = "Saved. A changed limit or protect setting redeploys every running tile."
+	case form == "org-defaults" && len(redeployed()) > 0:
+		var names []string
+		for _, r := range redeployed() {
+			names = append(names, r.Env+"/"+r.Tile)
+		}
+		v.Note = "Saved. Redeploying " + strings.Join(names, ", ") + "."
 	default:
 		v.Note = "Saved."
 	}

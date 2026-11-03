@@ -26,6 +26,8 @@ type VolumeStore interface {
 	Get(ctx context.Context, id string) (Volume, error)
 	ListByScope(ctx context.Context, scopeKind, scopeID string) ([]Volume, error)
 	ListOrphaned(ctx context.Context) ([]Volume, error)
+	// ListLive lists every volume that is not an orphan.
+	ListLive(ctx context.Context) ([]Volume, error)
 	// ListByNode lists the orphans pinned to nodeID.
 	ListByNode(ctx context.Context, nodeID string) ([]Volume, error)
 	Update(ctx context.Context, v Volume) error
@@ -42,6 +44,10 @@ func (s volumes) ListByScope(ctx context.Context, scopeKind, scopeID string) ([]
 
 func (s volumes) ListOrphaned(ctx context.Context) ([]Volume, error) {
 	return s.many(ctx, "orphaned_at IS NOT NULL")
+}
+
+func (s volumes) ListLive(ctx context.Context) ([]Volume, error) {
+	return s.many(ctx, "orphaned_at IS NULL")
 }
 
 func (s volumes) ListByNode(ctx context.Context, nodeID string) ([]Volume, error) {

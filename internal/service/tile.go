@@ -15,6 +15,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -103,6 +104,9 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 	if err := o.checkTileVolumes(ctx, t); err != nil {
 		return Tile{}, err
 	}
+	if err := o.checkTileConnector(ctx, t); err != nil {
+		return Tile{}, err
+	}
 	if t.CPULimit > 0 || t.MemLimitMB > 0 {
 		n, err := o.nodeOfEnvID(ctx, t.EnvironmentID)
 		if err != nil {
@@ -113,6 +117,22 @@ func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
 		}
 	}
 	return o.tiles.Create(ctx, t)
+}
+
+// checkTileConnector refuses a git tile whose host has no connected
+// connector in its org: the deploy would fail on it later.
+func (o *Orchestrator) checkTileConnector(ctx context.Context, t Tile) error {
+	if o.gitEnv != nil || t.GitURL == "" || !tile.Builds(t) {
+		return nil
+	}
+	org, err := o.scopeOrg(ctx, "env", t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	if _, err := o.conns.For(ctx, org, t.GitURL); errors.As(err, &connector.NoConnector{}) {
+		return errs.Invalidf("git_url", "Connect %s under Connectors first.", connector.Host(t.GitURL))
+	}
+	return nil
 }
 
 // envBranch: a building tile in an env built from a branch builds from that

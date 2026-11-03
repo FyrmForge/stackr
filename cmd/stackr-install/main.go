@@ -119,9 +119,8 @@ Flags:
 	}
 
 	// A re-run converges on the saved answers; a flag given must still
-	// match them (checked below). Only a fresh install makes the admin.
-	// ponytail: a fresh run that fails before the admin step leaves a saved
-	// install with no admin; the error says to re-run with --admin-email.
+	// match them (checked below). Only a fresh install makes the admin; so
+	// does a re-run of one that failed before its panel came up.
 	saved, err := installspec.Load(in.DataDir)
 	fresh := err != nil
 	if fresh {
@@ -146,8 +145,13 @@ Flags:
 		}
 	}
 	password := os.Getenv(passwordEnv)
-	needAdmin := fresh || given["admin-email"]
-	if term.IsTerminal(int(os.Stdin.Fd())) && fresh && !*yes {
+	noPanel := false
+	if !fresh && !r.dry {
+		id, _ := panelVersion(ctx)
+		noPanel = id == ""
+	}
+	needAdmin := fresh || noPanel || given["admin-email"]
+	if term.IsTerminal(int(os.Stdin.Fd())) && (fresh || noPanel) && !*yes {
 		a := answers{root: in.Root, panel: in.PanelHost, email: in.Email, proxies: in.Proxies, adminEmail: *adminEmail,
 			https: map[bool]string{true: "Yes", false: "No"}[in.HTTPS]} // a given --https steers the follow-ups
 		summary := func() string { return summaryText(a) }

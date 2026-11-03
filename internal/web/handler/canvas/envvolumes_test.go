@@ -75,3 +75,12 @@ func TestEnvVolumesRow(t *testing.T) {
 		t.Errorf("remove = %d\n%s", rec.Code, b)
 	}
 }
+
+// ?drawer=vars opens the variables grid even where the scope has none yet,
+// so no Variables card is drawn.
+func TestVarsDrawerOpensEmpty(t *testing.T) {
+	s := webtest.New(t)
+	if page := s.DoNoCSRF(t, "GET", "/acme/shop/dev?drawer=vars").Body.String(); !strings.Contains(page, "Environment variables") {
+		t.Errorf("?drawer=vars did not open the grid:\n%s", page)
+	}
+}

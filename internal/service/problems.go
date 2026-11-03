@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -124,6 +127,15 @@ func (o *Orchestrator) Problems(ctx context.Context) ([]Problem, error) {
 			out = append(out, p)
 		}
 	}
+	if _, unsaved := o.RecoveryStatus(); unsaved {
+		since := time.Now().UTC()
+		if fi, err := os.Stat(filepath.Join(o.cfg.DataDir, installspec.RecoveryPendingFile)); err == nil {
+			since = fi.ModTime().UTC()
+		}
+		out = append(out, Problem{Key: "recovery.unsaved", Severity: SevCritical, Since: since,
+			Message: "The recovery key is not saved. Without it the panel backups cannot be opened.",
+			Link:    "/-/admin/backups", LinkText: "Open backups"})
+	}
 	rows, err := o.store.Settings.ListPrefix(ctx, problemPrefix)
 	if err != nil {
 		return nil, err
@@ -166,8 +178,12 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "?drawer=node:" + id, "Open node", nodes[id]
 	}
 	switch kind {
-	case "backup": // backup.panel, backup.schedule.<id>, backup.stale.<volume id>
-		if vid, stale := strings.CutPrefix(rest, "stale."); stale {
+	case "backup": // backup.panel, backup.schedule.<id>, backup.stale.<volume id>, backup.none.<volume id>
+		vid, stale := strings.CutPrefix(rest, "stale.")
+		if !stale {
+			vid, stale = strings.CutPrefix(rest, "none.")
+		}
+		if stale {
 			v, err := o.volumes.Get(ctx, vid)
 			if errors.Is(err, errs.ErrNotFound) {
 				return "", "", false

@@ -213,6 +213,10 @@ func (h *handler) drawer(c echo.Context, v ui.View, id, tab string) (templ.Compo
 	if ok && can(c, cd.s, "org.read") {
 		return h.render(c, cd, cd.frame(tab))
 	}
+	if s := middleware.ScopeOf(c); id == "vars" && s.Org != nil && can(c, s, "org.read") {
+		// a scope with no variables draws no Variables card, but its grid opens
+		return h.render(c, card{kind: "vars", s: s}, card{kind: "vars", s: s}.frame(tab))
+	}
 	var n *ui.Node
 	for i := range v.Nodes {
 		if v.Nodes[i].ID == id {
