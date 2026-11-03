@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -108,6 +110,8 @@ func (l *Leaf) Launch(ctx context.Context, spec docker.ContainerSpec) error {
 		Env:     []string{SpecEnv + "=" + string(body), RetryEnv + "=1"},
 		Labels:  map[string]string{LabelRole: "upgrader"},
 		Volumes: vols,
+		// The gate dials the new panel's listen address, which is the host's.
+		HostNetwork: true,
 		// A helper that dies mid-swap (killed, or the daemon restarted) runs
 		// again, and Swap starts over from whatever the first try left. A
 		// swap that failed cleanly and rolled back also exits non-zero, so
@@ -281,7 +285,11 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		}
 		return back(fmt.Errorf("run new panel: %w", err))
 	}
-	if err := docker.Healthy(ctx, l.docker.Inspect, id, l.Poll, l.Grace, l.Deadline); err != nil {
+	err = docker.Healthy(ctx, l.docker.Inspect, id, l.Poll, l.Grace, l.Deadline)
+	if err == nil {
+		err = l.probe(ctx, spec)
+	}
+	if err != nil {
 		_ = l.docker.StopRemove(ctx, id)
 		if db != "" {
 			if rerr := restoreDB(db, cp); rerr != nil {
@@ -298,6 +306,48 @@ func (l *Leaf) Swap(ctx context.Context, spec docker.ContainerSpec) error {
 		_ = l.docker.StopRemove(ctx, c.ID)
 	}
 	return nil
+}
+
+// probe asks the new panel's /api/health over HTTP until it answers 200 or
+// the deadline passes: the panel has no HEALTHCHECK, so the container gate
+// alone passes a panel that runs but serves nothing. The address is the
+// spec's HOST and PORT; a spec with no PORT (a test's) is not probed.
+func (l *Leaf) probe(ctx context.Context, spec docker.ContainerSpec) error {
+	var host, port string
+	for _, e := range spec.Env {
+		if v, ok := strings.CutPrefix(e, "HOST="); ok {
+			host = v
+		}
+		if v, ok := strings.CutPrefix(e, "PORT="); ok {
+			port = v
+		}
+	}
+	if port == "" {
+		return nil
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	url := "http://" + net.JoinHostPort(host, port) + "/api/health"
+	ctx, cancel := context.WithTimeout(ctx, l.Deadline)
+	defer cancel()
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		if res, err := http.DefaultClient.Do(req); err == nil {
+			_ = res.Body.Close()
+			if res.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the panel did not answer %s with 200 before the deadline", url)
+		case <-time.After(l.Poll):
+		}
+	}
 }
 
 // failed reports a real error: a missing -wal or -shm is normal.
