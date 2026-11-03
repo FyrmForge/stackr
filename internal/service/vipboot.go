@@ -244,6 +244,22 @@ func (o *Orchestrator) rebuildNodeVIPs(ctx context.Context, n store.Node) error 
 	return nil
 }
 
+// filterBuildNode applies the filter of the node in ctx now: a build's network
+// is new, and its RUN steps are a tenant's code.
+// ponytail: a full node rebuild per build; skip it when the network was
+// already there if builds ever queue up behind it.
+func (o *Orchestrator) filterBuildNode(ctx context.Context) error {
+	id, ok := docker.NodeFrom(ctx)
+	if !ok {
+		return nil
+	}
+	n, err := o.store.Nodes.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	return o.rebuildNodeVIPs(ctx, n)
+}
+
 // rerouteVIPs is the minute tick's rebuild: a failure is logged, never fatal.
 func (o *Orchestrator) rerouteVIPs(ctx context.Context) {
 	if err := o.rebuildVIPs(ctx); err != nil {

@@ -201,6 +201,41 @@ func TestEnsureNetwork(t *testing.T) {
 	}
 }
 
+func TestEnsureNetworkReplacesStrayBuilderNet(t *testing.T) {
+	var seq []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/networks"):
+			_ = json.NewEncoder(w).Encode([]network.Summary{{ID: "n1", Name: BuilderNetwork,
+				IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: "172.20.0.0/16"}}}}})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/networks/n1"):
+			_, _ = w.Write([]byte(`{"Id":"n1","Containers":{"c1":{}}}`))
+		case r.Method == http.MethodDelete:
+			seq = append(seq, r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:])
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/networks/create"):
+			seq = append(seq, "created")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"Id":"n2"}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli := &Client{cli: c}
+	if err := cli.EnsureNetwork(context.Background(), BuilderNetwork, netip.MustParsePrefix("10.209.4.0/24"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(seq, ","); got != "c1,n1,created" {
+		t.Errorf("sequence %s", got)
+	}
+}
+
 func TestUsedSubnetsFromDaemon(t *testing.T) {
 	cli, _ := fakeDaemon(t, []network.Summary{
 		{IPAM: network.IPAM{Config: []network.IPAMConfig{{Subnet: "10.209.4.0/24"}}}},

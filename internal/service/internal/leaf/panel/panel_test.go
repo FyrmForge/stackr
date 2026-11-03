@@ -2,6 +2,9 @@ package panel
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -49,6 +52,41 @@ func TestSwapKeepsOldUntilNewPasses(t *testing.T) {
 		}
 		if fake.Specs[0].Labels[LabelRole] != "panel" {
 			t.Error("new panel not labelled")
+		}
+	}
+}
+
+// A panel that runs but does not answer /api/health is a failed trial: the
+// old one comes back.
+func TestSwapProbesHealthRoute(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		want string
+	}{
+		{http.StatusOK, "Stop old; Run stackr-0.2.0 img:0.2.0; StopRemove old"},
+		{http.StatusBadGateway, "Stop old; Run stackr-0.2.0 img:0.2.0; StopRemove new; Start old"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/health" {
+				t.Errorf("probed %s", r.URL.Path)
+			}
+			w.WriteHeader(tc.code)
+		}))
+		host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+		fake := dockerfake.New()
+		fake.RunID = "new"
+		fake.Containers = []docker.Container{{ID: "old", State: "running", Labels: map[string]string{LabelRole: "panel"}}}
+		fake.Details = map[string]docker.Detail{"new": {Running: true, Health: "healthy"}}
+		l := New(fake)
+		l.Poll, l.Deadline = time.Millisecond, 30*time.Millisecond
+		err := l.Swap(context.Background(), docker.ContainerSpec{
+			Name: "stackr-0.2.0", Image: "img:0.2.0", Env: []string{"HOST=" + host, "PORT=" + port}})
+		srv.Close()
+		if (err != nil) != (tc.code != http.StatusOK) {
+			t.Errorf("%d: err = %v", tc.code, err)
+		}
+		if got := calls(fake); got != tc.want {
+			t.Errorf("%d:\n got %s\nwant %s", tc.code, got, tc.want)
 		}
 	}
 }

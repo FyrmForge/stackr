@@ -12,7 +12,10 @@ import (
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+
+	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 const (
@@ -46,8 +49,13 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, subnet netip.Pr
 	if err != nil {
 		return err
 	}
-	if slices.ContainsFunc(nets, func(n network.Summary) bool { return n.Name == name }) {
-		return nil
+	if i := slices.IndexFunc(nets, func(n network.Summary) bool { return n.Name == name }); i >= 0 {
+		if name != BuilderNetwork || inPool(nets[i]) {
+			return nil
+		}
+		if err := d.dropBuilderNetwork(ctx, nets[i].ID); err != nil {
+			return err
+		}
 	}
 	if !subnet.IsValid() {
 		return ErrNeedsSubnet
@@ -68,6 +76,33 @@ func (d *Client) EnsureNetwork(ctx context.Context, name string, subnet netip.Pr
 		return fmt.Errorf("%w: %v", ErrSubnetTaken, err)
 	}
 	return err
+}
+
+// inPool: the network's subnet is a block of the cluster pool.
+func inPool(n network.Summary) bool {
+	for _, c := range n.IPAM.Config {
+		if p, err := netip.ParsePrefix(c.Subnet); err == nil && mesh.Supernet.Contains(p.Addr()) {
+			return true
+		}
+	}
+	return false
+}
+
+// dropBuilderNetwork removes a BuilderNetwork made before it came from the
+// cluster pool (Docker's default pool, which the tenant filter misses), and
+// the builder container on it. The builder's cache volume stays, and buildx
+// remakes the container on the new network at its next build.
+func (d *Client) dropBuilderNetwork(ctx context.Context, id string) error {
+	info, err := d.cli.NetworkInspect(ctx, id, network.InspectOptions{})
+	if err != nil {
+		return err
+	}
+	for cid := range info.Containers {
+		if err := d.cli.ContainerRemove(ctx, cid, container.RemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+			return err
+		}
+	}
+	return d.cli.NetworkRemove(ctx, id)
 }
 
 // DynamicRange is the upper half of subnet, where Docker hands out addresses

@@ -30,6 +30,13 @@ func TestNewer(t *testing.T) {
 		{"v0.1.0", "dev", false},
 		{"0.2.0", "v0.1.0", false},
 		{"", "v0.1.0", false},
+		{"v0.8.10-dev.2", "v0.8.10-dev.1", true},
+		{"v0.8.10-dev.1", "v0.8.10-dev.2", false},
+		{"v0.8.10", "v0.8.10-dev.9", true},
+		{"v0.8.10-dev.9", "v0.8.10", false},
+		{"v0.8.10-dev.1", "v0.8.9", true},
+		{"v0.8.10-dev.10", "v0.8.10-dev.9", true},
+		{"v0.8.10-dev.x", "v0.8.9", false},
 	} {
 		if got := Newer(c.a, c.b); got != c.want {
 			t.Errorf("Newer(%q, %q) = %v", c.a, c.b, got)
@@ -231,5 +238,25 @@ func TestEnsureProxyLeftover(t *testing.T) {
 	got := calls(fake)
 	if !slices.Contains(got, "Rename(aside, stackr-proxy)") || !slices.Contains(got, "Start(aside)") || len(fake.Specs) != 0 {
 		t.Errorf("not restored: %v", got)
+	}
+}
+
+// A public check never offers a dev tag to a release build; a dev build
+// sees one.
+func TestCheckDevChannel(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"tag_name":"v0.8.10-dev.2"}`)
+	}))
+	defer gh.Close()
+	f := &Flow{Version: "v0.8.9", URL: gh.URL}
+	if got, err := f.Check(context.Background()); err == nil {
+		t.Errorf("release build was offered %q", got)
+	}
+	f.Version = "v0.8.10-dev.1"
+	if got, err := f.Check(context.Background()); err != nil || got != "v0.8.10-dev.2" {
+		t.Errorf("dev build: %q %v", got, err)
+	}
+	if got, ok := f.Available("v0.8.10-dev.2"); !ok || got != "v0.8.10-dev.2" {
+		t.Errorf("available = %q %v", got, ok)
 	}
 }
