@@ -172,6 +172,14 @@ func (h *handler) CreateTile(c echo.Context) error {
 		lim = 0 // no room: a dump is refused below; the other kinds carry only form fields
 	}
 	middleware.UnlimitBody(c, lim+1<<20) // the dump and the form's other fields
+	if perr := c.Request().ParseMultipartForm(32 << 20); errors.As(perr, new(*http.MaxBytesError)) {
+		// Go drops every field of a form whose body overruns the cap, so the
+		// create below would read an empty name; say what went wrong instead.
+		v := createView(c)
+		v.Source = "managed"
+		v.Errors = map[string]string{"dump": "That dump is larger than this server takes."}
+		return respond.HTML(c, http.StatusUnprocessableEntity, dialog.CreateTile(v))
+	}
 	v, s := createView(c), scope(c)
 	t := service.Tile{
 		StackID:       s.Stack.ID,
