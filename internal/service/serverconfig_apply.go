@@ -397,7 +397,7 @@ func (w *serverWalk) applyShares(rows []serverconfig.Change) (later []serverconf
 			}
 		}
 		if changed {
-			if _, err := w.o.ShareConnector(w.ctx, id, named, all); err != nil {
+			if _, err := w.o.ShareConnector(w.ctx, nil, id, named, all); err != nil {
 				return nil, fmt.Errorf("share %s: %w", name, err)
 			}
 		}
@@ -648,6 +648,10 @@ func (w *serverWalk) routes() error {
 		})
 		if err != nil {
 			if old != nil { // a refused update keeps the live route
+				// a failed proxy sync leaves the new row behind: clear it first
+				if derr := w.deleteRoute(fr.Host); derr != nil && !errors.Is(derr, errs.ErrNotFound) {
+					err = errors.Join(err, derr)
+				}
 				_, rerr := w.o.CreateExternalRoute(w.ctx, ExternalRouteSpec{Host: old.Host, Mode: old.Mode, Target: old.Target, Insecure: old.Insecure})
 				err = errors.Join(err, rerr)
 			}
@@ -823,6 +827,6 @@ func (w *serverWalk) unshare(conn, field, from string) error {
 	} else {
 		named = slices.DeleteFunc(named, func(oid string) bool { return oid == w.orgIDs[from] })
 	}
-	_, err = w.o.ShareConnector(w.ctx, id, named, false)
+	_, err = w.o.ShareConnector(w.ctx, nil, id, named, false)
 	return err
 }
