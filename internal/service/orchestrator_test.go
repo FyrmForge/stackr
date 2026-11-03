@@ -183,7 +183,7 @@ func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 	if len(js) != 1 || js[0].Kind != string(kindDeploy) || !slices.Contains(js[0].LockSet, up.ID) {
 		t.Fatalf("jobs after a param change = %+v, want one deploy of %s", js, up.Slug)
 	}
-	if want := []Redeploy{{Env: "dev", Tile: "api", Job: js[0].ID}}; !slices.Equal(rs, want) {
+	if want := []Redeploy{{Stack: "shop", Env: "dev", Tile: "api", Job: js[0].ID}}; !slices.Equal(rs, want) {
 		t.Errorf("SetParams named %+v, want %+v", rs, want)
 	}
 	if rs := set(); len(rs) != 0 {

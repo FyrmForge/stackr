@@ -702,7 +702,7 @@ func (h *handler) SaveSettings(c echo.Context) error {
 	case form == "org-defaults" && len(redeployed()) > 0:
 		var names []string
 		for _, r := range redeployed() {
-			names = append(names, r.Env+"/"+r.Tile)
+			names = append(names, r.Path())
 		}
 		v.Note = "Saved. Redeploying " + strings.Join(names, ", ") + "."
 	default:

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,5 +78,20 @@ func TestBackupWatchDefaultsAndWarns(t *testing.T) {
 	}
 	if !hasRow(t, o, "problem.backup.none."+bare.ID) {
 		t.Error("unscheduled volume with history has no warning")
+	}
+	if ps, err := o.Problems(ctx); err != nil || len(ps) == 0 {
+		t.Fatalf("problems = %+v, %v; want the no-backup warning", ps, err)
+	}
+	_, err = o.volumes.Orphan(ctx, bare)
+	must(t, err)
+	ps, err := o.Problems(ctx)
+	must(t, err)
+	for _, p := range ps {
+		if strings.Contains(p.Key, bare.ID) {
+			t.Errorf("orphaned volume still listed: %+v", p)
+		}
+	}
+	if hasRow(t, o, "problem.backup.none."+bare.ID) {
+		t.Error("orphaned volume's problem row not cleared")
 	}
 }
