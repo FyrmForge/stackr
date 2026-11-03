@@ -483,7 +483,7 @@ func TestSharedServerConnectorOnly(t *testing.T) {
 	uid, sess := admin(t, s)
 	og, _ := draft(t, s, uid, sess, "config")
 	srv := s.ServerConnector(t, "gh-main", "whsec")
-	if _, err := s.Orch.ShareConnector(context.Background(), srv, []string{og.ID}, false); err != nil {
+	if _, err := s.Orch.ShareConnector(context.Background(), nil, srv, []string{og.ID}, false); err != nil {
 		t.Fatal(err)
 	}
 	b := "/" + og.Slug + "/-/setup"

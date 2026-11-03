@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
@@ -86,7 +87,7 @@ func TestServerConnectorSharing(t *testing.T) {
 		t.Errorf("unshared connector in the picker: %+v", cs)
 	}
 
-	sc, err := o.ShareConnector(ctx, r.srv, []string{r.acme}, false)
+	sc, err := o.ShareConnector(ctx, nil, r.srv, []string{r.acme}, false)
 	if err != nil || !slices.Equal(sc.OrgIDs, []string{r.acme}) || sc.ShareAll || sc.Settings != "" {
 		t.Fatalf("share = %+v %v", sc, err)
 	}
@@ -123,16 +124,16 @@ func TestServerConnectorSharing(t *testing.T) {
 	}
 
 	// revoke and delete are refused while the binding names it
-	if _, err := o.ShareConnector(ctx, r.srv, nil, false); !isConflict(err) || !strings.Contains(err.Error(), "acme") {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, nil, false); !isConflict(err) || !strings.Contains(err.Error(), "acme") {
 		t.Errorf("revoke while bound = %v", err)
 	}
-	if _, err := o.ShareConnector(ctx, r.srv, nil, true); err != nil {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, nil, true); err != nil {
 		t.Errorf("widening to all orgs = %v", err)
 	}
-	if _, err := o.ShareConnector(ctx, r.srv, []string{r.acme}, false); err != nil {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, []string{r.acme}, false); err != nil {
 		t.Errorf("narrowing to the binding org = %v", err)
 	}
-	if _, err := o.ShareConnector(ctx, r.srv, []string{r.other}, false); !isConflict(err) {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, []string{r.other}, false); !isConflict(err) {
 		t.Errorf("narrowing away from the binding org = %v", err)
 	}
 	if err := o.DeleteServerConnector(ctx, r.srv); !isConflict(err) {
@@ -141,7 +142,7 @@ func TestServerConnectorSharing(t *testing.T) {
 	if _, err := o.SetOrgConfigRepo(ctx, r.acme, "", "", "", "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.ShareConnector(ctx, r.srv, nil, false); err != nil {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, nil, false); err != nil {
 		t.Errorf("revoke after unbind = %v", err)
 	}
 	// a stack's config repo and the server file's binding count too
@@ -163,20 +164,24 @@ func TestShareConnectorRefusals(t *testing.T) {
 	ctx := context.Background()
 	r := newServerRig(t)
 	o := r.env.Orch
-	if _, err := o.ShareConnector(ctx, r.srv, []string{"no-such-org"}, false); !errors.As(err, &errs.Invalid{}) {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, []string{"no-such-org"}, false); !errors.As(err, &errs.Invalid{}) {
 		t.Errorf("unknown org = %v", err)
 	}
-	if _, err := o.ShareConnector(ctx, "no-such", nil, true); !errors.Is(err, errs.ErrNotFound) {
+	owner := &service.Principal{Access: authz.User{ID: "u", Active: true, Roles: map[string]string{r.acme: "owner"}}}
+	if _, err := o.ShareConnector(ctx, owner, r.srv, nil, true); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("an org owner sharing a server connector = %v", err)
+	}
+	if _, err := o.ShareConnector(ctx, nil, "no-such", nil, true); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("unknown connector = %v", err)
 	}
 	own := r.env.Connector(t, r.acme, "s")
-	if _, err := o.ShareConnector(ctx, own, nil, true); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := o.ShareConnector(ctx, nil, own, nil, true); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("sharing an org's own connector = %v", err)
 	}
 	if err := o.DeleteServerConnector(ctx, own); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("server delete of an org's connector = %v", err)
 	}
-	sc, err := o.ShareConnector(ctx, r.srv, []string{r.acme, r.acme, r.other}, false)
+	sc, err := o.ShareConnector(ctx, nil, r.srv, []string{r.acme, r.acme, r.other}, false)
 	if err != nil || len(sc.OrgIDs) != 2 {
 		t.Errorf("duplicates = %+v %v", sc, err)
 	}
@@ -197,7 +202,7 @@ func TestServerConnectorWebhook(t *testing.T) {
 	r := newServerRig(t)
 	o := r.env.Orch
 	r.g.Commit(t, "acme/org", "main", map[string]string{"stackr-org.yml": "version: 1\norg: acme\n"})
-	if _, err := o.ShareConnector(ctx, r.srv, []string{r.acme}, false); err != nil {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, []string{r.acme}, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := o.SetOrgConfigRepo(ctx, r.acme, r.srv, "acme/org", "", "", false); err != nil {
@@ -241,7 +246,7 @@ func TestServerConnectorWebhook(t *testing.T) {
 	}
 
 	// shared with all orgs: both orgs plan
-	if _, err := o.ShareConnector(ctx, r.srv, nil, true); err != nil {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := o.SetOrgConfigRepo(ctx, r.other, r.srv, "acme/org", "", "", false); err != nil {
@@ -307,7 +312,7 @@ func TestStackConfigRepoSharedConnector(t *testing.T) {
 	if _, err := o.SetConfigRepo(ctx, tl.Stack, r.srv, "acme/shop", "", ""); !errors.Is(err, errs.ErrNotFound) {
 		t.Fatalf("bind to an unshared server connector = %v, want not found", err)
 	}
-	if _, err := o.ShareConnector(ctx, r.srv, []string{r.acme}, false); err != nil {
+	if _, err := o.ShareConnector(ctx, nil, r.srv, []string{r.acme}, false); err != nil {
 		t.Fatal(err)
 	}
 	if st, err := o.SetConfigRepo(ctx, tl.Stack, r.srv, "acme/shop", "", ""); err != nil || st.ConfigConnectorID != r.srv {

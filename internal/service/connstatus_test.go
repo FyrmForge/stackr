@@ -105,7 +105,7 @@ func TestGitUsages(t *testing.T) {
 	env, ctx := servicetest.New(t), context.Background()
 	acme, globex := env.Org(t, "acme"), env.Org(t, "globex")
 	srv := env.ServerConnector(t, "gh", "s")
-	if _, err := env.Orch.ShareConnector(ctx, srv, nil, true); err != nil {
+	if _, err := env.Orch.ShareConnector(ctx, nil, srv, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	for _, og := range []string{acme, globex} {

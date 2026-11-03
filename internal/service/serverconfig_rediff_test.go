@@ -53,7 +53,7 @@ func TestServerUnshareOrgNamedAll(t *testing.T) {
 	ctx := context.Background()
 	r := newFileRig(t)
 	acme, all := r.env.Org(t, "acme"), r.env.Org(t, "all")
-	if _, err := r.env.Orch.ShareConnector(ctx, r.conn, []string{acme, all}, false); err != nil {
+	if _, err := r.env.Orch.ShareConnector(ctx, nil, r.conn, []string{acme, all}, false); err != nil {
 		t.Fatal(err)
 	}
 	pl, err := r.env.Orch.PlanServerFile(ctx, []byte("version: 1\nconnectors:\n  - name: gh\n    share:\n      - acme\n"))
@@ -75,7 +75,7 @@ func TestServerLeaveShareAll(t *testing.T) {
 	ctx := context.Background()
 	r := newFileRig(t)
 	acme := r.env.Org(t, "acme")
-	if _, err := r.env.Orch.ShareConnector(ctx, r.conn, nil, true); err != nil {
+	if _, err := r.env.Orch.ShareConnector(ctx, nil, r.conn, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	pl, err := r.env.Orch.PlanServerFile(ctx, []byte("version: 1\nconnectors:\n  - name: gh\n    share:\n      - acme\n"))

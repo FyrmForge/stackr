@@ -3,6 +3,7 @@ package v1
 import (
 	"github.com/labstack/echo/v4"
 
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
@@ -31,6 +32,6 @@ func (h *H) DeleteServerConnector() Endpoint {
 
 func (h *H) ShareConnector() Endpoint {
 	return JSON(200, func(c echo.Context, in ConnectorShareIn) (service.ServerConnector, error) {
-		return h.Orch.ShareConnector(rc(c), c.Param("connector"), in.OrgIDs, in.All)
+		return h.Orch.ShareConnector(rc(c), middleware.Principal(c), c.Param("connector"), in.OrgIDs, in.All)
 	})
 }

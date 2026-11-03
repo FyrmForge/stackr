@@ -167,12 +167,18 @@ func (o *Orchestrator) unbound(ctx context.Context, id string) error {
 // ShareConnector sets who may use a server connector: none (orgIDs empty,
 // all false, the default), the named orgs, or all of them. Admin only. A
 // share is refused to revoke while a binding in that org names the connector.
+// by is the caller: only a stackr admin (not an org-bound key) may share; nil
+// is the server file's own apply.
 func (o *Orchestrator) ShareConnector(
 	ctx context.Context,
+	by *Principal,
 	id string,
 	orgIDs []string,
 	all bool,
 ) (ServerConnector, error) {
+	if by != nil && (!by.Access.Admin || by.Access.KeyOrg != "") {
+		return ServerConnector{}, errs.ErrNotFound
+	}
 	if _, err := o.conns.Server(ctx, id); err != nil {
 		return ServerConnector{}, err
 	}

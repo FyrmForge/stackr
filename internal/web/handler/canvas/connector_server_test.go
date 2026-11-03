@@ -20,7 +20,7 @@ func TestOrgConfigPickerServerConnector(t *testing.T) {
 	if body := r.owner.do(t, "GET", tab, nil, true).Body.String(); strings.Contains(body, `value="`+srv+`"`) {
 		t.Fatalf("an unshared server connector is in the picker:\n%s", body)
 	}
-	if _, err := env.Orch.ShareConnector(context.Background(), srv, []string{r.owner.org}, false); err != nil {
+	if _, err := env.Orch.ShareConnector(context.Background(), nil, srv, []string{r.owner.org}, false); err != nil {
 		t.Fatal(err)
 	}
 	body := r.owner.do(t, "GET", tab, nil, true).Body.String()
