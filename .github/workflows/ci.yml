@@ -101,7 +101,7 @@ jobs:
 
       - name: Secret scan
         run: |
-          go install github.com/gitleaks/gitleaks/v8@latest
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
           gitleaks git --redact --no-banner .
 
   # Packages that use a local Docker daemon. Left out: internal/service/internal/vip
