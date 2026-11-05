@@ -108,6 +108,9 @@ func TestCreateManagedDumpOverLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("streams a GiB through the form parser")
 	}
+	if raceOn { // CI runs it once more without -race (ci.yml)
+		t.Skip("the race detector takes the GiB past the request deadline")
+	}
 	s := webtest.New(t)
 	u := s.User(t, "big@acme.test", false)
 	s.Member(t, s.Org, u, "owner")

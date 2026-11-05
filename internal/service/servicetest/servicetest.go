@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -61,6 +62,12 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 	}
 	for _, f := range edit {
 		f(&cfg)
+	}
+	if _, err := os.Stat(cfg.DBPath); errors.Is(err, os.ErrNotExist) {
+		// The schema, migrated once per binary: the boot's migrate has nothing to run.
+		if err := os.WriteFile(cfg.DBPath, storetest.Schema(t), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fake := dockerfake.New()
 	dns := &DNS{}

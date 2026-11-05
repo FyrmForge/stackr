@@ -47,13 +47,21 @@ var migrated = sync.OnceValues(func() ([]byte, error) {
 	return os.ReadFile(path)
 })
 
-// Store is a fresh migrated store.
-func Store(t *testing.T) *store.Store {
+// Schema is an empty migrated database file's bytes, for a test that boots
+// an orchestrator on a new file: its migrate step then has nothing to run.
+func Schema(t *testing.T) []byte {
 	t.Helper()
 	schema, err := migrated()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return schema
+}
+
+// Store is a fresh migrated store.
+func Store(t *testing.T) *store.Store {
+	t.Helper()
+	schema := Schema(t)
 	path := filepath.Join(t.TempDir(), "stackr.db")
 	if err := os.WriteFile(path, schema, 0o600); err != nil {
 		t.Fatal(err)

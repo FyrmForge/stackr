@@ -629,7 +629,7 @@ func TestUpgradeHoldsQueue(t *testing.T) {
 	}
 	watchFast(t, n)
 	for _, end := range []string{"passed", "rolled back"} {
-		n.ctlFake.Containers = []docker.Container{upgrader("running")}
+		n.ctlFake.Edit(func() { n.ctlFake.Containers = []docker.Container{upgrader("running")} })
 		n.orch.bootUpgradeHold(ctx) // the new panel on trial, or the old one back
 		j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
 		must(t, err)
@@ -638,10 +638,10 @@ func TestUpgradeHoldsQueue(t *testing.T) {
 			t.Fatalf("%s: job %s while the helper runs, want queued", end, got)
 		}
 		// Either way the helper exits; its code is only for its logs.
-		n.ctlFake.Containers = []docker.Container{upgrader("exited")}
+		n.ctlFake.Edit(func() { n.ctlFake.Containers = []docker.Container{upgrader("exited")} })
 		started(j.ID)
 	}
-	n.ctlFake.Containers = nil // a restart with no upgrade
+	n.ctlFake.Edit(func() { n.ctlFake.Containers = nil }) // a restart with no upgrade
 	j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
 	must(t, err)
 	started(j.ID)
