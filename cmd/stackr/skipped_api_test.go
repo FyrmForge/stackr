@@ -4,7 +4,6 @@ package main
 // a verb for any of them is added to cmds.go and its line here goes.
 func init() {
 	for op, why := range map[string]string{
-		"key.rotate":       "no CLI verb yet: rotate a key's secret",
 		"key.org-list":     "no CLI verb yet: an org owner lists the org's keys",
 		"key.org-revoke":   "no CLI verb yet: an org owner revokes one of the org's keys",
 		"admin.key-list":   "no CLI verb yet: an admin lists every key",
