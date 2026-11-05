@@ -175,8 +175,17 @@ func (f *Fake) Unpause(_ context.Context, id string) error {
 	return f.rec("Unpause", id)
 }
 
+// Edit changes the fixtures (Containers, Err) under the lock, for a test
+// that changes them while a background goroutine is already calling the Fake.
+func (f *Fake) Edit(fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn()
+}
+
 func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Container, error) {
 	var out []docker.Container
+	f.mu.Lock()
 	for _, c := range f.Containers {
 		if matches(c.Labels, labels) {
 			// The daemon's list carries each running container's address
@@ -187,6 +196,7 @@ func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Conta
 			out = append(out, c)
 		}
 	}
+	f.mu.Unlock()
 	return out, f.rec("List")
 }
 

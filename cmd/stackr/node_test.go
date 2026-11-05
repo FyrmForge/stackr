@@ -100,10 +100,10 @@ func TestNodeReject(t *testing.T) {
 func TestNodeLs(t *testing.T) {
 	// /nodes never lists a pending node: a waiting worker is a join request.
 	pend := `[{"node_id":"n2","name":"nas","tags":["builder"],"facts":{"cpus":4,"mem_bytes":8589934592},"requested_at":"2026-10-16T10:00:00Z"}]`
-	fake(t, map[string]string{"/nodes": `[` + nodeJSON + `]`, "/admin/join-requests": pend})
-	was := time.Local
+	was := time.Local // before the fake server starts: its goroutines read the clock
 	time.Local = time.UTC // requested_at reads on this machine's clock
 	t.Cleanup(func() { time.Local = was })
+	fake(t, map[string]string{"/nodes": `[` + nodeJSON + `]`, "/admin/join-requests": pend})
 	code, out, errw := cli(t, "node", "ls")
 	if code != 0 || !strings.Contains(out, "vps-fsn1\tworker\tonline\t-\tingress,egress\t2\t2\t4.0 GB\t71 GB\t29.9.0") || strings.Contains(out, "nas") {
 		t.Fatalf("ls = %d %q %q", code, out, errw)

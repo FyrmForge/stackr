@@ -6,8 +6,10 @@ package storetest
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/FyrmForge/hamr/pkg/db/sqlite"
@@ -21,14 +23,50 @@ import (
 // Key is the master key every harness uses.
 var Key = strings.Repeat("ab", 32)
 
+// migrated is the schema, migrated once per test binary: the 90-odd
+// migrations cost about half a second each time (seconds under -race), and
+// a hundred tests asking for a store took CI past its timeout.
+var migrated = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "stackr-schema-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	path := filepath.Join(dir, "stackr.db")
+	db, err := sqlite.Connect(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := sqlite.Migrate(db, appdb.MigrateConfig()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := db.Close(); err != nil { // checkpoints the WAL into the file
+		return nil, err
+	}
+	return os.ReadFile(path)
+})
+
+// Schema is an empty migrated database file's bytes, for a test that boots
+// an orchestrator on a new file: its migrate step then has nothing to run.
+func Schema(t *testing.T) []byte {
+	t.Helper()
+	schema, err := migrated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return schema
+}
+
 // Store is a fresh migrated store.
 func Store(t *testing.T) *store.Store {
 	t.Helper()
-	st := Open(t, filepath.Join(t.TempDir(), "stackr.db"))
-	if err := sqlite.Migrate(st.DB(), appdb.MigrateConfig()); err != nil {
+	schema := Schema(t)
+	path := filepath.Join(t.TempDir(), "stackr.db")
+	if err := os.WriteFile(path, schema, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return st
+	return Open(t, path)
 }
 
 // Open is a store on an existing database file, closed with the test.

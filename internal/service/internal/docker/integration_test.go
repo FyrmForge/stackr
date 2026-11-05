@@ -30,6 +30,7 @@ func newClient(t *testing.T) (*Client, context.Context) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	d.SetTool(testImage) // no cluster registry on a dev box or a runner
 	if _, err := d.cli.Ping(ctx); err != nil {
 		t.Skipf("no docker daemon: %v", err)
 	}
@@ -214,7 +215,8 @@ func TestNetworksAndVolumes(t *testing.T) {
 	if ids, err := d.NetworkMembers(ctx, net); err != nil || len(ids) != 1 || ids[0] != id {
 		t.Fatalf("members: %v %v", ids, err)
 	}
-	if out, err := d.Exec(ctx, id, []string{"nslookup", "svc"}); err != nil {
+	// "svc." is absolute: a host search domain (the runners have one) must not be appended.
+	if out, err := d.Exec(ctx, id, []string{"nslookup", "svc."}); err != nil {
 		t.Fatalf("alias does not resolve: %q %v", out, err)
 	}
 	for range 2 {

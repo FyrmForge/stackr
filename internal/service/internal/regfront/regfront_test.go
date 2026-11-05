@@ -350,8 +350,9 @@ func TestPushedCallback(t *testing.T) {
 	web := "acme/shop/web"
 	s, front, _ := newServer(t, Facts{Kind: KindUser, Subject: "u1", Orgs: []string{"acme"}}, &audit)
 	defer front.Close()
-	var got []Pushed
-	s.Pushed = func(_ context.Context, p Pushed) { got = append(got, p) }
+	// The callback runs after the response is written, so the test waits on it.
+	pushed := make(chan Pushed, 8)
+	s.Pushed = func(_ context.Context, p Pushed) { pushed <- p }
 	imp := ImportRepo("acme", "ghcr.io/foo/bar:1")
 	tok := mint(t, front.URL, "repository:"+web+":pull,push repository:"+imp+":pull,push")
 
@@ -362,17 +363,25 @@ func TestPushedCallback(t *testing.T) {
 	} {
 		get(t, c.method, front.URL+c.path, tok)
 	}
-	if len(got) != 0 {
-		t.Fatalf("called for %+v", got)
-	}
 	get(t, "PUT", front.URL+"/v2/"+web+"/manifests/v1", tok)
 	get(t, "PUT", front.URL+"/v2/"+imp+"/manifests/1", tok)
 	want := []Pushed{
 		{Repo: web, Reference: "v1", Kind: KindUser, Subject: "u1"},
 		{Repo: imp, Reference: "1", Kind: KindUser, Subject: "u1"},
 	}
-	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("pushed = %+v, want %+v", got, want)
+	// In order, so a call for the non-manifest requests above would show first.
+	for _, w := range want {
+		select {
+		case p := <-pushed:
+			if p != w {
+				t.Fatalf("pushed %+v, want %+v", p, w)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no callback for %+v", w)
+		}
+	}
+	if len(pushed) != 0 {
+		t.Fatalf("extra callbacks: %d", len(pushed))
 	}
 }
 

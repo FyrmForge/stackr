@@ -72,7 +72,10 @@ jobs:
             exit 1
           fi
       - name: Run tests
-        run: go test -race -timeout 30m ./...
+        run: |
+          go test -race -timeout 30m ./...
+          # streams a GiB through the form parser: too slow under -race
+          go test -timeout 5m -run TestCreateManagedDumpOverLimit ./internal/web/handler/env/
 
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9

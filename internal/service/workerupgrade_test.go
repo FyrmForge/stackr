@@ -557,7 +557,7 @@ func TestUpgradeUnderway(t *testing.T) {
 	if n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("underway with nothing done")
 	}
-	n.ctlFake.Containers = []docker.Container{upgrader("running")}
+	n.ctlFake.Edit(func() { n.ctlFake.Containers = []docker.Container{upgrader("running")} })
 	if n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("a helper started behind this panel's back held it before a boot")
 	}
@@ -565,18 +565,18 @@ func TestUpgradeUnderway(t *testing.T) {
 	if !n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("not underway while the helper runs")
 	}
-	n.ctlFake.Containers = []docker.Container{upgrader("exited")}
+	n.ctlFake.Edit(func() { n.ctlFake.Containers = []docker.Container{upgrader("exited")} })
 	released(t, n)
 	if n.orch.UpgradeUnderway(ctx) {
 		t.Fatal("underway after the helper exited")
 	}
 	// a Docker error at boot holds, and the hold ends once Docker answers
-	n.ctlFake.Err = map[string]error{"List": errors.New("daemon down")}
+	n.ctlFake.Edit(func() { n.ctlFake.Err = map[string]error{"List": errors.New("daemon down")} })
 	n.orch.bootUpgradeHold(ctx)
 	if !n.orch.UpgradeHeld() {
 		t.Fatal("a Docker error at boot did not hold")
 	}
-	n.ctlFake.Err = nil
+	n.ctlFake.Edit(func() { n.ctlFake.Err = nil })
 	released(t, n)
 	must(t, n.st.Jobs.Create(ctx, store.Job{
 		ID: uuid.NewString(), Kind: string(kindUpgrade), State: job.Running, Payload: "{}", CreatedAt: time.Now(),
@@ -629,7 +629,7 @@ func TestUpgradeHoldsQueue(t *testing.T) {
 	}
 	watchFast(t, n)
 	for _, end := range []string{"passed", "rolled back"} {
-		n.ctlFake.Containers = []docker.Container{upgrader("running")}
+		n.ctlFake.Edit(func() { n.ctlFake.Containers = []docker.Container{upgrader("running")} })
 		n.orch.bootUpgradeHold(ctx) // the new panel on trial, or the old one back
 		j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
 		must(t, err)
@@ -638,10 +638,10 @@ func TestUpgradeHoldsQueue(t *testing.T) {
 			t.Fatalf("%s: job %s while the helper runs, want queued", end, got)
 		}
 		// Either way the helper exits; its code is only for its logs.
-		n.ctlFake.Containers = []docker.Container{upgrader("exited")}
+		n.ctlFake.Edit(func() { n.ctlFake.Containers = []docker.Container{upgrader("exited")} })
 		started(j.ID)
 	}
-	n.ctlFake.Containers = nil // a restart with no upgrade
+	n.ctlFake.Edit(func() { n.ctlFake.Containers = nil }) // a restart with no upgrade
 	j, err := n.orch.enqueue(ctx, kindOrphans, nil, "orphans")
 	must(t, err)
 	started(j.ID)
