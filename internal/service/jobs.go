@@ -202,7 +202,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				o.downAfterFailedDeploy(ctx, p.TileID, err)
-				return parkOnApproval(r, err)
+				return o.parkOnApproval(ctx, r, err)
 			}
 			return o.afterDeploy(ctx, []string{p.TileID}, false)
 		}),
@@ -218,7 +218,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
-			return parkOnApproval(r, err)
+			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindEnvSync: payload(func(ctx context.Context, r *jobs.Run, p envSyncJob) error {
 			ctx, err := o.withEnvIDNode(ctx, p.EnvID)
@@ -242,7 +242,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
-			return parkOnApproval(r, err)
+			return o.parkOnApproval(ctx, r, err)
 		}),
 		kindRun: payload(func(ctx context.Context, r *jobs.Run, p runJob) error {
 			ctx, err := o.withTileNode(ctx, p.TileID)

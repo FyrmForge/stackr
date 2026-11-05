@@ -40,6 +40,25 @@ func (h *H) RevokeHostGrant() Endpoint {
 	})
 }
 
+// DestGrants (server admin) lists the org backup destinations on a private
+// address, pending or approved.
+func (h *H) DestGrants() Endpoint {
+	return Get(func(c echo.Context) ([]service.DestGrant, error) { return list(h.Orch.DestGrants(rc(c))) })
+}
+
+// ApproveDestGrantIn is the host:port the admin was shown.
+type ApproveDestGrantIn struct {
+	Addr string `json:"addr"` // the addr of the GET; the approval is a 409 when the endpoint has moved
+}
+
+// ApproveDestGrant (server admin) lets the org destination reach its private
+// host:port; the runs waiting on it go through on their next try.
+func (h *H) ApproveDestGrant() Endpoint {
+	return JSON(200, func(c echo.Context, in ApproveDestGrantIn) (service.DestGrant, error) {
+		return h.Orch.ApproveDestGrant(rc(c), c.Param("dest"), who(c), in.Addr)
+	})
+}
+
 // HostGrants (server admin) lists every stack's grant and pending ask.
 func (h *H) HostGrants() Endpoint {
 	return Get(func(c echo.Context) ([]HostGrantOut, error) { return list(h.Orch.ListHostGrants(rc(c))) })

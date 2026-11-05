@@ -131,6 +131,13 @@ func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest, probe Pro
 	return d, l.dests.Update(ctx, d)
 }
 
+// Approve records that userID approved host:port addr for d's private
+// endpoint; d.Endpoint moving off addr makes it pending again.
+func (l *Leaf) Approve(ctx context.Context, d *store.BackupDest, addr, userID string) error {
+	d.ApprovedEndpoint, d.ApprovedBy = addr, userID
+	return l.dests.Update(ctx, *d)
+}
+
 // Delete refuses the local destination and one a schedule or the panel's own
 // backup (usedByPanel, a fact from the caller) still points at: they would
 // silently fall back to local. One that still has run rows is refused too:

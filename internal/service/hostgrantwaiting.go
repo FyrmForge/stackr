@@ -34,7 +34,8 @@ func (o *Orchestrator) HostGrantsWaiting(ctx context.Context) (int, error) {
 			n++
 		}
 	}
-	return n, nil
+	d, _ := o.DestGrantsWaiting(ctx) // a destination waiting is one more
+	return n + d, nil
 }
 
 // stackGone: the stack row is not there (a grant or job outlived it).

@@ -294,6 +294,8 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/nodes/:node/backups", "admin.node-backups", "node.manage", h.NodeBackups()},
 		{GET, org + "/lost-envs", "env.lost", "org.read", h.LostEnvs()},
 		{GET, "/admin/host-grants", "admin.host-grants", "admin.read", h.HostGrants()},
+		{GET, "/admin/dest-grants", "admin.dest-grants", "admin.read", h.DestGrants()},
+		{POST, "/admin/dest-grants/:dest/approve", "admin.dest-grant-approve", "hostgrant.approve", h.ApproveDestGrant()},
 		{GET, "/admin/images", "admin.images", "admin.read", h.Images()},
 		{POST, "/admin/image-check", "admin.image-check", "container.admin", h.CheckAllImages()},
 		{GET, "/admin/registry", "admin.registry", "admin.read", h.RegistryOverview()},

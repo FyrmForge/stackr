@@ -22,7 +22,9 @@ type Job struct {
 	Error        string     `db:"error" json:"error"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
 	// ActorID is the user who asked for the job, "" when the system did.
-	ActorID    string     `db:"actor_id" json:"actor_id"`
+	ActorID string `db:"actor_id" json:"actor_id"`
+	// ActorKeyID is the API key behind ActorID, "" for a session or the system.
+	ActorKeyID string     `db:"actor_key_id" json:"-"`
 	StartedAt  *time.Time `db:"started_at" json:"started_at"`
 	FinishedAt *time.Time `db:"finished_at" json:"finished_at"`
 	// Line and Waits are filled by the orchestrator for the jobs lists,

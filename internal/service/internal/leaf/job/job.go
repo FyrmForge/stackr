@@ -186,17 +186,18 @@ func (l *Leaf) Create(
 	logDir string,
 ) (store.Job, error) {
 	id := uuid.NewString()
-	actor, _ := store.ActorFrom(ctx)
+	actor, key := store.ActorFrom(ctx)
 	j := store.Job{
-		ID:        id,
-		Kind:      kind,
-		State:     Queued,
-		ReleaseID: releaseID,
-		LockSet:   LockSet(lock...),
-		Payload:   payload,
-		LogPath:   logDir + "/" + id + ".log",
-		CreatedAt: time.Now().UTC(),
-		ActorID:   actor,
+		ID:         id,
+		Kind:       kind,
+		State:      Queued,
+		ReleaseID:  releaseID,
+		LockSet:    LockSet(lock...),
+		Payload:    payload,
+		LogPath:    logDir + "/" + id + ".log",
+		CreatedAt:  time.Now().UTC(),
+		ActorID:    actor,
+		ActorKeyID: key,
 	}
 	return j, l.jobs.Create(ctx, j)
 }

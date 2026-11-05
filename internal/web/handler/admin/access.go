@@ -46,6 +46,10 @@ func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
 		err := h.orch.RevokeHostGrant(c.Request().Context(), c.QueryParam("stack"), c.QueryParam("tile"), middleware.Principal(c).User.ID)
 		return "Access revoked.", nil, err
 	}), approve)
+	g.POST(ui.Base+"/access/dest-approve", h.act("host-access", func(c echo.Context) (string, *service.Job, error) {
+		_, err := h.orch.ApproveDestGrant(c.Request().Context(), c.QueryParam("dest"), middleware.Principal(c).User.ID, c.QueryParam("addr"))
+		return "Destination approved.", nil, err
+	}), approve)
 }
 
 type stackName struct{ id, name, slug, org, orgID, orgSlug string }
@@ -166,6 +170,29 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 				},
 			})
 		}
+	}
+	dgs, err := h.orch.DestGrants(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range dgs {
+		if v.Filter.Org != "" && v.Filter.Org != d.OrgID {
+			continue
+		}
+		row := ui.DestAccess{Text: "Backup destination " + d.Name + " (org " + d.Org + ") -> " + d.Addr}
+		if d.Pending {
+			row.Approve = comp.ConfirmView{
+				Button:  "Approve",
+				Title:   "Approve " + d.Name + "?",
+				Warning: "It can then reach " + d.Addr + " from this server.",
+				Action:  ui.Base + "/access/dest-approve?dest=" + url.QueryEscape(d.DestID) + "&addr=" + url.QueryEscape(d.Addr),
+				Target:  ui.Target,
+				Primary: true,
+			}
+		} else {
+			row.By = cmp.Or(who[d.ApprovedBy], "a removed user")
+		}
+		v.Dests = append(v.Dests, row)
 	}
 	return ui.Access(v), nil
 }

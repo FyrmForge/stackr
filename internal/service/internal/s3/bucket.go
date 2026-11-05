@@ -27,6 +27,8 @@ type Bucket struct {
 	// PublicOnly refuses any address that is not public: set for a member's
 	// destination, whose endpoint must not reach the panel's own network.
 	PublicOnly bool
+	// AllowAddr is the host:port of a PublicOnly bucket a server admin approved.
+	AllowAddr string
 }
 
 func (b Bucket) client() *s3.Client {
@@ -45,7 +47,7 @@ func (b Bucket) client() *s3.Client {
 		Credentials:                credentials.NewStaticCredentialsProvider(b.AccessKey, b.SecretKey, ""),
 	}
 	if b.PublicOnly {
-		o.HTTPClient = publicClient()
+		o.HTTPClient = publicClient(b.AllowAddr)
 	}
 	return s3.New(o)
 }

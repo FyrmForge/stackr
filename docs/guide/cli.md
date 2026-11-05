@@ -120,6 +120,22 @@ stackr admin defaults [flags]
       --set stringArray     knob=value (stackr knobs lists them)
 ```
 
+### `stackr admin dest-grant-approve`
+
+Let an org's backup destination reach its private address (id or name)
+
+```
+stackr admin dest-grant-approve <dest>
+```
+
+### `stackr admin dest-grants`
+
+List the org backup destinations on a private address and whether they wait for approval
+
+```
+stackr admin dest-grants
+```
+
 ### `stackr admin disable`
 
 Disable a user; their sessions and keys close

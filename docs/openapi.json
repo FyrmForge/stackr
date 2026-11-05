@@ -194,6 +194,17 @@
         ],
         "type": "object"
       },
+      "ApproveDestGrantIn": {
+        "properties": {
+          "addr": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "addr"
+        ],
+        "type": "object"
+      },
       "ApproveHostGrantIn": {
         "properties": {
           "grant": {
@@ -235,6 +246,12 @@
       },
       "BackupDest": {
         "properties": {
+          "approved_by": {
+            "type": "string"
+          },
+          "approved_endpoint": {
+            "type": "string"
+          },
           "bucket": {
             "type": "string"
           },
@@ -279,7 +296,9 @@
           "region",
           "bucket",
           "shared",
-          "created_at"
+          "created_at",
+          "approved_endpoint",
+          "approved_by"
         ],
         "type": "object"
       },
@@ -1420,6 +1439,41 @@
         "required": [
           "ingress",
           "exit"
+        ],
+        "type": "object"
+      },
+      "DestGrant": {
+        "properties": {
+          "addr": {
+            "type": "string"
+          },
+          "approved_by": {
+            "type": "string"
+          },
+          "dest_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "org": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dest_id",
+          "name",
+          "org_id",
+          "org",
+          "addr",
+          "pending",
+          "approved_by"
         ],
         "type": "object"
       },
@@ -9234,6 +9288,86 @@
           }
         },
         "x-verb": "serverdefaults.set"
+      }
+    },
+    "/api/v1/admin/dest-grants": {
+      "get": {
+        "operationId": "admin.dest-grants",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DestGrant"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/dest-grants/{dest}/approve": {
+      "post": {
+        "operationId": "admin.dest-grant-approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveDestGrantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestGrant"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "hostgrant.approve"
       }
     },
     "/api/v1/admin/dns-connectors": {
