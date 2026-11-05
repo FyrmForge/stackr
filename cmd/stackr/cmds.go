@@ -330,6 +330,45 @@ func (a *app) keys() *cobra.Command {
 			return a.show(v, keyCols...)
 		}),
 		add,
+		leaf("rotate <name|id>", "key.rotate", "Give a key a new secret; the old one stops working", exact(1), func(_ *cobra.Command, args []string) error {
+			k, err := a.find("/me/keys", "key", args[0], "id", "name")
+			if err != nil {
+				return err
+			}
+			if err := a.confirm("Rotate API key " + cell(k["name"]) + "? The old secret stops working."); err != nil {
+				return err
+			}
+			id := cell(k["id"])
+			v, err := a.call(POST, "/me/keys/"+url.PathEscape(id)+"/rotate", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			tok, _ := m["token"].(string)
+			// The stored key is the one rotated when its id matches; a login
+			// made with --with-key has no id, so ask the server: a 401 means
+			// the stored secret just died. STACKR_KEY is never the stored one.
+			own := a.env("KEY", a.cfg.Key) == a.cfg.Key && a.cfg.Key != ""
+			if own && a.cfg.KeyID == "" {
+				var e *apiErr
+				_, perr := a.call(GET, "/me", nil)
+				own = errors.As(perr, &e) && e.Status == http.StatusUnauthorized
+			} else if own {
+				own = a.cfg.KeyID == id
+			}
+			if !own {
+				return a.token(v, nil)
+			}
+			a.cfg.Key = tok
+			if err := a.save(); err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(map[string]any{"key": m["key"], "stored": true})
+			}
+			a.say("key id: %s (the new secret is saved in this profile)", id)
+			return nil
+		}),
 		leaf("rm <name|id>", "key.revoke", "Revoke a key", exact(1), func(_ *cobra.Command, args []string) error {
 			k, err := a.find("/me/keys", "key", args[0], "id", "name")
 			if err != nil {

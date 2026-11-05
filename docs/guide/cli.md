@@ -1222,6 +1222,14 @@ Revoke a key
 stackr key rm <name|id>
 ```
 
+### `stackr key rotate`
+
+Give a key a new secret; the old one stops working
+
+```
+stackr key rotate <name|id>
+```
+
 ## `stackr knobs`
 
 List the settings knobs every defaults level takes

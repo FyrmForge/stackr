@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FyrmForge/hamr/pkg/server"
@@ -1361,5 +1362,45 @@ func TestPromoteRemove(t *testing.T) {
 	r = fake(t, answers)
 	if code, _, _ = cli(t, append(at, "--remove", "param:nope")...); code == 0 || len(writes(r)) != 0 {
 		t.Errorf("a key outside the plan = %d, writes %v", code, writes(r))
+	}
+}
+
+// key rotate saves the new secret when the rotated key is the stored one
+// (a 401 on /me says so for a --with-key login) and prints it otherwise.
+func TestKeyRotate(t *testing.T) {
+	var dead atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/rotate"):
+			dead.Store(true)
+			_, _ = io.WriteString(w, `{"token":"newtok","key":{"id":"k1"}}`)
+		case r.URL.Path == "/api/v1/me/keys":
+			_, _ = io.WriteString(w, `[{"id":"k1","name":"ci"}]`)
+		case dead.Load():
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":"no"}`)
+		default:
+			_, _ = io.WriteString(w, `{}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	code, out, errw := cli(t, "key", "rotate", "ci", "-y")
+	if code != 0 || strings.Contains(out+errw, "newtok") || !strings.Contains(errw+out, "saved") {
+		t.Fatalf("own key: %d %q %q", code, out, errw)
+	}
+	b, _ := os.ReadFile(os.Getenv("STACKR_CONFIG"))
+	if !strings.Contains(string(b), `"newtok"`) {
+		t.Errorf("config not updated: %s", b)
+	}
+	// the stored login is a different key (id k2): print, do not store
+	cfg, _ := json.Marshal(config{Server: srv.URL, Key: "k", KeyID: "k2", Org: "acme"})
+	_ = os.WriteFile(os.Getenv("STACKR_CONFIG"), cfg, 0o600)
+	code, out, errw = cli(t, "key", "rotate", "ci", "-y")
+	if code != 0 || !strings.Contains(out+errw, "newtok") {
+		t.Fatalf("other key: %d %q %q", code, out, errw)
+	}
+	if b, _ := os.ReadFile(os.Getenv("STACKR_CONFIG")); strings.Contains(string(b), "newtok") {
+		t.Errorf("config changed: %s", b)
 	}
 }
