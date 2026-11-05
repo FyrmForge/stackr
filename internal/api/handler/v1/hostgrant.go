@@ -59,6 +59,14 @@ func (h *H) ApproveDestGrant() Endpoint {
 	})
 }
 
+// RevokeDestGrant (server admin) takes the approval back; the destination
+// waits again.
+func (h *H) RevokeDestGrant() Endpoint {
+	return JSON(200, func(c echo.Context, _ struct{}) (service.DestGrant, error) {
+		return h.Orch.RevokeDestGrant(rc(c), c.Param("dest"))
+	})
+}
+
 // HostGrants (server admin) lists every stack's grant and pending ask.
 func (h *H) HostGrants() Endpoint {
 	return Get(func(c echo.Context) ([]HostGrantOut, error) { return list(h.Orch.ListHostGrants(rc(c))) })

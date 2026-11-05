@@ -161,3 +161,24 @@ func TestAdminDeployAutoApprovesHostAccess(t *testing.T) {
 		}
 	}
 }
+
+// A revoke makes an approved destination pending again and is logged.
+func TestDestGrantRevoke(t *testing.T) {
+	w := newWorld(t)
+	w.users(t)
+	ctx := asUser("mem", "")
+	d, err := w.orch.CreateBackupDest(ctx, &w.org, lanSpec(lanEndpoint))
+	must(t, err)
+	_, err = w.orch.ApproveDestGrant(ctx, d.ID, "adm", "192.168.1.106:9100")
+	must(t, err)
+	if _, err := w.orch.RevokeDestGrant(asUser("adm", ""), d.ID); err != nil {
+		t.Fatal(err)
+	}
+	gs, _ := w.orch.DestGrants(ctx)
+	if len(gs) != 1 || !gs[0].Pending || gs[0].ApprovedBy != "" {
+		t.Fatalf("after revoke = %+v", gs)
+	}
+	if e := one(t, w, "grant.revoke"); e.TargetKind != "backup_dest" || e.TargetID != d.ID {
+		t.Fatalf("log = %+v", e)
+	}
+}

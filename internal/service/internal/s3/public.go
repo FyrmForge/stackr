@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -74,6 +75,36 @@ func Private(endpoint string) bool {
 		}
 	}
 	return false
+}
+
+var (
+	resolveFn  = resolve
+	recentMu   sync.Mutex
+	recentPriv = map[string]recentAns{}
+)
+
+type recentAns struct {
+	private bool
+	at      time.Time
+}
+
+// PrivateRecent is Private for listings: an answer under a minute old is
+// reused, so a page render does not resolve every endpoint again. Saving and
+// dialing keep using Private; the dial check is the real enforcement.
+func PrivateRecent(endpoint string) bool {
+	recentMu.Lock()
+	defer recentMu.Unlock()
+	if a, ok := recentPriv[endpoint]; ok && time.Since(a.at) < time.Minute {
+		return a.private
+	}
+	p := false
+	for _, ap := range resolveFn(Addr(endpoint)) {
+		if !publicIP(ap.Addr()) {
+			p = true
+		}
+	}
+	recentPriv[endpoint] = recentAns{p, time.Now()}
+	return p
 }
 
 // publicClient dials only public addresses, checked on the address actually

@@ -13,7 +13,7 @@ With no destination, archives stay on the controller under its data dir (`/var/l
    stackr dest add offsite --server --shared --endpoint https://s3.example.com --region eu --bucket stackr-backups
    ```
 
-An org's destination on a private address (a LAN bucket) is saved but waits. Backups to it fail with "Waiting for the server admin to approve LAN access." until an admin approves its host and port under Admin, Host access (or `stackr admin dest-grant-approve <dest>`). Changing the endpoint asks again. A destination a server admin saves is approved on the spot, and so is a tile a server admin deploys.
+An org's destination on a private address (a LAN bucket) is saved but waits. Backups to it fail with "Waiting for the server admin to approve LAN access." until an admin approves its host and port under Admin, Host access (or `stackr admin dest-grant-approve <dest>`). Changing the endpoint asks again. An admin can revoke it there too (or `stackr admin dest-grant-revoke <dest>`). A destination a server admin saves is approved on the spot, and so is a tile a server admin deploys.
 
 ## The panel
 

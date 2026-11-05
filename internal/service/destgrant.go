@@ -64,9 +64,8 @@ func (o *Orchestrator) approvedBySaver(ctx context.Context, d BackupDest, err er
 }
 
 // DestGrants (server admin) lists every org destination on a private
-// address, pending or approved.
-// ponytail: resolves each endpoint's host on every call; cache it if an
-// install ever has enough destinations to notice.
+// address, pending or approved. Privateness is a lookup cached for a minute
+// (s3.PrivateRecent); the dial check at run time is the enforcement.
 func (o *Orchestrator) DestGrants(ctx context.Context) ([]DestGrant, error) {
 	orgs, err := o.orgs.ListAll(ctx)
 	if err != nil {
@@ -79,7 +78,7 @@ func (o *Orchestrator) DestGrants(ctx context.Context) ([]DestGrant, error) {
 			return nil, err
 		}
 		for _, d := range ds {
-			if d.OrgID == nil || !needsGrant(d) {
+			if d.OrgID == nil || d.Kind != backup.S3 || !s3.PrivateRecent(d.Endpoint) {
 				continue
 			}
 			out = append(out, DestGrant{
@@ -130,4 +129,24 @@ func (o *Orchestrator) ApproveDestGrant(ctx context.Context, destID, userID, add
 		return DestGrant{}, err
 	}
 	return DestGrant{DestID: d.ID, Name: d.Name, OrgID: *d.OrgID, Addr: addr, ApprovedBy: userID}, nil
+}
+
+// RevokeDestGrant (server admin) takes the approval back: the destination is
+// pending again and its runs fail with the waiting message.
+func (o *Orchestrator) RevokeDestGrant(ctx context.Context, destID string) (DestGrant, error) {
+	d, err := o.backups.Get(ctx, destID)
+	if err != nil {
+		return DestGrant{}, err
+	}
+	if d.OrgID == nil || d.Kind != backup.S3 {
+		return DestGrant{}, errs.ErrNotFound
+	}
+	if err := o.backups.Approve(ctx, &d, "", ""); err != nil {
+		return DestGrant{}, err
+	}
+	addr := s3.Addr(d.Endpoint)
+	if err := o.noted(ctx, nil, securitylog.GrantRevoke, "backup_dest", d.ID, addr); err != nil {
+		return DestGrant{}, err
+	}
+	return DestGrant{DestID: d.ID, Name: d.Name, OrgID: *d.OrgID, Addr: addr, Pending: true}, nil
 }

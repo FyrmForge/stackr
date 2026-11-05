@@ -1255,6 +1255,21 @@ func (a *app) admin() *cobra.Command {
 				}
 				return a.show(v, "dest_id", "name", "addr", "approved_by")
 			}),
+		leaf("dest-grant-revoke <dest>", "admin.dest-grants,admin.dest-grant-revoke", "Take back an org backup destination's access to its private address (id or name)", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				cur, err := a.find("/admin/dest-grants", "destination", args[0], "dest_id", "name")
+				if err != nil {
+					return err
+				}
+				if err := a.confirm("Revoke " + cell(cur["org"]) + "'s destination " + cell(cur["name"]) + " access to " + cell(cur["addr"]) + "? Its backups wait for approval again."); err != nil {
+					return err
+				}
+				v, err := a.call(POST, "/admin/dest-grants/"+cell(cur["dest_id"])+"/revoke", nil)
+				if err != nil {
+					return err
+				}
+				return a.show(v, "dest_id", "name", "addr", "pending")
+			}),
 		list("images", "admin.images", "List the images stackr knows", "/admin/images", imageCols...),
 		a.observeStatus(),
 		a.registryAdmin(adminJob(

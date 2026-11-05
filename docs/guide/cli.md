@@ -128,6 +128,14 @@ Let an org's backup destination reach its private address (id or name)
 stackr admin dest-grant-approve <dest>
 ```
 
+### `stackr admin dest-grant-revoke`
+
+Take back an org backup destination's access to its private address (id or name)
+
+```
+stackr admin dest-grant-revoke <dest>
+```
+
 ### `stackr admin dest-grants`
 
 List the org backup destinations on a private address and whether they wait for approval
