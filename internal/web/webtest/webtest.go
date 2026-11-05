@@ -89,7 +89,7 @@ func (s *Site) send(ctx context.Context, session, method, path string, form url.
 	}
 	req.Header.Set("HX-Request", "true")
 	req.Header.Set("X-CSRF-Token", "tok")
-	req.AddCookie(&http.Cookie{Name: "csrf", Value: "tok"})
+	req.AddCookie(&http.Cookie{Name: "__Host-csrf", Value: "tok"})
 	if session != "" {
 		req.AddCookie(&http.Cookie{Name: s.Orch.Sessions().CookieName(), Value: session})
 	}

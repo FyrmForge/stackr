@@ -2,12 +2,14 @@ package web
 
 import (
 	"cmp"
+	"net/http"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
 	"github.com/labstack/echo/v4"
+	echomw "github.com/labstack/echo/v4/middleware"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
@@ -51,6 +53,15 @@ func CookieSecure(baseURL string) bool {
 	return !strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseURL)), "http://")
 }
 
+// CSRFCookie is the CSRF cookie's name: __Host- (Secure, Path=/, no Domain,
+// all true of it) wherever cookies are Secure, plain on http dev.
+func CSRFCookie(baseURL string) string {
+	if CookieSecure(baseURL) {
+		return "__Host-csrf"
+	}
+	return "csrf"
+}
+
 // RegisterRoutes registers all web route handlers on the server.
 func RegisterRoutes(srv *server.Server, deps *Deps) {
 	e := srv.Echo()
@@ -86,7 +97,13 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: CookieSecure(deps.BaseURL)}))
 	// The token rides in the hx-headers header only: a form lookup would
 	// parse a multipart body (a dump upload) before the route's auth.
-	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: CookieSecure(deps.BaseURL), TokenLookup: "header:X-CSRF-Token"}))
+	// Echo's own CSRF: hamr's wrapper sets no cookie Path, and a __Host-
+	// cookie without Path=/ is dropped by the browser.
+	site.Use(echomw.CSRFWithConfig(echomw.CSRFConfig{
+		CookieName: CSRFCookie(deps.BaseURL), CookiePath: "/",
+		CookieSecure: CookieSecure(deps.BaseURL), CookieSameSite: http.SameSiteLaxMode,
+		TokenLookup: "header:X-CSRF-Token",
+	}))
 	// The create-tile form can carry a dump; the handler reads it after auth.
 	e.Pre(middleware.LiftBodyLimit("/-/new-tile"))
 
