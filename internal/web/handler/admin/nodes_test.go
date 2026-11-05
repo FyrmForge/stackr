@@ -230,7 +230,7 @@ func TestAdminBreakGlassBackupFirst(t *testing.T) {
 		strings.Contains(rec.Body.String(), "Break glass done.") {
 		t.Fatalf("ticked = %d\n%s", rec.Code, rec.Body)
 	}
-	js, err := s.Store.Jobs.ListByState(t.Context(), "queued", "running", "waiting")
+	js, err := s.Store.Jobs.ListByState(t.Context(), "queued", "running", "waiting", "done", "failed") // the worker may already have run it
 	if err != nil {
 		t.Fatal(err)
 	}
