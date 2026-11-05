@@ -57,9 +57,9 @@ func (a *app) serverConnectors() *cobra.Command {
 
 	n := noun("connectors", "Git and DNS connectors the server owns (admin)",
 		ls,
-		leaf("rename <id> <name>", "admin.connector-rename", "Rename a server connector", exact(2),
+		leaf("rename <id> <name>", "admin.connector-update", "Rename a server connector", exact(2),
 			func(_ *cobra.Command, args []string) error {
-				v, err := a.call(PUT, "/admin/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
+				v, err := a.call(PATCH, "/admin/connectors/"+args[0], map[string]string{"name": args[1]})
 				if err != nil {
 					return err
 				}

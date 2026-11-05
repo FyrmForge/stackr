@@ -20,7 +20,7 @@ func TestOperationsAreAudited(t *testing.T) {
 	if code, out := w.do(t, w.owner, "POST", tile+"/domains", `{"host":"audit.example.com"}`); code != 201 {
 		t.Fatalf("attach = %d %s", code, out)
 	}
-	if code, out := w.do(t, w.owner, "DELETE", "/orgs/acme/params/params/LOG", ""); code != 200 {
+	if code, out := w.do(t, w.owner, "DELETE", "/orgs/acme/params/params/LOG", ""); code != 202 {
 		t.Fatalf("delete param = %d %s", code, out)
 	}
 

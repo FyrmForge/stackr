@@ -45,9 +45,6 @@ type (
 		Auto       bool    `json:"auto"`
 		Placement  string  `json:"placement"` // a placement's name; "" = the pins decide
 	}
-	ColorIn struct {
-		Color string `json:"color"`
-	}
 	FromIn struct {
 		Kind   string `json:"kind"`
 		Branch string `json:"branch"`
@@ -81,9 +78,18 @@ func (h *H) GetStack() Endpoint {
 	return Get(func(c echo.Context) (service.Stack, error) { return *scope(c).Stack, nil })
 }
 
-func (h *H) RenameStack() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (service.Stack, error) {
-		st, _, err := h.Orch.RenameStack(rc(c), stackID(c), in.Name) // the panel shows stack file warnings
+// StackPatch is the fields of a stack that PATCH changes; a field left out stays.
+type StackPatch struct {
+	Name *string `json:"name,omitempty"`
+}
+
+func (h *H) UpdateStack() Endpoint {
+	return JSON(200, func(c echo.Context, in StackPatch) (service.Stack, error) {
+		st := *scope(c).Stack
+		if in.Name == nil {
+			return st, nil
+		}
+		st, _, err := h.Orch.RenameStack(rc(c), stackID(c), *in.Name) // the panel shows stack file warnings
 		return st, err
 	})
 }
@@ -283,21 +289,37 @@ func (h *H) Traffic() Endpoint {
 	return Get(func(c echo.Context) ([]service.Edge, error) { return list(h.Orch.Traffic(rc(c), envID(c))) })
 }
 
-func (h *H) RenameEnv() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (EnvOut, error) {
-		if e := scope(c).Env; e.Type == "static" {
-			if err := h.Orch.JoinsLockedTier(rc(c), middleware.Principal(c), e.StackID, in.Name, e.Slug); err != nil {
-				return h.envOut(c)(*e, err)
-			}
-		}
-		e, _, err := h.Orch.RenameEnv(rc(c), envID(c), in.Name) // the panel shows stack file warnings
-		return h.envOut(c)(e, err)
-	})
+// EnvPatch is the fields of an env that PATCH changes; a field left out
+// stays. They apply in order: name, colour, lock.
+type EnvPatch struct {
+	Name   *string `json:"name,omitempty"`
+	Color  *string `json:"color,omitempty"`
+	Locked *bool   `json:"locked,omitempty"`
 }
 
-func (h *H) SetEnvColor() Endpoint {
-	return JSON(200, func(c echo.Context, in ColorIn) (EnvOut, error) {
-		return h.envOut(c)(h.Orch.SetEnvColor(rc(c), envID(c), in.Color))
+func (h *H) UpdateEnv() Endpoint {
+	return JSON(200, func(c echo.Context, in EnvPatch) (EnvOut, error) {
+		e := *scope(c).Env
+		var err error
+		if in.Name != nil {
+			if e.Type == "static" {
+				if err := h.Orch.JoinsLockedTier(rc(c), middleware.Principal(c), e.StackID, *in.Name, e.Slug); err != nil {
+					return h.envOut(c)(e, err)
+				}
+			}
+			if e, _, err = h.Orch.RenameEnv(rc(c), envID(c), *in.Name); err != nil { // the panel shows stack file warnings
+				return h.envOut(c)(e, err)
+			}
+		}
+		if in.Color != nil {
+			if e, err = h.Orch.SetEnvColor(rc(c), envID(c), *in.Color); err != nil {
+				return h.envOut(c)(e, err)
+			}
+		}
+		if in.Locked != nil {
+			e, err = h.Orch.SetEnvLock(rc(c), envID(c), *in.Locked)
+		}
+		return h.envOut(c)(e, err)
 	})
 }
 

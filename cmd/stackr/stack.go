@@ -185,20 +185,20 @@ func (a *app) get(use, op, short string, lv level, sub string, cols ...string) *
 	}))
 }
 
-// put is a leaf that PUTs {key: arg} at p+sub.
-func (a *app) put(use, op, short string, lv level, sub, key string) *cobra.Command {
+// patch is a leaf that PATCHes {key: arg} at p.
+func (a *app) patch(use, op, short string, lv level, key string) *cobra.Command {
 	return leaf(use, op, short, exact(1), a.at(lv, func(_ *cobra.Command, p string, args []string) error {
-		_, err := a.call(PUT, p+sub, map[string]string{key: args[0]})
+		_, err := a.call(PATCH, p, map[string]string{key: args[0]})
 		return err
 	}))
 }
 
-// rename PUTs a new name and prints the slug it gives, the handle the next
+// rename PATCHes a new name and prints the slug it gives, the handle the next
 // command takes. The name is the last arg ("rename <tile> <name>").
 func (a *app) rename(use, op, short string, lv level) *cobra.Command {
 	n := strings.Count(use, " ")
 	return leaf(use, op, short, exact(n), a.at(lv, func(_ *cobra.Command, p string, args []string) error {
-		v, err := a.call(PUT, p+"/name", map[string]string{"name": args[n-1]})
+		v, err := a.call(PATCH, p, map[string]string{"name": args[n-1]})
 		if err == nil {
 			m, _ := v.(map[string]any)
 			err = a.relink(p, cell(m["slug"]))
@@ -318,7 +318,7 @@ func (a *app) stacks() *cobra.Command {
 			})),
 		a.get("get", "stack.get", "Show the stack", atStack, "", stackCols...),
 		create,
-		a.rename("rename <name>", "stack.rename", "Rename the stack", atStack),
+		a.rename("rename <name>", "stack.update", "Rename the stack", atStack),
 		a.stackExport(),
 		configRepo,
 		a.settingsCmd("stack.get,stack.settings", "Show or change the stack's settings defaults", atStack),
@@ -485,8 +485,8 @@ func (a *app) envs() *cobra.Command {
 				return a.show(v, "from_name", "to_name", "bps")
 			})),
 		create,
-		a.rename("rename <name>", "env.rename", "Rename the environment", atEnv),
-		a.put("color <color>", "env.color", "Set the environment's panel colour", atEnv, "/color", "color"),
+		a.rename("rename <name>", "env.update", "Rename the environment", atEnv),
+		a.patch("color <color>", "env.update", "Set the environment's panel colour", atEnv, "color"),
 		from,
 		a.envLock(true),
 		a.envLock(false),
@@ -1052,7 +1052,7 @@ func (a *app) tiles() *cobra.Command {
 		a.get("get [tile]", "tile.get", "Show a tile", atTile, ""),
 		create,
 		set,
-		a.rename("rename <tile> <name>", "tile.rename", "Rename a tile", atTile),
+		a.rename("rename <tile> <name>", "tile.update", "Rename a tile", atTile),
 		a.tileJob(
 			DELETE,
 			"rm [tile]",
@@ -1823,8 +1823,8 @@ func (a *app) envLock(locked bool) *cobra.Command {
 	if locked {
 		use, short = "lock", "Lock the environment: other envs cannot read its params"
 	}
-	return leaf(use, "env.lock", short, exact(0), a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
-		_, err := a.call(PUT, p+"/lock", map[string]bool{"locked": locked})
+	return leaf(use, "env.update", short, exact(0), a.at(atEnv, func(_ *cobra.Command, p string, _ []string) error {
+		_, err := a.call(PATCH, p, map[string]bool{"locked": locked})
 		return err
 	}))
 }

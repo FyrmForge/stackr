@@ -35,17 +35,15 @@ var (
 // skipped are the API operations with no CLI verb, and why. The coverage
 // test holds every other route to a command.
 var skipped = map[string]string{
-	"join.request":                 "the new machine's installer posts it (stackr-install join)",
-	"join.status":                  "the new machine's installer polls it (stackr-install join)",
-	"node.recover":                 "a worker whose controller went quiet calls it itself (stackrd worker)",
-	"node.cert_renew":              "a worker renews its own certificate (stackrd worker)",
-	"key.cli_code":                 "the panel's CLI authorize page calls it; stackr login waits for its code",
-	"invite.get":                   "an invite link is opened in a browser",
-	"invite.accept":                "an invite link is accepted in a browser",
-	"env.events":                   "the env canvas's live stream; stackr env traffic reads the same lanes",
-	"domain-resource.update":       "v0's domain noun is ls, add, rm (cli-ref.md); a stack file's domains: edits its rows",
-	"admin.domain-resource-update": "v0's domain noun is ls, add, rm (cli-ref.md)",
-	"org.finish":                   "stackr org create names and finishes an org in one call; the panel's wizard calls it",
+	"join.request":    "the new machine's installer posts it (stackr-install join)",
+	"join.status":     "the new machine's installer polls it (stackr-install join)",
+	"node.recover":    "a worker whose controller went quiet calls it itself (stackrd worker)",
+	"node.cert_renew": "a worker renews its own certificate (stackrd worker)",
+	"key.cli_code":    "the panel's CLI authorize page calls it; stackr login waits for its code",
+	"invite.get":      "an invite link is opened in a browser",
+	"invite.accept":   "an invite link is accepted in a browser",
+	"env.events":      "the env canvas's live stream; stackr env traffic reads the same lanes",
+	"org.finish":      "stackr org create names and finishes an org in one call; the panel's wizard calls it",
 }
 
 func (a *app) commands() []*cobra.Command {
@@ -530,9 +528,9 @@ func (a *app) orgs() *cobra.Command {
 				}
 				return a.save()
 			}),
-		leaf("rename <name>", "org.rename", "Rename this org", exact(1), func(_ *cobra.Command, args []string) error {
+		leaf("rename <name>", "org.update", "Rename this org", exact(1), func(_ *cobra.Command, args []string) error {
 			return org(func(p string) error {
-				v, err := a.call(PUT, p+"/name", map[string]string{"name": args[0]})
+				v, err := a.call(PATCH, p, map[string]string{"name": args[0]})
 				if err == nil {
 					m, _ := v.(map[string]any)
 					a.cfg.Org = cell(m["slug"])
@@ -670,10 +668,10 @@ func (a *app) orgConnectors(org func(func(p string) error) error) *cobra.Command
 	a.orgFlag(append([]*cobra.Command{ls, rm}, dnsVerbs...)...)
 	n := noun("connectors", "Git connectors and the org's DNS connectors",
 		ls,
-		leaf("rename <id> <name>", "connector.rename", "Rename a connector", exact(2),
+		leaf("rename <id> <name>", "connector.update", "Rename a connector", exact(2),
 			func(_ *cobra.Command, args []string) error {
 				return org(func(p string) error {
-					_, err := a.call(PUT, p+"/connectors/"+args[0]+"/name", map[string]string{"name": args[1]})
+					_, err := a.call(PATCH, p+"/connectors/"+args[0], map[string]string{"name": args[1]})
 					return err
 				})
 			}),
@@ -924,7 +922,7 @@ func (a *app) domainResources() *cobra.Command {
 	)
 	rename := leaf(
 		"rename <id or host> <new host>",
-		"domain-resource.list,domain-resource.rename,admin.domain-resource-list,admin.domain-resource-rename",
+		"domain-resource.list,domain-resource.update,admin.domain-resource-list,admin.domain-resource-update",
 		"Move a domain resource to a new host: its auto hosts follow, and each old host redirects to its new one",
 		exact(2),
 		func(_ *cobra.Command, args []string) error {
@@ -936,7 +934,7 @@ func (a *app) domainResources() *cobra.Command {
 			if err := a.confirm("Rename domain resource " + args[0] + " to " + args[1] + "? Every hostname under it moves and the old one redirects. Point DNS at the new name first."); err != nil {
 				return err
 			}
-			v, err := a.call(POST, base()+"/"+url.PathEscape(id)+"/rename", map[string]any{"host": args[1]})
+			v, err := a.call(PATCH, base()+"/"+url.PathEscape(id), map[string]any{"host": args[1]})
 			if err != nil {
 				return err
 			}

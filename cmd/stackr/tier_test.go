@@ -12,13 +12,13 @@ func TestTierRoutes(t *testing.T) {
 	const org = "/api/v1/orgs/acme"
 	for args, want := range map[string]string{
 		"tier add qa":                      "POST " + org + `/tiers {"slug":"qa"}`,
-		"tier rename qa test":              "PUT " + org + `/tiers/qa {"slug":"test"}`,
+		"tier rename qa test":              "PATCH " + org + `/tiers/qa {"slug":"test"}`,
 		"tier order dev prod":              "PUT " + org + `/tiers/order {"slugs":["dev","prod"]}`,
-		"tier lock prod":                   "PUT " + org + `/tiers/prod/lock {"locked":true}`,
-		"tier unlock prod":                 "PUT " + org + `/tiers/prod/lock {"locked":false}`,
+		"tier lock prod":                   "PATCH " + org + `/tiers/prod {"locked":true}`,
+		"tier unlock prod":                 "PATCH " + org + `/tiers/prod {"locked":false}`,
 		"tier rm qa -y":                    "DELETE " + org + "/tiers/qa ",
-		"env lock --stack shop --env demo": "PUT " + org + `/stacks/shop/envs/demo/lock {"locked":true}`,
-		"env unlock --stack shop --env x":  "PUT " + org + `/stacks/shop/envs/x/lock {"locked":false}`,
+		"env lock --stack shop --env demo": "PATCH " + org + `/stacks/shop/envs/demo {"locked":true}`,
+		"env unlock --stack shop --env x":  "PATCH " + org + `/stacks/shop/envs/x {"locked":false}`,
 		"params get --tier prod":           "GET " + org + "/tiers/prod/params ",
 		"params get --pr --stack shop":     "GET " + org + "/stacks/shop/pr/params ",
 		"params get --pr --level org":      "GET " + org + "/pr/params ",

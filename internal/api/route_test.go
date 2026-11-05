@@ -58,22 +58,20 @@ func TestServerConfigRouteContract(t *testing.T) {
 		got[key{r.Method, r.Path}] = [2]string{r.Op, string(r.Verb)}
 	}
 	for k, want := range map[key][2]string{
-		{"GET", "/admin/config-repo"}:                            {"admin.config-repo-get", "admin.read"},
-		{"PUT", "/admin/config-repo"}:                            {"admin.config-repo", "serverconfig.bind"},
-		{"POST", "/admin/config/plan"}:                           {"admin.config-plan", "serverconfig.bind"},
-		{"POST", "/admin/config/plan-file"}:                      {"admin.config-plan-file", "serverconfig.bind"},
-		{"POST", "/admin/config/plan-preview"}:                   {"admin.config-plan-preview", "serverconfig.bind"},
-		{"GET", "/admin/config/plans"}:                           {"admin.config-plans", "admin.read"},
-		{"GET", "/admin/config/plans/:plan"}:                     {"admin.config-plan-get", "admin.read"},
-		{"POST", "/admin/config/plans/:plan/approve"}:            {"admin.config-plan-approve", "serverplan.approve"},
-		{"POST", "/admin/config/plans/:plan/reject"}:             {"admin.config-plan-reject", "serverplan.approve"},
-		{"GET", "/admin/config/export"}:                          {"admin.config-export", "admin.read"},
-		{"POST", "/orgs/:org/domain-resources/:resource/rename"}: {"domain-resource.rename", "domain.resource"},
-		{"POST", "/admin/domain-resources/:resource/rename"}:     {"admin.domain-resource-rename", "serverdefaults.set"},
-		{"GET", "/admin/connectors"}:                             {"admin.connector-list", "admin.read"},
-		{"PUT", "/admin/connectors/:connector/name"}:             {"admin.connector-rename", "connector.admin"},
-		{"PUT", "/admin/connectors/:connector/shares"}:           {"admin.connector-share", "connector.admin"},
-		{"DELETE", "/admin/connectors/:connector"}:               {"admin.connector-delete", "connector.admin"},
+		{"GET", "/admin/config-repo"}:                  {"admin.config-repo-get", "admin.read"},
+		{"PUT", "/admin/config-repo"}:                  {"admin.config-repo", "serverconfig.bind"},
+		{"POST", "/admin/config/plan"}:                 {"admin.config-plan", "serverconfig.bind"},
+		{"POST", "/admin/config/plan-file"}:            {"admin.config-plan-file", "serverconfig.bind"},
+		{"POST", "/admin/config/plan-preview"}:         {"admin.config-plan-preview", "serverconfig.bind"},
+		{"GET", "/admin/config/plans"}:                 {"admin.config-plans", "admin.read"},
+		{"GET", "/admin/config/plans/:plan"}:           {"admin.config-plan-get", "admin.read"},
+		{"POST", "/admin/config/plans/:plan/approve"}:  {"admin.config-plan-approve", "serverplan.approve"},
+		{"POST", "/admin/config/plans/:plan/reject"}:   {"admin.config-plan-reject", "serverplan.approve"},
+		{"GET", "/admin/config/export"}:                {"admin.config-export", "admin.read"},
+		{"GET", "/admin/connectors"}:                   {"admin.connector-list", "admin.read"},
+		{"PATCH", "/admin/connectors/:connector"}:      {"admin.connector-update", "connector.admin"},
+		{"PUT", "/admin/connectors/:connector/shares"}: {"admin.connector-share", "connector.admin"},
+		{"DELETE", "/admin/connectors/:connector"}:     {"admin.connector-delete", "connector.admin"},
 	} {
 		if got[k] != want {
 			t.Errorf("%s %s = %v, want %v", k.method, k.path, got[k], want)

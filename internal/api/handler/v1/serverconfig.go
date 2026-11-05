@@ -19,9 +19,6 @@ type (
 	ServerFileIn struct {
 		File string `json:"file"` // a stackr-server.yml
 	}
-	DomainRenameIn struct {
-		Host string `json:"host"` // the resource's new host
-	}
 )
 
 func (h *H) ServerConfigRepo() Endpoint {
@@ -90,14 +87,5 @@ func (h *H) ExportServerConfig() Endpoint {
 		}
 		c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="stackr-server.yml"`)
 		return c.Blob(http.StatusOK, "application/yaml", b)
-	})
-}
-
-// RenameDomainResource serves the org route and the admin one, like
-// UpdateDomainResource: the org route's middleware already refused another
-// org's id.
-func (h *H) RenameDomainResource() Endpoint {
-	return JSON(200, func(c echo.Context, in DomainRenameIn) (service.DomainResource, error) {
-		return h.Orch.RenameDomainResource(rc(c), c.Param("resource"), in.Host)
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 type (
@@ -13,9 +14,6 @@ type (
 	SlugsIn struct {
 		Slugs []string `json:"slugs"`
 	} // bottom rung first
-	LockIn struct {
-		Locked bool `json:"locked"`
-	}
 )
 
 // ---- tiers ----
@@ -30,9 +28,31 @@ func (h *H) CreateTier() Endpoint {
 	})
 }
 
-func (h *H) RenameTier() Endpoint {
-	return JSON(200, func(c echo.Context, in SlugIn) (service.Tier, error) {
-		return h.Orch.RenameTier(rc(c), orgID(c), c.Param("tier"), in.Slug)
+// TierPatch is the fields of a tier that PATCH changes; a field left out
+// stays. The rename applies first, then the lock.
+type TierPatch struct {
+	Slug   *string `json:"slug,omitempty"`
+	Locked *bool   `json:"locked,omitempty"`
+}
+
+func (h *H) UpdateTier() Endpoint {
+	return JSON(200, func(c echo.Context, in TierPatch) (service.Tier, error) {
+		slug := c.Param("tier")
+		if in.Slug == nil && in.Locked == nil {
+			return service.Tier{}, errs.Invalidf("", "send slug, locked or both")
+		}
+		var t service.Tier
+		if in.Slug != nil {
+			var err error
+			if t, err = h.Orch.RenameTier(rc(c), orgID(c), slug, *in.Slug); err != nil {
+				return t, err
+			}
+			slug = t.Slug
+		}
+		if in.Locked != nil {
+			return h.Orch.SetTierLock(rc(c), orgID(c), slug, *in.Locked)
+		}
+		return t, nil
 	})
 }
 
@@ -42,16 +62,4 @@ func (h *H) ReorderTiers() Endpoint {
 
 func (h *H) DeleteTier() Endpoint {
 	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteTier(rc(c), orgID(c), c.Param("tier")) })
-}
-
-func (h *H) SetTierLock() Endpoint {
-	return JSON(200, func(c echo.Context, in LockIn) (service.Tier, error) {
-		return h.Orch.SetTierLock(rc(c), orgID(c), c.Param("tier"), in.Locked)
-	})
-}
-
-func (h *H) SetEnvLock() Endpoint {
-	return JSON(200, func(c echo.Context, in LockIn) (service.Environment, error) {
-		return h.Orch.SetEnvLock(rc(c), envID(c), in.Locked)
-	})
 }

@@ -13,7 +13,7 @@ func TestServerConnectorRoutes(t *testing.T) {
 	const c = "/api/v1/admin/connectors"
 	for _, tc := range []struct{ args, want string }{
 		{"ls", "GET " + c + " "},
-		{"rename c1 main", "PUT " + c + `/c1/name {"name":"main"}`},
+		{"rename c1 main", "PATCH " + c + `/c1 {"name":"main"}`},
 		{"share c1 --org o1 --org o2", "PUT " + c + `/c1/shares {"all":false,"org_ids":["o1","o2"]}`},
 		{"share c1 --all -y", "PUT " + c + `/c1/shares {"all":true,"org_ids":[]}`},
 		{"share c1 -y", "PUT " + c + `/c1/shares {"all":false,"org_ids":[]}`},

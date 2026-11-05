@@ -200,17 +200,42 @@ func TestTilePatch(t *testing.T) {
 		t.Fatalf("patch = %d %s", code, body)
 	}
 	_, body := w.do(t, w.owner, "GET", path, "")
-	var got service.Tile
+	var got service.TileView
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.HealthPath != "/up" || got.ImageRef != "nginx:1" || got.ContainerPort != 80 {
 		t.Errorf("after patch: %+v", got)
 	}
+	// the line-based columns go in structured or as the stored string, and
+	// always come out structured
+	if code, body := w.do(t, w.owner, "POST", "/orgs/acme/stacks/shop/envs/dev/tiles", `{"name":"db","kind":"image","image_ref":"postgres:16"}`); code != 201 {
+		t.Fatalf("create db = %d %s", code, body)
+	}
+	for _, in := range []string{
+		`{"published_ports":[{"host":8080,"container":80,"protocol":"tcp"}],"depends_on":[{"tile":"db","condition":"healthy"}],"env_json":{"A":"1"}}`,
+		`{"published_ports":"8080:80","depends_on":"db:healthy","env_json":"{\"A\":\"1\"}"}`,
+	} {
+		if code, body := w.do(t, w.owner, "PATCH", path, in); code != 200 {
+			t.Fatalf("patch %s = %d %s", in, code, body)
+		}
+		_, body = w.do(t, w.owner, "GET", path, "")
+		got = service.TileView{}
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.PublishedPorts) != 1 || got.PublishedPorts[0].Host != 8080 || got.PublishedPorts[0].Container != 80 ||
+			len(got.DependsOn) != 1 || got.DependsOn[0].Condition != "healthy" || got.EnvJSON["A"] != "1" {
+			t.Errorf("after %s: %s", in, body)
+		}
+	}
 	var e middleware.APIError
 	code, body := w.do(t, w.owner, "PATCH", path, `{"kind":"git"}`)
 	if err := json.Unmarshal([]byte(body), &e); err != nil || code != 400 || e.Status != 400 || e.Error == "" {
 		t.Errorf("kind patch = %d %s, want a 400 APIError", code, body)
+	}
+	if code, body := w.do(t, w.owner, "PATCH", path, `{"name":"api2"}`); code != 200 || !strings.Contains(body, `"slug":"api2"`) {
+		t.Errorf("rename by patch = %d %s", code, body)
 	}
 }
 

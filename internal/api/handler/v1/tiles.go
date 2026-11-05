@@ -17,53 +17,80 @@ import (
 // stored: only what is sent is applied (B1, B21, B22). Identity (id, stack,
 // env, slug, kind) is not here; the name has its own route.
 type TilePatch struct {
-	GitURL                  *string  `json:"git_url,omitempty"`
-	GitBranch               *string  `json:"git_branch,omitempty"`
-	ImageRef                *string  `json:"image_ref,omitempty"`
-	DockerfilePath          *string  `json:"dockerfile_path,omitempty"`
-	BuildContext            *string  `json:"build_context,omitempty"`
-	WatchPaths              *string  `json:"watch_paths,omitempty"`
-	EnvJSON                 *string  `json:"env_json,omitempty"`
-	BuildArgs               *string  `json:"build_args,omitempty"`
-	Volumes                 *string  `json:"volumes,omitempty"`
-	Command                 *string  `json:"command,omitempty"`
-	ContainerPort           *int     `json:"container_port,omitempty"`
-	PublishedPorts          *string  `json:"published_ports,omitempty"`
-	EndpointProtocol        *string  `json:"endpoint_protocol,omitempty"`
-	HealthPath              *string  `json:"health_path,omitempty"`
-	HealthcheckCmd          *string  `json:"healthcheck_cmd,omitempty"`
-	HealthcheckIntervalS    *int     `json:"healthcheck_interval_s,omitempty"`
-	HealthcheckTimeoutS     *int     `json:"healthcheck_timeout_s,omitempty"`
-	HealthcheckRetries      *int     `json:"healthcheck_retries,omitempty"`
-	HealthcheckStartPeriodS *int     `json:"healthcheck_start_period_s,omitempty"`
-	CPULimit                *float64 `json:"cpu_limit,omitempty"`
-	MemLimitMB              *int     `json:"mem_limit_mb,omitempty"`
-	User                    *string  `json:"user,omitempty"`
-	ShmSizeMB               *int     `json:"shm_size_mb,omitempty"`
-	Privileged              *bool    `json:"privileged,omitempty"`
-	Devices                 *string  `json:"devices,omitempty"`
-	Lan                     *string  `json:"lan,omitempty"`
-	HostNetwork             *bool    `json:"host_network,omitempty"`
-	RestartPolicy           *string  `json:"restart_policy,omitempty"`
-	DependsOn               *string  `json:"depends_on,omitempty"`
-	Files                   *string  `json:"files,omitempty"`
-	SharedNet               *string  `json:"shared_net,omitempty"`
-	Replicas                *int     `json:"replicas,omitempty"`
-	UpdatePolicy            *string  `json:"update_policy,omitempty"`
-	TagPolicy               *string  `json:"tag_policy,omitempty"`
-	Schedule                *string  `json:"schedule,omitempty"`
-	Trigger                 *string  `json:"trigger,omitempty"`
-	TimeoutMinutes          *int     `json:"timeout_minutes,omitempty"`
+	GitURL                  *string          `json:"git_url,omitempty"`
+	GitBranch               *string          `json:"git_branch,omitempty"`
+	ImageRef                *string          `json:"image_ref,omitempty"`
+	DockerfilePath          *string          `json:"dockerfile_path,omitempty"`
+	BuildContext            *string          `json:"build_context,omitempty"`
+	WatchPaths              *string          `json:"watch_paths,omitempty"`
+	EnvJSON                 *json.RawMessage `json:"env_json,omitempty"`
+	BuildArgs               *string          `json:"build_args,omitempty"`
+	Volumes                 *json.RawMessage `json:"volumes,omitempty"`
+	Command                 *string          `json:"command,omitempty"`
+	ContainerPort           *int             `json:"container_port,omitempty"`
+	PublishedPorts          *json.RawMessage `json:"published_ports,omitempty"`
+	EndpointProtocol        *string          `json:"endpoint_protocol,omitempty"`
+	HealthPath              *string          `json:"health_path,omitempty"`
+	HealthcheckCmd          *string          `json:"healthcheck_cmd,omitempty"`
+	HealthcheckIntervalS    *int             `json:"healthcheck_interval_s,omitempty"`
+	HealthcheckTimeoutS     *int             `json:"healthcheck_timeout_s,omitempty"`
+	HealthcheckRetries      *int             `json:"healthcheck_retries,omitempty"`
+	HealthcheckStartPeriodS *int             `json:"healthcheck_start_period_s,omitempty"`
+	CPULimit                *float64         `json:"cpu_limit,omitempty"`
+	MemLimitMB              *int             `json:"mem_limit_mb,omitempty"`
+	User                    *string          `json:"user,omitempty"`
+	ShmSizeMB               *int             `json:"shm_size_mb,omitempty"`
+	Privileged              *bool            `json:"privileged,omitempty"`
+	Devices                 *string          `json:"devices,omitempty"`
+	Lan                     *string          `json:"lan,omitempty"`
+	HostNetwork             *bool            `json:"host_network,omitempty"`
+	RestartPolicy           *string          `json:"restart_policy,omitempty"`
+	DependsOn               *json.RawMessage `json:"depends_on,omitempty"`
+	Files                   *json.RawMessage `json:"files,omitempty"`
+	SharedNet               *string          `json:"shared_net,omitempty"`
+	Replicas                *int             `json:"replicas,omitempty"`
+	UpdatePolicy            *string          `json:"update_policy,omitempty"`
+	TagPolicy               *string          `json:"tag_policy,omitempty"`
+	Schedule                *string          `json:"schedule,omitempty"`
+	Trigger                 *string          `json:"trigger,omitempty"`
+	TimeoutMinutes          *int             `json:"timeout_minutes,omitempty"`
 }
 
 // apply writes the sent fields onto t: the patch and the row share json
-// names, so a round trip sets exactly the non-nil ones.
+// names, so a round trip sets exactly the non-nil ones. env_json, volumes,
+// files, published_ports and depends_on take the structured form or the
+// stored string.
 func (p TilePatch) apply(t *service.Tile) error {
+	cols := map[string]struct {
+		in  **json.RawMessage
+		out *string
+	}{
+		"env_json":        {&p.EnvJSON, &t.EnvJSON},
+		"volumes":         {&p.Volumes, &t.Volumes},
+		"files":           {&p.Files, &t.Files},
+		"published_ports": {&p.PublishedPorts, &t.PublishedPorts},
+		"depends_on":      {&p.DependsOn, &t.DependsOn},
+	}
+	raws := map[string]*json.RawMessage{}
+	for k, c := range cols {
+		raws[k], *c.in = *c.in, nil
+	}
 	b, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(b, t)
+	if err := json.Unmarshal(b, t); err != nil {
+		return err
+	}
+	for k, raw := range raws {
+		if raw == nil {
+			continue
+		}
+		if *cols[k].out, err = service.TileColumn(k, *raw); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type (
@@ -78,8 +105,8 @@ type (
 		TilePatch
 	}
 	TileUpdated struct {
-		Tile service.Tile `json:"tile"`
-		Job  *service.Job `json:"job"` // the redeploy it queued, if running
+		Tile service.TileView `json:"tile"`
+		Job  *service.Job     `json:"job"` // the redeploy it queued, if running
 	}
 	LogOut struct {
 		Log string `json:"log"`
@@ -147,16 +174,23 @@ func (in DomainIn) spec() service.DomainSpec {
 	}
 }
 
+// tileView wraps a service answer: tileView(h.Orch.X(...)).
+func tileView(t service.Tile, err error) (service.TileView, error) {
+	return service.NewTileView(t), err
+}
+
 func tileID(c echo.Context) string { return scope(c).Tile.ID }
 
 // ---- tiles ----
 
 func (h *H) Tiles() Endpoint {
-	return Get(func(c echo.Context) ([]service.Tile, error) { return list(h.Orch.Tiles(rc(c), envID(c))) })
+	return Get(func(c echo.Context) ([]service.TileView, error) {
+		return service.TileViews(h.Orch.Tiles(rc(c), envID(c)))
+	})
 }
 
 func (h *H) CreateTile() Endpoint {
-	return JSON(201, func(c echo.Context, in TileIn) (service.Tile, error) {
+	return JSON(201, func(c echo.Context, in TileIn) (service.TileView, error) {
 		t := service.Tile{
 			StackID:       stackID(c),
 			EnvironmentID: envID(c),
@@ -164,9 +198,9 @@ func (h *H) CreateTile() Endpoint {
 			Kind:          in.Kind,
 		}
 		if err := in.apply(&t); err != nil {
-			return t, err
+			return service.NewTileView(t), err
 		}
-		return h.Orch.CreateTile(rc(c), t)
+		return tileView(h.Orch.CreateTile(rc(c), t))
 	})
 }
 
@@ -177,20 +211,20 @@ func (h *H) ManagedInstances() Endpoint {
 }
 
 func (h *H) CreateManagedTile() Endpoint {
-	return JSON(201, func(c echo.Context, in ManagedIn) (service.Tile, error) {
+	return JSON(201, func(c echo.Context, in ManagedIn) (service.TileView, error) {
 		t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: in.Name}
 		if err := in.apply(&t); err != nil {
-			return t, err
+			return service.NewTileView(t), err
 		}
-		return h.Orch.CreateManagedTile(rc(c), t, in.Engine)
+		return tileView(h.Orch.CreateManagedTile(rc(c), t, in.Engine))
 	})
 }
 
 // ManagedSeeded is a managed tile made from a dump: the instance, the
 // slice the dump loads into, and the job doing it.
 type ManagedSeeded struct {
-	Tile service.Tile `json:"tile"`
-	Job  service.Job  `json:"job"`
+	Tile service.TileView `json:"tile"`
+	Job  service.Job      `json:"job"`
 }
 
 // CreateManagedFromDump makes a postgres managed tile from the request
@@ -214,27 +248,37 @@ func (h *H) CreateManagedFromDump() Endpoint {
 			if err != nil {
 				return err
 			}
-			return c.JSON(http.StatusAccepted, ManagedSeeded{Tile: out, Job: j})
+			return c.JSON(http.StatusAccepted, ManagedSeeded{Tile: service.NewTileView(out), Job: j})
 		},
 	}
 	return e.Q("name", "engine", "slice")
 }
 
 func (h *H) GetTile() Endpoint {
-	return Get(func(c echo.Context) (service.Tile, error) { return *scope(c).Tile, nil })
+	return Get(func(c echo.Context) (service.TileView, error) { return service.NewTileView(*scope(c).Tile), nil })
+}
+
+// TileUpdate is PATCH on a tile: the rename and every field of TilePatch;
+// a field left out stays.
+type TileUpdate struct {
+	Name *string `json:"name,omitempty"`
+	TilePatch
 }
 
 func (h *H) UpdateTile() Endpoint {
-	return JSON(200, func(c echo.Context, in TilePatch) (TileUpdated, error) {
+	return JSON(200, func(c echo.Context, in TileUpdate) (TileUpdated, error) {
+		t := *scope(c).Tile
+		if in.Name != nil {
+			var err error
+			if t, _, err = h.Orch.RenameTile(rc(c), tileID(c), *in.Name); err != nil { // the panel shows stack file warnings
+				return TileUpdated{Tile: service.NewTileView(t)}, err
+			}
+		}
+		if b, _ := json.Marshal(in.TilePatch); string(b) == "{}" {
+			return TileUpdated{Tile: service.NewTileView(t)}, nil
+		}
 		t, j, err := h.Orch.UpdateTile(rc(c), tileID(c), in.apply)
-		return TileUpdated{t, j}, err
-	})
-}
-
-func (h *H) RenameTile() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (service.Tile, error) {
-		t, _, err := h.Orch.RenameTile(rc(c), tileID(c), in.Name) // the panel shows stack file warnings
-		return t, err
+		return TileUpdated{service.NewTileView(t), j}, err
 	})
 }
 
@@ -307,8 +351,8 @@ func (h *H) RunTile() Endpoint {
 }
 
 func (h *H) PauseTile() Endpoint {
-	return JSON(200, func(c echo.Context, in PauseIn) (service.Tile, error) {
-		return h.Orch.PauseTile(rc(c), tileID(c), in.Paused)
+	return JSON(200, func(c echo.Context, in PauseIn) (service.TileView, error) {
+		return tileView(h.Orch.PauseTile(rc(c), tileID(c), in.Paused))
 	})
 }
 
@@ -413,20 +457,20 @@ func (h *H) SetManagedEnvPairs() Endpoint {
 }
 
 func (h *H) CreateSliceTile() Endpoint {
-	return JSON(201, func(c echo.Context, in SliceTileIn) (service.Tile, error) {
-		return h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess)
+	return JSON(201, func(c echo.Context, in SliceTileIn) (service.TileView, error) {
+		return tileView(h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess))
 	})
 }
 
 func (h *H) SetSliceAccess() Endpoint {
-	return JSON(200, func(c echo.Context, in SliceAccessIn) (service.Tile, error) {
-		return h.Orch.SetSliceAccess(rc(c), tileID(c), in.Slice, in.Access)
+	return JSON(200, func(c echo.Context, in SliceAccessIn) (service.TileView, error) {
+		return tileView(h.Orch.SetSliceAccess(rc(c), tileID(c), in.Slice, in.Access))
 	})
 }
 
 func (h *H) SetSliceOnRemove() Endpoint {
-	return JSON(200, func(c echo.Context, in OnRemoveIn) (service.Tile, error) {
-		return h.Orch.SetSliceOnRemove(rc(c), tileID(c), in.OnRemove)
+	return JSON(200, func(c echo.Context, in OnRemoveIn) (service.TileView, error) {
+		return tileView(h.Orch.SetSliceOnRemove(rc(c), tileID(c), in.OnRemove))
 	})
 }
 

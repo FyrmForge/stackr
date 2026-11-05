@@ -357,7 +357,7 @@ func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
 		"domain caddy a.example.com":         "GET " + p + "api/domains ",
 		"domain rm a.example.com":            "GET " + p + "api/domains ",
 		"get web":                            "GET " + p + "web ",
-		"rename web www":                     "PUT " + p + "web/name ",
+		"rename web www":                     "PATCH " + p + `web {"name":"www"}`,
 		"domain ls web":                      "GET " + p + "web/domains ",
 		"set web --port 8080":                "PATCH " + p + "web ",
 		"domain set a.example.com --path /x": "GET " + p + "api/domains ",
@@ -427,11 +427,11 @@ func TestDomainResourceRoutes(t *testing.T) {
 		},
 		{
 			"rename r1 new.io --org acme -y",
-			"POST " + org + `/domain-resources/r1/rename {"host":"new.io"}`,
+			"PATCH " + org + `/domain-resources/r1 {"host":"new.io"}`,
 		},
 		{
 			"rename r1 new.io -y",
-			`POST /api/v1/admin/domain-resources/r1/rename {"host":"new.io"}`,
+			`PATCH /api/v1/admin/domain-resources/r1 {"host":"new.io"}`,
 		},
 	} {
 		r.reqs = nil
