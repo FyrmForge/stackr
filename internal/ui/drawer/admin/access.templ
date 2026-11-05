@@ -29,6 +29,7 @@ type DestAccess struct {
 	Text    string // "Backup destination rig-s3 (org dnsqa) -> 192.168.1.106:9100"
 	Approve c.ConfirmView
 	By      string // who approved it, "" while waiting
+	Revoke  c.ConfirmView
 }
 
 // AccessRow is one tile's grant.
@@ -74,7 +75,10 @@ templ Access(v AccessView) {
 									@c.Confirm(d.Approve)
 								</span>
 							} else {
-								<span class="ml-auto text-xs text-rw-faint">{ "approved by " + d.By }</span>
+								<span class="ml-auto flex items-center gap-2">
+									<span class="text-xs text-rw-faint">{ "approved by " + d.By }</span>
+									@c.Confirm(d.Revoke)
+								</span>
 							}
 						</li>
 					}

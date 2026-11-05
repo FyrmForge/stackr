@@ -194,6 +194,10 @@
         ],
         "type": "object"
       },
+      "Anon": {
+        "properties": {},
+        "type": "object"
+      },
       "ApproveDestGrantIn": {
         "properties": {
           "addr": {
@@ -9407,6 +9411,54 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ApproveDestGrantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DestGrant"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "hostgrant.approve"
+      }
+    },
+    "/api/v1/admin/dest-grants/{dest}/revoke": {
+      "post": {
+        "operationId": "admin.dest-grant-revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Anon"
               }
             }
           },

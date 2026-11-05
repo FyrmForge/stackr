@@ -291,6 +291,7 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/host-grants", "admin.host-grants", "admin.read", h.HostGrants()},
 		{GET, "/admin/dest-grants", "admin.dest-grants", "admin.read", h.DestGrants()},
 		{POST, "/admin/dest-grants/:dest/approve", "admin.dest-grant-approve", "hostgrant.approve", h.ApproveDestGrant()},
+		{POST, "/admin/dest-grants/:dest/revoke", "admin.dest-grant-revoke", "hostgrant.approve", h.RevokeDestGrant()},
 		{GET, "/admin/images", "admin.images", "admin.read", h.Images()},
 		{POST, "/admin/image-check", "admin.image-check", "container.admin", h.CheckAllImages()},
 		{GET, "/admin/registry", "admin.registry", "admin.read", h.RegistryOverview()},

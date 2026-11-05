@@ -33,3 +33,20 @@ func TestPublicOnlyRefusesLoopback(t *testing.T) {
 		t.Fatal("public-only bucket reached loopback")
 	}
 }
+
+func TestPrivateRecentResolvesOnce(t *testing.T) {
+	n := 0
+	resolveFn = func(string) []netip.AddrPort {
+		n++
+		return []netip.AddrPort{netip.MustParseAddrPort("192.168.1.5:9000")}
+	}
+	defer func() { resolveFn = resolve }()
+	for range 3 {
+		if !PrivateRecent("http://cache-test.invalid:9000") {
+			t.Fatal("not private")
+		}
+	}
+	if n != 1 {
+		t.Fatalf("resolved %d times", n)
+	}
+}

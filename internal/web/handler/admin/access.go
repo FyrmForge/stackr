@@ -50,6 +50,10 @@ func (h *handler) mountAccess(g *echo.Group, a *middleware.Access) {
 		_, err := h.orch.ApproveDestGrant(c.Request().Context(), c.QueryParam("dest"), middleware.Principal(c).User.ID, c.QueryParam("addr"))
 		return "Destination approved.", nil, err
 	}), approve)
+	g.POST(ui.Base+"/access/dest-revoke", h.act("host-access", func(c echo.Context) (string, *service.Job, error) {
+		_, err := h.orch.RevokeDestGrant(c.Request().Context(), c.QueryParam("dest"))
+		return "Destination revoked.", nil, err
+	}), approve)
 }
 
 type stackName struct{ id, name, slug, org, orgID, orgSlug string }
@@ -191,6 +195,13 @@ func (h *handler) accessTab(c echo.Context) (templ.Component, error) {
 			}
 		} else {
 			row.By = cmp.Or(who[d.ApprovedBy], "a removed user")
+			row.Revoke = comp.ConfirmView{
+				Button:  "Revoke",
+				Title:   "Revoke " + d.Name + "?",
+				Warning: "Its backups wait for approval again.",
+				Action:  ui.Base + "/access/dest-revoke?dest=" + url.QueryEscape(d.DestID),
+				Target:  ui.Target,
+			}
 		}
 		v.Dests = append(v.Dests, row)
 	}
