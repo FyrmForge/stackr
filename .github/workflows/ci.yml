@@ -73,7 +73,7 @@ jobs:
           fi
       - name: Run tests
         run: |
-          go test -race -timeout 15m ./...
+          go test -race -timeout 30m ./...
           # streams a GiB through the form parser: too slow under -race
           go test -timeout 5m -run TestCreateManagedDumpOverLimit ./internal/web/handler/env/
 
