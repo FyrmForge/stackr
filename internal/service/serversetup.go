@@ -16,12 +16,14 @@ import (
 const (
 	keyServerSetupDone = "server_setup_done_at"
 	keyServerSetupMode = "server_setup_mode"
+	keyServerSetupStep = "server_setup_step"
 )
 
 // ServerSetup is where the wizard stands.
 type ServerSetup struct {
 	Done    bool
 	Mode    string // "" | "ui" | "config"
+	Step    string // the by-hand screen the admin was last on; "" = none yet
 	Steps   []string
 	Binding ServerBinding
 }
@@ -44,6 +46,9 @@ func (o *Orchestrator) ServerSetupState(ctx context.Context) (ServerSetup, error
 	if s.Mode, _, err = o.store.Settings.Get(ctx, keyServerSetupMode); err != nil {
 		return s, err
 	}
+	if s.Step, _, err = o.store.Settings.Get(ctx, keyServerSetupStep); err != nil {
+		return s, err
+	}
 	s.Steps = serverSetupSteps[s.Mode]
 	s.Binding, err = o.ServerConfigBinding(ctx)
 	return s, err
@@ -60,8 +65,25 @@ func (o *Orchestrator) SetServerSetupMode(ctx context.Context, by *Principal, mo
 	return o.ServerSetupState(ctx)
 }
 
-// ServerSetupSteps are the by-hand branch's screens, in order. The URL is
-// the position: nothing records how far an admin got.
+// SetServerSetupStep records the by-hand screen the admin is on, so a reload
+// or a return resumes there. An unknown step is ignored.
+func (o *Orchestrator) SetServerSetupStep(ctx context.Context, step string) error {
+	if !slices.Contains(ServerSetupSteps, step) {
+		return nil
+	}
+	return o.store.Settings.Set(ctx, keyServerSetupStep, step)
+}
+
+// FillServerGap saves the secrets a server plan waits on and plans the bound
+// file again so the gaps close.
+func (o *Orchestrator) FillServerGap(ctx context.Context, es []ParamEntry) (ServerPlan, error) {
+	if _, err := o.SetParams(ctx, ServerParamScope, es); err != nil {
+		return ServerPlan{}, err
+	}
+	return o.PlanServerConfig(ctx)
+}
+
+// ServerSetupSteps are the by-hand branch's screens, in order.
 var ServerSetupSteps = []string{"domains", "certificates", ServerSetupGit, "observability", "backups", "nodes", "summary"}
 
 // ServerSetupGit is the step that connects a git host for every org.
@@ -152,7 +174,10 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 	return out, nil
 }
 
-// FinishServerSetup stamps server_setup_done_at.
+// FinishServerSetup stamps server_setup_done_at and drops the resume step.
 func (o *Orchestrator) FinishServerSetup(ctx context.Context, by *Principal) error {
+	if err := o.store.Settings.Delete(ctx, keyServerSetupStep); err != nil {
+		return err
+	}
 	return o.store.Settings.Set(ctx, keyServerSetupDone, time.Now().UTC().Format(time.RFC3339))
 }

@@ -63,6 +63,7 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	approve := a.Require("serverplan.approve")
 	site.POST(ServerBase+"/config/plan/:plan/approve", h.serverApprove, approve)
 	site.POST(ServerBase+"/config/plan/:plan/reject", h.serverReject, approve)
+	site.POST(ServerBase+"/config/gaps/secret", h.serverFillGaps, a.Require("serverparams.write"))
 	site.POST(ServerBase+"/done", h.serverDone, bind)
 }
 
@@ -110,6 +111,9 @@ func (h *handler) serverStart(c echo.Context) error {
 	if s.Done && !pick {
 		return respond.Redirect(c, "/")
 	}
+	if s.Mode == "ui" && s.Step != "" && !pick {
+		return respond.Redirect(c, stepURL(s.Step))
+	}
 	if s.Mode != "" && !pick {
 		return respond.Redirect(c, ServerBase+"/"+s.Mode)
 	}
@@ -125,9 +129,17 @@ func (h *handler) serverMode(c echo.Context) error {
 	return respond.Redirect(c, ServerBase+"/"+s.Mode)
 }
 
-// GET /-/setup/server/ui: the by-hand branch starts on its first screen.
+// GET /-/setup/server/ui: the by-hand branch resumes on the screen it was
+// left on, else starts on its first.
 func (h *handler) serverHand(c echo.Context) error {
-	return respond.Redirect(c, stepURL(service.ServerSetupSteps[0]))
+	s, err := h.orch.ServerSetupState(c.Request().Context())
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	if s.Step == "" {
+		s.Step = service.ServerSetupSteps[0]
+	}
+	return respond.Redirect(c, stepURL(s.Step))
 }
 
 func stepURL(step string) string { return ServerBase + "/ui/" + step }
@@ -175,6 +187,11 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 	st, err := h.orch.ServerSetupState(ctx)
 	if err != nil {
 		return middleware.HTTPError(err)
+	}
+	if !st.Done {
+		if err := h.orch.SetServerSetupStep(ctx, step); err != nil {
+			return middleware.HTTPError(err)
+		}
 	}
 	var body templ.Component
 	switch step {
@@ -708,13 +725,15 @@ func (h *handler) serverPlan(c echo.Context) error {
 			return middleware.HTTPError(err)
 		}
 		v.Parsed, v.Errors, v.Warnings = true, p.Blockers, p.Notes
-		// gaps are filled on Admin > Config, past the wizard
 		for _, g := range p.Gaps {
-			what := "Server secret " + g.Key
 			if g.Kind == "node" {
-				what = "Node " + g.Key
+				v.Warnings = append(v.Warnings, "Node "+g.Key+" is missing. Add it on the Nodes screen.")
+				continue
 			}
-			v.Warnings = append(v.Warnings, what+" is missing: finish setup, then fill it in on Admin > Config.")
+			v.Gaps = append(v.Gaps, pages.Gap{Label: "Server secret " + g.Key, Field: "secret." + g.Key})
+		}
+		if len(v.Gaps) > 0 {
+			v.GapPost = ServerBase + "/config/gaps/secret"
 		}
 		for _, ch := range p.Changes {
 			v.Changes = append(v.Changes, pages.Change{Kind: "update", Env: "server", Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: cmpNote(ch.Impact, ch.Note)})
@@ -737,6 +756,29 @@ func cmpNote(impact, note string) string {
 		return impact
 	}
 	return note
+}
+
+// POST /-/setup/server/config/gaps/secret (secret.<collection>.<name>): saves
+// the values and plans the file again so the gaps close.
+func (h *handler) serverFillGaps(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	var es []service.ParamEntry
+	for _, e := range render.ParamEntries(form) {
+		if e.Kind == "secret" && e.Value != "" {
+			es = append(es, e)
+		}
+	}
+	if len(es) == 0 {
+		return back(c, errs.Invalidf("value", "enter the value"), ServerBase+"/config/plan")
+	}
+	if _, err := h.orch.FillServerGap(c.Request().Context(), es); err != nil {
+		return back(c, err, ServerBase+"/config/plan")
+	}
+	hamrmw.SetFlash(c, "Saved and planned.", hamrmw.FlashSuccess)
+	return respond.Redirect(c, ServerBase+"/config/plan")
 }
 
 // POST …/config/plan/:plan/approve
