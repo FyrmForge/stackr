@@ -3,40 +3,13 @@ package service
 import (
 	"context"
 	"slices"
-	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
-const panelAliasPrefix = "panel_alias."
-
-// panelAliases are the panel's earlier hosts, which redirect to the current
-// one. ponytail: kept until the row is deleted; no UI to drop one yet.
-func (o *Orchestrator) panelAliases(ctx context.Context) []string {
-	rows, _ := o.store.Settings.ListPrefix(ctx, panelAliasPrefix)
-	var out []string
-	for k := range rows {
-		out = append(out, strings.TrimPrefix(k, panelAliasPrefix))
-	}
-	slices.Sort(out)
-	return out
-}
-
-// keepPanelAlias remembers the host the panel just left (and forgets the one
-// it came back to), so the old link still lands.
-func (o *Orchestrator) keepPanelAlias(ctx context.Context, was, now string) {
-	if was == now {
-		return
-	}
-	_ = o.store.Settings.Delete(ctx, panelAliasPrefix+now)
-	if was != "" {
-		_ = o.store.Settings.Set(ctx, panelAliasPrefix+was, "1")
-	}
-}
-
 // checkPanelResolves refuses a new panel host that does not point at the
-// default ingress yet: the proxy would serve a name nothing reaches, locking
-// the admin out (the old host stays as a redirect to it). A host in a managed domain is
+// default ingress yet: the proxy would drop the old host and serve a name
+// nothing reaches, locking the admin out. A host in a managed domain is
 // pointed by stackr itself, and an ingress with no known public address, or
 // no TLS, cannot be checked: both pass.
 func (o *Orchestrator) checkPanelResolves(ctx context.Context, host string) error {

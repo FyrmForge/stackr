@@ -33,9 +33,6 @@ type Install struct {
 	Controller     string   // the controller's node id; "" = every node keeps TrustedProxies
 	PanelHost      string   // the panel's public host; skipped when a bare IP, localhost or ""
 	PanelUpstream  string   // the panel's internal dial address, e.g. stackrd:8080
-	// PanelAliases are the panel's earlier hosts: each redirects to PanelHost
-	// (a host a tile routes is left to the tile).
-	PanelAliases []string
 	// Custom is proxy_custom: a JSON array of Caddy HTTP route objects,
 	// appended after every route of ours on the main server (https, or http
 	// with TLS off). Additive, never a whole-config replace, so the panel
@@ -167,27 +164,6 @@ func Build(in Install, tiles []TileRoute, routes []Route, expand Expand) (json.R
 	for _, p := range rs {
 		if p.host != "" {
 			httpsHosts[p.host] = true
-		}
-	}
-
-	if h := in.PanelHost; h != "" && in.PanelUpstream != "" {
-		for _, a := range in.PanelAliases {
-			if a == h || httpsHosts[a] {
-				continue
-			}
-			scheme := "https://"
-			if !tlsOn {
-				scheme = "http://"
-			}
-			r := route{"match": match(a, "", nil), "terminal": true, "handle": []route{{
-				"handler": "static_response", "status_code": 308,
-				"headers": route{"Location": []string{scheme + h + "{http.request.uri}"}},
-			}}}
-			plain = append(plain, placed{a, "", r})
-			if tlsOn {
-				secure = append(secure, placed{a, "", r})
-				httpsHosts[a] = true
-			}
 		}
 	}
 
