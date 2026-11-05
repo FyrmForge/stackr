@@ -730,10 +730,7 @@ func (h *handler) serverPlan(c echo.Context) error {
 				v.Warnings = append(v.Warnings, "Node "+g.Key+" is missing. Add it on the Nodes screen.")
 				continue
 			}
-			v.Gaps = append(v.Gaps, pages.Gap{Label: "Server secret " + g.Key, Field: "secret." + g.Key})
-		}
-		if len(v.Gaps) > 0 {
-			v.GapPost = ServerBase + "/config/gaps/secret"
+			v.Gaps = append(v.Gaps, pages.Gap{Label: "Server secret " + g.Key, Field: "secret." + g.Key, Post: ServerBase + "/config/gaps/secret"})
 		}
 		for _, ch := range p.Changes {
 			v.Changes = append(v.Changes, pages.Change{Kind: "update", Env: "server", Tile: ch.Tile, Field: ch.Field, Old: ch.Old, New: ch.New, Note: cmpNote(ch.Impact, ch.Note)})

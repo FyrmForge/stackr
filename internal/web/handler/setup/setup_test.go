@@ -493,3 +493,34 @@ func TestSharedServerConnectorOnly(t *testing.T) {
 		}
 	}
 }
+
+// A secret the file declares and the org lacks is a field on the wizard's
+// plan screen; saving it plans again and the gap closes.
+func TestPlanGapForm(t *testing.T) {
+	g := servicetest.NewGit(t)
+	s := webtest.NewWith(t, []service.Option{g.Option()})
+	uid, sess := admin(t, s)
+	og, _ := draft(t, s, uid, sess, "config")
+	b := "/" + og.Slug + "/-/setup"
+	conn := s.Connector(t, og.ID, "whsec")
+	g.Commit(t, "acme/org", "main", map[string]string{
+		"stackr-org.yml": "version: 1\norg: Globex\nparams:\n  email:\n    all:\n      token: {type: secret}\n",
+	})
+	plan := s.As(t, sess, "POST", b+"/config", url.Values{
+		"connector_id": {conn}, "repo": {"acme/org"}, "branch": {"main"}, "path": {"stackr-org.yml"},
+	}).Header().Get("HX-Redirect")
+	body := page(t, s, sess, plan, `name="secret.email.token"`, `type="password"`, `/config/gaps/secret?env=all`)
+	if strings.Contains(body, "org's Config tab") {
+		t.Error("plan still sends the gap to the Config tab")
+	}
+	post := b + "/config/gaps/secret?env=all"
+	redirect(t, s, sess, post, url.Values{"secret.email.token": {""}}, b+"/config/plan")
+	rec := s.As(t, sess, "POST", post, url.Values{"secret.email.token": {"s3cret"}})
+	next := rec.Header().Get("HX-Redirect")
+	if !strings.HasPrefix(next, "/"+og.ID+"/-/setup/config/plan?plan=") || next == plan {
+		t.Fatalf("fill sent to %q, want a new plan", next)
+	}
+	if strings.Contains(page(t, s, sess, next, "Review the plan"), `name="secret.email.token"`) {
+		t.Error("gap still open after the fill")
+	}
+}
