@@ -165,7 +165,7 @@ func (o *Orchestrator) runSeed(ctx context.Context, r *jobs.Run, p seedJob) (err
 	for _, id := range ids {
 		if err := o.deploy.Redeploy(ctx, id, r.Log, r.Swap); err != nil {
 			o.downAfterFailedDeploy(ctx, id, err)
-			return parkOnApproval(r, err)
+			return o.parkOnApproval(ctx, r, err)
 		}
 	}
 	if err := o.afterDeploy(ctx, ids, false); err != nil {

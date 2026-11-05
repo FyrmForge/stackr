@@ -1202,6 +1202,22 @@ func (a *app) admin() *cobra.Command {
 				return a.token(a.call(POST, "/admin/keys", map[string]string{"name": args[0]}))
 			}),
 		list("host-grants", "admin.host-grants", "List every stack's elevated access and what waits for approval", "/admin/host-grants", "stack_id", "lines", "approved_by", "pending"),
+		list("dest-grants", "admin.dest-grants", "List the org backup destinations on a private address and whether they wait for approval", "/admin/dest-grants", "dest_id", "org", "name", "addr", "pending", "approved_by"),
+		leaf("dest-grant-approve <dest>", "admin.dest-grants,admin.dest-grant-approve", "Let an org's backup destination reach its private address (id or name)", exact(1),
+			func(_ *cobra.Command, args []string) error {
+				cur, err := a.find("/admin/dest-grants", "destination", args[0], "dest_id", "name")
+				if err != nil {
+					return err
+				}
+				if err := a.confirm("Let " + cell(cur["org"]) + "'s destination " + cell(cur["name"]) + " reach " + cell(cur["addr"]) + " on this server's network?"); err != nil {
+					return err
+				}
+				v, err := a.call(POST, "/admin/dest-grants/"+cell(cur["dest_id"])+"/approve", map[string]string{"addr": cell(cur["addr"])})
+				if err != nil {
+					return err
+				}
+				return a.show(v, "dest_id", "name", "addr", "approved_by")
+			}),
 		list("images", "admin.images", "List the images stackr knows", "/admin/images", imageCols...),
 		a.observeStatus(),
 		a.registryAdmin(adminJob(

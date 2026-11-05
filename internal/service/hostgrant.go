@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"slices"
 	"strings"
@@ -55,10 +56,17 @@ func withApproval(payload string, n *errs.NeedsApproval) string {
 
 // parkOnApproval keeps the job payload in step with how the handler ended:
 // a NeedsApproval stores its ask there (ApproveHostGrant reads it), any
-// other end clears an old one.
-func parkOnApproval(r *jobs.Run, err error) error {
+// other end clears an old one. When a server admin asked for the job, the
+// ask is granted on the spot in their name; the park then clears on the
+// runner's next poll, as the grant covers it.
+func (o *Orchestrator) parkOnApproval(ctx context.Context, r *jobs.Run, err error) error {
 	if n, ok := errs.IsNeedsApproval(err); ok {
 		r.Job.Payload = withApproval(r.Job.Payload, &n)
+		if ask, ok := hostgrant.Parse(n.What); ok && o.adminActor(ctx, r.Job.ActorID, r.Job.ActorKeyID) {
+			if gerr := o.grantLines(ctx, n.Stack, r.Job.ActorID, ask); gerr != nil {
+				slog.Error("auto-approve host access", "stack", n.Stack, "error", gerr.Error())
+			}
+		}
 	} else if strings.Contains(r.Job.Payload, `"host_access"`) {
 		r.Job.Payload = withApproval(r.Job.Payload, nil)
 	}
@@ -147,19 +155,9 @@ func (o *Orchestrator) ApproveHostGrant(ctx context.Context, stackID, userID str
 		}
 		ask = ask.Norm()
 	}
-	err = o.store.Tx(ctx, func(tx store.Tx) error {
-		if _, err := hostgrant.New(tx.HostGrants).Approve(ctx, stackID, userID, ask); err != nil {
-			return err
-		}
-		return audit(tx).Append(ctx, securitylog.Event{
-			Action: securitylog.GrantApprove, ActorID: userID, TargetKind: "stack", TargetID: stackID,
-			Detail: strings.Join(ask.Lines, "\n"),
-		})
-	})
-	if err != nil {
+	if err := o.grantLines(ctx, stackID, userID, ask); err != nil {
 		return HostGrant{}, err
 	}
-	o.rerouteVIPsAsync(ctx) // lan access starts now
 	waiting, _, err := o.asks(ctx, stackID)
 	if err != nil {
 		return HostGrant{}, err
@@ -170,6 +168,41 @@ func (o *Orchestrator) ApproveHostGrant(ctx context.Context, stackID, userID str
 		}
 	}
 	return o.HostGrant(ctx, stackID)
+}
+
+// grantLines adds ask to the stack's grant in userID's name and logs it.
+func (o *Orchestrator) grantLines(ctx context.Context, stackID, userID string, ask hostgrant.Set) error {
+	err := o.store.Tx(ctx, func(tx store.Tx) error {
+		if _, err := hostgrant.New(tx.HostGrants).Approve(ctx, stackID, userID, ask); err != nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: securitylog.GrantApprove, ActorID: userID, TargetKind: "stack", TargetID: stackID,
+			Detail: strings.Join(ask.Lines, "\n"),
+		})
+	})
+	if err == nil {
+		o.rerouteVIPsAsync(ctx) // lan access starts now
+	}
+	return err
+}
+
+// adminActor reports whether the user (and API key, "" for a session) is a
+// live server admin acting for themself: a key bound to an org, a stack or
+// a ceiling below admin is not.
+func (o *Orchestrator) adminActor(ctx context.Context, userID, keyID string) bool {
+	if userID == "" {
+		return false
+	}
+	u, err := o.users.Get(ctx, userID)
+	if err != nil || !u.Admin() || !u.Active {
+		return false
+	}
+	if keyID == "" {
+		return true
+	}
+	k, err := o.users.KeyOf(ctx, keyID)
+	return err == nil && k.OrgID == nil && k.StackID == nil && (k.Level == "" || k.Level == "admin")
 }
 
 // RevokeHostGrant (server admin) removes one tile's lines from the stack's

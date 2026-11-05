@@ -19,6 +19,10 @@ type BackupDest struct {
 	ArchiveKey string    `db:"archive_key" json:"-"`
 	Shared     bool      `db:"shared" json:"shared"`
 	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	// ApprovedEndpoint is the host:port a server admin approved for an org's
+	// destination on a private address; an Endpoint that differs is pending.
+	ApprovedEndpoint string `db:"approved_endpoint" json:"approved_endpoint"`
+	ApprovedBy       string `db:"approved_by" json:"approved_by"`
 }
 
 type BackupDestStore interface {

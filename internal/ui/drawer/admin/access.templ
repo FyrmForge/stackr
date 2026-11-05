@@ -12,6 +12,7 @@ import (
 // per tile.
 type AccessView struct {
 	Waiting []WaitingStack
+	Dests   []DestAccess
 	Rows    []AccessRow
 	Filter  AccessFilter
 }
@@ -20,6 +21,14 @@ type AccessView struct {
 type WaitingStack struct {
 	Where string // "org / stack"
 	Form  access.ApproveView
+}
+
+// DestAccess is an org backup destination on a private address: waiting
+// (Approve set) or approved.
+type DestAccess struct {
+	Text    string // "Backup destination rig-s3 (org dnsqa) -> 192.168.1.106:9100"
+	Approve c.ConfirmView
+	By      string // who approved it, "" while waiting
 }
 
 // AccessRow is one tile's grant.
@@ -52,6 +61,24 @@ templ Access(v AccessView) {
 						</div>
 					}
 				</div>
+			}
+		}
+		if len(v.Dests) > 0 {
+			@c.Section("Backup destinations", "instance", "Org destinations on a private address.") {
+				<ul class="space-y-2">
+					for _, d := range v.Dests {
+						<li class="panel flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
+							<span class="text-rw-text">{ d.Text }</span>
+							if d.Approve.Action != "" {
+								<span class="ml-auto">
+									@c.Confirm(d.Approve)
+								</span>
+							} else {
+								<span class="ml-auto text-xs text-rw-faint">{ "approved by " + d.By }</span>
+							}
+						</li>
+					}
+				</ul>
 			}
 		}
 		@c.Section("Grants", "instance", "Every grant on this server, per tile.") {

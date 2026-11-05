@@ -773,10 +773,21 @@ func open(d store.BackupDest) s3.Destination {
 		Bucket:    d.Bucket,
 		AccessKey: d.AccessKey,
 		SecretKey: d.SecretKey,
-		// An org's endpoint stays off the server's network; the owner's
-		// own destinations may be private (a LAN bucket).
+		// An org's endpoint stays off the server's network unless a server
+		// admin approved its host:port; the owner's own destinations may be
+		// private (a LAN bucket).
 		PublicOnly: d.OrgID != nil,
+		AllowAddr:  ApprovedAddr(d),
 	}
+}
+
+// ApprovedAddr is the host:port a server admin approved for an org's
+// destination, "" when it has none or the endpoint has moved off it.
+func ApprovedAddr(d store.BackupDest) string {
+	if d.OrgID != nil && d.ApprovedEndpoint != "" && d.ApprovedEndpoint == s3.Addr(d.Endpoint) {
+		return d.ApprovedEndpoint
+	}
+	return ""
 }
 
 func (f *Flow) claim(id string) bool {
