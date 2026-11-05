@@ -74,8 +74,12 @@ func OpenAPI() ([]byte, error) {
 		if r.Verb == Public {
 			op["security"] = []any{}
 		}
-		if r.E.Note != "" {
-			op["description"] = r.E.Note
+		desc := r.E.Note
+		if r.Method == http.MethodDelete || strings.HasSuffix(r.Op, ".teardown") {
+			desc = strings.TrimSpace(desc + "\n\n" + removalRule)
+		}
+		if desc != "" {
+			op["description"] = desc
 		}
 		if r.E.In != nil {
 			body := s.of(r.E.In)
@@ -151,6 +155,11 @@ func outsideV1() map[string]map[string]any {
 		"/join/{token}/stackr-install": {"get": op("join.installer", "The stackr-install binary a join script downloads.", true, "200", "application/octet-stream")},
 	}
 }
+
+// removalRule is on every DELETE and teardown operation: what the success
+// code says about the work behind it.
+const removalRule = "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; " +
+	"a delete of a plain record answers 204 and is done when it returns."
 
 func jsonBody(schema any) map[string]any {
 	return map[string]any{"application/json": map[string]any{"schema": schema}}

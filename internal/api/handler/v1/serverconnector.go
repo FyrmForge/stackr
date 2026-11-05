@@ -18,8 +18,8 @@ func (h *H) ServerConnectors() Endpoint {
 	})
 }
 
-func (h *H) RenameServerConnector() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (service.ServerConnector, error) {
+func (h *H) UpdateServerConnector() Endpoint {
+	return JSON(200, func(c echo.Context, in ConnectorPatch) (service.ServerConnector, error) {
 		return h.Orch.RenameServerConnector(rc(c), c.Param("connector"), in.Name)
 	})
 }

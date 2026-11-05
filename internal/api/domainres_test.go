@@ -69,7 +69,7 @@ func TestDomainResources(t *testing.T) {
 	code, out := w.do(t, w.owner, "PATCH", "/orgs/acme/domain-resources/"+og.ID, `{"include_env_on_default":true}`)
 	var up service.DomainResource
 	err := json.Unmarshal([]byte(out), &up)
-	if code != 200 || err != nil || !up.IncludeEnvOnDefault || up.ACMEEmail != "" {
+	if code != 200 || err != nil || !up.IncludeEnvOnDefault || up.ACMEEmail != "ops@acme.io" {
 		t.Errorf("update = %d %s", code, out)
 	}
 

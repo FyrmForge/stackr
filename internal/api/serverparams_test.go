@@ -54,7 +54,7 @@ func TestServerParams(t *testing.T) {
 		}
 	}
 
-	if code, _ = w.do(t, w.admin, "DELETE", "/admin/params/s3/region", ""); code != 200 {
+	if code, _ = w.do(t, w.admin, "DELETE", "/admin/params/s3/region", ""); code != 202 {
 		t.Errorf("delete = %d", code)
 	}
 	if code, _ = w.do(t, w.admin, "DELETE", "/admin/params/s3/region", ""); code != 404 {

@@ -878,17 +878,6 @@
         ],
         "type": "object"
       },
-      "ColorIn": {
-        "properties": {
-          "color": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "color"
-        ],
-        "type": "object"
-      },
       "ConfigRepoIn": {
         "properties": {
           "branch": {
@@ -981,6 +970,17 @@
           "check_error",
           "shared",
           "pending"
+        ],
+        "type": "object"
+      },
+      "ConnectorPatch": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -1423,6 +1423,21 @@
         ],
         "type": "object"
       },
+      "DepView": {
+        "properties": {
+          "condition": {
+            "type": "string"
+          },
+          "tile": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tile",
+          "condition"
+        ],
+        "type": "object"
+      },
       "DestIn": {
         "properties": {
           "access_key": {
@@ -1546,17 +1561,6 @@
         ],
         "type": "object"
       },
-      "DomainRenameIn": {
-        "properties": {
-          "host": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "host"
-        ],
-        "type": "object"
-      },
       "DomainResource": {
         "properties": {
           "acme_email": {
@@ -1632,19 +1636,39 @@
         ],
         "type": "object"
       },
-      "DomainResourceSetIn": {
+      "DomainResourcePatch": {
         "properties": {
           "acme_email": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "include_env_on_default": {
-            "type": "boolean"
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": [
-          "include_env_on_default",
-          "acme_email"
-        ],
         "type": "object"
       },
       "Edge": {
@@ -1832,6 +1856,41 @@
         ],
         "type": "object"
       },
+      "EnvPatch": {
+        "properties": {
+          "color": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "locked": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "EnvPinIn": {
         "properties": {
           "confirm": {
@@ -1892,102 +1951,6 @@
         },
         "required": [
           "can_deploy"
-        ],
-        "type": "object"
-      },
-      "Environment": {
-        "properties": {
-          "auto": {
-            "type": "boolean"
-          },
-          "base_env_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "color": {
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "from_branch": {
-            "type": "string"
-          },
-          "from_kind": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "locked": {
-            "type": "boolean"
-          },
-          "name": {
-            "type": "string"
-          },
-          "network": {
-            "type": "string"
-          },
-          "node_id": {
-            "type": "string"
-          },
-          "placement_id": {
-            "type": "string"
-          },
-          "position": {
-            "type": "integer"
-          },
-          "release_id": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "settings": {
-            "type": "string"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "stack_id": {
-            "type": "string"
-          },
-          "subnet": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "stack_id",
-          "name",
-          "slug",
-          "type",
-          "settings",
-          "color",
-          "position",
-          "network",
-          "from_kind",
-          "from_branch",
-          "auto",
-          "created_at",
-          "locked",
-          "node_id",
-          "subnet",
-          "placement_id"
         ],
         "type": "object"
       },
@@ -2217,6 +2180,25 @@
         "required": [
           "field",
           "error"
+        ],
+        "type": "object"
+      },
+      "FileView": {
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "template": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "path",
+          "template"
         ],
         "type": "object"
       },
@@ -3043,17 +3025,6 @@
         ],
         "type": "object"
       },
-      "LockIn": {
-        "properties": {
-          "locked": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "locked"
-        ],
-        "type": "object"
-      },
       "LogLine": {
         "properties": {
           "container": {
@@ -3260,9 +3231,7 @@
           },
           "depends_on": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {},
               {
                 "type": "null"
               }
@@ -3303,9 +3272,7 @@
           },
           "env_json": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {},
               {
                 "type": "null"
               }
@@ -3313,9 +3280,7 @@
           },
           "files": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {},
               {
                 "type": "null"
               }
@@ -3456,9 +3421,7 @@
           },
           "published_ports": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {},
               {
                 "type": "null"
               }
@@ -3566,9 +3529,7 @@
           },
           "volumes": {
             "oneOf": [
-              {
-                "type": "string"
-              },
+              {},
               {
                 "type": "null"
               }
@@ -3708,7 +3669,7 @@
             "$ref": "#/components/schemas/Job"
           },
           "tile": {
-            "$ref": "#/components/schemas/Tile"
+            "$ref": "#/components/schemas/TileView"
           }
         },
         "required": [
@@ -3817,6 +3778,32 @@
           "Links",
           "Serves",
           "Ladders"
+        ],
+        "type": "object"
+      },
+      "MountView": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source",
+          "path",
+          "read_only"
         ],
         "type": "object"
       },
@@ -4651,6 +4638,21 @@
         ],
         "type": "object"
       },
+      "OrgPatch": {
+        "properties": {
+          "name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "OrgPlan": {
         "properties": {
           "commit": {
@@ -5142,6 +5144,25 @@
         },
         "required": [
           "changes"
+        ],
+        "type": "object"
+      },
+      "PortView": {
+        "properties": {
+          "container": {
+            "type": "integer"
+          },
+          "host": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "container",
+          "protocol"
         ],
         "type": "object"
       },
@@ -6496,6 +6517,21 @@
         ],
         "type": "object"
       },
+      "StackPatch": {
+        "properties": {
+          "name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "StoreCustomRecord": {
         "properties": {
           "id": {
@@ -6798,7 +6834,886 @@
         ],
         "type": "object"
       },
-      "Tile": {
+      "TierPatch": {
+        "properties": {
+          "locked": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slug": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TileIn": {
+        "properties": {
+          "build_args": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "build_context": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "command": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "container_port": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cpu_limit": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "depends_on": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "devices": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dockerfile_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endpoint_protocol": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "env_json": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "files": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "git_branch": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "git_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_cmd": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_retries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_start_period_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_timeout_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_network": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_ref": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "lan": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mem_limit_mb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "privileged": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "published_ports": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replicas": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "restart_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_net": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shm_size_mb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tag_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_minutes": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trigger": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "update_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volumes": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch_paths": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "TileMetricsOut": {
+        "properties": {
+          "replicas": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "items": {
+                  "$ref": "#/components/schemas/Sample"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "tile": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/Sample"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "tile",
+          "replicas"
+        ],
+        "type": "object"
+      },
+      "TileStatus": {
+        "properties": {
+          "last_job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_run": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Run"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_run": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "replicas": {
+            "items": {
+              "$ref": "#/components/schemas/Container"
+            },
+            "type": "array"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "word",
+          "replicas",
+          "paused"
+        ],
+        "type": "object"
+      },
+      "TileUpdate": {
+        "properties": {
+          "build_args": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "build_context": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "command": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "container_port": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cpu_limit": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "depends_on": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "devices": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dockerfile_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endpoint_protocol": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "env_json": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "files": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "git_branch": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "git_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_cmd": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_retries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_start_period_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_timeout_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_network": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_ref": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lan": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mem_limit_mb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "privileged": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "published_ports": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replicas": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "restart_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_net": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shm_size_mb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tag_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_minutes": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trigger": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "update_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volumes": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch_paths": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TileUpdated": {
+        "properties": {
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tile": {
+            "$ref": "#/components/schemas/TileView"
+          }
+        },
+        "required": [
+          "tile"
+        ],
+        "type": "object"
+      },
+      "TileView": {
         "properties": {
           "build_args": {
             "type": "string"
@@ -6830,7 +7745,10 @@
             ]
           },
           "depends_on": {
-            "type": "string"
+            "items": {
+              "$ref": "#/components/schemas/DepView"
+            },
+            "type": "array"
           },
           "devices": {
             "type": "string"
@@ -6842,13 +7760,19 @@
             "type": "string"
           },
           "env_json": {
-            "type": "string"
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "environment_id": {
             "type": "string"
           },
           "files": {
-            "type": "string"
+            "items": {
+              "$ref": "#/components/schemas/FileView"
+            },
+            "type": "array"
           },
           "git_branch": {
             "type": "string"
@@ -6922,7 +7846,10 @@
             ]
           },
           "published_ports": {
-            "type": "string"
+            "items": {
+              "$ref": "#/components/schemas/PortView"
+            },
+            "type": "array"
           },
           "replicas": {
             "type": "integer"
@@ -6971,13 +7898,21 @@
             "type": "string"
           },
           "volumes": {
-            "type": "string"
+            "items": {
+              "$ref": "#/components/schemas/MountView"
+            },
+            "type": "array"
           },
           "watch_paths": {
             "type": "string"
           }
         },
         "required": [
+          "env_json",
+          "volumes",
+          "files",
+          "published_ports",
+          "depends_on",
           "id",
           "stack_id",
           "environment_id",
@@ -6990,12 +7925,9 @@
           "dockerfile_path",
           "build_context",
           "watch_paths",
-          "env_json",
           "build_args",
-          "volumes",
           "command",
           "container_port",
-          "published_ports",
           "endpoint_protocol",
           "health_path",
           "healthcheck_cmd",
@@ -7012,8 +7944,6 @@
           "lan",
           "host_network",
           "restart_policy",
-          "depends_on",
-          "files",
           "shared_net",
           "replicas",
           "update_policy",
@@ -7025,870 +7955,6 @@
           "slice_access",
           "created_at",
           "updated_at"
-        ],
-        "type": "object"
-      },
-      "TileIn": {
-        "properties": {
-          "build_args": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "build_context": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "command": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "container_port": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "cpu_limit": {
-            "oneOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "depends_on": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "devices": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "dockerfile_path": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "endpoint_protocol": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "env_json": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "files": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "git_branch": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "git_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "health_path": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_cmd": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_interval_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_retries": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_start_period_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_timeout_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "host_network": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "image_ref": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "kind": {
-            "type": "string"
-          },
-          "lan": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "mem_limit_mb": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "privileged": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "published_ports": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "replicas": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "restart_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "schedule": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shared_net": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shm_size_mb": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tag_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "timeout_minutes": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "trigger": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "update_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "user": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "volumes": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "watch_paths": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "name",
-          "kind"
-        ],
-        "type": "object"
-      },
-      "TileMetricsOut": {
-        "properties": {
-          "replicas": {
-            "additionalProperties": {
-              "additionalProperties": {
-                "items": {
-                  "$ref": "#/components/schemas/Sample"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            "type": "object"
-          },
-          "tile": {
-            "additionalProperties": {
-              "items": {
-                "$ref": "#/components/schemas/Sample"
-              },
-              "type": "array"
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "tile",
-          "replicas"
-        ],
-        "type": "object"
-      },
-      "TilePatch": {
-        "properties": {
-          "build_args": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "build_context": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "command": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "container_port": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "cpu_limit": {
-            "oneOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "depends_on": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "devices": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "dockerfile_path": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "endpoint_protocol": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "env_json": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "files": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "git_branch": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "git_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "health_path": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_cmd": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_interval_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_retries": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_start_period_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_timeout_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "host_network": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "image_ref": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "lan": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "mem_limit_mb": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "privileged": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "published_ports": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "replicas": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "restart_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "schedule": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shared_net": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shm_size_mb": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tag_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "timeout_minutes": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "trigger": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "update_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "user": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "volumes": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "watch_paths": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object"
-      },
-      "TileStatus": {
-        "properties": {
-          "last_job": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Job"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "last_run": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Run"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "next_run": {
-            "oneOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "paused": {
-            "type": "boolean"
-          },
-          "replicas": {
-            "items": {
-              "$ref": "#/components/schemas/Container"
-            },
-            "type": "array"
-          },
-          "word": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "word",
-          "replicas",
-          "paused"
-        ],
-        "type": "object"
-      },
-      "TileUpdated": {
-        "properties": {
-          "job": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Job"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tile": {
-            "$ref": "#/components/schemas/Tile"
-          }
-        },
-        "required": [
-          "tile"
         ],
         "type": "object"
       },
@@ -8183,6 +8249,7 @@
     },
     "/api/v1/admin/alerts": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.alerts-clear",
         "parameters": [],
         "responses": {
@@ -8353,6 +8420,7 @@
     },
     "/api/v1/admin/backup-dests/{dest}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.dest-delete",
         "parameters": [
           {
@@ -8942,6 +9010,7 @@
     },
     "/api/v1/admin/connectors/{connector}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.connector-delete",
         "parameters": [
           {
@@ -8969,11 +9038,9 @@
           }
         },
         "x-verb": "connector.admin"
-      }
-    },
-    "/api/v1/admin/connectors/{connector}/name": {
-      "put": {
-        "operationId": "admin.connector-rename",
+      },
+      "patch": {
+        "operationId": "admin.connector-update",
         "parameters": [
           {
             "in": "path",
@@ -8988,7 +9055,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NameIn"
+                "$ref": "#/components/schemas/ConnectorPatch"
               }
             }
           },
@@ -9311,6 +9378,7 @@
     },
     "/api/v1/admin/dns-connectors/{connector}/domains/{zone}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.dns-unmanage",
         "parameters": [
           {
@@ -9564,6 +9632,7 @@
     },
     "/api/v1/admin/dns-connectors/{connector}/domains/{zone}/records/{record}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.dns-record-rm",
         "parameters": [
           {
@@ -9836,6 +9905,7 @@
     },
     "/api/v1/admin/domain-resources/{resource}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.domain-resource-delete",
         "parameters": [
           {
@@ -9880,55 +9950,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DomainResourceSetIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DomainResource"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "serverdefaults.set"
-      }
-    },
-    "/api/v1/admin/domain-resources/{resource}/rename": {
-      "post": {
-        "operationId": "admin.domain-resource-rename",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "resource",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DomainRenameIn"
+                "$ref": "#/components/schemas/DomainResourcePatch"
               }
             }
           },
@@ -10560,6 +10582,7 @@
     },
     "/api/v1/admin/keys/{key}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.key-revoke",
         "parameters": [
           {
@@ -10712,6 +10735,7 @@
     },
     "/api/v1/admin/nodes/{node}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.node-remove",
         "parameters": [
           {
@@ -11516,6 +11540,7 @@
     },
     "/api/v1/admin/params/{collection}/{name}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.param-delete",
         "parameters": [
           {
@@ -11536,7 +11561,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -11547,7 +11572,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -11634,6 +11659,7 @@
     },
     "/api/v1/admin/placements/{placement}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.placement-delete",
         "parameters": [
           {
@@ -12050,6 +12076,7 @@
     },
     "/api/v1/admin/routes/{route}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "admin.route-delete",
         "parameters": [
           {
@@ -12879,6 +12906,7 @@
     },
     "/api/v1/me/keys/{key}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "key.revoke",
         "parameters": [
           {
@@ -13222,6 +13250,7 @@
     },
     "/api/v1/orgs/{org}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "org.delete",
         "parameters": [
           {
@@ -13285,6 +13314,52 @@
           }
         },
         "x-verb": "org.read"
+      },
+      "patch": {
+        "operationId": "org.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "org.write"
       }
     },
     "/api/v1/orgs/{org}/backup-dests": {
@@ -13376,6 +13451,7 @@
     },
     "/api/v1/orgs/{org}/backup-dests/{dest}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "dest.delete",
         "parameters": [
           {
@@ -13876,6 +13952,7 @@
     },
     "/api/v1/orgs/{org}/connectors/{connector}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "connector.delete",
         "parameters": [
           {
@@ -13911,11 +13988,9 @@
           }
         },
         "x-verb": "connector.write"
-      }
-    },
-    "/api/v1/orgs/{org}/connectors/{connector}/name": {
-      "put": {
-        "operationId": "connector.rename",
+      },
+      "patch": {
+        "operationId": "connector.update",
         "parameters": [
           {
             "in": "path",
@@ -13938,7 +14013,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NameIn"
+                "$ref": "#/components/schemas/ConnectorPatch"
               }
             }
           },
@@ -14058,6 +14133,7 @@
     },
     "/api/v1/orgs/{org}/credentials/{credential}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "credential.delete",
         "parameters": [
           {
@@ -14192,6 +14268,7 @@
     },
     "/api/v1/orgs/{org}/dns-connectors/{connector}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "dns.delete",
         "parameters": [
           {
@@ -14280,6 +14357,7 @@
     },
     "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "dns.unmanage",
         "parameters": [
           {
@@ -14573,6 +14651,7 @@
     },
     "/api/v1/orgs/{org}/dns-connectors/{connector}/domains/{zone}/records/{record}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "dns.record-rm",
         "parameters": [
           {
@@ -14895,6 +14974,7 @@
     },
     "/api/v1/orgs/{org}/domain-resources/{resource}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "domain-resource.delete",
         "parameters": [
           {
@@ -14955,63 +15035,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DomainResourceSetIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DomainResource"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "domain.resource"
-      }
-    },
-    "/api/v1/orgs/{org}/domain-resources/{resource}/rename": {
-      "post": {
-        "operationId": "domain-resource.rename",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "resource",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DomainRenameIn"
+                "$ref": "#/components/schemas/DomainResourcePatch"
               }
             }
           },
@@ -15366,6 +15390,7 @@
     },
     "/api/v1/orgs/{org}/invites/{invite}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "invite.revoke",
         "parameters": [
           {
@@ -15752,6 +15777,7 @@
     },
     "/api/v1/orgs/{org}/keys/{key}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "key.org-revoke",
         "parameters": [
           {
@@ -15982,6 +16008,7 @@
     },
     "/api/v1/orgs/{org}/members/{user}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "member.remove",
         "parameters": [
           {
@@ -16064,54 +16091,6 @@
           }
         },
         "x-verb": "member.manage"
-      }
-    },
-    "/api/v1/orgs/{org}/name": {
-      "put": {
-        "operationId": "org.rename",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NameIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Org"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "org.write"
       }
     },
     "/api/v1/orgs/{org}/params": {
@@ -16250,6 +16229,7 @@
     },
     "/api/v1/orgs/{org}/params/{collection}/{name}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "org.param-delete",
         "parameters": [
           {
@@ -16278,7 +16258,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -16289,7 +16269,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -16614,6 +16594,7 @@
     },
     "/api/v1/orgs/{org}/pr/params/{collection}/{name}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "org-pr.param-delete",
         "parameters": [
           {
@@ -16642,7 +16623,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -16653,7 +16634,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -16712,6 +16693,7 @@
     },
     "/api/v1/orgs/{org}/registry/versions": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "registry.delete",
         "parameters": [
           {
@@ -16832,6 +16814,7 @@
     },
     "/api/v1/orgs/{org}/schedules/{schedule}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "schedule.delete",
         "parameters": [
           {
@@ -17061,6 +17044,7 @@
     },
     "/api/v1/orgs/{org}/shares/{share}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "share.delete",
         "parameters": [
           {
@@ -17209,7 +17193,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}": {
       "delete": {
-        "description": "Deletes the stack row at once (204), refused with 409 while it has environments. POST .../teardown removes the environments and tiles first, in a job.",
+        "description": "Deletes the stack row at once (204), refused with 409 while it has environments. POST .../teardown removes the environments and tiles first, in a job.\n\nRemoval rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "stack.delete",
         "parameters": [
           {
@@ -17289,6 +17273,60 @@
           }
         },
         "x-verb": "org.read"
+      },
+      "patch": {
+        "operationId": "stack.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StackPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stack"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "stack.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/config-repo": {
@@ -17557,7 +17595,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}": {
       "delete": {
-        "description": "Deletes the environment row at once (204), refused with 409 while it has tiles; a tile is removed by DELETE on the tile, which queues a job (202).",
+        "description": "Deletes the environment row at once (204), refused with 409 while it has tiles; a tile is removed by DELETE on the tile, which queues a job (202).\n\nRemoval rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "env.delete",
         "parameters": [
           {
@@ -17653,11 +17691,9 @@
           }
         },
         "x-verb": "org.read"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/color": {
-      "put": {
-        "operationId": "env.color",
+      },
+      "patch": {
+        "operationId": "env.update",
         "parameters": [
           {
             "in": "path",
@@ -17688,7 +17724,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ColorIn"
+                "$ref": "#/components/schemas/EnvPatch"
               }
             }
           },
@@ -18139,72 +18175,9 @@
         "x-verb": "deployment.read"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/lock": {
-      "put": {
-        "operationId": "env.lock",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LockIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Environment"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "env.lock"
-      }
-    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/logs": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "env.logs.purge",
         "parameters": [
           {
@@ -18460,7 +18433,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -18559,70 +18532,6 @@
           }
         },
         "x-verb": "tile.write"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/name": {
-      "put": {
-        "operationId": "env.rename",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NameIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EnvOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "env.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/params": {
@@ -18809,6 +18718,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/params/{collection}/{name}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "env.param-delete",
         "parameters": [
           {
@@ -18853,7 +18763,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -18864,7 +18774,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -19380,7 +19290,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -19585,7 +19495,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Tile"
+                    "$ref": "#/components/schemas/TileView"
                   },
                   "type": "array"
                 }
@@ -19649,7 +19559,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -19671,6 +19581,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "tile.delete",
         "parameters": [
           {
@@ -19780,7 +19691,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -19839,7 +19750,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TilePatch"
+                "$ref": "#/components/schemas/TileUpdate"
               }
             }
           },
@@ -20215,6 +20126,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/domains/{domain}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "domain.detach",
         "parameters": [
           {
@@ -20584,6 +20496,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/domains/{domain}/records/{record}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "domain.record-rm",
         "parameters": [
           {
@@ -21587,78 +21500,6 @@
         "x-verb": "tile.read"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/name": {
-      "put": {
-        "operationId": "tile.rename",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tile",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NameIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Tile"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "tile.write"
-      }
-    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/on-remove": {
       "put": {
         "operationId": "slice.on-remove",
@@ -21711,7 +21552,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -21783,7 +21624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -22090,6 +21931,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/runs/{run}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "run.stop",
         "parameters": [
           {
@@ -22333,7 +22175,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Tile"
+                  "$ref": "#/components/schemas/TileView"
                 }
               }
             },
@@ -22947,6 +22789,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/host-grant": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "hostgrant.revoke",
         "parameters": [
           {
@@ -23354,62 +23197,6 @@
         "x-verb": "org.read"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/name": {
-      "put": {
-        "operationId": "stack.rename",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NameIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Stack"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "stack.write"
-      }
-    },
     "/api/v1/orgs/{org}/stacks/{stack}/pin": {
       "get": {
         "operationId": "stack.pin",
@@ -23726,6 +23513,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/pr/params/{collection}/{name}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "stack-pr.param-delete",
         "parameters": [
           {
@@ -23762,7 +23550,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -23773,7 +23561,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -23973,6 +23761,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/teardown": {
       "post": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "stack.teardown",
         "parameters": [
           {
@@ -24269,6 +24058,7 @@
     },
     "/api/v1/orgs/{org}/tiers/{tier}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "tier.delete",
         "parameters": [
           {
@@ -24305,8 +24095,8 @@
         },
         "x-verb": "tier.write"
       },
-      "put": {
-        "operationId": "tier.rename",
+      "patch": {
+        "operationId": "tier.update",
         "parameters": [
           {
             "in": "path",
@@ -24329,63 +24119,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SlugIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Tier"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "tier.write"
-      }
-    },
-    "/api/v1/orgs/{org}/tiers/{tier}/lock": {
-      "put": {
-        "operationId": "tier.lock",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tier",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LockIn"
+                "$ref": "#/components/schemas/TierPatch"
               }
             }
           },
@@ -24576,6 +24310,7 @@
     },
     "/api/v1/orgs/{org}/tiers/{tier}/params/{collection}/{name}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "tier.param-delete",
         "parameters": [
           {
@@ -24612,7 +24347,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -24623,7 +24358,7 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -24728,6 +24463,7 @@
     },
     "/api/v1/orgs/{org}/volumes/{volume}": {
       "delete": {
+        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "volume.delete",
         "parameters": [
           {

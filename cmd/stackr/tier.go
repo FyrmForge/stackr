@@ -22,8 +22,8 @@ func (a *app) tiers() *cobra.Command {
 		}
 	}
 	lock := func(use, short string, locked bool) *cobra.Command {
-		return leaf(use+" <slug>", "tier.lock", short, exact(1), org(func(p string, args []string) error {
-			v, err := a.call(PUT, p+"/"+url.PathEscape(args[0])+"/lock", map[string]bool{"locked": locked})
+		return leaf(use+" <slug>", "tier.update", short, exact(1), org(func(p string, args []string) error {
+			v, err := a.call(PATCH, p+"/"+url.PathEscape(args[0]), map[string]bool{"locked": locked})
 			if err != nil {
 				return err
 			}
@@ -45,8 +45,8 @@ func (a *app) tiers() *cobra.Command {
 			}
 			return a.show(v, tierCols...)
 		})),
-		leaf("rename <slug> <new>", "tier.rename", "Rename a tier; stack envs keep their slugs and leave it", exact(2), org(func(p string, args []string) error {
-			v, err := a.call(PUT, p+"/"+url.PathEscape(args[0]), map[string]string{"slug": args[1]})
+		leaf("rename <slug> <new>", "tier.update", "Rename a tier; stack envs keep their slugs and leave it", exact(2), org(func(p string, args []string) error {
+			v, err := a.call(PATCH, p+"/"+url.PathEscape(args[0]), map[string]string{"slug": args[1]})
 			if err != nil {
 				return err
 			}

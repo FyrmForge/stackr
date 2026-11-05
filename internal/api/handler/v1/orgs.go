@@ -72,9 +72,18 @@ func (h *H) SetOrgSettings() Endpoint {
 	}).Describe("A settings rung: a JSON object of knob names to values, checked by the service (GET /settings lists the knobs).")
 }
 
-func (h *H) RenameOrg() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (service.Org, error) {
-		og, _, err := h.Orch.RenameOrg(rc(c), orgID(c), in.Name) // the panel shows stack file warnings
+// OrgPatch is the fields of an org that PATCH changes; a field left out stays.
+type OrgPatch struct {
+	Name *string `json:"name,omitempty"`
+}
+
+func (h *H) UpdateOrg() Endpoint {
+	return JSON(200, func(c echo.Context, in OrgPatch) (service.Org, error) {
+		og := *scope(c).Org
+		if in.Name == nil {
+			return og, nil
+		}
+		og, _, err := h.Orch.RenameOrg(rc(c), orgID(c), *in.Name) // the panel shows stack file warnings
 		return og, err
 	})
 }
@@ -161,8 +170,13 @@ func (h *H) Connectors() Endpoint {
 	return Get(func(c echo.Context) ([]service.Connector, error) { return list(h.Orch.Connectors(rc(c), orgID(c))) })
 }
 
-func (h *H) RenameConnector() Endpoint {
-	return JSON(200, func(c echo.Context, in NameIn) (service.Connector, error) {
+// ConnectorPatch is the fields of a connector that PATCH changes.
+type ConnectorPatch struct {
+	Name string `json:"name"`
+}
+
+func (h *H) UpdateConnector() Endpoint {
+	return JSON(200, func(c echo.Context, in ConnectorPatch) (service.Connector, error) {
 		return h.Orch.RenameConnector(rc(c), orgID(c), c.Param("connector"), in.Name)
 	})
 }

@@ -14,13 +14,13 @@ type (
 		IncludeEnvOnDefault bool   `json:"include_env_on_default"`
 		ACMEEmail           string `json:"acme_email"` // "" = the instance's ACME account
 	}
-	// DomainResourceSetIn is the whole editable state: both fields are
-	// written. The host and level never move.
-	// ponytail: a partial body clears the field it leaves out; pointer
-	// fields when a client sends partials.
-	DomainResourceSetIn struct {
-		IncludeEnvOnDefault bool   `json:"include_env_on_default"`
-		ACMEEmail           string `json:"acme_email"`
+	// DomainResourcePatch is the fields PATCH changes; a field left out
+	// stays. A host moves the resource (its auto hosts follow, each old
+	// host redirects); the level never moves.
+	DomainResourcePatch struct {
+		Host                *string `json:"host,omitempty"`
+		IncludeEnvOnDefault *bool   `json:"include_env_on_default,omitempty"`
+		ACMEEmail           *string `json:"acme_email,omitempty"`
 	}
 )
 
@@ -46,8 +46,8 @@ func (h *H) CreateStackDomainResource() Endpoint {
 // UpdateDomainResource serves the org route and the admin one: the org
 // route's middleware already refused another org's id.
 func (h *H) UpdateDomainResource() Endpoint {
-	return JSON(200, func(c echo.Context, in DomainResourceSetIn) (service.DomainResource, error) {
-		return h.Orch.UpdateDomainResource(rc(c), c.Param("resource"), in.IncludeEnvOnDefault, in.ACMEEmail)
+	return JSON(200, func(c echo.Context, in DomainResourcePatch) (service.DomainResource, error) {
+		return h.Orch.PatchDomainResource(rc(c), c.Param("resource"), in.Host, in.IncludeEnvOnDefault, in.ACMEEmail)
 	})
 }
 

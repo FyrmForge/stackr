@@ -16,7 +16,7 @@ func TestServerConnectorRoutes(t *testing.T) {
 	srv := w.env.ServerConnector(t, "main", "sec")
 	for _, c := range []struct{ method, path, body string }{
 		{"GET", "/admin/connectors", ""},
-		{"PUT", "/admin/connectors/" + srv + "/name", `{"name":"x"}`},
+		{"PATCH", "/admin/connectors/" + srv, `{"name":"x"}`},
 		{"PUT", "/admin/connectors/" + srv + "/shares", `{"all":true}`},
 		{"DELETE", "/admin/connectors/" + srv, ""},
 	} {
@@ -40,7 +40,7 @@ func TestServerConnectorRoutes(t *testing.T) {
 	if code, _ = w.do(t, w.admin, "PUT", "/admin/connectors/"+srv+"/shares", `{"org_ids":["nope"]}`); code != 400 && code != 422 {
 		t.Errorf("share with an unknown org = %d, want 4xx", code)
 	}
-	if code, out = w.do(t, w.admin, "PUT", "/admin/connectors/"+srv+"/name", `{"name":"primary"}`); code != 200 ||
+	if code, out = w.do(t, w.admin, "PATCH", "/admin/connectors/"+srv, `{"name":"primary"}`); code != 200 ||
 		!strings.Contains(out, "primary") {
 		t.Errorf("rename = %d %s", code, out)
 	}
@@ -53,7 +53,7 @@ func TestServerConnectorRoutes(t *testing.T) {
 	if code, _ = w.do(t, w.owner, "DELETE", "/orgs/acme/connectors/"+srv, ""); code != 404 {
 		t.Errorf("org delete of a server connector = %d, want 404", code)
 	}
-	if code, _ = w.do(t, w.owner, "PUT", "/orgs/acme/connectors/"+srv+"/name", `{"name":"mine"}`); code != 404 {
+	if code, _ = w.do(t, w.owner, "PATCH", "/orgs/acme/connectors/"+srv, `{"name":"mine"}`); code != 404 {
 		t.Errorf("org rename of a server connector = %d, want 404", code)
 	}
 

@@ -84,6 +84,36 @@ func (o *Orchestrator) UpdateDomainResource(
 	return r, o.sync.Sync(ctx)
 }
 
+// PatchDomainResource changes the fields sent and keeps the rest: a host
+// moves the resource as RenameDomainResource does, the others as
+// UpdateDomainResource.
+func (o *Orchestrator) PatchDomainResource(
+	ctx context.Context,
+	id string,
+	host *string,
+	includeEnvOnDefault *bool,
+	acmeEmail *string,
+) (DomainResource, error) {
+	var r DomainResource
+	var err error
+	if host != nil {
+		r, err = o.RenameDomainResource(ctx, id, *host)
+	} else {
+		r, err = o.domainres.Get(ctx, id)
+	}
+	if err != nil || (includeEnvOnDefault == nil && acmeEmail == nil) {
+		return r, err
+	}
+	inc, email := r.IncludeEnvOnDefault, r.ACMEEmail
+	if includeEnvOnDefault != nil {
+		inc = *includeEnvOnDefault
+	}
+	if acmeEmail != nil {
+		email = *acmeEmail
+	}
+	return o.UpdateDomainResource(ctx, r.ID, inc, email)
+}
+
 // DeleteDomainResource is refused while tile domains carry its name.
 func (o *Orchestrator) DeleteDomainResource(ctx context.Context, id string) error {
 	r, err := o.domainres.Get(ctx, id)

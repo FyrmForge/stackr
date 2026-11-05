@@ -176,7 +176,7 @@ func (h *H) SetParams(at At) Endpoint {
 
 // DeleteParam answers the tiles the removal redeploys, as SetParams does.
 func (h *H) DeleteParam(at At) Endpoint {
-	return JSON(http.StatusOK, func(c echo.Context, _ None) ([]service.Redeploy, error) {
+	return JSON(http.StatusAccepted, func(c echo.Context, _ None) ([]service.Redeploy, error) {
 		return h.Orch.DeleteParam(rc(c), paramScope(c, at), c.Param("collection"), c.Param("name"))
 	})
 }

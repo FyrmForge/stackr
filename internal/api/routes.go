@@ -63,7 +63,7 @@ func routes(h *v1.H) []Route {
 		{GET, "/orgs", "org.list", Self, h.Orgs()},
 		{POST, "/orgs", "org.create", "org.create", h.CreateOrg()},
 		{GET, org, "org.get", "org.read", h.GetOrg()},
-		{PUT, org + "/name", "org.rename", "org.write", h.RenameOrg()},
+		{PATCH, org, "org.update", "org.write", h.UpdateOrg()},
 		{PUT, org + "/settings", "org.settings", "orgdefaults.set", h.SetOrgSettings()},
 		{POST, org + "/finish", "org.finish", "org.write", h.FinishOrg()},
 		{DELETE, org, "org.delete", "org.write", h.DeleteOrg()},
@@ -84,7 +84,7 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/registry/versions", "registry.versions", "registry.image.list", h.RegistryVersions()},
 		{DELETE, org + "/registry/versions", "registry.delete", "registry.tag.delete", h.DeleteRegistryVersion()},
 		{GET, org + "/connectors", "connector.list", "org.read", h.Connectors()},
-		{PUT, org + "/connectors/:connector/name", "connector.rename", "connector.write", h.RenameConnector()},
+		{PATCH, org + "/connectors/:connector", "connector.update", "connector.write", h.UpdateConnector()},
 		{DELETE, org + "/connectors/:connector", "connector.delete", "connector.write", h.DeleteConnector()},
 		// DNS connectors: an owner's own provider account, that org only
 		{GET, org + "/dns-connectors", "dns.list", "dns.manage", h.DNSConnectors(v1.OrgLevel)},
@@ -109,7 +109,6 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/domain-resources", "domain-resource.list", "domain.resource", h.DomainResources()},
 		{POST, org + "/domain-resources", "domain-resource.create", "domain.resource", h.CreateOrgDomainResource()},
 		{PATCH, org + "/domain-resources/:resource", "domain-resource.update", "domain.resource", h.UpdateDomainResource()},
-		{POST, org + "/domain-resources/:resource/rename", "domain-resource.rename", "domain.resource", h.RenameDomainResource()},
 		{DELETE, org + "/domain-resources/:resource", "domain-resource.delete", "domain.resource", h.DeleteDomainResource()},
 		{GET, org + "/shares", "share.list", "share.read", h.Shares()},
 		{POST, org + "/shares", "share.create", "share.write", h.CreateShare()},
@@ -148,9 +147,8 @@ func routes(h *v1.H) []Route {
 		{GET, org + "/tiers", "tier.list", "org.read", h.Tiers()},
 		{POST, org + "/tiers", "tier.create", "tier.write", h.CreateTier()},
 		{PUT, org + "/tiers/order", "tier.order", "tier.write", h.ReorderTiers()},
-		{PUT, org + "/tiers/:tier", "tier.rename", "tier.write", h.RenameTier()},
+		{PATCH, org + "/tiers/:tier", "tier.update", "tier.write", h.UpdateTier()},
 		{DELETE, org + "/tiers/:tier", "tier.delete", "tier.write", h.DeleteTier()},
-		{PUT, org + "/tiers/:tier/lock", "tier.lock", "tier.write", h.SetTierLock()},
 
 		// stacks
 		{GET, org + "/stacks", "stack.list", "org.read", h.Stacks()},
@@ -160,7 +158,7 @@ func routes(h *v1.H) []Route {
 		{GET, stack + "/host-grant", "hostgrant.get", "org.read", h.HostGrant()},
 		{POST, stack + "/host-grant/approve", "hostgrant.approve", "hostgrant.approve", h.ApproveHostGrant()},
 		{DELETE, stack + "/host-grant", "hostgrant.revoke", "hostgrant.approve", h.RevokeHostGrant()},
-		{PUT, stack + "/name", "stack.rename", "stack.write", h.RenameStack()},
+		{PATCH, stack, "stack.update", "stack.write", h.UpdateStack()},
 		{PUT, stack + "/config-repo", "stack.config-repo", "stack.write", h.SetConfigRepo()},
 
 		{PUT, stack + "/settings", "stack.settings", "stack.write", h.SetStackSettings()},
@@ -181,9 +179,7 @@ func routes(h *v1.H) []Route {
 		{GET, env + "/events", "env.events", "tile.read", h.EnvEvents()},
 		{GET, env + "/logs", "env.logs", "tile.read", h.LogSearch()},
 		{DELETE, env + "/logs", "env.logs.purge", "env.logs.purge", h.PurgeLogs()},
-		{PUT, env + "/name", "env.rename", "env.write", h.RenameEnv()},
-		{PUT, env + "/lock", "env.lock", "env.lock", h.SetEnvLock()},
-		{PUT, env + "/color", "env.color", "env.write", h.SetEnvColor()},
+		{PATCH, env, "env.update", "env.write", h.UpdateEnv()},
 		{PUT, env + "/from", "env.from", "env.write", h.SetEnvFrom()},
 		{PUT, env + "/settings", "env.settings", "env.write", h.SetEnvSettings()},
 		{DELETE, env, "env.delete", "env.write", h.DeleteEnv()},
@@ -202,7 +198,6 @@ func routes(h *v1.H) []Route {
 		// tiles
 		{GET, tile, "tile.get", "tile.read", h.GetTile()},
 		{PATCH, tile, "tile.update", "tile.write", h.UpdateTile()},
-		{PUT, tile + "/name", "tile.rename", "tile.write", h.RenameTile()},
 		{DELETE, tile, "tile.delete", "tile.write", h.DeleteTile()},
 		{POST, tile + "/deploy", "tile.deploy", "tile.write", h.Deploy()},
 		{POST, tile + "/rebuild", "tile.rebuild", "tile.write", h.RebuildTile()},
@@ -326,7 +321,6 @@ func routes(h *v1.H) []Route {
 		{GET, "/admin/domain-resources", "admin.domain-resource-list", "admin.read", h.AllDomainResources()},
 		{POST, "/admin/domain-resources", "admin.domain-resource-create", "serverdefaults.set", h.CreateInstanceDomainResource()},
 		{PATCH, "/admin/domain-resources/:resource", "admin.domain-resource-update", "serverdefaults.set", h.UpdateDomainResource()},
-		{POST, "/admin/domain-resources/:resource/rename", "admin.domain-resource-rename", "serverdefaults.set", h.RenameDomainResource()},
 		{DELETE, "/admin/domain-resources/:resource", "admin.domain-resource-delete", "serverdefaults.set", h.DeleteDomainResource()},
 		{GET, "/admin/routes", "admin.route-list", "route.admin", h.Routes()},
 		{POST, "/admin/routes", "admin.route-create", "route.admin", h.CreateRoute()},
@@ -347,7 +341,7 @@ func routes(h *v1.H) []Route {
 
 		// server connectors: no org, shared with named orgs or all of them
 		{GET, "/admin/connectors", "admin.connector-list", "admin.read", h.ServerConnectors()},
-		{PUT, "/admin/connectors/:connector/name", "admin.connector-rename", "connector.admin", h.RenameServerConnector()},
+		{PATCH, "/admin/connectors/:connector", "admin.connector-update", "connector.admin", h.UpdateServerConnector()},
 		{PUT, "/admin/connectors/:connector/shares", "admin.connector-share", "connector.admin", h.ShareConnector()},
 		{DELETE, "/admin/connectors/:connector", "admin.connector-delete", "connector.admin", h.DeleteServerConnector()},
 		// server DNS connectors: each managed domain says which orgs may use it;
