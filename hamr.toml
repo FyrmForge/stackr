@@ -46,7 +46,7 @@ enabled = true
 name = "templ"
 watch = "**/*.templ"
 ignore = "*_templ.go"
-cmd = "templ generate"
+cmd = "go tool templ generate" # pinned by go.mod, not ~/go/bin
 debounce = 100
 
 # One-shot build per change rather than `npx tailwindcss --watch` as a daemon:

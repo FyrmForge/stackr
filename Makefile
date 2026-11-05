@@ -1,4 +1,4 @@
-.PHONY: admin build installcli installer release test test-integration lint templint db-sh clean install check-templ generate check-node-modules css-build
+.PHONY: admin build installcli installer release test test-integration lint templint db-sh clean install generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -6,7 +6,6 @@ SHELL := bash
 .SHELLFLAGS := -ec
 
 HAMR_VERSION  := $(shell grep 'github.com/FyrmForge/hamr ' go.mod | awk '{print $$2}')
-TEMPL_VERSION := $(shell grep 'github.com/a-h/templ ' go.mod | awk '{print $$2}')
 
 # ENV_LOAD: prefix targets that need hamr dev's port-walked .env values
 # (DATABASE_URL, S3_ENDPOINT, etc.). `hamr env --export` reads
@@ -21,14 +20,9 @@ ENV_LOAD := eval "$$(hamr env --export 2>/dev/null || true)";
 ## install: Install development dependencies
 install:
 	go install github.com/FyrmForge/hamr/cmd/hamr@$(HAMR_VERSION)
-	go install github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
 	cd ui && npm install
 	@# The fake host's proxy binds these as your user; Docker would make them root's.
 	mkdir -p data/proxy-admin data/proxy-caddy
-
-## check-templ: Verify templ is installed
-check-templ:
-	@command -v templ >/dev/null 2>&1 || { echo "templ not found. Run: make install" >&2; exit 1; }
 
 ## check-node-modules: Auto-install npm deps if missing
 check-node-modules:
@@ -45,8 +39,8 @@ fmt:
 	go fmt ./...
 
 ## build: Build the panel binary (bin/stackrd)
-build: check-templ check-node-modules
-	templ generate
+build: check-node-modules
+	go tool templ generate
 	cd ui && npm run css:build
 	cd ui && npm run ts:build
 	hamr gen static
@@ -85,13 +79,13 @@ generate:
 	$(ENV_LOAD) ./bin/stackrd --generate
 
 ## test: Run all tests
-test: check-templ
-	templ generate
+test:
+	go tool templ generate
 	go test -timeout 20m ./...
 
 ## test-integration: Unit tests plus the build-tagged ones against the local Docker daemon
-test-integration: check-templ
-	templ generate
+test-integration:
+	go tool templ generate
 	go test -tags integration -count=1 ./...
 
 ## db-sh: Open an interactive shell to the local dev database

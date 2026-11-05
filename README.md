@@ -53,7 +53,6 @@ names whatever is missing.
 ## Prerequisites
 
 - Go 1.27.1+
-- [templ](https://templ.guide) CLI (`go install github.com/a-h/templ/cmd/templ@latest`)
 - [hamr](https://github.com/FyrmForge/hamr) CLI
 
 ## Quick Start

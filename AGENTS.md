@@ -659,7 +659,7 @@ and `serverconfig_apply.go`.
 - Migrations: 005 (server connectors, server plans) and 006 (server params)
   are applied on dev boxes and frozen; the next one is 007.
 - Generated files stay generated: `go run ./cmd/stackrd --dump-openapi >
-  docs/openapi.json` after a route change, `templ generate` after a `.templ`.
+  docs/openapi.json` after a route change, `go tool templ generate` after a `.templ`.
 
 ## Environment
 

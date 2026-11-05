@@ -3,7 +3,7 @@
 ## Build & Test
 
 ```bash
-make install        # Install dev tools (templ)
+make install        # Install dev tools (hamr, ui npm packages)
 # Migrations run automatically when the server starts
 hamr dev            # Run dev server (file watching, builds, live reload)
 make build          # Build binary (generates templ first)

@@ -44,7 +44,7 @@ jobs:
       - name: Verify generated templ files are committed
         run: |
           if ! git diff --quiet -- '*_templ.go'; then
-            echo "::error::Generated templ files are out of date. Run 'templ generate' and commit."
+            echo "::error::Generated templ files are out of date. Run 'go tool templ generate' and commit."
             git diff --stat -- '*_templ.go'
             exit 1
           fi
