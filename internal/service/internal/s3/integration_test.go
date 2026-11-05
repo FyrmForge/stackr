@@ -4,6 +4,8 @@ package s3
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -13,13 +15,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// Against a throwaway MinIO container.
+// Against a throwaway RustFS container, the S3 server the managed tile runs
+// (minio/minio is gone from Docker Hub).
 func TestMinio(t *testing.T) {
 	out, err := exec.Command("docker", "run", "-d", "--rm", "-p", "127.0.0.1::9000",
-		"-e", "MINIO_ROOT_USER=stackr", "-e", "MINIO_ROOT_PASSWORD=stackr-secret",
-		"minio/minio", "server", "/data").Output()
+		"-e", "RUSTFS_ACCESS_KEY=stackr", "-e", "RUSTFS_SECRET_KEY=stackr-secret",
+		"rustfs/rustfs:latest").Output()
 	if err != nil {
-		t.Fatalf("docker run minio: %v", err)
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			err = fmt.Errorf("%w: %s", err, ee.Stderr)
+		}
+		t.Fatalf("docker run rustfs: %v", err)
 	}
 	id := strings.TrimSpace(string(out))
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", id).Run() })
@@ -40,7 +47,7 @@ func TestMinio(t *testing.T) {
 			break
 		}
 		if i == 60 {
-			t.Fatalf("minio never came up: %v", err)
+			t.Fatalf("rustfs never came up: %v", err)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
