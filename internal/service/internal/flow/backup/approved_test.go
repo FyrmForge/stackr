@@ -23,7 +23,7 @@ func TestPrivateOrgDestWaitsForApproval(t *testing.T) {
 	f := &Flow{}
 
 	err := f.Probe(context.Background(), d)
-	if err == nil || !strings.Contains(err.Error(), "Waiting for the server admin to approve LAN access.") {
+	if err == nil || !strings.Contains(err.Error(), "waiting for the server admin to approve LAN access") {
 		t.Fatalf("pending dest = %v", err)
 	}
 	d.ApprovedEndpoint = "127.0.0.1:1"

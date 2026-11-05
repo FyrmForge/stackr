@@ -13,7 +13,7 @@ import (
 
 // errNotPublic is a dial the public-only client refused: the endpoint is a
 // private address no server admin approved.
-var errNotPublic = errors.New("Waiting for the server admin to approve LAN access.")
+var errNotPublic = errors.New("waiting for the server admin to approve LAN access")
 
 // cgnat is the shared address space (100.64.0.0/10), not private for
 // netip but never a public bucket.
