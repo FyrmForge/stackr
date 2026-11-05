@@ -185,16 +185,12 @@ func (h *handler) fillSecret(c echo.Context) error {
 	if len(es) == 0 {
 		return h.answer(c, "config", "", extra{}, errs.Invalidf("value", "enter the value"))
 	}
-	ctx := c.Request().Context()
-	if _, err := h.orch.SetParams(ctx, service.ServerParamScope, es); err != nil {
-		return h.answer(c, "config", "", extra{}, err)
-	}
-	if b, err := h.orch.ServerConfigBinding(ctx); err != nil || b.Repo == "" {
-		return h.answer(c, "config", "Saved. Plan the file again to close the gap.", extra{}, err)
-	}
-	p, err := h.orch.PlanServerConfig(ctx)
+	p, err := h.orch.FillServerGap(c.Request().Context(), es)
 	if err != nil {
 		return h.answer(c, "config", "", extra{}, err)
+	}
+	if p.ID == "" {
+		return h.answer(c, "config", "Saved. Plan the file again to close the gap.", extra{}, nil)
 	}
 	return h.answer(c, "config", "Saved and planned: "+p.Summary+".", extra{}, nil)
 }

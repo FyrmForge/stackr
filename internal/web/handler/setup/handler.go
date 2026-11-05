@@ -52,6 +52,7 @@ func (h *handler) Mount(site *echo.Group, a *middleware.Access) {
 	site.POST(s+"/config", h.bind, a.Require("org.config.bind"))
 	site.GET(s+"/config/connector/:connector/branches", h.branches, step)
 	site.GET(s+"/config/connector/:connector/files", h.files, step)
+	site.POST(s+"/config/gaps/secret", h.fillGap, a.Require("org.config.bind"))
 	approve := a.Require("orgplan.approve")
 	site.POST(s+"/config/plan/:plan/approve", h.approve, approve)
 	site.POST(s+"/config/plan/:plan/reject", h.reject, approve)
@@ -517,9 +518,12 @@ func (h *handler) plan(c echo.Context) error {
 		v.Parsed = true
 		v.Errors = p.Blockers
 		v.Warnings = p.Notes
-		// gaps are filled on the org's Config tab, past the wizard
 		for _, g := range p.Gaps {
-			v.Warnings = append(v.Warnings, "Secret "+g.Key+" ("+g.Env+") has no value yet: its tiles wait until you set it on the org's Config tab.")
+			v.Gaps = append(v.Gaps, pages.Gap{
+				Label: "Secret " + g.Key + " (" + g.Env + ")",
+				Field: "secret." + g.Key,
+				Post:  base(og) + "/config/gaps/secret?env=" + url.QueryEscape(g.Env),
+			})
 		}
 		v.Changes = planRows(p)
 	}
@@ -689,6 +693,31 @@ func (h *handler) bind(c echo.Context) error {
 		hamrmw.SetFlash(c, "Planned.", hamrmw.FlashSuccess)
 		return respond.Redirect(c, planURL(og, pl.ID, ""))
 	}
+}
+
+// POST /:org/-/setup/config/gaps/secret?env= (secret.<collection>.<name>):
+// saves the values and plans the file again so the gap closes.
+func (h *handler) fillGap(c echo.Context) error {
+	og := middleware.ScopeOf(c).Org
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
+	}
+	var es []service.ParamEntry
+	for _, e := range render.ParamEntries(form) {
+		if e.Kind == "secret" && e.Value != "" {
+			es = append(es, e)
+		}
+	}
+	if len(es) == 0 {
+		return back(c, errs.Invalidf("value", "enter the value"), base(og)+"/config/plan")
+	}
+	p, err := h.orch.FillOrgGap(c.Request().Context(), og.ID, c.QueryParam("env"), es)
+	if err != nil {
+		return back(c, err, base(og)+"/config/plan")
+	}
+	hamrmw.SetFlash(c, "Saved and planned.", hamrmw.FlashSuccess)
+	return respond.Redirect(c, planURL(og, p.ID, ""))
 }
 
 // POST …/config/plan/:plan/approve: back to the plan screen, which waits on

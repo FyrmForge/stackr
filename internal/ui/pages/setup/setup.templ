@@ -99,11 +99,10 @@ type PlanView struct {
 	Blocked  string   // why Approve is off; "" = it is not
 	Destroys []string // what an apply deletes, named in the confirm
 	Gaps     []Gap    // secrets the plan waits on, filled here
-	GapPost  string   // the gap form posts here
 }
 
 // Gap is one secret a plan waits on; Field is its form name.
-type Gap struct{ Label, Field string }
+type Gap struct{ Label, Field, Post string }
 
 // DomainView is the by-hand branch's domain step.
 type DomainView struct {
@@ -530,15 +529,15 @@ templ Plan(v PlanView) {
 				<div class="panel border-rw-warning/40 p-3 mb-2 text-sm text-rw-warning">{ w }</div>
 			}
 			if len(v.Gaps) > 0 {
-				<form novalidate hx-post={ v.GapPost } class="panel border-rw-warning/40 p-3 mb-4 space-y-2">
-					for i, g := range v.Gaps {
+				for i, g := range v.Gaps {
+					<form novalidate hx-post={ g.Post } class="panel border-rw-warning/40 p-3 mb-4 space-y-2">
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<label for={ "gap-" + strconv.Itoa(i) } class="text-rw-warning">{ g.Label } has no value yet.</label>
 							<input type="password" id={ "gap-" + strconv.Itoa(i) } name={ g.Field } class="input ml-auto w-56" autocomplete="off"/>
 						</div>
-					}
-					<button type="submit" class="btn btn-primary btn-sm">Save and plan again</button>
-				</form>
+						<button type="submit" class="btn btn-primary btn-sm">Save and plan again</button>
+					</form>
+				}
 			}
 			if len(v.Changes) == 0 && v.Error == "" {
 				<p class="text-sm text-rw-muted">No changes. Everything already matches the config.</p>

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
@@ -37,6 +38,19 @@ func TestServerSetup(t *testing.T) {
 	}
 	if s, err = orch.ServerSetupState(ctx); err != nil || !s.Done {
 		t.Errorf("after finish = %+v, %v; want done", s, err)
+	}
+}
+
+// With no file bound a gap fill only saves: the secret lands and no plan is made.
+func TestFillServerGapUnbound(t *testing.T) {
+	orch, ctx := servicetest.New(t).Orch, context.Background()
+	p, err := orch.FillServerGap(ctx, []service.ParamEntry{{Collection: "db", Name: "password", Kind: "secret", Value: "s3cret"}})
+	if err != nil || p.ID != "" {
+		t.Fatalf("fill = %+v, %v; want saved, no plan", p, err)
+	}
+	ps, err := orch.Params(ctx, service.ServerParamScope, true)
+	if err != nil || len(ps) != 1 || ps[0].Name != "password" {
+		t.Errorf("params = %+v, %v", ps, err)
 	}
 }
 

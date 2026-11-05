@@ -75,9 +75,13 @@ func (o *Orchestrator) SetServerSetupStep(ctx context.Context, step string) erro
 }
 
 // FillServerGap saves the secrets a server plan waits on and plans the bound
-// file again so the gaps close.
+// file again so the gaps close. With no bound file it only saves and returns
+// the zero plan.
 func (o *Orchestrator) FillServerGap(ctx context.Context, es []ParamEntry) (ServerPlan, error) {
 	if _, err := o.SetParams(ctx, ServerParamScope, es); err != nil {
+		return ServerPlan{}, err
+	}
+	if b, err := o.ServerConfigBinding(ctx); err != nil || b.Repo == "" {
 		return ServerPlan{}, err
 	}
 	return o.PlanServerConfig(ctx)
