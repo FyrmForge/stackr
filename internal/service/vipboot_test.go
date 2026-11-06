@@ -494,7 +494,6 @@ func TestRebuildVIPsSlowNodeDoesNotBlockOthers(t *testing.T) {
 // A node's tick and its async revoke rebuild run one at a time, on that
 // node's lock alone.
 func TestRebuildVIPsSerialisedPerNode(t *testing.T) {
-	t.Parallel()
 	n := newTwoNodes(t)
 	entered, release := holdW1(t, n)
 	done := make(chan error, 1)
