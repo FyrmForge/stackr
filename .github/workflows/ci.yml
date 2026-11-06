@@ -125,3 +125,38 @@ jobs:
           ./internal/service/internal/s3/
           ./internal/service/internal/flow/managed/
           ./internal/service/internal/leaf/registry/
+
+  # Installs the last release, upgrades it to this commit's build through the
+  # panel, then tries a broken build and expects a rollback. release.yml runs
+  # only after CI passes, so a failure here stops the release.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install deps
+        run: make install
+
+      - name: Build the candidate (next patch after the latest release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh release view --json tagName -q .tagName)
+          IFS=. read -r maj min pat <<<"${latest#v}"
+          echo "LATEST=$latest" >> "$GITHUB_ENV"
+          echo "CANDIDATE=v$maj.$min.$((pat + 1))-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
+          make release RELEASE="v$maj.$min.$((pat + 1))-dev.${{ github.run_number }}"
+
+      - name: Smoke test
+        run: sudo scripts/smoke.sh "$CANDIDATE" "$LATEST"
