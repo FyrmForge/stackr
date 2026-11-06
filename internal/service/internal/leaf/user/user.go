@@ -43,7 +43,10 @@ func (l *Leaf) Get(ctx context.Context, id string) (store.User, error) {
 // MinPassword is the one password rule ("Auth mechanics": minimum length only).
 const MinPassword = 8
 
-func hashPassword(pw string) (string, error) {
+// HashPassword checks the password rule and hashes it. Callers hash before
+// opening a Tx (argon2 is slow; the pool has one connection) and pass the
+// result to Register or CreateAdmin.
+func HashPassword(pw string) (string, error) {
 	if len(pw) < MinPassword {
 		return "", errs.Invalidf("password", "must be at least %d characters", MinPassword)
 	}
@@ -54,16 +57,17 @@ func hashPassword(pw string) (string, error) {
 	return h, nil
 }
 
-// Register creates an active user; an invite is the only way in.
-func (l *Leaf) Register(ctx context.Context, email, password, name string) (store.User, error) {
-	return l.create(ctx, email, password, name, "user")
+// Register creates an active user; an invite is the only way in. hash is
+// HashPassword's answer.
+func (l *Leaf) Register(ctx context.Context, email, hash, name string) (store.User, error) {
+	return l.create(ctx, email, hash, name, "user")
 }
 
 // CreateAdmin makes the install's first account, the stackr admin. The
 // installer calls it once; with any account present it refuses.
 // ponytail: count then insert is not atomic; two installers racing on one
 // data dir could both pass. One installer runs per box.
-func (l *Leaf) CreateAdmin(ctx context.Context, email, password, name string) (store.User, error) {
+func (l *Leaf) CreateAdmin(ctx context.Context, email, hash, name string) (store.User, error) {
 	all, err := l.users.List(ctx)
 	if err != nil {
 		return store.User{}, err
@@ -71,18 +75,14 @@ func (l *Leaf) CreateAdmin(ctx context.Context, email, password, name string) (s
 	if len(all) > 0 {
 		return store.User{}, errs.Conflictf("this install already has an admin")
 	}
-	return l.create(ctx, email, password, name, "admin")
+	return l.create(ctx, email, hash, name, "admin")
 }
 
-func (l *Leaf) create(ctx context.Context, email, password, name, role string) (store.User, error) {
+func (l *Leaf) create(ctx context.Context, email, hash, name, role string) (store.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if _, err := l.users.GetByEmail(ctx, email); err == nil {
 		return store.User{}, errs.Invalidf("email", "an account with this email already exists")
 	} else if !errors.Is(err, errs.ErrNotFound) {
-		return store.User{}, err
-	}
-	hash, err := hashPassword(password)
-	if err != nil {
 		return store.User{}, err
 	}
 	now := time.Now().UTC()
@@ -135,7 +135,7 @@ func (l *Leaf) VerifyPassword(ctx context.Context, id, password string) error {
 // SetPassword is the admin's reset (no reset flow in v1). Every session and
 // API key of the user ends with the old password, the caller's own included.
 func (l *Leaf) SetPassword(ctx context.Context, id, next string) error {
-	hash, err := hashPassword(next)
+	hash, err := HashPassword(next)
 	if err != nil {
 		return err
 	}

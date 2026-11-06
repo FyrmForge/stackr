@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,8 +66,38 @@ func TestPruneOld(t *testing.T) {
 	if len(evs) != 1 || evs[0].ID != "e-new" {
 		t.Errorf("security events = %+v", evs)
 	}
-	if err := w.st.SecurityEvents.DeleteBefore(ctx, time.Now()); err == nil {
+	if _, err := w.st.SecurityEvents.DeleteBefore(ctx, time.Now(), 10); err == nil {
 		t.Error("security_events deletes without the prune row")
+	}
+	if _, ok, _ := w.st.Settings.Get(ctx, store.SecurityEventsPruning); ok {
+		t.Error("the prune row stayed")
+	}
+}
+
+// The security prune runs in batches and still takes everything past the cut,
+// nothing newer, and leaves the append-only guard back on.
+func TestPruneSecurityEventsBatched(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	for i := range 2*securityPruneBatch + 5 {
+		must(t, w.st.SecurityEvents.Create(ctx, store.SecurityEvent{ID: fmt.Sprintf("old-%d", i),
+			At: time.Now().Add(-100 * 24 * time.Hour), Action: "x"}))
+	}
+	for i := range 3 {
+		must(t, w.st.SecurityEvents.Create(ctx, store.SecurityEvent{ID: fmt.Sprintf("new-%d", i),
+			At: time.Now().Add(-time.Hour), Action: "x"}))
+	}
+	w.orch.pruneSecurityEvents(ctx, time.Now().Add(-securityKeep))
+	evs, err := w.st.SecurityEvents.Find(ctx, store.SecurityFilter{Action: "x"})
+	must(t, err)
+	if len(evs) != 3 {
+		t.Errorf("%d events left, want the 3 new ones", len(evs))
+	}
+	for _, e := range evs {
+		if !strings.HasPrefix(e.ID, "new-") {
+			t.Errorf("old event %s kept", e.ID)
+		}
 	}
 	if _, ok, _ := w.st.Settings.Get(ctx, store.SecurityEventsPruning); ok {
 		t.Error("the prune row stayed")

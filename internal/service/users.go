@@ -24,12 +24,16 @@ type User = store.User
 // create-admin), beside a running panel, so it opens the database on its
 // own: New would start a second job runner and scheduler. No route calls it.
 func CreateAdmin(ctx context.Context, cfg Config, email, password, name string) (User, string, error) {
+	hash, err := user.HashPassword(password)
+	if err != nil {
+		return User{}, "", err
+	}
 	var u User
 	var tok string
-	err := withStore(ctx, cfg, func(st *store.Store) error {
+	err = withStore(ctx, cfg, func(st *store.Store) error {
 		return st.Tx(ctx, func(tx store.Tx) (err error) {
 			l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
-			if u, err = l.CreateAdmin(ctx, email, password, name); err != nil {
+			if u, err = l.CreateAdmin(ctx, email, hash, name); err != nil {
 				return err
 			}
 			var k store.APIKey

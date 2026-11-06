@@ -71,6 +71,8 @@ type JobStore interface {
 	Get(ctx context.Context, id string) (Job, error)
 	// ListByState is newest first.
 	ListByState(ctx context.Context, states ...string) ([]Job, error)
+	// ListRecent is ListByState cut to the newest limit rows (0 = no cap).
+	ListRecent(ctx context.Context, limit int, states ...string) ([]Job, error)
 	// ListTouching is the newest jobs whose lock set holds any of tileIDs,
 	// optionally of one kind ("" = any), newest first, at most limit.
 	ListTouching(ctx context.Context, tileIDs []string, kind string, limit int) ([]Job, error)
@@ -91,14 +93,23 @@ var jobsT = newTable[Job]("jobs", nil)
 type jobs struct{ crud[Job] }
 
 func (s jobs) ListByState(ctx context.Context, states ...string) ([]Job, error) {
-	if len(states) == 0 {
-		return s.many(ctx, "1 = 1 ORDER BY created_at DESC")
+	return s.ListRecent(ctx, 0, states...)
+}
+
+func (s jobs) ListRecent(ctx context.Context, limit int, states ...string) ([]Job, error) {
+	where, args := "1 = 1", []any{}
+	if len(states) > 0 {
+		where = "state IN (?" + strings.Repeat(", ?", len(states)-1) + ")"
+		for _, st := range states {
+			args = append(args, st)
+		}
 	}
-	args := make([]any, len(states))
-	for i, st := range states {
-		args[i] = st
+	where += " ORDER BY created_at DESC"
+	if limit > 0 {
+		where += " LIMIT ?"
+		args = append(args, limit)
 	}
-	return s.many(ctx, "state IN (?"+strings.Repeat(", ?", len(states)-1)+") ORDER BY created_at DESC", args...)
+	return s.many(ctx, where, args...)
 }
 
 func (s jobs) ListFinishedBefore(ctx context.Context, t time.Time, limit int) ([]Job, error) {
@@ -126,7 +137,8 @@ func (s jobs) ListTouching(ctx context.Context, tileIDs []string, kind string, l
 	for _, id := range tileIDs {
 		args = append(args, id)
 	}
-	where := "EXISTS (SELECT 1 FROM json_each(lock_set) WHERE value IN (?" + strings.Repeat(", ?", len(tileIDs)-1) + "))"
+	// job_tiles is kept by triggers on jobs.lock_set (migration 047).
+	where := "id IN (SELECT job_id FROM job_tiles WHERE tile_id IN (?" + strings.Repeat(", ?", len(tileIDs)-1) + "))"
 	if kind != "" {
 		where += " AND kind = ?"
 		args = append(args, kind)

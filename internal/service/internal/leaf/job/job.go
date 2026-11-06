@@ -169,11 +169,7 @@ func (l *Leaf) List(ctx context.Context, states ...string) ([]store.Job, error) 
 // Recent is the newest jobs in the given states (none = all), newest first,
 // at most limit (0 = no cap).
 func (l *Leaf) Recent(ctx context.Context, limit int, states ...string) ([]store.Job, error) {
-	js, err := l.jobs.ListByState(ctx, states...)
-	if limit > 0 && len(js) > limit {
-		js = js[:limit]
-	}
-	return js, err
+	return l.jobs.ListRecent(ctx, limit, states...)
 }
 
 // Create writes a queued job; logPath names its output file.

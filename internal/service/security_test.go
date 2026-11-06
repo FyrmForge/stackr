@@ -20,7 +20,7 @@ const adminPW = "correct horse battery"
 func secWorld(t *testing.T) (*world, *Principal) {
 	t.Helper()
 	w := newWorld(t)
-	u, err := w.orch.users.CreateAdmin(context.Background(), "adm@x.test", adminPW, "Adm")
+	u, err := w.orch.users.CreateAdmin(context.Background(), "adm@x.test", pwHash(t, adminPW), "Adm")
 	must(t, err)
 	return w, &Principal{User: u, KeyID: "k-1", Access: authz.User{ID: u.ID, Active: true, Admin: true}}
 }

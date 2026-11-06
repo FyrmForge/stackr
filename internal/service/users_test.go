@@ -109,3 +109,12 @@ func TestMintAdminKeyOrg(t *testing.T) {
 		t.Errorf("member of dnsqa: %q", org)
 	}
 }
+
+func pwHash(t *testing.T, pw string) string {
+	t.Helper()
+	h, err := user.HashPassword(pw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}

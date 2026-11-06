@@ -140,7 +140,7 @@ func TestRotateMasterKeyRefusedOnEnvKey(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", "correct horse battery", "Adm")
+	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", pwHash(t, "correct horse battery"), "Adm")
 	must(t, err)
 	if err := w.orch.RotateMasterKey(ctx, admin.ID, "wrong"); err == nil {
 		t.Fatal("rotated behind a wrong password")

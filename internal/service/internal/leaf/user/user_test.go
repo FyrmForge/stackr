@@ -117,17 +117,17 @@ func TestMintKeyCeiling(t *testing.T) {
 func TestFirstAccountIsAdmin(t *testing.T) {
 	st := servicetest.Store(t)
 	l := user.New(st.Users, st.Sessions, st.APIKeys)
-	if _, err := l.CreateAdmin(ctx, "a@x.io", "short", "a"); err == nil {
+	if _, err := user.HashPassword("short"); err == nil {
 		t.Error("short password accepted")
 	}
-	first, err := l.CreateAdmin(ctx, "A@x.io", "longenough", "a")
+	first, err := l.CreateAdmin(ctx, "A@x.io", hashed(t, "longenough"), "a")
 	if err != nil || first.Role != "admin" {
 		t.Fatalf("first = %+v, %v; want admin", first, err)
 	}
-	if _, err := l.CreateAdmin(ctx, "c@x.io", "longenough", "c"); !errors.As(err, new(errs.Conflict)) {
+	if _, err := l.CreateAdmin(ctx, "c@x.io", hashed(t, "longenough"), "c"); !errors.As(err, new(errs.Conflict)) {
 		t.Errorf("a second admin: err = %v, want conflict", err)
 	}
-	second, err := l.Register(ctx, "b@x.io", "longenough", "b")
+	second, err := l.Register(ctx, "b@x.io", hashed(t, "longenough"), "b")
 	if err != nil || second.Role != "user" {
 		t.Fatalf("second = %+v, %v; want user", second, err)
 	}
@@ -279,4 +279,13 @@ func TestAuthenticateUnknownEmail(t *testing.T) {
 	if _, err := l.Authenticate(ctx, "nobody@x.io", "whatever-pw"); !errors.Is(err, user.ErrBadLogin) {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func hashed(t *testing.T, pw string) string {
+	t.Helper()
+	h, err := user.HashPassword(pw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }

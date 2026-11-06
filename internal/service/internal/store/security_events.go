@@ -36,10 +36,11 @@ type SecurityEventStore interface {
 	Create(ctx context.Context, e SecurityEvent) error
 	// Find is newest first.
 	Find(ctx context.Context, f SecurityFilter) ([]SecurityEvent, error)
-	// DeleteBefore drops events older than t. The table refuses deletes
-	// unless the settings row SecurityEventsPruning exists, so call it in a
-	// Tx that sets and clears that row.
-	DeleteBefore(ctx context.Context, t time.Time) error
+	// DeleteBefore drops up to limit events older than t and returns how many
+	// went. The table refuses deletes unless the settings row
+	// SecurityEventsPruning exists, so call it in a Tx that sets and clears
+	// that row.
+	DeleteBefore(ctx context.Context, t time.Time, limit int) (int, error)
 }
 
 // SecurityEventsPruning is the settings row that lifts the append-only
@@ -50,9 +51,14 @@ var securityEventsT = newTable[SecurityEvent]("security_events", nil)
 
 type securityEvents struct{ crud[SecurityEvent] }
 
-func (s securityEvents) DeleteBefore(ctx context.Context, t time.Time) error {
-	_, err := s.q.ExecContext(ctx, `DELETE FROM security_events WHERE at < ?`, t)
-	return mapErr(err)
+func (s securityEvents) DeleteBefore(ctx context.Context, t time.Time, limit int) (int, error) {
+	res, err := s.q.ExecContext(ctx,
+		`DELETE FROM security_events WHERE rowid IN (SELECT rowid FROM security_events WHERE at < ? LIMIT ?)`, t, limit)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }
 
 func (s securityEvents) Find(ctx context.Context, f SecurityFilter) ([]SecurityEvent, error) {

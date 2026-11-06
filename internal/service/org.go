@@ -308,9 +308,13 @@ func (o *Orchestrator) RegisterInvited(
 	ctx context.Context,
 	token, email, password, name string,
 ) (*auth.Session, error) {
+	hash, err := user.HashPassword(password)
+	if err != nil {
+		return nil, err
+	}
 	var id string
-	err := o.store.Tx(ctx, func(tx store.Tx) error {
-		u, err := user.New(tx.Users, tx.Sessions, tx.APIKeys).Register(ctx, email, password, name)
+	err = o.store.Tx(ctx, func(tx store.Tx) error {
+		u, err := user.New(tx.Users, tx.Sessions, tx.APIKeys).Register(ctx, email, hash, name)
 		if err != nil {
 			return err
 		}

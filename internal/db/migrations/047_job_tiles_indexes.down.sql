@@ -1,0 +1,13 @@
+DROP INDEX idempotency_keys_created;
+DROP INDEX registry_tokens_expires;
+DROP INDEX release_tiles_image;
+DROP INDEX backup_runs_kind;
+DROP INDEX backup_runs_dest;
+DROP INDEX backup_runs_volume;
+DROP INDEX runs_status;
+DROP INDEX idx_jobs_finished;
+DROP INDEX idx_jobs_state_created;
+CREATE INDEX idx_jobs_state ON jobs (state);
+DROP TRIGGER jobs_tiles_update;
+DROP TRIGGER jobs_tiles_insert;
+DROP TABLE job_tiles;

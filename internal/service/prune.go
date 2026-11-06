@@ -19,9 +19,10 @@ import (
 // How long finished work is kept.
 // ponytail: constants, not settings; make them knobs if 30 and 90 days are wrong for someone.
 const (
-	jobKeep       = 30 * 24 * time.Hour // job rows, their logs, dead join tokens
-	securityKeep  = 90 * 24 * time.Hour // security_events
-	jobPruneBatch = 5000                // rows whose log files one pass removes by name
+	jobKeep            = 30 * 24 * time.Hour // job rows, their logs, dead join tokens
+	securityKeep       = 90 * 24 * time.Hour // security_events
+	securityPruneBatch = 1000                // security_events rows per delete statement
+	jobPruneBatch      = 5000                // rows whose log files one pass removes by name
 )
 
 // pruneOld is the daily sweep of what only ever grows: finished jobs and
@@ -56,22 +57,35 @@ func (o *Orchestrator) pruneOld(ctx context.Context) {
 			}
 		}
 	}
-	// security_events refuses deletes unless this row exists; the row is set
-	// and cleared in the same transaction as the delete.
-	err := o.store.Tx(ctx, func(tx store.Tx) error {
-		if err := tx.Settings.Set(ctx, store.SecurityEventsPruning, "1"); err != nil {
-			return err
-		}
-		if err := tx.SecurityEvents.DeleteBefore(ctx, now.Add(-securityKeep)); err != nil {
-			return err
-		}
-		return tx.Settings.Delete(ctx, store.SecurityEventsPruning)
-	})
-	if err != nil {
-		slog.Warn("prune: security events not pruned", "err", err)
-	}
+	o.pruneSecurityEvents(ctx, now.Add(-securityKeep))
 	if err := o.store.JoinTokens.DeleteDeadBefore(ctx, cut); err != nil {
 		slog.Warn("prune: join tokens not pruned", "err", err)
+	}
+}
+
+// pruneSecurityEvents deletes events older than cut in batches. security_events
+// refuses deletes unless the settings row exists, so each batch sets and clears
+// it in its own short transaction: the append-only guard is never left lifted,
+// and the single connection is free between batches.
+func (o *Orchestrator) pruneSecurityEvents(ctx context.Context, cut time.Time) {
+	for {
+		n := 0
+		err := o.store.Tx(ctx, func(tx store.Tx) (err error) {
+			if err = tx.Settings.Set(ctx, store.SecurityEventsPruning, "1"); err != nil {
+				return err
+			}
+			if n, err = tx.SecurityEvents.DeleteBefore(ctx, cut, securityPruneBatch); err != nil {
+				return err
+			}
+			return tx.Settings.Delete(ctx, store.SecurityEventsPruning)
+		})
+		if err != nil {
+			slog.Warn("prune: security events not pruned", "err", err)
+			return
+		}
+		if n < securityPruneBatch || ctx.Err() != nil {
+			return
+		}
 	}
 }
 

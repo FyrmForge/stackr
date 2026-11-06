@@ -35,7 +35,7 @@ func TestRecoveryKeyBootRevealConfirm(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", "correct horse battery", "Adm")
+	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", pwHash(t, "correct horse battery"), "Adm")
 	must(t, err)
 
 	pub, gen, err := installspec.LoadRecovery(w.orch.cfg.DataDir)
@@ -81,7 +81,7 @@ func TestRotateRecoveryKey(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", "correct horse battery", "Adm")
+	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", pwHash(t, "correct horse battery"), "Adm")
 	must(t, err)
 	oldKey, err := w.orch.RevealRecoveryKey(ctx, admin.ID, "correct horse battery")
 	must(t, err)
