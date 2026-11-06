@@ -282,7 +282,7 @@ templ editRow(form string, r SettingRowView) {
 			case r.Type == "bool":
 				<select id={ form + "-" + r.Key } name={ r.Key } class="input" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					if !r.NoInherit {
-						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>Inherit ({ onOff(r.Effective) })</option>
+						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>{ inheritChoice(r) }</option>
 					}
 					<option value="true" selected?={ Kept(ctx, r.Key, r.Value) == "true" }>On</option>
 					<option value="false" selected?={ Kept(ctx, r.Key, r.Value) == "false" }>Off</option>
@@ -344,4 +344,13 @@ func knobStep(t string) string {
 		return "any"
 	}
 	return "1"
+}
+
+// inheritChoice is the bool's empty option: "Default" when only the
+// built-in default sits above this rung, else "Inherit".
+func inheritChoice(r SettingRowView) string {
+	if r.DecidedBy == "" || r.DecidedBy == "default" {
+		return "Default (" + onOff(r.Effective) + ")"
+	}
+	return "Inherit (" + onOff(r.Effective) + ")"
 }

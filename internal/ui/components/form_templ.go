@@ -818,9 +818,9 @@ func section(title, scope, help string, note templ.Component) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var37 string
-				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(scope)
+				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(scopeLabel(scope))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/form.templ`, Line: 160, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/form.templ`, Line: 160, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 				if templ_7745c5c3_Err != nil {
@@ -1266,6 +1266,15 @@ func Inherited(value, from string) templ.Component {
 		}
 		return nil
 	})
+}
+
+// scopeLabel is a settings card's scope chip: the server's own cards are
+// tagged "instance" in code, shown as "server" ("instance" is a managed DB's).
+func scopeLabel(scope string) string {
+	if scope == "instance" {
+		return "server"
+	}
+	return scope
 }
 
 var _ = templruntime.GeneratedTemplate

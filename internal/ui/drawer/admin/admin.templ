@@ -250,7 +250,7 @@ templ Update(v UpdateView) {
 			</div>
 		}
 		if v.Workers != nil {
-			@c.Section("Workers", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
+			@c.Section("Worker nodes", "instance", "Each worker upgrades one at a time and rolls back if it fails.") {
 				if v.Workers.Stopped != "" {
 					<p class="mb-3 text-sm text-rw-danger" role="status">{ v.Workers.Stopped }</p>
 				}

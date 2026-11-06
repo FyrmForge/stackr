@@ -825,20 +825,20 @@ func editRow(form string, r SettingRowView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, ">Inherit (")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, ">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var23 string
-				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(onOff(r.Effective))
+				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(inheritChoice(r))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/settings_form.templ`, Line: 285, Col: 98}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/settings_form.templ`, Line: 285, Col: 87}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, ")</option> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</option> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1134,6 +1134,15 @@ func knobStep(t string) string {
 		return "any"
 	}
 	return "1"
+}
+
+// inheritChoice is the bool's empty option: "Default" when only the
+// built-in default sits above this rung, else "Inherit".
+func inheritChoice(r SettingRowView) string {
+	if r.DecidedBy == "" || r.DecidedBy == "default" {
+		return "Default (" + onOff(r.Effective) + ")"
+	}
+	return "Inherit (" + onOff(r.Effective) + ")"
 }
 
 var _ = templruntime.GeneratedTemplate

@@ -422,7 +422,7 @@ func TestAdminUpdateWorkers(t *testing.T) {
 	root := s.Session(t, s.User(t, "root@x.test", true))
 	s.Worker(t, "h4", "fp")
 	rec := s.As(t, root, "GET", "/-/admin/update", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Workers") || !strings.Contains(rec.Body.String(), "h4") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Worker nodes") || !strings.Contains(rec.Body.String(), "h4") {
 		t.Fatalf("update tab = %d\n%s", rec.Code, rec.Body)
 	}
 	rec = s.As(t, root, "POST", "/-/admin/update/workers", nil)

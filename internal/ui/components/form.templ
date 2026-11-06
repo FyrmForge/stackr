@@ -157,7 +157,7 @@ templ section(title, scope, help string, note templ.Component) {
 			<div class="flex items-baseline gap-3 mb-1">
 				<h2 class="text-base font-semibold text-rw-text tracking-tight">{ title }</h2>
 				if scope != "" {
-					<span class="settings-scope">{ scope }</span>
+					<span class="settings-scope">{ scopeLabel(scope) }</span>
 				}
 			</div>
 		}
@@ -237,4 +237,13 @@ templ FieldMarks(changed bool, from string) {
 // it comes from.
 templ Inherited(value, from string) {
 	<span class="settings-help">inherits { value } from { from }</span>
+}
+
+// scopeLabel is a settings card's scope chip: the server's own cards are
+// tagged "instance" in code, shown as "server" ("instance" is a managed DB's).
+func scopeLabel(scope string) string {
+	if scope == "instance" {
+		return "server"
+	}
+	return scope
 }

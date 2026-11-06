@@ -77,8 +77,8 @@ func TestAdminSections(t *testing.T) {
 	if b := s.As(t, root, "GET", "/-/admin/cleanup", nil).Body.String(); strings.Contains(b, `placeholder="inherit"`) || strings.Contains(b, "Inherit (") {
 		t.Error("a flat knob offers to inherit")
 	}
-	if b := s.As(t, root, "GET", "/-/admin/org-defaults", nil).Body.String(); !strings.Contains(b, "Inherit (") {
-		t.Error("an org default lost its Inherit choice")
+	if b := s.As(t, root, "GET", "/-/admin/org-defaults", nil).Body.String(); !strings.Contains(b, "Default (off)") {
+		t.Error("an org default lost its Default choice")
 	}
 
 	// a plain load is the page, with the side menu and its group headings
