@@ -329,6 +329,10 @@ type Orchestrator struct {
 	// pull waits on it after an upgrade (systemimages.go).
 	stackrPublished chan struct{}
 	stackrOnce      sync.Once
+	// systemPublished closes once the boot publish is over, every system
+	// image tried (or given up): a deploy's pause pull waits on it.
+	systemPublished chan struct{}
+	systemOnce      sync.Once
 	metrics         metricsState
 	observe         observeState                          // stackr-observe, metrics history (observe.go)
 	logship         logShip                               // container, access and run logs to the log store (logship.go)
@@ -609,21 +613,22 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.deploy = build("flow/deploy", func() *deploy.Flow {
 		return &deploy.Flow{
-			Preflight: orch.preflight,
-			Remote:    func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
-			LinkHost:  orch.linkHost,
-			Tiles:     orch.tiles,
-			Envs:      orch.envs,
-			Stacks:    orch.stacks,
-			Orgs:      orch.orgs,
-			Volumes:   orch.volumes,
-			Images:    orch.images,
-			Releases:  orch.releases,
-			Params:    orch.params,
-			Tiers:     orch.tiers,
-			Managed:   orch.managed,
-			Domains:   orch.domains,
-			Import:    orch.importForDeploy,
+			Preflight:   orch.preflight,
+			Remote:      func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
+			LinkHost:    orch.linkHost,
+			Tiles:       orch.tiles,
+			Envs:        orch.envs,
+			Stacks:      orch.stacks,
+			Orgs:        orch.orgs,
+			Volumes:     orch.volumes,
+			Images:      orch.images,
+			SystemReady: orch.waitSystemPublished,
+			Releases:    orch.releases,
+			Params:      orch.params,
+			Tiers:       orch.tiers,
+			Managed:     orch.managed,
+			Domains:     orch.domains,
+			Import:      orch.importForDeploy,
 			Build: func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) (string, error) {
 				st, err := orch.stacks.Get(ctx, t.StackID)
 				if err != nil {
@@ -850,6 +855,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	if err := orch.sweepRepos(ctx); err != nil {
 		slog.Warn("repos: boot sweep skipped", "err", err)
+	}
+	if orch.localWorker != nil { // only a real host runs the boot publish (below)
+		orch.systemPublished = make(chan struct{})
 	}
 	orch.bootUpgradeHold(ctx) // before the queue starts: it holds while a helper runs
 	if err := orch.jobs.Start(ctx); err != nil {

@@ -48,6 +48,9 @@ import (
 
 // Flow holds the leaves it sequences; it has no Docker handle of its own.
 type Flow struct {
+	// SystemReady waits until the boot copy of the system images (the pause
+	// image) is over. nil means no wait.
+	SystemReady func(ctx context.Context)
 	// Remote reports an env running on a worker: its tiles are reached by
 	// VIP over the tunnel, never by joining the controller's ingress
 	// network. nil means every env runs on the controller.
@@ -321,6 +324,9 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	}
 	if err := f.awaitDeps(ctx, t, log); err != nil {
 		return "", err
+	}
+	if f.SystemReady != nil {
+		f.SystemReady(ctx)
 	}
 	if _, err := f.Images.Ensure(ctx, tile.PauseImage, "", log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)

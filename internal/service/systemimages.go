@@ -185,6 +185,25 @@ func (o *Orchestrator) markStackrPublished() {
 	}
 }
 
+// systemWait caps how long a deploy waits on the boot publish: a box whose
+// publish never runs (a worker-less test harness) still deploys, and a
+// pull then says what is missing.
+var systemWait = 2 * time.Minute
+
+// waitSystemPublished holds a deploy's pull of a system image (the pause
+// image) until the boot publish copied them in: a deploy right after a
+// fresh install or an upgrade would otherwise find the registry empty.
+func (o *Orchestrator) waitSystemPublished(ctx context.Context) {
+	if o.systemPublished == nil {
+		return
+	}
+	select {
+	case <-o.systemPublished:
+	case <-ctx.Done():
+	case <-time.After(systemWait):
+	}
+}
+
 // stackrIsPublished: the boot publish is over (or given up).
 func (o *Orchestrator) stackrIsPublished() bool {
 	if o.stackrPublished == nil {
@@ -218,6 +237,11 @@ func (o *Orchestrator) waitStackrPublished(ctx context.Context) error {
 // the proxy to bring any that failed to pull it.
 func (o *Orchestrator) publishSystemImages(ctx context.Context) {
 	defer o.markStackrPublished() // given up: a pull says what is missing
+	defer func() {
+		if o.systemPublished != nil {
+			o.systemOnce.Do(func() { close(o.systemPublished) })
+		}
+	}()
 	// The workers roll once the image they pull is in, and once only: a
 	// retry of the other copies publishes the stackr image again.
 	var rolled sync.Once
