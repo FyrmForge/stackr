@@ -187,6 +187,10 @@ type Input struct {
 	InstallID string `json:"install_id,omitempty"`
 	// WGPort is the controller's mesh UDP port; 0 is mesh.DefaultPort.
 	WGPort int `json:"wg_port,omitempty"`
+	// DockerRoot is the daemon's data root, read off the box. The panel gets
+	// it read-only at the same path so it can statfs Docker's disk. Empty
+	// (an older install) mounts nothing.
+	DockerRoot string `json:"docker_root,omitempty"`
 }
 
 // AdminDir is the host directory holding the proxy's admin socket.
@@ -284,19 +288,25 @@ func Panel(image string, in Input) Container {
 	if in.WGPort != 0 {
 		env = append(env, "STACKR_MESH_WG_PORT="+strconv.Itoa(in.WGPort))
 	}
+	vols := []string{
+		"/var/run/docker.sock:/var/run/docker.sock",
+		in.DataDir + ":" + in.DataDir,
+		// Read-only host views for container and host metrics: the
+		// panel's own cgroup namespace and pid namespace hide them.
+		"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
+		"/proc:" + HostRoot + "/proc:ro",
+	}
+	// Docker's data root, so the disk checks read its disk; skipped when the
+	// data dir mount already covers it.
+	if r := in.DockerRoot; r != "" && r != "/" && r != in.DataDir && !strings.HasPrefix(r, in.DataDir+"/") {
+		vols = append(vols, r+":"+r+":ro")
+	}
 	return Container{
-		Name:   PanelName,
-		Image:  image,
-		Env:    env,
-		Labels: map[string]string{LabelRole: "panel"},
-		Volumes: []string{
-			"/var/run/docker.sock:/var/run/docker.sock",
-			in.DataDir + ":" + in.DataDir,
-			// Read-only host views for container and host metrics: the
-			// panel's own cgroup namespace and pid namespace hide them.
-			"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
-			"/proc:" + HostRoot + "/proc:ro",
-		},
+		Name:        PanelName,
+		Image:       image,
+		Env:         env,
+		Labels:      map[string]string{LabelRole: "panel"},
+		Volumes:     vols,
 		HostNetwork: true,
 		CapAdd:      []string{"NET_ADMIN"},
 		LogOpts:     logCap,

@@ -198,6 +198,7 @@ Flags:
 	}
 	in.Bind = r.bridgeGateway(ctx)
 	in.BridgeSubnet = r.bridgeSubnet(ctx)
+	in.DockerRoot = r.dockerRoot(ctx)
 
 	// A re-run with other answers would leave the running containers
 	// disagreeing with the saved ones the upgrade rebuilds from. Bind and
@@ -697,6 +698,16 @@ func (r runner) bridgeSubnet(ctx context.Context) string {
 	return sn
 }
 
+// dockerRoot is the daemon's data root; empty when it cannot be read, which
+// mounts nothing.
+func (r runner) dockerRoot(ctx context.Context) string {
+	root, err := read(ctx, "docker", "info", "--format", "{{.DockerRootDir}}")
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
 func read(ctx context.Context, name string, args ...string) (string, error) {
 	b, err := exec.CommandContext(ctx, name, args...).Output()
 	return strings.TrimSpace(string(b)), err
@@ -799,6 +810,6 @@ func newInstallID() string {
 
 // withBox is old with the fields read off the box taken from now.
 func withBox(old, now installspec.Input) installspec.Input {
-	old.Bind, old.BridgeSubnet = now.Bind, now.BridgeSubnet
+	old.Bind, old.BridgeSubnet, old.DockerRoot = now.Bind, now.BridgeSubnet, now.DockerRoot
 	return old
 }
