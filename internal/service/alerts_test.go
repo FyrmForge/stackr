@@ -109,7 +109,7 @@ func TestAlertTestSendIsSigned(t *testing.T) {
 		t.Errorf("at = %q", x.a.At)
 	}
 	raw, _, _ := o.store.Settings.Get(ctx, alertSecretKey)
-	if !strings.HasPrefix(raw, "enc1:") {
+	if !strings.HasPrefix(raw, "enc2:") {
 		t.Errorf("secret stored as %q", raw)
 	}
 	s, err := o.AlertSettings(ctx)

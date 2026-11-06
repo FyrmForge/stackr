@@ -43,7 +43,7 @@ func TestOrgSettingsSealedAtRest(t *testing.T) {
 	if err := st.DB().QueryRowContext(ctx, `SELECT settings FROM orgs WHERE id = 'o1'`).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(raw, "hunter2") || !strings.HasPrefix(raw, "enc1:") {
+	if strings.Contains(raw, "hunter2") || !strings.HasPrefix(raw, "enc2:") {
 		t.Fatalf("stored = %q", raw)
 	}
 	got, err := st.Orgs.Get(ctx, "o1")

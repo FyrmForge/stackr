@@ -113,6 +113,9 @@ var envUpdate = strings.NewReplacer(", node_id = :node_id", "", ", subnet = :sub
 // Update writes every column of e except node_id, subnet and placement_id,
 // matched by id.
 func (s environments) Update(ctx context.Context, e Environment) error {
+	if err := s.seal(&e); err != nil {
+		return err
+	}
 	res, err := s.q.NamedExecContext(ctx, envUpdate, e)
 	return affected(res, err)
 }

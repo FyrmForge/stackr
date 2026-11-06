@@ -722,7 +722,7 @@ func TestEncryptedAtRest(t *testing.T) {
 	if err := s.DB().Get(&raw, `SELECT password FROM credentials WHERE id = 'c1'`); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(raw, "enc1:") || strings.Contains(raw, "hunter2") {
+	if !strings.HasPrefix(raw, "enc2:") || strings.Contains(raw, "hunter2") {
 		t.Errorf("stored password = %q, want ciphertext", raw)
 	}
 }

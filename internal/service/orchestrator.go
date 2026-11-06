@@ -439,6 +439,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	d := o.docker
 
 	st := build("store", func() *store.Store { return store.New(db, box) })
+	if err := st.Sweep(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("sealing values to their place: %w", err)
+	}
 	if err := ensureCanary(ctx, st); err != nil {
 		_ = db.Close()
 		return nil, err

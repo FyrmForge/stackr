@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"slices"
 
@@ -160,7 +161,11 @@ func withStore(ctx context.Context, cfg Config, do func(*store.Store) error) err
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	return do(store.New(db, box))
+	st := store.New(db, box)
+	if err := st.Sweep(ctx); err != nil {
+		return fmt.Errorf("sealing values to their place: %w", err)
+	}
+	return do(st)
 }
 
 // Login checks the credentials and opens a session. Either way one security

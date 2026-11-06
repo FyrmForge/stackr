@@ -34,11 +34,11 @@ func (s settings) GetSealed(ctx context.Context, key string) (string, error) {
 	if err != nil || !ok || v == "" {
 		return "", err
 	}
-	return s.box.Decrypt(v)
+	return s.box.Decrypt(v, settingLabel(key))
 }
 
 func (s settings) SetSealed(ctx context.Context, key, value string) error {
-	v, err := s.box.Encrypt(value)
+	v, err := s.box.Encrypt(value, settingLabel(key))
 	if err != nil {
 		return err
 	}
@@ -86,6 +86,30 @@ func (s settings) ListPrefix(ctx context.Context, prefix string) (map[string]str
 	return m, nil
 }
 
+// settingLabel binds a sealed setting to its key.
+func settingLabel(key string) string { return "settings/" + key }
+
+// sweepSettings moves every enc1 setting to enc2.
+func sweepSettings(ctx context.Context, q querier, box *secrets.Box) error {
+	all, err := settings{q, box}.All(ctx)
+	if err != nil {
+		return err
+	}
+	for k, v := range all {
+		if !secrets.Legacy(v) {
+			continue
+		}
+		pt, err := box.DecryptLegacy(v)
+		if err != nil {
+			return fmt.Errorf("setting %s: %w", k, err)
+		}
+		if err := (settings{q, box}).SetSealed(ctx, k, pt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // resealSettings re-encrypts every sealed setting, the canary included.
 func resealSettings(ctx context.Context, q querier, old, next *secrets.Box) error {
 	all, err := settings{q, old}.All(ctx)
@@ -96,7 +120,7 @@ func resealSettings(ctx context.Context, q querier, old, next *secrets.Box) erro
 		if !secrets.Sealed(v) {
 			continue
 		}
-		pt, err := old.Decrypt(v)
+		pt, err := old.Decrypt(v, settingLabel(k))
 		if err != nil {
 			return fmt.Errorf("setting %s: %w", k, err)
 		}

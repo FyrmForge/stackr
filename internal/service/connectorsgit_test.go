@@ -48,8 +48,8 @@ func TestGitHubRowsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seal := func(s string) string {
-		v, err := box.Encrypt(s)
+	seal := func(id, s string) string {
+		v, err := box.Encrypt(s, "connectors/"+id+"/0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,8 +60,8 @@ func TestGitHubRowsMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	pemKey := strings.ReplaceAll(string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), "\n", `\n`)
-	app := func(id, slug, secret string) string {
-		return seal(`{"app":{"id":` + id + `,"slug":"` + slug + `","pem":"` + pemKey + `","webhook_secret":"` + secret + `"}}`)
+	app := func(row, id, slug, secret string) string {
+		return seal(row, `{"app":{"id":`+id+`,"slug":"`+slug+`","pem":"`+pemKey+`","webhook_secret":"`+secret+`"}}`)
 	}
 	old := time.Now().Add(-2 * time.Hour)
 	for _, s := range []struct {
@@ -72,15 +72,15 @@ func TestGitHubRowsMigration(t *testing.T) {
 			config_connector_id,config_repo,config_branch,config_path)
 			VALUES ('o1','Acme','acme','','','{}','',?,'','','',''), ('o2','Globex','globex','','','{}','',?,'','','','')`, []any{old, old}},
 		{`INSERT INTO connectors (id,org_id,kind,name,host,settings,created_at,share_all,capabilities)
-			VALUES ('srv',NULL,'github','GitHub · stackr-rig','github.com',?,?,1,'["git"]')`, []any{app("11", "stackr-rig", "srv-hook"), old}},
+			VALUES ('srv',NULL,'github','GitHub · stackr-rig','github.com',?,?,1,'["git"]')`, []any{app("srv", "11", "stackr-rig", "srv-hook"), old}},
 		{`INSERT INTO connectors (id,org_id,kind,name,host,settings,created_at,share_all,capabilities)
-			VALUES ('one',NULL,'github','gh-one','github.com',?,?,0,'["git"]')`, []any{app("12", "stackr-one", "one-hook"), old}},
+			VALUES ('one',NULL,'github','gh-one','github.com',?,?,0,'["git"]')`, []any{app("one", "12", "stackr-one", "one-hook"), old}},
 		{`INSERT INTO connector_shares VALUES ('one','o2')`, nil},
 		{`INSERT INTO connectors (id,org_id,kind,name,host,settings,created_at,share_all,capabilities)
-			VALUES ('org','o1','github','GitHub · stackr-acme','github.com',?,?,0,'["git"]')`, []any{app("13", "stackr-acme", "org-hook"), old}},
+			VALUES ('org','o1','github','GitHub · stackr-acme','github.com',?,?,0,'["git"]')`, []any{app("org", "13", "stackr-acme", "org-hook"), old}},
 		{`INSERT INTO connectors (id,org_id,kind,name,host,settings,created_at,share_all,capabilities)
 			VALUES ('half',NULL,'github','GitHub (connecting… half0000)','github.com',?,?,1,'["git"]')`,
-			[]any{seal(`{"state":"n0nce","user":"u1"}`), time.Now()}},
+			[]any{seal("half", `{"state":"n0nce","user":"u1"}`), time.Now()}},
 	} {
 		if _, err := db.Exec(s.q, s.args...); err != nil {
 			t.Fatalf("%s: %v", s.q, err)

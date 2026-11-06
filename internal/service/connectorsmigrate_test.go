@@ -46,8 +46,8 @@ func TestConnectorsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seal := func(s string) string {
-		v, err := box.Encrypt(s)
+	seal := func(id, s string) string {
+		v, err := box.Encrypt(s, "connectors/"+id+"/0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,14 +64,14 @@ func TestConnectorsMigration(t *testing.T) {
 			VALUES ('o1','Acme','acme','','','{}','',?,'','','','')`, []any{now}},
 		{`INSERT INTO connectors (id,org_id,provider,name,host,config,created_at,share_all)
 			VALUES ('g1',NULL,'github','gh-srv','github.com',?,?,0)`,
-			[]any{seal(`{"app":{"id":2,"slug":"stackr-srv","webhook_secret":"srv-hook"}}`), now}},
+			[]any{seal("g1", `{"app":{"id":2,"slug":"stackr-srv","webhook_secret":"srv-hook"}}`), now}},
 		{`INSERT INTO connector_shares VALUES ('g1','o1')`, nil},
 		{`INSERT INTO connectors (id,org_id,provider,name,host,config,created_at)
 			VALUES ('g2','o1','github','gh','github.com',?,?)`,
-			[]any{seal(`{"app":{"id":1,"slug":"stackr-acme","webhook_secret":"org-hook"}}`), now}},
+			[]any{seal("g2", `{"app":{"id":1,"slug":"stackr-acme","webhook_secret":"org-hook"}}`), now}},
 		{`INSERT INTO connectors (id,org_id,provider,name,host,config,created_at,capabilities)
 			VALUES ('n1','o1','namecheap','Namecheap · jo','api.namecheap.com',?,?,'["dns"]')`,
-			[]any{seal(`{"dns":{"user":"jo","key":"` + ncKey + `","client_ip":"203.0.113.7"}}`), now}},
+			[]any{seal("n1", `{"dns":{"user":"jo","key":"`+ncKey+`","client_ip":"203.0.113.7"}}`), now}},
 		{`INSERT INTO dns_domains (id,connector_id,org_id,name,share_all,org_ids,created_at)
 			VALUES ('d1','n1','o1','acme.dev',0,'[]',?)`, []any{now}},
 		{`INSERT INTO dns_records (id,dns_domain_id,zone,name,type,value,ttl,created_at)

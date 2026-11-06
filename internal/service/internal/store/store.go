@@ -197,12 +197,23 @@ type table[T any] struct {
 	name, cols, insert, update string
 	// secret returns pointers to T's encrypted fields.
 	secret func(*T) []*string
+	// idx is the index of T's id field, which labels its sealed values.
+	idx int
+}
+
+// label binds a sealed column to its table, row and place in secret().
+func (t table[T]) label(row *T, j int) string {
+	return fmt.Sprintf("%s/%s/%d", t.name, reflect.ValueOf(row).Elem().Field(t.idx).String(), j)
 }
 
 // plainOK lists the tables whose encrypted columns were plaintext before they
 // were sealed: an unsealed value there is read as it is and sealed by the
 // next write.
 var plainOK = map[string]bool{"orgs": true, "stacks": true, "environments": true, "backup_destinations": true}
+
+// sweepers moves one table's enc1 values to enc2, added by newTable like
+// resealers.
+var sweepers []func(ctx context.Context, q querier, box *secrets.Box) error
 
 // resealers has one entry per table with encrypted columns, added by newTable,
 // so a table cannot be left out of a key rotation.
@@ -211,10 +222,14 @@ var resealers []func(ctx context.Context, q querier, old, next *secrets.Box) err
 func newTable[T any](name string, secret func(*T) []*string) table[T] {
 	var cols, named, sets []string
 	rt := reflect.TypeFor[T]()
+	idx := -1
 	for i := range rt.NumField() {
 		c := rt.Field(i).Tag.Get("db")
 		if c == "" || c == "-" {
 			continue
+		}
+		if c == "id" {
+			idx = i
 		}
 		cols = append(cols, c)
 		named = append(named, ":"+c)
@@ -233,9 +248,14 @@ func newTable[T any](name string, secret func(*T) []*string) table[T] {
 		),
 		update: fmt.Sprintf("UPDATE %s SET %s WHERE id = :id", name, strings.Join(sets, ", ")),
 		secret: secret,
+		idx:    idx,
 	}
 	if secret != nil {
+		if idx < 0 || rt.Field(idx).Type.Kind() != reflect.String {
+			panic("store: table " + name + " has secrets but no string id")
+		}
 		resealers = append(resealers, t.reseal)
+		sweepers = append(sweepers, t.sweep)
 	}
 	return t
 }
@@ -247,20 +267,21 @@ func (t table[T]) reseal(ctx context.Context, q querier, old, next *secrets.Box)
 		return mapErr(err)
 	}
 	for i := range rows {
-		for _, p := range t.secret(&rows[i]) {
+		for j, p := range t.secret(&rows[i]) {
+			label := t.label(&rows[i], j)
 			if plainOK[t.name] && !secrets.Sealed(*p) {
-				enc, err := next.Encrypt(*p)
+				enc, err := next.Encrypt(*p, label)
 				if err != nil {
 					return err
 				}
 				*p = enc
 				continue
 			}
-			v, err := old.Decrypt(*p)
+			v, err := old.Decrypt(*p, label)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t.name, err)
 			}
-			if *p, err = next.Encrypt(v); err != nil {
+			if *p, err = next.Encrypt(v, label); err != nil {
 				return err
 			}
 		}
@@ -269,6 +290,56 @@ func (t table[T]) reseal(ctx context.Context, q querier, old, next *secrets.Box)
 		}
 	}
 	return nil
+}
+
+// sweep rewrites the enc1 values of every row as enc2, leaving rows without
+// any untouched.
+func (t table[T]) sweep(ctx context.Context, q querier, box *secrets.Box) error {
+	var rows []T
+	if err := q.SelectContext(ctx, &rows, "SELECT "+t.cols+" FROM "+t.name); err != nil {
+		return mapErr(err)
+	}
+	for i := range rows {
+		changed := false
+		for j, p := range t.secret(&rows[i]) {
+			if !secrets.Legacy(*p) {
+				continue
+			}
+			v, err := box.DecryptLegacy(*p)
+			if err != nil {
+				return fmt.Errorf("%s: %w", t.name, err)
+			}
+			if *p, err = box.Encrypt(v, t.label(&rows[i], j)); err != nil {
+				return err
+			}
+			changed = true
+		}
+		if changed {
+			if _, err := q.NamedExecContext(ctx, t.update, rows[i]); err != nil {
+				return mapErr(err)
+			}
+		}
+	}
+	return nil
+}
+
+// Sweep moves every enc1 value (columns and settings) to enc2 in one
+// transaction. Run it once at open, before anything reads a secret.
+func (s *Store) Sweep(ctx context.Context) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, sw := range sweepers {
+		if err := sw(ctx, tx, s.box); err != nil {
+			return err
+		}
+	}
+	if err := sweepSettings(ctx, tx, s.box); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Reseal moves every encrypted column and sealed setting from old's key to
@@ -302,8 +373,8 @@ func (c crud[T]) seal(row *T) error {
 	if c.t.secret == nil {
 		return nil
 	}
-	for _, p := range c.t.secret(row) {
-		v, err := c.box.Encrypt(*p)
+	for j, p := range c.t.secret(row) {
+		v, err := c.box.Encrypt(*p, c.t.label(row, j))
 		if err != nil {
 			return err
 		}
@@ -316,11 +387,11 @@ func (c crud[T]) open(row *T) error {
 	if c.t.secret == nil {
 		return nil
 	}
-	for _, p := range c.t.secret(row) {
+	for j, p := range c.t.secret(row) {
 		if plainOK[c.t.name] && !secrets.Sealed(*p) {
 			continue
 		}
-		v, err := c.box.Decrypt(*p)
+		v, err := c.box.Decrypt(*p, c.t.label(row, j))
 		if err != nil {
 			return fmt.Errorf("%s: %w", c.t.name, err)
 		}

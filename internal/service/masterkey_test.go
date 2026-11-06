@@ -121,7 +121,7 @@ func TestLoadMasterKeyFailedTransactionKeepsOldKey(t *testing.T) {
 	k := newKeyBox(t)
 	k.writeNext(t)
 	_, err := k.st.DB().Exec(`INSERT INTO params (id, scope_kind, scope_id, collection, name, kind, value, created_at, updated_at)
-		VALUES ('bad', 'server', '', '', 'B', 'secret', 'enc1:garbage', ?, ?)`, time.Now(), time.Now())
+		VALUES ('bad', 'server', '', '', 'B', 'secret', 'enc2:garbage', ?, ?)`, time.Now(), time.Now())
 	must(t, err)
 
 	got, err := LoadMasterKey(context.Background(), k.dir, "", "")

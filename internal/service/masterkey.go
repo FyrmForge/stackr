@@ -70,6 +70,12 @@ func LoadMasterKey(ctx context.Context, dataDir, dbPath, envKey string) (string,
 	}
 	defer func() { _ = db.Close() }()
 	stCur, stNext := store.New(db, boxCur), store.New(db, boxNext)
+	// An enc1 database whose rotation committed sweeps under the next key.
+	if err := stCur.Sweep(ctx); err != nil {
+		if nerr := stNext.Sweep(ctx); nerr != nil {
+			return "", fmt.Errorf("sealing values to their place: %w", err)
+		}
+	}
 
 	if _, err := stCur.Settings.GetSealed(ctx, store.CanaryKey); err != nil {
 		// Not the current key's canary: committed under the next key, or a

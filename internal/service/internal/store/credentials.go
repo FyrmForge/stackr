@@ -108,7 +108,7 @@ func (s connectors) SetName(ctx context.Context, id, name string) error {
 }
 
 func (s connectors) SetApp(ctx context.Context, id, name, settings string) error {
-	row := Connector{Settings: settings}
+	row := Connector{ID: id, Settings: settings}
 	if err := s.seal(&row); err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func (s connectors) SetApp(ctx context.Context, id, name, settings string) error
 }
 
 func (s connectors) SetSettings(ctx context.Context, id, settings string) error {
-	row := Connector{Settings: settings}
+	row := Connector{ID: id, Settings: settings}
 	if err := s.seal(&row); err != nil {
 		return err
 	}
