@@ -14,6 +14,7 @@ import (
 // A restore mints the admin a new key that authenticates as that admin; an
 // install with no admin gets none.
 func TestMintAdminKey(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := Config{DataDir: t.TempDir(), SecretsKey: testKey}
 	if _, _, _, err := MintAdminKey(ctx, cfg); err == nil {
@@ -81,6 +82,7 @@ func TestMintAdminKey(t *testing.T) {
 // The restore's CLI starts on the admin's oldest org membership, else the
 // oldest org, else none.
 func TestMintAdminKeyOrg(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := Config{DataDir: t.TempDir(), SecretsKey: testKey}
 	admin, _, err := CreateAdmin(ctx, cfg, "admin@example.com", "correct horse battery", "Admin")

@@ -9,6 +9,7 @@ import (
 
 // The last check outlives a restart: the Update tab reads it back.
 func TestLastUpgradeCheckRemembered(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	gh := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {

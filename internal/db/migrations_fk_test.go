@@ -52,6 +52,7 @@ func referenced(t *testing.T, db *sqlx.DB, sql string) []string {
 }
 
 func TestGuardSeesReferencedDrop(t *testing.T) {
+	t.Parallel()
 	db, err := sqlite.ConnectContext(context.Background(), filepath.Join(t.TempDir(), "g.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +68,7 @@ func TestGuardSeesReferencedDrop(t *testing.T) {
 }
 
 func TestNoNewMigrationRebuildsAReferencedTable(t *testing.T) {
+	t.Parallel()
 	cfg := appdb.MigrateConfig()
 	files, err := fs.Glob(cfg.FS, cfg.Directory+"/*.up.sql")
 	if err != nil {

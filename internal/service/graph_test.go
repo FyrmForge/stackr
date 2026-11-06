@@ -232,6 +232,7 @@ func ids(v service.GraphView) string {
 }
 
 func TestCanvasHome(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	v, err := w.e.Orch.Canvas(
 		context.Background(),
@@ -257,6 +258,7 @@ func TestCanvasHome(t *testing.T) {
 }
 
 func TestCanvasOrg(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	v, err := w.e.Orch.Canvas(
 		context.Background(),
@@ -295,6 +297,7 @@ func TestCanvasOrg(t *testing.T) {
 }
 
 func TestCanvasStack(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	v, err := w.e.Orch.Canvas(
 		context.Background(),
@@ -324,6 +327,7 @@ func TestCanvasStack(t *testing.T) {
 }
 
 func TestCanvasEnv(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	ctx := context.Background()
 	s := service.CanvasScope{Kind: service.CanvasEnv, ID: w.dev}
@@ -406,6 +410,7 @@ func TestCanvasEnv(t *testing.T) {
 // A slice cut from another env's instance draws a ghost of it; one that
 // resolves nowhere draws no shared edge.
 func TestCanvasSliceGhost(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	ctx := context.Background()
 	if _, err := w.e.Orch.SetManagedAllow(ctx, w.pg, []string{"acme:shop:*"}); err != nil {
@@ -443,6 +448,7 @@ func TestCanvasSliceGhost(t *testing.T) {
 }
 
 func TestCanvasPositions(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	ctx := context.Background()
 	orch := w.e.Orch
@@ -499,6 +505,7 @@ func TestCanvasPositions(t *testing.T) {
 }
 
 func TestCanvasAnnotations(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	ctx := context.Background()
 	orch := w.e.Orch
@@ -542,6 +549,7 @@ func TestCanvasAnnotations(t *testing.T) {
 
 // A tile card carries its cron's next tick and image watch's newer digest.
 func TestCanvasEnvFooterFacts(t *testing.T) {
+	t.Parallel()
 	e := servicetest.New(t)
 	ctx := context.Background()
 	tl := e.Tile(t, e.Org(t, "acme"))
@@ -597,6 +605,7 @@ func TestCanvasEnvFooterFacts(t *testing.T) {
 // The first drop saves every card where the canvas drew it, although the
 // canvas read status (replica sub-tiles) and the drop builds without it.
 func TestCanvasFirstDropKeepsStatusLayout(t *testing.T) {
+	t.Parallel()
 	w := seedWorld(t)
 	ctx := context.Background()
 	orch := w.e.Orch

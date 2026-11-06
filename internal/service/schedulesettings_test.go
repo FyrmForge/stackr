@@ -9,6 +9,7 @@ import (
 // A schedule knob change reloads the cron table at once; a bad line is
 // refused and leaves the table alone.
 func TestSetSettingReloadsSchedule(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	has := func(name string) bool { return slices.Contains(w.orch.sched.Names(), name) }

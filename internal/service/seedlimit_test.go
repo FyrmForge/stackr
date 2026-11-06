@@ -8,6 +8,7 @@ import (
 )
 
 func TestSpoolCapsTheUpload(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	if _, err := w.orch.spool(strings.NewReader("12345"), 5); err != nil {
 		t.Fatalf("a dump at the limit = %v, want it taken", err)

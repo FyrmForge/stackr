@@ -36,6 +36,7 @@ func asUser(user, key string) context.Context {
 // for the admin, approved on request, and pending again when the endpoint
 // moves.
 func TestDestGrantPendingApproveRepend(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.users(t)
 	ctx := asUser("mem", "")
@@ -82,6 +83,7 @@ func TestDestGrantPendingApproveRepend(t *testing.T) {
 // A server admin's own save approves in their name; an admin's key bound to
 // an org does not.
 func TestDestGrantAdminSaveAutoApproves(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.users(t)
 	d, err := w.orch.CreateBackupDest(asUser("adm", ""), &w.org, lanSpec(lanEndpoint))
@@ -109,6 +111,7 @@ func TestDestGrantAdminSaveAutoApproves(t *testing.T) {
 // An approval is for dest endpoints only: a global destination or a
 // non-private one is refused.
 func TestApproveDestGrantRefusals(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.users(t)
 	pub, err := w.orch.CreateBackupDest(asUser("mem", ""), &w.org, lanSpec("https://8.8.8.8:9000"))
@@ -134,6 +137,7 @@ func (w *world) hostTile(t *testing.T) Tile {
 // A tile a server admin deploys is granted its host access in their name and
 // runs; a member's, or an admin's org-bound key's, parks for approval.
 func TestAdminDeployAutoApprovesHostAccess(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.users(t)
 	tl := w.hostTile(t)
@@ -164,6 +168,7 @@ func TestAdminDeployAutoApprovesHostAccess(t *testing.T) {
 
 // A revoke makes an approved destination pending again and is logged.
 func TestDestGrantRevoke(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.users(t)
 	ctx := asUser("mem", "")

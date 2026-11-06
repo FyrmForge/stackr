@@ -59,6 +59,7 @@ func has(rs []libdns.RR, name, typ, data string) bool {
 // records in the zone are never touched, and a sync with nothing to change
 // calls no provider.
 func TestRecordLifecycle(t *testing.T) {
+	t.Parallel()
 	env, _, _, tl := recordsRig(t)
 	ctx := context.Background()
 	foreign := []libdns.RR{a("@", "203.0.113.9"), a("www", "203.0.113.9"), a("*", "203.0.113.9")}
@@ -123,6 +124,7 @@ func TestRecordLifecycle(t *testing.T) {
 // A name with a record stackr did not make is refused, naming the host;
 // replace takes it over and tracks it, so removing the domain deletes it.
 func TestRecordReplace(t *testing.T) {
+	t.Parallel()
 	env, _, _, tl := recordsRig(t)
 	ctx := context.Background()
 	env.DNS.Put("acme.dev", a("shop", "203.0.113.9"), libdns.RR{Name: "shop", Type: "TXT", Data: "keep"})
@@ -159,6 +161,7 @@ func TestRecordReplace(t *testing.T) {
 // Org B can't put a tile under org A's own domain, nor under a server
 // domain not available to it: neither by the list nor by typing the host.
 func TestRecordOrgCannotUseOthersZone(t *testing.T) {
+	t.Parallel()
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
@@ -201,6 +204,7 @@ func TestRecordOrgCannotUseOthersZone(t *testing.T) {
 // domain, naming it; once unused only stackr's records go, then the
 // domain and the resource stackr made for it.
 func TestUnmanageRefusedWhileUsed(t *testing.T) {
+	t.Parallel()
 	env, _, _, tl := recordsRig(t)
 	ctx := context.Background()
 	env.DNS.Put("acme.dev", a("www", "203.0.113.9"))
@@ -245,6 +249,7 @@ func TestUnmanageRefusedWhileUsed(t *testing.T) {
 
 // A zone that is already a domain resource elsewhere is refused.
 func TestManageRefusesResourceElsewhere(t *testing.T) {
+	t.Parallel()
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.CreateDomainResource(ctx, "org", other, "shop.io", false, ""); err != nil {
@@ -268,6 +273,7 @@ func TestManageRefusesResourceElsewhere(t *testing.T) {
 // A host unticked in a move is held: a sync leaves its record where it is,
 // and repoints it again once released.
 func TestHeldHostIsNotRepointed(t *testing.T) {
+	t.Parallel()
 	env, _, _, tl := recordsRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
@@ -300,6 +306,7 @@ func TestHeldHostIsNotRepointed(t *testing.T) {
 // A node with a public IPv6 gets an AAAA record only while the IPv6
 // setting is on.
 func TestRecordAAAAFollowsIPv6Setting(t *testing.T) {
+	t.Parallel()
 	env, _, _, tl := recordsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "2001:db8::1")
@@ -325,6 +332,7 @@ func TestRecordAAAAFollowsIPv6Setting(t *testing.T) {
 // An org sees the sync's failure about the domains its own connectors
 // manage, never another org's; the server level sees it all.
 func TestSyncErrorPerOrg(t *testing.T) {
+	t.Parallel()
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")

@@ -83,6 +83,7 @@ func TestNewBuildsEachOnce(t *testing.T) {
 }
 
 func TestNewRefusesWithoutKey(t *testing.T) {
+	t.Parallel()
 	_, err := New(Config{DataDir: t.TempDir()}, WithDocker(dockerfake.New()))
 	if !errors.Is(err, secrets.ErrNoKey) {
 		t.Errorf("New without key: %v, want ErrNoKey", err)
@@ -92,6 +93,7 @@ func TestNewRefusesWithoutKey(t *testing.T) {
 // The installer's root domain becomes the instance domain resource on the
 // first boot; a later boot adds nothing, even with another root.
 func TestBootSeedsRootDomainOnce(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	boot := func(root string) []store.DomainResource {
 		t.Helper()

@@ -89,6 +89,7 @@ func (f *fakeRegistry) has(repo, tag string) bool {
 // rest with its rows while the gate is shut, runs the garbage collect and
 // opens the gate; the result is kept and in the security log.
 func TestRegistrySweep(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	const web, pg = "acme/shop/web", "acme/docker.io/library/postgres"
@@ -192,6 +193,7 @@ func TestRegistrySweep(t *testing.T) {
 
 // A garbage collect that fails still opens the gate and is reported.
 func TestRegistrySweepFailureOpensGate(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	srv := httptest.NewServer(&fakeRegistry{tags: map[string]map[string]string{}})
@@ -216,6 +218,7 @@ func TestRegistrySweepFailureOpensGate(t *testing.T) {
 // current release and the one it ran before, even when no promote job names
 // that one (a redeploy's or a re-pin's release), and deletes older ones.
 func TestRegistrySweepKeepsPreviousRelease(t *testing.T) {
+	t.Parallel()
 	const web = "acme/shop/web"
 	for _, c := range []struct {
 		name     string

@@ -92,6 +92,7 @@ func (o *Orchestrator) bufLen() int {
 // containers), lines land enriched, a gone container's follower ends, and
 // turning logs off ends the rest.
 func TestLogshipFollow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -156,6 +157,7 @@ func TestLogshipFollow(t *testing.T) {
 
 // A full buffer drops its oldest line and counts it.
 func TestLogshipBounded(t *testing.T) {
+	t.Parallel()
 	o := &Orchestrator{}
 	for i := range logBufMax + 3 {
 		o.logship.add(logs.Line{Msg: string(rune('a' + i%26)), Node: string(rune(i))})
@@ -171,6 +173,7 @@ func TestLogshipBounded(t *testing.T) {
 const caddyLine = `{"level":"info","ts":1729500000.1,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"127.0.0.1","remote_port":"39678","client_ip":"127.0.0.1","proto":"HTTP/1.1","method":"GET","host":"app.example.com","uri":"/x"},"bytes_read":0,"user_id":"","duration":0.035774924999999996,"size":2,"status":200,"user_agent":"tester/1"}`
 
 func TestParseAccess(t *testing.T) {
+	t.Parallel()
 	host, f, ok := parseAccess(caddyLine)
 	want := map[string]string{"http.method": "GET", "http.path": "/x", "http.status": "200",
 		"http.duration_ms": "35.8", "http.bytes": "2", "http.ua": "tester/1", "http.ip": "127.0.0.1"}
@@ -202,6 +205,7 @@ func TestParseAccess(t *testing.T) {
 // An access line lands on the tile its host maps to, with source=access; a
 // host that maps to none is dropped. A run's line carries its run id.
 func TestShipAccessAndRun(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -238,6 +242,7 @@ func TestShipAccessAndRun(t *testing.T) {
 // after a proxy sync, so its first requests are not dropped; without a sync
 // an unknown host reads nothing.
 func TestShipAccessNewDomain(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -260,6 +265,7 @@ func TestShipAccessNewDomain(t *testing.T) {
 // (Docker is the buffer across a panel outage); an empty or unreachable
 // store means from now.
 func TestLogshipResume(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for name, c := range map[string]struct {
 		newest time.Time

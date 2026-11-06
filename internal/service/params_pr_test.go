@@ -67,6 +67,7 @@ func names(rs []Redeploy) string {
 // or deleted pr secret reaches every open PR env and redeploys its readers,
 // a plain change does not.
 func TestPREnvParamsCopy(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	shared := ParamScope{Kind: "stack_pr", ID: w.stack}
@@ -109,6 +110,7 @@ func TestPREnvParamsCopy(t *testing.T) {
 // Item 12: a promote or sync write (changeParamsFrom with the rolled-out env
 // skipped) redeploys readers in other envs and leaves that env to its job.
 func TestPromoteParamWriteRedeploysOtherEnvs(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	prod := w.newEnv(t, "prod", "static")

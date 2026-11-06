@@ -14,6 +14,7 @@ import (
 // Shell opens in the running replica, not the first listed; a system
 // container is refused; no replica is a conflict.
 func TestShell(t *testing.T) {
+	t.Parallel()
 	env := servicetest.New(t)
 	tl := env.Tile(t, env.Org(t, "acme"))
 	ctx := context.Background()

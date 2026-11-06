@@ -19,6 +19,7 @@ import (
 // by its ref and a pulled one by its digest; deleting a used version is
 // refused naming the envs, and a forced or unused one goes with its row.
 func TestRegistryVersionsUseAndDelete(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	orch, err := New(
 		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},

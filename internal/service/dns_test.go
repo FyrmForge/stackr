@@ -29,6 +29,7 @@ func account() map[string]string {
 // Adding checks the account and lists its domains; the key is never in
 // what comes back, nor in any list.
 func TestAddDNSConnector(t *testing.T) {
+	t.Parallel()
 	env, acme, _ := dnsRig(t)
 	ctx := context.Background()
 	bad := account()
@@ -74,6 +75,7 @@ func TestAddDNSConnector(t *testing.T) {
 // routes, never reach it; an org never reaches a server one either. Git
 // verbs never touch a DNS connector.
 func TestDNSConnectorIsOrgs(t *testing.T) {
+	t.Parallel()
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	mine, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
@@ -128,6 +130,7 @@ func TestDNSConnectorIsOrgs(t *testing.T) {
 // A server connector's managed domain is available to every org by
 // default, or to the chosen ones only; unmanaged it is nobody's.
 func TestDNSDomainAvailableTo(t *testing.T) {
+	t.Parallel()
 	env, acme, other := dnsRig(t)
 	ctx := context.Background()
 	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
@@ -186,6 +189,7 @@ func TestDNSDomainAvailableTo(t *testing.T) {
 // A domain managed through another connector reads so on this one's list,
 // and nothing offers managing it here.
 func TestDomainManagedByAnotherConnector(t *testing.T) {
+	t.Parallel()
 	env, acme, _ := dnsRig(t)
 	ctx := context.Background()
 	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})

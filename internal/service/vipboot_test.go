@@ -29,6 +29,7 @@ import (
 // A panel restart gives a fresh vip.Table; without the boot rebuild the first
 // route redeclares STACKR-VIP and drops every other tile's jump.
 func TestRebuildVIPsKeepsOtherTiles(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	fake := dockerfake.New()
@@ -186,6 +187,7 @@ func (r bootRig) addTile(t *testing.T, slug, pauseIP, replicaIP string) {
 // A slow Docker spends the boot context; the rebuild has its own, so a boot
 // context that is already done must not fail it.
 func TestRebuildVIPsOwnContext(t *testing.T) {
+	t.Parallel()
 	r := newBootRig(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -198,6 +200,7 @@ func TestRebuildVIPsOwnContext(t *testing.T) {
 // A tile skipped for a transient read error must not lose its kernel rules:
 // the table keeps its previous entries, nothing is removed.
 func TestRebuildVIPsTransientErrorKeepsRules(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newBootRig(t)
 	must(t, r.orch.rebuildVIPs(ctx))
@@ -214,6 +217,7 @@ func TestRebuildVIPsTransientErrorKeepsRules(t *testing.T) {
 // One tile whose pause container has no address on its env network is skipped
 // with its previous rules kept; the other tiles are still rebuilt.
 func TestRebuildVIPsUnaddressedPauseSkipsOnlyThatTile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newBootRig(t)
 	must(t, r.orch.rebuildVIPs(ctx))
@@ -237,6 +241,7 @@ func TestRebuildVIPsUnaddressedPauseSkipsOnlyThatTile(t *testing.T) {
 
 // One tile with a non-IPv4 address must not empty the table for the rest.
 func TestRebuildVIPsBadAddressSkipsOnlyThatTile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newBootRig(t)
 	r.addTile(t, "v6", "fd00::2", "fd00::3")
@@ -253,6 +258,7 @@ func TestRebuildVIPsBadAddressSkipsOnlyThatTile(t *testing.T) {
 
 // A pause container whose tile row is gone is skipped; the others still apply.
 func TestRebuildVIPsPauseWithoutTileRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newBootRig(t)
 	r.fake.Containers = append(r.fake.Containers,
@@ -267,6 +273,7 @@ func TestRebuildVIPsPauseWithoutTileRow(t *testing.T) {
 // After a host reboot the boot rebuild may run before containers are up;
 // the minute tick re-routes from Docker once they are.
 func TestWatchTickRebuildsVIPs(t *testing.T) {
+	t.Parallel()
 	r := newBootRig(t)
 	must(t, r.orch.watchTick(context.Background()))
 	if len(*r.scripts) == 0 || !strings.Contains((*r.scripts)[len(*r.scripts)-1], "-d 10.0.0.4/32") {
@@ -277,6 +284,7 @@ func TestWatchTickRebuildsVIPs(t *testing.T) {
 // Docker dials a loopback resolver from the host, so only the others need a
 // firewall exception.
 func TestResolvers(t *testing.T) {
+	t.Parallel()
 	conf := "# x\nnameserver 127.0.0.53\nnameserver 192.168.1.1\nnameserver fe80::1\nsearch lan\nnameserver 1.1.1.1\n"
 	if got := worker.ParseResolvers(conf); len(got) != 2 || got[0] != "192.168.1.1" || got[1] != "1.1.1.1" {
 		t.Fatalf("got %v", got)
@@ -304,6 +312,7 @@ func lastScript(r bootRig) string { return (*r.scripts)[len(*r.scripts)-1] }
 // A granted lan line reaches the rules of that tile's replica only; an
 // ungranted one never does; revoke rebuilds without it at once.
 func TestLanGrantReachesRulesAndRevokeCutsIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := lanRig(t)
 	grant := hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}
@@ -328,6 +337,7 @@ func TestLanGrantReachesRulesAndRevokeCutsIt(t *testing.T) {
 
 // Approve applies the lan rules at once, without a redeploy.
 func TestApproveHostGrantRebuildsRules(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := lanRig(t)
 	must(t, r.orch.rebuildVIPs(ctx))
@@ -343,6 +353,7 @@ func TestApproveHostGrantRebuildsRules(t *testing.T) {
 
 // The minute tick applies the iptables script once: VIPs and filter base together.
 func TestWatchTickAppliesOnce(t *testing.T) {
+	t.Parallel()
 	r := newBootRig(t)
 	must(t, r.orch.watchTick(context.Background()))
 	if len(*r.scripts) != 1 {
@@ -353,6 +364,7 @@ func TestWatchTickAppliesOnce(t *testing.T) {
 // On a systemd-resolved host both files are read: the stub is loopback and
 // skipped, the real upstream sits in the second.
 func TestVipBaseReadsBothResolvConfs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a, b := dir+"/a", dir+"/b"
 	must(t, os.WriteFile(a, []byte("nameserver 127.0.0.53\nnameserver 192.168.1.1\n"), 0o600))
@@ -386,6 +398,7 @@ func TestVipBaseWorkerUsesItsOwnFacts(t *testing.T) {
 
 // The cloudflare keyword reaches the firewall as its IPv4 ranges only.
 func TestVipBaseExpandsCloudflare(t *testing.T) {
+	t.Parallel()
 	r := newBootRig(t)
 	must(t, r.orch.SetSetting(context.Background(), "trusted_proxies", "192.168.1.100,cloudflare"))
 	got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).Front
@@ -397,6 +410,7 @@ func TestVipBaseExpandsCloudflare(t *testing.T) {
 // A partial rebuild (one tile unreadable) still drops a deleted tile's VIP
 // and the VIP of a tile with no replicas, and keeps the unreadable tile's.
 func TestRebuildVIPsPartialDropsStale(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newBootRig(t)
 	r.addTile(t, "c", "10.0.0.6", "10.0.0.7")
@@ -420,6 +434,7 @@ func TestRebuildVIPsPartialDropsStale(t *testing.T) {
 
 // The tick and the async revoke rebuild one at a time.
 func TestRebuildVIPsSerialised(t *testing.T) {
+	t.Parallel()
 	r := newBootRig(t)
 	l := r.orch.vipLock(docker.WithNode(context.Background(), storetest.Controller(t, r.st).ID))
 	l.Lock()
@@ -456,6 +471,7 @@ func holdW1(t *testing.T, n *twoNodes) (entered chan struct{}, release func()) {
 
 // A node that hangs holds up only itself: the others rebuild at once.
 func TestRebuildVIPsSlowNodeDoesNotBlockOthers(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctlDone := make(chan struct{}, 8)
 	n.orch.vip.(*nodeVIPs).tables[n.ctl.ID].(*vip.Table).Restore = func(context.Context, string) error {
@@ -505,6 +521,7 @@ func TestRebuildVIPsSerialisedPerNode(t *testing.T) {
 // A starting replica gets its tile's granted lan rules before it is routed,
 // and loses them when it goes.
 func TestEarlyLanRules(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := lanRig(t)
 	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
@@ -524,6 +541,7 @@ func TestEarlyLanRules(t *testing.T) {
 
 // The panel lock uses the port the panel listens on.
 func TestVipBasePanelPort(t *testing.T) {
+	t.Parallel()
 	r := newBootRig(t)
 	r.orch.cfg.PanelPort = 9191
 	if got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).PanelPort; got != 9191 {
@@ -534,6 +552,7 @@ func TestVipBasePanelPort(t *testing.T) {
 // A run container loses its early rule on exit even though Docker has
 // cleared its address by then.
 func TestEarlyLanClearedAfterStop(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := lanRig(t)
 	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
@@ -553,6 +572,7 @@ func TestEarlyLanClearedAfterStop(t *testing.T) {
 // A revoke while the container still runs cuts its rule at the next rebuild;
 // a crashed container's entry is dropped there too.
 func TestEarlyLanRevokeAndCrashAtRebuild(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := lanRig(t)
 	if _, err := r.orch.hostgrant.Approve(ctx, r.stack, "adm", hostgrant.Set{Lines: []string{"a lan:192.168.1.50:445"}}); err != nil {
@@ -578,6 +598,7 @@ func TestEarlyLanRevokeAndCrashAtRebuild(t *testing.T) {
 // A recreated proxy starts on no ingress network: the tick that sees its new
 // start time joins it to each domain tile's network before the push.
 func TestWatchTickRejoinsIngressOnProxyRestart(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newBootRig(t)
 	tl := r.tiles["a"]
@@ -629,6 +650,7 @@ func earlyRig(t *testing.T) bootRig {
 // The off path lands between the sweep's snapshot and its Allow: the sweep
 // must not put the cleared rule back.
 func TestSweepEarlyOffPathInterleaved(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := earlyRig(t)
 	r.orch.earlyLan(ctx, r.tiles["a"], "rnew", true)
@@ -651,6 +673,7 @@ func TestSweepEarlyOffPathInterleaved(t *testing.T) {
 
 // A revoke lands after the on path's first reads: the rule must not be added.
 func TestEarlyLanOnPathRevokedMeanwhile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := earlyRig(t)
 	h := inspectHook{Docker: r.orch.docker}
@@ -664,6 +687,7 @@ func TestEarlyLanOnPathRevokedMeanwhile(t *testing.T) {
 
 // Once a VIP routes the replica its early entry is forgotten.
 func TestEarlyEntryDroppedWhenRouted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := earlyRig(t)
 	r.fake.Details["rnew"] = docker.Detail{Running: true, Networks: map[string]string{"n": "10.0.0.3"}} // a's routed replica

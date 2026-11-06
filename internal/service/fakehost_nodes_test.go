@@ -21,6 +21,7 @@ import (
 // so every network, env, shared and ingress, only exists because the node
 // leaf reserved a /24 for it from the controller's range.
 func TestFakeHostDeploysOnReservedSubnets(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	orch, err := New(

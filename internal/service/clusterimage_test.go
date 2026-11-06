@@ -46,6 +46,7 @@ func amd64Image(t *testing.T) v1.Image {
 // The controller loads a node only images its deploy may run: another org's
 // is refused before anything is read; the org's own and stackr's are served.
 func TestClusterImageRefusesAnotherOrgs(t *testing.T) {
+	t.Parallel()
 	regs, host := testRegistry(t)
 	for _, repo := range []string{"acme/shop/api", "stackr.system/pause"} {
 		ref, err := name.NewTag(host+"/"+repo+":1", name.Insecure)
@@ -85,6 +86,7 @@ func (f saveFake) Save(_ context.Context, ref string, w io.Writer) error {
 // A worker's build lands in the registry: its Docker saves it, the
 // controller writes it, and the registry then holds it under the build's tag.
 func TestBuildPushLandsInRegistry(t *testing.T) {
+	t.Parallel()
 	regs, _ := testRegistry(t)
 	o := &Orchestrator{regs: regs, cfg: Config{DataDir: t.TempDir()}, docker: saveFake{dockerfake.New(), amd64Image(t)}}
 	ctx := docker.WithNode(context.Background(), "w1")

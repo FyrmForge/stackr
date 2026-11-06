@@ -11,6 +11,7 @@ import (
 // A teardown wants the slug typed, then removes the tiles, the envs and the
 // stack in one job.
 func TestTeardownStack(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	w.tile(t, "web", true)
@@ -38,6 +39,7 @@ func TestTeardownStack(t *testing.T) {
 
 // An empty stack goes at once, with no job.
 func TestTeardownEmptyStack(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	st, err := w.orch.CreateStack(ctx, w.org, "Mart", "")

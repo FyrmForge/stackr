@@ -14,7 +14,8 @@ import (
 // exit_ladders admits a 'node' scope that dies with its node, and the down
 // drops those rungs and keeps the rest.
 func TestNodeExitsMigrationRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 23).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -23,11 +24,6 @@ func TestNodeExitsMigrationRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(23 - int(v)) // the shape before 024
 
 	now := time.Now()
 	node := func(id, role, tags, cidr string) stmt {

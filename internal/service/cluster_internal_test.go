@@ -20,6 +20,7 @@ func iface(name string, public bool, prefixes ...string) worker.Iface {
 // where one has the public address. The cloud hands out /32s and a route
 // (Hetzner), so the network is the route's.
 func TestBuildClusterMap(t *testing.T) {
+	t.Parallel()
 	node := func(id, role, transit string, f *worker.Facts, ping map[string]worker.PeerPing) clusterNodeIn {
 		f.Ping = ping
 		return clusterNodeIn{
@@ -84,6 +85,7 @@ func TestBuildClusterMap(t *testing.T) {
 
 // A node that went quiet keeps its docker and arch from memory.
 func TestBuildClusterMapMemoryArch(t *testing.T) {
+	t.Parallel()
 	m := buildClusterMap([]clusterNodeIn{{
 		Node: store.Node{ID: "w", Name: "w", Role: "worker", Status: "online"},
 		Mem:  &nodeMemory{Net: "10.0.0.0/24", Docker: "28.1", Arch: "arm64"},
@@ -96,6 +98,7 @@ func TestBuildClusterMapMemoryArch(t *testing.T) {
 // A worker that stopped answering has no tunnel up and says so; one that
 // never reported sits in the "unknown" box.
 func TestBuildClusterMapUnreachable(t *testing.T) {
+	t.Parallel()
 	n := func(id, role string, f *worker.Facts, up bool) clusterNodeIn {
 		return clusterNodeIn{Node: store.Node{ID: id, Name: id, Role: role, Status: "online"}, Facts: f, Up: up}
 	}
@@ -123,6 +126,7 @@ func TestBuildClusterMapUnreachable(t *testing.T) {
 // Two ingress nodes behind one NAT: the router forwards to home, so nas is
 // not reachable. Unsure and nobody answering makes no claim.
 func TestApplyProbes(t *testing.T) {
+	t.Parallel()
 	m := ClusterMap{
 		Nodes: []ClusterNode{
 			{ID: "home", Net: "lan", Tags: []string{"ingress"}},
@@ -144,6 +148,7 @@ func TestApplyProbes(t *testing.T) {
 }
 
 func TestProbePath(t *testing.T) {
+	t.Parallel()
 	if p := probePath("ctl"); !strings.HasPrefix(p, worker.ProbePrefix) || len(p) != len(worker.ProbePrefix)+24 || p == probePath("other") {
 		t.Errorf("probePath = %q", p)
 	}
@@ -151,6 +156,7 @@ func TestProbePath(t *testing.T) {
 
 // The map card carries the node's warnings (the rule is warningsOf).
 func TestClusterCardNotes(t *testing.T) {
+	t.Parallel()
 	n := store.Node{ID: "w", Name: "w", Role: "worker", Status: "online"}
 	ws := warningsOf(warnIn{Behind: true, TooOld: true, CertDays: 9})
 	m := buildClusterMap([]clusterNodeIn{{Node: n, Up: true, Warnings: ws}})

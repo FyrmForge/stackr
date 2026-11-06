@@ -20,6 +20,7 @@ import (
 // from it, a consumer's access re-granted in place, and the slice's
 // bindings without a secret.
 func TestSliceVerbs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	env := servicetest.New(t)
 	org := env.Org(t, "acme")

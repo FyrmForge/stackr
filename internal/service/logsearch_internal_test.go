@@ -37,6 +37,7 @@ func (s *scopedLogs) Query(_ context.Context, f logs.Filter, from, to time.Time,
 // request's filters map onto the store filter, and the window follows Since
 // and Before.
 func TestSearchLogs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -121,6 +122,7 @@ func (d *delLogs) Delete(_ context.Context, f logs.Filter) error {
 
 // A purge deletes the scope's own org and env, and nothing without an env.
 func TestPurgeLogs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch

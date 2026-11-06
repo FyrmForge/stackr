@@ -11,6 +11,7 @@ import (
 
 // A fresh install keeps metrics history on, wizard or not.
 func TestObserveOnByDefault(t *testing.T) {
+	t.Parallel()
 	orch := servicetest.New(t).Orch
 	if v, err := orch.Setting(context.Background(), "observe_enabled"); err != nil || v != "true" {
 		t.Errorf("observe_enabled = %q, %v; want true", v, err)
@@ -19,6 +20,7 @@ func TestObserveOnByDefault(t *testing.T) {
 
 // A fresh server is pending; a branch is picked, then finishing stamps it.
 func TestServerSetup(t *testing.T) {
+	t.Parallel()
 	orch, ctx := servicetest.New(t).Orch, context.Background()
 	s, err := orch.ServerSetupState(ctx)
 	if err != nil || s.Done || s.Mode != "" {
@@ -43,6 +45,7 @@ func TestServerSetup(t *testing.T) {
 
 // With no file bound a gap fill only saves: the secret lands and no plan is made.
 func TestFillServerGapUnbound(t *testing.T) {
+	t.Parallel()
 	orch, ctx := servicetest.New(t).Orch, context.Background()
 	p, err := orch.FillServerGap(ctx, []service.ParamEntry{{Collection: "db", Name: "password", Kind: "secret", Value: "s3cret"}})
 	if err != nil || p.ID != "" {
@@ -56,6 +59,7 @@ func TestFillServerGapUnbound(t *testing.T) {
 
 // The summary names a domain once when the panel sits on the root domain.
 func TestServerSetupSummaryDomains(t *testing.T) {
+	t.Parallel()
 	orch, ctx := servicetest.New(t).Orch, context.Background()
 	for _, c := range []struct{ panel, root, want string }{
 		{"x.test", "x.test", "x.test"},

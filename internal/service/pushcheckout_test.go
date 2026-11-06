@@ -15,6 +15,7 @@ import (
 // id: that once made the checkout the repos folder itself, and the clone
 // wiped every cached checkout (stack, org and server config) in it.
 func TestPushNewGitTileKeepsOtherCheckouts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root, gitOpt := testGit(t)
 	n := newTwoNodes(t, gitOpt)

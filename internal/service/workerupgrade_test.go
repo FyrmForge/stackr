@@ -93,6 +93,7 @@ func (r *rolloutRig) setting(key string) string {
 
 // The nodes others are reached through go last, then by name.
 func TestRolloutOrder(t *testing.T) {
+	t.Parallel()
 	ns := []store.Node{{ID: "a", Name: "vm106"}, {ID: "b", Name: "h4"}, {ID: "c", Name: "ct110"}, {ID: "d", Name: "h3"}}
 	got := rolloutOrder(ns, map[string]bool{"b": true})
 	var names []string
@@ -106,6 +107,7 @@ func TestRolloutOrder(t *testing.T) {
 
 // An offline node is skipped with a reason; the rest still go.
 func TestRolloutSkipsOffline(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t, "w2")
 	ctx := context.Background()
 	w1, err := r.n.st.Nodes.Get(ctx, "w1")
@@ -142,6 +144,7 @@ func (r *rolloutRig) upgradeOnRun(id string) func() *worker.Facts {
 // A worker of another CPU type is refused with a reason naming both; the
 // rollout goes on.
 func TestRolloutRefusesOtherArch(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t, "w2")
 	r.facts["w1"] = func() *worker.Facts { return &worker.Facts{Version: "v9.8.0", Arch: "arm64"} }
 	r.facts["w2"] = r.upgradeOnRun("w2")
@@ -164,6 +167,7 @@ func TestRolloutRefusesOtherArch(t *testing.T) {
 // the swap command; it is removed once the node reports the new version, and
 // the node is done. A node already current is left alone.
 func TestRolloutRunsHelperAndCommits(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t, "w2")
 	r.facts["w1"] = r.upgradeOnRun("w1")
 	r.facts["w2"] = func() *worker.Facts { return &worker.Facts{Version: "v9.9.9", Arch: "amd64"} }
@@ -207,6 +211,7 @@ func TestRolloutRunsHelperAndCommits(t *testing.T) {
 // cannot be delivered the node is reported as rolling back, and the helper is
 // left to restore at its deadline.
 func TestRolloutCommitFailureIsNotRemoval(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	r.facts["w1"] = r.upgradeOnRun("w1")
 	r.fakes["w1"].Err = map[string]error{"Exec": errors.New("exec refused")}
@@ -224,6 +229,7 @@ func TestRolloutCommitFailureIsNotRemoval(t *testing.T) {
 // A node that never shows the new version is failed after the helper rolled
 // it back; the rollout stops, later nodes stay waiting.
 func TestRolloutStopsWhenTheVersionNeverShows(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t, "w2") // w1 sorts first, w2 after
 	err := r.ro.run(context.Background())
 	if err == nil {
@@ -249,6 +255,7 @@ func TestRolloutStopsWhenTheVersionNeverShows(t *testing.T) {
 
 // A pull that fails changes nothing on the node and stops the rollout too.
 func TestRolloutPullFailure(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	r.fakes["w1"].Err = map[string]error{"Pull": errors.New("registry down")}
 	if err := r.ro.run(context.Background()); err == nil {
@@ -268,6 +275,7 @@ func TestRolloutPullFailure(t *testing.T) {
 // UpdateWorkers clears a stop, sets the target to the running version and
 // queues the rollout; one already queued refuses a second.
 func TestUpdateWorkers(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()
@@ -290,6 +298,7 @@ func TestUpdateWorkers(t *testing.T) {
 
 // Only a server admin starts a rollout, whoever the HTTP layer let through.
 func TestUpdateWorkersNeedsAdmin(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	for _, by := range []*Principal{nil, {}} {
@@ -304,6 +313,7 @@ func TestUpdateWorkersNeedsAdmin(t *testing.T) {
 
 // M1: a double click and reconnecting workers racing enqueue one rollout.
 func TestRolloutEnqueueIsAtomic(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()
@@ -337,6 +347,7 @@ func TestRolloutEnqueueIsAtomic(t *testing.T) {
 // Boot queues the rollout only when the admin's target is this build and the
 // rollout is not stopped.
 func TestRolloutAfterBoot(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, target, stopped string
 		want                  bool
@@ -366,6 +377,7 @@ func TestRolloutAfterBoot(t *testing.T) {
 // A node coming back online behind the target is picked up; one that is
 // current is not.
 func TestWorkerBack(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()
@@ -392,6 +404,7 @@ func TestWorkerBack(t *testing.T) {
 // panel_prev_version follows panel_version across boots; booting the same
 // build twice changes nothing.
 func TestRecordPanelVersion(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	get := func(k string) string { v, _, _ := n.orch.store.Settings.Get(ctx, k); return v }
@@ -417,6 +430,7 @@ func TestRecordPanelVersion(t *testing.T) {
 
 // With STACKR_FAKE_HOST the rollout does nothing and says so.
 func TestRolloutFakeHostIsANoOp(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.FakeHost = "/tmp/fake"
 	var log bytes.Buffer
@@ -431,6 +445,7 @@ func TestRolloutFakeHostIsANoOp(t *testing.T) {
 // The Update tab's view: every worker with its stored state and whether it
 // is behind.
 func TestWorkerRolloutView(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	ctx := context.Background()
 	o := r.n.orch
@@ -447,6 +462,7 @@ func TestWorkerRolloutView(t *testing.T) {
 
 // A worker done for an older build reads behind once the panel moves on.
 func TestWorkerRolloutViewDoneThenBehind(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	ctx := context.Background()
 	o := r.n.orch
@@ -480,6 +496,7 @@ func TestWorkerRolloutViewDoneThenBehind(t *testing.T) {
 // A stop leaves the nodes after the failed one waiting, but no job runs, so
 // the view is not running (the tab offers Retry); a queued rollout is.
 func TestWorkerRolloutRunning(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	ctx := context.Background()
 	o := r.n.orch
@@ -499,6 +516,7 @@ func TestWorkerRolloutRunning(t *testing.T) {
 // on the panel's own rollout, whether or not a worker has reported yet (the
 // boot rolls them all), and the publish or a stop ends the window.
 func TestWorkerRolloutPending(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	ctx := context.Background()
 	o := r.n.orch
@@ -594,6 +612,7 @@ func TestUpgradeUnderway(t *testing.T) {
 // The upgrade row still running at the new panel's boot landed when its
 // tag is the running build; any other ends as a restart.
 func TestUpgradeLanded(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v1.2.0"
 	for kind, payload := range map[jobs.Kind]string{kindUpgrade: `{"tag":"v1.1.0"}`, kindOrphans: `{"tag":"v1.2.0"}`} {
@@ -650,6 +669,7 @@ func TestUpgradeHoldsQueue(t *testing.T) {
 // The jobs lists say why a queued job waits and mark a rebuild; the Update
 // tab counts what the queued upgrade waits for.
 func TestJobsWaitsAndLine(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	n.orch.upgrading.Store(true) // holds the runner: these rows stay put
@@ -692,6 +712,7 @@ func TestJobsWaitsAndLine(t *testing.T) {
 // Before the boot publish (which runs after the boot's Docker log cap) no
 // rollout is queued, by the boot or by a worker reconnecting; after it, it is.
 func TestRolloutWaitsForTheBootPublish(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	n.orch.stackrPublished, n.orch.stackrOnce = make(chan struct{}), sync.Once{} // a boot mid-publish
@@ -715,6 +736,7 @@ func TestRolloutWaitsForTheBootPublish(t *testing.T) {
 // A run cancelled mid-node (the panel going down with its Docker) records no
 // failure and no stop, so the next boot queues it again.
 func TestRolloutCancelledIsNotAStop(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	must(t, r.n.orch.store.Settings.Set(context.Background(), keyRolloutTarget, "v9.9.9"))
 	var log bytes.Buffer
@@ -736,6 +758,7 @@ func TestRolloutCancelledIsNotAStop(t *testing.T) {
 // restart cut the last run short) gets that helper committed, not left to
 // roll it back at its deadline.
 func TestRolloutCommitsALeftoverHelper(t *testing.T) {
+	t.Parallel()
 	r := newRolloutRig(t)
 	r.facts["w1"] = func() *worker.Facts { return &worker.Facts{Version: "v9.9.9", Arch: "amd64"} }
 	f := r.fakes["w1"]
@@ -831,6 +854,7 @@ func TestClearUpgrader(t *testing.T) {
 // A boot publish that gives up on the stackr image stops a wanted rollout
 // with the reason, and leaves an unwanted or already stopped one alone.
 func TestRolloutBlockedByThePublish(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()

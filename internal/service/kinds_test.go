@@ -16,6 +16,7 @@ import (
 // to the one callback with the state it was given, signed in as the user
 // who began; then the connection is saved, once.
 func TestRedirectSetup(t *testing.T) {
+	t.Parallel()
 	env := servicetest.NewWith(t, []service.Option{service.WithKinds(servicetest.FakeKind{})})
 	ctx := context.Background()
 	in := service.ConnectorAdd{Kind: "fake", Values: map[string]string{"account": "acme", "token": "t0k"}, User: "u1", Return: "/-/admin/connectors"}
@@ -76,6 +77,7 @@ func TestRedirectSetup(t *testing.T) {
 // Kinds list their declared steps and capabilities; Namecheap offers DNS
 // and its server IPv4 field asks for the prefill.
 func TestConnectorKinds(t *testing.T) {
+	t.Parallel()
 	env := servicetest.New(t)
 	k, err := env.Orch.ConnectorKindOf("namecheap")
 	if err != nil || len(k.Caps) != 1 || k.Caps[0] != service.CapDNS || k.Redirects || len(k.Steps) != 4 {

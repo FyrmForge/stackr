@@ -6,6 +6,7 @@ import "testing"
 // provider (the manifest's hook and setup_url, the webhook sync): the
 // panel_domain setting swaps BaseURL's host, keeping scheme and port.
 func TestAppBaseFollowsPanelHost(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ base, panel, want string }{
 		{"https://old.example.com", "new.example.com", "https://new.example.com"},
 		{"https://old.example.com:8443/", "new.example.com", "https://new.example.com:8443"},

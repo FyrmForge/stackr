@@ -13,6 +13,7 @@ import (
 // file's items resolve it, a missing one is unset by name, and no other ref
 // form works there.
 func TestServerParams(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
@@ -69,6 +70,7 @@ func TestServerParams(t *testing.T) {
 
 // A server ref in a tile's env or command is refused at save, not at deploy.
 func TestTileRefusesServerRefs(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	tl := w.tile(t, "api", false)
 	_, _, err := w.orch.UpdateTile(context.Background(), tl.ID, func(x *Tile) error {

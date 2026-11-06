@@ -16,6 +16,7 @@ import (
 // tile named), then orphaned and gone from the list, and declaring it
 // again takes the data back.
 func TestEnvVolumes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
@@ -93,6 +94,7 @@ func TestEnvVolumes(t *testing.T) {
 // A managed instance's volume is listed as its own, never removable; a
 // config-managed stack's env volumes are its file's.
 func TestEnvVolumesOwnedAndManaged(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")

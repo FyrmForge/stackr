@@ -65,6 +65,7 @@ func jobCount(t *testing.T, o *Orchestrator) int {
 // last seen but not naming the node (members read it), and no job row is
 // written.
 func TestOfflineNodeRefusesWork(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, env, tl := gateWorld(t)
 	setStatus(t, o, "w1", node.StatusOffline)
@@ -97,6 +98,7 @@ func TestOfflineNodeRefusesWork(t *testing.T) {
 
 // A node never seen reads "never seen"; only Detail names the node.
 func TestNodeDownErrorWords(t *testing.T) {
+	t.Parallel()
 	if got := (&NodeDownError{Name: "h3"}).Detail(); got != "h3 is offline, never seen" {
 		t.Errorf("never seen = %q", got)
 	}
@@ -111,6 +113,7 @@ func TestNodeDownErrorWords(t *testing.T) {
 
 // A forgotten node has no row any more; its refusal still names it, not its id.
 func TestNodeDownNamesForgottenNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, _, _ := gateWorld(t)
 	must(t, o.store.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone-id", Name: "h3", ForgottenAt: time.Now()}))
@@ -125,6 +128,7 @@ func TestNodeDownNamesForgottenNode(t *testing.T) {
 // Under 1 GB free refuses and names the node; under 10% warns; a node that
 // does not report its disk passes with a note.
 func TestDiskCheck(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, env, _ := gateWorld(t)
 	const gb = 1 << 30
@@ -178,6 +182,7 @@ func TestDiskCheck(t *testing.T) {
 
 // With no mesh facts, the controller's disk is its data dir's.
 func TestDiskCheckControllerFallsBackToTheDataDir(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	o.mesh = newMeshSvc(o.store, func(string) (MeshNode, bool) { return nil, false })
@@ -192,6 +197,7 @@ func TestDiskCheckControllerFallsBackToTheDataDir(t *testing.T) {
 // A schedule that fires while the node is offline is recorded as skipped:
 // one job row, terminal, with the reason.
 func TestScheduledWorkOnAnOfflineNodeIsSkipped(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, env, tl := gateWorld(t)
 	vol := store.Volume{ID: uuid.NewString(), ScopeKind: "env", ScopeID: env.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}
@@ -226,6 +232,7 @@ func TestScheduledWorkOnAnOfflineNodeIsSkipped(t *testing.T) {
 // When a node flips offline its last-seen time is kept in the settings, so a
 // panel restart does not forget it.
 func TestLastSeenSurvivesARestart(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	_, srv, _ := workerNodeWith(t, o, "w1", node.StatusJoined, worker.Config{})
@@ -253,6 +260,7 @@ func TestLastSeenSurvivesARestart(t *testing.T) {
 // A worker that is not on the panel's version or the one before is refused
 // new Docker calls, unless the ctx says otherwise. Extras stay open.
 func TestTooOldWorkerIsRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	workerNodeWith(t, o, "w1", node.StatusJoined, worker.Config{Version: "v1"})
@@ -279,6 +287,7 @@ func TestTooOldWorkerIsRefused(t *testing.T) {
 }
 
 func TestVersionAllowed(t *testing.T) {
+	t.Parallel()
 	o := newClusterPanel(t)
 	must(t, o.store.Settings.Set(context.Background(), "panel_prev_version", "v1"))
 	for v, want := range map[string]bool{"v2": true, "v1": true, "v0": false, "": false} {
@@ -290,6 +299,7 @@ func TestVersionAllowed(t *testing.T) {
 
 // The banner reads this: the env's node when it is down, nothing otherwise.
 func TestEnvNodeDown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, env, _ := gateWorld(t)
 	if _, down := o.EnvNodeDown(ctx, env.ID); down {
@@ -305,6 +315,7 @@ func TestEnvNodeDown(t *testing.T) {
 // The env canvas of an offline worker still draws: its tiles read offline
 // instead of the page failing on the gate.
 func TestCanvasOfOfflineNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	w, err := n.st.Nodes.Get(ctx, "w1")
@@ -330,6 +341,7 @@ func TestCanvasOfOfflineNode(t *testing.T) {
 // A scheduled backup whose worker stopped answering but is not yet marked
 // offline is skipped as it starts, like one on an offline node.
 func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, env, _ := gateWorld(t)
 	vol := store.Volume{ID: uuid.NewString(), ScopeKind: "env", ScopeID: env.ID, Slug: "data", Name: "data", CreatedAt: time.Now()}
@@ -360,6 +372,7 @@ func TestScheduledBackupSkipsAnUnreachableNode(t *testing.T) {
 // A node with no VIP table is refused as down: members read the error, so
 // it names no node; admins get the name from Detail.
 func TestNoVIPTableIsNodeDown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, _, _ := gateWorld(t)
 	n, err := o.store.Nodes.Get(ctx, "w1")
@@ -383,6 +396,7 @@ func TestNoVIPTableIsNodeDown(t *testing.T) {
 // A scheduled run whose node went offline after it was queued is skipped as
 // its job starts, its run row closed with the reason; a manual one is not.
 func TestScheduledRunSkipsAnOfflineNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o, _, tl := gateWorld(t)
 	sched, err := o.runs.Start(ctx, tl.ID, nil, lrun.Schedule)

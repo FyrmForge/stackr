@@ -32,6 +32,7 @@ func (w *world) opensWith(t *testing.T, objectKey, key string) bool {
 // backup opens only with that private half, shows the generation, and the box
 // never keeps the private half once it is confirmed.
 func TestRecoveryKeyBootRevealConfirm(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", "correct horse battery", "Adm")
@@ -77,6 +78,7 @@ func TestRecoveryKeyBootRevealConfirm(t *testing.T) {
 // Rotation (behind the password, and only once the current key is saved)
 // moves to generation 2: new archives need the new key, old ones keep the old.
 func TestRotateRecoveryKey(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", "correct horse battery", "Adm")

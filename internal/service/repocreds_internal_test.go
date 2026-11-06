@@ -3,6 +3,7 @@ package service
 import "testing"
 
 func TestNoRepoCreds(t *testing.T) {
+	t.Parallel()
 	for repo, ok := range map[string]bool{
 		"acme/shop":                         true,
 		"https://github.com/acme/shop":      true,

@@ -69,6 +69,7 @@ func (f *zoneFake) shop() []string {
 
 // Moving a scope's ingress to another node repoints its domains' records.
 func TestRecordFollowsIngressMove(t *testing.T) {
+	t.Parallel()
 	f := &zoneFake{}
 	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))
 	ctx := context.Background()

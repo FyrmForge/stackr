@@ -22,6 +22,7 @@ func peerTo(id, key string, endpoint string) mesh.Peer {
 // The rig: 109, 110 and 106 share a LAN, h4 is public, h3 sits behind h4 in
 // the Hetzner network. Who dials follows the specs' endpoint candidates.
 func TestFillEndsRig(t *testing.T) {
+	t.Parallel()
 	specs := map[string]worker.MeshSpec{
 		"109": {Peers: []mesh.Peer{peerTo("110", "k110", "192.168.1.110:51820"), peerTo("106", "k106", "192.168.1.106:51820"), peerTo("h4", "kh4", "203.0.113.4:51820")}},
 		"110": {Peers: []mesh.Peer{peerTo("109", "k109", "192.168.1.109:51820"), peerTo("106", "k106", "192.168.1.106:51820"), peerTo("h4", "kh4", "203.0.113.4:51820")}},
@@ -79,6 +80,7 @@ func TestFillEndsRig(t *testing.T) {
 // A node's tunnels are the pairs it is in, routed ones included, each named
 // by its peer; a map without the mesh falls back to its links.
 func TestTunnelsOf(t *testing.T) {
+	t.Parallel()
 	m := ClusterMap{
 		Nodes: []ClusterNode{{ID: "a", Name: "ct109"}, {ID: "b", Name: "h4"}, {ID: "c", Name: "h3"}},
 		Pairs: []ClusterLink{{A: "a", B: "b"}, {A: "a", B: "c", Via: "h4"}, {A: "b", B: "c"}},
@@ -99,6 +101,7 @@ func TestTunnelsOf(t *testing.T) {
 
 // A NAT shows the address an outside node sees its network's packets from.
 func TestNatPublic(t *testing.T) {
+	t.Parallel()
 	m := ClusterMap{
 		Nodes:    []ClusterNode{{ID: "ctl", Net: "pub"}, {ID: "w1", Net: "home"}, {ID: "w2", Net: "home"}},
 		Networks: []ClusterNet{{ID: "pub"}, {ID: "home", Router: true}},

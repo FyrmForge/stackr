@@ -58,6 +58,7 @@ func count(t *testing.T, w *world, query string, args ...any) int {
 }
 
 func TestLoginWritesOneRow(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	meta := RequestMeta{IP: "203.0.113.9", UserAgent: "curl/8"}
@@ -98,6 +99,7 @@ func TestLoginWritesOneRow(t *testing.T) {
 }
 
 func TestFailedAuditRollsLoginBack(t *testing.T) {
+	t.Parallel()
 	w, _ := secWorld(t)
 	breakAudit(t, w)
 	if s, err := w.orch.Login(context.Background(), "adm@x.test", adminPW, RequestMeta{}); err == nil || s != nil {
@@ -109,6 +111,7 @@ func TestFailedAuditRollsLoginBack(t *testing.T) {
 }
 
 func TestKeyMintAndRevokeWriteOneRow(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 
@@ -142,6 +145,7 @@ func TestKeyMintAndRevokeWriteOneRow(t *testing.T) {
 // unbound key; anyone else gets one through stackr login, which an org's
 // key may not start (B36).
 func TestUnboundKeyGates(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	plain := *adm
@@ -164,6 +168,7 @@ func TestUnboundKeyGates(t *testing.T) {
 }
 
 func TestFailedAuditRollsKeysBack(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	_, k, err := w.orch.MintKey(ctx, adm, "", "keep", "", "")
@@ -205,6 +210,7 @@ func parked(t *testing.T, w *world) Job {
 }
 
 func TestGrantApproveAndRevokeWriteOneRow(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	parked(t, w)
@@ -225,6 +231,7 @@ func TestGrantApproveAndRevokeWriteOneRow(t *testing.T) {
 }
 
 func TestFailedAuditRollsGrantsBack(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	parked(t, w)
@@ -256,6 +263,7 @@ func TestFailedAuditRollsGrantsBack(t *testing.T) {
 }
 
 func TestRevealSecretsWritesOneRow(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	scope := ParamScope{Kind: "org", ID: w.org}
@@ -288,6 +296,7 @@ func TestRevealSecretsWritesOneRow(t *testing.T) {
 }
 
 func TestSecurityLogFiltersAndAppendOnly(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	ctx := context.Background()
 	before := time.Now().Add(-time.Minute)

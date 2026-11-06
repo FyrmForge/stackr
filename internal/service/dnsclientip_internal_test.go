@@ -5,6 +5,7 @@ import "testing"
 // Behind NAT the controller's DNS client IP is the router's, as an outside
 // worker sees it; unseen (or IPv6) it stays empty for the admin to type.
 func TestNATIPv4(t *testing.T) {
+	t.Parallel()
 	m := ClusterMap{
 		Nodes:    []ClusterNode{{ID: "ctl", Net: "home"}, {ID: "w1", Net: "hetzner"}},
 		Networks: []ClusterNet{{ID: "home", Router: true, Public: "198.51.100.9"}, {ID: "hetzner"}},

@@ -15,6 +15,7 @@ import (
 // A failed cron run is amber on its header and its env card; three in a
 // row are red. Its run jobs fail with it and must not override that.
 func TestCronRunsRollUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := servicetest.New(t)
 	sh := e.Tile(t, e.Org(t, "acme"))

@@ -58,6 +58,7 @@ func mint(t *testing.T, w *world, adm *Principal, name string) JoinTokenOut {
 // A new node always carries egress: its default exit can't be picked before
 // it exists.
 func TestJoinTokenAlwaysEgress(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	out, err := w.orch.CreateJoinToken(context.Background(), adm, JoinTokenSpec{NodeName: "w1", Tags: []string{"ingress"}})
 	must(t, err)
@@ -74,6 +75,7 @@ func TestJoinTokenAlwaysEgress(t *testing.T) {
 // An omitted address is <name>.<panel address>, none when that is taken; a
 // given one, empty included, is used as is.
 func TestJoinTokenAddressDefault(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	if out, err := w.orch.CreateJoinToken(ctx, adm, JoinTokenSpec{NodeName: "w1"}); err != nil || out.NodeAddress != "" {
@@ -102,6 +104,7 @@ func TestJoinTokenAddressDefault(t *testing.T) {
 }
 
 func TestJoinTokenRules(t *testing.T) {
+	t.Parallel()
 	w, adm, ca := joinWorld(t)
 	ctx := context.Background()
 
@@ -166,6 +169,7 @@ func isNotFound(err error) bool {
 }
 
 func TestJoinRequestValidation(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	out := mint(t, w, adm, "w1")
@@ -198,6 +202,7 @@ func TestJoinRequestValidation(t *testing.T) {
 }
 
 func TestJoinConfirmIssuesCert(t *testing.T) {
+	t.Parallel()
 	w, adm, ca := joinWorld(t)
 	ctx := context.Background()
 	t1, t2 := mint(t, w, adm, "w1"), mint(t, w, adm, "w2")
@@ -277,6 +282,7 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 }
 
 func TestJoinReject(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	tok := mint(t, w, adm, "w1")
@@ -304,6 +310,7 @@ func TestJoinReject(t *testing.T) {
 
 // A failed audit row undoes the act: no cert, still pending.
 func TestJoinConfirmRollsBackWithoutAudit(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	tok := mint(t, w, adm, "w1")
@@ -322,6 +329,7 @@ func TestJoinConfirmRollsBackWithoutAudit(t *testing.T) {
 }
 
 func TestJoinNeedsCA(t *testing.T) {
+	t.Parallel()
 	w, adm := secWorld(t)
 	// boot makes the CA; take it away to see minting refuse
 	for _, f := range []string{"cluster-ca.key", "cluster-ca.crt"} {
@@ -339,6 +347,7 @@ func TestJoinNeedsCA(t *testing.T) {
 // installs it; a plain dev build has no release to name. The confirmed
 // status names the node for the installer to keep.
 func TestJoinCommandCarriesVersion(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	for i, c := range []struct{ version, want string }{

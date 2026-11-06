@@ -10,6 +10,7 @@ import (
 // The live-move helper reaches the registry: nothing when it is there, a
 // push of the local copy, a build first when there is none.
 func TestRsyncStepsEnsure(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name         string
 		inReg, local bool

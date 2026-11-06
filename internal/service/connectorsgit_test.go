@@ -34,6 +34,7 @@ import (
 // install page is its slug's; the begun one stays pending, finishable
 // only by its user, and swept when old.
 func TestGitHubRowsMigration(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "stackr.db")
 	db, err := sqlite.Connect(path)
@@ -148,6 +149,7 @@ func TestGitHubRowsMigration(t *testing.T) {
 // connection on its provider's host, so a repo URL there resolves to it;
 // a server one is shared with every org; the key never comes back.
 func TestGitConnectionThroughTheCore(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	org := env.Org(t, "acme")
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -180,6 +182,7 @@ func TestGitConnectionThroughTheCore(t *testing.T) {
 // at the panel host (port kept) on the paths Apps were always registered
 // with; the webhook URL the screens show follows too.
 func TestManifestFollowsPanelHost(t *testing.T) {
+	t.Parallel()
 	env := servicetest.NewWith(t, nil, func(c *service.Config) { c.BaseURL = "https://old.example.com:8443" })
 	ctx := context.Background()
 	if err := env.Orch.SetSettings(ctx, map[string]string{"panel_domain": "new.example.com"}); err != nil {

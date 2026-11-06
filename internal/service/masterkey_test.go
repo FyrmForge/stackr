@@ -66,6 +66,7 @@ func (k keyBox) paramUnder(t *testing.T, key string) (string, error) {
 // A rotation waiting at boot re-seals everything, then the next key replaces
 // the current one and the generation counts up.
 func TestLoadMasterKeyFinishesRotation(t *testing.T) {
+	t.Parallel()
 	k := newKeyBox(t)
 	k.writeNext(t)
 	got, err := LoadMasterKey(context.Background(), k.dir, "", "")
@@ -84,6 +85,7 @@ func TestLoadMasterKeyFinishesRotation(t *testing.T) {
 // A crash after the transaction committed but before the rename leaves the
 // database on the next key; the canary says so and the boot finishes the rename.
 func TestLoadMasterKeyCrashAfterTransaction(t *testing.T) {
+	t.Parallel()
 	k := newKeyBox(t)
 	k.writeNext(t)
 	cur, _ := secrets.New(testKey)
@@ -102,6 +104,7 @@ func TestLoadMasterKeyCrashAfterTransaction(t *testing.T) {
 
 // The env key wins: a leftover next file and the key file stay as they are.
 func TestLoadMasterKeyEnvKeyLeavesFilesAlone(t *testing.T) {
+	t.Parallel()
 	k := newKeyBox(t)
 	k.writeNext(t)
 	got, err := LoadMasterKey(context.Background(), k.dir, "", "envkey")
@@ -114,6 +117,7 @@ func TestLoadMasterKeyEnvKeyLeavesFilesAlone(t *testing.T) {
 // A transaction that fails rolls back whole: the boot stays on the old key,
 // the unused next key is dropped, nothing in the database moved.
 func TestLoadMasterKeyFailedTransactionKeepsOldKey(t *testing.T) {
+	t.Parallel()
 	k := newKeyBox(t)
 	k.writeNext(t)
 	_, err := k.st.DB().Exec(`INSERT INTO params (id, scope_kind, scope_id, collection, name, kind, value, created_at, updated_at)
@@ -133,6 +137,7 @@ func TestLoadMasterKeyFailedTransactionKeepsOldKey(t *testing.T) {
 // The env key is the operator's: a leftover next file is ignored, and the
 // panel refuses to rotate it.
 func TestRotateMasterKeyRefusedOnEnvKey(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	admin, err := w.orch.users.CreateAdmin(ctx, "adm@x.test", "correct horse battery", "Adm")

@@ -30,6 +30,7 @@ func seedNode(t *testing.T, n *twoNodes, id, tags, cidr string) {
 // otherwise; a node without egress never lists itself and falls through env,
 // stack, org, its own default exit, the cluster default, then to no internet.
 func TestEnvExits(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	adm := nodeExitAdmin()
@@ -114,6 +115,7 @@ func TestEnvExits(t *testing.T) {
 // is a blackhole, and the node fences) and none of an egress node that leaves
 // by its own uplink.
 func TestGatherEgressModel(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	n.orch.mesh = newMeshSvc(n.st, func(string) (MeshNode, bool) { return nil, false })
@@ -157,6 +159,7 @@ func mustNode(t *testing.T, n *twoNodes, id string) store.Node {
 }
 
 func TestSetNodeExitRules(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	adm := nodeExitAdmin()

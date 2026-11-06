@@ -24,10 +24,8 @@ import (
 // https://github.com/<repo> clones from a bare repo under root.
 func testGit(t *testing.T) (root string, opt Option) {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	root = t.TempDir()
-	return root, WithGit("GIT_ALLOW_PROTOCOL=https:ssh:file", "GIT_CONFIG_COUNT=1",
+	return root, WithGit("GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_ALLOW_PROTOCOL=https:ssh:file", "GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=url.file://"+root+"/.insteadOf", "GIT_CONFIG_VALUE_0=https://github.com/")
 }
 
@@ -40,6 +38,7 @@ func gitCommit(t *testing.T, root, repo string, files map[string]string) string 
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
 		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -66,6 +65,7 @@ func gitCommit(t *testing.T, root, repo string, files map[string]string) string 
 // the stack's config repo, written into a volume on w1 and mounted read-only
 // where the stack file says.
 func TestPromoteCarriesFilesToAnotherNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root, gitOpt := testGit(t)
 	n := newTwoNodes(t, gitOpt)

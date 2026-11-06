@@ -45,6 +45,7 @@ func acmeID(t *testing.T, n *twoNodes) string {
 // An admin makes, opens and deletes placements; nobody else does. The
 // default one is listed first and is never deleted.
 func TestPlacementAdminVerbs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm, own := adminP(), ownerP(acmeID(t, n))
@@ -138,6 +139,7 @@ func TestPlacementAdminVerbs(t *testing.T) {
 // A closed placement is refused to another org's owner at every verb that
 // takes one; an admin goes anywhere. The default is open to all.
 func TestPlacementAccess(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -198,6 +200,7 @@ func mustPlacement(t *testing.T, n *twoNodes, name string) store.Placement {
 
 // The dev list says whether a placement is usable and never names a node.
 func TestOrgPlacementsOffers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	acme := acmeID(t, n)
@@ -232,6 +235,7 @@ func TestOrgPlacementsOffers(t *testing.T) {
 
 // Volumes and managed tiles need a node tagged storage (planfile.Fits).
 func TestPlacementFit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -280,6 +284,7 @@ func mustTag(t *testing.T, n *twoNodes, by *Principal, node string, add ...strin
 // A new env lands on the placement its pins name, or waits with no node when
 // the placement has none; its deploy is refused with the placement's name.
 func TestEnvCreateOnPlacement(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -347,6 +352,7 @@ func TestEnvCreateOnPlacement(t *testing.T) {
 // An env with no tiles and no volumes moves without a typed confirm: nothing
 // stops and no data moves.
 func TestPinEmptyEnvNeedsNoConfirm(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -370,6 +376,7 @@ func TestPinEmptyEnvNeedsNoConfirm(t *testing.T) {
 // to the placement it already holds, or to another on its own node, only
 // relabels it.
 func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -455,6 +462,7 @@ func TestSetPinFollowsAndRefusesMoves(t *testing.T) {
 // An ingress pick that sends a tile's hosts to another proxy asks first;
 // one that keeps them where they are, or a confirmed one, saves.
 func TestPickIngressAsksWhenHostsMove(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -486,6 +494,7 @@ func TestPickIngressAsksWhenHostsMove(t *testing.T) {
 // IngressFor: the nearest picked placement's node, then the env's own node
 // when it is tagged ingress, then "" (the cluster default).
 func TestIngressForOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -542,6 +551,7 @@ func TestIngressForOrder(t *testing.T) {
 // What a member is shown of a placement never holds the node's name. The
 // placement here is named differently from its node so a scan can tell.
 func TestMemberViewHoldsNoNodeName(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -613,6 +623,7 @@ func TestMemberViewHoldsNoNodeName(t *testing.T) {
 // env in a pinned stack does not stop the org pinning to a node without
 // storage (the org file plan skips those stacks too).
 func TestOrgPinSkipsPinnedStacks(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -631,6 +642,7 @@ func TestOrgPinSkipsPinnedStacks(t *testing.T) {
 // An ingress pick moves routes between nodes' proxies, so it pushes the
 // routing table at once (the rig's override waited for the next sync).
 func TestSetIngressPushesRoutes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	before := n.pushes.Load()

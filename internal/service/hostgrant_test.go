@@ -41,6 +41,7 @@ func (w *world) waiting(t *testing.T, id string) Job {
 // and a revoke parks the next deploy while approving with nothing waiting
 // is refused.
 func TestHostAccessParksApprovesRevokes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -99,6 +100,7 @@ func TestHostAccessParksApprovesRevokes(t *testing.T) {
 // A promote whose stack file holds a host line queues, parks on the approval
 // text, and runs on approval: the same release, no new push.
 func TestPromoteParksOnHostAccess(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -146,6 +148,7 @@ func TestPromoteParksOnHostAccess(t *testing.T) {
 // admin looked makes the approval a Conflict and nothing is granted; with
 // both asks in the body it grants both.
 func TestApproveHostGrantRefusesChangedAsk(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -187,6 +190,7 @@ func isConflict(err error) bool { _, ok := errs.IsConflict(err); return ok }
 // A subset approve grants only those lines; the requeued job re-parks on the
 // rest.
 func TestApproveHostGrantSubset(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -230,6 +234,7 @@ func TestApproveHostGrantSubset(t *testing.T) {
 // Renaming a tile drops its grant lines (the new name asks again); deleting
 // one drops them too and cancels its parked jobs.
 func TestTileRenameAndDeleteDropGrant(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -273,6 +278,7 @@ func TestTileRenameAndDeleteDropGrant(t *testing.T) {
 // A parked job whose stack is gone neither fails the admin list nor counts
 // on the badge.
 func TestHostGrantListSkipsGoneStack(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.jobRows.Create(ctx, "deploy", nil, `{"host_access":{"stack":"gone","what":"elevated access: x device:/d"}}`, nil, t.TempDir())
@@ -309,6 +315,7 @@ func (w *world) jobState(t *testing.T, id string) string {
 // Deleting a tile cancels its own parked jobs, not the parked promote of the
 // env it sat in.
 func TestDeleteTileKeepsEnvWidePromote(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	a := w.tile(t, "a", false)
@@ -327,6 +334,7 @@ func TestDeleteTileKeepsEnvWidePromote(t *testing.T) {
 
 // Closing a PR cancels the jobs parked on its env.
 func TestPRClosedCancelsParkedJobs(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
@@ -344,6 +352,7 @@ func TestPRClosedCancelsParkedJobs(t *testing.T) {
 // A tile asking for host access is not deployed in a PR env, and does not
 // park for an admin.
 func TestPREnvTileWithHostAccessNotDeployed(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{
@@ -362,6 +371,7 @@ func TestPREnvTileWithHostAccessNotDeployed(t *testing.T) {
 
 // A promote that removes a tile drops its grant lines.
 func TestPromoteRemovingTileDropsGrant(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -439,6 +449,7 @@ func dropRig(t *testing.T, devices string, lines ...string) (*world, Tile, store
 }
 
 func TestDropTileGrantKeepsLinesSurvivorAsks(t *testing.T) {
+	t.Parallel()
 	w, dev, row := dropRig(t, "/dev/dri", "mon device:/dev/dri")
 	must(t, w.orch.dropTileGrant(context.Background(), dev))
 	w.orch.vipAsync.Wait()
@@ -450,6 +461,7 @@ func TestDropTileGrantKeepsLinesSurvivorAsks(t *testing.T) {
 }
 
 func TestDropTileGrantCutsOnlyExtraLines(t *testing.T) {
+	t.Parallel()
 	w, dev, row := dropRig(t, "/dev/dri", "mon device:/dev/dri", "mon device:/dev/kvm", "other lan:1.2.3.4:5")
 	must(t, w.orch.dropTileGrant(context.Background(), dev))
 	w.orch.vipAsync.Wait()
@@ -462,6 +474,7 @@ func TestDropTileGrantCutsOnlyExtraLines(t *testing.T) {
 }
 
 func TestDropTileGrantReadErrorAborts(t *testing.T) {
+	t.Parallel()
 	w, dev, row := dropRig(t, "/dev/dri", "mon device:/dev/kvm")
 	w.orch.hostgrant = hostgrant.New(failRead{w.st.HostGrants})
 	if err := w.orch.dropTileGrant(context.Background(), dev); err == nil {

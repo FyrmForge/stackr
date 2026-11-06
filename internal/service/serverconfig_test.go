@@ -16,6 +16,7 @@ import (
 
 // The binding is the five server_config_* settings, read as one struct.
 func TestServerConfigBinding(t *testing.T) {
+	t.Parallel()
 	orch, ctx := servicetest.New(t).Orch, context.Background()
 	if b, err := orch.ServerConfigBinding(ctx); err != nil || b != (service.ServerBinding{}) {
 		t.Fatalf("fresh binding = %+v, %v; want unbound", b, err)
@@ -58,6 +59,7 @@ func seedServerPlan(t *testing.T, env *servicetest.Env, plan string, age time.Du
 
 // The plans list is newest first and capped; a missing id is not found.
 func TestServerPlansListAndGet(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	old := seedServerPlan(t, env, `{}`, 2*time.Hour)
 	fresh := seedServerPlan(t, env, `{}`, time.Hour)
@@ -78,6 +80,7 @@ func TestServerPlansListAndGet(t *testing.T) {
 
 // Reject ends a pending plan once; an approved one is not rejectable.
 func TestRejectServerPlan(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	p := seedServerPlan(t, env, `{}`, 0)
 	got, err := env.Orch.RejectServerPlan(ctx, p.ID)
@@ -93,6 +96,7 @@ func TestRejectServerPlan(t *testing.T) {
 // name a removal row, both land on the row, and the apply job is queued with
 // the approver and the locks (the plan, the server, each org that exists).
 func TestApproveServerPlanContract(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	acme := env.Org(t, "acme")
 	risky := seedServerPlan(t, env, `{"changes":[`+
@@ -161,6 +165,7 @@ func TestApproveServerPlanContract(t *testing.T) {
 // A push on the bound repo and branch, through the server's connector,
 // queues a server plan; anything else queues nothing.
 func TestQueueServerPlan(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	for k, v := range map[string]string{
 		"server_config_connector": "c1",
@@ -203,6 +208,7 @@ func TestQueueServerPlan(t *testing.T) {
 // The binding takes a server connector only, and an empty repo unbinds: the
 // five settings clear and the plans nobody approved are rejected.
 func TestBindServerConfig(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	orgConn := env.Connector(t, env.Org(t, "acme"), "whsec")
 

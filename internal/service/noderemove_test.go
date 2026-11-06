@@ -207,6 +207,7 @@ func TestRunRemoveNodeFailedBackupKeepsTheNode(t *testing.T) {
 // The refusals: the default ingress, an offline node, and a node that is
 // another node's default exit.
 func TestRemoveNodeRefusals(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()

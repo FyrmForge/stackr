@@ -49,6 +49,7 @@ func tileWithDomains(now time.Time) []stmt {
 // An org delete removes everything under it through SQL alone: FK cascades
 // for real parent ids, triggers for the polymorphic scopes.
 func TestOrgDeleteCascades(t *testing.T) {
+	t.Parallel()
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
@@ -117,6 +118,7 @@ func TestOrgDeleteCascades(t *testing.T) {
 // A stack delete takes its own resource and its tiles' domains, even one
 // named by the org's resource, and leaves the org's resource standing.
 func TestStackDeleteCascades(t *testing.T) {
+	t.Parallel()
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
@@ -146,6 +148,7 @@ func TestStackDeleteCascades(t *testing.T) {
 
 // A resource a domain names cannot go; the level must match the owner.
 func TestDomainResourceGuards(t *testing.T) {
+	t.Parallel()
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{
@@ -220,6 +223,7 @@ func ids(t *testing.T, db *sqlx.DB, table string) []string {
 // binding, the slice tile its provision and every binding, the instance (or
 // its tile, or the org) everything cut from it.
 func TestSliceCascades(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name       string
 		del        string
@@ -250,6 +254,7 @@ func TestSliceCascades(t *testing.T) {
 // The slice schema refuses what it can: a second provision on one slice
 // tile, a second binding per consumer, access outside read and write.
 func TestSliceGuards(t *testing.T) {
+	t.Parallel()
 	db := sliceWorld(t)
 	now := time.Now()
 	for _, bad := range []stmt{

@@ -5,6 +5,7 @@ import "testing"
 // A routed pair is no line on the map; its hop goes on the card of the end
 // with fewer working tunnels. A pair not judged yet stays drawn.
 func TestDirectLinksDropRouted(t *testing.T) {
+	t.Parallel()
 	nodes := []ClusterNode{{ID: "ctl"}, {ID: "h4"}, {ID: "h3"}, {ID: "ct"}}
 	links := []ClusterLink{
 		{A: "ctl", B: "h4"}, {A: "ctl", B: "ct"}, {A: "ct", B: "h4"}, {A: "h3", B: "h4"},

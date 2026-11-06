@@ -99,6 +99,11 @@ func Store(t *testing.T) *store.Store {
 	return storetest.Store(t)
 }
 
+// StoreAt is a store at an older migration version (storetest.StoreAt).
+func StoreAt(t *testing.T, version uint) *store.Store {
+	return storetest.StoreAt(t, version)
+}
+
 func open(t *testing.T, path string) *store.Store {
 	return storetest.Open(t, path)
 }

@@ -82,6 +82,7 @@ func TestBreakGlassRefusesDuringRollover(t *testing.T) {
 
 // M8: a join request spent before the incident is rejected, not left pending.
 func TestBreakGlassRejectsPendingJoins(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	adm := adminP()
@@ -101,6 +102,7 @@ func TestBreakGlassRejectsPendingJoins(t *testing.T) {
 // Break glass writes the new root under rollMu, the lock the panel backup
 // copies under: while it is held, the CA files stay as they were.
 func TestBreakGlassWritesCAUnderRollMu(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	read := func() []byte {

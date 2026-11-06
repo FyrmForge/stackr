@@ -8,6 +8,7 @@ import (
 // The panel backup is off the box once an off-box destination exists: named
 // in panel_backup_dest, or receiving a copy of the local backup.
 func TestPanelBackupOffBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	check := func(want bool, when string) {

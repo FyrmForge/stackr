@@ -14,6 +14,7 @@ import (
 // A host-access park resumes by itself once the stack's grant covers its ask,
 // even when the grant came from another job's approval, not ApproveHostGrant.
 func TestCoveredParkResumes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now()

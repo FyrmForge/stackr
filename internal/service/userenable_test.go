@@ -9,6 +9,7 @@ import (
 
 // Enable flips the flag back and nothing else: what disable closed stays closed.
 func TestEnableUserRoundTrip(t *testing.T) {
+	t.Parallel()
 	e := servicetest.New(t)
 	ctx := context.Background()
 	u := e.User(t, "u@x.test", false)

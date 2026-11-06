@@ -7,6 +7,7 @@ import (
 
 // Only the envs on the controller are named, and only once a worker exists.
 func TestControllerEnvs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	name, envs, err := n.orch.ControllerEnvs(ctx, n.stack)

@@ -26,6 +26,7 @@ func byKey(t *testing.T, orch *service.Orchestrator) map[string]service.ServerSe
 // secret is never echoed nor cleared by an empty field. The server file's
 // binding is the Config tab's, not a row here.
 func TestServerSettings(t *testing.T) {
+	t.Parallel()
 	env := servicetest.New(t)
 	orch, ctx := env.Orch, context.Background()
 	all := map[string]string{}
@@ -71,6 +72,7 @@ func TestServerSettings(t *testing.T) {
 // The heartbeat URL carries a secret: the Settings listing, the masked
 // read and the server-file export never show it.
 func TestHeartbeatURLStaysHidden(t *testing.T) {
+	t.Parallel()
 	env := servicetest.New(t)
 	orch, ctx := env.Orch, context.Background()
 	const secret = "tok-heartbeat-secret-91"

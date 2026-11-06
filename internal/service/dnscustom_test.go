@@ -55,6 +55,7 @@ func conflict(t *testing.T, err error, has string) {
 // hand is taken over (no duplicate, and it then goes with the hostname),
 // and a CNAME wants its name to itself, both ways.
 func TestCustomRecordsAlongside(t *testing.T) {
+	t.Parallel()
 	env, _, tl, d := customRig(t)
 	ctx := context.Background()
 	env.DNS.Put("acme.dev",
@@ -124,6 +125,7 @@ func TestCustomRecordsAlongside(t *testing.T) {
 // aside), refused both ways with the same message. Decision 1: an app's
 // records stay on its own name and below, never another app's.
 func TestCustomRecordNameClash(t *testing.T) {
+	t.Parallel()
 	env, conn, tl, d := customRig(t)
 	ctx := context.Background()
 	_, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "A", Value: "203.0.113.5"})
@@ -164,6 +166,7 @@ func TestCustomRecordNameClash(t *testing.T) {
 // A node's own address is stackr's: an A there (which would split the
 // node's traffic with an attacker's) is refused, a TXT is not.
 func TestCustomRecordNotOnANodeAddress(t *testing.T) {
+	t.Parallel()
 	env, conn, _, _ := customRig(t)
 	ctx := context.Background()
 	ns, err := env.Store.Nodes.List(ctx)
@@ -184,6 +187,7 @@ func TestCustomRecordNotOnANodeAddress(t *testing.T) {
 // Decisions 2, 4 and 8: a record on a name stackr does not manage, outside
 // its scope, or on a domain the org may not use is refused naming both.
 func TestCustomRecordNotManaged(t *testing.T) {
+	t.Parallel()
 	env, conn, tl, d := customRig(t)
 	ctx := context.Background()
 	other, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.example.org"})
@@ -249,6 +253,7 @@ func TestCustomRecordNotManaged(t *testing.T) {
 // back on the next records sync, and the drawer says so. An edited CNAME
 // is replaced, never doubled.
 func TestCustomRecordPutBack(t *testing.T) {
+	t.Parallel()
 	env, conn, tl, d := customRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Name: "_dmarc", Type: "TXT", Value: "v=DMARC1; p=none"}); err != nil {
@@ -301,6 +306,7 @@ func TestCustomRecordPutBack(t *testing.T) {
 // goes. An MX stackr already has there is reported by the sync, never put
 // back run after run.
 func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
+	t.Parallel()
 	env, conn, tl, d := customRig(t)
 	ctx := context.Background()
 	const why = "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
@@ -396,6 +402,7 @@ func TestCustomMXRefusedWithoutCustomMX(t *testing.T) {
 // refused when it carries an MX, as adding one there is; without an MX it
 // moves.
 func TestMoveRefusesMXWithoutCustomMX(t *testing.T) {
+	t.Parallel()
 	env, conn, tl, d := customRig(t)
 	ctx := context.Background()
 	const why = "This domain uses Namecheap mail forwarding. Switch Mail Settings to Custom MX first."
@@ -430,6 +437,7 @@ func TestMoveRefusesMXWithoutCustomMX(t *testing.T) {
 // A rename moving a generated hostname with an MX is never refused for the
 // zone's mail setting: the rename is committed, the MX reads not live.
 func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
+	t.Parallel()
 	env, _, tl, _ := customRig(t)
 	ctx := context.Background()
 	d, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Auto: true})
@@ -455,6 +463,7 @@ func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
 // An add the sync cannot write is saved, not an error: it answers written
 // false with the reason, and the next sync writes it.
 func TestAddRecordSyncFailureIsANote(t *testing.T) {
+	t.Parallel()
 	env, conn, tl, d := customRig(t)
 	ctx := context.Background()
 	env.DNS.Fail(errors.New("provider down"))
@@ -478,6 +487,7 @@ func TestAddRecordSyncFailureIsANote(t *testing.T) {
 
 // A record whose full name runs past 253 characters is refused on its name.
 func TestCustomRecordNameTooLong(t *testing.T) {
+	t.Parallel()
 	env, _, tl, d := customRig(t)
 	long := strings.TrimSuffix(strings.Repeat(strings.Repeat("a", 60)+".", 4), ".") // 243, then .shop.acme.dev
 	_, err := env.Orch.AddTileDomainRecord(context.Background(), tl.ID, d.ID, service.CustomRecordIn{Name: long, Type: "TXT", Value: "v"})

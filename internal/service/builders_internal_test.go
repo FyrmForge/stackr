@@ -10,6 +10,7 @@ import (
 // The builder with the most available memory builds; the controller wins
 // ties and builds when no node is tagged.
 func TestPickBuilder(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		cands []builderCand
@@ -31,6 +32,7 @@ func TestPickBuilder(t *testing.T) {
 // A worker that drops out mid-build hands the build to the controller; a
 // build that fails on a worker still answering keeps its error.
 func TestBuildFallback(t *testing.T) {
+	t.Parallel()
 	fail := errors.New("build failed")
 	for _, c := range []struct {
 		name    string

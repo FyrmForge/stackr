@@ -17,16 +17,19 @@ type Git struct {
 	root string
 }
 
+// isolated keeps the machine's own git config out of the clones. It rides the
+// commands' env, not t.Setenv, so tests using a Git can run in parallel.
+var isolated = []string{"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1"}
+
 func NewGit(t *testing.T) *Git {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	return &Git{root: t.TempDir()}
 }
 
 // Option clones through the root: file:// allowed, github.com rewritten.
 func (g *Git) Option() service.Option {
 	return service.WithGit(
+		isolated[0], isolated[1],
 		"GIT_ALLOW_PROTOCOL=https:ssh:file",
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=url.file://"+g.root+"/.insteadOf",
@@ -51,6 +54,7 @@ func (g *Git) Commit(t *testing.T, repo, branch string, files map[string]string)
 			"-c", "commit.gpgsign=false",
 		}, args...)...)
 		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), isolated...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

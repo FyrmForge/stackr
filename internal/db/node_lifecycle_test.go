@@ -15,7 +15,8 @@ import (
 // orphaned and pinned to the env's node, without its schedule; backup groups
 // null their runs' group_id; jobs admits 'skipped'.
 func TestNodeLifecycleMigrationRoundTrip(t *testing.T) {
-	st := servicetest.Store(t)
+	t.Parallel()
+	st := servicetest.StoreAt(t, 24)
 	db := st.DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
@@ -25,11 +26,6 @@ func TestNodeLifecycleMigrationRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(24 - int(v)) // the shape before 025
 
 	now := time.Now()
 	execAll(t, db, []stmt{

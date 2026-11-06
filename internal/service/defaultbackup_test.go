@@ -8,6 +8,7 @@ import (
 // A new volume gets a daily backup to an off-box destination its org can use;
 // with none (only the local disk) it gets no schedule.
 func TestNewVolumeGetsDefaultSchedule(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	v, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "plain")

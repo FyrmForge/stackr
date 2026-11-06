@@ -21,6 +21,7 @@ import (
 // mesh listener with its node cert; never without one, nor from a worker
 // that is not an ingress node.
 func TestMeshDNS(t *testing.T) {
+	t.Parallel()
 	o, own := renewRig(t)
 	leaf, err := x509.ParseCertificate(own.Certificate[0])
 	must(t, err)
@@ -53,6 +54,7 @@ func TestMeshDNS(t *testing.T) {
 
 // An ingress worker may answer a challenge only for a host routed to it.
 func TestACMEHostsServed(t *testing.T) {
+	t.Parallel()
 	o, _ := renewRig(t)
 	ctx := context.Background()
 	n, err := o.store.Nodes.Get(ctx, "w1")

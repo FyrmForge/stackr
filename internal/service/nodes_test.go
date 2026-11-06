@@ -33,6 +33,7 @@ import (
 // A Docker call with no node in its context fails loudly, and touches no
 // daemon: every caller has to decide which node it means.
 func TestRouterNeedsANode(t *testing.T) {
+	t.Parallel()
 	a := dockerfake.New()
 	r := NewRouter(map[string]Docker{"n1": a})
 	ctx := context.Background()
@@ -62,6 +63,7 @@ func TestRouterNeedsANode(t *testing.T) {
 // A node's tool image is made pullable first (the registry helper on a
 // worker); a failure stops the tool call before it reaches the node.
 func TestRouterToolReady(t *testing.T) {
+	t.Parallel()
 	a := dockerfake.New()
 	r := NewRouter(map[string]Docker{"w1": a})
 	var asked []string
@@ -82,6 +84,7 @@ func TestRouterToolReady(t *testing.T) {
 
 // Each call goes to the client of the node in its context, and only there.
 func TestRouterPicksTheNodesClient(t *testing.T) {
+	t.Parallel()
 	a, b := dockerfake.New(), dockerfake.New()
 	r := NewRouter(map[string]Docker{"n1": a})
 	r.Set("n2", b)
@@ -117,6 +120,7 @@ func sawCall(f *dockerfake.Fake, prefix string) bool {
 // the tool pull and the tar reach that node's daemon, the other's is never
 // asked. A pull without the node is refused by the router with ErrNoNode.
 func TestTarBackupRunsOnVolumeNode(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	var buf bytes.Buffer // an empty tar, gzipped: what the helper would stream
@@ -157,6 +161,7 @@ func TestTarBackupRunsOnVolumeNode(t *testing.T) {
 
 // The VIP table of a node is the one its calls reach; no node is an error.
 func TestNodeVIPsRouteByNode(t *testing.T) {
+	t.Parallel()
 	a, b := &recVIP{}, &recVIP{}
 	v := newNodeVIPs(map[string]tile.VIP{"n1": a})
 	v.Attach("n2", b)
@@ -304,6 +309,7 @@ func (n *twoNodes) wait(t *testing.T, j Job) Job {
 // An env created on a node deploys there: its network and containers are on
 // that node's daemon and the other's is never asked.
 func TestEnvRunsOnItsNode(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	for _, c := range []struct {
 		tl   Tile
@@ -330,6 +336,7 @@ func TestEnvRunsOnItsNode(t *testing.T) {
 // Reads and verbs on a tile of the worker env reach the worker's daemon:
 // status, logs, following a log, a restart job.
 func TestTileVerbsReachTheEnvsNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.wFake.Containers = []docker.Container{{
@@ -367,6 +374,7 @@ func TestTileVerbsReachTheEnvsNode(t *testing.T) {
 // A cleanup sweep prunes every node, not only the one it was queued from; a
 // node that fails leaves the others' work, and its own images, for the next.
 func TestCleanupPrunesEveryNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	must(t, n.orch.SetSetting(ctx, "cleanup_enabled", "true"))
@@ -414,6 +422,7 @@ func TestCleanupPrunesEveryNode(t *testing.T) {
 // The VIP rebuild declares each node's rules on its own table, from its own
 // daemon's pause containers, with its own networks in the filter.
 func TestRebuildVIPsPerNode(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.5.0/24"))
@@ -452,6 +461,7 @@ func TestRebuildVIPsPerNode(t *testing.T) {
 // The scheduler's traffic sample is controller work: no caller names a node
 // for it, and the router still finds one.
 func TestTrafficTickNeedsNoCallerNode(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	must(t, os.WriteFile(filepath.Join(n.dir, "nf_conntrack"), nil, 0o600))
 	if err := n.orch.trafficTick(context.Background()); err != nil {
@@ -468,6 +478,7 @@ func TestTrafficTickNeedsNoCallerNode(t *testing.T) {
 // Once calls are routed, an env row with no node is an error, not a guess; a
 // panel that does not route runs it on the controller, as before nodes.
 func TestUnplacedEnv(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	routed := newTwoNodes(t)
 	bare := store.Environment{ID: uuid.NewString(), StackID: routed.stack, Name: "old", Slug: "old", Type: "static", Settings: "{}",
@@ -494,6 +505,7 @@ func TestUnplacedEnv(t *testing.T) {
 // The hooks the tile and volume leaves are given: an env's own node, the
 // controller for what has none (a stack, an org, a share).
 func TestEnvAndScopeNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	ctl := ctlNode(t, w.orch)
@@ -529,6 +541,7 @@ func TestEnvAndScopeNode(t *testing.T) {
 // An image of stackr's own registry is pulled from localhost:5000 on the
 // node (the worker's front over the mesh) and tagged as named; others as is.
 func TestRouterPullsOwnRegistryLocally(t *testing.T) {
+	t.Parallel()
 	a := dockerfake.New()
 	r := NewRouter(map[string]Docker{"n1": a})
 	r.OwnRegistry = func(context.Context) string { return "registry.stkr.example.com" }

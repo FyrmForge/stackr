@@ -15,6 +15,7 @@ import (
 // The sync overlay tags the matching cards and draws the rows a sync would
 // create as static ghosts; with no overlay the canvas is what it was.
 func TestCanvasSyncOverlay(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	orch, err := New(
 		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},

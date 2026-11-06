@@ -24,6 +24,7 @@ import (
 // row and link is kept, the Namecheap account opens with its key, and the
 // GitHub App's webhook secret still verifies.
 func TestConnectorsMigration(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "stackr.db")
 	db, err := sqlite.Connect(path)

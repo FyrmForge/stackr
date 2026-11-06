@@ -52,6 +52,7 @@ func runNodeBackupNow(n *twoNodes) error {
 // the plain volume is tarred and the tiles start once. Both runs sit in one
 // group, which carries the local-fallback warning while no destination is set.
 func TestRunNodeBackupDumpsThenStopsTarsStarts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	pg, inst, plain := edgeData(t, n)
@@ -126,6 +127,7 @@ func TestRunNodeBackupDumpsThenStopsTarsStarts(t *testing.T) {
 
 // A global S3 destination is used and silences the warning.
 func TestNodeBackupUsesAGlobalDestination(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	_, _, _ = edgeData(t, n)
@@ -140,6 +142,7 @@ func TestNodeBackupUsesAGlobalDestination(t *testing.T) {
 
 // A tar that fails still starts the tiles again, and the group says failed.
 func TestRunNodeBackupFailedTarStartsTheTiles(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	_, _, plain := edgeData(t, n)
@@ -160,6 +163,7 @@ func TestRunNodeBackupFailedTarStartsTheTiles(t *testing.T) {
 
 // BackupEveryNode queues one job per online node.
 func TestBackupEveryNodeQueuesOnePerOnlineNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	seedNode(t, n, "h4", `[]`, "10.230.0.0/16")

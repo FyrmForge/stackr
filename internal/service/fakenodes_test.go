@@ -6,6 +6,7 @@ import (
 )
 
 func TestFakeJoinNode(t *testing.T) {
+	t.Parallel()
 	w, _, _ := joinWorld(t)
 	ctx := context.Background()
 	if _, err := w.orch.FakeJoinNode(ctx, "fake-1", nil, "127.0.0.1:7451", csrPEM(t), wgKey, nil); err == nil {

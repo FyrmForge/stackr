@@ -14,7 +14,8 @@ import (
 // rebuild keeps every org row, the server scope is accepted after it, the
 // down drops the server rows only, and the scope triggers still cascade.
 func TestServerParamsMigrationRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 5).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -23,11 +24,6 @@ func TestServerParamsMigrationRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(5 - int(v)) // the shape before 006
 
 	now := time.Now()
 	param := func(id, kind, scope, col string) stmt {

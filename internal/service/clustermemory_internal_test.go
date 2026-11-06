@@ -14,6 +14,7 @@ import (
 // direct tunnels, drawn down; a pair it never had a tunnel with stays
 // undrawn; a node cut off behind a down hop says so on its card.
 func TestOfflineNodeKeepsBoxAndDownLinks(t *testing.T) {
+	t.Parallel()
 	lan := worker.Facts{Interfaces: []worker.Iface{{Name: "enp7s0", Prefixes: []string{"10.0.0.3/16"}}}}
 	in := []clusterNodeIn{
 		{Node: store.Node{ID: "ctl", Name: "controller", Role: node.Controller, Status: node.StatusOnline}, Up: true},
@@ -64,6 +65,7 @@ func nodeIdx(m ClusterMap, id string) int {
 
 // Forgetting a node drops what the map remembered of it.
 func TestRemoveNodeForgetsMemory(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st := storetest.Store(t)
 	ctrl := storetest.Controller(t, st)

@@ -69,6 +69,7 @@ func ctlSerial(t *testing.T, o *Orchestrator) string {
 
 // The list holds the current serial from boot, so workers enforce it.
 func TestControllerSerialsSetAtBoot(t *testing.T) {
+	t.Parallel()
 	o := newClusterPanel(t)
 	if got := o.cluster.serials(); !slices.Equal(got, []string{ctlSerial(t, o)}) {
 		t.Fatalf("announced %v", got)

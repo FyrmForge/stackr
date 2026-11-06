@@ -10,6 +10,7 @@ import (
 )
 
 func TestPlacement(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
@@ -107,6 +108,7 @@ func TestPlacement(t *testing.T) {
 }
 
 func TestEnvMoveStatus(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
@@ -124,6 +126,7 @@ func TestEnvMoveStatus(t *testing.T) {
 }
 
 func TestHumanDuration(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[time.Duration]string{
 		420 * time.Millisecond: "0.4 s", 42600 * time.Millisecond: "43 s",
 		60680 * time.Millisecond: "1 min 1 s", 200 * time.Minute: "3 h 20 min",
@@ -135,6 +138,7 @@ func TestHumanDuration(t *testing.T) {
 }
 
 func TestHumanBytes(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[int64]string{0: "0 B", 999: "999 B", 12_400_000_000: "12.4 GB", 1500: "1.5 kB"} {
 		if got := HumanBytes(in); got != want {
 			t.Errorf("HumanBytes(%d) = %q, want %q", in, got, want)

@@ -16,7 +16,8 @@ import (
 // referenced worker or forgotten node), node access is copied, storage tags
 // land, and the down maps everything back to node ids.
 func TestPlacementsMigrationRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 26).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -25,11 +26,6 @@ func TestPlacementsMigrationRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(26 - int(v)) // the shape before 027
 
 	now := time.Now()
 	node := func(id, role, tags string, open int, cidr string) stmt {

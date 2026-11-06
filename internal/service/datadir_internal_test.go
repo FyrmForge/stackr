@@ -13,6 +13,7 @@ import (
 // A relative DataDir becomes absolute: a relative bind source is a volume
 // name to Docker.
 func TestDataDirIsAbsolute(t *testing.T) {
+	t.Parallel()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

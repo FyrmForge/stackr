@@ -16,6 +16,7 @@ import (
 // the stored one; a key the provider refuses is refused and the old
 // settings stay; the status says working, then the refusal a check got.
 func TestUpdateConnectorCredentials(t *testing.T) {
+	t.Parallel()
 	env, acme, _ := dnsRig(t)
 	ctx := context.Background()
 	a, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{OrgID: &acme, Kind: "namecheap", Values: account()})
@@ -66,6 +67,7 @@ func TestUpdateConnectorCredentials(t *testing.T) {
 // tile's path and the ingress node it points at; the Used by tab names
 // the same tile; stopping managing the domain is refused, naming it.
 func TestConnectorRecordsAndUsages(t *testing.T) {
+	t.Parallel()
 	env, acme, other, tl := recordsRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
@@ -104,6 +106,7 @@ func TestConnectorRecordsAndUsages(t *testing.T) {
 // Git usages: a stack whose config repo clones through a shared server
 // connection; an org sees only its own stacks.
 func TestGitUsages(t *testing.T) {
+	t.Parallel()
 	env, ctx := servicetest.New(t), context.Background()
 	acme, globex := env.Org(t, "acme"), env.Org(t, "globex")
 	srv := env.ServerConnector(t, "gh", "s")

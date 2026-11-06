@@ -9,6 +9,7 @@ import (
 // A member of org A must not see org B's names, ranges or node fingerprints
 // through the node and cluster views.
 func TestRedactedHidesOtherOrgs(t *testing.T) {
+	t.Parallel()
 	n := NodeOut{
 		Name: "w1", Placements: []string{"orgb-place"}, DefaultExit: []string{"exitb"},
 		Range: "10.9.0.0/24", WGAddress: "10.9.0.1", Version: "v0.6.9", Arch: "arm64",

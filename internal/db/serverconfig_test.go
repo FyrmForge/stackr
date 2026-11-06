@@ -24,7 +24,8 @@ func fkClean(t *testing.T, db interface {
 // reference a connector: the rebuild keeps them, the down drops what the old
 // shape cannot hold, and no foreign key is left dangling.
 func TestServerConfigMigrationRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 4).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -35,11 +36,6 @@ func TestServerConfigMigrationRoundTrip(t *testing.T) {
 	}
 	// Pin to 004 whatever is newest, so a later migration never changes what
 	// this test rolls back.
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(4 - int(v)) // the shape before 005
 
 	now := time.Now()
 	execAll(t, db, []stmt{
@@ -115,6 +111,7 @@ func TestServerConfigMigrationRoundTrip(t *testing.T) {
 
 // A server connector's shares go with the connector and with the org.
 func TestConnectorSharesCascade(t *testing.T) {
+	t.Parallel()
 	db := servicetest.Store(t).DB()
 	now := time.Now()
 	execAll(t, db, []stmt{

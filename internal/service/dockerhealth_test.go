@@ -7,6 +7,7 @@ import (
 )
 
 func TestDockerDownIsAProblemUntilItAnswers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	w.fake.Err = map[string]error{"HostInfo": errors.New("cannot connect")}

@@ -56,6 +56,7 @@ func TestNodeProxyFollowsIngressTag(t *testing.T) {
 // A proxy image that cannot be pulled leaves the running proxy alone, so
 // ingress stays up while the registry copy is missing.
 func TestNodeProxyPullFailureKeepsOldProxy(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	n.ctlFake.Details = map[string]docker.Detail{installspec.ProxyName: {Image: "ghcr.io/fyrmforge/stackr:9.9.9"}}

@@ -28,6 +28,7 @@ func pubKey(t *testing.T) string {
 // rotation with the trigger it was asked with, and refuses a key that is
 // not one.
 func TestRecoverTakesRotatedKeys(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	old, peer := pubKey(t), "peer-of-w1"
@@ -163,6 +164,7 @@ func TestRotateControllerOrder(t *testing.T) {
 
 // The controller pushes its new key to the farthest workers first.
 func TestHops(t *testing.T) {
+	t.Parallel()
 	next := map[[2]string]string{{"c", "w3"}: "w2", {"w2", "w3"}: "w1"}
 	if hops(next, "c", "w1") != 1 || hops(next, "c", "w3") != 3 {
 		t.Fatalf("hops = %d, %d", hops(next, "c", "w1"), hops(next, "c", "w3"))
@@ -172,6 +174,7 @@ func TestHops(t *testing.T) {
 // The schedule: off at 0, starts counting from its first run, due after
 // its days.
 func TestRotateDue(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	now := time.Now()
@@ -190,6 +193,7 @@ func TestRotateDue(t *testing.T) {
 // The gate between nodes: a pair that just went down holds it, an old one
 // does not; the last rotated key must carry traffic or a minute pass.
 func TestRotationSettled(t *testing.T) {
+	t.Parallel()
 	m := newMeshSvc(nil, nil)
 	now := time.Now()
 	m.down[[2]string{"a", "b"}] = now.Add(-time.Hour)

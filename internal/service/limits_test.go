@@ -41,6 +41,7 @@ func invalidWith(err error, want string) bool {
 // naming the host's limit (QA bug 1: 1.5 CPUs on a 1 CPU box took 7 tiles
 // down).
 func TestLimitsAboveHostRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	o := r.env.Orch
@@ -88,6 +89,7 @@ func TestLimitsAboveHostRefused(t *testing.T) {
 
 // A rung refused on both limits names both at once, a negative one too.
 func TestLimitsRefusedTogether(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	_, err := r.env.Orch.SetStackSettings(ctx, r.tile.Stack, `{"cpu_limit":999,"mem_limit_mb":-5}`)
@@ -103,6 +105,7 @@ func TestLimitsRefusedTogether(t *testing.T) {
 // An edit that leaves an already-too-big tile limit alone is not refused for
 // it: only a changed limit is checked.
 func TestLimitsUntouchedTileEditPasses(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	r.env.Docker.Host = docker.HostInfo{} // host unknown while the tile is set up
@@ -165,6 +168,7 @@ func must(t *testing.T, err error) {
 // dead tiles). A tile that never deployed, or whose last deploy worked, does
 // not.
 func TestFailedDeployTileStillRedeploys(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	o := r.env.Orch
@@ -210,6 +214,7 @@ func TestFailedDeployTileStillRedeploys(t *testing.T) {
 // A deploy that failed first, with nothing to its name before it, is not
 // retried by every cascade change.
 func TestFirstDeployFailureNotRetried(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	seedDeploy(t, r.env, r.tile.ID, "failed", time.Now().Add(-time.Minute))
@@ -225,6 +230,7 @@ func TestFirstDeployFailureNotRetried(t *testing.T) {
 // The server apply reports the redeploys it queued: one that fails fails the
 // apply job and the plan (QA bug 1: it read applied over 7 failed deploys).
 func TestServerApplyFailsWithItsRedeploys(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	o := r.env.Orch
@@ -281,6 +287,7 @@ func TestOrgApplyFailsWithItsRedeploys(t *testing.T) {
 // Password protection on with no user and password reaching the rung is
 // refused on both fields at every level; a pair from a level above passes.
 func TestProtectWithoutPairRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	o := r.env.Orch
@@ -321,6 +328,7 @@ func TestProtectWithoutPairRefused(t *testing.T) {
 
 // A depends_on line naming no other tile of the env is refused on its field.
 func TestDependsOnUnknownTileRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newLimitRig(t)
 	_, _, err := r.env.Orch.UpdateTile(ctx, r.tile.ID, func(t *service.Tile) error { t.DependsOn = "nosuchtile"; return nil })

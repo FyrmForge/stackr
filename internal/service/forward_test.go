@@ -13,6 +13,7 @@ import (
 // The replica's IP is 127.0.0.1 on the env network "n", so a local
 // listener stands in for the tile.
 func TestDialTilePort(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

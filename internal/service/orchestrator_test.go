@@ -160,6 +160,7 @@ func (w *world) wait(t *testing.T, id string) Job {
 // (the release image, flow/deploy's Redeploy); a stopped tile, a running
 // tile that does not read it and a write that changes nothing are left alone.
 func TestParamChangeRedeploysRunningTiles(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
@@ -194,6 +195,7 @@ func TestParamChangeRedeploysRunningTiles(t *testing.T) {
 // A :template files line reads every key; a slice ref reads what the
 // slice's provision_from reads.
 func TestParamReaders(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tpl := w.tile(t, "tpl", true)
@@ -234,6 +236,7 @@ func TestParamReaders(t *testing.T) {
 // A tile whose replica crashed on start has no container; logs answers
 // its last job's log, where the crash output was kept.
 func TestLogsOfACrashedTile(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tl := w.tile(t, "worker", false)
@@ -259,6 +262,7 @@ func TestLogsOfACrashedTile(t *testing.T) {
 // B20, B2: the dry run's blockers are the ones the promote job refuses
 // with, and a rollback takes the same path.
 func TestPromoteBlockersOneAnswer(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	other := uuid.NewString()
@@ -289,6 +293,7 @@ func TestPromoteBlockersOneAnswer(t *testing.T) {
 
 // A domain write pushes a whole config carrying Caddy's admin listener.
 func TestDomainPushesProxy(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", true)
@@ -302,6 +307,7 @@ func TestDomainPushesProxy(t *testing.T) {
 
 // B1, B21: UpdateTile edits the stored row; untouched fields survive.
 func TestUpdateTileKeepsUntouchedFields(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
@@ -318,6 +324,7 @@ func TestUpdateTileKeepsUntouchedFields(t *testing.T) {
 // B25: every deploy is a job row the caller polls; the verb returns before
 // the work and the row finishes on its own.
 func TestDeployIsAJobRow(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tl := w.tile(t, "api", false)
@@ -334,6 +341,7 @@ func TestDeployIsAJobRow(t *testing.T) {
 // A trusted_proxies value Caddy would reject is refused before it can break
 // every proxy push.
 func TestTrustedProxiesRefusesNonCIDR(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	if err := w.orch.SetSetting(ctx, "trusted_proxies", "10.0.0.0/8, cloudfare"); err == nil {
@@ -383,6 +391,7 @@ func (w *world) promoteTile(t *testing.T, slug, tiles string) Tile {
 
 // Step 3b: a function with trigger on_deploy gets one run per deploy.
 func TestOnDeployRuns(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	fn := w.promoteTile(t, "migrate",
 		"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: on_deploy\n")
@@ -400,6 +409,7 @@ func TestOnDeployRuns(t *testing.T) {
 // A function a dependent already ran inside this deploy is not queued again
 // by afterDeploy.
 func TestAfterDeploySkipsRunFirst(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	fn := w.promoteTile(t, "migrate",
 		"    migrate:\n      kind: function\n      image: busybox:1\n      trigger: on_deploy\n")
@@ -419,6 +429,7 @@ func TestAfterDeploySkipsRunFirst(t *testing.T) {
 // Step 3b: a promote of a stack file with a cron tile registers its
 // schedule entry; pausing the tile takes the entry out.
 func TestPromoteRegistersCron(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	cron := w.promoteCron(t)
@@ -444,6 +455,7 @@ func TestPromoteRegistersCron(t *testing.T) {
 
 // StopRun on a run whose job already finished still closes the row.
 func TestStopRunJobAlreadyFinished(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.WaitBlock = true
 	ctx := context.Background()
@@ -464,6 +476,7 @@ func TestStopRunJobAlreadyFinished(t *testing.T) {
 // Step 3b verbs: a manual run, the overlap refusal, StopRun (ownership
 // first), and the Stop/Restart guards.
 func TestRunVerbs(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.WaitBlock = true // a run goes until it is stopped
 	ctx := context.Background()
@@ -532,6 +545,7 @@ func TestRunVerbs(t *testing.T) {
 // The drawer reads: Routes names each domain's tile, TileVolumes finds the
 // env volumes a tile mounts and no other.
 func TestDrawerReads(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", true)
@@ -562,6 +576,7 @@ func TestDrawerReads(t *testing.T) {
 // Deleting a param a running tile reads redeploys it, and the answer names
 // the tile, env and job; a stopped tile is left alone.
 func TestDeleteParamNamesRedeploys(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
@@ -582,6 +597,7 @@ func TestDeleteParamNamesRedeploys(t *testing.T) {
 // plain ref, tiles anywhere by an [x] ref naming it; tier, pr and org
 // scopes likewise.
 func TestParamReadersByScope(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	envs := map[string]string{"dev": w.env}

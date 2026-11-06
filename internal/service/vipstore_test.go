@@ -12,6 +12,7 @@ import (
 // The minute rebuild costs one container list per node, whatever the tile
 // count: no per-tile list, no inspect.
 func TestRebuildOneListPerNode(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	for i := range 5 {
@@ -47,6 +48,7 @@ func TestRebuildOneListPerNode(t *testing.T) {
 // A stored VIP that no longer matches the pause container is drift: the
 // rebuild stores the real one.
 func TestRebuildReconcilesStoredVIP(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	must(t, n.st.TileVIPs.Set(ctx, n.devT.ID, n.ctl.ID, "10.213.1.9"))
@@ -66,6 +68,7 @@ func TestRebuildReconcilesStoredVIP(t *testing.T) {
 // network's lower half, and once that is stored a recreated pause (a restart
 // that lost it, a redeploy) asks for the same address again.
 func TestPauseIsPinned(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.213.1.0/24"))

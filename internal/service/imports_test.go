@@ -50,6 +50,7 @@ func fakeCopy(calls *[]copyCall) func(context.Context, string, string, authn.Aut
 // cluster's CPU types and records the version; the push callback tolerates
 // every org, and recordImage writes through the leaf.
 func TestImportContract(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	orch, err := New(
 		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},
@@ -99,6 +100,7 @@ func TestImportContract(t *testing.T) {
 }
 
 func TestDockerArch(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "armv7l": "arm", "i686": "386", "riscv64": "riscv64", "": "",
 	} {
@@ -111,6 +113,7 @@ func TestDockerArch(t *testing.T) {
 // The cluster's platforms are the nodes' CPU types, once each, and a node's
 // answer is kept for a minute.
 func TestClusterPlatforms(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.ctlFake.Host.Arch = "x86_64"
@@ -137,6 +140,7 @@ func TestClusterPlatforms(t *testing.T) {
 // and the worker pulls the org's registry copy at its digest, never under the
 // outside name.
 func TestMovePullsImports(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.cfg.RegistryImports = true
@@ -168,6 +172,7 @@ func TestMovePullsImports(t *testing.T) {
 // registry copy at its digest; an install without registry imports (a fake
 // host) pulls as before.
 func TestImportForDeploy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	var calls []copyCall
@@ -204,6 +209,7 @@ func TestImportForDeploy(t *testing.T) {
 // images to each: each container runs its own org's copy by digest, the
 // outside name is never tagged on the node, and each label pins its digest.
 func TestImportsDoNotShareANameAcrossOrgs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.cfg.RegistryImports = true
@@ -277,6 +283,7 @@ func TestImportsDoNotShareANameAcrossOrgs(t *testing.T) {
 // A registry that refuses an import comes back as one line: the ref once,
 // what to do about it, nothing of the registry's own error.
 func TestImportDeniedLine(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	orch, err := New(
 		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},

@@ -13,6 +13,7 @@ import (
 // A signature made for a renewal is no good as a recovery, and the other way
 // round.
 func TestSignedRequestsKeepTheirPurpose(t *testing.T) {
+	t.Parallel()
 	o, own := renewRig(t)
 	ctx := context.Background()
 	renew, err := worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "p1", Purpose: worker.PurposeRenew, CSR: newCSR(t)})
@@ -34,6 +35,7 @@ func TestSignedRequestsKeepTheirPurpose(t *testing.T) {
 
 // A node waiting for its rejoin neither renews nor recovers.
 func TestNeedsRejoinNodeCannotRenewOrRecover(t *testing.T) {
+	t.Parallel()
 	o, own := renewRig(t)
 	ctx := context.Background()
 	n, err := o.store.Nodes.Get(ctx, "w1")
