@@ -7,7 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
 	filippo.io/age v1.3.2
-	github.com/FyrmForge/hamr v0.45.1
+	github.com/FyrmForge/hamr v0.46.0
 	github.com/a-h/templ v0.3.1100
 	github.com/aws/aws-sdk-go-v2 v1.47.4
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.11

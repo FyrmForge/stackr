@@ -339,7 +339,8 @@ func (w *workerVIP) AllowTCP(ctx context.Context, src string, lo, hi int, on boo
 const registryTokenKeep = 7 * 24 * time.Hour
 
 // dailyChores renews and announces the controller cert (announceControllerCert;
-// New also runs it once at boot) and prunes expired registry tokens.
+// New also runs it once at boot), prunes expired registry tokens and
+// refreshes the query planner's stats.
 func (o *Orchestrator) dailyChores(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, dailyChoresBudget)
 	defer cancel()
@@ -353,6 +354,9 @@ func (o *Orchestrator) dailyChores(ctx context.Context) {
 	o.certAlerts(ctx)
 	o.backupWatch(ctx)
 	o.pruneOld(ctx)
+	if err := o.store.Optimize(ctx); err != nil {
+		slog.Warn("db: optimize", "err", err)
+	}
 	o.replanConfigs(ctx)
 	if err := o.store.RegistryTokens.DeleteExpiredBefore(ctx, time.Now().UTC().Add(-registryTokenKeep)); err != nil {
 		slog.Warn("registry: prune expired tokens", "err", err)

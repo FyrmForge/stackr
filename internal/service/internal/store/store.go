@@ -342,6 +342,12 @@ func (s *Store) Sweep(ctx context.Context) error {
 	return tx.Commit()
 }
 
+// Optimize refreshes the query planner's stats where they went stale.
+func (s *Store) Optimize(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "PRAGMA optimize")
+	return err
+}
+
 // Reseal moves every encrypted column and sealed setting from old's key to
 // next's in one transaction: all of it or none.
 func (s *Store) Reseal(ctx context.Context, old, next *secrets.Box) error {

@@ -940,7 +940,8 @@ func openDB(ctx context.Context, path string) (*sqlx.DB, error) {
 	if _, err := os.Stat(path); seedDB != nil && errors.Is(err, os.ErrNotExist) {
 		_ = os.WriteFile(path, seedDB, 0o600)
 	}
-	db, err := sqlite.ConnectContext(ctx, path)
+	// ~20 MB page cache; hamr keeps SQLite's 2 MB default.
+	db, err := sqlite.ConnectContext(ctx, path, sqlite.WithPragma("cache_size", "-20000"))
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
