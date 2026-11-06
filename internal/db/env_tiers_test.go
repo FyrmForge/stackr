@@ -14,7 +14,8 @@ import (
 // params CHECK takes the tier scopes, a tier delete takes its params, and
 // the down drops the new scopes' rows and keeps the rest.
 func TestEnvTiersMigrationRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 9).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -23,11 +24,6 @@ func TestEnvTiersMigrationRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(9 - int(v)) // the shape before 010
 
 	now := time.Now()
 	param := func(id, kind, scope string) stmt {

@@ -14,7 +14,8 @@ import (
 // join token's open_to_all and org_ids, the dead pin columns); its down
 // brings the shape back and rebuilds node access from the placements.
 func TestDropNodeAccessRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 27).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -23,11 +24,6 @@ func TestDropNodeAccessRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(27 - int(v)) // the shape before 028
 
 	now := time.Now()
 	execAll(t, db, []stmt{

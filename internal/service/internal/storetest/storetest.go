@@ -58,6 +58,74 @@ func Schema(t *testing.T) []byte {
 	return schema
 }
 
+var shapes = struct {
+	sync.Mutex
+	m map[uint][]byte
+}{m: map[uint][]byte{}}
+
+// SchemaAt is the migrated database file's bytes at an older migration
+// version. Walking down from the head costs seconds per step under -race, so
+// the walk keeps every version it passes: the first caller pays, the rest
+// copy.
+func SchemaAt(t *testing.T, version uint) []byte {
+	t.Helper()
+	shapes.Lock()
+	defer shapes.Unlock()
+	if b, ok := shapes.m[version]; ok {
+		return b
+	}
+	cfg := appdb.MigrateConfig()
+	path := filepath.Join(t.TempDir(), "shape.db")
+	// the nearest shape above the wanted one, else the head
+	base, from := Schema(t), uint(0)
+	for v, b := range shapes.m {
+		if v > version && (from == 0 || v < from) {
+			base, from = b, v
+		}
+	}
+	if err := os.WriteFile(path, base, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Connect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	v, _, err := sqlite.MigrateVersion(db, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ; v > version; v-- {
+		if err := sqlite.MigrateSteps(db, cfg, -1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shapes.m[v-1] = b
+	}
+	if b, ok := shapes.m[version]; ok {
+		return b
+	}
+	t.Fatalf("storetest: no schema at version %d", version)
+	return nil
+}
+
+// StoreAt is a store on a database at an older migration version, for a
+// migration test that starts from the shape before it.
+func StoreAt(t *testing.T, version uint) *store.Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stackr.db")
+	if err := os.WriteFile(path, SchemaAt(t, version), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Open(t, path)
+}
+
 // Store is a fresh migrated store.
 func Store(t *testing.T) *store.Store {
 	t.Helper()

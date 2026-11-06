@@ -14,7 +14,8 @@ import (
 // columns come and go, rows made before it keep their data, and one
 // controller row is all the unique index admits.
 func TestNodesMigrationRoundTrip(t *testing.T) {
-	db := servicetest.Store(t).DB()
+	t.Parallel()
+	db := servicetest.StoreAt(t, 10).DB()
 	cfg := appdb.MigrateConfig()
 	step := func(n int) {
 		t.Helper()
@@ -23,11 +24,6 @@ func TestNodesMigrationRoundTrip(t *testing.T) {
 		}
 		fkClean(t, db)
 	}
-	v, _, err := sqlite.MigrateVersion(db, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(10 - int(v)) // the shape before 011
 
 	now := time.Now()
 	execAll(t, db, []stmt{
