@@ -1,6 +1,9 @@
 -- job_tiles: one row per id in a job's lock_set (tiles, envs, plans, "*"), kept
 -- by triggers so every write path stays in step. Lets ListTouching use an
 -- index instead of json_each over every job.
+-- A later migration that rebuilds jobs (new table, copy, drop, rename) must
+-- recreate both triggers and rerun the backfill: the drop cascades job_tiles
+-- away and takes the triggers with it.
 CREATE TABLE job_tiles (
     job_id   TEXT  NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
     tile_id  TEXT  NOT NULL,

@@ -173,16 +173,16 @@ func TestLogCap(t *testing.T) {
 	}
 }
 
-// Docker's data root is mounted read-only at the same path when known and
+// An empty dir on Docker's disk is mounted read-only at its data root when known and
 // not already under the data dir; empty adds nothing.
 func TestPanelDockerRoot(t *testing.T) {
 	in := plainIn
 	base := len(Panel(Image("1.2.3"), in).Volumes)
 	in.DockerRoot = "/mnt/docker"
-	if v := Panel(Image("1.2.3"), in).Volumes; !slices.Contains(v, "/mnt/docker:/mnt/docker:ro") || len(v) != base+1 {
+	if v := Panel(Image("1.2.3"), in).Volumes; !slices.Contains(v, "/mnt/docker/.stackr-disk:/mnt/docker:ro") || len(v) != base+1 {
 		t.Errorf("volumes %v lack the docker root mount", v)
 	}
-	for _, r := range []string{"", in.DataDir, in.DataDir + "/docker"} {
+	for _, r := range []string{"", in.DataDir, in.DataDir + "/docker", "/a:b"} {
 		in.DockerRoot = r
 		if v := Panel(Image("1.2.3"), in).Volumes; len(v) != base {
 			t.Errorf("root %q added a volume: %v", r, v)

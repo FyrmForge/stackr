@@ -201,7 +201,9 @@ type table[T any] struct {
 	idx int
 }
 
-// label binds a sealed column to its table, row and place in secret().
+// label binds a sealed column to its table, row and place in secret(). The
+// place is part of every stored value: never reorder or insert into a
+// table's secret() list, only append.
 func (t table[T]) label(row *T, j int) string {
 	return fmt.Sprintf("%s/%s/%d", t.name, reflect.ValueOf(row).Elem().Field(t.idx).String(), j)
 }
@@ -302,13 +304,19 @@ func (t table[T]) sweep(ctx context.Context, q querier, box *secrets.Box) error 
 	for i := range rows {
 		changed := false
 		for j, p := range t.secret(&rows[i]) {
-			if !secrets.Legacy(*p) {
+			v := *p
+			switch {
+			case secrets.Legacy(v):
+				var err error
+				if v, err = box.DecryptLegacy(v); err != nil {
+					return fmt.Errorf("%s: %w", t.name, err)
+				}
+			case plainOK[t.name] && v != "" && !secrets.Sealed(v):
+				// plaintext an older Update wrote; seal it now
+			default:
 				continue
 			}
-			v, err := box.DecryptLegacy(*p)
-			if err != nil {
-				return fmt.Errorf("%s: %w", t.name, err)
-			}
+			var err error
 			if *p, err = box.Encrypt(v, t.label(&rows[i], j)); err != nil {
 				return err
 			}
@@ -323,20 +331,31 @@ func (t table[T]) sweep(ctx context.Context, q querier, box *secrets.Box) error 
 	return nil
 }
 
-// Sweep moves every enc1 value (columns and settings) to enc2 in one
-// transaction. Run it once at open, before anything reads a secret.
+// sweptKey marks a database whose sealed values all carry their label, so
+// later boots skip the full read. A restored older archive has none.
+const sweptKey = "secrets_labelled"
+
+// Sweep moves every enc1 value (columns and settings) to enc2, and seals
+// plaintext an older write left in a plainOK table, in one transaction. Run
+// it at open, before anything reads a secret; after the first it is one read.
 func (s *Store) Sweep(ctx context.Context) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, done, err := (settings{tx, s.box}).Get(ctx, sweptKey); err != nil || done {
+		return err
+	}
 	for _, sw := range sweepers {
 		if err := sw(ctx, tx, s.box); err != nil {
 			return err
 		}
 	}
 	if err := sweepSettings(ctx, tx, s.box); err != nil {
+		return err
+	}
+	if err := (settings{tx, s.box}).Set(ctx, sweptKey, "1"); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -65,8 +65,6 @@ func (l *Leaf) Register(ctx context.Context, email, hash, name string) (store.Us
 
 // CreateAdmin makes the install's first account, the stackr admin. The
 // installer calls it once; with any account present it refuses.
-// ponytail: count then insert is not atomic; two installers racing on one
-// data dir could both pass. One installer runs per box.
 func (l *Leaf) CreateAdmin(ctx context.Context, email, hash, name string) (store.User, error) {
 	all, err := l.users.List(ctx)
 	if err != nil {

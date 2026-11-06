@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/secrets"
@@ -58,6 +59,10 @@ func TestSweepMovesLegacyValues(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// plaintext an older Update left in a plainOK table
+	if _, err := s.DB().ExecContext(ctx, `UPDATE orgs SET settings = '{"p":1}' WHERE id = 'o1'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.Credentials.Get(ctx, "c1"); err == nil {
 		t.Fatal("enc1 opened before the sweep")
 	}
@@ -69,6 +74,13 @@ func TestSweepMovesLegacyValues(t *testing.T) {
 	}
 	if v, err := s.Settings.GetSealed(ctx, "k"); err != nil || v != "setting-v" {
 		t.Errorf("setting after sweep = %q, %v", v, err)
+	}
+	var raw string
+	if err := s.DB().GetContext(ctx, &raw, `SELECT settings FROM orgs WHERE id = 'o1'`); err != nil || !strings.HasPrefix(raw, "enc2:") {
+		t.Errorf("plaintext org settings not sealed: %v", err)
+	}
+	if o, err := s.Orgs.Get(ctx, "o1"); err != nil || o.Settings != `{"p":1}` {
+		t.Errorf("org settings after sweep = %q, %v", o.Settings, err)
 	}
 	if err := s.Sweep(ctx); err != nil {
 		t.Errorf("second sweep: %v", err)

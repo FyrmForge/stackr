@@ -193,6 +193,10 @@ type Input struct {
 	DockerRoot string `json:"docker_root,omitempty"`
 }
 
+// dockerRootProbe is the empty dir under Docker's data root the panel mounts
+// in its place.
+const dockerRootProbe = ".stackr-disk"
+
 // AdminDir is the host directory holding the proxy's admin socket.
 func (in Input) AdminDir() string { return in.DataDir + "/proxy" }
 
@@ -296,10 +300,13 @@ func Panel(image string, in Input) Container {
 		"/sys/fs/cgroup:" + HostRoot + "/sys/fs/cgroup:ro",
 		"/proc:" + HostRoot + "/proc:ro",
 	}
-	// Docker's data root, so the disk checks read its disk; skipped when the
-	// data dir mount already covers it.
-	if r := in.DockerRoot; r != "" && r != "/" && r != in.DataDir && !strings.HasPrefix(r, in.DataDir+"/") {
-		vols = append(vols, r+":"+r+":ro")
+	// An empty dir on Docker's disk, mounted at Docker's data root, so the
+	// disk checks statfs that disk without the panel seeing any container's
+	// files. Docker creates the dir. Skipped when the data dir mount already
+	// covers the root, or for a path a bind string cannot carry.
+	if r := in.DockerRoot; r != "" && r != "/" && r != in.DataDir && !strings.HasPrefix(r, in.DataDir+"/") &&
+		!strings.ContainsAny(r, ":,") {
+		vols = append(vols, r+"/"+dockerRootProbe+":"+r+":ro")
 	}
 	return Container{
 		Name:        PanelName,

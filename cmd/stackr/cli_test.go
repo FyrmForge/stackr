@@ -253,7 +253,7 @@ func TestAccountKeyLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), CSRFCookie: "csrf"})
 	ts := httptest.NewServer(srv.Echo())
 	t.Cleanup(ts.Close)
 	u := env.User(t, "o@x", false)
@@ -293,7 +293,7 @@ func TestDeployFollows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), CSRFCookie: "csrf"})
 	ts := httptest.NewServer(srv.Echo())
 	t.Cleanup(ts.Close)
 	org := env.Org(t, "acme")
@@ -593,7 +593,7 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), CSRFCookie: "csrf"})
 	ts := httptest.NewServer(srv.Echo())
 	t.Cleanup(ts.Close)
 	org := env.Org(t, "acme")
