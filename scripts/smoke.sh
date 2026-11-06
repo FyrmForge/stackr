@@ -73,6 +73,8 @@ app_answers() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$APP
 wait_app() { local i; for ((i = 0; i < ${1:-30}; i++)); do app_answers && return 0; sleep 2; done; return 1; }
 # job_state ID: the job's state through the admin route (survives the panel restart)
 job_state() { api GET "/admin/jobs/$1" 2>/dev/null | jq -r .state; }
+# job_log ID: the job's own log tail, for a failed job (lines naming keys left out)
+job_log() { echo "--- job $1 log (tail)"; api GET "/admin/jobs/$1/log" 2>/dev/null | jq -r .log | grep -viE 'key|token|password|secret' | tail -60; }
 wait_job() { # ID SECONDS -> prints the final state
 	local i s=""
 	for ((i = 0; i < $2 / 3; i++)); do
@@ -125,13 +127,14 @@ s="$(
 		sleep 3
 	done
 )"
-[[ "$s" == done ]] || die "deploy job ended '$s'"
+[[ "$s" == done ]] || { job_log "$JOB"; die "deploy job ended '$s'"; }
 check "nginx answers on http://$APPHOST/ through the proxy" wait_app
 
 # ---- 3. upgrade through the panel's own path
 JOB="$(api POST /admin/upgrade "{\"tag\":\"$NEW\"}" | jq -r .id)" || die "POST /admin/upgrade $NEW was refused"
 [[ -n "$JOB" && "$JOB" != null ]] || die "the upgrade returned no job"
 s="$(wait_job "$JOB" 420)"
+[[ "$s" == done ]] || job_log "$JOB"
 check "upgrade job to $NEW finished 'done' (got '$s')" test "$s" = done
 check "panel healthy after the upgrade" wait_healthy 60
 check "panel reports $NEW" test "$(version)" = "$NEW"

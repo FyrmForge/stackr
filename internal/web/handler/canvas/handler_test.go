@@ -171,7 +171,7 @@ func TestEnvEventsCarryLanes(t *testing.T) {
 		t.Fatalf("env page has no lanes layer or stream under /-/:\n%s", page)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
+	time.AfterFunc(time.Second, cancel) // room for the first footer poll under a loaded -race run
 	body := s.DoCtx(ctx, t, "GET", "/acme/shop/dev/-/events", nil).Body.String()
 	if !strings.Contains(body, "event: traffic\ndata: <svg data-lanes id=\"graph-lanes\"") ||
 		!strings.Contains(body, "event: footer:"+s.Tile.ID) {
