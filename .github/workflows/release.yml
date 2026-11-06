@@ -11,33 +11,11 @@ permissions:
   contents: write
 
 jobs:
+  # One job, in this order: work out the version (dry run, no tag), build and
+  # push that version's images, then tag and publish the release, attach the
+  # installer and move :latest last. A failed build leaves no empty release.
   release:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master'
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.semantic.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Semantic release
-        id: semantic
-        uses: go-semantic-release/action@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          allow-initial-development-versions: true
-          # Stay on 0.8.x for now: feat: bumps the patch like fix:. Drop
-          # these two options to let feat: cut a minor again.
-          custom-arguments: --commit-analyzer-opt minor_release_rules=release-minor --commit-analyzer-opt patch_release_rules=feat,fix
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-release:
-    needs: release
-    if: needs.release.outputs.version != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -48,38 +26,68 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      - name: Next version (dry run)
+        id: next
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry: true
+          allow-initial-development-versions: true
+          # Stay on 0.8.x for now: feat: bumps the patch like fix:. Drop
+          # these two options to let feat: cut a minor again.
+          custom-arguments: --commit-analyzer-opt minor_release_rules=release-minor --commit-analyzer-opt patch_release_rules=feat,fix
+
       - uses: actions/setup-go@v5
+        if: steps.next.outputs.version != ''
         with:
           go-version-file: go.mod
 
       - uses: actions/setup-node@v4
+        if: steps.next.outputs.version != ''
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
       - name: Install deps
+        if: steps.next.outputs.version != ''
         run: make install
 
       - name: Build image and installer
-        run: make release RELEASE=v${{ needs.release.outputs.version }}
+        if: steps.next.outputs.version != ''
+        run: make release RELEASE=v${{ steps.next.outputs.version }}
 
       - uses: docker/login-action@v3
+        if: steps.next.outputs.version != ''
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push image
+      - name: Push version images
+        if: steps.next.outputs.version != ''
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ steps.next.outputs.version }}
         run: |
-          docker tag ghcr.io/fyrmforge/stackr:${VERSION} ghcr.io/fyrmforge/stackr:latest
           docker push ghcr.io/fyrmforge/stackr:${VERSION}
-          docker push ghcr.io/fyrmforge/stackr:latest
           docker push ghcr.io/fyrmforge/stackr-observe:${VERSION}
 
-      - name: Upload release asset
+      - name: Tag and publish the release
+        if: steps.next.outputs.version != ''
+        id: semantic
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          allow-initial-development-versions: true
+          custom-arguments: --commit-analyzer-opt minor_release_rules=release-minor --commit-analyzer-opt patch_release_rules=feat,fix
+
+      - name: Attach the installer, move latest
+        if: steps.next.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload v${{ needs.release.outputs.version }} bin/stackr-install-linux-amd64
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          [ "${{ steps.semantic.outputs.version }}" = "$VERSION" ] || { echo "::error::released ${{ steps.semantic.outputs.version }}, built $VERSION"; exit 1; }
+          gh release upload v${VERSION} bin/stackr-install-linux-amd64
+          docker tag ghcr.io/fyrmforge/stackr:${VERSION} ghcr.io/fyrmforge/stackr:latest
+          docker push ghcr.io/fyrmforge/stackr:latest
