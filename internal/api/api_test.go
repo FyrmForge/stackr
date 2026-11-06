@@ -38,7 +38,7 @@ func newWorld(t *testing.T, opts ...service.Option) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: middleware.NewAccess(env.Orch), CSRFCookie: "csrf"})
 	w := &world{env: env, h: srv.Echo(), acme: env.Org(t, "acme")}
 	other := env.Org(t, "other")
 	w.other = other

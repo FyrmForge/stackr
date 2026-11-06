@@ -2,14 +2,12 @@ package web
 
 import (
 	"cmp"
-	"net/http"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/email"
 	hamrmw "github.com/FyrmForge/hamr/pkg/middleware"
 	"github.com/FyrmForge/hamr/pkg/server"
 	"github.com/labstack/echo/v4"
-	echomw "github.com/labstack/echo/v4/middleware"
 
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
@@ -97,11 +95,8 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	site.Use(hamrmw.FlashWithConfig(hamrmw.FlashConfig{Secure: CookieSecure(deps.BaseURL)}))
 	// The token rides in the hx-headers header only: a form lookup would
 	// parse a multipart body (a dump upload) before the route's auth.
-	// Echo's own CSRF: hamr's wrapper sets no cookie Path, and a __Host-
-	// cookie without Path=/ is dropped by the browser.
-	site.Use(echomw.CSRFWithConfig(echomw.CSRFConfig{
-		CookieName: CSRFCookie(deps.BaseURL), CookiePath: "/",
-		CookieSecure: CookieSecure(deps.BaseURL), CookieSameSite: http.SameSiteLaxMode,
+	site.Use(hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{
+		CookieName: CSRFCookie(deps.BaseURL), Secure: CookieSecure(deps.BaseURL),
 		TokenLookup: "header:X-CSRF-Token",
 	}))
 	// The create-tile form can carry a dump; the handler reads it after auth.

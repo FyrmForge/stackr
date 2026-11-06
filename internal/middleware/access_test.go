@@ -31,7 +31,7 @@ func setup(t *testing.T) (*servicetest.Env, http.Handler) {
 	}
 	access := middleware.NewAccess(env.Orch)
 	web.RegisterStaticPages(srv)
-	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: access, DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: access, CSRFCookie: "csrf"})
 	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: access, DevMode: true})
 	return env, srv.Echo()
 }

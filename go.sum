@@ -47,8 +47,8 @@ github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/DeRuina/timberjack v1.4.8 h1:V7SIoCzkyWD93WmyKECSX+tMu/hLqQQvptlhEsbBIhI=
 github.com/DeRuina/timberjack v1.4.8/go.mod h1:DCXjOescYyzTrOryf57SEbSeCOqkBQ3QjH7Pn03i5Cs=
-github.com/FyrmForge/hamr v0.46.0 h1:CEswX40taVt2UYseZmZ9D7bBvc4wvdvzlT2sCkan/o4=
-github.com/FyrmForge/hamr v0.46.0/go.mod h1:8pJueHnaJqPDOOqGulXgMeMCpQwpCTOE++0yacBVysA=
+github.com/FyrmForge/hamr v0.46.1 h1:a/lWfcBEinIe+lasTkAaWmKROj/W9v9rFsIfwsL811I=
+github.com/FyrmForge/hamr v0.46.1/go.mod h1:8pJueHnaJqPDOOqGulXgMeMCpQwpCTOE++0yacBVysA=
 github.com/KimMachineGun/automemlimit v1.0.0 h1:+MqlvDE/pkJNjk1rU+O14QsH8k10nJAD0frB0lsxyvw=
 github.com/KimMachineGun/automemlimit v1.0.0/go.mod h1:n+BSXxQWDFS1DKh67Rqo0lgTsowsg6x65ak5uyngML0=
 github.com/Masterminds/goutils v1.1.1 h1:5nUrii3FMTL5diU80unEVvNevw1nH4+ZV4DSLVJLSYI=

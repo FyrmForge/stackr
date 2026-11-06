@@ -25,7 +25,7 @@ func TestRouteSegmentsAreReservedOrgSlugs(t *testing.T) {
 	}
 	acc := middleware.NewAccess(env.Orch)
 	web.RegisterRoutes(srv, &web.Deps{Orch: env.Orch, Access: acc, DevMode: true})
-	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: acc, DevMode: true})
+	api.RegisterRoutes(srv, &api.Deps{Orch: env.Orch, Access: acc, CSRFCookie: "csrf"})
 	org := env.Org(t, "acme")
 	segs := map[string]bool{"static": true}
 	for _, r := range srv.Echo().Routes() {

@@ -15,9 +15,12 @@ import (
 
 // Deps holds the dependencies for API route registration.
 type Deps struct {
-	Orch    *service.Orchestrator
-	Access  *middleware.Access // shared with the web router
-	DevMode bool               // the CSRF cookie is not Secure in dev
+	Orch   *service.Orchestrator
+	Access *middleware.Access // shared with the web router
+	// CSRFCookie and CookieSecure match the web router's CSRF cookie, so a
+	// browser session's API call checks the token the pages carry.
+	CSRFCookie   string
+	CookieSecure bool
 }
 
 // RegisterRoutes registers all API route handlers on the server.
@@ -44,7 +47,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 
 	// A dump upload is as big as the database it seeds.
 	srv.Echo().Pre(middleware.LiftBodyLimit("/managed/from-dump"))
-	g := api.Group("/v1", middleware.JSONErrors(), hold, deps.Access.Load(), middleware.APIRateLimit(), middleware.APICSRF(!deps.DevMode))
+	g := api.Group("/v1", middleware.JSONErrors(), hold, deps.Access.Load(), middleware.APIRateLimit(), middleware.APICSRF(deps.CSRFCookie, deps.CookieSecure))
 	for _, r := range Routes(h) {
 		mw := []echo.MiddlewareFunc{gate(deps.Access, r)}
 		if r.E.Idem {

@@ -471,8 +471,8 @@ func JSONErrors() echo.MiddlewareFunc {
 // APICSRF is the web's CSRF check for API calls a browser session makes.
 // Mount after Load: a bearer key is not ambient and an anonymous call
 // carries nothing to ride on, so both skip it.
-func APICSRF(secure bool) echo.MiddlewareFunc {
-	csrf := hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{Secure: secure})
+func APICSRF(cookie string, secure bool) echo.MiddlewareFunc {
+	csrf := hamrmw.CSRFWithConfig(hamrmw.CSRFConfig{CookieName: cookie, Secure: secure})
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		checked := csrf(next)
 		return func(c echo.Context) error {

@@ -315,9 +315,10 @@ func run(log *slog.Logger, generate bool) error {
 	srv.Echo().Pre(orch.RegistryMiddleware())
 
 	api.RegisterRoutes(srv, &api.Deps{
-		Orch:    orch,
-		Access:  access,
-		DevMode: envDevMode,
+		Orch:         orch,
+		Access:       access,
+		CSRFCookie:   web.CSRFCookie(baseOrigin),
+		CookieSecure: web.CookieSecure(baseOrigin),
 	})
 
 	web.RegisterRoutes(srv, &web.Deps{
