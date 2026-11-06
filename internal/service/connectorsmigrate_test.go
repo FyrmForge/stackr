@@ -120,7 +120,7 @@ func TestConnectorsMigration(t *testing.T) {
 	if err != nil || len(ds) != 1 || ds[0].State != service.DNSManaged {
 		t.Fatalf("domains = %+v %v", ds, err)
 	}
-	if o := env.DNS.Opened[len(env.DNS.Opened)-1]; o["key"] != ncKey || o["user"] != "jo" || o["client_ip"] != "203.0.113.7" {
+	if o := env.DNS.LastOpened(); o["key"] != ncKey || o["user"] != "jo" || o["client_ip"] != "203.0.113.7" {
 		t.Errorf("opened with user %q ip %q, key kept %v", o["user"], o["client_ip"], o["key"] == ncKey)
 	}
 	n1, err := env.Store.Connectors.Get(ctx, "n1")

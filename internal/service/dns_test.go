@@ -66,7 +66,7 @@ func TestAddDNSConnector(t *testing.T) {
 		t.Errorf("domains = %v %v", ds, err)
 	}
 	// the stored account still holds the key: the provider is opened with it
-	if o := env.DNS.Opened[len(env.DNS.Opened)-1]; o["key"] != sentinelKey || o["client_ip"] != "203.0.113.7" {
+	if o := env.DNS.LastOpened(); o["key"] != sentinelKey || o["client_ip"] != "203.0.113.7" {
 		t.Errorf("opened with %q %q", o["user"], o["client_ip"])
 	}
 }

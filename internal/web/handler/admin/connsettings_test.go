@@ -81,7 +81,7 @@ func TestConnectorSettingsTabs(t *testing.T) {
 	if upd.Code != http.StatusOK || !strings.Contains(upd.Body.String(), "Saved and checked.") || strings.Contains(upd.Body.String(), panelKey) {
 		t.Fatalf("update = %d\n%s", upd.Code, upd.Body)
 	}
-	if o := s.DNS.Opened[len(s.DNS.Opened)-1]; o["key"] != panelKey {
+	if o := s.DNS.LastOpened(); o["key"] != panelKey {
 		t.Error("the empty key was not kept")
 	}
 	upd = s.As(t, root, "POST", base+"/credentials", url.Values{"user": {"bob"}, "key": {servicetest.BadKey}, "client_ip": {"203.0.113.7"}})

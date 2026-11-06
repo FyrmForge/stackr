@@ -54,6 +54,17 @@ func (d *DNS) record(zone string, rs []libdns.Record, to *[]string) {
 	}
 }
 
+// LastOpened is the creds of the newest account opened, read under the
+// lock: a background DNS sync may be opening one at the same time.
+func (d *DNS) LastOpened() service.DNSCreds {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.Opened) == 0 {
+		return nil
+	}
+	return d.Opened[len(d.Opened)-1]
+}
+
 // BadKey is the key the fake refuses.
 const BadKey = "bad-key"
 

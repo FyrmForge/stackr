@@ -32,7 +32,7 @@ func TestUpdateConnectorCredentials(t *testing.T) {
 	if err != nil || c.Name != "Namecheap · ann" || c.CheckError != "" || c.CheckedAt == nil {
 		t.Fatalf("update = %+v %v", c, err)
 	}
-	if o := env.DNS.Opened[len(env.DNS.Opened)-1]; o["key"] != sentinelKey || o["user"] != "ann" {
+	if o := env.DNS.LastOpened(); o["key"] != sentinelKey || o["user"] != "ann" {
 		t.Errorf("the empty key was not kept (user %q)", o["user"])
 	}
 	_, err = env.Orch.UpdateConnector(ctx, &acme, id, map[string]string{"user": "bob", "key": servicetest.BadKey, "client_ip": "203.0.113.8"})
