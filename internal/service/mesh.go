@@ -198,7 +198,11 @@ func (m *meshSvc) Run(ctx context.Context) {
 			return
 		case <-m.kick:
 			force = false
-			time.Sleep(time.Second) // a burst of changes is one sync
+			select { // a burst of changes is one sync; a stop cuts the wait
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 		case <-t.C:
 			force = time.Since(last) >= meshEvery
 		}
