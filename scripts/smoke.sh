@@ -125,14 +125,20 @@ TP="/orgs/$ORG/stacks/$STACK/envs/$ENV/tiles"
 [[ -n "$ORG$STACK$ENV" && "$ORG" != null && "$STACK" != null && "$ENV" != null ]] || die "create org, stack and env"
 TILE="$(api POST "$TP" '{"name":"web","kind":"image","image_ref":"nginx:alpine","container_port":80}' | jq -r .slug)" || die "create the nginx tile"
 api POST "$TP/$TILE/domains" "{\"host\":\"$APPHOST\",\"path\":\"\",\"port\":80,\"https\":false,\"force_https\":false,\"redirect_to\":\"\",\"proxy\":{}}" >/dev/null || die "attach $APPHOST to the tile"
-JOB="$(api POST "$TP/$TILE/deploy" | jq -r .id)"
-s="$(
-	for ((i = 0; i < 100; i++)); do
-		s="$(api GET "/orgs/$ORG/jobs/$JOB" 2>/dev/null | jq -r .state)"
-		case "$s" in done | failed | canceled) echo "$s"; break ;; esac
-		sleep 3
-	done
-)"
+# Up to 3 tries 30s apart: a release before v0.8.11 fails a deploy that lands
+# before its boot copy of the pause image is done, instead of waiting for it.
+for ((try = 1; try <= 3; try++)); do
+	JOB="$(api POST "$TP/$TILE/deploy" | jq -r .id)"
+	s="$(
+		for ((i = 0; i < 100; i++)); do
+			s="$(api GET "/orgs/$ORG/jobs/$JOB" 2>/dev/null | jq -r .state)"
+			case "$s" in done | failed | canceled) echo "$s"; break ;; esac
+			sleep 3
+		done
+	)"
+	[[ "$s" == done ]] && break
+	[[ $try -lt 3 ]] && { echo "deploy try $try ended '$s', retrying in 30s"; sleep 30; }
+done
 [[ "$s" == done ]] || { job_log "$JOB"; die "deploy job ended '$s'"; }
 check "nginx answers on http://$APPHOST/ through the proxy" wait_app
 
