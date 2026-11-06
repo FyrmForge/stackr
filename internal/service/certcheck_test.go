@@ -110,7 +110,7 @@ func TestHostCertSweepsRemovedHosts(t *testing.T) {
 // A worker is dialled at its public address, not its mesh one; the controller
 // by loopback; a worker with no public address is skipped.
 func TestCertAddr(t *testing.T) {
-	t.Parallel()
+	// not parallel: swaps orch.cluster under the orchestrator's own background chores
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.cluster = &clusterPKI{}

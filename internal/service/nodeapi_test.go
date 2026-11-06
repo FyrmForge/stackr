@@ -474,7 +474,7 @@ func TestClusterStatusFlagsDownNodes(t *testing.T) {
 
 // An offline worker that answers its liveness port lists as tunnel-down.
 func TestListNodesTunnelDown(t *testing.T) {
-	t.Parallel()
+	// not parallel: swaps orch.cluster under the orchestrator's own background chores
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	w, err := n.st.Nodes.Get(ctx, "w1")
