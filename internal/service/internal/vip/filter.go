@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
+	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 // Filter chains: FWD sees what a stackr container sends through the host,
@@ -190,7 +190,7 @@ func (b Base) clusterNets() []string {
 	if !b.Cluster.IsValid() {
 		return nil
 	}
-	return []string{b.Cluster.Masked().String(), cluster.Transit}
+	return []string{b.Cluster.Masked().String(), mesh.Transit.String()}
 }
 
 // lanRules are the match specs of every replica's lan grants, shared by
@@ -304,7 +304,7 @@ func renderFilter(next map[string]Entry, b Base) string {
 		}
 		// Peers ping each other's transit address for link latency; replies
 		// ride the conntrack RETURN above.
-		in("-i %s -s %s -d %s -p icmp --icmp-type echo-request -j RETURN", b.WGIface, cluster.Transit, cluster.Transit)
+		in("-i %s -s %s -d %s -p icmp --icmp-type echo-request -j RETURN", b.WGIface, mesh.Transit.String(), mesh.Transit.String())
 		in("-i %s -j DROP", b.WGIface)
 	}
 	// From the node's own networks: the rules below, in InOwnChain.

@@ -13,7 +13,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/cluster"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
@@ -288,7 +287,7 @@ func (o *Orchestrator) vipBase(ctx context.Context, n store.Node) vip.Base {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
 	rng := mesh.Supernet
-	b := vip.Base{Range: rng, Own: o.ownNets(ctx, n), Cluster: cluster.SupernetPrefix, PanelBind: o.cfg.PanelBind,
+	b := vip.Base{Range: rng, Own: o.ownNets(ctx, n), Cluster: mesh.Supernet, PanelBind: o.cfg.PanelBind,
 		PanelPort: o.cfg.PanelPort, WGIface: mesh.Iface, WGController: mesh.ControllerTransit}
 	id, err := o.controllerID(ctx)
 	if err == nil && n.ID != id {
