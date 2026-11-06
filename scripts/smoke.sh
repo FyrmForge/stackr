@@ -74,7 +74,13 @@ wait_app() { local i; for ((i = 0; i < ${1:-30}; i++)); do app_answers && return
 # job_state ID: the job's state through the admin route (survives the panel restart)
 job_state() { api GET "/admin/jobs/$1" 2>/dev/null | jq -r .state; }
 # job_log ID: the job's own log tail, for a failed job (lines naming keys left out)
-job_log() { echo "--- job $1 log (tail)"; api GET "/admin/jobs/$1/log" 2>/dev/null | jq -r .log | grep -viE 'key|token|password|secret' | tail -60; }
+job_log() {
+	local out; out="$(api GET "/admin/jobs/$1/log" 2>/dev/null)"
+	echo "--- job $1 error: $(jq -r .job.error <<<"$out" | grep -viE 'key|token|password|secret')"
+	echo "--- job $1 log (tail)"; jq -r .log <<<"$out" | grep -viE 'key|token|password|secret' | tail -60
+	echo "--- panel warnings and errors"; docker logs stackr 2>&1 | grep -E '"level":"(WARN|ERROR)"' | grep -viE 'key|token|password|secret' | tail -30
+	echo "--- docker"; docker version --format 'server {{.Server.Version}}' 2>&1; docker info --format 'driver {{.Driver}} {{.DriverStatus}}' 2>&1 | head -3
+}
 wait_job() { # ID SECONDS -> prints the final state
 	local i s=""
 	for ((i = 0; i < $2 / 3; i++)); do
