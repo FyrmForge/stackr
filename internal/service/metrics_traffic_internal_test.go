@@ -45,6 +45,7 @@ func caddyAt(t *testing.T, ok int, sum string, bad, wild int) map[string]hostCou
 // though every handler of its route times it), and two samples become each
 // tile's rates summed over hosts and the average latency.
 func TestCaddyTraffic(t *testing.T) {
+	t.Parallel()
 	a := caddyAt(t, 100, "10", 0, 5)
 	if len(a) != 2 {
 		t.Fatalf("hosts = %v", a)
@@ -97,6 +98,7 @@ func TestCaddyTraffic(t *testing.T) {
 // A tunnel's rates come from the lower node id's wg counters, else the other
 // end's swapped; the handshake age is the fresher end's.
 func TestWGPoints(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(2_000_000, 0)
 	smp := func(at time.Time, key string, rx, tx, hs int64) worker.Metrics {
 		return worker.Metrics{At: at, Peers: map[string]worker.PeerSample{key: {Rx: rx, Tx: tx, Handshake: hs}}}

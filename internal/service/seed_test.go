@@ -18,6 +18,7 @@ import (
 // one makes the instance and its slice, and queues one seed job that has
 // the dump on disk until it ends.
 func TestCreateManagedTileFromDump(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	env := servicetest.New(t)
 	org := env.Org(t, "acme")
@@ -90,6 +91,7 @@ func TestCreateManagedTileFromDump(t *testing.T) {
 
 // A seed job cancelled while it is still queued takes its dump along.
 func TestCancelledSeedDropsDump(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	env := servicetest.New(t)
 	tl := env.Tile(t, env.Org(t, "acme"))

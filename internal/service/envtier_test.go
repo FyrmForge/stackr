@@ -18,6 +18,7 @@ import (
 // D3: joining a locked tier (by create or rename) needs tier.write; an
 // unlocked tier and a plain slug stay open.
 func TestJoinsLockedTier(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	env := servicetest.New(t)
 	org := env.Org(t, "acme")

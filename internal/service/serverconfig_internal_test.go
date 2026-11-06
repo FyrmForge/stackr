@@ -10,6 +10,7 @@ import (
 // Both server job kinds have a handler (a kind without one fails with "no
 // handler"), and the apply payload keeps its plan id key.
 func TestServerJobKinds(t *testing.T) {
+	t.Parallel()
 	var o Orchestrator
 	hs := o.handlers()
 	for _, k := range []string{string(kindServerPlan), string(kindServerApply)} {
@@ -36,6 +37,7 @@ func TestServerJobKinds(t *testing.T) {
 // The node verbs' job kinds have a handler: a queued remove, node backup or
 // worker rollout would otherwise fail with "no handler for job kind".
 func TestNodeJobKindsHaveHandlers(t *testing.T) {
+	t.Parallel()
 	var o Orchestrator
 	hs := o.handlers()
 	for _, k := range []jobs.Kind{kindRemoveNode, kindNodeBackup, kindWorkerRollout} {
@@ -48,6 +50,7 @@ func TestNodeJobKindsHaveHandlers(t *testing.T) {
 // An apply refuses any row the approved plan did not show, and a risky row
 // the approver did not confirm.
 func TestNewRisk(t *testing.T) {
+	t.Parallel()
 	was := planfile.Plan{Changes: []planfile.Change{
 		{Kind: "settings", Field: "workers"},
 		{Kind: "settings", Field: "acme_email", Impact: "certs"},

@@ -94,6 +94,7 @@ func TestIngressSwitchPlanWithoutAPublicAddress(t *testing.T) {
 }
 
 func TestIngressSwitchRefusals(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -153,6 +154,7 @@ func TestIngressSwitchRefusals(t *testing.T) {
 
 // The name must be typed; the right one moves the default.
 func TestSetDefaultIngressNeedsTheNodesName(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -197,6 +199,7 @@ func TestIngressSwitchPlanSkipsManagedHosts(t *testing.T) {
 // A move onto a node with no public IP lists its hosts with a note, not as
 // repoints or empty record rows: the records stay as they are.
 func TestDNSForMoveNodeWithoutPublicIP(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := &zoneFake{}
 	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))

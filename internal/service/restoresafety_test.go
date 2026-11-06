@@ -86,6 +86,7 @@ func moves(w *world, from int) []string {
 // A cluster dump restored onto another instance drops that instance's
 // slices and loads names it does not track: refused, nothing touched.
 func TestClusterRestoreAcrossInstancesIsRefused(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	_, _, a := w.pg(t, "pga")
 	_, _, b := w.pg(t, "pgb")
@@ -103,6 +104,7 @@ func TestClusterRestoreAcrossInstancesIsRefused(t *testing.T) {
 // A slice or binding made after the backup is not in the dump; the restore
 // would drop it. Refused with the list.
 func TestClusterRestoreRefusesNewerSlicesAndBindings(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, m, v := w.pg(t, "pg")
@@ -141,6 +143,7 @@ func TestClusterRestoreRefusesNewerSlicesAndBindings(t *testing.T) {
 // The tiles bound to the instance are stopped for the wipe and load, and
 // started after.
 func TestClusterRestoreStopsBoundTiles(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, m, v := w.pg(t, "pg")
@@ -168,6 +171,7 @@ func TestClusterRestoreStopsBoundTiles(t *testing.T) {
 // overlap the load: the restore job holds the instance tile's lock, and the
 // slice and consumer tiles' too (a single-tile deploy locks only its own id).
 func TestRestoreLocksTheInstanceTile(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tl, m, v := w.pg(t, "pg")
@@ -193,6 +197,7 @@ func TestRestoreLocksTheInstanceTile(t *testing.T) {
 
 // A stack key restores only inside its stack (404 otherwise); other callers keep the org-wide rule, and a job carries its stack_id.
 func TestRestoreStaysInTheStack(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	mk := func(kind, scope, slug string) store.Volume {

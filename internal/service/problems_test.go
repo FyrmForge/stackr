@@ -15,6 +15,7 @@ import (
 // A failing scheduled backup opens a problem with no webhook set; a reminder
 // keeps its since; the next good run clears it. The panel's the same.
 func TestBackupFailureOpensProblem(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := quietWorld(t)
 	o := w.orch
@@ -48,6 +49,7 @@ func TestBackupFailureOpensProblem(t *testing.T) {
 // mounts the volume, never to the admin Backups page, which lists panel
 // backups only. A crash loop opens the app the same way.
 func TestAppProblemsOpenTileDrawer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := quietWorld(t)
 	backupSchedule(t, w, "s1")
@@ -88,6 +90,7 @@ func hasRow(t *testing.T, o *Orchestrator, key string) bool {
 // the service, or gone some other way (its volume or tile deleted), when
 // the banner next reads it.
 func TestBackupProblemGoesWithItsSchedule(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := quietWorld(t)
 	o := w.orch
@@ -113,6 +116,7 @@ func TestBackupProblemGoesWithItsSchedule(t *testing.T) {
 // no problem row (an upgrade, or a write that failed) gets one on the next
 // failing run without a second webhook, and a healthy run removes it.
 func TestChecksReconcileTheirProblem(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	h := newHook(t)
@@ -143,6 +147,7 @@ func TestChecksReconcileTheirProblem(t *testing.T) {
 
 // Turning observability off clears its disk warning.
 func TestObserveOffClearsItsProblem(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	must(t, o.store.Settings.Set(ctx, observeAlertKey, "1"))
@@ -157,6 +162,7 @@ func TestObserveOffClearsItsProblem(t *testing.T) {
 // Problems lists an offline worker from its row, critical first, then
 // oldest first; a row about a node that is gone is left out.
 func TestProblemsOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := quietWorld(t).orch
 	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w1", Name: "h3", Slug: "h3", Role: node.Worker, Tags: "[]",
@@ -191,6 +197,7 @@ func TestProblemsOrder(t *testing.T) {
 // lost its image) opens a banner line; the next deploy that works clears it.
 // A failed deploy with the old container still up is no banner line.
 func TestFailedDeployOfDownTileOpensProblem(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := quietWorld(t)
 	down := w.tile(t, "web", false)
@@ -232,6 +239,7 @@ func quietWorld(t *testing.T) *world {
 
 // An unsaved recovery key is a critical problem until it is saved.
 func TestUnsavedRecoveryKeyIsAProblem(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	if ps, _ := w.orch.Problems(ctx); len(ps) != 1 || ps[0].Key != "recovery.unsaved" || ps[0].Severity != SevCritical {

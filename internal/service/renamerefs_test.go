@@ -13,6 +13,7 @@ import (
 // still resolves after its env, stack, org or instance tile is renamed; a
 // stack file's reference is left alone and comes back as a warning.
 func TestRenameCarriesSliceRefs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	env := servicetest.New(t)
 	org := env.Org(t, "acme")

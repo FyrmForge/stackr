@@ -33,6 +33,7 @@ func recordsOf(h DNSHost) []string {
 // env's hand-managed hosts with the records they need; a host that does not
 // change ingress is not listed, and the IPv6 row follows the node's address.
 func TestMovePlanListsHandManagedHostsAndRecords(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -78,6 +79,7 @@ func TestMovePlanListsHandManagedHostsAndRecords(t *testing.T) {
 // A managed host is listed apart with its old and new address and the
 // connector; ticking nothing off holds none, unticking holds it.
 func TestMovePlanListsManagedHostsAndUntickHolds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := &zoneFake{}
 	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))
@@ -119,6 +121,7 @@ func TestMovePlanListsManagedHostsAndUntickHolds(t *testing.T) {
 // An idle move needs no typed confirm, unless it changes a host's ingress:
 // then the owner sees the DNS list first.
 func TestIdleMoveWithDNSStillAsks(t *testing.T) {
+	t.Parallel()
 	idle := PlacementMovePlan{OK: true, Envs: []MoveEnvLine{{Path: "a/b/c"}}}
 	if pmAsks([]PlacementMovePlan{idle}) {
 		t.Error("an idle move with no DNS asks")

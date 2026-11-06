@@ -11,6 +11,7 @@ import (
 // proxy_custom reaches the pushed proxy config; a value that is not a JSON
 // array of routes is refused before anything is written or pushed.
 func TestProxyCustomPushed(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	route := `{"match":[{"host":["extra.example.com"]}],"handle":[{"handler":"static_response","body":"hi"}]}`

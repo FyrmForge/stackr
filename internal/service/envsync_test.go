@@ -95,6 +95,7 @@ func (r *syncRig) row(t *testing.T, envID, slug string) store.Tile {
 // env below on the ladder, and the bottom rung syncs from the next one up.
 // A stack bound to a config file never can.
 func TestEnvSyncSources(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := servicetest.New(t)
 	org := e.Org(t, "acme")
@@ -127,6 +128,7 @@ func TestEnvSyncSources(t *testing.T) {
 // A review whose sig is stale, a blocked plan and an unknown source all
 // refuse, and none queues a job.
 func TestEnvSyncRefuses(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newSyncRig(t)
 	o := r.e.Orch
@@ -155,6 +157,7 @@ func TestEnvSyncRefuses(t *testing.T) {
 
 // A New image tile is created in staging and deployed there.
 func TestEnvSyncCreatesAndDeploys(t *testing.T) {
+	t.Parallel()
 	r := newSyncRig(t)
 	r.e.Healthy(r.staging.ID)
 	r.sync(t, "api")
@@ -175,6 +178,7 @@ func TestEnvSyncCreatesAndDeploys(t *testing.T) {
 // and paused; a paused tile has no replicas, so nothing redeploys. The
 // New api beside it is dropped.
 func TestEnvSyncEditedKeepsVersion(t *testing.T) {
+	t.Parallel()
 	r := newSyncRig(t)
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -208,6 +212,7 @@ func TestEnvSyncEditedKeepsVersion(t *testing.T) {
 
 // A Removed managed tile is deleted and its instance volume orphaned.
 func TestEnvSyncRemovedOrphansVolume(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newSyncRig(t)
 	r.tile(t, r.staging.ID, "api", 80)
@@ -242,6 +247,7 @@ func TestEnvSyncRemovedOrphansVolume(t *testing.T) {
 
 // A plain param a New tile reads arrives with its value.
 func TestEnvSyncCopiesParam(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newSyncRig(t)
 	r.e.Healthy(r.staging.ID)
@@ -267,6 +273,7 @@ func TestEnvSyncCopiesParam(t *testing.T) {
 
 // The overlay tags an Edited card and draws a ghost for a New tile.
 func TestEnvSyncCanvas(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newSyncRig(t)
 	api := r.tile(t, r.staging.ID, "api", 81)
@@ -322,6 +329,7 @@ func (r *syncRig) runs() (n int) {
 // its rows. When it resumes it does not re-plan against them: it deploys the
 // tiles it still owes once the secret is set, and ends done.
 func TestEnvSyncResumesAfterPark(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := newSyncRig(t)
 	o := r.e.Orch

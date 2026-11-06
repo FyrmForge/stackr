@@ -14,6 +14,7 @@ import (
 // The daily prune takes finished jobs and their logs past 30 days, stale logs,
 // security events past 90 days and dead join tokens; newer ones stay.
 func TestPruneOld(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	o := w.orch
@@ -73,6 +74,7 @@ func TestPruneOld(t *testing.T) {
 
 // Move temp files left by a crash go at boot; other files stay.
 func TestSweepMoveTemps(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	d := w.orch.cfg.DataDir
 	dir := filepath.Join(d, "rsync-build-123")
@@ -93,6 +95,7 @@ func TestSweepMoveTemps(t *testing.T) {
 // A pulled image no tile names any more goes with its row; one a tile still
 // names stays.
 func TestPrunePulledImages(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	for _, ref := range []string{"nginx:old", "redis:7"} {

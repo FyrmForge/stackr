@@ -14,6 +14,7 @@ import (
 // a volume with no good backup in two intervals alerts once, and a good run
 // clears it.
 func TestBackupWatchCatchesUpAndAlerts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -53,6 +54,7 @@ func TestBackupWatchCatchesUpAndAlerts(t *testing.T) {
 // A volume that never had a schedule or a backup gets @daily keep 7 on the
 // watch; one that had runs but lost its schedule gets the warning instead.
 func TestBackupWatchDefaultsAndWarns(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch

@@ -16,6 +16,7 @@ import (
 // empty branch takes the env's, another one is refused (only the env's
 // branch's pushes build it).
 func TestTileTakesEnvBranch(t *testing.T) {
+	t.Parallel()
 	r := newSyncRig(t) // staging builds from main
 	ctx := context.Background()
 	mk := func(name, branch string) (service.Tile, error) {
@@ -46,6 +47,7 @@ func TestTileTakesEnvBranch(t *testing.T) {
 // A push queues a push job only for a stack with an env on the pushed
 // branch; another branch of the same repo queues none.
 func TestPushSkipsUnfollowedBranch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := servicetest.New(t)
 	org := e.Org(t, "acme")
@@ -89,6 +91,7 @@ func TestPushSkipsUnfollowedBranch(t *testing.T) {
 // Moving an env to another branch takes its building tiles along, so the
 // new branch's pushes build them.
 func TestEnvBranchMovesTiles(t *testing.T) {
+	t.Parallel()
 	r := newSyncRig(t) // staging builds from main
 	ctx := context.Background()
 	tl, err := r.e.Orch.CreateTile(ctx, service.Tile{

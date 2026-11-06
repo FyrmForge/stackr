@@ -14,6 +14,7 @@ import (
 )
 
 func TestStackrTagRef(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"ghcr.io/fyrmforge/stackr:0.6.0":    "localhost:5000/stackr.system/stackr:0.6.0",
 		"localhost:5000/x/stackr:0.6.0-dev": "localhost:5000/stackr.system/stackr:0.6.0-dev",
@@ -50,6 +51,7 @@ func TestStackrSystemRefIsDigest(t *testing.T) {
 
 // The nodes' refs name stackr.system on the node's own loopback registry.
 func TestSystemRefsPointAtRegistry(t *testing.T) {
+	t.Parallel()
 	for _, ref := range []string{tile.PauseImage, docker.ToolImage} {
 		if !strings.HasPrefix(ref, "localhost:5000/stackr.system/") {
 			t.Errorf("%s is not a stackr.system ref", ref)
@@ -74,6 +76,7 @@ func fakePublisher(rows *[]store.RegistryImage, copies *[][2]string) systemPubli
 }
 
 func TestPublishSystemImages(t *testing.T) {
+	t.Parallel()
 	var rows []store.RegistryImage
 	var copies [][2]string
 	p := fakePublisher(&rows, &copies)
@@ -117,6 +120,7 @@ func TestPublishSystemImages(t *testing.T) {
 
 // A proxy pull waits for the boot publish, up to its deadline.
 func TestWaitStackrPublished(t *testing.T) {
+	t.Parallel()
 	o := &Orchestrator{stackrPublished: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -132,6 +136,7 @@ func TestWaitStackrPublished(t *testing.T) {
 
 // One image failing does not stop the others; the error names it.
 func TestPublishSystemImagesKeepsGoing(t *testing.T) {
+	t.Parallel()
 	var rows []store.RegistryImage
 	var copies [][2]string
 	p := fakePublisher(&rows, &copies)

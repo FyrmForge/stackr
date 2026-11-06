@@ -18,6 +18,7 @@ import (
 // <slug>.<instance host> row; a second finish adds nothing, and with no
 // instance row there is nothing to name it under.
 func TestFinishOrgDefaultDomain(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	bare := newWorld(t)
@@ -46,6 +47,7 @@ func TestFinishOrgDefaultDomain(t *testing.T) {
 // name leads with the tile's slug, which may be another org's: it skips
 // the check, and so does an edit that keeps the host.
 func TestAttachDomainSquat(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Orgs.Create(ctx, store.Org{
@@ -82,6 +84,7 @@ func TestAttachDomainSquat(t *testing.T) {
 // their auto mark and resource, and pushes the new route; a literal host
 // stays as typed.
 func TestRenameMovesAutoHosts(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.domainres.SeedInstance(ctx, "example.com"))
@@ -114,6 +117,7 @@ func TestRenameMovesAutoHosts(t *testing.T) {
 // A managed tile's public base is its auto name under the nearest visible
 // resource, once a domain routes that name to it; "" before.
 func TestManagedPublicBase(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.domainres.SeedInstance(ctx, "example.com"))
@@ -147,6 +151,7 @@ func TestManagedPublicBase(t *testing.T) {
 // under it; while it names tile domains a delete is refused with the count,
 // and an unused one goes.
 func TestDeleteDomainResource(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	r, err := w.orch.CreateDomainResource(ctx, domainres.Org, w.org, "acme.io", false, "ops@acme.io")

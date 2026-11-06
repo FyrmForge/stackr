@@ -11,6 +11,7 @@ import (
 )
 
 func TestGroupIfaces(t *testing.T) {
+	t.Parallel()
 	f := worker.Facts{Interfaces: []worker.Iface{
 		{Name: "lo", Prefixes: []string{"127.0.0.1/8", "::1/128"}},
 		{Name: "eth0", Prefixes: []string{"203.0.113.7/24", "fe80::1/64"}, Public: true},
@@ -48,6 +49,7 @@ func TestGroupIfaces(t *testing.T) {
 }
 
 func TestNodeLive(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.mesh.Report(ctx, "w1", worker.Facts{Interfaces: []worker.Iface{{Name: "eth0", Prefixes: []string{"203.0.113.7/24"}}}})
@@ -67,6 +69,7 @@ func TestNodeLive(t *testing.T) {
 }
 
 func TestCertNote(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
 	cert := func(d time.Duration, gone bool) store.NodeCert {
@@ -102,6 +105,7 @@ func TestCertNote(t *testing.T) {
 // A worker on the panel's build is neither behind nor too old; an older one
 // is behind; one nobody allows is too old; the controller is neither.
 func TestNodeLiveVersion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "1.0.0"

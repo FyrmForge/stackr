@@ -75,6 +75,7 @@ func TestJoinScriptGate(t *testing.T) {
 // A hostile panel URL stays one quoted word: sh parses the script, and the
 // value comes back unchanged.
 func TestJoinScriptQuoting(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	w.orch.cfg.BaseURL = "https://x'$(touch /tmp/pwned)`id`\"\n;"
 	out := mint(t, w, adm, "w1")
@@ -99,6 +100,7 @@ func TestJoinScriptQuoting(t *testing.T) {
 // serves no script: one fetched without it could be swapped on the way. Nor
 // does any panel serve it over plain http.
 func TestJoinTwoStep(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	w.orch.cfg.BaseURL = "https://panel.test"

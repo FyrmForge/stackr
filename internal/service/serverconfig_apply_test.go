@@ -487,6 +487,7 @@ settings:
 // The same through the web form and the settings API: SetSettings takes the
 // value back, so one bad save does not break every later push.
 func TestSetSettingsTakesBackBadProxyCustom(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	push := func(_ context.Context, cfg json.RawMessage) error {
 		if strings.Contains(string(cfg), "BADROUTE") {

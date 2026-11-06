@@ -10,6 +10,7 @@ import (
 
 // The map's controller card carries the daemon's docker version and the arch.
 func TestClusterMapControllerFacts(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.ctlFake.Host = docker.HostInfo{CPUs: 4, MemBytes: 8 << 30, Version: "29.9.0"}
 	m, err := n.orch.ClusterMap(context.Background())

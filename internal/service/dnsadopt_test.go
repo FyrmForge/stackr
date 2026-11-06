@@ -40,6 +40,7 @@ func adoptRig(t *testing.T) (env *servicetest.Env, connector string) {
 // existing ones at our nodes: ticked when a tile serves the name. Wildcards
 // and records pointing elsewhere are never listed.
 func TestManagePlanListsWritesAndAdoptable(t *testing.T) {
+	t.Parallel()
 	env, id := adoptRig(t)
 	plan, err := env.Orch.PlanManageDNSDomain(context.Background(), nil, id, "acme.dev", "", nil)
 	if err != nil {
@@ -69,6 +70,7 @@ func TestManagePlanListsWritesAndAdoptable(t *testing.T) {
 
 // An empty plan marshals its lists as [], never null: the API schema requires arrays.
 func TestManagePlanEmptyListsAreArrays(t *testing.T) {
+	t.Parallel()
 	env, _, _ := dnsRig(t)
 	setIP(t, env, "198.51.100.1")
 	srv, err := env.Orch.AddConnector(context.Background(), service.ConnectorAdd{OrgID: nil, Kind: "namecheap", Values: account()})
@@ -88,6 +90,7 @@ func TestManagePlanEmptyListsAreArrays(t *testing.T) {
 // Adopted records stay in the zone through a detach (reconcile) and through
 // stop managing; only the rows go. A ref the plan did not list is ignored.
 func TestAdoptedRecordsAreNeverDeleted(t *testing.T) {
+	t.Parallel()
 	env, id := adoptRig(t)
 	ctx := context.Background()
 	adopt := []service.DNSRef{
@@ -155,6 +158,7 @@ func detach(t *testing.T, env *servicetest.Env, host string) {
 // An adopted record follows its host's ingress node: it is repointed when
 // the address moves.
 func TestAdoptedRecordRepoints(t *testing.T) {
+	t.Parallel()
 	env, id := adoptRig(t)
 	ctx := context.Background()
 	adopt := []service.DNSRef{{Name: "shop", Type: "A", Value: "198.51.100.1"}}
@@ -181,6 +185,7 @@ func TestAdoptedRecordRepoints(t *testing.T) {
 // A tile domain added later onto a record that points at our node asks to
 // adopt it, one row; a record pointing elsewhere keeps the Replace question.
 func TestAdoptHostOnLaterDomain(t *testing.T) {
+	t.Parallel()
 	env, acme, _, tl := recordsRig(t)
 	ctx := context.Background()
 	env.DNS.Put("acme.dev", a("shop", "198.51.100.1"), a("blog", "203.0.113.9"))

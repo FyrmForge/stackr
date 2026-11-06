@@ -3,6 +3,7 @@ package service
 import "testing"
 
 func TestHostsOverlap(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		a, b string
 		want bool

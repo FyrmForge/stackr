@@ -41,6 +41,7 @@ func (w *world) runCount(t *testing.T, id string) int {
 // A dependent whose function parks on an unset param must not leave the
 // function's run queued: it would block every later run of it.
 func TestRunFirstUnsetLeavesNoQueuedRow(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	fn := w.onDeployFn(t, `{"T":"${{ params.app.token }}"}`)
@@ -56,6 +57,7 @@ func TestRunFirstUnsetLeavesNoQueuedRow(t *testing.T) {
 // A queued run no job carries (a restart between Queue and Begin) is closed
 // at boot like a running one.
 func TestInterruptedClosesQueuedRunWithoutJob(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	fn := w.onDeployFn(t, "")
@@ -69,6 +71,7 @@ func TestInterruptedClosesQueuedRunWithoutJob(t *testing.T) {
 
 // Two dependents on one function run it once in a deploy.
 func TestRunFirstOnceForTwoDependents(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	fn := w.onDeployFn(t, "")
@@ -82,6 +85,7 @@ func TestRunFirstOnceForTwoDependents(t *testing.T) {
 // A resumed job has lost its in-memory marker: the run it already did since
 // it was created counts.
 func TestRunFirstResumeDoesNotRerun(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	since := time.Now().Add(-time.Minute)
 	fn := w.onDeployFn(t, "")
@@ -94,6 +98,7 @@ func TestRunFirstResumeDoesNotRerun(t *testing.T) {
 
 // A run of the function already going is waited for, not a conflict.
 func TestRunFirstWaitsForAnActiveRun(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := withRanFirst(ctlCtx(t, w.orch), time.Time{})
 	fn := w.onDeployFn(t, "")

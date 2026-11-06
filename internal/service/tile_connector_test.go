@@ -17,6 +17,7 @@ import (
 // its host, its stack's config connector breaks the tie when it serves the
 // host, and otherwise the error names the candidates.
 func TestTileConnectorFallsBackToStack(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	orch, err := New(
 		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},

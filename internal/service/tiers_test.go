@@ -34,6 +34,7 @@ func (w *world) setEnv(t *testing.T, tl Tile, ref string) {
 // the [x] readers, a rename the old and new slug, the last delete puts the
 // org readers back.
 func TestTierChangesRedeploy(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	plain, qual := w.tile(t, "plain", true), w.tile(t, "qual", true)
@@ -70,6 +71,7 @@ func TestTierChangesRedeploy(t *testing.T) {
 // Codex round 2: deleting a tier that is not the last still redeploys its
 // [x] readers, and an env renamed from one tier to another redeploys.
 func TestTierDeleteAndMoveRedeploy(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tl := w.tile(t, "plain", true) // in dev
@@ -97,6 +99,7 @@ func TestTierDeleteAndMoveRedeploy(t *testing.T) {
 // A tier made over a live env's slug redeploys that env's running tiles (they
 // gain the tier block), even when the org already has tiers.
 func TestCreateTierRedeploysLiveEnv(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tl := w.tile(t, "plain", true) // in dev
@@ -114,6 +117,7 @@ func TestCreateTierRedeploysLiveEnv(t *testing.T) {
 
 // Org-scope writes are refused once the org has tiers.
 func TestOrgParamsRefusedWhenTiered(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	org := ParamScope{Kind: "org", ID: w.org}
@@ -133,6 +137,7 @@ func TestOrgParamsRefusedWhenTiered(t *testing.T) {
 // A template tile restarts for a change in a block it can read: its own, or
 // an unlocked one; not a locked one elsewhere.
 func TestTemplateReadersNeedReadableScope(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	tp := w.tile(t, "tpl", true)
@@ -169,6 +174,7 @@ func TestTemplateReadersNeedReadableScope(t *testing.T) {
 // is refused on a tiered env and allowed off-tier, the tier scopes take
 // params and redeploy nothing yet.
 func TestTiers(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -233,6 +239,7 @@ func TestTiers(t *testing.T) {
 
 // A PR env has no lock to set.
 func TestSetEnvLockRefusesPREnv(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.st.Environments.Create(ctx, store.Environment{

@@ -91,6 +91,7 @@ func alertsTo(t *testing.T, o *Orchestrator, h *hook, secret string) {
 // The test send arrives signed with the stored secret; the secret is sealed
 // at rest, the URL masked and the delivery recorded.
 func TestAlertTestSendIsSigned(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -167,6 +168,7 @@ func TestAlertRetries(t *testing.T) {
 // An alert the webhook refused is held and goes out on the next retry; a
 // held queue past its cap drops the oldest and says so.
 func TestHeldAlertsAreSentAgain(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t, 500)
@@ -194,6 +196,7 @@ func TestHeldAlertsAreSentAgain(t *testing.T) {
 // A worker that drops alerts once as it goes offline; its first join says
 // nothing.
 func TestNodeOfflineAlertsOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	h := newHook(t)
@@ -211,6 +214,7 @@ func TestNodeOfflineAlertsOnce(t *testing.T) {
 }
 
 func TestNodeEvent(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		prev, next, want string
 	}{
@@ -229,6 +233,7 @@ func TestNodeEvent(t *testing.T) {
 // Disk low fires once per crossing and resets on recovery; a disk the node
 // does not report changes nothing.
 func TestDiskAlertOncePerCrossing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t)
@@ -257,6 +262,7 @@ func TestDiskAlertOncePerCrossing(t *testing.T) {
 
 // A cert fires once at 14 days, once at 3, and again after a renewal.
 func TestCertAlertStages(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t)
@@ -290,6 +296,7 @@ func TestCertAlertStages(t *testing.T) {
 // A failed panel backup opens its problem, manual or scheduled; a later good
 // run of either kind clears it.
 func TestPanelBackupFailureOpensProblem(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	o := w.orch
@@ -321,6 +328,7 @@ func TestPanelBackupFailureOpensProblem(t *testing.T) {
 
 // A scheduled backup that fails alerts; a manual one and a skip do not.
 func TestScheduledBackupFailureAlerts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t)
@@ -347,6 +355,7 @@ func TestScheduledBackupFailureAlerts(t *testing.T) {
 // A failing schedule alerts once, then after backupRemind; a success resets
 // it and a skip changes nothing. The state is a row, so a restart keeps it.
 func TestBackupFailedDebounce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t)
@@ -379,6 +388,7 @@ func TestBackupFailedDebounce(t *testing.T) {
 
 // A long message keeps its head and its tail, at most 300 characters.
 func TestOneLineCutsTheMiddle(t *testing.T) {
+	t.Parallel()
 	s := "HEAD " + strings.Repeat("x ", 400) + "\n the real cause TAIL"
 	got := oneLine(s)
 	if n := len([]rune(got)); n > 300 {
@@ -395,6 +405,7 @@ func TestOneLineCutsTheMiddle(t *testing.T) {
 // Three restarts inside ten minutes fire container.crashloop once; it
 // clears with container.recovered when the window passes quietly.
 func TestCrashloopAlertFiresAndClears(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	h := newHook(t)
@@ -423,6 +434,7 @@ func TestCrashloopAlertFiresAndClears(t *testing.T) {
 
 // An OOM kill fires memory.low once per kill.
 func TestOOMKillAlerts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	h := newHook(t)
@@ -444,6 +456,7 @@ func TestOOMKillAlerts(t *testing.T) {
 
 // Low memory must hold for five minutes before memory.low; recovery says so.
 func TestMemoryAlertNeedsFiveMinutes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t)
@@ -473,6 +486,7 @@ func TestMemoryAlertNeedsFiveMinutes(t *testing.T) {
 
 // The heartbeat URL is GET once a minute while set, and not when empty.
 func TestHeartbeatPingsOnSchedule(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	var mu sync.Mutex
@@ -505,6 +519,7 @@ func TestHeartbeatPingsOnSchedule(t *testing.T) {
 // An invalid config file opens a problem and alerts once; a plan that
 // parses again clears it, and waiting changes read as a drift problem.
 func TestConfigStateAlertsOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	h := newHook(t)

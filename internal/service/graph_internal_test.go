@@ -15,6 +15,7 @@ import (
 // Egress comes from the last traffic sample: a tile that talked to the
 // internet gets an edge to the internet system card; Traffic off drops both.
 func TestCanvasEgress(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	orch, err := New(
 		Config{DataDir: t.TempDir(), SecretsKey: testKey, Conntrack: "/nonexistent"},

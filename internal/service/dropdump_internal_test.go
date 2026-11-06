@@ -14,6 +14,7 @@ import (
 // A slice dropped on_remove: drop is dumped first, from the instance's own
 // env: the slice may sit in another one (shop:dev:pg from staging).
 func TestDumpBeforeDropFindsTheInstanceInItsOwnEnv(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	_, m, v := w.pg(t, "pg")

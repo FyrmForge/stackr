@@ -41,6 +41,7 @@ func newCSR(t *testing.T) string {
 // Over the tunnel: the listener's verified client cert names the node; the
 // answer is a cert for that node, recorded and audited.
 func TestRenewTunnel(t *testing.T) {
+	t.Parallel()
 	o, own := renewRig(t)
 	leaf, err := x509.ParseCertificate(own.Certificate[0])
 	must(t, err)
@@ -76,6 +77,7 @@ func TestRenewTunnel(t *testing.T) {
 // Through the panel: signed with the current key, checked like recovery; a
 // replay and a call without a CSR are refused.
 func TestRenewThroughPanel(t *testing.T) {
+	t.Parallel()
 	o, own := renewRig(t)
 	ctx := context.Background()
 	p := worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "n1", Purpose: worker.PurposeRenew, CSR: newCSR(t)}
@@ -98,6 +100,7 @@ func TestRenewThroughPanel(t *testing.T) {
 // A worker whose newest cert ran out shows "cert-expired" in the node list
 // and on the map; a renewed one does not.
 func TestCertExpiredStatus(t *testing.T) {
+	t.Parallel()
 	o, _ := renewRig(t)
 	ctx := context.Background()
 	if o.certExpired("w1") {
@@ -120,6 +123,7 @@ func TestCertExpiredStatus(t *testing.T) {
 
 // The controller renews its own cert once it is in its last third.
 func TestControllerCertRenewsWhenDue(t *testing.T) {
+	t.Parallel()
 	o := newClusterPanel(t)
 	key, err := clusterca.NewKey()
 	must(t, err)
@@ -145,6 +149,7 @@ func TestControllerCertRenewsWhenDue(t *testing.T) {
 // A fresh cluster trusts one root and announces the controller's serial; the
 // issuer of a renewed cert is that root.
 func TestMeshTrustOneRoot(t *testing.T) {
+	t.Parallel()
 	o, _ := renewRig(t)
 	roots, serials := o.meshTrust(context.Background())
 	if len(roots) != 1 || len(serials) != 1 {
@@ -177,6 +182,7 @@ func TestMeshTrustOneRoot(t *testing.T) {
 // A cert not yet in its last third cannot renew, over the tunnel or through
 // the panel.
 func TestRenewNotDue(t *testing.T) {
+	t.Parallel()
 	o, _ := renewRig(t)
 	own := nodeCert(t, o, "w1")
 	leaf, err := x509.ParseCertificate(own.Certificate[0])

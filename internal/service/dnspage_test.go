@@ -94,6 +94,7 @@ func domainOf(t *testing.T, ds []service.ManagedDomain, name string) (service.Ma
 
 // An admin sees every domain and every record, each classified.
 func TestManagedDomainsClassify(t *testing.T) {
+	t.Parallel()
 	env, _, _ := pageRig(t)
 	ds, err := env.Orch.ManagedDomains(context.Background(), nil)
 	if err != nil || len(ds) != 3 {
@@ -137,6 +138,7 @@ func TestManagedDomainsClassify(t *testing.T) {
 // the domain's and unused records only on its own connectors' domains,
 // and never the panel's or nodes' addresses nor another org's name.
 func TestManagedDomainsOrgFilter(t *testing.T) {
+	t.Parallel()
 	env, acme, other := pageRig(t)
 	ctx := context.Background()
 

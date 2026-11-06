@@ -18,6 +18,7 @@ import (
 // queues a redeploy of the org's running tiles only; bad colours are
 // refused before anything moves.
 func TestOrgRungRedeploysRunningTiles(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	up := w.tile(t, "api", true)
@@ -60,6 +61,7 @@ func TestOrgRungRedeploysRunningTiles(t *testing.T) {
 // CreateNamedOrg names and finishes in one go; a refused name leaves no
 // draft behind, and the caller's wizard draft is never reused.
 func TestCreateNamedOrg(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	u := store.User{
@@ -86,6 +88,7 @@ func TestCreateNamedOrg(t *testing.T) {
 
 // Jobs is newest first and ?limit= keeps the newest.
 func TestJobsNewestFirstLimited(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -104,6 +107,7 @@ func TestJobsNewestFirstLimited(t *testing.T) {
 
 // Members names each member by email.
 func TestMembersCarryEmail(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	u := store.User{

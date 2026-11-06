@@ -70,6 +70,7 @@ func recordNames(t *testing.T, env *servicetest.Env) map[string]bool {
 // back: they stay in the zone, their rows go, a later sync leaves them.
 // The domain resource stackr made follows the scope both ways.
 func TestRescopeWidenThenNarrow(t *testing.T) {
+	t.Parallel()
 	env, id, _ := rescopeRig(t)
 	ctx := context.Background()
 	if got := recordNames(t, env); len(got) != 1 || got["app.test"] {
@@ -146,6 +147,7 @@ func TestRescopeWidenThenNarrow(t *testing.T) {
 // A narrowing that would leave a generated hostname outside the scope is
 // refused, naming it.
 func TestRescopeRefusesGeneratedHosts(t *testing.T) {
+	t.Parallel()
 	env, id, tl := rescopeRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, nil); err != nil {
@@ -178,6 +180,7 @@ func TestRescopeRefusesGeneratedHosts(t *testing.T) {
 // A resource that existed before the domain was managed is never renamed:
 // a new one is made at the new scope, as managing does.
 func TestRescopeLeavesExistingResource(t *testing.T) {
+	t.Parallel()
 	env, _, _ := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
@@ -210,6 +213,7 @@ func TestRescopeLeavesExistingResource(t *testing.T) {
 // showed is stale. Rescopes of one domain run one at a time, so of many
 // confirms of one plan exactly one goes.
 func TestRescopeStaleConfirm(t *testing.T) {
+	t.Parallel()
 	env, id, _ := rescopeRig(t)
 	ctx := context.Background()
 	plan, err := env.Orch.PlanRescopeDNSDomain(ctx, nil, id, "acme.dev", "")
@@ -265,6 +269,7 @@ func TestRescopeStaleConfirm(t *testing.T) {
 // A narrowing keeps the domain's own custom records outside the new scope
 // declared: a widening writes them again.
 func TestRescopeKeepsCustomRecordsOutside(t *testing.T) {
+	t.Parallel()
 	env, id, _ := rescopeRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.RescopeDNSDomain(ctx, nil, id, "acme.dev", "", nil, nil); err != nil {

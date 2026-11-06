@@ -38,6 +38,7 @@ func certOf(t *testing.T, o *Orchestrator, token string) *x509.Certificate {
 }
 
 func TestBreakGlass(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	adm := adminP()

@@ -96,6 +96,7 @@ func (w *world) globalS3(t *testing.T, endpoint string) BackupDest {
 // A scheduled panel backup goes to panel_backup_dest, is marked schedule and
 // prunes that destination to panel_backup_keep.
 func TestScheduledPanelBackupToDest(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	s3, srv := newFakeS3(t)
@@ -123,6 +124,7 @@ func TestScheduledPanelBackupToDest(t *testing.T) {
 // With panel_backup_dest unset and an off-box destination present, a
 // scheduled backup goes to local and to the off-box one.
 func TestScheduledPanelBackupAlsoOffBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	s3, srv := newFakeS3(t)
@@ -144,6 +146,7 @@ func TestScheduledPanelBackupAlsoOffBox(t *testing.T) {
 
 // A destination that is gone falls back to local, and the log says so.
 func TestScheduledPanelBackupDestGone(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, srv := newFakeS3(t)
@@ -168,6 +171,7 @@ func TestScheduledPanelBackupDestGone(t *testing.T) {
 // destination's name, and refuses one that is not a server destination.
 // The run goes where the job says and is marked manual.
 func TestManualPanelBackupPicksDest(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, srv := newFakeS3(t)
@@ -203,6 +207,7 @@ func TestManualPanelBackupPicksDest(t *testing.T) {
 
 // The archive takes the proxy volume's tar through the docker tool.
 func TestPanelBackupReadsProxyVolume(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	if _, err := w.orch.panelBackup(context.Background(), io.Discard, "manual", ""); err != nil {
 		t.Fatal(err)
@@ -219,6 +224,7 @@ func TestPanelBackupReadsProxyVolume(t *testing.T) {
 // ones sit under their own prefixes with a fixed count, so a scheduled run
 // never deletes the archive taken before an upgrade.
 func TestPanelBackupPrunesByTrigger(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	w.orch.cfg.InstallID = "box1"
@@ -261,6 +267,7 @@ func TestPanelBackupPrunesByTrigger(t *testing.T) {
 // A manual and a scheduled panel backup never supersede each other, and both
 // hold the panel lock so neither overlaps an upgrade.
 func TestPanelBackupLocks(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	manual, err := w.orch.PanelBackupNow(ctx, "")
@@ -286,6 +293,7 @@ func TestPanelBackupLocks(t *testing.T) {
 // The panel backup copies the data dir under rollMu, so a controller cert
 // renewal (key and cert renamed in two steps) never lands half in the archive.
 func TestPanelBackupWaitsForRenewal(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	if w.orch.cluster == nil {
 		t.Fatal("no cluster on the test panel")
@@ -310,6 +318,7 @@ func TestPanelBackupWaitsForRenewal(t *testing.T) {
 // save writes the new pair aside and renames it in: a loadable pair, nothing
 // left beside it.
 func TestControllerSaveRenames(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	dir := w.orch.cfg.DataDir
@@ -343,6 +352,7 @@ func slicesContains(s []string, v string) bool {
 
 // The panel's own backup destination cannot be deleted from under it.
 func TestDeletePanelDestRefused(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, srv := newFakeS3(t)
@@ -359,6 +369,7 @@ func TestDeletePanelDestRefused(t *testing.T) {
 
 // A crash leaves unencrypted tars in the spool dir; boot clears it.
 func TestBootClearsScratch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	scratch := filepath.Join(dir, "backups", "scratch")
 	must(t, os.MkdirAll(scratch, 0o700))
@@ -380,6 +391,7 @@ func TestBootClearsScratch(t *testing.T) {
 // The Backups form checks every value before it saves any, and pushes the
 // proxy config once.
 func TestSetSettingsAllOrNothing(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	before := func() int { w.mu.Lock(); defer w.mu.Unlock(); return len(w.pushed) }

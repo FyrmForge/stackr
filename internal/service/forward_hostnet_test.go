@@ -10,6 +10,7 @@ import (
 // A host-network tile on a worker is dialled at the worker's mesh address,
 // never the panel's own loopback.
 func TestHostNetAddr(t *testing.T) {
+	t.Parallel()
 	o, _ := renewRig(t)
 	ctx := context.Background()
 	got, err := o.hostNetAddr(docker.WithNode(ctx, "w1"))

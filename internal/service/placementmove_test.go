@@ -81,6 +81,7 @@ func failed(cs []planfile.Check) []string {
 // Each check fails alone, except the mesh link: a link to a node that is
 // down was last measured while it was up, so it fails with that node.
 func TestPlacementMoveChecksFailAlone(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, c := range []struct {
 		name, want string // want: the failed checks, comma separated
@@ -152,6 +153,7 @@ func TestPlacementMoveChecksFailAlone(t *testing.T) {
 // A repoint moves its envs as jobs and the placement takes the new node when
 // the last one lands.
 func TestMovePlacementHappyPath(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	if _, err := n.orch.MovePlacement(ctx, n.admin, "eu", "w1", "nope", false); !pmInvalid(err) {
@@ -192,6 +194,7 @@ func TestMovePlacementHappyPath(t *testing.T) {
 }
 
 func TestMovePlacementNoEnvsRepointsAtOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	n.placement(t, "empty", n.ctl.ID)
@@ -216,6 +219,7 @@ func TestMovePlacementNoEnvsRepointsAtOnce(t *testing.T) {
 
 // One env failing leaves the placement on the old node; Retry finishes it.
 func TestMovePlacementFailureAndRetry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	n.wFake.Err = map[string]error{"Run": context.DeadlineExceeded}
@@ -258,6 +262,7 @@ func TestMovePlacementFailureAndRetry(t *testing.T) {
 
 // D6: a placement with no node gets one, and its waiting env deploys there.
 func TestPlacementNodeSetDeploysWaitingEnvs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	wait := n.placement(t, "wait", "")
@@ -291,6 +296,7 @@ func TestPlacementNodeSetDeploysWaitingEnvs(t *testing.T) {
 // D8: a repoint off a forgotten node rehomes the env, deploys it and queues
 // the restore of its newest backup.
 func TestMovePlacementRestoresAfterForget(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	must(t, n.st.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone", Name: "h3", ForgottenAt: time.Now()}))
@@ -354,6 +360,7 @@ func TestMovePlacementRestoresAfterForget(t *testing.T) {
 // starts empty, the deploy's job log and the security log say so. A short
 // disk is not overridable.
 func TestMovePlacementStartEmpty(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	must(t, n.st.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone", Name: "h3", ForgottenAt: time.Now()}))
@@ -408,6 +415,7 @@ func TestMovePlacementStartEmpty(t *testing.T) {
 // An env stuck on a forgotten node can be cleaned up: a tile's volumes edit
 // and a volume delete change the rows and send nothing to that node.
 func TestForgottenNodeEditsAreRecordOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	must(t, n.st.ForgottenNodes.Create(ctx, store.ForgottenNode{ID: "gone", Name: "h3", ForgottenAt: time.Now()}))
@@ -434,6 +442,7 @@ func TestForgottenNodeEditsAreRecordOnly(t *testing.T) {
 // D4: a pin change that moves an env needs the plan confirmed; one that does
 // not just records the placement. The plan never names a node.
 func TestEnvPinMove(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	pw := n.placement(t, "pw", "w1")
@@ -484,6 +493,7 @@ func TestEnvPinMove(t *testing.T) {
 
 // moveChecks is the contract's entry point: node-named checks for a list of envs.
 func TestMoveChecksNamesNodes(t *testing.T) {
+	t.Parallel()
 	n := newPMFix(t)
 	cs, err := n.orch.moveChecks(context.Background(), []string{n.dev.ID}, n.ctl.ID, "w1")
 	must(t, err)
@@ -495,6 +505,7 @@ func TestMoveChecksNamesNodes(t *testing.T) {
 // An org file pin that moves an env: the approved apply moves it, acting as
 // the file (no principal of its own), and the org ends pinned.
 func TestFilePinMovesEnv(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newPMFix(t)
 	pw := n.placement(t, "pw", "w1")

@@ -10,6 +10,7 @@ import (
 // Deleting a volume orphans it: the row, its data and its runs stay for the
 // orphan job, and its schedules go.
 func TestDeleteVolumeOrphansAndKeepsRuns(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	v, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "data")
@@ -39,6 +40,7 @@ func TestDeleteVolumeOrphansAndKeepsRuns(t *testing.T) {
 // An env's volumes are orphaned with it (the environments_scope_cascade
 // trigger), so the orphan job still backs them up.
 func TestDeleteEnvOrphansItsVolumes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	v, _, err := w.orch.DeclareEnvVolume(ctx, w.env, "data")

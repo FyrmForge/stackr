@@ -24,6 +24,7 @@ import (
 // challenge records of a managed domain land in its connector's account
 // under the zone lock; anything else is refused before any provider call.
 func TestACMEDNSSocket(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "acme") // short: a unix socket path is capped
 	if err != nil {
 		t.Fatal(err)

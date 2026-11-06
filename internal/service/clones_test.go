@@ -46,6 +46,7 @@ func seedRow(t *testing.T, w *world, state, path string) {
 // org or the server config maps to; everything else in seeds/ and repos/
 // goes, and a seed job the restart fails takes its dump along.
 func TestBootSweepsSeedsAndRepos(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	w.orch.gitEnv = []string{} // no connector in this world
@@ -111,6 +112,7 @@ func TestBootSweepsSeedsAndRepos(t *testing.T) {
 
 // A seed job cancelled before it ran drops its dump.
 func TestSeedEndedDropsDump(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "x.dump")
 	plant(t, path)
 	p, err := json.Marshal(seedJob{Source: seedSource{Kind: "upload", Path: path}})
@@ -128,6 +130,7 @@ func TestSeedEndedDropsDump(t *testing.T) {
 // Deleting a tile removes its build clone once no tile in another env
 // builds from it; deleting a stack or an org removes its config clone.
 func TestDeleteRemovesClones(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newWorld(t)
 	w.orch.gitEnv = []string{} // no connector in this world

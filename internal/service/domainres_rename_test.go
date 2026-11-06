@@ -74,6 +74,7 @@ func (r renameWorld) redirect(t *testing.T, host string) Domain {
 // literal one, keeps the old host as a generated redirect on the same tile,
 // and pushes once with both routes.
 func TestRenameDomainResource(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	pushes := w.pushCount()
@@ -109,6 +110,7 @@ func TestRenameDomainResource(t *testing.T) {
 // A second rename repoints the old redirects at the newest host, so no
 // chain; renaming back takes the old host over from its redirect.
 func TestRenameDomainResourceChain(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.RenameDomainResource(ctx, w.inst.ID, "new.io")
@@ -138,6 +140,7 @@ func TestRenameDomainResourceChain(t *testing.T) {
 
 // Every refusal comes before the first write: nothing moves.
 func TestRenameDomainResourceRefusals(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cases := []struct {
 		name  string
@@ -227,6 +230,7 @@ func TestRenameDomainResourceRefusals(t *testing.T) {
 // the root_domain setting follows. A declared org row is the owner's own and
 // stays.
 func TestRenameInstanceMovesOrgRows(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.FinishOrg(ctx, w.org)
@@ -262,6 +266,7 @@ func TestRenameInstanceMovesOrgRows(t *testing.T) {
 // The impact counts what a rename moves: the rewritten hosts and one
 // certificate per HTTPS host; redirects and literal hosts are not counted.
 func TestDomainResourceImpact(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	got, err := w.orch.DomainResourceImpact(ctx, w.inst.ID)
@@ -281,6 +286,7 @@ func TestDomainResourceImpact(t *testing.T) {
 // root_domain renames the instance row; a later boot with the old root in
 // its config does not seed it back; refusals write nothing.
 func TestSetRootDomainRenames(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "root_domain", "example.com"))
@@ -318,6 +324,7 @@ func TestSetRootDomainRenames(t *testing.T) {
 // After the setting moved the instance row, a boot whose config still names
 // the old root adds nothing: the row exists.
 func TestBootAfterRootRename(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	boot := func() (*Orchestrator, []store.DomainResource) {
 		t.Helper()
@@ -348,6 +355,7 @@ func TestBootAfterRootRename(t *testing.T) {
 // A stack rename recomputes auto hosts; a generated redirect is auto too but
 // is not recomputed: it follows the row it was made for.
 func TestRenameStackRepointsGeneratedRedirects(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.RenameDomainResource(ctx, w.inst.ID, "new.io")
@@ -366,6 +374,7 @@ func TestRenameStackRepointsGeneratedRedirects(t *testing.T) {
 // away, leaving a redirect on api.shop.bcorp.io (beta's tile); org acme
 // renaming its own resource onto bcorp.io must not take that host over.
 func TestRenameDoesNotReclaimAnotherOrgsRedirect(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -410,6 +419,7 @@ func TestRenameDoesNotReclaimAnotherOrgsRedirect(t *testing.T) {
 // F4: root_domain stores the cleaned host, so the setting and the instance
 // row stay in step and a later change finds the row.
 func TestSetRootDomainStoresCleanedHost(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "root_domain", "example.com"))
@@ -431,6 +441,7 @@ func TestSetRootDomainStoresCleanedHost(t *testing.T) {
 // F4: a root_domain that names no instance row while another one exists is
 // refused, not stored beside a row that stays put.
 func TestSetRootDomainRefusesUnmatchedRow(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "root_domain", "example.com"))
@@ -445,6 +456,7 @@ func TestSetRootDomainRefusesUnmatchedRow(t *testing.T) {
 
 // F4: the generated redirect keeps the moved row's HTTPS flags.
 func TestRenameRedirectKeepsHTTPSFlags(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	off := false
@@ -463,6 +475,7 @@ func TestRenameRedirectKeepsHTTPSFlags(t *testing.T) {
 // A managed tile's stored S3_ENDPOINT follows a rename of the resource its
 // auto host sits under, and the consumer reading it redeploys.
 func TestRenameRepublishesManagedURL(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	files, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "files"}, "s3")

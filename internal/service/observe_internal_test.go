@@ -18,6 +18,7 @@ import (
 // read is the retention. observe.disk fires once per crossing of twice the
 // free-space floor.
 func TestObserveRouting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	if err := o.SetSettings(ctx, map[string]string{"observe_enabled": "true", "observe_metrics_retention": "7", "observe_min_free": "5"}); err != nil {
@@ -99,6 +100,7 @@ func TestObserveRouting(t *testing.T) {
 // With metrics history off no logs are kept, but the stored Logs switch
 // still reads on, so saving the Observability form keeps it.
 func TestObserveLogsSwitchSurvivesMetricsOff(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	if err := o.SetSettings(ctx, map[string]string{"observe_enabled": "false", "observe_logs_enabled": "true"}); err != nil {

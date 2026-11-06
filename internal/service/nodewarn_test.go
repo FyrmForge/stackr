@@ -12,6 +12,7 @@ import (
 // The skew is the worker's clock against the midpoint of the request, so a
 // slow round trip does not count as skew; an older worker reports none.
 func TestClockSkew(t *testing.T) {
+	t.Parallel()
 	sent := time.Unix(1000, 0)
 	for _, c := range []struct {
 		rtt, ahead time.Duration
@@ -35,6 +36,7 @@ func TestClockSkew(t *testing.T) {
 // clock.skew fires once per crossing of 30 s either way and resets when the
 // clock is back; an unknown skew changes nothing.
 func TestClockAlertOncePerCrossing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newWorld(t).orch
 	h := newHook(t)
@@ -62,6 +64,7 @@ func TestClockAlertOncePerCrossing(t *testing.T) {
 
 // Each kind of warning on its own, and none for a healthy node.
 func TestWarningsOf(t *testing.T) {
+	t.Parallel()
 	const g = 1 << 30
 	for _, c := range []struct {
 		in     warnIn

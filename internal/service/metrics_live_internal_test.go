@@ -10,6 +10,7 @@ import (
 
 // An open graph gets only its own series of the newest round, and only once.
 func TestMetricsAfterScope(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(2_000_000, 0)
 	tile := "b3d7aa59-c598-45e3"
 	o := &Orchestrator{}
@@ -44,6 +45,7 @@ func TestMetricsAfterScope(t *testing.T) {
 
 // A finished run's points are stored and wait for the next round's graphs.
 func TestRunPointsReachGraphs(t *testing.T) {
+	t.Parallel()
 	o := &Orchestrator{}
 	o.writeRunPoints(context.Background(), []metrics.Point{{Key: "tile:t1", Name: "run_s", T: time.Now(), V: 3}})
 	if len(o.metrics.runs) != 1 {

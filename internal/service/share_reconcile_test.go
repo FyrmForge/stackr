@@ -36,6 +36,7 @@ func shareOnWorker(t *testing.T, n *twoNodes) (org, vol string) {
 
 // Deleting a share removes its volume from a worker, not only the controller's.
 func TestDeleteShareRemovesWorkerVolume(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	org, vol := shareOnWorker(t, n)
 	must(t, n.orch.DeleteShare(context.Background(), org, "media"))
@@ -47,6 +48,7 @@ func TestDeleteShareRemovesWorkerVolume(t *testing.T) {
 
 // A worker that is offline at delete time is cleaned when it reconnects.
 func TestOfflineWorkerShareVolumeCleanedOnReconnect(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	org, vol := shareOnWorker(t, n)
@@ -71,6 +73,7 @@ func TestOfflineWorkerShareVolumeCleanedOnReconnect(t *testing.T) {
 
 // A volume a container holds is skipped and the job fails so it runs again.
 func TestShareReconcileSkipsInUse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	org, _ := shareOnWorker(t, n)

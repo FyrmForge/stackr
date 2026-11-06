@@ -11,6 +11,7 @@ import (
 // The join and controller-cert verbs refuse a non-admin and a nil principal
 // on their own, not only at the route.
 func TestJoinVerbsNeedNodeAdmin(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w, _ := secWorld(t)
 	refused := func(err error) bool { return errors.Is(err, errs.ErrRefused) }

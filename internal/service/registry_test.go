@@ -26,6 +26,7 @@ func tokenReq(host, key, scope string) *http.Request {
 }
 
 func TestRegistryToken(t *testing.T) {
+	t.Parallel()
 	e := servicetest.New(t, func(c *service.Config) { c.PanelDomain = "panel.test" })
 	ctx := context.Background()
 	org := e.Org(t, "acme")
@@ -92,6 +93,7 @@ func TestRegistryToken(t *testing.T) {
 // caller: it works at the registry front for the caller's orgs only, and a
 // tampered or API-key-shaped value does not.
 func TestRegistryLoginToken(t *testing.T) {
+	t.Parallel()
 	e := servicetest.New(t, func(c *service.Config) { c.PanelDomain = "panel.test" })
 	ctx := context.Background()
 	org := e.Org(t, "acme")
@@ -136,6 +138,7 @@ func TestRegistryLoginToken(t *testing.T) {
 // The login token freezes nothing: a demotion and a revoked key are felt at
 // the next /token, not 12 hours later.
 func TestRegistryLoginTokenFollowsLiveRights(t *testing.T) {
+	t.Parallel()
 	e := servicetest.New(t, func(c *service.Config) { c.PanelDomain = "panel.test" })
 	ctx := context.Background()
 	org := e.Org(t, "acme")

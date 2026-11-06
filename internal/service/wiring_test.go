@@ -28,6 +28,7 @@ func (f *fakeCaddy) Caddy(_ context.Context, _, path string, body []byte) (*http
 // The controller's config goes to the local push, a worker's through its
 // Caddy pass-through, and a node with no connection is an error.
 func TestProxyPushPerNode(t *testing.T) {
+	t.Parallel()
 	var local string
 	w := &fakeCaddy{status: 200}
 	push := proxyPush(
@@ -59,6 +60,7 @@ func TestProxyPushPerNode(t *testing.T) {
 // Only a controller tile served by the controller's own Caddy goes by
 // container name; a worker ingress in front of it needs the VIP.
 func TestNeedsVIP(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		node, ingress string
 		want          bool
@@ -76,6 +78,7 @@ func TestNeedsVIP(t *testing.T) {
 
 // A copy beside the database while the upgrade helper runs is the live swap's, not a leftover.
 func TestControllerLogCapQuietDuringSwap(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
@@ -94,6 +97,7 @@ func TestControllerLogCapQuietDuringSwap(t *testing.T) {
 
 // A helper that died mid-swap stays as an exited container; it must not hide the warning.
 func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
@@ -112,6 +116,7 @@ func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
 
 // A swap copy still beside the database at boot is reported and kept.
 func TestControllerLogCapWarnsOnSwapCopy(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {

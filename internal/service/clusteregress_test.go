@@ -10,6 +10,7 @@ import (
 // the exit lists it under ExitOthers and the map names the pair. An env that
 // leaves from its own node is that node's ExitOwn.
 func TestClusterMapEgressSplit(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	adm := nodeExitAdmin()

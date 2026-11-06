@@ -110,6 +110,7 @@ func TestHostCertSweepsRemovedHosts(t *testing.T) {
 // A worker is dialled at its public address, not its mesh one; the controller
 // by loopback; a worker with no public address is skipped.
 func TestCertAddr(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.cluster = &clusterPKI{}
@@ -130,6 +131,7 @@ func TestCertAddr(t *testing.T) {
 }
 
 func TestCertProblem(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	day := 24 * time.Hour
 	old := now.Add(-10 * day)

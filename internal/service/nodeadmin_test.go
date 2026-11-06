@@ -14,6 +14,7 @@ import (
 )
 
 func TestNodeAdminLifecycle(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctx := context.Background()
 	adm := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}

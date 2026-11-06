@@ -18,6 +18,7 @@ import (
 // A cold move: the env stops on the controller, starts on the worker in the
 // worker's range, the old containers go, and the security log has both ends.
 func TestMoveEnvColdToWorker(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	admin := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}
@@ -78,6 +79,7 @@ func (n *twoNodes) startMove(by *Principal, envID, to string, live bool) (Job, e
 
 // A restart resumes a move that was cut off: one job for the unfinished move.
 func TestResumeMovesQueuesUnfinished(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	m, err := n.orch.moveFlow().Begin(ctx, move.Request{EnvID: n.dev.ID, From: n.ctl.ID, To: "w1"})
@@ -97,6 +99,7 @@ func TestResumeMovesQueuesUnfinished(t *testing.T) {
 }
 
 func TestDeployOrderPutsDependenciesFirst(t *testing.T) {
+	t.Parallel()
 	ts := []Tile{
 		{Slug: "web", Kind: tile.Image, DependsOn: "api"},
 		{Slug: "api", Kind: tile.Image, DependsOn: "db:healthy"},
@@ -115,6 +118,7 @@ func TestDeployOrderPutsDependenciesFirst(t *testing.T) {
 // A controller row from before transit addresses were stored holds none: a
 // move to it takes the controller's fixed transit address.
 func TestMoveAddrOfController(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	ctl := n.ctl
 	ctl.WGAddress = ""
@@ -129,6 +133,7 @@ func TestMoveAddrOfController(t *testing.T) {
 // Two live moves onto one node share a lock: their rsync helpers bind the
 // same host ports there (the rig's second env failed on 8873 otherwise).
 func TestMoveLocksSerialiseLiveMovesOntoOneNode(t *testing.T) {
+	t.Parallel()
 	a := moveLocks(EnvMove{EnvID: "e1", ToNode: "n2", Live: true}, nil)
 	b := moveLocks(EnvMove{EnvID: "e2", ToNode: "n2", Live: true}, nil)
 	if !slices.ContainsFunc(a, func(l string) bool { return slices.Contains(b, l) }) {

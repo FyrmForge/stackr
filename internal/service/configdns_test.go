@@ -15,6 +15,7 @@ import (
 // note naming the record to set. An ingress pick and a pin to an ingress
 // node both move them.
 func TestConfigDNSListsManagedAndHandHosts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := &zoneFake{}
 	n := newTwoNodes(t, WithDNS(func(string, DNSCreds) (DNSProvider, error) { return f, nil }))
@@ -56,6 +57,7 @@ func TestConfigDNSListsManagedAndHandHosts(t *testing.T) {
 // A destination node with no public address gives a note naming the node,
 // not a record row with nothing in it.
 func TestConfigDNSNodeWithoutPublicIP(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	ingressNode(t, n, "h4", "")

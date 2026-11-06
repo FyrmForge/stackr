@@ -135,6 +135,7 @@ func newClusterPanel(t *testing.T) *Orchestrator {
 // The CA and the controller cert are made on the first boot, once, audited;
 // a second boot reuses both.
 func TestBootMakesTheCAOnce(t *testing.T) {
+	t.Parallel()
 	o := newClusterPanel(t)
 	dir := o.cfg.DataDir
 	for _, f := range []string{installspec.ClusterCAKeyFile, installspec.ClusterCACertFile, controllerKeyFile, controllerCertFile} {
@@ -175,6 +176,7 @@ func TestBootMakesTheCAOnce(t *testing.T) {
 // deploy to an env pinned to that node goes through it, not to the
 // controller's daemon.
 func TestDeployToAWorkerGoesThroughIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	daemon, _, _ := workerNode(t, o, "w1")
@@ -223,6 +225,7 @@ func (o *Orchestrator) extrasOrNil(id string) any {
 // A node that goes offline loses its entry (calls answer 503); a revoked
 // worker cert is refused by the controller's dial.
 func TestNodeClientsFollowTheRows(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	_, srv1, _ := workerNode(t, o, "w1")

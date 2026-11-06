@@ -26,6 +26,7 @@ import (
 // with a note on the first boot after a restore; other running jobs are
 // left for the runner, and with no marker nothing is touched.
 func TestSettleRestoredPanelBackup(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	running := func(kind jobs.Kind) store.Job {
@@ -65,6 +66,7 @@ func TestSettleRestoredPanelBackup(t *testing.T) {
 
 // A backup run a restart left running fails at boot; a finished one stays.
 func TestBackupRunsInterrupted(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	local, err := w.orch.localDest(ctx)
@@ -88,6 +90,7 @@ func TestBackupRunsInterrupted(t *testing.T) {
 // lost their containers, once: a running one, a stopped one, a never
 // deployed one and a worker's are left alone.
 func TestRedeployAfterRestore(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	done := func(tl Tile, kind jobs.Kind, at time.Time) {
@@ -159,6 +162,7 @@ func TestRedeployAfterRestore(t *testing.T) {
 // A volume with no backup starts empty and says so; one that kept its data
 // is left alone.
 func TestRestoreVolumesBeforeDeploy(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	old := time.Now().Add(-time.Hour)

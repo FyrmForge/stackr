@@ -16,6 +16,7 @@ import (
 // Kicks that land while a run is going fold into exactly one more run, and
 // Kick never waits for a run.
 func TestCoalesceKicks(t *testing.T) {
+	t.Parallel()
 	var runs atomic.Int32
 	started, release := make(chan struct{}, 4), make(chan struct{})
 	k := &coalesce{fn: func() {
@@ -54,6 +55,7 @@ func (s slowZone) Append(context.Context, string, []libdns.Record) ([]libdns.Rec
 // A provider that hangs never holds the proxy push; its failure is kept
 // for the DNS connectors section, and a later clean sync clears it.
 func TestSlowDNSNeverHoldsTheProxyPush(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	slow := slowZone{&zoneFake{}, make(chan struct{})}
 	var p DNSProvider = slow

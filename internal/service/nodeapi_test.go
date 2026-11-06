@@ -46,6 +46,7 @@ func auditCount(t *testing.T, n *twoNodes, action string) int {
 }
 
 func TestNodeShowsDefaultExit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	seedNode(t, n, "h4", `["egress"]`, "10.210.0.0/16")
@@ -67,6 +68,7 @@ func TestNodeShowsDefaultExit(t *testing.T) {
 }
 
 func TestListAndShowNodes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	ns, err := n.orch.ListNodes(ctx)
@@ -92,6 +94,7 @@ func TestListAndShowNodes(t *testing.T) {
 
 // Tags: unknown ones are refused; the ingress tag stays while a scope uses it.
 func TestTagNodeByName(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -114,6 +117,7 @@ func TestTagNodeByName(t *testing.T) {
 // An owner pins only to placements open to the org; the default is open to
 // all. An env pin that would move the env is refused until confirmed.
 func TestOpenPinAndPlacement(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -189,6 +193,7 @@ func TestOpenPinAndPlacement(t *testing.T) {
 }
 
 func TestIngressAndExits(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -315,6 +320,7 @@ func TestRemoveForgetLost(t *testing.T) {
 
 // A rejoin keeps the node's id, range and envs; the old certs stop at confirm.
 func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -374,6 +380,7 @@ func TestRejoinKeepsRangeAndEnvs(t *testing.T) {
 // A rejected rejoin (its installer died before confirm) goes back to
 // needs-rejoin with its name, address and envs; a fresh rejoin then works.
 func TestRejectRejoinKeepsNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	adm := adminP()
@@ -413,6 +420,7 @@ func TestRejectRejoinKeepsNode(t *testing.T) {
 
 // A pending machine shows the addresses a person knows it by.
 func TestHostAddresses(t *testing.T) {
+	t.Parallel()
 	got := hostAddresses([]worker.Iface{
 		{Name: "lo", Prefixes: []string{"127.0.0.1/8", "::1/128"}},
 		{Name: "eth0", Prefixes: []string{"192.168.1.110/24", "fe80::1/64", "2001:db8::5/64"}},
@@ -428,6 +436,7 @@ func TestHostAddresses(t *testing.T) {
 
 // stackr's own networks are skipped on any join, wg0 on a rejoin only.
 func TestReportedPrefixesRejoin(t *testing.T) {
+	t.Parallel()
 	row := store.JoinToken{Facts: `{"interfaces":[{"name":"stackr0","prefixes":["10.207.255.9/24"]},` +
 		`{"name":"br-1","prefixes":["10.208.0.1/24"]},{"name":"br-2","prefixes":["10.208.9.1/24"]},` +
 		`{"name":"wg0","prefixes":["10.208.7.1/24"]},` +
@@ -448,6 +457,7 @@ func TestReportedPrefixesRejoin(t *testing.T) {
 }
 
 func TestClusterStatusFlagsDownNodes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	// no worker answers in the fixture: the controller is up, w1 is not
@@ -464,6 +474,7 @@ func TestClusterStatusFlagsDownNodes(t *testing.T) {
 
 // An offline worker that answers its liveness port lists as tunnel-down.
 func TestListNodesTunnelDown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	w, err := n.st.Nodes.Get(ctx, "w1")
@@ -488,6 +499,7 @@ func TestListNodesTunnelDown(t *testing.T) {
 
 // A worker's arch and stackr version come from the facts it reported.
 func TestListNodesShowsWorkerArch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64", Version: "0.6.0", Docker: "29.0.0"})
@@ -501,6 +513,7 @@ func TestListNodesShowsWorkerArch(t *testing.T) {
 // The controller has no worker to ask: its docker version and arch come from
 // the daemon it talks to.
 func TestListNodesControllerFacts(t *testing.T) {
+	t.Parallel()
 	n := newTwoNodes(t)
 	n.ctlFake.Host = docker.HostInfo{CPUs: 4, MemBytes: 8 << 30, Version: "29.9.0"}
 	ns, err := n.orch.ListNodes(context.Background())
@@ -513,6 +526,7 @@ func TestListNodesControllerFacts(t *testing.T) {
 // A worker on another build than the panel is behind; one on the panel's
 // build is not, and the version it reported shows either way.
 func TestListNodesShowsVersionAndBehind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	n.orch.cfg.Version = "v9.9.9"

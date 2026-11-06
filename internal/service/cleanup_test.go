@@ -76,6 +76,7 @@ func (w *world) job(t *testing.T, env, rel, state string, age time.Duration) {
 // The sweep keeps what runs, an env's current release and the newest release
 // of a stack; it drops the rest, never an image stackr did not build.
 func TestCleanupKeepSet(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))
@@ -115,6 +116,7 @@ func TestCleanupKeepSet(t *testing.T) {
 // A promote parked on host access, or queued behind a lock, targets a release
 // that may be far back; its image must survive or the release never deploys.
 func TestCleanupKeepsLiveJobRelease(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	must(t, w.orch.SetSetting(context.Background(), "cleanup_enabled", "true"))
 	parked := w.release(t, w.builtImage(t, "stkr/parked:1"))
@@ -131,6 +133,7 @@ func TestCleanupKeepsLiveJobRelease(t *testing.T) {
 // Rollback depth is the last releases each env was on, not the last of the
 // stack, and a release past it loses its Docker image but keeps its pin.
 func TestCleanupDepthIsPerEnv(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))
@@ -177,6 +180,7 @@ func TestCleanupDepthIsPerEnv(t *testing.T) {
 }
 
 func TestCleanupOffDoesNothing(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	must(t, w.orch.SetSetting(context.Background(), "cleanup_enabled", "false"))
 	w.builtImage(t, "stkr/gone:1")
@@ -209,6 +213,7 @@ func (w *world) removedImages() []string {
 // a worker loads them by; the running build and the one before it stay, as
 // does an old one a container was made from (by id) and any foreign image.
 func TestCleanupOldStackrImages(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))
@@ -250,6 +255,7 @@ func TestCleanupOldStackrImages(t *testing.T) {
 // With the running build unknown, or a panel upgrade in flight, no stackr
 // image goes.
 func TestCleanupStackrImagesFailClosed(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "cleanup_enabled", "true"))

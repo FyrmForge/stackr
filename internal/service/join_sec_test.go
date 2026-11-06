@@ -8,6 +8,7 @@ import (
 
 // A new rejoin command ends the one before it.
 func TestNewRejoinExpiresThePreviousCommand(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	adm := adminP()
@@ -27,6 +28,7 @@ func TestNewRejoinExpiresThePreviousCommand(t *testing.T) {
 // A node mid rejoin stays listed and its drawer opens, waiting to rejoin
 // both before and after the box called in.
 func TestRejoinStaysListed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	adm := adminP()
@@ -84,6 +86,7 @@ func TestJoinedNotSeenStalls(t *testing.T) {
 
 // Another node's pending command is left alone.
 func TestRejoinKeepsOtherNodesCommands(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	adm := adminP()

@@ -14,6 +14,7 @@ import (
 // the orphan sweep reaches the node, takes the last backup there and removes
 // the Docker volume there, not on the controller.
 func TestDeleteEnvOrphansVolumeOnItsNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	e, err := n.orch.CreateEnv(ctx, n.stack, "tmp", EnvSpec{

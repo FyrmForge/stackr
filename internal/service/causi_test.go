@@ -13,6 +13,7 @@ import (
 // The trust view names the workers on the old root during a rollover and the
 // workers break glass left without a live cert; the node status follows.
 func TestClusterTrustView(t *testing.T) {
+	t.Parallel()
 	o, _ := renewRig(t)
 	ctx := context.Background()
 	adm := &Principal{User: User{ID: "u-admin"}, Access: authz.User{ID: "u-admin", Active: true, Admin: true}}

@@ -75,6 +75,7 @@ func (r *recRunner) count(sub string) int {
 // clients; one that stops answering goes offline; a pending node is left
 // alone throughout.
 func TestWorkerStatusFollowsTheConnection(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	_, srv, _ := workerNodeWith(t, o, "w1", node.StatusJoined, worker0())
@@ -115,6 +116,7 @@ func TestWorkerStatusFollowsTheConnection(t *testing.T) {
 
 // The mesh never plans a pending node (its range is "pending:<id>").
 func TestMeshSkipsPendingNodes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	must(t, o.store.Nodes.Create(ctx, store.Node{
@@ -134,6 +136,7 @@ func TestMeshSkipsPendingNodes(t *testing.T) {
 // once, and the whole table saved as its state; a table built after a
 // controller restart does not insert the jumps again.
 func TestWorkerVIPTable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	rr := &recRunner{}
@@ -175,6 +178,7 @@ func TestWorkerVIPTable(t *testing.T) {
 // The live move's rsync door: INPUT and the forwarded (DNATed) path, both
 // idempotent, closed again on off.
 func TestWorkerVIPAllowTCP(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	rr := &recRunner{}
@@ -218,6 +222,7 @@ func TestWorkerVIPAllowTCP(t *testing.T) {
 
 // A joining node gets the lowest free transit address, never the controller's.
 func TestConfirmTakesTransit(t *testing.T) {
+	t.Parallel()
 	w, adm, _ := joinWorld(t)
 	ctx := context.Background()
 	st, err := w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, mint(t, w, adm, "w1").Token))
@@ -231,6 +236,7 @@ func TestConfirmTakesTransit(t *testing.T) {
 
 // The daily chores prune registry token rows long expired.
 func TestDailyChores(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	now := time.Now().UTC()

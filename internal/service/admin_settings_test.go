@@ -22,6 +22,7 @@ import (
 // host:port or a trailing dot would match no request at the proxy. A
 // wildcard, localhost and a bare address are refused.
 func TestPanelDomainStoredClean(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	for in, want := range map[string]string{
@@ -49,6 +50,7 @@ func TestPanelDomainStoredClean(t *testing.T) {
 // root_domain and panel_domain in one save: the panel may not land on a
 // host the root rename creates, and the refusal writes neither.
 func TestSetSettingsRootAndPanelTogether(t *testing.T) {
+	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "root_domain", "example.com"))
@@ -106,6 +108,7 @@ func customRoute(host string) string {
 // Two saves of proxy_custom at once, one Caddy cannot load: the take-back of
 // the bad one must not undo the good one.
 func TestProxyCustomTakeBackRace(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	w := newPickyWorld(t) // one world: a new one costs ~2s
 	for i := range 40 {
@@ -128,6 +131,7 @@ func TestProxyCustomTakeBackRace(t *testing.T) {
 // A share row for an org slugged "all" grants that one org; only the
 // Field "share" row turns share-all on.
 func TestApplySharesFieldNotValue(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	conn := uuid.NewString()

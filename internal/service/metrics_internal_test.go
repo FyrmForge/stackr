@@ -18,6 +18,7 @@ import (
 // Two raw samples 10 s apart become rates; the first sample of a node
 // yields nothing; a counter that went backwards yields nothing for it.
 func TestMetricsIngest(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(2_000_000, 0)
 	host := func(total, idle uint64) worker.HostSample {
 		return worker.HostSample{CPUTotal: total, CPUIdle: idle, MemTotal: 1000, MemAvail: 400, DiskTotal: 100, DiskFree: 30}
@@ -93,6 +94,7 @@ func TestMetricsIngest(t *testing.T) {
 
 // A read is clamped to what the store keeps; no range is an hour.
 func TestMetricsWindow(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[time.Duration]time.Duration{0: time.Hour, 6 * time.Hour: 6 * time.Hour, 720 * time.Hour: MetricsKeep} {
 		from, to, step := MetricsIn{Range: in}.window(MetricsKeep)
 		if got := to.Sub(from); got != want {
@@ -107,6 +109,7 @@ func TestMetricsWindow(t *testing.T) {
 // A replica reads as its deploy and index; a name without the tile's prefix
 // stays whole.
 func TestReplicaLabel(t *testing.T) {
+	t.Parallel()
 	for name, want := range map[string]string{
 		"stackr-hello-b3d7aa59-7d8a55-1":  "7d8a55-1",
 		"/stackr-hello-b3d7aa59-7d8a55-2": "7d8a55-2",
@@ -121,6 +124,7 @@ func TestReplicaLabel(t *testing.T) {
 // An unknown peer is named in the error: a bare 404 read as the first node
 // missing.
 func TestLinkMetricsUnknownPeer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	must(t, o.store.Nodes.Create(ctx, store.Node{
@@ -136,6 +140,7 @@ func TestLinkMetricsUnknownPeer(t *testing.T) {
 // A cron's failure rate is a share of runs per wide bucket, not each run's
 // 0 or 1; live rounds leave run_failed to the read.
 func TestFailureRateBuckets(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	cron := store.Tile{

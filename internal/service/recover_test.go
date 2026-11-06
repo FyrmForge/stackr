@@ -43,6 +43,7 @@ func nodeCertAt(t *testing.T, o *Orchestrator, id string, at time.Time) tls.Cert
 // clock, a replayed nonce, a cert from another CA and a node the panel does
 // not know are all refused.
 func TestRecoverNode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	o := newClusterPanel(t)
 	must(t, o.store.Nodes.Create(ctx, store.Node{

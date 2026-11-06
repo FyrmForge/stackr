@@ -20,6 +20,7 @@ import (
 // line to the instance's VIP, an Out flow on w1, an accept on the controller.
 // A consumer on the instance's own node keeps the network.
 func TestCrossNodeLink(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	m, err := managed.New(n.st.ManagedInstances, n.st.Provisions, n.st.Bindings).Create(ctx, n.devT.ID, "postgres", "stackr", "")

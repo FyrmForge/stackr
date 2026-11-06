@@ -50,6 +50,7 @@ func adminOf(t *testing.T, env *servicetest.Env) *service.Principal {
 // node's and a tile's there. A tile host elsewhere on the domain is not
 // managed, and the records outside the scope are never touched.
 func TestScopedDomainWritesOnlyUnderScope(t *testing.T) {
+	t.Parallel()
 	env, acme, _ := scopedRig(t)
 	ctx := context.Background()
 	if got, _ := env.Orch.UsableDNSDomains(ctx, acme); !slices.Equal(got, []string{"stackr.acme.dev"}) {
@@ -85,6 +86,7 @@ func TestScopedDomainWritesOnlyUnderScope(t *testing.T) {
 // refused whole, and nothing of it reaches the provider, not even the
 // in-scope part.
 func TestSafetyNetRefusesWriteOutsideScope(t *testing.T) {
+	t.Parallel()
 	env, acme, _ := scopedRig(t)
 	ctx := context.Background()
 	d, err := env.Store.DNSDomains.GetByName(ctx, "acme.dev")
@@ -117,6 +119,7 @@ func TestSafetyNetRefusesWriteOutsideScope(t *testing.T) {
 // The manage plan lists what stays untouched outside the scope, writes
 // the panel's record, and ticks an existing panel record pointing at us.
 func TestManagePlanLeftAloneAndPanel(t *testing.T) {
+	t.Parallel()
 	env, _, _ := dnsRig(t)
 	ctx := context.Background()
 	setIP(t, env, "198.51.100.1")
@@ -150,6 +153,7 @@ func TestManagePlanLeftAloneAndPanel(t *testing.T) {
 // A managed domain keeps its scope: re-saving who may use it does not
 // widen it, and asking for another scope is refused.
 func TestScopeIsSetOnce(t *testing.T) {
+	t.Parallel()
 	env, _, id := scopedRig(t)
 	ctx := context.Background()
 	if _, err := env.Orch.ManageDNSDomain(ctx, nil, id, "acme.dev", nil); err != nil {
@@ -167,6 +171,7 @@ func TestScopeIsSetOnce(t *testing.T) {
 
 // An ACME challenge outside the scope is refused before any provider call.
 func TestACMEChallengeStaysInScope(t *testing.T) {
+	t.Parallel()
 	env, _, _ := scopedRig(t)
 	ctx := context.Background()
 	txt := []libdns.RR{{Name: "_acme-challenge.www", Type: "TXT", Data: "tok"}}
@@ -182,6 +187,7 @@ func TestACMEChallengeStaysInScope(t *testing.T) {
 // A node's address outside every managed scope is the record to set by
 // hand; inside one stackr writes it. No public address, no record.
 func TestNodeAddressRecord(t *testing.T) {
+	t.Parallel()
 	env, _, _ := scopedRig(t)
 	ctx := context.Background()
 	adm := adminOf(t, env)
@@ -218,6 +224,7 @@ func TestNodeAddressRecord(t *testing.T) {
 
 // Domains suggests managing the panel's part of a domain on the account.
 func TestDNSSuggestions(t *testing.T) {
+	t.Parallel()
 	env, _, _ := dnsRig(t)
 	ctx := context.Background()
 	if err := env.Orch.SetSettings(ctx, map[string]string{"panel_domain": "stackr.acme.dev"}); err != nil {
@@ -237,6 +244,7 @@ func TestDNSSuggestions(t *testing.T) {
 // Stop managing deletes the tile records stackr made but keeps the
 // panel's: the panel stays reachable by name.
 func TestUnmanageKeepsPanelRecord(t *testing.T) {
+	t.Parallel()
 	env, _, id := scopedRig(t)
 	ctx := context.Background()
 	if !has(env.DNS.Zone("acme.dev"), "stackr", "A", "198.51.100.1") {

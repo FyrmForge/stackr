@@ -12,6 +12,7 @@ import (
 // wildcard), a tile domain's host refuses a route, and create and delete
 // each push the proxy.
 func TestExternalRouteSquat(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
@@ -65,6 +66,7 @@ func TestExternalRouteSquat(t *testing.T) {
 // An auto host is a name too: a tile named like an admin's route takes it
 // under a resource, on attach and on rename.
 func TestAutoHostOnRouteHost(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.CreateDomainResource(ctx, "stack", w.stack, "example.com", false, "")
@@ -99,6 +101,7 @@ func TestAutoHostOnRouteHost(t *testing.T) {
 // before HTTP and locks the panel out: refused at create, and a later
 // panel_domain a route covers is refused too.
 func TestPassthroughOnPanelHost(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "panel_domain", "panel.example.com"))
@@ -122,6 +125,7 @@ func TestPassthroughOnPanelHost(t *testing.T) {
 // A resource and a wildcard route one label above it refuse each other, and
 // a trailing dot does not slip past the check.
 func TestResourceVersusWildcardRoute(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	_, err := w.orch.CreateExternalRoute(ctx, ExternalRouteSpec{Host: "*.res.example.com", Mode: "passthrough", Target: "10.0.0.5"})
@@ -145,6 +149,7 @@ func TestResourceVersusWildcardRoute(t *testing.T) {
 // The panel vhost sorts first, so a tile domain on the panel host would be
 // dead: refused, and so is a panel_domain a tile domain holds.
 func TestPanelHostShadowing(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	api := w.tile(t, "api", false)
@@ -174,6 +179,7 @@ func TestPanelHostShadowing(t *testing.T) {
 // An http or https route on the panel host is shadowed by the panel vhost:
 // refused at create, and so is a panel_domain such a route holds.
 func TestHTTPRouteOnPanelHost(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
 	must(t, w.orch.SetSetting(ctx, "panel_domain", "panel.example.com"))
