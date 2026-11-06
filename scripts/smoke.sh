@@ -73,6 +73,17 @@ app_answers() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$APP
 wait_app() { local i; for ((i = 0; i < ${1:-30}; i++)); do app_answers && return 0; sleep 2; done; return 1; }
 # job_state ID: the job's state through the admin route (survives the panel restart)
 job_state() { api GET "/admin/jobs/$1" 2>/dev/null | jq -r .state; }
+# start_upgrade TAG -> the upgrade job's id. A 503 "upgrade is underway" means
+# the last upgrade's helper is still clearing up: wait, up to 5 minutes.
+start_upgrade() {
+	local i out
+	for ((i = 0; i < 30; i++)); do
+		if out="$(api POST /admin/upgrade "{\"tag\":\"$1\"}" 2>"$T/err")"; then jq -r .id <<<"$out"; return 0; fi
+		grep -q -- '-> 503' "$T/err" || { cat "$T/err" >&2; return 1; }
+		sleep 10
+	done
+	cat "$T/err" >&2; return 1
+}
 # job_log ID: the job's own log tail, for a failed job (lines naming keys left out)
 job_log() {
 	local out; out="$(api GET "/admin/jobs/$1/log" 2>/dev/null)"
@@ -143,7 +154,7 @@ done
 check "nginx answers on http://$APPHOST/ through the proxy" wait_app
 
 # ---- 3. upgrade through the panel's own path
-JOB="$(api POST /admin/upgrade "{\"tag\":\"$NEW\"}" | jq -r .id)" || die "POST /admin/upgrade $NEW was refused"
+JOB="$(start_upgrade "$NEW")" || die "POST /admin/upgrade $NEW was refused"
 [[ -n "$JOB" && "$JOB" != null ]] || die "the upgrade returned no job"
 s="$(wait_job "$JOB" 420)"
 [[ "$s" == done ]] || job_log "$JOB"
@@ -163,7 +174,7 @@ EOF
 docker build -q -t "$IMG:${BROKEN#v}" "$T/broken" >/dev/null || die "build the broken image"
 docker tag "$IMG-observe:${NEW#v}" "$IMG-observe:${BROKEN#v}"
 
-JOB="$(api POST /admin/upgrade "{\"tag\":\"$BROKEN\"}" | jq -r .id)" || die "POST /admin/upgrade $BROKEN was refused"
+JOB="$(start_upgrade "$BROKEN")" || die "POST /admin/upgrade $BROKEN was refused"
 echo "      waiting for the trial of $BROKEN to fail and roll back (about 4 minutes)"
 s="$(wait_job "$JOB" 600)"
 wait_healthy 120 || bad "panel did not come back healthy after the failed upgrade"
