@@ -654,7 +654,8 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 	if derr == nil {
 		// The same rule a restore applies, so the range never counts a base it refuses.
 		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITRRoot(org, v.ID), m.ID); err == nil {
-			if from, ok := backup.Restorable(bases, keys, lin); ok {
+			// a base newer than the archive's reach (walLag) is not restorable yet
+			if from, ok := backup.Restorable(bases, keys, lin); ok && (h.To == nil || !h.To.Before(from)) {
 				h.From = &from
 			}
 		}

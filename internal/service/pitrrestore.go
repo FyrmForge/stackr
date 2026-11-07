@@ -140,6 +140,9 @@ func (o *Orchestrator) pitrPlan(ctx context.Context, src pitrSource, atStr strin
 	if to.IsZero() {
 		return plan, at, latest, errs.Conflictf("%s has not shipped any WAL yet", src.tile.Slug)
 	}
+	if to.Before(from) && !latest { // the newest base is past the archive's reach yet
+		return plan, at, latest, errs.Conflictf("%s has no base backup that can be restored yet: one can, once it has finished and its WAL has been shipped", src.tile.Slug)
+	}
 	if err := backup.CheckAt(at, latest, from, to, time.Now(), branch); err != nil {
 		return plan, at, latest, err
 	}
