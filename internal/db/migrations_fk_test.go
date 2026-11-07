@@ -21,7 +21,7 @@ import (
 // reference therefore cascade-deletes their rows. Migrations up to
 // legacyMigrations did it before this guard; a newer one that has to marks the
 // file with "-- cascade-safe: <why>".
-const legacyMigrations = 40
+const legacyMigrations = 1
 
 var dropTable = regexp.MustCompile(`(?im)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
 
