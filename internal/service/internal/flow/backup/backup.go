@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -426,11 +427,33 @@ func (f *Flow) fetch(ctx context.Context, d store.BackupDest, key, id string) (*
 	if err != nil {
 		return nil, err
 	}
-	if _, err := io.Copy(spool, dec); err != nil {
+	room := f.scratchRoom()
+	n, err := io.Copy(spool, io.LimitReader(dec, room+1))
+	if err != nil {
 		drop(spool)
 		return nil, fmt.Errorf("download: %w", err)
 	}
+	if n > room {
+		drop(spool)
+		return nil, fmt.Errorf("download: the archive is larger than the %d bytes the scratch space can spare", room)
+	}
 	return spool, nil
+}
+
+// scratchReserve is what a restore download leaves free on the scratch
+// disk, which the panel's database and other orgs' apps share.
+const scratchReserve = 2 << 30
+
+// scratchRoom is how much a download may write to the scratch disk: its
+// free space less scratchReserve. ponytail: one restore at a time sees the
+// same free space; per-org disk quotas are the real cap.
+func (f *Flow) scratchRoom() int64 {
+	var st syscall.Statfs_t
+	if syscall.Statfs(f.Scratch, &st) != nil {
+		return math.MaxInt64 - 1 // unknown: the copy fails on a full disk anyway
+	}
+	free := int64(st.Bavail) * int64(st.Bsize)
+	return max(free-scratchReserve, 0)
 }
 
 // maxVerify caps what verify decompresses (1 TiB): a bomb costs bounded time.
