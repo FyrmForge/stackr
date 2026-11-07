@@ -21,14 +21,14 @@ jobs:
       contents: write
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Next version (dry run)
         id: next
-        uses: go-semantic-release/action@v1
+        uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry: true
@@ -37,12 +37,12 @@ jobs:
           # these two options to let feat: cut a minor again.
           custom-arguments: --commit-analyzer-opt minor_release_rules=release-minor --commit-analyzer-opt patch_release_rules=feat,fix
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.next.outputs.version != ''
         with:
           go-version-file: go.mod
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.next.outputs.version != ''
         with:
           node-version: "20"
@@ -57,7 +57,7 @@ jobs:
         if: steps.next.outputs.version != ''
         run: make release RELEASE=v${{ steps.next.outputs.version }}
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         if: steps.next.outputs.version != ''
         with:
           registry: ghcr.io
@@ -75,7 +75,7 @@ jobs:
       - name: Tag and publish the release
         if: steps.next.outputs.version != ''
         id: semantic
-        uses: go-semantic-release/action@v1
+        uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           allow-initial-development-versions: true
