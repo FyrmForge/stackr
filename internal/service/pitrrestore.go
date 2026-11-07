@@ -135,7 +135,7 @@ func (o *Orchestrator) pitrPlan(ctx context.Context, src pitrSource, atStr strin
 		return plan, at, latest, errs.Conflictf("%s has no base backup that can be restored yet: one can, once it has finished and its WAL has been shipped", src.tile.Slug)
 	}
 	st, _ := o.pitrState(ctx, src.inst.ID)
-	to := latest0(st.LastCleanAt, st.LastShippedAt)
+	to := st.restorableTo()
 	if to.IsZero() {
 		return plan, at, latest, errs.Conflictf("%s has not shipped any WAL yet", src.tile.Slug)
 	}
@@ -146,13 +146,6 @@ func (o *Orchestrator) pitrPlan(ctx context.Context, src pitrSource, atStr strin
 		return plan, at, latest, err
 	}
 	return plan, at, latest, o.restoreRoom(ctx, src, plan)
-}
-
-func latest0(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
 
 // restoreRoom refuses a restore the node's disk cannot hold, with the

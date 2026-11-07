@@ -144,9 +144,9 @@ func TestRestoreInstanceAndBranchAtRefusals(t *testing.T) {
 	if _, _, err := o.RestoreInstance(ctx, writer, r.pg.ID, r.from.Add(-time.Hour).Format(time.RFC3339)); err == nil {
 		t.Error("a time before the base restored")
 	}
-	if _, _, err := o.BranchSlice(ctx, writer, r.db.ID, BranchIn{At: time.Now().Add(-20 * time.Second).UTC().Format(time.RFC3339)}); err == nil ||
-		!strings.Contains(err.Error(), "branch without --at") {
-		t.Errorf("branch at now-20s = %v", err)
+	// past the archive's reach (walLag) and inside the branch margin: refused
+	if _, _, err := o.BranchSlice(ctx, writer, r.db.ID, BranchIn{At: time.Now().Add(-20 * time.Second).UTC().Format(time.RFC3339)}); err == nil {
+		t.Error("a branch 20s ago went ahead")
 	}
 	if _, _, err := o.BranchSlice(ctx, writer, r.db.ID, BranchIn{At: r.from.Add(-time.Hour).Format(time.RFC3339)}); err == nil {
 		t.Error("a branch before the base")
@@ -293,5 +293,19 @@ func TestSweepCandidatesDropsRowsOfGoneTiles(t *testing.T) {
 	}
 	if _, ok := o.candidateOf(ctx, r.api.ID); !ok {
 		t.Error("a live candidate's row was swept")
+	}
+}
+
+// The restorable range ends walLag before the last clean tick: a write there
+// may still sit in an open segment.
+func TestRestorableToTrailsTheArchive(t *testing.T) {
+	t.Parallel()
+	if got := (pitrState{}).restorableTo(); !got.IsZero() {
+		t.Errorf("nothing shipped = %v, want zero", got)
+	}
+	tick := time.Date(2026, 11, 7, 16, 48, 32, 0, time.UTC)
+	st := pitrState{LastCleanAt: tick, LastShippedAt: tick.Add(-time.Minute)}
+	if got := st.restorableTo(); !got.Equal(tick.Add(-walLag)) {
+		t.Errorf("restorableTo = %v, want %v", got, tick.Add(-walLag))
 	}
 }

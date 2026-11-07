@@ -523,11 +523,22 @@ type PITRHealth struct {
 	Error       string     `json:"error,omitempty"`
 }
 
-func latest(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
+// walLag is how far the archive may trail the shipper's last tick: a write
+// sits in an open segment until archive_timeout (60s) closes it, and the
+// closed segment waits for the next tick.
+const walLag = 90 * time.Second
+
+// restorableTo is the latest time the shipped WAL surely covers; zero when
+// nothing shipped yet.
+func (st pitrState) restorableTo() time.Time {
+	t := st.LastCleanAt
+	if st.LastShippedAt.After(t) {
+		t = st.LastShippedAt
 	}
-	return a
+	if t.IsZero() {
+		return t
+	}
+	return t.Add(-walLag)
 }
 
 func nonZero(t time.Time) *time.Time {
@@ -550,7 +561,7 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 	st, _ := o.pitrState(ctx, m.ID)
 	h.Bundles, h.Bytes, h.Waiting, h.Error = st.Bundles, st.Bytes, st.Waiting, st.Error
 	h.LastShipped = nonZero(st.LastShippedAt)
-	h.To = nonZero(latest(st.LastCleanAt, st.LastShippedAt))
+	h.To = nonZero(st.restorableTo())
 	v, err := o.dataVolume(ctx, t)
 	if err != nil {
 		return h, nil // not deployed yet
