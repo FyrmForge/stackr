@@ -88,6 +88,12 @@ func TestToken(t *testing.T) {
 	if mints != 1 {
 		t.Fatalf("minted %d times, want 1 (cached)", mints)
 	}
+	// the same public App id with another key misses the cache: it mints
+	// (where the real GitHub would refuse its JWT) instead of reusing ghs_x
+	_, other := testKey(t)
+	if _, err := c.Token(context.Background(), App{ID: 1, Slug: "s", PEM: other}); err != nil || mints != 2 {
+		t.Fatalf("other key: minted %d times, %v; want a fresh mint", mints, err)
+	}
 }
 
 func TestNotInstalledAndRepos(t *testing.T) {

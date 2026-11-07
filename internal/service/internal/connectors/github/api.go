@@ -63,7 +63,7 @@ type Client struct {
 	http   *http.Client
 
 	mu     sync.Mutex
-	tokens map[int64]cachedToken // App id → installation token
+	tokens map[[32]byte]cachedToken // tokenKey(App) → installation token
 }
 
 // api is the one client every connection uses, so their tokens share a
@@ -75,7 +75,7 @@ func New() *Client {
 	return &Client{
 		apiURL: apiBase,
 		http:   &http.Client{Timeout: 15 * time.Second},
-		tokens: map[int64]cachedToken{},
+		tokens: map[[32]byte]cachedToken{},
 	}
 }
 
@@ -191,7 +191,7 @@ func (c *Client) ConvertManifest(ctx context.Context, code string) (App, error) 
 // account.
 func (c *Client) Token(ctx context.Context, app App) (string, error) {
 	c.mu.Lock()
-	t, ok := c.tokens[app.ID]
+	t, ok := c.tokens[tokenKey(app)]
 	c.mu.Unlock()
 	if ok && time.Until(t.exp) > 2*time.Minute {
 		return t.token, nil
@@ -218,7 +218,7 @@ func (c *Client) Token(ctx context.Context, app App) (string, error) {
 		return "", err
 	}
 	c.mu.Lock()
-	c.tokens[app.ID] = cachedToken{tok.Token, tok.ExpiresAt}
+	c.tokens[tokenKey(app)] = cachedToken{tok.Token, tok.ExpiresAt}
 	c.mu.Unlock()
 	return tok.Token, nil
 }
@@ -402,4 +402,11 @@ func CloneAuth(gitURL, token string) []string {
 		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
 	}
+}
+
+// tokenKey keys the token cache by App id and private key together: the id
+// is public, so a connector naming another org's App with any key that parses
+// must miss the cache and fail minting, not get that org's token.
+func tokenKey(app App) [32]byte {
+	return sha256.Sum256([]byte(fmt.Sprint(app.ID) + "\x00" + app.PEM))
 }
