@@ -315,6 +315,35 @@ func TestSweepDropsOnlyTheBranchDatabase(t *testing.T) {
 	if _, err := r.st.Tiles.Get(ctx, r.db.ID); err != nil {
 		t.Errorf("the source slice is gone: %v", err)
 	}
+
+	// a branch is thrown away without the instance backup a normal drop takes
+	dumps := func() int {
+		n := 0
+		for _, c := range r.fake.Calls() {
+			if strings.Contains(strings.Join(c.Args, " "), "pg_dumpall") {
+				n++
+			}
+		}
+		return n
+	}
+	if n := dumps(); n != 0 {
+		t.Errorf("deleting a branch ran %d instance backups", n)
+	}
+	plain, err := o.CreateSliceTile(ctx, r.env, "plain", "shop:dev:pg", "")
+	must(t, err)
+	must(t, r.st.Provisions.Create(ctx, store.Provision{
+		ID: uuid.NewString(), TileID: plain.ID, InstanceID: r.inst.ID, DBName: "shop_dev_plain", DBUser: "shop_dev_plain", CreatedAt: time.Now(),
+	}))
+	_, err = o.SetSliceOnRemove(ctx, plain.ID, tile.Drop)
+	must(t, err)
+	dj, err := o.DeleteTile(ctx, plain.ID)
+	must(t, err)
+	if got := r.wait(t, dj.ID); got.State != "done" {
+		t.Fatalf("delete job = %s: %s", got.State, got.Error)
+	}
+	if dumps() == 0 {
+		t.Error("deleting a normal drop slice took no backup")
+	}
 }
 
 func TestSliceCreds(t *testing.T) {

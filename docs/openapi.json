@@ -7834,6 +7834,16 @@
       },
       "TileView": {
         "properties": {
+          "branch_of": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "build_args": {
             "type": "string"
           },

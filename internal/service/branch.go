@@ -105,6 +105,7 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 		ProvisionFrom: &from,
 		OnRemove:      &drop,
 		ExpiresAt:     expires,
+		BranchOf:      &src.ID,
 	}
 	base := branchSuffix.ReplaceAllString(src.Slug, "")
 	for { // a taken suffix draws again
