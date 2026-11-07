@@ -447,6 +447,7 @@ func TestRenameMovesMXWithoutProviderRead(t *testing.T) {
 	if _, err := env.Orch.AddTileDomainRecord(ctx, tl.ID, d.ID, service.CustomRecordIn{Type: "MX", Value: "10 mx.example.net"}); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS() // the attach's background sync is done before the count starts
 	env.DNS.NoMX("acme.dev", "forwarding")
 	calls := env.DNS.Calls
 	if _, _, err := env.Orch.RenameTile(ctx, tl.ID, "renamed"); err != nil {

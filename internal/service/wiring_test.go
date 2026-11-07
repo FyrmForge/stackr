@@ -78,7 +78,7 @@ func TestNeedsVIP(t *testing.T) {
 
 // A copy beside the database while the upgrade helper runs is the live swap's, not a leftover.
 func TestControllerLogCapQuietDuringSwap(t *testing.T) {
-	t.Parallel()
+	// not parallel: it swaps the global slog default
 	n := newTwoNodes(t)
 	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
@@ -97,7 +97,7 @@ func TestControllerLogCapQuietDuringSwap(t *testing.T) {
 
 // A helper that died mid-swap stays as an exited container; it must not hide the warning.
 func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
-	t.Parallel()
+	// not parallel: it swaps the global slog default
 	n := newTwoNodes(t)
 	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
@@ -116,7 +116,7 @@ func TestControllerLogCapWarnsPastDeadHelper(t *testing.T) {
 
 // A swap copy still beside the database at boot is reported and kept.
 func TestControllerLogCapWarnsOnSwapCopy(t *testing.T) {
-	t.Parallel()
+	// not parallel: it swaps the global slog default
 	n := newTwoNodes(t)
 	cp := n.orch.cfg.DBPath + ".pre-9.9.9"
 	if err := os.WriteFile(cp, []byte("db"), 0o600); err != nil {
