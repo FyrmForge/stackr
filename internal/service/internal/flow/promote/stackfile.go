@@ -11,7 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -700,7 +700,7 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 			}
 		}
 		if tc.PITRDays != nil {
-			if e, ok := mflow.Engines[tc.Engine]; !ok || e.Definition().ArchiveDir == "" {
+			if !deploy.HasPITR(tc.Engine) {
 				return fmt.Errorf("tile %s: pitr_days: %s has no point-in-time recovery", name, tc.Engine)
 			}
 			if *tc.PITRDays < 0 || *tc.PITRDays > 365 {

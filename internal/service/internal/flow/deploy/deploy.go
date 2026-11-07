@@ -907,6 +907,12 @@ func KnownEngine(name string) bool {
 	return ok
 }
 
+// HasPITR reports whether the engine archives WAL for point-in-time restore.
+func HasPITR(name string) bool {
+	e, ok := mflow.Engines[name]
+	return ok && e.Definition().ArchiveDir != ""
+}
+
 // logf writes a line to the job log; a log write failing never fails a deploy.
 func logf(w io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(w, format, a...)
