@@ -318,6 +318,8 @@ func TestRolloutEnqueueIsAtomic(t *testing.T) {
 	n.orch.cfg.Version = "v9.9.9"
 	ctx := context.Background()
 	must(t, n.orch.setRolloutTarget(ctx, "v9.9.9"))
+	n.orch.upgrading.Store(true) // the runner holds: the job stays queued, not done before a slow goroutine checks
+	t.Cleanup(func() { n.orch.upgrading.Store(false) })
 	var wg sync.WaitGroup
 	for i := range 8 {
 		wg.Add(1)
