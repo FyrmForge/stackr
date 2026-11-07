@@ -89,6 +89,22 @@ stackr backup restore <volume-id> --run <run-id>
 
 `stackr backup ls <volume-id>` lists its schedules.
 
+## Point-in-time recovery
+
+A postgres instance can keep its write-ahead log (WAL) and a weekly base backup, so the archive covers every moment of the last N days, not only the nightly dump. It is on (7 days) for a new instance when the org can use a destination that is not this server's disk, the rule the daily backup follows; otherwise it is off and opt-in. With only the local disk the archive shares the box with the data: it covers a bad migration, not a lost server.
+
+Postgres writes each finished WAL segment (at least one a minute while the database is busy) to a second volume, `<instance>-wal`. The panel ships what is there every minute, encrypted with the destination's key, to the destination of the instance's weekly base backup, and then deletes it from the box.
+
+```bash
+stackr tile pitr pg --days 7     # on; restarts the database once
+stackr tile pitr pg --days off   # off; archived objects stay on the destination
+stackr tile backups pg           # restorable range, last base backup, archive size
+```
+
+In the panel, the instance's Backups tab shows the same and has the switch. Turning it on adds a weekly `base` schedule next to the daily dump (edit its time like any schedule) and takes the first base backup as soon as the instance is up. Base backups and WAL sit under `stackr/<org>/<data volume id>/pitr/` on the destination. After each good base backup, bases older than the window are removed, keeping the newest one outside it, with the WAL only they needed. You cannot restore to before PITR was turned on.
+
+Archiving refuses to start into a destination path that already holds objects the panel has no backup of, so a copy of an instance never writes into the history of the one it came from. The Problems banner shows `pitr.lag` and `pitr.disk` (see [Alerts](alerts.md)).
+
 ## Back up a node
 
 This backs up every volume on a worker, one env at a time, as one group.

@@ -108,6 +108,9 @@ func (o *Orchestrator) unscheduled(ctx context.Context, scheduled map[string]*vo
 	}
 	keep := map[string]bool{}
 	for _, v := range vs {
+		if IsArchiveVolume(v) {
+			continue // WAL in transit; the data volume's base backup covers it
+		}
 		key := noneKey(v.ID)
 		if scheduled[v.ID] != nil {
 			o.clearProblem(ctx, key)

@@ -52,6 +52,7 @@ type world struct {
 	dest store.BackupDest
 	vol  store.Volume
 	api  store.Tile
+	st   *store.Store
 }
 
 // setup: a volume "data" mounted by tile "api" (one running replica "r1"),
@@ -83,6 +84,7 @@ func setup(t *testing.T) *world {
 		dest: dest,
 		vol:  v,
 		api:  api,
+		st:   s,
 	}
 }
 

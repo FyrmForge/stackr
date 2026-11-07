@@ -1,0 +1,225 @@
+package backup
+
+import (
+	"compress/gzip"
+	"context"
+	"fmt"
+	"io"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
+)
+
+// Point-in-time recovery: the shipper moves finished WAL segments from the
+// instance's archive volume to its backup destination, and the window
+// retention prunes what a recovery can no longer use. The layout and the
+// rules about names are leaf/backup's (pitr.go).
+
+// shipMax caps the segments in one bundle, so a long outage ships in several
+// objects and an argv stays short.
+const shipMax = 256
+
+// Ship is one instance's archive, as the caller resolved it.
+type Ship struct {
+	Engine store.Tile
+	Dest   store.BackupDest // with its archive key
+	Root   string           // leaf/backup PITRRoot
+	Dir    string           // the archive dir inside the container
+}
+
+// Shipped is what one tick did and saw.
+type Shipped struct {
+	Bundles  int
+	Bytes    int64  // shipped now, as stored
+	Last     string // newest segment shipped now, "" when none went
+	Waiting  int    // files still in the archive dir
+	DirBytes int64  // the archive dir's size when the tick started
+}
+
+// run execs argv in the engine's first running replica and returns stdout.
+func (f *Flow) run(ctx context.Context, t store.Tile, argv []string) (string, error) {
+	out, wait, err := f.Tiles.Stream(ctx, t, argv, nil)
+	if err != nil {
+		return "", err
+	}
+	b, rerr := io.ReadAll(out)
+	if werr := wait(); werr != nil {
+		return "", werr
+	}
+	return string(b), rerr
+}
+
+// Guard refuses an archive that already holds objects this panel has no run
+// for: a copy of an instance (a restore, a clone of its volume) must never
+// write into the history of the one it came from. Empty, or the instance's
+// own, passes.
+func (f *Flow) Guard(ctx context.Context, d store.BackupDest, root string) error {
+	keys, err := open(d).List(ctx, root+"/")
+	if err != nil || len(keys) == 0 {
+		return err
+	}
+	own, err := f.Backups.Owns(ctx, root)
+	if err != nil || own {
+		return err
+	}
+	return errs.Refusedf("the archive at %s already holds objects this panel has no backup of; "+
+		"another instance wrote there, so archiving will not start into it", root)
+}
+
+// ShipWAL ships what the archive dir holds, once. Segments go in bundles of
+// up to shipMax, <first>-<last>.tar.gz.age under wal/; timeline history files
+// in a bundle of their own. A bundle's files are removed only after its Put
+// succeeded. On an error the files stay and the next tick ships them again
+// (same names, same keys).
+func (f *Flow) ShipWAL(ctx context.Context, s Ship, log io.Writer) (Shipped, error) {
+	var res Shipped
+	out, err := f.run(ctx, s.Engine, []string{"ls", "-1", s.Dir})
+	if err != nil {
+		return res, fmt.Errorf("list the archive: %w", err)
+	}
+	var segs, hist []string
+	for _, n := range strings.Fields(out) {
+		switch {
+		case !bk.WALName(n):
+		case bk.IsHistory(n):
+			hist = append(hist, n)
+		default:
+			segs = append(segs, n)
+		}
+	}
+	slices.Sort(segs)
+	slices.Sort(hist)
+	res.Waiting = len(segs) + len(hist)
+	if du, err := f.run(ctx, s.Engine, []string{"du", "-sk", s.Dir}); err == nil {
+		if cols := strings.Fields(du); len(cols) > 0 {
+			if kb, err := strconv.ParseInt(cols[0], 10, 64); err == nil {
+				res.DirBytes = kb << 10
+			}
+		}
+	}
+	var bundles [][]string
+	for c := range slices.Chunk(segs, shipMax) {
+		bundles = append(bundles, c)
+	}
+	if len(hist) > 0 {
+		bundles = append(bundles, hist)
+	}
+	for _, files := range bundles {
+		first, last := files[0], files[len(files)-1]
+		if seg := bk.Segment(first); seg != "" {
+			first, last = seg, bk.Segment(last)
+		}
+		key := s.Root + "/" + bk.WALDir + "/" + first + "-" + last + bk.BundleExt
+		n, err := f.shipBundle(ctx, s, key, files)
+		if err != nil {
+			return res, err
+		}
+		res.Bundles++
+		res.Bytes += n
+		res.Waiting -= len(files)
+		if seg := bk.Segment(last); seg != "" {
+			res.Last = max(res.Last, seg)
+		}
+		logf(log, "shipped %d file(s) as %s\n", len(files), key)
+	}
+	return res, nil
+}
+
+// shipBundle tars files from the archive dir on the instance's node, gzips
+// and encrypts them with the destination's key, and puts them under key; only
+// then are the files removed.
+func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []string) (int64, error) {
+	argv := append([]string{"tar", "-C", s.Dir, "-c"}, files...)
+	produce := func(ctx context.Context, w io.Writer) error {
+		enc, err := encrypt(w, s.Dest.ArchiveKey, keyWorkFactor)
+		if err != nil {
+			return err
+		}
+		out, wait, err := f.Tiles.Stream(ctx, s.Engine, argv, nil)
+		if err != nil {
+			return err
+		}
+		gz := gzip.NewWriter(enc)
+		if _, err := io.Copy(gz, out); err != nil {
+			_ = wait()
+			return err
+		}
+		if err := gz.Close(); err != nil {
+			_ = wait()
+			return err
+		}
+		if err := wait(); err != nil { // tar died halfway: no object
+			return err
+		}
+		return enc.Close()
+	}
+	size, err := f.stream(ctx, open(s.Dest), key, produce)
+	if err != nil {
+		return 0, err
+	}
+	rm := []string{"rm", "-f"}
+	for _, n := range files {
+		rm = append(rm, s.Dir+"/"+n)
+	}
+	if _, err := f.run(ctx, s.Engine, rm); err != nil {
+		return size, fmt.Errorf("remove the shipped files: %w", err)
+	}
+	return size, nil
+}
+
+// Usage is how many WAL bundles the archive holds and their bytes together.
+func (f *Flow) Usage(ctx context.Context, d store.BackupDest, root string) (n int, size int64, err error) {
+	o := open(d)
+	if u, ok := o.(interface {
+		Usage(context.Context, string) (int, int64, error)
+	}); ok {
+		return u.Usage(ctx, root+"/"+bk.WALDir+"/")
+	}
+	keys, err := o.List(ctx, root+"/"+bk.WALDir+"/")
+	return len(keys), 0, err
+}
+
+// PruneWindow applies the recovery window after a good base backup: bases
+// outside it (keeping the anchor) go, then the WAL bundles that end before
+// the oldest kept base started. History bundles stay. n is the objects
+// deleted. No good base, nothing goes.
+func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string, days int, now time.Time, log io.Writer) (int, error) {
+	if days <= 0 {
+		return 0, nil
+	}
+	bases, err := f.Backups.Bases(ctx, root)
+	if err != nil {
+		return 0, err
+	}
+	drop, walBefore, ok := bk.Window(bases, now, days)
+	if !ok {
+		return 0, nil
+	}
+	o := open(d)
+	n := 0
+	for _, r := range drop {
+		if err := o.Delete(ctx, r.ObjectKey); err != nil {
+			logf(log, "not pruned %s: %v\n", r.ObjectKey, err)
+			continue
+		}
+		_ = f.Backups.DropRun(ctx, r.ID)
+		n++
+	}
+	keys, err := o.List(ctx, root+"/"+bk.WALDir+"/")
+	if err != nil {
+		return n, err
+	}
+	for _, k := range bk.StaleWAL(keys, walBefore) {
+		if err := o.Delete(ctx, k); err != nil {
+			logf(log, "not pruned %s: %v\n", k, err)
+			continue
+		}
+		n++
+	}
+	return n, nil
+}

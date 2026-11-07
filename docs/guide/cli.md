@@ -3091,6 +3091,20 @@ stackr tile allow [tile] [flags]
       --tile string       the tile (default: the linked one)
 ```
 
+### `stackr tile backups`
+
+Show a postgres instance's point-in-time recovery health
+
+```
+stackr tile backups [tile] [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr tile create`
 
 Make a tile in --env
@@ -3469,6 +3483,22 @@ stackr tile pause [tile] [flags]
 
 ```
       --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+### `stackr tile pitr`
+
+Turn point-in-time recovery on (--days N) or off (--days off) for a postgres instance; restarts it once
+
+```
+stackr tile pitr [tile] [flags]
+```
+
+```
+      --days string    the recovery window in days, or off
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
 ```

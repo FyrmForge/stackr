@@ -99,6 +99,21 @@ func (l *Leaf) SetEndpoint(
 	return m, l.instances.Update(ctx, m)
 }
 
+// WithPITR are the instances that archive for point-in-time recovery.
+func (l *Leaf) WithPITR(ctx context.Context) ([]store.ManagedInstance, error) {
+	return l.instances.ListPITR(ctx)
+}
+
+// SetPITR stores the instance's point-in-time recovery window; the caller
+// redeploys the instance for archiving to follow.
+func (l *Leaf) SetPITR(ctx context.Context, m store.ManagedInstance, days int) (store.ManagedInstance, error) {
+	if days < 0 || days > 365 {
+		return m, errs.Invalidf("days", "the window is off or 1 to 365 days")
+	}
+	m.PITRDays = days
+	return m, l.instances.Update(ctx, m)
+}
+
 // SetAllow replaces the instance's allow list. Every entry is checked
 // against the instance's own org first; a bad one leaves the row as it was.
 // Nothing is torn down: a slice the list no longer admits fails its

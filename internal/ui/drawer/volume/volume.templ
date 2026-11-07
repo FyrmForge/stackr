@@ -135,6 +135,8 @@ func methodLabel(m string) string {
 		return "Database dump"
 	case "volume":
 		return "Volume archive"
+	case "base":
+		return "Point-in-time base backup"
 	}
 	return m
 }
@@ -149,7 +151,14 @@ templ Backups(b BackupsView) {
 					<span class="text-sm font-medium text-rw-text">{ methodLabel(s.Method) }</span>
 					<span class="text-xs text-rw-faint">{ s.Dest }</span>
 				</div>
-				<p class="text-xs text-rw-muted"><span class="font-mono text-rw-text">{ s.Cron }</span> { s.TZ } · keeps the newest { s.Keep }</p>
+				<p class="text-xs text-rw-muted">
+					<span class="font-mono text-rw-text">{ s.Cron }</span> { s.TZ } ·
+					if s.Keep == "" {
+						keeps the recovery window
+					} else {
+						keeps the newest { s.Keep }
+					}
+				</p>
 				if b.Edit {
 					@c.Confirm(c.ConfirmView{
 						Button:  "Delete",

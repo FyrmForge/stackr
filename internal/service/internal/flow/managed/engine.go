@@ -72,6 +72,11 @@ type Definition struct {
 	Config  func(i Instance) []string // first-boot env, credentials included
 	Port    int
 	Volumes []string // data paths that must survive a recreate
+	// ArchiveDir is where the archive volume mounts when point-in-time
+	// recovery is on, ArchiveCmd the Command that archives into it; "" = the
+	// engine has no PITR.
+	ArchiveDir string
+	ArchiveCmd []string
 
 	PrimaryOutput string   // the binding a consumer gets when it names none
 	InjectAll     bool     // the consumer needs the whole set
@@ -98,6 +103,7 @@ type Instance struct {
 	Host          string // its alias on the instance network, what consumers dial
 	Port          int
 	PublicBase    string // scheme+host of its public domain, "" if none
+	PITRDays      int    // the point-in-time recovery window; 0 = off
 }
 
 // Slice is one slice tile's unit, a logical db or a bucket, with its owner

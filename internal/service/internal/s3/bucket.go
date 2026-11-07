@@ -161,6 +161,25 @@ func (b Bucket) List(ctx context.Context, prefix string) ([]string, error) {
 	return keys, nil
 }
 
+// Usage is how many objects sit under prefix and their bytes together.
+func (b Bucket) Usage(ctx context.Context, prefix string) (n int, size int64, err error) {
+	p := s3.NewListObjectsV2Paginator(b.client(), &s3.ListObjectsV2Input{
+		Bucket: aws.String(b.Bucket),
+		Prefix: aws.String(prefix),
+	})
+	for p.HasMorePages() {
+		out, err := p.NextPage(ctx)
+		if err != nil {
+			return 0, 0, err
+		}
+		for _, o := range out.Contents {
+			n++
+			size += aws.ToInt64(o.Size)
+		}
+	}
+	return n, size, nil
+}
+
 // Delete: S3's DeleteObject already treats a missing key as success.
 func (b Bucket) Delete(ctx context.Context, key string) error {
 	_, err := b.client().DeleteObject(ctx, &s3.DeleteObjectInput{

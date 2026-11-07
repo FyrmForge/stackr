@@ -229,6 +229,8 @@ func routes(h *v1.H) []Route {
 		{DELETE, tile + "/domains/:domain/records/:record", "domain.record-rm", "domain.write", h.RemoveDomainRecord()},
 		{PUT, tile + "/allow", "managed.allow", "managed.allow", h.SetManagedAllow()},
 		{PUT, tile + "/env-pairs", "managed.env-pairs", "tile.write", h.SetManagedEnvPairs()},
+		{PUT, tile + "/pitr", "managed.pitr", "tile.write", h.SetPITR()},
+		{GET, tile + "/pitr", "managed.pitr-status", "tile.read", h.PITRStatus()},
 		{PUT, tile + "/slice-access", "slice.access", "tile.write", h.SetSliceAccess()},
 		{PUT, tile + "/on-remove", "slice.on-remove", "tile.write", h.SetSliceOnRemove()},
 		{GET, tile + "/bindings", "slice.bindings", "tile.read", h.Bindings()},

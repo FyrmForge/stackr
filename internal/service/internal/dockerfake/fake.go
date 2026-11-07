@@ -62,12 +62,13 @@ type Fake struct {
 	Gone          []string // refs LocalDigest and ListImages report missing
 	BuildID       string
 	ExecOut       string
-	TarOut        []byte    // what TarVolume writes
-	Untarred      []byte    // what UntarVolume last read
-	ExecIn        []byte    // what ExecStream's stdin last carried
-	TTYServer     net.Conn  // the far end of the last ExecTTY pipe: the "container" side
-	TTYExit       int       // what ExecTTY's exit answers
-	Resizes       [][2]uint // every resize ExecTTY got, cols then rows
+	ExecFn        func(cmd []string) string // when set, answers Exec and ExecStream instead of ExecOut
+	TarOut        []byte                    // what TarVolume writes
+	Untarred      []byte                    // what UntarVolume last read
+	ExecIn        []byte                    // what ExecStream's stdin last carried
+	TTYServer     net.Conn                  // the far end of the last ExecTTY pipe: the "container" side
+	TTYExit       int                       // what ExecTTY's exit answers
+	Resizes       [][2]uint                 // every resize ExecTTY got, cols then rows
 	LogsOut       string
 	StreamOut     []string             // the lines StreamLogs sends
 	ExitCode      int                  // what Wait answers
@@ -441,7 +442,14 @@ func (f *Fake) StreamLogs(_ context.Context, id string, _ int) (<-chan string, f
 }
 
 func (f *Fake) Exec(_ context.Context, id string, cmd []string) (string, error) {
-	return f.ExecOut, f.rec("Exec", append([]string{id}, cmd...)...)
+	return f.execOut(cmd), f.rec("Exec", append([]string{id}, cmd...)...)
+}
+
+func (f *Fake) execOut(cmd []string) string {
+	if f.ExecFn != nil {
+		return f.ExecFn(cmd)
+	}
+	return f.ExecOut
 }
 
 func (f *Fake) ExecStream(
@@ -460,7 +468,7 @@ func (f *Fake) ExecStream(
 		f.mu.Unlock()
 	}
 	err := f.rec("ExecStream", append([]string{id}, cmd...)...)
-	return strings.NewReader(f.ExecOut), func() error { return nil }, err
+	return strings.NewReader(f.execOut(cmd)), func() error { return nil }, err
 }
 
 // ExecTTY is a net.Pipe: the caller gets one end, the test the other in

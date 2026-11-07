@@ -93,6 +93,20 @@ func (l Local) List(_ context.Context, prefix string) ([]string, error) {
 	return keys, err
 }
 
+// Usage is how many objects sit under prefix and their bytes together.
+func (l Local) Usage(ctx context.Context, prefix string) (n int, size int64, err error) {
+	keys, err := l.List(ctx, prefix)
+	for _, k := range keys {
+		if p, perr := l.file(k); perr == nil {
+			if fi, serr := os.Stat(p); serr == nil {
+				n++
+				size += fi.Size()
+			}
+		}
+	}
+	return n, size, err
+}
+
 func (l Local) Delete(_ context.Context, key string) error {
 	p, err := l.file(key)
 	if err != nil {

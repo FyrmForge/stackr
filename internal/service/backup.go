@@ -99,12 +99,8 @@ func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
 	if err != nil {
 		return
 	}
-	ds, err := o.backups.Visible(ctx, org)
-	if err != nil {
-		return
-	}
-	i := slices.IndexFunc(ds, func(d BackupDest) bool { return d.Kind != "local" })
-	if i < 0 {
+	d, ok := o.visibleOffBox(ctx, org)
+	if !ok {
 		return
 	}
 	ms, err := o.methods(ctx, v)
@@ -112,7 +108,7 @@ func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
 		return
 	}
 	s := defaultSchedule
-	s.DestID = &ds[i].ID
+	s.DestID = &d.ID
 	if _, err := o.backups.AddSchedule(ctx, v.ID, org, ms, s); err != nil {
 		slog.Warn("backup: default schedule not added", "volume", v.ID, "err", err)
 		return
@@ -120,6 +116,21 @@ func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
 	if o.sched != nil {
 		o.sched.Reload(ctx)
 	}
+}
+
+// visibleOffBox is the first destination org can use that is not this box's
+// disk: the rule that decides a new volume's default backup and a new
+// postgres instance's point-in-time recovery.
+func (o *Orchestrator) visibleOffBox(ctx context.Context, org string) (BackupDest, bool) {
+	ds, err := o.backups.Visible(ctx, org)
+	if err != nil {
+		return BackupDest{}, false
+	}
+	i := slices.IndexFunc(ds, func(d BackupDest) bool { return d.Kind != "local" })
+	if i < 0 {
+		return BackupDest{}, false
+	}
+	return ds[i], true
 }
 
 // BackupMethods are what a volume can be backed up with: its engine's
@@ -353,6 +364,19 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 	if err != nil {
 		return err
 	}
+	if sub.Base {
+		// A base lives with its WAL, under the archive's prefix and on its
+		// destination, whoever started it; the recovery window prunes it,
+		// never a count.
+		m, err := o.managed.Get(ctx, *v.InstanceID)
+		if err != nil {
+			return err
+		}
+		if sp.Dest, err = o.pitrDest(ctx, org, v); err != nil {
+			return err
+		}
+		sp.Prefix, sp.Keep, sp.PITRDays = backup.PITRRoot(org, v.ID)+"/"+backup.BaseDir, 0, m.PITRDays
+	}
 	_, err = o.backup.Backup(ctx, sub, sp, r.Log)
 	return err
 }
@@ -490,6 +514,16 @@ func (o *Orchestrator) subject(ctx context.Context, v store.Volume, method strin
 		if s.Dump, err = o.engines.Backup(ctx, it, method); err != nil {
 			return s, err
 		}
+		if method == "base" {
+			// Never a tar of the volume: without archiving a base cannot be restored.
+			if len(s.Dump) == 0 {
+				return s, errs.Refusedf("point-in-time recovery is off for %s", it.Slug)
+			}
+			s.Base = true
+			if s.WalStart, err = o.engines.WalStart(ctx, it); err != nil {
+				return s, err
+			}
+		}
 		if s.Load, err = o.engines.Restore(ctx, it, method, ""); err != nil {
 			return s, err
 		}
@@ -513,7 +547,9 @@ func (o *Orchestrator) dumpBeforeDrop(ctx context.Context, _ string, p store.Pro
 	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(vs, func(v store.Volume) bool { return v.InstanceID != nil && *v.InstanceID == p.InstanceID })
+	i := slices.IndexFunc(vs, func(v store.Volume) bool {
+		return v.InstanceID != nil && *v.InstanceID == p.InstanceID && !IsArchiveVolume(v)
+	})
 	if i < 0 {
 		return fmt.Errorf("no volume found for the instance holding %s", p.DBName)
 	}

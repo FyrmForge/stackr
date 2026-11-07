@@ -141,6 +141,9 @@ type (
 	AllowIn struct {
 		Allow []string `json:"allow"` // org:stack:env:tile patterns; the full list
 	}
+	PITRIn struct {
+		Days int `json:"days"` // the recovery window in days; 0 = off
+	}
 	EnvPairsIn struct {
 		EnvPairs map[string]string `json:"env_pairs"` // consumer env -> this stack's env; the full map
 	}
@@ -448,6 +451,19 @@ func (h *H) SetManagedAllow() Endpoint {
 	return JSON(200, func(c echo.Context, in AllowIn) (service.ManagedInstance, error) {
 		return h.Orch.SetManagedAllow(rc(c), tileID(c), in.Allow)
 	})
+}
+
+// SetPITR sets the instance's recovery window and queues the redeploy that
+// makes postgres archive (or stop).
+func (h *H) SetPITR() Endpoint {
+	return Job(func(c echo.Context, in PITRIn) (service.Job, error) {
+		_, j, err := h.Orch.SetPITR(rc(c), tileID(c), in.Days)
+		return j, err
+	})
+}
+
+func (h *H) PITRStatus() Endpoint {
+	return Get(func(c echo.Context) (service.PITRHealth, error) { return h.Orch.PITRStatus(rc(c), tileID(c)) })
 }
 
 func (h *H) SetManagedEnvPairs() Endpoint {

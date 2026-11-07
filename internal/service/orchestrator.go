@@ -575,7 +575,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.params = build("leaf/params", func() *params.Leaf { return params.New(st.Params) })
 	orch.volumes = build("leaf/volume", func() *volume.Leaf {
 		v := volume.New(st.Volumes, d).WithShares(st.Shares).WithNode(orch.scopeNode)
-		v.Created = orch.defaultBackup
+		v.Created = orch.volumeCreated
 		return v
 	})
 	orch.domains = build("leaf/domain", func() *domain.Leaf {
@@ -890,6 +890,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.redeployRestored(ctx)
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()
+	orch.track(orch.pitrLoop)
 	orch.startDNSSocket()
 	if created {
 		orch.defaultControllerAddress(ctx) // a panel address from the boot config

@@ -77,6 +77,7 @@ table backup_runs
   col group_id TEXT notnull=0 default=- pk=0
   col recovery_gen INTEGER notnull=1 default=0 pk=0
   col master_gen INTEGER notnull=1 default=0 pk=0
+  col wal_start TEXT notnull=0 default=- pk=0
   fk dest_id -> backup_destinations(id) on_update=NO ACTION on_delete=CASCADE
   fk group_id -> backup_groups(id) on_update=NO ACTION on_delete=SET NULL
   fk schedule_id -> backup_schedules(id) on_update=NO ACTION on_delete=SET NULL
@@ -86,7 +87,7 @@ table backup_runs
   index backup_runs_group unique=0 origin=c partial=0 (group_id)
   index backup_runs_kind unique=0 origin=c partial=0 (kind)
   index backup_runs_volume unique=0 origin=c partial=0 (volume_id)
-  sql CREATE TABLE backup_runs ( id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('volume', 'panel')), volume_id TEXT REFERENCES volumes (id) ON DELETE SET NULL, schedule_id TEXT REFERENCES backup_schedules (id) ON DELETE SET NULL, dest_id TEXT NOT NULL REFERENCES backup_destinations (id) ON DELETE CASCADE, trigger TEXT NOT NULL, status TEXT NOT NULL, object_key TEXT NOT NULL, size_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at DATETIME NOT NULL, finished_at DATETIME , group_id TEXT REFERENCES backup_groups (id) ON DELETE SET NULL, recovery_gen INTEGER NOT NULL DEFAULT 0, master_gen INTEGER NOT NULL DEFAULT 0)
+  sql CREATE TABLE backup_runs ( id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('volume', 'panel')), volume_id TEXT REFERENCES volumes (id) ON DELETE SET NULL, schedule_id TEXT REFERENCES backup_schedules (id) ON DELETE SET NULL, dest_id TEXT NOT NULL REFERENCES backup_destinations (id) ON DELETE CASCADE, trigger TEXT NOT NULL, status TEXT NOT NULL, object_key TEXT NOT NULL, size_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at DATETIME NOT NULL, finished_at DATETIME , group_id TEXT REFERENCES backup_groups (id) ON DELETE SET NULL, recovery_gen INTEGER NOT NULL DEFAULT 0, master_gen INTEGER NOT NULL DEFAULT 0, wal_start TEXT)
 table backup_schedules
   col id TEXT notnull=0 default=- pk=1
   col volume_id TEXT notnull=1 default=- pk=0
@@ -401,9 +402,10 @@ table managed_instances
   col admin_password TEXT notnull=1 default=- pk=0
   col endpoint TEXT notnull=1 default=- pk=0
   col created_at DATETIME notnull=1 default=- pk=0
+  col pitr_days INTEGER notnull=1 default=0 pk=0
   fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
-  sql CREATE TABLE managed_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL )
+  sql CREATE TABLE managed_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0)
 table node_certs
   col serial TEXT notnull=0 default=- pk=1
   col node_id TEXT notnull=1 default=- pk=0

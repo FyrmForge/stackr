@@ -195,6 +195,17 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 			return "/-/admin/backups", "Open backups", true
 		}
 		return o.scheduleLink(ctx, id)
+	case "pitr": // pitr.lag.<instance id>, pitr.disk.<instance id>
+		_, id, _ := strings.Cut(rest, ".")
+		m, err := o.managed.Get(ctx, id)
+		if err != nil {
+			return "", "", false
+		}
+		t, err := o.tiles.Get(ctx, m.TileID)
+		if err != nil {
+			return "", "", false
+		}
+		return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + t.ID + "&tab=backups", "Open backups", true
 	case "node", "disk", "clock", "mem":
 		return onNode(rest)
 	case "certfail": // certfail.<node>.<host>
