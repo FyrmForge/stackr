@@ -47,10 +47,11 @@ const (
 
 // candidate is the settings row behind a restored tile.
 type candidate struct {
-	Source  string    `json:"source"`  // the instance tile restored
-	At      string    `json:"at"`      // RFC3339 UTC, or latest
-	Temp    bool      `json:"temp"`    // a branch --at's scratch copy: gone when its job ends
-	Created time.Time `json:"created"` // for the sweep
+	Shipped bool      `json:"shipped,omitempty"` // its timeline history is in the archive
+	Source  string    `json:"source"`            // the instance tile restored
+	At      string    `json:"at"`                // RFC3339 UTC, or latest
+	Temp    bool      `json:"temp"`              // a branch --at's scratch copy: gone when its job ends
+	Created time.Time `json:"created"`           // for the sweep
 }
 
 func (o *Orchestrator) candidateOf(ctx context.Context, tileID string) (candidate, bool) {
@@ -621,35 +622,49 @@ type promoteRestoreJob struct {
 }
 
 // promoteSteps are the actions of a promote, in the order it runs them; the
-// fakes of the order test stand in for a real instance.
+// fakes of the order test stand in for a real instance. Until swap commits
+// nothing has changed but the source being stopped, which undo reverts. After
+// it the source's row names the new data and a re-run (swapped) resumes at
+// stopCand: swapping again would hand the old data back.
 type promoteSteps struct {
+	swapped  bool         // the swap already committed in an earlier run
 	ready    func() error // the candidate finished replaying
 	history  func() error // its timeline history goes to the archive
-	stopCand func() error
 	stopSrc  func() error
-	swap     func() error // the point of no return: the volume rows trade data
+	swap     func() error // the point of no return: the volume rows trade data, in one transaction
+	undo     func()       // a failure before the swap: the source runs again
+	stopCand func() error
 	start    func() error // the source redeploys on the new data
 	replay   func() error // Provision and Bind for every row
 	drop     func() error // the candidate's tile goes, not its volume
 	settle   func() error // the archive state is reset and a base queued
 }
 
+type promoteStep struct {
+	name string
+	do   func() error
+}
+
 func (s promoteSteps) run(log io.Writer) error {
-	for _, st := range []struct {
-		name string
-		do   func() error
-	}{
-		{"check the restored copy", s.ready}, {"ship its timeline history", s.history},
-		{"stop the restored copy", s.stopCand}, {"stop the source", s.stopSrc},
-		{"swap the data volume", s.swap}, {"start the source", s.start},
+	pre := []promoteStep{{"check the restored copy", s.ready}, {"ship its timeline history", s.history},
+		{"stop the source", s.stopSrc}, {"swap the data volume", s.swap}}
+	post := []promoteStep{{"stop the restored copy", s.stopCand}, {"start the source", s.start},
 		{"re-apply slices and bindings", s.replay}, {"remove the restored tile", s.drop},
-		{"reset the archive state", s.settle},
-	} {
+		{"reset the archive state", s.settle}}
+	if s.swapped {
+		_, _ = fmt.Fprintf(log, "the swap already happened; resuming after it\n")
+		pre = nil
+	}
+	n := len(pre)
+	for i, st := range append(pre, post...) {
 		if st.do == nil {
 			continue
 		}
 		_, _ = fmt.Fprintf(log, "%s\n", st.name)
 		if err := st.do(); err != nil {
+			if i < n && s.undo != nil {
+				s.undo()
+			}
 			return fmt.Errorf("%s: %w", st.name, err)
 		}
 	}
@@ -685,7 +700,9 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 		cs, err := o.tiles.Replicas(ctx, t)
 		return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" })
 	}
+	stopped := false
 	return promoteSteps{
+		swapped: cv.OrphanedAt != nil, // only the swap orphans a copy's data volume while its tile lives
 		ready: func() error {
 			if rec, err := o.engines.Recovering(ctx, cand); err != nil || rec {
 				return errs.Conflictf("%s is not done replaying (or is not running); wait for its restore job, then promote", cand.Slug)
@@ -700,14 +717,35 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			if err != nil {
 				return err
 			}
-			return o.backup.ShipHistory(ctx, fbackup.Ship{Engine: cand, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir}, r.Log)
+			if c, ok := o.candidateOf(ctx, cand.ID); ok && c.Shipped {
+				return nil // an earlier run shipped it; the archive holds its own history now
+			}
+			if err := o.backup.ShipHistory(ctx, fbackup.Ship{Engine: cand, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir}, r.Log); err != nil {
+				return err
+			}
+			c, _ := o.candidateOf(ctx, cand.ID)
+			c.Shipped = true
+			return o.setCandidate(ctx, cand.ID, c)
 		},
-		stopCand: func() error { return o.container.Stop(ctx, cand, r.Log) },
 		stopSrc: func() error {
 			if !running(src) {
 				return nil
 			}
+			stopped = true
 			return o.container.Stop(ctx, src, r.Log)
+		},
+		undo: func() {
+			if stopped {
+				if err := o.container.Start(context.WithoutCancel(ctx), src, r.Log); err != nil {
+					_, _ = fmt.Fprintf(r.Log, "warning: %s did not restart: %v\n", src.Slug, err)
+				}
+			}
+		},
+		stopCand: func() error {
+			if !running(cand) {
+				return nil
+			}
+			return o.container.Stop(ctx, cand, r.Log)
 		},
 		swap: func() error {
 			if err := r.Swap(); err != nil {
@@ -742,15 +780,16 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 
 // swapData makes the source's data volume row name the candidate's Docker
 // volume, and the candidate's row (orphaned) the source's old one: the old
-// data stays restorable until orphan retention.
+// data stays restorable until orphan retention. One transaction: a crash
+// leaves the rows as they were or fully swapped, never both naming one volume.
 func (o *Orchestrator) swapData(ctx context.Context, sv, cv store.Volume) error {
 	sv.Name, cv.Name = cv.Name, sv.Name
-	if err := o.store.Volumes.Update(ctx, sv); err != nil {
-		return err
-	}
-	if err := o.store.Volumes.Update(ctx, cv); err != nil {
-		return err
-	}
-	_, err := o.volumes.Orphan(ctx, cv)
-	return err
+	now := time.Now().UTC()
+	cv.OrphanedAt = &now
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := tx.Volumes.Update(ctx, sv); err != nil {
+			return err
+		}
+		return tx.Volumes.Update(ctx, cv)
+	})
 }

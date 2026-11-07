@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -216,7 +218,7 @@ func TestPromoteStepsRunInOrder(t *testing.T) {
 	step := func(name string, err error) func() error {
 		return func() error { got = append(got, name); return err }
 	}
-	steps := func(failAt string) promoteSteps {
+	steps := func(failAt string, swapped bool) promoteSteps {
 		f := func(n string) func() error {
 			if n == failAt {
 				return step(n, errors.New("boom"))
@@ -224,24 +226,49 @@ func TestPromoteStepsRunInOrder(t *testing.T) {
 			return step(n, nil)
 		}
 		return promoteSteps{
-			ready: f("ready"), history: f("history"), stopCand: f("stopCand"), stopSrc: f("stopSrc"), swap: f("swap"),
-			start: f("start"), replay: f("replay"), drop: f("drop"), settle: f("settle"),
+			swapped: swapped,
+			ready:   f("ready"), history: f("history"), stopSrc: f("stopSrc"), swap: f("swap"),
+			undo:     func() { got = append(got, "undo") },
+			stopCand: f("stopCand"), start: f("start"), replay: f("replay"), drop: f("drop"), settle: f("settle"),
 		}
 	}
-	all := []string{"ready", "history", "stopCand", "stopSrc", "swap", "start", "replay", "drop", "settle"}
+	all := []string{"ready", "history", "stopSrc", "swap", "stopCand", "start", "replay", "drop", "settle"}
 	var log strings.Builder
-	if err := steps("").run(&log); err != nil || !slices.Equal(got, all) {
+	if err := steps("", false).run(&log); err != nil || !slices.Equal(got, all) {
 		t.Fatalf("order = %v, %v; want %v", got, err, all)
 	}
+	// A failure before the swap restarts the source and runs nothing after.
 	got = nil
-	err := steps("swap").run(&log)
-	if err == nil || !strings.Contains(err.Error(), "swap the data volume") || !slices.Equal(got, all[:5]) {
+	err := steps("swap", false).run(&log)
+	if err == nil || !strings.Contains(err.Error(), "swap the data volume") || !slices.Equal(got, []string{"ready", "history", "stopSrc", "swap", "undo"}) {
 		t.Errorf("failing swap: ran %v, err %v", got, err)
 	}
-	for _, s := range []string{"start", "replay", "drop", "settle"} {
-		if slices.Contains(got, s) {
-			t.Errorf("%s ran after the swap failed", s)
-		}
+	// A failure after it is not undone: a re-run resumes instead.
+	got = nil
+	if err := steps("start", false).run(&log); err == nil || slices.Contains(got, "undo") || slices.Contains(got, "replay") {
+		t.Errorf("failing start: ran %v, err %v", got, err)
+	}
+	// The resume skips everything up to and including the swap.
+	got = nil
+	if err := steps("", true).run(&log); err != nil || !slices.Equal(got, all[4:]) {
+		t.Errorf("resume ran %v, %v; want %v", got, err, all[4:])
+	}
+}
+
+// swapData is all or nothing: when the copy's row cannot be written, the
+// source's row keeps its volume.
+func TestSwapDataIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+	r := newRestoreRig(t)
+	ctx := context.Background()
+	ghost := store.Volume{ID: "no-such-row", Name: "ghost-vol"}
+	if err := r.orch.swapData(ctx, r.data, ghost); err == nil {
+		t.Fatal("swapData wrote a row that does not exist")
+	}
+	sv, err := r.orch.volumes.Get(ctx, r.data.ID)
+	must(t, err)
+	if sv.Name != r.data.Name {
+		t.Errorf("source row = %s after a failed swap; want %s", sv.Name, r.data.Name)
 	}
 }
 
@@ -307,5 +334,29 @@ func TestRestorableToTrailsTheArchive(t *testing.T) {
 	st := pitrState{LastCleanAt: tick, LastShippedAt: tick.Add(-time.Minute)}
 	if got := st.restorableTo(); !got.Equal(tick.Add(-walLag)) {
 		t.Errorf("restorableTo = %v, want %v", got, tick.Add(-walLag))
+	}
+}
+
+// Re-running a promote whose swap already committed resumes after it: the
+// rows are not traded back, and the stopped copy does not block the re-run.
+func TestPromoteRerunAfterTheSwapDoesNotSwapBack(t *testing.T) {
+	t.Parallel()
+	r := newRestoreRig(t)
+	ctx := context.Background()
+	o := r.orch
+	src, err := o.pitrSourceOf(ctx, r.pg.ID)
+	must(t, err)
+	cand, err := o.newCandidate(ctx, src, time.Now(), "latest", false)
+	must(t, err)
+	cm, _ := o.managed.GetByTile(ctx, cand.ID)
+	cv, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.env}, cand.Slug+"-data", &cm.ID)
+	must(t, err)
+	must(t, o.swapData(ctx, r.data, cv))
+	// The copy has no running container: ready() would refuse it. The resume must not ask.
+	_ = o.runPromoteRestore(ctx, &jobs.Run{Log: io.Discard}, promoteRestoreJob{SourceID: r.pg.ID, CandidateID: cand.ID})
+	sv, _ := o.volumes.Get(ctx, r.data.ID)
+	cv2, _ := o.volumes.Get(ctx, cv.ID)
+	if sv.Name != cv.Name || cv2.Name != r.data.Name {
+		t.Errorf("rows after the re-run: source %s, copy %s; want %s and %s (swapped back?)", sv.Name, cv2.Name, cv.Name, r.data.Name)
 	}
 }
