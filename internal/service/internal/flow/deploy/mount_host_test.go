@@ -10,6 +10,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -91,5 +92,24 @@ func TestHostSetLines(t *testing.T) {
 	b := store.Tile{Slug: "b", Volumes: "host:/srv:/srv:ro"}
 	if m := deploy.HostSet(a, b).Missing(deploy.HostSet(a)); len(m) != 2 || m[0] != "b host:/srv:/srv:ro" {
 		t.Fatalf("tile b covered by tile a: %v", m)
+	}
+}
+
+// A volume line that only becomes a host mount after param expansion is
+// refused: the grant set is built from the raw lines and would not cover it.
+func TestHostMountViaParamRefused(t *testing.T) {
+	w := setup(t)
+	w.f.HostGrants = hostgrant.New(w.st.HostGrants)
+	must(t, w.f.Params.Merge(ctx, params.Scope{Kind: "env", ID: w.env.ID}, []params.Entry{
+		{Collection: "m", Name: "p", Kind: params.Param, Value: "/etc:/etc"},
+	}))
+	tl := w.tile
+	tl.Volumes = "host:${{ params.m.p }}"
+	_, err := w.f.Run(ctx, tl, "nginx:1", io.Discard, nil)
+	if err == nil || !strings.Contains(err.Error(), "expands to a host mount") {
+		t.Fatalf("run = %v, want a refusal", err)
+	}
+	if len(w.fake.Specs) != 0 {
+		t.Fatalf("a container started: %+v", w.fake.Specs)
 	}
 }

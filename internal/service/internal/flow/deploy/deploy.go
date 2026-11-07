@@ -724,14 +724,19 @@ func (f *Flow) resolve(
 	}
 
 	r.binds = append(r.binds, def.Binds...)
-	for _, l := range tile.Lines(t.Volumes) {
-		l, err := rr.Expand(params.InEnv, l)
+	for _, raw := range tile.Lines(t.Volumes) {
+		l, err := rr.Expand(params.InEnv, raw)
 		if err != nil {
 			return r, err
 		}
 		m, err := tile.ParseMount(l)
 		if err != nil {
 			return r, errs.Invalidf("volumes", "%s", err.Error())
+		}
+		// A host mount must be written as one: HostSet only sees raw lines,
+		// so a param that turns a volume line into host: would skip the grant.
+		if rm, rerr := tile.ParseMount(raw); m.Kind == tile.MountHost && (rerr != nil || rm.Kind != tile.MountHost) {
+			return r, errs.Invalidf("volumes", "%s: %q expands to a host mount; write host mounts out literally so they can be granted", t.Slug, raw)
 		}
 		var src string
 		switch m.Kind {
