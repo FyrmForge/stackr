@@ -34,6 +34,12 @@ func Dump(db *sql.DB) (string, error) {
 		if err := table(db, &b, t); err != nil {
 			return "", fmt.Errorf("table %s: %w", t, err)
 		}
+		// the table's own SQL too: CHECK constraints show nowhere else
+		var create string
+		if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`, t).Scan(&create); err != nil {
+			return "", fmt.Errorf("table %s: %w", t, err)
+		}
+		fmt.Fprintf(&b, "  sql %s\n", norm(create))
 	}
 	rows, err := db.Query(`SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name`)
 	if err != nil {
