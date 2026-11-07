@@ -650,6 +650,9 @@ func (l *Leaf) Restorable(ctx context.Context, runID, sourceVolumeID string) (st
 	if r.Status != Done || r.ObjectKey == "" {
 		return r, errs.Refusedf("only a finished backup can be restored")
 	}
+	if IsPITRKey(r.ObjectKey) {
+		return r, errs.Refusedf("a point-in-time base backup is not restored over a volume")
+	}
 	return r, nil
 }
 

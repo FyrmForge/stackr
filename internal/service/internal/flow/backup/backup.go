@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -64,6 +65,12 @@ type Subject struct {
 	Consumers []store.Tile
 	// Marker is the first line of the engine's whole-instance dump, "" = none.
 	Marker string
+	// Base marks Dump as a physical base backup (point-in-time recovery): a
+	// gzipped tar the engine already compresses, stored as-is under the
+	// archive's base/ prefix. WalStart is the argv whose stdout names the
+	// WAL segment current when it starts, kept on the run row.
+	Base     bool
+	WalStart []string
 }
 
 func (s Subject) dumps() bool { return len(s.Dump) > 0 }
@@ -76,6 +83,8 @@ type Spec struct {
 	Trigger    string  // schedule | manual | pre-restore | orphan
 	Mode       string  // pause | stop | live; ignored when the subject dumps
 	Keep       int
+	// PITRDays is the recovery window a base backup keeps (Base subjects).
+	PITRDays int
 	// Held: the caller already stopped every holder (a node backup or
 	// remove), so a live copy is not torn and the log says so.
 	Held bool
@@ -107,9 +116,35 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 	if err != nil {
 		return r, err
 	}
+	if s.Base && len(s.WalStart) > 0 {
+		out, err := f.run(ctx, s.Engine, s.WalStart)
+		if err == nil && bk.Segment(strings.TrimSpace(out)) == "" {
+			err = errors.New("the WAL position did not read as a segment name")
+		}
+		if err == nil {
+			r, err = f.Backups.SetWalStart(ctx, r, strings.TrimSpace(out))
+		}
+		if err != nil {
+			r, _ = f.Backups.Finish(ctx, r, "", 0, err)
+			return r, err
+		}
+	}
 	key, size, err := f.write(ctx, s, sp, log)
 	if r, ferr := f.Backups.Finish(ctx, r, key, size, err); ferr != nil || err != nil {
 		return r, errors.Join(err, ferr)
+	}
+	if s.Base {
+		// Window retention, never count: the archive's WAL sits beside it. A
+		// failed base never reaches here, so a broken schedule cannot eat
+		// the archive.
+		if f.pruneHeld(ctx, sp.Prefix, r.ID) {
+			logf(log, "not pruning yet: the panel was restored and this is the first backup since\n")
+		} else if n, err := f.PruneWindow(ctx, sp.Dest, path.Dir(sp.Prefix), sp.PITRDays, time.Now(), log); err != nil {
+			logf(log, "pruning the archive: %v\n", err)
+		} else if n > 0 {
+			logf(log, "pruned %d old object(s)\n", n)
+		}
+		return f.Backups.GetRun(ctx, r.ID)
 	}
 	// Never on the pre-restore run: it is the newest under the prefix, and
 	// pruning to keep could delete the very archive about to be restored.
@@ -141,6 +176,9 @@ func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (st
 	stream := s.dumps() || sp.Mode == bk.Live
 	if s.dumps() {
 		ext = ".sql.gz.age"
+		if s.Base {
+			ext = ".tar.gz.age"
+		}
 	} else if !stream {
 		if err := f.checkSpace(ctx, s.Volume); err != nil {
 			return "", 0, err
@@ -235,6 +273,13 @@ func (f *Flow) dump(ctx context.Context, s Subject, w io.Writer, log io.Writer) 
 	out, wait, err := f.Tiles.Stream(ctx, s.Engine, s.Dump, nil)
 	if err != nil {
 		return err
+	}
+	if s.Base { // already gzipped by the engine
+		if _, err := io.Copy(w, out); err != nil {
+			_ = wait()
+			return err
+		}
+		return wait()
 	}
 	gz := gzip.NewWriter(w)
 	if _, err := io.Copy(gz, out); err != nil {
