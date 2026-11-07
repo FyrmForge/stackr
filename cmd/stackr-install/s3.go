@@ -93,7 +93,7 @@ func fetchS3(ctx context.Context, u, dir string, getenv func(string) string) (st
 	c := s3.New(s3.Options{
 		Region:       cmp.Or(getenv(s3RegionEnv), "us-east-1"),
 		BaseEndpoint: aws.String(endpoint),
-		UsePathStyle: true, // MinIO/RustFS/Garage; real S3 accepts it too
+		UsePathStyle: true, // RustFS/Garage; real S3 accepts it too
 		Credentials:  credentials.NewStaticCredentialsProvider(ak, sk, ""),
 	})
 	if key == "" || strings.HasSuffix(key, "/") {

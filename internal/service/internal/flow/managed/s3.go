@@ -11,14 +11,14 @@ import (
 const s3Region = "us-east-1"
 
 // s3e is RustFS. Its image may ship no shell, so it works over the S3 and
-// MinIO admin APIs with the instance's root credentials. A slice is a
+// RustFS admin APIs with the instance's root credentials. A slice is a
 // bucket; its own cred is the root one (RootCreds); every consumer gets an
 // IAM user with one policy scoped to the bucket at its access (DECIDE 198).
 type s3e struct{}
 
 func (s3e) Definition() Definition {
 	return Definition{
-		Image:   "rustfs/rustfs:latest",
+		Image:   "rustfs/rustfs:1.0.4",
 		Command: []string{"--console-enable", "/data"},
 		Port:    9000,
 		Volumes: []string{"/data"},

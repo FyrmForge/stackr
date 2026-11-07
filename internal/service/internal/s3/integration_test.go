@@ -12,15 +12,15 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// Against a throwaway RustFS container, the S3 server the managed tile runs
-// (minio/minio is gone from Docker Hub).
-func TestMinio(t *testing.T) {
+// Against a throwaway RustFS container, the S3 server the managed tile runs.
+func TestRustFS(t *testing.T) {
 	out, err := exec.Command("docker", "run", "-d", "--rm", "-p", "127.0.0.1::9000",
 		"-e", "RUSTFS_ACCESS_KEY=stackr", "-e", "RUSTFS_SECRET_KEY=stackr-secret",
-		"rustfs/rustfs:latest").Output()
+		"rustfs/rustfs:1.0.4").Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -52,4 +52,65 @@ func TestMinio(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	roundTrip(t, b)
+	userGrants(t, b)
+}
+
+func denied(t *testing.T, what string, err error) {
+	t.Helper()
+	var re *awshttp.ResponseError
+	if !errors.As(err, &re) || re.HTTPStatusCode() != 403 || !strings.Contains(err.Error(), "AccessDenied") {
+		t.Fatalf("%s: want 403 AccessDenied, got %v", what, err)
+	}
+}
+
+// userGrants walks one IAM user through grant, re-grant and revoke.
+func userGrants(t *testing.T, root Bucket) {
+	ctx := context.Background()
+	a := Admin(root)
+	for _, n := range []string{"bucket-a", "bucket-b"} {
+		if err := a.CreateBucket(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.AddUser(ctx, "appuser", "appuser-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.GrantUser(ctx, "appuser", "bucket-a", false); err != nil {
+		t.Fatal(err)
+	}
+	user := func(bucket string) Bucket {
+		return Bucket{Endpoint: root.Endpoint, Bucket: bucket, AccessKey: "appuser", SecretKey: "appuser-secret"}
+	}
+	ra, rb := root, root
+	ra.Bucket, rb.Bucket = "bucket-a", "bucket-b"
+	if err := ra.Put(ctx, "seed", strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rb.Put(ctx, "seed", strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	ua, ub := user("bucket-a"), user("bucket-b")
+	if _, err := ua.Get(ctx, "seed"); err != nil {
+		t.Fatalf("read A: %v", err)
+	}
+	denied(t, "write A", ua.Put(ctx, "w", strings.NewReader("x")))
+	_, err := ub.Get(ctx, "seed")
+	denied(t, "read B", err)
+
+	if err := a.GrantUser(ctx, "appuser", "bucket-a", true); err != nil {
+		t.Fatalf("re-grant: %v", err)
+	}
+	if err := ua.Put(ctx, "w", strings.NewReader("x")); err != nil {
+		t.Fatalf("write A after re-grant: %v", err)
+	}
+
+	if err := a.RemoveUser(ctx, "appuser"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ua.Get(ctx, "seed"); err == nil {
+		t.Fatal("removed user's key still works")
+	}
+	if err := a.RemoveUser(ctx, "appuser"); err != nil {
+		t.Fatalf("second remove: %v", err)
+	}
 }

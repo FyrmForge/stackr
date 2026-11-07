@@ -19,7 +19,7 @@ const defaultRegion = "us-east-1"
 
 // Bucket is an S3-compatible destination.
 type Bucket struct {
-	Endpoint  string // e.g. https://s3.eu-west-1.amazonaws.com, http://minio:9000
+	Endpoint  string // e.g. https://s3.eu-west-1.amazonaws.com, http://rustfs:9000
 	Region    string // "" = us-east-1
 	Bucket    string
 	AccessKey string
@@ -39,7 +39,7 @@ func (b Bucket) client() *s3.Client {
 	o := s3.Options{
 		Region:       region,
 		BaseEndpoint: aws.String(b.Endpoint),
-		UsePathStyle: true, // MinIO/RustFS/Garage; real S3 accepts it too
+		UsePathStyle: true, // RustFS/Garage; real S3 accepts it too
 		// The SDK's default trailing checksums are refused by older
 		// S3-compatible servers; none is sent unless an operation needs one.
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,

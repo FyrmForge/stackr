@@ -1,36 +1,31 @@
 package s3
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/minio/madmin-go/v3"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 // Admin cuts and drops buckets and IAM users on an S3-compatible server (a
 // managed S3 instance, RustFS) with its root credentials. Bucket is ignored.
-// Users go over the MinIO admin API, which RustFS serves too (DECIDE 198).
+// Users go over the RustFS admin API (DECIDE 198), signed like S3.
 type Admin Bucket
 
 func (a Admin) c() *s3.Client { return Bucket(a).client() }
-
-func (a Admin) adm() (*madmin.AdminClient, error) {
-	u, err := url.Parse(a.Endpoint)
-	if err != nil {
-		return nil, err
-	}
-	return madmin.NewWithOptions(u.Host, &madmin.Options{
-		Creds:  credentials.NewStaticV4(a.AccessKey, a.SecretKey, ""),
-		Secure: u.Scheme == "https",
-	})
-}
 
 // Ping lists buckets: any answer is "ready".
 func (a Admin) Ping(ctx context.Context) error {
@@ -83,23 +78,97 @@ func (a Admin) SetPublic(ctx context.Context, name string, public bool) error {
 	return err
 }
 
-// AddUser makes an IAM user with that key pair; an existing one is re-keyed.
-func (a Admin) AddUser(ctx context.Context, key, secret string) error {
-	adm, err := a.adm()
+var adminHTTP = &http.Client{Timeout: 30 * time.Second}
+
+// admin sends one signed request to the RustFS admin API. The /rustfs/admin/v3
+// prefix takes plain JSON bodies. Network errors and 408/429/502/503 retry.
+func (a Admin) admin(ctx context.Context, method, op string, q url.Values, body []byte) error {
+	u, err := url.Parse(a.Endpoint)
 	if err != nil {
 		return err
 	}
-	return adm.AddUser(ctx, key, secret)
+	if (u.Scheme != "http" && u.Scheme != "https") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("s3 admin: bad endpoint %q", a.Endpoint)
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + "/rustfs/admin/v3/" + op
+	u.RawQuery = q.Encode()
+	sum := sha256.Sum256(body)
+	hash := hex.EncodeToString(sum[:])
+	creds := aws.Credentials{AccessKeyID: a.AccessKey, SecretAccessKey: a.SecretKey}
+	signer := v4.NewSigner(func(o *v4.SignerOptions) { o.DisableURIPathEscaping = true })
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("X-Amz-Content-Sha256", hash)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if err := signer.SignHTTP(ctx, creds, req, hash, "s3", defaultRegion, time.Now()); err != nil {
+			return err
+		}
+		resp, err := adminHTTP.Do(req)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			continue
+		}
+		if resp.StatusCode/100 == 2 {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return nil
+		}
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		_ = resp.Body.Close()
+		lastErr = &adminError{fmt.Sprintf("%s %s: %d: %s", method, op, resp.StatusCode, msg), resp.StatusCode, string(msg)}
+		switch resp.StatusCode {
+		case 408, 429, 502, 503:
+		default:
+			return lastErr
+		}
+	}
+	return lastErr
+}
+
+type adminError struct {
+	text   string
+	status int
+	body   string
+}
+
+func (e *adminError) Error() string { return e.text }
+
+// gone reports a "nothing there" answer: RustFS 1.0.4 sends a missing policy
+// as a 500 InternalError, so the message is the only tell.
+func gone(err error) bool {
+	var ae *adminError
+	if !errors.As(err, &ae) {
+		return false
+	}
+	return ae.status == 404 || strings.Contains(ae.body, "does not exist") || strings.Contains(ae.body, "not found")
+}
+
+// AddUser makes an IAM user with that key pair; an existing one is re-keyed.
+func (a Admin) AddUser(ctx context.Context, key, secret string) error {
+	body, _ := json.Marshal(map[string]string{"secretKey": secret, "status": "enabled"})
+	return a.admin(ctx, http.MethodPut, "add-user", url.Values{"accessKey": {key}}, body)
 }
 
 // GrantUser writes the user's one policy, named after it and scoped to the
 // bucket, and attaches it. Rewriting the policy in place is how a user's
 // access changes; RustFS enforces the new document at once.
 func (a Admin) GrantUser(ctx context.Context, user, bucket string, write bool) error {
-	adm, err := a.adm()
-	if err != nil {
-		return err
-	}
 	onBucket := `"s3:GetBucketLocation","s3:ListBucket"`
 	onObjects := `"s3:GetObject"`
 	if write {
@@ -110,23 +179,20 @@ func (a Admin) GrantUser(ctx context.Context, user, bucket string, write bool) e
 		`{"Effect":"Allow","Action":[%s],"Resource":["arn:aws:s3:::%s"]},`+
 		`{"Effect":"Allow","Action":[%s],"Resource":["arn:aws:s3:::%s/*"]}]}`,
 		onBucket, bucket, onObjects, bucket)
-	if err := adm.AddCannedPolicy(ctx, user, []byte(policy)); err != nil {
+	if err := a.admin(ctx, http.MethodPut, "add-canned-policy", url.Values{"name": {user}}, []byte(policy)); err != nil {
 		return err
 	}
-	_, err = adm.AttachPolicy(ctx, madmin.PolicyAssociationReq{Policies: []string{user}, User: user})
-	return err
+	attach, _ := json.Marshal(map[string]any{"policies": []string{user}, "user": user})
+	return a.admin(ctx, http.MethodPost, "idp/builtin/policy/attach", nil, attach)
 }
 
-// RemoveUser drops the user and its policy; a user already gone is success.
+// RemoveUser drops the user and its policy; one already gone is success.
 func (a Admin) RemoveUser(ctx context.Context, user string) error {
-	adm, err := a.adm()
-	if err != nil {
+	if err := a.admin(ctx, http.MethodDelete, "remove-user", url.Values{"accessKey": {user}}, nil); err != nil && !gone(err) {
 		return err
 	}
-	// RustFS answers a missing user with a generic InternalError, so the
-	// message is the only tell.
-	if err := adm.RemoveUser(ctx, user); err != nil && !strings.Contains(err.Error(), "does not exist") {
+	if err := a.admin(ctx, http.MethodDelete, "remove-canned-policy", url.Values{"name": {user}}, nil); err != nil && !gone(err) {
 		return err
 	}
-	return adm.RemoveCannedPolicy(ctx, user)
+	return nil
 }

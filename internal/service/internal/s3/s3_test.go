@@ -16,7 +16,7 @@ var (
 	_ Destination = Bucket{}
 )
 
-// roundTrip is the contract every destination meets; the minio test reuses it.
+// roundTrip is the contract every destination meets; the RustFS test reuses it.
 func roundTrip(t *testing.T, d Destination) {
 	t.Helper()
 	ctx := context.Background()
