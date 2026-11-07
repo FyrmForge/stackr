@@ -552,7 +552,7 @@ func (o *Orchestrator) buildInto(
 		}
 	}
 	return buildFallback(o.builderNode(ctx, ctl), ctl,
-		func(n string) (string, error) { return o.buildOn(ctx, n, repo, ref, bctx, df, args, log) },
+		func(n string) (string, error) { return o.buildOn(ctx, n, st.OrgID, repo, ref, bctx, df, args, log) },
 		func(n string) bool { return o.nodeAnswers(ctx, n) }, log)
 }
 
@@ -570,13 +570,13 @@ func tileCheckout(st store.Stack, t store.Tile) string {
 // (pushLocal): the node's Docker saves it, the controller writes it.
 func (o *Orchestrator) buildOn(
 	ctx context.Context,
-	nodeID, repo, ref, dir, dockerfile string,
+	nodeID, orgID, repo, ref, dir, dockerfile string,
 	args map[string]string,
 	log io.Writer,
 ) (string, error) {
 	slog.Info("build: placed", "node", nodeID, "ref", ref)
 	ctx = docker.WithNode(ctx, nodeID)
-	img, err := o.images.Build(ctx, dir, dockerfile, ref, args, log)
+	img, err := o.images.Build(ctx, orgID, dir, dockerfile, ref, args, log)
 	if err != nil {
 		return "", err
 	}

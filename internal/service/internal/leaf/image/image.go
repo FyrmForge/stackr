@@ -36,6 +36,8 @@ type Docker interface {
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
+	Builders(ctx context.Context) ([]string, error)
+	RemoveBuilder(ctx context.Context, name string) error
 	EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error
 	UsedSubnets(ctx context.Context) ([]netip.Prefix, error)
 	Build(
@@ -46,8 +48,12 @@ type Docker interface {
 	) (string, error)
 }
 
-// Builder is the one buildx builder every build shares.
-const Builder = "stackr-builder"
+// BuilderFor is the buildx builder of owner (an org id, or System): one per
+// owner so no owner's build cache reaches another's builds.
+func BuilderFor(owner string) string { return docker.BuilderPrefix + "-" + owner }
+
+// System owns builds that belong to no org (stackr's own helper images).
+const System = "system"
 
 type Leaf struct {
 	images store.ImageStore
@@ -163,10 +169,10 @@ func (l *Leaf) isBuild(ctx context.Context, ref, id string) bool {
 	return false
 }
 
-// Build builds dir into ref and records it. The label lets Cleanup find it.
+// Build builds dir into ref in owner's builder and records it. The label lets Cleanup find it.
 func (l *Leaf) Build(
 	ctx context.Context,
-	dir, dockerfile, ref string,
+	owner, dir, dockerfile, ref string,
 	args map[string]string,
 	log io.Writer,
 ) (store.Image, error) {
@@ -180,10 +186,10 @@ func (l *Leaf) Build(
 			}
 		}
 	}
-	if err := l.docker.EnsureBuilder(ctx, Builder, 0); err != nil {
+	if err := l.docker.EnsureBuilder(ctx, BuilderFor(owner), 0); err != nil {
 		return store.Image{}, err
 	}
-	id, err := l.docker.Build(ctx, Builder, dir, dockerfile, ref, args, map[string]string{LabelBuilt: "true"}, log)
+	id, err := l.docker.Build(ctx, BuilderFor(owner), dir, dockerfile, ref, args, map[string]string{LabelBuilt: "true"}, log)
 	if err != nil {
 		return store.Image{}, err
 	}

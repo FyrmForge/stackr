@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
 	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -107,7 +108,7 @@ func (o *Orchestrator) rsyncSteps() rsyncSteps {
 			if err != nil {
 				return err
 			}
-			_, err = o.images.Build(ctx, dir, df, ref, nil, io.Discard)
+			_, err = o.images.Build(ctx, image.System, dir, df, ref, nil, io.Discard)
 			return err
 		},
 		push: func(ctx context.Context) error {

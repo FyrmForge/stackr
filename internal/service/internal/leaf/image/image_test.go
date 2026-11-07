@@ -220,7 +220,7 @@ func TestBuildAppliesFilterFirst(t *testing.T) {
 		}
 		return nil
 	})
-	if _, err := l.Build(ctx, "/src", "Dockerfile", "stkr/a:1", nil, io.Discard); err != nil {
+	if _, err := l.Build(ctx, "o1", "/src", "Dockerfile", "stkr/a:1", nil, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(seen, []string{"EnsureNetwork"}) {
@@ -228,12 +228,35 @@ func TestBuildAppliesFilterFirst(t *testing.T) {
 	}
 	l = image.New(st.Images, fake).WithSubnets(noReserve{}).WithFilter(func(context.Context) error { return errors.New("no") })
 	n := len(fake.Calls())
-	if _, err := l.Build(ctx, "/src", "Dockerfile", "stkr/a:2", nil, io.Discard); err == nil {
+	if _, err := l.Build(ctx, "o1", "/src", "Dockerfile", "stkr/a:2", nil, io.Discard); err == nil {
 		t.Fatal("build ran past a failed filter")
 	}
 	for _, c := range fake.Calls()[n:] {
 		if c.Method == "EnsureBuilder" || c.Method == "Build" {
 			t.Errorf("ran %s", c)
 		}
+	}
+}
+
+// Two orgs never share a builder, so one's cache mounts never reach the
+// other's builds.
+func TestBuildUsesOwnersBuilder(t *testing.T) {
+	st := servicetest.Store(t)
+	fake := dockerfake.New()
+	l := image.New(st.Images, fake)
+	for i, o := range []string{"org-a", "org-b", "org-a"} {
+		if _, err := l.Build(ctx, o, "/src", "Dockerfile", "stkr/a:"+string(rune('1'+i)), nil, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, c := range fake.Calls() {
+		if c.Method == "Build" {
+			got = append(got, c.Args[0])
+		}
+	}
+	want := []string{"stackr-builder-org-a", "stackr-builder-org-b", "stackr-builder-org-a"}
+	if !slices.Equal(got, want) {
+		t.Errorf("builders %v, want %v", got, want)
 	}
 }

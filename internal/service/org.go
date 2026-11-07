@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
@@ -170,6 +171,13 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 		return err
 	}
 	o.dropClone("orgconfig-" + og.ID)
+	// The org's builder and its cache go from every node. Best effort: the
+	// org is gone either way, and a missed node's builder is just idle.
+	if err := o.eachNode(ctx, func(ctx context.Context, _ store.Node) error {
+		return o.docker.RemoveBuilder(ctx, image.BuilderFor(og.ID))
+	}); err != nil {
+		slog.Warn("org delete: remove builders", "org", og.ID, "err", err)
+	}
 	return o.noted(ctx, nil, securitylog.OrgDelete, "org", orgID, "slug="+og.Slug)
 }
 

@@ -388,7 +388,7 @@ func TestCleanupPrunesEveryNode(t *testing.T) {
 		t.Fatalf("cleanup = %s %q", j.State, j.Error)
 	}
 	for name, f := range map[string]*dockerfake.Fake{"controller": n.ctlFake, "w1": n.wFake} {
-		for _, m := range []string{"PruneDangling(", "PruneImages(", "BuildCachePrune("} {
+		for _, m := range []string{"PruneDangling(", "PruneImages(", "Builders("} {
 			if !sawCall(f, m) {
 				t.Errorf("%s was not asked for %s: %v", name, m, callNames(f))
 			}

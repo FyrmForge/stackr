@@ -9,6 +9,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -389,6 +390,74 @@ func (d *Client) ensureBuilderNetwork(ctx context.Context) error {
 	return nil
 }
 
+// BuilderPrefix starts every buildx builder name: one builder per org per
+// node (BuilderPrefix-<org id>), so BuildKit's shared cache mounts and layer
+// cache never cross orgs.
+const BuilderPrefix = "stackr-builder"
+
+var (
+	buildsMu     sync.Mutex
+	buildsActive = map[string]int{} // builder name -> builds running in it
+	legacyGone   sync.Map           // builder name of the old shared builder -> removed
+)
+
+// dropLegacyBuilder removes the old shared builder (it holds every org's
+// mixed cache), once per process per daemon. Best effort.
+func (d *Client) dropLegacyBuilder(ctx context.Context) {
+	old := d.builderName(BuilderPrefix)
+	if _, done := legacyGone.LoadOrStore(old, true); done {
+		return
+	}
+	_ = d.removeBuilder(ctx, old)
+}
+
+// removeBuilder is `buildx rm` of the exact (already mapped) name, state and
+// cache included. A missing builder is fine.
+func (d *Client) removeBuilder(ctx context.Context, name string) error {
+	cmd, done, err := d.command(ctx, "buildx", "rm", name)
+	if err != nil {
+		return err
+	}
+	defer done()
+	if out, err := cmd.CombinedOutput(); err != nil && !strings.Contains(string(out), "no builder") {
+		return fmt.Errorf("buildx rm: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// RemoveBuilder removes the org's builder with its cache.
+func (d *Client) RemoveBuilder(ctx context.Context, name string) error {
+	return d.removeBuilder(ctx, d.builderName(name))
+}
+
+// Builders lists the builders stackr made on this daemon, by the names the
+// callers gave them. Shells out: buildx has no API.
+func (d *Client) Builders(ctx context.Context) ([]string, error) {
+	cmd, done, err := d.command(ctx, "buildx", "ls", "--format", "{{.Name}}")
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("buildx ls: %w", err)
+	}
+	var names []string
+	for _, l := range strings.Fields(string(out)) {
+		l = strings.TrimSuffix(l, "*")
+		if d.px != nil {
+			var ok bool
+			if l, ok = strings.CutSuffix(l, "-"+slug(d.px.addr)); !ok {
+				continue
+			}
+		}
+		if strings.HasPrefix(l, BuilderPrefix+"-") {
+			names = append(names, l)
+		}
+	}
+	return names, nil
+}
+
 // EnsureBuilder creates a buildx docker-container builder capped at memMB with
 // a low cpu weight, so a build yields to running tiles. The daemon's own
 // builder ignores every resource flag. The builder runs on BuilderNetwork,
@@ -397,6 +466,7 @@ func (d *Client) ensureBuilderNetwork(ctx context.Context) error {
 // out: buildx has no API. On a worker the builder's container runs there,
 // reached through the CLI proxy.
 func (d *Client) EnsureBuilder(ctx context.Context, name string, memMB int) error {
+	d.dropLegacyBuilder(ctx)
 	name = d.builderName(name)
 	cmd, done, err := d.command(ctx, "buildx", "inspect", name)
 	if err != nil {
@@ -471,7 +541,29 @@ func (d *Client) Build(
 	buildArgs, labels map[string]string,
 	log io.Writer,
 ) (string, error) {
-	args := []string{"buildx", "build", "--builder", d.builderName(builder), "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
+	name := d.builderName(builder)
+	buildsMu.Lock()
+	buildsActive[name]++
+	buildsMu.Unlock()
+	// An idle builder is stopped (container gone from memory, state and cache
+	// kept; the next build starts it). The stop runs under buildsMu, so a
+	// build starting meanwhile waits for it instead of losing its builder.
+	// ponytail: one lock for every builder, so a stop delays other orgs'
+	// build starts by a second; per-builder locks if that ever shows.
+	defer func() {
+		buildsMu.Lock()
+		defer buildsMu.Unlock()
+		buildsActive[name]--
+		if buildsActive[name] > 0 {
+			return
+		}
+		delete(buildsActive, name)
+		if cmd, done, err := d.command(context.WithoutCancel(ctx), "buildx", "stop", name); err == nil {
+			defer done()
+			_ = cmd.Run()
+		}
+	}()
+	args := []string{"buildx", "build", "--builder", name, "--load", "-f", dockerfile, "-t", tag, "--progress=plain"}
 	if noCache(ctx) {
 		args = append(args, "--no-cache", "--pull") // a rebuild picks up a moved base tag too
 	}
@@ -488,7 +580,7 @@ func (d *Client) Build(
 	defer done()
 	// buildx names its instance in the log; a worker's carries the node's
 	// mesh address, which members reading the log must not see.
-	w := &replaceLines{w: log, old: []byte(d.builderName(builder)), new: []byte(builder)}
+	w := &replaceLines{w: log, old: []byte(name), new: []byte(builder)}
 	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, w, w
 	err = cmd.Run()
 	w.flush()

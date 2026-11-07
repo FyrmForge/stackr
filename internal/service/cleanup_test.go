@@ -275,3 +275,20 @@ func TestCleanupStackrImagesFailClosed(t *testing.T) {
 		t.Errorf("upgrade running: removed %v", got)
 	}
 }
+
+// The nightly build-cache prune walks every builder on the node, one per org.
+func TestCleanupPrunesEveryBuilder(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.fake.BuilderNames = []string{"stackr-builder-a", "stackr-builder-b"}
+	w.cleanup(t)
+	var got []string
+	for _, c := range w.fake.Calls() {
+		if c.Method == "BuildCachePrune" {
+			got = append(got, c.Args[0])
+		}
+	}
+	if !slices.Equal(got, w.fake.BuilderNames) {
+		t.Errorf("pruned %v", got)
+	}
+}

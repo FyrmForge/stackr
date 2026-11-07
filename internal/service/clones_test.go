@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -195,5 +196,10 @@ func TestDeleteRemovesClones(t *testing.T) {
 	must(t, w.orch.DeleteOrg(ctx, org))
 	if !gone(t, orgDir) {
 		t.Error("org config clone kept after its org went")
+	}
+	if !slices.ContainsFunc(w.fake.Calls(), func(c dockerfake.Call) bool {
+		return c.Method == "RemoveBuilder" && c.Args[0] == "stackr-builder-"+org
+	}) {
+		t.Error("org builder kept after its org went")
 	}
 }

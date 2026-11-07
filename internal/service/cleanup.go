@@ -106,11 +106,23 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 	note("built images", n, "up to "+byteSize(b), err)
 
 	_ = o.eachNode(ctx, func(ctx context.Context, nd store.Node) error {
-		n, total, err := o.docker.BuildCachePrune(ctx, image.Builder, buildCacheAge)
-		if total == "" {
-			total = "0 B"
+		names, err := o.docker.Builders(ctx)
+		if err != nil {
+			note("build cache on "+nd.Name, 0, "0 B", err)
+			return nil
 		}
-		note("build cache on "+nd.Name, n, total, err)
+		n, sizes := 0, ""
+		for _, b := range names { // one builder per org
+			c, total, perr := o.docker.BuildCachePrune(ctx, b, buildCacheAge)
+			n, err = n+c, errors.Join(err, perr)
+			if total != "" {
+				sizes += total + " "
+			}
+		}
+		if sizes = strings.TrimSpace(sizes); sizes == "" {
+			sizes = "0 B"
+		}
+		note("build cache on "+nd.Name, n, sizes, err)
 		return nil
 	})
 	return failed
