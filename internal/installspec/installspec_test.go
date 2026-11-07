@@ -116,6 +116,14 @@ func TestCheckRoot(t *testing.T) {
 	}
 }
 
+// The docker CLI config sits on the data dir, so buildx's builder registry
+// survives a panel upgrade.
+func TestPanelDockerConfigOnDataDir(t *testing.T) {
+	if want := "DOCKER_CONFIG=" + plainIn.DataDir + "/docker"; !slices.Contains(Panel(Image("1.2.3"), plainIn).Env, want) {
+		t.Errorf("panel env lacks %s: %v", want, Panel(Image("1.2.3"), plainIn).Env)
+	}
+}
+
 // The panel's env carries the install id, so archives are named by it; an
 // install without one sets nothing and the panel keeps "default".
 func TestPanelInstallID(t *testing.T) {

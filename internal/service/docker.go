@@ -65,7 +65,6 @@ type Docker interface {
 	PruneDangling(ctx context.Context, labels map[string]string) (n int, bytes int64, err error)
 	BuildCachePrune(ctx context.Context, builder string, olderThan time.Duration) (n int, total string, err error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
-	Builders(ctx context.Context) ([]string, error)
 	RemoveBuilder(ctx context.Context, name string) error
 	Build(
 		ctx context.Context,

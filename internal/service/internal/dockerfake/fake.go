@@ -56,7 +56,6 @@ type Fake struct {
 	Images        []docker.Image
 	Dangling      int // what PruneDangling removes
 	DanglingBytes int64
-	BuilderNames  []string // what Builders lists
 	CacheRemoved  int      // what BuildCachePrune removes
 	CacheTotal    string   // and the size it reports
 	InUse         []string // image ids a prune cannot remove (a container uses them)
@@ -373,9 +372,6 @@ func (f *Fake) RemoveImage(_ context.Context, ref string) error {
 func (f *Fake) EnsureBuilder(_ context.Context, name string, _ int) error {
 	return f.rec("EnsureBuilder", name)
 }
-
-// Builders answers the scripted BuilderNames.
-func (f *Fake) Builders(context.Context) ([]string, error) { return f.BuilderNames, f.rec("Builders") }
 
 func (f *Fake) RemoveBuilder(_ context.Context, name string) error {
 	return f.rec("RemoveBuilder", name)

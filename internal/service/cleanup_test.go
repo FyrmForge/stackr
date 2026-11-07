@@ -276,11 +276,25 @@ func TestCleanupStackrImagesFailClosed(t *testing.T) {
 	}
 }
 
-// The nightly build-cache prune walks every builder on the node, one per org.
+// The nightly build-cache prune names the system builder and one per org from
+// the store, never what buildx lists.
 func TestCleanupPrunesEveryBuilder(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.fake.BuilderNames = []string{"stackr-builder-a", "stackr-builder-b"}
+	ctx := context.Background()
+	want := []string{image.BuilderFor(image.System)}
+	orgs, err := w.st.Orgs.List(ctx)
+	must(t, err)
+	for i, slug := range []string{"pa", "pb"} {
+		id := uuid.NewString()
+		must(t, w.st.Orgs.Create(ctx, store.Org{
+			ID: id, Name: slug, Slug: slug, EnvColors: "{}", Settings: "{}", CreatedAt: time.Now().Add(time.Duration(i)),
+		}))
+		orgs = append(orgs, store.Org{ID: id})
+	}
+	for _, o := range orgs {
+		want = append(want, image.BuilderFor(o.ID))
+	}
 	w.cleanup(t)
 	var got []string
 	for _, c := range w.fake.Calls() {
@@ -288,7 +302,9 @@ func TestCleanupPrunesEveryBuilder(t *testing.T) {
 			got = append(got, c.Args[0])
 		}
 	}
-	if !slices.Equal(got, w.fake.BuilderNames) {
-		t.Errorf("pruned %v", got)
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("pruned %v, want %v", got, want)
 	}
 }

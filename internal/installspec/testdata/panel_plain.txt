@@ -37,6 +37,8 @@ docker run
   -e
   DATA_DIR=/srv/stackr
   -e
+  DOCKER_CONFIG=/srv/stackr/docker
+  -e
   DATABASE_PATH=/srv/stackr/stackr.db
   -e
   HOST=172.18.0.1

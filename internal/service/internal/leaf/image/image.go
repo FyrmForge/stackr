@@ -36,7 +36,6 @@ type Docker interface {
 	LocalDigest(ctx context.Context, ref string) (string, error)
 	ListImages(ctx context.Context, labels map[string]string) ([]docker.Image, error)
 	EnsureBuilder(ctx context.Context, name string, memMB int) error
-	Builders(ctx context.Context) ([]string, error)
 	RemoveBuilder(ctx context.Context, name string) error
 	EnsureNetwork(ctx context.Context, name string, subnet netip.Prefix, labels map[string]string) error
 	UsedSubnets(ctx context.Context) ([]netip.Prefix, error)

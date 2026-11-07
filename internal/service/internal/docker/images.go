@@ -13,6 +13,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -401,6 +402,9 @@ var (
 	legacyGone   sync.Map           // builder name of the old shared builder -> removed
 )
 
+// idleStopTimeout bounds the idle `buildx stop`.
+var idleStopTimeout = 30 * time.Second
+
 // dropLegacyBuilder removes the old shared builder (it holds every org's
 // mixed cache), once per process per daemon. Best effort.
 func (d *Client) dropLegacyBuilder(ctx context.Context) {
@@ -412,50 +416,33 @@ func (d *Client) dropLegacyBuilder(ctx context.Context) {
 }
 
 // removeBuilder is `buildx rm` of the exact (already mapped) name, state and
-// cache included. A missing builder is fine.
+// cache included. A missing builder is fine. The CLI's builder registry is a
+// client-side file that can be lost, so the daemon's objects (the buildkit
+// container and its state volume, named by buildx from the builder name and
+// its first node "0") go through the API too.
 func (d *Client) removeBuilder(ctx context.Context, name string) error {
+	var errs []error
 	cmd, done, err := d.command(ctx, "buildx", "rm", name)
 	if err != nil {
 		return err
 	}
 	defer done()
 	if out, err := cmd.CombinedOutput(); err != nil && !strings.Contains(string(out), "no builder") {
-		return fmt.Errorf("buildx rm: %w: %s", err, strings.TrimSpace(string(out)))
+		errs = append(errs, fmt.Errorf("buildx rm: %w: %s", err, strings.TrimSpace(string(out))))
 	}
-	return nil
+	ctr := "buildx_buildkit_" + name + "0"
+	if err := d.cli.ContainerRemove(ctx, ctr, container.RemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+		errs = append(errs, wrap(err))
+	}
+	if err := d.RemoveVolume(ctx, ctr+"_state"); err != nil {
+		errs = append(errs, wrap(err))
+	}
+	return errors.Join(errs...)
 }
 
 // RemoveBuilder removes the org's builder with its cache.
 func (d *Client) RemoveBuilder(ctx context.Context, name string) error {
 	return d.removeBuilder(ctx, d.builderName(name))
-}
-
-// Builders lists the builders stackr made on this daemon, by the names the
-// callers gave them. Shells out: buildx has no API.
-func (d *Client) Builders(ctx context.Context) ([]string, error) {
-	cmd, done, err := d.command(ctx, "buildx", "ls", "--format", "{{.Name}}")
-	if err != nil {
-		return nil, err
-	}
-	defer done()
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("buildx ls: %w", err)
-	}
-	var names []string
-	for _, l := range strings.Fields(string(out)) {
-		l = strings.TrimSuffix(l, "*")
-		if d.px != nil {
-			var ok bool
-			if l, ok = strings.CutSuffix(l, "-"+slug(d.px.addr)); !ok {
-				continue
-			}
-		}
-		if strings.HasPrefix(l, BuilderPrefix+"-") {
-			names = append(names, l)
-		}
-	}
-	return names, nil
 }
 
 // EnsureBuilder creates a buildx docker-container builder capped at memMB with
@@ -558,7 +545,10 @@ func (d *Client) Build(
 			return
 		}
 		delete(buildsActive, name)
-		if cmd, done, err := d.command(context.WithoutCancel(ctx), "buildx", "stop", name); err == nil {
+		// Bounded: a hung daemon must not hold buildsMu, which every build waits on.
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), idleStopTimeout)
+		defer cancel()
+		if cmd, done, err := d.command(sctx, "buildx", "stop", name); err == nil {
 			defer done()
 			_ = cmd.Run()
 		}

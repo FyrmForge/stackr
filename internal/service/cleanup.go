@@ -105,14 +105,17 @@ func (o *Orchestrator) runCleanup(ctx context.Context, r *jobs.Run) error {
 	}
 	note("built images", n, "up to "+byteSize(b), err)
 
+	// One builder per org plus the system's, named from the store: asking
+	// buildx would list worker builders whose endpoints only exist while a
+	// proxy is open. A builder a node never made is "nothing to prune".
+	names := []string{image.BuilderFor(image.System)}
+	orgs, orgErr := o.orgs.ListAll(ctx)
+	for _, og := range orgs {
+		names = append(names, image.BuilderFor(og.ID))
+	}
 	_ = o.eachNode(ctx, func(ctx context.Context, nd store.Node) error {
-		names, err := o.docker.Builders(ctx)
-		if err != nil {
-			note("build cache on "+nd.Name, 0, "0 B", err)
-			return nil
-		}
-		n, sizes := 0, ""
-		for _, b := range names { // one builder per org
+		n, sizes, err := 0, "", orgErr
+		for _, b := range names {
 			c, total, perr := o.docker.BuildCachePrune(ctx, b, buildCacheAge)
 			n, err = n+c, errors.Join(err, perr)
 			if total != "" {

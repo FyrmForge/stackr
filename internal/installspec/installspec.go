@@ -292,6 +292,9 @@ func Panel(image string, in Input) Container {
 		"ACME_EMAIL=" + in.Email,
 		"CADDY_TRUSTED_PROXIES=" + in.Proxies,
 		"DATA_DIR=" + in.DataDir,
+		// The docker CLI's buildx builder registry lives here, so a panel
+		// upgrade (a new container) still knows its builders.
+		"DOCKER_CONFIG=" + in.DataDir + "/docker",
 		"DATABASE_PATH=" + in.DataDir + "/stackr.db",
 		"HOST=" + in.Bind,
 		"PORT=" + PanelPort,

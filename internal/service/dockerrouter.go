@@ -331,10 +331,6 @@ func (r *DockerRouter) BuildCachePrune(ctx context.Context, builder string, olde
 	return c.BuildCachePrune(ctx, builder, olderThan)
 }
 
-func (r *DockerRouter) Builders(ctx context.Context) ([]string, error) {
-	return via(r, ctx, func(c Docker) ([]string, error) { return c.Builders(ctx) })
-}
-
 func (r *DockerRouter) RemoveBuilder(ctx context.Context, name string) error {
 	return r.do(ctx, func(c Docker) error { return c.RemoveBuilder(ctx, name) })
 }

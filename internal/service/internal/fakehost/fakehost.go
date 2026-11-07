@@ -1113,8 +1113,6 @@ func (d *Docker) BuildCachePrune(ctx context.Context, _ string, _ time.Duration)
 	return 0, "0B", d.chaos.hit(ctx, "images", "BuildCachePrune")
 }
 
-func (d *Docker) Builders(context.Context) ([]string, error) { return nil, nil }
-
 func (d *Docker) RemoveBuilder(ctx context.Context, _ string) error {
 	return d.chaos.hit(ctx, "images", "RemoveBuilder")
 }
