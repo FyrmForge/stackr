@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 )
 
 // defaultCopyHeaders are what an auth provider hands back when the domain
@@ -31,7 +32,7 @@ func authHandlers(e Extras, t TileRoute, expand Expand) []route {
 			}},
 		})
 	}
-	return append(hs, forwardAuth(e.ForwardAuth)...)
+	return append(hs, forwardAuth(e.ForwardAuth, t.OrgNames)...)
 }
 
 // forwardAuth is what the Caddyfile forward_auth directive expands to: a GET
@@ -40,7 +41,11 @@ func authHandlers(e Extras, t TileRoute, expand Expand) []route {
 // URL and names were checked by checkProxyStrings, which domainRoute runs
 // first so a bad one leaves the route out; a bad one here yields nothing
 // (open), so that check must stay.
-func forwardAuth(fa *ForwardAuth) []route {
+//
+// A public host is dialled at the address checked here, not by name, so Caddy's
+// own lookup cannot see a rebound one; the Host header and the TLS server name
+// stay the URL's. A same-org tile (orgNames) is dialled by its Docker name.
+func forwardAuth(fa *ForwardAuth, orgNames []string) []route {
 	if fa == nil {
 		return nil
 	}
@@ -83,16 +88,26 @@ func forwardAuth(fa *ForwardAuth) []route {
 	if path == "" {
 		path = "/"
 	}
+	dial, host := net.JoinHostPort(u.Hostname(), port), "{http.reverse_proxy.upstream.hostport}"
+	pinned := !slices.Contains(orgNames, strings.ToLower(u.Hostname()))
+	if pinned {
+		ip, ok := publicAddr(fa.URL)
+		if !ok {
+			// Went private since the check: refuse, never serve open.
+			return []route{{"handler": "static_response", "status_code": 503}}
+		}
+		dial, host = net.JoinHostPort(ip.String(), port), u.Host
+	}
 	rp := route{
 		"handler":   "reverse_proxy",
-		"upstreams": []route{{"dial": net.JoinHostPort(u.Hostname(), port)}},
+		"upstreams": []route{{"dial": dial}},
 		// The rewrite to GET drops the request body; the URI is always set
 		// so the client's own path and query never reach the provider.
 		"rewrite": route{"method": "GET", "uri": path + "?" + u.RawQuery},
 		"headers": route{"request": route{
 			"delete": []string{"X-Original-Url", "X-Original-Method"},
 			"set": route{
-				"Host":               []string{"{http.reverse_proxy.upstream.hostport}"},
+				"Host":               []string{host},
 				"X-Forwarded-Method": []string{"{http.request.method}"},
 				"X-Forwarded-Uri":    []string{"{http.request.uri}"},
 				"X-Forwarded-Host":   []string{"{http.request.host}"},
@@ -104,7 +119,11 @@ func forwardAuth(fa *ForwardAuth) []route {
 		},
 	}
 	if u.Scheme == "https" {
-		rp["transport"] = route{"protocol": "http", "tls": route{}}
+		tls := route{}
+		if pinned {
+			tls["server_name"] = u.Hostname()
+		}
+		rp["transport"] = route{"protocol": "http", "tls": tls}
 	}
 	return []route{rp}
 }

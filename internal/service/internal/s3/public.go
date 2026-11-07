@@ -77,16 +77,24 @@ func Private(endpoint string) bool {
 	return false
 }
 
-// PublicURL reports whether the URL's host resolves, and every address it
-// resolves to is public. A name that does not resolve is not public.
-func PublicURL(rawURL string) bool {
+// PublicAddr is the address a URL's host should be dialled at: its first
+// resolved address in sorted order, when the host resolves and every address
+// it resolves to is public. A name that does not resolve is not public.
+func PublicAddr(rawURL string) (netip.Addr, bool) {
 	aps := resolve(Addr(rawURL))
+	if len(aps) == 0 {
+		return netip.Addr{}, false
+	}
+	first := aps[0].Addr()
 	for _, ap := range aps {
 		if !publicIP(ap.Addr()) {
-			return false
+			return netip.Addr{}, false
+		}
+		if ap.Addr().Less(first) {
+			first = ap.Addr()
 		}
 	}
-	return len(aps) > 0
+	return first, true
 }
 
 var (

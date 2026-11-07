@@ -17,18 +17,21 @@ import (
 // as public, an IP literal as s3 judges it, except loopback (the Caddy tests
 // run a provider on it). The guard tests below put the real check back.
 func TestMain(m *testing.M) {
-	domain.SetPublicURL(func(raw string) bool {
+	domain.SetPublicAddr(func(raw string) (netip.Addr, bool) {
 		u, _ := url.Parse(raw)
 		if ip, err := netip.ParseAddr(u.Hostname()); err == nil {
-			return ip.IsLoopback() || s3.PublicURL(raw)
+			if ip.IsLoopback() {
+				return ip, true
+			}
+			return s3.PublicAddr(raw)
 		}
-		return true
+		return netip.MustParseAddr("93.184.216.34"), true
 	})
 	os.Exit(m.Run())
 }
 
 func TestForwardAuthTargets(t *testing.T) {
-	defer domain.SetPublicURL(s3.PublicURL)()
+	defer domain.SetPublicAddr(s3.PublicAddr)()
 	l, _, web, _ := setup(t)
 	l.WithOrgNames(func(context.Context, string) ([]string, error) { return []string{"stackr-auth-1"}, nil })
 	for _, c := range []struct {
@@ -70,7 +73,7 @@ func TestForwardAuthTargets(t *testing.T) {
 // The build path re-checks: a forward-auth row that got into the store past
 // Attach leaves its tile out of the config, it never serves open.
 func TestForwardAuthBuildRefusesPrivate(t *testing.T) {
-	defer domain.SetPublicURL(s3.PublicURL)()
+	defer domain.SetPublicAddr(s3.PublicAddr)()
 	off := install
 	off.TLSOff = true
 	for _, c := range []struct {

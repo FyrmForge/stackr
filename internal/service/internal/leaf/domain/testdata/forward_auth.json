@@ -249,7 +249,7 @@
                       ],
                       "set": {
                         "Host": [
-                          "{http.reverse_proxy.upstream.hostport}"
+                          "auth.example.com"
                         ],
                         "X-Forwarded-Host": [
                           "{http.request.host}"
@@ -269,11 +269,13 @@
                   },
                   "transport": {
                     "protocol": "http",
-                    "tls": {}
+                    "tls": {
+                      "server_name": "auth.example.com"
+                    }
                   },
                   "upstreams": [
                     {
-                      "dial": "auth.example.com:443"
+                      "dial": "93.184.216.34:443"
                     }
                   ]
                 },

@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net"
@@ -57,7 +58,7 @@ func TestForwardAuthDefaultsAndOrder(t *testing.T) {
 			t.Errorf("default header %s not copied", h)
 		}
 	}
-	if !strings.Contains(s, "auth.io:443") || strings.Index(s, "auth.io:443") < strings.Index(s, "http_basic") {
+	if !strings.Contains(s, "93.184.216.34:443") || strings.Index(s, "93.184.216.34:443") < strings.Index(s, "http_basic") {
 		t.Error("basic auth must come before forward auth")
 	}
 }
@@ -265,5 +266,38 @@ func TestForwardAuthDialsIPv6(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(string(raw), `"[::1]:9091"`) {
 		t.Errorf("no bracketed dial in %s", raw)
+	}
+}
+
+// A public host is dialled at the checked address with the URL's host kept
+// for the Host header (and the TLS server name on https); a same-org tile
+// stays name-based.
+func TestForwardAuthPinsPublicAddr(t *testing.T) {
+	for _, c := range []struct {
+		url, names string
+		want, not  []string
+	}{
+		{"https://auth.io/v", "", []string{`"93.184.216.34:443"`, `"server_name": "auth.io"`, `"auth.io"`}, []string{`auth.io:443`}},
+		{"http://auth.io:9091/v", "", []string{`"93.184.216.34:9091"`, `"auth.io:9091"`}, []string{`server_name`}},
+		{"http://stackr-auth-1:9091/", "stackr-auth-1", []string{`"stackr-auth-1:9091"`, `{http.reverse_proxy.upstream.hostport}`}, []string{`93.184.216.34`}},
+	} {
+		tr := one(row("a.io", domain.Extras{ForwardAuth: &domain.ForwardAuth{URL: c.url}}))
+		if c.names != "" {
+			tr[0].OrgNames = []string{c.names}
+		}
+		raw, err := domain.Build(install, tr, nil, expand)
+		must(t, err)
+		var buf bytes.Buffer
+		must(t, json.Indent(&buf, raw, "", "  "))
+		for _, w := range c.want {
+			if !strings.Contains(buf.String(), w) {
+				t.Errorf("%s: missing %s", c.url, w)
+			}
+		}
+		for _, n := range c.not {
+			if strings.Contains(buf.String(), n) {
+				t.Errorf("%s: unexpected %s", c.url, n)
+			}
+		}
 	}
 }

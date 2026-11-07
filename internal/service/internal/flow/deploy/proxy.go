@@ -3,12 +3,14 @@ package deploy
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -71,10 +73,12 @@ func (f *Flow) tileRoutes(ctx context.Context) ([]domain.TileRoute, error) {
 		r.Domains = byTile[id]
 		for _, d := range r.Domains {
 			if x, err := domain.ExtrasOf(d); err == nil && x.ForwardAuth != nil {
-				if r.OrgNames, err = f.OrgReplicaNames(ctx, id); err != nil {
-					return nil, err
+				// A public host needs no names; a private one that is not an org
+				// tile then fails closed in the build.
+				if _, pub := s3.PublicAddr(x.ForwardAuth.URL); !pub {
+					r.OrgNames = f.OrgReplicaNames(ctx, id)
+					break
 				}
-				break
 			}
 		}
 		routes = append(routes, r)
@@ -140,34 +144,37 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 
 // OrgReplicaNames are the container names (lower case, any state) of every
 // tile in the org of tileID: the private hosts a forward-auth URL may name.
-func (f *Flow) OrgReplicaNames(ctx context.Context, tileID string) ([]string, error) {
+// Best effort: a tile whose replicas cannot be listed is skipped, which only
+// makes a forward-auth URL naming it refuse (fail closed), never open.
+func (f *Flow) OrgReplicaNames(ctx context.Context, tileID string) []string {
 	t, err := f.Tiles.Get(ctx, tileID)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	st, err := f.Stacks.Get(ctx, t.StackID)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	stacks, err := f.Stacks.List(ctx, st.OrgID)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	var out []string
 	for _, s := range stacks {
 		tiles, err := f.Tiles.ListByStack(ctx, s.ID)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		for _, x := range tiles {
 			cs, err := f.Tiles.Replicas(ctx, x)
 			if err != nil {
-				return nil, err
+				slog.Warn("forward auth: list replicas", "tile", x.ID, "err", err)
+				continue
 			}
 			for _, c := range cs {
 				out = append(out, strings.ToLower(c.Name))
 			}
 		}
 	}
-	return out, nil
+	return out
 }

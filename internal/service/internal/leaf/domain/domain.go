@@ -343,10 +343,13 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 		return errs.Invalidf("port", "the domain needs a container port")
 	}
 	var names []string
-	if s.Extras.ForwardAuth != nil && l.orgNames != nil {
-		var err error
-		if names, err = l.orgNames(ctx, d.TileID); err != nil {
-			return err
+	if fa := s.Extras.ForwardAuth; fa != nil && l.orgNames != nil {
+		// A public host needs no names; skip the replica listing.
+		if _, pub := publicAddr(fa.URL); !pub {
+			var err error
+			if names, err = l.orgNames(ctx, d.TileID); err != nil {
+				return err
+			}
 		}
 	}
 	if err := checkExtras(s.Extras, names); err != nil {
@@ -449,11 +452,9 @@ func checkProxyStrings(e Extras, orgNames []string) error {
 		if err := CheckBraces("proxy.forward_auth.url", fa.URL); err != nil {
 			return err
 		}
-		// ponytail: resolved here, resolved again by Caddy at dial time, so a
-		// name that flips to a private address between the two (DNS rebinding)
-		// gets through; the same-org name match is exact. Pin the checked IP
-		// into the dial if rebinding matters.
-		if !slices.Contains(orgNames, strings.ToLower(u.Hostname())) && !publicURL(fa.URL) {
+		// forwardAuth pins the address checked here into the dial, so a name
+		// that flips to a private one afterwards (DNS rebinding) is not followed.
+		if _, pub := publicAddr(fa.URL); !slices.Contains(orgNames, strings.ToLower(u.Hostname())) && !pub {
 			return errs.Invalidf("proxy.forward_auth.url", "must name a public host or a tile of the same org")
 		}
 		for _, n := range fa.CopyHeaders {
@@ -470,7 +471,5 @@ func checkProxyStrings(e Extras, orgNames []string) error {
 	return nil
 }
 
-// publicURL is the public-address check, a var so tests need no DNS.
-
-// publicURL is the public-address check, a var so tests need no DNS.
-var publicURL = s3.PublicURL
+// publicAddr is the public-address check, a var so tests need no DNS.
+var publicAddr = s3.PublicAddr

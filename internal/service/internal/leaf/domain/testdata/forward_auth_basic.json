@@ -148,7 +148,7 @@
                       ],
                       "set": {
                         "Host": [
-                          "{http.reverse_proxy.upstream.hostport}"
+                          "authelia:9091"
                         ],
                         "X-Forwarded-Host": [
                           "{http.request.host}"
@@ -168,7 +168,7 @@
                   },
                   "upstreams": [
                     {
-                      "dial": "authelia:9091"
+                      "dial": "93.184.216.34:9091"
                     }
                   ]
                 },
