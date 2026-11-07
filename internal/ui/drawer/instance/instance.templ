@@ -188,6 +188,21 @@ type PITRBase struct {
 	Error  string
 }
 
+const localLayout = "2006-01-02T15:04:05"
+
+// localMin and localMax are the restorable range as datetime-local bounds, in
+// UTC, whole seconds inside the range. A zero To (not yet known) = no max.
+func localMin(t time.Time) string {
+	return t.UTC().Add(time.Second - 1).Truncate(time.Second).Format(localLayout)
+}
+
+func localMax(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Truncate(time.Second).Format(localLayout)
+}
+
 // pitr is the point-in-time panel at the top of the Backups tab: the health
 // lines when on, the switch when off. Turning it on or off restarts the
 // database, and says so.
@@ -211,8 +226,7 @@ templ pitr(v View, p PITRView) {
 			<p class="text-sm text-rw-muted">Point-in-time restore is off.</p>
 			if p.Edit {
 				<form hx-post={ v.Base + "/pitr" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
-					<input type="hidden" name="days" value="7"/>
-					<p class="text-xs text-rw-faint">Keeps the last 7 days. Restarts the database once, a few seconds.</p>
+					@c.Field(c.FieldView{Name: "days", Label: "Days to keep", Type: "number", Value: "7", Min: "1", Max: "365", Help: "Restarts the database once, a few seconds."})
 					<button type="submit" class="btn btn-primary btn-sm">Turn on</button>
 				</form>
 			}
@@ -253,10 +267,19 @@ templ pitr(v View, p PITRView) {
 			if p.Local {
 				<p class="text-xs text-rw-faint">The archive is on this server's disk: it covers a bad migration, not a lost server.</p>
 			}
+			if p.Edit {
+				<form novalidate hx-post={ v.Base + "/pitr" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
+					@c.Field(c.FieldView{Name: "days", Label: "Days to keep", Type: "number", Value: strconv.Itoa(p.Days), Min: "1", Max: "365", Help: "Keeps " + strconv.Itoa(p.Days) + " days. Changing it restarts the database once."})
+					<button type="submit" class="btn btn-sm">Save</button>
+				</form>
+			}
 			if p.Edit && !p.From.IsZero() {
 				<form novalidate hx-post={ v.Base + "/restore" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
-					@c.Field(c.FieldView{Name: "at", Label: "Restore to a time", Placeholder: "2026-11-07T10:42:00Z", Help: "RFC3339 with an offset, or latest. Makes a new instance; this one is not touched."})
-					<button type="submit" class="btn btn-sm">Restore</button>
+					@c.Field(c.FieldView{Name: "time", Label: "Time (UTC)", Type: "datetime-local", Step: "1", Min: localMin(p.From), Max: localMax(p.To), Help: "Makes a new instance; this one is not touched."})
+					<div class="flex gap-2">
+						<button type="submit" class="btn btn-sm">Restore</button>
+						<button type="submit" name="at" value="latest" class="btn btn-sm">Latest</button>
+					</div>
 				</form>
 			}
 			if p.Edit {

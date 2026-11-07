@@ -325,7 +325,7 @@ func TestSliceBranchRow(t *testing.T) {
 	}
 	s.Bound(t, main.ID, pg.ID, s.Tile.ID, "read")
 	body := s.Do(t, "GET", "/acme/shop/dev/-/slices/main?tab=settings", nil).Body.String()
-	for _, w := range []string{`data-acc="branch"`, `hx-post="/acme/shop/dev/-/slices/main/branch"`, `name="expires"`} {
+	for _, w := range []string{`data-acc="branch"`, `hx-post="/acme/shop/dev/-/slices/main/branch"`, `name="expires"`, `type="datetime-local"`, "As of (UTC)"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("slice settings lack %q", w)
 		}

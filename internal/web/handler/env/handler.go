@@ -341,10 +341,27 @@ func (h *handler) PITR(c echo.Context) error {
 	return h.instance(c, "backups", note, err, instance.SettingsView{})
 }
 
+// atUTC turns a datetime-local value (UTC, with or without seconds) into
+// RFC3339 for the service. Anything else, RFC3339 or latest, passes through
+// for the service to judge.
+func atUTC(s string) string {
+	s = strings.TrimSpace(s)
+	for _, l := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04"} {
+		if t, err := time.ParseInLocation(l, s, time.UTC); err == nil {
+			return t.Format(time.RFC3339)
+		}
+	}
+	return s
+}
+
 // POST …/-/instances/:tile/restore: at, a time or latest. A new instance next
 // to this one, which is not touched.
 func (h *handler) InstanceRestore(c echo.Context) error {
-	cand, _, err := h.orch.RestoreInstance(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("at")))
+	at := c.FormValue("at") // the Latest button
+	if strings.TrimSpace(at) == "" {
+		at = c.FormValue("time")
+	}
+	cand, _, err := h.orch.RestoreInstance(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, atUTC(at))
 	return h.instance(c, "backups", "restoring into "+cand.Slug, err, instance.SettingsView{})
 }
 
@@ -630,7 +647,7 @@ func (h *handler) SliceBranch(c echo.Context) error {
 		Env:      strings.TrimSpace(c.FormValue("env")),
 		Instance: strings.TrimSpace(c.FormValue("instance")),
 		Expires:  strings.TrimSpace(c.FormValue("expires")),
-		At:       strings.TrimSpace(c.FormValue("at")),
+		At:       atUTC(c.FormValue("at")),
 	})
 	return h.slice(c, "Branch "+br.Slug+" is filling in.", err)
 }

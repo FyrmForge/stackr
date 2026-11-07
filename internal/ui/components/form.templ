@@ -17,6 +17,7 @@ type FieldView struct {
 	Error       string
 	ValidateURL string // hx-post target for blur validation; "" = none
 	Autocomplete string // autocomplete token (username, current-password, new-password, name); "" = none
+	Min, Max, Step string // number and date inputs; "" = none
 	Required    bool
 	Disabled    bool
 	Why         string
@@ -78,6 +79,15 @@ templ fieldInput(f FieldView) {
 		class={ "input", templ.KV("pr-14", f.Type == "password") }
 		required?={ f.Required }
 		disabled?={ f.Disabled }
+		if f.Min != "" {
+			min={ f.Min }
+		}
+		if f.Max != "" {
+			max={ f.Max }
+		}
+		if f.Step != "" {
+			step={ f.Step }
+		}
 		{ Invalid(f.Name, KeptErr(ctx, f.Name, f.Error))... }
 		if f.Autocomplete != "" {
 			autocomplete={ f.Autocomplete }

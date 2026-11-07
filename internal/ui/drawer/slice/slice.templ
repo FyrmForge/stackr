@@ -238,7 +238,7 @@ templ branchRow(v View) {
 		@c.Field(c.FieldView{Name: "env", Label: "Env", Placeholder: "same env", Help: "An env of this stack, or stack:env."})
 		@c.Field(c.FieldView{Name: "instance", Label: "Instance", Placeholder: "same instance", Help: "stack:env:tile of another postgres."})
 		@c.Field(c.FieldView{Name: "expires", Label: "Expires", Placeholder: "never", Help: "For example 3d or 36h."})
-		@c.Field(c.FieldView{Name: "at", Label: "As of", Placeholder: "now", Help: "A past time, RFC3339 with an offset, or latest. Needs point-in-time restore."})
+		@c.Field(c.FieldView{Name: "at", Label: "As of (UTC)", Type: "datetime-local", Step: "1", Help: "A past time; empty is now. Needs point-in-time restore."})
 		<button type="submit" class="btn btn-primary btn-sm">Branch</button>
 	</form>
 }

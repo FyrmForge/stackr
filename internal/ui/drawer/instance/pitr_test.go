@@ -20,7 +20,7 @@ func renderPITR(t *testing.T, p PITRView) string {
 // viewers get the statement alone.
 func TestPITROff(t *testing.T) {
 	got := renderPITR(t, PITRView{Edit: true})
-	for _, want := range []string{"Point-in-time restore is off.", `hx-post="/o/s/e/-/instances/pg/pitr"`, `name="days" value="7"`, "Restarts the database once"} {
+	for _, want := range []string{"Point-in-time restore is off.", `hx-post="/o/s/e/-/instances/pg/pitr"`, `name="days"`, `value="7"`, `min="1"`, `max="365"`, "Days to keep", "Restarts the database once"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
 		}

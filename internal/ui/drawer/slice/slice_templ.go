@@ -820,7 +820,7 @@ func branchRow(v View) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = c.Field(c.FieldView{Name: "at", Label: "As of", Placeholder: "now", Help: "A past time, RFC3339 with an offset, or latest. Needs point-in-time restore."}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Field(c.FieldView{Name: "at", Label: "As of (UTC)", Type: "datetime-local", Step: "1", Help: "A past time; empty is now. Needs point-in-time restore."}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
