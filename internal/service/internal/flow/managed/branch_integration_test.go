@@ -86,8 +86,8 @@ func TestBranchAgainstPostgres(t *testing.T) {
 		t.Errorf("branch owner:row = %q, want %q", got, want)
 	}
 
-	// over TCP the password counts: the owner reaches its own database, the
-	// branch's cred does not reach the source's
+	// over TCP: the owner reaches its own database, the branch's cred cannot reach
+	// the source's (CONNECT is revoked from PUBLIC)
 	conn := func(s Slice, db string) error {
 		_, err := run([]string{"env", "PGPASSWORD=" + s.Password, "psql", "-h", "127.0.0.1",
 			"-U", s.User, "-d", db, "-tA", "-c", "SELECT 1"}, nil)

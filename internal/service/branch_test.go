@@ -264,6 +264,59 @@ func TestSweepExpired(t *testing.T) {
 	}
 }
 
+// An expired branch that was loaded goes through the normal delete: its own
+// database is dropped, the source's is left alone.
+func TestSweepDropsOnlyTheBranchDatabase(t *testing.T) {
+	t.Parallel()
+	r := newBranchRig(t)
+	ctx := context.Background()
+	o := r.orch
+	r.fake.ExecOut = "PGDMP-source-bytes"
+	br, j, err := o.BranchSlice(ctx, roleP(r.org, "member"), r.db.ID, BranchIn{Expires: "1h"})
+	must(t, err)
+	if got := r.wait(t, j.ID); got.State != "done" {
+		t.Fatalf("seed job = %s: %s", got.State, got.Error)
+	}
+	p, ok, err := o.managed.ProvisionOf(ctx, br.ID)
+	if err != nil || !ok || p.DBName == "shop_dev_db" {
+		t.Fatalf("branch provision = %+v, %v, %v", p, ok, err)
+	}
+	// the instance's volume is where the backup before a drop looks
+	must(t, r.st.Volumes.Create(ctx, store.Volume{
+		ID: uuid.NewString(), ScopeKind: "env", ScopeID: r.env, Slug: "pg-data", Name: "pg-data", InstanceID: &r.inst.ID, CreatedAt: time.Now(),
+	}))
+	past := time.Now().Add(-time.Minute)
+	br.ExpiresAt = &past
+	must(t, r.st.Tiles.Update(ctx, br))
+
+	o.sweepExpired(ctx)
+	for range 500 {
+		if _, err := r.st.Tiles.Get(ctx, br.ID); err != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := r.st.Tiles.Get(ctx, br.ID); err == nil {
+		js, _ := o.TileJobs(ctx, []string{br.ID}, 3)
+		t.Fatalf("the expired branch is still there; jobs: %+v", js)
+	}
+	var dropped, source bool
+	for _, c := range r.fake.Calls() {
+		args := strings.Join(c.Args, " ")
+		if c.Method != "Exec" || !strings.Contains(args, "DROP DATABASE") {
+			continue
+		}
+		dropped = dropped || strings.Contains(args, `DROP DATABASE IF EXISTS "`+p.DBName+`"`)
+		source = source || strings.Contains(args, `DROP DATABASE IF EXISTS "shop_dev_db"`)
+	}
+	if !dropped || source {
+		t.Errorf("branch database dropped = %v, source database dropped = %v", dropped, source)
+	}
+	if _, err := r.st.Tiles.Get(ctx, r.db.ID); err != nil {
+		t.Errorf("the source slice is gone: %v", err)
+	}
+}
+
 func TestSliceCreds(t *testing.T) {
 	t.Parallel()
 	r := newBranchRig(t)

@@ -106,16 +106,6 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 		OnRemove:      &drop,
 		ExpiresAt:     expires,
 	}
-	inst, err := o.deploy.Target(ctx, row)
-	if err != nil {
-		return Tile{}, Job{}, err
-	}
-	if m, err := o.managed.GetByTile(ctx, inst.ID); err != nil || m.Engine != "postgres" {
-		return Tile{}, Job{}, errs.Invalidf("instance", "%s is not a postgres instance", inst.Slug)
-	}
-	if err := o.gateTile(ctx, inst.ID, true); err != nil {
-		return Tile{}, Job{}, err
-	}
 	base := branchSuffix.ReplaceAllString(src.Slug, "")
 	for { // a taken suffix draws again
 		row.Name = base + "-br-" + randomSuffix(4)
@@ -126,6 +116,17 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 		if err != nil {
 			return Tile{}, Job{}, err
 		}
+	}
+	// after the slug: the allow list can name the consumer tile
+	inst, err := o.deploy.Target(ctx, row)
+	if err != nil {
+		return Tile{}, Job{}, err
+	}
+	if m, err := o.managed.GetByTile(ctx, inst.ID); err != nil || m.Engine != "postgres" {
+		return Tile{}, Job{}, errs.Invalidf("instance", "%s is not a postgres instance", inst.Slug)
+	}
+	if err := o.gateTile(ctx, inst.ID, true); err != nil {
+		return Tile{}, Job{}, err
 	}
 	br, err := o.tiles.Create(ctx, row)
 	if err != nil {

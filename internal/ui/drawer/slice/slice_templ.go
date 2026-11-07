@@ -774,7 +774,7 @@ func branchRow(v View) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<p class=\"text-xs text-rw-faint\" data-hint>A copy of the data now, in a new slice tile with its own login. Nothing is bound to it.</p><form novalidate hx-post=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<p class=\"text-xs text-rw-faint\" data-hint>A copy of the data as of now, with its own login.</p><form novalidate hx-post=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
