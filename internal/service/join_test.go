@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -41,9 +42,17 @@ func csrPEM(t *testing.T) string {
 
 func joinReq(t *testing.T, token string) JoinRequest {
 	return JoinRequest{
-		Token: token, CSR: csrPEM(t), WGPublicKey: wgKey,
+		Token: token, CSR: csrPEM(t), WGPublicKey: newWGKey(t),
 		Facts: json.RawMessage(`{"interfaces":[{"name":"eth0","prefixes":["192.168.50.5/24"]}]}`),
 	}
+}
+
+// newWGKey is a fresh WireGuard public key: no two nodes may share one.
+func newWGKey(t *testing.T) string {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	must(t, err)
+	return base64.StdEncoding.EncodeToString(b)
 }
 
 var httpsMeta = JoinMeta{IP: "203.0.113.9", UserAgent: "stackrd-test", HTTPS: true}

@@ -33,7 +33,7 @@ func (l *Leaf) CreatePending(ctx context.Context, name string, tags []string, wg
 	}
 	if err := l.nodes.Create(ctx, n); err != nil {
 		if _, ok := errs.IsConflict(err); ok {
-			return n, errs.Conflictf("A node named %q already exists.", name)
+			return n, errs.Conflictf("A node named %q, or one with this WireGuard key, already exists.", name)
 		}
 		return n, err
 	}
