@@ -14,6 +14,18 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
+// bases is ss's base schedules: a dump schedule can land beside them at any
+// moment (the backup watch adds one to an unscheduled volume).
+func bases(ss []BackupSchedule) []BackupSchedule {
+	var out []BackupSchedule
+	for _, s := range ss {
+		if s.Method == "base" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func methodsOf(ss []BackupSchedule) []string {
 	var out []string
 	for _, s := range ss {
@@ -87,7 +99,7 @@ func TestSetPITROnAndOff(t *testing.T) {
 	}
 	data, err := w.orch.dataVolume(ctx, pg)
 	must(t, err)
-	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(ss) != 0 {
+	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(bases(ss)) != 0 {
 		t.Fatalf("schedules before = %v", methodsOf(ss))
 	}
 	if _, _, err := w.orch.SetPITR(ctx, pg.ID, -1); err == nil {
@@ -96,13 +108,14 @@ func TestSetPITROnAndOff(t *testing.T) {
 	m, _, err := w.orch.SetPITR(ctx, pg.ID, 3)
 	must(t, err)
 	ss, _ := w.orch.BackupSchedules(ctx, data.ID)
+	ss = bases(ss)
 	if m.PITRDays != 3 || len(ss) != 1 || ss[0].Method != "base" || ss[0].Cron != "@weekly" || ss[0].Keep != 0 {
 		t.Fatalf("on: %d days, schedules %+v", m.PITRDays, ss)
 	}
 	if _, _, err := w.orch.SetPITR(ctx, pg.ID, 7); err != nil {
 		t.Fatal(err)
 	}
-	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(ss) != 1 {
+	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(bases(ss)) != 1 {
 		t.Errorf("a second schedule: %v", methodsOf(ss))
 	}
 	w.orch.savePITRState(ctx, m.ID, pitrState{Since: time.Now()})
@@ -112,7 +125,7 @@ func TestSetPITROnAndOff(t *testing.T) {
 		t.Errorf("off: %d days", m.PITRDays)
 	}
 	w.orch.pitrTick(ctx) // no container runs: nothing archives any more, the bookkeeping goes
-	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(ss) != 0 {
+	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(bases(ss)) != 0 {
 		t.Errorf("off: schedules %v", methodsOf(ss))
 	}
 	if _, ok := w.orch.pitrState(ctx, m.ID); ok {
