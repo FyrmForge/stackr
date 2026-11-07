@@ -338,6 +338,13 @@ copy { print; if ($0 == "\\.") copy = 0; next }
 /^\\(un)?restrict / { next }
 { print }`
 
+// SliceDump is pg_dump -Fc of slice s's database, as the instance's admin
+// over the container's own socket (trusted there): no password in argv. It
+// runs in the instance's container and its output is what Seed loads.
+func (pg) SliceDump(i Instance, s Slice) []string {
+	return []string{"pg_dump", "-Fc", "--no-owner", "--no-privileges", "-U", i.AdminUser, "-d", s.Name}
+}
+
 // Seed loads a pg_dump into slice s as its owner, so the slice's own cred
 // and every bound one reach what it makes: no owners and no grants from
 // the source, one transaction, the first error stops it. Notices stay out

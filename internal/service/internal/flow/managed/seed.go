@@ -43,12 +43,49 @@ type seeder interface {
 	Seed(format string, i Instance, s Slice) []string
 }
 
+// sliceDumper is an engine that dumps one slice as DumpCustom.
+type sliceDumper interface {
+	SliceDump(i Instance, s Slice) []string
+}
+
+// DumpSlice streams slice tile s's database as a DumpCustom dump, run in
+// the container of the instance it lives on. The caller reads the stream to
+// its end and calls wait, which reports the dump's exit (a failed dump
+// carries the tail of pg_dump's stderr). Nothing touches disk.
+func (f *Flow) DumpSlice(ctx context.Context, s store.Tile) (io.Reader, func() error, error) {
+	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return nil, nil, errs.Conflictf("slice %s is not provisioned", s.Slug)
+	}
+	m, it, e, err := f.of(ctx, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	d, ok := e.(sliceDumper)
+	if !ok {
+		return nil, nil, errs.Invalidf("engine", "%s slices cannot be branched; only postgres", m.Engine)
+	}
+	out, wait, err := f.Tiles.Stream(ctx, it, d.SliceDump(f.facts(ctx, it, m, e.Definition()), slice(p)), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, func() error {
+		err := wait()
+		if x, ok := docker.IsExit(err); ok {
+			return fmt.Errorf("dumping %s on %s failed: %s", p.DBName, it.Slug, stderrTail(x))
+		}
+		return err
+	}, nil
+}
+
 // Seed loads dump (DumpCustom | DumpPlain) into slice tile s's database
 // as the slice's owner, in one transaction: a failed load keeps nothing,
 // and the error carries the tail of the tool's stderr. The slice must be
 // provisioned (its deploy ran).
-// The dump is any reader: an upload today, a backup run or another tile's
-// dump later.
+// The dump is any reader: an upload, or another slice's DumpSlice stream.
 func (f *Flow) Seed(ctx context.Context, s store.Tile, format string, dump io.Reader, log io.Writer) error {
 	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
 	if err != nil {

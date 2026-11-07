@@ -50,3 +50,45 @@ func TestSeedLoadsIntoTheSlice(t *testing.T) {
 		t.Errorf("failed load = %v, want the stderr tail", err)
 	}
 }
+
+// A slice is dumped in its instance's container as the admin, without a
+// password in argv, and the stream is what Seed loads; a failed dump says
+// why.
+func TestDumpSliceStreamsFromTheInstance(t *testing.T) {
+	w := setup(t, "postgres")
+	if _, _, err := w.f.DumpSlice(ctx, w.orders); err == nil {
+		t.Error("dump of an unprovisioned slice passed")
+	}
+	p, err := w.f.Provision(ctx, w.db, w.orders)
+	must(t, err)
+
+	w.fake.ExecOut = "PGDMP-bytes"
+	out, wait, err := w.f.DumpSlice(ctx, w.orders)
+	must(t, err)
+	got, err := io.ReadAll(out)
+	must(t, err)
+	must(t, wait())
+	if string(got) != "PGDMP-bytes" {
+		t.Errorf("stream = %q", got)
+	}
+	var argv []string
+	for _, c := range w.fake.Calls() {
+		if c.Method == "ExecStream" {
+			argv = c.Args
+		}
+	}
+	if len(argv) == 0 || argv[0] != "c1" || !slices.Contains(argv, "pg_dump") || !slices.Contains(argv, "-Fc") {
+		t.Fatalf("exec = %q, want pg_dump -Fc in c1", argv)
+	}
+	if i := slices.Index(argv, "-d"); i < 0 || argv[i+1] != p.DBName {
+		t.Errorf("exec = %q, want the slice's database %s", argv, p.DBName)
+	}
+	if strings.Contains(strings.Join(argv, " "), "PGPASSWORD") || strings.Contains(strings.Join(argv, " "), p.DBPassword) {
+		t.Errorf("exec = %q carries a password", argv)
+	}
+
+	w.fake.Err = map[string]error{"ExecStream": docker.ExitError{Code: 1, Stderr: "pg_dump: error: connection failed"}}
+	if _, _, err := w.f.DumpSlice(ctx, w.orders); err == nil || !strings.Contains(err.Error(), "connection failed") {
+		t.Errorf("failed dump = %v, want pg_dump's stderr", err)
+	}
+}

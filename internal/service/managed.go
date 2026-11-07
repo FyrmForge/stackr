@@ -451,6 +451,7 @@ type SliceView struct {
 	DefaultAccess string `json:"default_access"`
 	OnRemove      string `json:"on_remove"`
 	Provisioned   bool   `json:"provisioned"`
+	Engine        string `json:"engine"`  // the instance's, once provisioned
 	Name          string `json:"name"`    // the database or bucket, once provisioned
 	Network       string `json:"network"` // the instance's network
 }
@@ -478,6 +479,9 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 		v.Provisioned = true
 		v.Name = p.DBName
 		v.Network = managed.Network(p.InstanceID)
+		if m, err := o.managed.Get(ctx, p.InstanceID); err == nil {
+			v.Engine = m.Engine
+		}
 	}
 	it, err := o.deploy.Target(ctx, s)
 	if blocks(err) {
