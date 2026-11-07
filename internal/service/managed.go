@@ -9,6 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -44,6 +45,12 @@ func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice 
 		return Tile{}, Tile{}, errs.Conflictf("stack %s is config-managed; declare the slice tile in its stack file", st.Slug)
 	}
 	t.Kind, t.StackID = tile.Managed, st.ID
+	days := 0
+	if mflow.Engines[engine].Definition().ArchiveDir != "" {
+		if _, ok := o.visibleOffBox(ctx, st.OrgID); ok {
+			days = DefaultPITRDays // the daily dump's rule: only with a copy off this box
+		}
+	}
 	var out, sl Tile
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		tl := tile.New(tx.Tiles, o.docker, nil)
@@ -51,8 +58,15 @@ func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice 
 		if out, err = tl.Create(ctx, t); err != nil {
 			return err
 		}
-		if _, err = managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings).Create(ctx, out.ID, engine, "stackr", ""); err != nil {
+		ml := managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings)
+		m, err := ml.Create(ctx, out.ID, engine, "stackr", "")
+		if err != nil {
 			return err
+		}
+		if days > 0 {
+			if _, err = ml.SetPITR(ctx, m, days); err != nil {
+				return err
+			}
 		}
 		if slice == "" {
 			return nil

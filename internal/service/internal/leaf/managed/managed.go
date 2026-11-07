@@ -99,6 +99,11 @@ func (l *Leaf) SetEndpoint(
 	return m, l.instances.Update(ctx, m)
 }
 
+// WithPITR are the instances that archive for point-in-time recovery.
+func (l *Leaf) WithPITR(ctx context.Context) ([]store.ManagedInstance, error) {
+	return l.instances.ListPITR(ctx)
+}
+
 // SetPITR stores the instance's point-in-time recovery window; the caller
 // redeploys the instance for archiving to follow.
 func (l *Leaf) SetPITR(ctx context.Context, m store.ManagedInstance, days int) (store.ManagedInstance, error) {
