@@ -7,6 +7,7 @@
 #                   (ghcr.io/fyrmforge/stackr:<tag w/o v> and stackr-observe)
 #                   must already be loaded; `make release RELEASE=<new-tag>`.
 #   <released-tag>  the release to install first (default: the latest GitHub release).
+#                   Equal to <new-tag> (with SMOKE_INSTALLER): install it fresh, skip step 3.
 #   SMOKE_INSTALLER an installer binary to use instead of downloading it.
 #
 # 1. install the released version over plain HTTP, 2. deploy nginx and reach it
@@ -153,16 +154,18 @@ done
 [[ "$s" == done ]] || { job_log "$JOB"; die "deploy job ended '$s'"; }
 check "nginx answers on http://$APPHOST/ through the proxy" wait_app
 
-# ---- 3. upgrade through the panel's own path
-JOB="$(start_upgrade "$NEW")" || die "POST /admin/upgrade $NEW was refused"
-[[ -n "$JOB" && "$JOB" != null ]] || die "the upgrade returned no job"
-s="$(wait_job "$JOB" 420)"
-[[ "$s" == done ]] || job_log "$JOB"
-check "upgrade job to $NEW finished 'done' (got '$s')" test "$s" = done
-check "panel healthy after the upgrade" wait_healthy 60
-check "panel reports $NEW" test "$(version)" = "$NEW"
-check "stackr-proxy runs $IMG:${NEW#v}" test "$(proxy_image)" = "$IMG:${NEW#v}"
-check "nginx still answers" wait_app
+# ---- 3. upgrade through the panel's own path (skipped when $NEW was installed fresh)
+if [[ "$OLD" != "$NEW" ]]; then
+	JOB="$(start_upgrade "$NEW")" || die "POST /admin/upgrade $NEW was refused"
+	[[ -n "$JOB" && "$JOB" != null ]] || die "the upgrade returned no job"
+	s="$(wait_job "$JOB" 420)"
+	[[ "$s" == done ]] || job_log "$JOB"
+	check "upgrade job to $NEW finished 'done' (got '$s')" test "$s" = done
+	check "panel healthy after the upgrade" wait_healthy 60
+	check "panel reports $NEW" test "$(version)" = "$NEW"
+	check "stackr-proxy runs $IMG:${NEW#v}" test "$(proxy_image)" = "$IMG:${NEW#v}"
+	check "nginx still answers" wait_app
+fi
 
 # ---- 4. a build whose panel never gets healthy must roll back
 mkdir "$T/broken"
