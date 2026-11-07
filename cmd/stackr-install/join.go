@@ -58,6 +58,18 @@ type joinCall struct {
 	say    func(...any)
 }
 
+// joinPin is pinFor, except an installer with no digest of its own takes the
+// one the panel named for ver (the panel serves its own build's installer).
+func joinPin(ver, own, embedded, given string) (string, error) {
+	if embedded == "" && given != "" {
+		if !installspec.ValidDigest(given) {
+			return "", fmt.Errorf("--digest %q is malformed", given)
+		}
+		return given, nil
+	}
+	return pinFor(ver, own, embedded)
+}
+
 // fingerprint is the SHA-256 of a CA cert, hex, as the panel prints it.
 func fingerprint(pemBytes []byte) (string, error) {
 	c, err := clusterca.ParseCertPEM(pemBytes)
@@ -208,6 +220,7 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	caSHA := fs.String("ca-sha256", "", "SHA-256 of the cluster CA cert, as the panel printed (required)")
 	stateDir := fs.String("state-dir", "/var/lib/stackr-worker", "where the worker keeps its certs and state")
 	release := fs.String("version", "", "release to install (default: this installer's own)")
+	pin := fs.String("digest", "", "image digest of --version, from the panel; used only when this installer carries none")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	wgPort := fs.Int("wg-port", mesh.DefaultPort, "UDP port of this node's mesh WireGuard")
 	yes := fs.Bool("yes", false, "install Docker with Docker's install script without asking, when it is missing")
@@ -275,7 +288,9 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.mkdir(*stateDir, 0o700); err != nil {
 		return err
 	}
-	dg, err := pinFor(ver, version, digest)
+	// The installer the panel serves is built inside the panel image, so it
+	// cannot carry that image's digest: the panel passes it on the command.
+	dg, err := joinPin(ver, version, digest, *pin)
 	if err != nil {
 		return err
 	}

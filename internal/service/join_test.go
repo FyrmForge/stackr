@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/jointoken"
 )
 
@@ -383,5 +385,28 @@ func TestJoinCommandCarriesVersion(t *testing.T) {
 	must(t, err)
 	if s, err := w.orch.JoinStatus(ctx, out.Token); err != nil || s.NodeName != "named" {
 		t.Errorf("confirmed status node name = %q, %v", s.NodeName, err)
+	}
+}
+
+// A joining worker is told the panel's own image digest, since the installer
+// the panel serves cannot embed it; a panel with no digest of its own says
+// nothing, and a dev build names no release at all.
+func TestJoinCommandCarriesDigest(t *testing.T) {
+	w, adm, _ := joinWorld(t)
+	const dg = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const img = "ghcr.io/fyrmforge/stackr:0.6.0"
+	w.fake.Containers = append(w.fake.Containers, docker.Container{
+		ID: "p", Image: img, State: "running", Labels: map[string]string{installspec.LabelRole: "panel"}})
+	w.orch.cfg.Version = "v0.6.0"
+	if out := mint(t, w, adm, "nodig"); strings.Contains(out.Command, "--digest") {
+		t.Errorf("no digest known, command %q", out.Command)
+	}
+	w.fake.Digests = map[string]string{img: dg}
+	if out := mint(t, w, adm, "dig"); !strings.HasSuffix(out.Command, " --version 0.6.0 --digest "+dg) {
+		t.Errorf("command %q", out.Command)
+	}
+	w.orch.cfg.Version = "dev"
+	if out := mint(t, w, adm, "dev"); strings.Contains(out.Command, "--digest") {
+		t.Errorf("dev build, command %q", out.Command)
 	}
 }

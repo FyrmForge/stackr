@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/jointoken"
@@ -206,6 +207,7 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name, addres
 	if err != nil {
 		return JoinTokenOut{}, err
 	}
+	dg := o.panelDigest(ctx)
 	tags := slices.Compact(slices.Sorted(slices.Values(tagList)))
 	var out JoinTokenOut
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
@@ -216,7 +218,7 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name, addres
 		fp := caFingerprint(ca)
 		out = JoinTokenOut{
 			Token: token, NodeName: name, NodeAddress: address, Tags: tags, ExpiresAt: row.ExpiresAt, Fingerprint: fp,
-			Command: "stackr-install " + shLine(o.joinArgs(token, fp)),
+			Command: "stackr-install " + shLine(o.joinArgs(token, fp, dg)),
 		}
 		if o.publicCert() {
 			out.OneLine = "curl -fsSL " + shWord(o.panelURL()+"/join/"+token) + " | sh"
@@ -234,13 +236,41 @@ func (o *Orchestrator) mintJoin(ctx context.Context, by *Principal, name, addres
 
 // joinArgs are the installer's join arguments. --version pins the worker to
 // the panel's build, so an installer older than the panel still installs the
-// panel's version; a plain dev build has no release to name.
-func (o *Orchestrator) joinArgs(token, fp string) []string {
+// panel's version; a plain dev build has no release to name. --digest is the
+// panel's own image digest: the installer the panel serves is built into that
+// image and cannot carry it, so a worker would otherwise pull by tag.
+func (o *Orchestrator) joinArgs(token, fp, dg string) []string {
 	args := []string{"join", "--panel", o.panelURL(), "--token", token, "--ca-sha256", fp}
 	if v := o.releaseVersion(); v != "" {
 		args = append(args, "--version", v)
+		if dg != "" {
+			args = append(args, "--digest", dg)
+		}
 	}
 	return args
+}
+
+// panelDigest is the registry digest of this panel's running image, "" when
+// it has none (a hand-loaded or dev image) or cannot be read.
+func (o *Orchestrator) panelDigest(ctx context.Context) string {
+	ctx, err := o.withController(ctx) // the panel runs on the controller
+	if err != nil {
+		return ""
+	}
+	ps, err := o.docker.List(ctx, map[string]string{installspec.LabelRole: "panel"})
+	if err != nil {
+		return ""
+	}
+	for _, c := range ps {
+		if c.State != "running" {
+			continue
+		}
+		if dg, err := o.docker.LocalDigest(ctx, c.Image); err == nil && installspec.ValidDigest(dg) {
+			return dg
+		}
+		return ""
+	}
+	return ""
 }
 
 // releaseVersion is the panel's release without the v; "" for a dev build.
@@ -569,7 +599,7 @@ func (o *Orchestrator) JoinScript(ctx context.Context, meta JoinMeta, token stri
 	if err != nil {
 		return "", err
 	}
-	args := o.joinArgs(token, caFingerprint(ca))
+	args := o.joinArgs(token, caFingerprint(ca), o.panelDigest(ctx))
 	for i := range args {
 		args[i] = shQuote(args[i])
 	}

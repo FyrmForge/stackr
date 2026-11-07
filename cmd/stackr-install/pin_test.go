@@ -49,3 +49,20 @@ func TestHasDigest(t *testing.T) {
 		}
 	}
 }
+
+// An installer served by the panel has no digest of its own and takes the
+// panel's; one that has its own ignores the flag.
+func TestJoinPin(t *testing.T) {
+	other := "sha256:" + strings.Repeat("b", 64)
+	for _, c := range []struct{ name, embedded, given, want, err string }{
+		{"served by the panel", "", pinDigest, pinDigest, ""},
+		{"embedded wins", pinDigest, other, pinDigest, ""},
+		{"malformed flag", "", "sha256:zz", "", "malformed"},
+		{"dev, no flag", "", "", "", ""},
+	} {
+		got, err := joinPin("0.9.1", "v0.9.1", c.embedded, c.given)
+		if got != c.want || (err == nil) != (c.err == "") || (err != nil && !strings.Contains(err.Error(), c.err)) {
+			t.Errorf("%s: %q %v", c.name, got, err)
+		}
+	}
+}
