@@ -185,8 +185,9 @@ func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []strin
 // ShipHistory ships the timeline history files in s.Dir (a restored cluster's
 // pg_wal) and leaves them there: the cluster needs them itself. A promoted
 // restore calls it so the archive can follow the new timeline; the restored
-// copy never archived, so nothing else would. Same names, same keys:
-// shipping twice is a re-put.
+// copy never archived, so nothing else would. It refuses when the archive
+// already holds the copy's timeline: another copy of the same source was
+// promoted first, and shipping would overwrite its history.
 func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
 	out, err := f.run(ctx, s.Engine, []string{"ls", "-1", s.Dir})
 	if err != nil {
@@ -202,12 +203,45 @@ func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
 	if len(hist) == 0 {
 		return nil
 	}
+	// A restored copy picks its new timeline from the histories it saw at
+	// restore time, so two copies of one source end on the same number. The
+	// archive holding that history already means another one was promoted.
+	tl := historyTimeline(hist[len(hist)-1])
+	keys, err := open(s.Dest).List(ctx, s.Root+"/"+bk.WALDir+"/")
+	if err != nil {
+		return fmt.Errorf("list the archive: %w", err)
+	}
+	for _, k := range keys {
+		if n, ok := bundleHistoryTimeline(k); ok && n >= tl {
+			return errs.Conflictf("the archive already holds timeline %d (another restored copy was promoted); restore again from the current state", n)
+		}
+	}
 	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
 	if _, err := f.shipBundle(ctx, s, key, hist, false); err != nil {
 		return err
 	}
 	logf(log, "shipped the timeline history (%s) as %s\n", strings.Join(hist, ", "), key)
 	return nil
+}
+
+// historyTimeline is the timeline a 00000002.history name stands for.
+func historyTimeline(file string) int {
+	n, _ := strconv.ParseUint(strings.TrimSuffix(file, ".history"), 16, 32)
+	return int(n)
+}
+
+// bundleHistoryTimeline is the newest timeline a history bundle key holds
+// (<first>.history-<last>.history<ext>); ok is false for any other key.
+func bundleHistoryTimeline(key string) (int, bool) {
+	name, found := strings.CutSuffix(key[strings.LastIndex(key, "/")+1:], bk.BundleExt)
+	if !found || !strings.Contains(name, ".history") {
+		return 0, false
+	}
+	last := name[strings.LastIndex(name, "-")+1:]
+	if !bk.IsHistory(last) {
+		return 0, false
+	}
+	return historyTimeline(last), true
 }
 
 // Usage is how many WAL bundles the archive holds and their bytes together.

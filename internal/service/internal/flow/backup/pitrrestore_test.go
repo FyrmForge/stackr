@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -209,6 +210,22 @@ func TestShipHistoryLeavesTheFilesInPlace(t *testing.T) {
 		if c[1] == "rm" {
 			t.Errorf("history was removed: %v", c)
 		}
+	}
+}
+
+// A second copy restored from the same source ends on the same timeline; once
+// the first one's history is in the archive the second must not overwrite it.
+func TestShipHistoryRefusesATimelineTheArchiveHolds(t *testing.T) {
+	w := setup(t)
+	w.archive([]string{"00000002.history", seg1}, "TARBYTES")
+	must(t, w.f.ShipHistory(ctx, w.ship(), io.Discard))
+	err := w.f.ShipHistory(ctx, w.ship(), io.Discard)
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "restore again") {
+		t.Fatalf("second ship of timeline 2 = %v; want a conflict", err)
+	}
+	w.archive([]string{"00000002.history", "00000003.history", seg1}, "TARBYTES")
+	if err := w.f.ShipHistory(ctx, w.ship(), io.Discard); err != nil {
+		t.Errorf("a copy on a newer timeline was refused: %v", err)
 	}
 }
 
