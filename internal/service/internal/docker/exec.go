@@ -135,8 +135,17 @@ func (d *Client) execResult(ctx context.Context, execID, stderr string) error {
 	return nil
 }
 
+type mergeKey struct{}
+
+// MergeStderr makes an ExecStream under the returned context stream stderr
+// into the output too (for a user's exec, which should see what the command
+// said). Without it stderr is kept apart: a dump's stdout is data.
+func MergeStderr(ctx context.Context) context.Context {
+	return context.WithValue(ctx, mergeKey{}, true)
+}
+
 // ExecStream runs cmd with optional stdin and streams stdout; stderr is kept
-// apart for the ExitError. The caller must call wait even on a stream it
+// apart for the ExitError (and MergeStderr streams it too). The caller must call wait even on a stream it
 // abandons: wait reports the exit and releases the exec.
 func (d *Client) ExecStream(
 	ctx context.Context,
@@ -165,9 +174,13 @@ func (d *Client) ExecStream(
 	}
 	pr, pw := io.Pipe()
 	var stderr strings.Builder
+	var errw io.Writer = &stderr
+	if ctx.Value(mergeKey{}) != nil {
+		errw = io.MultiWriter(&stderr, pw)
+	}
 	copyDone := make(chan struct{})
 	go func() {
-		err := demux(att.Reader, pw, &stderr)
+		err := demux(att.Reader, pw, errw)
 		_ = pw.CloseWithError(err)
 		close(copyDone)
 	}()
@@ -270,8 +283,8 @@ func readPid(r *bufio.Reader) (int, error) {
 	return pid, nil
 }
 
-// demux splits an exec's frames: stdout to out, stderr to stderr only.
-func demux(src io.Reader, out io.Writer, stderr *strings.Builder) error {
+// demux splits an exec's frames: stdout to out, stderr to stderr.
+func demux(src io.Reader, out, stderr io.Writer) error {
 	_, err := stdcopy.StdCopy(out, stderr, src)
 	return err
 }

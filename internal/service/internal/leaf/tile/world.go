@@ -566,7 +566,7 @@ func (l *Leaf) Terminal(
 	if err := l.guard(ctx, tileID, id, "opened a terminal into"); err != nil {
 		return nil, nil, err
 	}
-	return l.docker.ExecStream(ctx, id, cmd, stdin)
+	return l.docker.ExecStream(docker.MergeStderr(ctx), id, cmd, stdin)
 }
 
 // TTY opens an interactive shell on a TTY in the container; the guard as

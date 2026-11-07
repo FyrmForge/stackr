@@ -181,6 +181,8 @@ func (o *Orchestrator) jobPlace(ctx context.Context, p map[string]any) Child {
 		c, err = o.tileChild(ctx, str("tile_id"))
 	case str("consumer_id") != "":
 		c, err = o.tileChild(ctx, str("consumer_id"))
+	case str("candidate_id") != "": // a PITR restore and its promote
+		c, err = o.tileChild(ctx, str("candidate_id"))
 	case str("TileID") != "": // imagewatch.Scope
 		c, err = o.tileChild(ctx, str("TileID"))
 	case str("env_id") != "":

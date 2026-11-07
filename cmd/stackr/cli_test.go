@@ -1412,3 +1412,42 @@ func TestKeyRotate(t *testing.T) {
 		t.Errorf("config changed: %s", b)
 	}
 }
+
+// tile restore and promote-restore wait on the job through the org's job
+// events route and report its end; --no-wait only prints it.
+func TestTileRestoreAndPromoteFollowTheirJob(t *testing.T) {
+	var mu sync.Mutex
+	var reqs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		reqs = append(reqs, req.Method+" "+req.URL.Path)
+		mu.Unlock()
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/events"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "event: end\ndata: {\"job\":{\"id\":\"j1\",\"state\":\"done\"},\"log\":\"replayed\\n\"}\n\n")
+		case strings.HasSuffix(req.URL.Path, "/restore"):
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"tile":{"slug":"pg-restored"},"job":{"id":"j1","kind":"restore-instance","state":"queued"}}`)
+		default:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"id":"j1","kind":"promote-restore","state":"queued"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	at := []string{"--stack", "shop", "--env", "dev"}
+	for _, args := range [][]string{
+		{"tile", "restore", "pg", "--at", "latest"},
+		{"tile", "promote-restore", "pg-restored", "--yes"},
+	} {
+		reqs = nil
+		code, out, errw := cli(t, append(args, at...)...)
+		if code != 0 || !strings.Contains(out, "replayed") || !strings.Contains(out, ": done") {
+			t.Errorf("%v = %d out %q err %q", args, code, out, errw)
+		}
+		if got := reqs[len(reqs)-1]; got != "GET /api/v1/orgs/acme/jobs/j1/events" {
+			t.Errorf("%v last request %q, want the org job's events", args, got)
+		}
+	}
+}

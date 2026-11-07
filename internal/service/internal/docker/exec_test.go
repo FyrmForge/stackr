@@ -3,6 +3,7 @@ package docker
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -29,6 +30,30 @@ func TestDemuxKeepsStderrOutOfTheStream(t *testing.T) {
 	}
 	if got := stderr.String(); got != "pg_dumpall: warning\n" {
 		t.Errorf("stderr = %q", got)
+	}
+}
+
+// A user's exec (MergeStderr) sees stderr in order with stdout, and the
+// ExitError still gets it.
+func TestMergeStderrInterleaves(t *testing.T) {
+	var framed bytes.Buffer
+	_, _ = stdcopy.NewStdWriter(&framed, stdcopy.Stdout).Write([]byte("a\n"))
+	_, _ = stdcopy.NewStdWriter(&framed, stdcopy.Stderr).Write([]byte("Did not find any relations.\n"))
+	_, _ = stdcopy.NewStdWriter(&framed, stdcopy.Stdout).Write([]byte("b\n"))
+
+	if MergeStderr(context.Background()).Value(mergeKey{}) == nil {
+		t.Fatal("MergeStderr set nothing")
+	}
+	var out bytes.Buffer
+	var stderr strings.Builder
+	if err := demux(&framed, &out, io.MultiWriter(&stderr, &out)); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "a\nDid not find any relations.\nb\n" {
+		t.Errorf("stream = %q", got)
+	}
+	if stderr.String() != "Did not find any relations.\n" {
+		t.Errorf("stderr = %q", stderr.String())
 	}
 }
 

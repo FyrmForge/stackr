@@ -195,6 +195,10 @@ func TestPromoteRestoreLocksAndRefusals(t *testing.T) {
 			t.Errorf("lock set %v lacks %s", j.LockSet, want)
 		}
 	}
+	// the org's job routes accept the job only when its payload names the org
+	if c, err := o.ChildOf(ctx, "job", j.ID); err != nil || c.Org != r.org {
+		t.Errorf("promote job placed in org %q (%v), want %q", c.Org, err, r.org)
+	}
 	// the copy never says it is done replaying here: the job refuses before touching anything
 	if got := r.wait(t, j.ID); got.State != "failed" || !strings.Contains(got.Error, "not done replaying") {
 		t.Errorf("job = %s: %s", got.State, got.Error)
