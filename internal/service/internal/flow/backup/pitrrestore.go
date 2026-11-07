@@ -10,6 +10,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"sync"
 
 	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -29,12 +30,15 @@ func (f *Flow) Hold(root string) (release func()) {
 		f.holds = map[string]int{}
 	}
 	f.holds[root]++
+	var once sync.Once // a restore releases early and again on its way out
 	return func() {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		if f.holds[root]--; f.holds[root] <= 0 {
-			delete(f.holds, root)
-		}
+		once.Do(func() {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.holds[root]--; f.holds[root] <= 0 {
+				delete(f.holds, root)
+			}
+		})
 	}
 }
 

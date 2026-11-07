@@ -393,7 +393,13 @@ func (o *Orchestrator) awaitRecovery(ctx context.Context, cand Tile, log io.Writ
 		}
 		if err != nil && n%3 == 2 { // not answering: is it dead for good?
 			if tail := o.logTail(ctx, cand); slices.ContainsFunc(recoveryFailed, func(s string) bool { return strings.Contains(tail, s) }) {
-				return fmt.Errorf("the replay stopped%s", tail)
+				hint := ""
+				if strings.Contains(tail, "before configured recovery target") {
+					// ponytail: a time past the last WAL record of a quiet database lands here too; the
+					// bound is the shipper's last clean tick, not the last record.
+					hint = " (the archive ends before that time; pick an earlier one, or latest)"
+				}
+				return fmt.Errorf("the replay stopped%s%s", hint, tail)
 			}
 		}
 		if time.Now().After(deadline) {
