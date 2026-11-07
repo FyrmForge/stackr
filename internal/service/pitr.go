@@ -57,7 +57,12 @@ func IsArchiveVolume(v Volume) bool { return mflow.IsArchiveVolume(v) }
 
 // pitrState is one instance's shipper state, the settings row pitr.<id>.
 type pitrState struct {
-	Since          time.Time `json:"since"`           // first tick that saw the instance
+	Since time.Time `json:"since"` // first tick that saw the instance
+	// ArchSince is the first tick whose running container had the archive
+	// dir, so it was archiving. Bases that started earlier (taken while
+	// archiving was off, or on a container that had not started it) are never
+	// used: nothing links their WAL to now.
+	ArchSince      time.Time `json:"arch_since"`
 	DestID         string    `json:"dest_id"`         // where the guard passed
 	Guarded        bool      `json:"guarded"`         // the archive prefix is this instance's
 	LastSegment    string    `json:"last_segment"`    // newest segment shipped
@@ -108,6 +113,7 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 	if mflow.Engines[m.Engine].Definition().ArchiveDir == "" {
 		return m, Job{}, errs.Invalidf("engine", "%s has no point-in-time recovery", m.Engine)
 	}
+	was := m
 	if m, err = o.managed.SetPITR(ctx, m, days); err != nil {
 		return m, Job{}, err
 	}
@@ -117,24 +123,42 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 		note = "point-in-time recovery is off: restarting to stop archiving"
 	}
 	j, err := o.deployNoted(ctx, t.ID, note)
+	if err != nil {
+		// The container was not touched: put the row and the schedule back.
+		if _, rerr := o.managed.SetPITR(ctx, m, was.PITRDays); rerr != nil {
+			slog.Warn("pitr: window not restored after a failed redeploy", "instance", m.ID, "err", rerr)
+		}
+		if was.PITRDays <= 0 {
+			o.pitrRetired(ctx, t, m)
+		}
+		return was, Job{}, err
+	}
 	return m, j, err
 }
 
-// pitrApplied follows a moved window: the weekly base backup is added or
-// dropped, and the shipper's state and problems go when it is off. The
-// restart that makes postgres archive is the caller's.
+// pitrApplied follows a moved window: the weekly base backup is added. Turning
+// it off removes nothing here: the container keeps archiving until its
+// restart, so the shipper keeps draining it, and pitrRetired (called by the
+// shipper once the container no longer archives) drops the schedule, the
+// shipper's state and the problems. The restart that makes postgres archive
+// (or stop) is the caller's.
 func (o *Orchestrator) pitrApplied(ctx context.Context, t store.Tile, m ManagedInstance) {
-	if v, err := o.dataVolume(ctx, t); err == nil {
-		if m.PITRDays > 0 {
-			o.baseSchedule(ctx, v)
-		} else {
-			o.dropBaseSchedules(ctx, v)
-		}
-	}
 	if m.PITRDays <= 0 {
-		_ = o.store.Settings.Delete(ctx, pitrKey(m.ID))
-		o.clearPITRProblems(ctx, m.ID)
+		return
 	}
+	if v, err := o.dataVolume(ctx, t); err == nil {
+		o.baseSchedule(ctx, v)
+	}
+}
+
+// pitrRetired ends an instance's PITR bookkeeping once it is off and its
+// container no longer archives.
+func (o *Orchestrator) pitrRetired(ctx context.Context, t store.Tile, m ManagedInstance) {
+	if v, err := o.dataVolume(ctx, t); err == nil {
+		o.dropBaseSchedules(ctx, v)
+	}
+	_ = o.store.Settings.Delete(ctx, pitrKey(m.ID))
+	o.clearPITRProblems(ctx, m.ID)
 }
 
 func (o *Orchestrator) clearPITRProblems(ctx context.Context, instanceID string) {
@@ -285,9 +309,20 @@ func (o *Orchestrator) pitrTick(ctx context.Context) {
 	}
 	if rows, err := o.store.Settings.ListPrefix(ctx, "pitr."); err == nil {
 		for k := range rows {
-			if !live[strings.TrimPrefix(k, "pitr.")] {
-				_ = o.store.Settings.Delete(ctx, k)
+			id := strings.TrimPrefix(k, "pitr.")
+			if live[id] {
+				continue
 			}
+			// Off now, but the running container may still archive: the
+			// shipper drains it until it stops.
+			if m, err := o.managed.Get(ctx, id); err == nil {
+				cctx, cancel := context.WithTimeout(ctx, pitrShipBudget)
+				o.pitrShip(cctx, m)
+				cancel()
+				continue
+			}
+			_ = o.store.Settings.Delete(ctx, k)
+			o.clearPITRProblems(ctx, id)
 		}
 	}
 }
@@ -301,6 +336,9 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 	}
 	cs, err := o.tiles.Replicas(ctx, it)
 	if err != nil || !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
+		if err == nil && m.PITRDays <= 0 {
+			o.pitrRetired(ctx, it, m) // off and stopped: nothing will archive again
+		}
 		return // stopped or down: nothing is written, nothing to ship
 	}
 	v, err := o.dataVolume(ctx, it)
@@ -338,6 +376,14 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 		def := mflow.Engines[m.Engine].Definition()
 		res, err := o.backup.ShipWAL(ctx, fbackup.Ship{Engine: it, Dest: dest, Root: root, Dir: def.ArchiveDir}, io.Discard)
 		st.CheckedAt = now
+		archiving := err == nil || !errors.Is(err, fbackup.ErrNoArchive)
+		if archiving && st.ArchSince.IsZero() {
+			st.ArchSince = now
+		}
+		if !archiving && m.PITRDays <= 0 {
+			o.pitrRetired(ctx, it, m) // the restarted container has no archive: drained
+			return
+		}
 		switch {
 		case err != nil:
 			st.Error = err.Error()
@@ -361,12 +407,18 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 			st.Failing = st.ArchiverSeen && fc > st.ArchiverFailed
 			st.ArchiverFailed, st.ArchiverSeen = fc, true
 		}
-		o.pitrFirstBase(ctx, v, &st, now)
+		// Only a container that archives gets the first base: one taken on
+		// the old, non-archiving container has WAL nobody keeps.
+		if err == nil && m.PITRDays > 0 {
+			o.pitrFirstBase(ctx, v, dest, &st, now)
+		}
 	} else {
 		st.Error = refused
 	}
 	o.savePITRState(ctx, m.ID, st)
-	o.pitrAlerts(ctx, m, it, v, st, now)
+	if m.PITRDays > 0 {
+		o.pitrAlerts(ctx, m, it, v, st, now)
+	}
 }
 
 func cmpMax(a, b string) string {
@@ -379,8 +431,9 @@ func cmpMax(a, b string) string {
 // pitrFirstBase takes the first base backup as soon as the instance
 // archives, so the window starts now and not at next week's schedule: no
 // good or running base yet and no attempt of ours within the last hour
-// queues one.
-func (o *Orchestrator) pitrFirstBase(ctx context.Context, v store.Volume, st *pitrState, now time.Time) {
+// queues one. Only a base on the active destination that started once the
+// container archived counts.
+func (o *Orchestrator) pitrFirstBase(ctx context.Context, v store.Volume, dest store.BackupDest, st *pitrState, now time.Time) {
 	if now.Sub(st.BaseTriedAt) < pitrBaseRetry {
 		return
 	}
@@ -390,7 +443,7 @@ func (o *Orchestrator) pitrFirstBase(ctx context.Context, v store.Volume, st *pi
 	}
 	base := o.baseSchedules(ctx, v)
 	for _, r := range rs {
-		if isBaseRun(r, base) && (r.Status == backup.Done || r.Status == backup.Running) {
+		if isBaseRun(r, base) && r.DestID == dest.ID && !r.CreatedAt.Before(st.ArchSince) && (r.Status == backup.Done || r.Status == backup.Running) {
 			return
 		}
 	}
@@ -523,22 +576,29 @@ type PITRHealth struct {
 	Error       string     `json:"error,omitempty"`
 }
 
+// pitrArchive is the archive a restore plans from: the bases on d that
+// started after this PITR run's archiving began (none before it did), the WAL
+// keys and the timeline lineage.
+func (o *Orchestrator) pitrArchive(ctx context.Context, d store.BackupDest, root, instanceID string) ([]store.BackupRun, []string, backup.Lineage, error) {
+	st, _ := o.pitrState(ctx, instanceID)
+	if st.ArchSince.IsZero() {
+		return nil, nil, backup.Lineage{}, nil
+	}
+	return o.backup.ListArchive(ctx, d, root, st.ArchSince)
+}
+
 // walLag is how far the archive may trail the shipper's last tick: a write
 // sits in an open segment until archive_timeout (60s) closes it, and the
 // closed segment waits for the next tick.
 const walLag = 90 * time.Second
 
-// restorableTo is the latest time the shipped WAL surely covers; zero when
-// nothing shipped yet.
+// restorableTo is the latest time the shipped WAL surely covers: the last tick
+// that left nothing waiting, less walLag; zero before there is one.
 func (st pitrState) restorableTo() time.Time {
-	t := st.LastCleanAt
-	if st.LastShippedAt.After(t) {
-		t = st.LastShippedAt
+	if st.LastCleanAt.IsZero() {
+		return st.LastCleanAt
 	}
-	if t.IsZero() {
-		return t
-	}
-	return t.Add(-walLag)
+	return st.LastCleanAt.Add(-walLag) // not LastShippedAt: a partly shipped backlog is not current
 }
 
 func nonZero(t time.Time) *time.Time {
@@ -593,8 +653,8 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 	}
 	if derr == nil {
 		// The same rule a restore applies, so the range never counts a base it refuses.
-		if bases, keys, err := o.backup.ListArchive(ctx, d, backup.PITRRoot(org, v.ID)); err == nil {
-			if from, ok := backup.Restorable(bases, keys); ok {
+		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITRRoot(org, v.ID), m.ID); err == nil {
+			if from, ok := backup.Restorable(bases, keys, lin); ok {
 				h.From = &from
 			}
 		}

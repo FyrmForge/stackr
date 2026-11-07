@@ -108,8 +108,12 @@ func TestSetPITROnAndOff(t *testing.T) {
 	w.orch.savePITRState(ctx, m.ID, pitrState{Since: time.Now()})
 	m, _, err = w.orch.SetPITR(ctx, pg.ID, 0)
 	must(t, err)
-	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); m.PITRDays != 0 || len(ss) != 0 {
-		t.Errorf("off: %d days, schedules %v", m.PITRDays, methodsOf(ss))
+	if m.PITRDays != 0 {
+		t.Errorf("off: %d days", m.PITRDays)
+	}
+	w.orch.pitrTick(ctx) // no container runs: nothing archives any more, the bookkeeping goes
+	if ss, _ := w.orch.BackupSchedules(ctx, data.ID); len(ss) != 0 {
+		t.Errorf("off: schedules %v", methodsOf(ss))
 	}
 	if _, ok := w.orch.pitrState(ctx, m.ID); ok {
 		t.Error("the shipper state outlived turning PITR off")

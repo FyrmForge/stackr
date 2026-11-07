@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -120,10 +121,54 @@ func baseStart(r store.BackupRun) string {
 	return BaseWalStart(r.ObjectKey)
 }
 
+// Lineage is the timeline history a restore follows to "latest": Tip is the
+// newest timeline with a history file ("" = none, everything is on the first),
+// Forks maps each ancestor timeline to the index of the segment it ended in.
+type Lineage struct {
+	Tip   string
+	Forks map[string]int64
+}
+
+// ParseLineage reads the tip timeline's history file: one line per ancestor,
+// "<parent timeline>\t<switch LSN>\t<reason>". A line it cannot read is skipped.
+func ParseLineage(tip string, history string) Lineage {
+	l := Lineage{Tip: tip, Forks: map[string]int64{}}
+	for _, line := range strings.Split(history, "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) < 2 {
+			continue
+		}
+		parent, err := strconv.ParseUint(strings.TrimSpace(f[0]), 10, 32)
+		hi, lo, ok := strings.Cut(strings.TrimSpace(f[1]), "/")
+		h, err2 := strconv.ParseUint(hi, 16, 32)
+		w, err3 := strconv.ParseUint(lo, 16, 32)
+		if err != nil || !ok || err2 != nil || err3 != nil {
+			continue
+		}
+		l.Forks[fmt.Sprintf("%08X", parent)] = int64(h)*256 + int64(w)/SegmentBytes
+	}
+	return l
+}
+
+// allows says whether a base that ends in segment stop lies on the path to
+// the tip: on the tip itself, or on an ancestor before it forked. A base on
+// an older timeline past the fork makes postgres refuse the restore
+// ("requested timeline is not a child of this server's history").
+func (l Lineage) allows(stop string) bool {
+	tl := timeline(stop)
+	if l.Tip == "" || tl == l.Tip {
+		return true
+	}
+	fork, ok := l.Forks[tl]
+	return ok && segIndex(stop) < fork
+}
+
 // usable are the bases that finished well, have a start and an end, and
-// whose shipped WAL reaches the end on the end's timeline (a base whose last
-// segment is not archived yet restores nothing). Newest first.
-func usable(bases []store.BackupRun, bundles []Bundle) []store.BackupRun {
+// whose shipped WAL holds the end: a bundle whose range contains the end
+// segment (a bundle shipped across a promote spans two timelines, and the
+// names compare timeline first), on the tip's lineage. A base whose last
+// segment is not archived yet restores nothing. Newest first.
+func usable(bases []store.BackupRun, bundles []Bundle, lin Lineage) []store.BackupRun {
 	var out []store.BackupRun
 	for _, r := range bases {
 		stop, start := baseStop(r), baseStart(r)
@@ -131,9 +176,8 @@ func usable(bases []store.BackupRun, bundles []Bundle) []store.BackupRun {
 			continue
 		}
 		if slices.ContainsFunc(bundles, func(b Bundle) bool {
-			// <= not ==: a bundle shipped across a promote starts on an older timeline
-			return !b.History && b.Last >= stop && timeline(b.First) <= timeline(stop)
-		}) {
+			return !b.History && b.First <= stop && stop <= b.Last
+		}) && lin.allows(stop) {
 			out = append(out, r)
 		}
 	}
@@ -144,8 +188,8 @@ func usable(bases []store.BackupRun, bundles []Bundle) []store.BackupRun {
 // Restorable is the oldest finish time among usable bases; ok is false when
 // none is usable. The newest moment is the shipper's (the archive is only
 // known current up to its last clean tick), so the caller owns it.
-func Restorable(bases []store.BackupRun, keys []string) (from time.Time, ok bool) {
-	us := usable(bases, Bundles(keys))
+func Restorable(bases []store.BackupRun, keys []string, lin Lineage) (from time.Time, ok bool) {
+	us := usable(bases, Bundles(keys), lin)
 	if len(us) == 0 {
 		return time.Time{}, false
 	}
@@ -156,9 +200,9 @@ func Restorable(bases []store.BackupRun, keys []string) (from time.Time, ok bool
 // finished at or before at (the newest of all for latest), and the bundles
 // from its start on. ponytail: it does not check the bundles are gap-free; a
 // missing one fails the replay, which says which segment.
-func PickBase(bases []store.BackupRun, keys []string, at time.Time, latest bool) (Plan, error) {
+func PickBase(bases []store.BackupRun, keys []string, lin Lineage, at time.Time, latest bool) (Plan, error) {
 	bundles := Bundles(keys)
-	us := usable(bases, bundles)
+	us := usable(bases, bundles, lin)
 	if len(us) == 0 {
 		return Plan{}, errs.Conflictf("no base backup can be restored yet: one can, once it has finished and its WAL has been shipped")
 	}

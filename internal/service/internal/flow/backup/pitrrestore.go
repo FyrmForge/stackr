@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -202,14 +203,57 @@ func (f *Flow) copyBundle(ctx context.Context, r Replay, b bk.Bundle, tw *tar.Wr
 	}
 }
 
-// ListArchive is the archive's base runs and WAL keys under root: what a
-// restore plans from.
-func (f *Flow) ListArchive(ctx context.Context, d store.BackupDest, root string) (bases []store.BackupRun, walKeys []string, err error) {
-	if bases, err = f.Backups.Bases(ctx, root); err != nil {
-		return nil, nil, err
+// ListArchive is the archive's base runs (on d, started at or after since)
+// and WAL keys under root, and the timeline lineage the newest history file
+// gives: what a restore plans from.
+func (f *Flow) ListArchive(ctx context.Context, d store.BackupDest, root string, since time.Time) (bases []store.BackupRun, walKeys []string, lin bk.Lineage, err error) {
+	if bases, err = f.Backups.Bases(ctx, root, d.ID, since); err != nil {
+		return nil, nil, lin, err
 	}
 	if walKeys, err = open(d).List(ctx, root+"/"+bk.WALDir+"/"); err != nil {
-		return nil, nil, err
+		return nil, nil, lin, err
 	}
-	return bases, walKeys, nil
+	var tip, body string
+	for _, b := range bk.Bundles(walKeys) {
+		if !b.History {
+			continue
+		}
+		if err := f.histories(ctx, d, b.Key, func(name, text string) {
+			if name > tip {
+				tip, body = name, text
+			}
+		}); err != nil {
+			return nil, nil, lin, err
+		}
+	}
+	if tip == "" {
+		return bases, walKeys, lin, nil
+	}
+	return bases, walKeys, bk.ParseLineage(tip[:8], body), nil
+}
+
+// histories hands each timeline history file in a history bundle to fn (a
+// bundle holds every history file the cluster had when it shipped).
+func (f *Flow) histories(ctx context.Context, d store.BackupDest, key string, fn func(name, text string)) error {
+	tr, done, err := f.object(ctx, d, key)
+	if err != nil {
+		return err
+	}
+	defer done()
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read %s: %w", key, err)
+		}
+		b, err := io.ReadAll(io.LimitReader(tr, 1<<20))
+		if err != nil {
+			return fmt.Errorf("read %s: %w", key, err)
+		}
+		if name := strings.TrimPrefix(h.Name, "./"); bk.IsHistory(name) && len(name) >= 8 {
+			fn(name, string(b))
+		}
+	}
 }

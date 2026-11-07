@@ -123,7 +123,7 @@ func TestBaseBackupRecordsWalStartAndPrunesTheWindow(t *testing.T) {
 			t.Errorf("%s was pruned: %v", k, keys)
 		}
 	}
-	if rs, _ := w.f.Backups.Bases(ctx, root); len(rs) != 2 {
+	if rs, _ := w.f.Backups.Bases(ctx, root, w.dest.ID, time.Time{}); len(rs) != 2 {
 		t.Errorf("%d base rows left, want 2", len(rs))
 	}
 }

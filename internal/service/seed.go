@@ -202,8 +202,16 @@ func (o *Orchestrator) seedFromSlice(ctx context.Context, r *jobs.Run, s Tile, p
 	if err != nil {
 		return err
 	}
+	srcInst, err := o.postgresOf(ctx, src)
+	if err != nil {
+		return err
+	}
+	dctx, err := o.withTileNode(ctx, srcInst.ID) // the dump runs where the source does, the load where s does
+	if err != nil {
+		return err
+	}
 	_, _ = fmt.Fprintf(r.Log, "dumping %s\n", src.Slug)
-	out, wait, err := o.engines.DumpSlice(ctx, src)
+	out, wait, err := o.engines.DumpSlice(dctx, src)
 	if err != nil {
 		return err
 	}

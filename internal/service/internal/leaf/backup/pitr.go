@@ -152,19 +152,26 @@ func (l *Leaf) SetWalStart(ctx context.Context, r store.BackupRun, seg string) (
 	return r, l.runs.Update(ctx, r)
 }
 
-// Owns says whether any run recorded an object under root: the guard that
-// stops a copy of an instance writing into another's archive. It looks at
-// every run with a key, failed base runs included (they keep the key they
-// tried to write).
-func (l *Leaf) Owns(ctx context.Context, root string) (bool, error) {
+// Owns says whether any run recorded an object under root on destination
+// destID: the guard that stops a copy of an instance writing into another's
+// archive. It looks at every run with a key, failed base runs included (they
+// keep the key they tried to write). A run on another destination proves
+// nothing about this one.
+func (l *Leaf) Owns(ctx context.Context, root, destID string) (bool, error) {
 	rs, err := l.runs.ListByPrefix(ctx, root+"/")
-	return len(rs) > 0, err
+	return len(onDest(rs, destID)) > 0, err
 }
 
-// Bases are the finished and failed base runs of a data volume's archive,
-// newest first.
-func (l *Leaf) Bases(ctx context.Context, root string) ([]store.BackupRun, error) {
+func onDest(rs []store.BackupRun, destID string) []store.BackupRun {
+	return slices.DeleteFunc(rs, func(r store.BackupRun) bool { return r.DestID != destID })
+}
+
+// Bases are the finished and failed base runs of a data volume's archive on
+// destination destID, newest first. A run that started before since is left
+// out (zero = none are): PITR was off, or archiving not running yet, then.
+func (l *Leaf) Bases(ctx context.Context, root, destID string, since time.Time) ([]store.BackupRun, error) {
 	rs, err := l.runs.ListByPrefix(ctx, root+"/"+BaseDir+"/")
+	rs = slices.DeleteFunc(onDest(rs, destID), func(r store.BackupRun) bool { return r.CreatedAt.Before(since) })
 	slices.SortFunc(rs, func(a, b store.BackupRun) int { return b.CreatedAt.Compare(a.CreatedAt) })
 	return rs, err
 }

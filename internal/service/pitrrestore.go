@@ -126,11 +126,11 @@ func (o *Orchestrator) pitrPlan(ctx context.Context, src pitrSource, atStr strin
 	if err != nil {
 		return plan, at, latest, err
 	}
-	bases, keys, err := o.backup.ListArchive(ctx, src.dest, src.root)
+	bases, keys, lin, err := o.pitrArchive(ctx, src.dest, src.root, src.inst.ID)
 	if err != nil {
 		return plan, at, latest, fmt.Errorf("read the archive: %w", err)
 	}
-	from, ok := backup.Restorable(bases, keys)
+	from, ok := backup.Restorable(bases, keys, lin)
 	if !ok {
 		return plan, at, latest, errs.Conflictf("%s has no base backup that can be restored yet: one can, once it has finished and its WAL has been shipped", src.tile.Slug)
 	}
@@ -142,7 +142,7 @@ func (o *Orchestrator) pitrPlan(ctx context.Context, src pitrSource, atStr strin
 	if err := backup.CheckAt(at, latest, from, to, time.Now(), branch); err != nil {
 		return plan, at, latest, err
 	}
-	if plan, err = backup.PickBase(bases, keys, at, latest); err != nil {
+	if plan, err = backup.PickBase(bases, keys, lin, at, latest); err != nil {
 		return plan, at, latest, err
 	}
 	return plan, at, latest, o.restoreRoom(ctx, src, plan)
