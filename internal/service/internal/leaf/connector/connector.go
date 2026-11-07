@@ -357,6 +357,20 @@ func (l *Leaf) SweepPending(ctx context.Context, cutoff time.Time) (int, error) 
 	return n, nil
 }
 
+// UsableFor is Usable for a clone of gitURL: the connector must serve that
+// URL's host, or the panel would authenticate and probe whatever host a
+// caller names.
+func (l *Leaf) UsableFor(ctx context.Context, orgID, id, gitURL string) (store.Connector, error) {
+	c, err := l.Usable(ctx, orgID, id)
+	if err != nil {
+		return c, err
+	}
+	if h := Host(gitURL); h == "" || h != strings.ToLower(c.Host) {
+		return store.Connector{}, errs.Invalidf("repo", "The URL is not on this connector's host.")
+	}
+	return c, nil
+}
+
 // DeleteServer deletes a server connector and, by cascade, its shares. The
 // caller has checked nothing binds it.
 func (l *Leaf) DeleteServer(ctx context.Context, id string) error {

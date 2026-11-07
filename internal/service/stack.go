@@ -184,7 +184,7 @@ func (o *Orchestrator) SetConfigRepo(ctx context.Context, id, connectorID, repo,
 		return st, err
 	}
 	if connectorID != "" && repo != "" {
-		if _, err := o.conns.Usable(ctx, st.OrgID, connectorID); err != nil {
+		if _, err := o.conns.UsableFor(ctx, st.OrgID, connectorID, o.repoURL(ctx, repo)); err != nil {
 			return st, err // another org's connector is not there
 		}
 	}

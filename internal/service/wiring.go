@@ -316,7 +316,7 @@ func (o *Orchestrator) cloneEnv(ctx context.Context, orgID, connectorID, url str
 	var err error
 	if connectorID != "" {
 		// a read: the org's own connector or a server one shared with it
-		c, err = o.conns.Usable(ctx, orgID, connectorID)
+		c, err = o.conns.UsableFor(ctx, orgID, connectorID, url)
 	} else {
 		c, err = o.conns.For(ctx, orgID, url)
 	}

@@ -528,3 +528,24 @@ func TestCompleteKeepsShares(t *testing.T) {
 		t.Errorf("share-all or App lost: %+v", got)
 	}
 }
+
+// A named connector only serves its own host: another URL is refused before
+// any clone, so the panel cannot be pointed at an arbitrary host.
+func TestUsableForHost(t *testing.T) {
+	st := servicetest.Store(t)
+	f := &fakeApp{}
+	l := newLeaf(st.Connectors, f)
+	acme := seedOrg(t, st)
+	srv := connectServer(t, l, f)
+	if _, err := l.SetShares(ctx, srv.ID, []string{acme}, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.UsableFor(ctx, acme, srv.ID, "https://github.com/a/b"); err != nil {
+		t.Errorf("own host = %v", err)
+	}
+	for _, u := range []string{"https://127.0.0.1:8080/x", "https://evil.example/a/b", "http://github.com/a/b", "ssh://h/a/b"} {
+		if _, err := l.UsableFor(ctx, acme, srv.ID, u); err == nil {
+			t.Errorf("%s accepted", u)
+		}
+	}
+}
