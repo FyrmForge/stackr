@@ -47,6 +47,10 @@ const (
 	pitrBaseCron   = "@weekly"
 )
 
+// IsBaseKey says whether an archive key is a point-in-time base backup, which
+// the point-in-time restore uses and a volume restore refuses.
+func IsBaseKey(key string) bool { return backup.IsPITRKey(key) }
+
 // IsArchiveVolume says whether v is an instance's archive volume, which
 // holds WAL in transit, not data: no backup of its own, no panel.
 func IsArchiveVolume(v Volume) bool { return mflow.IsArchiveVolume(v) }

@@ -162,10 +162,101 @@ templ Logs(v View, l LogsView) {
 	</div>
 }
 
+// PITRView is the instance's point-in-time recovery health: what it can
+// restore, the last base backup, the archive. Zero times are "not yet".
+type PITRView struct {
+	On, Edit bool
+	Days     int
+	Dest     string
+	Local    bool // the archive sits on this server's disk
+	From, To time.Time
+	Base     *PITRBase
+	Bundles  int
+	Size     string
+	Waiting  int
+	Error    string
+}
+
+// PITRBase is the newest base backup attempt.
+type PITRBase struct {
+	At     time.Time
+	OK     bool
+	Active bool
+	Error  string
+}
+
+// pitr is the point-in-time panel at the top of the Backups tab: the health
+// lines when on, the switch when off. Turning it on or off restarts the
+// database, and says so.
+templ pitr(v View, p PITRView) {
+	<div id="pitr" class="panel p-5 space-y-2">
+		<h4 class="text-sm font-medium text-rw-text">Point-in-time restore</h4>
+		if !p.On {
+			<p class="text-sm text-rw-muted">Point-in-time restore is off.</p>
+			if p.Edit {
+				<form hx-post={ v.Base + "/pitr" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
+					<input type="hidden" name="days" value="7"/>
+					<p class="text-xs text-rw-faint">Keeps the last 7 days. Restarts the database once, a few seconds.</p>
+					<button type="submit" class="btn btn-primary btn-sm">Turn on</button>
+				</form>
+			}
+		} else {
+			<ul class="text-sm text-rw-muted space-y-1">
+				<li class="flex flex-wrap gap-x-1">
+					if p.From.IsZero() {
+						<span>Restorable: not yet, no finished base backup.</span>
+					} else if p.To.IsZero() {
+						<span>Restorable from</span>
+						@c.When(p.From)
+					} else {
+						<span>Restorable from</span>
+						@c.When(p.From)
+						<span>to</span>
+						@c.When(p.To)
+					}
+				</li>
+				<li class="flex flex-wrap gap-x-1">
+					if p.Base == nil {
+						<span>Last base backup: none yet.</span>
+					} else if p.Base.Active {
+						<span>Last base backup: running.</span>
+					} else if p.Base.OK {
+						<span>Last base backup: ok,</span>
+						@c.When(p.Base.At)
+					} else {
+						<span>Last base backup: failed,</span>
+						@c.When(p.Base.At)
+						<span>{ p.Base.Error }</span>
+					}
+				</li>
+				<li>WAL archive: { strconv.Itoa(p.Bundles) } bundles, { p.Size } on { p.Dest }; { strconv.Itoa(p.Waiting) } segments waiting on the box.</li>
+				if p.Error != "" {
+					<li class="text-rw-danger">{ p.Error }</li>
+				}
+			</ul>
+			if p.Local {
+				<p class="text-xs text-rw-faint">The archive is on this server's disk: it covers a bad migration, not a lost server.</p>
+			}
+			if p.Edit {
+				@c.Confirm(c.ConfirmView{
+					Button:  "Turn off",
+					Title:   "Turn off point-in-time restore?",
+					Warning: "Restarts the database once and stops archiving.",
+					Kept:    []string{"base backups and WAL already in the destination"},
+					Action:  v.Base + "/pitr?days=0",
+					Target:  "#" + Root,
+					Quiet:   true,
+				})
+			}
+		}
+	</div>
+}
+
 // Backups is v0's backup panel for each of the instance's volumes; its
 // actions answer that volume's drawer.
-templ Backups(v View, vols []volume.BackupsView) {
+templ Backups(v View, p PITRView, vols []volume.BackupsView) {
 	<div id="tab-backups" class="space-y-6">
+		@pitr(v, p)
 		if len(vols) == 0 {
 			<p class="text-rw-muted text-sm">This instance has no volume yet. The first deploy makes one.</p>
 		}

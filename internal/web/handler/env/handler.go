@@ -62,6 +62,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/rename", h.InstanceRename, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/pitr", h.PITR, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
@@ -323,6 +324,20 @@ func (h *handler) rename(c echo.Context) (string, error) {
 	return strings.Join(append([]string{"Saved."}, warn...), " "), nil
 }
 
+// POST …/-/instances/:tile/pitr: days, 0 = off. One restart of the database.
+func (h *handler) PITR(c echo.Context) error {
+	days, err := strconv.Atoi(strings.TrimSpace(c.FormValue("days")))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "days is a number")
+	}
+	note := "restarting to start archiving"
+	if days <= 0 {
+		note = "restarting to stop archiving"
+	}
+	_, _, err = h.orch.SetPITR(c.Request().Context(), scope(c).Tile.ID, days)
+	return h.instance(c, "backups", note, err, instance.SettingsView{})
+}
+
 // POST …/-/instances/:tile/allow: the whole list (allow, repeated) plus
 // add, one more pattern. Blank entries are dropped.
 func (h *handler) Allow(c echo.Context) error {
@@ -449,7 +464,11 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			}
 			bs = append(bs, b)
 		}
-		body = instance.Backups(v, bs)
+		pv, err := h.pitr(c, t.ID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = instance.Backups(v, pv, bs)
 	case "settings":
 		body = instance.Settings(v, settingsView(c, m, form))
 	default:
@@ -536,7 +555,7 @@ func (h *handler) instanceVolumes(c echo.Context, tileID, instanceID string) ([]
 		return nil, err
 	}
 	for _, v := range all {
-		owned := v.InstanceID != nil && *v.InstanceID == instanceID
+		owned := v.InstanceID != nil && *v.InstanceID == instanceID && !service.IsArchiveVolume(v)
 		seen := slices.ContainsFunc(vols, func(w service.Volume) bool {
 			return w.ID == v.ID
 		})
@@ -942,6 +961,38 @@ func (h *handler) mounts(c echo.Context, slug string) ([]volume.Mount, error) {
 	return out, nil
 }
 
+// keepOf is a schedule's keep as the panel shows it; a base backup has none,
+// its recovery window keeps it.
+func keepOf(s service.BackupSchedule) string {
+	if s.Method == "base" {
+		return ""
+	}
+	return fmt.Sprint(s.Keep)
+}
+
+// pitr is the instance's point-in-time recovery health for its Backups tab.
+func (h *handler) pitr(c echo.Context, tileID string) (instance.PITRView, error) {
+	s, err := h.orch.PITRStatus(c.Request().Context(), tileID)
+	if err != nil {
+		return instance.PITRView{}, err
+	}
+	v := instance.PITRView{
+		On: s.On, Days: s.Days, Dest: s.Dest, Local: s.Local, Bundles: s.Bundles,
+		Size: render.Size(s.Bytes), Waiting: s.Waiting, Error: s.Error,
+		Edit: can(c, scope(c), "tile.write"),
+	}
+	if s.From != nil {
+		v.From = *s.From
+	}
+	if s.To != nil {
+		v.To = *s.To
+	}
+	if b := s.LastBase; b != nil {
+		v.Base = &instance.PITRBase{At: b.At, OK: b.OK, Active: b.Active, Error: b.Error}
+	}
+	return v, nil
+}
+
 // backups is one volume's schedules, runs, and what a backup can go to
 // and with.
 func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsView, error) {
@@ -992,7 +1043,7 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 			TZ:     s.Timezone,
 			Mode:   s.Mode,
 			Dest:   names[dest],
-			Keep:   fmt.Sprint(s.Keep),
+			Keep:   keepOf(s),
 		})
 	}
 	for _, r := range runs {
@@ -1004,7 +1055,7 @@ func (h *handler) backups(c echo.Context, vol service.Volume) (volume.BackupsVie
 			Size:       render.Size(r.SizeBytes),
 			Error:      r.Error,
 			Dest:       cmp.Or(names[r.DestID], r.Dest),
-			Restorable: r.Status == "done" && r.ObjectKey != "",
+			Restorable: r.Status == "done" && r.ObjectKey != "" && !service.IsBaseKey(r.ObjectKey),
 		})
 		if r.Status == "queued" || r.Status == "running" {
 			b.Live = true
