@@ -54,7 +54,8 @@ save() {
 	ts="$(date -u +%Y%m%dT%H%M%SZ)"
 	snap="$PRESERVE/$ts"
 	rig mkdir -p "$snap"
-	py "$snap" <<'PY'
+	local saved
+	saved="$(py "$snap" <<'PY'
 import json, shutil, sqlite3
 db = sqlite3.connect("/d/stackr.db")
 db.row_factory = sqlite3.Row
@@ -74,7 +75,15 @@ shutil.copy("/d/keys/master.key", "/s/master.key")
 shutil.copy("/d/install.json", "/s/install.json")
 print(f"{len(out)} connector(s) saved")
 PY
+)"
+	echo "$saved"
 	rig docker run --rm -v stackr-caddy:/c -v "$snap:/s" alpine tar czf /s/caddy.tgz -C /c .
+	# A rig paved twice has no connectors left: never let that snapshot replace
+	# the one that still holds them.
+	if [[ "$saved" == "0 connector(s) saved" ]]; then
+		echo "snapshot $ts has no connectors: latest stays on $(rig readlink "$PRESERVE/latest" 2>/dev/null || echo nothing)"
+		return
+	fi
 	rig ln -sfn "$snap" "$PRESERVE/latest"
 	echo "snapshot $ts"
 }
