@@ -53,13 +53,20 @@ func TestCheckAndUpgrade(t *testing.T) {
 		_, _ = io.WriteString(w, `{"tag_name":"v0.2.0"}`)
 	}))
 	defer gh.Close()
+	dgSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, testDigest+"\n")
+	}))
+	defer dgSrv.Close()
+	const tagRef = "ghcr.io/fyrmforge/stackr:0.2.0"
 	fake := dockerfake.New()
-	fake.Gone = []string{"ghcr.io/fyrmforge/stackr:0.2.0"} // not here until pulled
+	fake.Gone = []string{installspec.DigestRef(testDigest)} // not here until pulled
+	fake.Digests = map[string]string{tagRef: testDigest}
 	var order []string
 	f := &Flow{
-		Panel:   panel.New(fake),
-		Version: "v0.1.0",
-		URL:     gh.URL,
+		Panel:     panel.New(fake),
+		Version:   "v0.1.0",
+		URL:       gh.URL,
+		DigestFmt: dgSrv.URL + "/%s",
 		Archive: func(context.Context, io.Writer) (string, error) {
 			order = append(order, "archive")
 			return "/data/backups/pre-upgrade-v0.1.0.tar.gz", nil
@@ -88,7 +95,7 @@ func TestCheckAndUpgrade(t *testing.T) {
 			seq = append(seq, c.Method+" "+c.Args[0])
 		}
 	}
-	if strings.Join(seq, ", ") != "Pull ghcr.io/fyrmforge/stackr:0.2.0, Run stackr-upgrader" || len(order) != 1 {
+	if strings.Join(seq, ", ") != "Pull "+installspec.DigestRef(testDigest)+", Run stackr-upgrader" || len(order) != 1 {
 		t.Errorf("sequence = %v, archive calls %d", seq, len(order))
 	}
 	var sp docker.ContainerSpec
@@ -100,11 +107,11 @@ func TestCheckAndUpgrade(t *testing.T) {
 
 	// A tag that moved to another image since the pull is not swapped in.
 	fake3 := dockerfake.New()
-	fake3.Digests = map[string]string{"ghcr.io/fyrmforge/stackr:0.2.0": "sha256:aaa"}
+	fake3.Digests = map[string]string{tagRef: testDigest}
 	f.Panel = panel.New(fake3)
 	moved := false
 	f.Archive = func(context.Context, io.Writer) (string, error) {
-		fake3.Digests["ghcr.io/fyrmforge/stackr:0.2.0"] = "sha256:bbb"
+		fake3.Digests[tagRef] = "sha256:bbb"
 		moved = true
 		return "/data/backups/x.tar.gz", nil
 	}
@@ -114,6 +121,7 @@ func TestCheckAndUpgrade(t *testing.T) {
 
 	// A failed archive never reaches the helper.
 	fake2 := dockerfake.New()
+	fake2.Digests = map[string]string{tagRef: testDigest}
 	f.Panel = panel.New(fake2)
 	f.Archive = func(context.Context, io.Writer) (string, error) { return "", errors.New("disk full") }
 	if _, err := f.Upgrade(ctx, tag, io.Discard); err == nil || len(fake2.Specs) != 0 {
@@ -127,6 +135,60 @@ func TestCheckAndUpgrade(t *testing.T) {
 	}
 	if _, err := f.Upgrade(ctx, "v9.0.0", io.Discard); err == nil {
 		t.Error("dev build upgraded")
+	}
+}
+
+const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+// The release's declared digest is what runs: a missing asset refuses a
+// release tag, a dev tag falls back to the tag, and a tag that does not end
+// up at the digest locally is refused.
+func TestUpgradeDigest(t *testing.T) {
+	ctx := context.Background()
+	status, body := http.StatusNotFound, ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	run := func(tag string, localDigest string) (*dockerfake.Fake, error) {
+		fake := dockerfake.New()
+		fake.Digests = map[string]string{installspec.Image(tag): localDigest}
+		if localDigest == "" {
+			fake.Gone = []string{installspec.Image(tag)} // a tag pull fetches it
+		}
+		f := &Flow{
+			Panel: panel.New(fake), Version: "v0.1.0", DigestFmt: srv.URL + "/%s",
+			Archive: func(context.Context, io.Writer) (string, error) { return "/a.tar.gz", nil },
+			Spec:    func(image string) docker.ContainerSpec { return docker.ContainerSpec{Name: "stackr", Image: image} },
+		}
+		_, err := f.Upgrade(ctx, tag, io.Discard)
+		return fake, err
+	}
+	pulled := func(f *dockerfake.Fake) string {
+		for _, c := range f.Calls() {
+			if c.Method == "Pull" {
+				return c.Args[0]
+			}
+		}
+		return ""
+	}
+
+	if f, err := run("v0.2.0", testDigest); err == nil || pulled(f) != "" {
+		t.Errorf("release with no digest asset: %v, pulled %q", err, pulled(f))
+	}
+	body = "sha256:short"
+	status = http.StatusOK
+	if f, err := run("v0.2.0", testDigest); err == nil || pulled(f) != "" {
+		t.Errorf("malformed digest asset: %v, pulled %q", err, pulled(f))
+	}
+	status, body = http.StatusNotFound, ""
+	if f, err := run("v0.2.0-dev.1", ""); err != nil || pulled(f) != installspec.Image("v0.2.0-dev.1") {
+		t.Errorf("dev tag: %v, pulled %q", err, pulled(f))
+	}
+	status, body = http.StatusOK, testDigest
+	if f, err := run("v0.2.0", "sha256:bbbb"); err == nil || len(f.Specs) != 0 {
+		t.Errorf("tag at another digest: %v", err)
 	}
 }
 

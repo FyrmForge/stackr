@@ -5,6 +5,7 @@ package upgrade
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -21,6 +22,9 @@ import (
 
 const ReleasesURL = "https://api.github.com/repos/FyrmForge/stackr/releases/latest"
 
+// DigestURL is where a release's image digest asset sits (%s = the tag).
+const DigestURL = "https://github.com/FyrmForge/stackr/releases/download/%s/" + installspec.DigestAsset
+
 type Flow struct {
 	Panel   *panel.Leaf
 	Version string // the running build: a release tag like v0.1.1, or "dev"
@@ -30,6 +34,8 @@ type Flow struct {
 	// spec, so a new env var reaches upgrades as well as fresh installs.
 	Spec func(image string) docker.ContainerSpec
 	URL  string // "" = ReleasesURL; tests point it at a fake
+	// DigestFmt is DigestURL ("" = DigestURL); tests point it at a fake.
+	DigestFmt string
 	// Docker and ProxySpec let an upgrade bring stackr-proxy along: its spec
 	// for image. Nil = the proxy is left alone.
 	Docker    ProxyDocker
@@ -115,7 +121,24 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	// The request that started this dies with the old container.
 	ctx = context.WithoutCancel(ctx)
 	image := ImageRef(tag)
-	if err := f.Panel.Pull(ctx, image, log); err != nil {
+	// The release declares its image's digest. That is what is pulled, and
+	// tagged as image so the rest of the upgrade runs it by the usual name; a
+	// tag someone moved on the registry is never fetched.
+	// ponytail: the digest comes from GitHub's release asset, the same trust
+	// as the tag_name it came with; signing (cosign) comes later.
+	dg, err := f.releaseDigest(ctx, tag)
+	if err != nil {
+		return "", err
+	}
+	if dg != "" {
+		ref := installspec.DigestRef(dg)
+		if err := f.Panel.Pull(ctx, ref, log); err != nil {
+			return "", fmt.Errorf("pull %s: %w", ref, err)
+		}
+		if err := f.Panel.Tag(ctx, ref, image); err != nil {
+			return "", fmt.Errorf("tag %s: %w", image, err)
+		}
+	} else if err := f.Panel.Pull(ctx, image, log); err != nil {
 		return "", fmt.Errorf("pull %s: %w", image, err)
 	}
 	// The tag is resolved once, here. Everything after runs the local copy,
@@ -123,6 +146,9 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	pinned, err := f.Panel.Digest(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", image, err)
+	}
+	if dg != "" && pinned != dg {
+		return "", fmt.Errorf("%s is not the release's image %s on this box", image, dg)
 	}
 	if pinned != "" {
 		_, _ = fmt.Fprintf(log, "upgrading to %s\n", pinned)
@@ -153,6 +179,39 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 		return "", err
 	}
 	return archive, nil
+}
+
+// releaseDigest reads the digest asset of release tag. A release without one
+// is refused, except a dev tag (rig builds are never GitHub releases): that
+// one pulls by tag, as the installer's dev builds do.
+func (f *Flow) releaseDigest(ctx context.Context, tag string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	format := f.DigestFmt
+	if format == "" {
+		format = DigestURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(format, tag), nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err == nil {
+		defer func() { _ = res.Body.Close() }()
+		if res.StatusCode == http.StatusOK {
+			b, rerr := io.ReadAll(io.LimitReader(res.Body, 256))
+			if dg := strings.TrimSpace(string(b)); rerr == nil && installspec.ValidDigest(dg) {
+				return dg, nil
+			}
+			err = errors.New("the digest asset is malformed")
+		} else {
+			err = fmt.Errorf("github answered %s", res.Status)
+		}
+	}
+	if isDevTag(tag) {
+		return "", nil
+	}
+	return "", errs.Conflictf("%s declares no image digest, so it is not pulled: %v", tag, err)
 }
 
 // EnsureProxy recreates stackr-proxy from image when the spec it was made

@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -216,6 +217,19 @@ func (in Input) BaseURL() string {
 // Image maps a release version (v0.1.1 or 0.1.1) to its image; CI tags
 // images without the v.
 func Image(version string) string { return Repo + ":" + strings.TrimPrefix(version, "v") }
+
+// DigestAsset is the release asset holding the panel image's digest, one
+// line ("sha256:<64 hex>"). The workflow writes it from what the registry
+// answered to the push, and it is listed in SHA256SUMS.
+const DigestAsset = "stackr-image.digest"
+
+var digestRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// ValidDigest reports whether s is an image digest ("sha256:<64 hex>").
+func ValidDigest(s string) bool { return digestRe.MatchString(s) }
+
+// DigestRef is the panel image at digest: what a release pulls, never its tag.
+func DigestRef(digest string) string { return Repo + "@" + digest }
 
 // SwapSpecEnv carries the new panel's spec into `stackrd upgrade-swap`. A
 // wire contract: an older image's helper reads the same name.

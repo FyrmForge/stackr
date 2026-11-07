@@ -33,6 +33,7 @@ type Docker interface {
 	Inspect(ctx context.Context, id string) (docker.Detail, error)
 	Pull(ctx context.Context, ref, auth string, log io.Writer) error
 	LocalDigest(ctx context.Context, ref string) (string, error)
+	Tag(ctx context.Context, src, dst string) error
 }
 
 const (
@@ -70,6 +71,12 @@ func (l *Leaf) Pull(ctx context.Context, image string, log io.Writer) error {
 		return nil
 	}
 	return l.docker.Pull(ctx, image, "", log)
+}
+
+// Tag points dst at the local image src: the digest a release declares,
+// pulled, becomes the tag the rest of the upgrade runs by.
+func (l *Leaf) Tag(ctx context.Context, src, dst string) error {
+	return l.docker.Tag(ctx, src, dst)
 }
 
 // Digest is the registry digest the local image was pulled as ("" when it

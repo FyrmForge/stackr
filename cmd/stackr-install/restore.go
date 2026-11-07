@@ -96,15 +96,19 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 	if keyWarn != "" {
 		_, _ = fmt.Fprintln(out, "Warning:", keyWarn)
 	}
+	dg := "" // --image pulls what it names
 	if *image == "" {
 		v, err := checkVersion(ver, "")
 		if err != nil {
 			return fmt.Errorf("the archive names build %q; pass --image", ver)
 		}
 		*image = installspec.Image(v)
+		if dg, err = pinFor(v, version, digest); err != nil {
+			return err
+		}
 	}
 	r := runner{out: out}
-	if err := r.pull(ctx, *image); err != nil {
+	if err := r.pull(ctx, *image, dg); err != nil {
 		return err
 	}
 

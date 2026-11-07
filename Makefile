@@ -1,4 +1,4 @@
-.PHONY: admin build installcli installer release test test-integration lint templint db-sh clean install generate check-node-modules css-build
+.PHONY: admin build installcli installer release release-images release-installer test test-integration lint templint db-sh clean install generate check-node-modules css-build
 
 # Force bash so the ENV_LOAD eval below works cross-shell (sh on Debian/Ubuntu
 # is dash, which doesn't grok `eval "$(...)"` quoting consistently).
@@ -63,16 +63,28 @@ installer:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/stackr-install ./cmd/stackr-install
 
 ## release: stackrd and stackr-observe images + stackr-install for linux/amd64, e.g. make release RELEASE=v0.1.0
+## A rig build (-dev.N) has no registry digest, so its installer pulls by tag.
+## The release workflow runs the two halves itself: release-images, push, then
+## release-installer DIGEST=sha256:... with the digest the registry answered.
 ## Rig test builds are vX.Y.Z-dev.N after the latest tag (v0.6.0-dev.1): never
 ## a git tag, and a -dev build is never offered a self-upgrade.
 ## The image is tagged without the v (ghcr.io/fyrmforge/stackr:0.1.0), as
 ## the installer and the self-upgrade look it up.
-release:
+release: release-images release-installer
+
+release-images:
 	@[[ "$(RELEASE)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?$$ ]] || { echo "usage: make release RELEASE=vX.Y.Z or vX.Y.Z-dev.N" >&2; exit 1; }
 	$(MAKE) build
 	docker build --platform linux/amd64 --build-arg VERSION=$(RELEASE) -f cmd/stackrd/Dockerfile -t ghcr.io/fyrmforge/stackr:$(RELEASE:v%=%) .
 	docker build --platform linux/amd64 -f cmd/stackr-observe/Dockerfile -t ghcr.io/fyrmforge/stackr-observe:$(RELEASE:v%=%) .
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$(RELEASE)" -o bin/stackr-install-linux-amd64 ./cmd/stackr-install
+
+## release-installer: the installer of RELEASE. A release (no -dev) needs
+## DIGEST, the panel image's registry digest, embedded so the installer pulls
+## that and never the tag.
+release-installer:
+	@[[ "$(RELEASE)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?$$ ]] || { echo "usage: make release RELEASE=vX.Y.Z or vX.Y.Z-dev.N" >&2; exit 1; }
+	@[[ "$(RELEASE)" == *-dev.* || "$(DIGEST)" =~ ^sha256:[0-9a-f]{64}$$ ]] || { echo "a release installer needs DIGEST=sha256:<64 hex>, the pushed panel image's digest" >&2; exit 1; }
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=$(RELEASE) -X main.digest=$(DIGEST)" -o bin/stackr-install-linux-amd64 ./cmd/stackr-install
 
 ## generate: Generate static pages
 generate:

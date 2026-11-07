@@ -332,7 +332,7 @@ func TestRunnerKeepsCommandOutputBack(t *testing.T) {
 func TestFetchWorkerExtractsBothBinaries(t *testing.T) {
 	var out strings.Builder
 	r := runner{dry: true, out: &out}
-	if err := r.fetchWorker(context.Background(), "ghcr.io/fyrmforge/stackr:0.6.0"); err != nil {
+	if err := r.fetchWorker(context.Background(), "ghcr.io/fyrmforge/stackr:0.6.0", ""); err != nil {
 		t.Fatal(err)
 	}
 	flat := strings.Join(strings.Fields(out.String()), " ")

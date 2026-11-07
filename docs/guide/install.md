@@ -12,13 +12,16 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
 ## Install
 
-1. Download the installer from the latest GitHub release.
+1. Download the installer from the latest GitHub release and check it against the release's checksums.
 
    ```bash
-   curl -fL -o stackr-install \
-     https://github.com/FyrmForge/stackr/releases/latest/download/stackr-install-linux-amd64
-   chmod +x stackr-install
+   base=https://github.com/FyrmForge/stackr/releases/latest/download
+   curl -fLO "$base/stackr-install-linux-amd64" -O "$base/SHA256SUMS"
+   sha256sum -c --ignore-missing SHA256SUMS
+   mv stackr-install-linux-amd64 stackr-install && chmod +x stackr-install
    ```
+
+   `sha256sum` must print `stackr-install-linux-amd64: OK`. The installer carries the digest of its release's panel image and pulls that image by digest, not by tag.
 
 2. Run it as root. In a terminal it asks for the domain, an ACME contact email and the admin login.
 
@@ -60,7 +63,7 @@ Flags you may want:
 | `--proxy` | CDN or load balancer ranges (for example Cloudflare's) whose X-Forwarded-For is trusted. |
 | `--http-port`, `--https-port` | Host ports. Defaults 80 and 443. |
 | `--wg-port` | UDP port of the mesh. Default 51871. |
-| `--version` | Install another release than the installer's own. |
+| `--version` | Install another release than the installer's own. Only a dev build accepts one; a release installer pins its own release, so use that release's installer. |
 | `--dry-run` | Print what would change and change nothing. |
 | `--yes` | Install Docker without asking when it is missing. |
 

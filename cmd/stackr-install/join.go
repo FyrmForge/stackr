@@ -275,7 +275,11 @@ func join(ctx context.Context, args []string, out io.Writer) error {
 	if err := r.mkdir(*stateDir, 0o700); err != nil {
 		return err
 	}
-	if err := r.fetchWorker(ctx, installspec.Image(ver)); err != nil {
+	dg, err := pinFor(ver, version, digest)
+	if err != nil {
+		return err
+	}
+	if err := r.fetchWorker(ctx, installspec.Image(ver), dg); err != nil {
 		return err
 	}
 	if r.dry {
@@ -494,9 +498,9 @@ func (r runner) ensureWireGuard(ctx context.Context) error {
 
 // fetchWorker puts the release's stackrd and stackr-install on the host,
 // taking them out of the panel image (the one place releases publish them).
-func (r runner) fetchWorker(ctx context.Context, image string) error {
+func (r runner) fetchWorker(ctx context.Context, image, dg string) error {
 	const tmp = "stackr-worker-extract"
-	if err := r.pull(ctx, image); err != nil {
+	if err := r.pull(ctx, image, dg); err != nil {
 		return err
 	}
 	r.say("  taking stackrd out of the image")

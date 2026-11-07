@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,6 +34,11 @@ import (
 
 // version is set at build time via ldflags: the release this binary installs.
 var version = "dev"
+
+// digest is set at build time via ldflags by the release workflow: the
+// sha256 digest of this release's panel image, which the registry answered to
+// the push. Empty in a dev or rig build.
+var digest = ""
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -110,6 +116,10 @@ Flags:
 		return err
 	}
 	image := installspec.Image(ver)
+	dg, err := pinFor(ver, version, digest)
+	if err != nil {
+		return err
+	}
 	r := runner{dry: *dry, out: out, verbose: *verbose}
 
 	if !r.dry {
@@ -247,7 +257,7 @@ Flags:
 		return err
 	}
 	r.conntrackAcct()
-	if err := r.pull(ctx, image); err != nil {
+	if err := r.pull(ctx, image, dg); err != nil {
 		return err
 	}
 	if !r.exists(ctx, "volume", installspec.ProxyVolume) {
@@ -664,14 +674,55 @@ func (r runner) conntrackAcct() {
 	}
 }
 
-// pull skips an image already here: a release tag never changes, and it lets
-// a box without registry access install an image loaded by hand.
-func (r runner) pull(ctx context.Context, image string) error {
-	if r.exists(ctx, "image", image) {
-		r.say("  have", image)
-		return nil
+// pinFor is the digest ver's image must have: this installer's own release
+// carries one. "" = no pin, only for a build with no digest embedded (a dev
+// or rig build), which pulls by tag. An installer with a digest knows no other
+// release's, so it refuses one rather than pull that by tag.
+func pinFor(ver, own, dg string) (string, error) {
+	if dg == "" {
+		return "", nil
 	}
-	return r.docker(ctx, "pull", image)
+	if !installspec.ValidDigest(dg) {
+		return "", fmt.Errorf("this installer carries a malformed image digest %q", dg)
+	}
+	if strings.TrimPrefix(ver, "v") != strings.TrimPrefix(own, "v") {
+		return "", fmt.Errorf("this installer pins only its own release (%s) by digest, not %s: use the installer of %s (or --image, which pulls what it names)", own, ver, ver)
+	}
+	return dg, nil
+}
+
+// hasDigest reports whether repoDigests (docker's RepoDigests of an image)
+// holds the panel image at dg.
+func hasDigest(repoDigests []string, dg string) bool {
+	return slices.Contains(repoDigests, installspec.DigestRef(dg))
+}
+
+// pull makes image (the tag everything runs by) the image with digest dg.
+// With a digest: an image whose RepoDigests hold it is kept, else the digest
+// is pulled and tagged, replacing a tag that points elsewhere (a moved tag, a
+// stale or hand-loaded copy). With no digest (dev or rig build only) it pulls
+// by tag and keeps one already here.
+func (r runner) pull(ctx context.Context, image, dg string) error {
+	if dg == "" {
+		r.say("  no image digest in this build (dev build): pulling", image, "by tag")
+		if r.exists(ctx, "image", image) {
+			r.say("  have", image)
+			return nil
+		}
+		return r.docker(ctx, "pull", image)
+	}
+	if out, err := read(ctx, "docker", "image", "inspect", "--format", "{{json .RepoDigests}}", image); err == nil {
+		var have []string
+		if json.Unmarshal([]byte(out), &have) == nil && hasDigest(have, dg) {
+			r.say("  have", image, "("+dg+")")
+			return nil
+		}
+	}
+	ref := installspec.DigestRef(dg)
+	if err := r.docker(ctx, "pull", ref); err != nil {
+		return err
+	}
+	return r.docker(ctx, "tag", ref, image)
 }
 
 func (r runner) exists(ctx context.Context, kind, name string) bool {

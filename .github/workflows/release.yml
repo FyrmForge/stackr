@@ -53,9 +53,9 @@ jobs:
         if: steps.next.outputs.version != ''
         run: make install
 
-      - name: Build image and installer
+      - name: Build the images
         if: steps.next.outputs.version != ''
-        run: make release RELEASE=v${{ steps.next.outputs.version }}
+        run: make release-images RELEASE=v${{ steps.next.outputs.version }}
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         if: steps.next.outputs.version != ''
@@ -71,6 +71,20 @@ jobs:
         run: |
           docker push ghcr.io/fyrmforge/stackr:${VERSION}
           docker push ghcr.io/fyrmforge/stackr-observe:${VERSION}
+
+      # The installer carries the digest the registry answered to the push and
+      # pulls that, never the tag. No digest fails the release: make
+      # release-installer refuses a release build without one.
+      - name: Build the installer with the image digest
+        if: steps.next.outputs.version != ''
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          DIGEST=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' ghcr.io/fyrmforge/stackr:${VERSION} | sed -n 's|^ghcr.io/fyrmforge/stackr@||p' | head -n1)
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for ghcr.io/fyrmforge/stackr:${VERSION} after the push"; exit 1; }
+          make release-installer RELEASE=v${VERSION} DIGEST=${DIGEST}
+          echo "${DIGEST}" > bin/stackr-image.digest
+          (cd bin && sha256sum stackr-install-linux-amd64 stackr-image.digest > SHA256SUMS)
 
       - name: Tag and publish the release
         if: steps.next.outputs.version != ''
@@ -88,6 +102,6 @@ jobs:
           VERSION: ${{ steps.next.outputs.version }}
         run: |
           [ "${{ steps.semantic.outputs.version }}" = "$VERSION" ] || { echo "::error::released ${{ steps.semantic.outputs.version }}, built $VERSION"; exit 1; }
-          gh release upload v${VERSION} bin/stackr-install-linux-amd64
+          gh release upload v${VERSION} bin/stackr-install-linux-amd64 bin/stackr-image.digest bin/SHA256SUMS
           docker tag ghcr.io/fyrmforge/stackr:${VERSION} ghcr.io/fyrmforge/stackr:latest
           docker push ghcr.io/fyrmforge/stackr:latest
