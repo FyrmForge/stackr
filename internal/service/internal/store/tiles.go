@@ -60,6 +60,8 @@ type Tile struct {
 	SliceAccess             SliceAccessList `db:"slice_access" json:"slice_access"`       // consumers: access per slice tile
 	CreatedAt               time.Time       `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time       `db:"updated_at" json:"updated_at"`
+	ExpiresAt               *time.Time      `db:"expires_at" json:"expires_at"` // a branch slice: swept after this; nil = never
+	BranchOf                *string         `db:"branch_of" json:"branch_of"`   // a branch slice: the slice tile id it was copied from
 }
 
 // SliceAccess is one consumer's access to a slice tile of its env.

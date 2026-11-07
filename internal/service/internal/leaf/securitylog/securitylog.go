@@ -36,6 +36,7 @@ const (
 	GrantApprove         = "grant.approve"
 	GrantRevoke          = "grant.revoke"
 	SecretReveal         = "secrets.reveal"
+	SliceBranch          = "slice.branch"   // a slice was copied as of now (detail: source, target, instance)
 	NodeBootstrap        = "node.bootstrap" // the controller row was made
 	RegistryToken        = "registry.token" // the registry front issued a token
 	CertIssue            = "cert.issue"     // the cluster CA signed a certificate

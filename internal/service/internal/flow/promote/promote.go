@@ -61,7 +61,7 @@ type Flow struct {
 	// it outside the store (its build clone) goes. Nil = nothing.
 	Forget func(ctx context.Context, t store.Tile)
 	// DumpBeforeDrop backs the instance up before an explicit on_remove: drop
-	// destroys a slice's data; an error stops the removal. Nil = no dump.
+	// destroys a slice's data (a branch excepted); an error stops the removal. Nil = no dump.
 	DumpBeforeDrop func(ctx context.Context, envID string, p store.Provision, log io.Writer) error
 }
 
@@ -410,7 +410,7 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 			}
 			if ok {
 				drop := deref(t.OnRemove) == tile.Drop || e.Type == environment.Ephemeral
-				if deref(t.OnRemove) == tile.Drop && f.DumpBeforeDrop != nil {
+				if deref(t.OnRemove) == tile.Drop && t.BranchOf == nil && f.DumpBeforeDrop != nil { // a branch is a throwaway copy
 					if err := f.DumpBeforeDrop(ctx, e.ID, p, log); err != nil {
 						return removed, fmt.Errorf("backup before dropping %s: %w", p.DBName, err)
 					}

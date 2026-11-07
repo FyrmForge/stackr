@@ -49,7 +49,7 @@ func bucketName(slug string) string {
 	for len(n) < 3 {
 		n += "0"
 	}
-	return n[:min(len(n), maxName)]
+	return capName(n, "-")
 }
 
 var errNoS3 = errors.New("s3 engine: no S3 client")

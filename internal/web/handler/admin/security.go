@@ -31,6 +31,7 @@ var securityActions = []struct{ Key, Label string }{
 	{"grant.approve", "host access approved"},
 	{"grant.revoke", "host access revoked"},
 	{"secrets.reveal", "secret revealed"},
+	{"slice.branch", "slice branched"},
 	{"node.bootstrap", "controller created"},
 	{"join.token", "join token issued"},
 	{"join.request", "node asked to join"},

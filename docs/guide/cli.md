@@ -2775,6 +2775,39 @@ stackr slice bindings [slice] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+### `stackr slice branch`
+
+Copy a postgres slice as of now into a new slice tile <slice>-br-xxxx
+
+```
+stackr slice branch <slice> [flags]
+```
+
+```
+      --env string        the environment (default: the linked one)
+      --expires string    delete the branch after this long, e.g. 3d or 36h (default: never)
+      --instance string   the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of --to-env (default: the source's)
+      --no-wait           print the job and return; it runs server-side
+      --stack string      the stack (default: the linked one)
+      --tile string       the tile (default: the linked one)
+      --to-env string     the env the branch goes to: an env of the stack, or <stack>:<env> (default: the source's)
+```
+
+### `stackr slice forward`
+
+Tunnel a local port to the slice's postgres and print its connection string
+
+```
+stackr slice forward <slice> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+  -p, --port int       the local port (default: a free one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr slice get`
 
 Show a slice tile and the instance it resolves to

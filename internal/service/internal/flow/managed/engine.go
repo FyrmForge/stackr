@@ -9,6 +9,8 @@ package managed
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -141,6 +143,17 @@ func engine(name string) (ManagedTile, error) {
 // allow.
 const maxName = 56
 
+// capName cuts id to maxName; a cut name ends in sep and 8 hex of the hash
+// of the whole, so two long names that share a prefix stay apart. A name
+// under the limit is untouched.
+func capName(id, sep string) string {
+	if len(id) <= maxName {
+		return id
+	}
+	h := sha256.Sum256([]byte(id))
+	return id[:maxName-9] + sep + hex.EncodeToString(h[:4])
+}
+
 // sqlIdent: lowercase, digits and underscores, never leading with a digit or
 // pg_ (postgres reserves role names starting with it), at most maxName long.
 func sqlIdent(slug string) string {
@@ -156,7 +169,7 @@ func sqlIdent(slug string) string {
 	if id == "" || (id[0] >= '0' && id[0] <= '9') || strings.HasPrefix(id, "pg_") {
 		id = "db_" + id
 	}
-	return id[:min(len(id), maxName)]
+	return capName(id, "_")
 }
 
 // uniqueSliceName suffixes base until no existing slice answers to it.

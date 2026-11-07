@@ -620,10 +620,14 @@ func (o *Orchestrator) watchNodeClients() {
 	defer day.Stop()
 	conn := time.NewTicker(connCheckEvery)
 	defer conn.Stop()
+	hour := time.NewTicker(time.Hour)
+	defer hour.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-hour.C:
+			o.detach(ctx, o.sweepExpired)
 		case <-conn.C:
 			o.detach(ctx, func(ctx context.Context) {
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)

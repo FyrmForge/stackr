@@ -28,11 +28,13 @@ type seedJob struct {
 }
 
 // seedSource is where a seed's dump comes from. Kind "upload" is a file
-// spooled under the data dir; a backup run or another tile's dump is a
-// new kind here and a case in open.
+// spooled under the data dir; kind "slice" is another slice's database,
+// dumped and loaded in one stream (runSeed). A backup run would be a new
+// kind here and a case in open.
 type seedSource struct {
-	Kind string `json:"kind"`
-	Path string `json:"path,omitempty"`
+	Kind    string `json:"kind"`
+	Path    string `json:"path,omitempty"`
+	SliceID string `json:"slice_id,omitempty"` // kind slice: the slice tile copied
 }
 
 // open is the source's dump; closing it lets an upload's file go.
@@ -162,6 +164,9 @@ func (o *Orchestrator) runSeed(ctx context.Context, r *jobs.Run, p seedJob) (err
 	}
 	o.ensureMesh(ctx)
 	ids := []string{p.TileID, p.SliceID}
+	if p.Source.Kind == "slice" {
+		ids = ids[1:] // a branch goes onto an instance that is already running
+	}
 	for _, id := range ids {
 		if err := o.deploy.Redeploy(ctx, id, r.Log, r.Swap); err != nil {
 			o.downAfterFailedDeploy(ctx, id, err)
@@ -175,12 +180,32 @@ func (o *Orchestrator) runSeed(ctx context.Context, r *jobs.Run, p seedJob) (err
 	if err != nil {
 		return err
 	}
+	if p.Source.Kind == "slice" {
+		return o.seedFromSlice(ctx, r, s, p)
+	}
 	dump, err := p.Source.open()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = dump.Close() }()
 	return o.engines.Seed(ctx, s, p.Format, dump, r.Log)
+}
+
+// seedFromSlice pipes pg_dump of the source slice, run on its instance,
+// into the load of s: no file. A failure on either side fails the job.
+func (o *Orchestrator) seedFromSlice(ctx context.Context, r *jobs.Run, s Tile, p seedJob) error {
+	src, err := o.tiles.Get(ctx, p.Source.SliceID)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "dumping %s\n", src.Slug)
+	out, wait, err := o.engines.DumpSlice(ctx, src)
+	if err != nil {
+		return err
+	}
+	err = o.engines.Seed(ctx, s, p.Format, out, r.Log)
+	// wait closes the pipe first, so a load that stopped early frees the dump
+	return errors.Join(err, wait())
 }
 
 // seedEnded lets a finished seed job's dump go: one cancelled or

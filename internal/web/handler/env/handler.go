@@ -69,6 +69,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/on-remove", h.SliceOnRemove, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/delete", h.SliceDelete, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/branch", h.SliceBranch, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/rename", h.SliceRename, a.Require("tile.write"))
 	g.GET(e+"/volumes/:volume", h.Volume, a.Require("org.read"))
 	g.POST(e+"/volumes/:volume/backup", h.BackupNow, a.Require("backup.write"))
@@ -588,6 +589,16 @@ func (h *handler) SliceOnRemove(c echo.Context) error {
 	return h.slice(c, "Saved.", err)
 }
 
+// POST …/-/slices/:tile/branch: env, instance and expires, each optional.
+func (h *handler) SliceBranch(c echo.Context) error {
+	br, _, err := h.orch.BranchSlice(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, service.BranchIn{
+		Env:      strings.TrimSpace(c.FormValue("env")),
+		Instance: strings.TrimSpace(c.FormValue("instance")),
+		Expires:  strings.TrimSpace(c.FormValue("expires")),
+	})
+	return h.slice(c, "Branch "+br.Slug+" is filling in.", err)
+}
+
 // POST …/-/slices/:tile/delete
 func (h *handler) SliceDelete(c echo.Context) error {
 	if _, err := h.orch.DeleteTile(c.Request().Context(), scope(c).Tile.ID); err != nil {
@@ -650,6 +661,7 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		Location:      s.Stack.Name + " / " + s.Env.Name,
 		EnvColor:      s.Env.Color,
 		ReadOnly:      !can(c, s, "tile.write"),
+		CanBranch:     sv.Provisioned && sv.Engine == "postgres",
 		Error:         msg,
 		ProvisionFrom: sv.ProvisionFrom,
 		Blocker:       sv.Blocker,

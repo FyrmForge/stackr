@@ -310,6 +310,49 @@ func TestSliceDrawer(t *testing.T) {
 	}
 }
 
+// The Branch row copies a provisioned postgres slice into a new slice tile;
+// a bad expiry is refused in its row and makes nothing.
+func TestSliceBranchRow(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	pg := managed(t, s)
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := s.Do(t, "GET", "/acme/shop/dev/-/slices/main?tab=settings", nil).Body.String(); strings.Contains(body, `data-acc="branch"`) {
+		t.Error("an undeployed slice offers Branch")
+	}
+	s.Bound(t, main.ID, pg.ID, s.Tile.ID, "read")
+	body := s.Do(t, "GET", "/acme/shop/dev/-/slices/main?tab=settings", nil).Body.String()
+	for _, w := range []string{`data-acc="branch"`, `hx-post="/acme/shop/dev/-/slices/main/branch"`, `name="expires"`} {
+		if !strings.Contains(body, w) {
+			t.Errorf("slice settings lack %q", w)
+		}
+	}
+	branches := func() int {
+		ts, err := s.Orch.Tiles(ctx, s.Tile.Env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, x := range ts {
+			if strings.HasPrefix(x.Slug, "main-br-") {
+				n++
+			}
+		}
+		return n
+	}
+	rec := s.Do(t, "POST", "/acme/shop/dev/-/slices/main/branch", url.Values{"expires": {"soon"}, "open": {"branch"}})
+	if rec.Code != 422 || branches() != 0 {
+		t.Errorf("bad expiry = %d with %d branches, want 422 and none", rec.Code, branches())
+	}
+	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/branch", url.Values{"expires": {"3d"}, "open": {"branch"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "is filling in") || branches() != 1 {
+		t.Errorf("branch = %d with %d branches\n%s", rec.Code, branches(), rec.Body)
+	}
+}
+
 // The create dialog makes a slice tile and opens its drawer.
 func TestCreateSlice(t *testing.T) {
 	s := webtest.New(t)

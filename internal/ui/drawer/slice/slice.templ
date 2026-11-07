@@ -38,6 +38,7 @@ type View struct {
 	Location, EnvColor string
 	Error, Note        string
 	ReadOnly           bool // the viewer may not write: no forms, no delete
+	CanBranch          bool // a provisioned postgres slice: the Branch row
 
 	ProvisionFrom string // as written
 	Target        string // "stack/env/tile" it resolves to; "" = Blocker says why
@@ -124,6 +125,9 @@ func settingsRows(v View) []c.AccRow {
 	}
 	if len(v.Consumers) > 0 {
 		rows = append(rows, c.AccRow{Key: "consumers", Title: "Consumer access", Summary: ConsumersSummary(v.Consumers), Body: consumersRow(v)})
+	}
+	if v.CanBranch && !v.ReadOnly {
+		rows = append(rows, c.AccRow{Key: "branch", Title: "Branch", Summary: "copy as of now", Body: branchRow(v)})
 	}
 	rows = append(rows, c.AccRow{Key: "remove", Title: "On remove", Summary: onRemoveWord(v.OnRemove), Changed: v.OnRemove == "drop", Body: removeRow(v)})
 	if !v.ReadOnly {
@@ -223,6 +227,19 @@ templ nameRow(v View) {
 			<button type="submit" class="btn btn-primary btn-sm">Rename</button>
 		</form>
 	}
+}
+
+// branchRow copies the database as of now into a new slice tile. The dump
+// runs against the live instance.
+templ branchRow(v View) {
+	<p class="text-xs text-rw-faint" data-hint>A copy of the data as of now, with its own login.</p>
+	<form novalidate hx-post={ v.Base + "/branch" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+		@c.KeepOpen("branch")
+		@c.Field(c.FieldView{Name: "env", Label: "Env", Placeholder: "same env", Help: "An env of this stack, or stack:env."})
+		@c.Field(c.FieldView{Name: "instance", Label: "Instance", Placeholder: "same instance", Help: "stack:env:tile of another postgres."})
+		@c.Field(c.FieldView{Name: "expires", Label: "Expires", Placeholder: "never", Help: "For example 3d or 36h."})
+		<button type="submit" class="btn btn-primary btn-sm">Branch</button>
+	</form>
 }
 
 templ removeRow(v View) {

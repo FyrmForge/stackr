@@ -580,6 +580,25 @@
         ],
         "type": "object"
       },
+      "BranchIn": {
+        "properties": {
+          "env": {
+            "type": "string"
+          },
+          "expires": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "env",
+          "instance",
+          "expires"
+        ],
+        "type": "object"
+      },
       "Change": {
         "properties": {
           "field": {
@@ -6403,6 +6422,44 @@
         ],
         "type": "object"
       },
+      "SliceBranched": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "tile": {
+            "$ref": "#/components/schemas/TileView"
+          }
+        },
+        "required": [
+          "tile",
+          "job"
+        ],
+        "type": "object"
+      },
+      "SliceCreds": {
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "user",
+          "password",
+          "port"
+        ],
+        "type": "object"
+      },
       "SliceTileIn": {
         "properties": {
           "default_access": {
@@ -6428,6 +6485,9 @@
             "type": "string"
           },
           "default_access": {
+            "type": "string"
+          },
+          "engine": {
             "type": "string"
           },
           "name": {
@@ -6468,6 +6528,7 @@
           "default_access",
           "on_remove",
           "provisioned",
+          "engine",
           "name",
           "network"
         ],
@@ -7773,6 +7834,16 @@
       },
       "TileView": {
         "properties": {
+          "branch_of": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "build_args": {
             "type": "string"
           },
@@ -7825,6 +7896,17 @@
           },
           "environment_id": {
             "type": "string"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "files": {
             "items": {
@@ -20104,6 +20186,78 @@
         "x-verb": "tile.read"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/branch": {
+      "post": {
+        "operationId": "slice.branch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SliceBranched"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/deploy": {
       "post": {
         "operationId": "tile.deploy",
@@ -22366,6 +22520,138 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-creds": {
+      "get": {
+        "operationId": "slice.creds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SliceCreds"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-forward": {
+      "get": {
+        "description": "A websocket upgrade: each socket is one TCP connection to the port in one replica; binary frames are the bytes both ways, a text frame {\"type\":\"eof\"} half-closes the client's side. The port reached comes back in the X-Stackr-Port response header.",
+        "operationId": "slice.forward",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "container",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "port",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols: the connection is now a websocket"
           },
           "default": {
             "content": {

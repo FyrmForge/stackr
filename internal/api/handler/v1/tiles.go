@@ -462,6 +462,28 @@ func (h *H) CreateSliceTile() Endpoint {
 	})
 }
 
+// SliceBranched is a branch: its slice tile and the job that loads it.
+type SliceBranched struct {
+	Tile service.TileView `json:"tile"`
+	Job  service.Job      `json:"job"`
+}
+
+// BranchSlice copies a postgres slice as of now into a new slice tile;
+// the job (202) provisions it and loads the data.
+func (h *H) BranchSlice() Endpoint {
+	return JSON(http.StatusAccepted, func(c echo.Context, in service.BranchIn) (SliceBranched, error) {
+		t, j, err := h.Orch.BranchSlice(rc(c), middleware.Principal(c), tileID(c), in)
+		return SliceBranched{Tile: service.NewTileView(t), Job: j}, err
+	})
+}
+
+// SliceCreds reveals the slice's own owner credentials (logged).
+func (h *H) SliceCreds() Endpoint {
+	return Get(func(c echo.Context) (service.SliceCreds, error) {
+		return h.Orch.SliceCreds(rc(c), middleware.Principal(c), tileID(c))
+	})
+}
+
 func (h *H) SetSliceAccess() Endpoint {
 	return JSON(200, func(c echo.Context, in SliceAccessIn) (service.TileView, error) {
 		return tileView(h.Orch.SetSliceAccess(rc(c), tileID(c), in.Slice, in.Access))

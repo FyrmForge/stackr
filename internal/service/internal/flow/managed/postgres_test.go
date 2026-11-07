@@ -209,3 +209,23 @@ func TestSQLIdentAvoidsReservedPrefix(t *testing.T) {
 		}
 	}
 }
+
+// A name past the limit is cut with a hash of the whole, so a branch of a
+// long-named slice never lands on its source's name; short names are unchanged.
+func TestLongNamesStayDistinct(t *testing.T) {
+	src := "shop_development_" + strings.Repeat("orders", 8)
+	br := src + "_br_a1b2"
+	a, b := sqlIdent(src), sqlIdent(br)
+	if a == b || len(a) > maxName || len(b) > maxName {
+		t.Errorf("sqlIdent: %q vs %q", a, b)
+	}
+	if a != sqlIdent(src) {
+		t.Error("the cut name is not stable")
+	}
+	if got := sqlIdent("shop_dev_" + strings.Repeat("x", 47)); len(got) != maxName || strings.Contains(got, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_") {
+		t.Errorf("a name at the limit changed: %q", got)
+	}
+	if x, y := bucketName(strings.Repeat("a", 70)+"1"), bucketName(strings.Repeat("a", 70)+"2"); x == y || len(x) > maxName {
+		t.Errorf("bucketName: %q vs %q", x, y)
+	}
+}

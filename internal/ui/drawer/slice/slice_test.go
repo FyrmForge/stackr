@@ -116,7 +116,7 @@ func TestBlockerAndFileOwned(t *testing.T) {
 // A read-only slice drawer has no forms and no delete.
 func TestReadOnlyNoWrites(t *testing.T) {
 	v := full()
-	v.ReadOnly = true
+	v.ReadOnly, v.CanBranch = true, true
 	out := render(t, v, Settings(v))
 	for _, w := range []string{"<form", "Delete tile"} {
 		if strings.Contains(out, w) {
