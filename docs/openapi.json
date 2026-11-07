@@ -497,6 +497,16 @@
                 "type": "null"
               }
             ]
+          },
+          "wal_start": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3640,6 +3650,9 @@
           "id": {
             "type": "string"
           },
+          "pitr_days": {
+            "type": "integer"
+          },
           "tile_id": {
             "type": "string"
           }
@@ -3652,6 +3665,7 @@
           "env_pairs",
           "admin_user",
           "endpoint",
+          "pitr_days",
           "created_at"
         ],
         "type": "object"
@@ -4770,6 +4784,118 @@
           "created_at",
           "ticked",
           "confirmed"
+        ],
+        "type": "object"
+      },
+      "PITRBase": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "at",
+          "ok"
+        ],
+        "type": "object"
+      },
+      "PITRHealth": {
+        "properties": {
+          "days": {
+            "type": "integer"
+          },
+          "dest": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "last_base": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PITRBase"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_shipped": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "local": {
+            "type": "boolean"
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "restorable_from": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "restorable_to": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segments_waiting": {
+            "type": "integer"
+          },
+          "wal_bundles": {
+            "type": "integer"
+          },
+          "wal_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on",
+          "days",
+          "wal_bundles",
+          "wal_bytes",
+          "segments_waiting"
+        ],
+        "type": "object"
+      },
+      "PITRIn": {
+        "properties": {
+          "days": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days"
         ],
         "type": "object"
       },
@@ -21815,6 +21941,147 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/pitr": {
+      "get": {
+        "operationId": "managed.pitr-status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PITRHealth"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "put": {
+        "operationId": "managed.pitr",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PITRIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
           },
           "default": {
             "content": {
