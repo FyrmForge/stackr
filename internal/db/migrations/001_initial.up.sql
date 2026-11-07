@@ -718,6 +718,9 @@ CREATE INDEX idx_jobs_state_created ON jobs (state, created_at);
 CREATE INDEX join_tokens_node ON join_tokens (node_id);
 CREATE INDEX node_certs_node ON node_certs (node_id);
 CREATE UNIQUE INDEX nodes_one_controller ON nodes (role) WHERE role = 'controller';
+-- One WireGuard key per node: a recovering node cannot take a key another
+-- node already holds. Pending nodes may have none yet.
+CREATE UNIQUE INDEX nodes_wg_public_key ON nodes(wg_public_key) WHERE wg_public_key != '';
 CREATE INDEX org_config_plans_org ON org_config_plans (org_id, created_at DESC);
 CREATE INDEX placement_moves_placement ON placement_moves (placement_id, started_at);
 CREATE INDEX placements_node ON placements (node_id);

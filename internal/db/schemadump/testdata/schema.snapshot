@@ -1,0 +1,782 @@
+table annotations
+  col id TEXT notnull=0 default=- pk=1
+  col scope_kind TEXT notnull=1 default=- pk=0
+  col scope_id TEXT notnull=1 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col x INTEGER notnull=1 default=- pk=0
+  col y INTEGER notnull=1 default=- pk=0
+  col w INTEGER notnull=1 default=- pk=0
+  col h INTEGER notnull=1 default=- pk=0
+  col text TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index annotations_scope unique=0 origin=c partial=0 (scope_kind,scope_id)
+table api_keys
+  col id TEXT notnull=0 default=- pk=1
+  col user_id TEXT notnull=1 default=- pk=0
+  col org_id TEXT notnull=0 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col token_hash TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col level TEXT notnull=1 default='' pk=0
+  col stack_id TEXT notnull=0 default=- pk=0
+  col expires_at DATETIME notnull=0 default=- pk=0
+  col last_used_at DATETIME notnull=0 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
+  fk user_id -> users(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (token_hash)
+table backup_destinations
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=0 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col endpoint TEXT notnull=1 default=- pk=0
+  col region TEXT notnull=1 default=- pk=0
+  col bucket TEXT notnull=1 default=- pk=0
+  col access_key TEXT notnull=1 default=- pk=0
+  col secret_key TEXT notnull=1 default=- pk=0
+  col archive_key TEXT notnull=1 default=- pk=0
+  col shared INTEGER notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col approved_endpoint TEXT notnull=1 default='' pk=0
+  col approved_by TEXT notnull=1 default='' pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+table backup_groups
+  col id TEXT notnull=0 default=- pk=1
+  col node_id TEXT notnull=1 default=- pk=0
+  col node_name TEXT notnull=1 default=- pk=0
+  col label TEXT notnull=1 default=- pk=0
+  col reason TEXT notnull=1 default=- pk=0
+  col dest_id TEXT notnull=1 default=- pk=0
+  col warning TEXT notnull=1 default=- pk=0
+  col status TEXT notnull=1 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col finished_at DATETIME notnull=0 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+table backup_runs
+  col id TEXT notnull=0 default=- pk=1
+  col kind TEXT notnull=1 default=- pk=0
+  col volume_id TEXT notnull=0 default=- pk=0
+  col schedule_id TEXT notnull=0 default=- pk=0
+  col dest_id TEXT notnull=1 default=- pk=0
+  col trigger TEXT notnull=1 default=- pk=0
+  col status TEXT notnull=1 default=- pk=0
+  col object_key TEXT notnull=1 default=- pk=0
+  col size_bytes INTEGER notnull=1 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col finished_at DATETIME notnull=0 default=- pk=0
+  col group_id TEXT notnull=0 default=- pk=0
+  col recovery_gen INTEGER notnull=1 default=0 pk=0
+  col master_gen INTEGER notnull=1 default=0 pk=0
+  fk dest_id -> backup_destinations(id) on_update=NO ACTION on_delete=CASCADE
+  fk group_id -> backup_groups(id) on_update=NO ACTION on_delete=SET NULL
+  fk schedule_id -> backup_schedules(id) on_update=NO ACTION on_delete=SET NULL
+  fk volume_id -> volumes(id) on_update=NO ACTION on_delete=SET NULL
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index backup_runs_dest unique=0 origin=c partial=0 (dest_id)
+  index backup_runs_group unique=0 origin=c partial=0 (group_id)
+  index backup_runs_kind unique=0 origin=c partial=0 (kind)
+  index backup_runs_volume unique=0 origin=c partial=0 (volume_id)
+table backup_schedules
+  col id TEXT notnull=0 default=- pk=1
+  col volume_id TEXT notnull=1 default=- pk=0
+  col method TEXT notnull=1 default=- pk=0
+  col dest_id TEXT notnull=0 default=- pk=0
+  col cron TEXT notnull=1 default=- pk=0
+  col timezone TEXT notnull=1 default=- pk=0
+  col keep INTEGER notnull=1 default=- pk=0
+  col mode TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk dest_id -> backup_destinations(id) on_update=NO ACTION on_delete=SET NULL
+  fk volume_id -> volumes(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+table bindings
+  col id TEXT notnull=0 default=- pk=1
+  col provision_id TEXT notnull=1 default=- pk=0
+  col consumer_tile_id TEXT notnull=1 default=- pk=0
+  col access TEXT notnull=1 default=- pk=0
+  col db_user TEXT notnull=1 default=- pk=0
+  col db_password TEXT notnull=1 default=- pk=0
+  col outputs TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk consumer_tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  fk provision_id -> provisions(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (provision_id,consumer_tile_id)
+table cluster_ca
+  col id INTEGER notnull=0 default=- pk=1
+  col current_fp TEXT notnull=1 default=- pk=0
+  col previous_fp TEXT notnull=1 default='' pk=0
+  col rollover_started_at DATETIME notnull=0 default=- pk=0
+  col rollover_finished_at DATETIME notnull=0 default=- pk=0
+  col break_glass_at DATETIME notnull=0 default=- pk=0
+table connector_shares
+  col connector_id TEXT notnull=1 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=2
+  fk connector_id -> connectors(id) on_update=NO ACTION on_delete=CASCADE
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (connector_id,org_id)
+  index connector_shares_org unique=0 origin=c partial=0 (org_id)
+table connectors
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=0 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col host TEXT notnull=1 default=- pk=0
+  col settings TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col share_all INTEGER notnull=1 default=0 pk=0
+  col capabilities TEXT notnull=1 default='["git"]' pk=0
+  col checked_at DATETIME notnull=0 default=- pk=0
+  col check_error TEXT notnull=1 default='' pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (org_id,host)
+  index connectors_org_kind unique=1 origin=c partial=0 (org_id,kind)
+  index connectors_server_name unique=1 origin=c partial=1 (name) where org_id IS NULL
+table credentials
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col url TEXT notnull=1 default=- pk=0
+  col username TEXT notnull=1 default=- pk=0
+  col password TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (org_id,name)
+table dns_domains
+  col id TEXT notnull=0 default=- pk=1
+  col connector_id TEXT notnull=1 default=- pk=0
+  col org_id TEXT notnull=0 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col share_all INTEGER notnull=1 default=- pk=0
+  col org_ids TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col resource_id TEXT notnull=0 default=- pk=0
+  col scope TEXT notnull=1 default='' pk=0
+  col records TEXT notnull=1 default='[]' pk=0
+  fk connector_id -> connectors(id) on_update=NO ACTION on_delete=CASCADE
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  fk resource_id -> domain_resources(id) on_update=NO ACTION on_delete=SET NULL
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (name)
+  index dns_domains_connector unique=0 origin=c partial=0 (connector_id)
+table dns_records
+  col id TEXT notnull=0 default=- pk=1
+  col dns_domain_id TEXT notnull=0 default=- pk=0
+  col zone TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col type TEXT notnull=1 default=- pk=0
+  col value TEXT notnull=1 default=- pk=0
+  col ttl INTEGER notnull=1 default=- pk=0
+  col domain_id TEXT notnull=0 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col adopted INTEGER notnull=1 default=0 pk=0
+  col kind TEXT notnull=1 default='app' pk=0
+  col put_back_at DATETIME notnull=0 default=- pk=0
+  col handed_back_at DATETIME notnull=0 default=- pk=0
+  fk dns_domain_id -> dns_domains(id) on_update=NO ACTION on_delete=SET NULL
+  fk domain_id -> domains(id) on_update=NO ACTION on_delete=SET NULL
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index dns_records_addr unique=1 origin=c partial=1 (zone,name,type) where kind != 'custom' AND handed_back_at IS NULL
+  index dns_records_custom unique=1 origin=c partial=1 (zone,name,type,value) where kind = 'custom' AND handed_back_at IS NULL
+table domain_resources
+  col id TEXT notnull=0 default=- pk=1
+  col level TEXT notnull=1 default=- pk=0
+  col org_id TEXT notnull=0 default=- pk=0
+  col stack_id TEXT notnull=0 default=- pk=0
+  col host TEXT notnull=1 default=- pk=0
+  col include_env_on_default INTEGER notnull=1 default=- pk=0
+  col acme_email TEXT notnull=1 default=- pk=0
+  col declared INTEGER notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (host)
+table domains
+  col id TEXT notnull=0 default=- pk=1
+  col tile_id TEXT notnull=1 default=- pk=0
+  col host TEXT notnull=1 default=- pk=0
+  col path TEXT notnull=1 default=- pk=0
+  col container_port INTEGER notnull=1 default=- pk=0
+  col https INTEGER notnull=1 default=- pk=0
+  col force_https INTEGER notnull=1 default=- pk=0
+  col redirect_to TEXT notnull=1 default=- pk=0
+  col auto INTEGER notnull=1 default=- pk=0
+  col resource_id TEXT notnull=0 default=- pk=0
+  col position INTEGER notnull=1 default=- pk=0
+  col proxy_json TEXT notnull=1 default=- pk=0
+  col raw_caddy TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col records TEXT notnull=1 default='[]' pk=0
+  fk resource_id -> domain_resources(id) on_update=NO ACTION on_delete=NO ACTION
+  fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index idx_domains_host_path unique=1 origin=c partial=0 (host,path)
+table env_moves
+  col id TEXT notnull=0 default=- pk=1
+  col env_id TEXT notnull=1 default=- pk=0
+  col from_node TEXT notnull=1 default=- pk=0
+  col to_node TEXT notnull=1 default=- pk=0
+  col live BOOLEAN notnull=1 default=- pk=0
+  col phase TEXT notnull=1 default=- pk=0
+  col bytes INTEGER notnull=1 default=- pk=0
+  col started_at DATETIME notnull=1 default=- pk=0
+  col finished_at DATETIME notnull=0 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  col placement_move_id TEXT notnull=0 default=- pk=0
+  fk env_id -> environments(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index env_moves_env unique=0 origin=c partial=0 (env_id,started_at)
+table environments
+  col id TEXT notnull=0 default=- pk=1
+  col stack_id TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col type TEXT notnull=1 default=- pk=0
+  col base_env_id TEXT notnull=0 default=- pk=0
+  col settings TEXT notnull=1 default=- pk=0
+  col color TEXT notnull=1 default=- pk=0
+  col position INTEGER notnull=1 default=- pk=0
+  col network TEXT notnull=1 default=- pk=0
+  col release_id TEXT notnull=0 default=- pk=0
+  col from_kind TEXT notnull=1 default=- pk=0
+  col from_branch TEXT notnull=1 default=- pk=0
+  col auto INTEGER notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col locked BOOLEAN notnull=1 default=1 pk=0
+  col node_id TEXT notnull=1 default='' pk=0
+  col subnet TEXT notnull=1 default='' pk=0
+  col placement_id TEXT notnull=1 default='' pk=0
+  fk base_env_id -> environments(id) on_update=NO ACTION on_delete=SET NULL
+  fk release_id -> releases(id) on_update=NO ACTION on_delete=SET NULL
+  fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (stack_id,slug)
+table exit_ladders
+  col scope_kind TEXT notnull=1 default=- pk=1
+  col scope_id TEXT notnull=1 default=- pk=2
+  col position INTEGER notnull=1 default=- pk=3
+  col target_id TEXT notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (scope_kind,scope_id,position)
+  index (auto) unique=1 origin=u partial=0 (scope_kind,scope_id,target_id)
+  index exit_ladders_node unique=0 origin=c partial=0 (target_id)
+table forgotten_nodes
+  col id TEXT notnull=0 default=- pk=1
+  col name TEXT notnull=1 default=- pk=0
+  col forgotten_at TIMESTAMP notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+table host_grants
+  col id TEXT notnull=0 default=- pk=1
+  col stack_id TEXT notnull=1 default=- pk=0
+  col lines TEXT notnull=1 default=- pk=0
+  col approved_by TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk approved_by -> users(id) on_update=NO ACTION on_delete=NO ACTION
+  fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (stack_id)
+table idempotency_keys
+  col id TEXT notnull=0 default=- pk=1
+  col request_hash TEXT notnull=1 default=- pk=0
+  col status INTEGER notnull=1 default=0 pk=0
+  col body TEXT notnull=1 default='' pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index idempotency_keys_created unique=0 origin=c partial=0 (created_at)
+table images
+  col id TEXT notnull=0 default=- pk=1
+  col ref TEXT notnull=1 default=- pk=0
+  col digest TEXT notnull=1 default=- pk=0
+  col built_at DATETIME notnull=0 default=- pk=0
+  col last_digest TEXT notnull=1 default=- pk=0
+  col last_tag TEXT notnull=1 default=- pk=0
+  col last_error TEXT notnull=1 default=- pk=0
+  col checked_at DATETIME notnull=0 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (ref)
+table ingress_picks
+  col scope_kind TEXT notnull=1 default=- pk=1
+  col scope_id TEXT notnull=1 default=- pk=2
+  col placement_id TEXT notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (scope_kind,scope_id)
+  index ingress_picks_node unique=0 origin=c partial=0 (placement_id)
+table invites
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col email TEXT notnull=1 default=- pk=0
+  col role TEXT notnull=1 default=- pk=0
+  col created_by TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col expires_at DATETIME notnull=1 default=- pk=0
+  col used_at DATETIME notnull=0 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+table job_tiles
+  col job_id TEXT notnull=1 default=- pk=1
+  col tile_id TEXT notnull=1 default=- pk=2
+  fk job_id -> jobs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (job_id,tile_id)
+  index job_tiles_tile unique=0 origin=c partial=0 (tile_id,job_id)
+table jobs
+  col id TEXT notnull=0 default=- pk=1
+  col kind TEXT notnull=1 default=- pk=0
+  col state TEXT notnull=1 default=- pk=0
+  col release_id TEXT notnull=0 default=- pk=0
+  col lock_set TEXT notnull=1 default=- pk=0
+  col payload TEXT notnull=1 default=- pk=0
+  col waiting_param TEXT notnull=0 default=- pk=0
+  col log_path TEXT notnull=1 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col started_at DATETIME notnull=0 default=- pk=0
+  col finished_at DATETIME notnull=0 default=- pk=0
+  col actor_id TEXT notnull=1 default='' pk=0
+  col actor_key_id TEXT notnull=1 default='' pk=0
+  fk release_id -> releases(id) on_update=NO ACTION on_delete=SET NULL
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index idx_jobs_finished unique=0 origin=c partial=0 (finished_at)
+  index idx_jobs_state_created unique=0 origin=c partial=0 (state,created_at)
+table join_tokens
+  col id TEXT notnull=0 default=- pk=1
+  col hash TEXT notnull=1 default=- pk=0
+  col node_name TEXT notnull=1 default=- pk=0
+  col tags TEXT notnull=1 default=- pk=0
+  col created_by TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col expires_at DATETIME notnull=1 default=- pk=0
+  col used_at DATETIME notnull=0 default=- pk=0
+  col node_id TEXT notnull=1 default=- pk=0
+  col csr TEXT notnull=1 default=- pk=0
+  col wg_public_key TEXT notnull=1 default=- pk=0
+  col facts TEXT notnull=1 default=- pk=0
+  col cert_pem TEXT notnull=1 default=- pk=0
+  col rejected_at DATETIME notnull=0 default=- pk=0
+  col node_address TEXT notnull=1 default='' pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (hash)
+  index join_tokens_node unique=0 origin=c partial=0 (node_id)
+table managed_instances
+  col id TEXT notnull=0 default=- pk=1
+  col tile_id TEXT notnull=1 default=- pk=0
+  col engine TEXT notnull=1 default=- pk=0
+  col allow TEXT notnull=1 default='[]' pk=0
+  col env_pairs TEXT notnull=1 default='{}' pk=0
+  col admin_user TEXT notnull=1 default=- pk=0
+  col admin_password TEXT notnull=1 default=- pk=0
+  col endpoint TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+table node_certs
+  col serial TEXT notnull=0 default=- pk=1
+  col node_id TEXT notnull=1 default=- pk=0
+  col role TEXT notnull=1 default=- pk=0
+  col not_after DATETIME notnull=1 default=- pk=0
+  col revoked_at DATETIME notnull=0 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col issuer TEXT notnull=1 default='' pk=0
+  index (auto) unique=1 origin=pk partial=0 (serial)
+  index node_certs_node unique=0 origin=c partial=0 (node_id)
+table nodes
+  col id TEXT notnull=0 default=- pk=1
+  col name TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col role TEXT notnull=1 default=- pk=0
+  col tags TEXT notnull=1 default=- pk=0
+  col range_cidr TEXT notnull=1 default=- pk=0
+  col wg_public_key TEXT notnull=1 default=- pk=0
+  col wg_address TEXT notnull=1 default=- pk=0
+  col status TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col public_ip TEXT notnull=1 default='' pk=0
+  col address TEXT notnull=1 default='' pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (name)
+  index (auto) unique=1 origin=u partial=0 (range_cidr)
+  index (auto) unique=1 origin=u partial=0 (slug)
+  index nodes_one_controller unique=1 origin=c partial=1 (role) where role = 'controller'
+  index nodes_wg_public_key unique=1 origin=c partial=1 (wg_public_key) where wg_public_key != ''
+table org_config_plans
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col commit_sha TEXT notnull=1 default=- pk=0
+  col summary TEXT notnull=1 default=- pk=0
+  col plan TEXT notnull=1 default=- pk=0
+  col status TEXT notnull=1 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col decided_at DATETIME notnull=0 default=- pk=0
+  col ticked TEXT notnull=1 default='[]' pk=0
+  col confirmed INTEGER notnull=1 default=0 pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index org_config_plans_org unique=0 origin=c partial=0 (org_id,created_at DESC)
+table org_members
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col user_id TEXT notnull=1 default=- pk=0
+  col role TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  fk user_id -> users(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (org_id,user_id)
+table orgs
+  col id TEXT notnull=0 default=- pk=1
+  col name TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col avatar_path TEXT notnull=1 default=- pk=0
+  col env_colors TEXT notnull=1 default=- pk=0
+  col settings TEXT notnull=1 default=- pk=0
+  col setup_done_at DATETIME notnull=0 default=- pk=0
+  col setup_mode TEXT notnull=1 default='' pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col config_connector_id TEXT notnull=1 default=- pk=0
+  col config_repo TEXT notnull=1 default=- pk=0
+  col config_branch TEXT notnull=1 default=- pk=0
+  col config_path TEXT notnull=1 default=- pk=0
+  col config_auto INTEGER notnull=1 default=0 pk=0
+  col placement_id TEXT notnull=0 default=- pk=0
+  fk placement_id -> placements(id) on_update=NO ACTION on_delete=RESTRICT
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (slug)
+table params
+  col id TEXT notnull=0 default=- pk=1
+  col scope_kind TEXT notnull=1 default=- pk=0
+  col scope_id TEXT notnull=1 default=- pk=0
+  col collection TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col value TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col updated_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (scope_kind,scope_id,collection,name)
+table placement_moves
+  col id TEXT notnull=0 default=- pk=1
+  col placement_id TEXT notnull=1 default=- pk=0
+  col from_node TEXT notnull=1 default=- pk=0
+  col to_node TEXT notnull=1 default=- pk=0
+  col restore BOOLEAN notnull=1 default=- pk=0
+  col state TEXT notnull=1 default=- pk=0
+  col by TEXT notnull=1 default=- pk=0
+  col key_id TEXT notnull=1 default=- pk=0
+  col started_at DATETIME notnull=1 default=- pk=0
+  col finished_at DATETIME notnull=0 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  fk placement_id -> placements(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index placement_moves_placement unique=0 origin=c partial=0 (placement_id,started_at)
+table placement_orgs
+  col placement_id TEXT notnull=1 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=2
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  fk placement_id -> placements(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (placement_id,org_id)
+table placements
+  col id TEXT notnull=0 default=- pk=1
+  col name TEXT notnull=1 default=- pk=0
+  col node_id TEXT notnull=1 default='' pk=0
+  col open_to_all INTEGER notnull=1 default=1 pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (name)
+  index placements_node unique=0 origin=c partial=0 (node_id)
+table positions
+  col scope_kind TEXT notnull=1 default=- pk=1
+  col scope_id TEXT notnull=1 default=- pk=2
+  col node_id TEXT notnull=1 default=- pk=3
+  col x INTEGER notnull=1 default=- pk=0
+  col y INTEGER notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (scope_kind,scope_id,node_id)
+table provisions
+  col id TEXT notnull=0 default=- pk=1
+  col tile_id TEXT notnull=1 default=- pk=0
+  col instance_id TEXT notnull=1 default=- pk=0
+  col db_name TEXT notnull=1 default=- pk=0
+  col db_user TEXT notnull=1 default=- pk=0
+  col db_password TEXT notnull=1 default=- pk=0
+  col public INTEGER notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk instance_id -> managed_instances(id) on_update=NO ACTION on_delete=CASCADE
+  fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (tile_id)
+table registry_images
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=0 default=- pk=0
+  col repo TEXT notnull=1 default=- pk=0
+  col tag TEXT notnull=1 default=- pk=0
+  col digest TEXT notnull=1 default=- pk=0
+  col platforms TEXT notnull=1 default=- pk=0
+  col source TEXT notnull=1 default=- pk=0
+  col upstream_ref TEXT notnull=1 default=- pk=0
+  col size INTEGER notnull=1 default=- pk=0
+  col created_by TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (repo,digest)
+  index registry_images_org unique=0 origin=c partial=0 (org_id)
+table registry_tokens
+  col id TEXT notnull=0 default=- pk=1
+  col kind TEXT notnull=1 default=- pk=0
+  col subject_id TEXT notnull=1 default=- pk=0
+  col scope TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col expires_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index registry_tokens_expires unique=0 origin=c partial=0 (expires_at)
+  index registry_tokens_subject unique=0 origin=c partial=0 (subject_id,created_at)
+table release_tiles
+  col id TEXT notnull=0 default=- pk=1
+  col release_id TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col repo TEXT notnull=1 default=- pk=0
+  col branch TEXT notnull=1 default=- pk=0
+  col commit_sha TEXT notnull=1 default=- pk=0
+  col image_id TEXT notnull=0 default=- pk=0
+  col digest TEXT notnull=1 default=- pk=0
+  fk image_id -> images(id) on_update=NO ACTION on_delete=SET NULL
+  fk release_id -> releases(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (release_id,slug)
+  index release_tiles_image unique=0 origin=c partial=0 (image_id)
+table releases
+  col id TEXT notnull=0 default=- pk=1
+  col stack_id TEXT notnull=1 default=- pk=0
+  col number INTEGER notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col created_by TEXT notnull=1 default=- pk=0
+  col message TEXT notnull=1 default='' pk=0
+  fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (stack_id,number)
+table routes
+  col id TEXT notnull=0 default=- pk=1
+  col host TEXT notnull=1 default=- pk=0
+  col mode TEXT notnull=1 default=- pk=0
+  col target TEXT notnull=1 default=- pk=0
+  col insecure INTEGER notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (host)
+table runs
+  col id TEXT notnull=0 default=- pk=1
+  col tile_id TEXT notnull=1 default=- pk=0
+  col release_id TEXT notnull=0 default=- pk=0
+  col job_id TEXT notnull=1 default=- pk=0
+  col trigger TEXT notnull=1 default=- pk=0
+  col status TEXT notnull=1 default=- pk=0
+  col exit_code INTEGER notnull=0 default=- pk=0
+  col reason TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col started_at DATETIME notnull=0 default=- pk=0
+  col finished_at DATETIME notnull=0 default=- pk=0
+  col peak_mem_bytes INTEGER notnull=0 default=- pk=0
+  col cpu_ms INTEGER notnull=0 default=- pk=0
+  fk release_id -> releases(id) on_update=NO ACTION on_delete=SET NULL
+  fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index runs_status unique=0 origin=c partial=0 (status)
+  index runs_tile unique=0 origin=c partial=0 (tile_id,created_at)
+table security_events
+  col id TEXT notnull=0 default=- pk=1
+  col at DATETIME notnull=1 default=- pk=0
+  col action TEXT notnull=1 default=- pk=0
+  col actor_id TEXT notnull=1 default='' pk=0
+  col key_id TEXT notnull=1 default='' pk=0
+  col target_kind TEXT notnull=1 default='' pk=0
+  col target_id TEXT notnull=1 default='' pk=0
+  col ip TEXT notnull=1 default='' pk=0
+  col user_agent TEXT notnull=1 default='' pk=0
+  col detail TEXT notnull=1 default='' pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index security_events_action unique=0 origin=c partial=0 (action,at)
+  index security_events_actor unique=0 origin=c partial=0 (actor_id,at)
+  index security_events_at unique=0 origin=c partial=0 (at)
+  index security_events_target unique=0 origin=c partial=0 (target_kind,target_id,at)
+table server_config_plans
+  col id TEXT notnull=0 default=- pk=1
+  col commit_sha TEXT notnull=1 default=- pk=0
+  col summary TEXT notnull=1 default=- pk=0
+  col plan TEXT notnull=1 default=- pk=0
+  col status TEXT notnull=1 default=- pk=0
+  col error TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col decided_at DATETIME notnull=0 default=- pk=0
+  col source TEXT notnull=1 default=- pk=0
+  col file TEXT notnull=1 default=- pk=0
+  col ticked TEXT notnull=1 default='[]' pk=0
+  col confirmed INTEGER notnull=1 default=0 pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index server_config_plans_created unique=0 origin=c partial=0 (created_at DESC)
+table sessions
+  col id TEXT notnull=0 default=- pk=1
+  col subject_id TEXT notnull=0 default=- pk=0
+  col token TEXT notnull=1 default=- pk=0
+  col expires_at DATETIME notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=CURRENT_TIMESTAMP pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (token)
+  index idx_sessions_subject_id unique=0 origin=c partial=1 (subject_id) where subject_id IS NOT NULL
+  index idx_sessions_token unique=0 origin=c partial=0 (token)
+table settings
+  col key TEXT notnull=0 default=- pk=1
+  col value TEXT notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (key)
+table shares
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col source TEXT notnull=1 default=- pk=0
+  col options TEXT notnull=1 default=- pk=0
+  col user TEXT notnull=1 default=- pk=0
+  col password_ref TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (org_id,slug)
+table stacks
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col description TEXT notnull=1 default=- pk=0
+  col settings TEXT notnull=1 default=- pk=0
+  col config_connector_id TEXT notnull=1 default=- pk=0
+  col config_repo TEXT notnull=1 default=- pk=0
+  col config_branch TEXT notnull=1 default=- pk=0
+  col config_path TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col placement_id TEXT notnull=0 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  fk placement_id -> placements(id) on_update=NO ACTION on_delete=RESTRICT
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (org_id,slug)
+table tiers
+  col id TEXT notnull=0 default=- pk=1
+  col org_id TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col position INTEGER notnull=1 default=- pk=0
+  col locked BOOLEAN notnull=1 default=1 pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  fk org_id -> orgs(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (org_id,slug)
+table tile_vips
+  col tile_id TEXT notnull=0 default=- pk=1
+  col node_id TEXT notnull=1 default=- pk=0
+  col vip TEXT notnull=1 default=- pk=0
+  fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (tile_id)
+table tiles
+  col id TEXT notnull=0 default=- pk=1
+  col stack_id TEXT notnull=1 default=- pk=0
+  col environment_id TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col kind TEXT notnull=1 default=- pk=0
+  col git_url TEXT notnull=1 default=- pk=0
+  col git_branch TEXT notnull=1 default=- pk=0
+  col image_ref TEXT notnull=1 default=- pk=0
+  col dockerfile_path TEXT notnull=1 default=- pk=0
+  col build_context TEXT notnull=1 default=- pk=0
+  col watch_paths TEXT notnull=1 default=- pk=0
+  col env_json TEXT notnull=1 default=- pk=0
+  col build_args TEXT notnull=1 default=- pk=0
+  col volumes TEXT notnull=1 default=- pk=0
+  col command TEXT notnull=1 default=- pk=0
+  col container_port INTEGER notnull=1 default=- pk=0
+  col published_ports TEXT notnull=1 default=- pk=0
+  col endpoint_protocol TEXT notnull=1 default=- pk=0
+  col health_path TEXT notnull=1 default=- pk=0
+  col healthcheck_cmd TEXT notnull=1 default=- pk=0
+  col healthcheck_interval_s INTEGER notnull=1 default=- pk=0
+  col healthcheck_timeout_s INTEGER notnull=1 default=- pk=0
+  col healthcheck_retries INTEGER notnull=1 default=- pk=0
+  col healthcheck_start_period_s INTEGER notnull=1 default=- pk=0
+  col cpu_limit REAL notnull=1 default=- pk=0
+  col mem_limit_mb INTEGER notnull=1 default=- pk=0
+  col user TEXT notnull=1 default=- pk=0
+  col shm_size_mb INTEGER notnull=1 default=- pk=0
+  col privileged INTEGER notnull=1 default=- pk=0
+  col devices TEXT notnull=1 default=- pk=0
+  col restart_policy TEXT notnull=1 default=- pk=0
+  col depends_on TEXT notnull=1 default=- pk=0
+  col files TEXT notnull=1 default=- pk=0
+  col shared_net TEXT notnull=1 default=- pk=0
+  col replicas INTEGER notnull=1 default=- pk=0
+  col update_policy TEXT notnull=1 default=- pk=0
+  col tag_policy TEXT notnull=1 default=- pk=0
+  col schedule TEXT notnull=1 default=- pk=0
+  col trigger TEXT notnull=1 default=- pk=0
+  col paused INTEGER notnull=1 default=- pk=0
+  col timeout_minutes INTEGER notnull=1 default=- pk=0
+  col provision_from TEXT notnull=0 default=- pk=0
+  col default_access TEXT notnull=0 default=- pk=0
+  col on_remove TEXT notnull=0 default=- pk=0
+  col slice_access TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col updated_at DATETIME notnull=1 default=- pk=0
+  col lan TEXT notnull=1 default='' pk=0
+  col host_network INTEGER notnull=1 default=0 pk=0
+  fk environment_id -> environments(id) on_update=NO ACTION on_delete=CASCADE
+  fk stack_id -> stacks(id) on_update=NO ACTION on_delete=CASCADE
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (environment_id,slug)
+table users
+  col id TEXT notnull=0 default=- pk=1
+  col email TEXT notnull=1 default=- pk=0
+  col password_hash TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col role TEXT notnull=1 default=- pk=0
+  col active INTEGER notnull=1 default=- pk=0
+  col avatar_path TEXT notnull=1 default=- pk=0
+  col theme TEXT notnull=1 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col updated_at DATETIME notnull=1 default=- pk=0
+  col time_zone TEXT notnull=1 default='' pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (email)
+table volumes
+  col id TEXT notnull=0 default=- pk=1
+  col scope_kind TEXT notnull=1 default=- pk=0
+  col scope_id TEXT notnull=1 default=- pk=0
+  col instance_id TEXT notnull=0 default=- pk=0
+  col slug TEXT notnull=1 default=- pk=0
+  col name TEXT notnull=1 default=- pk=0
+  col orphaned_at DATETIME notnull=0 default=- pk=0
+  col created_at DATETIME notnull=1 default=- pk=0
+  col node_id TEXT notnull=1 default='' pk=0
+  fk instance_id -> managed_instances(id) on_update=NO ACTION on_delete=SET NULL
+  index (auto) unique=1 origin=pk partial=0 (id)
+  index (auto) unique=1 origin=u partial=0 (scope_kind,scope_id,slug)
+trigger backup_destinations_keep_runs: CREATE TRIGGER backup_destinations_keep_runs BEFORE DELETE ON backup_destinations WHEN EXISTS (SELECT 1 FROM backup_runs WHERE dest_id = OLD.id) AND (OLD.org_id IS NULL OR EXISTS (SELECT 1 FROM orgs WHERE id = OLD.org_id)) BEGIN SELECT RAISE(ABORT, 'backup destination still has runs'); END
+trigger environments_scope_cascade: CREATE TRIGGER environments_scope_cascade AFTER DELETE ON environments BEGIN DELETE FROM params WHERE scope_kind = 'env' AND scope_id = old.id; DELETE FROM backup_schedules WHERE volume_id IN (SELECT id FROM volumes WHERE scope_kind = 'env' AND scope_id = old.id); UPDATE volumes SET orphaned_at = COALESCE(orphaned_at, CURRENT_TIMESTAMP), node_id = CASE WHEN node_id = '' THEN old.node_id ELSE node_id END WHERE scope_kind = 'env' AND scope_id = old.id; DELETE FROM positions WHERE scope_kind = 'env' AND scope_id = old.id; DELETE FROM annotations WHERE scope_kind = 'env' AND scope_id = old.id; END
+trigger exit_ladders_env_cascade: CREATE TRIGGER exit_ladders_env_cascade AFTER DELETE ON environments BEGIN DELETE FROM exit_ladders WHERE scope_kind = 'env' AND scope_id = old.id; END
+trigger exit_ladders_node_cascade: CREATE TRIGGER exit_ladders_node_cascade AFTER DELETE ON nodes BEGIN DELETE FROM exit_ladders WHERE scope_kind = 'node' AND scope_id = old.id; END
+trigger exit_ladders_org_cascade: CREATE TRIGGER exit_ladders_org_cascade AFTER DELETE ON orgs BEGIN DELETE FROM exit_ladders WHERE scope_kind = 'org' AND scope_id = old.id; END
+trigger exit_ladders_stack_cascade: CREATE TRIGGER exit_ladders_stack_cascade AFTER DELETE ON stacks BEGIN DELETE FROM exit_ladders WHERE scope_kind = 'stack' AND scope_id = old.id; END
+trigger exit_ladders_tile_cascade: CREATE TRIGGER exit_ladders_tile_cascade AFTER DELETE ON tiles BEGIN DELETE FROM exit_ladders WHERE scope_kind = 'tile' AND scope_id = old.id; END
+trigger ingress_picks_env_cascade: CREATE TRIGGER ingress_picks_env_cascade AFTER DELETE ON environments BEGIN DELETE FROM ingress_picks WHERE scope_kind = 'env' AND scope_id = old.id; END
+trigger ingress_picks_org_cascade: CREATE TRIGGER ingress_picks_org_cascade AFTER DELETE ON orgs BEGIN DELETE FROM ingress_picks WHERE scope_kind = 'org' AND scope_id = old.id; END
+trigger ingress_picks_stack_cascade: CREATE TRIGGER ingress_picks_stack_cascade AFTER DELETE ON stacks BEGIN DELETE FROM ingress_picks WHERE scope_kind = 'stack' AND scope_id = old.id; END
+trigger ingress_picks_tile_cascade: CREATE TRIGGER ingress_picks_tile_cascade AFTER DELETE ON tiles BEGIN DELETE FROM ingress_picks WHERE scope_kind = 'tile' AND scope_id = old.id; END
+trigger jobs_tiles_insert: CREATE TRIGGER jobs_tiles_insert AFTER INSERT ON jobs BEGIN INSERT OR IGNORE INTO job_tiles (job_id, tile_id) SELECT NEW.id, value FROM json_each(NEW.lock_set); END
+trigger jobs_tiles_update: CREATE TRIGGER jobs_tiles_update AFTER UPDATE OF lock_set ON jobs WHEN OLD.lock_set IS NOT NEW.lock_set BEGIN DELETE FROM job_tiles WHERE job_id = NEW.id; INSERT OR IGNORE INTO job_tiles (job_id, tile_id) SELECT NEW.id, value FROM json_each(NEW.lock_set); END
+trigger orgs_scope_cascade: CREATE TRIGGER orgs_scope_cascade AFTER DELETE ON orgs BEGIN DELETE FROM params WHERE scope_kind = 'org' AND scope_id = old.id; DELETE FROM params WHERE scope_kind = 'org_pr' AND scope_id = old.id; DELETE FROM backup_schedules WHERE volume_id IN (SELECT id FROM volumes WHERE scope_kind = 'org' AND scope_id = old.id); UPDATE volumes SET orphaned_at = COALESCE(orphaned_at, CURRENT_TIMESTAMP) WHERE scope_kind = 'org' AND scope_id = old.id; DELETE FROM positions WHERE scope_kind = 'org' AND scope_id = old.id; DELETE FROM annotations WHERE scope_kind = 'org' AND scope_id = old.id; END
+trigger security_events_no_delete: CREATE TRIGGER security_events_no_delete BEFORE DELETE ON security_events WHEN NOT EXISTS (SELECT 1 FROM settings WHERE key = 'security_events_pruning') BEGIN SELECT RAISE(ABORT, 'security_events is append only'); END
+trigger security_events_no_update: CREATE TRIGGER security_events_no_update BEFORE UPDATE ON security_events BEGIN SELECT RAISE(ABORT, 'security_events is append only'); END
+trigger stacks_scope_cascade: CREATE TRIGGER stacks_scope_cascade AFTER DELETE ON stacks BEGIN DELETE FROM params WHERE scope_kind = 'stack_pr' AND scope_id = old.id; DELETE FROM backup_schedules WHERE volume_id IN (SELECT id FROM volumes WHERE scope_kind = 'stack' AND scope_id = old.id); UPDATE volumes SET orphaned_at = COALESCE(orphaned_at, CURRENT_TIMESTAMP) WHERE scope_kind = 'stack' AND scope_id = old.id; DELETE FROM positions WHERE scope_kind = 'stack' AND scope_id = old.id; DELETE FROM annotations WHERE scope_kind = 'stack' AND scope_id = old.id; END
+trigger tiers_scope_cascade: CREATE TRIGGER tiers_scope_cascade AFTER DELETE ON tiers BEGIN DELETE FROM params WHERE scope_kind = 'tier' AND scope_id = old.id; END
