@@ -5,3 +5,4 @@
 c0bb577396935b59a82493296b3dd1204ab67678:internal/ui/components/settings_form_templ.go:generic-api-key:421
 d3f0f93472a8a04a638d3246026c690c94b67616:ui/static/js/vendor/xterm.js:generic-api-key:1
 e6dda54ca95da8595a40dfb65e6982b6b07a429f:internal/api/stream/ws_test.go:generic-api-key:37
+1aef3b22f420eded8e74cb663b49617506c379db:internal/service/internal/leaf/domain/authguard_test.go:generic-api-key:40
