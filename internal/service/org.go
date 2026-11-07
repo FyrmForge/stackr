@@ -96,7 +96,7 @@ func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, 
 	}
 	// Registry rights are keyed on the slug: one that still has images under
 	// it (a deleted org's, or this org's before an earlier rename) stays taken.
-	if s := slug.Make(name); s != "" && s != og.Slug {
+	if s := slug.Make(name); s != "" && s != og.Slug && o.cfg.FakeHost == "" { // a fake host has no registry
 		held, err := o.regs.Holds(ctx, s)
 		if err != nil {
 			return og, nil, err
@@ -180,6 +180,14 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 	if err != nil {
 		return err
 	}
+	// The slug is free once the org is gone: its images must not pass to the
+	// next org that takes it. Purged first, so a failure leaves the org intact
+	// and the delete retryable; a partial purge costs only rebuildable images.
+	if o.cfg.FakeHost == "" { // a fake host has no registry
+		if err := o.regs.PurgeOrg(ctx, og.Slug); err != nil {
+			return err
+		}
+	}
 	if err := o.orgs.Delete(ctx, og, len(sts)); err != nil {
 		return err
 	}
@@ -190,10 +198,6 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 		return o.docker.RemoveBuilder(ctx, image.BuilderFor(og.ID))
 	}); err != nil {
 		slog.Warn("org delete: remove builders", "org", og.ID, "err", err)
-	}
-	// The slug is free now: its images must not pass to the next org that takes it.
-	if err := o.regs.PurgeOrg(ctx, og.Slug); err != nil {
-		return err
 	}
 	return o.noted(ctx, nil, securitylog.OrgDelete, "org", orgID, "slug="+og.Slug)
 }
