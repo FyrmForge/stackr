@@ -1117,6 +1117,8 @@ func (a *app) tiles() *cobra.Command {
 		a.domains(),
 		a.allow(),
 		a.envPairs(),
+		a.pitr(),
+		a.pitrBackups(),
 		a.sliceAccess(),
 	), true)
 }
@@ -1344,6 +1346,93 @@ func (a *app) allow() *cobra.Command {
 		return a.show(v, managedCols...)
 	})
 	return c
+}
+
+// pitr turns point-in-time recovery on or off for a postgres instance. It
+// restarts the database once: that is when archiving starts or stops.
+func (a *app) pitr() *cobra.Command {
+	var days string
+	c := leaf(
+		"pitr [tile]",
+		"managed.pitr",
+		"Turn point-in-time recovery on (--days N) or off (--days off) for a postgres instance; restarts it once",
+		upTo(1),
+		nil,
+	)
+	c.Flags().StringVar(&days, "days", "", "the recovery window in days, or off")
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		n := 0
+		switch days {
+		case "":
+			return usage("give --days N or --days off")
+		case "off":
+		default:
+			var err error
+			if n, err = strconv.Atoi(days); err != nil || n < 1 {
+				return usage("--days is a number of days, or off")
+			}
+		}
+		q := "Restart " + last(p) + " to stop archiving? Archived objects stay on the destination."
+		if n > 0 {
+			q = "Restart " + last(p) + " to start archiving? The database is down for a few seconds."
+		}
+		if err := a.confirm(q); err != nil {
+			return err
+		}
+		return a.orgJob(c, PUT, p+"/pitr", map[string]any{"days": n}, "point-in-time recovery")
+	})
+	return scoped(waits(c), true)
+}
+
+// pitrBackups prints an instance's point-in-time recovery health: the range
+// it can restore, the last base backup, the WAL archive.
+func (a *app) pitrBackups() *cobra.Command {
+	return scoped(leaf("backups [tile]", "managed.pitr-status", "Show a postgres instance's point-in-time recovery health", upTo(1),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			v, err := a.call(GET, p+"/pitr", nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			m, _ := v.(map[string]any)
+			if m["on"] != true {
+				a.say("Point-in-time restore is off. Turn it on: stackr tile pitr %s --days 7", last(p))
+				return nil
+			}
+			at := func(k string) string { return a.stamp(cell(m[k]), stampLayout) }
+			switch {
+			case m["restorable_from"] == nil:
+				a.say("Restorable: not yet (no finished base backup)")
+			case m["restorable_to"] == nil:
+				a.say("Restorable from %s (the archive has not reported yet)", at("restorable_from"))
+			default:
+				a.say("Restorable from %s to %s", at("restorable_from"), at("restorable_to"))
+			}
+			if b, _ := m["last_base"].(map[string]any); b != nil {
+				switch {
+				case b["active"] == true:
+					a.say("Last base backup: running")
+				case b["ok"] == true:
+					a.say("Last base backup: ok, %s", a.stamp(cell(b["at"]), stampLayout))
+				default:
+					a.say("Last base backup: failed, %s: %s", a.stamp(cell(b["at"]), stampLayout), cell(b["error"]))
+				}
+			} else {
+				a.say("Last base backup: none yet")
+			}
+			a.say("WAL archive: %s on %s; %s waiting on the box",
+				plural(int(num(m["wal_bundles"])), "bundle", "bundles")+", "+gb(m["wal_bytes"]),
+				cell(m["dest"]), plural(int(num(m["segments_waiting"])), "segment", "segments"))
+			if m["local"] == true {
+				a.say("The archive is on this server's disk: it protects against a bad migration, not a lost server.")
+			}
+			if e := cell(m["error"]); e != "(none)" {
+				a.say("Last error: %s", e)
+			}
+			return nil
+		})), true)
 }
 
 // managedOf is the instance row of the managed tile at p, read from its

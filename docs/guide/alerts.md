@@ -10,6 +10,8 @@ stackr posts to one webhook when something needs you:
 | `cert.expiring` | A node certificate, the controller certificate or the cluster root has under 14 days left, then again under 3. |
 | `disk.low` | A node's Docker disk drops under 10% or 1 GB free. |
 | `observe.disk` | Metrics history is on and the controller's free disk drops, less what the logs may still grow to (`observe_logs_max_size`), under twice `observe_min_free`. History stops being written at that floor. |
+| `pitr.lag` | A postgres instance's WAL archive has not caught up for 10 minutes (warning), or for an hour, or `archive_command` is failing, or archiving was refused because the destination already holds another instance's archive (critical). Fires once, clears when the archive catches up. |
+| `pitr.disk` | The WAL waiting on an instance's archive volume passes 1 GB, or its node's free disk drops under `observe_min_free` (critical). A full disk stops Postgres. |
 | `clock.skew` | A worker's clock is more than 30 seconds off the controller's. Nothing is refused; check time sync on the node. |
 | `config.invalid` | A bound config file (server or org) does not fetch or parse. Once, until it parses again. See [Config files](config-files.md). |
 | `cert.failing` | A host an ingress node serves over HTTPS has no certificate, one for another name, or one that expired or expires within 14 days. Checked daily, Let's Encrypt hosts included. A host added in the last 3 hours is given time. |
