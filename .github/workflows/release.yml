@@ -10,12 +10,40 @@ on:
 permissions:
   contents: write
 
+# One release at a time. A run that waits is replaced by a newer one, and the
+# one that starts skips itself unless its commit is still master's tip, so
+# only the newest commit releases.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  tip:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master'
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      current: ${{ steps.tip.outputs.current }}
+    steps:
+      - name: Is this commit master's tip
+        id: tip
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tip=$(git ls-remote "https://github.com/${{ github.repository }}.git" refs/heads/master | cut -f1)
+          if [ "$tip" = "$SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Skipping: $SHA is not master's tip ($tip); the newest commit releases."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # One job, in this order: work out the version (dry run, no tag), build and
   # push that version's images, then tag and publish the release, attach the
   # installer and move :latest last. A failed build leaves no empty release.
   release:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master'
+    needs: tip
+    if: needs.tip.outputs.current == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
