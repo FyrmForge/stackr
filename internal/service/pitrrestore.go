@@ -167,12 +167,18 @@ func (o *Orchestrator) restoreRoom(ctx context.Context, src pitrSource, plan bac
 		return nil // the node does not report its disk: not judged, as a deploy's check
 	}
 	base := max(o.volumes.SizeBytes(ctx, src.vol), plan.Base.SizeBytes)
-	need := backup.DiskNeed(base, plan.Segments)
-	if int64(free) < need {
-		return errs.Conflictf("restoring %s needs %s free on its node (1.2 x (base %s + WAL %s)) and it has %s",
-			src.tile.Slug, gb(uint64(need)), gb(uint64(base)), gb(uint64(plan.Segments)*backup.SegmentBytes), gb(free))
+	return roomError(src.tile.Slug, free, base, plan.Segments)
+}
+
+// roomError is nil when free bytes hold 1.2 x (the base and segments of WAL),
+// else the refusal with the numbers.
+func roomError(slug string, free uint64, base int64, segments int) error {
+	need := backup.DiskNeed(base, segments)
+	if int64(free) >= need {
+		return nil
 	}
-	return nil
+	return errs.Conflictf("restoring %s needs %s free on its node (1.2 x (base %s + WAL %s)) and it has %s",
+		slug, gb(uint64(need)), gb(uint64(base)), gb(uint64(segments)*backup.SegmentBytes), gb(free))
 }
 
 // restoredSlug names a candidate <src>-restored-YYYYMMDD-HHMM; a temporary
