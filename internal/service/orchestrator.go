@@ -1012,6 +1012,7 @@ func (o *Orchestrator) Close() error {
 	o.alertsDone.Wait()
 	o.sched.Stop()
 	o.jobs.Close()
+	o.dnsKick.Wait() // a records sync in flight must not outlive the database
 	return o.db.Close()
 }
 
