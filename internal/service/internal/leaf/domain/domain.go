@@ -19,6 +19,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -40,6 +41,16 @@ type Leaf struct {
 	proxy   string                                // the proxy container; joins every ingress network
 	res     docker.Reserver                       // leaf/node; set by WithSubnets
 	ctl     func(context.Context) (string, error) // the controller's node id; set by WithController
+	// orgNames: the replica names of every tile in a tile's org, the only
+	// private hosts a forward-auth URL may name; set by WithOrgNames.
+	orgNames func(ctx context.Context, tileID string) ([]string, error)
+}
+
+// WithOrgNames sets who names the tiles of a tile's org. Without it a
+// forward-auth URL may only name public hosts.
+func (l *Leaf) WithOrgNames(f func(ctx context.Context, tileID string) ([]string, error)) *Leaf {
+	l.orgNames = f
+	return l
 }
 
 func New(domains store.DomainStore, d Docker, proxyContainer string) *Leaf {
@@ -331,7 +342,14 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	if redirect == "" && (s.Port < 1 || s.Port > 65535) {
 		return errs.Invalidf("port", "the domain needs a container port")
 	}
-	if err := checkExtras(s.Extras); err != nil {
+	var names []string
+	if s.Extras.ForwardAuth != nil && l.orgNames != nil {
+		var err error
+		if names, err = l.orgNames(ctx, d.TileID); err != nil {
+			return err
+		}
+	}
+	if err := checkExtras(s.Extras, names); err != nil {
 		return err
 	}
 	raw := strings.TrimSpace(s.RawCaddy)
@@ -366,7 +384,7 @@ func (l *Leaf) fill(ctx context.Context, d *store.Domain, s Spec, dns01 bool) er
 	return nil
 }
 
-func checkExtras(e Extras) error {
+func checkExtras(e Extras, orgNames []string) error {
 	if e.BasicAuth != nil && e.BasicAuth.User == "" {
 		return errs.Invalidf("proxy.basic_auth.user", "basic auth needs a user")
 	}
@@ -376,7 +394,7 @@ func checkExtras(e Extras) error {
 	if t := e.Timeouts; t != nil && (t.Dial < 0 || t.Read < 0 || t.Write < 0) {
 		return errs.Invalidf("proxy.timeouts", "must not be negative")
 	}
-	if err := checkProxyStrings(e); err != nil {
+	if err := checkProxyStrings(e, orgNames); err != nil {
 		return err
 	}
 	for k := range e.Headers {
@@ -419,7 +437,10 @@ var headerTokenRe = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 // ones Caddy would expand as placeholders or that name a header. checkExtras
 // runs it on write; domainRoute runs it again on build, so a row that got
 // into the store another way leaves its tile out instead of serving open.
-func checkProxyStrings(e Extras) error {
+// orgNames are the replica names of the domain's own org: Caddy sits on every
+// tile's ingress network, so any other private host it dials is another org's
+// tile, the panel or the LAN.
+func checkProxyStrings(e Extras, orgNames []string) error {
 	if fa := e.ForwardAuth; fa != nil {
 		u, err := url.Parse(fa.URL)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
@@ -427,6 +448,13 @@ func checkProxyStrings(e Extras) error {
 		}
 		if err := CheckBraces("proxy.forward_auth.url", fa.URL); err != nil {
 			return err
+		}
+		// ponytail: resolved here, resolved again by Caddy at dial time, so a
+		// name that flips to a private address between the two (DNS rebinding)
+		// gets through; the same-org name match is exact. Pin the checked IP
+		// into the dial if rebinding matters.
+		if !slices.Contains(orgNames, strings.ToLower(u.Hostname())) && !publicURL(fa.URL) {
+			return errs.Invalidf("proxy.forward_auth.url", "must name a public host or a tile of the same org")
 		}
 		for _, n := range fa.CopyHeaders {
 			if !headerTokenRe.MatchString(n) {
@@ -441,3 +469,8 @@ func checkProxyStrings(e Extras) error {
 	}
 	return nil
 }
+
+// publicURL is the public-address check, a var so tests need no DNS.
+
+// publicURL is the public-address check, a var so tests need no DNS.
+var publicURL = s3.PublicURL

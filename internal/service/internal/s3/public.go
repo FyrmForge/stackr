@@ -77,6 +77,18 @@ func Private(endpoint string) bool {
 	return false
 }
 
+// PublicURL reports whether the URL's host resolves, and every address it
+// resolves to is public. A name that does not resolve is not public.
+func PublicURL(rawURL string) bool {
+	aps := resolve(Addr(rawURL))
+	for _, ap := range aps {
+		if !publicIP(ap.Addr()) {
+			return false
+		}
+	}
+	return len(aps) > 0
+}
+
 var (
 	resolveFn  = resolve
 	recentMu   sync.Mutex

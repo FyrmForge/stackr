@@ -572,7 +572,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return v
 	})
 	orch.domains = build("leaf/domain", func() *domain.Leaf {
-		return domain.New(st.Domains, d, ProxyContainer).WithSubnets(nodes).WithController(orch.controllerID)
+		return domain.New(st.Domains, d, ProxyContainer).WithSubnets(nodes).WithController(orch.controllerID).
+			WithOrgNames(func(ctx context.Context, id string) ([]string, error) { return orch.deploy.OrgReplicaNames(ctx, id) })
 	})
 	orch.domainres = build("leaf/domainres", func() *domainres.Leaf { return domainres.New(st.DomainResources) })
 	orch.routes = build("leaf/route", func() *route.Leaf { return route.New(st.Routes) })

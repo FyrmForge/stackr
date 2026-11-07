@@ -73,6 +73,9 @@ type TileRoute struct {
 	// env network; when the two nodes differ the upstream is VIP:port, not
 	// the replica names.
 	IngressNode, Node, VIP string
+	// OrgNames are the replica names of the tile's org, filled only when a
+	// domain carries forward auth (the private hosts its URL may name).
+	OrgNames []string
 }
 
 // NodeRoute is an external route with the ingress node that serves it ("" =
@@ -470,7 +473,7 @@ func domainRoute(d store.Domain, t TileRoute, expand Expand, tlsOn bool) (any, e
 	if err != nil {
 		return nil, err
 	}
-	if err := checkProxyStrings(e); err != nil {
+	if err := checkProxyStrings(e, t.OrgNames); err != nil {
 		return nil, err
 	}
 	var hs []route

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -68,6 +69,14 @@ func (f *Flow) tileRoutes(ctx context.Context) ([]domain.TileRoute, error) {
 			return nil, err
 		}
 		r.Domains = byTile[id]
+		for _, d := range r.Domains {
+			if x, err := domain.ExtrasOf(d); err == nil && x.ForwardAuth != nil {
+				if r.OrgNames, err = f.OrgReplicaNames(ctx, id); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
 		routes = append(routes, r)
 	}
 	return routes, nil
@@ -127,4 +136,38 @@ func (f *Flow) tileRoute(ctx context.Context, id string, server settings.Setting
 	rr := params.NewResolver(snap)
 	r.Expand = func(s string) (string, error) { return rr.Expand(params.InDomain, s) }
 	return r, nil
+}
+
+// OrgReplicaNames are the container names (lower case, any state) of every
+// tile in the org of tileID: the private hosts a forward-auth URL may name.
+func (f *Flow) OrgReplicaNames(ctx context.Context, tileID string) ([]string, error) {
+	t, err := f.Tiles.Get(ctx, tileID)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stacks.Get(ctx, t.StackID)
+	if err != nil {
+		return nil, err
+	}
+	stacks, err := f.Stacks.List(ctx, st.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, s := range stacks {
+		tiles, err := f.Tiles.ListByStack(ctx, s.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, x := range tiles {
+			cs, err := f.Tiles.Replicas(ctx, x)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range cs {
+				out = append(out, strings.ToLower(c.Name))
+			}
+		}
+	}
+	return out, nil
 }
