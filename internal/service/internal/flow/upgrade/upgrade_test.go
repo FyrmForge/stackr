@@ -187,8 +187,41 @@ func TestUpgradeDigest(t *testing.T) {
 		t.Errorf("dev tag: %v, pulled %q", err, pulled(f))
 	}
 	status, body = http.StatusOK, testDigest
-	if f, err := run("v0.2.0", "sha256:bbbb"); err == nil || len(f.Specs) != 0 {
-		t.Errorf("tag at another digest: %v", err)
+	// The image was pulled by digest and tagged from it: whichever RepoDigest
+	// the daemon lists first is not a reason to refuse.
+	if f, err := run("v0.2.0", "sha256:bbbb"); err != nil || len(f.Specs) != 1 {
+		t.Errorf("image with another listed digest: %v", err)
+	}
+}
+
+// A release whose digest asset is not up yet (404) is not offered and not an
+// error; a malformed asset is refused at upgrade.
+func TestCheckDigestNotYet(t *testing.T) {
+	ctx := context.Background()
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"tag_name":"v0.2.0"}`)
+	}))
+	defer gh.Close()
+	status, body := http.StatusNotFound, ""
+	dg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	defer dg.Close()
+	f := &Flow{Panel: panel.New(dockerfake.New()), Version: "v0.1.0", URL: gh.URL, DigestFmt: dg.URL + "/%s"}
+	if tag, err := f.Check(ctx); err != nil || tag != "" {
+		t.Errorf("no asset yet: %q %v", tag, err)
+	}
+	if _, err := f.Upgrade(ctx, "v0.2.0", io.Discard); err == nil || !strings.Contains(err.Error(), "try again later") {
+		t.Errorf("upgrade with no asset: %v", err)
+	}
+	status, body = http.StatusOK, "sha256:short"
+	if _, err := f.Upgrade(ctx, "v0.2.0", io.Discard); err == nil || strings.Contains(err.Error(), "try again") {
+		t.Errorf("malformed asset: %v", err)
+	}
+	status, body = http.StatusOK, testDigest
+	if tag, err := f.Check(ctx); err != nil || tag != "v0.2.0" {
+		t.Errorf("asset up: %q %v", tag, err)
 	}
 }
 

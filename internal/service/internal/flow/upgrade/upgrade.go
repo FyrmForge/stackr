@@ -94,6 +94,14 @@ func (f *Flow) Check(ctx context.Context) (string, error) {
 	if parseTag(rel.TagName) == nil || isDevTag(rel.TagName) && !isDevTag(f.Version) {
 		return "", fmt.Errorf("check for updates: unexpected release tag %q", rel.TagName)
 	}
+	// semantic-release publishes the release before the workflow uploads the
+	// digest asset. In that window the release is not offered (no banner, no
+	// refusal): a later check finds it. A malformed asset is still an error.
+	if Newer(rel.TagName, f.Version) {
+		if _, err := f.releaseDigest(ctx, rel.TagName); errors.Is(err, errNoDigestYet) {
+			return "", nil
+		}
+	}
 	return rel.TagName, nil
 }
 
@@ -127,6 +135,9 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	// ponytail: the digest comes from GitHub's release asset, the same trust
 	// as the tag_name it came with; signing (cosign) comes later.
 	dg, err := f.releaseDigest(ctx, tag)
+	if errors.Is(err, errNoDigestYet) {
+		return "", errs.Conflictf("%s is not ready to install yet, try again later", tag)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -143,12 +154,13 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	}
 	// The tag is resolved once, here. Everything after runs the local copy,
 	// and the swap is refused if the tag points at another image by then.
+	// With a declared digest no compare against it is needed: the image was
+	// pulled as repo@digest (docker checks the content) and tagged from that
+	// ref, and a compare on one picked RepoDigest would wrongly refuse an image
+	// that carries several in the repo.
 	pinned, err := f.Panel.Digest(ctx, image)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", image, err)
-	}
-	if dg != "" && pinned != dg {
-		return "", fmt.Errorf("%s is not the release's image %s on this box", image, dg)
 	}
 	if pinned != "" {
 		_, _ = fmt.Fprintf(log, "upgrading to %s\n", pinned)
@@ -181,9 +193,14 @@ func (f *Flow) Upgrade(ctx context.Context, tag string, log io.Writer) (string, 
 	return archive, nil
 }
 
+// errNoDigestYet: the release has no digest asset (404). Transient while the
+// release workflow uploads it, so Check waits and Upgrade says try later.
+var errNoDigestYet = errors.New("the release has no digest asset yet")
+
 // releaseDigest reads the digest asset of release tag. A release without one
-// is refused, except a dev tag (rig builds are never GitHub releases): that
-// one pulls by tag, as the installer's dev builds do.
+// is errNoDigestYet, except a dev tag (rig builds are never GitHub releases):
+// that one pulls by tag, as the installer's dev builds do. Any other failure
+// (malformed asset, github down) is refused.
 func (f *Flow) releaseDigest(ctx context.Context, tag string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -204,6 +221,8 @@ func (f *Flow) releaseDigest(ctx context.Context, tag string) (string, error) {
 				return dg, nil
 			}
 			err = errors.New("the digest asset is malformed")
+		} else if res.StatusCode == http.StatusNotFound && !isDevTag(tag) {
+			return "", errNoDigestYet
 		} else {
 			err = fmt.Errorf("github answered %s", res.Status)
 		}
