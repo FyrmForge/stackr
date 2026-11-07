@@ -9,11 +9,31 @@ import (
 
 type pg struct{}
 
+// PGArchiveDir is where the archive volume mounts: finished WAL segments
+// land here until the shipper takes them.
+const PGArchiveDir = "/var/lib/postgresql/archive"
+
+// pgArchiveCmd is the Command with archiving on. A named volume on a path
+// the image lacks is root's, so the wrapper hands it to postgres first, then
+// runs the image's own entrypoint. archive_command writes a dotfile and
+// renames it, so the shipper never sees a half-copied segment, and refuses
+// to overwrite one.
+var pgArchiveCmd = []string{
+	"sh", "-c", `chown postgres:postgres ` + PGArchiveDir + ` && exec docker-entrypoint.sh "$@"`, "sh",
+	"postgres",
+	"-c", "archive_mode=on",
+	"-c", "archive_timeout=60",
+	"-c", "archive_command=test ! -f " + PGArchiveDir + "/%f && cp %p " + PGArchiveDir + "/.%f && mv " +
+		PGArchiveDir + "/.%f " + PGArchiveDir + "/%f",
+}
+
 func (pg) Definition() Definition {
 	return Definition{
-		Image:   "postgres:17",
-		Port:    5432,
-		Volumes: []string{"/var/lib/postgresql/data"},
+		Image:      "postgres:17",
+		Port:       5432,
+		Volumes:    []string{"/var/lib/postgresql/data"},
+		ArchiveDir: PGArchiveDir,
+		ArchiveCmd: pgArchiveCmd,
 		Config: func(i Instance) []string {
 			return []string{
 				"POSTGRES_DB=" + i.AdminDB,
@@ -23,7 +43,7 @@ func (pg) Definition() Definition {
 		},
 		PrimaryOutput: "DATABASE_URL",
 		SliceNoun:     "logical db",
-		Backups:       []string{"dump"},
+		Backups:       []string{"dump", "base"},
 		AdminDB:       "postgres",
 		SliceName:     sqlIdent,
 		SliceSep:      "_",
@@ -277,11 +297,37 @@ const pgClusterMarker = `-- stackr dump format: cluster`
 // and a bundle format, and still lose the grants that live on the roles.
 // exec keeps pg_dumpall's exit status as the script's.
 func (pg) Backup(method string, i Instance) []string {
+	if method == "base" {
+		return pgBaseBackup(i)
+	}
 	if method != "dump" {
 		return nil
 	}
 	script := `echo '` + pgClusterMarker + `'; exec pg_dumpall -U "$0"`
 	return []string{"env", "PGPASSWORD=" + i.AdminPassword, "sh", "-c", script, i.AdminUser}
+}
+
+// pgBaseBackup is a physical backup of the whole cluster as one gzipped tar
+// on stdout, with no WAL inside (the archive has it). nil when PITR is off:
+// a base without archiving cannot be restored to a point in time.
+func pgBaseBackup(i Instance) []string {
+	if i.PITRDays <= 0 {
+		return nil
+	}
+	return []string{"env", "PGPASSWORD=" + i.AdminPassword, "pg_basebackup", "-U", i.AdminUser,
+		"-D", "-", "-Ft", "-Xnone", "-z"}
+}
+
+// WalStartArgv is the argv whose stdout is the WAL segment being written
+// now. A base backup starts at or after it, so WAL older than the oldest
+// kept base's segment is safe to prune.
+func (e pg) WalStartArgv(i Instance) []string {
+	return append(e.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_walfile_name(pg_current_wal_lsn())`)
+}
+
+// ArchiverArgv prints pg_stat_archiver's failed_count.
+func (e pg) ArchiverArgv(i Instance) []string {
+	return append(e.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT failed_count FROM pg_stat_archiver`)
 }
 
 // DumpMarker is the first line of a whole-instance dump (flow.DumpMarker).

@@ -17,7 +17,9 @@ type ManagedInstance struct {
 	AdminUser     string     `db:"admin_user" json:"admin_user"`
 	AdminPassword string     `db:"admin_password" json:"-"`
 	Endpoint      string     `db:"endpoint" json:"endpoint"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
+	// PITRDays is the point-in-time recovery window in days; 0 = off.
+	PITRDays  int       `db:"pitr_days" json:"pitr_days"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type ManagedInstanceStore interface {

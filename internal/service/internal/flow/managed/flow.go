@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -78,11 +79,21 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	if t.ImageRef != "" {
 		c.Image = t.ImageRef // the instance's own pin
 	}
+	type vol struct{ slug, path string }
+	var vols []vol
 	for i, path := range def.Volumes {
 		sl := t.Slug + "-data"
 		if i > 0 {
 			sl += "-" + strconv.Itoa(i+1)
 		}
+		vols = append(vols, vol{sl, path})
+	}
+	if m.PITRDays > 0 && def.ArchiveDir != "" {
+		c.Cmd = def.ArchiveCmd
+		vols = append(vols, vol{ArchiveSlug(t.Slug), def.ArchiveDir})
+	}
+	for _, vl := range vols {
+		sl, path := vl.slug, vl.path
 		v, _, err := f.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID}, sl, &m.ID)
 		if err != nil {
 			return c, err
@@ -104,6 +115,16 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		},
 	}
 	return c, nil
+}
+
+// ArchiveSlug is the slug of an instance's archive volume (WAL waiting to be
+// shipped), next to its <slug>-data.
+func ArchiveSlug(tileSlug string) string { return tileSlug + "-wal" }
+
+// IsArchiveVolume says whether v is an instance's archive volume: it holds no
+// data of its own, so it gets no default backup and no panel of its own.
+func IsArchiveVolume(v store.Volume) bool {
+	return v.InstanceID != nil && strings.HasSuffix(v.Slug, "-wal")
 }
 
 // alias is the instance's name on its network (managed.Alias).
@@ -443,12 +464,45 @@ func (f *Flow) DumpMarker(ctx context.Context, it store.Tile) (string, error) {
 }
 
 // Methods are the backup methods the tile's engine offers.
+// "base" is offered only while point-in-time recovery is on.
 func (f *Flow) Methods(ctx context.Context, it store.Tile) ([]string, error) {
-	_, e, err := f.instance(ctx, it.ID)
+	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return nil, err
 	}
-	return e.Definition().Backups, nil
+	return slices.DeleteFunc(slices.Clone(e.Definition().Backups), func(b string) bool {
+		return b == "base" && m.PITRDays <= 0
+	}), nil
+}
+
+// WalStart is the argv that prints the WAL segment being written, nil when
+// the engine has none.
+func (f *Flow) WalStart(ctx context.Context, it store.Tile) ([]string, error) {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return nil, err
+	}
+	if w, ok := e.(interface{ WalStartArgv(Instance) []string }); ok {
+		return w.WalStartArgv(f.facts(ctx, it, m, e.Definition())), nil
+	}
+	return nil, nil
+}
+
+// ArchiverFailed is how many times archive_command has failed so far.
+func (f *Flow) ArchiverFailed(ctx context.Context, it store.Tile) (int64, error) {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return 0, err
+	}
+	a, ok := e.(interface{ ArchiverArgv(Instance) []string })
+	if !ok {
+		return 0, nil
+	}
+	out, err := f.tools(ctx, it, m).Exec(ctx, a.ArchiverArgv(f.facts(ctx, it, m, e.Definition())))
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(strings.TrimSpace(out), 10, 64)
 }
 
 // of is the instance a provision lives on: its row, its tile and engine.
@@ -485,6 +539,7 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance,
 		AdminDB:       def.AdminDB,
 		Host:          alias(t, m),
 		Port:          def.Port,
+		PITRDays:      m.PITRDays,
 	}
 	if f.PublicBase != nil {
 		i.PublicBase = f.PublicBase(ctx, t)

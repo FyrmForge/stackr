@@ -103,6 +103,9 @@ type BackupRun struct {
 	// MasterGen is the master key generation a panel run carries; 0 on a
 	// volume run.
 	MasterGen int `db:"master_gen" json:"master_gen"`
+	// WalStart is the WAL segment current when a base backup started; nil
+	// on any other run.
+	WalStart *string `db:"wal_start" json:"wal_start"`
 	// Dest is the destination's name ("local" for the install's disk),
 	// filled by the leaf's run lists, never stored.
 	Dest string `db:"-" json:"dest"`
