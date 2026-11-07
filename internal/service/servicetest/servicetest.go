@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,6 +77,7 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		service.WithDocker(fake),
 		service.WithDNS(dns.open),
 		service.WithVIP(noVIP{}),
+		service.WithRegistry(emptyRegistry(t)),
 		service.WithHostInterfaces(func() []worker.Iface { return nil }),
 		service.WithProxy(func(context.Context, json.RawMessage) error { return nil }),
 	}, opts...)...)
@@ -92,6 +95,15 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 		Config: cfg,
 		DNS:    dns,
 	}
+}
+
+// emptyRegistry is the address of a registry with no repositories.
+func emptyRegistry(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"repositories":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 // Store is a fresh migrated store with no orchestrator (storetest.Store).

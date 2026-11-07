@@ -77,6 +77,7 @@ func newWorld(t *testing.T) *world {
 	}
 	t.Cleanup(func() { _ = orch.Close() })
 	w.orch, w.st = orch, storetest.Open(t, filepath.Join(dir, "stackr.db"))
+	w.fakeRegistry(t, nil)
 	ctx := context.Background()
 	now := time.Now()
 	w.org, w.stack, w.env = uuid.NewString(), uuid.NewString(), uuid.NewString()

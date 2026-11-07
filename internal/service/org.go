@@ -10,12 +10,14 @@ import (
 	"github.com/FyrmForge/hamr/pkg/auth"
 
 	"github.com/FyrmForge/stackr/internal/authz"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/user"
+	"github.com/FyrmForge/stackr/internal/service/internal/slug"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -91,6 +93,17 @@ func (o *Orchestrator) RenameOrg(ctx context.Context, orgID, name string) (Org, 
 	claims, err := o.claims(ctx)
 	if err != nil {
 		return og, nil, err
+	}
+	// Registry rights are keyed on the slug: one that still has images under
+	// it (a deleted org's, or this org's before an earlier rename) stays taken.
+	if s := slug.Make(name); s != "" && s != og.Slug {
+		held, err := o.regs.Holds(ctx, s)
+		if err != nil {
+			return og, nil, err
+		}
+		if held {
+			return og, nil, errs.Invalidf("name", "The registry still holds images under %q, so this name is not available.", s)
+		}
 	}
 	was := og
 	// allow entries lead with the org slug; a stack file's come back as warnings
@@ -177,6 +190,10 @@ func (o *Orchestrator) DeleteOrg(ctx context.Context, orgID string) error {
 		return o.docker.RemoveBuilder(ctx, image.BuilderFor(og.ID))
 	}); err != nil {
 		slog.Warn("org delete: remove builders", "org", og.ID, "err", err)
+	}
+	// The slug is free now: its images must not pass to the next org that takes it.
+	if err := o.regs.PurgeOrg(ctx, og.Slug); err != nil {
+		return err
 	}
 	return o.noted(ctx, nil, securitylog.OrgDelete, "org", orgID, "slug="+og.Slug)
 }

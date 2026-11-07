@@ -172,6 +172,7 @@ type options struct {
 	dnsOpen      func(kind string, c DNSCreds) (DNSProvider, error)
 	kinds        []connectors.Kind
 	ifaces       func() []worker.Iface
+	registryBase string
 }
 
 // DNSProvider is one DNS account (the DNS capability): what WithDNS fakes.
@@ -214,6 +215,12 @@ func WithBuild(f BuildFunc) Option {
 // (servicetest.Git).
 func WithGit(env ...string) Option {
 	return func(o *options) { o.gitEnv = env }
+}
+
+// WithRegistry points the registry leaf at a registry on base over TCP, so a
+// test needs no registry socket.
+func WithRegistry(base string) Option {
+	return func(o *options) { o.registryBase = base }
 }
 
 // WithDocker replaces the daemon client, with the fake in tests.
@@ -584,7 +591,13 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles.Pin = orch.pinVIP
 	orch.tiles.Ship = orch.shipRun
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
-	orch.regs = build("leaf/registry", func() *registry.Leaf { return registry.New(st.RegistryImages, installspec.RegistrySocket(cfg.DataDir)) })
+	orch.regs = build("leaf/registry", func() *registry.Leaf {
+		l := registry.New(st.RegistryImages, installspec.RegistrySocket(cfg.DataDir))
+		if o.registryBase != "" {
+			l.WithBase(o.registryBase)
+		}
+		return l
+	})
 	orch.kinds, orch.dnsOpen = append(all.Kinds(), o.kinds...), o.dnsOpen
 	orch.conns = build("leaf/connector", func() *connector.Leaf { return connector.New(st.Connectors, orch.kinds) })
 	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
