@@ -66,7 +66,7 @@ func newRestoreRig(t *testing.T) *restoreRig {
 	must(t, r.st.BackupRuns.Update(ctx, run))
 	r.s3.objs[key] = []byte("base")
 	r.s3.objs[backup.WALKey(r.root, wseg1, wseg2)] = []byte("wal")
-	o.savePITRState(ctx, r.inst.ID, pitrState{LastShippedAt: time.Now(), LastCleanAt: time.Now()})
+	o.savePITRState(ctx, r.inst.ID, pitrState{ArchSince: r.from.Add(-time.Hour), LastShippedAt: time.Now(), LastCleanAt: time.Now()})
 	return r
 }
 

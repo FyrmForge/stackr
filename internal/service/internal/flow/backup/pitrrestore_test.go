@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -85,7 +86,7 @@ func TestFillVolumeLaysBaseWalAndRecoverySettings(t *testing.T) {
 	w.put(t, hist, tgz(t, member{"00000002.history", "1\t0/3000000\tno recovery target specified\n"}))
 	plan, err := bk.PickBase(
 		[]store.BackupRun{baseRun(baseKey, seg1, seg1)},
-		[]string{b1, b2, hist}, time.Time{}, true)
+		[]string{b1, b2, hist}, bk.Lineage{}, time.Time{}, true)
 	must(t, err)
 
 	err = w.f.FillVolume(ctx, Replay{Dest: w.dest, Plan: plan, Target: w.vol, WalDir: "stackr-restore-wal", Conf: "restore_command = 'cp x'\n"}, io.Discard)
@@ -233,4 +234,75 @@ func TestShipHistoryRefusesATimelineTheArchiveHolds(t *testing.T) {
 func baseRun(key, start, stop string) store.BackupRun {
 	now := time.Now()
 	return store.BackupRun{Status: bk.Done, ObjectKey: key, FinishedAt: &now, WalStart: &start, WalStop: &stop}
+}
+
+// otherDest is a second destination row over the same storage, standing for
+// the destination a base schedule was moved to (or from).
+func (w *world) otherDest(t *testing.T) store.BackupDest {
+	t.Helper()
+	d := w.dest
+	d.ID, d.Name = "dest-other", "other"
+	must(t, w.st.BackupDests.Create(ctx, d))
+	return d
+}
+
+// The archive is read, guarded and pruned per destination: a run on one
+// destination proves nothing about another, and pruning one never drops the
+// other's run rows.
+func TestArchiveIsScopedToTheDestination(t *testing.T) {
+	w := setup(t)
+	root := bk.PITRRoot("o1", w.vol.ID)
+	other := w.otherDest(t)
+	base := w.oldBase(t, root, 20, seg1) // a run on w.dest
+
+	// Guard: the run on w.dest does not vouch for what sits on `other`
+	must(t, open(other).Put(ctx, bk.WALKey(root, seg1, seg1), strings.NewReader("x")))
+	if err := w.f.Guard(ctx, other, root); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("a foreign archive on another destination passed: %v", err)
+	}
+	must(t, w.f.Guard(ctx, w.dest, root))
+
+	// ListArchive: bases of the destination, started after since
+	bases, _, _, err := w.f.ListArchive(ctx, w.dest, root, time.Time{})
+	must(t, err)
+	if len(bases) != 1 || bases[0].ObjectKey != base {
+		t.Errorf("bases on the destination = %v", bases)
+	}
+	if bases, _, _, _ = w.f.ListArchive(ctx, other, root, time.Time{}); len(bases) != 0 {
+		t.Errorf("bases on another destination = %v", bases)
+	}
+	if bases, _, _, _ = w.f.ListArchive(ctx, w.dest, root, time.Now().Add(time.Hour)); len(bases) != 0 {
+		t.Errorf("bases from before the epoch = %v", bases)
+	}
+
+	// PruneWindow on `other` finds no bases of its own: nothing goes, no row dropped
+	w.oldBase(t, root, 30, seg1)
+	if n, err := w.f.PruneWindow(ctx, other, root, 7, time.Now(), io.Discard); err != nil || n != 0 {
+		t.Errorf("pruned %d (%v) on a destination with no base", n, err)
+	}
+	if rs, _ := w.f.Backups.Bases(ctx, root, w.dest.ID, time.Time{}); len(rs) != 2 {
+		t.Errorf("%d rows left on the destination, want 2", len(rs))
+	}
+}
+
+// The newest history file gives the lineage: the tip timeline and where each
+// ancestor ended.
+func TestListArchiveReadsTheLineage(t *testing.T) {
+	w := setup(t)
+	root := bk.PITRRoot("o1", w.vol.ID)
+	_, _, lin, err := w.f.ListArchive(ctx, w.dest, root, time.Time{})
+	must(t, err)
+	if lin.Tip != "" {
+		t.Errorf("tip %q with no history", lin.Tip)
+	}
+	h2 := root + "/wal/00000002.history-00000003.history" + bk.BundleExt
+	w.put(t, h2, tgz(t,
+		member{"00000002.history", "1\t0/3000060\tno recovery target\n"},
+		member{"00000003.history", "1\t0/3000060\tno recovery target\n2\t0/5000000\tbefore 2026\n"},
+	))
+	_, _, lin, err = w.f.ListArchive(ctx, w.dest, root, time.Time{})
+	must(t, err)
+	if lin.Tip != "00000003" || lin.Forks["00000001"] != 3 || lin.Forks["00000002"] != 5 {
+		t.Errorf("lineage = %+v", lin)
+	}
 }

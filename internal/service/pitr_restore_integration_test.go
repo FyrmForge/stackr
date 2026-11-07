@@ -284,13 +284,13 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 	})
 
 	// what the restore would read, and the time it takes
-	bases, keys, err := w.bak.ListArchive(ctx, w.dest, root)
+	bases, keys, lin, err := w.bak.ListArchive(ctx, w.dest, root, time.Time{})
 	must(t, err)
-	from, ok := bk.Restorable(bases, keys)
+	from, ok := bk.Restorable(bases, keys, lin)
 	if !ok || t1.Before(from) {
 		t.Fatalf("restorable from %v (%v), T1 = %v", from, ok, t1)
 	}
-	plan, err := bk.PickBase(bases, keys, t1, false)
+	plan, err := bk.PickBase(bases, keys, lin, t1, false)
 	must(t, err)
 	if plan.Base.ObjectKey != run.ObjectKey || len(plan.Bundles) == 0 {
 		t.Fatalf("plan base %s, %d bundles", plan.Base.ObjectKey, len(plan.Bundles))
@@ -340,7 +340,7 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 
 	// (b) promote: history to the archive, the source stops, its volume row takes the copy's data
 	must(t, w.bak.ShipHistory(ctx, fbackup.Ship{Engine: candTile, Dest: w.dest, Root: root, Dir: mflow.PGWalDir}, io.Discard))
-	_, wal, err := w.bak.ListArchive(ctx, w.dest, root)
+	_, wal, _, err := w.bak.ListArchive(ctx, w.dest, root, time.Time{})
 	must(t, err)
 	sawHistory := false
 	for _, k := range wal {

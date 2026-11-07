@@ -100,6 +100,16 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 	}
 	at := ""
 	if in.At != "" { // refused here, where the caller sees it: the job would fail out of sight
+		// it restores the source's whole instance into a scratch tile
+		if srcInst.StackID != srcStack.ID {
+			istack, err := o.stacks.Get(ctx, srcInst.StackID)
+			if err != nil {
+				return Tile{}, Job{}, err
+			}
+			if err := mayWrite(by, istack); err != nil {
+				return Tile{}, Job{}, err
+			}
+		}
 		psrc, err := o.pitrSourceOf(ctx, srcInst.ID)
 		if err != nil {
 			return Tile{}, Job{}, err

@@ -3,6 +3,7 @@ package backup
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -63,13 +64,17 @@ func (f *Flow) Guard(ctx context.Context, d store.BackupDest, root string) error
 	if err != nil || len(keys) == 0 {
 		return err
 	}
-	own, err := f.Backups.Owns(ctx, root)
+	own, err := f.Backups.Owns(ctx, root, d.ID)
 	if err != nil || own {
 		return err
 	}
 	return errs.Refusedf("the archive at %s already holds objects this panel has no backup of; "+
 		"another instance wrote there, so archiving will not start into it", root)
 }
+
+// ErrNoArchive: the running container has no archive dir, so it does not
+// archive (not yet redeployed with PITR on, or already redeployed with it off).
+var ErrNoArchive = errors.New("the container has no archive directory")
 
 // ShipWAL ships what the archive dir holds, once. Segments go in bundles of
 // up to shipMax, <first>-<last>.tar.gz.age under wal/; timeline history files
@@ -80,7 +85,7 @@ func (f *Flow) ShipWAL(ctx context.Context, s Ship, log io.Writer) (Shipped, err
 	var res Shipped
 	out, err := f.run(ctx, s.Engine, []string{"ls", "-1", s.Dir})
 	if err != nil {
-		return res, fmt.Errorf("list the archive: %w", err)
+		return res, fmt.Errorf("list the archive: %w: %w", ErrNoArchive, err)
 	}
 	var segs, hist []string
 	for _, n := range strings.Fields(out) {
@@ -268,7 +273,7 @@ func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string,
 		logf(log, "not pruning %s: a restore is reading it\n", root)
 		return 0, nil
 	}
-	bases, err := f.Backups.Bases(ctx, root)
+	bases, err := f.Backups.Bases(ctx, root, d.ID, time.Time{})
 	if err != nil {
 		return 0, err
 	}
