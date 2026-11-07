@@ -220,7 +220,7 @@ templ pitr(v View, p PITRView) {
 			<ul class="text-sm text-rw-muted space-y-1">
 				<li class="flex flex-wrap gap-x-1">
 					if p.From.IsZero() {
-						<span>Restorable: not yet, no finished base backup.</span>
+						<span>Restorable: not yet, no base backup is finished and shipped.</span>
 					} else if p.To.IsZero() {
 						<span>Restorable from</span>
 						@c.When(p.From)

@@ -559,7 +559,8 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 	if err != nil {
 		return h, err
 	}
-	if d, err := o.pitrDest(ctx, org, v); err == nil {
+	d, derr := o.pitrDest(ctx, org, v)
+	if derr == nil {
 		h.Dest, h.Local = d.Name, d.Kind == backup.Local
 	}
 	rs, err := o.backups.Runs(ctx, v.ID) // newest first
@@ -578,8 +579,13 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 			}
 			h.LastBase = b
 		}
-		if r.Status == backup.Done && r.FinishedAt != nil {
-			h.From = r.FinishedAt // newest first: the last one left is the oldest
+	}
+	if derr == nil {
+		// The same rule a restore applies, so the range never counts a base it refuses.
+		if bases, keys, err := o.backup.ListArchive(ctx, d, backup.PITRRoot(org, v.ID)); err == nil {
+			if from, ok := backup.Restorable(bases, keys); ok {
+				h.From = &from
+			}
 		}
 	}
 	return h, nil

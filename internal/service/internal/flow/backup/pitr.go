@@ -103,8 +103,15 @@ func (f *Flow) ShipWAL(ctx context.Context, s Ship, log io.Writer) (Shipped, err
 		}
 	}
 	var bundles [][]string
-	for c := range slices.Chunk(segs, shipMax) {
-		bundles = append(bundles, c)
+	// A bundle never spans timelines (the names sort by timeline first), so
+	// restore reads each bundle's timeline off its first segment.
+	for len(segs) > 0 {
+		n := 1
+		for n < len(segs) && n < shipMax && segs[n][:8] == segs[0][:8] {
+			n++
+		}
+		bundles = append(bundles, segs[:n])
+		segs = segs[n:]
 	}
 	if len(hist) > 0 {
 		bundles = append(bundles, hist)

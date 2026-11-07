@@ -131,7 +131,8 @@ func usable(bases []store.BackupRun, bundles []Bundle) []store.BackupRun {
 			continue
 		}
 		if slices.ContainsFunc(bundles, func(b Bundle) bool {
-			return !b.History && b.Last >= stop && timeline(b.First) == timeline(stop)
+			// <= not ==: a bundle shipped across a promote starts on an older timeline
+			return !b.History && b.Last >= stop && timeline(b.First) <= timeline(stop)
 		}) {
 			out = append(out, r)
 		}

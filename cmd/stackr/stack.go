@@ -1407,7 +1407,7 @@ func (a *app) pitrBackups() *cobra.Command {
 			at := func(k string) string { return a.stamp(cell(m[k]), stampLayout) }
 			switch {
 			case m["restorable_from"] == nil:
-				a.say("Restorable: not yet (no finished base backup)")
+				a.say("Restorable: not yet (no base backup is finished and shipped)")
 			case m["restorable_to"] == nil:
 				a.say("Restorable from %s (the archive has not reported yet)", at("restorable_from"))
 			default:

@@ -179,6 +179,22 @@ func TestRestorableIsTheOldestUsableBase(t *testing.T) {
 	}
 }
 
+// A bundle shipped across a promote (older shippers wrote them) still serves
+// a base that stops on the new timeline.
+func TestUsableReadsABundleSpanningTimelines(t *testing.T) {
+	t.Parallel()
+	keys := []string{wal(rs1, rt2)}
+	if _, ok := Restorable([]store.BackupRun{pbase(time.Hour, rs1, rt2)}, keys); !ok {
+		t.Error("base on timeline 2 refused for a spanning bundle")
+	}
+	if _, ok := Restorable([]store.BackupRun{pbase(time.Hour, rs1, rs3)}, keys); !ok {
+		t.Error("base on timeline 1 refused for a spanning bundle")
+	}
+	if _, ok := Restorable([]store.BackupRun{pbase(time.Hour, rs1, rt2)}, []string{wal(rs1, rs4)}); ok {
+		t.Error("base on timeline 2 accepted with only timeline 1 shipped")
+	}
+}
+
 func TestParseAt(t *testing.T) {
 	t.Parallel()
 	if _, latest, err := ParseAt("latest"); err != nil || !latest {

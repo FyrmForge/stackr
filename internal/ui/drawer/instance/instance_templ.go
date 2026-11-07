@@ -513,7 +513,7 @@ func pitr(v View, p PITRView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if p.From.IsZero() {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<span>Restorable: not yet, no finished base backup.</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<span>Restorable: not yet, no base backup is finished and shipped.</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

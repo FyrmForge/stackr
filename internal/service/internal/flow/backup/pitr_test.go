@@ -200,6 +200,20 @@ func TestShipWALBundlesAndRemovesWhatItShipped(t *testing.T) {
 	}
 }
 
+// Segments of two timelines in one tick ship as one bundle per timeline.
+func TestShipWALNeverSpansTimelines(t *testing.T) {
+	w := setup(t)
+	t2a, t2b := "000000020000000000000002", "000000020000000000000003"
+	w.archive([]string{t2b, seg1, t2a, seg2}, "TAR")
+	res, err := w.f.ShipWAL(ctx, w.ship(), io.Discard)
+	must(t, err)
+	root := bk.PITRRoot("o1", w.vol.ID)
+	keys, _ := open(w.dest).List(ctx, root+"/wal/")
+	if want := []string{bk.WALKey(root, seg1, seg2), bk.WALKey(root, t2a, t2b)}; !slices.Equal(keys, want) || res.Bundles != 2 {
+		t.Fatalf("keys = %v bundles %d", keys, res.Bundles)
+	}
+}
+
 // Nothing is deleted before the Put succeeded.
 func TestShipWALKeepsFilesWhenThePutFails(t *testing.T) {
 	w := setup(t)
