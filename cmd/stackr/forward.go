@@ -31,41 +31,55 @@ func (a *app) forward() *cobra.Command {
 			if remote > 0 {
 				q.Set("port", strconv.Itoa(remote))
 			}
-			// The probe connection: a stopped tile, a bad port or a missing
-			// scope fails here, and the reply names the port the server chose.
-			probe, res, err := a.dial(p+"/forward", q)
-			if err != nil {
-				return err
-			}
-			_ = probe.Close(websocket.StatusNormalClosure, "")
-			if remote, err = strconv.Atoi(res.Header.Get("X-Stackr-Port")); err != nil {
-				return fmt.Errorf("the server did not say which port it reached")
-			}
-			q.Set("port", strconv.Itoa(remote))
-			if local == 0 {
-				local = remote
-			}
-			ln, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(local)))
-			if err != nil {
-				return err
-			}
-			// Cancelling the context alone does not unblock Accept.
-			go func() { <-a.ctx.Done(); _ = ln.Close() }()
-			defer func() { _ = ln.Close() }()
-			_, _ = fmt.Fprintf(a.out, "Forwarding %s -> %s:%d (Ctrl-C to stop)\n", ln.Addr(), tileName(p), remote)
-			for {
-				conn, err := ln.Accept()
-				if err != nil {
-					return nil // listener closed: a clean stop
-				}
-				go a.tunnel(conn, p+"/forward", q)
-			}
+			return a.serveForward(p+"/forward", q, address, local, tileName(p), nil)
 		}),
 	)
 	c.Flags().StringVar(&spec, "port", "", "[local:]remote port (default: the tile's own)")
 	c.Flags().StringVar(&address, "address", "127.0.0.1", "local address to bind")
 	c.Flags().StringVar(&container, "container", "", "the replica (default: a running one)")
 	return scoped(c, true)
+}
+
+// serveForward probes path, binds address:local (0 = the port the server
+// reached; negative = any free one) and tunnels every local connection through path until the
+// context ends. bound, when set, hears the local port first.
+func (a *app) serveForward(path string, q url.Values, address string, local int, label string, bound func(port int)) error {
+	// The probe connection: a stopped tile, a bad port or a missing
+	// scope fails here, and the reply names the port the server chose.
+	probe, res, err := a.dial(path, q)
+	if err != nil {
+		return err
+	}
+	_ = probe.Close(websocket.StatusNormalClosure, "")
+	remote, err := strconv.Atoi(res.Header.Get("X-Stackr-Port"))
+	if err != nil {
+		return fmt.Errorf("the server did not say which port it reached")
+	}
+	q.Set("port", strconv.Itoa(remote))
+	switch {
+	case local == 0:
+		local = remote
+	case local < 0: // any free port
+		local = 0
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(local)))
+	if err != nil {
+		return err
+	}
+	// Cancelling the context alone does not unblock Accept.
+	go func() { <-a.ctx.Done(); _ = ln.Close() }()
+	defer func() { _ = ln.Close() }()
+	if bound != nil {
+		bound(ln.Addr().(*net.TCPAddr).Port)
+	}
+	_, _ = fmt.Fprintf(a.out, "Forwarding %s -> %s:%d (Ctrl-C to stop)\n", ln.Addr(), label, remote)
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return nil // listener closed: a clean stop
+		}
+		go a.tunnel(conn, path, q)
+	}
 }
 
 // tunnel pipes one local connection through its own websocket.

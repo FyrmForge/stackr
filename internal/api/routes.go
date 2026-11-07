@@ -233,6 +233,9 @@ func routes(h *v1.H) []Route {
 		{PUT, tile + "/on-remove", "slice.on-remove", "tile.write", h.SetSliceOnRemove()},
 		{GET, tile + "/bindings", "slice.bindings", "tile.read", h.Bindings()},
 		{GET, tile + "/slice", "slice.get", "tile.read", h.SliceOf()},
+		{POST, tile + "/branch", "slice.branch", "tile.write", h.BranchSlice()},
+		{GET, tile + "/slice-creds", "slice.creds", "tile.write", h.SliceCreds()},
+		{GET, tile + "/slice-forward", "slice.forward", "tile.write", h.SliceForward()},
 
 		// admin
 		{GET, "/admin/orgs", "admin.orgs", "admin.read", h.AllOrgs()},

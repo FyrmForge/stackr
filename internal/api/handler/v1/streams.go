@@ -116,6 +116,20 @@ const ForwardPortHeader = "X-Stackr-Port"
 // per local connection, binary frames are the bytes. The dial comes first
 // so every failure is an HTTP status.
 func (h *H) Forward() Endpoint {
+	return h.forward(func(c echo.Context, port int) (net.Conn, int, error) {
+		return h.Orch.DialTile(rc(c), tileID(c), c.QueryParam("container"), port)
+	})
+}
+
+// SliceForward is Forward to the postgres instance a slice tile lives on:
+// the slice has no container of its own. The port is the engine's.
+func (h *H) SliceForward() Endpoint {
+	return h.forward(func(c echo.Context, _ int) (net.Conn, int, error) {
+		return h.Orch.DialSlice(rc(c), tileID(c))
+	})
+}
+
+func (h *H) forward(dial func(c echo.Context, port int) (net.Conn, int, error)) Endpoint {
 	return Streamed("websocket", func(c echo.Context) error {
 		if err := stream.Check(c); err != nil {
 			return err
@@ -124,7 +138,7 @@ func (h *H) Forward() Endpoint {
 		if err := echo.QueryParamsBinder(c).Int("port", &port).BindError(); err != nil {
 			return errs.Invalidf("port", "invalid port")
 		}
-		conn, port, err := h.Orch.DialTile(rc(c), tileID(c), c.QueryParam("container"), port)
+		conn, port, err := dial(c, port)
 		if err != nil {
 			return err
 		}

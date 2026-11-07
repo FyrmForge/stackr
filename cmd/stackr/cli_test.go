@@ -552,6 +552,14 @@ func TestSliceVerbsRoutes(t *testing.T) {
 			"GET " + env + "/tiles/db/bindings ",
 		},
 		{
+			[]string{"slice", "branch", "db", "--to-env", "prod", "--expires", "3d", "--no-wait"},
+			"POST " + env + `/tiles/db/branch {"env":"prod","expires":"3d"}`,
+		},
+		{
+			[]string{"slice", "branch", "db", "--no-wait"},
+			"POST " + env + `/tiles/db/branch {}`,
+		},
+		{
 			[]string{"slice", "on-remove", "db", "drop", "-y"},
 			"PUT " + env + `/tiles/db/on-remove {"on_remove":"drop"}`,
 		},

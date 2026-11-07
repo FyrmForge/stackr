@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -1505,6 +1506,8 @@ func (a *app) sliceTiles() *cobra.Command {
 			"user",
 			"since",
 		),
+		a.sliceBranch(),
+		a.sliceForward(),
 		leaf(
 			"on-remove <slice> <keep|drop>",
 			"slice.on-remove",
@@ -1524,6 +1527,83 @@ func (a *app) sliceTiles() *cobra.Command {
 			}),
 		),
 	), true)
+}
+
+// sliceBranch copies a postgres slice as of now into a new slice tile and
+// follows the job that loads it. --to-env, not --env: --env is the scope the
+// source slice is in.
+func (a *app) sliceBranch() *cobra.Command {
+	var toEnv, instance, expires string
+	c := waits(leaf(
+		"branch <slice>",
+		"slice.branch",
+		"Copy a postgres slice as of now into a new slice tile <slice>-br-xxxx",
+		exact(1),
+		nil,
+	))
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
+		body := map[string]string{}
+		for k, v := range map[string]string{"env": toEnv, "instance": instance, "expires": expires} {
+			if v != "" {
+				body[k] = v
+			}
+		}
+		v, err := a.call(POST, p+"/branch", body)
+		if err != nil {
+			return err
+		}
+		m, _ := v.(map[string]any)
+		t, _ := m["tile"].(map[string]any)
+		a.say("created %s; copying %s as of now (the dump runs against the live instance)", cell(t["slug"]), args[0])
+		if nw, _ := c.Flags().GetBool("no-wait"); nw {
+			return a.show(m["job"], "id", "kind", "state")
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		return a.follow(base, m["job"], "copy")
+	})
+	c.Flags().StringVar(&toEnv, "to-env", "", "the env the branch goes to: an env of the stack, or <stack>:<env> (default: the source's)")
+	c.Flags().StringVar(&instance, "instance", "", "the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of --to-env (default: the source's)")
+	c.Flags().StringVar(&expires, "expires", "", "delete the branch after this long, e.g. 3d or 36h (default: never)")
+	return c
+}
+
+// sliceForward tunnels a local port to the postgres a slice lives on and
+// prints a connection string with that slice's own owner credentials only.
+func (a *app) sliceForward() *cobra.Command {
+	var local int
+	c := leaf(
+		"forward <slice>",
+		"slice.creds,slice.forward",
+		"Tunnel a local port to the slice's postgres and print its connection string",
+		exact(1),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			if a.json {
+				return usage("forward has no machine-readable output; drop --json")
+			}
+			v, err := a.call(GET, p+"/slice-creds", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			if local == 0 {
+				local = -1
+			}
+			return a.serveForward(p+"/slice-forward", url.Values{}, "127.0.0.1", local, tileName(p), func(port int) {
+				u := url.URL{
+					Scheme: "postgres",
+					User:   url.UserPassword(cell(m["user"]), cell(m["password"])),
+					Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+					Path:   "/" + cell(m["database"]),
+				}
+				a.say("%s", u.String())
+			})
+		}),
+	)
+	c.Flags().IntVarP(&local, "port", "p", 0, "the local port (default: a free one)")
+	return c
 }
 
 func (a *app) managed() *cobra.Command {
