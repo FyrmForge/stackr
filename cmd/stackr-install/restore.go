@@ -103,7 +103,7 @@ func restore(ctx context.Context, args []string, out io.Writer) error {
 			return fmt.Errorf("the archive names build %q; pass --image", ver)
 		}
 		*image = installspec.Image(v)
-		if dg, err = pinFor(v, version, digest); err != nil {
+		if dg, err = restorePin(ctx, v, version, digest, ""); err != nil {
 			return err
 		}
 	}

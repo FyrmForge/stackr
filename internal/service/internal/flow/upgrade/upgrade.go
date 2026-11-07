@@ -23,7 +23,7 @@ import (
 const ReleasesURL = "https://api.github.com/repos/FyrmForge/stackr/releases/latest"
 
 // DigestURL is where a release's image digest asset sits (%s = the tag).
-const DigestURL = "https://github.com/FyrmForge/stackr/releases/download/%s/" + installspec.DigestAsset
+const DigestURL = installspec.DigestURL
 
 type Flow struct {
 	Panel   *panel.Leaf
@@ -202,33 +202,14 @@ var errNoDigestYet = errors.New("the release has no digest asset yet")
 // that one pulls by tag, as the installer's dev builds do. Any other failure
 // (malformed asset, github down) is refused.
 func (f *Flow) releaseDigest(ctx context.Context, tag string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	format := f.DigestFmt
-	if format == "" {
-		format = DigestURL
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(format, tag), nil)
-	if err != nil {
-		return "", err
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err == nil {
-		defer func() { _ = res.Body.Close() }()
-		if res.StatusCode == http.StatusOK {
-			b, rerr := io.ReadAll(io.LimitReader(res.Body, 256))
-			if dg := strings.TrimSpace(string(b)); rerr == nil && installspec.ValidDigest(dg) {
-				return dg, nil
-			}
-			err = errors.New("the digest asset is malformed")
-		} else if res.StatusCode == http.StatusNotFound && !isDevTag(tag) {
-			return "", errNoDigestYet
-		} else {
-			err = fmt.Errorf("github answered %s", res.Status)
-		}
-	}
-	if isDevTag(tag) {
+	dg, err := installspec.ReleaseDigest(ctx, f.DigestFmt, tag)
+	switch {
+	case err == nil:
+		return dg, nil
+	case isDevTag(tag):
 		return "", nil
+	case errors.Is(err, installspec.ErrNoDigest):
+		return "", errNoDigestYet
 	}
 	return "", errs.Conflictf("%s declares no image digest, so it is not pulled: %v", tag, err)
 }

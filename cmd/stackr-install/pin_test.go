@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -47,6 +51,39 @@ func TestHasDigest(t *testing.T) {
 		if got := hasDigest(c.have, pinDigest); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A restore of another release's archive reads that release's digest asset;
+// its own release uses the embedded digest; a missing asset points at --image.
+func TestRestorePin(t *testing.T) {
+	other := "sha256:" + strings.Repeat("c", 64)
+	status, body, path := http.StatusOK, other+"\n", ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	f := srv.URL + "/%s"
+	if got, err := restorePin(ctx, "0.9.0", "v0.9.1", pinDigest, f); err != nil || got != other || path != "/v0.9.0" {
+		t.Errorf("older archive: %q %v %q", got, err, path)
+	}
+	path = ""
+	if got, err := restorePin(ctx, "0.9.1", "v0.9.1", pinDigest, f); err != nil || got != pinDigest || path != "" {
+		t.Errorf("own release: %q %v %q", got, err, path)
+	}
+	if got, err := restorePin(ctx, "0.9.0", "v0.9.2-dev.1", "", f); err != nil || got != "" || path != "" {
+		t.Errorf("dev installer: %q %v", got, err)
+	}
+	status = http.StatusNotFound
+	if _, err := restorePin(ctx, "0.9.0", "v0.9.1", pinDigest, f); err == nil || !strings.Contains(err.Error(), "--image") {
+		t.Errorf("no asset: %v", err)
+	}
+	status, body = http.StatusOK, "sha256:short"
+	if _, err := restorePin(ctx, "0.9.0", "v0.9.1", pinDigest, f); err == nil {
+		t.Error("malformed asset accepted")
 	}
 }
 
