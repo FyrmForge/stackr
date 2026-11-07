@@ -298,6 +298,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		}),
 		kindRestore: payload(o.runRestore),
 		kindSeed:    payload(o.runSeed),
+
+		kindRestoreInstance: payload(o.runRestoreInstance),
+		kindPromoteRestore:  payload(o.runPromoteRestore),
 		kindOrphans: func(ctx context.Context, r *jobs.Run) error {
 			ctx, err := o.withController(ctx)
 			if err != nil {

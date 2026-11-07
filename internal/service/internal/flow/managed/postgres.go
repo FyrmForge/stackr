@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type pg struct{}
@@ -323,6 +324,56 @@ func pgBaseBackup(i Instance) []string {
 // kept base's segment is safe to prune.
 func (e pg) WalStartArgv(i Instance) []string {
 	return append(e.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_walfile_name(pg_current_wal_lsn())`)
+}
+
+// WalStopArgv is the argv whose stdout is the WAL segment holding the end of
+// the base backup that just finished: pg_backup_stop switched to the next
+// segment, so one byte back is the completed one, which archives at once
+// (the next one waits for activity or archive_timeout).
+func (e pg) WalStopArgv(i Instance) []string {
+	return append(e.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_walfile_name(pg_current_wal_lsn() - 1)`)
+}
+
+// InRecoveryArgv prints t while the server is still replaying WAL, f once it
+// is a primary.
+func (e pg) InRecoveryArgv(i Instance) []string {
+	return append(e.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_is_in_recovery()`)
+}
+
+// PGRestoreWalDir is where a point-in-time restore leaves the WAL it replays,
+// under the data directory (the helper that fills the volume sees only that).
+const PGRestoreWalDir = "stackr-restore-wal"
+
+// PGWalDir is the cluster's own WAL directory: where a promoted restore's
+// timeline history file lives.
+const PGWalDir = "/var/lib/postgresql/data/pg_wal"
+
+// RecoveryConf is the postgresql.auto.conf text that makes the restored
+// cluster replay the copied WAL and promote at at (zero = replay all of it).
+// The timeline is the newest one the archive's history files name.
+func (pg) RecoveryConf(at time.Time) string {
+	conf := "restore_command = 'cp /var/lib/postgresql/data/" + PGRestoreWalDir + "/%f %p'\n" +
+		"recovery_target_timeline = 'latest'\n"
+	if !at.IsZero() {
+		conf += "recovery_target_time = '" + at.UTC().Format("2006-01-02 15:04:05.999999-07") + "'\n" +
+			"recovery_target_action = 'promote'\n"
+	}
+	return conf
+}
+
+// SettleArgv is what a finished recovery leaves to clean: the WAL copy and
+// the recovery settings (they do nothing outside recovery, but the promoted
+// cluster should not carry a restore_command into a world without the dir).
+func (e pg) SettleArgv(i Instance) []string {
+	script := `rm -rf "/var/lib/postgresql/data/` + PGRestoreWalDir + `"; exec "$@"`
+	args := e.psql(i, i.AdminDB, []string{
+		`ALTER SYSTEM RESET restore_command`,
+		`ALTER SYSTEM RESET recovery_target_time`,
+		`ALTER SYSTEM RESET recovery_target_action`,
+		`ALTER SYSTEM RESET recovery_target_timeline`,
+		`SELECT pg_reload_conf()`,
+	})
+	return append([]string{"sh", "-c", script, "sh"}, args...)
 }
 
 // ArchiverArgv prints pg_stat_archiver's failed_count.

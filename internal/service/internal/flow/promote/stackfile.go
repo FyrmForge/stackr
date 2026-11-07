@@ -11,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -239,6 +240,9 @@ type TileConf struct {
 	// consumer env name → this stack's env name map.
 	Allow    []string          `yaml:"allow"`
 	EnvPairs map[string]string `yaml:"env_pairs"`
+	// managed postgres: days of WAL kept for point-in-time recovery, 0 = off;
+	// nil = the file leaves the instance's window as it is.
+	PITRDays *int `yaml:"pitr_days"`
 	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write;
 	// keep | drop, "" = keep (DECIDE 199; a PR env drops either way).
 	ProvisionFrom string `yaml:"provision_from"`
@@ -695,6 +699,14 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 				return fmt.Errorf("tile %s: env_pairs %s: %s: both are environment names", name, k, tc.EnvPairs[k])
 			}
 		}
+		if tc.PITRDays != nil {
+			if e, ok := mflow.Engines[tc.Engine]; !ok || e.Definition().ArchiveDir == "" {
+				return fmt.Errorf("tile %s: pitr_days: %s has no point-in-time recovery", name, tc.Engine)
+			}
+			if *tc.PITRDays < 0 || *tc.PITRDays > 365 {
+				return fmt.Errorf("tile %s: pitr_days: the window is 0 (off) to 365 days", name)
+			}
+		}
 	case "slice":
 		if err := checkSlice(name, tc); err != nil {
 			return err
@@ -768,6 +780,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: allow: only a managed tile takes it", name)
 	case len(tc.EnvPairs) > 0 && tc.Type != "managed":
 		return fmt.Errorf("tile %s: env_pairs: only a managed tile takes it", name)
+	case tc.PITRDays != nil && tc.Type != "managed":
+		return fmt.Errorf("tile %s: pitr_days: only a managed tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: provision_from: only a slice tile takes it", name)
 	case tc.DefaultAccess != "" && tc.Type != "slice":

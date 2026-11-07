@@ -103,6 +103,24 @@ stackr tile backups pg           # restorable range, last base backup, archive s
 
 In the panel, the instance's Backups tab shows the same and has the switch. Turning it on adds a weekly `base` schedule next to the daily dump (edit its time like any schedule) and takes the first base backup as soon as the instance is up. Base backups and WAL sit under `stackr/<org>/<data volume id>/pitr/` on the destination. After each good base backup, bases older than the window are removed, keeping the newest one outside it, with the WAL only they needed. You cannot restore to before PITR was turned on.
 
+In a stack file the window is `pitr_days` on the managed tile (`0` is off; leave it out and the file does not touch it), and `stackr stack export` writes it. Changing it restarts the instance once.
+
+### Restore to a time
+
+A time is RFC3339 with an offset (`2026-11-07T10:42:00+01:00`, or `Z`) or `latest`. It must fall between the oldest restorable moment and the last shipped WAL; the error names both. Restoring takes the newest base backup finished before the time and replays the shipped WAL up to it, so it needs free disk on the instance's node of 1.2 times the base and the WAL it reads, and refuses with the numbers when there is less.
+
+```bash
+stackr tile restore pg --at 2026-11-07T10:42:00Z   # a new instance pg-restored-20261107-1042; pg is not touched
+stackr tile promote-restore pg-restored-20261107-1042
+stackr slice branch shop-db --at 2026-11-07T10:42:00Z   # one slice as it was then
+```
+
+`tile restore` makes a real instance tile next to the source (same env and image, its own volume, no slices, no bindings, no backups, no archive) and keeps it: look at it with `logs`, `exec` and `forward`, delete it when done. In the panel it is the **Restore to a time** form on the Backups tab. It needs write access on the source's stack.
+
+`tile promote-restore` puts the copy's data under the source: the source stops, its data volume now holds the copy and restarts with the same address and passwords, every slice and binding is applied again (what existed at the restored time is untouched, what was made after it comes back empty with its current login), the copy's tile goes, the archive state is reset and a base backup is queued. The old data stays as an orphaned volume until orphan retention ends, so a promote can be undone by restoring from it. A slice database dropped after the restored time reappears in the instance with no slice tile for it. The Promote button is on the copy's Backups tab.
+
+`slice branch --at` restores the whole instance to the time in a scratch copy, copies the one slice's database out of it into the new branch, and deletes the scratch copy and its volume, all in one job. A time within two minutes of now is refused: branch without `--at`. Retention never prunes an archive while a restore reads it.
+
 Archiving refuses to start into a destination path that already holds objects the panel has no backup of, so a copy of an instance never writes into the history of the one it came from. The Problems banner shows `pitr.lag` and `pitr.disk` (see [Alerts](alerts.md)).
 
 ## Back up a node

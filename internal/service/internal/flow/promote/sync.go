@@ -442,7 +442,8 @@ func warnHost(p *Plan, e store.Environment, slug string, want, old store.Tile) {
 
 // instMoved: the engine, allow list or env pairs of two instances differ.
 func instMoved(a, b store.ManagedInstance) bool {
-	return a.Engine != b.Engine || signedDiff(a.Allow, b.Allow) != "" || !maps.Equal(a.EnvPairs, b.EnvPairs)
+	return a.Engine != b.Engine || signedDiff(a.Allow, b.Allow) != "" || !maps.Equal(a.EnvPairs, b.EnvPairs) ||
+		a.PITRDays != b.PITRDays
 }
 
 // thinConf is the part of a TileConf the shared plan helpers read, from a
@@ -454,6 +455,7 @@ func thinConf(t store.Tile, m store.ManagedInstance) TileConf {
 		Allow:    m.Allow,
 		EnvPairs: m.EnvPairs,
 		Command:  t.Command,
+		PITRDays: &m.PITRDays,
 	}
 	_ = json.Unmarshal([]byte(t.EnvJSON), &tc.Env)
 	return tc

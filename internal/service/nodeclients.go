@@ -628,6 +628,7 @@ func (o *Orchestrator) watchNodeClients() {
 			return
 		case <-hour.C:
 			o.detach(ctx, o.sweepExpired)
+			o.detach(ctx, o.sweepCandidates)
 		case <-conn.C:
 			o.detach(ctx, func(ctx context.Context) {
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)

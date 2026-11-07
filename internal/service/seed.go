@@ -35,6 +35,7 @@ type seedSource struct {
 	Kind    string `json:"kind"`
 	Path    string `json:"path,omitempty"`
 	SliceID string `json:"slice_id,omitempty"` // kind slice: the slice tile copied
+	At      string `json:"at,omitempty"`       // kind slice: as of this time (RFC3339 UTC, or latest); "" = now
 }
 
 // open is the source's dump; closing it lets an upload's file go.
@@ -179,6 +180,9 @@ func (o *Orchestrator) runSeed(ctx context.Context, r *jobs.Run, p seedJob) (err
 	s, err := o.tiles.Get(ctx, p.SliceID)
 	if err != nil {
 		return err
+	}
+	if p.Source.Kind == "slice" && p.Source.At != "" {
+		return o.seedFromSliceAt(ctx, r, s, p)
 	}
 	if p.Source.Kind == "slice" {
 		return o.seedFromSlice(ctx, r, s, p)

@@ -24,6 +24,7 @@ type BranchIn struct {
 	Env      string `json:"env"`      // the env the branch goes to: <env> of the source's stack, or <stack>:<env>; default the source's
 	Instance string `json:"instance"` // the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of Env; default the source's
 	Expires  string `json:"expires"`  // 3d, 36h ...; default never
+	At       string `json:"at"`       // as of this time (RFC3339 with an offset, or latest); default now
 }
 
 const branchAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -97,6 +98,18 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 	if err != nil {
 		return Tile{}, Job{}, err
 	}
+	at := ""
+	if in.At != "" { // refused here, where the caller sees it: the job would fail out of sight
+		psrc, err := o.pitrSourceOf(ctx, srcInst.ID)
+		if err != nil {
+			return Tile{}, Job{}, err
+		}
+		_, t, latest, err := o.pitrPlan(ctx, psrc, in.At, true)
+		if err != nil {
+			return Tile{}, Job{}, err
+		}
+		at = normAt(t, latest)
+	}
 	drop := tile.Drop
 	row := Tile{
 		StackID:       st.ID,
@@ -141,14 +154,18 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 		TileID:  inst.ID,
 		SliceID: br.ID,
 		Format:  managed.DumpCustom,
-		Source:  seedSource{Kind: "slice", SliceID: src.ID},
+		Source:  seedSource{Kind: "slice", SliceID: src.ID, At: at},
 	}, lock...)
 	if err != nil {
 		_ = o.store.Tiles.Delete(ctx, br.ID)
 		return Tile{}, Job{}, err
 	}
-	o.auditBy(ctx, by, securitylog.SliceBranch, br.ID, fmt.Sprintf("%s:%s:%s -> %s:%s:%s on %s, at=now",
-		srcStack.Slug, srcEnv.Slug, src.Slug, st.Slug, env.Slug, br.Slug, from))
+	when := "now"
+	if at != "" {
+		when = at
+	}
+	o.auditBy(ctx, by, securitylog.SliceBranch, br.ID, fmt.Sprintf("%s:%s:%s -> %s:%s:%s on %s, at=%s",
+		srcStack.Slug, srcEnv.Slug, src.Slug, st.Slug, env.Slug, br.Slug, from, when))
 	return br, j, nil
 }
 

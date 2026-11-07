@@ -251,30 +251,14 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, by *Principal, runID, 
 // held too, so jobs on them queued later wait for the restore.
 func (o *Orchestrator) queueRestore(ctx context.Context, runID string, src, dst store.Volume, extra ...string) (Job, error) {
 	lock := append([]string{"volume:" + dst.ID}, extra...)
-	if dst.InstanceID != nil {
-		// No Provision or Bind while the dump loads: a deploy locks its own
-		// tile only, so the instance, its slices and their consumers are all
-		// held.
-		it, err := o.instanceTile(ctx, *dst.InstanceID)
-		if err != nil {
-			return Job{}, err
-		}
-		lock = append(lock, it.ID)
-		ps, err := o.managed.ByInstance(ctx, *dst.InstanceID)
-		if err != nil {
-			return Job{}, err
-		}
-		for _, p := range ps {
-			lock = append(lock, p.TileID)
-		}
-		cs, err := o.consumers(ctx, dst)
-		if err != nil {
-			return Job{}, err
-		}
-		for _, c := range cs {
-			lock = append(lock, c.ID)
-		}
+	// No Provision or Bind while the dump loads: a deploy locks its own
+	// tile only, so the instance, its slices and their consumers are all
+	// held.
+	held, err := o.instanceLocks(ctx, dst)
+	if err != nil {
+		return Job{}, err
 	}
+	lock = append(lock, held...)
 	return o.enqueue(
 		ctx,
 		kindRestore,
@@ -521,6 +505,9 @@ func (o *Orchestrator) subject(ctx context.Context, v store.Volume, method strin
 			}
 			s.Base = true
 			if s.WalStart, err = o.engines.WalStart(ctx, it); err != nil {
+				return s, err
+			}
+			if s.WalStop, err = o.engines.WalStop(ctx, it); err != nil {
 				return s, err
 			}
 		}

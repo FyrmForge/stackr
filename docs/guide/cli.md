@@ -2777,13 +2777,14 @@ stackr slice bindings [slice] [flags]
 
 ### `stackr slice branch`
 
-Copy a postgres slice as of now into a new slice tile <slice>-br-xxxx
+Copy a postgres slice as of now, or --at a past time, into a new slice tile <slice>-br-xxxx
 
 ```
 stackr slice branch <slice> [flags]
 ```
 
 ```
+      --at string         copy it as of this time: RFC3339 with an offset, or latest (default: now; needs point-in-time recovery on)
       --env string        the environment (default: the linked one)
       --expires string    delete the branch after this long, e.g. 3d or 36h (default: never)
       --instance string   the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of --to-env (default: the source's)
@@ -3503,6 +3504,21 @@ stackr tile pitr [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+### `stackr tile promote-restore`
+
+Make a restored copy the instance it was restored from; the source's apps keep their address and credentials
+
+```
+stackr tile promote-restore [tile] [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr tile rebuild`
 
 Build the running commit without the build cache and deploy it
@@ -3545,6 +3561,29 @@ stackr tile restart [tile] [flags]
       --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
+```
+
+### `stackr tile restore`
+
+Restore a postgres instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched
+
+```
+stackr tile restore [tile] [flags]
+```
+
+```
+      --at string      the time: RFC3339 with an offset (2026-11-07T10:42:00+01:00, or Z), or latest
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+Example:
+
+```
+  stackr tile restore pg --at 2026-11-07T10:42:00Z
+  stackr tile restore pg --at latest
 ```
 
 ### `stackr tile resume`

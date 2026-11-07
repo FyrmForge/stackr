@@ -184,6 +184,7 @@ type work struct {
 type instanceWork struct {
 	allow []string
 	pairs map[string]string
+	pitr  *int // the recovery window, nil = untouched
 }
 
 type domainWork struct {
@@ -833,8 +834,17 @@ func (f *Flow) planInstance(
 			moved = true
 		}
 	}
+	var pitr *int
+	if tc.PITRDays != nil && *tc.PITRDays != have.PITRDays {
+		p.add(Change{Kind: "managed", Tile: name, Field: "pitr_days", New: strconv.Itoa(*tc.PITRDays)})
+		moved, pitr = true, tc.PITRDays
+		if exists {
+			w.redeploy[name] = true // archiving starts or stops with a restart
+			p.Warnings = append(p.Warnings, name+" restarts to change its point-in-time recovery window")
+		}
+	}
 	if moved {
-		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs}
+		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr}
 	}
 	return nil
 }

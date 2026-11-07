@@ -1,0 +1,220 @@
+package backup
+
+import (
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
+)
+
+// Point-in-time restore: which base and which WAL bundles a restore to a
+// time reads, and the rules about the time itself. Pure; the flow fetches.
+
+// BundleFirst is the first segment a WAL bundle key holds, as BundleLast is
+// the last.
+func BundleFirst(key string) (first string, history, ok bool) {
+	name, found := strings.CutSuffix(key[strings.LastIndex(key, "/")+1:], BundleExt)
+	if !found {
+		return "", false, false
+	}
+	if strings.Contains(name, ".history") {
+		return "", true, true
+	}
+	if _, _, ok := BundleLast(key); !ok {
+		return "", false, false
+	}
+	return name[:segLen], false, true
+}
+
+// BaseWalStart is the segment a base backup's key names as its start
+// (<ts>-<walstart>-<slug>.tar.gz.age), "" when it names none: the archive
+// stays readable when its run rows are lost.
+func BaseWalStart(key string) string {
+	name := key[strings.LastIndex(key, "/")+1:]
+	const tsLen = len("20060102-150405")
+	if len(name) < tsLen+1+segLen+1 || name[tsLen] != '-' || name[tsLen+1+segLen] != '-' {
+		return ""
+	}
+	return Segment(name[tsLen+1 : tsLen+1+segLen])
+}
+
+// Bundle is one WAL bundle object: the segments First through Last, or a
+// timeline history file.
+type Bundle struct {
+	Key         string
+	First, Last string
+	History     bool
+}
+
+// Bundles are the WAL bundles among keys, history first, then by key.
+func Bundles(keys []string) []Bundle {
+	var out []Bundle
+	for _, k := range keys {
+		last, hist, ok := BundleLast(k)
+		if !ok {
+			continue
+		}
+		b := Bundle{Key: k, History: hist}
+		if !hist {
+			b.First, _, _ = BundleFirst(k)
+			b.Last = last
+		}
+		out = append(out, b)
+	}
+	slices.SortFunc(out, func(a, b Bundle) int {
+		if a.History != b.History {
+			if a.History {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Key, b.Key)
+	})
+	return out
+}
+
+func timeline(seg string) string { return seg[:min(8, len(seg))] }
+
+// segIndex is a segment's position in its timeline: 256 segments per log
+// file (16 MiB segments).
+func segIndex(seg string) int64 {
+	hi, err1 := strconv.ParseInt(seg[8:16], 16, 64)
+	lo, err2 := strconv.ParseInt(seg[16:24], 16, 64)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return hi*256 + lo
+}
+
+// SegmentBytes is a WAL segment's size. ponytail: initdb's default; an
+// instance initialised with another --wal-segsize is sized wrong here, and
+// only the disk check reads this.
+const SegmentBytes = 16 << 20
+
+// Plan is what a restore to a point in time reads: one base, and the WAL
+// bundles from where it started.
+type Plan struct {
+	Base     store.BackupRun
+	WalStart string   // where the base's replay starts
+	Bundles  []Bundle // history bundles, then segments from WalStart on
+	Segments int      // segments the bundles hold, for the disk check
+}
+
+// baseStop is the segment a base needs shipped, from the run row.
+func baseStop(r store.BackupRun) string {
+	if r.WalStop == nil {
+		return ""
+	}
+	return *r.WalStop
+}
+
+// baseStart is the base's start segment: the run row's, else the one its
+// key names.
+func baseStart(r store.BackupRun) string {
+	if r.WalStart != nil && *r.WalStart != "" {
+		return *r.WalStart
+	}
+	return BaseWalStart(r.ObjectKey)
+}
+
+// usable are the bases that finished well, have a start and an end, and
+// whose shipped WAL reaches the end on the end's timeline (a base whose last
+// segment is not archived yet restores nothing). Newest first.
+func usable(bases []store.BackupRun, bundles []Bundle) []store.BackupRun {
+	var out []store.BackupRun
+	for _, r := range bases {
+		stop, start := baseStop(r), baseStart(r)
+		if r.Status != Done || r.ObjectKey == "" || r.FinishedAt == nil || Segment(stop) == "" || Segment(start) == "" {
+			continue
+		}
+		if slices.ContainsFunc(bundles, func(b Bundle) bool {
+			return !b.History && b.Last >= stop && timeline(b.First) == timeline(stop)
+		}) {
+			out = append(out, r)
+		}
+	}
+	slices.SortFunc(out, func(a, b store.BackupRun) int { return b.FinishedAt.Compare(*a.FinishedAt) })
+	return out
+}
+
+// Restorable is the oldest finish time among usable bases; ok is false when
+// none is usable. The newest moment is the shipper's (the archive is only
+// known current up to its last clean tick), so the caller owns it.
+func Restorable(bases []store.BackupRun, keys []string) (from time.Time, ok bool) {
+	us := usable(bases, Bundles(keys))
+	if len(us) == 0 {
+		return time.Time{}, false
+	}
+	return *us[len(us)-1].FinishedAt, true
+}
+
+// PickBase picks what a restore to at reads: the newest usable base that
+// finished at or before at (the newest of all for latest), and the bundles
+// from its start on. ponytail: it does not check the bundles are gap-free; a
+// missing one fails the replay, which says which segment.
+func PickBase(bases []store.BackupRun, keys []string, at time.Time, latest bool) (Plan, error) {
+	bundles := Bundles(keys)
+	us := usable(bases, bundles)
+	if len(us) == 0 {
+		return Plan{}, errs.Conflictf("no base backup can be restored yet: one can, once it has finished and its WAL has been shipped")
+	}
+	i := 0
+	if !latest {
+		i = slices.IndexFunc(us, func(r store.BackupRun) bool { return !r.FinishedAt.After(at) })
+		if i < 0 {
+			return Plan{}, errs.Invalidf("at", "%s is before the oldest base backup that can be restored (%s)",
+				at.UTC().Format(time.RFC3339), us[len(us)-1].FinishedAt.UTC().Format(time.RFC3339))
+		}
+	}
+	p := Plan{Base: us[i], WalStart: baseStart(us[i])}
+	for _, b := range bundles {
+		if b.History || b.Last >= p.WalStart {
+			p.Bundles = append(p.Bundles, b)
+		}
+		if !b.History && b.Last >= p.WalStart {
+			p.Segments += int(segIndex(b.Last)-segIndex(b.First)) + 1
+		}
+	}
+	return p, nil
+}
+
+// ParseAt reads a restore time: RFC3339 with an offset (or Z), or "latest".
+func ParseAt(s string) (at time.Time, latest bool, err error) {
+	if s == "latest" {
+		return time.Time{}, true, nil
+	}
+	at, err = time.Parse(time.RFC3339, s)
+	if err != nil {
+		return at, false, errs.Invalidf("at", "%q is not a time; use RFC3339 with an offset (2026-11-07T10:42:00+01:00, or Z) or latest", s)
+	}
+	return at.UTC(), false, nil
+}
+
+// BranchMargin is how close to now a branch --at may be: the archive trails
+// the database by about this much, and a plain branch copies it as it is.
+const BranchMargin = 2 * time.Minute
+
+// CheckAt refuses a restore time outside [from, to], naming both bounds, and
+// for a branch one within BranchMargin of now.
+func CheckAt(at time.Time, latest bool, from, to, now time.Time, branch bool) error {
+	switch {
+	case latest:
+		return nil
+	case at.Before(from) || at.After(to):
+		return errs.Invalidf("at", "%s is outside what can be restored: from %s to %s",
+			at.UTC().Format(time.RFC3339), from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339))
+	case branch && now.Sub(at) < BranchMargin:
+		return errs.Invalidf("at", "%s is within %s of now; branch without --at to copy it as it is",
+			at.UTC().Format(time.RFC3339), BranchMargin)
+	}
+	return nil
+}
+
+// DiskNeed is the free space a restore wants on the node: 1.2 x (the base as
+// it unpacks + the WAL it replays).
+func DiskNeed(baseBytes int64, segments int) int64 {
+	return (baseBytes + int64(segments)*SegmentBytes) * 12 / 10
+}

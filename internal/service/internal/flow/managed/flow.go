@@ -300,6 +300,46 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 	})
 }
 
+// Replay re-applies every slice and binding row of instance tile it to its
+// engine: Provision and Bind are check-then-create, so what the engine still
+// has is re-synced to the row's current cred and what it lost (a volume
+// swapped for an older copy) comes back empty. It is the step after a
+// restored volume replaces the instance's data.
+func (f *Flow) Replay(ctx context.Context, it store.Tile, log io.Writer) error {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return err
+	}
+	inst := f.facts(ctx, it, m, e.Definition())
+	x := f.tools(ctx, it, m)
+	ps, err := f.Instances.ByInstance(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	for _, p := range ps {
+		if err := e.Provision(ctx, inst, slice(p), x); err != nil {
+			return fmt.Errorf("provision %s on %s: %w", p.DBName, it.Slug, err)
+		}
+		bs, err := f.Instances.Bindings(ctx, p.ID)
+		if err != nil {
+			return err
+		}
+		for i, b := range bs {
+			var others []Grant
+			for j, o := range bs {
+				if j != i {
+					others = append(others, grant(o))
+				}
+			}
+			if err := e.Bind(ctx, inst, slice(p), grant(b), "", others, x); err != nil {
+				return fmt.Errorf("bind %s on %s: %w", b.DBUser, p.DBName, err)
+			}
+		}
+		logf(log, "re-applied %s and its %d binding(s)\n", p.DBName, len(bs))
+	}
+	return nil
+}
+
 // Republish recomputes the outputs stored on every binding of instance tile
 // it (its public URL moved) and returns the consumers whose values changed.
 func (f *Flow) Republish(ctx context.Context, it store.Tile) ([]string, error) {
@@ -486,6 +526,73 @@ func (f *Flow) WalStart(ctx context.Context, it store.Tile) ([]string, error) {
 		return w.WalStartArgv(f.facts(ctx, it, m, e.Definition())), nil
 	}
 	return nil, nil
+}
+
+// WalStop is the argv that prints the WAL segment a finished base backup
+// ended in, nil when the engine has none.
+func (f *Flow) WalStop(ctx context.Context, it store.Tile) ([]string, error) {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return nil, err
+	}
+	if w, ok := e.(interface{ WalStopArgv(Instance) []string }); ok {
+		return w.WalStopArgv(f.facts(ctx, it, m, e.Definition())), nil
+	}
+	return nil, nil
+}
+
+// recoverer is an engine that restores to a point in time.
+type recoverer interface {
+	RecoveryConf(at time.Time) string
+	InRecoveryArgv(Instance) []string
+	SettleArgv(Instance) []string
+}
+
+// RecoveryConf is the postgresql.auto.conf text that replays the restored
+// WAL up to at (zero = all of it), and the dir, under the data directory,
+// the WAL files are laid in.
+func (f *Flow) RecoveryConf(ctx context.Context, it store.Tile, at time.Time) (conf, walDir string, err error) {
+	_, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return "", "", err
+	}
+	r, ok := e.(recoverer)
+	if !ok {
+		return "", "", errs.Invalidf("engine", "%s has no point-in-time recovery", it.Slug)
+	}
+	return r.RecoveryConf(at), PGRestoreWalDir, nil
+}
+
+// Recovering says whether the instance is still replaying WAL. An error is
+// "not answering yet", not a verdict.
+func (f *Flow) Recovering(ctx context.Context, it store.Tile) (bool, error) {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return false, err
+	}
+	r, ok := e.(recoverer)
+	if !ok {
+		return false, nil
+	}
+	out, err := f.tools(ctx, it, m).Exec(ctx, r.InRecoveryArgv(f.facts(ctx, it, m, e.Definition())))
+	if err != nil {
+		return true, err
+	}
+	return strings.TrimSpace(out) != "f", nil
+}
+
+// Settle clears what a finished recovery left behind.
+func (f *Flow) Settle(ctx context.Context, it store.Tile) error {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return err
+	}
+	r, ok := e.(recoverer)
+	if !ok {
+		return nil
+	}
+	_, err = f.tools(ctx, it, m).Exec(ctx, r.SettleArgv(f.facts(ctx, it, m, e.Definition())))
+	return err
 }
 
 // ArchiverFailed is how many times archive_command has failed so far.

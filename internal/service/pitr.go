@@ -111,23 +111,30 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 	if m, err = o.managed.SetPITR(ctx, m, days); err != nil {
 		return m, Job{}, err
 	}
-	if v, err := o.dataVolume(ctx, t); err == nil {
-		if days > 0 {
-			o.baseSchedule(ctx, v)
-		} else {
-			o.dropBaseSchedules(ctx, v)
-		}
-	}
-	if days <= 0 {
-		_ = o.store.Settings.Delete(ctx, pitrKey(m.ID))
-		o.clearPITRProblems(ctx, m.ID)
-	}
+	o.pitrApplied(ctx, t, m)
 	note := "point-in-time recovery is on: restarting to archive WAL"
 	if days <= 0 {
 		note = "point-in-time recovery is off: restarting to stop archiving"
 	}
 	j, err := o.deployNoted(ctx, t.ID, note)
 	return m, j, err
+}
+
+// pitrApplied follows a moved window: the weekly base backup is added or
+// dropped, and the shipper's state and problems go when it is off. The
+// restart that makes postgres archive is the caller's.
+func (o *Orchestrator) pitrApplied(ctx context.Context, t store.Tile, m ManagedInstance) {
+	if v, err := o.dataVolume(ctx, t); err == nil {
+		if m.PITRDays > 0 {
+			o.baseSchedule(ctx, v)
+		} else {
+			o.dropBaseSchedules(ctx, v)
+		}
+	}
+	if m.PITRDays <= 0 {
+		_ = o.store.Settings.Delete(ctx, pitrKey(m.ID))
+		o.clearPITRProblems(ctx, m.ID)
+	}
 }
 
 func (o *Orchestrator) clearPITRProblems(ctx context.Context, instanceID string) {
@@ -146,11 +153,25 @@ func (o *Orchestrator) dataVolume(ctx context.Context, it store.Tile) (store.Vol
 // an instance's data volume with PITR on, the weekly base backup. The archive
 // volume gets neither.
 func (o *Orchestrator) volumeCreated(ctx context.Context, v store.Volume) {
-	if mflow.IsArchiveVolume(v) {
+	if mflow.IsArchiveVolume(v) || o.restoredVolume(ctx, v) {
 		return
 	}
 	o.defaultBackup(ctx, v)
 	o.baseSchedule(ctx, v)
+}
+
+// restoredVolume says whether v belongs to a restored candidate: a scratch or
+// not-yet-promoted copy gets no backups of its own.
+func (o *Orchestrator) restoredVolume(ctx context.Context, v store.Volume) bool {
+	if v.InstanceID == nil {
+		return false
+	}
+	m, err := o.managed.Get(ctx, *v.InstanceID)
+	if err != nil {
+		return false
+	}
+	_, ok := o.candidateOf(ctx, m.TileID)
+	return ok
 }
 
 // baseSchedule gives an instance's data volume the weekly base backup when its

@@ -1120,6 +1120,8 @@ func (a *app) tiles() *cobra.Command {
 		a.envPairs(),
 		a.pitr(),
 		a.pitrBackups(),
+		a.tileRestore(),
+		a.tilePromoteRestore(),
 		a.sliceAccess(),
 	), true)
 }
@@ -1436,6 +1438,59 @@ func (a *app) pitrBackups() *cobra.Command {
 		})), true)
 }
 
+// tileRestore restores a postgres instance to a time into a new instance
+// tile next to it and keeps it for a look; promote-restore makes it the
+// instance.
+func (a *app) tileRestore() *cobra.Command {
+	var at string
+	c := waits(leaf(
+		"restore [tile]",
+		"managed.restore",
+		"Restore a postgres instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched",
+		upTo(1),
+		nil,
+	))
+	c.Flags().StringVar(&at, "at", "", "the time: RFC3339 with an offset (2026-11-07T10:42:00+01:00, or Z), or latest")
+	_ = c.MarkFlagRequired("at")
+	c.Example = "  stackr tile restore pg --at 2026-11-07T10:42:00Z\n  stackr tile restore pg --at latest"
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		v, err := a.call(POST, p+"/restore", map[string]string{"at": at})
+		if err != nil {
+			return err
+		}
+		m, _ := v.(map[string]any)
+		t, _ := m["tile"].(map[string]any)
+		a.say("created %s; restoring %s to %s. Promote it with: stackr tile promote-restore %s", cell(t["slug"]), last(p), at, cell(t["slug"]))
+		if nw, _ := c.Flags().GetBool("no-wait"); nw {
+			return a.show(m["job"], "id", "kind", "state")
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		return a.follow(base, m["job"], "restore")
+	})
+	return scoped(c, true)
+}
+
+// tilePromoteRestore swaps a restored copy's data under its source instance.
+func (a *app) tilePromoteRestore() *cobra.Command {
+	c := waits(leaf(
+		"promote-restore [tile]",
+		"managed.promote-restore",
+		"Make a restored copy the instance it was restored from; the source's apps keep their address and credentials",
+		upTo(1),
+		nil,
+	))
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		if err := a.confirm("Replace the data of the instance " + last(p) + " was restored from with this copy? The old data stays as an orphaned volume until retention ends."); err != nil {
+			return err
+		}
+		return a.orgJob(c, POST, p+"/promote-restore", nil, "promote")
+	})
+	return scoped(c, true)
+}
+
 // managedOf is the instance row of the managed tile at p, read from its
 // env's managed list.
 func (a *app) managedOf(c *cobra.Command, p string) (map[string]any, error) {
@@ -1622,17 +1677,17 @@ func (a *app) sliceTiles() *cobra.Command {
 // follows the job that loads it. --to-env, not --env: --env is the scope the
 // source slice is in.
 func (a *app) sliceBranch() *cobra.Command {
-	var toEnv, instance, expires string
+	var toEnv, instance, expires, at string
 	c := waits(leaf(
 		"branch <slice>",
 		"slice.branch",
-		"Copy a postgres slice as of now into a new slice tile <slice>-br-xxxx",
+		"Copy a postgres slice as of now, or --at a past time, into a new slice tile <slice>-br-xxxx",
 		exact(1),
 		nil,
 	))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
 		body := map[string]string{}
-		for k, v := range map[string]string{"env": toEnv, "instance": instance, "expires": expires} {
+		for k, v := range map[string]string{"env": toEnv, "instance": instance, "expires": expires, "at": at} {
 			if v != "" {
 				body[k] = v
 			}
@@ -1643,7 +1698,11 @@ func (a *app) sliceBranch() *cobra.Command {
 		}
 		m, _ := v.(map[string]any)
 		t, _ := m["tile"].(map[string]any)
-		a.say("created %s; copying %s as of now (the dump runs against the live instance)", cell(t["slug"]), args[0])
+		if at != "" {
+			a.say("created %s; restoring the instance to %s in a scratch copy, then copying %s from it (takes a while)", cell(t["slug"]), at, args[0])
+		} else {
+			a.say("created %s; copying %s as of now (the dump runs against the live instance)", cell(t["slug"]), args[0])
+		}
 		if nw, _ := c.Flags().GetBool("no-wait"); nw {
 			return a.show(m["job"], "id", "kind", "state")
 		}
@@ -1656,6 +1715,7 @@ func (a *app) sliceBranch() *cobra.Command {
 	c.Flags().StringVar(&toEnv, "to-env", "", "the env the branch goes to: an env of the stack, or <stack>:<env> (default: the source's)")
 	c.Flags().StringVar(&instance, "instance", "", "the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of --to-env (default: the source's)")
 	c.Flags().StringVar(&expires, "expires", "", "delete the branch after this long, e.g. 3d or 36h (default: never)")
+	c.Flags().StringVar(&at, "at", "", "copy it as of this time: RFC3339 with an offset, or latest (default: now; needs point-in-time recovery on)")
 	return c
 }
 

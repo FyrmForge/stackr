@@ -462,6 +462,33 @@ func (h *H) SetPITR() Endpoint {
 	})
 }
 
+// InstanceRestoreIn is a point-in-time restore's time.
+type InstanceRestoreIn struct {
+	At string `json:"at"` // RFC3339 with an offset, or latest
+}
+
+// InstanceRestored is a restored candidate: its tile and the job that fills it.
+type InstanceRestored struct {
+	Tile service.TileView `json:"tile"`
+	Job  service.Job      `json:"job"`
+}
+
+// RestoreInstance restores a postgres instance to a time into a new tile
+// next to it; the job (202) fills and starts it. The source is untouched.
+func (h *H) RestoreInstance() Endpoint {
+	return JSON(http.StatusAccepted, func(c echo.Context, in InstanceRestoreIn) (InstanceRestored, error) {
+		t, j, err := h.Orch.RestoreInstance(rc(c), middleware.Principal(c), tileID(c), in.At)
+		return InstanceRestored{Tile: service.NewTileView(t), Job: j}, err
+	})
+}
+
+// PromoteRestore swaps a restored copy's data under its source instance.
+func (h *H) PromoteRestore() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.PromoteRestore(rc(c), middleware.Principal(c), tileID(c))
+	})
+}
+
 func (h *H) PITRStatus() Endpoint {
 	return Get(func(c echo.Context) (service.PITRHealth, error) { return h.Orch.PITRStatus(rc(c), tileID(c)) })
 }

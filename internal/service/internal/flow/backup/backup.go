@@ -50,6 +50,7 @@ type Flow struct {
 
 	mu      sync.Mutex
 	running map[string]bool // volume id → claimed
+	holds   map[string]int  // archive root → restores reading it (Hold)
 }
 
 // Subject is one volume as the caller resolved it: who holds it open (to
@@ -71,6 +72,9 @@ type Subject struct {
 	// WAL segment current when it starts, kept on the run row.
 	Base     bool
 	WalStart []string
+	// WalStop is the same for the moment the base finished; the run row
+	// keeps it, and the base restores only once shipped WAL reaches it.
+	WalStop []string
 }
 
 func (s Subject) dumps() bool { return len(s.Dump) > 0 }
@@ -116,20 +120,24 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 	if err != nil {
 		return r, err
 	}
+	walStart := ""
 	if s.Base && len(s.WalStart) > 0 {
-		out, err := f.run(ctx, s.Engine, s.WalStart)
-		if err == nil && bk.Segment(strings.TrimSpace(out)) == "" {
-			err = errors.New("the WAL position did not read as a segment name")
-		}
-		if err == nil {
-			r, err = f.Backups.SetWalStart(ctx, r, strings.TrimSpace(out))
+		var err error
+		if walStart, err = f.walSegment(ctx, s.Engine, s.WalStart); err == nil {
+			r, err = f.Backups.SetWalStart(ctx, r, walStart)
 		}
 		if err != nil {
 			r, _ = f.Backups.Finish(ctx, r, "", 0, err)
 			return r, err
 		}
 	}
-	key, size, err := f.write(ctx, s, sp, log)
+	key, size, err := f.write(ctx, s, sp, walStart, log)
+	if err == nil && s.Base && len(s.WalStop) > 0 {
+		var stop string
+		if stop, err = f.walSegment(ctx, s.Engine, s.WalStop); err == nil {
+			r.WalStop = &stop // Finish writes the row
+		}
+	}
 	if r, ferr := f.Backups.Finish(ctx, r, key, size, err); ferr != nil || err != nil {
 		return r, errors.Join(err, ferr)
 	}
@@ -158,6 +166,17 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 	return f.Backups.GetRun(ctx, r.ID)
 }
 
+// walSegment runs argv (a psql query) in the engine and returns the WAL
+// segment name it prints.
+func (f *Flow) walSegment(ctx context.Context, t store.Tile, argv []string) (string, error) {
+	out, err := f.run(ctx, t, argv)
+	seg := strings.TrimSpace(out)
+	if err == nil && bk.Segment(seg) == "" {
+		err = errors.New("the WAL position did not read as a segment name")
+	}
+	return seg, err
+}
+
 func (f *Flow) pruneHeld(ctx context.Context, prefix, runID string) bool {
 	if f.PruneHold == nil {
 		return false
@@ -168,7 +187,7 @@ func (f *Flow) pruneHeld(ctx context.Context, prefix, runID string) bool {
 
 // write produces the archive and uploads it: streamed for a live copy or a
 // dump, spooled first otherwise (see the package comment).
-func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (string, int64, error) {
+func (f *Flow) write(ctx context.Context, s Subject, sp Spec, walStart string, log io.Writer) (string, int64, error) {
 	name, ext := s.Volume.Slug, ".tar.gz.age"
 	if sp.GroupID != "" {
 		name = s.Volume.Name // unique on the node; slugs repeat across envs
@@ -183,6 +202,9 @@ func (f *Flow) write(ctx context.Context, s Subject, sp Spec, log io.Writer) (st
 		if err := f.checkSpace(ctx, s.Volume); err != nil {
 			return "", 0, err
 		}
+	}
+	if s.Base && walStart != "" {
+		name = walStart + "-" + name // the archive says where its WAL starts, run rows or not
 	}
 	key := bk.ObjectKey(sp.Prefix, name+ext, time.Now())
 	produce := func(ctx context.Context, w io.Writer) error {

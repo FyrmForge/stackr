@@ -53,6 +53,13 @@ type sliceDumper interface {
 // its end and calls wait, which reports the dump's exit (a failed dump
 // carries the tail of pg_dump's stderr). Nothing touches disk.
 func (f *Flow) DumpSlice(ctx context.Context, s store.Tile) (io.Reader, func() error, error) {
+	return f.DumpSliceOn(ctx, s, store.Tile{})
+}
+
+// DumpSliceOn is DumpSlice run in the container of instance tile on, a
+// restored copy of the instance s lives on (the zero tile = s's own): the
+// copy holds the same database under the same name.
+func (f *Flow) DumpSliceOn(ctx context.Context, s, on store.Tile) (io.Reader, func() error, error) {
 	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
 	if err != nil {
 		return nil, nil, err
@@ -63,6 +70,12 @@ func (f *Flow) DumpSlice(ctx context.Context, s store.Tile) (io.Reader, func() e
 	m, it, e, err := f.of(ctx, p)
 	if err != nil {
 		return nil, nil, err
+	}
+	if on.ID != "" {
+		it = on
+		if m, err = f.Instances.GetByTile(ctx, on.ID); err != nil {
+			return nil, nil, err
+		}
 	}
 	d, ok := e.(sliceDumper)
 	if !ok {

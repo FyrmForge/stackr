@@ -78,6 +78,7 @@ table backup_runs
   col recovery_gen INTEGER notnull=1 default=0 pk=0
   col master_gen INTEGER notnull=1 default=0 pk=0
   col wal_start TEXT notnull=0 default=- pk=0
+  col wal_stop TEXT notnull=0 default=- pk=0
   fk dest_id -> backup_destinations(id) on_update=NO ACTION on_delete=CASCADE
   fk group_id -> backup_groups(id) on_update=NO ACTION on_delete=SET NULL
   fk schedule_id -> backup_schedules(id) on_update=NO ACTION on_delete=SET NULL
@@ -87,7 +88,7 @@ table backup_runs
   index backup_runs_group unique=0 origin=c partial=0 (group_id)
   index backup_runs_kind unique=0 origin=c partial=0 (kind)
   index backup_runs_volume unique=0 origin=c partial=0 (volume_id)
-  sql CREATE TABLE backup_runs ( id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('volume', 'panel')), volume_id TEXT REFERENCES volumes (id) ON DELETE SET NULL, schedule_id TEXT REFERENCES backup_schedules (id) ON DELETE SET NULL, dest_id TEXT NOT NULL REFERENCES backup_destinations (id) ON DELETE CASCADE, trigger TEXT NOT NULL, status TEXT NOT NULL, object_key TEXT NOT NULL, size_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at DATETIME NOT NULL, finished_at DATETIME , group_id TEXT REFERENCES backup_groups (id) ON DELETE SET NULL, recovery_gen INTEGER NOT NULL DEFAULT 0, master_gen INTEGER NOT NULL DEFAULT 0, wal_start TEXT)
+  sql CREATE TABLE backup_runs ( id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('volume', 'panel')), volume_id TEXT REFERENCES volumes (id) ON DELETE SET NULL, schedule_id TEXT REFERENCES backup_schedules (id) ON DELETE SET NULL, dest_id TEXT NOT NULL REFERENCES backup_destinations (id) ON DELETE CASCADE, trigger TEXT NOT NULL, status TEXT NOT NULL, object_key TEXT NOT NULL, size_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at DATETIME NOT NULL, finished_at DATETIME , group_id TEXT REFERENCES backup_groups (id) ON DELETE SET NULL, recovery_gen INTEGER NOT NULL DEFAULT 0, master_gen INTEGER NOT NULL DEFAULT 0, wal_start TEXT, wal_stop TEXT)
 table backup_schedules
   col id TEXT notnull=0 default=- pk=1
   col volume_id TEXT notnull=1 default=- pk=0

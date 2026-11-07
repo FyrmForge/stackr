@@ -106,6 +106,9 @@ type BackupRun struct {
 	// WalStart is the WAL segment current when a base backup started; nil
 	// on any other run.
 	WalStart *string `db:"wal_start" json:"wal_start"`
+	// WalStop is the WAL segment current when a base backup finished; the
+	// base restores only once shipped WAL reaches it. nil on any other run.
+	WalStop *string `db:"wal_stop" json:"wal_stop"`
 	// Dest is the destination's name ("local" for the install's disk),
 	// filled by the leaf's run lists, never stored.
 	Dest string `db:"-" json:"dest"`

@@ -15,6 +15,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -349,6 +350,9 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		}
 		if len(m.EnvPairs) > 0 {
 			b.put("env_pairs", map[string]string(m.EnvPairs))
+		}
+		if e, ok := mflow.Engines[m.Engine]; ok && e.Definition().ArchiveDir != "" {
+			b.put("pitr_days", m.PITRDays) // 0 too: the file says off, not "leave it"
 		}
 	}
 	str("image", t.ImageRef)

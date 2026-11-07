@@ -175,6 +175,9 @@ type PITRView struct {
 	Size     string
 	Waiting  int
 	Error    string
+	// Of is set on a restored copy: the instance it was restored from and
+	// the time. Promote puts its data under that instance.
+	Of, At string
 }
 
 // PITRBase is the newest base backup attempt.
@@ -191,7 +194,20 @@ type PITRBase struct {
 templ pitr(v View, p PITRView) {
 	<div id="pitr" class="panel p-5 space-y-2">
 		<h4 class="text-sm font-medium text-rw-text">Point-in-time restore</h4>
-		if !p.On {
+		if p.Of != "" {
+			<p class="text-sm text-rw-muted">Restored from { p.Of } at { p.At }.</p>
+			if p.Edit {
+				@c.Confirm(c.ConfirmView{
+					Button:  "Promote",
+					Title:   "Promote this copy?",
+					Warning: "Replaces " + p.Of + "'s data with this copy and restarts it. Its apps keep their address and login.",
+					Kept:    []string{"the old data, as an orphaned volume until retention ends"},
+					Action:  v.Base + "/promote-restore",
+					Target:  "#" + Root,
+					Primary: true,
+				})
+			}
+		} else if !p.On {
 			<p class="text-sm text-rw-muted">Point-in-time restore is off.</p>
 			if p.Edit {
 				<form hx-post={ v.Base + "/pitr" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
@@ -236,6 +252,12 @@ templ pitr(v View, p PITRView) {
 			</ul>
 			if p.Local {
 				<p class="text-xs text-rw-faint">The archive is on this server's disk: it covers a bad migration, not a lost server.</p>
+			}
+			if p.Edit && !p.From.IsZero() {
+				<form novalidate hx-post={ v.Base + "/restore" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
+					@c.Field(c.FieldView{Name: "at", Label: "Restore to a time", Placeholder: "2026-11-07T10:42:00Z", Help: "RFC3339 with an offset, or latest. Makes a new instance; this one is not touched."})
+					<button type="submit" class="btn btn-sm">Restore</button>
+				</form>
 			}
 			if p.Edit {
 				@c.Confirm(c.ConfirmView{

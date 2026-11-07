@@ -63,6 +63,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/rename", h.InstanceRename, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/pitr", h.PITR, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/restore", h.InstanceRestore, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/promote-restore", h.InstancePromote, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
@@ -339,6 +341,20 @@ func (h *handler) PITR(c echo.Context) error {
 	return h.instance(c, "backups", note, err, instance.SettingsView{})
 }
 
+// POST …/-/instances/:tile/restore: at, a time or latest. A new instance next
+// to this one, which is not touched.
+func (h *handler) InstanceRestore(c echo.Context) error {
+	cand, _, err := h.orch.RestoreInstance(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("at")))
+	return h.instance(c, "backups", "restoring into "+cand.Slug, err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/promote-restore: this restored copy's data goes
+// under the instance it was restored from.
+func (h *handler) InstancePromote(c echo.Context) error {
+	_, err := h.orch.PromoteRestore(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID)
+	return h.instance(c, "backups", "promoting: the instance restarts on the restored data", err, instance.SettingsView{})
+}
+
 // POST …/-/instances/:tile/allow: the whole list (allow, repeated) plus
 // add, one more pattern. Blank entries are dropped.
 func (h *handler) Allow(c echo.Context) error {
@@ -608,12 +624,13 @@ func (h *handler) SliceOnRemove(c echo.Context) error {
 	return h.slice(c, "Saved.", err)
 }
 
-// POST …/-/slices/:tile/branch: env, instance and expires, each optional.
+// POST …/-/slices/:tile/branch: env, instance, expires and at, each optional.
 func (h *handler) SliceBranch(c echo.Context) error {
 	br, _, err := h.orch.BranchSlice(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, service.BranchIn{
 		Env:      strings.TrimSpace(c.FormValue("env")),
 		Instance: strings.TrimSpace(c.FormValue("instance")),
 		Expires:  strings.TrimSpace(c.FormValue("expires")),
+		At:       strings.TrimSpace(c.FormValue("at")),
 	})
 	return h.slice(c, "Branch "+br.Slug+" is filling in.", err)
 }
@@ -992,6 +1009,9 @@ func (h *handler) pitr(c echo.Context, tileID string) (instance.PITRView, error)
 		On: s.On, Days: s.Days, Dest: s.Dest, Local: s.Local, Bundles: s.Bundles,
 		Size: render.Size(s.Bytes), Waiting: s.Waiting, Error: s.Error,
 		Edit: can(c, scope(c), "tile.write"),
+	}
+	if src, at, ok := h.orch.RestoreCandidate(c.Request().Context(), tileID); ok {
+		v.Of, v.At = src.Name, at
 	}
 	if s.From != nil {
 		v.From = *s.From

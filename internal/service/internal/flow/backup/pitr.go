@@ -115,7 +115,7 @@ func (f *Flow) ShipWAL(ctx context.Context, s Ship, log io.Writer) (Shipped, err
 			first, last = seg, bk.Segment(last)
 		}
 		key := s.Root + "/" + bk.WALDir + "/" + first + "-" + last + bk.BundleExt
-		n, err := f.shipBundle(ctx, s, key, files)
+		n, err := f.shipBundle(ctx, s, key, files, true)
 		if err != nil {
 			return res, err
 		}
@@ -133,7 +133,7 @@ func (f *Flow) ShipWAL(ctx context.Context, s Ship, log io.Writer) (Shipped, err
 // shipBundle tars files from the archive dir on the instance's node, gzips
 // and encrypts them with the destination's key, and puts them under key; only
 // then are the files removed.
-func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []string) (int64, error) {
+func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []string, remove bool) (int64, error) {
 	argv := append([]string{"tar", "-C", s.Dir, "-c"}, files...)
 	produce := func(ctx context.Context, w io.Writer) error {
 		enc, err := encrypt(w, s.Dest.ArchiveKey, keyWorkFactor)
@@ -162,6 +162,9 @@ func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []strin
 	if err != nil {
 		return 0, err
 	}
+	if !remove {
+		return size, nil
+	}
 	rm := []string{"rm", "-f"}
 	for _, n := range files {
 		rm = append(rm, s.Dir+"/"+n)
@@ -170,6 +173,34 @@ func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []strin
 		return size, fmt.Errorf("remove the shipped files: %w", err)
 	}
 	return size, nil
+}
+
+// ShipHistory ships the timeline history files in s.Dir (a restored cluster's
+// pg_wal) and leaves them there: the cluster needs them itself. A promoted
+// restore calls it so the archive can follow the new timeline; the restored
+// copy never archived, so nothing else would. Same names, same keys:
+// shipping twice is a re-put.
+func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
+	out, err := f.run(ctx, s.Engine, []string{"ls", "-1", s.Dir})
+	if err != nil {
+		return fmt.Errorf("list %s: %w", s.Dir, err)
+	}
+	var hist []string
+	for _, n := range strings.Fields(out) {
+		if bk.IsHistory(n) {
+			hist = append(hist, n)
+		}
+	}
+	slices.Sort(hist)
+	if len(hist) == 0 {
+		return nil
+	}
+	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
+	if _, err := f.shipBundle(ctx, s, key, hist, false); err != nil {
+		return err
+	}
+	logf(log, "shipped the timeline history (%s) as %s\n", strings.Join(hist, ", "), key)
+	return nil
 }
 
 // Usage is how many WAL bundles the archive holds and their bytes together.
@@ -190,6 +221,10 @@ func (f *Flow) Usage(ctx context.Context, d store.BackupDest, root string) (n in
 // deleted. No good base, nothing goes.
 func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string, days int, now time.Time, log io.Writer) (int, error) {
 	if days <= 0 {
+		return 0, nil
+	}
+	if f.held(root) { // a restore is reading this archive: its bases and WAL stay
+		logf(log, "not pruning %s: a restore is reading it\n", root)
 		return 0, nil
 	}
 	bases, err := f.Backups.Bases(ctx, root)

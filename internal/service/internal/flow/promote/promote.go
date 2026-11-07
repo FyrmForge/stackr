@@ -63,6 +63,10 @@ type Flow struct {
 	// DumpBeforeDrop backs the instance up before an explicit on_remove: drop
 	// destroys a slice's data (a branch excepted); an error stops the removal. Nil = no dump.
 	DumpBeforeDrop func(ctx context.Context, envID string, p store.Provision, log io.Writer) error
+	// PITRChanged runs after an apply moved an instance's recovery window: the
+	// weekly base backup follows it, and the shipper's state goes when it is
+	// off. The restart that makes postgres archive is the rollout's. Nil = none.
+	PITRChanged func(ctx context.Context, t store.Tile, m store.ManagedInstance)
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -338,8 +342,16 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 		if m, err = d.Managed.SetAllow(ctx, m, o.Slug, iw.allow); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		if _, err = d.Managed.SetEnvPairs(ctx, m, iw.pairs); err != nil {
+		if m, err = d.Managed.SetEnvPairs(ctx, m, iw.pairs); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
+		}
+		if iw.pitr != nil {
+			if m, err = d.Managed.SetPITR(ctx, m, *iw.pitr); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+			if f.PITRChanged != nil {
+				f.PITRChanged(ctx, t, m)
+			}
 		}
 	}
 	return nil

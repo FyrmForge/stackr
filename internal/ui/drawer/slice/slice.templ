@@ -127,7 +127,7 @@ func settingsRows(v View) []c.AccRow {
 		rows = append(rows, c.AccRow{Key: "consumers", Title: "Consumer access", Summary: ConsumersSummary(v.Consumers), Body: consumersRow(v)})
 	}
 	if v.CanBranch && !v.ReadOnly {
-		rows = append(rows, c.AccRow{Key: "branch", Title: "Branch", Summary: "copy as of now", Body: branchRow(v)})
+		rows = append(rows, c.AccRow{Key: "branch", Title: "Branch", Summary: "copy now or as of a time", Body: branchRow(v)})
 	}
 	rows = append(rows, c.AccRow{Key: "remove", Title: "On remove", Summary: onRemoveWord(v.OnRemove), Changed: v.OnRemove == "drop", Body: removeRow(v)})
 	if !v.ReadOnly {
@@ -238,6 +238,7 @@ templ branchRow(v View) {
 		@c.Field(c.FieldView{Name: "env", Label: "Env", Placeholder: "same env", Help: "An env of this stack, or stack:env."})
 		@c.Field(c.FieldView{Name: "instance", Label: "Instance", Placeholder: "same instance", Help: "stack:env:tile of another postgres."})
 		@c.Field(c.FieldView{Name: "expires", Label: "Expires", Placeholder: "never", Help: "For example 3d or 36h."})
+		@c.Field(c.FieldView{Name: "at", Label: "As of", Placeholder: "now", Help: "A past time, RFC3339 with an offset, or latest. Needs point-in-time restore."})
 		<button type="submit" class="btn btn-primary btn-sm">Branch</button>
 	</form>
 }

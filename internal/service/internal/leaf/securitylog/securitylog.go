@@ -36,10 +36,12 @@ const (
 	GrantApprove         = "grant.approve"
 	GrantRevoke          = "grant.revoke"
 	SecretReveal         = "secrets.reveal"
-	SliceBranch          = "slice.branch"   // a slice was copied as of now (detail: source, target, instance)
-	NodeBootstrap        = "node.bootstrap" // the controller row was made
-	RegistryToken        = "registry.token" // the registry front issued a token
-	CertIssue            = "cert.issue"     // the cluster CA signed a certificate
+	SliceBranch          = "slice.branch"     // a slice was copied as of now (detail: source, target, instance)
+	InstanceRestore      = "instance.restore" // an instance was restored to a time into a new tile (detail: source, target, at)
+	InstancePromote      = "instance.promote" // a restored copy took over its source's data (detail: copy, source, at)
+	NodeBootstrap        = "node.bootstrap"   // the controller row was made
+	RegistryToken        = "registry.token"   // the registry front issued a token
+	CertIssue            = "cert.issue"       // the cluster CA signed a certificate
 	MoveStart            = "move.start"
 	MoveFinish           = "move.finish"
 	NodeRecover          = "node.recover"           // a worker fetched its mesh through the panel, or was refused

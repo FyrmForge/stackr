@@ -686,6 +686,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Placements:     orch.stackPlacements,
 			Forget:         orch.forgetTileClone,
 			DumpBeforeDrop: orch.dumpBeforeDrop,
+			PITRChanged:    orch.pitrApplied,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {
