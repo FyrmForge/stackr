@@ -12,6 +12,13 @@ func seg(n int) string {
 	return "0000000100000000000000" + string("0123456789ABCDEF"[n/16]) + string("0123456789ABCDEF"[n%16])
 }
 
+func seg2(n int) string { return "00000002" + seg(n)[8:] }
+
+func stopped(r store.BackupRun, stop string) store.BackupRun {
+	r.WalStop = &stop
+	return r
+}
+
 func base(id string, finished time.Time, wal string) store.BackupRun {
 	return store.BackupRun{ID: id, Status: Done, ObjectKey: "k/" + id, FinishedAt: &finished, WalStart: &wal}
 }
@@ -26,6 +33,7 @@ func TestWindow(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		runs     []store.BackupRun
+		lin      Lineage
 		days     int
 		wantDrop []string
 		wantWal  string
@@ -65,6 +73,18 @@ func TestWindow(t *testing.T) {
 			wantWal:  seg(30), wantOK: true,
 		},
 		{
+			name: "an older base off the lineage never anchors; the on-lineage one stays",
+			runs: []store.BackupRun{
+				stopped(base("new", day(1), seg2(50)), seg2(51)),
+				stopped(base("off", day(9), seg(40)), seg(45)), // TL1, past the fork
+				stopped(base("anc", day(12), seg(20)), seg(25)),
+			},
+			lin:      Lineage{Tip: "00000002", Forks: map[string]int64{"00000001": 30}},
+			days:     7,
+			wantDrop: []string{"off"},
+			wantWal:  seg(20), wantOK: true,
+		},
+		{
 			name:    "a failed run changes nothing",
 			runs:    []store.BackupRun{failed, base("a", day(2), seg(10)), base("b", day(10), seg(5))},
 			days:    7,
@@ -72,7 +92,7 @@ func TestWindow(t *testing.T) {
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			drop, wal, ok := Window(c.runs, now, c.days)
+			drop, wal, ok := Window(c.runs, c.lin, now, c.days)
 			var ids []string
 			for _, r := range drop {
 				ids = append(ids, r.ID)

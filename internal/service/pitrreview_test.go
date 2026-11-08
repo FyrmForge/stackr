@@ -344,3 +344,108 @@ func TestBranchAtNeedsWriteOnTheInstancesStack(t *testing.T) {
 		t.Errorf("branch --at with no write on the instance's stack = %v, want not found", err)
 	}
 }
+
+// A promote's reset opens a new epoch (set, so the base queued after it counts),
+// waits out a shipper tick in flight, and with PITR off just clears the state.
+func TestPITRResetStartsAnEpochUnderTheShipperLock(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	o.savePITRState(ctx, r.m.ID, pitrState{Since: time.Now().Add(-time.Hour), ArchSince: time.Now().Add(-time.Hour), Guarded: true, LastSegment: "x"})
+	mu := o.pitrLock(r.m.ID)
+	mu.Lock() // a tick in flight
+	done := make(chan struct{})
+	go func() { o.pitrReset(ctx, r.m); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("the reset ran while a tick held the lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	mu.Unlock()
+	<-done
+	st, _ := o.pitrState(ctx, r.m.ID)
+	if st.Guarded || st.LastSegment != "" || time.Since(st.ArchSince) > time.Minute || !st.Since.Equal(st.ArchSince) {
+		t.Errorf("state after the reset = %+v", st)
+	}
+	off := r.m
+	off.PITRDays = 0
+	o.pitrReset(ctx, off)
+	if _, ok := o.pitrState(ctx, r.m.ID); ok {
+		t.Error("state kept with PITR off")
+	}
+}
+
+// A base destination change starts a new archive epoch, and a state row the
+// shipper cannot read is left alone: the tick saves nothing.
+func TestPITRShipNewEpochOnDestinationChangeAndKeepsAnUnreadableRow(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	o.pitrTick(ctx)
+	st, ok := o.pitrState(ctx, r.m.ID)
+	if !ok || st.DestID == "" {
+		t.Fatalf("no state after a tick: %+v", st)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	st.DestID, st.ArchSince = "elsewhere", old
+	o.savePITRState(ctx, r.m.ID, st)
+	o.pitrTick(ctx)
+	if st, _ = o.pitrState(ctx, r.m.ID); !st.ArchSince.After(old.Add(time.Hour)) {
+		t.Errorf("ArchSince = %v after the destination changed; want a new epoch", st.ArchSince)
+	}
+
+	must(t, o.store.Settings.Set(ctx, pitrKey(r.m.ID), "{not json"))
+	o.pitrTick(ctx)
+	if v, _, _ := o.store.Settings.Get(ctx, pitrKey(r.m.ID)); v != "{not json" {
+		t.Errorf("an unreadable row was overwritten: %q", v)
+	}
+}
+
+// With PITR on, the base schedule cannot be deleted and a tar restore cannot
+// land on the data volume; off, both are allowed. A dump restore is always fine.
+func TestPITRGuardsTheBaseScheduleAndVolumeRestores(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	var base BackupSchedule
+	for _, s := range mustSchedules(t, o, r.data.ID) {
+		if s.Method == "base" {
+			base = s
+		}
+	}
+	if base.ID == "" {
+		t.Fatal("no base schedule on a PITR instance")
+	}
+	if err := o.DeleteBackupSchedule(ctx, base.ID); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("deleting the base schedule with PITR on = %v; want a refusal", err)
+	}
+	dest, err := o.pitrDest(ctx, r.org, r.data)
+	must(t, err)
+	tar, err := o.backups.StartIn(ctx, backup.KindVolume, &r.data.ID, nil, dest.ID, "manual", nil)
+	must(t, err)
+	tar, err = o.backups.Finish(ctx, tar, "k/20261107-000000-data.tar.gz.age", 1, nil)
+	must(t, err)
+	dump, err := o.backups.StartIn(ctx, backup.KindVolume, &r.data.ID, nil, dest.ID, "manual", nil)
+	must(t, err)
+	dump, err = o.backups.Finish(ctx, dump, "k/20261107-000000-data.sql.gz.age", 1, nil)
+	must(t, err)
+	if err := o.pitrVolumeRestoreOK(ctx, tar.ID, r.data); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("tar restore onto a PITR volume = %v; want a refusal", err)
+	}
+	if err := o.pitrVolumeRestoreOK(ctx, dump.ID, r.data); err != nil {
+		t.Errorf("dump restore refused: %v", err)
+	}
+
+	off := r.m
+	off.PITRDays = 0
+	must(t, r.st.ManagedInstances.Update(ctx, off))
+	if err := o.pitrVolumeRestoreOK(ctx, tar.ID, r.data); err != nil {
+		t.Errorf("tar restore refused with PITR off: %v", err)
+	}
+	if err := o.DeleteBackupSchedule(ctx, base.ID); err != nil {
+		t.Errorf("deleting the base schedule with PITR off: %v", err)
+	}
+}

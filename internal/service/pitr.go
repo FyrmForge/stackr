@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -84,12 +85,32 @@ type pitrState struct {
 func pitrKey(instanceID string) string { return "pitr." + instanceID }
 
 func (o *Orchestrator) pitrState(ctx context.Context, instanceID string) (pitrState, bool) {
-	var st pitrState
+	st, ok, _ := o.readPITRState(ctx, instanceID)
+	return st, ok
+}
+
+// readPITRState tells "no state yet" (ok false, no error) from a read that
+// failed: the shipper must not start a new epoch over a row it could not read.
+func (o *Orchestrator) readPITRState(ctx context.Context, instanceID string) (st pitrState, ok bool, err error) {
 	v, ok, err := o.store.Settings.Get(ctx, pitrKey(instanceID))
-	if err != nil || !ok || json.Unmarshal([]byte(v), &st) != nil {
-		return pitrState{}, false
+	if err != nil {
+		return pitrState{}, false, err
 	}
-	return st, true
+	if !ok {
+		return pitrState{}, false, nil
+	}
+	if err := json.Unmarshal([]byte(v), &st); err != nil {
+		return pitrState{}, false, err
+	}
+	return st, true, nil
+}
+
+// pitrLock serialises the shipper's read-modify-save of an instance's state
+// with a promote's reset of it: a save never brings back a row the reset
+// replaced.
+func (o *Orchestrator) pitrLock(instanceID string) *sync.Mutex {
+	m, _ := o.repoLocks.LoadOrStore("pitr state "+instanceID, &sync.Mutex{})
+	return m.(*sync.Mutex)
 }
 
 func (o *Orchestrator) savePITRState(ctx context.Context, instanceID string, st pitrState) {
@@ -233,7 +254,7 @@ func (o *Orchestrator) dropBaseSchedules(ctx context.Context, v store.Volume) {
 	ss, _ := o.backups.Schedules(ctx, v.ID)
 	for _, s := range ss {
 		if s.Method == "base" {
-			_ = o.DeleteBackupSchedule(ctx, s.ID)
+			_ = o.deleteBackupSchedule(ctx, s.ID)
 		}
 	}
 }
@@ -355,7 +376,14 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 		return
 	}
 	now := time.Now().UTC()
-	st, _ := o.pitrState(ctx, m.ID)
+	mu := o.pitrLock(m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	st, _, err := o.readPITRState(ctx, m.ID)
+	if err != nil {
+		slog.Warn("pitr: state not read, tick skipped", "instance", m.ID, "err", err)
+		return // a zero state saved over the row would start a new epoch
+	}
 	if st.Since.IsZero() {
 		st.Since = now
 	}
@@ -369,6 +397,9 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 				return
 			}
 		} else {
+			if st.DestID != "" && st.DestID != dest.ID {
+				st.ArchSince = now // the WAL went elsewhere meanwhile: bases from before cannot reach now
+			}
 			st.Guarded, st.DestID = true, dest.ID
 		}
 	}

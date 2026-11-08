@@ -215,12 +215,13 @@ func TestShipHistoryLeavesTheFilesInPlace(t *testing.T) {
 }
 
 // A second copy restored from the same source ends on the same timeline; once
-// the first one's history is in the archive the second must not overwrite it.
+// the first one's history is in the archive the second's pre-swap check
+// refuses it.
 func TestShipHistoryRefusesATimelineTheArchiveHolds(t *testing.T) {
 	w := setup(t)
 	w.archive([]string{"00000002.history", seg1}, "TARBYTES")
 	must(t, w.f.ShipHistory(ctx, w.ship(), io.Discard))
-	err := w.f.ShipHistory(ctx, w.ship(), io.Discard)
+	err := w.f.CheckHistory(ctx, w.ship())
 	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "restore again") {
 		t.Fatalf("second ship of timeline 2 = %v; want a conflict", err)
 	}
@@ -305,4 +306,20 @@ func TestListArchiveReadsTheLineage(t *testing.T) {
 	if lin.Tip != "00000003" || lin.Forks["00000001"] != 3 || lin.Forks["00000002"] != 5 {
 		t.Errorf("lineage = %+v", lin)
 	}
+}
+
+// The promote's preflight lists only: it refuses a held timeline, and ships nothing.
+func TestCheckHistoryShipsNothingAndRefusesAHeldTimeline(t *testing.T) {
+	w := setup(t)
+	w.archive([]string{"00000002.history", seg1}, "TARBYTES")
+	root := bk.PITRRoot("o1", w.vol.ID)
+	must(t, w.f.CheckHistory(ctx, w.ship()))
+	if keys, _ := open(w.dest).List(ctx, root+"/wal/"); len(keys) != 0 {
+		t.Fatalf("the check shipped %v", keys)
+	}
+	must(t, w.f.ShipHistory(ctx, w.ship(), io.Discard))
+	if _, ok := errs.IsConflict(w.f.CheckHistory(ctx, w.ship())); !ok {
+		t.Error("the check let a held timeline through")
+	}
+	must(t, w.f.ShipHistory(ctx, w.ship(), io.Discard)) // a resumed promote finds its own upload
 }

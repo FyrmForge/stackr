@@ -194,6 +194,15 @@ func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []strin
 // already holds the copy's timeline: another copy of the same source was
 // promoted first, and shipping would overwrite its history.
 func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
+	return f.history(ctx, s, log, false)
+}
+
+// CheckHistory refuses what ShipHistory would refuse, and ships nothing.
+func (f *Flow) CheckHistory(ctx context.Context, s Ship) error {
+	return f.history(ctx, s, io.Discard, true)
+}
+
+func (f *Flow) history(ctx context.Context, s Ship, log io.Writer, dry bool) error {
 	out, err := f.run(ctx, s.Engine, []string{"ls", "-1", s.Dir})
 	if err != nil {
 		return fmt.Errorf("list %s: %w", s.Dir, err)
@@ -216,12 +225,18 @@ func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("list the archive: %w", err)
 	}
+	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
 	for _, k := range keys {
+		if k == key && !dry { // shipped by an earlier run of this promote that died before recording it
+			return nil
+		}
 		if n, ok := bundleHistoryTimeline(k); ok && n >= tl {
 			return errs.Conflictf("the archive already holds timeline %d (another restored copy was promoted); restore again from the current state", n)
 		}
 	}
-	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
+	if dry {
+		return nil
+	}
 	if _, err := f.shipBundle(ctx, s, key, hist, false); err != nil {
 		return err
 	}
@@ -273,11 +288,11 @@ func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string,
 		logf(log, "not pruning %s: a restore is reading it\n", root)
 		return 0, nil
 	}
-	bases, err := f.Backups.Bases(ctx, root, d.ID, time.Time{})
+	bases, keys, lin, err := f.ListArchive(ctx, d, root, time.Time{})
 	if err != nil {
 		return 0, err
 	}
-	drop, walBefore, ok := bk.Window(bases, now, days)
+	drop, walBefore, ok := bk.Window(bases, lin, now, days)
 	if !ok {
 		return 0, nil
 	}
@@ -290,10 +305,6 @@ func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string,
 		}
 		_ = f.Backups.DropRun(ctx, r.ID)
 		n++
-	}
-	keys, err := o.List(ctx, root+"/"+bk.WALDir+"/")
-	if err != nil {
-		return n, err
 	}
 	for _, k := range bk.StaleWAL(keys, walBefore) {
 		if err := o.Delete(ctx, k); err != nil {

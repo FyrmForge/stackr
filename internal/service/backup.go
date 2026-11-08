@@ -189,6 +189,18 @@ func (o *Orchestrator) UpdateBackupSchedule(ctx context.Context, id string, s Sc
 }
 
 func (o *Orchestrator) DeleteBackupSchedule(ctx context.Context, id string) error {
+	if b, err := o.backups.GetSchedule(ctx, id); err == nil && b.Method == "base" {
+		if v, err := o.volumes.Get(ctx, b.VolumeID); err == nil && v.InstanceID != nil {
+			// With no base ever taken again, the recovery window never prunes.
+			if m, err := o.managed.Get(ctx, *v.InstanceID); err == nil && m.PITRDays > 0 {
+				return errs.Refusedf("the base backup schedule keeps point-in-time recovery pruned; turn point-in-time recovery off first")
+			}
+		}
+	}
+	return o.deleteBackupSchedule(ctx, id)
+}
+
+func (o *Orchestrator) deleteBackupSchedule(ctx context.Context, id string) error {
 	err := o.backups.DeleteSchedule(ctx, id)
 	if err == nil {
 		o.sched.Reload(ctx)
@@ -244,7 +256,28 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, by *Principal, runID, 
 	if by != nil && by.Access.KeyStack != "" && (a.Stack != by.Access.KeyStack || b.Stack != a.Stack) {
 		return Job{}, errs.ErrNotFound
 	}
+	if err := o.pitrVolumeRestoreOK(ctx, runID, dst); err != nil {
+		return Job{}, err
+	}
 	return o.queueRestore(ctx, runID, src, dst)
+}
+
+// pitrVolumeRestoreOK refuses a volume (tar) restore onto the data volume of
+// an instance with PITR on: it would rewind the data under the archive's
+// timeline, and the archive would hold two histories. A dump restore is SQL
+// on the live cluster and is fine.
+func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, dst store.Volume) error {
+	if dst.InstanceID == nil {
+		return nil
+	}
+	run, err := o.backups.GetRun(ctx, runID)
+	if err != nil || strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
+		return nil // an unknown run fails in the job, as it always did
+	}
+	if m, err := o.managed.Get(ctx, *dst.InstanceID); err == nil && m.PITRDays > 0 {
+		return errs.Refusedf("%s keeps point-in-time recovery: a volume restore would rewind its data under the archive. Turn point-in-time recovery off first, or restore to a time (tile restore --at)", dst.Name)
+	}
+	return nil
 }
 
 // queueRestore queues the restore of run (of src) into dst; extra locks are

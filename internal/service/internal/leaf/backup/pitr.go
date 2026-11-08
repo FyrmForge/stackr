@@ -98,8 +98,10 @@ func BundleLast(key string) (last string, history, ok bool) {
 // segment the oldest kept base started at: a WAL bundle that ends before it
 // can never be replayed. ok is false when no base finished well (no good
 // base, no pruning). bases is any mix of runs; only finished ones with a
-// recorded wal_start count.
-func Window(bases []store.BackupRun, now time.Time, days int) (drop []store.BackupRun, walBefore string, ok bool) {
+// recorded wal_start count. The anchor is the newest older base on lin's
+// lineage, as restore reads it: an older base off the lineage is dropped, and
+// never takes the anchor's place.
+func Window(bases []store.BackupRun, lin Lineage, now time.Time, days int) (drop []store.BackupRun, walBefore string, ok bool) {
 	var good []store.BackupRun
 	for _, r := range bases {
 		if r.Status == Done && r.ObjectKey != "" && r.FinishedAt != nil && r.WalStart != nil && *r.WalStart != "" {
@@ -117,7 +119,7 @@ func Window(bases []store.BackupRun, now time.Time, days int) (drop []store.Back
 			walBefore = minSeg(walBefore, *r.WalStart)
 			continue
 		}
-		if !anchored {
+		if !anchored && lin.allows(baseStop(r)) {
 			anchored = true
 			walBefore = minSeg(walBefore, *r.WalStart)
 			continue

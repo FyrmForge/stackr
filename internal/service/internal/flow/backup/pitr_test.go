@@ -64,6 +64,7 @@ func (w *world) oldBase(t *testing.T, root string, daysAgo int, wal string) stri
 	key := root + "/base/" + time.Now().AddDate(0, 0, -daysAgo).UTC().Format("20060102-150405") + "-data.tar.gz.age"
 	must(t, open(w.dest).Put(ctx, key, strings.NewReader("old")))
 	r, err = w.f.Backups.SetWalStart(ctx, r, wal)
+	r.WalStop = &wal
 	must(t, err)
 	r, err = w.f.Backups.Finish(ctx, r, key, 3, nil)
 	must(t, err)
@@ -93,7 +94,8 @@ func TestBaseBackupRecordsWalStartAndPrunesTheWindow(t *testing.T) {
 	walOld := bk.WALKey(root, seg1, seg1)
 	walNeeded := bk.WALKey(root, seg2, seg3)
 	hist := root + "/wal/00000002.history-00000002.history" + bk.BundleExt
-	for _, k := range []string{walOld, walNeeded, hist} {
+	w.put(t, hist, tgz(t, member{"00000002.history", "1\t0/3000000\tno recovery target specified\n"}))
+	for _, k := range []string{walOld, walNeeded} {
 		must(t, open(w.dest).Put(ctx, k, strings.NewReader("w")))
 	}
 
