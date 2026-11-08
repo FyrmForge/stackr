@@ -38,8 +38,9 @@ func TestSeedAgainstPostgres(t *testing.T) {
 	x := Tools{Exec: func(_ context.Context, argv []string) (string, error) { return run(argv, nil) }}
 	ctx := context.Background()
 	for end := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
-		// pg_isready answers during the image's init restart; a query does not lie
-		if _, err := run(pg{}.psql(i, "postgres", []string{"SELECT 1"}), nil); err == nil {
+		// the image's init server answers on the socket, then restarts; only
+		// the final server listens on TCP
+		if _, err := run([]string{"env", "PGPASSWORD=" + i.AdminPassword, "psql", "-h", "127.0.0.1", "-U", i.AdminUser, "-d", "postgres", "-c", "SELECT 1"}, nil); err == nil {
 			break
 		}
 		if time.Now().After(end) {
