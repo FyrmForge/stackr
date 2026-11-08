@@ -154,6 +154,9 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 		}
 		return was, Job{}, err
 	}
+	if was.PITRDays <= 0 && days > 0 {
+		o.pitrReset(ctx, m) // nothing archived while it was off: older bases cannot reach now
+	}
 	return m, j, err
 }
 

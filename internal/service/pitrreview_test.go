@@ -233,6 +233,25 @@ func TestSetPITROffKeepsShippingUntilTheContainerStopsArchiving(t *testing.T) {
 	}
 }
 
+// Off then on before the shipper retired the old state starts a new epoch:
+// nothing was archived in between, so the old bases cannot reach now.
+func TestSetPITROffThenOnStartsANewEpoch(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	o.pitrTick(ctx)
+	old, _ := o.pitrState(ctx, r.m.ID)
+	_, _, err := o.SetPITR(ctx, r.pg.ID, 0)
+	must(t, err)
+	_, _, err = o.SetPITR(ctx, r.pg.ID, 7)
+	must(t, err)
+	st, ok := o.pitrState(ctx, r.m.ID)
+	if !ok || !st.ArchSince.After(old.ArchSince) {
+		t.Errorf("archive epoch %v kept across off and on (was %v)", st.ArchSince, old.ArchSince)
+	}
+}
+
 // A redeploy that cannot be queued leaves the window as it was.
 func TestSetPITRRollsBackWhenTheRedeployIsRefused(t *testing.T) {
 	t.Parallel()
