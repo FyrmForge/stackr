@@ -344,3 +344,61 @@ func TestBranchAtNeedsWriteOnTheInstancesStack(t *testing.T) {
 		t.Errorf("branch --at with no write on the instance's stack = %v, want not found", err)
 	}
 }
+
+// A promote's reset opens a new epoch (set, so the base queued after it counts),
+// waits out a shipper tick in flight, and with PITR off just clears the state.
+func TestPITRResetStartsAnEpochUnderTheShipperLock(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	o.savePITRState(ctx, r.m.ID, pitrState{Since: time.Now().Add(-time.Hour), ArchSince: time.Now().Add(-time.Hour), Guarded: true, LastSegment: "x"})
+	mu := o.pitrLock(r.m.ID)
+	mu.Lock() // a tick in flight
+	done := make(chan struct{})
+	go func() { o.pitrReset(ctx, r.m); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("the reset ran while a tick held the lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	mu.Unlock()
+	<-done
+	st, _ := o.pitrState(ctx, r.m.ID)
+	if st.Guarded || st.LastSegment != "" || time.Since(st.ArchSince) > time.Minute || !st.Since.Equal(st.ArchSince) {
+		t.Errorf("state after the reset = %+v", st)
+	}
+	off := r.m
+	off.PITRDays = 0
+	o.pitrReset(ctx, off)
+	if _, ok := o.pitrState(ctx, r.m.ID); ok {
+		t.Error("state kept with PITR off")
+	}
+}
+
+// A base destination change starts a new archive epoch, and a state row the
+// shipper cannot read is left alone: the tick saves nothing.
+func TestPITRShipNewEpochOnDestinationChangeAndKeepsAnUnreadableRow(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	o.pitrTick(ctx)
+	st, ok := o.pitrState(ctx, r.m.ID)
+	if !ok || st.DestID == "" {
+		t.Fatalf("no state after a tick: %+v", st)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	st.DestID, st.ArchSince = "elsewhere", old
+	o.savePITRState(ctx, r.m.ID, st)
+	o.pitrTick(ctx)
+	if st, _ = o.pitrState(ctx, r.m.ID); !st.ArchSince.After(old.Add(time.Hour)) {
+		t.Errorf("ArchSince = %v after the destination changed; want a new epoch", st.ArchSince)
+	}
+
+	must(t, o.store.Settings.Set(ctx, pitrKey(r.m.ID), "{not json"))
+	o.pitrTick(ctx)
+	if v, _, _ := o.store.Settings.Get(ctx, pitrKey(r.m.ID)); v != "{not json" {
+		t.Errorf("an unreadable row was overwritten: %q", v)
+	}
+}

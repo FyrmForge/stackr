@@ -793,8 +793,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			return nil
 		},
 		settle: func() error {
-			_ = o.store.Settings.Delete(ctx, pitrKey(sm.ID)) // the guard runs again against the same prefix, as its own
-			o.clearPITRProblems(ctx, sm.ID)
+			o.pitrReset(ctx, sm)
 			if sm.PITRDays > 0 {
 				if _, err := o.BackupNow(ctx, sv.ID, "", "base", ""); err != nil {
 					return err
@@ -803,6 +802,23 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			return nil
 		},
 	}.run(r.Log)
+}
+
+// pitrReset starts a new archive epoch from now, set before the base is
+// queued so that base counts; the guard runs again against the same prefix,
+// as its own. Under the shipper's lock: a tick in flight cannot save the old
+// state over it afterwards. With PITR off the state just goes.
+func (o *Orchestrator) pitrReset(ctx context.Context, m store.ManagedInstance) {
+	mu := o.pitrLock(m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if m.PITRDays > 0 {
+		now := time.Now().UTC()
+		o.savePITRState(ctx, m.ID, pitrState{Since: now, ArchSince: now})
+	} else {
+		_ = o.store.Settings.Delete(ctx, pitrKey(m.ID))
+	}
+	o.clearPITRProblems(ctx, m.ID)
 }
 
 // swapData makes the source's data volume row name the candidate's Docker
