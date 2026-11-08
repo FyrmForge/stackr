@@ -402,3 +402,50 @@ func TestPITRShipNewEpochOnDestinationChangeAndKeepsAnUnreadableRow(t *testing.T
 		t.Errorf("an unreadable row was overwritten: %q", v)
 	}
 }
+
+// With PITR on, the base schedule cannot be deleted and a tar restore cannot
+// land on the data volume; off, both are allowed. A dump restore is always fine.
+func TestPITRGuardsTheBaseScheduleAndVolumeRestores(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	var base BackupSchedule
+	for _, s := range mustSchedules(t, o, r.data.ID) {
+		if s.Method == "base" {
+			base = s
+		}
+	}
+	if base.ID == "" {
+		t.Fatal("no base schedule on a PITR instance")
+	}
+	if err := o.DeleteBackupSchedule(ctx, base.ID); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("deleting the base schedule with PITR on = %v; want a refusal", err)
+	}
+	dest, err := o.pitrDest(ctx, r.org, r.data)
+	must(t, err)
+	tar, err := o.backups.StartIn(ctx, backup.KindVolume, &r.data.ID, nil, dest.ID, "manual", nil)
+	must(t, err)
+	tar, err = o.backups.Finish(ctx, tar, "k/20261107-000000-data.tar.gz.age", 1, nil)
+	must(t, err)
+	dump, err := o.backups.StartIn(ctx, backup.KindVolume, &r.data.ID, nil, dest.ID, "manual", nil)
+	must(t, err)
+	dump, err = o.backups.Finish(ctx, dump, "k/20261107-000000-data.sql.gz.age", 1, nil)
+	must(t, err)
+	if err := o.pitrVolumeRestoreOK(ctx, tar.ID, r.data); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("tar restore onto a PITR volume = %v; want a refusal", err)
+	}
+	if err := o.pitrVolumeRestoreOK(ctx, dump.ID, r.data); err != nil {
+		t.Errorf("dump restore refused: %v", err)
+	}
+
+	off := r.m
+	off.PITRDays = 0
+	must(t, r.st.ManagedInstances.Update(ctx, off))
+	if err := o.pitrVolumeRestoreOK(ctx, tar.ID, r.data); err != nil {
+		t.Errorf("tar restore refused with PITR off: %v", err)
+	}
+	if err := o.DeleteBackupSchedule(ctx, base.ID); err != nil {
+		t.Errorf("deleting the base schedule with PITR off: %v", err)
+	}
+}

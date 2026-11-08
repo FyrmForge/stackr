@@ -53,7 +53,7 @@ func (o *Orchestrator) DeleteVolume(ctx context.Context, id string) error {
 	}
 	ss, err := o.backups.Schedules(ctx, v.ID)
 	for _, s := range ss {
-		err = errors.Join(err, o.DeleteBackupSchedule(ctx, s.ID))
+		err = errors.Join(err, o.deleteBackupSchedule(ctx, s.ID))
 	}
 	return err
 }

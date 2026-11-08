@@ -254,7 +254,7 @@ func (o *Orchestrator) dropBaseSchedules(ctx context.Context, v store.Volume) {
 	ss, _ := o.backups.Schedules(ctx, v.ID)
 	for _, s := range ss {
 		if s.Method == "base" {
-			_ = o.DeleteBackupSchedule(ctx, s.ID)
+			_ = o.deleteBackupSchedule(ctx, s.ID)
 		}
 	}
 }
