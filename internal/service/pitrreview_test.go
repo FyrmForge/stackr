@@ -377,7 +377,7 @@ func TestPITRResetStartsAnEpochUnderTheShipperLock(t *testing.T) {
 	mu := o.pitrLock(r.m.ID)
 	mu.Lock() // a tick in flight
 	done := make(chan struct{})
-	go func() { o.pitrReset(ctx, r.m); close(done) }()
+	go func() { _ = o.pitrReset(ctx, r.m); close(done) }()
 	select {
 	case <-done:
 		t.Fatal("the reset ran while a tick held the lock")
@@ -391,7 +391,7 @@ func TestPITRResetStartsAnEpochUnderTheShipperLock(t *testing.T) {
 	}
 	off := r.m
 	off.PITRDays = 0
-	o.pitrReset(ctx, off)
+	must(t, o.pitrReset(ctx, off))
 	if _, ok := o.pitrState(ctx, r.m.ID); ok {
 		t.Error("state kept with PITR off")
 	}
