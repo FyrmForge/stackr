@@ -241,7 +241,8 @@ func TestRunCancelled(t *testing.T) {
 	f, fake, sweep := setup(t)
 	fake.WaitBlock = true
 	r := queue(t, f, sweep.ID)
-	cctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	// room for a slow runner: the deadline must land in Wait, not before the run starts
+	cctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	_ = f.Do(cctx, r.ID, io.Discard)
 	if r, _ = f.Runs.Get(ctx, sweep.ID, r.ID); r.Status != lrun.Cancelled {
