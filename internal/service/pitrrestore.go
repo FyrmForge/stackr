@@ -626,15 +626,17 @@ type promoteRestoreJob struct {
 
 // promoteSteps are the actions of a promote, in the order it runs them; the
 // fakes of the order test stand in for a real instance. Until swap commits
-// nothing has changed but the source being stopped, which undo reverts. After
-// it the source's row names the new data and a re-run (swapped) resumes at
-// stopCand: swapping again would hand the old data back.
+// nothing has changed but the source being stopped, which undo reverts: the
+// archive is only listed (check), the history goes up after the swap commits,
+// while the copy still runs. After it the source's row names the new data and
+// a re-run (swapped) resumes at history: swapping again would hand the old data back.
 type promoteSteps struct {
 	swapped  bool         // the swap already committed in an earlier run
 	ready    func() error // the candidate finished replaying
-	history  func() error // its timeline history goes to the archive
+	check    func() error // the archive does not hold the copy's timeline yet (lists only)
 	stopSrc  func() error
 	swap     func() error // the point of no return: the volume rows trade data, in one transaction
+	history  func() error // the copy's timeline history goes to the archive, once the swap holds
 	undo     func()       // a failure before the swap: the source runs again
 	stopCand func() error
 	start    func() error // the source redeploys on the new data
@@ -649,9 +651,9 @@ type promoteStep struct {
 }
 
 func (s promoteSteps) run(log io.Writer) error {
-	pre := []promoteStep{{"check the restored copy", s.ready}, {"ship its timeline history", s.history},
+	pre := []promoteStep{{"check the restored copy", s.ready}, {"check the archive's timelines", s.check},
 		{"stop the source", s.stopSrc}, {"swap the data volume", s.swap}}
-	post := []promoteStep{{"stop the restored copy", s.stopCand}, {"start the source", s.start},
+	post := []promoteStep{{"ship its timeline history", s.history}, {"stop the restored copy", s.stopCand}, {"start the source", s.start},
 		{"re-apply slices and bindings", s.replay}, {"remove the restored tile", s.drop},
 		{"reset the archive state", s.settle}}
 	if s.swapped {
@@ -711,6 +713,19 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 				return errs.Conflictf("%s is not done replaying (or is not running); wait for its restore job, then promote", cand.Slug)
 			}
 			return nil
+		},
+		check: func() error {
+			if sm.PITRDays <= 0 {
+				return nil
+			}
+			s, err := o.pitrSourceOf(ctx, src.ID)
+			if err != nil {
+				return err
+			}
+			if c, ok := o.candidateOf(ctx, cand.ID); ok && c.Shipped {
+				return nil
+			}
+			return o.backup.CheckHistory(ctx, fbackup.Ship{Engine: cand, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir})
 		},
 		history: func() error {
 			if sm.PITRDays <= 0 {

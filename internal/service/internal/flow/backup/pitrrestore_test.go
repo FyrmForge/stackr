@@ -306,3 +306,18 @@ func TestListArchiveReadsTheLineage(t *testing.T) {
 		t.Errorf("lineage = %+v", lin)
 	}
 }
+
+// The promote's preflight lists only: it refuses a held timeline, and ships nothing.
+func TestCheckHistoryShipsNothingAndRefusesAHeldTimeline(t *testing.T) {
+	w := setup(t)
+	w.archive([]string{"00000002.history", seg1}, "TARBYTES")
+	root := bk.PITRRoot("o1", w.vol.ID)
+	must(t, w.f.CheckHistory(ctx, w.ship()))
+	if keys, _ := open(w.dest).List(ctx, root+"/wal/"); len(keys) != 0 {
+		t.Fatalf("the check shipped %v", keys)
+	}
+	must(t, w.f.ShipHistory(ctx, w.ship(), io.Discard))
+	if _, ok := errs.IsConflict(w.f.CheckHistory(ctx, w.ship())); !ok {
+		t.Error("the check let a held timeline through")
+	}
+}

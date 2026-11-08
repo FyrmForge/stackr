@@ -194,6 +194,15 @@ func (f *Flow) shipBundle(ctx context.Context, s Ship, key string, files []strin
 // already holds the copy's timeline: another copy of the same source was
 // promoted first, and shipping would overwrite its history.
 func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
+	return f.history(ctx, s, log, false)
+}
+
+// CheckHistory refuses what ShipHistory would refuse, and ships nothing.
+func (f *Flow) CheckHistory(ctx context.Context, s Ship) error {
+	return f.history(ctx, s, io.Discard, true)
+}
+
+func (f *Flow) history(ctx context.Context, s Ship, log io.Writer, dry bool) error {
 	out, err := f.run(ctx, s.Engine, []string{"ls", "-1", s.Dir})
 	if err != nil {
 		return fmt.Errorf("list %s: %w", s.Dir, err)
@@ -220,6 +229,9 @@ func (f *Flow) ShipHistory(ctx context.Context, s Ship, log io.Writer) error {
 		if n, ok := bundleHistoryTimeline(k); ok && n >= tl {
 			return errs.Conflictf("the archive already holds timeline %d (another restored copy was promoted); restore again from the current state", n)
 		}
+	}
+	if dry {
+		return nil
 	}
 	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
 	if _, err := f.shipBundle(ctx, s, key, hist, false); err != nil {

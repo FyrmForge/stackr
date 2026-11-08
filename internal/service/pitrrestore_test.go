@@ -227,12 +227,12 @@ func TestPromoteStepsRunInOrder(t *testing.T) {
 		}
 		return promoteSteps{
 			swapped: swapped,
-			ready:   f("ready"), history: f("history"), stopSrc: f("stopSrc"), swap: f("swap"),
+			ready:   f("ready"), check: f("check"), history: f("history"), stopSrc: f("stopSrc"), swap: f("swap"),
 			undo:     func() { got = append(got, "undo") },
 			stopCand: f("stopCand"), start: f("start"), replay: f("replay"), drop: f("drop"), settle: f("settle"),
 		}
 	}
-	all := []string{"ready", "history", "stopSrc", "swap", "stopCand", "start", "replay", "drop", "settle"}
+	all := []string{"ready", "check", "stopSrc", "swap", "history", "stopCand", "start", "replay", "drop", "settle"}
 	var log strings.Builder
 	if err := steps("", false).run(&log); err != nil || !slices.Equal(got, all) {
 		t.Fatalf("order = %v, %v; want %v", got, err, all)
@@ -240,13 +240,23 @@ func TestPromoteStepsRunInOrder(t *testing.T) {
 	// A failure before the swap restarts the source and runs nothing after.
 	got = nil
 	err := steps("swap", false).run(&log)
-	if err == nil || !strings.Contains(err.Error(), "swap the data volume") || !slices.Equal(got, []string{"ready", "history", "stopSrc", "swap", "undo"}) {
+	if err == nil || !strings.Contains(err.Error(), "swap the data volume") || !slices.Equal(got, []string{"ready", "check", "stopSrc", "swap", "undo"}) {
 		t.Errorf("failing swap: ran %v, err %v", got, err)
 	}
 	// A failure after it is not undone: a re-run resumes instead.
 	got = nil
 	if err := steps("start", false).run(&log); err == nil || slices.Contains(got, "undo") || slices.Contains(got, "replay") {
 		t.Errorf("failing start: ran %v, err %v", got, err)
+	}
+	// A failing history upload after the swap is not undone either: the resume ships it.
+	got = nil
+	if err := steps("history", false).run(&log); err == nil || slices.Contains(got, "undo") || slices.Contains(got, "stopCand") {
+		t.Errorf("failing history: ran %v, err %v", got, err)
+	}
+	// The conflict preflight stops everything before the source is touched.
+	got = nil
+	if err := steps("check", false).run(&log); err == nil || !slices.Equal(got, []string{"ready", "check", "undo"}) {
+		t.Errorf("failing check: ran %v, err %v", got, err)
 	}
 	// The resume skips everything up to and including the swap.
 	got = nil
