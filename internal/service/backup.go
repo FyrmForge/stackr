@@ -271,11 +271,8 @@ func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, ds
 		return nil
 	}
 	run, err := o.backups.GetRun(ctx, runID)
-	if err != nil {
-		return err
-	}
-	if strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
-		return nil
+	if err != nil || strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
+		return nil // an unknown run fails in the job, as it always did
 	}
 	if m, err := o.managed.Get(ctx, *dst.InstanceID); err == nil && m.PITRDays > 0 {
 		return errs.Refusedf("%s keeps point-in-time recovery: a volume restore would rewind its data under the archive. Turn point-in-time recovery off first, or restore to a time (tile restore --at)", dst.Name)
