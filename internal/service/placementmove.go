@@ -763,6 +763,10 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 			dumps[it.ID] = append(dumps[it.ID], dump{newest.ID, v})
 			continue
 		}
+		if err := o.pitrVolumeRestoreOK(ctx, newest.ID, v); err != nil {
+			notes = append(notes, v.Slug+": not restored from a backup. "+err.Error())
+			continue
+		}
 		// the pre-restore backup mounts it; made here, it carries stackr's label
 		if _, err := o.volumes.Ensure(ctx, v); err != nil {
 			errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, err))

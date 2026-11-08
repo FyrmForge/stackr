@@ -186,7 +186,8 @@ func TestRestoreLocksTheInstanceTile(t *testing.T) {
 		ID: uuid.NewString(), ProvisionID: p.ID, ConsumerTileID: api.ID, Access: "write",
 		DBUser: "shop_dev_orders_api", Outputs: "{}", CreatedAt: time.Now(),
 	}))
-	j, err := w.orch.RestoreBackup(ctx, nil, "no-such-run", v.ID, v.ID)
+	run := w.dumpOf(t, v)
+	j, err := w.orch.RestoreBackup(ctx, nil, run.ID, v.ID, v.ID)
 	must(t, err)
 	for _, want := range []string{tl.ID, slice.ID, api.ID} {
 		if !slices.Contains(j.LockSet, want) {

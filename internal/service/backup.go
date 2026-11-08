@@ -181,6 +181,14 @@ func (o *Orchestrator) UpdateBackupSchedule(ctx context.Context, id string, s Sc
 	if err != nil {
 		return b, err
 	}
+	if strings.TrimSpace(s.Method) == "" {
+		s.Method = b.Method // a missing method keeps the schedule's, not the volume's default
+	}
+	if strings.TrimSpace(s.Method) != "base" {
+		if err := o.pitrKeepsBase(ctx, b); err != nil {
+			return b, err
+		}
+	}
 	b, err = o.backups.UpdateSchedule(ctx, b, org, ms, s)
 	if err == nil {
 		o.sched.Reload(ctx)
@@ -189,15 +197,38 @@ func (o *Orchestrator) UpdateBackupSchedule(ctx context.Context, id string, s Sc
 }
 
 func (o *Orchestrator) DeleteBackupSchedule(ctx context.Context, id string) error {
-	if b, err := o.backups.GetSchedule(ctx, id); err == nil && b.Method == "base" {
-		if v, err := o.volumes.Get(ctx, b.VolumeID); err == nil && v.InstanceID != nil {
-			// With no base ever taken again, the recovery window never prunes.
-			if m, err := o.managed.Get(ctx, *v.InstanceID); err == nil && m.PITRDays > 0 {
-				return errs.Refusedf("the base backup schedule keeps point-in-time recovery pruned; turn point-in-time recovery off first")
-			}
-		}
+	b, err := o.backups.GetSchedule(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := o.pitrKeepsBase(ctx, b); err != nil {
+		return err
 	}
 	return o.deleteBackupSchedule(ctx, id)
+}
+
+// pitrKeepsBase refuses to lose a base schedule (deleted, or changed to
+// another method) while its instance has PITR on: with no base ever taken
+// again, the recovery window never prunes. A lookup that fails refuses too.
+func (o *Orchestrator) pitrKeepsBase(ctx context.Context, b BackupSchedule) error {
+	if b.Method != "base" {
+		return nil
+	}
+	v, err := o.volumes.Get(ctx, b.VolumeID)
+	if err != nil {
+		return err
+	}
+	if v.InstanceID == nil {
+		return nil
+	}
+	m, err := o.managed.Get(ctx, *v.InstanceID)
+	if err != nil {
+		return err
+	}
+	if m.PITRDays > 0 {
+		return errs.Refusedf("the base backup schedule keeps point-in-time recovery pruned; turn point-in-time recovery off first")
+	}
+	return nil
 }
 
 func (o *Orchestrator) deleteBackupSchedule(ctx context.Context, id string) error {
@@ -271,11 +302,18 @@ func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, ds
 		return nil
 	}
 	run, err := o.backups.GetRun(ctx, runID)
-	if err != nil || strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
-		return nil // an unknown run fails in the job, as it always did
+	if err != nil {
+		return err
 	}
-	if m, err := o.managed.Get(ctx, *dst.InstanceID); err == nil && m.PITRDays > 0 {
-		return errs.Refusedf("%s keeps point-in-time recovery: a volume restore would rewind its data under the archive. Turn point-in-time recovery off first, or restore to a time (tile restore --at)", dst.Name)
+	if strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
+		return nil
+	}
+	m, err := o.managed.Get(ctx, *dst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if m.PITRDays > 0 {
+		return errs.Refusedf("%s keeps point-in-time recovery: a volume restore would rewind its data under the archive. Turn point-in-time recovery off first, or restore to a time (tile restore --at)", dst.Slug)
 	}
 	return nil
 }
@@ -410,6 +448,9 @@ func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob
 	method := backup.KindVolume
 	if strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
 		method = "dump"
+	}
+	if err := o.pitrVolumeRestoreOK(ctx, p.RunID, v); err != nil { // PITR may have been turned on since it was queued
+		return err
 	}
 	sub, err := o.subject(ctx, v, method)
 	if err != nil {

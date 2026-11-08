@@ -2,6 +2,8 @@ package backup
 
 import (
 	"fmt"
+	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -198,8 +200,7 @@ func Restorable(bases []store.BackupRun, keys []string, lin Lineage) (from time.
 
 // PickBase picks what a restore to at reads: the newest usable base that
 // finished at or before at (the newest of all for latest), and the bundles
-// from its start on. ponytail: it does not check the bundles are gap-free; a
-// missing one fails the replay, which says which segment.
+// from its start on. It refuses a plan with a hole in the WAL.
 func PickBase(bases []store.BackupRun, keys []string, lin Lineage, at time.Time, latest bool) (Plan, error) {
 	bundles := Bundles(keys)
 	us := usable(bases, bundles, lin)
@@ -223,7 +224,79 @@ func PickBase(bases []store.BackupRun, keys []string, lin Lineage, at time.Time,
 			p.Segments += int(segIndex(b.Last)-segIndex(b.First)) + 1
 		}
 	}
+	if seg := firstHole(p.Bundles, p.WalStart, lin); seg != "" {
+		return Plan{}, errs.Conflictf("the WAL archive is missing segment %s, between this base and the newest shipped WAL; a restore would stop early", seg)
+	}
 	return p, nil
+}
+
+// firstHole is the first segment missing between start and the newest bundle
+// on the lineage, "" for none. Timelines are followed along the lineage: an
+// ancestor is needed up to the segment its child forks in, which the child's
+// file holds. A bundle shipped across a promote spans two timelines; its ends
+// are taken as open.
+func firstHole(bundles []Bundle, start string, lin Lineage) string {
+	type span struct{ lo, hi int64 }
+	byTL := map[string][]span{}
+	for _, b := range bundles {
+		if b.History {
+			continue
+		}
+		f, l := timeline(b.First), timeline(b.Last)
+		if f == l {
+			byTL[f] = append(byTL[f], span{segIndex(b.First), segIndex(b.Last)})
+			continue
+		}
+		byTL[f] = append(byTL[f], span{segIndex(b.First), math.MaxInt64})
+		byTL[l] = append(byTL[l], span{0, segIndex(b.Last)})
+	}
+	chain := slices.Sorted(maps.Keys(lin.Forks))
+	if lin.Tip != "" && !slices.Contains(chain, lin.Tip) {
+		chain = append(chain, lin.Tip)
+	}
+	tl0 := timeline(start)
+	i0 := slices.Index(chain, tl0)
+	if i0 < 0 {
+		i0, chain = 0, []string{tl0}
+	}
+	chain = chain[i0:]
+	last := -1 // the newest timeline on the lineage that has WAL
+	for i, tl := range chain {
+		if len(byTL[tl]) > 0 {
+			last = i
+		}
+	}
+	idx := segIndex(start)
+	for i := 0; i <= last; i++ {
+		tl := chain[i]
+		hi := lin.Forks[tl] - 1
+		if i == last {
+			hi = 0
+			for _, sp := range byTL[tl] {
+				hi = max(hi, sp.lo)
+				if sp.hi != math.MaxInt64 {
+					hi = max(hi, sp.hi)
+				}
+			}
+		}
+		for idx <= hi {
+			next := int64(-1)
+			for _, sp := range byTL[tl] {
+				if sp.lo <= idx && idx <= sp.hi {
+					next = max(next, sp.hi)
+				}
+			}
+			if next < 0 {
+				return fmt.Sprintf("%s%08X%08X", tl, idx/256, idx%256)
+			}
+			if next == math.MaxInt64 {
+				break
+			}
+			idx = next + 1
+		}
+		idx = lin.Forks[tl] // the child's file starts at the fork segment
+	}
+	return ""
 }
 
 // ParseAt reads a restore time: RFC3339 with an offset (or Z), or "latest".

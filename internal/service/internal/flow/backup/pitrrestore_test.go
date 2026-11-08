@@ -323,3 +323,13 @@ func TestCheckHistoryShipsNothingAndRefusesAHeldTimeline(t *testing.T) {
 	}
 	must(t, w.f.ShipHistory(ctx, w.ship(), io.Discard)) // a resumed promote finds its own upload
 }
+
+// A promoted copy always forked a timeline: no history file there is an
+// error, not a copy to mark shipped.
+func TestShipHistoryRefusesACopyWithoutHistory(t *testing.T) {
+	w := setup(t)
+	w.archive([]string{seg1, "PG_VERSION"}, "TARBYTES")
+	if err := w.f.ShipHistory(ctx, w.ship(), io.Discard); err == nil {
+		t.Error("an empty history list was shipped as done")
+	}
+}

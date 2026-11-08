@@ -82,6 +82,10 @@ type pitrState struct {
 	CheckedAt      time.Time `json:"checked_at"`
 }
 
+// errPITRState marks a state row that cannot be parsed, as opposed to a read
+// that failed.
+var errPITRState = errors.New("unreadable state")
+
 func pitrKey(instanceID string) string { return "pitr." + instanceID }
 
 func (o *Orchestrator) pitrState(ctx context.Context, instanceID string) (pitrState, bool) {
@@ -100,7 +104,7 @@ func (o *Orchestrator) readPITRState(ctx context.Context, instanceID string) (st
 		return pitrState{}, false, nil
 	}
 	if err := json.Unmarshal([]byte(v), &st); err != nil {
-		return pitrState{}, false, err
+		return pitrState{}, false, fmt.Errorf("%w: %v", errPITRState, err)
 	}
 	return st, true, nil
 }
@@ -113,9 +117,13 @@ func (o *Orchestrator) pitrLock(instanceID string) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
-func (o *Orchestrator) savePITRState(ctx context.Context, instanceID string, st pitrState) {
+func (o *Orchestrator) putPITRState(ctx context.Context, instanceID string, st pitrState) error {
 	b, _ := json.Marshal(st)
-	if err := o.store.Settings.Set(ctx, pitrKey(instanceID), string(b)); err != nil {
+	return o.store.Settings.Set(ctx, pitrKey(instanceID), string(b))
+}
+
+func (o *Orchestrator) savePITRState(ctx context.Context, instanceID string, st pitrState) {
+	if err := o.putPITRState(ctx, instanceID, st); err != nil {
 		slog.Warn("pitr: state not kept", "instance", instanceID, "err", err)
 	}
 }
@@ -155,7 +163,13 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 		return was, Job{}, err
 	}
 	if was.PITRDays <= 0 && days > 0 {
-		o.pitrReset(ctx, m) // nothing archived while it was off: older bases cannot reach now
+		// Nothing archived while it was off: older bases cannot reach now. The
+		// row goes, so the shipper starts the epoch when the archiving
+		// container is seen, not before it exists (a base taken meanwhile has
+		// no WAL behind it).
+		if err := o.pitrReset(ctx, was); err != nil {
+			slog.Warn("pitr: old state not cleared", "instance", m.ID, "err", err)
+		}
 	}
 	return m, j, err
 }
@@ -172,6 +186,15 @@ func (o *Orchestrator) pitrApplied(ctx context.Context, t store.Tile, m ManagedI
 	}
 	if v, err := o.dataVolume(ctx, t); err == nil {
 		o.baseSchedule(ctx, v)
+	}
+}
+
+// retireIfOff retires the instance unless its current row has PITR on again
+// (the caller's m may be older than a SetPITR that ran meanwhile). The caller
+// holds pitrLock.
+func (o *Orchestrator) retireIfOff(ctx context.Context, t store.Tile, m ManagedInstance) {
+	if cur, err := o.managed.Get(ctx, m.ID); err == nil && cur.PITRDays <= 0 {
+		o.pitrRetired(ctx, t, cur)
 	}
 }
 
@@ -361,7 +384,10 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 	cs, err := o.tiles.Replicas(ctx, it)
 	if err != nil || !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
 		if err == nil && m.PITRDays <= 0 {
-			o.pitrRetired(ctx, it, m) // off and stopped: nothing will archive again
+			mu := o.pitrLock(m.ID)
+			mu.Lock()
+			o.retireIfOff(ctx, it, m) // off and stopped: nothing will archive again
+			mu.Unlock()
 		}
 		return // stopped or down: nothing is written, nothing to ship
 	}
@@ -385,6 +411,10 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 	st, _, err := o.readPITRState(ctx, m.ID)
 	if err != nil {
 		slog.Warn("pitr: state not read, tick skipped", "instance", m.ID, "err", err)
+		if errors.Is(err, errPITRState) { // it will not heal on its own: say so
+			o.pitrProblem(ctx, "alert.pitr.lag."+m.ID, AlertPITRLag, SevCritical, it.Slug,
+				it.Slug+": the point-in-time recovery state cannot be read, so its WAL is not being shipped.")
+		}
 		return // a zero state saved over the row would start a new epoch
 	}
 	if st.Since.IsZero() {
@@ -415,8 +445,12 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 			st.ArchSince = now
 		}
 		if !archiving && m.PITRDays <= 0 {
-			o.pitrRetired(ctx, it, m) // the restarted container has no archive: drained
+			o.retireIfOff(ctx, it, m) // the restarted container has no archive: drained
 			return
+		}
+		if fc, err := o.engines.ArchiverFailed(ctx, it); err == nil {
+			st.Failing = st.ArchiverSeen && fc > st.ArchiverFailed
+			st.ArchiverFailed, st.ArchiverSeen = fc, true
 		}
 		switch {
 		case err != nil:
@@ -425,7 +459,12 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 		default:
 			st.Error = ""
 			st.Waiting, st.DirBytes = res.Waiting, res.DirBytes
-			if res.Waiting == 0 {
+			switch {
+			case st.Failing:
+				// Segments pile up in pg_wal unarchived: an empty archive dir
+				// is not a current archive, so the range stops here.
+				st.Error = "postgres cannot archive its WAL (archive_command is failing)"
+			case res.Waiting == 0:
 				st.LastCleanAt = now
 			}
 		}
@@ -436,10 +475,6 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
 			if n, b, err := o.backup.Usage(ctx, dest, root); err == nil {
 				st.Bundles, st.Bytes, st.UsageAt = n, b, now
 			}
-		}
-		if fc, err := o.engines.ArchiverFailed(ctx, it); err == nil {
-			st.Failing = st.ArchiverSeen && fc > st.ArchiverFailed
-			st.ArchiverFailed, st.ArchiverSeen = fc, true
 		}
 		// Only a container that archives gets the first base: one taken on
 		// the old, non-archiving container has WAL nobody keeps.
