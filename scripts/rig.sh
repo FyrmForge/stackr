@@ -173,9 +173,14 @@ for c in json.load(open("/s/connectors.json")):
     for s in c.get("share_slugs", []):
         if s in slugs:
             db.execute("INSERT OR IGNORE INTO connector_shares (connector_id, org_id) VALUES (?, ?)", (c["id"], slugs[s]))
+# a snapshot can predate enc2: clear the swept mark so the next boot moves
+# every enc1 value over (internal/service/internal/store/store.go Sweep)
+db.execute("DELETE FROM settings WHERE key = 'secrets_labelled'")
 db.commit()
 print(f"{n} connector(s) restored")
 PY
+	rig docker restart stackr >/dev/null
+	echo "panel restarted to reseal the restored connectors"
 }
 
 snapshots() {
