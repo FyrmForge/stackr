@@ -163,8 +163,5 @@ jobs:
           echo "CANDIDATE=v$maj.$min.$((pat + 1))-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
           make release RELEASE="v$maj.$min.$((pat + 1))-dev.${{ github.run_number }}"
 
-      # One-off: v0.8.11's database predates the migration squash, so the
-      # candidate installs fresh instead of upgrading from it. Restore
-      # "$CANDIDATE" "$LATEST" once a release with the squash is out.
       - name: Smoke test
-        run: sudo SMOKE_INSTALLER=bin/stackr-install-linux-amd64 scripts/smoke.sh "$CANDIDATE" "$CANDIDATE"
+        run: sudo scripts/smoke.sh "$CANDIDATE" "$LATEST"
