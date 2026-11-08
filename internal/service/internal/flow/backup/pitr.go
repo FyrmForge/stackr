@@ -225,7 +225,11 @@ func (f *Flow) history(ctx context.Context, s Ship, log io.Writer, dry bool) err
 	if err != nil {
 		return fmt.Errorf("list the archive: %w", err)
 	}
+	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
 	for _, k := range keys {
+		if k == key && !dry { // shipped by an earlier run of this promote that died before recording it
+			return nil
+		}
 		if n, ok := bundleHistoryTimeline(k); ok && n >= tl {
 			return errs.Conflictf("the archive already holds timeline %d (another restored copy was promoted); restore again from the current state", n)
 		}
@@ -233,7 +237,6 @@ func (f *Flow) history(ctx context.Context, s Ship, log io.Writer, dry bool) err
 	if dry {
 		return nil
 	}
-	key := s.Root + "/" + bk.WALDir + "/" + hist[0] + "-" + hist[len(hist)-1] + bk.BundleExt
 	if _, err := f.shipBundle(ctx, s, key, hist, false); err != nil {
 		return err
 	}
