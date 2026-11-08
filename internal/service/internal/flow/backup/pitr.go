@@ -273,11 +273,11 @@ func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string,
 		logf(log, "not pruning %s: a restore is reading it\n", root)
 		return 0, nil
 	}
-	bases, err := f.Backups.Bases(ctx, root, d.ID, time.Time{})
+	bases, keys, lin, err := f.ListArchive(ctx, d, root, time.Time{})
 	if err != nil {
 		return 0, err
 	}
-	drop, walBefore, ok := bk.Window(bases, now, days)
+	drop, walBefore, ok := bk.Window(bases, lin, now, days)
 	if !ok {
 		return 0, nil
 	}
@@ -290,10 +290,6 @@ func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string,
 		}
 		_ = f.Backups.DropRun(ctx, r.ID)
 		n++
-	}
-	keys, err := o.List(ctx, root+"/"+bk.WALDir+"/")
-	if err != nil {
-		return n, err
 	}
 	for _, k := range bk.StaleWAL(keys, walBefore) {
 		if err := o.Delete(ctx, k); err != nil {
