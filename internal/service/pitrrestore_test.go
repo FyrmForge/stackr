@@ -391,3 +391,34 @@ func TestRestoredSlugFitsTheVolumeNameCap(t *testing.T) {
 		t.Error("two long names sharing a prefix collide")
 	}
 }
+
+// The retry fires on postgres' "ran out of WAL before the target" and nothing
+// else, and the config it refills with drops only the target.
+func TestNoCommitAfterTargetRetryDecisionAndConf(t *testing.T) {
+	r := newRestoreRig(t)
+	ctx := context.Background()
+	if !noCommitAfterTarget(errors.New("the replay stopped:\nFATAL:  recovery ended before configured recovery target was reached")) {
+		t.Error("the end-of-WAL failure is not retried")
+	}
+	for _, err := range []error{nil, errors.New("requested timeline 2 is not a child of this server's history"), errors.New("could not locate a valid checkpoint record")} {
+		if noCommitAfterTarget(err) {
+			t.Errorf("%v is retried", err)
+		}
+	}
+	at := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
+	first, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, at)
+	must(t, err)
+	retry, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, time.Time{})
+	must(t, err)
+	if !strings.Contains(first, "recovery_target_time =") {
+		t.Fatalf("first conf has no target:\n%s", first)
+	}
+	if strings.Contains(retry, "recovery_target_time =") || strings.Contains(retry, "recovery_target_action") {
+		t.Errorf("retry conf keeps the target:\n%s", retry)
+	}
+	for _, keep := range []string{"restore_command = ", "recovery_target_timeline = 'latest'"} {
+		if !strings.Contains(retry, keep) {
+			t.Errorf("retry conf lost %q:\n%s", keep, retry)
+		}
+	}
+}

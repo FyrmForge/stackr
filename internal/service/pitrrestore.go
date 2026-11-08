@@ -337,19 +337,59 @@ func (o *Orchestrator) restoreInto(ctx context.Context, r *jobs.Run, srcID strin
 		return err
 	}
 	release() // everything is read; a prune may run
+	if err := o.startAndAwait(ctx, r, src, cand, plan, at, latest, true); err != nil {
+		return err
+	}
+	return o.engines.Settle(ctx, cand)
+}
+
+// noCommitAfterTarget is the one failure the restore retries: postgres 13+
+// stops when the WAL runs out before the target time, which for an archive
+// known to be complete up to the target only means no commit came after it.
+func noCommitAfterTarget(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "recovery ended before configured recovery target was reached")
+}
+
+// startAndAwait starts the filled candidate and waits for the replay to end.
+// If postgres stops because no commit came after the target (the range end
+// guarantees every WAL file up to it is shipped), it refills the volume
+// from the same plan without the target and starts it once more: replaying
+// all of it is the state at the target. The timeline setting is the same
+// 'latest' both times, so the retry reads the same history. down opens the
+// down problem when the first deploy leaves nothing running.
+func (o *Orchestrator) startAndAwait(ctx context.Context, r *jobs.Run, src pitrSource, cand Tile, plan backup.Plan, at time.Time, latest, down bool) error {
+	err := o.startOnce(ctx, r, cand, down)
+	if latest || !noCommitAfterTarget(err) {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "no commit after %s in the archive: replaying all of it, the same state as at %s\n", normAt(at, false), normAt(at, false))
+	if cs, rerr := o.tiles.Replicas(ctx, cand); rerr == nil && len(cs) > 0 {
+		if serr := o.container.Stop(ctx, cand, r.Log); serr != nil {
+			return errors.Join(err, serr)
+		}
+	}
+	release := o.backup.Hold(src.root)
+	defer release()
+	if ferr := o.fillCandidate(ctx, r, src, cand, plan, at, true); ferr != nil {
+		return errors.Join(err, ferr)
+	}
+	release()
+	return o.startOnce(ctx, r, cand, down)
+}
+
+func (o *Orchestrator) startOnce(ctx context.Context, r *jobs.Run, cand Tile, down bool) error {
 	if err := o.deploy.Redeploy(ctx, cand.ID, r.Log, r.Swap); err != nil {
 		// the readiness check gives up after a minute; a replay may take longer
 		cs, rerr := o.tiles.Replicas(ctx, cand)
 		if rerr != nil || !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
-			o.downAfterFailedDeploy(ctx, cand.ID, err)
-			return fmt.Errorf("start %s: %w%s", cand.Slug, err, o.logTail(ctx, cand))
+			if down {
+				o.downAfterFailedDeploy(ctx, cand.ID, err)
+			}
+			return fmt.Errorf("start the restored copy: %w%s", err, o.logTail(ctx, cand))
 		}
 		_, _ = fmt.Fprintf(r.Log, "still replaying (%v)\n", err)
 	}
-	if err := o.awaitRecovery(ctx, cand, r.Log); err != nil {
-		return err
-	}
-	return o.engines.Settle(ctx, cand)
+	return o.awaitRecovery(ctx, cand, r.Log)
 }
 
 func (o *Orchestrator) fillCandidate(ctx context.Context, r *jobs.Run, src pitrSource, cand Tile, plan backup.Plan, at time.Time, latest bool) error {
@@ -511,13 +551,7 @@ func (o *Orchestrator) restoreTemp(ctx context.Context, r *jobs.Run, srcInst Til
 		return fail(err)
 	}
 	release()
-	if err := o.deploy.Redeploy(ctx, cand.ID, r.Log, r.Swap); err != nil {
-		cs, rerr := o.tiles.Replicas(ctx, cand)
-		if rerr != nil || !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
-			return fail(fmt.Errorf("start the restored copy: %w%s", err, o.logTail(ctx, cand)))
-		}
-	}
-	if err := o.awaitRecovery(ctx, cand, r.Log); err != nil {
+	if err := o.startAndAwait(ctx, r, src, cand, plan, at, latest, false); err != nil {
 		return fail(err)
 	}
 	return cand, nil
