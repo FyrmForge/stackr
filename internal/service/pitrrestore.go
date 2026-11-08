@@ -50,6 +50,7 @@ const (
 // candidate is the settings row behind a restored tile.
 type candidate struct {
 	Shipped bool      `json:"shipped,omitempty"` // its timeline history is in the archive
+	Vol     string    `json:"vol,omitempty"`     // the Docker volume the source takes at the swap
 	Source  string    `json:"source"`            // the instance tile restored
 	At      string    `json:"at"`                // RFC3339 UTC, or latest
 	Temp    bool      `json:"temp"`              // a branch --at's scratch copy: gone when its job ends
@@ -374,7 +375,11 @@ func (o *Orchestrator) startAndAwait(ctx context.Context, r *jobs.Run, src pitrS
 		return errors.Join(err, ferr)
 	}
 	release()
-	return o.startOnce(ctx, r, cand, down)
+	if err := o.startOnce(ctx, r, cand, down); err != nil {
+		return err
+	}
+	o.clearProblem(ctx, downAlertKey(cand.ID)) // the first start's failure opened it
+	return nil
 }
 
 func (o *Orchestrator) startOnce(ctx context.Context, r *jobs.Run, cand Tile, down bool) error {
@@ -675,22 +680,24 @@ type promoteRestoreJob struct {
 // promoteSteps are the actions of a promote, in the order it runs them; the
 // fakes of the order test stand in for a real instance. Until swap commits
 // nothing has changed but the source being stopped, which undo reverts: the
-// archive is only listed (check), the history goes up after the swap commits,
-// while the copy still runs. After it the source's row names the new data and
-// a re-run (swapped) resumes at history: swapping again would hand the old data back.
+// archive is only listed (check). After it the source's row names the new data
+// and a re-run (swapped) resumes at stopCand: swapping again would hand the old
+// data back. The source starts before its history goes up (from its own
+// pg_wal), so a failed upload leaves it running, and the candidate goes last,
+// after the archive reset, so every later step can be re-run.
 type promoteSteps struct {
 	swapped  bool         // the swap already committed in an earlier run
 	ready    func() error // the candidate finished replaying
 	check    func() error // the archive does not hold the copy's timeline yet (lists only)
 	stopSrc  func() error
 	swap     func() error // the point of no return: the volume rows trade data, in one transaction
-	history  func() error // the copy's timeline history goes to the archive, once the swap holds
 	undo     func()       // a failure before the swap: the source runs again
 	stopCand func() error
 	start    func() error // the source redeploys on the new data
+	history  func() error // the new timeline's history goes to the archive, from the source
 	replay   func() error // Provision and Bind for every row
-	drop     func() error // the candidate's tile goes, not its volume
 	settle   func() error // the archive state is reset and a base queued
+	drop     func() error // the candidate's tile goes, not its volume
 }
 
 type promoteStep struct {
@@ -701,9 +708,9 @@ type promoteStep struct {
 func (s promoteSteps) run(log io.Writer) error {
 	pre := []promoteStep{{"check the restored copy", s.ready}, {"check the archive's timelines", s.check},
 		{"stop the source", s.stopSrc}, {"swap the data volume", s.swap}}
-	post := []promoteStep{{"ship its timeline history", s.history}, {"stop the restored copy", s.stopCand}, {"start the source", s.start},
-		{"re-apply slices and bindings", s.replay}, {"remove the restored tile", s.drop},
-		{"reset the archive state", s.settle}}
+	post := []promoteStep{{"stop the restored copy", s.stopCand}, {"start the source", s.start},
+		{"ship its timeline history", s.history}, {"re-apply slices and bindings", s.replay},
+		{"reset the archive state", s.settle}, {"remove the restored tile", s.drop}}
 	if s.swapped {
 		_, _ = fmt.Fprintf(log, "the swap already happened; resuming after it\n")
 		pre = nil
@@ -749,6 +756,11 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 	if err != nil {
 		return err
 	}
+	if cv.OrphanedAt != nil { // a resume: the source must still run this copy's data
+		if c, _ := o.candidateOf(ctx, cand.ID); c.Vol != sv.Name {
+			return errs.Conflictf("another copy was promoted over %s since; restore again from its current state", src.Slug)
+		}
+	}
 	running := func(t Tile) bool {
 		cs, err := o.tiles.Replicas(ctx, t)
 		return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" })
@@ -786,7 +798,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			if c, ok := o.candidateOf(ctx, cand.ID); ok && c.Shipped {
 				return nil // an earlier run shipped it; the archive holds its own history now
 			}
-			if err := o.backup.ShipHistory(ctx, fbackup.Ship{Engine: cand, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir}, r.Log); err != nil {
+			if err := o.backup.ShipHistory(ctx, fbackup.Ship{Engine: src, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir}, r.Log); err != nil {
 				return err
 			}
 			c, _ := o.candidateOf(ctx, cand.ID)
@@ -817,6 +829,11 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			if err := r.Swap(); err != nil {
 				return err
 			}
+			c, _ := o.candidateOf(ctx, cand.ID)
+			c.Vol = cv.Name
+			if err := o.setCandidate(ctx, cand.ID, c); err != nil {
+				return err
+			}
 			return o.swapData(ctx, sv, cv)
 		},
 		start: func() error {
@@ -832,7 +849,9 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			return nil
 		},
 		settle: func() error {
-			o.pitrReset(ctx, sm)
+			if err := o.pitrReset(ctx, sm); err != nil {
+				return err
+			}
 			if sm.PITRDays > 0 {
 				if _, err := o.BackupNow(ctx, sv.ID, "", "base", ""); err != nil {
 					return err
@@ -847,17 +866,20 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 // queued so that base counts; the guard runs again against the same prefix,
 // as its own. Under the shipper's lock: a tick in flight cannot save the old
 // state over it afterwards. With PITR off the state just goes.
-func (o *Orchestrator) pitrReset(ctx context.Context, m store.ManagedInstance) {
+func (o *Orchestrator) pitrReset(ctx context.Context, m store.ManagedInstance) error {
+	ctx = context.WithoutCancel(ctx) // a cancelled request must not lose the reset
 	mu := o.pitrLock(m.ID)
 	mu.Lock()
 	defer mu.Unlock()
+	var err error
 	if m.PITRDays > 0 {
 		now := time.Now().UTC()
-		o.savePITRState(ctx, m.ID, pitrState{Since: now, ArchSince: now})
+		err = o.putPITRState(ctx, m.ID, pitrState{Since: now, ArchSince: now})
 	} else {
-		_ = o.store.Settings.Delete(ctx, pitrKey(m.ID))
+		err = o.store.Settings.Delete(ctx, pitrKey(m.ID))
 	}
 	o.clearPITRProblems(ctx, m.ID)
+	return err
 }
 
 // swapData makes the source's data volume row name the candidate's Docker

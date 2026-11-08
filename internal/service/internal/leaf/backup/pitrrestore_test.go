@@ -299,7 +299,7 @@ func TestPickBaseSkipsBasesPastTheFork(t *testing.T) {
 	t.Parallel()
 	h := time.Hour
 	rt2s := "000000020000000000000004"
-	keys := []string{wal(rs1, rs4), wal(rt2s, rt2s), hist}
+	keys := []string{wal(rs1, rs4), wal("000000020000000000000003", rt2s), hist}
 	before := pbase(30*h, rs1, rs2) // timeline 1, before segment 3
 	after := pbase(10*h, rs3, rs4)  // timeline 1, past the fork
 	post := pbase(h, rt2s, rt2s)    // on the tip
@@ -330,5 +330,29 @@ func TestPickBaseSkipsBasesPastTheFork(t *testing.T) {
 	}
 	if _, ok := Restorable([]store.BackupRun{after}, keys, lin); ok {
 		t.Error("the range counts a base past the fork")
+	}
+}
+
+// A restore refuses a plan whose WAL has a hole, naming the first missing
+// segment; a timeline switch along the lineage is not a hole.
+func TestPickBaseRefusesAWALHole(t *testing.T) {
+	t.Parallel()
+	b := pbase(time.Hour, rs1, rs2)
+	_, err := PickBase([]store.BackupRun{b}, []string{wal(rs1, rs2), wal(rs4, rs4)}, Lineage{}, time.Time{}, true)
+	if err == nil || !strings.Contains(err.Error(), rs3) {
+		t.Errorf("hole at %s: err = %v", rs3, err)
+	}
+	if _, err := PickBase([]store.BackupRun{b}, []string{wal(rs1, rs4)}, Lineage{}, time.Time{}, true); err != nil {
+		t.Errorf("contiguous WAL refused: %v", err)
+	}
+	lin := ParseLineage("00000002", hist2)
+	keys := []string{wal(rs1, rs2), wal("000000020000000000000003", "000000020000000000000005"), hist}
+	if _, err := PickBase([]store.BackupRun{b}, keys, lin, time.Time{}, true); err != nil {
+		t.Errorf("a timeline switch refused: %v", err)
+	}
+	keys = []string{wal(rs1, rs1), wal("000000020000000000000003", "000000020000000000000005"), hist}
+	b = pbase(time.Hour, rs1, rs1)
+	if _, err := PickBase([]store.BackupRun{b}, keys, lin, time.Time{}, true); err == nil || !strings.Contains(err.Error(), rs2) {
+		t.Errorf("hole before the fork: err = %v", err)
 	}
 }

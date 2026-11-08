@@ -214,8 +214,8 @@ func (f *Flow) history(ctx context.Context, s Ship, log io.Writer, dry bool) err
 		}
 	}
 	slices.Sort(hist)
-	if len(hist) == 0 {
-		return nil
+	if len(hist) == 0 { // a promoted copy always forked a timeline
+		return errs.Conflictf("no timeline history in %s: the archive cannot follow the new timeline", s.Dir)
 	}
 	// A restored copy picks its new timeline from the histories it saw at
 	// restore time, so two copies of one source end on the same number. The

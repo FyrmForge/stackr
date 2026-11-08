@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,8 +248,8 @@ func TestSetPITROffThenOnStartsANewEpoch(t *testing.T) {
 	must(t, err)
 	_, _, err = o.SetPITR(ctx, r.pg.ID, 7)
 	must(t, err)
-	st, ok := o.pitrState(ctx, r.m.ID)
-	if !ok || !st.ArchSince.After(old.ArchSince) {
+	// the row is gone: the shipper starts the epoch when the archiving container is seen
+	if st, ok := o.pitrState(ctx, r.m.ID); ok {
 		t.Errorf("archive epoch %v kept across off and on (was %v)", st.ArchSince, old.ArchSince)
 	}
 }
@@ -375,7 +377,7 @@ func TestPITRResetStartsAnEpochUnderTheShipperLock(t *testing.T) {
 	mu := o.pitrLock(r.m.ID)
 	mu.Lock() // a tick in flight
 	done := make(chan struct{})
-	go func() { o.pitrReset(ctx, r.m); close(done) }()
+	go func() { _ = o.pitrReset(ctx, r.m); close(done) }()
 	select {
 	case <-done:
 		t.Fatal("the reset ran while a tick held the lock")
@@ -389,7 +391,7 @@ func TestPITRResetStartsAnEpochUnderTheShipperLock(t *testing.T) {
 	}
 	off := r.m
 	off.PITRDays = 0
-	o.pitrReset(ctx, off)
+	must(t, o.pitrReset(ctx, off))
 	if _, ok := o.pitrState(ctx, r.m.ID); ok {
 		t.Error("state kept with PITR off")
 	}
@@ -466,5 +468,85 @@ func TestPITRGuardsTheBaseScheduleAndVolumeRestores(t *testing.T) {
 	}
 	if err := o.DeleteBackupSchedule(ctx, base.ID); err != nil {
 		t.Errorf("deleting the base schedule with PITR off: %v", err)
+	}
+}
+
+// A failing archive_command freezes the restorable range: an empty archive
+// dir is not a current archive while segments pile up in pg_wal.
+func TestPITRShipperHoldsTheRangeWhileTheArchiverFails(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	failed := 0
+	r.fake.ExecFn = func(cmd []string) string {
+		if slices.ContainsFunc(cmd, func(a string) bool { return strings.Contains(a, "pg_stat_archiver") }) {
+			return strconv.Itoa(failed) + "\n"
+		}
+		return ""
+	}
+	r.orch.pitrTick(ctx)
+	before, _ := r.orch.pitrState(ctx, r.m.ID)
+	if before.LastCleanAt.IsZero() {
+		t.Fatal("a quiet tick did not move the range")
+	}
+	failed = 3
+	time.Sleep(10 * time.Millisecond)
+	r.orch.pitrTick(ctx)
+	st, _ := r.orch.pitrState(ctx, r.m.ID)
+	if !st.Failing || !st.LastCleanAt.Equal(before.LastCleanAt) || st.Error == "" {
+		t.Errorf("failing=%v clean %v (was %v) error %q", st.Failing, st.LastCleanAt, before.LastCleanAt, st.Error)
+	}
+	r.orch.pitrTick(ctx) // no new failures: it moves again
+	if st, _ = r.orch.pitrState(ctx, r.m.ID); st.Failing || !st.LastCleanAt.After(before.LastCleanAt) || st.Error != "" {
+		t.Errorf("recovered tick: failing=%v clean %v error %q", st.Failing, st.LastCleanAt, st.Error)
+	}
+}
+
+// A shipper tick holding an older instance row never retires an instance
+// whose current row has PITR on, and a state it cannot parse raises a problem.
+func TestPITRRetireReadsTheCurrentRowAndCorruptStateAlerts(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	o.pitrTick(ctx)
+	stale := r.m
+	stale.PITRDays = 0
+	o.retireIfOff(ctx, r.pg, stale)
+	if _, ok := o.pitrState(ctx, r.m.ID); !ok {
+		t.Error("state retired under a row with PITR on")
+	}
+	if ss, _ := o.BackupSchedules(ctx, r.data.ID); !slices.Contains(methodsOf(ss), "base") {
+		t.Error("base schedule retired under a row with PITR on")
+	}
+	must(t, o.store.Settings.Set(ctx, pitrKey(r.m.ID), "{not json"))
+	o.pitrTick(ctx)
+	if !o.hasProblem(ctx, "alert.pitr.lag."+r.m.ID) {
+		t.Error("an unreadable state raised no problem")
+	}
+}
+
+// A base schedule cannot become another method while PITR is on; a missing
+// method keeps the schedule's own.
+func TestUpdateBackupScheduleKeepsTheBaseMethodWhilePITRIsOn(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	var base BackupSchedule
+	for _, s := range mustSchedules(t, o, r.data.ID) {
+		if s.Method == "base" {
+			base = s
+		}
+	}
+	if base.ID == "" {
+		t.Fatal("no base schedule on a PITR instance")
+	}
+	if _, err := o.UpdateBackupSchedule(ctx, base.ID, ScheduleSpec{Method: "dump", Cron: "@daily"}); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("base to dump = %v; want a refusal", err)
+	}
+	b, err := o.UpdateBackupSchedule(ctx, base.ID, ScheduleSpec{Cron: "@daily"})
+	if err != nil || b.Method != "base" {
+		t.Errorf("no method = %q, %v; want base kept", b.Method, err)
 	}
 }

@@ -763,6 +763,20 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 			dumps[it.ID] = append(dumps[it.ID], dump{newest.ID, v})
 			continue
 		}
+		if err := o.pitrVolumeRestoreOK(ctx, newest.ID, v); err != nil {
+			// the data comes back all the same; the archive starts over, as
+			// the restored data writes WAL under names it already holds
+			m, merr := o.managed.Get(ctx, *v.InstanceID)
+			if !errors.Is(err, errs.ErrRefused) || merr != nil {
+				errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, errors.Join(err, merr)))
+				continue
+			}
+			if rerr := o.pitrReset(ctx, m); rerr != nil {
+				errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, rerr))
+				continue
+			}
+			notes = append(notes, v.Slug+": point-in-time recovery starts over from a new base backup")
+		}
 		// the pre-restore backup mounts it; made here, it carries stackr's label
 		if _, err := o.volumes.Ensure(ctx, v); err != nil {
 			errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, err))

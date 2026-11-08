@@ -232,7 +232,7 @@ func TestPromoteStepsRunInOrder(t *testing.T) {
 			stopCand: f("stopCand"), start: f("start"), replay: f("replay"), drop: f("drop"), settle: f("settle"),
 		}
 	}
-	all := []string{"ready", "check", "stopSrc", "swap", "history", "stopCand", "start", "replay", "drop", "settle"}
+	all := []string{"ready", "check", "stopSrc", "swap", "stopCand", "start", "history", "replay", "settle", "drop"}
 	var log strings.Builder
 	if err := steps("", false).run(&log); err != nil || !slices.Equal(got, all) {
 		t.Fatalf("order = %v, %v; want %v", got, err, all)
@@ -248,10 +248,16 @@ func TestPromoteStepsRunInOrder(t *testing.T) {
 	if err := steps("start", false).run(&log); err == nil || slices.Contains(got, "undo") || slices.Contains(got, "replay") {
 		t.Errorf("failing start: ran %v, err %v", got, err)
 	}
-	// A failing history upload after the swap is not undone either: the resume ships it.
+	// A failing history upload comes after the source started: it is not left
+	// down, the candidate stays for the resume, and the archive reset waits.
 	got = nil
-	if err := steps("history", false).run(&log); err == nil || slices.Contains(got, "undo") || slices.Contains(got, "stopCand") {
+	if err := steps("history", false).run(&log); err == nil || slices.Contains(got, "undo") || !slices.Contains(got, "start") || slices.Contains(got, "drop") {
 		t.Errorf("failing history: ran %v, err %v", got, err)
+	}
+	// A reset that fails keeps the candidate, so the promote can be re-run.
+	got = nil
+	if err := steps("settle", false).run(&log); err == nil || slices.Contains(got, "drop") {
+		t.Errorf("failing settle: ran %v, err %v", got, err)
 	}
 	// The conflict preflight stops everything before the source is touched.
 	got = nil
@@ -420,5 +426,33 @@ func TestNoCommitAfterTargetRetryDecisionAndConf(t *testing.T) {
 		if !strings.Contains(retry, keep) {
 			t.Errorf("retry conf lost %q:\n%s", keep, retry)
 		}
+	}
+}
+
+// A re-run of a swapped promote refuses once the source runs another copy's
+// data: the job must not report the first copy promoted.
+func TestPromoteResumeRefusesAfterAnotherCopyWasPromoted(t *testing.T) {
+	t.Parallel()
+	r := newRestoreRig(t)
+	ctx := context.Background()
+	o := r.orch
+	src, err := o.pitrSourceOf(ctx, r.pg.ID)
+	must(t, err)
+	cand, err := o.newCandidate(ctx, src, time.Now().Add(-time.Hour), "2026-11-07T10:00:00Z", false)
+	must(t, err)
+	cm, err := o.managed.GetByTile(ctx, cand.ID)
+	must(t, err)
+	cv, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.env}, cand.Slug+"-data", &cm.ID)
+	must(t, err)
+	now := time.Now()
+	cv.OrphanedAt = &now // the swap happened
+	must(t, o.store.Volumes.Update(ctx, cv))
+	c, _ := o.candidateOf(ctx, cand.ID)
+	c.Vol = "stackr-vol-of-copy-a" // the source no longer names it
+	must(t, o.setCandidate(ctx, cand.ID, c))
+	j, err := o.PromoteRestore(ctx, roleP(r.org, "member"), cand.ID)
+	must(t, err)
+	if got := r.wait(t, j.ID); got.State != "failed" || !strings.Contains(got.Error, "another copy was promoted") {
+		t.Errorf("job = %s: %s", got.State, got.Error)
 	}
 }
