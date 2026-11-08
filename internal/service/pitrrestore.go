@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,13 +181,20 @@ func roomError(slug string, free uint64, base int64, segments int) error {
 }
 
 // restoredSlug names a candidate <src>-restored-YYYYMMDD-HHMM; a temporary
-// one adds a random tail so two branches at once never meet.
+// one adds a random tail so two branches at once never meet. The name, with
+// the "-data" volume declared on it, fits volume.MaxName: a source that would
+// overflow is cut and takes 4 hex of the hash of the whole, so long names
+// sharing a prefix stay apart.
 func restoredSlug(src string, label time.Time, temp bool) string {
-	s := src + "-restored-" + label.UTC().Format("20060102-1504")
+	tail := "-restored-" + label.UTC().Format("20060102-1504")
 	if temp {
-		s += "-" + randomSuffix(4)
+		tail += "-" + randomSuffix(4)
 	}
-	return s
+	if room := volume.MaxName - len("-data") - len(tail); len(src) > room {
+		h := sha256.Sum256([]byte(src))
+		src = strings.TrimRight(src[:room-5], "-") + "-" + hex.EncodeToString(h[:2])
+	}
+	return src + tail
 }
 
 // newCandidate makes the candidate's tile row and instance: a managed

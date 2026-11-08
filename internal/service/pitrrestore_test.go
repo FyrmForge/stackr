@@ -370,3 +370,24 @@ func TestPromoteRerunAfterTheSwapDoesNotSwapBack(t *testing.T) {
 		t.Errorf("rows after the re-run: source %s, copy %s; want %s and %s (swapped back?)", sv.Name, cv2.Name, cv.Name, r.data.Name)
 	}
 }
+
+// Every candidate slug leaves room for the "-data" volume under the volume
+// name cap, long sources included, and two long ones sharing a prefix differ.
+func TestRestoredSlugFitsTheVolumeNameCap(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 7, 10, 42, 0, 0, time.UTC)
+	for _, src := range []string{"pg", "postgres", "orders-postgres", strings.Repeat("a-", 28) + "z"} {
+		for _, temp := range []bool{false, true} {
+			if err := volume.CheckName(restoredSlug(src, at, temp) + "-data"); err != nil {
+				t.Errorf("%q temp=%v: %v", src, temp, err)
+			}
+		}
+	}
+	if got := restoredSlug("pg", at, false); got != "pg-restored-20261107-1042" {
+		t.Errorf("short name changed: %s", got)
+	}
+	long := strings.Repeat("a", 45)
+	if restoredSlug(long+"b", at, false) == restoredSlug(long+"c", at, false) {
+		t.Error("two long names sharing a prefix collide")
+	}
+}
