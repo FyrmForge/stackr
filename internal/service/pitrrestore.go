@@ -378,12 +378,18 @@ func (o *Orchestrator) startAndAwait(ctx context.Context, r *jobs.Run, src pitrS
 }
 
 func (o *Orchestrator) startOnce(ctx context.Context, r *jobs.Run, cand Tile, down bool) error {
-	if err := o.deploy.Redeploy(ctx, cand.ID, r.Log, r.Swap); err != nil {
+	// a replica that fails the gate is removed; its last output only reaches
+	// the job log, so the retry looks there for postgres's reason
+	var out strings.Builder
+	if err := o.deploy.Redeploy(ctx, cand.ID, io.MultiWriter(r.Log, &out), r.Swap); err != nil {
 		// the readiness check gives up after a minute; a replay may take longer
 		cs, rerr := o.tiles.Replicas(ctx, cand)
 		if rerr != nil || !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
 			if down {
 				o.downAfterFailedDeploy(ctx, cand.ID, err)
+			}
+			if noCommitAfterTarget(errors.New(out.String())) {
+				err = fmt.Errorf("%w: recovery ended before configured recovery target was reached", err)
 			}
 			return fmt.Errorf("start the restored copy: %w%s", err, o.logTail(ctx, cand))
 		}
@@ -441,8 +447,7 @@ func (o *Orchestrator) awaitRecovery(ctx context.Context, cand Tile, log io.Writ
 			if tail := o.logTail(ctx, cand); slices.ContainsFunc(recoveryFailed, func(s string) bool { return strings.Contains(tail, s) }) {
 				hint := ""
 				if strings.Contains(tail, "before configured recovery target") {
-					// ponytail: a time past the last WAL record of a quiet database lands here too; the
-					// bound is the shipper's last clean tick, not the last record.
+					// a quiet database's idle tail is retried before this; this is the retry failing too
 					hint = " (the archive ends before that time; pick an earlier one, or latest)"
 				}
 				return fmt.Errorf("the replay stopped%s%s", hint, tail)
