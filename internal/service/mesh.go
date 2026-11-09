@@ -464,6 +464,10 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 	in := meshIn{}
 	stackOrg := map[string]string{}
 	m.refreshAll(ctx, ns)
+	members, err := m.st.OperatedMembers.List(ctx)
+	if err != nil {
+		return meshIn{}, err
+	}
 	for _, n := range ns {
 		if n.Status == node.StatusPending || n.Status == StateNeedsRejoin { // no transit address yet; or cut off until it rejoins with new keys
 			continue
@@ -531,6 +535,13 @@ func (m *meshSvc) gather(ctx context.Context) (meshIn, error) {
 			}
 			if !own {
 				mn.Envs = append(mn.Envs, meshEnvIn{Subnet: e.Subnet, Ladder: lad})
+			}
+		}
+		// a standby's network on this node: peers route to it, or the
+		// standby's replies to its primary are lost
+		for _, x := range members {
+			if sub, err := netip.ParsePrefix(x.Subnet); err == nil && x.NodeID == n.ID {
+				mn.Subnets = append(mn.Subnets, sub)
 			}
 		}
 		mn.NoUplink = !hasEgress(n)
