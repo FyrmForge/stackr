@@ -425,6 +425,12 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m OperatedInstance) {
 	if st.Since.IsZero() {
 		st.Since = now
 	}
+	if st.Paused && m.PITRDays > 0 {
+		// Nothing ships and no epoch advances while the archive is held: the
+		// WAL on the box is not known to continue the old range.
+		o.pitrHeld(ctx, m, it, v, &st, now)
+		return
+	}
 	root := backup.PITRRoot(org, v.ID)
 	refused := ""
 	if !st.Guarded || st.DestID != dest.ID {
@@ -481,13 +487,10 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m OperatedInstance) {
 				st.Bundles, st.Bytes, st.UsageAt = n, b, now
 			}
 		}
-		if err == nil && st.Paused {
-			o.pitrResume(ctx, it, &st, now)
-		}
 		// Only a container that archives gets the first base: one taken on
 		// the old, non-archiving container has WAL nobody keeps.
-		if err == nil && m.PITRDays > 0 && !st.Paused {
-			o.pitrFirstBase(ctx, v, dest, &st, now)
+		if err == nil && m.PITRDays > 0 {
+			_ = o.pitrFirstBase(ctx, v, dest, &st, now)
 		}
 	} else {
 		st.Error = refused
@@ -510,24 +513,26 @@ func cmpMax(a, b string) string {
 // good or running base yet and no attempt of ours within the last hour
 // queues one. Only a base on the active destination that started once the
 // container archived counts.
-func (o *Orchestrator) pitrFirstBase(ctx context.Context, v store.Volume, dest store.BackupDest, st *pitrState, now time.Time) {
+func (o *Orchestrator) pitrFirstBase(ctx context.Context, v store.Volume, dest store.BackupDest, st *pitrState, now time.Time) error {
 	if now.Sub(st.BaseTriedAt) < pitrBaseRetry {
-		return
+		return nil
 	}
 	rs, err := o.backups.Runs(ctx, v.ID)
 	if err != nil {
-		return
+		return err
 	}
 	base := o.baseSchedules(ctx, v)
 	for _, r := range rs {
 		if isBaseRun(r, base) && r.DestID == dest.ID && !r.CreatedAt.Before(st.ArchSince) && (r.Status == backup.Done || r.Status == backup.Running) {
-			return
+			return nil
 		}
 	}
-	st.BaseTriedAt = now
 	if _, err := o.BackupNow(ctx, v.ID, "", "base", ""); err != nil {
 		slog.Warn("pitr: first base backup not queued", "volume", v.ID, "err", err)
+		return err // BaseTriedAt stays: the next tick tries again
 	}
+	st.BaseTriedAt = now
+	return nil
 }
 
 // baseSchedules are the ids of v's base backup schedules.
@@ -556,38 +561,81 @@ func pausedMsg(slug string) string {
 }
 
 // pitrPause is what a failover does to the archive: the new primary starts a
-// new timeline, so older bases cannot reach it. The shipper keeps shipping,
-// but the epoch (and its first base backup) waits for pitrResume to see the
-// new primary archive a segment of the new timeline. Under the shipper's
-// lock, like pitrReset; the problem is raised now, not at the next tick.
+// new timeline, so older bases cannot reach it. The archive is held (nothing
+// ships, no epoch) until pitrResume sees the new primary archive a segment
+// of the new timeline, and its first base is queued. foSwap has already
+// written the pause unarmed, in its own transaction; this arms it. Under the
+// shipper's lock, like pitrReset; the problem is raised now, not at the next
+// tick.
 func (o *Orchestrator) pitrPause(ctx context.Context, t store.Tile, m store.OperatedInstance) error {
 	ctx = context.WithoutCancel(ctx)
-	seg, err := o.primarySQL(ctx, t, mflow.SQLCurrentWAL)
+	seg, err := o.pitrMark(ctx, t)
 	if err != nil {
 		return err
 	}
+	return o.pitrHold(ctx, t, m, seg)
+}
+
+// pitrMark names the WAL segment current on the primary and closes it, so
+// the archiver ships it now and not at archive_timeout.
+func (o *Orchestrator) pitrMark(ctx context.Context, t store.Tile) (string, error) {
+	seg, err := o.primarySQL(ctx, t, mflow.SQLCurrentWAL)
+	if err != nil {
+		return "", err
+	}
 	seg = strings.TrimSpace(seg)
 	if seg == "" {
-		return errors.New("the new primary did not name its WAL segment")
+		return "", errors.New("the new primary did not name its WAL segment")
 	}
-	_, _ = o.primarySQL(ctx, t, mflow.SQLSwitchWAL) // close it now, not at archive_timeout
+	_, _ = o.primarySQL(ctx, t, mflow.SQLSwitchWAL)
+	return seg, nil
+}
+
+// pitrHold persists the pause. seg "" is unarmed: held, but no segment to
+// wait for yet (a failover's swap, an adoption), so it cannot resume.
+func (o *Orchestrator) pitrHold(ctx context.Context, t store.Tile, m store.OperatedInstance, seg string) error {
 	mu := o.pitrLock(m.ID)
 	mu.Lock()
 	defer mu.Unlock()
-	err = o.putPITRState(ctx, m.ID, pitrState{Since: time.Now().UTC(), Paused: true, PausedSeg: seg})
+	err := o.putPITRState(ctx, m.ID, pitrState{Since: time.Now().UTC(), Paused: true, PausedSeg: seg})
 	o.pitrProblem(ctx, "alert.pitr.lag."+m.ID, AlertPITRLag, SevWarning, t.Slug, pausedMsg(t.Slug))
 	return err
 }
 
+// pitrHeld is the shipper's tick while the archive is held: arm an unarmed
+// pause once no failover is running (an adoption's container is up by now),
+// resume an armed one. State and problems are written as usual. Under
+// pitrLock, from pitrShip.
+func (o *Orchestrator) pitrHeld(ctx context.Context, m OperatedInstance, it store.Tile, v store.Volume, st *pitrState, now time.Time) {
+	switch {
+	case st.PausedSeg != "":
+		o.pitrResume(ctx, it, v, st, now)
+	case !o.failoverActive(ctx, m.ID):
+		if seg, err := o.pitrMark(ctx, it); err == nil {
+			st.PausedSeg = seg
+		}
+	}
+	o.savePITRState(ctx, m.ID, *st)
+	o.pitrAlerts(ctx, m, it, v, *st, now)
+}
+
 // pitrResume ends the pause once the archiver has shipped the new
-// primary's segment: the epoch starts now, and the caller queues the first
-// base right after. Under pitrLock, from pitrShip.
-func (o *Orchestrator) pitrResume(ctx context.Context, it store.Tile, st *pitrState, now time.Time) {
+// primary's segment and the first base is queued: the epoch starts now. If
+// the base cannot be queued the pause stays, so no range is advertised
+// without a base under it. An unarmed pause never resumes.
+func (o *Orchestrator) pitrResume(ctx context.Context, it store.Tile, v store.Volume, st *pitrState, now time.Time) {
+	if st.PausedSeg == "" {
+		return
+	}
 	out, err := o.primarySQL(ctx, it, mflow.SQLArchivedPast(st.PausedSeg))
 	if err != nil || strings.TrimSpace(out) != "1" {
 		return
 	}
-	st.Paused, st.PausedSeg, st.ArchSince, st.BaseTriedAt = false, "", now, time.Time{}
+	if _, err := o.BackupNow(ctx, v.ID, "", "base", ""); err != nil {
+		slog.Warn("pitr: first base backup not queued, still paused", "volume", v.ID, "err", err)
+		return
+	}
+	st.Paused, st.PausedSeg, st.ArchSince, st.BaseTriedAt = false, "", now, now
 }
 
 // ---- problems ----

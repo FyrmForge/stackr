@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
@@ -749,8 +750,78 @@ func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 		t.Error("the paused problem outlived the pause")
 	}
 	// 2. the shipper read the archive on the primary's node
+	o.pitrShip(ctx, inst)
 	if !r.saw("w1 exec ls -1 " + mflow.PGArchiveDir) {
 		t.Error("the archive was not read on the primary's node")
+	}
+}
+
+// The pause is written in the swap's own transaction: a panel that dies right
+// after the swap leaves an unarmed pause that no tick resumes, and nothing
+// ships into the old epoch. The route step arms it.
+func TestSwapHoldsTheArchiveUntilRouteArms(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	o.failCrashAfter = stepSwap
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+		t.Fatal("the crash did not stop the run")
+	}
+	st, _ := o.pitrState(ctx, inst.ID)
+	if !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() {
+		t.Fatalf("state after the swap = %+v, want an unarmed pause", st)
+	}
+	o.pitrShip(ctx, inst) // a tick between swap and route
+	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() || !st.BaseTriedAt.IsZero() {
+		t.Errorf("tick during the failover = %+v, want it still unarmed", st)
+	}
+	if r.saw("w1 exec ls -1 " + mflow.PGArchiveDir) {
+		t.Error("the tick shipped while paused")
+	}
+	o.failCrashAfter = ""
+	o.resumeFailovers(ctx)
+	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || st.PausedSeg == "" {
+		t.Errorf("state after route = %+v, want it armed", st)
+	}
+	// an unarmed pause never resumes, even with everything archived
+	must(t, o.pitrHold(ctx, r.tile(), inst, ""))
+	st, _ = o.pitrState(ctx, inst.ID)
+	dv, _ := o.dataVolume(ctx, r.tile())
+	o.pitrResume(ctx, r.tile(), dv, &st, time.Now())
+	if !st.Paused {
+		t.Error("an unarmed pause resumed")
+	}
+}
+
+// A backup or restore holding the data volume keeps the swap from moving its
+// row under it; the step fails and the tick retries it.
+func TestSwapWaitsForTheVolumeJob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	dv, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	j, err := o.jobRows.Create(ctx, string(kindBackup), []string{"volume:" + dv.ID}, "{}", nil, t.TempDir())
+	must(t, err)
+	_, err = o.jobRows.Start(ctx, j)
+	must(t, err)
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil || !strings.Contains(err.Error(), "holds the data volume") {
+		t.Fatalf("switchover under a running backup: %v", err)
+	}
+	if p, _ := r.members(); p.NodeID != "" {
+		t.Errorf("primary row = %+v, swapped under a running backup", p)
+	}
+	if v, _ := o.dataVolume(ctx, r.tile()); v.Name != dv.Name {
+		t.Error("the data row moved under a running backup")
+	}
+	must(t, o.jobRows.Finish(ctx, j, job.Done, ""))
+	o.resumeFailovers(ctx)
+	if p, _ := r.members(); p.NodeID != "w1" {
+		t.Errorf("primary row = %+v, want the swap once the backup is done", p)
 	}
 }
 
@@ -887,6 +958,35 @@ func TestPlacementAdoptsPromotedPrimary(t *testing.T) {
 	}
 	if _, ok := o.primaryReroute(ctx, r.tile()); ok {
 		t.Error("still rerouted after the adoption")
+	}
+}
+
+// Adopting a primary of an instance with PITR on is an archive handoff: the
+// archive is held (unarmed) and the member's and the tile's old spools go, so
+// the tile's container starts on an empty one.
+func TestAdoptHandsOffTheArchive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	wal, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.tile().EnvironmentID}, mflow.ArchiveSlug(r.tile().Slug), &inst.ID)
+	must(t, err)
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	p, _ := r.members()
+	must(t, o.store.Environments.SetNode(ctx, r.n.dev.ID, "w1"))
+	must(t, o.adoptPrimary(ctx, r.tile()))
+	st, _ := o.pitrState(ctx, inst.ID)
+	if !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() {
+		t.Errorf("state after adoption = %+v, want an unarmed pause", st)
+	}
+	if !sawCall(r.n.wFake, "RemoveVolume("+mflow.MemberArchiveVolume(p)+")") {
+		t.Error("the member's spool was kept")
+	}
+	if !sawCall(r.n.wFake, "RemoveVolume("+wal.Name+")") {
+		t.Error("the tile's own spool was not cleared")
 	}
 }
 

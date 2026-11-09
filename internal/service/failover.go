@@ -20,6 +20,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -822,6 +823,17 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 	if target.NodeID != en {
 		dv.NodeID = target.NodeID
 	}
+	// A backup or restore running now holds the volume by its old name; the
+	// tick retries the step once it is done.
+	if err := o.volumeIdle(ctx, dv); err != nil {
+		return err
+	}
+	// The archive is held in the same transaction that moves the primary: no
+	// moment where the new timeline is current and the old epoch still open.
+	// Unarmed until foRoute names the segment to wait for.
+	mu := o.pitrLock(inst.ID)
+	mu.Lock()
+	defer mu.Unlock()
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.OperatedMembers.Update(ctx, old); err != nil {
 			return err
@@ -829,8 +841,31 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 		if err := tx.OperatedMembers.Update(ctx, target); err != nil {
 			return err
 		}
+		if inst.PITRDays > 0 {
+			b, _ := json.Marshal(pitrState{Since: now, Paused: true})
+			if err := tx.Settings.Set(ctx, pitrKey(inst.ID), string(b)); err != nil {
+				return err
+			}
+		}
 		return tx.Volumes.Update(ctx, dv)
 	})
+}
+
+// volumeIdle refuses while a job holds the volume's lock (a backup or restore
+// reading or writing the data the row names).
+// ponytail: a job the runner starts between this check and the row update
+// reads the row either side; closing that needs the runner's own lock.
+func (o *Orchestrator) volumeIdle(ctx context.Context, v store.Volume) error {
+	rs, err := o.jobRows.List(ctx, job.Running)
+	if err != nil {
+		return err
+	}
+	for _, j := range rs {
+		if slices.Contains(j.LockSet, "volume:"+v.ID) {
+			return fmt.Errorf("a %s job holds the data volume; waiting for it", j.Kind)
+		}
+	}
+	return nil
 }
 
 // foSlots is the new primary's half of the standbys that are left: their
@@ -1171,10 +1206,32 @@ func (o *Orchestrator) adoptPrimary(ctx context.Context, t store.Tile) error {
 	if err != nil {
 		return err
 	}
+	if err := o.volumeIdle(ctx, v); err != nil {
+		return err
+	}
+	inst, err := o.operated.GetByTile(ctx, t.ID)
+	if err != nil {
+		return err
+	}
 	nctx := docker.WithNode(ctx, p.NodeID)
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: p.ID})
 	if err != nil {
 		return err
+	}
+	if inst.PITRDays > 0 {
+		// The tile's container archives into <tile>-wal, the member's into
+		// its own spool: the chain does not cross the change. Ship what the
+		// member has (best effort: the pause below is what keeps the range
+		// honest), hold the archive, and start the tile's container on an
+		// empty spool; the tick arms the pause once it runs.
+		if st, _ := o.pitrState(ctx, inst.ID); st.Paused {
+			// already held: the shipper ships nothing, so nothing to drain
+		} else if err := o.foDrain(ctx, t, inst, nil); err != nil {
+			slog.Warn("pitr: member spool not drained before adoption", "instance", inst.ID, "err", err)
+		}
+		if err := o.pitrHold(ctx, t, inst, ""); err != nil {
+			return err
+		}
 	}
 	for _, c := range cs {
 		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
@@ -1188,9 +1245,38 @@ func (o *Orchestrator) adoptPrimary(ctx context.Context, t store.Tile) error {
 	if err := o.store.Volumes.Update(ctx, v); err != nil {
 		return err
 	}
+	if inst.PITRDays > 0 {
+		if err := o.cleanSpool(ctx, t, p); err != nil {
+			return err
+		}
+	}
 	p.NodeID, p.Container, p.Volume, p.Subnet = "", "", "", ""
 	p.UpdatedAt = time.Now().UTC()
 	return o.store.OperatedMembers.Update(ctx, p)
+}
+
+// cleanSpool empties the tile's own archive volume (it may hold segments of
+// the timeline before the failover) by removing it: the deploy declares and
+// creates it again. The member's spool goes with the member. Before the row
+// above is cleared, so a failure retries the adoption.
+func (o *Orchestrator) cleanSpool(ctx context.Context, t store.Tile, p InstanceMember) error {
+	nctx := docker.WithNode(ctx, p.NodeID)
+	if sv, err := o.volumes.BySlug(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID}, mflow.ArchiveSlug(t.Slug)); err == nil {
+		cs, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID})
+		if err != nil {
+			return err
+		}
+		for _, c := range cs { // the tile's own old container, stopped since the failover
+			if err := o.docker.StopRemove(nctx, c.ID); err != nil {
+				return err
+			}
+		}
+		if err := o.docker.RemoveVolume(nctx, sv.Name); err != nil {
+			return err
+		}
+	}
+	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(p))
+	return nil
 }
 
 // ---- the primary down ----
