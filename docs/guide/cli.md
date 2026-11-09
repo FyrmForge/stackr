@@ -703,6 +703,20 @@ stackr db standby add [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+#### `stackr db standby fence`
+
+Fence a standby: stop it, take it out of the read pool and keep it down
+
+```
+stackr db standby fence <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 #### `stackr db standby list`
 
 List an instance's members: the primary and its standbys, with lag and slot size
@@ -759,6 +773,20 @@ stackr db standby sync <node|id> <auto|always|never> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+#### `stackr db standby unfence`
+
+Unfence a standby: it starts again and rejoins the read pool once it streams
+
+```
+stackr db standby unfence <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr db switchover`
 
 Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
@@ -768,6 +796,7 @@ stackr db switchover [flags]
 ```
 
 ```
+      --abort          give up a switchover stuck before the promote: unfence and restart the old primary
       --env string     the environment (default: the linked one)
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)

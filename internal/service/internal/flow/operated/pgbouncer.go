@@ -61,7 +61,16 @@ const (
 // PoolerAlias is the pooler's name on the instance network.
 func PoolerAlias(i Instance) string { return i.Host + "-pooler" }
 
+// ReadPoolerAlias is the read alias's pooler: on a standby's node, the
+// standby's own pooler; on the primary's, the primary's.
+func ReadPoolerAlias(i Instance) string { return ReadAlias(i.Host) + "-pooler" }
+
 func poolerName(i Instance) string { return "stackr-" + i.Host + "-pooler" }
+
+// LabelMemberPooler marks a standby's pooler with the member's id. It is not
+// service.LabelMember: nothing that looks for the standby's postgres by that
+// label must find the pooler.
+const LabelMemberPooler = "stackr.member.pooler"
 
 // maxConnections is the instance's effective max_connections.
 func maxConnections(i Instance) int {
@@ -94,7 +103,10 @@ func poolCaps(maxConn, n int) (auth, per int, err error) {
 // pool together fits under max_connections; a database not listed is
 // refused by the pooler. The admin database is listed only for auth_query.
 // No secret is in it: stackr_pooler's password is in the userlist.
-func poolerIni(i Instance, dbs []string) (string, error) {
+func poolerIni(i Instance, dbs []string) (string, error) { return poolerIniFor(i, dbs, i.Host) }
+
+// poolerIniFor is poolerIni for a pooler that dials postgres at host.
+func poolerIniFor(i Instance, dbs []string, host string) (string, error) {
 	dbs = slices.Compact(slices.Sorted(slices.Values(dbs)))
 	dbs = slices.DeleteFunc(dbs, func(d string) bool { return d == i.AdminDB })
 	auth, per, err := poolCaps(maxConnections(i), len(dbs))
@@ -105,7 +117,7 @@ func poolerIni(i Instance, dbs []string) (string, error) {
 	line := func(f string, a ...any) { fmt.Fprintf(&b, f+"\n", a...) }
 	line("; written by stackr; edits here are overwritten")
 	line("[databases]")
-	target := fmt.Sprintf("host=%s port=%d", i.Host, i.Port)
+	target := fmt.Sprintf("host=%s port=%d", host, i.Port)
 	line("%s = %s pool_size=%d max_db_connections=%d", i.AdminDB, target, auth, auth)
 	for _, d := range dbs {
 		line("%s = %s pool_size=%d max_db_connections=%d", d, target, min(per, poolerPoolMax), per)
@@ -144,7 +156,7 @@ func poolerSpec(i Instance, ini, network string) docker.ContainerSpec {
 		Image:    PoolerImage,
 		Cmd:      []string{"sh", "-c", poolerStartScript},
 		Env:      []string{"STACKR_PGB_INI=" + ini, "STACKR_PGB_PASS=" + i.PoolerPassword},
-		Networks: []docker.NetAttach{{Name: network, Aliases: []string{PoolerAlias(i)}}},
+		Networks: []docker.NetAttach{{Name: network, Aliases: []string{PoolerAlias(i), ReadPoolerAlias(i)}}},
 		User:     "pgbouncer",
 		CapDrop:  []string{"ALL"},
 		Restart:  "unless-stopped",
@@ -153,6 +165,40 @@ func poolerSpec(i Instance, ini, network string) docker.ContainerSpec {
 		HealthIntervalS: 10,
 	}
 }
+
+// StandbyPooler is the pooler of standby mem of instance tile it: its own
+// container beside the standby, on the standby's node network under the read
+// pooler alias, dialling the standby by the read alias. ok is false until the
+// instance has a pooler of its own (it made the auth role and function). The
+// standby is read-only and the auth function lives on the primary and
+// replicates, so nothing here writes to postgres: only the config and its
+// reload (see the service's syncStandbyPoolers).
+func (f *Flow) StandbyPooler(ctx context.Context, it store.Tile, mem store.OperatedMember) (spec docker.ContainerSpec, ini string, ok bool, err error) {
+	m, i, x, err := f.postgres(ctx, it)
+	if err != nil || m.PoolerPassword == "" {
+		return spec, "", false, err
+	}
+	i = liveMaxConnections(ctx, f.withNodeMem(ctx, it, i), x)
+	dbs, err := f.sliceDBs(ctx, m)
+	if err != nil {
+		return spec, "", false, err
+	}
+	if ini, err = poolerIniFor(i, dbs, ReadAlias(i.Host)); err != nil {
+		return spec, "", false, err
+	}
+	spec = poolerSpec(i, ini, operated.Network(m.ID))
+	spec.Name = "stackr-" + ReadAlias(i.Host) + "-pooler"
+	spec.Networks[0].Aliases = []string{ReadPoolerAlias(i)}
+	spec.Labels = map[string]string{LabelMemberPooler: mem.ID}
+	return spec, ini, true, nil
+}
+
+// PoolerReload is the argv that swaps the ini in a running pooler and
+// reloads it; PoolerIniArgv reads the ini it runs.
+func PoolerReload(ini string) []string { return poolerReload(ini) }
+
+// PoolerIniArgv is the argv that prints a pooler's ini.
+func PoolerIniArgv() []string { return []string{"cat", poolerConf} }
 
 // poolerReload is the argv that swaps the ini in a running pooler and
 // signals pgbouncer (pid 1) to read it.

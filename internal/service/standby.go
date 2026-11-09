@@ -213,6 +213,9 @@ func (o *Orchestrator) stopMember(ctx context.Context, m InstanceMember) {
 	if err != nil {
 		return
 	}
+	if ps, err := o.poolerContainers(nctx, m.ID); err == nil {
+		cs = append(cs, ps...)
+	}
 	for _, c := range cs {
 		if c.State == "running" || c.State == "restarting" {
 			if err := o.docker.Stop(nctx, c.ID); err != nil {
@@ -369,6 +372,8 @@ func standbyWord(m InstanceMember) string {
 		return "fenced, needs rewind"
 	case m.Phase == opmember.Rebuild:
 		return "needs rebuild"
+	case m.Fenced:
+		return "fenced"
 	case m.Phase == opmember.Streaming:
 		return "streaming"
 	}
@@ -508,4 +513,28 @@ func (o *Orchestrator) RebuildStandbyOf(ctx context.Context, tileID, id string) 
 		return StandbyView{}, err
 	}
 	return o.viewOf(ctx, tileID, n.ID)
+}
+
+// FenceStandbyOf fences or unfences standby id of tile tileID's instance by
+// hand: a fenced standby is stopped, out of the read pool and never started
+// until it is unfenced. The primary is never fenced here. A standby that
+// needs a rewind or a rebuild is left to that, and nothing changes while a
+// failover is in flight.
+func (o *Orchestrator) FenceStandbyOf(ctx context.Context, tileID, id string, fenced bool) (StandbyView, error) {
+	m, err := o.standbyOf(ctx, tileID, id)
+	if err != nil {
+		return StandbyView{}, err
+	}
+	if o.failoverActive(ctx, m.InstanceID) {
+		return StandbyView{}, errs.Conflictf("A failover is in progress. Wait for it.")
+	}
+	if m.Phase == opmember.Rewind || m.Phase == opmember.Rebuild {
+		return StandbyView{}, errs.Conflictf("This standby needs a %s. It rejoins by itself, or rebuild it.", m.Phase)
+	}
+	if m.Fenced != fenced {
+		if err := o.FenceMember(ctx, m.ID, fenced); err != nil {
+			return StandbyView{}, err
+		}
+	}
+	return o.viewOf(ctx, tileID, m.ID)
 }

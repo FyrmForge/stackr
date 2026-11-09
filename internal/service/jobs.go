@@ -723,8 +723,9 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 		return err
 	}
 	o.finishRemovals(ctx)
-	o.resumeFailovers(ctx) // a failover the panel left half done, an old primary whose node is back
-	o.startMembers(ctx)    // before the rebuild: it routes to what runs
+	o.resumeFailovers(ctx)    // a failover the panel left half done, an old primary whose node is back
+	o.startMembers(ctx)       // before the rebuild: it routes to what runs
+	o.syncStandbyPoolers(ctx) // before the probes: a standby joins the read pool with its pooler up
 	o.observeStandbys(ctx)
 	o.observePrimaries(ctx)
 	o.watchStandbys(ctx)

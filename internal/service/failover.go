@@ -208,6 +208,81 @@ func (o *Orchestrator) Switchover(ctx context.Context, tileID, to string) (Stand
 	return o.startFailover(ctx, tileID, to, foSwitchover, false, false, false)
 }
 
+// AbortSwitchover gives up a switchover that is stuck before the promote
+// (the standby never replays the shutdown checkpoint, say): the old primary
+// is unfenced and started again, and the cursor goes. Once the promote step
+// is reached, or the standby is out of recovery, it is refused: the standby
+// may be the primary already and the switchover must finish.
+func (o *Orchestrator) AbortSwitchover(ctx context.Context, tileID string) error {
+	unlock, err := o.lockInstance(ctx, tileID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	t, inst, err := o.memberInstance(ctx, tileID)
+	if err != nil {
+		return err
+	}
+	f, ok := o.failoverOf(ctx, inst.ID)
+	if !ok {
+		return errs.Conflictf("No failover of %s is in progress.", t.Slug)
+	}
+	if f.Kind != foSwitchover {
+		return errs.Conflictf("Only a switchover can be aborted. A promote is not undone.")
+	}
+	steps := failoverSteps[foSwitchover]
+	if slices.Index(steps, f.Step) >= slices.Index(steps, stepPromote) {
+		return errs.Conflictf("The standby is being or was promoted (%s). The switchover has to finish.", f.Step)
+	}
+	if target, err := o.members.Get(ctx, f.Target); err == nil {
+		if rec, err := o.inRecovery(ctx, t, target); err == nil && !rec {
+			return errs.Conflictf("The standby is out of recovery: it was promoted. The switchover has to finish.")
+		}
+	}
+	old, err := o.members.Get(ctx, f.Old)
+	if err != nil {
+		return err
+	}
+	if old.Role == opmember.Primary && old.Fenced {
+		if old, err = o.members.SetFenced(ctx, old, false); err != nil {
+			return err
+		}
+	}
+	if err := o.store.Settings.Delete(ctx, failoverKey(inst.ID)); err != nil {
+		return err
+	}
+	slog.Warn("failover: switchover aborted", "instance", inst.ID, "step", f.Step)
+	if old.State == opmember.Running {
+		if err := o.startMember(ctx, old); err != nil {
+			slog.Warn("failover: old primary not started, the tick retries", "instance", inst.ID, "err", err)
+		}
+	}
+	return nil
+}
+
+// inRecovery says whether standby m's postgres is in recovery.
+func (o *Orchestrator) inRecovery(ctx context.Context, t store.Tile, m InstanceMember) (bool, error) {
+	if err := o.nodeUp(ctx, m.NodeID); err != nil {
+		return false, err
+	}
+	nctx := docker.WithNode(ctx, m.NodeID)
+	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
+	if err != nil {
+		return false, err
+	}
+	argv, err := o.engines.PsqlArgv(ctx, t, mflow.SQLInRecovery)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range cs {
+		if c.State == "running" {
+			out, err := o.docker.Exec(nctx, c.ID, argv)
+			return strings.TrimSpace(out) != "0", err
+		}
+	}
+	return false, errors.New("the standby is not running")
+}
+
 // PoweredOffPhrase is what an admin types to promote past a missing lease
 // proof: the old primary's node has no recorded binding (or its lease is not
 // waited out), and they state they powered it off. It is recorded in the
@@ -726,6 +801,9 @@ func (o *Orchestrator) foRecreate(ctx context.Context, t store.Tile, _ store.Ope
 		return err
 	}
 	nctx := docker.WithNode(ctx, target.NodeID)
+	if err := o.removePoolers(nctx, target); err != nil { // the standby's pooler goes with the standby
+		return err
+	}
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: target.ID})
 	if err != nil {
 		return err
@@ -1398,6 +1476,7 @@ type FailoverOptions struct {
 	Unreachable bool     // the primary's node does not answer
 	InFlight    string   // "switchover: promote", "" = none
 	Error       string   // why the last run stopped
+	CanAbort    bool     // a switchover stuck before its promote step
 }
 
 // FailoverOptionsOf is tile tileID's FailoverOptions; ok is false for an
@@ -1444,6 +1523,8 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 	fo.Promote = append(waited, fo.Promote...) // the standby the primary waited for first: the form offers it first
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
 		fo.InFlight, fo.Error = f.Kind+": "+f.Step, f.Error
+		steps := failoverSteps[foSwitchover]
+		fo.CanAbort = f.Kind == foSwitchover && slices.Index(steps, f.Step) < slices.Index(steps, stepPromote)
 	}
 	return fo, true, nil
 }

@@ -700,7 +700,8 @@ func hasDigest(repoDigests []string, dg string) bool {
 // pull makes image (the tag everything runs by) the image with digest dg.
 // With a digest: an image whose RepoDigests hold it is kept, else the digest
 // is pulled and tagged, replacing a tag that points elsewhere (a moved tag, a
-// stale or hand-loaded copy). With no digest (dev or rig build only) it pulls
+// stale or hand-loaded copy). An image already here under the digest (a dev
+// build's, loaded by hand) is tagged without a pull: the pin is the same. With no digest (dev or rig build only) it pulls
 // by tag and keeps one already here.
 func (r runner) pull(ctx context.Context, image, dg string) error {
 	if dg == "" {
@@ -719,8 +720,12 @@ func (r runner) pull(ctx context.Context, image, dg string) error {
 		}
 	}
 	ref := installspec.DigestRef(dg)
+	if r.exists(ctx, "image", ref) { // the pinned image, already here: a dev build's, loaded by hand
+		r.say("  have", ref)
+		return r.docker(ctx, "tag", ref, image)
+	}
 	if err := r.docker(ctx, "pull", ref); err != nil {
-		return err
+		return fmt.Errorf("%w\n  a dev build's image is not on the registry: load it on this machine first (docker save | docker load, see the nodes guide)", err)
 	}
 	return r.docker(ctx, "tag", ref, image)
 }

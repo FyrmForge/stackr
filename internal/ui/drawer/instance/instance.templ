@@ -123,14 +123,16 @@ type FailoverView struct {
 	Unreachable bool
 	InFlight    string
 	Error       string
+	CanAbort    bool // a switchover stuck before its promote
 }
 
 // MemberRow is one member of a postgres instance. Lag and Slot are
 // ready-made words ("" = nothing to say, as for the primary): Slot is the
 // WAL the member's replication slot holds against the cap.
 type MemberRow struct {
-	Node, Role, State, Lag, Slot string
-	Tone                         string // the state's chip tone
+	ID, Node, Role, State, Lag, Slot string
+	Tone                             string // the state's chip tone
+	Fenced, CanFence                 bool   // CanFence: a standby that may be fenced or unfenced by hand
 }
 
 // VersionView is the image a postgres instance runs. UpdateTo is the image a
@@ -226,7 +228,20 @@ templ Overview(v View, o OverviewView) {
 								<span class="block text-xs text-rw-faint">{ m.Slot }</span>
 							}
 						</span>
-						@c.Chip(m.State, m.Tone)
+						<span class="flex items-center gap-2">
+							if m.CanFence && !v.ReadOnly {
+								<form hx-post={ v.Base + "/standby-fence" } hx-target={ "#" + Root } hx-swap="outerHTML">
+									<input type="hidden" name="id" value={ m.ID }/>
+									if m.Fenced {
+										<button type="submit" class="btn btn-ghost btn-sm">Unfence</button>
+									} else {
+										<input type="hidden" name="fenced" value="1"/>
+										<button type="submit" class="btn btn-ghost btn-sm">Fence</button>
+									}
+								</form>
+							}
+							@c.Chip(m.State, m.Tone)
+						</span>
 					</li>
 				}
 			</ul>
@@ -968,6 +983,11 @@ templ failover(v View, f FailoverView) {
 		<p class="text-xs text-rw-faint" data-hint>Failover in progress ({ f.InFlight }). It resumes by itself.</p>
 		if f.Error != "" {
 			<p class="text-xs text-rw-danger">{ f.Error }</p>
+		}
+		if f.CanAbort && !v.ReadOnly {
+			<form hx-post={ v.Base + "/switchover-abort" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
+				<button type="submit" class="btn btn-ghost btn-sm">Abort switchover</button>
+			</form>
 		}
 	} else if !v.ReadOnly {
 		if len(f.Promote) > 0 {

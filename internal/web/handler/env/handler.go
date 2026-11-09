@@ -74,6 +74,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/major-rollback", h.PGMajorRollback, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/sync", h.PGSync, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/switchover", h.Switchover, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/switchover-abort", h.AbortSwitchover, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/standby-fence", h.FenceStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/promote-standby", h.PromoteStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
@@ -592,7 +594,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			}
 			if fo, ok, err := h.orch.FailoverOptionsOf(ctx, t.ID); err == nil && ok {
 				o.Failover = &instance.FailoverView{Primary: fo.Primary, Switch: fo.Switch, Promote: fo.Promote,
-					Unreachable: fo.Unreachable, InFlight: fo.InFlight, Error: fo.Error}
+					Unreachable: fo.Unreachable, InFlight: fo.InFlight, Error: fo.Error, CanAbort: fo.CanAbort}
 			}
 		}
 		for _, p := range ps {
@@ -754,6 +756,25 @@ func (h *handler) PGSync(c echo.Context) error {
 func (h *handler) Switchover(c echo.Context) error {
 	_, err := h.orch.Switchover(c.Request().Context(), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")))
 	return h.instance(c, "slices", "Switched over. The old primary rejoins as a standby when it can.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/switchover-abort: give up a switchover stuck
+// before its promote.
+func (h *handler) AbortSwitchover(c echo.Context) error {
+	err := h.orch.AbortSwitchover(c.Request().Context(), scope(c).Tile.ID)
+	return h.instance(c, "slices", "Switchover aborted. The old primary starts again.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/standby-fence: fence ("fenced" = 1) or unfence the
+// standby "id".
+func (h *handler) FenceStandby(c echo.Context) error {
+	fenced := c.FormValue("fenced") == "1"
+	_, err := h.orch.FenceStandbyOf(c.Request().Context(), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("id")), fenced)
+	note := "Standby unfenced."
+	if fenced {
+		note = "Standby fenced."
+	}
+	return h.instance(c, "slices", note, err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/promote-standby: promote the standby on node "to".

@@ -469,21 +469,21 @@ func (pg) Bindings(i Instance, s Slice) []Binding {
 		{"password", s.Password, true, false},
 	}
 	// The read forms dial the read alias (see ReadAlias): a standby the
-	// consumer can reach, else the primary. A standby has no pooler yet, so
-	// the pooled read forms are the direct ones.
-	// ponytail: pooler per standby is a later step; then _read_pooled gets its own alias.
-	rHost := ReadAlias(i.Host)
+	// consumer can reach, else the primary. The pooled read forms dial the read
+	// pooler alias: a standby's own pooler on its node, the primary's pooler on
+	// the primary's. From another node they are the direct ones (Direct).
+	rHost, rpHost := ReadAlias(i.Host), ReadPoolerAlias(i)
 	rConn := conn(rHost, dPort)
 	return append(out,
 		Binding{"url_read", rConn, true, true},
 		Binding{"url_read_direct", rConn, true, true},
-		Binding{"url_read_pooled", rConn, true, true},
+		Binding{"url_read_pooled", conn(rpHost, PoolerPort), true, true},
 		Binding{"host_read", rHost, false, true},
 		Binding{"host_read_direct", rHost, false, true},
-		Binding{"host_read_pooled", rHost, false, true},
+		Binding{"host_read_pooled", rpHost, false, true},
 		Binding{"port_read", strconv.Itoa(dPort), false, false},
 		Binding{"port_read_direct", strconv.Itoa(dPort), false, false},
-		Binding{"port_read_pooled", strconv.Itoa(dPort), false, false},
+		Binding{"port_read_pooled", strconv.Itoa(PoolerPort), false, false},
 	)
 }
 

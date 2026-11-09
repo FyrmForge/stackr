@@ -241,6 +241,8 @@ func routes(h *v1.H) []Route {
 		{PUT, tile + "/sync", "operated.sync-set", "tile.write", h.SetSync()},
 		{PUT, tile + "/standbys/:standby/sync", "operated.standby-sync", "tile.write", h.SetStandbySync()},
 		{POST, tile + "/switchover", "operated.switchover", "tile.write", h.Switchover()},
+		{POST, tile + "/switchover/abort", "operated.switchover-abort", "tile.write", h.AbortSwitchover()},
+		{PUT, tile + "/standbys/:standby/fence", "operated.standby-fence", "tile.write", h.FenceStandby()},
 		{POST, tile + "/promote-standby", "operated.promote-standby", "tile.write", h.PromoteStandby()},
 		{GET, tile + "/version", "operated.version", "tile.read", h.PGVersion()},
 		{POST, tile + "/version", "operated.update", "tile.write", h.UpdatePGVersion()},

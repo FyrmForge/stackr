@@ -49,13 +49,14 @@ type pitrRig struct {
 	data store.Volume
 	root string
 	lsOK *bool // false: the container has no archive dir
+	s3   *fakeS3
 }
 
 func newPITRRig(t *testing.T) *pitrRig {
 	t.Helper()
 	w := newWorld(t)
 	ctx := context.Background()
-	_, srv := newFakeS3(t)
+	s3, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
 	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
@@ -75,7 +76,7 @@ func newPITRRig(t *testing.T) *pitrRig {
 		}
 		return ""
 	}
-	return &pitrRig{world: w, pg: pg, m: m, data: data, root: backup.PITRRoot(w.org, data.ID), lsOK: new(bool)}
+	return &pitrRig{world: w, pg: pg, m: m, data: data, root: backup.PITRRoot(w.org, data.ID), lsOK: new(bool), s3: s3}
 }
 
 // noArchive makes the container's `ls` of the archive dir fail, as a
@@ -548,5 +549,52 @@ func TestUpdateBackupScheduleKeepsTheBaseMethodWhilePITRIsOn(t *testing.T) {
 	b, err := o.UpdateBackupSchedule(ctx, base.ID, ScheduleSpec{Cron: "@daily"})
 	if err != nil || b.Method != "base" {
 		t.Errorf("no method = %q, %v; want base kept", b.Method, err)
+	}
+}
+
+// Old archive epochs (a major change or rollback started a new one) are kept
+// while a rollback is possible, then dropped, remote objects and the epoch's
+// directory on the box; the current epoch is never touched.
+func TestOldArchiveEpochsDropAfterTheRollbackWindow(t *testing.T) {
+	t.Parallel()
+	r := newPITRRig(t)
+	ctx := context.Background()
+	o := r.orch
+	m := r.m
+	m.ArchiveEpoch = 2
+	must(t, r.st.OperatedInstances.Update(ctx, m))
+	roots := map[int]string{}
+	for e := 0; e <= 2; e++ {
+		roots[e] = backup.PITREpochRoot(r.org, r.data.ID, e)
+		r.s3.mu.Lock()
+		r.s3.objs[roots[e]+"/wal/000000010000000000000001-000000010000000000000002.tar.gz.age"] = []byte("x")
+		r.s3.mu.Unlock()
+	}
+	st := pgUp{Done: true, At: time.Now().Add(-time.Hour)} // a rollback is possible
+	must(t, o.setPGUp(ctx, m.ID, st))
+	o.sweepArchiveEpochs(ctx)
+	for e := 0; e <= 2; e++ {
+		if len(r.s3.keys(roots[e])) == 0 {
+			t.Errorf("epoch %d dropped while a rollback is possible", e)
+		}
+	}
+	st.At = time.Now().Add(-pgupKeep - time.Hour)
+	must(t, o.setPGUp(ctx, m.ID, st))
+	o.sweepArchiveEpochs(ctx)
+	for e := 0; e <= 1; e++ {
+		if len(r.s3.keys(roots[e]+"/")) != 0 {
+			t.Errorf("old epoch %d is still there", e)
+		}
+	}
+	if len(r.s3.keys(roots[2]+"/")) == 0 {
+		t.Error("the current epoch was dropped")
+	}
+	if !slices.ContainsFunc(r.fake.Calls(), func(c dockerfake.Call) bool {
+		return strings.Contains(c.String(), "rm, -rf, --, "+mflow.ArchiveDirOf(1)) && !strings.Contains(c.String(), "e2")
+	}) {
+		t.Errorf("epoch 1's directory was not removed; calls: %v", r.fake.Calls())
+	}
+	if v, _, _ := o.store.Settings.Get(ctx, epochKey+m.ID); v != "2" {
+		t.Errorf("dropped through %q, want 2", v)
 	}
 }

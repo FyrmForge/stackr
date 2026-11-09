@@ -694,6 +694,26 @@ func (h *H) Switchover() Endpoint {
 	})
 }
 
+// AbortSwitchover gives up a switchover stuck before the promote: the old
+// primary is unfenced and started again. Refused once the standby may be
+// promoted.
+func (h *H) AbortSwitchover() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.AbortSwitchover(rc(c), tileID(c)) })
+}
+
+// FenceStandbyIn fences (true) or unfences a standby.
+type FenceStandbyIn struct {
+	Fenced bool `json:"fenced"`
+}
+
+// FenceStandby fences or unfences a standby by hand: a fenced standby is
+// stopped, out of the read pool and not started until unfenced.
+func (h *H) FenceStandby() Endpoint {
+	return JSON(http.StatusOK, func(c echo.Context, in FenceStandbyIn) (service.StandbyView, error) {
+		return h.Orch.FenceStandbyOf(rc(c), tileID(c), c.Param("standby"), in.Fenced)
+	})
+}
+
 // PromoteStandby makes a standby the primary when the primary is down. The
 // old primary must be known stopped; for a node that does not answer, the
 // caller confirms it is really gone (node_gone), the panel needs its record

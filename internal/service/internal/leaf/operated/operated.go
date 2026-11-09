@@ -390,10 +390,15 @@ func Outputs(b store.Binding) (map[string]string, error) {
 // Direct rewrites a slice's outputs for a consumer that cannot reach the
 // pooler: every _pooled value and every name that has a _direct form
 // (url, host, port, the _read ones) becomes the direct value.
+// keepReadPooled leaves the _read_pooled ones: the consumer reads through a
+// standby's pooler on its own node.
 // ponytail: the pooler has no cross-node VIP yet, so a consumer on another
 // node than the instance gets direct values (phase 2: a pooler VIP).
-func Direct(out map[string]string) {
+func Direct(out map[string]string, keepReadPooled bool) {
 	for k := range out {
+		if keepReadPooled && strings.HasSuffix(k, "_read_pooled") {
+			continue
+		}
 		if d, ok := out[strings.TrimSuffix(k, "_pooled")+"_direct"]; ok && !strings.HasSuffix(k, "_direct") {
 			out[k] = d
 		}

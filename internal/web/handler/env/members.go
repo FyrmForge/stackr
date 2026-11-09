@@ -13,13 +13,14 @@ import (
 func memberRows(vs []service.StandbyView) []instance.MemberRow {
 	var out []instance.MemberRow
 	for _, v := range vs {
-		r := instance.MemberRow{Node: v.Node, Role: v.Role, State: v.State, Tone: "warn"}
+		r := instance.MemberRow{ID: v.ID, Fenced: v.Fenced, Node: v.Node, Role: v.Role, State: v.State, Tone: "warn"}
 		switch v.State {
 		case "running", "streaming":
 			r.Tone = "success"
 		case "needs rebuild", "fenced, needs rewind":
 			r.Tone = "danger"
 		}
+		r.CanFence = v.Role == "replica" && v.State != "removing" && v.State != "fenced, needs rewind" && v.State != "needs rebuild"
 		if v.Role == "replica" && v.State == "streaming" {
 			r.Lag = fmt.Sprintf("%s behind, %s", render.Size(v.LagBytes), (time.Duration(v.LagSeconds) * time.Second).String())
 		}

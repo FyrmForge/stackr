@@ -318,6 +318,9 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 			return err
 		}
 	}
+	if err := o.removePoolers(nctx, m); err != nil {
+		return err
+	}
 	if err := o.detachStandby(ctx, m); err != nil {
 		return err
 	}
