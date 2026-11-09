@@ -212,6 +212,9 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 	if cur, err := f.Tiles.Get(ctx, s.ID); err == nil {
 		s = cur
 	}
+	if tile.URLOf(s) != tile.Direct && m.Engine != "postgres" {
+		return store.Provision{}, errs.Invalidf("url", "slice %s: url %s applies to postgres slices only", s.Slug, tile.URLOf(s))
+	}
 	def := e.Definition()
 	inst := f.facts(ctx, it, m, def)
 	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)

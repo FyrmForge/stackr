@@ -247,6 +247,20 @@ func contains(t *testing.T, what, got string, want ...string) {
 	}
 }
 
+// url: pooled is for postgres only: a bucket slice refuses it at provision.
+func TestPooledRefusedOnBucket(t *testing.T) {
+	w := setup(t, "s3")
+	cur, err := w.f.Tiles.Get(ctx, w.orders.ID)
+	must(t, err)
+	next, pooled := cur, "pooled"
+	next.SliceURL = &pooled
+	next, _, err = w.f.Tiles.Update(ctx, cur, next)
+	must(t, err)
+	if _, err := w.f.Provision(ctx, w.db, next); err == nil || !strings.Contains(err.Error(), "applies to postgres slices only") {
+		t.Errorf("provision = %v, want the postgres-only refusal", err)
+	}
+}
+
 // A slice's url setting decides what url, host and port point at: Republish
 // moves the stored outputs, and a same-access Bind reads the setting too.
 func TestSliceURLSetting(t *testing.T) {

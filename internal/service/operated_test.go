@@ -197,6 +197,16 @@ func TestSliceVerbs(t *testing.T) {
 	_, err = o.SetSliceDefaultAccess(ctx, db.ID, "admin")
 	invalid("default_access admin", err)
 
+	_, err = o.SetSliceURL(ctx, db.ID, "both")
+	invalid("url both", err)
+	db, err = o.SetSliceURL(ctx, db.ID, "pooled")
+	must(t, err)
+	if *db.SliceURL != "pooled" {
+		t.Errorf("url = %v", *db.SliceURL)
+	}
+	if v, err := o.SliceOf(ctx, db.ID); err != nil || v.URL != "pooled" {
+		t.Errorf("slice view url = %q, %v", v.URL, err)
+	}
 	_, err = o.SetSliceOnRemove(ctx, db.ID, "later")
 	invalid("on_remove later", err)
 	_, err = o.SetSliceOnRemove(ctx, tl.ID, "drop")

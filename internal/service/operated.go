@@ -391,19 +391,24 @@ func (o *Orchestrator) SetSliceURL(ctx context.Context, sliceTileID, url string)
 	if st.ConfigRepo != "" {
 		return s, errs.Conflictf("stack %s is config-managed; set url in its stack file", st.Slug)
 	}
+	var m OperatedInstance
+	p, ok, err := o.operated.ProvisionOf(ctx, s.ID)
+	if err != nil {
+		return s, err
+	}
+	if ok {
+		if m, err = o.operated.Get(ctx, p.InstanceID); err != nil {
+			return s, err
+		}
+		if url != tile.Direct && m.Engine != "postgres" {
+			return s, errs.Invalidf("url", "url %s applies to postgres slices only", url)
+		}
+	}
 	cur := s
 	cur.SliceURL = &url
 	out, _, err := o.tiles.Update(ctx, s, cur)
-	if err != nil {
-		return out, err
-	}
-	p, ok, err := o.operated.ProvisionOf(ctx, out.ID)
 	if err != nil || !ok {
 		return out, err // not provisioned: its first bind reads the setting
-	}
-	m, err := o.operated.Get(ctx, p.InstanceID)
-	if err != nil {
-		return out, err
 	}
 	it, err := o.tiles.Get(ctx, m.TileID)
 	if err != nil {

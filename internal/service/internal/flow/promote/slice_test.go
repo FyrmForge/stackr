@@ -367,6 +367,26 @@ func TestSliceBlockers(t *testing.T) {
 			want: "slice api-db: infra has no environment dev",
 		},
 		{
+			name: "s3 slice reads a postgres output",
+			prep: func(t *testing.T, w *sliceWorld) {
+				w.instance(t, "staging", func(m *store.OperatedInstance) { m.Engine = "s3" })
+			},
+			want: `environment dev tile api: refs ${{ tile.api-db.url }}: a s3 slice has no output "url"; valid: access_key, bucket, endpoint, public_url, region, secret_key`,
+		},
+		{
+			name: "s3 slice url pooled",
+			file: strings.Replace(sliceShopFile, "      default_access: write\n", "      default_access: write\n      url: pooled\n", 1),
+			prep: func(t *testing.T, w *sliceWorld) {
+				w.instance(t, "staging", func(m *store.OperatedInstance) { m.Engine = "s3" })
+			},
+			want: "slice api-db: url pooled applies to postgres slices only",
+		},
+		{
+			name: "postgres slice reads an s3 output",
+			file: strings.ReplaceAll(sliceShopFile, "tile.api-db.url", "tile.api-db.endpoint"),
+			want: `environment dev tile api: refs ${{ tile.api-db.endpoint }}: a postgres slice has no output "endpoint"; valid: database, host, host_direct, host_pooled, host_read, host_read_direct, host_read_pooled, password, port, port_direct, port_pooled, port_read, port_read_direct, port_read_pooled, url, url_direct, url_pooled, url_read, url_read_direct, url_read_pooled, user`,
+		},
+		{
 			name: "no tile",
 			prep: func(t *testing.T, w *sliceWorld) {
 				must(t, w.f.D.Tiles.Delete(ctx, w.pg["staging"].ID))

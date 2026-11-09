@@ -16,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
@@ -930,10 +931,11 @@ func signedDiff(old, cur []string) string {
 // the move (flow/operated Provision). Compare the provision's instance here
 // if that surprise needs to come earlier.
 func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.Tile, exists bool) error {
-	target, ok, err := f.sliceTarget(ctx, p, w, row)
+	target, engine, ok, err := f.sliceTarget(ctx, p, w, row)
 	if err != nil || !ok {
 		return err
 	}
+	p.sliceRefs(w, row, engine)
 	now := target + " (" + deref(row.DefaultAccess) + sliceURLNote(row) + ")"
 	c := Change{
 		Kind: "slice",
@@ -968,16 +970,16 @@ func sliceURLNote(t store.Tile) string {
 // deploy's own rule (address.Resolve over deploy.Place), with this stack's
 // part laid over from the file: its env_pairs, and this env's instance,
 // which may land in this very promote. false: a blocker says why.
-func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile) (string, bool, error) {
+func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile) (string, string, bool, error) {
 	name := row.Slug
 	o := orgSlug(w)
-	block := func(format string, a ...any) (string, bool, error) {
+	block := func(format string, a ...any) (string, string, bool, error) {
 		p.block("slice %s: "+format, append([]any{name}, a...)...)
-		return "", false, nil
+		return "", "", false, nil
 	}
 	rr, err := f.resolver(ctx, w)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	raw, err := rr.Expand(params.InProvisionFrom, deref(row.ProvisionFrom))
 	var unset errs.Unset
@@ -996,11 +998,11 @@ func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile
 		return block("stack %s not found", tg.Stack)
 	}
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	pl, err := f.D.Place(ctx, st, tg.Tile)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	if st.ID == w.st.ID {
 		tc, ok := w.re.Tiles[tg.Tile]
@@ -1034,13 +1036,67 @@ func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile
 	if st.ID != w.st.ID || env != w.e.Slug || !written {
 		up, err := f.sourceRunning(ctx, st, env, tg.Tile)
 		if err != nil {
-			return "", false, err
+			return "", "", false, err
 		}
 		if !up {
 			return block("%s/%s/%s is not running; start it first", st.Slug, env, tg.Tile)
 		}
 	}
-	return st.Slug + "/" + env + "/" + tg.Tile, true, nil
+	engine, err := f.targetEngine(ctx, w, st, env, tg.Tile)
+	if err != nil {
+		return "", "", false, err
+	}
+	return st.Slug + "/" + env + "/" + tg.Tile, engine, true, nil
+}
+
+// targetEngine is the engine of the operated tile a slice provisions from: the
+// file's own tile when it declares it, else the stored one. "" when there is
+// none yet (the address rules own that).
+func (f *Flow) targetEngine(ctx context.Context, w *work, st store.Stack, env, slug string) (string, error) {
+	if w.re != nil {
+		if tc, ok := w.re.Tiles[slug]; ok && st.ID == w.st.ID && env == w.e.Slug {
+			return tc.Engine, nil
+		}
+	}
+	e, err := f.D.Envs.GetBySlug(ctx, st.ID, env)
+	if err == nil {
+		var t store.Tile
+		if t, err = f.D.Tiles.GetBySlug(ctx, e.ID, slug); err == nil {
+			var m store.OperatedInstance
+			if m, err = f.D.Operated.GetByTile(ctx, t.ID); err == nil {
+				return m.Engine, nil
+			}
+		}
+	}
+	if errors.Is(err, errs.ErrNotFound) {
+		return "", nil
+	}
+	return "", err
+}
+
+// sliceRefs blocks what the target's engine does not publish: a ref to an
+// output it has no such name for, and a url other than direct on an engine
+// with no pooler.
+func (p *Plan) sliceRefs(w *work, row store.Tile, engine string) {
+	if engine == "" {
+		return
+	}
+	if tile.URLOf(row) != tile.Direct && engine != "postgres" {
+		p.block("slice %s: url %s applies to postgres slices only", row.Slug, tile.URLOf(row))
+	}
+	if w.re == nil {
+		return
+	}
+	valid := mflow.OutputNames(engine)
+	for _, n := range slices.Sorted(maps.Keys(w.re.Tiles)) {
+		for _, body := range refBodies(w.re.Tiles[n]) {
+			field, ok := strings.CutPrefix(body, "tile."+row.Slug+".")
+			if ok && !slices.Contains(valid, field) {
+				p.block("environment %s tile %s: refs ${{ %s }}: a %s slice has no output %q; valid: %s",
+					w.e.Slug, n, body, engine, field, strings.Join(valid, ", "))
+			}
+		}
+	}
 }
 
 // sourceRunning: the instance a slice provisions from has a running replica.
