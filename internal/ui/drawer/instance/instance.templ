@@ -127,6 +127,13 @@ type MemberRow struct {
 type VersionView struct {
 	Image, UpdateTo, EOLDate string
 	EOL                      bool
+	// Majors are the majors it can move to (up or down). Check is the last dry
+	// run's line, "" = none yet. RollbackFrom is the major a rollback returns
+	// to, 0 = none kept; RollbackUntil says until when.
+	Majors                   []int
+	Check                    string
+	RollbackFrom             int
+	RollbackUntil            string
 }
 
 // PoolerView is the instance's pgbouncer. Counted says the console answered,
@@ -175,6 +182,9 @@ templ Overview(v View, o OverviewView) {
 					@c.PrimaryPost("Apply", v.Base+"/version")
 				}
 			</div>
+		}
+		if o.Version != nil && !v.ReadOnly {
+			@majorChange(v, *o.Version)
 		}
 		if o.Pooler != nil {
 			<h3 class="section-title">Pooler</h3>
@@ -859,6 +869,44 @@ func remove(v View) c.ConfirmView {
 	d.Button = "Delete database"
 	d.Warning = "Its container and domains go. Refused while slice tiles still live on it."
 	return d
+}
+
+// majorChange moves the instance to another postgres major, and returns it
+// to the one before for a week after. A rollback asks the instance's name
+// typed: what was written since is lost.
+templ majorChange(v View, ver VersionView) {
+	if len(ver.Majors) > 0 {
+		<form hx-post={ v.Base + "/major" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
+			<div class="flex flex-wrap items-end gap-2">
+				<div class="min-w-32">
+					<label for="major-to" class="label">Move to postgres</label>
+					<select id="major-to" name="to" class="input">
+						for _, n := range ver.Majors {
+							<option value={ strconv.Itoa(n) }>{ strconv.Itoa(n) }</option>
+						}
+					</select>
+				</div>
+				<button type="submit" name="action" value="check" class="btn btn-ghost btn-sm">Check</button>
+				<button type="submit" name="action" value="upgrade" class="btn btn-danger btn-sm">Change version</button>
+			</div>
+			<p class="text-xs text-rw-faint" data-hint>It stops while the data moves; the old data is kept for 7 days.</p>
+			if ver.Check != "" {
+				<p class="text-xs text-rw-muted">{ ver.Check }</p>
+			}
+		</form>
+	}
+	if ver.RollbackFrom > 0 {
+		<form hx-post={ v.Base + "/major-rollback" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
+			<p class="text-sm text-rw-text">The data of postgres { strconv.Itoa(ver.RollbackFrom) } is kept until { ver.RollbackUntil }.</p>
+			<div class="flex flex-wrap items-end gap-2">
+				<div class="flex-1 min-w-48">
+					<label for="rollback-confirm" class="label">Type { v.Name } to roll back and lose what was written since</label>
+					<input id="rollback-confirm" name="confirm" autocomplete="off" class="input font-mono"/>
+				</div>
+				<button type="submit" class="btn btn-danger btn-sm">Roll back</button>
+			</div>
+		</form>
+	}
 }
 
 templ failover(v View, f FailoverView) {

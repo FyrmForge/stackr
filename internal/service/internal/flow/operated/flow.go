@@ -186,7 +186,7 @@ func checkMajor(def Definition, m store.OperatedInstance, t store.Tile) error {
 	case m.Major == 0:
 		return errs.Conflictf("%s has no recorded major version; recreate it", t.Slug)
 	case got != m.Major:
-		return errs.Invalidf("image_ref", "%s runs postgres %d; %s is not that major. Major upgrades are not supported yet.", t.Slug, m.Major, img)
+		return errs.Invalidf("image_ref", "%s runs postgres %d; %s is not that major. Change the major with `stackr db upgrade --to <major>` or the instance drawer.", t.Slug, m.Major, img)
 	}
 	return nil
 }

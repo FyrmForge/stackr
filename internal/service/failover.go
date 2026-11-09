@@ -1059,11 +1059,16 @@ func (o *Orchestrator) rewind(ctx context.Context, t store.Tile, m InstanceMembe
 // oneShot runs spec to completion on node and returns its output and exit
 // code. passfile, when set, is copied in before the start.
 func (o *Orchestrator) oneShot(ctx context.Context, node string, spec docker.ContainerSpec, passfile []byte) (string, int, error) {
+	return o.oneShotFor(ctx, node, spec, passfile, 10*time.Minute, 50)
+}
+
+// oneShotFor is oneShot with the wait and the lines of output it keeps.
+func (o *Orchestrator) oneShotFor(ctx context.Context, node string, spec docker.ContainerSpec, passfile []byte, wait time.Duration, tail int) (string, int, error) {
 	nctx := docker.WithNode(ctx, node)
 	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
 		return "", 0, err
 	}
-	if old, err := o.docker.List(nctx, map[string]string{LabelMember: spec.Labels[LabelMember]}); err == nil {
+	if old, err := o.docker.List(nctx, spec.Labels); err == nil {
 		for _, c := range old { // a leftover of a run that was cut short
 			if c.Name == spec.Name {
 				_ = o.docker.StopRemove(nctx, c.ID)
@@ -1084,13 +1089,13 @@ func (o *Orchestrator) oneShot(ctx context.Context, node string, spec docker.Con
 	if err := o.docker.Start(nctx, id); err != nil {
 		return "", 0, err
 	}
-	wctx, cancel := context.WithTimeout(nctx, 10*time.Minute)
+	wctx, cancel := context.WithTimeout(nctx, wait)
 	defer cancel()
 	code, err := o.docker.Wait(wctx, id)
 	if err != nil {
 		return "", 0, err
 	}
-	out, _ := o.docker.Logs(nctx, id, 50)
+	out, _ := o.docker.Logs(nctx, id, tail)
 	return out, code, nil
 }
 

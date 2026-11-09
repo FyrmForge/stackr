@@ -192,6 +192,12 @@ func restoredSlug(src string, label time.Time, temp bool) string {
 	if temp {
 		tail += "-" + randomSuffix(4)
 	}
+	return slugWith(src, tail)
+}
+
+// slugWith is src + tail, with src cut (and hashed) when the name with its
+// "-data" volume would pass volume.MaxName.
+func slugWith(src, tail string) string {
 	if room := volume.MaxName - len("-data") - len(tail); len(src) > room {
 		h := sha256.Sum256([]byte(src))
 		src = strings.TrimRight(src[:room-5], "-") + "-" + hex.EncodeToString(h[:2])
@@ -204,7 +210,15 @@ func restoredSlug(src string, label time.Time, temp bool) string {
 // the source's admin credentials (the restored cluster holds their hashes),
 // no slices, no expiry. Nothing runs.
 func (o *Orchestrator) newCandidate(ctx context.Context, src pitrSource, label time.Time, atStr string, temp bool) (Tile, error) {
-	slug := restoredSlug(src.tile.Slug, label, temp)
+	return o.newCandidateAs(ctx, src, restoredSlug(src.tile.Slug, label, temp),
+		cmp.Or(src.tile.ImageRef, mflow.Engines[src.inst.Engine].Definition().Image), src.inst.Major,
+		&candidate{Source: src.tile.ID, At: atStr, Temp: temp, Created: time.Now().UTC()})
+}
+
+// newCandidateAs is newCandidate with the slug, the image and its major
+// given; mark is the settings row that makes the tile a restored copy (nil =
+// none: a major change's tile is no copy to promote).
+func (o *Orchestrator) newCandidateAs(ctx context.Context, src pitrSource, slug, image string, major int, mark *candidate) (Tile, error) {
 	if _, err := o.tiles.GetBySlug(ctx, src.tile.EnvironmentID, slug); err == nil {
 		return Tile{}, errs.Conflictf("%s already exists; delete it first or pick another time", slug)
 	} else if !errors.Is(err, errs.ErrNotFound) {
@@ -214,7 +228,7 @@ func (o *Orchestrator) newCandidate(ctx context.Context, src pitrSource, label t
 		EnvironmentID: src.tile.EnvironmentID,
 		Name:          slug,
 		Slug:          slug,
-		ImageRef:      cmp.Or(src.tile.ImageRef, mflow.Engines[src.inst.Engine].Definition().Image),
+		ImageRef:      image,
 		MemLimitMB:    src.tile.MemLimitMB,
 		CPULimit:      src.tile.CPULimit,
 		ShmSizeMB:     src.tile.ShmSizeMB,
@@ -226,12 +240,12 @@ func (o *Orchestrator) newCandidate(ctx context.Context, src pitrSource, label t
 	m, err := o.operated.GetByTile(ctx, t.ID)
 	if err == nil {
 		m.PITRDays, m.AdminUser, m.AdminPassword = 0, src.inst.AdminUser, src.inst.AdminPassword
-		// the restored stackr.conf is the source's: the copy keeps its settings and major
-		m.Settings, m.Major = src.inst.Settings, src.inst.Major
+		// the restored stackr.conf is the source's: the copy keeps its settings
+		m.Settings, m.Major = src.inst.Settings, major
 		err = o.store.OperatedInstances.Update(ctx, m)
 	}
-	if err == nil {
-		err = o.setCandidate(ctx, t.ID, candidate{Source: src.tile.ID, At: atStr, Temp: temp, Created: time.Now().UTC()})
+	if err == nil && mark != nil {
+		err = o.setCandidate(ctx, t.ID, *mark)
 	}
 	if err != nil {
 		_ = o.store.Tiles.Delete(ctx, t.ID) // nothing ran: the rows go

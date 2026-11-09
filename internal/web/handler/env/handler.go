@@ -70,6 +70,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/version", h.PGUpdate, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/major", h.PGMajor, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/major-rollback", h.PGMajorRollback, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/switchover", h.Switchover, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/promote-standby", h.PromoteStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
@@ -568,7 +570,13 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			if err != nil {
 				return middleware.HTTPError(err)
 			}
-			o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate}
+			o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate, Majors: pv.Majors}
+			if ck := pv.Check; ck != nil {
+				o.Version.Check = fmt.Sprintf("Last check for postgres %d: %s", ck.To, ck.Detail)
+			}
+			if rb := pv.Rollback; rb != nil {
+				o.Version.RollbackFrom, o.Version.RollbackUntil = rb.From, rb.Until.Format("2006-01-02 15:04")
+			}
 			if o.Protection, err = h.orch.Protection(ctx, t.ID); err != nil {
 				return middleware.HTTPError(err)
 			}
@@ -678,6 +686,32 @@ func (h *handler) PGSettings(c echo.Context) error {
 func (h *handler) PGUpdate(c echo.Context) error {
 	_, _, err := h.orch.UpdatePGVersion(c.Request().Context(), scope(c).Tile.ID)
 	return h.instance(c, "slices", "Updated. The instance restarts on the new version.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/major: the instance moves to another postgres
+// major ("to"), or with action=check only asks whether it can.
+func (h *handler) PGMajor(c echo.Context) error {
+	ctx, by, id := c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID
+	to, err := strconv.Atoi(strings.TrimSpace(c.FormValue("to")))
+	if err != nil {
+		return h.instance(c, "slices", "", errs.Invalidf("to", "Pick a version."), instance.SettingsView{})
+	}
+	if c.FormValue("action") == "check" {
+		_, err = h.orch.CheckPGUpgrade(ctx, by, id, to)
+		return h.instance(c, "slices", "Checking. The answer shows here when the check ends.", err, instance.SettingsView{})
+	}
+	_, err = h.orch.ChangePGMajor(ctx, by, id, to)
+	return h.instance(c, "slices", "Changing the version: the instance stops while the data moves.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/major-rollback: back to the major before the last
+// change. The instance's name must be typed: what was written since is lost.
+func (h *handler) PGMajorRollback(c echo.Context) error {
+	if strings.TrimSpace(c.FormValue("confirm")) != scope(c).Tile.Name {
+		return h.instance(c, "slices", "", errs.Conflictf("Type %s to confirm.", scope(c).Tile.Name), instance.SettingsView{})
+	}
+	_, err := h.orch.RollbackPGUpgrade(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID)
+	return h.instance(c, "slices", "Rolling back: the instance stops while the old data returns.", err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/switchover: the primary moves to the standby on

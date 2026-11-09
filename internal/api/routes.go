@@ -241,6 +241,8 @@ func routes(h *v1.H) []Route {
 		{POST, tile + "/promote-standby", "operated.promote-standby", "tile.write", h.PromoteStandby()},
 		{GET, tile + "/version", "operated.version", "tile.read", h.PGVersion()},
 		{POST, tile + "/version", "operated.update", "tile.write", h.UpdatePGVersion()},
+		{POST, tile + "/upgrade", "operated.upgrade", "tile.write", h.ChangePGMajor()},
+		{POST, tile + "/upgrade-rollback", "operated.upgrade-rollback", "tile.write", h.RollbackPGUpgrade()},
 		{POST, tile + "/restore", "operated.restore", "tile.write", h.RestoreInstance()},
 		{POST, tile + "/promote-restore", "operated.promote-restore", "tile.write", h.PromoteRestore()},
 		{PUT, tile + "/slice-access", "slice.access", "tile.write", h.SetSliceAccess()},

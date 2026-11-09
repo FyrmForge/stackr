@@ -620,6 +620,21 @@ stackr db promote [flags]
       --to string      the node of the standby to promote (name or slug)
 ```
 
+### `stackr db rollback-upgrade`
+
+Return to the postgres major before the last change, with the data it had then; what was written since is lost
+
+```
+stackr db rollback-upgrade [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr db settings`
 
 A postgres instance's settings
@@ -757,6 +772,23 @@ stackr db update [flags]
       --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
+```
+
+### `stackr db upgrade`
+
+Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can
+
+```
+stackr db upgrade [flags]
+```
+
+```
+      --check          only check whether the data can move; change nothing
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+      --to int         the postgres major to move to
 ```
 
 ### `stackr db version`

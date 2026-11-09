@@ -94,7 +94,7 @@ func TestPGVersionUpdate(t *testing.T) {
 		t.Error("a second update was taken")
 	}
 	_, _, err = o.UpdateTile(ctx, pg.ID, func(t *service.Tile) error { t.ImageRef = "postgres:17.1"; return nil })
-	if err == nil || !strings.Contains(err.Error(), "Major upgrades are not supported") {
+	if err == nil || !strings.Contains(err.Error(), "stackr db upgrade") {
 		t.Errorf("major change: %v", err)
 	}
 }

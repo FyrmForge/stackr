@@ -1,0 +1,95 @@
+name: PgUpgrade image
+
+# stackr's pg_upgrade image: weekly for Debian's fixes, and when its
+# Dockerfile changes. Each platform is built once on its own runner, scanned,
+# and that same image is what gets pushed; the multi-arch tag is only a
+# manifest over those two. A failed scan pushes nothing.
+on:
+  schedule:
+    - cron: "47 4 * * 1"
+  push:
+    branches: [master, main]
+    paths:
+      - docker/pgupgrade/**
+      - .github/workflows/pgupgrade-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgupgrade-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/fyrmforge/stackr-pgupgrade
+
+jobs:
+  platform:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: docker/pgupgrade
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: ${{ env.IMAGE }}:${{ github.run_id }}-${{ matrix.arch }}
+          pull: true
+
+      - name: Scan
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # v0.31.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.run_id }}-${{ matrix.arch }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # the scanned image itself, under a per-run tag only this workflow reads
+      - name: Push the scanned image
+        run: docker push ${{ env.IMAGE }}:${{ github.run_id }}-${{ matrix.arch }}
+
+  manifest:
+    needs: platform
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tag stackr names (mflow.PGUpgradeImage) is the major, 1, plus the run
+      # number. The summary prints the digest: stackr pins that, not the tag.
+      - name: Publish the manifest
+        run: |
+          docker buildx imagetools create \
+            -t ${IMAGE}:1 -t ${IMAGE}:${{ github.run_number }} \
+            ${IMAGE}:${{ github.run_id }}-amd64 ${IMAGE}:${{ github.run_id }}-arm64
+          digest=$(docker buildx imagetools inspect ${IMAGE}:${{ github.run_number }} --format '{{.Manifest.Digest}}')
+          echo "${IMAGE}@${digest}" >> "$GITHUB_STEP_SUMMARY"

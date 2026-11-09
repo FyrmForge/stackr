@@ -140,7 +140,7 @@ func TestPGMajorStoredAndFixed(t *testing.T) {
 	}
 	for _, img := range []string{"postgres:17", "postgres:latest"} {
 		_, _, err := o.UpdateTile(ctx, pg.ID, func(t *service.Tile) error { t.ImageRef = img; return nil })
-		if err == nil || !strings.Contains(err.Error(), "Major upgrades are not supported") && !strings.Contains(err.Error(), "names no") {
+		if err == nil || !strings.Contains(err.Error(), "stackr db upgrade") && !strings.Contains(err.Error(), "names no") {
 			t.Errorf("image %s: %v", img, err)
 		}
 	}

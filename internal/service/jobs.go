@@ -319,6 +319,8 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 
 		kindRestoreInstance: payload(o.runRestoreInstance),
 		kindPromoteRestore:  payload(o.runPromoteRestore),
+		kindPGUpgrade:       payload(o.runPGUpgrade),
+		kindPGRollback:      payload(o.runPGRollback),
 		kindOrphans: func(ctx context.Context, r *jobs.Run) error {
 			ctx, err := o.withController(ctx)
 			if err != nil {

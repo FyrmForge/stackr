@@ -39,6 +39,7 @@ const (
 	SliceBranch          = "slice.branch"     // a slice was copied as of now (detail: source, target, instance)
 	InstanceRestore      = "instance.restore" // an instance was restored to a time into a new tile (detail: source, target, at)
 	InstancePromote      = "instance.promote" // a restored copy took over its source's data (detail: copy, source, at)
+	InstanceMajor        = "instance.major"   // an instance moved to another postgres major (detail: from, to, how)
 	NodeBootstrap        = "node.bootstrap"   // the controller row was made
 	RegistryToken        = "registry.token"   // the registry front issued a token
 	CertIssue            = "cert.issue"       // the cluster CA signed a certificate

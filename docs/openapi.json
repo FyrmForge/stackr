@@ -4930,6 +4930,65 @@
         ],
         "type": "object"
       },
+      "PGCheck": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "need_bytes": {
+            "type": "integer"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "to": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to",
+          "ok",
+          "detail",
+          "need_bytes",
+          "at"
+        ],
+        "type": "object"
+      },
+      "PGMajorIn": {
+        "properties": {
+          "check": {
+            "type": "boolean"
+          },
+          "to": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to",
+          "check"
+        ],
+        "type": "object"
+      },
+      "PGRollback": {
+        "properties": {
+          "from": {
+            "type": "integer"
+          },
+          "until": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "until"
+        ],
+        "type": "object"
+      },
       "PGSetting": {
         "properties": {
           "group": {
@@ -5050,6 +5109,16 @@
       },
       "PGVersion": {
         "properties": {
+          "check": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PGCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "eol": {
             "type": "boolean"
           },
@@ -5062,6 +5131,22 @@
           "major": {
             "type": "integer"
           },
+          "majors": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "rollback": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PGRollback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "update_to": {
             "type": "string"
           }
@@ -5071,7 +5156,8 @@
           "image",
           "update_to",
           "eol",
-          "eol_date"
+          "eol_date",
+          "majors"
         ],
         "type": "object"
       },
@@ -24527,6 +24613,149 @@
         "responses": {
           "101": {
             "description": "Switching Protocols: the connection is now a websocket"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/upgrade": {
+      "post": {
+        "operationId": "operated.upgrade",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PGMajorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/upgrade-rollback": {
+      "post": {
+        "operationId": "operated.upgrade-rollback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
           },
           "default": {
             "content": {

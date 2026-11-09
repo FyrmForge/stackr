@@ -544,6 +544,33 @@ func (h *H) UpdatePGVersion() Endpoint {
 	})
 }
 
+// PGMajorIn is a major version change: the major to move to, and whether to
+// only check (a dry run that changes nothing).
+type PGMajorIn struct {
+	To    int  `json:"to"`
+	Check bool `json:"check"`
+}
+
+// ChangePGMajor moves a postgres instance to another major, up or down, or
+// with check only asks whether it can (job). The data goes into a new volume
+// and the old one is kept for a week.
+func (h *H) ChangePGMajor() Endpoint {
+	return JSON(http.StatusAccepted, func(c echo.Context, in PGMajorIn) (service.Job, error) {
+		if in.Check {
+			return h.Orch.CheckPGUpgrade(rc(c), middleware.Principal(c), tileID(c), in.To)
+		}
+		return h.Orch.ChangePGMajor(rc(c), middleware.Principal(c), tileID(c), in.To)
+	})
+}
+
+// RollbackPGUpgrade returns an instance to its previous major and the data it
+// had then; what was written since is lost (job).
+func (h *H) RollbackPGUpgrade() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.RollbackPGUpgrade(rc(c), middleware.Principal(c), tileID(c))
+	})
+}
+
 func (h *H) PITRStatus() Endpoint {
 	return Get(func(c echo.Context) (service.PITRHealth, error) { return h.Orch.PITRStatus(rc(c), tileID(c)) })
 }
