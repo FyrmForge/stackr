@@ -525,6 +525,9 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 			f.Error = fmt.Sprintf("%s: %v", step, err)
 			_ = o.saveFailover(ctx, inst.ID, f)
 			slog.Warn("failover: step failed, the tick resumes it", "instance", inst.ID, "step", step, "err", err)
+			if f.Kind == foSwitchover { // a bare error reads as "internal error"; say what stopped and what happens next
+				return errs.Conflictf("The switchover stopped at %s: %v. It carries on by itself; before the promote it can be given up with --abort.", step, err)
+			}
 			return err
 		}
 		if o.failCrashAfter == step { // tests: the panel dies here
@@ -624,13 +627,11 @@ func (o *Orchestrator) foDrain(ctx context.Context, t store.Tile, inst store.Ope
 	if inst.PITRDays <= 0 {
 		return nil
 	}
-	seg, err := o.primarySQL(ctx, t, mflow.SQLCurrentWAL)
+	seg, err := o.primarySQL(ctx, t, mflow.SQLCloseWAL)
 	if err != nil {
 		return err
 	}
-	if _, err := o.primarySQL(ctx, t, mflow.SQLSwitchWAL); err != nil {
-		return err
-	}
+	seg = strings.TrimSpace(seg)
 	if err := o.poll(ctx, func() (bool, error) {
 		out, err := o.primarySQL(ctx, t, mflow.SQLArchivedPast(seg))
 		return strings.TrimSpace(out) == "1", err
@@ -996,13 +997,13 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 // reading or writing the data the row names).
 // ponytail: a job the runner starts between this check and the row update
 // reads the row either side; closing that needs the runner's own lock.
-func (o *Orchestrator) volumeIdle(ctx context.Context, v store.Volume) error {
+func (o *Orchestrator) volumeIdle(ctx context.Context, v store.Volume, except ...string) error {
 	rs, err := o.jobRows.List(ctx, job.Running)
 	if err != nil {
 		return err
 	}
 	for _, j := range rs {
-		if slices.Contains(j.LockSet, "volume:"+v.ID) {
+		if slices.Contains(j.LockSet, "volume:"+v.ID) && !slices.Contains(except, string(j.Kind)) {
 			return fmt.Errorf("a %s job holds the data volume; waiting for it", j.Kind)
 		}
 	}
@@ -1221,10 +1222,20 @@ func (o *Orchestrator) oneShot(ctx context.Context, node string, spec docker.Con
 	return o.oneShotFor(ctx, node, spec, passfile, 10*time.Minute, 50)
 }
 
+// ensureHelperImage is images.Ensure for a helper image, as the primary pooler's
+// pull: a copy already on the node (a rig build, a registry outage) is good enough.
+func (o *Orchestrator) ensureHelperImage(nctx context.Context, ref string) error {
+	_, err := o.images.Ensure(nctx, ref, "", io.Discard)
+	if _, lerr := o.docker.LocalDigest(nctx, ref); err != nil && lerr == nil {
+		return nil
+	}
+	return err
+}
+
 // oneShotFor is oneShot with the wait and the lines of output it keeps.
 func (o *Orchestrator) oneShotFor(ctx context.Context, node string, spec docker.ContainerSpec, passfile []byte, wait time.Duration, tail int) (string, int, error) {
 	nctx := docker.WithNode(ctx, node)
-	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
+	if err := o.ensureHelperImage(nctx, spec.Image); err != nil {
 		return "", 0, err
 	}
 	if old, err := o.docker.List(nctx, spec.Labels); err == nil {
@@ -1370,7 +1381,8 @@ func (o *Orchestrator) adoptPrimary(ctx context.Context, t store.Tile) error {
 	if err != nil {
 		return err
 	}
-	if err := o.volumeIdle(ctx, v); err != nil {
+	// a pg-upgrade holds the volume when it is its own restart that adopts
+	if err := o.volumeIdle(ctx, v, string(kindPGUpgrade)); err != nil {
 		return err
 	}
 	inst, err := o.operated.GetByTile(ctx, t.ID)

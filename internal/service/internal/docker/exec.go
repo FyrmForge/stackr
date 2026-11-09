@@ -134,9 +134,18 @@ func copyUntilDone(ctx context.Context, buf *bytes.Buffer, r io.Reader, closeCon
 // execResult reads the exit of a finished exec. WithoutCancel: it has to run
 // even when ctx is dead, or the exit is unreadable exactly when it matters.
 func (d *Client) execResult(ctx context.Context, execID, stderr string) error {
-	insp, err := d.cli.ContainerExecInspect(context.WithoutCancel(ctx), execID)
-	if err != nil {
-		return err
+	// The stream can end a beat before the daemon marks the exec finished (a
+	// tar that ends before pg_basebackup exits, say): give it a few seconds.
+	var insp container.ExecInspect
+	var err error
+	for range 100 {
+		if insp, err = d.cli.ContainerExecInspect(context.WithoutCancel(ctx), execID); err != nil {
+			return err
+		}
+		if !insp.Running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	// Running means no exit yet, so ExitCode 0 is not success.
 	if insp.Running {

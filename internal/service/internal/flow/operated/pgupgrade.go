@@ -171,13 +171,15 @@ $0 == "CREATE ROLE " admin ";" { next }
 const pgUpgradeScript = `set -eo pipefail
 OLDBIN=/usr/lib/postgresql/$OLDMAJOR/bin; NEWBIN=/usr/lib/postgresql/$NEWMAJOR/bin
 as() { gosu postgres "$@"; }
+# a scratch copy's root is the volume's, owned by root: postgres refuses to start on it
+[ -n "$SCRATCH" ] && { chown postgres:postgres "$OLDDIR"; chmod 700 "$OLDDIR"; }
 tab=$(printf '\t')
 q() { db=$1; shift; as "$OLDBIN/psql" -X -A -t -h /tmp -U "$ADMIN" -d "$db" "$@"; }
 startold() { as "$OLDBIN/pg_ctl" -D "$OLDDIR" -w -s -l /tmp/old.log -o "-c listen_addresses= -c unix_socket_directories=/tmp -c archive_mode=off" start || { cat /tmp/old.log; exit 1; }; }
 stopold() { as "$OLDBIN/pg_ctl" -D "$OLDDIR" -m fast -w -s stop || true; }
 mknew() {
   mkdir -p "$NEWDIR"; chown postgres:postgres "$NEWDIR"; chmod 700 "$NEWDIR"
-  as "$NEWBIN/initdb" -D "$NEWDIR" -U "$ADMIN" $INITDB_FLAGS >/dev/null
+  as "$NEWBIN/initdb" -D "$NEWDIR" -U "$ADMIN" $INITDB_FLAGS >/tmp/initdb.log 2>&1 || { cat /tmp/initdb.log; exit 1; }
   if [ "$STEP" != check ]; then
     cp "$OLDDIR/pg_hba.conf" "$OLDDIR/pg_ident.conf" "$NEWDIR/"
     printf "\nlisten_addresses = '*'\n" >> "$NEWDIR/postgresql.conf"
@@ -198,10 +200,12 @@ facts)
   fi
   ;;
 check|upgrade)
+  # copy is the default before 17, which added the flag; it does not exist there
+  COPYFLAG=; [ "$NEWMAJOR" -ge 17 ] && COPYFLAG=--copy
   [ "$STEP" = upgrade ] && find /new -mindepth 1 -delete
   mknew
   mkdir -p /tmp/pgu; chown postgres:postgres /tmp/pgu; cd /tmp/pgu
-  if ! as "$NEWBIN/pg_upgrade" -b "$OLDBIN" -B "$NEWBIN" -d "$OLDDIR" -D "$NEWDIR" --copy -j "$(nproc)" $PGU_FLAGS; then
+  if ! as "$NEWBIN/pg_upgrade" -U "$ADMIN" -b "$OLDBIN" -B "$NEWBIN" -d "$OLDDIR" -D "$NEWDIR" $COPYFLAG -j "$(nproc)" $PGU_FLAGS; then
     find /tmp/pgu -name '*.txt' -exec cat {} + 2>/dev/null | tail -n 40
     exit 1
   fi
@@ -252,6 +256,9 @@ func (r UpgradeRun) Spec() (docker.ContainerSpec, error) {
 	}
 	if r.Counts {
 		env = append(env, "COUNTS=1")
+	}
+	if r.ScratchOld {
+		env = append(env, "SCRATCH=1")
 	}
 	vols := []string{r.OldVol + ":/old"}
 	if r.NewVol != "" {

@@ -822,3 +822,49 @@ func TestFenceBeforeTheSwapStopsIt(t *testing.T) {
 		t.Error("state stayed")
 	}
 }
+
+// A panel restart mid-change says so (no "refused"), and the unfinished change
+// is queued again once, up to pgupMaxResumes times, from its cursor.
+func TestRestartMidChangeResumesAutomatically(t *testing.T) {
+	t.Parallel()
+	r := newPGUpRig(t)
+	ctx, _ := r.orch.withTileNode(context.Background(), r.pg.ID)
+	u := r.begin(t, 18)
+	cctx, cancel := context.WithCancel(ctx)
+	u.after = func(step string) error {
+		if step == "stop the instance" {
+			cancel()
+		}
+		return nil
+	}
+	err := u.run(cctx)
+	if err == nil || !strings.Contains(err.Error(), "panel stopped mid-change") {
+		t.Fatalf("shutdown error = %v", err)
+	}
+	queued := func() int {
+		js, _ := r.orch.store.Jobs.ListByState(ctx, "queued", "waiting", "running")
+		n := 0
+		for _, j := range js {
+			if j.Kind == string(kindPGUpgrade) {
+				n++
+			}
+		}
+		return n
+	}
+	before := queued()
+	r.orch.resumePGUpgrades(ctx)
+	if queued() != before+1 {
+		t.Fatalf("queued %d, want one more than %d", queued(), before)
+	}
+	if st, _ := r.orch.pgupOf(ctx, r.inst.ID); st.Resumes != 1 {
+		t.Fatalf("resumes = %d", st.Resumes)
+	}
+	st, _ := r.orch.pgupOf(ctx, r.inst.ID)
+	st.Resumes = pgupMaxResumes
+	must(t, r.orch.setPGUp(ctx, r.inst.ID, st))
+	cur := queued()
+	r.orch.resumePGUpgrades(ctx)
+	if queued() != cur {
+		t.Fatal("resumed past the cap")
+	}
+}

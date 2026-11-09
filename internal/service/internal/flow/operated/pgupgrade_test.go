@@ -110,3 +110,13 @@ func TestUpgradeScriptModes(t *testing.T) {
 		}
 	}
 }
+
+// pg_upgrade learned --copy in 17; before it the flag is an error, and copying is the default.
+func TestPGUpgradeCopyFlagOnlyFrom17(t *testing.T) {
+	if strings.Contains(pgUpgradeScript, `-D "$NEWDIR" --copy`) {
+		t.Error("--copy is passed whatever the target major")
+	}
+	if !strings.Contains(pgUpgradeScript, `[ "$NEWMAJOR" -ge 17 ] && COPYFLAG=--copy`) {
+		t.Error("--copy is not given from 17")
+	}
+}

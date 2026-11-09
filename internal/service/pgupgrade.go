@@ -76,6 +76,7 @@ type pgUp struct {
 	Facts              mflow.ClusterFacts
 	Counts             string // the old cluster's rows, counted
 	Done               bool
+	Resumes            int // automatic resumes after a panel restart, capped by pgupMaxResumes
 	// Swapped is written in the transaction of the swap itself: from then on
 	// the new data is authoritative and the run only ever goes forward.
 	Swapped bool
@@ -162,6 +163,11 @@ func (o *Orchestrator) pgInstanceOf(ctx context.Context, by *Principal, tileID s
 	}
 	if err := o.noStandbyForChange(ctx, t, m); err != nil {
 		return pgChange{}, err
+	}
+	// the change swaps the tile's own data; a failed-over primary keeps its data under a member
+	// ponytail: refused; a deploy adopts the primary back, then the change runs
+	if _, ok := o.relocated(ctx, t.ID); ok {
+		return pgChange{}, errs.Conflictf("the primary of %s runs as a member after a failover. Switch it back to the environment's node and deploy %s, then change the version.", t.Slug, t.Slug)
 	}
 	sv, err := o.dataVolume(ctx, t)
 	if err != nil {
@@ -463,15 +469,19 @@ func (u *pgupRun) copyTo(ctx context.Context, name string) error {
 		return errs.Conflictf("%s is not running", u.t.Slug)
 	}
 	_, _ = fmt.Fprintf(u.r.Log, "copying %s to check the copy\n", u.t.Slug)
-	out, wait, err := o.docker.ExecStream(ctx, cs[i].ID, []string{"pg_basebackup", "-h", "/var/run/postgresql", "-U", u.m.AdminUser, "-D", "-", "-Ft", "-X", "fetch"}, nil)
+	out, wait, err := o.docker.ExecStream(ctx, cs[i].ID, []string{"pg_basebackup", "-h", "/var/run/postgresql", "-U", u.m.AdminUser, "-D", "-", "-Ft", "-X", "fetch", "-z"}, nil)
 	if err != nil {
 		return err
 	}
 	uerr := o.docker.UntarVolume(ctx, name, out)
-	if werr := wait(); werr != nil {
+	werr := wait()
+	if uerr != nil { // the unpack failing is the cause; the stream's end is its echo
+		return uerr
+	}
+	if werr != nil {
 		return fmt.Errorf("copy the data: %w", werr)
 	}
-	return uerr
+	return nil
 }
 
 // ---- the change ----
@@ -503,6 +513,9 @@ func (u *pgupRun) run(ctx context.Context) error {
 			// a crash or a shutdown is no failure: the cursor resumes it
 			if i <= pgupSwapAt && !u.st.Swapped && ctx.Err() == nil {
 				u.abort(ctx, err)
+			}
+			if ctx.Err() != nil {
+				return fmt.Errorf("%s: the panel stopped mid-change; the change resumes from this step when it is back", steps[i].name)
 			}
 			return fmt.Errorf("%s: %w", steps[i].name, err)
 		}
@@ -952,6 +965,70 @@ func (o *Orchestrator) sweepPGUpgrades(ctx context.Context) {
 			_ = o.store.Settings.Delete(ctx, k)
 		}
 	}
+}
+
+// pgupMaxResumes caps the automatic resumes of one change, so a change that
+// kills the panel each time it runs cannot loop; the operator reruns it then.
+const pgupMaxResumes = 3
+
+// resumePGUpgrades queues again, once at boot, each change the old panel left
+// unfinished (boot has just failed its job): it resumes from its cursor.
+func (o *Orchestrator) resumePGUpgrades(ctx context.Context) {
+	rows, err := o.store.Settings.ListPrefix(ctx, pgupKey)
+	if err != nil {
+		return
+	}
+	live, err := o.store.Jobs.ListByState(ctx, "queued", "waiting", "running")
+	if err != nil {
+		return
+	}
+	for k, v := range rows {
+		var st pgUp
+		if json.Unmarshal([]byte(v), &st) != nil || st.Done || st.RollingBack {
+			continue
+		}
+		id := strings.TrimPrefix(k, pgupKey)
+		if slices.ContainsFunc(live, func(j store.Job) bool { return j.Kind == string(kindPGUpgrade) && slices.Contains(j.LockSet, st.Cand) }) {
+			continue
+		}
+		if st.Resumes >= pgupMaxResumes {
+			slog.Warn("pg upgrade: not resuming again; rerun `stackr db upgrade`", "instance", id, "to", st.To, "step", st.Step)
+			continue
+		}
+		if err := o.resumePGUpgrade(ctx, id, st); err != nil {
+			slog.Warn("pg upgrade: resume failed", "instance", id, "err", err)
+		}
+	}
+}
+
+func (o *Orchestrator) resumePGUpgrade(ctx context.Context, instanceID string, st pgUp) error {
+	m, err := o.operated.Get(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	t, m, err := o.instanceOf(ctx, m.TileID)
+	if err != nil {
+		return err
+	}
+	nctx, err := o.withTileNode(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	sv, err := o.dataVolume(nctx, t)
+	if err != nil {
+		return err
+	}
+	lock, err := o.pgupLocks(ctx, pgChange{t: t, m: m, sv: sv}, st.Cand)
+	if err != nil {
+		return err
+	}
+	st.Resumes++
+	if err := o.setPGUp(ctx, instanceID, st); err != nil {
+		return err
+	}
+	slog.Info("pg upgrade: resuming after a restart", "instance", instanceID, "to", st.To, "step", st.Step)
+	_, err = o.enqueue(ctx, kindPGUpgrade, pgUpgradeJob{TileID: t.ID, To: st.To}, lock...)
+	return err
 }
 
 // slogWriter sends a helper's warnings to the panel's log.

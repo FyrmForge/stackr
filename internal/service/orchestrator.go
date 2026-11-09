@@ -927,6 +927,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	if err := orch.resumeMoves(ctx); err != nil {
 		slog.Warn("moves: resume failed", "err", err)
 	}
+	orch.resumePGUpgrades(ctx)
 	orch.redeployRestored(ctx)
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()

@@ -884,6 +884,28 @@ func TestSwapWaitsForTheVolumeJob(t *testing.T) {
 	}
 }
 
+// A pg-upgrade's own restart adopts the primary under the upgrade's lock; any
+// other job holding the volume still refuses.
+func TestAdoptIgnoresThePGUpgradeLock(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	dv, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	for kind, wantErr := range map[string]bool{string(kindPGUpgrade): false, string(kindBackup): true} {
+		j, err := o.jobRows.Create(ctx, kind, []string{"volume:" + dv.ID}, "{}", nil, t.TempDir())
+		must(t, err)
+		_, err = o.jobRows.Start(ctx, j)
+		must(t, err)
+		err = o.volumeIdle(ctx, dv, string(kindPGUpgrade))
+		if (err != nil) != wantErr {
+			t.Errorf("%s holding the volume: err = %v, want error %v", kind, err, wantErr)
+		}
+		must(t, o.jobRows.Finish(ctx, j, job.Done, ""))
+	}
+}
+
 // Back home: the data row names the original volume again, on the env's node.
 func TestSwitchoverBackHomeMovesBackupsBack(t *testing.T) {
 	t.Parallel()

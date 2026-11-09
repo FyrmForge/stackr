@@ -601,7 +601,7 @@ func (o *Orchestrator) pitrPause(ctx context.Context, t store.Tile, m store.Oper
 // pitrMark names the WAL segment current on the primary and closes it, so
 // the archiver ships it now and not at archive_timeout.
 func (o *Orchestrator) pitrMark(ctx context.Context, t store.Tile) (string, error) {
-	seg, err := o.primarySQL(ctx, t, mflow.SQLCurrentWAL)
+	seg, err := o.primarySQL(ctx, t, mflow.SQLCloseWAL)
 	if err != nil {
 		return "", err
 	}
@@ -609,7 +609,6 @@ func (o *Orchestrator) pitrMark(ctx context.Context, t store.Tile) (string, erro
 	if seg == "" {
 		return "", errors.New("the new primary did not name its WAL segment")
 	}
-	_, _ = o.primarySQL(ctx, t, mflow.SQLSwitchWAL)
 	return seg, nil
 }
 

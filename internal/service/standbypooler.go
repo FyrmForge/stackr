@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"strings"
 
@@ -71,7 +70,7 @@ func (o *Orchestrator) syncStandbyPooler(ctx context.Context, m InstanceMember) 
 		return err
 	}
 	if len(cs) == 0 {
-		if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
+		if err := o.ensureHelperImage(nctx, spec.Image); err != nil {
 			return err
 		}
 		id, err := o.docker.Create(nctx, spec)

@@ -83,8 +83,13 @@ const (
 	SQLInRecovery = `SELECT pg_is_in_recovery()::int`
 	SQLReplayLSN  = `SELECT coalesce(pg_last_wal_replay_lsn()::text, '')`
 	SQLPromote    = `SELECT pg_promote(true, 60)::int`
-	SQLSwitchWAL  = `SELECT pg_switch_wal()::text`
-	SQLCurrentWAL = `SELECT pg_walfile_name(pg_current_wal_lsn())`
+	SQLSwitchWAL = `SELECT pg_switch_wal()::text`
+	// SQLCloseWAL closes the segment in progress and names the last one with
+	// data in it. On a segment with no record yet the switch does nothing and
+	// returns its start, so the name is of the segment before: one that is
+	// archived, or on its way. Naming the current segment instead would wait
+	// for one that only archive_timeout ever closes.
+	SQLCloseWAL = `SELECT pg_walfile_name(pg_switch_wal() - 1)`
 )
 
 // SQLArchivedPast is 1 once the archiver has shipped segment seg or a later
