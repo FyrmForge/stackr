@@ -786,3 +786,14 @@ func TestValidateEveryRefusal(t *testing.T) {
 		}
 	}
 }
+
+// A slice has no container, so only a moved bucket setting redeploys it (to
+// re-sync its bucket); a moved default access does not.
+func TestSliceBucketEffects(t *testing.T) {
+	if fx := tile.Effects(tile.Slice, tile.Changed{"quota_gb": true}); len(fx) != 1 || fx[0] != tile.Redeploy {
+		t.Errorf("quota_gb = %v", fx)
+	}
+	if fx := tile.Effects(tile.Slice, tile.Changed{"default_access": true}); len(fx) != 0 {
+		t.Errorf("default_access = %v", fx)
+	}
+}

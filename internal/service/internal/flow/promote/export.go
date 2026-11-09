@@ -442,6 +442,15 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if o := deref(t.OnRemove); o != tile.Keep {
 			str("on_remove", o)
 		}
+		if t.VersionDays != nil {
+			num("version_days", *t.VersionDays)
+		}
+		if t.QuotaGB != nil {
+			num("quota_gb", *t.QuotaGB)
+		}
+		if len(t.CORSOrigins) > 0 {
+			b.put("cors_origins", slices.Clone([]string(t.CORSOrigins)))
+		}
 	}
 	if len(t.SliceAccess) > 0 {
 		var sa []any

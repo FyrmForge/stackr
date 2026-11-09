@@ -3,6 +3,7 @@ package operated_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
@@ -39,7 +41,21 @@ func (vipStub) Remove(context.Context, string) error {
 type s3Fake struct {
 	made, dropped, users, removed []string
 	grants                        map[string]string // user -> bucket:read|write
+	protect                       []s3.Protect      // each Protect call, in order
+	restored                      string            // "<prefix>|<exact>|<at>" of the last restore
 }
+
+func (s *s3Fake) Protect(_ context.Context, _ string, p s3.Protect) error {
+	s.protect = append(s.protect, p)
+	return nil
+}
+
+func (s *s3Fake) Restore(_ context.Context, _, prefix string, exact bool, at time.Time, _ func(s3.RestoreResult)) (s3.RestoreResult, error) {
+	s.restored = fmt.Sprintf("%s|%t|%d", prefix, exact, at.Unix())
+	return s3.RestoreResult{Restored: 1}, nil
+}
+
+func (s *s3Fake) Sizes(context.Context, string) (int64, int64, error) { return 10, 4, nil }
 
 func (s *s3Fake) Ping(context.Context) error { return nil }
 
@@ -406,6 +422,63 @@ func TestS3BucketPerSlice(t *testing.T) {
 	must(t, w.f.Drop(ctx, p, true, io.Discard))
 	if !slices.Equal(w.s3.dropped, []string{"s-dev-orders"}) || !slices.Equal(w.s3.removed, []string{user}) {
 		t.Errorf("dropped %v, removed %v", w.s3.dropped, w.s3.removed)
+	}
+}
+
+// Every bucket is versioned for 7 days unless its slice says otherwise; an
+// edit, a replay and a restore all go through the same settings.
+func TestS3Protection(t *testing.T) {
+	w := setup(t, "s3")
+	p, err := w.f.Provision(ctx, w.db, w.orders)
+	must(t, err)
+	if got := w.s3.protect; len(got) != 1 || got[0].VersionDays != 7 || got[0].QuotaBytes != 0 || len(got[0].CORS) != 0 {
+		t.Fatalf("default protection %+v", got)
+	}
+
+	cur := w.orders
+	days, gb := 30, 2
+	cur.VersionDays, cur.QuotaGB, cur.CORSOrigins = &days, &gb, []string{"https://app.example.com"}
+	orders, _, err := w.f.Tiles.Update(ctx, w.orders, cur)
+	must(t, err)
+	must(t, w.f.Resync(ctx, orders))
+	want := s3.Protect{VersionDays: 30, QuotaBytes: 2 << 30, CORS: []string{"https://app.example.com"}}
+	if got := w.s3.protect[len(w.s3.protect)-1]; got.VersionDays != want.VersionDays || got.QuotaBytes != want.QuotaBytes || !slices.Equal(got.CORS, want.CORS) {
+		t.Fatalf("resync wrote %+v, want %+v", got, want)
+	}
+
+	// A replay after a restored volume writes the slice's settings, not the defaults.
+	must(t, w.f.Replay(ctx, w.db, io.Discard))
+	if got := w.s3.protect[len(w.s3.protect)-1]; got.VersionDays != 30 {
+		t.Fatalf("replay wrote %+v", got)
+	}
+
+	// Versioning off is 0 days, not "unset".
+	zero := 0
+	cur = orders
+	cur.VersionDays = &zero
+	orders, _, err = w.f.Tiles.Update(ctx, orders, cur)
+	must(t, err)
+	must(t, w.f.Resync(ctx, orders))
+	if got := w.s3.protect[len(w.s3.protect)-1]; got.VersionDays != 0 {
+		t.Fatalf("off wrote %+v", got)
+	}
+
+	// A caller holding an older copy of the slice tile still writes the latest settings.
+	if _, err := w.f.Provision(ctx, w.db, w.orders); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.s3.protect[len(w.s3.protect)-1]; got.VersionDays != 0 {
+		t.Fatalf("stale tile wrote %+v, want the latest row (versioning off)", got)
+	}
+
+	at := time.Unix(1700000000, 0)
+	must(t, w.f.RestoreBucket(ctx, p, "photos/", false, at, io.Discard))
+	if w.s3.restored != "photos/|false|1700000000" {
+		t.Fatalf("restore asked %q", w.s3.restored)
+	}
+	now, old, err := w.f.Sizes(ctx, p)
+	if err != nil || now != 10 || old != 4 {
+		t.Fatalf("sizes %d %d %v", now, old, err)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 )
 
 // s3Region is fixed: RustFS ignores it, the SDK needs one.
@@ -71,7 +73,10 @@ func (s3e) Provision(ctx context.Context, i Instance, s Slice, x Tools) error {
 	if err := x.S3.CreateBucket(ctx, s.Name); err != nil {
 		return err
 	}
-	return x.S3.SetPublic(ctx, s.Name, s.Public)
+	if err := x.S3.SetPublic(ctx, s.Name, s.Public); err != nil {
+		return err
+	}
+	return x.S3.Protect(ctx, s.Name, s3.Protect{VersionDays: s.VersionDays, QuotaBytes: s.QuotaBytes, CORS: s.CORS})
 }
 
 func (s3e) Drop(ctx context.Context, _ Instance, s Slice, x Tools) error {
