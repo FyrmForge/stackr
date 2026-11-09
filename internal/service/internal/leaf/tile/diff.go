@@ -1,6 +1,7 @@
 package tile
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -156,8 +157,12 @@ func Diff(old, cur store.Tile) Changed {
 	mark("version_days", ptrEq(old.VersionDays, cur.VersionDays))
 	mark("quota_gb", ptrEq(old.QuotaGB, cur.QuotaGB))
 	mark("cors_origins", slices.Equal(old.CORSOrigins, cur.CORSOrigins))
+	mark("url", URLOf(old) == URLOf(cur))
 	return c
 }
+
+// URLOf is a slice's url setting, direct when unset.
+func URLOf(t store.Tile) string { return cmp.Or(deref(t.SliceURL), Direct) }
 
 func ptrEq(a, b *int) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
 

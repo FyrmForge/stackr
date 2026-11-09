@@ -239,6 +239,7 @@ func routes(h *v1.H) []Route {
 		{POST, tile + "/promote-restore", "operated.promote-restore", "tile.write", h.PromoteRestore()},
 		{PUT, tile + "/slice-access", "slice.access", "tile.write", h.SetSliceAccess()},
 		{PUT, tile + "/on-remove", "slice.on-remove", "tile.write", h.SetSliceOnRemove()},
+		{PUT, tile + "/url", "slice.url", "tile.write", h.SetSliceURL()},
 		{PUT, tile + "/bucket", "slice.bucket", "tile.write", h.SetSliceBucket()},
 		{GET, tile + "/bucket-usage", "slice.usage", "tile.read", h.SliceUsage()},
 		{POST, tile + "/bucket-restore", "slice.restore", "tile.write", h.RestoreSlice()},

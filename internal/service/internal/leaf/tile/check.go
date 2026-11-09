@@ -50,6 +50,13 @@ const (
 	Drop = "drop"
 )
 
+// A postgres slice's url setting: what its url, host and port outputs point
+// at; nil = Direct.
+const (
+	Direct = "direct"
+	Pooled = "pooled"
+)
+
 // RunToCompletion: the kind's deploy stops at the artifact and a run starts
 // the container (runpolicy's KeepAlive false).
 func RunToCompletion(kind string) bool { return kind == Cron || kind == Function }
@@ -135,6 +142,7 @@ var fields = []field{
 	{"version_days", func(t *store.Tile) bool { return t.VersionDays != nil }},
 	{"quota_gb", func(t *store.Tile) bool { return t.QuotaGB != nil }},
 	{"cors_origins", func(t *store.Tile) bool { return len(t.CORSOrigins) > 0 }},
+	{"url", func(t *store.Tile) bool { return t.SliceURL != nil }},
 }
 
 // refusals are the kind refusals tilelifecycle words itself; any other key
@@ -158,6 +166,7 @@ var refusals = map[string]string{
 	"version_days":   "version_days applies to slice tiles only",
 	"quota_gb":       "quota_gb applies to slice tiles only",
 	"cors_origins":   "cors_origins applies to slice tiles only",
+	"url":            "url applies to slice tiles only",
 }
 
 func refuse(kind, key string) error {
@@ -230,7 +239,7 @@ var Carries = map[string]map[string]bool{
 	Operated: keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
 	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused", "slice_access"}),
 	Function: keys(buildKeys, oneShotKeys, []string{"trigger", "slice_access"}),
-	Slice:    keys([]string{"provision_from", "default_access", "on_remove", "version_days", "quota_gb", "cors_origins"}),
+	Slice:    keys([]string{"provision_from", "default_access", "on_remove", "version_days", "quota_gb", "cors_origins", "url"}),
 }
 
 // Validate is one gate over the finished row, create and update alike; every
@@ -389,8 +398,8 @@ func checkRun(t *store.Tile) error {
 }
 
 // checkSlice: a slice names its target; default_access is read or write,
-// on_remove keep or drop. Normalises default_access nil → write and
-// on_remove nil → keep. The target's refs resolve at plan
+// on_remove keep or drop, url direct or pooled. Normalises default_access
+// nil → write, on_remove nil → keep and url nil → direct. The target's refs resolve at plan
 // time (flow/promote), so only the shape is checked here.
 func checkSlice(t *store.Tile) error {
 	if t.ProvisionFrom == nil || strings.TrimSpace(*t.ProvisionFrom) == "" {
@@ -412,6 +421,13 @@ func checkSlice(t *store.Tile) error {
 	}
 	if *t.OnRemove != Keep && *t.OnRemove != Drop {
 		return errs.Invalidf("on_remove", "on_remove must be keep or drop")
+	}
+	if t.SliceURL == nil {
+		d := Direct
+		t.SliceURL = &d
+	}
+	if *t.SliceURL != Direct && *t.SliceURL != Pooled {
+		return errs.Invalidf("url", "url must be direct or pooled")
 	}
 	return CheckBucket(t.VersionDays, t.QuotaGB, t.CORSOrigins)
 }

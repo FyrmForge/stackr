@@ -442,6 +442,9 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if o := deref(t.OnRemove); o != tile.Keep {
 			str("on_remove", o)
 		}
+		if u := tile.URLOf(t); u != tile.Direct {
+			str("url", u)
+		}
 		if t.VersionDays != nil {
 			num("version_days", *t.VersionDays)
 		}

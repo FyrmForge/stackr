@@ -247,6 +247,53 @@ func contains(t *testing.T, what, got string, want ...string) {
 	}
 }
 
+// A slice's url setting decides what url, host and port point at: Republish
+// moves the stored outputs, and a same-access Bind reads the setting too.
+func TestSliceURLSetting(t *testing.T) {
+	w := setup(t, "postgres")
+	w.fake.ExecOut = "0,0"
+	p, err := w.f.Provision(ctx, w.db, w.orders)
+	must(t, err)
+	w.fake.ExecOut = "0"
+	b, err := w.f.Bind(ctx, p, w.api, "write")
+	must(t, err)
+	host := "db-" + w.instance.ID[:8]
+	read := func(b store.Binding) map[string]string {
+		out, err := operated.Outputs(b)
+		must(t, err)
+		return out
+	}
+	if out := read(b); out["host"] != host || out["url"] != out["url_direct"] || out["url_read"] != out["url_direct"] {
+		t.Fatalf("default outputs %v, want direct", out)
+	}
+	set := func(u string) {
+		cur, err := w.f.Tiles.Get(ctx, w.orders.ID)
+		must(t, err)
+		next := cur
+		next.SliceURL = &u
+		_, _, err = w.f.Tiles.Update(ctx, cur, next)
+		must(t, err)
+	}
+	set("pooled")
+	moved, err := w.f.Republish(ctx, w.db)
+	must(t, err)
+	if len(moved) != 1 || moved[0] != w.api.ID {
+		t.Fatalf("moved = %v, want the api consumer", moved)
+	}
+	bs, err := w.f.Instances.Bindings(ctx, p.ID)
+	must(t, err)
+	out := read(bs[0])
+	if out["host"] != host+"-pooler" || out["url"] != out["url_pooled"] || out["url_read"] != out["url_pooled"] || out["host_direct"] != host {
+		t.Errorf("pooled outputs %v", out)
+	}
+	set("direct")
+	b, err = w.f.Bind(ctx, p, w.api, "write")
+	must(t, err)
+	if out := read(b); out["host"] != host || out["url"] != out["url_direct"] {
+		t.Errorf("after switching back %v, want direct", out)
+	}
+}
+
 func TestPostgresSliceAndBindings(t *testing.T) {
 	w := setup(t, "postgres")
 	w.fake.ExecOut = "0,0"
@@ -284,8 +331,8 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	out, err := operated.Outputs(api)
 	must(t, err)
 	host := "db-" + w.instance.ID[:8]
-	if api.DBUser != "s_dev_orders_api" || out["PGHOST"] != host || out["PGUSER"] != "s_dev_orders_api" || out["PGDATABASE"] != "s_dev_orders" ||
-		out["DATABASE_URL"] != "postgres://s_dev_orders_api:"+api.DBPassword+"@"+host+":5432/s_dev_orders" {
+	if api.DBUser != "s_dev_orders_api" || out["host"] != host || out["user"] != "s_dev_orders_api" || out["database"] != "s_dev_orders" ||
+		out["url"] != "postgres://s_dev_orders_api:"+api.DBPassword+"@"+host+":5432/s_dev_orders" {
 		t.Errorf("api binding %+v, outputs %v", api, out)
 	}
 	n = len(w.fake.Calls())
@@ -424,9 +471,9 @@ func TestS3BucketPerSlice(t *testing.T) {
 	out, err := operated.Outputs(b)
 	must(t, err)
 	user := "s-dev-orders-reporter"
-	if b.DBUser != user || b.Access != "read" || out["S3_BUCKET"] != "s-dev-orders" ||
-		out["S3_ACCESS_KEY"] != user || out["S3_SECRET_KEY"] != b.DBPassword ||
-		out["S3_ENDPOINT"] != "http://db-"+w.instance.ID[:8]+":9000" {
+	if b.DBUser != user || b.Access != "read" || out["bucket"] != "s-dev-orders" ||
+		out["access_key"] != user || out["secret_key"] != b.DBPassword ||
+		out["endpoint"] != "http://db-"+w.instance.ID[:8]+":9000" {
 		t.Errorf("binding %+v, outputs %v", b, out)
 	}
 	if !slices.Equal(w.s3.users, []string{user}) || w.s3.grants[user] != "s-dev-orders:read" {

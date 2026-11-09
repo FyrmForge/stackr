@@ -563,7 +563,7 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 		return nil
 	}
 	for _, k := range slices.Sorted(maps.Keys(c)) {
-		if row.Kind == tile.Slice && (k == "provision_from" || k == "default_access") {
+		if row.Kind == tile.Slice && (k == "provision_from" || k == "default_access" || k == "url") {
 			continue // planSlice's one row says both
 		}
 		ch := Change{Kind: "update", Tile: name, Field: k}
@@ -924,7 +924,7 @@ func signedDiff(old, cur []string) string {
 // planSlice: a slice tile's target resolves at plan time (DECIDE 194), so a
 // slice that cannot reach its instance blocks the promote with the reason
 // instead of failing a deploy. A new slice, a moved target or a moved
-// default access is a row, and every tile that refs the slice redeploys.
+// default access or url is a row, and every tile that refs the slice redeploys.
 // ponytail: an env_pairs edit upstream that moves the target under an
 // unchanged provision_from shows no row; the slice's next deploy refuses
 // the move (flow/operated Provision). Compare the provision's instance here
@@ -934,7 +934,7 @@ func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.T
 	if err != nil || !ok {
 		return err
 	}
-	now := target + " (" + deref(row.DefaultAccess) + ")"
+	now := target + " (" + deref(row.DefaultAccess) + sliceURLNote(row) + ")"
 	c := Change{
 		Kind: "slice",
 		Tile: row.Slug,
@@ -942,18 +942,26 @@ func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.T
 	}
 	if exists {
 		sameFrom := deref(old.ProvisionFrom) == deref(row.ProvisionFrom)
-		if sameFrom && deref(old.DefaultAccess) == deref(row.DefaultAccess) {
+		if sameFrom && deref(old.DefaultAccess) == deref(row.DefaultAccess) && tile.URLOf(old) == tile.URLOf(row) {
 			return nil
 		}
 		c.Old = deref(old.ProvisionFrom)
 		if sameFrom {
 			c.Old = target
 		}
-		c.Old += " (" + deref(old.DefaultAccess) + ")"
+		c.Old += " (" + deref(old.DefaultAccess) + sliceURLNote(old) + ")"
 	}
 	p.add(c)
 	w.sliced = append(w.sliced, row.Slug)
 	return nil
+}
+
+// sliceURLNote is ", pooled" for a slice that says so, "" for the default.
+func sliceURLNote(t store.Tile) string {
+	if tile.URLOf(t) == tile.Pooled {
+		return ", pooled"
+	}
+	return ""
 }
 
 // sliceTarget resolves row's provision_from to "stack/env/tile" by the
@@ -1489,6 +1497,8 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		t.DefaultAccess = &access
 		t.OnRemove = &onRemove
 		t.VersionDays, t.QuotaGB, t.CORSOrigins = tc.VersionDays, tc.QuotaGB, tc.CORSOrigins
+		u := cmp.Or(tc.URL, tile.Direct)
+		t.SliceURL = &u
 	}
 	for _, a := range tc.SliceAccess {
 		t.SliceAccess = append(t.SliceAccess, store.SliceAccess{

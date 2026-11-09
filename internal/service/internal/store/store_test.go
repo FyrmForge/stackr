@@ -424,7 +424,7 @@ func TestRoundTrip(t *testing.T) {
 		Access:         "write",
 		DBUser:         "api_db_web",
 		DBPassword:     "pw",
-		Outputs:        `{"DATABASE_URL":"postgres://x"}`,
+		Outputs:        `{"url":"postgres://x"}`,
 		CreatedAt:      t0,
 	}, func(b *store.Binding) {
 		b.Access = "read"

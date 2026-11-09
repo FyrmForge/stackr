@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -359,7 +360,7 @@ func (l *Leaf) Bindings(ctx context.Context, provisionID string) ([]store.Bindin
 	return l.bindings.ListByProvision(ctx, provisionID)
 }
 
-// Outputs are the values minted for one binding's cred (DATABASE_URL and
+// Outputs are the values minted for one binding's cred (url and
 // the rest), what the consumer's refs to its slice resolve to.
 func Outputs(b store.Binding) (map[string]string, error) {
 	out := map[string]string{}
@@ -367,6 +368,19 @@ func Outputs(b store.Binding) (map[string]string, error) {
 		return out, nil
 	}
 	return out, json.Unmarshal([]byte(b.Outputs), &out)
+}
+
+// Direct rewrites a slice's outputs for a consumer that cannot reach the
+// pooler: every _pooled value and every name that has a _direct form
+// (url, host, port, the _read ones) becomes the direct value.
+// ponytail: the pooler has no cross-node VIP yet, so a consumer on another
+// node than the instance gets direct values (phase 2: a pooler VIP).
+func Direct(out map[string]string) {
+	for k := range out {
+		if d, ok := out[strings.TrimSuffix(k, "_pooled")+"_direct"]; ok && !strings.HasSuffix(k, "_direct") {
+			out[k] = d
+		}
+	}
 }
 
 // Cred is a consumer's cred on a slice as the engine minted it.

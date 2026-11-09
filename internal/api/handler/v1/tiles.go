@@ -171,6 +171,9 @@ type (
 	OnRemoveIn struct {
 		OnRemove string `json:"on_remove"` // keep | drop
 	}
+	SliceURLIn struct {
+		URL string `json:"url"` // direct | pooled
+	}
 	BucketRestoreIn struct {
 		At     time.Time `json:"at"`     // restore to how the objects were then (RFC3339)
 		Prefix string    `json:"prefix"` // only keys under it; "" = the whole bucket
@@ -588,6 +591,12 @@ func (h *H) SetSliceAccess() Endpoint {
 func (h *H) SetSliceOnRemove() Endpoint {
 	return JSON(200, func(c echo.Context, in OnRemoveIn) (service.TileView, error) {
 		return tileView(h.Orch.SetSliceOnRemove(rc(c), tileID(c), in.OnRemove))
+	})
+}
+
+func (h *H) SetSliceURL() Endpoint {
+	return JSON(200, func(c echo.Context, in SliceURLIn) (service.TileView, error) {
+		return tileView(h.Orch.SetSliceURL(rc(c), tileID(c), in.URL))
 	})
 }
 

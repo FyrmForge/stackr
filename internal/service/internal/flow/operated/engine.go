@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -134,6 +135,8 @@ type Slice struct {
 	User     string
 	Password string
 	Public   bool
+	// postgres: url, host and port point at the pooler, not the instance.
+	Pooled bool
 	// s3 buckets: days old versions are kept (0 = versioning off), the hard
 	// size cap in bytes (0 = none) and the origins CORS allows.
 	VersionDays int
@@ -154,6 +157,21 @@ type Binding struct {
 	Value           string
 	Secret          bool
 	RequiresNetwork bool
+}
+
+// OutputNames are the output names an engine publishes on a slice, sorted: what
+// ${{ tile.<slice>.<name> }} may read, for plan-time ref checks.
+func OutputNames(engine string) []string {
+	e, ok := Engines[engine]
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, b := range e.Bindings(Instance{PublicBase: "x"}, Slice{Public: true}) {
+		out = append(out, b.Name)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Engines is the registry: one line per engine.

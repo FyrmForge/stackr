@@ -2954,6 +2954,20 @@ stackr slice restore <slice> [flags]
       --tile string     the tile (default: the linked one)
 ```
 
+### `stackr slice url`
+
+Choose whether a postgres slice's url, host and port point at the instance or its pooler
+
+```
+stackr slice url <slice> <direct|pooled> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr slice usage`
 
 Show a bucket's current bytes and its old versions' bytes, apart

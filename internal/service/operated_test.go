@@ -127,7 +127,7 @@ func TestSliceVerbs(t *testing.T) {
 		Access:         "write",
 		DBUser:         "shop_dev_db_api",
 		DBPassword:     "LEAK-cred",
-		Outputs:        `{"PGPASSWORD":"LEAK-cred"}`,
+		Outputs:        `{"password":"LEAK-cred"}`,
 		CreatedAt:      time.Now(),
 	}))
 	env.Docker.Containers = append(env.Docker.Containers, docker.Container{

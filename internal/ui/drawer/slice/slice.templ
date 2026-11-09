@@ -48,6 +48,8 @@ type View struct {
 	DefaultAccess string // "" = unset, which grants write
 	FileOwned     bool   // config-managed: default access is the stack file's
 	OnRemove      string
+	IsPostgres    bool   // the url row applies: a postgres slice
+	URL           string // direct | pooled: what url, host and port point at
 	Consumers     []Consumer
 	Provisioned   bool
 	DBName        string // the database or bucket, once provisioned
@@ -135,6 +137,9 @@ func settingsRows(v View) []c.AccRow {
 		{Key: "general", Title: "Name", Summary: v.Name, Body: nameRow(v)},
 		{Key: "access", Title: "Default access", Summary: access(v.DefaultAccess), Changed: v.DefaultAccess == "read", Body: accessRow(v)},
 	}
+	if v.IsPostgres {
+		rows = append(rows, c.AccRow{Key: "url", Title: "Connection", Summary: urlWord(v.URL), Changed: v.URL == "pooled", Body: urlRow(v)})
+	}
 	if len(v.Consumers) > 0 {
 		rows = append(rows, c.AccRow{Key: "consumers", Title: "Consumer access", Summary: ConsumersSummary(v.Consumers), Body: consumersRow(v)})
 	}
@@ -197,6 +202,39 @@ templ accessRow(v View) {
 					@c.FieldMarks(v.DefaultAccess == "read", "")
 				</label>
 				@accessSelect("slice-default", "access", v.DefaultAccess)
+			</div>
+			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+		</form>
+	}
+}
+
+// urlWord is the url setting in force: unset is direct.
+func urlWord(u string) string { return cmp.Or(u, "direct") }
+
+templ urlRow(v View) {
+	<p class="text-xs text-rw-faint" data-hint>What url, host and port point at. The direct and pooled forms are always there.</p>
+	if v.FileOwned || v.ReadOnly {
+		<div data-field data-changed?={ v.URL == "pooled" }>
+			<p class="label">Connect through</p>
+			<p class="text-sm text-rw-text font-mono">{ urlWord(v.URL) }</p>
+			if v.FileOwned {
+				<p class="text-xs text-rw-faint" data-hint>Set in the stack file.</p>
+			} else {
+				<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
+			}
+		</div>
+	} else {
+		<form hx-post={ v.Base + "/url" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+			@c.KeepOpen("url")
+			<div data-field data-changed?={ v.URL == "pooled" }>
+				<label for="slice-url" class="label">
+					Connect through
+					@c.FieldMarks(v.URL == "pooled", "")
+				</label>
+				<select id="slice-url" name="url" class="input w-auto">
+					<option value="direct" selected?={ v.URL != "pooled" }>direct</option>
+					<option value="pooled" selected?={ v.URL == "pooled" }>pooled</option>
+				</select>
 			</div>
 			<button type="submit" class="btn btn-primary btn-sm">Save</button>
 		</form>

@@ -132,7 +132,7 @@ func TestSlices(t *testing.T) {
 		User:     "orders_api",
 		Password: operated.Password(),
 		Outputs: map[string]string{
-			"PGUSER": "orders_api",
+			"user": "orders_api",
 		},
 	}
 	b, err := l.Bind(ctx, p, tiles["api"], cred)
@@ -149,7 +149,7 @@ func TestSlices(t *testing.T) {
 	must(t, err)
 	out, err := operated.Outputs(bound[tiles["orders"]])
 	must(t, err)
-	if bound[tiles["orders"]].DBPassword != cred.Password || out["PGUSER"] != "orders_api" {
+	if bound[tiles["orders"]].DBPassword != cred.Password || out["user"] != "orders_api" {
 		t.Errorf("bound = %+v, outputs %v", bound, out)
 	}
 	if ps, _ := l.ForConsumer(ctx, tiles["api"]); len(ps) != 1 || ps[0].ID != p.ID {
@@ -179,5 +179,24 @@ func TestSlices(t *testing.T) {
 	must(t, l.Delete(ctx, m.ID))
 	if ps, _ := l.ByInstance(ctx, m.ID); len(ps) != 0 {
 		t.Errorf("provisions outlived the instance: %v", ps)
+	}
+}
+
+func TestDirect(t *testing.T) {
+	out := map[string]string{
+		"url": "pooled-url", "url_direct": "direct-url", "url_pooled": "pooled-url",
+		"host": "ph", "host_direct": "dh", "host_pooled": "ph",
+		"url_read": "pooled-url", "url_read_direct": "direct-url", "url_read_pooled": "pooled-url",
+		"user": "u",
+	}
+	operated.Direct(out)
+	for k, v := range out {
+		want := map[string]string{"user": "u", "host": "dh", "host_direct": "dh", "host_pooled": "dh"}[k]
+		if want == "" {
+			want = "direct-url"
+		}
+		if v != want {
+			t.Errorf("%s = %q, want %q", k, v, want)
+		}
 	}
 }

@@ -91,8 +91,12 @@ func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, 
 		return src, err
 	}
 	if f.LinkHost != nil {
-		if src.Host, err = f.LinkHost(ctx, e, p.InstanceID); err != nil || src.Host != "" {
+		if src.Host, err = f.LinkHost(ctx, e, p.InstanceID); err != nil {
 			return src, err
+		}
+		if src.Host != "" {
+			operated.Direct(src.Outputs)
+			return src, nil
 		}
 	}
 	src.Network = operated.Network(p.InstanceID)

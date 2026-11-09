@@ -12,6 +12,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -254,6 +255,9 @@ type TileConf struct {
 	ProvisionFrom string `yaml:"provision_from"`
 	DefaultAccess string `yaml:"default_access"`
 	OnRemove      string `yaml:"on_remove"`
+	// slice on postgres: what its url, host and port outputs point at,
+	// direct | pooled; "" = direct.
+	URL string `yaml:"url"`
 	// slice on a bucket: days old versions are kept (nil = 7, 0 = versioning
 	// off), a hard size cap in GB (nil or 0 = none), origins CORS allows.
 	VersionDays *int     `yaml:"version_days"`
@@ -809,6 +813,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: default_access: only a slice tile takes it", name)
 	case tc.OnRemove != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: on_remove: only a slice tile takes it", name)
+	case tc.URL != "" && tc.Type != "slice":
+		return fmt.Errorf("tile %s: url: only a slice tile takes it", name)
 	case (tc.VersionDays != nil || tc.QuotaGB != nil || len(tc.CORSOrigins) > 0) && tc.Type != "slice":
 		return fmt.Errorf("tile %s: version_days, quota_gb and cors_origins: only a slice tile takes them", name)
 	case len(tc.SliceAccess) > 0 && (tc.Type == "operated" || tc.Type == "slice"):
@@ -850,6 +856,9 @@ func checkSlice(name string, tc TileConf) error {
 	}
 	if tc.OnRemove != "" && tc.OnRemove != tile.Keep && tc.OnRemove != tile.Drop {
 		return fmt.Errorf("tile %s: on_remove %q must be keep or drop", name, tc.OnRemove)
+	}
+	if tc.URL != "" && tc.URL != tile.Direct && tc.URL != tile.Pooled {
+		return fmt.Errorf("tile %s: url %q must be direct or pooled", name, tc.URL)
 	}
 	if err := tile.CheckBucket(tc.VersionDays, tc.QuotaGB, tc.CORSOrigins); err != nil {
 		return fmt.Errorf("tile %s: %w", name, err)
@@ -913,9 +922,15 @@ func checkRefs(env string, re ResolvedEnv) error {
 			if !strings.HasPrefix(body, "tile.") {
 				continue
 			}
-			target, _, _ := strings.Cut(strings.TrimPrefix(body, "tile."), ".")
-			if _, ok := re.Tiles[target]; !ok {
+			target, field, _ := strings.Cut(strings.TrimPrefix(body, "tile."), ".")
+			tt, ok := re.Tiles[target]
+			if !ok {
 				return fmt.Errorf("environment %s tile %s: refs ${{ %s }}: no tile of that name in this environment", env, n, body)
+			}
+			if tt.Type == "slice" {
+				if err := checkSliceField(env, n, body, field); err != nil {
+					return err
+				}
 			}
 		}
 		for _, d := range tc.DependsOn {
@@ -947,6 +962,21 @@ func checkRefs(env string, re ResolvedEnv) error {
 		return fmt.Errorf("environment %s: depends_on has a cycle", env)
 	}
 	return nil
+}
+
+// checkSliceField: a slice's outputs are the engines' names, so a name no
+// engine publishes (an old uppercase one, a typo) is a plan error. The slice's
+// engine is its target's, resolved later; here it is any engine's.
+func checkSliceField(env, name, body, field string) error {
+	var valid []string
+	for _, e := range slices.Sorted(maps.Keys(mflow.Engines)) {
+		names := mflow.OutputNames(e)
+		if slices.Contains(names, field) {
+			return nil
+		}
+		valid = append(valid, e+": "+strings.Join(names, ", "))
+	}
+	return fmt.Errorf("environment %s tile %s: refs ${{ %s }}: a slice has no output %q; valid: %s", env, name, body, field, strings.Join(valid, "; "))
 }
 
 // topo orders slugs so a tile follows its depends_on targets (Kahn with an

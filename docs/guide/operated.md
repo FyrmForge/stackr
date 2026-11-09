@@ -15,6 +15,30 @@ stackr operated create pg --engine postgres --env dev
 stackr slice add pg-db --from shop:dev:pg --env dev
 ```
 
+## What apps read
+
+An app reads its slice with refs in its env, and picks its own variable names:
+
+```yaml
+env:
+  DATABASE_URL: ${{ tile.pg-db.url }}
+  S3_ENDPOINT: ${{ tile.files.endpoint }}
+```
+
+Postgres slice outputs:
+
+| Output | Value |
+| --- | --- |
+| `url`, `host`, `port` | the connection the slice's `url` setting picks |
+| `url_direct`, `host_direct`, `port_direct` | the instance itself |
+| `url_pooled`, `host_pooled`, `port_pooled` | the instance's PgBouncer pooler (transaction pooling) |
+| `url_read`, `host_read`, `port_read` (and the `_direct` and `_pooled` forms) | where reads go; the primary's values until replicas exist |
+| `database`, `user`, `password` | this app's own login (`password` is secret) |
+
+Set `url: pooled` on the slice tile (stack file, `stackr slice url <slice> pooled`, or the slice drawer) to make `url`, `host` and `port` go through the pooler. The default is `direct`. An app on another node than the instance gets the direct values whatever the setting, because the pooler has no address there yet.
+
+Bucket slice outputs: `endpoint`, `bucket`, `region`, `access_key`, `secret_key` (secret) and `public_url` when the bucket is public. A ref to a name a slice does not publish fails the plan and lists the valid ones.
+
 ## Start from a dump
 
 A new postgres tile can start with your data in it.

@@ -189,23 +189,55 @@ func TestReservedConnectionsPerMajor(t *testing.T) {
 	}
 }
 
-func TestPooledOutputs(t *testing.T) {
+func TestSliceOutputs(t *testing.T) {
 	i := poolerInst(nil)
-	got := map[string]Binding{}
-	for _, b := range (pg{}).Bindings(i, Slice{Name: "orders", User: "u", Password: "p"}) {
-		got[b.Name] = b
+	outs := func(pooled bool) map[string]Binding {
+		got := map[string]Binding{}
+		for _, b := range (pg{}).Bindings(i, Slice{Name: "orders", User: "u", Password: "p", Pooled: pooled}) {
+			got[b.Name] = b
+		}
+		return got
 	}
-	if b := got["DATABASE_URL_POOLED"]; b.Value != "postgres://u:p@db-1234abcd-pooler:6432/orders" || !b.Secret || !b.RequiresNetwork {
-		t.Errorf("url = %+v", b)
+	direct, pooled := outs(false), outs(true)
+	const dURL, pURL = "postgres://u:p@db-1234abcd:5432/orders", "postgres://u:p@db-1234abcd-pooler:6432/orders"
+	for name, want := range map[string]string{
+		"url_direct": dURL, "url_pooled": pURL, "host_direct": "db-1234abcd", "host_pooled": "db-1234abcd-pooler",
+		"port_direct": "5432", "port_pooled": "6432", "database": "orders", "user": "u", "password": "p",
+		"url_read_direct": dURL, "url_read_pooled": pURL, "host_read_direct": "db-1234abcd", "port_read_pooled": "6432",
+	} {
+		for _, got := range []map[string]Binding{direct, pooled} {
+			if got[name].Value != want {
+				t.Errorf("%s = %q, want %q", name, got[name].Value, want)
+			}
+		}
 	}
-	if b := got["PGHOST_POOLED"]; b.Value != "db-1234abcd-pooler" || b.Secret || !b.RequiresNetwork {
-		t.Errorf("host = %+v", b)
+	// url, host, port follow the slice's setting; the _read ones are the primary's
+	for _, c := range []struct {
+		got             map[string]Binding
+		url, host, port string
+	}{
+		{direct, dURL, "db-1234abcd", "5432"},
+		{pooled, pURL, "db-1234abcd-pooler", "6432"},
+	} {
+		for k, want := range map[string]string{"url": c.url, "url_read": c.url, "host": c.host, "host_read": c.host, "port": c.port, "port_read": c.port} {
+			if c.got[k].Value != want {
+				t.Errorf("%s = %q, want %q", k, c.got[k].Value, want)
+			}
+		}
 	}
-	if b := got["PGPORT_POOLED"]; b.Value != "6432" {
-		t.Errorf("port = %+v", b)
+	for _, k := range []string{"url", "url_direct", "url_pooled", "url_read", "url_read_direct", "url_read_pooled", "password"} {
+		if !direct[k].Secret {
+			t.Errorf("%s is not secret", k)
+		}
 	}
-	// today's direct outputs stay as they were
-	if got["DATABASE_URL"].Value != "postgres://u:p@db-1234abcd:5432/orders" || got["PGPORT"].Value != "5432" {
-		t.Errorf("direct outputs moved: %+v", got["DATABASE_URL"])
+	for _, k := range []string{"host", "host_pooled", "port", "database", "user", "host_read"} {
+		if direct[k].Secret {
+			t.Errorf("%s is secret", k)
+		}
+	}
+	for _, old := range []string{"DATABASE_URL", "DATABASE_URL_POOLED", "PGHOST", "PGPORT", "PGHOST_POOLED", "PGUSER", "PGPASSWORD", "PGDATABASE"} {
+		if _, ok := direct[old]; ok {
+			t.Errorf("old name %s still published", old)
+		}
 	}
 }

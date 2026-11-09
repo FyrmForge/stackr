@@ -173,7 +173,7 @@ func snap() params.Snapshot {
 				Slice:    true,
 				Attached: true,
 				Network:  "net-pg",
-				Outputs:  map[string]string{"DATABASE_URL": "pg://api-db"},
+				Outputs:  map[string]string{"url": "pg://api-db"},
 			},
 			"mq": {
 				Slice:   true,
@@ -202,13 +202,15 @@ func TestResolve(t *testing.T) {
 		{params.InEnv, "${{ org.params.email.org_only }}", "org", ""}, // deliberately
 		{params.InEnv, "${{ params.email.nope }}", "", "unset"},
 		{params.InEnv, "${{ self.host }}", "api", ""},
-		{params.InEnv, "${{ tile.api-db.DATABASE_URL }}", "pg://api-db", ""},
+		{params.InEnv, "${{ tile.api-db.url }}", "pg://api-db", ""},
+		{params.InEnv, "${{ tile.api-db.DATABASE_URL }}", "", `api-db publishes no output named "DATABASE_URL"; valid: url`},
+		{params.InEnv, "${{ self.nope }}", "", "valid: host"},
 		{params.InEnv, "${{ tile.mq.url }}", "", "slice mq is not bound to this tile"},
 		{params.InEnv, "${{ tile.api-db.database-url }}", "", "not a valid name"},
 		{params.InEnv, "${{ tile.api.url }}", "http://api:80", ""},
 		{params.InEnv, "${{ tile.api.public_url }}", "", "no output"},
 		{params.InEnv, "${{ tile.ghost.url }}", "", "no tile"},
-		{params.InEnv, "${{ tile.pg.DATABASE_URL }}", "", "pg is an operated tile; refs read a slice cut from it"},
+		{params.InEnv, "${{ tile.pg.url }}", "", "pg is an operated tile; refs read a slice cut from it"},
 		{params.InEnv, "${{ stack.cache.host }}", "", "stack.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ org.cache.host }}", "", "org.cache refs are gone; declare a slice tile, see DECIDE 194"},
 		{params.InEnv, "${{ stackr.PROXY_IP }}", "10.0.0.1", ""},
@@ -241,7 +243,7 @@ func TestResolve(t *testing.T) {
 		{params.InDomain, "${{ server.params.s3.region }}", "", "only in the server file"},
 		{params.InBackupDest, "${{ server.params.s3.region }}", "", "only in the server file"},
 		{params.InProvisionFrom, "${{ server.params.s3.region }}", "", "only in the server file"},
-		{params.InCommand, "run --db ${{ tile.api-db.DATABASE_URL }} ${{ params.email.sender }}", "run --db pg://api-db env@x.io", ""},
+		{params.InCommand, "run --db ${{ tile.api-db.url }} ${{ params.email.sender }}", "run --db pg://api-db env@x.io", ""},
 		{params.InEnv, "${{ params.email.sender }}-${{ params.email.nope }}", "", "unset"}, // never half-expanded
 	} {
 		got, err := params.NewResolver(snap()).Expand(c.where, c.in)
@@ -258,7 +260,7 @@ func TestResolve(t *testing.T) {
 		}
 	}
 	rr := params.NewResolver(snap())
-	_, _ = rr.Expand(params.InEnv, "${{ tile.api.host }} ${{ tile.api-db.DATABASE_URL }}")
+	_, _ = rr.Expand(params.InEnv, "${{ tile.api.host }} ${{ tile.api-db.url }}")
 	if d, n := rr.Deps(), rr.Networks(); strings.Join(d, ",") != "api,api-db" || strings.Join(n, ",") != "net-pg" {
 		t.Errorf("deps %v, networks %v", d, n)
 	}

@@ -163,7 +163,7 @@ func Parse(body string) (Ref, error) {
 	if (r.Kind == KindParam || r.Kind == KindOrgParam || r.Kind == KindServerParam) && !slug.ValidName(r.Slug) {
 		return r, fmt.Errorf("%s: %q is not a valid collection name", r.Source, r.Slug)
 	}
-	// A tile's outputs are env-key shaped: DATABASE_URL beside host and port.
+	// A tile's outputs are identifier shaped: url_pooled beside host and port.
 	valid := slug.ValidName
 	if r.Kind == KindTile || r.Kind == KindSelf {
 		valid = slug.ValidEnvKey
@@ -374,7 +374,7 @@ func (rr *Resolver) lookup(w Where, r Ref) (string, error) {
 		if v, ok := rr.snap.Self.Outputs[r.Name]; ok {
 			return v, nil
 		}
-		return "", fmt.Errorf("%s: this tile publishes no output named %q", r.Source, r.Name)
+		return "", fmt.Errorf("%s: this tile publishes no output named %q; valid: %s", r.Source, r.Name, strings.Join(slices.Sorted(maps.Keys(rr.snap.Self.Outputs)), ", "))
 	case KindTile:
 		return rr.tile(r)
 	}
@@ -417,7 +417,7 @@ func (rr *Resolver) tile(r Ref) (string, error) {
 	}
 	v, ok := src.Outputs[r.Name]
 	if !ok {
-		return "", fmt.Errorf("%s: %s publishes no output named %q", r.Source, r.Slug, r.Name)
+		return "", fmt.Errorf("%s: %s publishes no output named %q; valid: %s", r.Source, r.Slug, r.Name, strings.Join(slices.Sorted(maps.Keys(src.Outputs)), ", "))
 	}
 	rr.deps[r.Slug] = true
 	// Blank: the instance never deployed; joining "" would fail on the

@@ -298,7 +298,7 @@ func TestSliceRef(t *testing.T) {
 		ProvisionFrom: &from,
 	})
 	must(t, err)
-	w.tile.EnvJSON = `{"DATABASE_URL":"${{ tile.api-db.DATABASE_URL }}"}`
+	w.tile.EnvJSON = `{"DATABASE_URL":"${{ tile.api-db.url }}"}`
 	_, err = w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil)
 	if err == nil || !strings.Contains(err.Error(), "slice api-db is not bound to this tile") {
 		t.Fatalf("err = %v, want the unbound slice", err)
@@ -334,13 +334,14 @@ func TestSliceRef(t *testing.T) {
 		Access:         tile.Write,
 		DBUser:         "api",
 		DBPassword:     "pw",
-		Outputs:        `{"DATABASE_URL":"postgres://api:pw@pg-db:5432/api_db"}`,
-		CreatedAt:      now,
+		Outputs: `{"url":"postgres://api:pw@pg-db-pooler:6432/api_db","url_direct":"postgres://api:pw@pg-db:5432/api_db",` +
+			`"url_pooled":"postgres://api:pw@pg-db-pooler:6432/api_db","host":"pg-db-pooler","host_direct":"pg-db","host_pooled":"pg-db-pooler"}`,
+		CreatedAt: now,
 	}))
 	if _, err := w.f.Run(ctx, w.tile, "nginx@sha256:aa", io.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
-	if env := w.fake.Specs[0].Env; !slices.Contains(env, "DATABASE_URL=postgres://api:pw@pg-db:5432/api_db") {
+	if env := w.fake.Specs[0].Env; !slices.Contains(env, "DATABASE_URL=postgres://api:pw@pg-db-pooler:6432/api_db") {
 		t.Errorf("env = %v, want the binding's url", env)
 	}
 	// The consumer joins the instance's network, wherever the instance sits.
@@ -361,6 +362,17 @@ func TestSliceRef(t *testing.T) {
 	}
 	if slices.ContainsFunc(last.Networks, func(n docker.NetAttach) bool { return n.Name == operated.Network(m.ID) }) {
 		t.Errorf("a consumer on another node joined the instance network: %+v", last.Networks)
+	}
+	// The pooler has no address on another node: pooled values fall back to direct.
+	w.tile.EnvJSON = `{"DATABASE_URL":"${{ tile.api-db.url }}","POOLED":"${{ tile.api-db.url_pooled }}","H":"${{ tile.api-db.host }}"}`
+	last, err = w.f.Spec(ctx, w.tile, "nginx@sha256:aa", io.Discard)
+	must(t, err)
+	for _, want := range []string{
+		"DATABASE_URL=postgres://api:pw@pg-db:5432/api_db", "POOLED=postgres://api:pw@pg-db:5432/api_db", "H=pg-db",
+	} {
+		if !slices.Contains(last.Env, want) {
+			t.Errorf("cross-node env = %v, want %s", last.Env, want)
+		}
 	}
 	w.f.LinkHost = nil
 

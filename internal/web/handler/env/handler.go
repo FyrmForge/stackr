@@ -74,6 +74,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/url", h.SliceURL, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/on-remove", h.SliceOnRemove, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/bucket", h.SliceBucket, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/restore", h.SliceRestore, a.Require("tile.write"))
@@ -814,6 +815,12 @@ func (h *handler) SliceAccess(c echo.Context) error {
 	return h.slice(c, "Saved.", err)
 }
 
+// POST …/-/slices/:tile/url
+func (h *handler) SliceURL(c echo.Context) error {
+	_, err := h.orch.SetSliceURL(c.Request().Context(), scope(c).Tile.ID, c.FormValue("url"))
+	return h.slice(c, "Saved.", err)
+}
+
 // POST …/-/slices/:tile/on-remove
 func (h *handler) SliceOnRemove(c echo.Context) error {
 	_, err := h.orch.SetSliceOnRemove(c.Request().Context(), scope(c).Tile.ID, c.FormValue("on_remove"))
@@ -950,6 +957,8 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		DefaultAccess: sv.DefaultAccess,
 		FileOwned:     s.Stack.ConfigRepo != "",
 		OnRemove:      sv.OnRemove,
+		IsPostgres:    sv.Engine == "postgres",
+		URL:           sv.URL,
 		Provisioned:   sv.Provisioned,
 		DBName:        sv.Name,
 		Note:          note,

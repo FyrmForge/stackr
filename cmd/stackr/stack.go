@@ -24,7 +24,7 @@ var (
 	envCols      = []string{"slug", "name", "type", "from_kind", "from_branch", "auto", "release_id", "id"}
 	tileCols     = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
 	operatedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
-	sliceCols    = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "id"}
+	sliceCols    = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "url", "id"}
 	releaseCols  = []string{"number", "commit", "message", "created_by", "created_at", "id"}
 	domainCols   = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
 	paramCols    = []string{"collection", "name", "kind", "value", "scope_kind"}
@@ -1670,6 +1670,19 @@ func (a *app) sliceTiles() *cobra.Command {
 					}
 				}
 				v, err := a.call(PUT, p+"/on-remove", map[string]string{"on_remove": args[1]})
+				if err != nil {
+					return err
+				}
+				return a.show(v, sliceCols...)
+			}),
+		),
+		leaf(
+			"url <slice> <direct|pooled>",
+			"slice.url",
+			"Choose whether a postgres slice's url, host and port point at the instance or its pooler",
+			exact(2),
+			a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+				v, err := a.call(PUT, p+"/url", map[string]string{"url": args[1]})
 				if err != nil {
 					return err
 				}

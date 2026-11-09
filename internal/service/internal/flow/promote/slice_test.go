@@ -58,7 +58,7 @@ base:
     api:
       image: ghcr.io/acme/api:1.4
       env:
-        DATABASE_URL: ${{ tile.api-db.DATABASE_URL }}
+        DATABASE_URL: ${{ tile.api-db.url }}
     reporter:
       kind: cron
       schedule: "0 3 * * *"
@@ -66,7 +66,7 @@ base:
         - from: api-db
           access: read
       env:
-        DATABASE_URL: ${{ tile.api-db.DATABASE_URL }}
+        DATABASE_URL: ${{ tile.api-db.url }}
 `
 
 // tiles is a stack file whose base holds body (tile entries, indented four).
@@ -528,7 +528,7 @@ func sliceFile(t *testing.T, noReporter, noSlice bool) string {
 	if noSlice {
 		for _, cut := range []string{
 			"    api-db:\n      kind: slice\n      provision_from: infra:${{ env.name }}:pg-db\n      default_access: write\n",
-			"      env:\n        DATABASE_URL: ${{ tile.api-db.DATABASE_URL }}\n",
+			"      env:\n        DATABASE_URL: ${{ tile.api-db.url }}\n",
 		} {
 			if !strings.Contains(f, cut) {
 				t.Fatalf("sliceFile: no %q", cut)
@@ -752,9 +752,39 @@ func TestSliceGoneWhileReffedBlocks(t *testing.T) {
 	}
 	p, err := w.f.Plan(ctx, w.dev.ID, w.shopRelease(t, "c2", strings.Replace(sliceShopFile, block, "", 1)).ID, io.Discard)
 	must(t, err)
-	want := "environment dev tile api: refs ${{ tile.api-db.DATABASE_URL }}: no tile of that name in this environment"
+	want := "environment dev tile api: refs ${{ tile.api-db.url }}: no tile of that name in this environment"
 	if len(p.Blockers) != 1 || !strings.HasSuffix(p.Blockers[0], want) {
 		t.Errorf("blockers = %q, want one ending %q", p.Blockers, want)
+	}
+}
+
+// A slice names its url setting; a name no engine publishes (an old
+// uppercase one) and a bad url word are blockers.
+func TestSliceURLAndRefNames(t *testing.T) {
+	w := newSliceWorld(t)
+	block := "    api-db:\n      kind: slice\n      provision_from: infra:${{ env.name }}:pg-db\n      default_access: write\n"
+	if !strings.Contains(sliceShopFile, block) {
+		t.Fatal("no api-db block in sliceShopFile")
+	}
+	pooled := strings.Replace(sliceShopFile, block, block+"      url: pooled\n", 1)
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", pooled).ID, io.Discard, nil)
+	must(t, err)
+	row, err := w.f.D.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
+	must(t, err)
+	if row.SliceURL == nil || *row.SliceURL != "pooled" {
+		t.Errorf("api-db url = %v, want pooled", row.SliceURL)
+	}
+	for name, c := range map[string]struct{ file, want string }{
+		"old name": {strings.Replace(sliceShopFile, "tile.api-db.url", "tile.api-db.DATABASE_URL", 1), `a slice has no output "DATABASE_URL"; valid: postgres: `},
+		"bad url":  {strings.Replace(sliceShopFile, block, block+"      url: both\n", 1), `url "both" must be direct or pooled`},
+	} {
+		p, err := w.f.Plan(ctx, w.dev.ID, w.shopRelease(t, "c-"+strings.ReplaceAll(name, " ", ""), c.file).ID, io.Discard)
+		if err == nil {
+			err = errors.New(strings.Join(p.Blockers, "; "))
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
 	}
 }
 
@@ -799,7 +829,7 @@ func TestSliceUnbindAfterSwap(t *testing.T) {
 	must(t, err)
 	api, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api")
 	must(t, err)
-	ref := "      env:\n        DATABASE_URL: ${{ tile.api-db.DATABASE_URL }}\n"
+	ref := "      env:\n        DATABASE_URL: ${{ tile.api-db.url }}\n"
 	if !strings.Contains(sliceShopFile, ref) {
 		t.Fatal("no api ref in sliceShopFile")
 	}

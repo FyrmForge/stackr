@@ -27,7 +27,7 @@ func (s3e) Definition() Definition {
 		Config: func(i Instance) []string {
 			return []string{"RUSTFS_ACCESS_KEY=" + i.AdminUser, "RUSTFS_SECRET_KEY=" + i.AdminPassword}
 		},
-		PrimaryOutput: "S3_ENDPOINT",
+		PrimaryOutput: "endpoint",
 		InjectAll:     true,
 		PublicSlices:  true,
 		SliceNoun:     "bucket",
@@ -113,14 +113,14 @@ func (s3e) Bindings(i Instance, s Slice) []Binding {
 		endpoint, requiresNet = fmt.Sprintf("http://%s:%d", i.Host, i.Port), true
 	}
 	out := []Binding{
-		{"S3_ENDPOINT", endpoint, false, requiresNet},
-		{"S3_BUCKET", s.Name, false, false},
-		{"S3_REGION", s3Region, false, false},
-		{"S3_ACCESS_KEY", s.User, true, false},
-		{"S3_SECRET_KEY", s.Password, true, false},
+		{"endpoint", endpoint, false, requiresNet},
+		{"bucket", s.Name, false, false},
+		{"region", s3Region, false, false},
+		{"access_key", s.User, true, false},
+		{"secret_key", s.Password, true, false},
 	}
 	if s.Public && i.PublicBase != "" {
-		out = append(out, Binding{Name: "S3_PUBLIC_URL", Value: i.PublicBase + "/" + s.Name})
+		out = append(out, Binding{Name: "public_url", Value: i.PublicBase + "/" + s.Name})
 	}
 	return out
 }

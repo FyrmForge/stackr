@@ -3,6 +3,7 @@ package operated
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -149,7 +150,7 @@ func (pg) Definition() Definition {
 				"STACKR_PG_CONF=" + pgConf(i),
 			}
 		},
-		PrimaryOutput: "DATABASE_URL",
+		PrimaryOutput: "url",
 		SliceNoun:     "logical db",
 		Backups:       []string{"dump", "base"},
 		AdminDB:       "postgres",
@@ -400,19 +401,50 @@ func pgExecSQL(ctx context.Context, x Tools, i Instance, db string, stmts []stri
 	return err
 }
 
+// Bindings are a slice's outputs, named like a service tile's (lowercase,
+// qualifier last): url, host and port follow the slice's url setting, and the
+// _direct and _pooled forms always exist. The _read forms are the replica
+// reads: with no replicas they are the primary's values, so a stack file that
+// refs them never changes when replicas arrive.
 func (pg) Bindings(i Instance, s Slice) []Binding {
-	return []Binding{
-		{"DATABASE_URL", fmt.Sprintf("postgres://%s:%s@%s:%d/%s", s.User, s.Password, i.Host, i.Port, s.Name), true, true},
-		{"PGHOST", i.Host, false, true},
-		{"PGPORT", strconv.Itoa(i.Port), false, false},
-		{"PGDATABASE", s.Name, false, false},
-		{"PGUSER", s.User, false, false},
-		{"PGPASSWORD", s.Password, true, false},
-		// through the instance's pooler: transaction pooling, see pgbouncer.go
-		{"DATABASE_URL_POOLED", fmt.Sprintf("postgres://%s:%s@%s:%d/%s", s.User, s.Password, PoolerAlias(i), PoolerPort, s.Name), true, true},
-		{"PGHOST_POOLED", PoolerAlias(i), false, true},
-		{"PGPORT_POOLED", strconv.Itoa(PoolerPort), false, false},
+	conn := func(host string, port int) string {
+		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s", s.User, s.Password, host, port, s.Name)
 	}
+	dHost, dPort := i.Host, i.Port
+	// through the instance's pooler: transaction pooling, see pgbouncer.go
+	pHost, pPort := PoolerAlias(i), PoolerPort
+	host, port := dHost, dPort
+	if s.Pooled {
+		host, port = pHost, pPort
+	}
+	out := []Binding{
+		{"url", conn(host, port), true, true},
+		{"url_direct", conn(dHost, dPort), true, true},
+		{"url_pooled", conn(pHost, pPort), true, true},
+		{"host", host, false, true},
+		{"host_direct", dHost, false, true},
+		{"host_pooled", pHost, false, true},
+		{"port", strconv.Itoa(port), false, false},
+		{"port_direct", strconv.Itoa(dPort), false, false},
+		{"port_pooled", strconv.Itoa(pPort), false, false},
+		{"database", s.Name, false, false},
+		{"user", s.User, false, false},
+		{"password", s.Password, true, false},
+	}
+	// ponytail: replicas do not exist yet; when they do, the _read values
+	// point at one and these copies become real values.
+	read := map[string]string{
+		"url": "url_read", "url_direct": "url_read_direct", "url_pooled": "url_read_pooled",
+		"host": "host_read", "host_direct": "host_read_direct", "host_pooled": "host_read_pooled",
+		"port": "port_read", "port_direct": "port_read_direct", "port_pooled": "port_read_pooled",
+	}
+	for _, b := range slices.Clone(out) {
+		if n, ok := read[b.Name]; ok {
+			b.Name = n
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // pgClusterMarker is the first line of a whole-instance dump. A dump without

@@ -588,8 +588,9 @@ the old `variables` table and the four-owner cascade.
   env. Service tile: `host`, `port`, `url` (service DNS on the env
   network), `public_domain`, `public_url` (first non-redirect domain;
   unset refuses the deploy). A slice publishes its engine's set (postgres:
-  `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`,
-  `PGPASSWORD`; s3 as today), minted for each consumer's own cred.
+  `url`, `host`, `port` (+ `_direct`, `_pooled`, `_read` forms),
+  `database`, `user`, `password`; s3: `endpoint`, `bucket`, `region`,
+  `access_key`, `secret_key`, `public_url`), minted for each consumer's own cred.
   Referencing a slice is what gets the consumer its binding.
 - **Where refs are allowed:** env values, command override, domains, a
   volume's backup `dest` (`org.backups.` refs only), and a slice tile's

@@ -227,7 +227,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 				it.Slug,
 			)
 		}
-		if err := e.Provision(ctx, inst, withBucket(slice(p), s), f.tools(ctx, it, m)); err != nil {
+		if err := e.Provision(ctx, inst, withTile(slice(p), s), f.tools(ctx, it, m)); err != nil {
 			return p, err
 		}
 		return p, f.SyncPooler(ctx, it) // a failed first try is made good here
@@ -253,7 +253,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 		Password: operated.Password(),
 	}
 	sl.User = sl.Name
-	sl = withBucket(sl, s)
+	sl = withTile(sl, s)
 	if def.RootCreds {
 		sl.User = m.AdminUser
 		sl.Password = m.AdminPassword
@@ -321,15 +321,24 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 	i := slices.IndexFunc(bound, func(b store.Binding) bool {
 		return b.ConsumerTileID == c.ID
 	})
-	if i >= 0 && bound[i].Access == access {
-		return bound[i], nil
-	}
 	m, it, e, err := f.of(ctx, p)
 	if err != nil {
 		return store.Binding{}, err
 	}
 	def := e.Definition()
 	inst := f.facts(ctx, it, m, def)
+	if i >= 0 && bound[i].Access == access {
+		// same cred; its outputs follow the slice's url setting
+		b := bound[i]
+		want, err := f.mint(ctx, e, inst, p, b)
+		if err != nil {
+			return b, err
+		}
+		if have, err := operated.Outputs(b); err != nil || maps.Equal(have, want) {
+			return b, err
+		}
+		return f.Instances.SetOutputs(ctx, b, want)
+	}
 	var others []Grant
 	for j, b := range bound {
 		if j != i {
@@ -357,15 +366,28 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 	if err := e.Bind(ctx, inst, slice(p), g, "", others, f.tools(ctx, it, m)); err != nil {
 		return store.Binding{}, fmt.Errorf("bind %s on %s: %w", g.User, p.DBName, err)
 	}
-	as := slice(p)
-	as.User = g.User
-	as.Password = g.Password
+	out, err := f.mint(ctx, e, inst, p, store.Binding{DBUser: g.User, DBPassword: g.Password})
+	if err != nil {
+		return store.Binding{}, err
+	}
 	return f.Instances.Bind(ctx, p, c.ID, operated.Cred{
 		Access:   access,
 		User:     g.User,
 		Password: g.Password,
-		Outputs:  outputs(e.Bindings(inst, as)),
+		Outputs:  out,
 	})
+}
+
+// mint is the outputs of cred b (its user and password) on slice p, read
+// through the slice tile's current url setting.
+func (f *Flow) mint(ctx context.Context, e OperatedTile, inst Instance, p store.Provision, b store.Binding) (map[string]string, error) {
+	st, err := f.Tiles.Get(ctx, p.TileID)
+	if err != nil {
+		return nil, err
+	}
+	as := withTile(slice(p), st)
+	as.User, as.Password = b.DBUser, b.DBPassword
+	return outputs(e.Bindings(inst, as)), nil
 }
 
 // Replay re-applies every slice and binding row of instance tile it to its
@@ -389,7 +411,7 @@ func (f *Flow) Replay(ctx context.Context, it store.Tile, log io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := e.Provision(ctx, inst, withBucket(slice(p), st), x); err != nil {
+		if err := e.Provision(ctx, inst, withTile(slice(p), st), x); err != nil {
 			return fmt.Errorf("provision %s on %s: %w", p.DBName, it.Slug, err)
 		}
 		bs, err := f.Instances.Bindings(ctx, p.ID)
@@ -435,13 +457,14 @@ func (f *Flow) Republish(ctx context.Context, it store.Tile) ([]string, error) {
 			return moved, err
 		}
 		for _, b := range bs {
-			as := slice(p)
-			as.User, as.Password = b.DBUser, b.DBPassword
 			have, err := operated.Outputs(b)
 			if err != nil {
 				return moved, err
 			}
-			want := outputs(e.Bindings(inst, as))
+			want, err := f.mint(ctx, e, inst, p, b)
+			if err != nil {
+				return moved, err
+			}
 			if maps.Equal(have, want) {
 				continue
 			}
@@ -823,9 +846,9 @@ func slice(p store.Provision) Slice {
 	}
 }
 
-// withBucket lays slice tile t's protection settings over s, so every
+// withTile lays slice tile t's protection and url settings over s, so every
 // Provision (deploy, replay, a settings edit) writes the same ones.
-func withBucket(s Slice, t store.Tile) Slice {
+func withTile(s Slice, t store.Tile) Slice {
 	s.VersionDays = s3.DefaultVersionDays
 	if t.VersionDays != nil {
 		s.VersionDays = *t.VersionDays
@@ -834,6 +857,7 @@ func withBucket(s Slice, t store.Tile) Slice {
 		s.QuotaBytes = int64(*t.QuotaGB) << 30
 	}
 	s.CORS = t.CORSOrigins
+	s.Pooled = tile.URLOf(t) == tile.Pooled
 	return s
 }
 
@@ -851,7 +875,7 @@ func (f *Flow) Resync(ctx context.Context, s store.Tile) error {
 	if err != nil {
 		return err
 	}
-	return e.Provision(ctx, f.facts(ctx, it, m, e.Definition()), withBucket(slice(p), s), f.tools(ctx, it, m))
+	return e.Provision(ctx, f.facts(ctx, it, m, e.Definition()), withTile(slice(p), s), f.tools(ctx, it, m))
 }
 
 var errNotBucket = errors.New("this slice is not a bucket")

@@ -61,6 +61,7 @@ type Tile struct {
 	VersionDays             *int            `db:"version_days" json:"version_days"`       // bucket slice: days old versions are kept; nil = default, 0 = versioning off
 	QuotaGB                 *int            `db:"quota_gb" json:"quota_gb"`               // bucket slice: hard size cap; nil or 0 = none
 	CORSOrigins             OriginList      `db:"cors_origins" json:"cors_origins"`       // bucket slice: origins CORS allows
+	SliceURL                *string         `db:"slice_url" json:"url"`                   // postgres slice: what url, host and port point at, direct | pooled; nil = direct
 	CreatedAt               time.Time       `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time       `db:"updated_at" json:"updated_at"`
 	ExpiresAt               *time.Time      `db:"expires_at" json:"expires_at"` // a branch slice: swept after this; nil = never

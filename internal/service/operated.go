@@ -375,6 +375,55 @@ func (o *Orchestrator) SetSliceOnRemove(ctx context.Context, sliceTileID, onRemo
 	return out, err
 }
 
+// SetSliceURL is what a postgres slice's url, host and port point at: direct
+// (the instance) or pooled (its pooler). The stored outputs follow at once and
+// the consumers redeploy to read them. A config-managed stack sets it in the
+// stack file.
+func (o *Orchestrator) SetSliceURL(ctx context.Context, sliceTileID, url string) (Tile, error) {
+	s, err := o.sliceTile(ctx, sliceTileID)
+	if err != nil {
+		return s, err
+	}
+	st, err := o.stacks.Get(ctx, s.StackID)
+	if err != nil {
+		return s, err
+	}
+	if st.ConfigRepo != "" {
+		return s, errs.Conflictf("stack %s is config-managed; set url in its stack file", st.Slug)
+	}
+	cur := s
+	cur.SliceURL = &url
+	out, _, err := o.tiles.Update(ctx, s, cur)
+	if err != nil {
+		return out, err
+	}
+	p, ok, err := o.operated.ProvisionOf(ctx, out.ID)
+	if err != nil || !ok {
+		return out, err // not provisioned: its first bind reads the setting
+	}
+	m, err := o.operated.Get(ctx, p.InstanceID)
+	if err != nil {
+		return out, err
+	}
+	it, err := o.tiles.Get(ctx, m.TileID)
+	if err != nil {
+		return out, err
+	}
+	ids, err := o.engines.Republish(ctx, it)
+	if err != nil {
+		return out, err
+	}
+	var readers []Tile
+	for _, id := range ids {
+		c, err := o.tiles.Get(ctx, id)
+		if err != nil {
+			return out, err
+		}
+		readers = append(readers, c)
+	}
+	return out, o.redeployUnion(ctx, readers)
+}
+
 // SetSliceDefaultAccess is the access slice tile sliceTileID grants a
 // consumer that names it by a ref alone: read | write. A config-managed
 // stack sets it in the stack file.
@@ -489,6 +538,7 @@ type SliceView struct {
 	Blocker       string `json:"blocker"`        // why it does not resolve; Target is "" then
 	DefaultAccess string `json:"default_access"`
 	OnRemove      string `json:"on_remove"`
+	URL           string `json:"url"` // direct | pooled: what url, host and port point at
 	Provisioned   bool   `json:"provisioned"`
 	Engine        string `json:"engine"`  // the instance's, once provisioned
 	Name          string `json:"name"`    // the database or bucket, once provisioned
@@ -514,6 +564,7 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 		ProvisionFrom: str(s.ProvisionFrom),
 		DefaultAccess: str(s.DefaultAccess),
 		OnRemove:      str(s.OnRemove),
+		URL:           tile.URLOf(s),
 		VersionDays:   s3.DefaultVersionDays,
 		CORSOrigins:   append([]string{}, s.CORSOrigins...),
 	}

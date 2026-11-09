@@ -472,7 +472,7 @@ func TestRenameRedirectKeepsHTTPSFlags(t *testing.T) {
 	}
 }
 
-// An operated tile's stored S3_ENDPOINT follows a rename of the resource its
+// An operated tile's stored endpoint follows a rename of the resource its
 // auto host sits under, and the consumer reading it redeploys.
 func TestRenameRepublishesOperatedURL(t *testing.T) {
 	t.Parallel()
@@ -486,7 +486,7 @@ func TestRenameRepublishesOperatedURL(t *testing.T) {
 	must(t, err)
 	p := store.Provision{ID: uuid.NewString(), TileID: files.ID, InstanceID: m.ID, DBName: "b", DBUser: "u", CreatedAt: time.Now()}
 	must(t, w.st.Provisions.Create(ctx, p))
-	old, _ := json.Marshal(map[string]string{"S3_ENDPOINT": "https://files.shop.acme.example.com"})
+	old, _ := json.Marshal(map[string]string{"endpoint": "https://files.shop.acme.example.com"})
 	must(t, w.st.Bindings.Create(ctx, store.Binding{
 		ID: uuid.NewString(), ProvisionID: p.ID, ConsumerTileID: w.api.ID,
 		Access: "write", DBUser: "u", Outputs: string(old), CreatedAt: time.Now(),
@@ -496,7 +496,7 @@ func TestRenameRepublishesOperatedURL(t *testing.T) {
 	must(t, err)
 	bs, err := w.st.Bindings.ListByProvision(ctx, p.ID)
 	must(t, err)
-	if len(bs) != 1 || !strings.Contains(bs[0].Outputs, `"S3_ENDPOINT":"https://files.shop.acme.new.io"`) {
-		t.Errorf("binding outputs = %+v, want S3_ENDPOINT on the new host", bs)
+	if len(bs) != 1 || !strings.Contains(bs[0].Outputs, `"endpoint":"https://files.shop.acme.new.io"`) {
+		t.Errorf("binding outputs = %+v, want endpoint on the new host", bs)
 	}
 }
