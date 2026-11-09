@@ -1,6 +1,7 @@
 package operated
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -52,22 +53,34 @@ func TestParseFacts(t *testing.T) {
 
 func TestCompareCounts(t *testing.T) {
 	t.Parallel()
-	before := "C\tdb\tpublic.a\t5\nC\tdb\tpublic.b\t7\nE\tdb\tpublic.big\t100\n"
-	if d, big := CompareCounts(before, before, true); len(d) != 0 || big != 1 {
-		t.Errorf("same: %v %d", d, big)
+	before := "C\tdb\tpublic.a\t5\nC\tdb\tpublic.b\t7\nC\tdb\tpublic.big\t100000000\n"
+	if d := CompareCounts(before, before); len(d) != 0 {
+		t.Errorf("same: %v", d)
 	}
-	after := "C\tdb\tpublic.a\t6\nE\tdb\tpublic.big\t99\nC\tdb\tpublic.new\t1\n"
-	d, _ := CompareCounts(before, after, true)
-	want := []string{"db public.a has 6 rows, had 5", "db public.b is missing", "db public.big is 99 bytes, was 100", "db public.new is new"}
+	after := "C\tdb\tpublic.a\t6\nC\tdb\tpublic.big\t99999999\nC\tdb\tpublic.new\t1\n"
+	d := CompareCounts(before, after)
+	want := []string{"db public.a has 6 rows, had 5", "db public.b is missing", "db public.big has 99999999 rows, had 100000000", "db public.new is new"}
 	if strings.Join(d, "|") != strings.Join(want, "|") {
 		t.Errorf("diff = %q", d)
 	}
-	// a load does not keep the size of a big table: only its presence counts
-	if d, _ := CompareCounts("E\tdb\tt\t100\n", "E\tdb\tt\t5\n", false); len(d) != 0 {
-		t.Errorf("presence only: %v", d)
+}
+
+// The downgrade's filter drops the admin's CREATE ROLE and the newer setting
+// outside COPY data, and never edits a data row that looks like either.
+func TestDumpFilterLeavesCopyDataAlone(t *testing.T) {
+	t.Parallel()
+	in := "SET transaction_timeout = 0;\nCREATE ROLE stackr;\nCREATE ROLE other;\n" +
+		"COPY public.t (a) FROM stdin;\nSET transaction_timeout = 5\nCREATE ROLE stackr;\n\\\\.\n\\.\n" +
+		"SET transaction_timeout = 0;\nSELECT 1;\n"
+	cmd := exec.Command("awk", "-v", "admin=stackr", PGDumpFilter)
+	cmd.Stdin = strings.NewReader(in)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Skipf("no awk: %v", err)
 	}
-	if d, _ := CompareCounts("E\tdb\tt\t100\n", "", false); len(d) != 1 {
-		t.Errorf("a missing big table: %v", d)
+	want := "CREATE ROLE other;\nCOPY public.t (a) FROM stdin;\nSET transaction_timeout = 5\nCREATE ROLE stackr;\n\\\\.\n\\.\nSELECT 1;\n"
+	if string(out) != want {
+		t.Errorf("filtered = %q, want %q", out, want)
 	}
 }
 

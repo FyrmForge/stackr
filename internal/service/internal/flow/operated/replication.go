@@ -417,7 +417,7 @@ fi
 // start tail, then postgres with the same owned flags as the primary.
 func standbyCommand(i Instance) []string {
 	cmd := []string{"sh", "-c", standbyPrep + pgStartTail, "sh", "postgres"}
-	for _, f := range pgFlags(i.Major, 0) {
+	for _, f := range pgFlags(i.Major, 0, 0) {
 		cmd = append(cmd, "-c", f)
 	}
 	return cmd

@@ -119,7 +119,7 @@ func (o *Orchestrator) pitrSourceOf(ctx context.Context, tileID string) (pitrSou
 	if err != nil {
 		return pitrSource{}, err
 	}
-	return pitrSource{t, m, v, org, dest, backup.PITRRoot(org, v.ID)}, nil
+	return pitrSource{t, m, v, org, dest, backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch)}, nil
 }
 
 // pitrPlan checks that the instance can be restored to atStr and reads what

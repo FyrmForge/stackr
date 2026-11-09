@@ -139,6 +139,9 @@ func (o *Orchestrator) addStandby(ctx context.Context, tileID, nodeRef string) (
 	if err != nil {
 		return InstanceMember{}, err
 	}
+	if st, ok := o.pgupOf(ctx, inst.ID); ok && (!st.Done || st.RollingBack) {
+		return InstanceMember{}, errs.Conflictf("a postgres version change is in progress; add the standby when it has ended")
+	}
 	n, err := o.nodeByRef(ctx, nodeRef)
 	if err != nil {
 		return InstanceMember{}, errs.Invalidf("node", "Pick one of the cluster's nodes.")

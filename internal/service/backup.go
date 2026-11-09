@@ -435,7 +435,7 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 		if sp.Dest, err = o.pitrDest(ctx, org, v); err != nil {
 			return err
 		}
-		sp.Prefix, sp.Keep, sp.PITRDays = backup.PITRRoot(org, v.ID)+"/"+backup.BaseDir, 0, m.PITRDays
+		sp.Prefix, sp.Keep, sp.PITRDays = backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch)+"/"+backup.BaseDir, 0, m.PITRDays
 	}
 	_, err = o.backup.Backup(ctx, sub, sp, r.Log)
 	return err

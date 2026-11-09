@@ -76,10 +76,15 @@ type pgUp struct {
 	Facts              mflow.ClusterFacts
 	Counts             string // the old cluster's rows, counted
 	Done               bool
-	At                 time.Time
-	OldVol             string // the volume row that holds the old data once Done
-	OldName, NewName   string // the Docker volumes of the old and the new data
-	Prev               *pgUp
+	// Swapped is written in the transaction of the swap itself: from then on
+	// the new data is authoritative and the run only ever goes forward.
+	Swapped bool
+	// RollingBack is set while a rollback runs, so no standby is added meanwhile.
+	RollingBack      bool
+	At               time.Time
+	OldVol           string // the volume row that holds the old data once Done
+	OldName, NewName string // the Docker volumes of the old and the new data
+	Prev             *pgUp
 }
 
 func (o *Orchestrator) pgupOf(ctx context.Context, instanceID string) (pgUp, bool) {
@@ -496,7 +501,7 @@ func (u *pgupRun) run(ctx context.Context) error {
 		_, _ = fmt.Fprintf(u.r.Log, "%s\n", steps[i].name)
 		if err := steps[i].do(ctx); err != nil {
 			// a crash or a shutdown is no failure: the cursor resumes it
-			if i <= pgupSwapAt && ctx.Err() == nil {
+			if i <= pgupSwapAt && !u.st.Swapped && ctx.Err() == nil {
 				u.abort(ctx, err)
 			}
 			return fmt.Errorf("%s: %w", steps[i].name, err)
@@ -620,22 +625,17 @@ func (u *pgupRun) verify(ctx context.Context) error {
 	if err := o.engines.PGLogins(ctx, cand, logins); err != nil {
 		return err
 	}
-	after, err := o.engines.PGCounts(ctx, cand)
+	after, err := o.engines.PGCounts(ctx, cand, u.r.Log)
 	if err != nil {
 		return err
 	}
-	diff, big := mflow.CompareCounts(u.st.Counts, after, u.st.To > u.st.From)
-	if len(diff) > 0 {
+	if diff := mflow.CompareCounts(u.st.Counts, after); len(diff) > 0 {
 		if len(diff) > 10 {
 			diff = append(diff[:10], fmt.Sprintf("and %d more", len(diff)-10))
 		}
 		return fmt.Errorf("the new cluster does not hold what the old one did: %s", strings.Join(diff, "; "))
 	}
-	how := "by size on disk"
-	if u.st.To < u.st.From {
-		how = "by their presence only: a load does not keep their size"
-	}
-	_, _ = fmt.Fprintf(u.r.Log, "logins work and the row counts match; %d table(s) over 1 GB were compared %s, not counted\n", big, how)
+	_, _ = fmt.Fprintf(u.r.Log, "logins work and every table has the rows it had\n")
 	return nil
 }
 
@@ -652,6 +652,9 @@ func (u *pgupRun) finishUp(ctx context.Context) error {
 // lives, which is how a re-run knows it already happened.
 func (u *pgupRun) swap(ctx context.Context) error {
 	o := u.o
+	if u.st.Swapped { // an earlier run swapped, and its cursor save was lost
+		return nil
+	}
 	cand, err := u.candidate(ctx)
 	if err != nil {
 		return err
@@ -660,9 +663,12 @@ func (u *pgupRun) swap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if cv.OrphanedAt != nil { // an earlier run swapped: the old data is in the candidate's row now
-		sv, err := o.volumes.Get(ctx, u.sv.ID)
-		u.st.OldVol, u.st.OldName, u.st.NewName = cv.ID, cv.Name, sv.Name
+	// the topology holds still from the last look to the swap: no standby
+	// added, no fence set, in between
+	mu := o.topoLock(u.m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := o.pgChangeSafe(ctx, u.t, u.m); err != nil {
 		return err
 	}
 	if o.tileRunning(ctx, cand) {
@@ -677,12 +683,31 @@ func (u *pgupRun) swap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	u.st.OldVol, u.st.OldName, u.st.NewName = cv.ID, sv.Name, cv.Name
-	return o.swapMajor(ctx, sv, cv, u.t.ID, u.m.ID, u.st.ToImage, u.st.To)
+	u.st.OldVol, u.st.OldName, u.st.NewName, u.st.Swapped = cv.ID, sv.Name, cv.Name, true
+	st := u.st
+	err = o.swapMajor(ctx, sv, cv, u.t.ID, u.m.ID, u.st.ToImage, u.st.To, func(tx store.Tx) error {
+		b, _ := json.Marshal(st)
+		return tx.Settings.Set(ctx, pgupKey+u.m.ID, string(b))
+	})
+	if err != nil {
+		u.st.Swapped = false
+	}
+	return err
 }
 
-// swapMajor is swapData with the instance's image and major, all or nothing.
-func (o *Orchestrator) swapMajor(ctx context.Context, sv, cv store.Volume, tileID, instanceID, image string, major int) error {
+// pgChangeSafe is what must hold for the swap: no standby (it would follow
+// data that no longer exists) and a primary that is not fenced. Asked under
+// the topology lock, right before the swap.
+func (o *Orchestrator) pgChangeSafe(ctx context.Context, t Tile, m OperatedInstance) error {
+	if err := o.noStandbyForChange(ctx, t, m); err != nil {
+		return err
+	}
+	return o.mayStartTile(ctx, t)
+}
+
+// swapMajor is swapData with the instance's image and major, and the next
+// archive epoch, all or nothing; extra runs in the same transaction.
+func (o *Orchestrator) swapMajor(ctx context.Context, sv, cv store.Volume, tileID, instanceID, image string, major int, extra func(store.Tx) error) error {
 	sv.Name, cv.Name = cv.Name, sv.Name
 	now := time.Now().UTC()
 	cv.OrphanedAt = &now
@@ -696,10 +721,14 @@ func (o *Orchestrator) swapMajor(ctx context.Context, sv, cv store.Volume, tileI
 			return err
 		}
 		t.ImageRef, m.Major = image, major
+		m.ArchiveEpoch++ // the old major's WAL and the new cluster's never share an archive
 		for _, err := range []error{tx.Volumes.Update(ctx, sv), tx.Volumes.Update(ctx, cv), tx.Tiles.Update(ctx, t), tx.OperatedInstances.Update(ctx, m)} {
 			if err != nil {
 				return err
 			}
+		}
+		if extra != nil {
+			return extra(tx)
 		}
 		return nil
 	})
@@ -761,6 +790,9 @@ func (u *pgupRun) done(ctx context.Context) error {
 // before (a replaced rollback record) or none.
 func (u *pgupRun) abort(ctx context.Context, cause error) {
 	o := u.o
+	if u.st.Swapped { // the old volume is the rollback now: nothing here may touch it
+		return
+	}
 	ctx = tearingDown(context.WithoutCancel(ctx))
 	_, _ = fmt.Fprintf(u.r.Log, "stopping without a change: %v\n", cause)
 	if u.st.WasUp && !o.tileRunning(ctx, u.t) {
@@ -839,8 +871,19 @@ func (o *Orchestrator) runPGRollback(ctx context.Context, r *jobs.Run, p pgUpgra
 	if err != nil {
 		return errs.Conflictf("the old data of %s is gone; it cannot be rolled back", t.Slug)
 	}
+	if !st.RollingBack {
+		st.RollingBack = true
+		if err := o.setPGUp(ctx, m.ID, st); err != nil {
+			return err
+		}
+	}
 	if sv.Name != st.OldName { // not yet swapped back (a re-run finds it done)
-		if err := o.noStandbyForChange(ctx, t, m); err != nil {
+		mu := o.topoLock(m.ID)
+		mu.Lock()
+		defer mu.Unlock()
+		if err := o.pgChangeSafe(ctx, t, m); err != nil {
+			st.RollingBack = false
+			_ = o.setPGUp(ctx, m.ID, st)
 			return err
 		}
 		_, _ = fmt.Fprintf(r.Log, "stop the instance\n")
@@ -854,7 +897,7 @@ func (o *Orchestrator) runPGRollback(ctx context.Context, r *jobs.Run, p pgUpgra
 		if err := r.Swap(); err != nil {
 			return err
 		}
-		if err := o.swapMajor(ctx, sv, ov, t.ID, m.ID, st.FromImage, st.From); err != nil {
+		if err := o.swapMajor(ctx, sv, ov, t.ID, m.ID, st.FromImage, st.From, nil); err != nil {
 			if was {
 				_ = o.container.Start(context.WithoutCancel(ctx), t, r.Log)
 			}

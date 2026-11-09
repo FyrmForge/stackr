@@ -121,6 +121,7 @@ type Instance struct {
 	Port          int
 	PublicBase    string // scheme+host of its public domain, "" if none
 	PITRDays      int    // the point-in-time recovery window; 0 = off
+	ArchiveEpoch  int    // which archive: see ArchiveDirOf
 	// Major is the postgres major the image tag names, 0 = unknown. Settings
 	// are the user's overrides; MemMB the tile's memory limit (0 = none) and
 	// NodeMemMB the node's memory (0 = unknown), which the computed defaults

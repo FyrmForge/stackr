@@ -814,6 +814,7 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 		Host:          alias(t, m),
 		Port:          def.Port,
 		PITRDays:      m.PITRDays,
+		ArchiveEpoch:  m.ArchiveEpoch,
 		Major:         m.Major,
 		MemMB:         t.MemLimitMB,
 		Settings:      m.Settings,

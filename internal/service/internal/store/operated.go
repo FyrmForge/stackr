@@ -22,6 +22,10 @@ type OperatedInstance struct {
 	// Settings are a postgres instance's own overrides of the computed
 	// defaults, name to value.
 	Settings StringMap `db:"settings" json:"settings"`
+	// ArchiveEpoch numbers the point-in-time archive: 0 is the first, and a
+	// major change or its rollback starts the next, with its own local
+	// archive directory and object prefix.
+	ArchiveEpoch int `db:"archive_epoch" json:"-"`
 	// Major is the postgres major the instance was made with; 0 = not postgres.
 	Major int `db:"major" json:"major"`
 	// PoolerPassword is the stackr_pooler role's password, minted when the

@@ -112,7 +112,7 @@ func TestPGUpdate(t *testing.T) {
 // gets the archive flags when PITR is on.
 func TestPGFlagsEveryTableMajor(t *testing.T) {
 	for _, r := range PGReleases {
-		f := strings.Join(pgFlags(r.Major, 7), " ")
+		f := strings.Join(pgFlags(r.Major, 7, 0), " ")
 		if has := strings.Contains(f, "allow_alter_system"); has != (r.Major >= 17) {
 			t.Errorf("%d: allow_alter_system = %v", r.Major, has)
 		}

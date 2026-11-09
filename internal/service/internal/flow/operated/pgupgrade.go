@@ -42,10 +42,6 @@ const (
 	PGStepDump    = "dump"
 )
 
-// PGCountLimit is the size under which a table is counted with count(*); a
-// larger one is compared by its size on disk (a copy keeps it) and said so.
-const PGCountLimit int64 = 1 << 30
-
 // PGUpgradeNeed is the free space a new volume needs: the old data again, and
 // a fifth over for what the new cluster adds.
 func PGUpgradeNeed(size int64) int64 { return size + size/5 }
@@ -112,47 +108,37 @@ func (c ClusterFacts) InitdbArgs(to int) []string {
 }
 
 // The queries the helper and the new instance both ask, so their answers
-// compare: the databases, and one line per user table with its row count (a
-// table over the limit: its size on disk).
+// compare: the databases, and one line per user table with its exact row
+// count. Every table is counted, whatever its size: it is the one check of
+// the data's content, and the instance is stopped for it anyway.
 const (
 	pgDBsSQL   = `SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY 1`
-	pgCountSQL = `SELECT CASE WHEN pg_relation_size(c.oid) <= %[1]d THEN 'C' ELSE 'E' END, current_database(), n.nspname || '.' || c.relname, ` +
-		`CASE WHEN pg_relation_size(c.oid) <= %[1]d THEN (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %%I.%%I', n.nspname, c.relname), false, true, '')))[1]::text ` +
-		`ELSE pg_relation_size(c.oid)::text END ` +
+	pgCountSQL = `SELECT 'C', current_database(), n.nspname || '.' || c.relname, ` +
+		`(xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', n.nspname, c.relname), false, true, '')))[1]::text ` +
 		`FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ` +
 		`WHERE c.relkind IN ('r', 'm') AND c.relispopulated AND n.nspname NOT IN ('pg_catalog', 'information_schema') ` +
 		`AND n.nspname !~ '^pg_(toast|temp)' ORDER BY 3`
 )
 
-func countSQL(limit int64) string { return fmt.Sprintf(pgCountSQL, limit) }
-
 // CompareCounts reports what differs between two outputs of the count query:
-// a table gone, new, or with another row count. A table over the limit is
-// compared by size when bySize (a copy keeps it; a dump and load does not) and
-// by presence only otherwise; big says how many there were.
-func CompareCounts(before, after string, bySize bool) (diff []string, big int) {
-	parse := func(out string) map[string][2]string {
-		m := map[string][2]string{}
+// a table gone, new, or with another row count.
+func CompareCounts(before, after string) (diff []string) {
+	parse := func(out string) map[string]string {
+		m := map[string]string{}
 		for _, l := range strings.Split(out, "\n") {
-			if p := strings.Split(strings.TrimRight(l, "\r"), "\t"); len(p) == 4 && (p[0] == "C" || p[0] == "E") {
-				m[p[1]+" "+p[2]] = [2]string{p[0], p[3]}
+			if p := strings.Split(strings.TrimRight(l, "\r"), "\t"); len(p) == 4 && p[0] == "C" {
+				m[p[1]+" "+p[2]] = p[3]
 			}
 		}
 		return m
 	}
 	b, a := parse(before), parse(after)
 	for k, bv := range b {
-		av, ok := a[k]
-		switch {
+		switch av, ok := a[k]; {
 		case !ok:
 			diff = append(diff, k+" is missing")
-		case bv[0] == "E":
-			big++
-			if bySize && (av[0] != "E" || av[1] != bv[1]) {
-				diff = append(diff, fmt.Sprintf("%s is %s bytes, was %s", k, av[1], bv[1]))
-			}
 		case av != bv:
-			diff = append(diff, fmt.Sprintf("%s has %s rows, had %s", k, av[1], bv[1]))
+			diff = append(diff, fmt.Sprintf("%s has %s rows, had %s", k, av, bv))
 		}
 	}
 	for k := range a {
@@ -161,17 +147,27 @@ func CompareCounts(before, after string, bySize bool) (diff []string, big int) {
 		}
 	}
 	sort.Strings(diff)
-	return diff, big
+	return diff
 }
+
+// PGDumpFilter is the awk program a downgrade's dump goes through: it drops
+// the CREATE ROLE of the admin (initdb made it) and the one setting a newer
+// pg_dump writes that older servers do not know, and only outside COPY data,
+// which is passed through untouched up to its terminating line.
+const PGDumpFilter = `copy { print; if ($0 == "\\.") copy = 0; next }
+/^COPY .* FROM stdin;$/ { copy = 1; print; next }
+$0 == "CREATE ROLE " admin ";" { next }
+/^SET transaction_timeout/ { next }
+{ print }`
 
 // pgUpgradeScript is the helper's one program; STEP picks the part. It runs
 // as root to lay the new volume out, and everything that touches a cluster as
 // postgres. The old cluster is only ever started on a private socket. A
 // check never needs the new volume: its scratch cluster lives in the
 // container. A failed pg_upgrade prints the files it names its reasons in.
-// ponytail: the dump of a downgrade drops one setting a newer pg_dump
-// writes that older servers do not know (transaction_timeout, from 17); any
-// other difference fails the load and is said.
+// ponytail: the dump of a downgrade drops the one setting a newer pg_dump
+// writes that older servers do not know (transaction_timeout, from 17), outside
+// COPY data only (PGDumpFilter); any other difference fails the load and is said.
 const pgUpgradeScript = `set -eo pipefail
 OLDBIN=/usr/lib/postgresql/$OLDMAJOR/bin; NEWBIN=/usr/lib/postgresql/$NEWMAJOR/bin
 as() { gosu postgres "$@"; }
@@ -215,7 +211,7 @@ dump)
   mknew
   startold; trap stopold EXIT
   as "$NEWBIN/pg_ctl" -D "$NEWDIR" -w -s -l /tmp/new.log -o "-c listen_addresses= -c unix_socket_directories=/tmp -c port=5433" start || { cat /tmp/new.log; exit 1; }
-  as "$OLDBIN/pg_dumpall" -h /tmp -U "$ADMIN" | sed -e "/^CREATE ROLE $ADMIN;\$/d" -e '/^SET transaction_timeout/d' \
+  as "$OLDBIN/pg_dumpall" -h /tmp -U "$ADMIN" | awk -v admin="$ADMIN" "$DUMP_FILTER" \
     | as "$NEWBIN/psql" -X -q -h /tmp -p 5433 -U "$ADMIN" -d postgres -v ON_ERROR_STOP=1 -f - >/dev/null
   as "$NEWBIN/pg_ctl" -D "$NEWDIR" -m fast -w -s stop
   ;;
@@ -252,7 +248,7 @@ func (r UpgradeRun) Spec() (docker.ContainerSpec, error) {
 		"STEP=" + r.Step, "OLDMAJOR=" + strconv.Itoa(r.From), "NEWMAJOR=" + strconv.Itoa(r.To),
 		"ADMIN=" + r.Admin, "OLDDIR=" + oldDir, "NEWDIR=" + newDir, "PGU_FLAGS=" + flags,
 		"INITDB_FLAGS=" + strings.Join(r.Facts.InitdbArgs(r.To), " "),
-		"DBS_SQL=" + pgDBsSQL, "COUNT_SQL=" + countSQL(PGCountLimit),
+		"DBS_SQL=" + pgDBsSQL, "COUNT_SQL=" + pgCountSQL, "DUMP_FILTER=" + PGDumpFilter,
 	}
 	if r.Counts {
 		env = append(env, "COUNTS=1")
@@ -279,7 +275,7 @@ const pgLoginScript = `umask 077; f=$(mktemp); cat > "$f"; PGPASSFILE=$f PGCONNE
 // PGCounts is the count query's lines over every database; PGLogins checks
 // each login the stack uses still works, so a lost password hash shows now.
 
-func (f *Flow) PGCounts(ctx context.Context, it store.Tile) (string, error) {
+func (f *Flow) PGCounts(ctx context.Context, it store.Tile, log io.Writer) (string, error) {
 	_, i, x, err := f.postgres(ctx, it)
 	if err != nil {
 		return "", err
@@ -290,7 +286,8 @@ func (f *Flow) PGCounts(ctx context.Context, it store.Tile) (string, error) {
 	}
 	var all strings.Builder
 	for _, db := range strings.Fields(dbs) {
-		out, err := x.Exec(ctx, append(pg{}.psql(i, db, nil), "-tA", "-F", "\t", "-c", countSQL(PGCountLimit)))
+		logf(log, "counting the rows of every table in %s\n", db)
+		out, err := x.Exec(ctx, append(pg{}.psql(i, db, nil), "-tA", "-F", "\t", "-c", pgCountSQL))
 		if err != nil {
 			return "", fmt.Errorf("count the rows of %s: %w", db, err)
 		}

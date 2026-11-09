@@ -14,13 +14,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 const (
 	pgupFacts = "F\tenc\tUTF8\nF\tcollate\ten_US.utf8\nF\tctype\ten_US.utf8\nF\tprov\tc\nF\tsums\toff\nF\tboot\tstackr\n"
-	pgupRows  = "C\tpostgres\tpublic.orders\t42\nE\tpostgres\tpublic.big\t9000000\n"
+	pgupRows  = "C\tpostgres\tpublic.orders\t42\nC\tpostgres\tpublic.big\t9000000\n"
 )
 
 // pgupRig is an instance running postgres 17 with a slice, a binding, a
@@ -408,12 +409,12 @@ func TestCheckOnlyRefusalIsRemembered(t *testing.T) {
 func TestFailureBeforeTheSwapChangesNothing(t *testing.T) {
 	t.Parallel()
 	for name, fail := range map[string]func(r *pgupRig){
-		"rows differ":     func(r *pgupRig) { r.rows = "C\tpostgres\tpublic.orders\t41\nE\tpostgres\tpublic.big\t9000000\n" },
-		"table missing":   func(r *pgupRig) { r.rows = "C\tpostgres\tpublic.orders\t42\n" },
-		"big table moved": func(r *pgupRig) { r.rows = "C\tpostgres\tpublic.orders\t42\nE\tpostgres\tpublic.big\t8000000\n" },
-		"pg_upgrade":      func(r *pgupRig) { r.exit[mflow.PGStepUpgrade] = 1; r.out[mflow.PGStepUpgrade] = "could not copy file" },
-		"dry run":         func(r *pgupRig) { r.exit[mflow.PGStepCheck] = 1 },
-		"facts":           func(r *pgupRig) { r.exit[mflow.PGStepFacts] = 1 },
+		"rows differ":    func(r *pgupRig) { r.rows = "C\tpostgres\tpublic.orders\t41\nC\tpostgres\tpublic.big\t9000000\n" },
+		"table missing":  func(r *pgupRig) { r.rows = "C\tpostgres\tpublic.orders\t42\n" },
+		"big table rows": func(r *pgupRig) { r.rows = "C\tpostgres\tpublic.orders\t42\nC\tpostgres\tpublic.big\t8999999\n" },
+		"pg_upgrade":     func(r *pgupRig) { r.exit[mflow.PGStepUpgrade] = 1; r.out[mflow.PGStepUpgrade] = "could not copy file" },
+		"dry run":        func(r *pgupRig) { r.exit[mflow.PGStepCheck] = 1 },
+		"facts":          func(r *pgupRig) { r.exit[mflow.PGStepFacts] = 1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -447,12 +448,11 @@ func TestFailureBeforeTheSwapChangesNothing(t *testing.T) {
 }
 
 // A downgrade is a dump with the newer pg_dumpall into a fresh volume made by
-// the older major (no dry run: nothing to ask of pg_upgrade). Big tables are
-// not compared by size, which a load does not keep.
+// the older major (no dry run: nothing to ask of pg_upgrade). Every table is
+// counted exactly, as for an upgrade.
 func TestDowngradeDumpsAndLoads(t *testing.T) {
 	t.Parallel()
 	r := newPGUpRig(t)
-	r.rows = "C\tpostgres\tpublic.orders\t42\nE\tpostgres\tpublic.big\t123\n"
 	ctx, _ := r.orch.withTileNode(context.Background(), r.pg.ID)
 	u := r.begin(t, 16)
 	must(t, u.run(ctx))
@@ -552,7 +552,7 @@ func TestSwapIsNotRepeated(t *testing.T) {
 	}
 	swapped, _ := r.orch.volumes.Get(ctx, oldVol.ID)
 	st, _ := r.orch.pgupOf(ctx, r.inst.ID)
-	st.Step, st.OldName = pgupSwapAt, "" // the cursor save was lost
+	st.Step = pgupSwapAt // the cursor save was lost
 	must(t, r.orch.setPGUp(ctx, r.inst.ID, st))
 	must(t, r.run(t, ctx).run(ctx))
 
@@ -673,5 +673,152 @@ func TestChangePGMajorJobFailsCleanly(t *testing.T) {
 	}
 	if _, ok := r.orch.pgupOf(ctx, r.inst.ID); ok {
 		t.Error("the change state stayed")
+	}
+}
+
+// The swap's marker is written with the swap: a cursor save lost after it, and
+// then a candidate that cannot be read, still go forward and delete nothing.
+func TestLostCursorAfterSwapGoesForward(t *testing.T) {
+	t.Parallel()
+	r := newPGUpRig(t)
+	o := r.orch
+	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
+	oldVol, _ := o.dataVolume(ctx, r.pg)
+	u := r.begin(t, 18)
+	u.after = func(step string) error {
+		if step == "swap in the new data" {
+			return context.Canceled
+		}
+		return nil
+	}
+	if err := u.run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	st, _ := o.pgupOf(ctx, r.inst.ID)
+	if !st.Swapped {
+		t.Fatal("the swap left no marker")
+	}
+	st.Step = pgupSwapAt
+	must(t, o.setPGUp(ctx, r.inst.ID, st))
+	must(t, o.store.Tiles.Delete(ctx, st.Cand)) // the candidate cannot be read any more
+	before := len(r.called("RemoveVolume"))
+	must(t, r.run(t, ctx).run(ctx))
+	done, ok := o.pgupOf(ctx, r.inst.ID)
+	if !ok || !done.Done || done.OldName != oldVol.Name {
+		t.Errorf("state = %+v", done)
+	}
+	if kept, err := o.volumes.Get(ctx, done.OldVol); err != nil || kept.Name != oldVol.Name {
+		t.Errorf("the old volume is gone: %v", err)
+	}
+	if len(r.called("RemoveVolume")) != before {
+		t.Error("a volume was removed")
+	}
+}
+
+// Once the swap committed, the pre-swap abort does nothing at all.
+func TestAbortAfterTheSwapTouchesNothing(t *testing.T) {
+	t.Parallel()
+	r := newPGUpRig(t)
+	o := r.orch
+	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
+	u := r.begin(t, 18)
+	u.st.Swapped = true
+	u.abort(ctx, errors.New("read error"))
+	if _, ok := o.pgupOf(ctx, r.inst.ID); !ok {
+		t.Error("the state was deleted")
+	}
+	if _, err := o.tiles.Get(ctx, u.st.Cand); err != nil {
+		t.Errorf("the candidate was dropped: %v", err)
+	}
+}
+
+// Every major change and every rollback starts a new archive epoch: its own
+// local directory and its own object prefix, the old ones untouched.
+func TestEachChangeAndRollbackStartsAnArchiveEpoch(t *testing.T) {
+	t.Parallel()
+	rr := newRestoreRig(t)
+	r := newPGUpRigOn(t, rr.branchRig)
+	o := r.orch
+	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
+	root := func() string {
+		src, err := o.pitrSourceOf(ctx, r.pg.ID)
+		must(t, err)
+		return src.root
+	}
+	epoch := func() int { _, m, _ := o.instanceOf(ctx, r.pg.ID); return m.ArchiveEpoch }
+	first := root()
+	must(t, r.begin(t, 18).run(ctx))
+	second := root()
+	if epoch() != 1 || second == first || strings.HasPrefix(second, first+"/") || strings.HasPrefix(first, second+"/") {
+		t.Errorf("after the change: epoch %d, roots %s then %s", epoch(), first, second)
+	}
+	_, m, _ := o.instanceOf(ctx, r.pg.ID)
+	if cmd := mflow.Engines["postgres"].Definition().Start(mflow.Instance{Major: 18, PITRDays: 7, ArchiveEpoch: m.ArchiveEpoch}); !strings.Contains(strings.Join(cmd, " "), mflow.PGArchiveDir+"/e1/%f") {
+		t.Error("the archive command does not write to the epoch's directory")
+	}
+	j, err := o.RollbackPGUpgrade(ctx, roleP(r.org, "member"), r.pg.ID)
+	must(t, err)
+	if got := r.wait(t, j.ID); got.State != "done" {
+		t.Fatalf("rollback: %s %s", got.State, got.Error)
+	}
+	if third := root(); epoch() != 2 || third == first || third == second {
+		t.Errorf("after the rollback: epoch %d, root %s", epoch(), third)
+	}
+}
+
+// A standby cannot be added while a change runs, and a standby that appears
+// before the swap stops it, with the old data still the instance's.
+func TestStandbyDuringAChangeIsRefused(t *testing.T) {
+	t.Parallel()
+	r := newPGUpRig(t)
+	o := r.orch
+	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
+	oldVol, _ := o.dataVolume(ctx, r.pg)
+	u := r.begin(t, 18)
+	if _, err := o.AddStandby(ctx, r.pg.ID, "w1"); err == nil || !strings.Contains(err.Error(), "version change is in progress") {
+		t.Errorf("AddStandby = %v", err)
+	}
+	u.after = func(step string) error {
+		if step == "update extensions and statistics" {
+			return r.st.OperatedMembers.Create(ctx, store.OperatedMember{ID: "mem-2", InstanceID: r.inst.ID, Role: "replica", NodeID: "n", Volume: "v", State: "running", CreatedAt: time.Now()})
+		}
+		return nil
+	}
+	if err := u.run(ctx); err == nil || !strings.Contains(err.Error(), "standby") {
+		t.Fatalf("run = %v", err)
+	}
+	tl, m, _ := o.instanceOf(ctx, r.pg.ID)
+	if v, _ := o.dataVolume(ctx, tl); m.Major != 17 || v.Name != oldVol.Name {
+		t.Error("the swap went ahead")
+	}
+}
+
+// A primary fenced after the last look stops the swap: the old volume stays
+// the instance's and nothing is started.
+func TestFenceBeforeTheSwapStopsIt(t *testing.T) {
+	t.Parallel()
+	r := newPGUpRig(t)
+	o := r.orch
+	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
+	oldVol, _ := o.dataVolume(ctx, r.pg)
+	u := r.begin(t, 18)
+	u.after = func(step string) error {
+		if step == "update extensions and statistics" {
+			ms, err := o.members.List(ctx, r.inst.ID)
+			must(t, err)
+			p, _ := opmember.PrimaryOf(ms)
+			return o.FenceMember(ctx, p.ID, true)
+		}
+		return nil
+	}
+	if err := u.run(ctx); err == nil {
+		t.Fatal("the swap went ahead over a fenced primary")
+	}
+	tl, m, _ := o.instanceOf(ctx, r.pg.ID)
+	if v, _ := o.dataVolume(ctx, tl); m.Major != 17 || v.Name != oldVol.Name {
+		t.Error("the swap went ahead")
+	}
+	if _, ok := o.pgupOf(ctx, m.ID); ok {
+		t.Error("state stayed")
 	}
 }

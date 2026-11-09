@@ -431,7 +431,7 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m OperatedInstance) {
 		o.pitrHeld(ctx, m, it, v, &st, now)
 		return
 	}
-	root := backup.PITRRoot(org, v.ID)
+	root := backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch)
 	refused := ""
 	if !st.Guarded || st.DestID != dest.ID {
 		if err := o.backup.Guard(ctx, dest, root); err != nil {
@@ -448,8 +448,7 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m OperatedInstance) {
 		}
 	}
 	if refused == "" {
-		def := mflow.Engines[m.Engine].Definition()
-		res, err := o.backup.ShipWAL(ctx, fbackup.Ship{Engine: it, Dest: dest, Root: root, Dir: def.ArchiveDir}, io.Discard)
+		res, err := o.backup.ShipWAL(ctx, fbackup.Ship{Engine: it, Dest: dest, Root: root, Dir: mflow.ArchiveDirOf(m.ArchiveEpoch)}, io.Discard)
 		st.CheckedAt = now
 		archiving := err == nil || !errors.Is(err, fbackup.ErrNoArchive)
 		if archiving && st.ArchSince.IsZero() {
@@ -822,7 +821,7 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 	}
 	if derr == nil {
 		// The same rule a restore applies, so the range never counts a base it refuses.
-		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITRRoot(org, v.ID), m.ID); err == nil {
+		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch), m.ID); err == nil {
 			// a base newer than the archive's reach (walLag) is not restorable yet
 			if from, ok := backup.Restorable(bases, keys, lin); ok && (h.To == nil || !h.To.Before(from)) {
 				h.From = &from
