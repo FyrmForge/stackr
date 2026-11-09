@@ -11,6 +11,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -219,11 +220,27 @@ func (f *Flow) bind(
 	if err != nil {
 		return err
 	}
-	for _, u := range us {
-		it, err := f.target(ctx, u.slice, e, st, o)
+	// Resolve every target and check the consumer's refs before the first
+	// provision or bind: a bad ref must leave no login behind.
+	env, err := envMap(t.EnvJSON)
+	if err != nil {
+		return err
+	}
+	its := make([]store.Tile, len(us))
+	for i, u := range us {
+		if its[i], err = f.target(ctx, u.slice, e, st, o); err != nil {
+			return err
+		}
+		m, err := f.Operated.GetByTile(ctx, its[i].ID)
 		if err != nil {
 			return err
 		}
+		if err := checkOutputs(env, t.Command, u.slice.Slug, m.Engine); err != nil {
+			return err
+		}
+	}
+	for i, u := range us {
+		it := its[i]
 		p, err := f.Engines.Provision(ctx, it, u.slice)
 		if err != nil {
 			return err
@@ -279,4 +296,19 @@ func Refs(env map[string]string, command, slugName string) bool {
 		}
 	}
 	return false
+}
+
+// checkOutputs refuses a ref to an output the slice's engine does not
+// publish, before anything is provisioned for it.
+func checkOutputs(env map[string]string, command, slug, engine string) error {
+	valid := mflow.OutputNames(engine)
+	vals := append(slices.Collect(maps.Values(env)), command)
+	for _, v := range vals {
+		for _, body := range params.Refs(v) {
+			if f, ok := strings.CutPrefix(body, "tile."+slug+"."); ok && !slices.Contains(valid, f) {
+				return fmt.Errorf("${{ %s }}: slice %s publishes no output named %q; valid: %s", strings.TrimSpace(body), slug, f, strings.Join(valid, ", "))
+			}
+		}
+	}
+	return nil
 }

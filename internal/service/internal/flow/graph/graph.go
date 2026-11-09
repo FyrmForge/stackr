@@ -548,6 +548,7 @@ var rank = map[string]int{
 	"unhealthy": 5,
 	"offline":   5,
 	"degraded":  4,
+	"failed":    4,
 	"stopped":   3,
 	"running":   2,
 	"done":      1,
@@ -639,6 +640,12 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 	if hasJob {
 		if j.State == job.Waiting && j.WaitingParam != nil {
 			s.waiting = *j.WaitingParam
+		}
+		if t.Kind == tile.Slice && s.word == "none" && j.State == job.Failed && rollout[j.Kind] {
+			// a refused or failed provision of a slice that never was: no
+			// instance to have crashed
+			s.word = "failed"
+			return s, nil
 		}
 		s.word = LayerJob(s.word, up, tile.RunToCompletion(t.Kind), j)
 	}

@@ -180,6 +180,8 @@ func word(status, waiting string) (tone, text string) {
 		return "success", "Online"
 	case "error":
 		return "danger", "Crashed"
+	case "failed":
+		return "danger", "Deploy failed"
 	case "unhealthy":
 		return "warn", "Unhealthy"
 	case "degraded":

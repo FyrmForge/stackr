@@ -380,3 +380,53 @@ func TestSliceCreds(t *testing.T) {
 		t.Error("dialed a slice that was never deployed")
 	}
 }
+
+// A consumer deploy whose slice ref names no output fails before anything
+// is provisioned or bound: no login, no SQL.
+func TestBadSliceRefBindsNothing(t *testing.T) {
+	t.Parallel()
+	r := newBranchRig(t)
+	ctx := context.Background()
+	web := r.tile(t, "web", false)
+	_, err := r.st.DB().ExecContext(ctx, `UPDATE tiles SET env_json = ? WHERE id = ?`,
+		`{"DB":"${{ tile.db.URL }}"}`, web.ID)
+	must(t, err)
+	before := len(r.fake.Calls())
+	j, err := r.orch.Deploy(ctx, web.ID)
+	must(t, err)
+	if j = r.wait(t, j.ID); j.State != "failed" || !strings.Contains(j.Error, `no output named "URL"`) {
+		t.Fatalf("deploy = %s %q", j.State, j.Error)
+	}
+	bs, err := r.orch.Bindings(ctx, r.db.ID)
+	must(t, err)
+	if len(bs) != 1 {
+		t.Errorf("bindings = %d, want only the rig's", len(bs))
+	}
+	for _, c := range r.fake.Calls()[before:] {
+		if c.Method == "Exec" || c.Method == "ExecStream" {
+			t.Errorf("sql ran: %s", c)
+		}
+	}
+}
+
+// A slice whose deploy was refused before it was ever provisioned reads as
+// a failed deploy on the canvas, not a crash.
+func TestRefusedSliceDeployIsNotCrashed(t *testing.T) {
+	t.Parallel()
+	r := newBranchRig(t)
+	ctx := context.Background()
+	bad, err := r.orch.CreateSliceTile(ctx, r.env, "bad", "shop:dev:nope", "")
+	must(t, err)
+	j, err := r.orch.Deploy(ctx, bad.ID)
+	must(t, err)
+	if j = r.wait(t, j.ID); j.State != "failed" {
+		t.Fatalf("deploy = %s %q, want failed", j.State, j.Error)
+	}
+	v, err := r.orch.Canvas(ctx, CanvasScope{Kind: CanvasEnv, ID: r.env}, ShowAll)
+	must(t, err)
+	for _, n := range v.Nodes {
+		if n.ID == bad.ID && n.Status != "failed" {
+			t.Errorf("status = %q, want failed", n.Status)
+		}
+	}
+}

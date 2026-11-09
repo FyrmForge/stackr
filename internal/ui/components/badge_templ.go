@@ -306,6 +306,7 @@ var tileTone = map[string]string{
 	"degraded":    "warn",
 	"unhealthy":   "warn",
 	"error":       "bad",
+	"failed":      "bad",
 	"offline":     "bad",
 }
 
@@ -409,7 +410,7 @@ func EnvSwatch(color string, checked bool) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templruntime.NewAttributeExpression(color).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 112, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 113, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 			if templ_7745c5c3_Err != nil {
@@ -436,7 +437,7 @@ func EnvSwatch(color string, checked bool) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templruntime.NewAttributeExpression(color).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 113, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 114, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 		if templ_7745c5c3_Err != nil {
@@ -459,7 +460,7 @@ func EnvSwatch(color string, checked bool) templ.Component {
 		var templ_7745c5c3_Var19 string
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templruntime.NewAttributeExpression(color).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 113, Col: 106}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/badge.templ`, Line: 114, Col: 106}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 		if templ_7745c5c3_Err != nil {
