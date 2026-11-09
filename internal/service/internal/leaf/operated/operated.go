@@ -78,6 +78,7 @@ func (l *Leaf) Create(
 		AdminUser:     adminUser,
 		AdminPassword: secret(),
 		Endpoint:      endpoint,
+		SyncLimitMS:   10,
 		CreatedAt:     time.Now().UTC(),
 	}
 	return m, l.instances.Create(ctx, m)
@@ -117,6 +118,16 @@ func (l *Leaf) SetPITR(ctx context.Context, m store.OperatedInstance, days int) 
 		return m, errs.Invalidf("days", "the window is off or 1 to 365 days")
 	}
 	m.PITRDays = days
+	return m, l.instances.Update(ctx, m)
+}
+
+// SetSync stores the instance's synchronous replication choice; the watch
+// tick makes it live.
+func (l *Leaf) SetSync(ctx context.Context, m store.OperatedInstance, prefer bool, limitMS int, required bool) (store.OperatedInstance, error) {
+	if limitMS < 1 || limitMS > 10000 {
+		return m, errs.Invalidf("limit", "The limit is 1 to 10000 ms")
+	}
+	m.PreferSync, m.SyncLimitMS, m.SyncRequired = prefer, limitMS, required
 	return m, l.instances.Update(ctx, m)
 }
 

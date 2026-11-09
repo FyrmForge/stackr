@@ -27,7 +27,7 @@ func (a *app) dbSwitchover() *cobra.Command {
 
 func (a *app) dbPromote() *cobra.Command {
 	to := ""
-	gone, off := false, false
+	gone, off, async := false, false, false
 	c := leaf("promote", "operated.promote-standby", "Make a standby the primary when the primary is down", exact(0),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			if to == "" {
@@ -37,7 +37,7 @@ func (a *app) dbPromote() *cobra.Command {
 			if off {
 				phrase = "I powered the node off" // service.PoweredOffPhrase
 			}
-			v, err := a.call(POST, p+"/promote-standby", map[string]any{"to": to, "node_gone": gone, "powered_off": phrase})
+			v, err := a.call(POST, p+"/promote-standby", map[string]any{"to": to, "node_gone": gone, "powered_off": phrase, "allow_async_target": async})
 			if err != nil {
 				return err
 			}
@@ -50,5 +50,6 @@ func (a *app) dbPromote() *cobra.Command {
 	c.Flags().StringVar(&to, "to", "", "the node of the standby to promote (name or slug)")
 	c.Flags().BoolVar(&gone, "node-gone", false, "confirm the old primary's node is really gone (needed when it does not answer)")
 	c.Flags().BoolVar(&off, "powered-off", false, "promote without a recorded lease on the old primary: you powered its node off")
+	c.Flags().BoolVar(&async, "allow-async-target", false, "promote a standby the primary did not wait for, although one it did wait for is usable")
 	return c
 }

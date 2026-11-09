@@ -116,7 +116,7 @@ func (a *app) dbSettings() *cobra.Command {
 			return a.follow(base, m["job"], "update")
 		})))
 	return scoped(noun("db", "Postgres instances",
-		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), a.dbStandby(), a.dbSwitchover(), a.dbPromote(), version, update,
+		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), a.dbStandby(), a.dbSync(), a.dbSwitchover(), a.dbPromote(), version, update,
 		a.dbUpgrade(), a.dbRollbackUpgrade()), true)
 }
 

@@ -2,6 +2,7 @@ package operated_test
 
 import (
 	"context"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -136,41 +137,73 @@ func TestWALBudget(t *testing.T) {
 	}
 }
 
-// The slot cap in the running primary's owned conf follows the free disk: the
-// file is rewritten and reloaded only when it differs from what it should hold.
+// The running primary's owned conf (the slot cap follows the free disk) and
+// its sync conf (synchronous_standby_names) are rewritten only when they
+// differ, and the live setting is checked after a reload: a reload that did not
+// take is an error, and the next pass retries it even with the files current.
 func TestSyncOwned(t *testing.T) {
 	w := setup(t, "postgres")
 	free := 100 << 10
 	w.f.NodeDiskMB = func(context.Context, store.Tile) int { return free }
 	w.f.NodeDiskTotalMB = func(context.Context, store.Tile) int { return 200 << 10 }
-	have := ""
+	files := map[string]string{}
+	live, reloadWorks, reloads := "", true, 0
 	w.fake.ExecFn = func(cmd []string) string {
-		if len(cmd) > 3 && strings.Contains(cmd[2], `cat "$0"`) {
-			return have
+		switch {
+		case len(cmd) > 3 && strings.Contains(cmd[2], `cat "$0"`):
+			return files[path.Base(cmd[3])]
+		case len(cmd) > 5 && strings.Contains(cmd[2], "$1.new"):
+			files[cmd[4]] = cmd[5]
+		case strings.Contains(cmd[len(cmd)-1], "current_setting"):
+			return live + "\n"
+		case strings.Contains(cmd[len(cmd)-1], "pg_reload_conf"):
+			reloads++
+			if reloadWorks {
+				live = ""
+				if _, v, ok := strings.Cut(files["stackr-sync.conf"], "= '"); ok {
+					live = strings.TrimSuffix(strings.TrimSpace(v), "'")
+				}
+			}
 		}
 		return ""
 	}
 	writes := func() int {
 		n := 0
 		for _, c := range w.fake.Calls() {
-			if c.Method == "Exec" && strings.Contains(strings.Join(c.Args, " "), "$1.new") && slices.Contains(c.Args, "stackr-owned.conf") {
+			if c.Method == "Exec" && strings.Contains(strings.Join(c.Args, " "), "$1.new") {
 				n++
 			}
 		}
 		return n
 	}
-	must(t, w.f.SyncOwned(ctx, w.db))
-	if writes() != 1 {
-		t.Fatalf("an empty owned conf was not written: %d", writes())
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
+	if writes() != 2 || reloads != 1 {
+		t.Fatalf("empty files: writes %d reloads %d", writes(), reloads)
 	}
-	have = "# written by stackr; edits here are overwritten\nmax_slot_wal_keep_size = '10240MB'\n"
-	must(t, w.f.SyncOwned(ctx, w.db))
-	if writes() != 1 {
-		t.Errorf("a current owned conf was rewritten: %d", writes())
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
+	if writes() != 2 || reloads != 1 {
+		t.Errorf("current files: writes %d reloads %d", writes(), reloads)
 	}
 	free = 300 << 10 // the disk grew: 10% of it is a bigger cap
-	must(t, w.f.SyncOwned(ctx, w.db))
-	if writes() != 2 {
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
+	if writes() != 3 {
 		t.Errorf("a stale cap was not rewritten: %d", writes())
+	}
+	names := mflow.SyncStandbyNames([]string{"stackr_a"})
+	must(t, w.f.SyncOwned(ctx, w.db, names))
+	if writes() != 4 || live != names {
+		t.Errorf("a changed sync setting: writes %d live %q", writes(), live)
+	}
+	// the reload does not take: an error, never success; then the files are
+	// current but the live setting is not, and the next pass reloads again
+	reloadWorks = false
+	if err := w.f.SyncOwned(ctx, w.db, mflow.SyncStandbyNames(nil)); err == nil {
+		t.Fatal("a reload that did not take reported success")
+	}
+	reloadWorks = true
+	before := reloads
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
+	if reloads == before || live != "" {
+		t.Errorf("the failed reload was not retried: reloads %d live %q", reloads-before, live)
 	}
 }

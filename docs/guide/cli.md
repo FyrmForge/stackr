@@ -612,12 +612,13 @@ stackr db promote [flags]
 ```
 
 ```
-      --env string     the environment (default: the linked one)
-      --node-gone      confirm the old primary's node is really gone (needed when it does not answer)
-      --powered-off    promote without a recorded lease on the old primary: you powered its node off
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-      --to string      the node of the standby to promote (name or slug)
+      --allow-async-target   promote a standby the primary did not wait for, although one it did wait for is usable
+      --env string           the environment (default: the linked one)
+      --node-gone            confirm the old primary's node is really gone (needed when it does not answer)
+      --powered-off          promote without a recorded lease on the old primary: you powered its node off
+      --stack string         the stack (default: the linked one)
+      --tile string          the tile (default: the linked one)
+      --to string            the node of the standby to promote (name or slug)
 ```
 
 ### `stackr db rollback-upgrade`
@@ -744,6 +745,20 @@ stackr db standby remove <node|id> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+#### `stackr db standby sync`
+
+Set whether the primary waits for a standby: auto (while it is close), always or never
+
+```
+stackr db standby sync <node|id> <auto|always|never> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr db switchover`
 
 Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
@@ -757,6 +772,55 @@ stackr db switchover [flags]
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
       --to string      the standby's node (name or slug); default is the one that replayed the most
+```
+
+### `stackr db sync`
+
+Synchronous replication of a postgres instance
+
+#### `stackr db sync off`
+
+Stop waiting for standbys
+
+```
+stackr db sync off [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db sync on`
+
+Make the primary wait for a standby before it confirms a commit
+
+```
+stackr db sync on [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --limit-ms int   the round trip in ms under which an auto standby is waited for (default 10)
+      --preferred      fall back to asynchronous when no standby answers (the default)
+      --required       writes wait even when no standby answers (they freeze until one does)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db sync status`
+
+Show whether writes are protected by a standby now
+
+```
+stackr db sync status [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
 ```
 
 ### `stackr db update`

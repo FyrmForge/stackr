@@ -28,7 +28,11 @@ type OperatedMember struct {
 	Phase string `db:"phase" json:"phase"`
 	// Routed is whether the consumers on the member's node were last deployed
 	// with it in the read pool: a change owed to them while it differs.
-	Routed    bool      `db:"routed" json:"routed"`
+	Routed bool `db:"routed" json:"routed"`
+	// SyncMode is auto, always or never (see service/pgsync.go); SyncIn is
+	// whether the primary waits for the member now.
+	SyncMode  string    `db:"sync_mode" json:"sync_mode"`
+	SyncIn    bool      `db:"sync_in" json:"sync_in"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }

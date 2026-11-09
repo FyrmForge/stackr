@@ -99,7 +99,19 @@ type OverviewView struct {
 	Protection          string       // postgres only: the standby line, "" = not shown
 	Members             []MemberRow  // postgres only: the primary and its standbys; none = not shown
 	Failover            *FailoverView // postgres with a standby only
+	Sync                *SyncView     // postgres only; nil = not shown
 }
+
+// SyncView is the synchronous replication form: the choice, and in words
+// whether writes are protected now. Standbys carry each one's mode.
+type SyncView struct {
+	Prefer, Required bool
+	LimitMS          int
+	Status           string
+	Standbys         []SyncStandby
+}
+
+type SyncStandby struct{ ID, Node, Mode string }
 
 // FailoverView is what the Members section offers: a switchover to a caught-up
 // standby, and (primary down only) the promote of one. Unreachable is the
@@ -221,6 +233,9 @@ templ Overview(v View, o OverviewView) {
 			if o.Failover != nil {
 				@failover(v, *o.Failover)
 			}
+		}
+		if o.Sync != nil {
+			@syncForm(v, *o.Sync)
 		}
 		if o.Job != nil {
 			<h3 class="section-title">Last job</h3>
@@ -907,6 +922,45 @@ templ majorChange(v View, ver VersionView) {
 			</div>
 		</form>
 	}
+}
+
+templ syncForm(v View, s SyncView) {
+	<h3 class="section-title">Synchronous replication</h3>
+	<div class="panel p-4 space-y-3">
+		<p class="text-sm text-rw-text" role="status">{ s.Status }</p>
+		if v.ReadOnly {
+			<p class="text-xs text-rw-faint" data-hint>Only members and owners can change it.</p>
+		} else {
+			<form hx-post={ v.Base + "/sync" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="prefer" value="1" checked?={ s.Prefer } class="accent-rw-accent"/> <span>Prefer synchronous</span></label>
+				<div class="flex flex-wrap items-end gap-2">
+					<div class="min-w-32">
+						<label for="sync-limit" class="label">Wait for standbys closer than (ms)</label>
+						<input id="sync-limit" name="limit_ms" type="number" min="1" max="10000" value={ strconv.Itoa(s.LimitMS) } class="input"/>
+					</div>
+					<div class="min-w-32">
+						<label for="sync-required" class="label">When no standby answers</label>
+						<select id="sync-required" name="required" class="input">
+							<option value="" selected?={ !s.Required }>Carry on without waiting</option>
+							<option value="1" selected?={ s.Required }>Freeze writes</option>
+						</select>
+					</div>
+				</div>
+				<p class="text-xs text-rw-faint" data-hint>Freezing keeps every commit on a standby.</p>
+				for _, b := range s.Standbys {
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<label for={ "sync-mode-" + b.ID } class="text-sm text-rw-text">{ b.Node }</label>
+						<select id={ "sync-mode-" + b.ID } name={ "mode_" + b.ID } class="input w-auto">
+							<option value="auto" selected?={ b.Mode == "auto" }>Auto</option>
+							<option value="always" selected?={ b.Mode == "always" }>Always wait</option>
+							<option value="never" selected?={ b.Mode == "never" }>Never wait</option>
+						</select>
+					</div>
+				}
+				<button type="submit" class="btn btn-primary btn-sm">Save</button>
+			</form>
+		}
+	</div>
 }
 
 templ failover(v View, f FailoverView) {

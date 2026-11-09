@@ -439,9 +439,12 @@ table operated_instances
   col major INTEGER notnull=1 default=0 pk=0
   col pooler_password TEXT notnull=1 default='' pk=0
   col repl_password TEXT notnull=1 default='' pk=0
+  col prefer_sync INTEGER notnull=1 default=0 pk=0
+  col sync_limit_ms INTEGER notnull=1 default=10 pk=0
+  col sync_required INTEGER notnull=1 default=0 pk=0
   fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
-  sql CREATE TABLE operated_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0, settings TEXT NOT NULL DEFAULT '{}', major INTEGER NOT NULL DEFAULT 0, pooler_password TEXT NOT NULL DEFAULT '', repl_password TEXT NOT NULL DEFAULT '')
+  sql CREATE TABLE operated_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0, settings TEXT NOT NULL DEFAULT '{}', major INTEGER NOT NULL DEFAULT 0, pooler_password TEXT NOT NULL DEFAULT '', repl_password TEXT NOT NULL DEFAULT '', prefer_sync INTEGER NOT NULL DEFAULT 0, sync_limit_ms INTEGER NOT NULL DEFAULT 10, sync_required INTEGER NOT NULL DEFAULT 0)
 table operated_members
   col id TEXT notnull=0 default=- pk=1
   col instance_id TEXT notnull=1 default=- pk=0
@@ -456,11 +459,13 @@ table operated_members
   col updated_at DATETIME notnull=1 default=- pk=0
   col phase TEXT notnull=1 default='starting' pk=0
   col routed INTEGER notnull=1 default=0 pk=0
+  col sync_mode TEXT notnull=1 default='auto' pk=0
+  col sync_in INTEGER notnull=1 default=0 pk=0
   fk instance_id -> operated_instances(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
   index operated_members_node unique=1 origin=c partial=1 (instance_id,node_id) where role = 'replica'
   index operated_members_primary unique=1 origin=c partial=1 (instance_id) where role = 'primary'
-  sql CREATE TABLE operated_members ( id TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES operated_instances (id) ON DELETE CASCADE, role TEXT NOT NULL CHECK (role IN ('primary', 'replica')), node_id TEXT NOT NULL DEFAULT '', container TEXT NOT NULL DEFAULT '', volume TEXT NOT NULL DEFAULT '', subnet TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running', 'stopped', 'removing')), fenced INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL , phase TEXT NOT NULL DEFAULT 'starting', routed INTEGER NOT NULL DEFAULT 0)
+  sql CREATE TABLE operated_members ( id TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES operated_instances (id) ON DELETE CASCADE, role TEXT NOT NULL CHECK (role IN ('primary', 'replica')), node_id TEXT NOT NULL DEFAULT '', container TEXT NOT NULL DEFAULT '', volume TEXT NOT NULL DEFAULT '', subnet TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running', 'stopped', 'removing')), fenced INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL , phase TEXT NOT NULL DEFAULT 'starting', routed INTEGER NOT NULL DEFAULT 0, sync_mode TEXT NOT NULL DEFAULT 'auto', sync_in INTEGER NOT NULL DEFAULT 0)
 table org_config_plans
   col id TEXT notnull=0 default=- pk=1
   col org_id TEXT notnull=1 default=- pk=0

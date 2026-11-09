@@ -254,6 +254,13 @@ type TileConf struct {
 	// operated postgres: the nodes (name or slug) that hold a standby; nil =
 	// the file leaves the standbys as they are, an empty list removes them.
 	Standbys *[]string `yaml:"standbys"`
+	// operated postgres: wait for a standby before a commit is confirmed;
+	// SyncLimitMS is the round trip an auto standby may have (default 10),
+	// SyncRequired makes writes wait even when no standby answers. nil = the
+	// file leaves each as it is.
+	Sync         *bool `yaml:"sync"`
+	SyncLimitMS  *int  `yaml:"sync_limit_ms"`
+	SyncRequired *bool `yaml:"sync_required"`
 	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write;
 	// keep | drop, "" = keep (DECIDE 199; a PR env drops either way).
 	ProvisionFrom string `yaml:"provision_from"`
@@ -732,6 +739,12 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 		if err := deploy.CheckSettings(tc.Engine, tc.Settings); err != nil {
 			return fmt.Errorf("tile %s: settings: %w", name, err)
 		}
+		if (tc.Sync != nil || tc.SyncLimitMS != nil || tc.SyncRequired != nil) && tc.Engine != "postgres" {
+			return fmt.Errorf("tile %s: sync: only postgres has synchronous replication", name)
+		}
+		if tc.SyncLimitMS != nil && (*tc.SyncLimitMS < 1 || *tc.SyncLimitMS > 10000) {
+			return fmt.Errorf("tile %s: sync_limit_ms: the limit is 1 to 10000 ms", name)
+		}
 		if tc.Standbys != nil {
 			if tc.Engine != "postgres" {
 				return fmt.Errorf("tile %s: standbys: only postgres has standbys", name)
@@ -826,6 +839,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: major: only an operated tile takes it", name)
 	case tc.Settings != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: settings: only an operated tile takes it", name)
+	case (tc.Sync != nil || tc.SyncLimitMS != nil || tc.SyncRequired != nil) && tc.Type != "operated":
+		return fmt.Errorf("tile %s: sync: only an operated tile takes it", name)
 	case tc.Standbys != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: standbys: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":

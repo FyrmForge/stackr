@@ -320,6 +320,7 @@ type Orchestrator struct {
 	// would (tests).
 	failCrashAfter string
 	leasePush      func(ctx context.Context, nodeID string, l worker.Lease) error
+	syncCtls       sync.Map      // instance id -> *syncCtl (pgsync.go)
 	probeRuns      sync.Map      // standby member id -> consecutive streaming (+) or not (-) probes
 	repoLocks      sync.Map      // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
 	alertMem       *alertState   // the alert tick's memory (alerts.go)
@@ -928,6 +929,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.redeployRestored(ctx)
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()
+	orch.startSyncWatch()
 	orch.track(orch.pitrLoop)
 	orch.startDNSSocket()
 	if created {

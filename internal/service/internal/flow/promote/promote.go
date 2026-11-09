@@ -381,6 +381,11 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 				return fmt.Errorf("%s: standbys: %w", name, err)
 			}
 		}
+		if iw.sync != nil {
+			if m, err = d.Operated.SetSync(ctx, m, iw.sync.prefer, iw.sync.limitMS, iw.sync.required); err != nil {
+				return fmt.Errorf("%s: sync: %w", name, err)
+			}
+		}
 		if iw.pitr != nil {
 			if m, err = d.Operated.SetPITR(ctx, m, *iw.pitr); err != nil {
 				return fmt.Errorf("%s: %w", name, err)

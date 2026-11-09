@@ -264,6 +264,11 @@ func (o *Orchestrator) removeStandby(ctx context.Context, memberID string) error
 	if m, err = o.members.SetState(ctx, m, opmember.Removing); err != nil {
 		return err
 	}
+	if inst, err := o.operated.Get(ctx, m.InstanceID); err == nil {
+		if t, err := o.tiles.Get(ctx, inst.TileID); err == nil {
+			o.syncAfterTopology(ctx, t, inst.ID, false) // never wait for the slot about to go
+		}
+	}
 	if err := o.dropMember(ctx, m); err != nil {
 		return err
 	}

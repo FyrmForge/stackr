@@ -1,6 +1,7 @@
 package promote
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -443,12 +444,14 @@ func warnHost(p *Plan, e store.Environment, slug string, want, old store.Tile) {
 // instMoved: the engine, allow list or env pairs of two instances differ.
 func instMoved(a, b store.OperatedInstance) bool {
 	return a.Engine != b.Engine || signedDiff(a.Allow, b.Allow) != "" || !maps.Equal(a.EnvPairs, b.EnvPairs) ||
-		a.PITRDays != b.PITRDays || !maps.Equal(a.Settings, b.Settings)
+		a.PITRDays != b.PITRDays || !maps.Equal(a.Settings, b.Settings) ||
+		a.PreferSync != b.PreferSync || a.SyncRequired != b.SyncRequired || cmp.Or(a.SyncLimitMS, 10) != cmp.Or(b.SyncLimitMS, 10)
 }
 
 // thinConf is the part of a TileConf the shared plan helpers read, from a
 // tile row and its instance.
 func thinConf(t store.Tile, m store.OperatedInstance) TileConf {
+	lim := cmp.Or(m.SyncLimitMS, 10)
 	tc := TileConf{
 		Type:     t.Kind,
 		Engine:   m.Engine,
@@ -457,6 +460,7 @@ func thinConf(t store.Tile, m store.OperatedInstance) TileConf {
 		Command:  t.Command,
 		PITRDays: &m.PITRDays,
 		Settings: map[string]string{},
+		Sync:     &m.PreferSync, SyncRequired: &m.SyncRequired, SyncLimitMS: &lim,
 	}
 	maps.Copy(tc.Settings, m.Settings) // never nil: a plan reads nil as "untouched"
 	_ = json.Unmarshal([]byte(t.EnvJSON), &tc.Env)

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -102,6 +103,8 @@ func ParseSlotStates(out string) map[string]string {
 // from 16).
 const replLiveScript = `d="$0"
 grep -qx "include 'stackr-owned.conf'" "$d/postgresql.conf" || printf "include 'stackr-owned.conf'\n" >> "$d/postgresql.conf"
+[ -e "$d/stackr-sync.conf" ] || { : > "$d/stackr-sync.conf"; chown postgres:postgres "$d/stackr-sync.conf"; }
+grep -qx "include 'stackr-sync.conf'" "$d/postgresql.conf" || printf "include 'stackr-sync.conf'\n" >> "$d/postgresql.conf"
 f="$d/pg_hba.conf"
 { sed '/^# stackr replication begin$/,/^# stackr replication end$/d' "$f"
 if [ -n "$1" ]; then printf '# stackr replication begin\n%s\n# stackr replication end\n' "$1"; fi; } > "$f.new" &&
@@ -197,24 +200,136 @@ func (f *Flow) SyncReplHBA(ctx context.Context, it store.Tile, subnets []string)
 	return err
 }
 
-// SyncOwned rewrites the running primary's stackr-owned.conf when what it
-// should hold (the slot cap follows the node's free disk) is not what it
-// holds, and reloads.
-func (f *Flow) SyncOwned(ctx context.Context, it store.Tile) error {
+// SyncNoneSlot is a name no standby has: required mode names it when it has no
+// standby to wait for, so a commit waits for something that never answers.
+const SyncNoneSlot = "stackr_none"
+
+// SyncStandbyNames is the setting that makes the primary wait for any one of
+// slots (application_name is the slot name); "" for none = asynchronous.
+func SyncStandbyNames(slots []string) string {
+	if len(slots) == 0 {
+		return ""
+	}
+	q := make([]string, len(slots))
+	for k, s := range slots {
+		q[k] = `"` + s + `"`
+	}
+	return "ANY 1 (" + strings.Join(q, ", ") + ")"
+}
+
+// ReplicaState is one row of the primary's pg_stat_replication.
+type ReplicaState struct {
+	Name      string // application_name = the slot
+	Streaming bool
+	ReplyAge  float64 // seconds since the standby last replied; -1 = never
+}
+
+const replicaStatesSQL = `SELECT application_name || '|' || (state = 'streaming')::int || '|' || ` +
+	`coalesce(round(extract(epoch FROM now() - reply_time))::int, -1) FROM pg_stat_replication`
+
+// ReplicaStates reads the primary's pg_stat_replication.
+func (f *Flow) ReplicaStates(ctx context.Context, it store.Tile) ([]ReplicaState, error) {
+	_, i, x, err := f.postgres(ctx, it)
+	if err != nil {
+		return nil, err
+	}
+	out, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", replicaStatesSQL))
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplicaStates(out), nil
+}
+
+// ParseReplicaStates reads replicaStatesSQL's output.
+func ParseReplicaStates(out string) []ReplicaState {
+	var rs []ReplicaState
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		p := strings.Split(strings.TrimSpace(l), "|")
+		if len(p) != 3 {
+			continue
+		}
+		age, err := strconv.Atoi(p[2])
+		if err != nil {
+			continue
+		}
+		rs = append(rs, ReplicaState{Name: p[0], Streaming: p[1] == "1", ReplyAge: float64(age)})
+	}
+	return rs
+}
+
+// SyncOwned makes the running primary hold what it should: stackr-owned.conf
+// (the slot cap follows the node's free disk) and stackr-sync.conf (syncNames,
+// the slots it waits for) are rewritten when they differ, and it reloads when
+// one was or when the live synchronous_standby_names is not syncNames (a
+// reload that failed earlier is retried). It returns an error unless the live
+// value is syncNames afterwards: only then is it true.
+func (f *Flow) SyncOwned(ctx context.Context, it store.Tile, syncNames string) error {
 	_, i, x, err := f.postgres(ctx, it)
 	if err != nil {
 		return err
 	}
 	i = f.withNodeMem(ctx, it, i)
-	want := pgOwnedConf(i)
-	have, err := x.Exec(ctx, []string{"sh", "-c", `cat "$0" 2>/dev/null; true`, pgDataDir(i.Major) + "/stackr-owned.conf"})
-	if err != nil || have == want {
+	dir := pgDataDir(i.Major)
+	changed := false
+	for _, c := range [][2]string{{"stackr-owned.conf", pgOwnedConf(i)}, {"stackr-sync.conf", pgSyncConf(syncNames)}} {
+		name, want := c[0], c[1]
+		have, err := x.Exec(ctx, []string{"sh", "-c", `cat "$0" 2>/dev/null; true`, dir + "/" + name})
+		if err != nil {
+			return err
+		}
+		if have == want {
+			continue
+		}
+		if _, err := x.Exec(ctx, pgFileWrite(i, name, want)); err != nil {
+			return err
+		}
+		changed = true
+	}
+	psql := append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c")
+	live := func() (string, error) {
+		out, err := x.Exec(ctx, append(slices.Clone(psql), `SELECT current_setting('synchronous_standby_names')`))
+		return strings.TrimSpace(out), err
+	}
+	cur, err := live()
+	if err != nil {
 		return err
 	}
-	if _, err := x.Exec(ctx, pgFileWrite(i, "stackr-owned.conf", want)); err != nil {
+	if !changed && cur == syncNames {
+		return nil
+	}
+	for try := 0; ; try++ {
+		if _, err := x.Exec(ctx, append(slices.Clone(psql), `SELECT pg_reload_conf()`)); err != nil {
+			return err
+		}
+		select { // the reload is a signal: give the postmaster a moment
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+		if cur, err = live(); err != nil {
+			return err
+		}
+		if cur == syncNames {
+			return nil
+		}
+		if try == 4 {
+			return fmt.Errorf("synchronous_standby_names did not take effect after a reload")
+		}
+	}
+}
+
+// PrimeSync writes names into the sync conf of the standby reached by exec and
+// reloads, ahead of its promote: the setting is then in force from the first
+// write the new primary accepts (it is ignored while in recovery).
+func (f *Flow) PrimeSync(ctx context.Context, it store.Tile, exec func(ctx context.Context, cmd []string) (string, error), names string) error {
+	_, i, _, err := f.postgres(ctx, it)
+	if err != nil {
 		return err
 	}
-	_, err = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
+	if _, err := exec(ctx, pgFileWrite(i, "stackr-sync.conf", pgSyncConf(names))); err != nil {
+		return err
+	}
+	_, err = exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
 	return err
 }
 
@@ -288,7 +403,7 @@ if ! PGPASSFILE=` + ReplPassfile + ` pg_basebackup -h "$STACKR_PRIMARY" -p "$STA
 find "$d" -mindepth 1 -delete
 exit 1
 fi
-rm -f "$d/stackr.conf" "$d/stackr-owned.conf" "$d/.stackr.conf.host" "$d/postgresql.auto.conf"
+rm -f "$d/stackr.conf" "$d/stackr-owned.conf" "$d/stackr-sync.conf" "$d/.stackr.conf.host" "$d/postgresql.auto.conf"
 touch "$d/standby.signal"
 chown -R postgres:postgres "$d"
 chmod 700 "$d"
