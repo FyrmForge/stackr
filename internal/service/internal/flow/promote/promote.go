@@ -6,6 +6,7 @@
 package promote
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -385,7 +386,7 @@ func (f *Flow) createInstance(ctx context.Context, t store.Tile, engine string) 
 	if err != nil {
 		return err
 	}
-	if major := deploy.ImageMajor(t.ImageRef); engine == "postgres" && major > 0 {
+	if major := deploy.ImageMajor(cmp.Or(t.ImageRef, deploy.EngineImage(engine))); engine == "postgres" && major > 0 {
 		_, err = f.D.Operated.SetMajor(ctx, m, major)
 	}
 	return err

@@ -925,6 +925,15 @@ func PGPick(major int, image string) (string, int, error) {
 	return mflow.PGPick(major, image, time.Now())
 }
 
+// EngineImage is the image an operated tile with no image of its own runs.
+func EngineImage(engine string) string {
+	e, ok := mflow.Engines[engine]
+	if !ok {
+		return ""
+	}
+	return e.Definition().Image
+}
+
 // ImageMajor is the postgres major an image tag names, 0 = none.
 func ImageMajor(image string) int { return mflow.ImageMajor(image) }
 

@@ -123,3 +123,10 @@ func TestPGFlagsEveryTableMajor(t *testing.T) {
 		}
 	}
 }
+
+// With every major past its end of life a default pick is a refusal, not a panic.
+func TestPGPickAllEOL(t *testing.T) {
+	if _, _, err := PGPick(0, "", time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)); err == nil {
+		t.Error("picked a major past its end of life")
+	}
+}

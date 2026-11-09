@@ -83,6 +83,9 @@ func PGPick(major int, image string, now time.Time) (string, int, error) {
 		major = got
 	} else if major == 0 {
 		p := PGPickable(now)
+		if len(p) == 0 {
+			return "", 0, errs.Conflictf("every postgres major stackr runs is past its end of life; update stackr")
+		}
 		major = p[len(p)-1]
 	}
 	r, ok := PGReleaseOf(major)

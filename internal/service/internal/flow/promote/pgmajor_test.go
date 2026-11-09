@@ -76,3 +76,51 @@ func TestNewOperatedPostgresTakesMajor(t *testing.T) {
 		t.Errorf("an omitted image moved the pin: %s", kinds(p))
 	}
 }
+
+// A file may not move an existing instance to another major, by major: or by
+// image:, and the plan blocks before anything is written.
+func TestExistingPostgresMajorChangeBlocks(t *testing.T) {
+	w := newSliceWorld(t)
+	staging := w.envs["staging"].ID
+	w.instance(t, "staging", func(m *store.OperatedInstance) { m.Major = 17 })
+	rel := func(commit, file string) store.Release {
+		w.files[commit] = file
+		r, err := w.f.D.Releases.Create(ctx, w.infra.ID, "test", []release.Pin{
+			{Slug: release.ConfigSlug, Repo: w.infra.ConfigRepo, CommitSHA: commit},
+		})
+		must(t, err)
+		return r
+	}
+	for name, extra := range map[string]string{
+		"major":      "      major: 16\n",
+		"image":      "      image: postgres:16.2\n",
+		"no major":   "      image: postgres:latest\n",
+		"both agree": "",
+	} {
+		p, err := w.f.Plan(ctx, staging, rel("x"+name, infraFile+extra).ID, io.Discard)
+		must(t, err)
+		if blocked := strings.Contains(strings.Join(p.Blockers, "|"), "pg-db"); blocked != (extra != "") {
+			t.Errorf("%s: blockers %v", name, p.Blockers)
+		}
+	}
+	p, err := w.f.Plan(ctx, staging, rel("ok", infraFile+"      major: 17\n      image: postgres:17.1\n").ID, io.Discard)
+	must(t, err)
+	if len(p.Blockers) != 0 {
+		t.Errorf("same major blocked: %v", p.Blockers)
+	}
+}
+
+// A synced clone whose source has no image of its own still records the
+// major of the engine's default image.
+func TestCreateInstanceWithoutImageRecordsMajor(t *testing.T) {
+	w := newSliceWorld(t)
+	staging := w.envs["staging"]
+	tl, err := w.f.D.Tiles.Create(ctx, store.Tile{StackID: staging.StackID, EnvironmentID: staging.ID, Name: "bare", Slug: "bare", Kind: "operated"})
+	must(t, err)
+	must(t, w.f.createInstance(ctx, tl, "postgres"))
+	m, err := w.f.D.Operated.GetByTile(ctx, tl.ID)
+	must(t, err)
+	if m.Major == 0 {
+		t.Error("the major was lost")
+	}
+}

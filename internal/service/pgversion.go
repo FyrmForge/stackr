@@ -45,17 +45,19 @@ func pgVersionOf(image string, major int, now time.Time) PGVersion {
 }
 
 // UpdatePGVersion moves the instance to the current minor of its own major
-// and restarts it there. A major change is refused at the tile edit.
+// and restarts it there. The update is worked out from the image the edit
+// finds, so a change since the caller looked is refused, not overwritten. A
+// major change is refused at the tile edit.
 func (o *Orchestrator) UpdatePGVersion(ctx context.Context, tileID string) (Tile, *Job, error) {
-	v, err := o.PGVersion(ctx, tileID)
-	if err != nil {
+	if _, err := o.PGVersion(ctx, tileID); err != nil {
 		return Tile{}, nil, err
 	}
-	if v.UpdateTo == "" {
-		return Tile{}, nil, errs.Conflictf("already on the newest postgres %d minor stackr offers", v.Major)
-	}
 	return o.UpdateTile(ctx, tileID, func(t *Tile) error {
-		t.ImageRef = v.UpdateTo
+		to, ok := mflow.PGUpdate(cmp.Or(t.ImageRef, mflow.Engines["postgres"].Definition().Image))
+		if !ok {
+			return errs.Conflictf("already on the newest minor stackr offers")
+		}
+		t.ImageRef = to
 		return nil
 	})
 }
