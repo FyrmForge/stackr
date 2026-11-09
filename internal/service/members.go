@@ -321,6 +321,7 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	if err := o.docker.RemoveVolume(nctx, m.Volume); err != nil {
 		return err
 	}
+	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(m)) // kept while it was a primary with PITR on
 	// Consumers of the read alias are on the network until they are
 	// redeployed (below); the row stays 'removing' and the tick drops the
 	// network once they have left, so it is never left behind empty.

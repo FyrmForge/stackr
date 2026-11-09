@@ -15,7 +15,9 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
@@ -187,6 +189,8 @@ type failRig struct {
 	// the primary's sync conf as last written, and the setting a reload made live
 	syncFile, syncLive string
 	reloadBroken       bool // a reload does not take
+	// notArchived makes pg_stat_archiver say nothing was archived
+	notArchived bool
 }
 
 // ageLease makes every recorded lease binding as old as ago.
@@ -240,6 +244,9 @@ func (r *failRig) answer(node, c string) string {
 	case strings.Contains(c, "pg_last_wal_replay_lsn"):
 		return r.lsn[node]
 	case strings.Contains(c, "last_archived_wal"):
+		if r.notArchived {
+			return "0"
+		}
 		return "1"
 	case strings.Contains(c, "pg_walfile_name"):
 		return "000000010000000000000003"
@@ -686,23 +693,210 @@ func TestPromoteNeedsLeaseProofOrOverride(t *testing.T) {
 
 // PITR cannot follow a relocated primary yet: a failover of such an instance
 // is refused, nothing fenced, nothing touched.
-func TestFailoverRefusedWithPITR(t *testing.T) {
+func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r := newFailRig(t, false)
 	o := r.n.orch
-	_, err := o.operated.SetPITR(ctx, r.inst, 7)
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	dv, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	o.baseSchedule(ctx, dv)
+	if ss, _ := o.backups.Schedules(ctx, dv.ID); len(ss) == 0 {
+		t.Fatal("no base schedule to follow")
+	}
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	p, rep := r.members()
+
+	// 1. the promoted primary archives: same flags, an archive volume on its node
+	var spec docker.ContainerSpec
+	for _, sp := range r.specs {
+		if sp.Labels[tile.LabelTile] != "" && sp.Labels[LabelMember] == p.ID {
+			spec = sp
+		}
+	}
+	if !slices.Contains(spec.Cmd, "archive_mode=on") {
+		t.Errorf("promoted command does not archive: %v", spec.Cmd)
+	}
+	if want := mflow.MemberArchiveVolume(p) + ":" + mflow.PGArchiveDir; !slices.Contains(spec.Volumes, want) {
+		t.Errorf("volumes = %v, want %s", spec.Volumes, want)
+	}
+	if !slices.ContainsFunc(r.n.wFake.Created, func(c dockerfake.VolumeCreate) bool { return c.Name == mflow.MemberArchiveVolume(p) }) {
+		t.Error("the archive volume was not made on the primary's node")
+	}
+
+	// 3. the data volume row, and with it every schedule and the archive root, follows
+	dv2, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	if dv2.ID != dv.ID || dv2.Name != p.Volume || dv2.Name == dv.Name || dv2.NodeID != "w1" || o.volumeNode(ctx, dv.ID) != "w1" {
+		t.Errorf("data row = %+v, want the primary's volume on w1", dv2)
+	}
+	if ss, _ := o.backups.Schedules(ctx, dv.ID); len(ss) == 0 {
+		t.Error("the schedules left the volume")
+	}
+	if rep.Volume != dv.Name {
+		t.Errorf("old primary holds %q, want its old volume %q", rep.Volume, dv.Name)
+	}
+
+	// 4. the epoch waits for the new primary's archiver
+	st, _ := o.pitrState(ctx, inst.ID)
+	if !st.Paused || !st.ArchSince.IsZero() || st.PausedSeg == "" || !o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
+		t.Fatalf("state after failover = %+v, want paused with a problem", st)
+	}
+	r.mu.Lock()
+	r.notArchived = true
+	r.mu.Unlock()
+	o.pitrShip(ctx, inst)
+	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || !st.BaseTriedAt.IsZero() {
+		t.Fatalf("resumed before an archived segment was seen: %+v", st)
+	}
+	r.mu.Lock()
+	r.notArchived = false
+	r.mu.Unlock()
+	o.pitrShip(ctx, inst)
+	st, _ = o.pitrState(ctx, inst.ID)
+	if st.Paused || st.ArchSince.IsZero() || st.BaseTriedAt.IsZero() {
+		t.Errorf("state after archiving = %+v, want a new epoch and a base queued", st)
+	}
+	if o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
+		t.Error("the paused problem outlived the pause")
+	}
+	// 2. the shipper read the archive on the primary's node
+	o.pitrShip(ctx, inst)
+	if !r.saw("w1 exec ls -1 " + mflow.PGArchiveDir) {
+		t.Error("the archive was not read on the primary's node")
+	}
+}
+
+// The pause is written in the swap's own transaction: a panel that dies right
+// after the swap leaves an unarmed pause that no tick resumes, and nothing
+// ships into the old epoch. The route step arms it.
+func TestSwapHoldsTheArchiveUntilRouteArms(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	o.failCrashAfter = stepSwap
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+		t.Fatal("the crash did not stop the run")
+	}
+	st, _ := o.pitrState(ctx, inst.ID)
+	if !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() {
+		t.Fatalf("state after the swap = %+v, want an unarmed pause", st)
+	}
+	o.pitrShip(ctx, inst) // a tick between swap and route
+	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() || !st.BaseTriedAt.IsZero() {
+		t.Errorf("tick during the failover = %+v, want it still unarmed", st)
+	}
+	if r.saw("w1 exec ls -1 " + mflow.PGArchiveDir) {
+		t.Error("the tick shipped while paused")
+	}
+	o.failCrashAfter = ""
+	o.resumeFailovers(ctx)
+	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || st.PausedSeg == "" {
+		t.Errorf("state after route = %+v, want it armed", st)
+	}
+	// an unarmed pause never resumes, even with everything archived
+	must(t, o.pitrHold(ctx, r.tile(), inst, ""))
+	st, _ = o.pitrState(ctx, inst.ID)
+	dv, _ := o.dataVolume(ctx, r.tile())
+	o.pitrResume(ctx, r.tile(), dv, &st, time.Now())
+	if !st.Paused {
+		t.Error("an unarmed pause resumed")
+	}
+}
+
+// A backup or restore holding the data volume keeps the swap from moving its
+// row under it; the step fails and the tick retries it.
+func TestSwapWaitsForTheVolumeJob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	dv, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	j, err := o.jobRows.Create(ctx, string(kindBackup), []string{"volume:" + dv.ID}, "{}", nil, t.TempDir())
+	must(t, err)
+	_, err = o.jobRows.Start(ctx, j)
+	must(t, err)
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil || !strings.Contains(err.Error(), "holds the data volume") {
+		t.Fatalf("switchover under a running backup: %v", err)
+	}
+	if p, _ := r.members(); p.NodeID != "" {
+		t.Errorf("primary row = %+v, swapped under a running backup", p)
+	}
+	if v, _ := o.dataVolume(ctx, r.tile()); v.Name != dv.Name {
+		t.Error("the data row moved under a running backup")
+	}
+	must(t, o.jobRows.Finish(ctx, j, job.Done, ""))
+	o.resumeFailovers(ctx)
+	if p, _ := r.members(); p.NodeID != "w1" {
+		t.Errorf("primary row = %+v, want the swap once the backup is done", p)
+	}
+}
+
+// Back home: the data row names the original volume again, on the env's node.
+func TestSwitchoverBackHomeMovesBackupsBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	dv, err := o.dataVolume(ctx, r.tile())
 	must(t, err)
 	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
-	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "point-in-time") {
-		t.Errorf("switchover with PITR on: %v", err)
+	must(t, err)
+	_, rep := r.members()
+	_, err = o.members.SetPhase(ctx, rep, opmember.Streaming)
+	must(t, err)
+	r.mu.Lock()
+	r.lsn["ctl"] = "0/5000100"
+	r.mu.Unlock()
+	_, err = o.Switchover(ctx, r.inst.TileID, r.n.ctl.ID)
+	must(t, err)
+	p, rep := r.members()
+	if p.NodeID != r.n.ctl.ID {
+		t.Fatalf("primary row = %+v, want it home", p)
 	}
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, "w1", true, "", false)
-	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "point-in-time") {
-		t.Errorf("promote with PITR on: %v", err)
+	dv2, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	if dv2.Name != dv.Name || dv2.NodeID != "" || o.volumeNode(ctx, dv.ID) != r.n.ctl.ID {
+		t.Errorf("data row = %+v, want the original volume %q on the env's node", dv2, dv.Name)
 	}
-	if p, _ := r.members(); p.Fenced || r.saw("stop") {
-		t.Error("a refused failover touched the instance")
+	if rep.NodeID != "w1" {
+		t.Errorf("standby = %+v, want the one on w1", rep)
+	}
+	if st, _ := o.pitrState(ctx, inst.ID); !st.Paused {
+		t.Errorf("state = %+v, want paused again after the second failover", st)
+	}
+}
+
+// A promote with PITR on also keeps archiving: no drain (the old node is
+// gone), the data row moves to the promoted primary, the epoch is paused.
+func TestPromoteWithPITRKeepsArchiving(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	must(t, setNode(o, "w1", node.StatusOffline))
+	r.ageLease(2 * time.Minute)
+	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
+	must(t, err)
+	p, _ := r.members()
+	dv, err := o.dataVolume(ctx, r.tile())
+	must(t, err)
+	if dv.Name != p.Volume || dv.NodeID != r.n.ctl.ID {
+		t.Errorf("data row = %+v, want the promoted primary's volume on the controller", dv)
+	}
+	if st, _ := o.pitrState(ctx, inst.ID); !st.Paused {
+		t.Errorf("state = %+v, want paused", st)
 	}
 }
 
@@ -748,11 +942,11 @@ func TestPlacementAdoptsPromotedPrimary(t *testing.T) {
 	ctx := context.Background()
 	r := newFailRig(t, false)
 	o := r.n.orch
-	_, err := o.Switchover(ctx, r.inst.TileID, "w1")
-	must(t, err)
-	p, _ := r.members()
 	oldVol, err := o.dataVolume(ctx, r.tile())
 	must(t, err)
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	p, _ := r.members()
 
 	err = o.adoptPrimary(ctx, r.tile())
 	if _, ok := errs.IsConflict(err); !ok {
@@ -770,7 +964,7 @@ func TestPlacementAdoptsPromotedPrimary(t *testing.T) {
 	}
 	v, err := o.dataVolume(ctx, r.tile())
 	must(t, err)
-	if v.Name != p.Volume || v.Name == oldVol.Name {
+	if v.Name != p.Volume || v.Name == oldVol.Name || v.NodeID != "" {
 		t.Errorf("data volume names %q, want the member's %q", v.Name, p.Volume)
 	}
 	if !r.saw("w1 remove " + p.Container) {
@@ -778,6 +972,35 @@ func TestPlacementAdoptsPromotedPrimary(t *testing.T) {
 	}
 	if _, ok := o.primaryReroute(ctx, r.tile()); ok {
 		t.Error("still rerouted after the adoption")
+	}
+}
+
+// Adopting a primary of an instance with PITR on is an archive handoff: the
+// archive is held (unarmed) and the member's and the tile's old spools go, so
+// the tile's container starts on an empty one.
+func TestAdoptHandsOffTheArchive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	wal, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.tile().EnvironmentID}, mflow.ArchiveSlug(r.tile().Slug), &inst.ID)
+	must(t, err)
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	p, _ := r.members()
+	must(t, o.store.Environments.SetNode(ctx, r.n.dev.ID, "w1"))
+	must(t, o.adoptPrimary(ctx, r.tile()))
+	st, _ := o.pitrState(ctx, inst.ID)
+	if !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() {
+		t.Errorf("state after adoption = %+v, want an unarmed pause", st)
+	}
+	if !sawCall(r.n.wFake, "RemoveVolume("+mflow.MemberArchiveVolume(p)+")") {
+		t.Error("the member's spool was kept")
+	}
+	if !sawCall(r.n.wFake, "RemoveVolume("+wal.Name+")") {
+		t.Error("the tile's own spool was not cleared")
 	}
 }
 
