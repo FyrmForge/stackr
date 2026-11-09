@@ -87,7 +87,7 @@ func TestPITRAgainstPostgres(t *testing.T) {
 		"-v", wal + ":" + def.ArchiveDir,
 		"-e", "POSTGRES_USER=stackr", "-e", "POSTGRES_PASSWORD=admin", "-e", "POSTGRES_DB=postgres",
 		def.Image}
-	if out, err := exec.Command("docker", append(args, def.ArchiveCmd...)...).CombinedOutput(); err != nil {
+	if out, err := exec.Command("docker", append(args, def.Start(mflow.Instance{PITRDays: 7})...)...).CombinedOutput(); err != nil {
 		t.Skipf("no postgres:17 container: %v %s", err, out)
 	}
 	t.Cleanup(func() {

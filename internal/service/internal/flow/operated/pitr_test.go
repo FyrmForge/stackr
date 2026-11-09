@@ -15,7 +15,7 @@ func TestContainerPITR(t *testing.T) {
 	w := setup(t, "postgres")
 	off, err := w.f.Container(ctx, w.db)
 	must(t, err)
-	if len(off.Cmd) != 0 {
+	if strings.Contains(strings.Join(off.Cmd, " "), "archive_") {
 		t.Errorf("PITR off: cmd = %v", off.Cmd)
 	}
 	if ms, _ := w.f.Methods(ctx, w.db); !slices.Equal(ms, []string{"dump"}) {
@@ -45,7 +45,7 @@ func TestContainerPITR(t *testing.T) {
 		t.Errorf("PITR on: methods = %v", ms)
 	}
 	argv, _ := w.f.Backup(ctx, w.db, "base")
-	if got := strings.Join(argv, " "); !strings.Contains(got, "pg_basebackup -U stackr -D - -Ft -Xnone -z") {
+	if got := strings.Join(argv, " "); !strings.Contains(got, "pg_basebackup -h /var/run/postgresql -U stackr -D - -Ft -Xnone -z") {
 		t.Errorf("base argv = %v", argv)
 	}
 	ws, _ := w.f.WalStart(ctx, w.db)

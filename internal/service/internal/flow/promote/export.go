@@ -354,6 +354,9 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if deploy.HasPITR(m.Engine) {
 			b.put("pitr_days", m.PITRDays) // 0 too: the file says off, not "leave it"
 		}
+		if len(m.Settings) > 0 {
+			b.put("settings", map[string]string(m.Settings))
+		}
 	}
 	str("image", t.ImageRef)
 	if tile.Builds(t) {

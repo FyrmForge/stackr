@@ -22,6 +22,7 @@ import (
 type Call struct {
 	Method string
 	Args   []string
+	Stdin  string // what an ExecStream read from its stdin
 }
 
 func (c Call) String() string { return c.Method + "(" + strings.Join(c.Args, ", ") + ")" }
@@ -91,7 +92,7 @@ func (f *Fake) Calls() []Call {
 func (f *Fake) rec(method string, args ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	c := Call{method, args}
+	c := Call{Method: method, Args: args}
 	f.calls = append(f.calls, c)
 	if err := f.Err[c.String()]; err != nil {
 		return err
@@ -466,6 +467,11 @@ func (f *Fake) ExecStream(
 		f.mu.Lock()
 		f.ExecIn = b
 		f.mu.Unlock()
+		rerr := f.rec("ExecStream", append([]string{id}, cmd...)...)
+		f.mu.Lock()
+		f.calls[len(f.calls)-1].Stdin = string(b)
+		f.mu.Unlock()
+		return strings.NewReader(f.execOut(cmd)), func() error { return nil }, rerr
 	}
 	err := f.rec("ExecStream", append([]string{id}, cmd...)...)
 	return strings.NewReader(f.execOut(cmd)), func() error { return nil }, err

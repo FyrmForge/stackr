@@ -172,6 +172,7 @@ func TestPromoteRestoreLocksAndRefusals(t *testing.T) {
 	}
 	src, err := o.pitrSourceOf(ctx, r.pg.ID)
 	must(t, err)
+	src.inst.Settings = map[string]string{"work_mem": "8MB"}
 	cand, err := o.newCandidate(ctx, src, time.Now().Add(-time.Hour), "2026-11-07T10:00:00Z", false)
 	must(t, err)
 	if !strings.HasPrefix(cand.Slug, "pg-restored-") || cand.Kind != tile.Operated || cand.EnvironmentID != r.env {
@@ -181,6 +182,10 @@ func TestPromoteRestoreLocksAndRefusals(t *testing.T) {
 	must(t, err)
 	if cm.PITRDays != 0 || cm.AdminPassword != src.inst.AdminPassword {
 		t.Errorf("candidate instance pitr_days %d, password carried = %v", cm.PITRDays, cm.AdminPassword == src.inst.AdminPassword)
+	}
+	// the restored stackr.conf is the source's: settings and major come along
+	if cm.Settings["work_mem"] != "8MB" || cm.Major == 0 || cm.Major != src.inst.Major {
+		t.Errorf("candidate settings %v major %d, source major %d", cm.Settings, cm.Major, src.inst.Major)
 	}
 	cv, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.env}, cand.Slug+"-data", &cm.ID)
 	must(t, err)
@@ -412,9 +417,9 @@ func TestNoCommitAfterTargetRetryDecisionAndConf(t *testing.T) {
 		}
 	}
 	at := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
-	first, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, at)
+	first, _, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, at)
 	must(t, err)
-	retry, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, time.Time{})
+	retry, _, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, time.Time{})
 	must(t, err)
 	if !strings.Contains(first, "recovery_target_time =") {
 		t.Fatalf("first conf has no target:\n%s", first)

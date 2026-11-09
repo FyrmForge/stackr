@@ -89,11 +89,11 @@ func (w *restoreWorld) start(t store.Tile, data, archive string) string {
 	name := fmt.Sprintf("stkr-it-%s-%d", t.Slug, time.Now().UnixNano())
 	w.names = append(w.names, name)
 	args := []string{"run", "-d", "--name", name, "--label", tile.LabelTile + "=" + t.ID, "--label", tile.LabelRole + "=replica",
-		"-v", data + ":" + def.Volumes[0], "-e", "POSTGRES_USER=stackr", "-e", "POSTGRES_PASSWORD=admin", "-e", "POSTGRES_DB=postgres"}
+		"-v", data + ":" + def.Volumes(0)[0], "-e", "POSTGRES_USER=stackr", "-e", "POSTGRES_PASSWORD=admin", "-e", "POSTGRES_DB=postgres"}
 	cmd := []string{}
 	if archive != "" {
 		args = append(args, "-v", archive+":"+def.ArchiveDir)
-		cmd = def.ArchiveCmd
+		cmd = def.Start(mflow.Instance{PITRDays: 7})
 	}
 	w.dk(append(append(args, def.Image), cmd...)...)
 	w.until(name+" to answer", 90*time.Second, func() bool {
@@ -300,7 +300,9 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 	candTile := w.tile("pg-restored", tile.Operated, nil)
 	candM := w.instance(candTile, 0)
 	candData, candName := w.volume("pg-restored-data", &candM)
-	conf := be.(interface{ RecoveryConf(time.Time) string }).RecoveryConf(t1)
+	conf := be.(interface {
+		RecoveryConf(mflow.Instance, time.Time) string
+	}).RecoveryConf(mflow.Instance{}, t1)
 	if !strings.Contains(conf, "recovery_target_time = '"+t1.Format("2006-01-02 15:04:05.999999")) {
 		t.Fatalf("recovery settings do not name T1:\n%s", conf)
 	}
@@ -311,7 +313,7 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 		return err == nil && !rec
 	})
 	must(t, w.eng.Settle(ctx, candTile))
-	if out, err := exec.Command("docker", "exec", cand, "ls", def.Volumes[0]+"/"+mflow.PGRestoreWalDir).CombinedOutput(); err == nil {
+	if out, err := exec.Command("docker", "exec", cand, "ls", def.Volumes(0)[0]+"/"+mflow.PGRestoreWalDir).CombinedOutput(); err == nil {
 		t.Errorf("the WAL copy stayed after settling: %s", out)
 	}
 	if got := w.mustPsql(cand, "stackr", "admin", "postgres", `SELECT count(*) FROM pg_settings WHERE name = 'restore_command' AND source = 'configuration file'`); got != "0" {
@@ -339,7 +341,7 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 	}
 
 	// (b) promote: history to the archive, the source stops, its volume row takes the copy's data
-	must(t, w.bak.ShipHistory(ctx, fbackup.Ship{Engine: candTile, Dest: w.dest, Root: root, Dir: mflow.PGWalDir}, io.Discard))
+	must(t, w.bak.ShipHistory(ctx, fbackup.Ship{Engine: candTile, Dest: w.dest, Root: root, Dir: mflow.PGWalDir(0)}, io.Discard))
 	_, wal, _, err := w.bak.ListArchive(ctx, w.dest, root, time.Time{})
 	must(t, err)
 	sawHistory := false

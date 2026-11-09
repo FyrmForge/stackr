@@ -146,8 +146,8 @@ func TestSliceVerbs(t *testing.T) {
 	}
 	var ex strings.Builder
 	for _, c := range env.Docker.Calls() {
-		if c.Method == "Exec" {
-			ex.WriteString(strings.Join(c.Args, " "))
+		if c.Method == "Exec" || c.Method == "ExecStream" {
+			ex.WriteString(strings.Join(c.Args, " ") + c.Stdin)
 		}
 	}
 	if !strings.Contains(ex.String(), `REVOKE ALL ON DATABASE "shop_dev_db" FROM "shop_dev_db_api"`) {

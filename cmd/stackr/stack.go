@@ -138,6 +138,7 @@ func (a *app) stackCommands() []*cobra.Command {
 		a.logsWithSearch(),
 		a.tileMetrics(),
 		a.operated(),
+		a.dbSettings(),
 		a.sliceTiles(),
 		a.params(),
 		a.volumes(),

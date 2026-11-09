@@ -390,6 +390,7 @@ func TestRoundTrip(t *testing.T) {
 			"dev":     "staging",
 			"staging": "staging",
 		},
+		Settings:      store.StringMap{"work_mem": "8MB"},
 		AdminUser:     "root",
 		AdminPassword: "pw",
 		Endpoint:      "db:5432",
@@ -398,6 +399,7 @@ func TestRoundTrip(t *testing.T) {
 		m.AdminPassword = "pw2"
 		m.Allow = store.StringList{}
 		m.EnvPairs = store.StringMap{}
+		m.Settings = store.StringMap{}
 	})
 	roundTrip(t, s.Provisions, store.Provision{
 		ID:         "pr1",

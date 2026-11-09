@@ -38,7 +38,7 @@ func TestSniffDump(t *testing.T) {
 func TestPgSeedArgv(t *testing.T) {
 	s := Slice{Name: "shop_dev_db", User: "shop_dev_db", Password: "pw"}
 	custom := pg{}.Seed(DumpCustom, Instance{AdminUser: "stackr"}, s)
-	for _, want := range []string{"pg_restore", "--no-owner", "--no-privileges", "--exit-on-error", "--single-transaction", "PGPASSWORD=pw"} {
+	for _, want := range []string{"pg_restore", "--no-owner", "--no-privileges", "--exit-on-error", "--single-transaction"} {
 		if !slices.Contains(custom, want) {
 			t.Errorf("custom argv %q lacks %s", custom, want)
 		}

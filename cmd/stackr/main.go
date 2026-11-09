@@ -126,7 +126,7 @@ var helpGroups = []struct {
 	{"session", "Session:", []string{"login", "logout", "profile", "link", "unlink", "status", "password", "key"}},
 	{"work", "Stacks and tiles:", []string{
 		"stack", "env", "tile", "deploy", "restart", "promote", "rollback", "release", "logs", "metrics", "ssh", "forward",
-		"job", "params", "domain", "volume", "backup", "operated", "slice",
+		"job", "params", "domain", "volume", "backup", "operated", "db", "slice",
 	}},
 	{"org", "Org and server:", []string{
 		"org", "tier", "dest", "share", "registry", "host-grant", "placements", "pin", "ingress", "exit",

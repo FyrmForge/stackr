@@ -135,7 +135,7 @@ func TestPostgresBackupCoversTheCluster(t *testing.T) {
 func TestPostgresRestoreWipesAndLoadsTheCluster(t *testing.T) {
 	i := Instance{AdminUser: "stackr", AdminPassword: "pw"}
 	got := pg{}.Restore("dump", "postgres", i)
-	if len(got) != 6 || got[0] != "sh" || got[2] == "" {
+	if len(got) != 5 || got[0] != "sh" || got[2] == "" {
 		t.Fatalf("argv: %v", got)
 	}
 	for _, want := range []string{pgClusterMarker, "DROP DATABASE", "DROP ROLE", "DROP SCHEMA public CASCADE"} {
@@ -146,7 +146,7 @@ func TestPostgresRestoreWipesAndLoadsTheCluster(t *testing.T) {
 	if strings.Contains(got[2], "pw") {
 		t.Error("password in script text")
 	}
-	if !slices.Equal(got[3:], []string{"pw", "stackr", "postgres"}) {
+	if !slices.Equal(got[3:], []string{"stackr", "postgres"}) {
 		t.Errorf("positional args: %v", got[3:])
 	}
 }

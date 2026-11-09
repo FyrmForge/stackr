@@ -67,6 +67,11 @@ type Flow struct {
 	// weekly base backup follows it, and the shipper's state goes when it is
 	// off. The restart that makes postgres archive is the rollout's. Nil = none.
 	PITRChanged func(ctx context.Context, t store.Tile, m store.OperatedInstance)
+	// PGSettings applies a file's settings to a running postgres instance
+	// with the checks the API makes, and stores them (applied true); a refusal
+	// fails the apply. A stopped instance is not asked (applied false) and the
+	// apply stores them. Nil = stored unasked.
+	PGSettings func(ctx context.Context, t store.Tile, m store.OperatedInstance, s map[string]string) (bool, error)
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -344,6 +349,22 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 		}
 		if m, err = d.Operated.SetEnvPairs(ctx, m, iw.pairs); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
+		}
+		if iw.settings != nil {
+			applied := false
+			if f.PGSettings != nil {
+				if applied, err = f.PGSettings(ctx, t, m, *iw.settings); err != nil {
+					return fmt.Errorf("%s: settings: %w", name, err)
+				}
+				if m, err = d.Operated.GetByTile(ctx, t.ID); err != nil { // the hook stored them
+					return fmt.Errorf("%s: %w", name, err)
+				}
+			}
+			if !applied {
+				if m, err = d.Operated.SetSettings(ctx, m, *iw.settings); err != nil {
+					return fmt.Errorf("%s: %w", name, err)
+				}
+			}
 		}
 		if iw.pitr != nil {
 			if m, err = d.Operated.SetPITR(ctx, m, *iw.pitr); err != nil {

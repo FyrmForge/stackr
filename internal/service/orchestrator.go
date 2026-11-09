@@ -626,6 +626,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
 			},
 			PublicBase: orch.publicBase,
+			NodeMemMB:  orch.nodeMemMB,
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {
@@ -687,6 +688,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Forget:         orch.forgetTileClone,
 			DumpBeforeDrop: orch.dumpBeforeDrop,
 			PITRChanged:    orch.pitrApplied,
+			PGSettings:     orch.settingsFromFile,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {

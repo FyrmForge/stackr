@@ -36,6 +36,9 @@ type Flow struct {
 	// PublicBase is the instance tile's public scheme+host, "" when it has
 	// none (the orchestrator's, through leaf/domainres AutoHost); nil = none.
 	PublicBase func(ctx context.Context, t store.Tile) string
+	// NodeMemMB is the memory, in MB, of the node the instance runs on; 0 or
+	// nil = unknown.
+	NodeMemMB func(ctx context.Context, t store.Tile) int
 	// ReadyWait bounds the readiness poll; 0 = 60s. ReadyPoll is its tick; 0 = 2s.
 	ReadyWait, ReadyPoll time.Duration
 }
@@ -72,17 +75,24 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		return Container{}, err
 	}
 	def := e.Definition()
+	if err := checkMajor(def, m, t); err != nil {
+		return Container{}, err
+	}
+	inst := f.withNodeMem(ctx, t, f.facts(ctx, t, m, def))
 	c := Container{
 		Image: def.Image,
 		Cmd:   def.Command,
-		Env:   def.Config(f.facts(ctx, t, m, def)),
+		Env:   def.Config(inst),
+	}
+	if def.Start != nil {
+		c.Cmd = def.Start(inst)
 	}
 	if t.ImageRef != "" {
 		c.Image = t.ImageRef // the instance's own pin
 	}
 	type vol struct{ slug, path string }
 	var vols []vol
-	for i, path := range def.Volumes {
+	for i, path := range def.Volumes(inst.Major) {
 		sl := t.Slug + "-data"
 		if i > 0 {
 			sl += "-" + strconv.Itoa(i+1)
@@ -90,7 +100,6 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		vols = append(vols, vol{sl, path})
 	}
 	if m.PITRDays > 0 && def.ArchiveDir != "" {
-		c.Cmd = def.ArchiveCmd
 		vols = append(vols, vol{ArchiveSlug(t.Slug), def.ArchiveDir})
 	}
 	for _, vl := range vols {
@@ -116,6 +125,25 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		},
 	}
 	return c, nil
+}
+
+// checkMajor refuses an image of another major than the instance's data, and
+// one that names none: the data path and the flags follow the stored major.
+func checkMajor(def Definition, m store.OperatedInstance, t store.Tile) error {
+	if !def.Versioned {
+		return nil
+	}
+	img := t.ImageRef
+	if img == "" {
+		img = def.Image
+	}
+	switch got := ImageMajor(img); {
+	case m.Major == 0:
+		return errs.Conflictf("%s has no recorded major version; recreate it", t.Slug)
+	case got != m.Major:
+		return errs.Invalidf("image_ref", "%s runs postgres %d; %s is not that major. Major upgrades are not supported yet.", t.Slug, m.Major, img)
+	}
+	return nil
 }
 
 // ArchiveSlug is the slug of an instance's archive volume (WAL waiting to be
@@ -549,24 +577,36 @@ func (f *Flow) WalStop(ctx context.Context, it store.Tile) ([]string, error) {
 
 // recoverer is an engine that restores to a point in time.
 type recoverer interface {
-	RecoveryConf(at time.Time) string
+	RecoveryConf(i Instance, at time.Time) string
 	InRecoveryArgv(Instance) []string
 	SettleArgv(Instance) []string
 }
 
 // RecoveryConf is the postgresql.auto.conf text that replays the restored
-// WAL up to at (zero = all of it), and the dir, under the data directory,
-// the WAL files are laid in.
-func (f *Flow) RecoveryConf(ctx context.Context, it store.Tile, at time.Time) (conf, walDir string, err error) {
-	_, e, err := f.instance(ctx, it.ID)
+// WAL up to at (zero = all of it), the dir, under the data directory, the
+// WAL files are laid in, and where the data directory sits in the data
+// volume ("" or 18/docker, see PGDataPrefix).
+func (f *Flow) RecoveryConf(ctx context.Context, it store.Tile, at time.Time) (conf, walDir, prefix string, err error) {
+	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	r, ok := e.(recoverer)
 	if !ok {
-		return "", "", errs.Invalidf("engine", "%s has no point-in-time recovery", it.Slug)
+		return "", "", "", errs.Invalidf("engine", "%s has no point-in-time recovery", it.Slug)
 	}
-	return r.RecoveryConf(at), PGRestoreWalDir, nil
+	i := f.facts(ctx, it, m, e.Definition())
+	return r.RecoveryConf(i, at), PGRestoreWalDir, PGDataPrefix(i.Major), nil
+}
+
+// WalDir is the instance's own WAL directory in its container, where a
+// promoted restore's timeline history file lives.
+func (f *Flow) WalDir(ctx context.Context, it store.Tile) (string, error) {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return "", err
+	}
+	return PGWalDir(f.facts(ctx, it, m, e.Definition()).Major), nil
 }
 
 // Recovering says whether the instance is still replaying WAL. An error is
@@ -653,9 +693,21 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 		Host:          alias(t, m),
 		Port:          def.Port,
 		PITRDays:      m.PITRDays,
+		Major:         m.Major,
+		MemMB:         t.MemLimitMB,
+		Settings:      m.Settings,
 	}
 	if f.PublicBase != nil {
 		i.PublicBase = f.PublicBase(ctx, t)
+	}
+	return i
+}
+
+// withNodeMem adds the node's memory to i. Apart from facts: asking the
+// node is not free, and only the computed settings read it.
+func (f *Flow) withNodeMem(ctx context.Context, t store.Tile, i Instance) Instance {
+	if f.NodeMemMB != nil {
+		i.NodeMemMB = f.NodeMemMB(ctx, t)
 	}
 	return i
 }
@@ -678,7 +730,19 @@ func (f *Flow) tools(ctx context.Context, t store.Tile, m store.OperatedInstance
 					return f.Tiles.Exec(ctx, t.ID, c.ID, cmd)
 				}
 			}
-			return "", fmt.Errorf("%s is not running", t.Slug)
+			return "", errs.Conflictf("%s is not running", t.Slug)
+		},
+		ExecIn: func(ctx context.Context, cmd []string, stdin string) (string, error) {
+			out, wait, err := f.Tiles.Stream(ctx, t, cmd, strings.NewReader(stdin))
+			if err != nil {
+				return "", err
+			}
+			b, _ := io.ReadAll(out)
+			err = wait()
+			if x, ok := docker.IsExit(err); ok {
+				return string(b), errors.New(stderrTail(x))
+			}
+			return string(b), err
 		},
 	}
 	if f.S3 != nil {
@@ -804,4 +868,14 @@ func outputs(bs []Binding) map[string]string {
 // logf writes a line to the job log; a log write failing never fails the work.
 func logf(w io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(w, format, a...)
+}
+
+// CheckImage refuses t's image when it is another major than the instance's
+// data (or names none): what a deploy would refuse, said at the edit.
+func (f *Flow) CheckImage(ctx context.Context, t store.Tile) error {
+	m, e, err := f.instance(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	return checkMajor(e.Definition(), m, t)
 }

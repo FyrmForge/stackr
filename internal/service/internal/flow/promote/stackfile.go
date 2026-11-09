@@ -243,6 +243,9 @@ type TileConf struct {
 	// operated postgres: days of WAL kept for point-in-time recovery, 0 = off;
 	// nil = the file leaves the instance's window as it is.
 	PITRDays *int `yaml:"pitr_days"`
+	// managed postgres: the instance's own settings, name to value; nil = the
+	// file leaves them as they are, an empty map clears them.
+	Settings map[string]string `yaml:"settings"`
 	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write;
 	// keep | drop, "" = keep (DECIDE 199; a PR env drops either way).
 	ProvisionFrom string `yaml:"provision_from"`
@@ -712,6 +715,9 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 				return fmt.Errorf("tile %s: pitr_days: the window is 0 (off) to 365 days", name)
 			}
 		}
+		if err := deploy.CheckSettings(tc.Engine, tc.Settings); err != nil {
+			return fmt.Errorf("tile %s: settings: %w", name, err)
+		}
 	case "slice":
 		if err := checkSlice(name, tc); err != nil {
 			return err
@@ -787,6 +793,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: env_pairs: only an operated tile takes it", name)
 	case tc.PITRDays != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: pitr_days: only an operated tile takes it", name)
+	case tc.Settings != nil && tc.Type != "operated":
+		return fmt.Errorf("tile %s: settings: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: provision_from: only a slice tile takes it", name)
 	case tc.DefaultAccess != "" && tc.Type != "slice":

@@ -10,36 +10,136 @@ import (
 
 type pg struct{}
 
-// PGArchiveDir is where the archive volume mounts: finished WAL segments
-// land here until the shipper takes them.
-const PGArchiveDir = "/var/lib/postgresql/archive"
+// pgSocketDir is the unix socket directory every admin client names, so a
+// changed default cannot send it elsewhere; unix_socket_directories is owned.
+const pgSocketDir = "/var/run/postgresql"
 
-// pgArchiveCmd is the Command with archiving on. A named volume on a path
-// the image lacks is root's, so the wrapper hands it to postgres first, then
-// runs the image's own entrypoint. archive_command writes a dotfile and
-// renames it, so the shipper never sees a half-copied segment, and refuses
-// to overwrite one.
-var pgArchiveCmd = []string{
-	"sh", "-c", `chown postgres:postgres ` + PGArchiveDir + ` && exec docker-entrypoint.sh "$@"`, "sh",
-	"postgres",
-	"-c", "archive_mode=on",
-	"-c", "archive_timeout=60",
-	"-c", "archive_command=test ! -f " + PGArchiveDir + "/%f && cp %p " + PGArchiveDir + "/.%f && mv " +
-		PGArchiveDir + "/.%f " + PGArchiveDir + "/%f",
+// PGArchiveDir is where the archive volume mounts: finished WAL segments
+// land here until the shipper takes them. Outside /var/lib/postgresql, which
+// is the data volume's own mount from 18.
+const PGArchiveDir = "/var/lib/stackr-wal"
+
+// pgFlags are the settings stackr owns, as -c start flags: they beat every
+// file, so neither stackr.conf nor a user can move them. allow_alter_system
+// exists from 17 only. restore_command, hba_file, ssl*, primary_conninfo and
+// synchronous_standby_names are reserved too (PGOwned) but not emitted: a
+// restore writes its own restore_command into postgresql.auto.conf, and the
+// rest are for later phases. archive_command writes a dotfile and renames
+// it, so the shipper never sees a half-copied segment, and refuses to
+// overwrite one.
+func pgFlags(major, pitrDays int) []string {
+	f := []string{"shared_preload_libraries=pg_stat_statements", "wal_log_hints=on"}
+	if major == 0 || major >= 17 {
+		f = append(f, "allow_alter_system=off")
+	}
+	if pitrDays > 0 {
+		f = append(f,
+			"archive_mode=on",
+			"archive_timeout=60",
+			"archive_command=test ! -f "+PGArchiveDir+"/%f && cp %p "+PGArchiveDir+"/.%f && mv "+
+				PGArchiveDir+"/.%f "+PGArchiveDir+"/%f",
+		)
+	}
+	return f
+}
+
+// pgStartScript runs as root ahead of the image's own entrypoint: it puts
+// stackr.conf and its one include line in the data directory. A first boot
+// has no postgresql.conf until initdb has run, so an init script does it
+// then. A start rewrites stackr.conf only for a new container (its hostname
+// differs from the one that wrote it), so a plain restart keeps what a
+// later reload wrote. The conf is written before the include, which is
+// fatal when the file is missing.
+const pgStartScript = `cat > /docker-entrypoint-initdb.d/00-stackr.sh <<'EOF'
+printf '%s\n' "$STACKR_PG_CONF" > "$PGDATA/stackr.conf"
+cat /etc/hostname > "$PGDATA/.stackr.conf.host"
+printf "include 'stackr.conf'\n" >> "$PGDATA/postgresql.conf"
+EOF
+d="$PGDATA"
+if [ -s "$d/PG_VERSION" ]; then
+if [ ! -e "$d/stackr.conf" ] || [ "$(cat "$d/.stackr.conf.host" 2>/dev/null)" != "$(cat /etc/hostname)" ]; then
+printf '%s\n' "$STACKR_PG_CONF" > "$d/stackr.conf.new" && mv "$d/stackr.conf.new" "$d/stackr.conf"
+cat /etc/hostname > "$d/.stackr.conf.host"
+fi
+chown postgres:postgres "$d/stackr.conf" "$d/.stackr.conf.host"
+grep -qx "include 'stackr.conf'" "$d/postgresql.conf" || printf "include 'stackr.conf'\n" >> "$d/postgresql.conf"
+fi
+exec docker-entrypoint.sh "$@"`
+
+// pgCommand is the container's command: the start script, then postgres with
+// the owned flags. A named volume on a path the image lacks is root's, so
+// the archive volume is handed to postgres first.
+func pgCommand(i Instance) []string {
+	script := pgStartScript
+	if i.PITRDays > 0 {
+		script = "chown postgres:postgres " + PGArchiveDir + "\n" + script
+	}
+	cmd := []string{"sh", "-c", script, "sh", "postgres"}
+	for _, f := range pgFlags(i.Major, i.PITRDays) {
+		cmd = append(cmd, "-c", f)
+	}
+	return cmd
+}
+
+// ImageMajor is the major an image tag names (postgres:17-alpine is 17), 0
+// when there is none.
+// ponytail: a digest, "latest" or a custom tag reads as 0 and gets the 17
+// behaviour (data path, allow_alter_system); pin a numeric tag for 18 and up.
+func ImageMajor(image string) int {
+	if strings.Contains(image, "@") {
+		return 0
+	}
+	_, tag, ok := strings.Cut(image[strings.LastIndex(image, "/")+1:], ":")
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, r := range tag {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+// pgMount is where the data volume mounts: the image moved PGDATA under
+// /var/lib/postgresql in 18 and expects the volume there.
+func pgMount(major int) string {
+	if major >= 18 {
+		return "/var/lib/postgresql"
+	}
+	return "/var/lib/postgresql/data"
+}
+
+// pgDataDir is the cluster's data directory (PGDATA) in the container.
+func pgDataDir(major int) string {
+	if major >= 18 {
+		return "/var/lib/postgresql/" + strconv.Itoa(major) + "/docker"
+	}
+	return "/var/lib/postgresql/data"
+}
+
+// PGDataPrefix is the data directory's path inside the data volume: "" up to
+// 17, 18/docker from 18.
+func PGDataPrefix(major int) string {
+	return strings.Trim(strings.TrimPrefix(pgDataDir(major), pgMount(major)), "/")
 }
 
 func (pg) Definition() Definition {
 	return Definition{
 		Image:      "postgres:17",
 		Port:       5432,
-		Volumes:    []string{"/var/lib/postgresql/data"},
+		Volumes:    func(major int) []string { return []string{pgMount(major)} },
 		ArchiveDir: PGArchiveDir,
-		ArchiveCmd: pgArchiveCmd,
+		Start:      pgCommand,
+		Versioned:  true,
 		Config: func(i Instance) []string {
 			return []string{
 				"POSTGRES_DB=" + i.AdminDB,
 				"POSTGRES_USER=" + i.AdminUser,
 				"POSTGRES_PASSWORD=" + i.AdminPassword,
+				"STACKR_PG_CONF=" + pgConf(i),
 			}
 		},
 		PrimaryOutput: "DATABASE_URL",
@@ -52,7 +152,7 @@ func (pg) Definition() Definition {
 }
 
 func (pg) Ready(ctx context.Context, i Instance, x Tools) error {
-	_, err := x.Exec(ctx, []string{"pg_isready", "-U", i.AdminUser})
+	_, err := x.Exec(ctx, []string{"pg_isready", "-h", pgSocketDir, "-U", i.AdminUser})
 	return err
 }
 
@@ -83,8 +183,11 @@ func (e pg) Provision(ctx context.Context, i Instance, s Slice, x Tools) error {
 			fmt.Sprintf(`REVOKE CONNECT ON DATABASE %q FROM PUBLIC`, s.Name),
 		)
 	}
-	_, err = x.Exec(ctx, e.psql(i, i.AdminDB, stmts))
-	return err
+	if err = pgExecSQL(ctx, x, i, i.AdminDB, stmts); err != nil {
+		return err
+	}
+	// pg_stat_statements is preloaded (pgFlags); each database needs the view
+	return pgExecSQL(ctx, x, i, s.Name, []string{`CREATE EXTENSION IF NOT EXISTS pg_stat_statements`})
 }
 
 func (e pg) Drop(ctx context.Context, i Instance, s Slice, x Tools) error {
@@ -127,7 +230,7 @@ func (e pg) Bind(
 		stmts = append(stmts, pgRevokes(s, g, prev, others)...)
 	}
 	stmts = append(stmts, pgGrants(s, g, others)...)
-	_, err := x.Exec(ctx, e.psql(i, s.Name, stmts))
+	err := pgExecSQL(ctx, x, i, s.Name, stmts)
 	return err
 }
 
@@ -253,12 +356,14 @@ func quote(ident string) string {
 // psql runs each statement as the superuser in one session on db,
 // ON_ERROR_STOP. Quiet: without -q the SET prints its "SET" tag ahead of
 // Provision's existence row, the check misreads it and re-provision CREATEs
-// a live role.
+// a live role. The admin connects over the container's own unix socket,
+// where the image's pg_hba.conf trusts local connections: no password on the
+// exec's argv or env.
 func (pg) psql(i Instance, db string, stmts []string) []string {
 	args := []string{
-		"env",
-		"PGPASSWORD=" + i.AdminPassword,
 		"psql",
+		"-h",
+		pgSocketDir,
 		"-q",
 		"-U",
 		i.AdminUser,
@@ -273,6 +378,19 @@ func (pg) psql(i Instance, db string, stmts []string) []string {
 		args = append(args, "-c", st)
 	}
 	return args
+}
+
+// pgSQL is psql reading its statements from stdin, for statements that carry
+// a role's password: it never rides an argv. Returns the argv and the stdin.
+func pgSQL(i Instance, db string, stmts []string) ([]string, string) {
+	argv := pg{}.psql(i, db, nil)
+	return append(argv, "-f", "-"), strings.Join(stmts, ";\n") + ";\n"
+}
+
+func pgExecSQL(ctx context.Context, x Tools, i Instance, db string, stmts []string) error {
+	argv, in := pgSQL(i, db, stmts)
+	_, err := x.ExecIn(ctx, argv, in)
+	return err
 }
 
 func (pg) Bindings(i Instance, s Slice) []Binding {
@@ -304,8 +422,8 @@ func (pg) Backup(method string, i Instance) []string {
 	if method != "dump" {
 		return nil
 	}
-	script := `echo '` + pgClusterMarker + `'; exec pg_dumpall -U "$0"`
-	return []string{"env", "PGPASSWORD=" + i.AdminPassword, "sh", "-c", script, i.AdminUser}
+	script := `echo '` + pgClusterMarker + `'; exec pg_dumpall -h ` + pgSocketDir + ` -U "$0"`
+	return []string{"sh", "-c", script, i.AdminUser}
 }
 
 // pgBaseBackup is a physical backup of the whole cluster as one gzipped tar
@@ -315,7 +433,7 @@ func pgBaseBackup(i Instance) []string {
 	if i.PITRDays <= 0 {
 		return nil
 	}
-	return []string{"env", "PGPASSWORD=" + i.AdminPassword, "pg_basebackup", "-U", i.AdminUser,
+	return []string{"pg_basebackup", "-h", pgSocketDir, "-U", i.AdminUser,
 		"-D", "-", "-Ft", "-Xnone", "-z"}
 }
 
@@ -346,13 +464,13 @@ const PGRestoreWalDir = "stackr-restore-wal"
 
 // PGWalDir is the cluster's own WAL directory: where a promoted restore's
 // timeline history file lives.
-const PGWalDir = "/var/lib/postgresql/data/pg_wal"
+func PGWalDir(major int) string { return pgDataDir(major) + "/pg_wal" }
 
 // RecoveryConf is the postgresql.auto.conf text that makes the restored
 // cluster replay the copied WAL and promote at at (zero = replay all of it).
 // The timeline is the newest one the archive's history files name.
-func (pg) RecoveryConf(at time.Time) string {
-	conf := "restore_command = 'cp /var/lib/postgresql/data/" + PGRestoreWalDir + "/%f %p'\n" +
+func (pg) RecoveryConf(i Instance, at time.Time) string {
+	conf := "restore_command = 'cp " + pgDataDir(i.Major) + "/" + PGRestoreWalDir + "/%f %p'\n" +
 		"recovery_target_timeline = 'latest'\n"
 	if !at.IsZero() {
 		conf += "recovery_target_time = '" + at.UTC().Format("2006-01-02 15:04:05.999999-07") + "'\n" +
@@ -364,16 +482,19 @@ func (pg) RecoveryConf(at time.Time) string {
 // SettleArgv is what a finished recovery leaves to clean: the WAL copy and
 // the recovery settings (they do nothing outside recovery, but the promoted
 // cluster should not carry a restore_command into a world without the dir).
+// The settings come out of postgresql.auto.conf by hand: ALTER SYSTEM is off
+// (allow_alter_system) from 17. The file is rewritten in place, so it stays
+// postgres's own.
 func (e pg) SettleArgv(i Instance) []string {
-	script := `rm -rf "/var/lib/postgresql/data/` + PGRestoreWalDir + `"; exec "$@"`
-	args := e.psql(i, i.AdminDB, []string{
-		`ALTER SYSTEM RESET restore_command`,
-		`ALTER SYSTEM RESET recovery_target_time`,
-		`ALTER SYSTEM RESET recovery_target_action`,
-		`ALTER SYSTEM RESET recovery_target_timeline`,
-		`SELECT pg_reload_conf()`,
-	})
-	return append([]string{"sh", "-c", script, "sh"}, args...)
+	script := `d="$0"; rm -rf "$d/` + PGRestoreWalDir + `"; f="$d/postgresql.auto.conf"
+if [ -f "$f" ]; then
+grep -Ev '^(restore_command|recovery_target_time|recovery_target_action|recovery_target_timeline)[ =]' "$f" > "$f.new"
+[ $? -le 1 ] && cat "$f.new" > "$f"
+rm -f "$f.new"
+fi
+exec "$@"`
+	args := e.psql(i, i.AdminDB, []string{`SELECT pg_reload_conf()`})
+	return append([]string{"sh", "-c", script, pgDataDir(i.Major)}, args...)
 }
 
 // ArchiverArgv prints pg_stat_archiver's failed_count.
@@ -397,7 +518,8 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;`
 
 // Restore wipes, then restores: a bare psql < dump merges. sh, not bash
-// (alpine images); the password is a positional arg, never script text.
+// (alpine images); the admin connects over the container's own socket, so no
+// password rides the exec.
 // The first line of the stream picks the path. A cluster dump re-creates the
 // admin user, which exists and cannot be dropped, so its two statements are
 // filtered out, from the globals section only (before the first \connect):
@@ -409,19 +531,19 @@ func (pg) Restore(method, target string, i Instance) []string {
 	}
 	script := `IFS= read -r first
 if [ "$first" = '` + pgClusterMarker + `' ]; then
-PGPASSWORD="$0" psql -q -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null <<'SQL' &&
+psql -h ` + pgSocketDir + ` -q -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null <<'SQL' &&
 ` + pgWipe + `
 SQL
-LC_ALL=C awk -v u="$1" 'BEGIN { r = "^(CREATE|ALTER) ROLE \"?" u "\"?( |;)" }
+LC_ALL=C awk -v u="$0" 'BEGIN { r = "^(CREATE|ALTER) ROLE \"?" u "\"?( |;)" }
 /^\\connect / { data = 1 }
 !data && $0 ~ r { next }
-{ print }' | PGPASSWORD="$0" psql -q -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null
+{ print }' | psql -h ` + pgSocketDir + ` -q -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null
 else
-PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" ` +
+psql -h ` + pgSocketDir + ` -v ON_ERROR_STOP=1 -U "$0" -d "$1" ` +
 		`-c 'DROP SCHEMA public CASCADE' -c 'CREATE SCHEMA public' >/dev/null && ` +
-		`{ printf '%s\n' "$first"; cat; } | PGPASSWORD="$0" psql -v ON_ERROR_STOP=1 -U "$1" -d "$2" >/dev/null
+		`{ printf '%s\n' "$first"; cat; } | psql -h ` + pgSocketDir + ` -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null
 fi`
-	return []string{"sh", "-c", script, i.AdminPassword, i.AdminUser, target}
+	return []string{"sh", "-c", script, i.AdminUser, target}
 }
 
 // pgSeedFilter drops what ties a plain dump to its source's roles (owners,
@@ -439,7 +561,7 @@ copy { print; if ($0 == "\\.") copy = 0; next }
 // over the container's own socket (trusted there): no password in argv. It
 // runs in the instance's container and its output is what Seed loads.
 func (pg) SliceDump(i Instance, s Slice) []string {
-	return []string{"pg_dump", "-Fc", "--no-owner", "--no-privileges", "-U", i.AdminUser, "-d", s.Name}
+	return []string{"pg_dump", "-h", pgSocketDir, "-Fc", "--no-owner", "--no-privileges", "-U", i.AdminUser, "-d", s.Name}
 }
 
 // Seed loads a pg_dump into slice s as its owner, so the slice's own cred
@@ -449,17 +571,18 @@ func (pg) SliceDump(i Instance, s Slice) []string {
 // (CREATE DATABASE, \connect) fails and says so.
 // ponytail: an extension only a superuser may create fails the load.
 func (pg) Seed(format string, _ Instance, s Slice) []string {
-	env := []string{"env", "PGPASSWORD=" + s.Password, "PGOPTIONS=-c client_min_messages=warning"}
+	// over the container's own socket, trusted there: no password rides the exec
+	env := []string{"env", "PGOPTIONS=-c client_min_messages=warning"}
 	switch format {
 	case DumpCustom:
-		return append(env, "pg_restore", "--no-owner", "--no-privileges", "--exit-on-error",
+		return append(env, "pg_restore", "-h", pgSocketDir, "--no-owner", "--no-privileges", "--exit-on-error",
 			"--single-transaction", "-U", s.User, "-d", s.Name)
 	case DumpPlain:
 		// psql runs in restricted mode under a key the dump cannot know: a
 		// meta-command in it (\! runs a shell) fails the load.
 		script := `k=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); ` +
 			`{ printf '\\restrict %s\n' "$k"; LC_ALL=C awk '` + pgSeedFilter + `'; } | ` +
-			`psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$0" -d "$1" -f - >/dev/null`
+			`psql -h ` + pgSocketDir + ` -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$0" -d "$1" -f - >/dev/null`
 		return append(env, "sh", "-c", script, s.User, s.Name)
 	}
 	return nil

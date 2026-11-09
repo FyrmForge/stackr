@@ -4684,8 +4684,17 @@
           "id": {
             "type": "string"
           },
+          "major": {
+            "type": "integer"
+          },
           "pitr_days": {
             "type": "integer"
+          },
+          "settings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "tile_id": {
             "type": "string"
@@ -4700,6 +4709,8 @@
           "admin_user",
           "endpoint",
           "pitr_days",
+          "settings",
+          "major",
           "created_at"
         ],
         "type": "object"
@@ -4912,6 +4923,124 @@
           "created_at",
           "ticked",
           "confirmed"
+        ],
+        "type": "object"
+      },
+      "PGSetting": {
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs_restart": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "group",
+          "value",
+          "source",
+          "needs_restart"
+        ],
+        "type": "object"
+      },
+      "PGSettings": {
+        "properties": {
+          "memory_mb": {
+            "type": "integer"
+          },
+          "needs_restart": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "settings": {
+            "items": {
+              "$ref": "#/components/schemas/PGSetting"
+            },
+            "type": "array"
+          },
+          "work_mem_risk": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running",
+          "memory_mb",
+          "needs_restart",
+          "work_mem_risk",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "PGSettingsIn": {
+        "properties": {
+          "set": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "unset": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "set",
+          "unset"
+        ],
+        "type": "object"
+      },
+      "PGSettingsOut": {
+        "properties": {
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_mb": {
+            "type": "integer"
+          },
+          "needs_restart": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "settings": {
+            "items": {
+              "$ref": "#/components/schemas/PGSetting"
+            },
+            "type": "array"
+          },
+          "work_mem_risk": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running",
+          "memory_mb",
+          "needs_restart",
+          "work_mem_risk",
+          "settings"
         ],
         "type": "object"
       },
@@ -23175,6 +23304,138 @@
           }
         },
         "x-verb": "tile.read"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/settings": {
+      "get": {
+        "operationId": "operated.settings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "put": {
+        "operationId": "operated.settings-set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PGSettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGSettingsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice": {

@@ -114,6 +114,19 @@ func (l *Leaf) SetPITR(ctx context.Context, m store.OperatedInstance, days int) 
 	return m, l.instances.Update(ctx, m)
 }
 
+// SetMajor records the postgres major the instance is made with.
+func (l *Leaf) SetMajor(ctx context.Context, m store.OperatedInstance, major int) (store.OperatedInstance, error) {
+	m.Major = major
+	return m, l.instances.Update(ctx, m)
+}
+
+// SetSettings replaces the instance's own settings (the engine's checks are
+// the caller's). The caller applies them to the running instance.
+func (l *Leaf) SetSettings(ctx context.Context, m store.OperatedInstance, settings map[string]string) (store.OperatedInstance, error) {
+	m.Settings = settings
+	return m, l.instances.Update(ctx, m)
+}
+
 // SetAllow replaces the instance's allow list. Every entry is checked
 // against the instance's own org first; a bad one leaves the row as it was.
 // Nothing is torn down: a slice the list no longer admits fails its

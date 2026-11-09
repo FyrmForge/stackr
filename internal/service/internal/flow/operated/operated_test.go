@@ -191,6 +191,10 @@ func setup(t *testing.T, engine string) *world {
 	}
 	m, err := f.Instances.Create(ctx, w.db.ID, engine, "stackr", "")
 	must(t, err)
+	if engine == "postgres" {
+		m, err = f.Instances.SetMajor(ctx, m, 17)
+		must(t, err)
+	}
 	w.instance = m
 	fake.Containers = []docker.Container{
 		{
@@ -209,8 +213,8 @@ func setup(t *testing.T, engine string) *world {
 func execs(f *dockerfake.Fake, n int) string {
 	var b strings.Builder
 	for _, c := range f.Calls()[n:] {
-		if c.Method == "Exec" {
-			b.WriteString(strings.Join(c.Args, " ") + "\n")
+		if c.Method == "Exec" || c.Method == "ExecStream" {
+			b.WriteString(strings.Join(c.Args, " ") + "\n" + c.Stdin)
 		}
 	}
 	return b.String()
@@ -234,7 +238,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 		`CREATE ROLE "s_dev_orders"`,
 		`CREATE DATABASE "s_dev_orders" OWNER "s_dev_orders"`,
 		"SET log_min_error_statement = PANIC",
-		"psql -q ",
+		"psql -h /var/run/postgresql -q ",
 	)
 	if p.DBName != "s_dev_orders" || p.DBUser != "s_dev_orders" {
 		t.Errorf("provision = %+v", p)
@@ -245,7 +249,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	n := len(w.fake.Calls())
 	again, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
-	if ex := execs(w.fake, n); again.ID != p.ID || !strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) || strings.Contains(ex, "CREATE") {
+	if ex := execs(w.fake, n); again.ID != p.ID || !strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) || strings.Contains(ex, "CREATE ROLE") || strings.Contains(ex, "CREATE DATABASE") {
 		t.Errorf("re-provision %s:\n%s", again.ID, ex)
 	}
 
@@ -367,7 +371,7 @@ func TestKeepAndTeardownNeedsForce(t *testing.T) {
 	back, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
 	ex := execs(w.fake, n)
-	if back.DBName != "s_dev_orders" || back.ID == p.ID || strings.Contains(ex, "CREATE") ||
+	if back.DBName != "s_dev_orders" || back.ID == p.ID || strings.Contains(ex, "CREATE ROLE") || strings.Contains(ex, "CREATE DATABASE") ||
 		!strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) {
 		t.Errorf("re-added %+v:\n%s", back, ex)
 	}

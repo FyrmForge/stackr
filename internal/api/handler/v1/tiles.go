@@ -145,6 +145,14 @@ type (
 	PITRIn struct {
 		Days int `json:"days"` // the recovery window in days; 0 = off
 	}
+	PGSettingsIn struct {
+		Set   map[string]string `json:"set"`   // name to value; the rest stay
+		Unset []string          `json:"unset"` // names whose override goes
+	}
+	PGSettingsOut struct {
+		service.PGSettings
+		Job *service.Job `json:"job,omitempty"` // the restart some changes need
+	}
 	EnvPairsIn struct {
 		EnvPairs map[string]string `json:"env_pairs"` // consumer env -> this stack's env; the full map
 	}
@@ -492,6 +500,21 @@ func (h *H) RestoreInstance() Endpoint {
 func (h *H) PromoteRestore() Endpoint {
 	return Job(func(c echo.Context, _ None) (service.Job, error) {
 		return h.Orch.PromoteRestore(rc(c), middleware.Principal(c), tileID(c))
+	})
+}
+
+// PGSettings lists a postgres instance's settings with where each value
+// comes from.
+func (h *H) PGSettings() Endpoint {
+	return Get(func(c echo.Context) (service.PGSettings, error) { return h.Orch.PGSettings(rc(c), tileID(c)) })
+}
+
+// SetPGSettings sets and unsets the instance's own settings and applies them:
+// a reload, or a restart (job) when a changed one needs it.
+func (h *H) SetPGSettings() Endpoint {
+	return JSON(200, func(c echo.Context, in PGSettingsIn) (PGSettingsOut, error) {
+		v, j, err := h.Orch.SetPGSettings(rc(c), tileID(c), in.Set, in.Unset)
+		return PGSettingsOut{PGSettings: v, Job: j}, err
 	})
 }
 

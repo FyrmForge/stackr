@@ -328,6 +328,28 @@ type SettingsView struct {
 	Name     *string           // a refused rename's name as typed; nil = the stored one
 	Errors   map[string]string // allow | env_pairs | name | delete → why the save was refused
 	Open     string            // the accordion row open on load: the saved one, or ?open=
+	PG       *PGView           // a postgres instance's own settings; nil = another engine
+}
+
+// PGView is a postgres instance's settings page: each value with where it
+// comes from, and what waits for a restart.
+type PGView struct {
+	Restart  bool // some change waits for a restart
+	Risk     bool // work_mem times max_connections outgrows the node
+	MemoryMB int  // the tile's memory limit, 0 = none
+	Main     []PGRow
+	Advanced []PGRow
+	Other    []PGRow
+	AddName  string // the typed name and value of a refused add
+	AddValue string
+}
+
+// PGRow is one setting. Source is default, computed or yours; Mine is the
+// value the form shows (an override), Value what is in force.
+type PGRow struct {
+	Name, Value, Source string
+	Mine                string
+	Pending             bool
 }
 
 // Pair is one env pair: a consumer's env → this stack's env.
@@ -347,10 +369,122 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 		{Key: "allow", Title: "Allow", Summary: AllowSummary(s.Allow), Changed: len(s.Allow) > 0, Body: allowRow(v, s)},
 		{Key: "pairs", Title: "Env pairs", Summary: PairsSummary(s.Pairs), Changed: len(s.Pairs) > 0, Body: pairsRow(v, s)},
 	}
+	if s.PG != nil {
+		rows = append(rows, c.AccRow{Key: "postgres", Title: "Postgres", Summary: PGSummary(*s.PG), Changed: s.PG.Restart, Body: pgRow(v, s)})
+	}
 	if !v.ReadOnly {
 		rows = append(rows, c.AccRow{Key: "delete", Title: "Delete", Body: deleteRow(v, s)})
 	}
 	return rows
+}
+
+// PGSummary is the Postgres row closed.
+func PGSummary(p PGView) string {
+	if p.Restart {
+		return "needs a restart"
+	}
+	n := 0
+	for _, rs := range [][]PGRow{p.Main, p.Advanced, p.Other} {
+		for _, r := range rs {
+			if r.Source == "yours" {
+				n++
+			}
+		}
+	}
+	if n == 0 {
+		return "defaults"
+	}
+	return strconv.Itoa(n) + " of yours"
+}
+
+templ pgRow(v View, s SettingsView) {
+	<p class="text-xs text-rw-faint" data-hint>stackr manages a few settings itself, so they are not listed.</p>
+	<div class="space-y-4">
+		if s.PG.Restart {
+			<div class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn flex items-center justify-between gap-3" role="status">
+				<span>Some changes wait for a restart.</span>
+				if !v.ReadOnly {
+					@c.PrimaryPost("Restart", v.Base+"/deploy")
+				}
+			</div>
+		}
+		if s.PG.Risk {
+			<p class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn" role="status">work_mem times max_connections is more than the node's memory.</p>
+		}
+		<form hx-post={ v.Base + "/memory" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
+			<div class="flex-1 min-w-48">
+				<label for="pg-memory" class="label">Memory limit (MB)</label>
+				<input id="pg-memory" name="memory_mb" inputmode="numeric" value={ pgMem(s.PG.MemoryMB) } placeholder="none" class="input font-mono" disabled?={ v.ReadOnly } { c.Invalid("memory", s.Errors["memory"])... }/>
+				<p class="mt-1.5 text-xs text-rw-faint" data-hint>Empty shares the node's memory.</p>
+			</div>
+			if !v.ReadOnly {
+				<button type="submit" class="btn btn-ghost btn-sm">Save</button>
+			}
+			<div class="w-full">
+				@c.FieldError("memory", s.Errors["memory"])
+			</div>
+		</form>
+		<form hx-post={ v.Base + "/settings" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			@pgRows(v, s.PG.Main)
+			<details class="text-sm">
+				<summary class="cursor-pointer text-rw-muted hover:text-rw-text">Advanced</summary>
+				<div class="mt-3">
+					@pgRows(v, s.PG.Advanced)
+				</div>
+			</details>
+			if len(s.PG.Other) > 0 {
+				<h4 class="label">Other</h4>
+				@pgRows(v, s.PG.Other)
+			}
+			if !v.ReadOnly {
+				<div class="flex flex-wrap items-end gap-2">
+					<div class="flex-1 min-w-32">
+						<label for="pg-add-name" class="label">Another setting</label>
+						<input id="pg-add-name" name="add_name" value={ s.PG.AddName } placeholder="name" class="input font-mono" { c.Invalid("settings", s.Errors["settings"])... }/>
+					</div>
+					<div class="flex-1 min-w-32">
+						<label for="pg-add-value" class="label">Value</label>
+						<input id="pg-add-value" name="add_value" value={ s.PG.AddValue } class="input font-mono"/>
+					</div>
+				</div>
+				<div>
+					@c.FieldError("settings", s.Errors["settings"])
+				</div>
+				<button type="submit" class="btn btn-primary btn-sm">Save settings</button>
+			}
+		</form>
+	</div>
+}
+
+func pgMem(mb int) string {
+	if mb <= 0 {
+		return ""
+	}
+	return strconv.Itoa(mb)
+}
+
+// pgRows is one list of settings: an input each, empty = no override of
+// yours, with the value in force as its placeholder.
+templ pgRows(v View, rows []PGRow) {
+	<ul class="space-y-1.5">
+		for _, r := range rows {
+			<li class="flex items-center gap-3 text-sm" data-field data-changed?={ r.Source == "yours" }>
+				<label for={ "pg-" + r.Name } class="w-64 shrink-0 font-mono text-rw-text break-all">{ r.Name }</label>
+				<input id={ "pg-" + r.Name } name={ "v_" + r.Name } value={ r.Mine } placeholder={ r.Value } class="input font-mono flex-1" disabled?={ v.ReadOnly }/>
+				@c.Chip(r.Source, pgTone(r.Source))
+				if r.Pending {
+					@c.Chip("needs restart", "warn")
+				}
+			</li>
+		}
+	</ul>
+}
+
+func pgTone(source string) string {
+	if source == "yours" {
+		return "accent"
+	}
+	return "muted"
 }
 
 // AllowSummary is the Allow row closed: its patterns, or who may by default.
