@@ -357,6 +357,11 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if len(m.Settings) > 0 {
 			b.put("settings", map[string]string(m.Settings))
 		}
+		if f.StandbyNames != nil && m.Engine == "postgres" {
+			if ns, err := f.StandbyNames(ctx, t); err == nil && len(ns) > 0 {
+				b.put("standbys", ns)
+			}
+		}
 	}
 	str("image", t.ImageRef)
 	if tile.Builds(t) {

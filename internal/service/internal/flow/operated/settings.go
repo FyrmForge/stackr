@@ -18,10 +18,13 @@ type LiveSetting struct {
 
 // pgConfWrite is the argv that replaces stackr.conf atomically (temp file,
 // then rename) and hands it to postgres.
-func pgConfWrite(i Instance, conf string) []string {
-	script := `d="$0"; printf '%s' "$1" > "$d/stackr.conf.new" && chown postgres:postgres "$d/stackr.conf.new" && ` +
-		`mv "$d/stackr.conf.new" "$d/stackr.conf"`
-	return []string{"sh", "-c", script, pgDataDir(i.Major), conf}
+func pgConfWrite(i Instance, conf string) []string { return pgFileWrite(i, "stackr.conf", conf) }
+
+// pgFileWrite is the argv that replaces file name of the data directory
+// atomically.
+func pgFileWrite(i Instance, name, content string) []string {
+	script := `d="$0"; printf '%s' "$2" > "$d/$1.new" && chown postgres:postgres "$d/$1.new" && mv "$d/$1.new" "$d/$1"`
+	return []string{"sh", "-c", script, pgDataDir(i.Major), name, content}
 }
 
 // postgres is the instance's engine, refused for any other.

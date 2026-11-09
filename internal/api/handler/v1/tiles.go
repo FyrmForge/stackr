@@ -632,3 +632,36 @@ func (h *H) Bindings() Endpoint {
 func (h *H) SliceOf() Endpoint {
 	return Get(func(c echo.Context) (service.SliceView, error) { return h.Orch.SliceOf(rc(c), tileID(c)) })
 }
+
+type (
+	StandbyIn struct {
+		Node string `json:"node"` // a node's name, slug or id
+	}
+)
+
+// Standbys lists an instance's members: the primary, then its standbys.
+func (h *H) Standbys() Endpoint {
+	return Get(func(c echo.Context) ([]service.StandbyView, error) { return h.Orch.Standbys(rc(c), tileID(c)) })
+}
+
+// AddStandby makes the instance a standby on a node; it is streaming once
+// the copy of the primary is done.
+func (h *H) AddStandby() Endpoint {
+	return JSON(http.StatusAccepted, func(c echo.Context, in StandbyIn) (service.StandbyView, error) {
+		return h.Orch.AddStandbyView(rc(c), tileID(c), in.Node)
+	})
+}
+
+// RemoveStandby takes a standby away: its container, volume, slot and network.
+func (h *H) RemoveStandby() Endpoint {
+	return Done(func(c echo.Context, _ None) error {
+		return h.Orch.RemoveStandbyOf(rc(c), tileID(c), c.Param("standby"))
+	})
+}
+
+// RebuildStandby makes a standby again on its node (one whose slot was lost).
+func (h *H) RebuildStandby() Endpoint {
+	return JSON(http.StatusAccepted, func(c echo.Context, _ None) (service.StandbyView, error) {
+		return h.Orch.RebuildStandbyOf(rc(c), tileID(c), c.Param("standby"))
+	})
+}

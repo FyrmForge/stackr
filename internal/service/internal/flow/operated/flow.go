@@ -44,6 +44,9 @@ type Flow struct {
 	// NodeMemMB is the memory, in MB, of the node the instance runs on; 0 or
 	// nil = unknown.
 	NodeMemMB func(ctx context.Context, t store.Tile) int
+	// NodeDiskMB is the free disk, in MB, of the node the instance runs on
+	// (max_slot_wal_keep_size follows it); 0 or nil = unknown.
+	NodeDiskMB func(ctx context.Context, t store.Tile) int
 	// Pull makes an image available on the instance's node (anonymous): the
 	// pooler's. nil = no pooler can be made.
 	Pull func(ctx context.Context, ref string) error
@@ -143,12 +146,13 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	if err := f.Envs.Shared(ctx, net); err != nil {
 		return c, err
 	}
-	c.Networks = []docker.NetAttach{
-		{
-			Name:    net,
-			Aliases: []string{alias(t, m)},
-		},
+	aliases := []string{alias(t, m)}
+	if m.Engine == "postgres" {
+		// a consumer on the primary's node reading through the read alias
+		// reaches the primary (a standby is never on its node)
+		aliases = append(aliases, ReadAlias(alias(t, m)))
 	}
+	c.Networks = []docker.NetAttach{{Name: net, Aliases: aliases}}
 	return c, nil
 }
 
@@ -799,6 +803,7 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 		Settings:      m.Settings,
 
 		PoolerPassword: m.PoolerPassword,
+		ReplPassword:   m.ReplPassword,
 	}
 	if f.PublicBase != nil {
 		i.PublicBase = f.PublicBase(ctx, t)
@@ -806,11 +811,19 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 	return i
 }
 
-// withNodeMem adds the node's memory to i. Apart from facts: asking the
-// node is not free, and only the computed settings read it.
+// withNodeMem adds the node's memory and its free disk to i. Apart from
+// facts: asking the node is not free, and only the computed settings and the
+// slot cap read them.
 func (f *Flow) withNodeMem(ctx context.Context, t store.Tile, i Instance) Instance {
 	if f.NodeMemMB != nil {
 		i.NodeMemMB = f.NodeMemMB(ctx, t)
+	}
+	disk := 0
+	if f.NodeDiskMB != nil {
+		disk = f.NodeDiskMB(ctx, t)
+	}
+	if i.Engine == "postgres" {
+		i.SlotKeepMB = slotKeepMB(disk)
 	}
 	return i
 }

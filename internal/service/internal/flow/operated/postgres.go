@@ -3,10 +3,11 @@ package operated
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 type pg struct{}
@@ -22,14 +23,20 @@ const PGArchiveDir = "/var/lib/stackr-wal"
 
 // pgFlags are the settings stackr owns, as -c start flags: they beat every
 // file, so neither stackr.conf nor a user can move them. allow_alter_system
-// exists from 17 only. restore_command, hba_file, ssl*, primary_conninfo and
-// synchronous_standby_names are reserved too (PGOwned) but not emitted: a
-// restore writes its own restore_command into postgresql.auto.conf, and the
-// rest are for later phases. archive_command writes a dotfile and renames
+// exists from 17 only. The reloadable owned settings (primary_conninfo, the
+// slot cap) are in stackr-owned.conf instead (pgOwnedConf). restore_command,
+// hba_file, ssl* and synchronous_standby_names are reserved too (PGOwned) but
+// not emitted: a restore writes its own restore_command into
+// postgresql.auto.conf, and the rest are for later phases. archive_command writes a dotfile and renames
 // it, so the shipper never sees a half-copied segment, and refuses to
 // overwrite one.
 func pgFlags(major, pitrDays int) []string {
-	f := []string{"shared_preload_libraries=pg_stat_statements", "wal_log_hints=on"}
+	// the replication settings are the same on every member: a standby needs
+	// each of its limits at least the primary's
+	f := []string{
+		"shared_preload_libraries=pg_stat_statements", "wal_log_hints=on",
+		"wal_level=replica", "max_wal_senders=10", "max_replication_slots=10", "hot_standby=on",
+	}
 	if major == 0 || major >= 17 {
 		f = append(f, "allow_alter_system=off")
 	}
@@ -51,26 +58,44 @@ func pgFlags(major, pitrDays int) []string {
 	return f
 }
 
+// pgReplHBA is the line that lets standbys replicate: the replication role
+// only, from the cluster's pool of member networks (a standby's /24 is a block
+// of it, and the firewall lets only member networks reach the primary's VIP).
+// The image's own catch-all line is for "all" databases, which never
+// includes replication.
+var pgReplHBA = "host replication " + ReplUser + " " + mesh.Supernet.String() + " scram-sha-256"
+
 // pgStartScript runs as root ahead of the image's own entrypoint: it puts
-// stackr.conf and its one include line in the data directory. A first boot
-// has no postgresql.conf until initdb has run, so an init script does it
-// then. A start rewrites stackr.conf only for a new container (its hostname
-// differs from the one that wrote it), so a plain restart keeps what a
+// stackr.conf, stackr-owned.conf and their include lines in the data
+// directory, and the replication line in pg_hba.conf. A first boot has no
+// postgresql.conf until initdb has run, so an init script does it then. A
+// start rewrites the two conf files only for a new container (its hostname
+// differs from the one that wrote them), so a plain restart keeps what a
 // later reload wrote. The conf is written before the include, which is
 // fatal when the file is missing.
 const pgStartScript = `cat > /docker-entrypoint-initdb.d/00-stackr.sh <<'EOF'
 printf '%s\n' "$STACKR_PG_CONF" > "$PGDATA/stackr.conf"
+printf '%s\n' "$STACKR_PG_OWNED" > "$PGDATA/stackr-owned.conf"
 cat /etc/hostname > "$PGDATA/.stackr.conf.host"
-printf "include 'stackr.conf'\n" >> "$PGDATA/postgresql.conf"
+printf "include 'stackr.conf'\ninclude 'stackr-owned.conf'\n" >> "$PGDATA/postgresql.conf"
+printf '%s\n' "$STACKR_PG_HBA" >> "$PGDATA/pg_hba.conf"
 EOF
-d="$PGDATA"
+` + pgStartTail
+
+// pgStartTail is what both starts share: with a data directory, the conf
+// files, the includes and the replication line, then the image's own
+// entrypoint.
+const pgStartTail = `d="$PGDATA"
 if [ -s "$d/PG_VERSION" ]; then
-if [ ! -e "$d/stackr.conf" ] || [ "$(cat "$d/.stackr.conf.host" 2>/dev/null)" != "$(cat /etc/hostname)" ]; then
+if [ ! -e "$d/stackr.conf" ] || [ ! -e "$d/stackr-owned.conf" ] || [ "$(cat "$d/.stackr.conf.host" 2>/dev/null)" != "$(cat /etc/hostname)" ]; then
 printf '%s\n' "$STACKR_PG_CONF" > "$d/stackr.conf.new" && mv "$d/stackr.conf.new" "$d/stackr.conf"
+printf '%s\n' "$STACKR_PG_OWNED" > "$d/stackr-owned.conf.new" && mv "$d/stackr-owned.conf.new" "$d/stackr-owned.conf"
 cat /etc/hostname > "$d/.stackr.conf.host"
 fi
-chown postgres:postgres "$d/stackr.conf" "$d/.stackr.conf.host"
+chown postgres:postgres "$d/stackr.conf" "$d/stackr-owned.conf" "$d/.stackr.conf.host"
 grep -qx "include 'stackr.conf'" "$d/postgresql.conf" || printf "include 'stackr.conf'\n" >> "$d/postgresql.conf"
+grep -qx "include 'stackr-owned.conf'" "$d/postgresql.conf" || printf "include 'stackr-owned.conf'\n" >> "$d/postgresql.conf"
+grep -qxF "$STACKR_PG_HBA" "$d/pg_hba.conf" || printf '%s\n' "$STACKR_PG_HBA" >> "$d/pg_hba.conf"
 fi
 exec docker-entrypoint.sh "$@"`
 
@@ -149,6 +174,8 @@ func (pg) Definition() Definition {
 				"POSTGRES_USER=" + i.AdminUser,
 				"POSTGRES_PASSWORD=" + i.AdminPassword,
 				"STACKR_PG_CONF=" + pgConf(i),
+				"STACKR_PG_OWNED=" + pgOwnedConf(i),
+				"STACKR_PG_HBA=" + pgReplHBA,
 			}
 		},
 		PrimaryOutput: "url",
@@ -404,9 +431,9 @@ func pgExecSQL(ctx context.Context, x Tools, i Instance, db string, stmts []stri
 
 // Bindings are a slice's outputs, named like a service tile's (lowercase,
 // qualifier last): url, host and port follow the slice's url setting, and the
-// _direct and _pooled forms always exist. The _read forms are the replica
-// reads: with no replicas they are the primary's values, so a stack file that
-// refs them never changes when replicas arrive.
+// _direct and _pooled forms always exist. The _read forms are the reads: they
+// dial the read alias, which is the primary until a standby is in reach, so a
+// stack file that refs them never changes when standbys arrive.
 func (pg) Bindings(i Instance, s Slice) []Binding {
 	conn := func(host string, port int) string {
 		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s", s.User, s.Password, host, port, s.Name)
@@ -432,20 +459,23 @@ func (pg) Bindings(i Instance, s Slice) []Binding {
 		{"user", s.User, false, false},
 		{"password", s.Password, true, false},
 	}
-	// ponytail: replicas do not exist yet; when they do, the _read values
-	// point at one and these copies become real values.
-	read := map[string]string{
-		"url": "url_read", "url_direct": "url_read_direct", "url_pooled": "url_read_pooled",
-		"host": "host_read", "host_direct": "host_read_direct", "host_pooled": "host_read_pooled",
-		"port": "port_read", "port_direct": "port_read_direct", "port_pooled": "port_read_pooled",
-	}
-	for _, b := range slices.Clone(out) {
-		if n, ok := read[b.Name]; ok {
-			b.Name = n
-			out = append(out, b)
-		}
-	}
-	return out
+	// The read forms dial the read alias (see ReadAlias): a standby the
+	// consumer can reach, else the primary. A standby has no pooler yet, so
+	// the pooled read forms are the direct ones.
+	// ponytail: pooler per standby is a later step; then _read_pooled gets its own alias.
+	rHost := ReadAlias(i.Host)
+	rConn := conn(rHost, dPort)
+	return append(out,
+		Binding{"url_read", rConn, true, true},
+		Binding{"url_read_direct", rConn, true, true},
+		Binding{"url_read_pooled", rConn, true, true},
+		Binding{"host_read", rHost, false, true},
+		Binding{"host_read_direct", rHost, false, true},
+		Binding{"host_read_pooled", rHost, false, true},
+		Binding{"port_read", strconv.Itoa(dPort), false, false},
+		Binding{"port_read_direct", strconv.Itoa(dPort), false, false},
+		Binding{"port_read_pooled", strconv.Itoa(dPort), false, false},
+	)
 }
 
 // pgClusterMarker is the first line of a whole-instance dump. A dump without

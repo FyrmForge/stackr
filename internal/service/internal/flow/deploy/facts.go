@@ -96,6 +96,11 @@ func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, 
 		}
 		if src.Host != "" {
 			operated.Direct(src.Outputs)
+			if f.ReadTarget != nil {
+				if src.ReadHost, src.ReadNetwork, err = f.ReadTarget(ctx, e, p.InstanceID); err != nil {
+					return src, err
+				}
+			}
 			return src, nil
 		}
 	}

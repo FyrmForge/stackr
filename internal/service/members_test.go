@@ -61,7 +61,9 @@ func pgOn(t *testing.T, n *twoNodes) store.OperatedInstance {
 	_, err = n.orch.members.CreatePrimary(ctx, m.ID)
 	must(t, err)
 	n.ctlFake.Containers = append(n.ctlFake.Containers, docker.Container{ID: "p", State: "running", IPs: []string{"10.208.1.2"},
-		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "pause"}})
+		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "pause"}},
+		// the primary itself: a standby's setup runs commands in it
+		docker.Container{ID: "pg", Name: "web-dev", State: "running", Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "replica"}})
 	return m
 }
 

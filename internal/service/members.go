@@ -36,12 +36,17 @@ import (
 // the way a consumer on another node does. The primary's VIP (its pause
 // address on A) is an ExtraHosts line "alias:vip" (memberHost), and the
 // firewall opens replica network -> VIP:5432 (memberFlows: Out on B, an
-// accept on A), both generated from the member rows. The next step, the
-// replication, starts the replica container on that network with that host
-// line and uses the VIP as primary_conninfo's host.
+// accept on A), both generated from the member rows. The replica's container
+// (flow/operated StandbySpec) sits on that network with that host line, and
+// the VIP is primary_conninfo's host (the primary's alias).
+//
+// A replica's phase is what the watch tick observes of it: starting until it
+// is in recovery with its WAL receiver streaming, then streaming (in the read
+// pool: consumers on its node reach it through the read alias), rebuild once
+// its slot is lost.
 
 // LabelMember marks a replica member's containers.
-const LabelMember = "stackr.member"
+const LabelMember = mflow.LabelMember
 
 // InstanceMember is a row of operated_members.
 type InstanceMember = store.OperatedMember
@@ -91,17 +96,21 @@ func (o *Orchestrator) InstanceMembers(ctx context.Context, tileID string) ([]In
 	return out, nil
 }
 
-// AddStandby makes the instance a replica member on node: its row (refused
-// when the node already holds a member, R4), its network there and its data
-// volume. The container comes with the replication.
-func (o *Orchestrator) AddStandby(ctx context.Context, tileID, nodeID string) (InstanceMember, error) {
+// AddStandby makes the instance a replica member on node (a name, slug or
+// id): its row (refused when the node already holds a member, R4), its
+// network there and its data volume, the primary's side of the replication
+// (role, slot) and the standby's container, whose first start copies the
+// primary. It is a standby once it reports streaming (the watch tick).
+func (o *Orchestrator) AddStandby(ctx context.Context, tileID, nodeRef string) (InstanceMember, error) {
 	t, inst, err := o.memberInstance(ctx, tileID)
 	if err != nil {
 		return InstanceMember{}, err
 	}
-	if _, err := o.store.Nodes.Get(ctx, nodeID); err != nil {
+	n, err := o.nodeByRef(ctx, nodeRef)
+	if err != nil {
 		return InstanceMember{}, errs.Invalidf("node", "Pick one of the cluster's nodes.")
 	}
+	nodeID := n.ID
 	if err := o.nodeUp(ctx, nodeID); err != nil {
 		return InstanceMember{}, err
 	}
@@ -131,6 +140,10 @@ func (o *Orchestrator) AddStandby(ctx context.Context, tileID, nodeID string) (I
 		err = o.docker.CreateVolume(nctx, m.Volume, "local", nil, map[string]string{LabelMember: m.ID})
 	}
 	if err == nil {
+		// the primary's half: role, pg_hba line, slot cap and this standby's slot
+		err = o.engines.PrepareStandby(ctx, t, mflow.SlotName(m.ID))
+	}
+	if err == nil {
 		err = o.primaryRestart(ctx, t, true)
 	}
 	if err != nil {
@@ -143,7 +156,36 @@ func (o *Orchestrator) AddStandby(ctx context.Context, tileID, nodeID string) (I
 		return InstanceMember{}, err
 	}
 	o.rerouteVIPsAsync(ctx) // the replica's flow
+	// The container is made now (its first copy runs inside it); a failure
+	// here is retried by the watch tick, which starts what is missing.
+	if err := o.startMember(ctx, m); err != nil {
+		slog.Warn("members: standby container", "member", m.ID, "err", err)
+	}
 	return m, nil
+}
+
+// RebuildStandby makes standby memberID again on its node: removed, then
+// added, for one whose slot was lost. The old row has to be gone before the
+// new one (R4), so a removal that cannot finish now is reported.
+func (o *Orchestrator) RebuildStandby(ctx context.Context, memberID string) (InstanceMember, error) {
+	m, err := o.members.Get(ctx, memberID)
+	if err != nil {
+		return InstanceMember{}, err
+	}
+	if m.Role != opmember.Replica {
+		return InstanceMember{}, errs.Conflictf("The primary has no rebuild.")
+	}
+	inst, err := o.operated.Get(ctx, m.InstanceID)
+	if err != nil {
+		return InstanceMember{}, err
+	}
+	if err := o.RemoveStandby(ctx, m.ID); err != nil {
+		return InstanceMember{}, err
+	}
+	if _, err := o.members.Get(ctx, m.ID); err == nil {
+		return InstanceMember{}, errs.Conflictf("The old standby is still being removed. Try the rebuild again in a minute.")
+	}
+	return o.AddStandby(ctx, inst.TileID, m.NodeID)
 }
 
 // RemoveStandby takes a replica member away: its containers, volume and row,
@@ -161,6 +203,7 @@ func (o *Orchestrator) RemoveStandby(ctx context.Context, memberID string) error
 	}
 	// The row stays, as 'removing', until the network is gone; the watch tick
 	// retries a failed drop.
+	inPool := opmember.InReadPool(m)
 	if m, err = o.members.SetState(ctx, m, opmember.Removing); err != nil {
 		return err
 	}
@@ -168,6 +211,9 @@ func (o *Orchestrator) RemoveStandby(ctx context.Context, memberID string) error
 		return err
 	}
 	o.rerouteVIPsAsync(ctx)
+	if inPool {
+		o.redeployReaders(ctx, m.InstanceID, m.NodeID) // their read alias is the primary now
+	}
 	return nil
 }
 
@@ -203,6 +249,9 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 			return err
 		}
 	}
+	if err := o.dropSlot(ctx, m); err != nil {
+		return err
+	}
 	if err := o.docker.RemoveVolume(nctx, m.Volume); err != nil {
 		return err
 	}
@@ -229,7 +278,44 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 			return err
 		}
 	}
-	return o.members.Delete(ctx, m)
+	if err := o.members.Delete(ctx, m); err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(ms, func(x InstanceMember) bool { return x.ID != m.ID && x.Phase == opmember.Rebuild }) {
+		o.pitrProblem(ctx, "alert."+AlertPGRebuild+"."+m.InstanceID, AlertPGRebuild, "", "", "")
+	}
+	return nil
+}
+
+// dropSlot drops the standby's slot on the primary, once the standby's
+// container is gone. A primary that is not running has no slot to ask: it is
+// left (the cap bounds what it holds) and the removal goes on.
+func (o *Orchestrator) dropSlot(ctx context.Context, m InstanceMember) error {
+	inst, err := o.operated.Get(ctx, m.InstanceID)
+	if err != nil {
+		return err
+	}
+	t, err := o.tiles.Get(ctx, inst.TileID)
+	if err != nil {
+		return err
+	}
+	pn, err := o.primaryNode(ctx, t)
+	if err != nil {
+		return err
+	}
+	if o.nodeUp(ctx, pn) != nil {
+		slog.Warn("member: slot left on a primary that cannot be asked", "member", m.ID)
+		return nil
+	}
+	cs, err := o.docker.List(docker.WithNode(ctx, pn), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
+		slog.Warn("member: slot left on a primary that is not running", "member", m.ID)
+		return nil
+	}
+	return o.engines.DropSlot(ctx, t, mflow.SlotName(m.ID))
 }
 
 // noStandbyOn refuses moving env envID's instances onto node: a standby
@@ -260,14 +346,14 @@ func (o *Orchestrator) noStandbyOn(ctx context.Context, envID, node string) erro
 
 // noStandbys refuses work that rewrites a primary's data while the instance
 // has a standby row in any state: the standby would follow a history that no
-// longer exists. Rebuilding a standby comes later.
+// longer exists.
 func (o *Orchestrator) noStandbys(ctx context.Context, instanceID string) error {
 	ms, err := o.members.List(ctx, instanceID)
 	if err != nil {
 		return err
 	}
 	if opmember.HasReplica(ms) {
-		return errs.Conflictf("This instance has a standby. Remove the standby first (rebuilding one comes later).")
+		return errs.Conflictf("This instance has a standby. Remove the standby first.")
 	}
 	return nil
 }
@@ -400,7 +486,7 @@ func (o *Orchestrator) startMembers(ctx context.Context) {
 		byInst[m.InstanceID] = append(byInst[m.InstanceID], m)
 	}
 	for _, m := range all {
-		if m.State != opmember.Running || opmember.MayStart(m) != nil || !opmember.HasReplica(byInst[m.InstanceID]) {
+		if m.State != opmember.Running || m.Phase == opmember.Rebuild || opmember.MayStart(m) != nil || !opmember.HasReplica(byInst[m.InstanceID]) {
 			continue
 		}
 		if err := o.startMember(ctx, m); err != nil {
@@ -436,6 +522,9 @@ func (o *Orchestrator) startMember(ctx context.Context, m InstanceMember) error 
 	cs, err := o.docker.List(nctx, labels)
 	if err != nil {
 		return err
+	}
+	if len(cs) == 0 && m.Role == opmember.Replica {
+		return o.createStandby(ctx, t, m)
 	}
 	var failed []error
 	for _, c := range cs {

@@ -73,6 +73,15 @@ type Flow struct {
 	// fails the apply. A stopped instance is not asked (applied false) and the
 	// apply stores them. Nil = stored unasked.
 	PGSettings func(ctx context.Context, t store.Tile, m store.OperatedInstance, s map[string]string) (bool, error)
+	// StandbyPlan resolves a file's standby nodes against instance tile t's
+	// own: the nodes that hold one now and the wanted ones, both by node name;
+	// an unknown node or the primary's own is an invalid or conflict error.
+	// SetStandbys makes the instance's standbys exactly those nodes (the ones
+	// it no longer lists go first). StandbyNames is the nodes that hold one,
+	// for the export. Nil = the file's standbys are ignored.
+	StandbyPlan  func(ctx context.Context, t store.Tile, want []string) (have, canon []string, err error)
+	SetStandbys  func(ctx context.Context, t store.Tile, nodes []string) error
+	StandbyNames func(ctx context.Context, t store.Tile) ([]string, error)
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -365,6 +374,11 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 				if m, err = d.Operated.SetSettings(ctx, m, *iw.settings); err != nil {
 					return fmt.Errorf("%s: %w", name, err)
 				}
+			}
+		}
+		if iw.standbys != nil && f.SetStandbys != nil {
+			if err := f.SetStandbys(ctx, t, *iw.standbys); err != nil {
+				return fmt.Errorf("%s: standbys: %w", name, err)
 			}
 		}
 		if iw.pitr != nil {

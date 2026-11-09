@@ -255,6 +255,7 @@ var byVerb = map[string]bool{
 	"section":    true, // a Server settings section's name; nothing org-owned
 	"form":       true, // a Server settings form's name; nothing org-owned
 	"record":     true, // a custom DNS record's id inside the domain or zone the route names
+	"standby":    true, // a standby member id; the service checks it belongs to the route's instance tile
 }
 
 // KnownParam reports whether a route param is org-checked or verb-scoped;

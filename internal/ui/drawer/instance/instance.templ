@@ -97,6 +97,15 @@ type OverviewView struct {
 	JobWhen             time.Time
 	Version             *VersionView // postgres only
 	Protection          string       // postgres only: the standby line, "" = not shown
+	Members             []MemberRow  // postgres only: the primary and its standbys; none = not shown
+}
+
+// MemberRow is one member of a postgres instance. Lag and Slot are
+// ready-made words ("" = nothing to say, as for the primary): Slot is the
+// WAL the member's replication slot holds against the cap.
+type MemberRow struct {
+	Node, Role, State, Lag, Slot string
+	Tone                         string // the state's chip tone
 }
 
 // VersionView is the image a postgres instance runs. UpdateTo is the image a
@@ -166,6 +175,26 @@ templ Overview(v View, o OverviewView) {
 					}
 				}
 			</div>
+		}
+		if len(o.Members) > 0 {
+			<h3 class="section-title">Members</h3>
+			<ul class="space-y-2">
+				for _, m := range o.Members {
+					<li class="panel px-4 py-3 flex items-center justify-between gap-3">
+						<span class="text-sm text-rw-text min-w-0">
+							<span class="font-medium">{ m.Node }</span>
+							<span class="text-rw-faint text-xs ml-1">{ m.Role }</span>
+							if m.Lag != "" {
+								<span class="block mt-0.5 text-xs text-rw-faint">{ m.Lag }</span>
+							}
+							if m.Slot != "" {
+								<span class="block text-xs text-rw-faint">{ m.Slot }</span>
+							}
+						</span>
+						@c.Chip(m.State, m.Tone)
+					</li>
+				}
+			</ul>
 		}
 		if o.Job != nil {
 			<h3 class="section-title">Last job</h3>

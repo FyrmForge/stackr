@@ -55,7 +55,7 @@ func TestPGPointsRates(t *testing.T) {
 // Each alert fires past its threshold and not at it.
 func TestPGAlerts(t *testing.T) {
 	ok := mflow.PGSample{ConnUsed: 80, ConnMax: 100, OldestXactS: 900, SlotKeepMB: 100,
-		Replicas: []mflow.PGReplica{{Name: "r", Seconds: 300}},
+		Replicas: []mflow.PGReplica{{Name: "r", Seconds: 30}},
 		Slots:    []mflow.PGSlot{{Name: "s", Bytes: 49 << 20}}}
 	if got := pgAlerts("pg", ok, nil); len(got) != 0 {
 		t.Errorf("at the thresholds: %+v", got)
@@ -63,7 +63,7 @@ func TestPGAlerts(t *testing.T) {
 	bad := ok
 	bad.ConnUsed = 81
 	bad.OldestXactS = 901
-	bad.Replicas = []mflow.PGReplica{{Name: "r", Seconds: 301}}
+	bad.Replicas = []mflow.PGReplica{{Name: "r", Seconds: 31}}
 	bad.Slots = []mflow.PGSlot{{Name: "s", Bytes: 50 << 20}, {Name: "s2", Bytes: 80 << 20}}
 	got := pgAlerts("pg", bad, nil)
 	for _, k := range pgAlertKinds {
@@ -120,7 +120,7 @@ func TestPGSeriesCollisions(t *testing.T) {
 // An open problem clears only below its lower mark.
 func TestPGAlertsHysteresis(t *testing.T) {
 	s := mflow.PGSample{ConnUsed: 78, ConnMax: 100, OldestXactS: 14 * 60, SlotKeepMB: 100,
-		Replicas: []mflow.PGReplica{{Name: "r", Seconds: 250}},
+		Replicas: []mflow.PGReplica{{Name: "r", Seconds: 25}},
 		Slots:    []mflow.PGSlot{{Name: "s", Bytes: 47 << 20}}}
 	if got := pgAlerts("pg", s, nil); len(got) != 0 {
 		t.Errorf("closed, under thresholds: %+v", got)
@@ -129,7 +129,7 @@ func TestPGAlertsHysteresis(t *testing.T) {
 	if got := pgAlerts("pg", s, was); len(got) != 4 {
 		t.Errorf("open, above clear marks: %+v", got)
 	}
-	s.ConnUsed, s.OldestXactS, s.Replicas[0].Seconds, s.Slots[0].Bytes = 74, 12*60, 200, 44<<20
+	s.ConnUsed, s.OldestXactS, s.Replicas[0].Seconds, s.Slots[0].Bytes = 74, 12*60, 15, 44<<20
 	if got := pgAlerts("pg", s, was); len(got) != 0 {
 		t.Errorf("open, under clear marks: %+v", got)
 	}

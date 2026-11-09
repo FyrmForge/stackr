@@ -129,6 +129,13 @@ type Instance struct {
 	Settings                map[string]string
 	// PoolerPassword is the password of the instance's pooler role.
 	PoolerPassword string
+	// ReplPassword is the replication role's password. SlotKeepMB is
+	// max_slot_wal_keep_size, 0 = none. A standby's Slot names its
+	// replication slot and PrimaryHost the primary's alias; both empty on a
+	// primary.
+	ReplPassword      string
+	SlotKeepMB        int
+	Slot, PrimaryHost string
 }
 
 // Slice is one slice tile's unit, a logical db or a bucket, with its owner

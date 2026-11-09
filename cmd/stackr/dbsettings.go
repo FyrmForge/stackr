@@ -112,5 +112,5 @@ func (a *app) dbSettings() *cobra.Command {
 			return a.follow(base, m["job"], "update")
 		})))
 	return scoped(noun("db", "Postgres instances",
-		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), version, update), true)
+		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), a.dbStandby(), version, update), true)
 }

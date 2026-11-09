@@ -132,6 +132,12 @@ func (l *Leaf) SetPoolerPassword(ctx context.Context, m store.OperatedInstance, 
 	return m, l.instances.Update(ctx, m)
 }
 
+// SetReplPassword stores the replication role's password.
+func (l *Leaf) SetReplPassword(ctx context.Context, m store.OperatedInstance, password string) (store.OperatedInstance, error) {
+	m.ReplPassword = password
+	return m, l.instances.Update(ctx, m)
+}
+
 // SetSettings replaces the instance's own settings (the engine's checks are
 // the caller's). The caller applies them to the running instance.
 func (l *Leaf) SetSettings(ctx context.Context, m store.OperatedInstance, settings map[string]string) (store.OperatedInstance, error) {

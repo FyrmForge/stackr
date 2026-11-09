@@ -279,7 +279,7 @@ func TestSliceURLSetting(t *testing.T) {
 		must(t, err)
 		return out
 	}
-	if out := read(b); out["host"] != host || out["url"] != out["url_direct"] || out["url_read"] != out["url_direct"] {
+	if out := read(b); out["host"] != host || out["url"] != out["url_direct"] || out["host_read"] != host+"-read" {
 		t.Fatalf("default outputs %v, want direct", out)
 	}
 	set := func(u string) {
@@ -299,7 +299,7 @@ func TestSliceURLSetting(t *testing.T) {
 	bs, err := w.f.Instances.Bindings(ctx, p.ID)
 	must(t, err)
 	out := read(bs[0])
-	if out["host"] != host+"-pooler" || out["url"] != out["url_pooled"] || out["url_read"] != out["url_pooled"] || out["host_direct"] != host {
+	if out["host"] != host+"-pooler" || out["url"] != out["url_pooled"] || out["host_direct"] != host {
 		t.Errorf("pooled outputs %v", out)
 	}
 	set("direct")
@@ -571,7 +571,7 @@ func TestContainer(t *testing.T) {
 	want := []docker.NetAttach{
 		{
 			Name:    net,
-			Aliases: []string{"db-" + w.instance.ID[:8]},
+			Aliases: []string{"db-" + w.instance.ID[:8], "db-" + w.instance.ID[:8] + "-read"},
 		},
 	}
 	if c.Image != "postgres:17" || len(c.Binds) != 1 || !strings.HasSuffix(c.Binds[0], ":/var/lib/postgresql/data") ||

@@ -631,6 +631,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			},
 			PublicBase: orch.publicBase,
 			NodeMemMB:  orch.nodeMemMB,
+			NodeDiskMB: orch.nodeDiskMB,
 			Pull: func(ctx context.Context, ref string) error {
 				_, err := orch.images.Ensure(ctx, ref, "", io.Discard)
 				return err
@@ -645,6 +646,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Preflight:   orch.preflight,
 			Remote:      func(ctx context.Context, e store.Environment) bool { return orch.envRemote(ctx, e.ID) },
 			LinkHost:    orch.linkHost,
+			ReadTarget:  orch.readTarget,
 			Tiles:       orch.tiles,
 			Envs:        orch.envs,
 			Stacks:      orch.stacks,
@@ -697,6 +699,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			DumpBeforeDrop: orch.dumpBeforeDrop,
 			PITRChanged:    orch.pitrApplied,
 			PGSettings:     orch.settingsFromFile,
+			StandbyPlan:    orch.standbyPlan,
+			SetStandbys:    orch.setStandbys,
+			StandbyNames:   func(ctx context.Context, t store.Tile) ([]string, error) { return orch.StandbyNodes(ctx, t.ID) },
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {

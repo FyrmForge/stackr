@@ -59,6 +59,10 @@ type Flow struct {
 	// for an operated instance on another node; "" = same node, join its
 	// network. nil means every instance is on the consumer's node.
 	LinkHost func(ctx context.Context, e store.Environment, instanceID string) (string, error)
+	// ReadTarget is what a consumer in env e on another node than the
+	// instance reaches its read alias through: a hosts line to the primary's
+	// VIP, or the network of a standby on the consumer's node. nil = none.
+	ReadTarget func(ctx context.Context, e store.Environment, instanceID string) (host, network string, err error)
 
 	Tiles    *tile.Leaf
 	Envs     *environment.Leaf

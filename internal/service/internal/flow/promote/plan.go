@@ -201,6 +201,8 @@ type instanceWork struct {
 	pitr  *int // the recovery window, nil = untouched
 	// settings are the instance's own settings, nil = untouched.
 	settings *map[string]string
+	// standbys are the nodes that should hold a standby, resolved; nil = untouched.
+	standbys *[]string
 }
 
 type domainWork struct {
@@ -900,8 +902,26 @@ func (f *Flow) planInstance(
 			p.Warnings = append(p.Warnings, name+" restarts to change its settings")
 		}
 	}
+	var standbys *[]string
+	if tc.Standbys != nil && f.StandbyPlan != nil {
+		if !exists {
+			p.block("tile %s: standbys: the instance has to exist and run first; add its standbys in a later apply", name)
+		} else {
+			cur, canon, err := f.StandbyPlan(ctx, old, *tc.Standbys)
+			if _, invalid := errs.IsInvalid(err); invalid {
+				p.block("tile %s: standbys: %v", name, err)
+			} else if _, conflict := errs.IsConflict(err); conflict {
+				p.block("tile %s: standbys: %v", name, err)
+			} else if err != nil {
+				return err
+			} else if d := signedDiff(cur, canon); d != "" {
+				p.add(Change{Kind: "operated", Tile: name, Field: "standbys", New: d})
+				moved, standbys = true, &canon
+			}
+		}
+	}
 	if moved {
-		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings}
+		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys}
 	}
 	return nil
 }

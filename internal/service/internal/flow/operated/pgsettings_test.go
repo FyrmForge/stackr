@@ -82,12 +82,12 @@ func TestPGFlagsPerMajor(t *testing.T) {
 		if has(f, "allow_alter_system") != c.alter || has(f, "archive_mode") != c.archive {
 			t.Errorf("major %d days %d: %v", c.major, c.days, f)
 		}
-		for _, always := range []string{"shared_preload_libraries", "wal_log_hints"} {
+		for _, always := range []string{"shared_preload_libraries", "wal_log_hints", "wal_level", "max_wal_senders", "max_replication_slots", "hot_standby"} {
 			if !has(f, always) {
 				t.Errorf("major %d: no %s in %v", c.major, always, f)
 			}
 		}
-		for _, never := range []string{"restore_command", "hba_file", "primary_conninfo", "synchronous_standby_names", "wal_level"} {
+		for _, never := range []string{"restore_command", "hba_file", "primary_conninfo", "synchronous_standby_names"} {
 			if has(f, never) {
 				t.Errorf("major %d emits reserved %s", c.major, never)
 			}

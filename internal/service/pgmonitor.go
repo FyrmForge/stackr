@@ -33,7 +33,7 @@ const (
 	pgConnWarn   = 0.8
 	pgSlotWarn   = 0.5
 	pgSlotCrit   = 0.8
-	pgLagWarn    = 5 * time.Minute
+	pgLagWarn    = 30 * time.Second // the read alert: standbys stay in the read pool while behind
 	pgXactWarn   = 15 * time.Minute
 	pgStatsLimit = 10 * time.Second
 	pgRoundLimit = 20 * time.Second // the whole round, under the 30 s tick
@@ -42,7 +42,7 @@ const (
 	pgConnClear     = 0.75
 	pgSlotClear     = 0.45 // of the cap, under the warning
 	pgSlotCritClear = 0.75
-	pgLagClear      = 4 * time.Minute
+	pgLagClear      = 20 * time.Second
 	pgXactClear     = 13 * time.Minute
 )
 
@@ -144,7 +144,7 @@ func pgAlerts(slug string, s mflow.PGSample, was map[string]string) map[string]p
 	for _, r := range s.Replicas {
 		lag := time.Duration(r.Seconds) * time.Second
 		if lag > pgLagWarn || (was[AlertPGLag] != "" && lag > pgLagClear) {
-			out[AlertPGLag] = pgProblem{SevWarning, fmt.Sprintf("%s: standby %s is %s behind.", slug, r.Name, agoWords(lag))}
+			out[AlertPGLag] = pgProblem{SevWarning, fmt.Sprintf("%s: standby %s is %s behind.", slug, r.Name, lag)}
 			break
 		}
 	}

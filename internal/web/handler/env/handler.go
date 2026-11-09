@@ -570,6 +570,9 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			if o.Protection, err = h.orch.Protection(ctx, t.ID); err != nil {
 				return middleware.HTTPError(err)
 			}
+			if vs, err := h.orch.Standbys(ctx, t.ID); err == nil && len(vs) > 1 {
+				o.Members = memberRows(vs)
+			}
 		}
 		for _, p := range ps {
 			r := instance.SliceRow{

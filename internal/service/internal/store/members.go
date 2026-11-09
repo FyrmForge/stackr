@@ -22,7 +22,10 @@ type OperatedMember struct {
 	// panel (their restart policy is "no"), stopped ones are left alone.
 	State string `db:"state" json:"state"`
 	// Fenced members are never started, whatever State says.
-	Fenced    bool      `db:"fenced" json:"fenced"`
+	Fenced bool `db:"fenced" json:"fenced"`
+	// Phase is what the panel observes of a replica: starting, streaming or
+	// rebuild (see leaf/opmember).
+	Phase     string    `db:"phase" json:"phase"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }

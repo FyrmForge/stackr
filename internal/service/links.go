@@ -4,11 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"net/netip"
+	"slices"
+	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
 )
@@ -119,6 +122,38 @@ func (o *Orchestrator) hostOn(ctx context.Context, cn string, m store.OperatedIn
 		return "", errs.Conflictf("%s runs on another node and has no address there yet: deploy it first", t.Slug)
 	}
 	return operated.Alias(t.Slug, m.ID) + ":" + v.String(), nil
+}
+
+// readTarget is deploy.Flow.ReadTarget. A consumer on another node than the
+// instance reads from a standby on its own node when one is in the read pool
+// (it joins that node's network of the instance, where the read alias is the
+// standby); else the read alias is a hosts line to the primary's VIP. A
+// consumer on the primary's node needs neither: the primary answers the read
+// alias there.
+// ponytail: a standby on a third node is not used; reaching one over the mesh
+// needs a flow from the consumer.
+func (o *Orchestrator) readTarget(ctx context.Context, e store.Environment, instanceID string) (string, string, error) {
+	m, err := o.store.OperatedInstances.Get(ctx, instanceID)
+	if err != nil {
+		return "", "", err
+	}
+	cn, err := o.envNode(ctx, e.ID)
+	if err != nil {
+		return "", "", err
+	}
+	ms, err := o.members.List(ctx, m.ID)
+	if err != nil {
+		return "", "", err
+	}
+	if slices.ContainsFunc(ms, func(x store.OperatedMember) bool { return x.NodeID == cn && opmember.InReadPool(x) }) {
+		return "", operated.Network(m.ID), nil
+	}
+	h, err := o.hostOn(ctx, cn, m)
+	if err != nil || h == "" {
+		return "", "", err
+	}
+	a, v, _ := strings.Cut(h, ":")
+	return mflow.ReadAlias(a) + ":" + v, "", nil
 }
 
 // link is one binding seen across nodes.

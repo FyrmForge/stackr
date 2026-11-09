@@ -251,6 +251,11 @@ type Source struct {
 	Attached bool   // slice only: a binding exists for this consumer
 	Network  string // network the consumer must join; "" on its own env network
 	Host     string // "name:ip" ExtraHosts line instead of Network: the instance is on another node
+	// ReadHost and ReadNetwork are what the *_read outputs of a postgres
+	// slice need instead of Host and Network, when they differ: a standby on
+	// the consumer's node (its network) or the primary's VIP under the read
+	// alias (a hosts line). Both empty = the same as the others.
+	ReadHost, ReadNetwork string
 }
 
 type Resolver struct {
@@ -422,10 +427,14 @@ func (rr *Resolver) tile(r Ref) (string, error) {
 	rr.deps[r.Slug] = true
 	// Blank: the instance never deployed; joining "" would fail on the
 	// network instead of on the dependency.
-	if src.Host != "" {
-		rr.hosts[src.Host] = true
-	} else if src.Network != "" {
-		rr.nets[src.Network] = true
+	host, net := src.Host, src.Network
+	if strings.Contains(r.Name, "_read") && (src.ReadHost != "" || src.ReadNetwork != "") {
+		host, net = src.ReadHost, src.ReadNetwork
+	}
+	if host != "" {
+		rr.hosts[host] = true
+	} else if net != "" {
+		rr.nets[net] = true
 	}
 	return v, nil
 }

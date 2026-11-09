@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -250,6 +251,9 @@ type TileConf struct {
 	// managed postgres: the instance's own settings, name to value; nil = the
 	// file leaves them as they are, an empty map clears them.
 	Settings map[string]string `yaml:"settings"`
+	// operated postgres: the nodes (name or slug) that hold a standby; nil =
+	// the file leaves the standbys as they are, an empty list removes them.
+	Standbys *[]string `yaml:"standbys"`
 	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write;
 	// keep | drop, "" = keep (DECIDE 199; a PR env drops either way).
 	ProvisionFrom string `yaml:"provision_from"`
@@ -728,6 +732,21 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 		if err := deploy.CheckSettings(tc.Engine, tc.Settings); err != nil {
 			return fmt.Errorf("tile %s: settings: %w", name, err)
 		}
+		if tc.Standbys != nil {
+			if tc.Engine != "postgres" {
+				return fmt.Errorf("tile %s: standbys: only postgres has standbys", name)
+			}
+			if len(*tc.Standbys) > opmember.MaxReplicas {
+				return fmt.Errorf("tile %s: standbys: at most %d", name, opmember.MaxReplicas)
+			}
+			seen := map[string]bool{}
+			for _, n := range *tc.Standbys {
+				if strings.TrimSpace(n) == "" || seen[n] {
+					return fmt.Errorf("tile %s: standbys: %q is empty or listed twice", name, n)
+				}
+				seen[n] = true
+			}
+		}
 	case "slice":
 		if err := checkSlice(name, tc); err != nil {
 			return err
@@ -807,6 +826,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: major: only an operated tile takes it", name)
 	case tc.Settings != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: settings: only an operated tile takes it", name)
+	case tc.Standbys != nil && tc.Type != "operated":
+		return fmt.Errorf("tile %s: standbys: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: provision_from: only a slice tile takes it", name)
 	case tc.DefaultAccess != "" && tc.Type != "slice":

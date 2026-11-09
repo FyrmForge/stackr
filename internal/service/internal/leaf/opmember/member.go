@@ -29,6 +29,13 @@ const (
 	// network is gone. It may still have a container, so it is not stopped.
 	Removing = "removing"
 
+	// A replica's observed phase (State is what the panel wants): Starting
+	// until it reports in recovery and streaming, Streaming after, Rebuild
+	// once its slot was lost and it has to be made again.
+	Starting  = "starting"
+	Streaming = "streaming"
+	Rebuild   = "rebuild"
+
 	// MaxReplicas is how many replicas an instance may have.
 	MaxReplicas = 2
 )
@@ -113,9 +120,25 @@ func (l *Leaf) AddReplica(ctx context.Context, instanceID, primaryNode, node str
 	m := store.OperatedMember{
 		ID: id, InstanceID: instanceID, Role: Replica, NodeID: node,
 		Container: "stackr-member-" + id[:8], Volume: "stackr-member-" + id + "-data",
-		State: Running, CreatedAt: now, UpdatedAt: now,
+		State: Running, Phase: Starting, CreatedAt: now, UpdatedAt: now,
 	}
 	return m, l.rows.Create(ctx, m)
+}
+
+// SetPhase records what the panel observes of a replica.
+func (l *Leaf) SetPhase(ctx context.Context, m store.OperatedMember, phase string) (store.OperatedMember, error) {
+	if m.Phase == phase {
+		return m, nil
+	}
+	m.Phase = phase
+	return l.save(ctx, m)
+}
+
+// InReadPool says whether reads may go to replica m: it wants to run, is not
+// fenced, and is streaming. A standby that is stopped, past its slot cap
+// (rebuild) or not yet caught up is out; a lagging one stays in.
+func InReadPool(m store.OperatedMember) bool {
+	return m.Role == Replica && m.State == Running && !m.Fenced && m.Phase == Streaming
 }
 
 func (l *Leaf) save(ctx context.Context, m store.OperatedMember) (store.OperatedMember, error) {

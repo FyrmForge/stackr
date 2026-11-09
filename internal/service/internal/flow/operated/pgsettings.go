@@ -34,7 +34,8 @@ var (
 var pgOwned = []string{
 	"wal_level", "restore_command", "listen_addresses", "port", "hba_file", "ident_file",
 	"shared_preload_libraries", "allow_alter_system", "wal_log_hints", "primary_conninfo",
-	"synchronous_standby_names", "data_directory", "config_file", "include", "include_dir",
+	"synchronous_standby_names", "primary_slot_name", "max_wal_senders", "max_replication_slots", "hot_standby",
+	"max_slot_wal_keep_size", "data_directory", "config_file", "include", "include_dir",
 	"include_if_exists", "reserved_connections", "superuser_reserved_connections",
 }
 
@@ -98,6 +99,39 @@ func pgComputed(memMB, nodeMB int) map[string]string {
 	c["effective_cache_size"] = mb(nodeMB / 2)
 	c["maintenance_work_mem"] = "64MB"
 	return c
+}
+
+// slotKeepStepMB is the granularity of max_slot_wal_keep_size, and its floor.
+// It is part of the instance's start flags, so a free-disk figure that moved a
+// little must not change it: whole 10 GB steps.
+const slotKeepStepMB = 10 << 10
+
+// slotKeepMB is max_slot_wal_keep_size: the larger of 10 GB and 10% of the
+// data node's free disk, in whole 10 GB steps. diskFreeMB 0 = unknown, 10 GB.
+// ponytail: free disk is read when the container is made, so a primary on a
+// disk that has since filled keeps the cap it started with.
+func slotKeepMB(diskFreeMB int) int {
+	return max(slotKeepStepMB, diskFreeMB/10/slotKeepStepMB*slotKeepStepMB)
+}
+
+// pgOwnedConf is stackr-owned.conf, included after stackr.conf: the owned
+// settings that are only a reload (nothing here is a postmaster setting). On
+// a standby, primary_conninfo (its secret is in a passfile, not here) and its
+// slot; every member gets the slot cap, so a promoted one has it too.
+// synchronous_standby_names is for the step that adds sync replication.
+func pgOwnedConf(i Instance) string {
+	var b strings.Builder
+	b.WriteString("# written by stackr; edits here are overwritten\n")
+	kv := func(k, v string) { b.WriteString(k + " = '" + strings.ReplaceAll(v, `'`, `''`) + "'\n") }
+	if i.SlotKeepMB > 0 {
+		kv("max_slot_wal_keep_size", strconv.Itoa(i.SlotKeepMB)+"MB")
+	}
+	if i.Slot != "" {
+		kv("primary_conninfo", fmt.Sprintf("host=%s port=%d user=%s passfile=%s application_name=%s connect_timeout=5",
+			i.PrimaryHost, i.Port, ReplUser, ReplPassfile, i.Slot))
+		kv("primary_slot_name", i.Slot)
+	}
+	return b.String()
 }
 
 // PGEffective is the computed defaults with the user's overrides over them.

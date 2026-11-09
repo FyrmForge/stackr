@@ -651,6 +651,67 @@ stackr db settings unset <name>... [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+### `stackr db standby`
+
+A postgres instance's standbys
+
+#### `stackr db standby add`
+
+Add a standby on a node; it copies the primary, then streams
+
+```
+stackr db standby add [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --node string    the node the standby runs on (name or slug)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db standby list`
+
+List an instance's members: the primary and its standbys, with lag and slot size
+
+```
+stackr db standby list [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db standby rebuild`
+
+Make a standby again on its node (one that needs a rebuild)
+
+```
+stackr db standby rebuild <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db standby remove`
+
+Remove a standby: its container, volume and slot
+
+```
+stackr db standby remove <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr db update`
 
 Move an instance to the current minor of its postgres major; it restarts

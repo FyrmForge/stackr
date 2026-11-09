@@ -63,7 +63,7 @@ func TestPGSettingsApply(t *testing.T) {
 	var reloaded, wrote bool
 	for _, c := range env.Docker.Calls() {
 		reloaded = reloaded || strings.Contains(strings.Join(c.Args, " "), "pg_reload_conf()")
-		wrote = wrote || strings.Contains(strings.Join(c.Args, " "), "stackr.conf.new")
+		wrote = wrote || strings.Contains(strings.Join(c.Args, " "), "$1.new")
 	}
 	if !reloaded || !wrote {
 		t.Errorf("reload %v, atomic write %v", reloaded, wrote)

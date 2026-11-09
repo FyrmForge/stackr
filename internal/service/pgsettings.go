@@ -58,6 +58,18 @@ func (o *Orchestrator) nodeMemMB(ctx context.Context, t store.Tile) int {
 	return 0
 }
 
+// nodeDiskMB is the free disk of the node the tile's env runs on, 0 = unknown.
+func (o *Orchestrator) nodeDiskMB(ctx context.Context, t store.Tile) int {
+	n, err := o.nodeOfEnvID(ctx, t.EnvironmentID)
+	if err != nil {
+		return 0
+	}
+	if f := o.reportedFacts(ctx, n); f != nil {
+		return int(f.DiskFree >> 20)
+	}
+	return 0
+}
+
 // PGSettings lists the settings the panel offers, then any other the user
 // set, with where each value comes from. The running instance adds the
 // values stackr does not set and which ones wait for a restart.

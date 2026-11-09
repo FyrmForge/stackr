@@ -79,7 +79,7 @@ func TestApplyUndoesOnFailure(t *testing.T) {
 	}
 	var restored bool
 	for _, c := range calls {
-		restored = restored || (strings.Contains(c, "stackr.conf.new") && strings.Contains(c, "OLDCONF"))
+		restored = restored || (strings.Contains(c, `"$d/$1.new"`) && strings.Contains(c, "stackr.conf OLDCONF"))
 	}
 	if !restored || !strings.Contains(calls[len(calls)-1], "pg_reload_conf") {
 		t.Errorf("the old file was not put back and reloaded:\n%s", strings.Join(calls, "\n"))

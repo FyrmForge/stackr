@@ -422,3 +422,32 @@ func TestQualifiedResolve(t *testing.T) {
 		t.Errorf("own locked = %q, %v", got, err)
 	}
 }
+
+// A slice's *_read outputs may need another network or host than the rest:
+// a standby on the consumer's node (its network), or the primary's VIP under
+// the read alias. The others keep the instance's own.
+func TestReadOutputsHaveTheirOwnTarget(t *testing.T) {
+	src := func(s params.Source) params.Snapshot {
+		s.Slice, s.Attached = true, true
+		s.Outputs = map[string]string{"url": "pg://db", "url_read": "pg://db-read", "host_read": "db-read"}
+		return params.Snapshot{Tiles: map[string]params.Source{"db": s}}
+	}
+	for name, c := range map[string]struct {
+		s           params.Source
+		expr        string
+		hosts, nets string
+	}{
+		"read on a standby's network": {params.Source{Host: "db:10.0.0.2", ReadNetwork: "net-pg"}, "${{ tile.db.url_read }}", "", "net-pg"},
+		"read via the read alias":     {params.Source{Host: "db:10.0.0.2", ReadHost: "db-read:10.0.0.2"}, "${{ tile.db.host_read }}", "db-read:10.0.0.2", ""},
+		"the rest keeps the primary":  {params.Source{Host: "db:10.0.0.2", ReadNetwork: "net-pg"}, "${{ tile.db.url }}", "db:10.0.0.2", ""},
+		"same node: one network":      {params.Source{Network: "net-pg"}, "${{ tile.db.url_read }}", "", "net-pg"},
+	} {
+		rr := params.NewResolver(src(c.s))
+		if _, err := rr.Expand(params.InEnv, c.expr); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if h, n := strings.Join(rr.Hosts(), ","), strings.Join(rr.Networks(), ","); h != c.hosts || n != c.nets {
+			t.Errorf("%s: hosts %q networks %q, want %q %q", name, h, n, c.hosts, c.nets)
+		}
+	}
+}

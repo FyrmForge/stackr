@@ -203,7 +203,6 @@ func TestSliceOutputs(t *testing.T) {
 	for name, want := range map[string]string{
 		"url_direct": dURL, "url_pooled": pURL, "host_direct": "db-1234abcd", "host_pooled": "db-1234abcd-pooler",
 		"port_direct": "5432", "port_pooled": "6432", "database": "orders", "user": "u", "password": "p",
-		"url_read_direct": dURL, "url_read_pooled": pURL, "host_read_direct": "db-1234abcd", "port_read_pooled": "6432",
 	} {
 		for _, got := range []map[string]Binding{direct, pooled} {
 			if got[name].Value != want {
@@ -211,7 +210,20 @@ func TestSliceOutputs(t *testing.T) {
 			}
 		}
 	}
-	// url, host, port follow the slice's setting; the _read ones are the primary's
+	// the _read ones dial the read alias, direct: a standby has no pooler yet
+	const rURL = "postgres://u:p@db-1234abcd-read:5432/orders"
+	for k, want := range map[string]string{
+		"url_read": rURL, "url_read_direct": rURL, "url_read_pooled": rURL, "host_read": "db-1234abcd-read",
+		"host_read_direct": "db-1234abcd-read", "host_read_pooled": "db-1234abcd-read",
+		"port_read": "5432", "port_read_direct": "5432", "port_read_pooled": "5432",
+	} {
+		for _, got := range []map[string]Binding{direct, pooled} {
+			if got[k].Value != want {
+				t.Errorf("%s = %q, want %q", k, got[k].Value, want)
+			}
+		}
+	}
+	// url, host, port follow the slice's setting
 	for _, c := range []struct {
 		got             map[string]Binding
 		url, host, port string
@@ -219,7 +231,7 @@ func TestSliceOutputs(t *testing.T) {
 		{direct, dURL, "db-1234abcd", "5432"},
 		{pooled, pURL, "db-1234abcd-pooler", "6432"},
 	} {
-		for k, want := range map[string]string{"url": c.url, "url_read": c.url, "host": c.host, "host_read": c.host, "port": c.port, "port_read": c.port} {
+		for k, want := range map[string]string{"url": c.url, "host": c.host, "port": c.port} {
 			if c.got[k].Value != want {
 				t.Errorf("%s = %q, want %q", k, c.got[k].Value, want)
 			}
