@@ -92,6 +92,9 @@ var (
 	// leaseMargin is added to the worker's lease before a promote may count
 	// on the old primary being stopped on an unreachable node.
 	leaseMargin = 10 * time.Second
+	// unreachableAfter is how long a node still marked online may take to
+	// answer a promote's first Docker call before it counts as unreachable.
+	unreachableAfter = 5 * time.Second
 )
 
 // failover is the cursor.
@@ -234,6 +237,9 @@ func (o *Orchestrator) PromoteStandby(ctx context.Context, tileID, to string, no
 }
 
 func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (StandbyView, error) {
+	// the request's own timeout (hamr's ContextTimeout) ends well before a
+	// switchover does: the answer is still read after the failover ran
+	ctx = context.WithoutCancel(ctx)
 	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
 		return StandbyView{}, err
@@ -379,14 +385,17 @@ func (o *Orchestrator) mayPromote(ctx context.Context, t store.Tile, inst store.
 	if !forgotten {
 		name = n.Name
 		if o.nodeUp(ctx, oldNode) == nil {
-			cs, err := o.docker.List(docker.WithNode(ctx, oldNode), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
-			if err != nil {
-				return err
+			// a node that went silent is marked offline minutes later: until
+			// then it counts as unreachable here, not as a request that hangs
+			lctx, cancel := context.WithTimeout(ctx, unreachableAfter)
+			cs, err := o.docker.List(docker.WithNode(lctx, oldNode), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
+			cancel()
+			if err == nil {
+				if slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" }) {
+					return errs.Conflictf("The primary is running on %s. Switch over instead of promoting.", n.Name)
+				}
+				return nil // its worker says it is stopped
 			}
-			if slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" }) {
-				return errs.Conflictf("The primary is running on %s. Switch over instead of promoting.", n.Name)
-			}
-			return nil // its worker says it is stopped
 		}
 		if !nodeGone {
 			return errs.Conflictf("%s is not reachable. If it is really gone, confirm that to promote.", n.Name)
@@ -561,8 +570,13 @@ func (o *Orchestrator) foStop(ctx context.Context, t store.Tile, _ store.Operate
 		return nil
 	}
 	nctx := docker.WithNode(ctx, f.OldNode)
-	cs, err := o.oldPrimaryContainers(nctx, t, f.Old)
+	lctx, cancel := context.WithTimeout(nctx, unreachableAfter)
+	cs, err := o.oldPrimaryContainers(lctx, t, f.Old)
+	cancel()
 	if err != nil {
+		if f.NodeGone { // confirmed gone and past its lease (mayPromote); not yet marked offline
+			return nil
+		}
 		return err
 	}
 	for _, c := range cs {

@@ -403,6 +403,11 @@ func (pg) psql(i Instance, db string, stmts []string) []string {
 		"ON_ERROR_STOP=1",
 		"-c",
 		noStatementLogging,
+		// the panel's own statements never wait for a standby: with
+		// synchronous replication required and no standby, a removal's own
+		// ALTER ROLE would wait for the standby it is removing
+		"-c",
+		"SET synchronous_commit = local",
 	}
 	for _, st := range stmts {
 		args = append(args, "-c", st)

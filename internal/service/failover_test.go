@@ -24,7 +24,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/service/internal/vip"
 	"github.com/FyrmForge/stackr/internal/worker"
+	"github.com/google/uuid"
 )
 
 var passwordRE = regexp.MustCompile(`PASSWORD '[^']*'`)
@@ -53,6 +55,9 @@ type simCtr struct {
 func (s *sim) List(_ context.Context, labels map[string]string) ([]docker.Container, error) {
 	s.rig.mu.Lock()
 	err := s.rig.listErr
+	if s.rig.downNode == s.node {
+		err = errors.New("no answer")
+	}
 	s.rig.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -185,7 +190,8 @@ type failRig struct {
 	// the leases the workers took; leaseErr makes a push fail
 	pushed   map[string]worker.Lease
 	leaseErr error
-	listErr  error // makes every docker list fail
+	listErr  error  // makes every docker list fail
+	downNode string // the sim whose docker answers nothing (a node not yet marked offline)
 	// the primary's sync conf as last written, and the setting a reload made live
 	syncFile, syncLive string
 	reloadBroken       bool // a reload does not take
@@ -426,6 +432,11 @@ func TestSwitchoverHappyPath(t *testing.T) {
 	// the new primary is where the instance's containers are looked for
 	if n, ok := o.primaryReroute(ctx, r.tile()); !ok || n != "w1" {
 		t.Errorf("reroute = %q %v", n, ok)
+	}
+	// the pooler stays on the env's node: its verbs do not follow the primary
+	r.sims["ctl"].cs = append(r.sims["ctl"].cs, simCtr{Container: docker.Container{ID: "pool", Name: "pool", State: "running", Labels: map[string]string{tile.LabelTile: r.tile().ID, tile.LabelRole: "pooler"}}})
+	if _, err := o.tiles.Exec(ctx, r.tile().ID, "pool", []string{"true"}); err != nil {
+		t.Errorf("exec in the pooler after the failover: %v", err)
 	}
 	// and the container it runs is the primary's: its command is not the standby's
 	var promoted docker.ContainerSpec
@@ -1186,4 +1197,67 @@ func TestStandbyScriptNeverEmptiesAPromotedDirectory(t *testing.T) {
 func mustMember(t *testing.T, r *failRig) InstanceMember {
 	_, rep := r.members()
 	return rep
+}
+
+// A consumer on the old primary's node reaches the new primary across the
+// mesh: the new primary's node accepts its env (linkFlows only walked the
+// envs on that node, which do not hold the instance's tile).
+func TestSwitchoverAcceptsConsumersOfTheOldNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	from := "shop:dev:" + r.tile().Slug
+	sl, err := o.tiles.Create(ctx, store.Tile{StackID: r.n.stack, EnvironmentID: r.n.dev.ID, Name: "db", Kind: tile.Slice, ProvisionFrom: &from})
+	must(t, err)
+	app, err := o.tiles.Create(ctx, store.Tile{StackID: r.n.stack, EnvironmentID: r.n.dev.ID, Name: "app", Kind: tile.Image, ImageRef: "x"})
+	must(t, err)
+	p := store.Provision{ID: uuid.NewString(), TileID: sl.ID, InstanceID: r.inst.ID, DBName: "a", DBUser: "a", DBPassword: "x", CreatedAt: time.Now()}
+	must(t, r.n.st.Provisions.Create(ctx, p))
+	must(t, r.n.st.Bindings.Create(ctx, store.Binding{ID: uuid.NewString(), ProvisionID: p.ID, ConsumerTileID: app.ID,
+		Access: tile.Write, DBUser: "b", DBPassword: "y", Outputs: "{}", CreatedAt: time.Now()}))
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	w1, err := r.n.st.Nodes.Get(ctx, "w1")
+	must(t, err)
+	if !slices.ContainsFunc(o.linkFlows(ctx, w1), func(f vip.Flow) bool { return !f.Out && f.Port == 5432 && f.Src.String() == "10.208.0.0/24" }) {
+		t.Errorf("w1 flows = %+v, want an accept for the controller's env", o.linkFlows(ctx, w1))
+	}
+}
+
+// The request's context ends (hamr's 30 s timeout) long before a switchover
+// does; the failover and its answer do not depend on it.
+func TestSwitchoverSurvivesTheRequestContext(t *testing.T) {
+	t.Parallel()
+	r := newFailRig(t, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	v, err := r.n.orch.Switchover(ctx, r.inst.TileID, "w1")
+	if err != nil || v.Node != "w1" {
+		t.Errorf("switchover = %+v %v", v, err)
+	}
+}
+
+// A node that went silent is marked offline minutes later. Until then a
+// promote the admin confirmed must not hang on it: its Docker does not
+// answer, which is what "unreachable" means.
+func TestPromoteWhenTheNodeIsSilentButNotYetOffline(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	r.mu.Lock()
+	r.downNode = "w1"
+	r.mu.Unlock()
+	r.ageLease(2 * time.Minute)
+	_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "", false)
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "confirm") {
+		t.Fatalf("not confirmed: %v", err)
+	}
+	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := r.members(); p.NodeID != r.n.ctl.ID {
+		t.Errorf("primary after the promote: %+v", p)
+	}
 }

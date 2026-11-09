@@ -244,6 +244,20 @@ func (o *Orchestrator) linkFlows(ctx context.Context, n store.Node) []vip.Flow {
 			}
 		}
 	}
+	// a primary failed over onto n: its tile's env is on another node, so the
+	// loop above never reaches its consumers
+	if all, err := o.members.All(ctx); err == nil {
+		for _, m := range all {
+			if m.Role != opmember.Primary || m.NodeID != n.ID {
+				continue
+			}
+			if inst, err := o.operated.Get(ctx, m.InstanceID); err == nil {
+				for _, b := range o.instanceBindings(ctx, inst.TileID) {
+					add(b, false)
+				}
+			}
+		}
+	}
 	for _, f := range o.memberFlows(ctx, n) {
 		if !seen[f] {
 			seen[f] = true

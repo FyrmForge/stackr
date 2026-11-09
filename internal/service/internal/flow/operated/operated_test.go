@@ -319,6 +319,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 		`CREATE ROLE "s_dev_orders"`,
 		`CREATE DATABASE "s_dev_orders" OWNER "s_dev_orders"`,
 		"SET log_min_error_statement = PANIC",
+		"SET synchronous_commit = local",
 		"psql -h /var/run/postgresql -q ",
 	)
 	if p.DBName != "s_dev_orders" || p.DBUser != "s_dev_orders" {

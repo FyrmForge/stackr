@@ -536,7 +536,7 @@ func (l *Leaf) State(ctx context.Context, t store.Tile) (State, error) {
 // The container verbs. id is a container of this tile; tileID "" is the
 // admin's containers screen, where any non-system container goes.
 func (l *Leaf) Stop(ctx context.Context, tileID, id string) error {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return err
 	}
@@ -547,7 +547,7 @@ func (l *Leaf) Stop(ctx context.Context, tileID, id string) error {
 }
 
 func (l *Leaf) StartContainer(ctx context.Context, tileID, id string) error {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return err
 	}
@@ -558,7 +558,7 @@ func (l *Leaf) StartContainer(ctx context.Context, tileID, id string) error {
 }
 
 func (l *Leaf) Restart(ctx context.Context, tileID, id string) error {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return err
 	}
@@ -570,7 +570,7 @@ func (l *Leaf) Restart(ctx context.Context, tileID, id string) error {
 
 // Exec runs an engine command (or a terminal line) in the container.
 func (l *Leaf) Exec(ctx context.Context, tileID, id string, cmd []string) (string, error) {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return "", err
 	}
@@ -587,7 +587,7 @@ func (l *Leaf) Terminal(
 	cmd []string,
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -602,7 +602,7 @@ func (l *Leaf) Terminal(
 func (l *Leaf) TTY(ctx context.Context, tileID, id string, cmd []string) (
 	io.ReadWriteCloser, func(cols, rows uint) error, func() (int, error), error,
 ) {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -618,7 +618,7 @@ func (l *Leaf) TTY(ctx context.Context, tileID, id string, cmd []string) (
 
 // Follow streams the container's log lines until stop is called.
 func (l *Leaf) Follow(ctx context.Context, tileID, id string, tail int) (<-chan string, func(), error) {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -629,7 +629,7 @@ func (l *Leaf) Follow(ctx context.Context, tileID, id string, tail int) (<-chan 
 }
 
 func (l *Leaf) Logs(ctx context.Context, tileID, id string, tail int) (string, error) {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return "", err
 	}
@@ -642,7 +642,7 @@ func (l *Leaf) Logs(ctx context.Context, tileID, id string, tail int) (string, e
 // Remove bends the guard for an exited system container: a previous
 // generation left by an upgrade must be clearable.
 func (l *Leaf) Remove(ctx context.Context, tileID, id string) error {
-	ctx, err := l.atTile(ctx, tileID)
+	ctx, err := l.atTile(ctx, tileID, id)
 	if err != nil {
 		return err
 	}

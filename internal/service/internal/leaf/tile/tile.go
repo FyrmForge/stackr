@@ -72,9 +72,11 @@ func (l *Leaf) at(ctx context.Context, envID string) (context.Context, error) {
 	return docker.WithNode(ctx, id), nil
 }
 
-// atTile is at for the env of tile tileID; "" (the admin's containers
-// screen) leaves ctx as the caller made it.
-func (l *Leaf) atTile(ctx context.Context, tileID string) (context.Context, error) {
+// atTile is at for the container id of tile tileID: where the tile's replicas
+// run (Reroute), but a container that is not there (an operated instance's
+// pooler stays on its env's node) is on the env's node. "" (the admin's
+// containers screen) leaves ctx as the caller made it.
+func (l *Leaf) atTile(ctx context.Context, tileID, id string) (context.Context, error) {
 	if tileID == "" || l.Node == nil {
 		return ctx, nil
 	}
@@ -82,7 +84,16 @@ func (l *Leaf) atTile(ctx context.Context, tileID string) (context.Context, erro
 	if err != nil {
 		return ctx, err
 	}
-	return l.atOf(ctx, t)
+	rctx, err := l.atOf(ctx, t)
+	if err != nil || l.Reroute == nil {
+		return rctx, err
+	}
+	if _, ok := l.Reroute(ctx, t); ok {
+		if _, ferr := l.find(rctx, tileID, id); ferr != nil {
+			return l.at(ctx, t.EnvironmentID)
+		}
+	}
+	return rctx, nil
 }
 
 func (l *Leaf) early(ctx context.Context, t store.Tile, id string, on bool) {
