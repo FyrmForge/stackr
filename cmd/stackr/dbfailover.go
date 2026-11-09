@@ -9,8 +9,16 @@ import (
 // standby, planned (both run) or because the primary is down.
 func (a *app) dbSwitchover() *cobra.Command {
 	to := ""
-	c := leaf("switchover", "operated.switchover", "Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted", exact(0),
+	abort := false
+	c := leaf("switchover", "operated.switchover,operated.switchover-abort", "Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted", exact(0),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			if abort {
+				if _, err := a.call(POST, p+"/switchover/abort", nil); err != nil {
+					return err
+				}
+				a.say("Switchover aborted. The old primary is unfenced and started again.")
+				return nil
+			}
 			v, err := a.call(POST, p+"/switchover", map[string]string{"to": to})
 			if err != nil {
 				return err
@@ -22,6 +30,7 @@ func (a *app) dbSwitchover() *cobra.Command {
 			return nil
 		}))
 	c.Flags().StringVar(&to, "to", "", "the standby's node (name or slug); default is the one that replayed the most")
+	c.Flags().BoolVar(&abort, "abort", false, "give up a switchover stuck before the promote: unfence and restart the old primary")
 	return c
 }
 

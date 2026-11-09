@@ -89,5 +89,21 @@ func (a *app) dbStandby() *cobra.Command {
 			a.say("Saved.")
 			return nil
 		}))
-	return noun("standby", "A postgres instance's standbys", list, add, rm, rebuild, mode)
+	fence := func(use, id string, on bool, short, done string) *cobra.Command {
+		return leaf(use, id, short, exact(1),
+			a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+				m, err := byRef(p, args[0])
+				if err != nil {
+					return err
+				}
+				if _, err := a.call(PUT, p+"/standbys/"+m+"/fence", map[string]bool{"fenced": on}); err != nil {
+					return err
+				}
+				a.say("%s", done)
+				return nil
+			}))
+	}
+	fenceC := fence("fence <node|id>", "operated.standby-fence", true, "Fence a standby: stop it, take it out of the read pool and keep it down", "Standby fenced.")
+	unfenceC := fence("unfence <node|id>", "operated.standby-fence", false, "Unfence a standby: it starts again and rejoins the read pool once it streams", "Standby unfenced.")
+	return noun("standby", "A postgres instance's standbys", list, add, rm, rebuild, mode, fenceC, unfenceC)
 }

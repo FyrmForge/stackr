@@ -469,10 +469,10 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 				switch {
 				case m.Major == 0:
 				case tc.Major != 0 && tc.Major != m.Major:
-					p.block("tile %s: runs postgres %d; major: %d is a major change, which is not supported yet", name, m.Major, tc.Major)
+					p.block("tile %s: runs postgres %d; major: %d is a major change; run `stackr db upgrade --to %d` (or use the instance drawer), then set major: to match", name, m.Major, tc.Major, tc.Major)
 					continue
 				case tc.Image != "" && deploy.ImageMajor(tc.Image) != m.Major:
-					p.block("tile %s: runs postgres %d; image %s is not that major. Major upgrades are not supported yet", name, m.Major, tc.Image)
+					p.block("tile %s: runs postgres %d; image %s is not that major; change the major with `stackr db upgrade --to <major>` (or the instance drawer), then set the image to match", name, m.Major, tc.Image)
 					continue
 				}
 			}

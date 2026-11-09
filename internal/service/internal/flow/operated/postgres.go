@@ -14,6 +14,16 @@ type pg struct{}
 // changed default cannot send it elsewhere; unix_socket_directories is owned.
 const pgSocketDir = "/var/run/postgresql"
 
+// ArchiveDirOf is the directory the archive command writes to and the shipper
+// reads: the archive volume's root for the first epoch, e<N> under it after a
+// major change or its rollback.
+func ArchiveDirOf(epoch int) string {
+	if epoch <= 0 {
+		return PGArchiveDir
+	}
+	return PGArchiveDir + "/e" + strconv.Itoa(epoch)
+}
+
 // PGArchiveDir is where the archive volume mounts: finished WAL segments
 // land here until the shipper takes them. Outside /var/lib/postgresql, which
 // is the data volume's own mount from 18.
@@ -28,7 +38,7 @@ const PGArchiveDir = "/var/lib/stackr-wal"
 // postgresql.auto.conf, and the rest are for later phases. archive_command writes a dotfile and renames
 // it, so the shipper never sees a half-copied segment, and refuses to
 // overwrite one.
-func pgFlags(major, pitrDays int) []string {
+func pgFlags(major, pitrDays, epoch int) []string {
 	// the replication settings are the same on every member: a standby needs
 	// each of its limits at least the primary's
 	f := []string{
@@ -46,11 +56,12 @@ func pgFlags(major, pitrDays int) []string {
 		f = append(f, "superuser_reserved_connections="+strconv.Itoa(pgReserved))
 	}
 	if pitrDays > 0 {
+		dir := ArchiveDirOf(epoch)
 		f = append(f,
 			"archive_mode=on",
 			"archive_timeout=60",
-			"archive_command=test ! -f "+PGArchiveDir+"/%f && cp %p "+PGArchiveDir+"/.%f && mv "+
-				PGArchiveDir+"/.%f "+PGArchiveDir+"/%f",
+			"archive_command=test ! -f "+dir+"/%f && cp %p "+dir+"/.%f && mv "+
+				dir+"/.%f "+dir+"/%f",
 		)
 	}
 	return f
@@ -101,9 +112,13 @@ func pgCommand(i Instance) []string {
 	script := pgStartScript
 	if i.PITRDays > 0 {
 		script = "chown postgres:postgres " + PGArchiveDir + "\n" + script
+		if i.ArchiveEpoch > 0 { // the epoch's own directory, made on the archive volume
+			d := ArchiveDirOf(i.ArchiveEpoch)
+			script = "mkdir -p " + d + " && chown postgres:postgres " + d + "\n" + script
+		}
 	}
 	cmd := []string{"sh", "-c", script, "sh", "postgres"}
-	for _, f := range pgFlags(i.Major, i.PITRDays) {
+	for _, f := range pgFlags(i.Major, i.PITRDays, i.ArchiveEpoch) {
 		cmd = append(cmd, "-c", f)
 	}
 	return cmd
@@ -459,21 +474,21 @@ func (pg) Bindings(i Instance, s Slice) []Binding {
 		{"password", s.Password, true, false},
 	}
 	// The read forms dial the read alias (see ReadAlias): a standby the
-	// consumer can reach, else the primary. A standby has no pooler yet, so
-	// the pooled read forms are the direct ones.
-	// ponytail: pooler per standby is a later step; then _read_pooled gets its own alias.
-	rHost := ReadAlias(i.Host)
+	// consumer can reach, else the primary. The pooled read forms dial the read
+	// pooler alias: a standby's own pooler on its node, the primary's pooler on
+	// the primary's. From another node they are the direct ones (Direct).
+	rHost, rpHost := ReadAlias(i.Host), ReadPoolerAlias(i)
 	rConn := conn(rHost, dPort)
 	return append(out,
 		Binding{"url_read", rConn, true, true},
 		Binding{"url_read_direct", rConn, true, true},
-		Binding{"url_read_pooled", rConn, true, true},
+		Binding{"url_read_pooled", conn(rpHost, PoolerPort), true, true},
 		Binding{"host_read", rHost, false, true},
 		Binding{"host_read_direct", rHost, false, true},
-		Binding{"host_read_pooled", rHost, false, true},
+		Binding{"host_read_pooled", rpHost, false, true},
 		Binding{"port_read", strconv.Itoa(dPort), false, false},
 		Binding{"port_read_direct", strconv.Itoa(dPort), false, false},
-		Binding{"port_read_pooled", strconv.Itoa(dPort), false, false},
+		Binding{"port_read_pooled", strconv.Itoa(PoolerPort), false, false},
 	)
 }
 

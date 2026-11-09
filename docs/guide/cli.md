@@ -621,6 +621,21 @@ stackr db promote [flags]
       --to string            the node of the standby to promote (name or slug)
 ```
 
+### `stackr db rollback-upgrade`
+
+Return to the postgres major before the last change, with the data it had then; what was written since is lost
+
+```
+stackr db rollback-upgrade [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr db settings`
 
 A postgres instance's settings
@@ -688,6 +703,20 @@ stackr db standby add [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+#### `stackr db standby fence`
+
+Fence a standby: stop it, take it out of the read pool and keep it down
+
+```
+stackr db standby fence <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 #### `stackr db standby list`
 
 List an instance's members: the primary and its standbys, with lag and slot size
@@ -744,6 +773,20 @@ stackr db standby sync <node|id> <auto|always|never> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+#### `stackr db standby unfence`
+
+Unfence a standby: it starts again and rejoins the read pool once it streams
+
+```
+stackr db standby unfence <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ### `stackr db switchover`
 
 Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
@@ -753,6 +796,7 @@ stackr db switchover [flags]
 ```
 
 ```
+      --abort          give up a switchover stuck before the promote: unfence and restart the old primary
       --env string     the environment (default: the linked one)
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
@@ -821,6 +865,23 @@ stackr db update [flags]
       --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
+```
+
+### `stackr db upgrade`
+
+Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can
+
+```
+stackr db upgrade [flags]
+```
+
+```
+      --check          only check whether the data can move; change nothing
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+      --to int         the postgres major to move to
 ```
 
 ### `stackr db version`

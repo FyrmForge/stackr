@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"slices"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -16,6 +17,11 @@ type PGVersion struct {
 	UpdateTo string `json:"update_to"` // the image a minor update moves it to; "" = it is current
 	EOL      bool   `json:"eol"`       // its major no longer gets security fixes
 	EOLDate  string `json:"eol_date"`  // YYYY-MM-DD, "" = unknown major
+	// Majors are the majors it can be moved to, up or down; Check is the last
+	// dry run of such a move, Rollback what the last one left to return to.
+	Majors   []int       `json:"majors"`
+	Check    *PGCheck    `json:"check,omitempty"`
+	Rollback *PGRollback `json:"rollback,omitempty"`
 }
 
 // PGMajors are the postgres majors a new instance may pick, oldest first;
@@ -32,7 +38,10 @@ func (o *Orchestrator) PGVersion(ctx context.Context, tileID string) (PGVersion,
 	if m.Engine != "postgres" {
 		return PGVersion{}, errs.Invalidf("engine", "%s has no version to update; only postgres does", m.Engine)
 	}
-	return pgVersionOf(cmp.Or(t.ImageRef, mflow.Engines["postgres"].Definition().Image), m.Major, time.Now()), nil
+	v := pgVersionOf(cmp.Or(t.ImageRef, mflow.Engines["postgres"].Definition().Image), m.Major, time.Now())
+	v.Majors = slices.DeleteFunc(PGMajors(), func(n int) bool { return n == m.Major })
+	v.Check, v.Rollback = o.lastPGCheck(ctx, m.ID), o.pgupRollback(ctx, m.ID)
+	return v, nil
 }
 
 func pgVersionOf(image string, major int, now time.Time) PGVersion {

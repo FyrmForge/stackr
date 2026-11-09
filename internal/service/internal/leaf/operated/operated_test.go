@@ -189,7 +189,7 @@ func TestDirect(t *testing.T) {
 		"url_read": "pooled-url", "url_read_direct": "direct-url", "url_read_pooled": "pooled-url",
 		"user": "u",
 	}
-	operated.Direct(out)
+	operated.Direct(out, false)
 	for k, v := range out {
 		want := map[string]string{"user": "u", "host": "dh", "host_direct": "dh", "host_pooled": "dh"}[k]
 		if want == "" {
@@ -198,5 +198,16 @@ func TestDirect(t *testing.T) {
 		if v != want {
 			t.Errorf("%s = %q, want %q", k, v, want)
 		}
+	}
+}
+
+// A consumer that reads through a standby on its node keeps the pooled reads.
+func TestDirectKeepsReadPooled(t *testing.T) {
+	out := map[string]string{
+		"url_pooled": "p", "url_direct": "d", "url_read_pooled": "rp", "url_read_direct": "rd",
+	}
+	operated.Direct(out, true)
+	if out["url_pooled"] != "d" || out["url_read_pooled"] != "rp" {
+		t.Errorf("out = %v, want url_pooled direct and url_read_pooled kept", out)
 	}
 }

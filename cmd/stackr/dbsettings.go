@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -89,6 +90,9 @@ func (a *app) dbSettings() *cobra.Command {
 			if m["eol"] == true {
 				a.say("Postgres %v no longer gets security fixes (ended %s).", m["major"], cell(m["eol_date"]))
 			}
+			if rb, _ := m["rollback"].(map[string]any); rb != nil {
+				a.say("The old data of postgres %v is kept until %s. Run `stackr db rollback-upgrade` to return to it.", rb["from"], cell(rb["until"]))
+			}
 			return nil
 		}))
 	update := waits(leaf("update", "operated.update", "Move an instance to the current minor of its postgres major; it restarts", exact(0),
@@ -112,5 +116,64 @@ func (a *app) dbSettings() *cobra.Command {
 			return a.follow(base, m["job"], "update")
 		})))
 	return scoped(noun("db", "Postgres instances",
-		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), a.dbStandby(), a.dbSync(), a.dbSwitchover(), a.dbPromote(), version, update), true)
+		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), a.dbStandby(), a.dbSync(), a.dbSwitchover(), a.dbPromote(), version, update,
+		a.dbUpgrade(), a.dbRollbackUpgrade()), true)
+}
+
+// dbUpgrade is `stackr db upgrade`: move an instance to another postgres
+// major, up or down. The data goes into a new volume; the old one is kept for
+// a week. --check only asks whether it can, and changes nothing.
+func (a *app) dbUpgrade() *cobra.Command {
+	var to int
+	var check bool
+	c := waits(leaf("upgrade", "operated.upgrade",
+		"Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can", exact(0), nil))
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		if to == 0 {
+			return usage("pass --to: the postgres major to move to, such as 18")
+		}
+		if !check {
+			if err := a.confirm(fmt.Sprintf("Move this instance to postgres %d? It is stopped while the data is converted. The old data is kept for 7 days.", to)); err != nil {
+				return err
+			}
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		if err := a.job(c, base, POST, p+"/upgrade", map[string]any{"to": to, "check": check}, "upgrade"); err != nil || !check {
+			return err
+		}
+		v, err := a.call(GET, p+"/version", nil)
+		if err != nil {
+			return err
+		}
+		if m, _ := v.(map[string]any); m != nil {
+			if ck, _ := m["check"].(map[string]any); ck != nil {
+				a.say("%s", cell(ck["detail"]))
+			}
+		}
+		return nil
+	})
+	c.Flags().IntVar(&to, "to", 0, "the postgres major to move to")
+	c.Flags().BoolVar(&check, "check", false, "only check whether the data can move; change nothing")
+	return c
+}
+
+// dbRollbackUpgrade is `stackr db rollback-upgrade`: back to the major the
+// instance ran before its last change, on the data it had then.
+func (a *app) dbRollbackUpgrade() *cobra.Command {
+	c := waits(leaf("rollback-upgrade", "operated.upgrade-rollback",
+		"Return to the postgres major before the last change, with the data it had then; what was written since is lost", exact(0), nil))
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		if err := a.confirm("Roll back? Everything written since the version change is lost."); err != nil {
+			return err
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		return a.job(c, base, POST, p+"/upgrade-rollback", nil, "rollback")
+	})
+	return c
 }

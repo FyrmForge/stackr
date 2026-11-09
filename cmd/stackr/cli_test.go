@@ -1451,3 +1451,49 @@ func TestTileRestoreAndPromoteFollowTheirJob(t *testing.T) {
 		}
 	}
 }
+
+// db upgrade sends the major (and --check for a dry run, with no question
+// asked), waits on the job and prints the dry run's answer; rollback-upgrade
+// asks first. A move without --to is a usage error.
+func TestDBUpgradeAndRollback(t *testing.T) {
+	var mu sync.Mutex
+	var reqs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		b, _ := io.ReadAll(req.Body)
+		mu.Lock()
+		reqs = append(reqs, req.Method+" "+req.URL.Path+" "+strings.TrimSpace(string(b)))
+		mu.Unlock()
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/events"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "event: end\ndata: {\"job\":{\"id\":\"j1\",\"state\":\"done\"},\"log\":\"ok\\n\"}\n\n")
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/version"):
+			_, _ = io.WriteString(w, `{"major":17,"check":{"to":18,"ok":true,"detail":"postgres 18 can take this data"}}`)
+		case req.Method == http.MethodGet:
+			_, _ = io.WriteString(w, `{"id":"t1","slug":"pg"}`)
+		default:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"id":"j1","kind":"pg-upgrade","state":"queued"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	at := []string{"--stack", "shop", "--env", "dev", "--tile", "pg"}
+	code, out, errw := cli(t, append([]string{"db", "upgrade", "--to", "18", "--check"}, at...)...)
+	if code != 0 || !strings.Contains(out, "can take this data") && !strings.Contains(errw, "can take this data") {
+		t.Errorf("check = %d out %q err %q", code, out, errw)
+	}
+	if !slices.ContainsFunc(reqs, func(r string) bool { return strings.HasSuffix(r, `/upgrade {"check":true,"to":18}`) }) {
+		t.Errorf("requests = %v", reqs)
+	}
+	if code, _, _ := cli(t, append([]string{"db", "upgrade"}, at...)...); code != 2 {
+		t.Errorf("no --to = %d, want a usage error", code)
+	}
+	reqs = nil
+	if code, out, errw := cli(t, append([]string{"db", "rollback-upgrade", "--yes"}, at...)...); code != 0 || !strings.Contains(out, "ok") {
+		t.Errorf("rollback = %d out %q err %q", code, out, errw)
+	}
+	if !slices.ContainsFunc(reqs, func(r string) bool { return strings.Contains(r, "POST ") && strings.Contains(r, "/upgrade-rollback") }) {
+		t.Errorf("requests = %v", reqs)
+	}
+}

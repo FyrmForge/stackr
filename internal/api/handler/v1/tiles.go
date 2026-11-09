@@ -544,6 +544,33 @@ func (h *H) UpdatePGVersion() Endpoint {
 	})
 }
 
+// PGMajorIn is a major version change: the major to move to, and whether to
+// only check (a dry run that changes nothing).
+type PGMajorIn struct {
+	To    int  `json:"to"`
+	Check bool `json:"check"`
+}
+
+// ChangePGMajor moves a postgres instance to another major, up or down, or
+// with check only asks whether it can (job). The data goes into a new volume
+// and the old one is kept for a week.
+func (h *H) ChangePGMajor() Endpoint {
+	return JSON(http.StatusAccepted, func(c echo.Context, in PGMajorIn) (service.Job, error) {
+		if in.Check {
+			return h.Orch.CheckPGUpgrade(rc(c), middleware.Principal(c), tileID(c), in.To)
+		}
+		return h.Orch.ChangePGMajor(rc(c), middleware.Principal(c), tileID(c), in.To)
+	})
+}
+
+// RollbackPGUpgrade returns an instance to its previous major and the data it
+// had then; what was written since is lost (job).
+func (h *H) RollbackPGUpgrade() Endpoint {
+	return Job(func(c echo.Context, _ None) (service.Job, error) {
+		return h.Orch.RollbackPGUpgrade(rc(c), middleware.Principal(c), tileID(c))
+	})
+}
+
 func (h *H) PITRStatus() Endpoint {
 	return Get(func(c echo.Context) (service.PITRHealth, error) { return h.Orch.PITRStatus(rc(c), tileID(c)) })
 }
@@ -664,6 +691,26 @@ type (
 func (h *H) Switchover() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in SwitchoverIn) (service.StandbyView, error) {
 		return h.Orch.Switchover(rc(c), tileID(c), in.To)
+	})
+}
+
+// AbortSwitchover gives up a switchover stuck before the promote: the old
+// primary is unfenced and started again. Refused once the standby may be
+// promoted.
+func (h *H) AbortSwitchover() Endpoint {
+	return Done(func(c echo.Context, _ None) error { return h.Orch.AbortSwitchover(rc(c), tileID(c)) })
+}
+
+// FenceStandbyIn fences (true) or unfences a standby.
+type FenceStandbyIn struct {
+	Fenced bool `json:"fenced"`
+}
+
+// FenceStandby fences or unfences a standby by hand: a fenced standby is
+// stopped, out of the read pool and not started until unfenced.
+func (h *H) FenceStandby() Endpoint {
+	return JSON(http.StatusOK, func(c echo.Context, in FenceStandbyIn) (service.StandbyView, error) {
+		return h.Orch.FenceStandbyOf(rc(c), tileID(c), c.Param("standby"), in.Fenced)
 	})
 }
 

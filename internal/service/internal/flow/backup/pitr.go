@@ -315,3 +315,37 @@ func (f *Flow) PruneWindow(ctx context.Context, d store.BackupDest, root string,
 	}
 	return n, nil
 }
+
+// DropArchive deletes everything under root, an archive epoch nothing reads
+// any more, and the base runs recorded for it. A restore reading it keeps it.
+// n is the objects deleted; any failure is returned and the next call retries.
+func (f *Flow) DropArchive(ctx context.Context, d store.BackupDest, root string) (int, error) {
+	if f.held(root) {
+		return 0, errs.Conflictf("a restore is reading %s", root)
+	}
+	bases, err := f.Backups.Bases(ctx, root, d.ID, time.Time{})
+	if err != nil {
+		return 0, err
+	}
+	o := open(d)
+	keys, err := o.List(ctx, root+"/")
+	if err != nil {
+		return 0, err
+	}
+	var errList []error
+	n := 0
+	for _, k := range keys {
+		if err := o.Delete(ctx, k); err != nil {
+			errList = append(errList, err)
+			continue
+		}
+		n++
+	}
+	if err := errors.Join(errList...); err != nil {
+		return n, err
+	}
+	for _, r := range bases {
+		_ = f.Backups.DropRun(ctx, r.ID)
+	}
+	return n, nil
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/pem"
@@ -8,12 +9,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/clusterca"
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -339,6 +342,40 @@ func TestFetchWorkerExtractsBothBinaries(t *testing.T) {
 	for _, want := range []string{":/stackrd " + joinBinary + ".new", ":/stackr-install " + joinInstaller + ".new"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("no docker cp for %q in:\n%s", want, out.String())
+		}
+	}
+}
+
+// A pinned digest that is not on the registry still joins when the image with
+// that digest is already on the box; the pin is the same one, so a release is
+// no less pinned. Without it the pull error names the dev build's way out.
+func TestPullUsesAnImageLoadedUnderThePinnedDigest(t *testing.T) {
+	dg := "sha256:" + strings.Repeat("a", 64)
+	ref := installspec.DigestRef(dg)
+	for _, loaded := range []bool{true, false} {
+		dir := t.TempDir()
+		log := filepath.Join(dir, "log")
+		script := "#!/bin/sh\necho \"$*\" >> " + log + "\n" +
+			"case \"$1 $2\" in\n" +
+			"  \"image inspect\") case \"$*\" in *" + ref + ") [ " + strconv.FormatBool(loaded) + " = true ];; *) exit 1;; esac;;\n" +
+			"  pull*) exit 1;;\n" +
+			"esac\n"
+		must := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755)
+		if must != nil {
+			t.Fatal(must)
+		}
+		t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+		var out bytes.Buffer
+		err := (runner{out: &out}).pull(context.Background(), "ghcr.io/fyrmforge/stackr:dev", dg)
+		b, _ := os.ReadFile(log)
+		if loaded {
+			if err != nil || !strings.Contains(string(b), "tag "+ref+" ghcr.io/fyrmforge/stackr:dev") || strings.Contains(string(b), "pull") {
+				t.Errorf("loaded: err %v, docker calls:\n%s", err, b)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "docker load") || !strings.Contains(string(b), "pull "+ref) {
+			t.Errorf("not loaded: err %v, docker calls:\n%s", err, b)
 		}
 	}
 }

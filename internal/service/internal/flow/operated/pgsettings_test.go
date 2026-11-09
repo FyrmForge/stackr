@@ -78,7 +78,7 @@ func TestPGFlagsPerMajor(t *testing.T) {
 		{18, 7, true, true},
 		{0, 0, true, false},
 	} {
-		f := pgFlags(c.major, c.days)
+		f := pgFlags(c.major, c.days, 0)
 		if has(f, "allow_alter_system") != c.alter || has(f, "archive_mode") != c.archive {
 			t.Errorf("major %d days %d: %v", c.major, c.days, f)
 		}
@@ -93,7 +93,7 @@ func TestPGFlagsPerMajor(t *testing.T) {
 			}
 		}
 	}
-	if f := pgFlags(17, 0); !slices.Contains(f, "shared_preload_libraries=pg_stat_statements") || !slices.Contains(f, "wal_log_hints=on") {
+	if f := pgFlags(17, 0, 0); !slices.Contains(f, "shared_preload_libraries=pg_stat_statements") || !slices.Contains(f, "wal_log_hints=on") {
 		t.Errorf("flags = %v", f)
 	}
 	cmd := pgCommand(Instance{Major: 16, PITRDays: 7})

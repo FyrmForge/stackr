@@ -157,3 +157,29 @@ func TestSettingsRowsChanged(t *testing.T) {
 		}
 	}
 }
+
+// The Overview offers a version change with the majors it can reach, a
+// rollback that asks the name typed while the old data is kept, and neither to
+// a read-only viewer.
+func TestMajorChangeAndRollbackRender(t *testing.T) {
+	v := View{Node: "t1", Name: "pg", Engine: "postgres", Base: "/o/s/e/-/instances/pg", Running: true}
+	o := OverviewView{Version: &VersionView{Image: "postgres:17.5", Majors: []int{16, 18}, Check: "Last check for postgres 18: ok", RollbackFrom: 16, RollbackUntil: "2026-11-16 10:00"}}
+	var b strings.Builder
+	if err := Overview(v, o).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`hx-post="/o/s/e/-/instances/pg/major"`, `<option value="18">`, `value="check"`, "Change version",
+		"Last check for postgres 18: ok", `hx-post="/o/s/e/-/instances/pg/major-rollback"`, "Type pg to roll back", "kept until 2026-11-16 10:00"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("overview lacks %q", want)
+		}
+	}
+	v.ReadOnly = true
+	b.Reset()
+	if err := Overview(v, o).Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "/major") {
+		t.Error("a read-only viewer is offered a version change")
+	}
+}

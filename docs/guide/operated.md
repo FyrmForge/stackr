@@ -32,7 +32,7 @@ Postgres slice outputs:
 | `url`, `host`, `port` | the connection the slice's `url` setting picks |
 | `url_direct`, `host_direct`, `port_direct` | the instance itself |
 | `url_pooled`, `host_pooled`, `port_pooled` | the instance's PgBouncer pooler (transaction pooling) |
-| `url_read`, `host_read`, `port_read` (and the `_direct` and `_pooled` forms) | where reads go; the primary's values until replicas exist |
+| `url_read`, `host_read`, `port_read` (and the `_direct` and `_pooled` forms) | where reads go; the primary's values until replicas exist. Each standby has its own PgBouncer, so the `_pooled` forms pool on a consumer's node when a standby is in reach there |
 | `database`, `user`, `password` | this app's own login (`password` is secret) |
 
 Set `url: pooled` on the slice tile (stack file, `stackr slice url <slice> pooled`, or the slice drawer) to make `url`, `host` and `port` go through the pooler. The default is `direct`. An app on another node than the instance gets the direct values whatever the setting, because the pooler has no address there yet.
@@ -75,3 +75,20 @@ Only a new tile loads a dump. Loading into an existing tile, and dumps in the st
 ## Synchronous replication
 
 With synchronous replication on, a commit waits for a standby; if the panel is down and the standby is down too, writes hang until the panel or a standby returns, in preferred mode as well as required.
+
+## Standbys by hand
+
+Fence a standby to keep it down: it stops, leaves the read pool and is not started until you unfence it. Use the Fence button in the Members list, or:
+
+```bash
+stackr db standby fence <node|id>
+stackr db standby unfence <node|id>
+```
+
+A standby that needs a rewind or a rebuild cannot be fenced or unfenced; it rejoins by itself, or rebuild it. The primary is never fenced by hand.
+
+A switchover that is stuck before the standby is promoted (the standby never replays the shutdown checkpoint, say) can be given up with the Abort switchover button or `stackr db switchover --abort`: the old primary is unfenced and started again. Once the promote step is reached, or the standby is out of recovery, the abort is refused and the switchover has to finish.
+
+## Old archive epochs
+
+A major change or its rollback starts a new point-in-time archive. The old archive stays while the change can be rolled back (7 days), then it is deleted from the backup destination and from the box.

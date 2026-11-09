@@ -41,7 +41,7 @@ func TestMajorIsStoredNotGuessed(t *testing.T) {
 		t.Errorf("default image on 17: %v", err)
 	}
 	tl.ImageRef = "postgres:18"
-	if err := checkMajor(d, ok, tl); err == nil || !strings.Contains(err.Error(), "Major upgrades are not supported") {
+	if err := checkMajor(d, ok, tl); err == nil || !strings.Contains(err.Error(), "stackr db upgrade") {
 		t.Errorf("17 -> 18: %v", err)
 	}
 	tl.ImageRef = "postgres@sha256:abc"

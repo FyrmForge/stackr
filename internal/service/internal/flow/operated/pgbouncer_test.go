@@ -177,7 +177,7 @@ func TestReservedConnectionsPerMajor(t *testing.T) {
 		{18, "reserved_connections=5", "superuser_reserved_connections=5"},
 		{0, "reserved_connections=5", "superuser_reserved_connections=5"},
 	} {
-		f := pgFlags(c.major, 0)
+		f := pgFlags(c.major, 0, 0)
 		if !has(f, c.want) || has(f, c.not) {
 			t.Errorf("major %d: %v", c.major, f)
 		}
@@ -210,12 +210,12 @@ func TestSliceOutputs(t *testing.T) {
 			}
 		}
 	}
-	// the _read ones dial the read alias, direct: a standby has no pooler yet
+	// the _read ones dial the read alias, direct; the pooled ones its pooler
 	const rURL = "postgres://u:p@db-1234abcd-read:5432/orders"
 	for k, want := range map[string]string{
-		"url_read": rURL, "url_read_direct": rURL, "url_read_pooled": rURL, "host_read": "db-1234abcd-read",
-		"host_read_direct": "db-1234abcd-read", "host_read_pooled": "db-1234abcd-read",
-		"port_read": "5432", "port_read_direct": "5432", "port_read_pooled": "5432",
+		"url_read": rURL, "url_read_direct": rURL, "url_read_pooled": "postgres://u:p@db-1234abcd-read-pooler:6432/orders", "host_read": "db-1234abcd-read",
+		"host_read_direct": "db-1234abcd-read", "host_read_pooled": "db-1234abcd-read-pooler",
+		"port_read": "5432", "port_read_direct": "5432", "port_read_pooled": "6432",
 	} {
 		for _, got := range []map[string]Binding{direct, pooled} {
 			if got[k].Value != want {

@@ -211,6 +211,96 @@ func (o *Orchestrator) Switchover(ctx context.Context, tileID, to string) (Stand
 	return o.startFailover(ctx, tileID, to, foSwitchover, false, false, false)
 }
 
+// AbortSwitchover gives up a switchover that is stuck before the promote
+// (the standby never replays the shutdown checkpoint, say): the old primary
+// is unfenced and started again, and the cursor goes. Once the promote step
+// is reached, or the standby is out of recovery, it is refused: the standby
+// may be the primary already and the switchover must finish.
+func (o *Orchestrator) AbortSwitchover(ctx context.Context, tileID string) error {
+	ctx = context.WithoutCancel(ctx)
+	unlock, err := o.lockInstance(ctx, tileID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	t, inst, err := o.memberInstance(ctx, tileID)
+	if err != nil {
+		return err
+	}
+	f, ok := o.failoverOf(ctx, inst.ID)
+	if !ok {
+		return errs.Conflictf("No failover of %s is in progress.", t.Slug)
+	}
+	if f.Kind != foSwitchover {
+		return errs.Conflictf("Only a switchover can be aborted. A promote is not undone.")
+	}
+	steps := failoverSteps[foSwitchover]
+	if slices.Index(steps, f.Step) >= slices.Index(steps, stepPromote) {
+		return errs.Conflictf("The standby is being or was promoted (%s). The switchover has to finish.", f.Step)
+	}
+	// fail closed: the standby must be shown to be in recovery
+	target, err := o.members.Get(ctx, f.Target)
+	if err != nil {
+		return errs.Conflictf("The standby cannot be read, so it cannot be shown unpromoted: %v", err)
+	}
+	if rec, err := o.inRecovery(ctx, t, target); err != nil {
+		return errs.Conflictf("The standby cannot be asked, so it cannot be shown unpromoted: %v", err)
+	} else if !rec {
+		return errs.Conflictf("The standby is out of recovery: it was promoted. The switchover has to finish.")
+	}
+	old, err := o.members.Get(ctx, f.Old)
+	if err != nil {
+		return err
+	}
+	if old.Role == opmember.Primary && old.Fenced {
+		if old, err = o.members.SetFenced(ctx, old, false); err != nil {
+			return err
+		}
+	}
+	if err := o.store.Settings.Delete(ctx, failoverKey(inst.ID)); err != nil {
+		return err
+	}
+	slog.Warn("failover: switchover aborted", "instance", inst.ID, "step", f.Step)
+	if old.State == opmember.Running {
+		if err := o.startMember(ctx, old); err != nil {
+			slog.Warn("failover: old primary not started, the tick retries", "instance", inst.ID, "err", err)
+		}
+	}
+	return nil
+}
+
+// inRecovery says whether standby m's postgres is in recovery.
+func (o *Orchestrator) inRecovery(ctx context.Context, t store.Tile, m InstanceMember) (bool, error) {
+	if err := o.nodeUp(ctx, m.NodeID); err != nil {
+		return false, err
+	}
+	nctx := docker.WithNode(ctx, m.NodeID)
+	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
+	if err != nil {
+		return false, err
+	}
+	argv, err := o.engines.PsqlArgv(ctx, t, mflow.SQLInRecovery)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range cs {
+		if c.State == "running" {
+			out, err := o.docker.Exec(nctx, c.ID, argv)
+			if err != nil {
+				return false, err
+			}
+			switch strings.TrimSpace(out) {
+			case "1":
+				return true, nil
+			case "0":
+				return false, nil
+			}
+			return false, fmt.Errorf("unexpected answer %q", strings.TrimSpace(out))
+		}
+	}
+	return false, errors.New("the standby is not running")
+}
+
 // PoweredOffPhrase is what an admin types to promote past a missing lease
 // proof: the old primary's node has no recorded binding (or its lease is not
 // waited out), and they state they powered it off. It is recorded in the
@@ -682,6 +772,9 @@ func (o *Orchestrator) foPromote(ctx context.Context, t store.Tile, inst store.O
 		return err
 	}
 	nctx := docker.WithNode(ctx, target.NodeID)
+	if err := o.removePoolers(nctx, target); err != nil { // before the promote: nothing pools a standby that is about to be a primary
+		return err
+	}
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: target.ID})
 	if err != nil {
 		return err
@@ -740,6 +833,9 @@ func (o *Orchestrator) foRecreate(ctx context.Context, t store.Tile, _ store.Ope
 		return err
 	}
 	nctx := docker.WithNode(ctx, target.NodeID)
+	if err := o.removePoolers(nctx, target); err != nil { // the standby's pooler goes with the standby
+		return err
+	}
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: target.ID})
 	if err != nil {
 		return err
@@ -954,6 +1050,12 @@ func (o *Orchestrator) foSlots(ctx context.Context, t store.Tile, inst store.Ope
 // primary is seen archiving (pitrPause): a new timeline cannot continue the
 // old one's base backups.
 func (o *Orchestrator) foRoute(ctx context.Context, t store.Tile, inst store.OperatedInstance, _ *failover) error {
+	// the primary's pooler follows the primary: made on the new primary's node
+	// (the tile's containers are looked for there now); the old node's goes at
+	// its rejoin. Consumers on another node dial the instance direct.
+	if err := o.engines.SyncPooler(ctx, t); err != nil {
+		return fmt.Errorf("the pooler on the new primary: %w", err)
+	}
 	o.rerouteVIPs(ctx)
 	if err := o.redeployConsumers(ctx, inst.ID); err != nil {
 		return err
@@ -1055,6 +1157,15 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 			return err
 		}
 	}
+	ps, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID, tile.LabelRole: mflow.PoolerRole})
+	if err != nil {
+		return err
+	}
+	for _, c := range ps { // the primary's pooler: the standby's own comes with the tick
+		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
+			return err
+		}
+	}
 	if err := o.rewind(ctx, t, m); err != nil {
 		return err
 	}
@@ -1099,11 +1210,16 @@ func (o *Orchestrator) rewind(ctx context.Context, t store.Tile, m InstanceMembe
 // oneShot runs spec to completion on node and returns its output and exit
 // code. passfile, when set, is copied in before the start.
 func (o *Orchestrator) oneShot(ctx context.Context, node string, spec docker.ContainerSpec, passfile []byte) (string, int, error) {
+	return o.oneShotFor(ctx, node, spec, passfile, 10*time.Minute, 50)
+}
+
+// oneShotFor is oneShot with the wait and the lines of output it keeps.
+func (o *Orchestrator) oneShotFor(ctx context.Context, node string, spec docker.ContainerSpec, passfile []byte, wait time.Duration, tail int) (string, int, error) {
 	nctx := docker.WithNode(ctx, node)
 	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
 		return "", 0, err
 	}
-	if old, err := o.docker.List(nctx, map[string]string{LabelMember: spec.Labels[LabelMember]}); err == nil {
+	if old, err := o.docker.List(nctx, spec.Labels); err == nil {
 		for _, c := range old { // a leftover of a run that was cut short
 			if c.Name == spec.Name {
 				_ = o.docker.StopRemove(nctx, c.ID)
@@ -1124,13 +1240,13 @@ func (o *Orchestrator) oneShot(ctx context.Context, node string, spec docker.Con
 	if err := o.docker.Start(nctx, id); err != nil {
 		return "", 0, err
 	}
-	wctx, cancel := context.WithTimeout(nctx, 10*time.Minute)
+	wctx, cancel := context.WithTimeout(nctx, wait)
 	defer cancel()
 	code, err := o.docker.Wait(wctx, id)
 	if err != nil {
 		return "", 0, err
 	}
-	out, _ := o.docker.Logs(nctx, id, 50)
+	out, _ := o.docker.Logs(nctx, id, tail)
 	return out, code, nil
 }
 
@@ -1407,6 +1523,7 @@ type FailoverOptions struct {
 	Unreachable bool     // the primary's node does not answer
 	InFlight    string   // "switchover: promote", "" = none
 	Error       string   // why the last run stopped
+	CanAbort    bool     // a switchover stuck before its promote step
 }
 
 // FailoverOptionsOf is tile tileID's FailoverOptions; ok is false for an
@@ -1453,6 +1570,8 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 	fo.Promote = append(waited, fo.Promote...) // the standby the primary waited for first: the form offers it first
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
 		fo.InFlight, fo.Error = f.Kind+": "+f.Step, f.Error
+		steps := failoverSteps[foSwitchover]
+		fo.CanAbort = f.Kind == foSwitchover && slices.Index(steps, f.Step) < slices.Index(steps, stepPromote)
 	}
 	return fo, true, nil
 }

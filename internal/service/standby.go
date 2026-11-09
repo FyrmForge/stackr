@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path"
@@ -134,18 +135,30 @@ func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, r
 		}
 		if st, ok := slots[mflow.SlotName(m.ID)]; slotsErr == nil && (!ok || st == "lost") {
 			phase = opmember.Rebuild
-			o.stopMember(ctx, m)
+			if err := o.stopMember(ctx, m); err != nil {
+				slog.Warn("members: stop", "member", m.ID, "err", err)
+			}
 			o.probeRuns.Delete(m.ID)
 		} else if phase != opmember.Rebuild {
 			switch o.probeStandby(ctx, m, probe) {
 			case probeDown:
 				phase = opmember.Starting
 				o.probeRuns.Delete(m.ID)
+				o.behindSince.Delete(m.ID)
 			case probeStreaming:
+				o.behindSince.Delete(m.ID)
 				if n := o.bumpProbe(m.ID, true); phase != opmember.Streaming && n >= probeHold {
 					phase = opmember.Streaming
 				}
 			case probeBehind:
+				if o.walGone(ctx, m) {
+					phase = opmember.Rebuild
+					if err := o.stopMember(ctx, m); err != nil {
+						slog.Warn("members: stop", "member", m.ID, "err", err)
+					}
+					o.probeRuns.Delete(m.ID)
+					break
+				}
 				if n := o.bumpProbe(m.ID, false); phase == opmember.Streaming && n <= -probeHold {
 					phase = opmember.Starting
 				}
@@ -205,21 +218,54 @@ func (o *Orchestrator) probeStandby(ctx context.Context, m InstanceMember, probe
 	return probeBehind
 }
 
-// stopMember stops standby m's containers; it stays down (restart "no", and
-// startMembers skips a rebuild).
-func (o *Orchestrator) stopMember(ctx context.Context, m InstanceMember) {
+// standbyStuckAfter is how long a standby may sit not streaming before its
+// log is read for a WAL segment the primary no longer has.
+const standbyStuckAfter = 5 * time.Minute
+
+// walGone: standby m has not streamed for standbyStuckAfter and its receiver
+// asks for a segment the primary already removed (it lagged the promote
+// point, so its slot never went "lost"). Only a rebuild helps.
+func (o *Orchestrator) walGone(ctx context.Context, m InstanceMember) bool {
+	v, _ := o.behindSince.LoadOrStore(m.ID, time.Now())
+	if time.Since(v.(time.Time)) < standbyStuckAfter {
+		return false
+	}
 	nctx := docker.WithNode(ctx, m.NodeID)
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
 	if err != nil {
-		return
+		return false
 	}
 	for _, c := range cs {
+		if c.State == "running" {
+			out, err := o.docker.Logs(nctx, c.ID, 50)
+			return err == nil && strings.Contains(out, "has already been removed")
+		}
+	}
+	return false
+}
+
+// stopMember stops standby m's containers, the postgres and its pooler; it
+// stays down (restart "no", and startMembers skips a rebuild). Both are
+// tried, and every failure is returned.
+func (o *Orchestrator) stopMember(ctx context.Context, m InstanceMember) error {
+	nctx := docker.WithNode(ctx, m.NodeID)
+	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
+	var errList []error
+	if err != nil {
+		errList = append(errList, err)
+	}
+	ps, err := o.poolerContainers(nctx, m.ID)
+	if err != nil {
+		errList = append(errList, err)
+	}
+	for _, c := range append(cs, ps...) {
 		if c.State == "running" || c.State == "restarting" {
 			if err := o.docker.Stop(nctx, c.ID); err != nil {
-				slog.Warn("members: stop", "member", m.ID, "err", err)
+				errList = append(errList, fmt.Errorf("stop %s: %w", c.Name, err))
 			}
 		}
 	}
+	return errors.Join(errList...)
 }
 
 // routeReaders makes the consumers on standby m's node match its standing in
@@ -369,6 +415,8 @@ func standbyWord(m InstanceMember) string {
 		return "fenced, needs rewind"
 	case m.Phase == opmember.Rebuild:
 		return "needs rebuild"
+	case m.Fenced:
+		return "fenced"
 	case m.Phase == opmember.Streaming:
 		return "streaming"
 	}
@@ -481,6 +529,7 @@ func (o *Orchestrator) viewOf(ctx context.Context, tileID, id string) (StandbyVi
 
 // AddStandbyView is AddStandby for the API and the CLI.
 func (o *Orchestrator) AddStandbyView(ctx context.Context, tileID, nodeRef string) (StandbyView, error) {
+	ctx = context.WithoutCancel(ctx) // runs to the end: the request's timeout must not cut it
 	m, err := o.AddStandby(ctx, tileID, nodeRef)
 	if err != nil {
 		return StandbyView{}, err
@@ -490,6 +539,7 @@ func (o *Orchestrator) AddStandbyView(ctx context.Context, tileID, nodeRef strin
 
 // RemoveStandbyOf removes standby id of tile tileID's instance.
 func (o *Orchestrator) RemoveStandbyOf(ctx context.Context, tileID, id string) error {
+	ctx = context.WithoutCancel(ctx) // runs to the end: the request's timeout must not cut it
 	m, err := o.standbyOf(ctx, tileID, id)
 	if err != nil {
 		return err
@@ -499,6 +549,7 @@ func (o *Orchestrator) RemoveStandbyOf(ctx context.Context, tileID, id string) e
 
 // RebuildStandbyOf rebuilds standby id of tile tileID's instance.
 func (o *Orchestrator) RebuildStandbyOf(ctx context.Context, tileID, id string) (StandbyView, error) {
+	ctx = context.WithoutCancel(ctx) // runs to the end: the request's timeout must not cut it
 	m, err := o.standbyOf(ctx, tileID, id)
 	if err != nil {
 		return StandbyView{}, err
@@ -508,4 +559,35 @@ func (o *Orchestrator) RebuildStandbyOf(ctx context.Context, tileID, id string) 
 		return StandbyView{}, err
 	}
 	return o.viewOf(ctx, tileID, n.ID)
+}
+
+// FenceStandbyOf fences or unfences standby id of tile tileID's instance by
+// hand: a fenced standby is stopped, out of the read pool and never started
+// until it is unfenced. The primary is never fenced here. A standby that
+// needs a rewind or a rebuild is left to that, and nothing changes while a
+// failover is in flight.
+func (o *Orchestrator) FenceStandbyOf(ctx context.Context, tileID, id string, fenced bool) (StandbyView, error) {
+	ctx = context.WithoutCancel(ctx) // runs to the end: the request's timeout must not cut it
+	unlock, err := o.lockInstance(ctx, tileID)
+	if err != nil {
+		return StandbyView{}, err
+	}
+	defer unlock()
+	m, err := o.standbyOf(ctx, tileID, id) // a replica of this instance, read under the lock
+	if err != nil {
+		return StandbyView{}, err
+	}
+	if o.failoverActive(ctx, m.InstanceID) {
+		return StandbyView{}, errs.Conflictf("A failover is in progress. Wait for it.")
+	}
+	if m.Phase == opmember.Rewind || m.Phase == opmember.Rebuild {
+		return StandbyView{}, errs.Conflictf("This standby needs a %s. It rejoins by itself, or rebuild it.", m.Phase)
+	}
+	// fencing again retries the stop a failed one left undone
+	if m.Fenced != fenced || fenced {
+		if err := o.fenceLocked(ctx, m.ID, fenced); err != nil {
+			return StandbyView{}, err
+		}
+	}
+	return o.viewOf(ctx, tileID, m.ID)
 }

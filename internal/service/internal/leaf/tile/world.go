@@ -89,7 +89,12 @@ func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpe
 // operated instance's pooler): it carries t's label and role, so Teardown
 // removes it with the tile and State and Replicas never count it.
 func (l *Leaf) StartRole(ctx context.Context, t store.Tile, role string, spec docker.ContainerSpec, log io.Writer) (string, error) {
-	ctx, err := l.at(ctx, t.EnvironmentID)
+	var err error
+	if role == "pooler" { // beside the primary, wherever a failover put it; deploys of replicas never reroute
+		ctx, err = l.atOf(ctx, t)
+	} else {
+		ctx, err = l.at(ctx, t.EnvironmentID)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -267,9 +272,10 @@ func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, 
 	return l.Role(ctx, t, "replica")
 }
 
-// OnNode is ctx for Docker calls on the node t runs on.
+// OnNode is ctx for Docker calls on the node t's primary runs on: its env's
+// node, or where a failover put it (the pooler's side).
 func (l *Leaf) OnNode(ctx context.Context, t store.Tile) (context.Context, error) {
-	return l.at(ctx, t.EnvironmentID)
+	return l.atOf(ctx, t)
 }
 
 // Role is the tile's containers of one role, any state.
@@ -281,10 +287,10 @@ func (l *Leaf) Role(ctx context.Context, t store.Tile, role string) ([]docker.Co
 	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: role})
 }
 
-// atRole is at for one role of t's containers: replicas follow Reroute, the
-// rest stay on the env's node.
+// atRole is at for one role of t's containers: replicas and the pooler follow
+// Reroute, the rest stay on the env's node.
 func (l *Leaf) atRole(ctx context.Context, t store.Tile, role string) (context.Context, error) {
-	if role == "replica" {
+	if role == "replica" || role == "pooler" {
 		return l.atOf(ctx, t)
 	}
 	return l.at(ctx, t.EnvironmentID)

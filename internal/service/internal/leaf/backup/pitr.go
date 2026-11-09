@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,16 @@ const (
 
 // PITRRoot is where an instance's point-in-time archive lives.
 func PITRRoot(orgID, dataVolumeID string) string { return Prefix(orgID, dataVolumeID, PITR) }
+
+// PITREpochRoot is PITRRoot of the archive's epoch: the first epoch is the
+// root itself, a later one a sibling under its own volume key, so that no
+// epoch's prefix lies under another's.
+func PITREpochRoot(orgID, dataVolumeID string, epoch int) string {
+	if epoch > 0 {
+		dataVolumeID += "-e" + strconv.Itoa(epoch)
+	}
+	return PITRRoot(orgID, dataVolumeID)
+}
 
 // IsPITRKey says whether an object key is in a point-in-time archive.
 func IsPITRKey(key string) bool { return strings.Contains(key, "/"+PITR+"/") }

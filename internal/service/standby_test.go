@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
@@ -216,4 +217,43 @@ func TestObserveStandbys(t *testing.T) {
 		t.Error("rebuilt a member that is not there")
 	}
 	n.orch.vipAsync.Wait()
+}
+
+// A standby that lagged the promote point never streams again and its slot
+// stays valid; its receiver's "segment already removed" for long enough marks
+// it needs rebuild.
+func TestObserveStandbysWALGone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	must(t, err)
+	n.orch.vipAsync.Wait()
+	slot := mflow.SlotName(r.ID)
+	n.wFake.Containers = append(n.wFake.Containers, docker.Container{ID: "rep1", State: "running", Labels: map[string]string{LabelMember: r.ID}})
+	n.ctlFake.ExecFn = func(cmd []string) string {
+		if strings.Contains(strings.Join(cmd, " "), "pg_replication_slots") {
+			return slot + "|reserved\n"
+		}
+		return ""
+	}
+	n.wFake.ExecFn = func(cmd []string) string { return "1," }
+	n.wFake.LogsOut = "FATAL: requested WAL segment 0001 has already been removed"
+	phase := func() string {
+		got, _ := n.orch.members.Get(ctx, r.ID)
+		return got.Phase
+	}
+	n.orch.observeStandbys(ctx)
+	if phase() == opmember.Rebuild {
+		t.Fatal("rebuild before the standby was stuck long enough")
+	}
+	n.orch.behindSince.Store(r.ID, time.Now().Add(-time.Hour))
+	n.orch.observeStandbys(ctx)
+	if phase() != opmember.Rebuild {
+		t.Fatalf("phase %q, want rebuild", phase())
+	}
+	if !n.orch.hasProblem(ctx, "alert."+AlertPGRebuild+"."+m.ID) {
+		t.Error("no rebuild alert")
+	}
 }

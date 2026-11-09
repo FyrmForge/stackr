@@ -139,6 +139,9 @@ func (o *Orchestrator) addStandby(ctx context.Context, tileID, nodeRef string) (
 	if err != nil {
 		return InstanceMember{}, err
 	}
+	if st, ok := o.pgupOf(ctx, inst.ID); ok && (!st.Done || st.RollingBack) {
+		return InstanceMember{}, errs.Conflictf("a postgres version change is in progress; add the standby when it has ended")
+	}
 	n, err := o.nodeByRef(ctx, nodeRef)
 	if err != nil {
 		return InstanceMember{}, errs.Invalidf("node", "Pick one of the cluster's nodes.")
@@ -314,6 +317,9 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
 			return err
 		}
+	}
+	if err := o.removePoolers(nctx, m); err != nil {
+		return err
 	}
 	if err := o.detachStandby(ctx, m); err != nil {
 		return err
@@ -514,14 +520,23 @@ func (o *Orchestrator) FenceMember(ctx context.Context, memberID string, fenced 
 	mu := o.topoLock(m.InstanceID)
 	mu.Lock()
 	defer mu.Unlock()
-	if m, err = o.members.Get(ctx, memberID); err != nil {
+	return o.fenceLocked(ctx, memberID, fenced)
+}
+
+// fenceLocked is FenceMember with the topology lock held. The fence is
+// written first; a stop that fails is returned, and fencing again retries it.
+func (o *Orchestrator) fenceLocked(ctx context.Context, memberID string, fenced bool) error {
+	m, err := o.members.Get(ctx, memberID)
+	if err != nil {
 		return err
 	}
 	if m, err = o.members.SetFenced(ctx, m, fenced); err != nil || m.Role != opmember.Replica {
 		return err
 	}
 	if fenced {
-		o.stopMember(ctx, m)
+		if err := o.stopMember(ctx, m); err != nil {
+			return fmt.Errorf("the standby is fenced but did not stop: %w", err)
+		}
 	}
 	if m, err = o.members.SetPhase(ctx, m, opmember.Starting); err != nil {
 		return err

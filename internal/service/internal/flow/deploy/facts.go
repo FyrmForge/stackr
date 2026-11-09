@@ -95,12 +95,13 @@ func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, 
 			return src, err
 		}
 		if src.Host != "" {
-			operated.Direct(src.Outputs)
 			if f.ReadTarget != nil {
 				if src.ReadHost, src.ReadNetwork, err = f.ReadTarget(ctx, e, p.InstanceID); err != nil {
 					return src, err
 				}
 			}
+			// a standby on this node answers the read alias and its pooler the pooled one
+			operated.Direct(src.Outputs, src.ReadNetwork != "")
 			return src, nil
 		}
 	}

@@ -43,7 +43,7 @@ func TestReplicationSQL(t *testing.T) {
 // The owned settings split: postmaster ones are start flags on every member,
 // the reloadable ones are in stackr-owned.conf, and users cannot set either.
 func TestOwnedSplit(t *testing.T) {
-	flags := pgFlags(17, 0)
+	flags := pgFlags(17, 0, 0)
 	for _, f := range []string{"wal_level=replica", "max_wal_senders=10", "max_replication_slots=10", "hot_standby=on", "wal_log_hints=on"} {
 		if !slices.Contains(flags, f) {
 			t.Errorf("no -c %s in %v", f, flags)

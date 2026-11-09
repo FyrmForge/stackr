@@ -321,6 +321,7 @@ type Orchestrator struct {
 	failCrashAfter string
 	leasePush      func(ctx context.Context, nodeID string, l worker.Lease) error
 	syncCtls       sync.Map      // instance id -> *syncCtl (pgsync.go)
+	behindSince    sync.Map      // standby member id -> when its probes stopped streaming
 	probeRuns      sync.Map      // standby member id -> consecutive streaming (+) or not (-) probes
 	repoLocks      sync.Map      // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
 	alertMem       *alertState   // the alert tick's memory (alerts.go)

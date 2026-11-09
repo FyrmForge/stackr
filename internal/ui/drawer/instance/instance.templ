@@ -123,14 +123,16 @@ type FailoverView struct {
 	Unreachable bool
 	InFlight    string
 	Error       string
+	CanAbort    bool // a switchover stuck before its promote
 }
 
 // MemberRow is one member of a postgres instance. Lag and Slot are
 // ready-made words ("" = nothing to say, as for the primary): Slot is the
 // WAL the member's replication slot holds against the cap.
 type MemberRow struct {
-	Node, Role, State, Lag, Slot string
-	Tone                         string // the state's chip tone
+	ID, Node, Role, State, Lag, Slot string
+	Tone                             string // the state's chip tone
+	Fenced, CanFence                 bool   // CanFence: a standby that may be fenced or unfenced by hand
 }
 
 // VersionView is the image a postgres instance runs. UpdateTo is the image a
@@ -139,6 +141,13 @@ type MemberRow struct {
 type VersionView struct {
 	Image, UpdateTo, EOLDate string
 	EOL                      bool
+	// Majors are the majors it can move to (up or down). Check is the last dry
+	// run's line, "" = none yet. RollbackFrom is the major a rollback returns
+	// to, 0 = none kept; RollbackUntil says until when.
+	Majors                   []int
+	Check                    string
+	RollbackFrom             int
+	RollbackUntil            string
 }
 
 // PoolerView is the instance's pgbouncer. Counted says the console answered,
@@ -188,6 +197,9 @@ templ Overview(v View, o OverviewView) {
 				}
 			</div>
 		}
+		if o.Version != nil && !v.ReadOnly {
+			@majorChange(v, *o.Version)
+		}
 		if o.Pooler != nil {
 			<h3 class="section-title">Pooler</h3>
 			<div class="panel p-4 space-y-1">
@@ -216,7 +228,20 @@ templ Overview(v View, o OverviewView) {
 								<span class="block text-xs text-rw-faint">{ m.Slot }</span>
 							}
 						</span>
-						@c.Chip(m.State, m.Tone)
+						<span class="flex items-center gap-2">
+							if m.CanFence && !v.ReadOnly {
+								<form hx-post={ v.Base + "/standby-fence" } hx-target={ "#" + Root } hx-swap="outerHTML">
+									<input type="hidden" name="id" value={ m.ID }/>
+									if m.Fenced {
+										<button type="submit" class="btn btn-ghost btn-sm">Unfence</button>
+									} else {
+										<input type="hidden" name="fenced" value="1"/>
+										<button type="submit" class="btn btn-ghost btn-sm">Fence</button>
+									}
+								</form>
+							}
+							@c.Chip(m.State, m.Tone)
+						</span>
 					</li>
 				}
 			</ul>
@@ -876,6 +901,44 @@ func remove(v View) c.ConfirmView {
 	return d
 }
 
+// majorChange moves the instance to another postgres major, and returns it
+// to the one before for a week after. A rollback asks the instance's name
+// typed: what was written since is lost.
+templ majorChange(v View, ver VersionView) {
+	if len(ver.Majors) > 0 {
+		<form hx-post={ v.Base + "/major" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
+			<div class="flex flex-wrap items-end gap-2">
+				<div class="min-w-32">
+					<label for="major-to" class="label">Move to postgres</label>
+					<select id="major-to" name="to" class="input">
+						for _, n := range ver.Majors {
+							<option value={ strconv.Itoa(n) }>{ strconv.Itoa(n) }</option>
+						}
+					</select>
+				</div>
+				<button type="submit" name="action" value="check" class="btn btn-ghost btn-sm">Check</button>
+				<button type="submit" name="action" value="upgrade" class="btn btn-danger btn-sm">Change version</button>
+			</div>
+			<p class="text-xs text-rw-faint" data-hint>It stops while the data moves; the old data is kept for 7 days.</p>
+			if ver.Check != "" {
+				<p class="text-xs text-rw-muted">{ ver.Check }</p>
+			}
+		</form>
+	}
+	if ver.RollbackFrom > 0 {
+		<form hx-post={ v.Base + "/major-rollback" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
+			<p class="text-sm text-rw-text">The data of postgres { strconv.Itoa(ver.RollbackFrom) } is kept until { ver.RollbackUntil }.</p>
+			<div class="flex flex-wrap items-end gap-2">
+				<div class="flex-1 min-w-48">
+					<label for="rollback-confirm" class="label">Type { v.Name } to roll back and lose what was written since</label>
+					<input id="rollback-confirm" name="confirm" autocomplete="off" class="input font-mono"/>
+				</div>
+				<button type="submit" class="btn btn-danger btn-sm">Roll back</button>
+			</div>
+		</form>
+	}
+}
+
 templ syncForm(v View, s SyncView) {
 	<h3 class="section-title">Synchronous replication</h3>
 	<div class="panel p-4 space-y-3">
@@ -920,6 +983,11 @@ templ failover(v View, f FailoverView) {
 		<p class="text-xs text-rw-faint" data-hint>Failover in progress ({ f.InFlight }). It resumes by itself.</p>
 		if f.Error != "" {
 			<p class="text-xs text-rw-danger">{ f.Error }</p>
+		}
+		if f.CanAbort && !v.ReadOnly {
+			<form hx-post={ v.Base + "/switchover-abort" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
+				<button type="submit" class="btn btn-ghost btn-sm">Abort switchover</button>
+			</form>
 		}
 	} else if !v.ReadOnly {
 		if len(f.Promote) > 0 {

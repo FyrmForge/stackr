@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +80,14 @@ type Fake struct {
 	Usages        []docker.Usage       // what Stats answers, one per call; the last repeats
 	Host          docker.HostInfo      // what HostInfo answers; zero = unknown, no ceiling
 	Addrs         map[string][2]string // network -> what MemberAddr answers (ip, cidr)
+	// Helper scripts one-shot containers: it is asked of every spec Create
+	// gets and, for ok, that container is the helper's: Wait answers its exit
+	// code and Logs its output, whatever ExitCode and LogsOut say.
+	Helper func(s docker.ContainerSpec) (out string, exit int, ok bool)
+	// StopExits names the containers Stop and StopRemove leave "exited" in
+	// List, as a daemon does; the others stay as scripted.
+	StopExits map[string]bool
+	helpers   map[string]docker.ContainerSpec
 }
 
 func New() *Fake { return &Fake{} }
@@ -127,6 +136,17 @@ func (f *Fake) Run(_ context.Context, s docker.ContainerSpec) (string, error) {
 func (f *Fake) Create(_ context.Context, s docker.ContainerSpec) (string, error) {
 	f.mu.Lock()
 	f.Specs = append(f.Specs, s)
+	if f.Helper != nil {
+		if _, _, ok := f.Helper(s); ok {
+			if f.helpers == nil {
+				f.helpers = map[string]docker.ContainerSpec{}
+			}
+			id := "helper-" + strconv.Itoa(len(f.helpers)+1)
+			f.helpers[id] = s
+			f.mu.Unlock()
+			return id, f.rec("Create", s.Name, s.Image)
+		}
+	}
 	id := f.RunID
 	if len(f.RunIDs) > 0 {
 		id, f.RunIDs = f.RunIDs[0], f.RunIDs[1:]
@@ -160,6 +180,13 @@ func (f *Fake) Stop(_ context.Context, id string) error {
 func (f *Fake) stopped(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.StopExits[id] {
+		for i := range f.Containers {
+			if f.Containers[i].ID == id {
+				f.Containers[i].State = "exited"
+			}
+		}
+	}
 	if d, ok := f.Details[id]; ok {
 		d.Running, d.Networks = false, nil
 		f.Details[id] = d
@@ -237,6 +264,13 @@ func matches(have, want map[string]string) bool {
 func (f *Fake) Wait(ctx context.Context, id string) (int, error) {
 	if err := f.rec("Wait", id); err != nil {
 		return -1, err
+	}
+	f.mu.Lock()
+	h, scripted := f.helpers[id]
+	f.mu.Unlock()
+	if scripted {
+		_, code, _ := f.Helper(h)
+		return code, nil
 	}
 	if f.WaitBlock {
 		<-ctx.Done()
@@ -452,6 +486,13 @@ func (f *Fake) Build(
 }
 
 func (f *Fake) Logs(_ context.Context, id string, _ int) (string, error) {
+	f.mu.Lock()
+	h, scripted := f.helpers[id]
+	f.mu.Unlock()
+	if scripted {
+		out, _, _ := f.Helper(h)
+		return out, f.rec("Logs", id)
+	}
 	return f.LogsOut, f.rec("Logs", id)
 }
 
