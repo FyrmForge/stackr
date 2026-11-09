@@ -408,3 +408,23 @@ func TestRemoveStandbyKeepsRowUntilNetworkGone(t *testing.T) {
 		t.Errorf("members = %+v, want the primary only", ms)
 	}
 }
+
+// A standby's network is announced to the mesh as its node's subnet, so the
+// primary's node can route the standby's replies.
+func TestStandbySubnetIsMeshed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	pgOn(t, n)
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	must(t, err)
+	n.orch.mesh = newMeshSvc(n.st, func(string) (MeshNode, bool) { return nil, false })
+	in, err := n.orch.mesh.gather(ctx)
+	must(t, err)
+	for _, x := range in.Nodes {
+		if x.ID == r.NodeID && !slices.ContainsFunc(x.Subnets, func(p netip.Prefix) bool { return p.String() == r.Subnet }) {
+			t.Errorf("node subnets %v lack the standby's %s", x.Subnets, r.Subnet)
+		}
+	}
+}

@@ -291,7 +291,7 @@ func (o *Orchestrator) finishRemovals(ctx context.Context) {
 
 // dropMember removes a replica's world objects then its row; the row (and its
 // subnet reservation) stays while the network does. A network with containers
-// of others still on it stays, and the row goes. The last replica's going
+// of others still on it keeps the row as 'removing' until it is empty. The last replica's going
 // gives the primary back its tile's restart policy first.
 func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	nctx := docker.WithNode(ctx, m.NodeID)
@@ -310,9 +310,14 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	if err := o.docker.RemoveVolume(nctx, m.Volume); err != nil {
 		return err
 	}
+	// Consumers of the read alias are on the network until they are
+	// redeployed (below); the row stays 'removing' and the tick drops the
+	// network once they have left, so it is never left behind empty.
 	net := operated.Network(m.InstanceID)
+	busy := false
 	if on, err := o.docker.NetworkMembers(nctx, net); err == nil && len(on) > 0 {
-		slog.Warn("member: network stays", "member", m.ID)
+		busy = true
+		slog.Warn("member: network busy, the tick retries", "member", m.ID)
 	} else if err := o.envs.DropShared(nctx, net); err != nil {
 		return err
 	}
@@ -337,6 +342,9 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	// row is the record that they owe it
 	if err := o.routeReaders(ctx, m); err != nil {
 		return err
+	}
+	if busy {
+		return nil
 	}
 	if err := o.members.Delete(ctx, m); err != nil {
 		return err
