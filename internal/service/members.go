@@ -316,6 +316,7 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	if err := o.docker.RemoveVolume(nctx, m.Volume); err != nil {
 		return err
 	}
+	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(m)) // kept while it was a primary with PITR on
 	net := operated.Network(m.InstanceID)
 	if on, err := o.docker.NetworkMembers(nctx, net); err == nil && len(on) > 0 {
 		slog.Warn("member: network stays", "member", m.ID)

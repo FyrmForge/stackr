@@ -240,12 +240,6 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 	if err != nil {
 		return StandbyView{}, err
 	}
-	// The archive cannot follow a relocated primary yet (the shipper reads the
-	// archive volume on the env's node), so a failover would end the instance's
-	// PITR chain. Refused rather than suspend protection silently.
-	if inst.PITRDays > 0 {
-		return StandbyView{}, errs.Conflictf("%s has point-in-time recovery on. A switchover or promote would move the primary away from its archive and stop the backups, so it is refused. Turn point-in-time recovery off first.", t.Slug)
-	}
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
 		return StandbyView{}, errs.Conflictf("A %s of %s is in progress (%s). It resumes by itself.", f.Kind, t.Slug, f.Step)
 	}
@@ -737,6 +731,12 @@ func (o *Orchestrator) foRecreate(ctx context.Context, t store.Tile, _ store.Ope
 	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
 		return err
 	}
+	for _, b := range spec.Volumes[1:] { // the archive volume, on the primary's own node
+		name, _, _ := strings.Cut(b, ":")
+		if err := o.docker.CreateVolume(nctx, name, "local", nil, map[string]string{LabelMember: target.ID}); err != nil {
+			return err
+		}
+	}
 	id, err := o.docker.Create(nctx, spec)
 	if err != nil {
 		return err
@@ -804,11 +804,32 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 	old.Role, old.NodeID, old.Container, old.Volume, old.Subnet = opmember.Replica, f.OldNode, "stackr-member-"+old.ID[:8], vol, sub
 	old.Fenced, old.Phase, old.State, old.Routed, old.UpdatedAt = true, opmember.Rewind, opmember.Running, false, now
 	target.Role, target.Fenced, target.Phase, target.Routed, target.UpdatedAt = opmember.Primary, false, opmember.Starting, false, now
+	// The data volume row follows the primary, so its backup schedules, runs
+	// and archive root (all keyed by the row) now back up the live data on
+	// its node; the old primary's volume is no longer named by any row.
+	dv, err := o.dataVolume(ctx, t)
+	if err != nil {
+		return err
+	}
+	en, err := o.envNode(ctx, t.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	if target.Volume != "" {
+		dv.Name = target.Volume
+	}
+	dv.NodeID = ""
+	if target.NodeID != en {
+		dv.NodeID = target.NodeID
+	}
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.OperatedMembers.Update(ctx, old); err != nil {
 			return err
 		}
-		return tx.OperatedMembers.Update(ctx, target)
+		if err := tx.OperatedMembers.Update(ctx, target); err != nil {
+			return err
+		}
+		return tx.Volumes.Update(ctx, dv)
 	})
 }
 
@@ -854,8 +875,9 @@ func (o *Orchestrator) foSlots(ctx context.Context, t store.Tile, inst store.Ope
 
 // foRoute points everything that dialled the old primary at the new one: the
 // firewall flows follow the address, the consumers are deployed again (their
-// hosts line or network join changed), and the archive starts a new epoch (a
-// new timeline cannot continue the old one's base backups).
+// hosts line or network join changed), and the archive is paused until the new
+// primary is seen archiving (pitrPause): a new timeline cannot continue the
+// old one's base backups.
 func (o *Orchestrator) foRoute(ctx context.Context, t store.Tile, inst store.OperatedInstance, _ *failover) error {
 	o.rerouteVIPs(ctx)
 	if err := o.redeployConsumers(ctx, inst.ID); err != nil {
@@ -865,7 +887,11 @@ func (o *Orchestrator) foRoute(ctx context.Context, t store.Tile, inst store.Ope
 	if err != nil {
 		return err
 	}
-	if err := o.pitrReset(ctx, cur); err != nil {
+	if cur.PITRDays > 0 {
+		if err := o.pitrPause(ctx, t, cur); err != nil {
+			return err
+		}
+	} else if err := o.pitrReset(ctx, cur); err != nil {
 		return err
 	}
 	// the new primary runs under its worker's lease, acked, before the
@@ -1158,7 +1184,7 @@ func (o *Orchestrator) adoptPrimary(ctx context.Context, t store.Tile) error {
 	// the volume row first: with it pointing at the member's data, a crash
 	// before the row below leaves a relocated primary whose container is
 	// gone, which the tick starts again from the same volume
-	v.Name = p.Volume
+	v.Name, v.NodeID = p.Volume, ""
 	if err := o.store.Volumes.Update(ctx, v); err != nil {
 		return err
 	}

@@ -26,9 +26,9 @@ import (
 // tile.Leaf.Reroute) and answers both the write and the read alias on the
 // instance's network of its node, at ip (pinned, "" = Docker picks): the
 // address cross-node consumers dial.
-// ponytail: it does not archive. The shipper reads the tile's own archive
-// volume on the env's node, so a relocated primary has none to read; PITR
-// restarts when the instance is back on its home node.
+// With PITR on it archives like the tile's own container: the same flags and
+// an archive volume of the member on its node (MemberArchiveVolume), which
+// the shipper reads through the tile's reroute.
 func (f *Flow) PromotedSpec(ctx context.Context, it store.Tile, mem store.OperatedMember, ip string) (docker.ContainerSpec, error) {
 	m, i, _, err := f.postgres(ctx, it)
 	if err != nil {
@@ -39,12 +39,15 @@ func (f *Flow) PromotedSpec(ctx context.Context, it store.Tile, mem store.Operat
 		return docker.ContainerSpec{}, err
 	}
 	i = f.withNodeMem(ctx, it, i)
-	i.PITRDays = 0
 	img := def.Image
 	if it.ImageRef != "" {
 		img = it.ImageRef
 	}
 	env := append(def.Config(i), "STACKR_PG_REWRITE=1") // the files follow the env at every start
+	vols := []string{mem.Volume + ":" + pgMount(i.Major)}
+	if i.PITRDays > 0 && def.ArchiveDir != "" {
+		vols = append(vols, MemberArchiveVolume(mem)+":"+def.ArchiveDir)
+	}
 	return docker.ContainerSpec{
 		Name:  mem.Container,
 		Image: img,
@@ -53,12 +56,16 @@ func (f *Flow) PromotedSpec(ctx context.Context, it store.Tile, mem store.Operat
 		Labels: map[string]string{
 			tile.LabelTile: it.ID, tile.LabelRole: "replica", LabelMember: mem.ID,
 		},
-		Volumes:    []string{mem.Volume + ":" + pgMount(i.Major)},
+		Volumes:    vols,
 		Networks:   []docker.NetAttach{{Name: operated.Network(m.ID), Aliases: []string{i.Host, ReadAlias(i.Host)}, IPv4: ip}},
 		MemLimitMB: it.MemLimitMB,
 		Restart:    "no",
 	}, nil
 }
+
+// MemberArchiveVolume is the archive volume a member keeps while it is the
+// primary of an instance with PITR on: next to its data volume, on its node.
+func MemberArchiveVolume(mem store.OperatedMember) string { return mem.Volume + "-wal" }
 
 // PsqlArgv is the argv that runs sql as the admin over the socket in the
 // instance's container: one value per line (-tA).
