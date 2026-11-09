@@ -103,12 +103,38 @@ func (s *sim) set(id, state string) string {
 	return id
 }
 
+// Run is create and start, as docker run is; its container answers its health gate.
+func (s *sim) Run(ctx context.Context, spec docker.ContainerSpec) (string, error) {
+	id, err := s.Create(ctx, spec)
+	if err != nil {
+		return "", err
+	}
+	return id, s.Start(ctx, id)
+}
+
+func (s *sim) Inspect(_ context.Context, id string) (docker.Detail, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.cs {
+		if c.ID == id {
+			return docker.Detail{Running: c.State == "running", Health: "healthy"}, nil
+		}
+	}
+	return docker.Detail{}, nil
+}
+
 func (s *sim) Start(_ context.Context, id string) error {
 	s.rig.log(s.node, "start "+s.set(id, "running"), "")
 	return nil
 }
 
 func (s *sim) Stop(_ context.Context, id string) error {
+	s.rig.mu.Lock()
+	err := s.rig.stopErr
+	s.rig.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	s.rig.log(s.node, "stop "+s.set(id, "exited"), "")
 	return nil
 }
@@ -186,6 +212,7 @@ type failRig struct {
 	pushed   map[string]worker.Lease
 	leaseErr error
 	listErr  error // makes every docker list fail
+	stopErr  error // makes a docker stop fail
 	// the primary's sync conf as last written, and the setting a reload made live
 	syncFile, syncLive string
 	reloadBroken       bool // a reload does not take
@@ -222,6 +249,8 @@ func (r *failRig) answer(node, c string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch {
+	case strings.Contains(c, ".get_auth('"): // the pooler's auth proof: the probe is found, the admin and the pooler role are not
+		return "1,0,0"
 	case strings.Contains(c, "stackr-sync.conf") && strings.Contains(c, "$1.new"):
 		r.syncFile = ""
 		if _, v, ok := strings.Cut(c, "synchronous_standby_names = '"); ok {
@@ -1350,5 +1379,109 @@ func TestStandbyPooler(t *testing.T) {
 	must(t, o.removePoolers(nctx, rep))
 	if cs, _ := o.poolerContainers(nctx, rep.ID); len(cs) != 0 {
 		t.Errorf("pooler left behind: %v", cs)
+	}
+}
+
+// The primary's pooler follows the primary: after a switchover it runs on the
+// new primary's node and is gone from the old one, and again after switching
+// back home.
+func TestPrimaryPoolerFollowsTheSwitchover(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	_, err := o.operated.SetPoolerPassword(ctx, r.inst, "pw")
+	must(t, err)
+	pt := r.tile()
+	r.sims["ctl"].cs = append(r.sims["ctl"].cs, simCtr{Container: docker.Container{ID: "pool0", Name: "stackr-pooler", State: "running",
+		Labels: map[string]string{tile.LabelTile: pt.ID, tile.LabelRole: mflow.PoolerRole}}})
+	poolers := func(node string) []docker.Container {
+		cs, _ := r.sims[node].List(ctx, map[string]string{tile.LabelTile: pt.ID, tile.LabelRole: mflow.PoolerRole})
+		return cs
+	}
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	if len(poolers("w1")) != 1 || poolers("w1")[0].State != "running" {
+		t.Errorf("poolers on the new primary's node: %v", poolers("w1"))
+	}
+	if len(poolers("ctl")) != 0 {
+		t.Errorf("the old node's primary pooler is still there: %v", poolers("ctl"))
+	}
+	_, rep := r.members()
+	_, err = o.members.SetPhase(ctx, rep, opmember.Streaming)
+	must(t, err)
+	r.mu.Lock()
+	r.lsn["ctl"] = "0/5000100"
+	r.mu.Unlock()
+	_, err = o.Switchover(ctx, r.inst.TileID, r.n.ctl.ID)
+	must(t, err)
+	if len(poolers("ctl")) != 1 || len(poolers("w1")) != 0 {
+		t.Errorf("after switching back: ctl %v, w1 %v", poolers("ctl"), poolers("w1"))
+	}
+}
+
+// An abort fails closed: a standby that cannot be asked is not shown
+// unpromoted, so the cursor stays.
+func TestAbortFailsClosed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	r.lsn["w1"] = "0/1000000"
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+		t.Fatal("the switchover did not get stuck")
+	}
+	r.sims["w1"].mu.Lock()
+	r.sims["w1"].cs = nil // the standby's container is gone: it cannot be asked
+	r.sims["w1"].mu.Unlock()
+	if err := o.AbortSwitchover(ctx, r.inst.TileID); !conflict(err) {
+		t.Errorf("abort with an unreadable standby: %v, want a conflict", err)
+	}
+	if _, ok := o.failoverOf(ctx, r.inst.ID); !ok {
+		t.Error("the cursor went although the standby could not be asked")
+	}
+	if p, _ := r.members(); !p.Fenced {
+		t.Error("the old primary was unfenced")
+	}
+}
+
+// The standby's pooler is gone before pg_promote, and a failed stop of a
+// fence is returned, retried by fencing again, and fences take the lock.
+func TestPoolerStopsBeforePromoteAndFenceRetriesStop(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	_, err := o.operated.SetPoolerPassword(ctx, r.inst, "pw")
+	must(t, err)
+	_, rep := r.members()
+	r.sims["w1"].cs = append(r.sims["w1"].cs, simCtr{Container: docker.Container{ID: "sb", State: "running", Labels: map[string]string{LabelMember: rep.ID}}})
+	o.syncStandbyPoolers(ctx)
+	if cs, _ := o.poolerContainers(docker.WithNode(ctx, "w1"), rep.ID); len(cs) != 1 {
+		t.Fatalf("no standby pooler: %v", cs)
+	}
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	must(t, err)
+	r.order("w1 remove stackr-", "SELECT pg_promote")
+
+	// a stop that fails: the fence stays, the error is returned, fencing again retries
+	r2 := newFailRig(t, false)
+	o2 := r2.n.orch
+	_, rep2 := r2.members()
+	r2.sims["w1"].cs = append(r2.sims["w1"].cs, simCtr{Container: docker.Container{ID: "sb2", Name: "sb2", State: "running", Labels: map[string]string{LabelMember: rep2.ID}}})
+	r2.mu.Lock()
+	r2.stopErr = errors.New("daemon busy")
+	r2.mu.Unlock()
+	if _, err := o2.FenceStandbyOf(ctx, r2.inst.TileID, rep2.ID, true); err == nil {
+		t.Fatal("a failed stop was swallowed")
+	}
+	if _, cur := r2.members(); !cur.Fenced {
+		t.Error("the fence was not kept")
+	}
+	r2.mu.Lock()
+	r2.stopErr = nil
+	r2.mu.Unlock()
+	if _, err := o2.FenceStandbyOf(ctx, r2.inst.TileID, rep2.ID, true); err != nil {
+		t.Fatalf("the retry: %v", err)
 	}
 }

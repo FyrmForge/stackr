@@ -234,10 +234,15 @@ func (o *Orchestrator) AbortSwitchover(ctx context.Context, tileID string) error
 	if slices.Index(steps, f.Step) >= slices.Index(steps, stepPromote) {
 		return errs.Conflictf("The standby is being or was promoted (%s). The switchover has to finish.", f.Step)
 	}
-	if target, err := o.members.Get(ctx, f.Target); err == nil {
-		if rec, err := o.inRecovery(ctx, t, target); err == nil && !rec {
-			return errs.Conflictf("The standby is out of recovery: it was promoted. The switchover has to finish.")
-		}
+	// fail closed: the standby must be shown to be in recovery
+	target, err := o.members.Get(ctx, f.Target)
+	if err != nil {
+		return errs.Conflictf("The standby cannot be read, so it cannot be shown unpromoted: %v", err)
+	}
+	if rec, err := o.inRecovery(ctx, t, target); err != nil {
+		return errs.Conflictf("The standby cannot be asked, so it cannot be shown unpromoted: %v", err)
+	} else if !rec {
+		return errs.Conflictf("The standby is out of recovery: it was promoted. The switchover has to finish.")
 	}
 	old, err := o.members.Get(ctx, f.Old)
 	if err != nil {
@@ -277,7 +282,16 @@ func (o *Orchestrator) inRecovery(ctx context.Context, t store.Tile, m InstanceM
 	for _, c := range cs {
 		if c.State == "running" {
 			out, err := o.docker.Exec(nctx, c.ID, argv)
-			return strings.TrimSpace(out) != "0", err
+			if err != nil {
+				return false, err
+			}
+			switch strings.TrimSpace(out) {
+			case "1":
+				return true, nil
+			case "0":
+				return false, nil
+			}
+			return false, fmt.Errorf("unexpected answer %q", strings.TrimSpace(out))
 		}
 	}
 	return false, errors.New("the standby is not running")
@@ -743,6 +757,9 @@ func (o *Orchestrator) foPromote(ctx context.Context, t store.Tile, inst store.O
 		return err
 	}
 	nctx := docker.WithNode(ctx, target.NodeID)
+	if err := o.removePoolers(nctx, target); err != nil { // before the promote: nothing pools a standby that is about to be a primary
+		return err
+	}
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: target.ID})
 	if err != nil {
 		return err
@@ -1018,6 +1035,12 @@ func (o *Orchestrator) foSlots(ctx context.Context, t store.Tile, inst store.Ope
 // primary is seen archiving (pitrPause): a new timeline cannot continue the
 // old one's base backups.
 func (o *Orchestrator) foRoute(ctx context.Context, t store.Tile, inst store.OperatedInstance, _ *failover) error {
+	// the primary's pooler follows the primary: made on the new primary's node
+	// (the tile's containers are looked for there now); the old node's goes at
+	// its rejoin. Consumers on another node dial the instance direct.
+	if err := o.engines.SyncPooler(ctx, t); err != nil {
+		return fmt.Errorf("the pooler on the new primary: %w", err)
+	}
 	o.rerouteVIPs(ctx)
 	if err := o.redeployConsumers(ctx, inst.ID); err != nil {
 		return err
@@ -1115,6 +1138,15 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 		if c.State == "running" || c.State == "restarting" {
 			o.fastStop(nctx, c.ID)
 		}
+		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
+			return err
+		}
+	}
+	ps, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID, tile.LabelRole: mflow.PoolerRole})
+	if err != nil {
+		return err
+	}
+	for _, c := range ps { // the primary's pooler: the standby's own comes with the tick
 		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
 			return err
 		}

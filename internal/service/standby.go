@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"path"
@@ -134,7 +135,9 @@ func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, r
 		}
 		if st, ok := slots[mflow.SlotName(m.ID)]; slotsErr == nil && (!ok || st == "lost") {
 			phase = opmember.Rebuild
-			o.stopMember(ctx, m)
+			if err := o.stopMember(ctx, m); err != nil {
+				slog.Warn("members: stop", "member", m.ID, "err", err)
+			}
 			o.probeRuns.Delete(m.ID)
 		} else if phase != opmember.Rebuild {
 			switch o.probeStandby(ctx, m, probe) {
@@ -205,24 +208,28 @@ func (o *Orchestrator) probeStandby(ctx context.Context, m InstanceMember, probe
 	return probeBehind
 }
 
-// stopMember stops standby m's containers; it stays down (restart "no", and
-// startMembers skips a rebuild).
-func (o *Orchestrator) stopMember(ctx context.Context, m InstanceMember) {
+// stopMember stops standby m's containers, the postgres and its pooler; it
+// stays down (restart "no", and startMembers skips a rebuild). Both are
+// tried, and every failure is returned.
+func (o *Orchestrator) stopMember(ctx context.Context, m InstanceMember) error {
 	nctx := docker.WithNode(ctx, m.NodeID)
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
+	var errList []error
 	if err != nil {
-		return
+		errList = append(errList, err)
 	}
-	if ps, err := o.poolerContainers(nctx, m.ID); err == nil {
-		cs = append(cs, ps...)
+	ps, err := o.poolerContainers(nctx, m.ID)
+	if err != nil {
+		errList = append(errList, err)
 	}
-	for _, c := range cs {
+	for _, c := range append(cs, ps...) {
 		if c.State == "running" || c.State == "restarting" {
 			if err := o.docker.Stop(nctx, c.ID); err != nil {
-				slog.Warn("members: stop", "member", m.ID, "err", err)
+				errList = append(errList, fmt.Errorf("stop %s: %w", c.Name, err))
 			}
 		}
 	}
+	return errors.Join(errList...)
 }
 
 // routeReaders makes the consumers on standby m's node match its standing in
@@ -521,7 +528,12 @@ func (o *Orchestrator) RebuildStandbyOf(ctx context.Context, tileID, id string) 
 // needs a rewind or a rebuild is left to that, and nothing changes while a
 // failover is in flight.
 func (o *Orchestrator) FenceStandbyOf(ctx context.Context, tileID, id string, fenced bool) (StandbyView, error) {
-	m, err := o.standbyOf(ctx, tileID, id)
+	unlock, err := o.lockInstance(ctx, tileID)
+	if err != nil {
+		return StandbyView{}, err
+	}
+	defer unlock()
+	m, err := o.standbyOf(ctx, tileID, id) // a replica of this instance, read under the lock
 	if err != nil {
 		return StandbyView{}, err
 	}
@@ -531,8 +543,9 @@ func (o *Orchestrator) FenceStandbyOf(ctx context.Context, tileID, id string, fe
 	if m.Phase == opmember.Rewind || m.Phase == opmember.Rebuild {
 		return StandbyView{}, errs.Conflictf("This standby needs a %s. It rejoins by itself, or rebuild it.", m.Phase)
 	}
-	if m.Fenced != fenced {
-		if err := o.FenceMember(ctx, m.ID, fenced); err != nil {
+	// fencing again retries the stop a failed one left undone
+	if m.Fenced != fenced || fenced {
+		if err := o.fenceLocked(ctx, m.ID, fenced); err != nil {
 			return StandbyView{}, err
 		}
 	}
