@@ -623,6 +623,75 @@
         ],
         "type": "object"
       },
+      "BucketRestoreIn": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "prefix",
+          "key"
+        ],
+        "type": "object"
+      },
+      "BucketSettings": {
+        "properties": {
+          "cors_origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "quota_gb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version_days": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cors_origins"
+        ],
+        "type": "object"
+      },
+      "BucketUsage": {
+        "properties": {
+          "current_bytes": {
+            "type": "integer"
+          },
+          "old_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_bytes",
+          "old_bytes"
+        ],
+        "type": "object"
+      },
       "Change": {
         "properties": {
           "field": {
@@ -6650,6 +6719,12 @@
           "blocker": {
             "type": "string"
           },
+          "cors_origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "default_access": {
             "type": "string"
           },
@@ -6671,6 +6746,9 @@
           "provisioned": {
             "type": "boolean"
           },
+          "quota_gb": {
+            "type": "integer"
+          },
           "slug": {
             "type": "string"
           },
@@ -6682,6 +6760,9 @@
           },
           "tile_id": {
             "type": "string"
+          },
+          "version_days": {
+            "type": "integer"
           }
         },
         "required": [
@@ -6696,7 +6777,10 @@
           "provisioned",
           "engine",
           "name",
-          "network"
+          "network",
+          "version_days",
+          "quota_gb",
+          "cors_origins"
         ],
         "type": "object"
       },
@@ -8022,6 +8106,12 @@
           "container_port": {
             "type": "integer"
           },
+          "cors_origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "cpu_limit": {
             "type": "number"
           },
@@ -8157,6 +8247,16 @@
             },
             "type": "array"
           },
+          "quota_gb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "replicas": {
             "type": "integer"
           },
@@ -8202,6 +8302,16 @@
           },
           "user": {
             "type": "string"
+          },
+          "version_days": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "volumes": {
             "items": {
@@ -8259,6 +8369,7 @@
           "paused",
           "timeout_minutes",
           "slice_access",
+          "cors_origins",
           "created_at",
           "updated_at"
         ],
@@ -20422,6 +20533,221 @@
           }
         },
         "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bucket": {
+      "put": {
+        "operationId": "slice.bucket",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BucketSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TileView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bucket-restore": {
+      "post": {
+        "operationId": "slice.restore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BucketRestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bucket-usage": {
+      "get": {
+        "operationId": "slice.usage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BucketUsage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/deploy": {

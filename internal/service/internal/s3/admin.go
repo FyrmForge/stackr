@@ -44,22 +44,31 @@ func (a Admin) CreateBucket(ctx context.Context, name string) error {
 	return err
 }
 
-// DropBucket empties the bucket, then removes it: S3 refuses to delete a
-// bucket that holds objects, and this is the explicit destroy.
+// DropBucket empties the bucket of every version and delete marker, then
+// removes it: S3 refuses to delete a bucket that holds objects, and this is
+// the explicit destroy. Purging versions is the root key's job alone.
 func (a Admin) DropBucket(ctx context.Context, name string) error {
-	b := Bucket(a)
-	b.Bucket = name
-	keys, err := b.List(ctx, "")
+	c := a.c()
+	err := a.versions(ctx, name, "", func(page []entry) error {
+		for _, e := range page {
+			in := &s3.DeleteObjectInput{Bucket: aws.String(name), Key: aws.String(e.Key)}
+			if e.ID != "" {
+				in.VersionId = aws.String(e.ID)
+			}
+			if _, err := c.DeleteObject(ctx, in); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	var nb *types.NoSuchBucket
+	if errors.As(err, &nb) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	for _, k := range keys {
-		if err := b.Delete(ctx, k); err != nil {
-			return err
-		}
-	}
-	_, err = a.c().DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(name)})
-	var nb *types.NoSuchBucket
+	_, err = c.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(name)})
 	if errors.As(err, &nb) {
 		return nil
 	}
@@ -169,21 +178,29 @@ func (a Admin) AddUser(ctx context.Context, key, secret string) error {
 // bucket, and attaches it. Rewriting the policy in place is how a user's
 // access changes; RustFS enforces the new document at once.
 func (a Admin) GrantUser(ctx context.Context, user, bucket string, write bool) error {
+	policy := grantPolicy(bucket, write)
+	if err := a.admin(ctx, http.MethodPut, "add-canned-policy", url.Values{"name": {user}}, []byte(policy)); err != nil {
+		return err
+	}
+	attach, _ := json.Marshal(map[string]any{"policies": []string{user}, "user": user})
+	return a.admin(ctx, http.MethodPost, "idp/builtin/policy/attach", nil, attach)
+}
+
+// grantPolicy never names s3:DeleteObjectVersion or any bucket-level write
+// (versioning, lifecycle, CORS, policy): an app key can overwrite and delete
+// current objects, which versioning keeps, but cannot purge history or turn
+// the protection off. Only stackr's root key does that.
+func grantPolicy(bucket string, write bool) string {
 	onBucket := `"s3:GetBucketLocation","s3:ListBucket"`
 	onObjects := `"s3:GetObject"`
 	if write {
 		onBucket += `,"s3:ListBucketMultipartUploads"`
 		onObjects += `,"s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"`
 	}
-	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[`+
+	return fmt.Sprintf(`{"Version":"2012-10-17","Statement":[`+
 		`{"Effect":"Allow","Action":[%s],"Resource":["arn:aws:s3:::%s"]},`+
 		`{"Effect":"Allow","Action":[%s],"Resource":["arn:aws:s3:::%s/*"]}]}`,
 		onBucket, bucket, onObjects, bucket)
-	if err := a.admin(ctx, http.MethodPut, "add-canned-policy", url.Values{"name": {user}}, []byte(policy)); err != nil {
-		return err
-	}
-	attach, _ := json.Marshal(map[string]any{"policies": []string{user}, "user": user})
-	return a.admin(ctx, http.MethodPost, "idp/builtin/policy/attach", nil, attach)
 }
 
 // RemoveUser drops the user and its policy; one already gone is success.

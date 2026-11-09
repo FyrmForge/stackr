@@ -296,8 +296,9 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			return err
 		}),
-		kindRestore: payload(o.runRestore),
-		kindSeed:    payload(o.runSeed),
+		kindRestore:       payload(o.runRestore),
+		kindSeed:          payload(o.runSeed),
+		kindBucketRestore: payload(o.runBucketRestore),
 
 		kindRestoreInstance: payload(o.runRestoreInstance),
 		kindPromoteRestore:  payload(o.runPromoteRestore),

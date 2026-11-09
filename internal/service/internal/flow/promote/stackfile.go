@@ -248,6 +248,11 @@ type TileConf struct {
 	ProvisionFrom string `yaml:"provision_from"`
 	DefaultAccess string `yaml:"default_access"`
 	OnRemove      string `yaml:"on_remove"`
+	// slice on a bucket: days old versions are kept (nil = 7, 0 = versioning
+	// off), a hard size cap in GB (nil or 0 = none), origins CORS allows.
+	VersionDays *int     `yaml:"version_days"`
+	QuotaGB     *int     `yaml:"quota_gb"`
+	CORSOrigins []string `yaml:"cors_origins"`
 	// any other tile: its access per slice tile of the env.
 	SliceAccess []SliceAccessConf `yaml:"slice_access"`
 	// cron: schedule (a cron expression, CRON_TZ= allowed); function:
@@ -788,6 +793,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: default_access: only a slice tile takes it", name)
 	case tc.OnRemove != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: on_remove: only a slice tile takes it", name)
+	case (tc.VersionDays != nil || tc.QuotaGB != nil || len(tc.CORSOrigins) > 0) && tc.Type != "slice":
+		return fmt.Errorf("tile %s: version_days, quota_gb and cors_origins: only a slice tile takes them", name)
 	case len(tc.SliceAccess) > 0 && (tc.Type == "operated" || tc.Type == "slice"):
 		return fmt.Errorf("tile %s: slice_access: %s tiles bind to no slice", name, tc.Type)
 	}
@@ -827,6 +834,9 @@ func checkSlice(name string, tc TileConf) error {
 	}
 	if tc.OnRemove != "" && tc.OnRemove != tile.Keep && tc.OnRemove != tile.Drop {
 		return fmt.Errorf("tile %s: on_remove %q must be keep or drop", name, tc.OnRemove)
+	}
+	if err := tile.CheckBucket(tc.VersionDays, tc.QuotaGB, tc.CORSOrigins); err != nil {
+		return fmt.Errorf("tile %s: %w", name, err)
 	}
 	return nil
 }

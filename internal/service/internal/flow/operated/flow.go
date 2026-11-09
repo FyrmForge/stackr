@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -187,7 +188,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 				it.Slug,
 			)
 		}
-		return p, e.Provision(ctx, inst, slice(p), f.tools(ctx, it, m))
+		return p, e.Provision(ctx, inst, withBucket(slice(p), s), f.tools(ctx, it, m))
 	}
 	name, err := f.sliceName(ctx, def, s)
 	if err != nil {
@@ -210,6 +211,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 		Password: operated.Password(),
 	}
 	sl.User = sl.Name
+	sl = withBucket(sl, s)
 	if def.RootCreds {
 		sl.User = m.AdminUser
 		sl.Password = m.AdminPassword
@@ -317,7 +319,11 @@ func (f *Flow) Replay(ctx context.Context, it store.Tile, log io.Writer) error {
 		return err
 	}
 	for _, p := range ps {
-		if err := e.Provision(ctx, inst, slice(p), x); err != nil {
+		st, err := f.Tiles.Get(ctx, p.TileID)
+		if err != nil {
+			return err
+		}
+		if err := e.Provision(ctx, inst, withBucket(slice(p), st), x); err != nil {
 			return fmt.Errorf("provision %s on %s: %w", p.DBName, it.Slug, err)
 		}
 		bs, err := f.Instances.Bindings(ctx, p.ID)
@@ -701,6 +707,82 @@ func slice(p store.Provision) Slice {
 		Password: p.DBPassword,
 		Public:   p.Public,
 	}
+}
+
+// withBucket lays slice tile t's protection settings over s, so every
+// Provision (deploy, replay, a settings edit) writes the same ones.
+func withBucket(s Slice, t store.Tile) Slice {
+	s.VersionDays = s3.DefaultVersionDays
+	if t.VersionDays != nil {
+		s.VersionDays = *t.VersionDays
+	}
+	if t.QuotaGB != nil {
+		s.QuotaBytes = int64(*t.QuotaGB) << 30
+	}
+	s.CORS = t.CORSOrigins
+	return s
+}
+
+// Resync writes slice tile s's settings to its bucket now, without a
+// deploy; a slice not yet provisioned has nothing to write.
+func (f *Flow) Resync(ctx context.Context, s store.Tile) error {
+	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
+	if err != nil || !ok {
+		return err
+	}
+	m, it, e, err := f.of(ctx, p)
+	if err != nil {
+		return err
+	}
+	return e.Provision(ctx, f.facts(ctx, it, m, e.Definition()), withBucket(slice(p), s), f.tools(ctx, it, m))
+}
+
+var errNotBucket = errors.New("this slice is not a bucket")
+
+// bucket is provision p's S3 client and bucket name.
+func (f *Flow) bucket(ctx context.Context, p store.Provision) (S3Admin, error) {
+	m, it, _, err := f.of(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if x := f.tools(ctx, it, m); m.Engine == "s3" && x.S3 != nil {
+		return x.S3, nil
+	}
+	return nil, errNotBucket
+}
+
+// Sizes is the bucket's current bytes and its old versions' bytes.
+func (f *Flow) Sizes(ctx context.Context, p store.Provision) (current, old int64, err error) {
+	c, err := f.bucket(ctx, p)
+	if err != nil {
+		return 0, 0, err
+	}
+	return c.Sizes(ctx, p.DBName)
+}
+
+// RestoreBucket copies, for every key under prefix (or the one key, exact), the
+// version that was current at at back on top as a new version. It never
+// deletes, and it is per file, not atomic: a failed file is counted and
+// the rest go on. The job log gets a line per hundred files and the total.
+func (f *Flow) RestoreBucket(ctx context.Context, p store.Provision, prefix string, exact bool, at time.Time, log io.Writer) error {
+	c, err := f.bucket(ctx, p)
+	if err != nil {
+		return err
+	}
+	done := 0
+	r, err := c.Restore(ctx, p.DBName, prefix, exact, at, func(r s3.RestoreResult) {
+		if done++; done%100 == 0 {
+			logf(log, "%d files done, %d restored\n", done, r.Restored)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	logf(log, "restored %d, left %d alone (not there then, or already that version), failed %d\n", r.Restored, r.Skipped, r.Failed)
+	if r.Failed > 0 {
+		return fmt.Errorf("%d files failed, the first: %w", r.Failed, r.Err)
+	}
+	return nil
 }
 
 func grant(b store.Binding) Grant {

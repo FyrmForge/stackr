@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
+	"net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -131,6 +132,9 @@ var fields = []field{
 	{"default_access", func(t *store.Tile) bool { return t.DefaultAccess != nil }},
 	{"on_remove", func(t *store.Tile) bool { return t.OnRemove != nil }},
 	{"slice_access", func(t *store.Tile) bool { return len(t.SliceAccess) > 0 }},
+	{"version_days", func(t *store.Tile) bool { return t.VersionDays != nil }},
+	{"quota_gb", func(t *store.Tile) bool { return t.QuotaGB != nil }},
+	{"cors_origins", func(t *store.Tile) bool { return len(t.CORSOrigins) > 0 }},
 }
 
 // refusals are the kind refusals tilelifecycle words itself; any other key
@@ -151,6 +155,9 @@ var refusals = map[string]string{
 	"default_access": "default_access applies to slice tiles only",
 	"on_remove":      "on_remove applies to slice tiles only",
 	"slice_access":   "slice_access does not apply to %s tiles",
+	"version_days":   "version_days applies to slice tiles only",
+	"quota_gb":       "quota_gb applies to slice tiles only",
+	"cors_origins":   "cors_origins applies to slice tiles only",
 }
 
 func refuse(kind, key string) error {
@@ -223,7 +230,7 @@ var Carries = map[string]map[string]bool{
 	Operated: keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
 	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused", "slice_access"}),
 	Function: keys(buildKeys, oneShotKeys, []string{"trigger", "slice_access"}),
-	Slice:    keys([]string{"provision_from", "default_access", "on_remove"}),
+	Slice:    keys([]string{"provision_from", "default_access", "on_remove", "version_days", "quota_gb", "cors_origins"}),
 }
 
 // Validate is one gate over the finished row, create and update alike; every
@@ -405,6 +412,23 @@ func checkSlice(t *store.Tile) error {
 	}
 	if *t.OnRemove != Keep && *t.OnRemove != Drop {
 		return errs.Invalidf("on_remove", "on_remove must be keep or drop")
+	}
+	return CheckBucket(t.VersionDays, t.QuotaGB, t.CORSOrigins)
+}
+
+// CheckBucket is the shape of a bucket slice's protection settings: they
+// reach a bucket only, but which engine the target is resolves at deploy.
+func CheckBucket(versionDays, quotaGB *int, cors []string) error {
+	if versionDays != nil && (*versionDays < 0 || *versionDays > 3650) {
+		return errs.Invalidf("version_days", "version_days is 0 (versioning off) to 3650")
+	}
+	if quotaGB != nil && *quotaGB < 0 {
+		return errs.Invalidf("quota_gb", "quota_gb cannot be negative")
+	}
+	for _, o := range cors {
+		if u, err := url.Parse(o); o != "*" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "") {
+			return errs.Invalidf("cors_origins", "cors_origins: %q is not an origin like https://app.example.com", o)
+		}
 	}
 	return nil
 }

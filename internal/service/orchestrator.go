@@ -799,7 +799,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			},
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
-			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true},
+			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},
 			Hold:     orch.upgrading.Load,
 			// The upgrade that swapped this panel in: its row was still
 			// running when the helper stopped the old panel.

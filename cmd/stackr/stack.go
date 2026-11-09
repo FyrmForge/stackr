@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -1652,6 +1653,10 @@ func (a *app) sliceTiles() *cobra.Command {
 		),
 		a.sliceBranch(),
 		a.sliceForward(),
+		a.sliceBucket(),
+		a.get("usage [slice]", "slice.usage", "Show a bucket's current bytes and its old versions' bytes, apart", atTile,
+			"/bucket-usage", "current_bytes", "old_bytes"),
+		a.sliceRestore(),
 		leaf(
 			"on-remove <slice> <keep|drop>",
 			"slice.on-remove",
@@ -1671,6 +1676,95 @@ func (a *app) sliceTiles() *cobra.Command {
 			}),
 		),
 	), true)
+}
+
+// sliceBucket sets a bucket slice's versioning, quota and CORS; only the
+// flags given change.
+func (a *app) sliceBucket() *cobra.Command {
+	var days, quota int
+	var cors []string
+	c := leaf(
+		"bucket <slice>",
+		"slice.get,slice.bucket",
+		"Set a bucket slice's version history, size cap and CORS origins",
+		exact(1),
+		nil,
+	)
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		f := c.Flags()
+		if !f.Changed("version-days") && !f.Changed("quota-gb") && !f.Changed("cors") {
+			return usage("nothing to set; pass --version-days, --quota-gb or --cors")
+		}
+		v, err := a.call(GET, p+"/slice", nil)
+		if err != nil {
+			return err
+		}
+		cur, _ := v.(map[string]any)
+		body := map[string]any{"version_days": cur["version_days"], "quota_gb": cur["quota_gb"], "cors_origins": cur["cors_origins"]}
+		if f.Changed("version-days") {
+			body["version_days"] = days
+		}
+		if f.Changed("quota-gb") {
+			body["quota_gb"] = quota
+		}
+		if f.Changed("cors") {
+			origins := []string{}
+			for _, o := range cors {
+				if o != "" {
+					origins = append(origins, o)
+				}
+			}
+			body["cors_origins"] = origins
+		}
+		if _, err := a.call(PUT, p+"/bucket", body); err != nil {
+			return err
+		}
+		v, err = a.call(GET, p+"/slice", nil)
+		if err != nil {
+			return err
+		}
+		return a.show(v, "slug", "version_days", "quota_gb", "cors_origins")
+	})
+	c.Flags().IntVar(&days, "version-days", 7, "days old versions are kept; 0 turns versioning off")
+	c.Flags().IntVar(&quota, "quota-gb", 0, "hard size cap in GB; 0 = none")
+	c.Flags().StringSliceVar(&cors, "cors", nil, "origins CORS allows, e.g. https://app.example.com; \"\" clears them")
+	return c
+}
+
+// sliceRestore queues the restore of a bucket to a past time and follows it.
+func (a *app) sliceRestore() *cobra.Command {
+	var at, prefix, key string
+	c := waits(leaf(
+		"restore <slice>",
+		"slice.restore",
+		"Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically",
+		exact(1),
+		nil,
+	))
+	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+		if _, err := time.Parse(time.RFC3339, at); err != nil {
+			return usage("--at takes a time with an offset, like 2026-11-09T10:00:00Z")
+		}
+		if key != "" && prefix != "" {
+			return usage("give --key or --prefix, not both")
+		}
+		what := "the whole bucket"
+		switch {
+		case key != "":
+			what = key
+		case prefix != "":
+			what = prefix + "*"
+		}
+		if err := a.confirm("Restore " + what + " to " + at + "? Files are copied back one by one, not atomically; nothing is deleted."); err != nil {
+			return err
+		}
+		return a.orgJob(c, POST, p+"/bucket-restore", map[string]string{"at": at, "prefix": prefix, "key": key}, "restore")
+	})
+	c.Flags().StringVar(&at, "at", "", "restore to how the objects were at this time (RFC3339 with an offset)")
+	c.Flags().StringVar(&prefix, "prefix", "", "only keys under this prefix (default: the whole bucket)")
+	c.Flags().StringVar(&key, "key", "", "only this one object")
+	_ = c.MarkFlagRequired("at")
+	return c
 }
 
 // sliceBranch copies a postgres slice as of now into a new slice tile and

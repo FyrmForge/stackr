@@ -139,6 +139,18 @@ func TestGrammarSlices(t *testing.T) {
 			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      on_remove: detach\n"),
 			`tile s: on_remove "detach" must be keep or drop`,
 		},
+		"bucket keys on image": {
+			tiles("    api:\n      image: x\n      quota_gb: 5\n"),
+			"tile api: version_days, quota_gb and cors_origins: only a slice tile takes them",
+		},
+		"slice version_days range": {
+			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      version_days: -2\n"),
+			"version_days is 0 (versioning off) to 3650",
+		},
+		"slice cors origin": {
+			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      cors_origins:\n        - app.example.com\n"),
+			`"app.example.com" is not an origin`,
+		},
 		"slice access word": {
 			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      default_access: admin\n"),
 			`tile s: default_access "admin" must be read or write`,
@@ -638,6 +650,37 @@ func TestSliceDeploy(t *testing.T) {
 	}
 	if bs, _ := d.Operated.Bindings(ctx, pr.ID); len(bs) != 0 {
 		t.Errorf("bindings after drop = %+v", bs)
+	}
+}
+
+// A bucket slice's protection keys are rows in the plan, land on the slice
+// tile, and a moved one redeploys the slice (which re-syncs its bucket).
+func TestSliceBucketKeys(t *testing.T) {
+	w := newSliceWorld(t)
+	d := w.f.D
+	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
+	must(t, err)
+	c2 := strings.Replace(
+		sliceFile(t, false, false),
+		"      default_access: write\n",
+		"      default_access: write\n      version_days: 14\n      quota_gb: 2\n      cors_origins:\n        - https://app.example.com\n",
+		1,
+	)
+	r := w.shopRelease(t, "c2", c2)
+	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
+	must(t, err)
+	for _, k := range []string{"update:api-dbversion_days", "update:api-dbquota_gb", "update:api-dbcors_origins"} {
+		if !strings.Contains(kinds(p), k) {
+			t.Errorf("plan = %s, lacks %s", kinds(p), k)
+		}
+	}
+	_, err = w.f.Apply(ctx, w.dev.ID, r.ID, io.Discard, nil)
+	must(t, err)
+	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
+	must(t, err)
+	if sl.VersionDays == nil || *sl.VersionDays != 14 || sl.QuotaGB == nil || *sl.QuotaGB != 2 ||
+		!slices.Equal(sl.CORSOrigins, []string{"https://app.example.com"}) {
+		t.Errorf("slice row = %v %v %v", sl.VersionDays, sl.QuotaGB, sl.CORSOrigins)
 	}
 }
 

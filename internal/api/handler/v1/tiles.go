@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -158,6 +159,11 @@ type (
 	}
 	OnRemoveIn struct {
 		OnRemove string `json:"on_remove"` // keep | drop
+	}
+	BucketRestoreIn struct {
+		At     time.Time `json:"at"`     // restore to how the objects were then (RFC3339)
+		Prefix string    `json:"prefix"` // only keys under it; "" = the whole bucket
+		Key    string    `json:"key"`    // only this one object; wins over prefix
 	}
 )
 
@@ -536,6 +542,29 @@ func (h *H) SetSliceAccess() Endpoint {
 func (h *H) SetSliceOnRemove() Endpoint {
 	return JSON(200, func(c echo.Context, in OnRemoveIn) (service.TileView, error) {
 		return tileView(h.Orch.SetSliceOnRemove(rc(c), tileID(c), in.OnRemove))
+	})
+}
+
+// SetSliceBucket replaces a bucket slice's versioning, quota and CORS.
+func (h *H) SetSliceBucket() Endpoint {
+	return JSON(200, func(c echo.Context, in service.BucketSettings) (service.TileView, error) {
+		return tileView(h.Orch.SetSliceBucket(rc(c), tileID(c), in))
+	})
+}
+
+// SliceUsage is a bucket's current bytes and old-version bytes.
+func (h *H) SliceUsage() Endpoint {
+	return Get(func(c echo.Context) (service.BucketUsage, error) { return h.Orch.SliceUsage(rc(c), tileID(c)) })
+}
+
+// RestoreSlice queues a restore of a bucket to a past time: it copies the
+// version current then back on top and never deletes.
+func (h *H) RestoreSlice() Endpoint {
+	return Job(func(c echo.Context, in BucketRestoreIn) (service.Job, error) {
+		if in.Key != "" {
+			return h.Orch.RestoreSlice(rc(c), tileID(c), in.Key, true, in.At)
+		}
+		return h.Orch.RestoreSlice(rc(c), tileID(c), in.Prefix, false, in.At)
 	})
 }
 

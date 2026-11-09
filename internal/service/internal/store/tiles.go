@@ -58,6 +58,9 @@ type Tile struct {
 	DefaultAccess           *string         `db:"default_access" json:"default_access"`   // slice: read | write
 	OnRemove                *string         `db:"on_remove" json:"on_remove"`             // slice: keep | drop
 	SliceAccess             SliceAccessList `db:"slice_access" json:"slice_access"`       // consumers: access per slice tile
+	VersionDays             *int            `db:"version_days" json:"version_days"`       // bucket slice: days old versions are kept; nil = default, 0 = versioning off
+	QuotaGB                 *int            `db:"quota_gb" json:"quota_gb"`               // bucket slice: hard size cap; nil or 0 = none
+	CORSOrigins             OriginList      `db:"cors_origins" json:"cors_origins"`       // bucket slice: origins CORS allows
 	CreatedAt               time.Time       `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time       `db:"updated_at" json:"updated_at"`
 	ExpiresAt               *time.Time      `db:"expires_at" json:"expires_at"` // a branch slice: swept after this; nil = never
@@ -83,6 +86,21 @@ func (l SliceAccessList) Value() (driver.Value, error) {
 
 func (l *SliceAccessList) Scan(src any) error {
 	if err := scanJSON("SliceAccessList", src, (*[]SliceAccess)(l)); err != nil {
+		return err
+	}
+	if len(*l) == 0 {
+		*l = nil
+	}
+	return nil
+}
+
+// OriginList is a JSON array column of strings; no entries reads back as nil.
+type OriginList []string
+
+func (l OriginList) Value() (driver.Value, error) { return StringList(l).Value() }
+
+func (l *OriginList) Scan(src any) error {
+	if err := (*StringList)(l).Scan(src); err != nil {
 		return err
 	}
 	if len(*l) == 0 {

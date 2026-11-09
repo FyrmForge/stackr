@@ -7,6 +7,7 @@ package slice
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
 	"time"
@@ -50,6 +51,12 @@ type View struct {
 	Consumers     []Consumer
 	Provisioned   bool
 	DBName        string // the database or bucket, once provisioned
+	// A bucket slice's protection: days old versions are kept (0 = off),
+	// the size cap in GB (0 = none) and the CORS origins, comma-joined.
+	IsBucket    bool
+	VersionDays int
+	QuotaGB     int
+	CORS        string
 	Job           *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
 	JobWhen       time.Time
 }
@@ -100,6 +107,11 @@ templ Overview(v View) {
 				@c.Fact("Name", v.DBName)
 			}
 		}
+		if v.IsBucket && v.Provisioned {
+			@c.PanelSection("slice-storage", "Storage", "") {
+				<div hx-get={ v.Base + "/usage" } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Measuring…</div>
+			}
+		}
 		if v.Job != nil {
 			@c.PanelSection("slice-job", "Last job", "") {
 				@c.JobStatus(*v.Job)
@@ -128,6 +140,12 @@ func settingsRows(v View) []c.AccRow {
 	}
 	if v.CanBranch && !v.ReadOnly {
 		rows = append(rows, c.AccRow{Key: "branch", Title: "Branch", Summary: "copy now or as of a time", Body: branchRow(v)})
+	}
+	if v.IsBucket {
+		rows = append(rows, c.AccRow{Key: "bucket", Title: "Versions and limits", Summary: bucketSummary(v), Body: bucketRow(v)})
+		if v.Provisioned && !v.ReadOnly {
+			rows = append(rows, c.AccRow{Key: "restore", Title: "Restore", Summary: "to an earlier time", Body: restoreRow(v)})
+		}
 	}
 	rows = append(rows, c.AccRow{Key: "remove", Title: "On remove", Summary: onRemoveWord(v.OnRemove), Changed: v.OnRemove == "drop", Body: removeRow(v)})
 	if !v.ReadOnly {
@@ -241,6 +259,80 @@ templ branchRow(v View) {
 		@c.Field(c.FieldView{Name: "at", Label: "As of (UTC)", Type: "datetime-local", Step: "1", Help: "A past time; empty is now. Needs point-in-time restore."})
 		<button type="submit" class="btn btn-primary btn-sm">Branch</button>
 	</form>
+}
+
+func bucketSummary(v View) string {
+	s := "no versions"
+	if v.VersionDays > 0 {
+		s = "old versions " + strconv.Itoa(v.VersionDays) + " d"
+	}
+	if v.QuotaGB > 0 {
+		s += " · " + strconv.Itoa(v.QuotaGB) + " GB cap"
+	}
+	return s
+}
+
+// bucketRow is versioning, the size cap and CORS, saved together.
+templ bucketRow(v View) {
+	<p class="text-xs text-rw-faint" data-hint>Old versions let you restore what an app overwrote or deleted.</p>
+	if v.FileOwned || v.ReadOnly {
+		@c.Facts() {
+			@c.Fact("Old versions kept", fmt.Sprintf("%d days", v.VersionDays))
+			@c.Fact("Size cap", fmt.Sprintf("%d GB", v.QuotaGB))
+			@c.Fact("CORS origins", cmp.Or(v.CORS, "none"))
+		}
+		if v.FileOwned {
+			<p class="text-xs text-rw-faint" data-hint>Set in the stack file.</p>
+		} else {
+			<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
+		}
+	} else {
+		<form novalidate hx-post={ v.Base + "/bucket" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			@c.KeepOpen("bucket")
+			@c.Field(c.FieldView{Name: "version_days", Label: "Keep old versions (days)", Type: "number", Min: "0", Value: strconv.Itoa(v.VersionDays), Help: "0 turns versioning off."})
+			@c.Field(c.FieldView{Name: "quota_gb", Label: "Size cap (GB)", Type: "number", Min: "0", Value: strconv.Itoa(v.QuotaGB), Help: "0 means no cap."})
+			@c.Field(c.FieldView{Name: "cors", Label: "CORS origins", Value: v.CORS, Placeholder: "https://app.example.com", Help: "Separate with commas."})
+			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+		</form>
+	}
+}
+
+// restoreRow copies the versions current at a time back as new versions.
+templ restoreRow(v View) {
+	<p class="text-xs text-rw-faint" data-hint>Copies each file back as it was then. Nothing is deleted.</p>
+	<form novalidate hx-post={ v.Base + "/restore" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+		@c.KeepOpen("restore")
+		@c.Field(c.FieldView{Name: "at", Label: "As of (UTC)", Type: "datetime-local", Step: "1", Required: true, Help: "A past time."})
+		@c.Field(c.FieldView{Name: "key", Label: "One file", Placeholder: "whole bucket", Help: "The exact key."})
+		@c.Field(c.FieldView{Name: "prefix", Label: "Or a folder", Placeholder: "whole bucket", Help: "Keys that start with it."})
+		<p class="text-xs text-rw-faint" data-hint>It runs file by file, so a stop partway leaves some restored.</p>
+		<button type="submit" class="btn btn-primary btn-sm">Restore</button>
+	</form>
+}
+
+// Usage is the bucket's size now, answering the Overview's lazy load.
+templ Usage(current, old int64, errText string) {
+	if errText != "" {
+		<p class="text-sm text-rw-danger" role="alert">{ errText }</p>
+	} else {
+		@c.Facts() {
+			@c.Fact("Current objects", SizeText(current))
+			@c.Fact("Old versions", SizeText(old))
+		}
+	}
+}
+
+// SizeText is a byte count for people.
+func SizeText(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 templ removeRow(v View) {
