@@ -81,6 +81,13 @@ func (c *Client) Facts(ctx context.Context) (worker.Facts, error) {
 	return f, err
 }
 
+// PutLease tells the node which containers its lease binds (see
+// worker.Lease). Every call is also the contact that keeps the lease alive.
+func (c *Client) PutLease(ctx context.Context, l worker.Lease) error {
+	b, _ := json.Marshal(l)
+	return c.call(ctx, "PUT", worker.LeasePath, "application/json", b, nil)
+}
+
 // Traffic is the node's conntrack lines that touch its own tiles.
 func (c *Client) Traffic(ctx context.Context) (worker.Traffic, error) {
 	var t worker.Traffic

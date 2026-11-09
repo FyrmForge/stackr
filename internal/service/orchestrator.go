@@ -313,11 +313,19 @@ type Orchestrator struct {
 	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	earlyMu      sync.Mutex            // guards earlyIPs
 	earlyIPs     map[string]earlyEnt   // container id -> address holding early lan rules
-	probeRuns    sync.Map              // standby member id -> consecutive streaming (+) or not (-) probes
-	repoLocks    sync.Map              // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
-	alertMem     *alertState           // the alert tick's memory (alerts.go)
-	platforms    platformCache         // each node's CPU type (imports.go)
-	cli          cliCodes
+	// downSince is when each instance's primary was first seen down (the
+	// primary-down problem waits for it to last); lease and leasePush: lease.go.
+	downSince sync.Map
+	// failCrashAfter makes a failover stop after that step, as a dying panel
+	// would (tests).
+	failCrashAfter string
+	lease          leaseBook
+	leasePush      func(ctx context.Context, nodeID string, l worker.Lease) error
+	probeRuns      sync.Map      // standby member id -> consecutive streaming (+) or not (-) probes
+	repoLocks      sync.Map      // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
+	alertMem       *alertState   // the alert tick's memory (alerts.go)
+	platforms      platformCache // each node's CPU type (imports.go)
+	cli            cliCodes
 
 	cluster   *clusterPKI   // the CA, the controller cert, the worker clients (nodeclients.go)
 	stopNodes chan struct{} // ends watchNodeClients
@@ -594,6 +602,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.tiles.Early = orch.earlyLan
 	orch.tiles.Node = orch.envNode
 	orch.tiles.Pin = orch.pinVIP
+	orch.tiles.Reroute = orch.primaryReroute
 	orch.tiles.Ship = orch.shipRun
 	orch.creds = build("leaf/credential", func() *credential.Leaf { return credential.New(st.Credentials) })
 	orch.regs = build("leaf/registry", func() *registry.Leaf {
@@ -624,6 +633,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Tiles:     orch.tiles,
 			Instances: orch.operated,
 			Members:   orch.members,
+			Adopt:     orch.adoptPrimary,
 			Volumes:   orch.volumes,
 			Envs:      orch.envs,
 			Stacks:    orch.stacks,

@@ -83,6 +83,9 @@ func (o *Orchestrator) observeStandbys(ctx context.Context) {
 		}
 	}
 	for id, reps := range byInst {
+		if o.failoverActive(ctx, id) {
+			continue // the slots and the roles are changing: no verdict
+		}
 		o.observeInstance(ctx, id, reps)
 	}
 }
@@ -126,6 +129,9 @@ func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, r
 	needs := false
 	for _, m := range reps {
 		phase := m.Phase
+		if phase == opmember.Rewind {
+			continue // the old primary, waiting for its node: the rejoin moves it on
+		}
 		if st, ok := slots[mflow.SlotName(m.ID)]; slotsErr == nil && (!ok || st == "lost") {
 			phase = opmember.Rebuild
 			o.stopMember(ctx, m)
@@ -356,6 +362,8 @@ func standbyWord(m InstanceMember) string {
 		return "removing"
 	case m.State == opmember.Stopped:
 		return "stopped"
+	case m.Phase == opmember.Rewind:
+		return "fenced, needs rewind"
 	case m.Phase == opmember.Rebuild:
 		return "needs rebuild"
 	case m.Phase == opmember.Streaming:

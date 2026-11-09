@@ -639,6 +639,34 @@ type (
 	}
 )
 
+type (
+	SwitchoverIn struct {
+		To string `json:"to"` // the standby's node; empty = the one that replayed the most
+	}
+	PromoteStandbyIn struct {
+		To       string `json:"to"`        // the standby's node
+		NodeGone bool   `json:"node_gone"` // the old primary's node is confirmed gone
+	}
+)
+
+// Switchover moves the primary to a standby while both run: the archive is
+// drained, the primary shut down cleanly, the standby confirmed to have
+// replayed the shutdown checkpoint, then promoted. It answers when done.
+func (h *H) Switchover() Endpoint {
+	return JSON(http.StatusOK, func(c echo.Context, in SwitchoverIn) (service.StandbyView, error) {
+		return h.Orch.Switchover(rc(c), tileID(c), in.To)
+	})
+}
+
+// PromoteStandby makes a standby the primary when the primary is down. The
+// old primary must be known stopped; for a node that does not answer, the
+// caller confirms it is really gone (node_gone).
+func (h *H) PromoteStandby() Endpoint {
+	return JSON(http.StatusOK, func(c echo.Context, in PromoteStandbyIn) (service.StandbyView, error) {
+		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone)
+	})
+}
+
 // Standbys lists an instance's members: the primary, then its standbys.
 func (h *H) Standbys() Endpoint {
 	return Get(func(c echo.Context) ([]service.StandbyView, error) { return h.Orch.Standbys(rc(c), tileID(c)) })

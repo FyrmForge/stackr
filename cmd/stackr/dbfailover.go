@@ -1,0 +1,49 @@
+package main
+
+import (
+	"github.com/spf13/cobra"
+)
+
+// dbSwitchover and dbPromote are `stackr db switchover` and `stackr db
+// promote`: the primary of a postgres instance with a standby moves to the
+// standby, planned (both run) or because the primary is down.
+func (a *app) dbSwitchover() *cobra.Command {
+	to := ""
+	c := leaf("switchover", "operated.switchover", "Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted", exact(0),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			v, err := a.call(POST, p+"/switchover", map[string]string{"to": to})
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			a.say("Switched over. The old primary rejoins as a standby when it can.")
+			return nil
+		}))
+	c.Flags().StringVar(&to, "to", "", "the standby's node (name or slug); default is the one that replayed the most")
+	return c
+}
+
+func (a *app) dbPromote() *cobra.Command {
+	to := ""
+	gone := false
+	c := leaf("promote", "operated.promote-standby", "Make a standby the primary when the primary is down", exact(0),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			if to == "" {
+				return usage("pass --to: the node of the standby to promote")
+			}
+			v, err := a.call(POST, p+"/promote-standby", map[string]any{"to": to, "node_gone": gone})
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			a.say("Promoted. The old primary stays fenced until its node returns, then rejoins as a standby.")
+			return nil
+		}))
+	c.Flags().StringVar(&to, "to", "", "the node of the standby to promote (name or slug)")
+	c.Flags().BoolVar(&gone, "node-gone", false, "confirm the old primary's node is really gone (needed when it does not answer)")
+	return c
+}

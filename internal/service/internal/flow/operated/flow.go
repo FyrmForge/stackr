@@ -35,6 +35,11 @@ type Flow struct {
 	Stacks    *stack.Leaf
 	// Members refuses starting a fenced primary; nil = no fence.
 	Members *opmember.Leaf
+	// Adopt makes a primary that was failed over to another node the tile's
+	// own again when the env now runs there, or refuses (the instance tile
+	// has no container of its own while its primary lives elsewhere); nil =
+	// refuse.
+	Adopt func(ctx context.Context, t store.Tile) error
 	// S3 is the bucket client for an instance's API (s3.Admin in
 	// production); nil = no s3 engine.
 	S3 func(endpoint, access, secret string) S3Admin
@@ -103,6 +108,14 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		}
 		if p, ok := opmember.PrimaryOf(ms); ok && p.Fenced {
 			return Container{}, errs.Conflictf("%s is fenced: it does not start until it rejoins", t.Slug)
+		}
+		if p, ok := opmember.PrimaryOf(ms); ok && p.NodeID != "" {
+			if f.Adopt == nil {
+				return Container{}, errs.Conflictf("%s runs on another node after a failover; deploy is refused until it is back", t.Slug)
+			}
+			if err := f.Adopt(ctx, t); err != nil {
+				return Container{}, err
+			}
 		}
 		if opmember.HasReplica(ms) { // the panel starts it; alone it keeps the tile's policy
 			restart = def.Restart

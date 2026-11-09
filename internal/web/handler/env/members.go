@@ -17,7 +17,7 @@ func memberRows(vs []service.StandbyView) []instance.MemberRow {
 		switch v.State {
 		case "running", "streaming":
 			r.Tone = "success"
-		case "needs rebuild":
+		case "needs rebuild", "fenced, needs rewind":
 			r.Tone = "danger"
 		}
 		if v.Role == "replica" && v.State == "streaming" {

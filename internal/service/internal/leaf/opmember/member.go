@@ -35,6 +35,9 @@ const (
 	Starting  = "starting"
 	Streaming = "streaming"
 	Rebuild   = "rebuild"
+	// Rewind is the old primary after a failover: fenced, its data waiting to
+	// be rewound onto the new primary (or copied afresh) before it follows it.
+	Rewind = "rewind"
 
 	// MaxReplicas is how many replicas an instance may have.
 	MaxReplicas = 2

@@ -622,10 +622,14 @@ func (o *Orchestrator) watchNodeClients() {
 	defer conn.Stop()
 	hour := time.NewTicker(time.Hour)
 	defer hour.Stop()
+	lease := time.NewTicker(leaseEvery)
+	defer lease.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-lease.C:
+			o.detach(ctx, o.pushLeases)
 		case <-hour.C:
 			o.detach(ctx, o.sweepExpired)
 			o.detach(ctx, o.sweepCandidates)

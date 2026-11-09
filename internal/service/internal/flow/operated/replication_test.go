@@ -187,8 +187,14 @@ echo 17 > "$PGDATA/PG_VERSION"; echo conf > "$PGDATA/stackr.conf"`)
 	if err := run(false); err != nil || copies() != 3 || has("stale") || !has(standbyDone) {
 		t.Fatalf("no marker: err %v copies %d", err, copies())
 	}
-	os.Remove(filepath.Join(data, "standby.signal")) // never starts without it
+	// a promoted directory (marker, no standby.signal) is a primary now: never emptied
+	os.Remove(filepath.Join(data, "standby.signal"))
+	if err := run(false); err == nil || copies() != 3 || !has("PG_VERSION") || has("standby.signal") {
+		t.Fatalf("promoted directory: err %v copies %d", err, copies())
+	}
+	// without the marker (a rewind that failed) it is copied afresh
+	os.Remove(filepath.Join(data, standbyDone))
 	if err := run(false); err != nil || copies() != 4 || !has("standby.signal") {
-		t.Fatalf("no standby.signal: err %v copies %d", err, copies())
+		t.Fatalf("no marker, no signal: err %v copies %d", err, copies())
 	}
 }

@@ -75,7 +75,9 @@ type Server struct {
 	mesh   meshState
 	// lastCtl is when the controller last called (unix nanos).
 	lastCtl atomic.Int64
-	own     ownCert // the node cert, swapped on renewal
+	// lease binds primaries to the panel's contact (lease.go).
+	lease leaseState
+	own   ownCert // the node cert, swapped on renewal
 	// renewNow makes the next cert check renew even when not due, once.
 	renewNow atomic.Bool
 	// renewKick wakes the cert check early: a new signing root arrived.
@@ -134,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+RotatePath, s.postRotate)
 	mux.HandleFunc("PUT /v1/state", s.putState)
 	mux.HandleFunc("GET /v1/state", s.getState)
+	mux.HandleFunc("PUT "+LeasePath, s.putLease)
 	mux.HandleFunc("POST /v1/replay", s.replay)
 	mux.HandleFunc("POST /v1/probe", s.probe)
 	mux.HandleFunc("GET /v1/traffic", s.traffic)
@@ -186,6 +189,7 @@ func Run(ctx context.Context, cfg Config) error {
 	enableAcct()
 	s.startDNS(ctx)
 	go s.reassertLoop()
+	go s.leaseLoop(2 * time.Second)
 	if len(cfg.Recover.Own.Certificate) > 0 {
 		go s.recoverLoop(15 * time.Second)
 	}

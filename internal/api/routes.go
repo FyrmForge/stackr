@@ -237,6 +237,8 @@ func routes(h *v1.H) []Route {
 		{POST, tile + "/standbys", "operated.standby-add", "tile.write", h.AddStandby()},
 		{DELETE, tile + "/standbys/:standby", "operated.standby-rm", "tile.write", h.RemoveStandby()},
 		{POST, tile + "/standbys/:standby/rebuild", "operated.standby-rebuild", "tile.write", h.RebuildStandby()},
+		{POST, tile + "/switchover", "operated.switchover", "tile.write", h.Switchover()},
+		{POST, tile + "/promote-standby", "operated.promote-standby", "tile.write", h.PromoteStandby()},
 		{GET, tile + "/version", "operated.version", "tile.read", h.PGVersion()},
 		{POST, tile + "/version", "operated.update", "tile.write", h.UpdatePGVersion()},
 		{POST, tile + "/restore", "operated.restore", "tile.write", h.RestoreInstance()},

@@ -69,8 +69,11 @@ func (o *Orchestrator) memberInstance(ctx context.Context, tileID string) (store
 }
 
 // primaryNode is the node of the instance's primary member: the instance
-// tile's env's.
+// tile's env's, or the node a failover moved the primary to (failover.go).
 func (o *Orchestrator) primaryNode(ctx context.Context, t store.Tile) (string, error) {
+	if p, ok := o.relocated(ctx, t.ID); ok {
+		return p.NodeID, nil
+	}
 	return o.envNode(ctx, t.EnvironmentID)
 }
 
@@ -590,7 +593,8 @@ func (o *Orchestrator) startMembers(ctx context.Context) {
 		byInst[m.InstanceID] = append(byInst[m.InstanceID], m)
 	}
 	for _, m := range all {
-		if m.State != opmember.Running || m.Phase == opmember.Rebuild || opmember.MayStart(m) != nil || !opmember.HasReplica(byInst[m.InstanceID]) {
+		if m.State != opmember.Running || m.Phase == opmember.Rebuild || opmember.MayStart(m) != nil || !opmember.HasReplica(byInst[m.InstanceID]) ||
+			o.failoverActive(ctx, m.InstanceID) { // the job starts what it needs
 			continue
 		}
 		if err := o.startMember(ctx, m); err != nil {

@@ -35,6 +35,11 @@ type Leaf struct {
 	// Node, when set, is the node an env runs on ("" = the controller): every
 	// Docker call the leaf makes for a tile goes to its env's node.
 	Node func(ctx context.Context, envID string) (nodeID string, err error)
+	// Reroute, when set, says where tile t's replicas really run when that is
+	// not its env's node: an operated instance whose primary was failed over.
+	// Replicas, Stream, Mounts and the container verbs follow it; deploys
+	// never do.
+	Reroute func(ctx context.Context, t store.Tile) (nodeID string, ok bool)
 	// Ship, when set, gets each line of a run as RunOnce copies it into the
 	// run's log (the raw "O <time> text" line), with the run's id and
 	// container name; ctx carries the node the run is on.
@@ -42,6 +47,17 @@ type Leaf struct {
 	// Pin, when set, is the address a new pause container is pinned to on
 	// network ("" = Docker picks): a pinned VIP survives restarts and reboots.
 	Pin func(ctx context.Context, t store.Tile, network string) string
+}
+
+// atOf is at for tile t's replicas: where Reroute says they run (an operated
+// instance whose primary was failed over to another node), else t's env's.
+func (l *Leaf) atOf(ctx context.Context, t store.Tile) (context.Context, error) {
+	if l.Reroute != nil {
+		if id, ok := l.Reroute(ctx, t); ok {
+			return docker.WithNode(ctx, id), nil
+		}
+	}
+	return l.at(ctx, t.EnvironmentID)
 }
 
 // at is ctx for Docker calls on the node of envID.
@@ -66,7 +82,7 @@ func (l *Leaf) atTile(ctx context.Context, tileID string) (context.Context, erro
 	if err != nil {
 		return ctx, err
 	}
-	return l.at(ctx, t.EnvironmentID)
+	return l.atOf(ctx, t)
 }
 
 func (l *Leaf) early(ctx context.Context, t store.Tile, id string, on bool) {

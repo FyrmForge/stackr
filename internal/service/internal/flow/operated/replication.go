@@ -258,6 +258,10 @@ func (f *Flow) StandbyProbeArgv(ctx context.Context, it store.Tile) ([]string, e
 // with its WAL receiver streaming.
 func StandbyStreaming(out string) bool { return strings.TrimSpace(out) == "1,streaming" }
 
+// A promoted directory (marker, no standby.signal) is never emptied: it is a
+// primary now, and the failover recreates its container with the primary's
+// command (PromotedSpec).
+//
 // standbyPrep runs before the shared start tail in a standby's container.
 // The passfile was copied in before the start (never in the env); its owner
 // and mode are set here, as root. A data directory without the completion
@@ -273,6 +277,10 @@ func StandbyStreaming(out string) bool { return strings.TrimSpace(out) == "1,str
 // dropped, for the tail to write this member's.
 const standbyPrep = `[ -s ` + ReplPassfile + ` ] && chown postgres:postgres ` + ReplPassfile + ` && chmod 600 ` + ReplPassfile + ` || exit 1
 d="$PGDATA"
+if [ -s "$d/PG_VERSION" ] && [ -e "$d/` + standbyDone + `" ] && [ ! -e "$d/standby.signal" ]; then
+echo "stackr: this data directory was promoted; it does not start as a standby" >&2
+exit 1
+fi
 if [ ! -s "$d/PG_VERSION" ] || [ ! -e "$d/standby.signal" ] || [ ! -e "$d/` + standbyDone + `" ]; then
 mkdir -p "$d" && find "$d" -mindepth 1 -delete || exit 1
 if ! PGPASSFILE=` + ReplPassfile + ` pg_basebackup -h "$STACKR_PRIMARY" -p "$STACKR_PORT" -U ` + ReplUser +

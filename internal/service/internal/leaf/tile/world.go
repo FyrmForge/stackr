@@ -274,11 +274,20 @@ func (l *Leaf) OnNode(ctx context.Context, t store.Tile) (context.Context, error
 
 // Role is the tile's containers of one role, any state.
 func (l *Leaf) Role(ctx context.Context, t store.Tile, role string) ([]docker.Container, error) {
-	ctx, err := l.at(ctx, t.EnvironmentID)
+	ctx, err := l.atRole(ctx, t, role)
 	if err != nil {
 		return nil, err
 	}
 	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: role})
+}
+
+// atRole is at for one role of t's containers: replicas follow Reroute, the
+// rest stay on the env's node.
+func (l *Leaf) atRole(ctx context.Context, t store.Tile, role string) (context.Context, error) {
+	if role == "replica" {
+		return l.atOf(ctx, t)
+	}
+	return l.at(ctx, t.EnvironmentID)
 }
 
 // Inspect is docker's live read of one container (a replica from Replicas).
@@ -288,7 +297,7 @@ func (l *Leaf) Inspect(ctx context.Context, id string) (docker.Detail, error) {
 
 // Mounts are the "src -> dst" mounts of every replica of t.
 func (l *Leaf) Mounts(ctx context.Context, t store.Tile) ([]string, error) {
-	ctx, err := l.at(ctx, t.EnvironmentID)
+	ctx, err := l.atOf(ctx, t)
 	if err != nil {
 		return nil, err
 	}
@@ -776,7 +785,7 @@ func (l *Leaf) Stream(
 	cmd []string,
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
-	ctx, err := l.at(ctx, t.EnvironmentID)
+	ctx, err := l.atOf(ctx, t)
 	if err != nil {
 		return nil, nil, err
 	}

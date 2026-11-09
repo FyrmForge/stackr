@@ -207,7 +207,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		}
 		return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + t.ID + "&tab=backups", "Open backups", true
 	case "pgmon": // pgmon.<kind>.<instance id>
-		_, id, _ := strings.Cut(rest, ".")
+		sub, id, _ := strings.Cut(rest, ".")
 		m, err := o.operated.Get(ctx, id)
 		if err != nil {
 			return "", "", false
@@ -215,6 +215,9 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		t, err := o.tiles.Get(ctx, m.TileID)
 		if err != nil {
 			return "", "", false
+		}
+		if sub == "primarydown" { // the promote is on the drawer's overview
+			return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + t.ID, "Promote a standby", true
 		}
 		return "/" + o.scopePath(ctx, ScopeEnv, t.EnvironmentID) + "?drawer=" + t.ID + "&tab=database", "Open database", true
 	case "node", "disk", "clock", "mem":

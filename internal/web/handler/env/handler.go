@@ -70,6 +70,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/version", h.PGUpdate, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/switchover", h.Switchover, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/promote-standby", h.PromoteStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
@@ -573,6 +575,10 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			if vs, err := h.orch.Standbys(ctx, t.ID); err == nil && len(vs) > 1 {
 				o.Members = memberRows(vs)
 			}
+			if fo, ok, err := h.orch.FailoverOptionsOf(ctx, t.ID); err == nil && ok {
+				o.Failover = &instance.FailoverView{Primary: fo.Primary, Switch: fo.Switch, Promote: fo.Promote,
+					Unreachable: fo.Unreachable, InFlight: fo.InFlight, Error: fo.Error}
+			}
 		}
 		for _, p := range ps {
 			r := instance.SliceRow{
@@ -672,6 +678,29 @@ func (h *handler) PGSettings(c echo.Context) error {
 func (h *handler) PGUpdate(c echo.Context) error {
 	_, _, err := h.orch.UpdatePGVersion(c.Request().Context(), scope(c).Tile.ID)
 	return h.instance(c, "slices", "Updated. The instance restarts on the new version.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/switchover: the primary moves to the standby on
+// node "to" (empty = the one that replayed the most).
+func (h *handler) Switchover(c echo.Context) error {
+	_, err := h.orch.Switchover(c.Request().Context(), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")))
+	return h.instance(c, "slices", "Switched over. The old primary rejoins as a standby when it can.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/promote-standby: promote the standby on node "to".
+// When the primary's node does not answer, "confirm" must be that node's name:
+// the admin's word that it is gone.
+func (h *handler) PromoteStandby(c echo.Context) error {
+	ctx := c.Request().Context()
+	gone := false
+	if fo, ok, err := h.orch.FailoverOptionsOf(ctx, scope(c).Tile.ID); err == nil && ok && fo.Unreachable {
+		if strings.TrimSpace(c.FormValue("confirm")) != fo.Primary {
+			return h.instance(c, "slices", "", errs.Conflictf("Type %s to confirm it is gone.", fo.Primary), instance.SettingsView{})
+		}
+		gone = true
+	}
+	_, err := h.orch.PromoteStandby(ctx, scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone)
+	return h.instance(c, "slices", "Promoted. The old primary stays fenced until its node returns.", err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/memory: the tile's memory limit in MB, empty =

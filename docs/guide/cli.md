@@ -603,6 +603,22 @@ stackr cluster trust
 
 Postgres instances
 
+### `stackr db promote`
+
+Make a standby the primary when the primary is down
+
+```
+stackr db promote [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --node-gone      confirm the old primary's node is really gone (needed when it does not answer)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+      --to string      the node of the standby to promote (name or slug)
+```
+
 ### `stackr db settings`
 
 A postgres instance's settings
@@ -710,6 +726,21 @@ stackr db standby remove <node|id> [flags]
       --env string     the environment (default: the linked one)
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
+```
+
+### `stackr db switchover`
+
+Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
+
+```
+stackr db switchover [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+      --to string      the standby's node (name or slug); default is the one that replayed the most
 ```
 
 ### `stackr db update`

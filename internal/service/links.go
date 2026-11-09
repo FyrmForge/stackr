@@ -25,6 +25,9 @@ import (
 // env network, as stored (tile_vips). A tile not stored yet (deployed before
 // VIPs were) is read from Docker once and stored.
 func (o *Orchestrator) tileVIP(ctx context.Context, node, tileID string) (netip.Addr, bool) {
+	if p, ok := o.relocated(ctx, tileID); ok && p.NodeID == node {
+		return o.relocatedAddr(ctx, p) // a failed-over primary has no pause: its own pinned address
+	}
 	s, _ := o.store.TileVIPs.Get(ctx, tileID, node)
 	if s == "" {
 		cs, err := o.docker.List(WithNode(ctx, node), map[string]string{"stackr.tile": tileID, "stackr.role": "pause"})

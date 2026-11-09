@@ -5677,6 +5677,21 @@
         ],
         "type": "object"
       },
+      "PromoteStandbyIn": {
+        "properties": {
+          "node_gone": {
+            "type": "boolean"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "node_gone"
+        ],
+        "type": "object"
+      },
       "RawCaddyIn": {
         "properties": {
           "raw_caddy": {
@@ -7249,6 +7264,17 @@
         "required": [
           "Sources",
           "PrefBase"
+        ],
+        "type": "object"
+      },
+      "SwitchoverIn": {
+        "properties": {
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to"
         ],
         "type": "object"
       },
@@ -22938,6 +22964,78 @@
         "x-verb": "tile.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/promote-standby": {
+      "post": {
+        "operationId": "operated.promote-standby",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteStandbyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandbyView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/rebuild": {
       "post": {
         "operationId": "tile.rebuild",
@@ -23960,7 +24058,7 @@
         "x-verb": "tile.write"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{member}": {
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}": {
       "delete": {
         "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "operated.standby-rm",
@@ -23999,7 +24097,7 @@
           },
           {
             "in": "path",
-            "name": "member",
+            "name": "standby",
             "required": true,
             "schema": {
               "type": "string"
@@ -24024,7 +24122,7 @@
         "x-verb": "tile.write"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{member}/rebuild": {
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}/rebuild": {
       "post": {
         "operationId": "operated.standby-rebuild",
         "parameters": [
@@ -24062,7 +24160,7 @@
           },
           {
             "in": "path",
-            "name": "member",
+            "name": "standby",
             "required": true,
             "schema": {
               "type": "string"
@@ -24283,6 +24381,78 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/switchover": {
+      "post": {
+        "operationId": "operated.switchover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchoverIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandbyView"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
