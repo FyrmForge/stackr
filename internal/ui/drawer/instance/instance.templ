@@ -193,15 +193,18 @@ type DatabaseView struct {
 	TopNote string
 }
 
+// Line is one line of a chart: its series suffix and its label.
+type Line struct{ Key, Label string }
+
 // DatabaseCharts is the charts for the series an instance has: the fixed
 // ones, then one line per database, standby and slot.
-func DatabaseCharts(dbs, replicas, slots []string, archiving bool) []ChartSpec {
-	lines := func(prefix string, names []string) (measures, labels string) {
-		for i, n := range names {
+func DatabaseCharts(dbs, replicas, slots []Line, archiving bool) []ChartSpec {
+	lines := func(prefix string, ls []Line) (measures, labels string) {
+		for i, l := range ls {
 			if i > 0 {
 				measures, labels = measures+" ", labels+","
 			}
-			measures, labels = measures+prefix+n, labels+n
+			measures, labels = measures+prefix+l.Key, labels+l.Label
 		}
 		return
 	}

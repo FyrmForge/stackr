@@ -569,12 +569,20 @@ func (h *handler) InstanceMetricsEvents(c echo.Context) error {
 	return render.MetricsEvents(c, h.orch, s)
 }
 
+func lines(ls []service.PGLine) []instance.Line {
+	out := make([]instance.Line, len(ls))
+	for i, l := range ls {
+		out[i] = instance.Line{Key: l.Key, Label: l.Label}
+	}
+	return out
+}
+
 // databaseView is the Database tab over the monitor's model.
 func databaseView(p service.PGMonitor, m comp.MetricsView) instance.DatabaseView {
 	d := instance.DatabaseView{
 		Metrics: m,
 		Sampled: p.Sampled,
-		Charts:  instance.DatabaseCharts(p.DBs, p.Replicas, p.Slots, p.Archiving),
+		Charts:  instance.DatabaseCharts(lines(p.DBs), lines(p.Replicas), lines(p.Slots), p.Archiving),
 		TopNote: p.TopError,
 	}
 	if p.Sampled {

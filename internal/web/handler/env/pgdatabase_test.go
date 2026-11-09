@@ -23,7 +23,8 @@ func TestDatabaseView(t *testing.T) {
 		}
 	}
 	p := service.PGMonitor{Sampled: true, ConnUsed: 37, ConnMax: 100, OldestXactS: 90, Archiving: true,
-		DBs: []string{"app", "postgres"}, Replicas: []string{"r1"}, Slots: []string{"s1"},
+		DBs: []service.PGLine{{Key: "app_1", Label: "app"}, {Key: "postgres_2", Label: "post gres"}},
+		Replicas: []service.PGLine{{Key: "r1_3", Label: "r1"}}, Slots: []service.PGLine{{Key: "s1_4", Label: "s1"}},
 		Top: []service.PGQuery{{Calls: 7, TotalMS: 1500, MeanUS: 214000, Rows: 70, Text: "SELECT $1"}}}
 	d = databaseView(p, comp.MetricsView{})
 	if len(d.Headline) != 2 || d.Headline[0][1] != "37 of 100" || d.Headline[1][1] != "1m30s" {
@@ -33,7 +34,7 @@ func TestDatabaseView(t *testing.T) {
 	for _, c := range d.Charts {
 		got[c.Title] = c
 	}
-	if c := got["Database size"]; c.Measures != "db_app db_postgres" || c.Labels != "app,postgres" || c.Unit != "bytes" {
+	if c := got["Database size"]; c.Measures != "db_app_1 db_postgres_2" || c.Labels != "app,post gres" || c.Unit != "bytes" {
 		t.Errorf("size chart = %+v", c)
 	}
 	for _, title := range []string{"Replica lag", "Replica lag (bytes)", "WAL held by slots", "WAL waiting to archive", "Connections"} {
