@@ -490,7 +490,7 @@ CREATE TABLE tiles (
     environment_id              TEXT      NOT NULL REFERENCES environments (id) ON DELETE CASCADE,
     name                        TEXT      NOT NULL,
     slug                        TEXT      NOT NULL,
-    kind                        TEXT      NOT NULL CHECK (kind IN ('service', 'image', 'managed', 'cron', 'function', 'slice')),
+    kind                        TEXT      NOT NULL CHECK (kind IN ('service', 'image', 'operated', 'cron', 'function', 'slice')),
     git_url                     TEXT      NOT NULL,
     git_branch                  TEXT      NOT NULL,
     image_ref                   TEXT      NOT NULL,
@@ -584,7 +584,7 @@ CREATE TABLE job_tiles (
     PRIMARY KEY (job_id, tile_id)
 );
 
-CREATE TABLE managed_instances (
+CREATE TABLE operated_instances (
     id              TEXT      PRIMARY KEY,
     tile_id         TEXT      NOT NULL REFERENCES tiles (id) ON DELETE CASCADE,
     engine          TEXT      NOT NULL,
@@ -599,7 +599,7 @@ CREATE TABLE managed_instances (
 CREATE TABLE provisions (
     id           TEXT      PRIMARY KEY,
     tile_id      TEXT      NOT NULL UNIQUE REFERENCES tiles (id) ON DELETE CASCADE,
-    instance_id  TEXT      NOT NULL REFERENCES managed_instances (id) ON DELETE CASCADE,
+    instance_id  TEXT      NOT NULL REFERENCES operated_instances (id) ON DELETE CASCADE,
     db_name      TEXT      NOT NULL,
     db_user      TEXT      NOT NULL,
     db_password  TEXT      NOT NULL, -- encrypted
@@ -631,7 +631,7 @@ CREATE TABLE volumes (
     id           TEXT      PRIMARY KEY,
     scope_kind   TEXT      NOT NULL CHECK (scope_kind IN ('env', 'stack', 'org')),
     scope_id     TEXT      NOT NULL,
-    instance_id  TEXT      REFERENCES managed_instances (id) ON DELETE SET NULL,
+    instance_id  TEXT      REFERENCES operated_instances (id) ON DELETE SET NULL,
     slug         TEXT      NOT NULL,
     name         TEXT      NOT NULL,
     orphaned_at  DATETIME,

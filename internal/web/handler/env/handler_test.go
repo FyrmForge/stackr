@@ -98,7 +98,7 @@ func TestVolumeAndProxyDrawers(t *testing.T) {
 // and the env pairs, the add input pre-filled with the org.
 func TestInstanceDrawer(t *testing.T) {
 	s := webtest.New(t)
-	pg := managed(t, s)
+	pg := operated(t, s)
 	d := "/acme/shop/dev/-/instances/" + pg.Slug
 	for tab, want := range map[string]string{
 		"slices":   "No slice tile has been provisioned here yet.",
@@ -113,9 +113,9 @@ func TestInstanceDrawer(t *testing.T) {
 	}
 }
 
-func managed(t *testing.T, s *webtest.Site) service.Tile {
+func operated(t *testing.T, s *webtest.Site) service.Tile {
 	t.Helper()
-	pg, err := s.Orch.CreateManagedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
+	pg, err := s.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,10 +124,10 @@ func managed(t *testing.T, s *webtest.Site) service.Tile {
 
 // The allow form posts the whole list; a bad pattern comes back under the
 // form with what was typed (422); a member is refused the route (403).
-func TestManagedAllow(t *testing.T) {
+func TestOperatedAllow(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	pg := managed(t, s)
+	pg := operated(t, s)
 	d := "/acme/shop/dev/-/instances/pg/allow"
 	allow := func() []string {
 		m, _, err := s.Orch.InstanceSlices(ctx, pg.ID)
@@ -178,10 +178,10 @@ func TestManagedAllow(t *testing.T) {
 
 // The env pairs form posts the whole map; a pair to an env the stack
 // lacks comes back under the form.
-func TestManagedEnvPairs(t *testing.T) {
+func TestOperatedEnvPairs(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	pg := managed(t, s)
+	pg := operated(t, s)
 	d := "/acme/shop/dev/-/instances/pg/env-pairs"
 	rec := s.Do(t, "POST", d, url.Values{
 		"add_from": {"staging"},
@@ -222,7 +222,7 @@ func TestManagedEnvPairs(t *testing.T) {
 func TestSliceDrawer(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	pg := managed(t, s)
+	pg := operated(t, s)
 	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestSliceDrawer(t *testing.T) {
 			t.Errorf("slice drawer = %d, lacks %q", rec.Code, w)
 		}
 	}
-	if strings.Contains(body, "stackr-managed") || strings.Contains(body, "provision_from") {
+	if strings.Contains(body, "stackr-operated") || strings.Contains(body, "provision_from") {
 		t.Errorf("the overview shows a docker network or a config key:\n%s", body)
 	}
 	// Settings: one row each with its own Save, nothing posts on change
@@ -315,7 +315,7 @@ func TestSliceDrawer(t *testing.T) {
 func TestSliceBranchRow(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	pg := managed(t, s)
+	pg := operated(t, s)
 	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
 	if err != nil {
 		t.Fatal(err)
@@ -510,7 +510,7 @@ func TestEnvDrawersLoadInShell(t *testing.T) {
 func TestInstanceDeleteWithSlicesRefused(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	pg := managed(t, s)
+	pg := operated(t, s)
 	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
 	if err != nil {
 		t.Fatal(err)
@@ -532,7 +532,7 @@ func TestInstanceDeleteWithSlicesRefused(t *testing.T) {
 func TestInstanceDeleteWithUncutSliceRefused(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	managed(t, s)
+	operated(t, s)
 	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +547,7 @@ func TestInstanceDeleteWithUncutSliceRefused(t *testing.T) {
 func TestInstanceAndSliceRename(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	managed(t, s)
+	operated(t, s)
 	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
 		t.Fatal(err)
 	}

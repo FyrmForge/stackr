@@ -426,7 +426,7 @@ type Gap struct {
 // Needs is what an env, or a placement used as an override, asks of the node
 // it lands on.
 type Needs struct {
-	Storage bool // volumes or a managed tile
+	Storage bool // volumes or an operated tile
 	Ingress bool // an ingress override names the placement
 	Egress  bool // an exit rung names the placement
 }

@@ -1,11 +1,11 @@
-// Package managed holds the managed-tile rules once, engine-blind: the
-// ManagedTile interface and its registry, one provision per slice tile, one
+// Package operated holds the operated-tile rules once, engine-blind: the
+// OperatedTile interface and its registry, one provision per slice tile, one
 // cred per consumer of it at read or write, what happens to both when a
 // consumer, a slice tile or the instance goes. The instance
 // container is a plain tile that flow/deploy runs; this package never starts
 // a container. Engines run their work through Tools (DECIDE 7 a): postgres
 // execs argv inside its container, s3 speaks the S3 API.
-package managed
+package operated
 
 import (
 	"context"
@@ -38,9 +38,9 @@ type Tools struct {
 	S3     S3Admin
 }
 
-// ManagedTile is one engine.
+// OperatedTile is one engine.
 // ponytail: no Scale() yet; add it when an engine can actually scale.
-type ManagedTile interface {
+type OperatedTile interface {
 	Definition() Definition
 	// Ready asks the instance itself, never "the container is running".
 	Ready(ctx context.Context, i Instance, x Tools) error
@@ -141,15 +141,15 @@ type Binding struct {
 }
 
 // Engines is the registry: one line per engine.
-var Engines = map[string]ManagedTile{
+var Engines = map[string]OperatedTile{
 	"postgres": pg{},
 	"s3":       s3e{},
 }
 
-func engine(name string) (ManagedTile, error) {
+func engine(name string) (OperatedTile, error) {
 	e, ok := Engines[name]
 	if !ok {
-		return nil, fmt.Errorf("managed engine %q is not supported", name)
+		return nil, fmt.Errorf("operated engine %q is not supported", name)
 	}
 	return e, nil
 }

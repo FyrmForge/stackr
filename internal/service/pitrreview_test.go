@@ -16,7 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -45,7 +45,7 @@ func TestRestorableToIgnoresAPartlyShippedBacklog(t *testing.T) {
 type pitrRig struct {
 	*world
 	pg   Tile
-	m    store.ManagedInstance
+	m    store.OperatedInstance
 	data store.Volume
 	root string
 	lsOK *bool // false: the container has no archive dir
@@ -57,9 +57,9 @@ func newPITRRig(t *testing.T) *pitrRig {
 	ctx := context.Background()
 	_, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
-	pg, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
 	must(t, err)
-	m, err := w.orch.managed.GetByTile(ctx, pg.ID)
+	m, err := w.orch.operated.GetByTile(ctx, pg.ID)
 	must(t, err)
 	_, err = w.orch.engines.Container(w.node(t, ctx), pg)
 	must(t, err)
@@ -269,21 +269,21 @@ func TestSetPITRRollsBackWhenTheRedeployIsRefused(t *testing.T) {
 	if _, _, err := o.SetPITR(ctx, r.pg.ID, 0); err == nil {
 		t.Fatal("off was queued on a node that is not there")
 	}
-	if m, _ := o.managed.GetByTile(ctx, r.pg.ID); m.PITRDays != r.m.PITRDays {
+	if m, _ := o.operated.GetByTile(ctx, r.pg.ID); m.PITRDays != r.m.PITRDays {
 		t.Errorf("window %d after a refused off, want %d", m.PITRDays, r.m.PITRDays)
 	}
 
 	// enabling from off: window and schedule go back too
 	r2 := r.m
 	r2.PITRDays = 0
-	must(t, r.st.ManagedInstances.Update(ctx, r2))
+	must(t, r.st.OperatedInstances.Update(ctx, r2))
 	for _, s := range mustSchedules(t, o, r.data.ID) {
 		must(t, o.DeleteBackupSchedule(ctx, s.ID))
 	}
 	if _, _, err := o.SetPITR(ctx, r.pg.ID, 7); err == nil {
 		t.Fatal("on was queued on a node that is not there")
 	}
-	if m, _ := o.managed.GetByTile(ctx, r.pg.ID); m.PITRDays != 0 {
+	if m, _ := o.operated.GetByTile(ctx, r.pg.ID); m.PITRDays != 0 {
 		t.Errorf("window %d after a refused on, want 0", m.PITRDays)
 	}
 	if ss := mustSchedules(t, o, r.data.ID); slices.Contains(methodsOf(ss), "base") {
@@ -310,11 +310,11 @@ func TestSeedFromSliceDumpsOnTheSourceNode(t *testing.T) {
 	o := n.orch
 	mk := func(env Environment, slug string, fake *dockerfake.Fake) (inst, slice Tile) {
 		var err error
-		inst, err = o.CreateManagedTile(ctx, Tile{EnvironmentID: env.ID, Name: "pg-" + slug}, "postgres")
+		inst, err = o.CreateOperatedTile(ctx, Tile{EnvironmentID: env.ID, Name: "pg-" + slug}, "postgres")
 		must(t, err)
 		slice, err = o.CreateSliceTile(ctx, env.ID, slug, "shop:"+env.Slug+":"+inst.Slug, "")
 		must(t, err)
-		m, err := o.managed.GetByTile(ctx, inst.ID)
+		m, err := o.operated.GetByTile(ctx, inst.ID)
 		must(t, err)
 		must(t, n.st.Provisions.Create(ctx, store.Provision{
 			ID: uuid.NewString(), TileID: slice.ID, InstanceID: m.ID,
@@ -462,7 +462,7 @@ func TestPITRGuardsTheBaseScheduleAndVolumeRestores(t *testing.T) {
 
 	off := r.m
 	off.PITRDays = 0
-	must(t, r.st.ManagedInstances.Update(ctx, off))
+	must(t, r.st.OperatedInstances.Update(ctx, off))
 	if err := o.pitrVolumeRestoreOK(ctx, tar.ID, r.data); err != nil {
 		t.Errorf("tar restore refused with PITR off: %v", err)
 	}

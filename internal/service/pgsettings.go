@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -158,7 +158,7 @@ func (o *Orchestrator) SetPGSettings(
 	if err != nil {
 		return PGSettings{}, nil, err
 	}
-	if _, err := o.managed.SetSettings(ctx, m, cur); err != nil {
+	if _, err := o.operated.SetSettings(ctx, m, cur); err != nil {
 		return PGSettings{}, nil, err
 	}
 	var j *Job

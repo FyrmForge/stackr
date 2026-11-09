@@ -97,7 +97,6 @@ func anyChanged(rows []c.SettingRowView) bool {
 	return false
 }
 
-
 // PlacementSummary is where the stack runs: its own pin, the org's, or
 // the default.
 func PlacementSummary(pin, inherited, ingress string) string {

@@ -21,7 +21,7 @@ import (
 )
 
 // Admin cuts and drops buckets and IAM users on an S3-compatible server (a
-// managed S3 instance, RustFS) with its root credentials. Bucket is ignored.
+// operated S3 instance, RustFS) with its root credentials. Bucket is ignored.
 // Users go over the RustFS admin API (DECIDE 198), signed like S3.
 type Admin Bucket
 

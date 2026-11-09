@@ -1,4 +1,4 @@
-package managed_test
+package operated_test
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
@@ -30,7 +30,7 @@ type home struct {
 
 // setup seeds one env with tiles db (the instance), orders (a slice), api
 // and web (consumers).
-func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) {
+func setup(t *testing.T) (*operated.Leaf, *store.Store, home, map[string]string) {
 	st := servicetest.Store(t)
 	h := home{OrgID: uuid.NewString(), StackID: uuid.NewString(), EnvID: uuid.NewString()}
 	now := time.Now()
@@ -78,7 +78,7 @@ func setup(t *testing.T) (*managed.Leaf, *store.Store, home, map[string]string) 
 			UpdatedAt:     now,
 		}))
 	}
-	return managed.New(st.ManagedInstances, st.Provisions, st.Bindings), st, h, tiles
+	return operated.New(st.OperatedInstances, st.Provisions, st.Bindings), st, h, tiles
 }
 
 func TestCreate(t *testing.T) {
@@ -103,10 +103,10 @@ func TestCreate(t *testing.T) {
 func TestSlices(t *testing.T) {
 	l, _, _, tiles := setup(t)
 	m, _ := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
-	slice := managed.Slice{
+	slice := operated.Slice{
 		DBName:     "orders",
 		DBUser:     "orders",
-		DBPassword: managed.Password(),
+		DBPassword: operated.Password(),
 	}
 
 	p, err := l.CreateProvision(ctx, m, tiles["orders"], slice)
@@ -127,10 +127,10 @@ func TestSlices(t *testing.T) {
 	}
 
 	// A binding per consumer: its own user, access and outputs.
-	cred := managed.Cred{
+	cred := operated.Cred{
 		Access:   "write",
 		User:     "orders_api",
-		Password: managed.Password(),
+		Password: operated.Password(),
 		Outputs: map[string]string{
 			"PGUSER": "orders_api",
 		},
@@ -147,7 +147,7 @@ func TestSlices(t *testing.T) {
 	}
 	bound, err := l.Bound(ctx, tiles["api"])
 	must(t, err)
-	out, err := managed.Outputs(bound[tiles["orders"]])
+	out, err := operated.Outputs(bound[tiles["orders"]])
 	must(t, err)
 	if bound[tiles["orders"]].DBPassword != cred.Password || out["PGUSER"] != "orders_api" {
 		t.Errorf("bound = %+v, outputs %v", bound, out)

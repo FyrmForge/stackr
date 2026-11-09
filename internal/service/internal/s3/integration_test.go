@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// Against a throwaway RustFS container, the S3 server the managed tile runs.
+// Against a throwaway RustFS container, the S3 server the operated tile runs.
 func TestRustFS(t *testing.T) {
 	out, err := exec.Command("docker", "run", "-d", "--rm", "-p", "127.0.0.1::9000",
 		"-e", "RUSTFS_ACCESS_KEY=stackr", "-e", "RUSTFS_SECRET_KEY=stackr-secret",

@@ -40,7 +40,7 @@ type DrawerView struct {
 	Error  string
 	Note   string
 
-	Icon     string // a kindIcon name: service, cron, function, managed, slice, volume, vars
+	Icon     string // a kindIcon name: service, cron, function, operated, slice, volume, vars
 	Status   string // a TileBadge word
 	Scope    string // the chip after the title: how far it is shared
 	Location string // "stack / env"
@@ -593,7 +593,7 @@ func KindIcon(kind string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		case "managed":
+		case "operated":
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"></ellipse> <path d=\"M3 5v14a9 3 0 0 0 18 0V5\"></path> <path d=\"M3 12a9 3 0 0 0 18 0\"></path>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

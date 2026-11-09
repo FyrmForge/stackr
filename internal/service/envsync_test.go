@@ -210,17 +210,17 @@ func TestEnvSyncEditedKeepsVersion(t *testing.T) {
 	}
 }
 
-// A Removed managed tile is deleted and its instance volume orphaned.
+// A Removed operated tile is deleted and its instance volume orphaned.
 func TestEnvSyncRemovedOrphansVolume(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r := newSyncRig(t)
 	r.tile(t, r.staging.ID, "api", 80)
-	pg, err := r.e.Orch.CreateManagedTile(ctx, service.Tile{EnvironmentID: r.staging.ID, Name: "pg"}, "postgres")
+	pg, err := r.e.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: r.staging.ID, Name: "pg"}, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ms, err := r.e.Orch.ManagedInstances(ctx, r.staging.ID)
+	ms, err := r.e.Orch.OperatedInstances(ctx, r.staging.ID)
 	if err != nil || len(ms) != 1 {
 		t.Fatalf("instances = %v, %v", ms, err)
 	}

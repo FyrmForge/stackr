@@ -520,7 +520,7 @@ func TestDomainLsTable(t *testing.T) {
 	}
 }
 
-// Step 7b task 6: the managed and slice verbs send the whole list or map;
+// Step 7b task 6: the operated and slice verbs send the whole list or map;
 // a verb given nothing to send fails with no request.
 func TestSliceVerbsRoutes(t *testing.T) {
 	r := &recorder{}
@@ -609,7 +609,7 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 	env.Member(t, org, u, "owner")
 	key := env.APIKey(t, u, org)
 	tl := env.Tile(t, org)
-	pg, err := env.Orch.CreateManagedTile(context.Background(), service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := env.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 	at := []string{"--stack", "shop", "--env", "dev"}
 	allow := func() []string {
 		t.Helper()
-		ms, err := env.Orch.ManagedInstances(context.Background(), tl.Env)
+		ms, err := env.Orch.OperatedInstances(context.Background(), tl.Env)
 		if err != nil || len(ms) != 1 || ms[0].TileID != pg.ID {
 			t.Fatalf("instances = %v, %v", ms, err)
 		}
@@ -862,7 +862,7 @@ func TestReplaceShowsDiffAndAsks(t *testing.T) {
 	const env = "/api/v1/orgs/acme/stacks/shop/envs/dev"
 	answers := map[string]string{
 		"/tiles/pg": `{"id":"t1","slug":"pg"}`,
-		"/managed":  `[{"tile_id":"t1","allow":["acme:old:*"],"env_pairs":{"staging":"dev"}}]`,
+		"/operated": `[{"tile_id":"t1","allow":["acme:old:*"],"env_pairs":{"staging":"dev"}}]`,
 	}
 	at := []string{"--stack", "shop", "--env", "dev"}
 	for _, c := range []struct {

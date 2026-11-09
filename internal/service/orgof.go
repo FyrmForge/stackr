@@ -56,7 +56,7 @@ func (o *Orchestrator) ChildOf(ctx context.Context, kind, id string) (Child, err
 		}
 		return o.volumeChild(ctx, b.VolumeID)
 	case "provision":
-		p, err := o.managed.GetProvision(ctx, id)
+		p, err := o.operated.GetProvision(ctx, id)
 		if err != nil {
 			return Child{}, err
 		}

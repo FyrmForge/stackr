@@ -21,7 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -72,7 +72,7 @@ func setup(t *testing.T) (*run.Flow, *dockerfake.Fake, store.Tile) {
 		Releases: release.New(st.Releases, st.ReleaseTiles),
 		Params:   params.New(st.Params),
 		Tiers:    tier.New(st.Tiers),
-		Managed:  managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
+		Operated: operated.New(st.OperatedInstances, st.Provisions, st.Bindings),
 		Domains:  domain.New(st.Domains, fake, "proxy"),
 		Cred:     credential.New(st.Credentials).For,
 		Settings: settings.New(st.Settings, nil),

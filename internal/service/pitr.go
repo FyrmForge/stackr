@@ -15,14 +15,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // Point-in-time recovery, the panel's half. The instance container archives
-// finished WAL segments to its archive volume (flow/managed Container); a
+// finished WAL segments to its archive volume (flow/operated Container); a
 // weekly "base" backup is a normal schedule on the data volume; one goroutine
 // ships the segments to the base schedule's destination every minute
 // (flow/backup ShipWAL), reads the archiver's health, and keeps the problems
@@ -134,7 +134,7 @@ func (o *Orchestrator) savePITRState(ctx context.Context, instanceID string, st 
 // redeploy that makes postgres archive (or stop): a few seconds of downtime.
 // On adds the weekly base backup schedule, off removes it; archived objects
 // stay on the destination until they age out under whatever else uses it.
-func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (ManagedInstance, Job, error) {
+func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (OperatedInstance, Job, error) {
 	t, m, err := o.instanceOf(ctx, tileID)
 	if err != nil {
 		return m, Job{}, err
@@ -143,7 +143,7 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 		return m, Job{}, errs.Invalidf("engine", "%s has no point-in-time recovery", m.Engine)
 	}
 	was := m
-	if m, err = o.managed.SetPITR(ctx, m, days); err != nil {
+	if m, err = o.operated.SetPITR(ctx, m, days); err != nil {
 		return m, Job{}, err
 	}
 	o.pitrApplied(ctx, t, m)
@@ -154,7 +154,7 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 	j, err := o.deployNoted(ctx, t.ID, note)
 	if err != nil {
 		// The container was not touched: put the row and the schedule back.
-		if _, rerr := o.managed.SetPITR(ctx, m, was.PITRDays); rerr != nil {
+		if _, rerr := o.operated.SetPITR(ctx, m, was.PITRDays); rerr != nil {
 			slog.Warn("pitr: window not restored after a failed redeploy", "instance", m.ID, "err", rerr)
 		}
 		if was.PITRDays <= 0 {
@@ -180,7 +180,7 @@ func (o *Orchestrator) SetPITR(ctx context.Context, tileID string, days int) (Ma
 // shipper once the container no longer archives) drops the schedule, the
 // shipper's state and the problems. The restart that makes postgres archive
 // (or stop) is the caller's.
-func (o *Orchestrator) pitrApplied(ctx context.Context, t store.Tile, m ManagedInstance) {
+func (o *Orchestrator) pitrApplied(ctx context.Context, t store.Tile, m OperatedInstance) {
 	if m.PITRDays <= 0 {
 		return
 	}
@@ -192,15 +192,15 @@ func (o *Orchestrator) pitrApplied(ctx context.Context, t store.Tile, m ManagedI
 // retireIfOff retires the instance unless its current row has PITR on again
 // (the caller's m may be older than a SetPITR that ran meanwhile). The caller
 // holds pitrLock.
-func (o *Orchestrator) retireIfOff(ctx context.Context, t store.Tile, m ManagedInstance) {
-	if cur, err := o.managed.Get(ctx, m.ID); err == nil && cur.PITRDays <= 0 {
+func (o *Orchestrator) retireIfOff(ctx context.Context, t store.Tile, m OperatedInstance) {
+	if cur, err := o.operated.Get(ctx, m.ID); err == nil && cur.PITRDays <= 0 {
 		o.pitrRetired(ctx, t, cur)
 	}
 }
 
 // pitrRetired ends an instance's PITR bookkeeping once it is off and its
 // container no longer archives.
-func (o *Orchestrator) pitrRetired(ctx context.Context, t store.Tile, m ManagedInstance) {
+func (o *Orchestrator) pitrRetired(ctx context.Context, t store.Tile, m OperatedInstance) {
 	if v, err := o.dataVolume(ctx, t); err == nil {
 		o.dropBaseSchedules(ctx, v)
 	}
@@ -237,7 +237,7 @@ func (o *Orchestrator) restoredVolume(ctx context.Context, v store.Volume) bool 
 	if v.InstanceID == nil {
 		return false
 	}
-	m, err := o.managed.Get(ctx, *v.InstanceID)
+	m, err := o.operated.Get(ctx, *v.InstanceID)
 	if err != nil {
 		return false
 	}
@@ -252,7 +252,7 @@ func (o *Orchestrator) baseSchedule(ctx context.Context, v store.Volume) {
 	if v.InstanceID == nil || mflow.IsArchiveVolume(v) {
 		return
 	}
-	if m, err := o.managed.Get(ctx, *v.InstanceID); err != nil || m.PITRDays <= 0 {
+	if m, err := o.operated.Get(ctx, *v.InstanceID); err != nil || m.PITRDays <= 0 {
 		return
 	}
 	ss, err := o.backups.Schedules(ctx, v.ID)
@@ -336,7 +336,7 @@ func (o *Orchestrator) pitrLoop() {
 }
 
 func (o *Orchestrator) pitrTick(ctx context.Context) {
-	ms, err := o.managed.WithPITR(ctx)
+	ms, err := o.operated.WithPITR(ctx)
 	if err != nil {
 		slog.Warn("pitr: instances not listed", "err", err)
 		return
@@ -362,7 +362,7 @@ func (o *Orchestrator) pitrTick(ctx context.Context) {
 			}
 			// Off now, but the running container may still archive: the
 			// shipper drains it until it stops.
-			if m, err := o.managed.Get(ctx, id); err == nil {
+			if m, err := o.operated.Get(ctx, id); err == nil {
 				cctx, cancel := context.WithTimeout(ctx, pitrShipBudget)
 				o.pitrShip(cctx, m)
 				cancel()
@@ -376,7 +376,7 @@ func (o *Orchestrator) pitrTick(ctx context.Context) {
 
 // pitrShip is one instance's tick: guard (once), ship, read the archiver,
 // write the state and the problems.
-func (o *Orchestrator) pitrShip(ctx context.Context, m ManagedInstance) {
+func (o *Orchestrator) pitrShip(ctx context.Context, m OperatedInstance) {
 	it, err := o.tiles.Get(ctx, m.TileID)
 	if err != nil {
 		return
@@ -576,7 +576,7 @@ func pitrDisk(slug string, dirBytes int64, free, minFree uint64) string {
 	return ""
 }
 
-func (o *Orchestrator) pitrAlerts(ctx context.Context, m ManagedInstance, it store.Tile, v store.Volume, st pitrState, now time.Time) {
+func (o *Orchestrator) pitrAlerts(ctx context.Context, m OperatedInstance, it store.Tile, v store.Volume, st pitrState, now time.Time) {
 	sev, msg := pitrLag(it.Slug, st, now)
 	o.pitrProblem(ctx, "alert.pitr.lag."+m.ID, AlertPITRLag, sev, it.Slug, msg)
 	var free, minFree uint64

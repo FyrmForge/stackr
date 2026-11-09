@@ -21,7 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -78,7 +78,7 @@ func setup(t *testing.T) *world {
 		Releases: release.New(st.Releases, st.ReleaseTiles),
 		Params:   params.New(st.Params),
 		Tiers:    tier.New(st.Tiers),
-		Managed:  managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
+		Operated: operated.New(st.OperatedInstances, st.Provisions, st.Bindings),
 		Domains:  domain.New(st.Domains, fake, "proxy"),
 		Cred:     credential.New(st.Credentials).For,
 		Settings: settings.New(st.Settings, nil),
@@ -311,10 +311,10 @@ func TestSliceRef(t *testing.T) {
 		StackID:       w.tile.StackID,
 		EnvironmentID: w.env.ID,
 		Name:          "pg-db",
-		Kind:          tile.Managed,
+		Kind:          tile.Operated,
 	})
 	must(t, err)
-	m, err := w.f.Managed.Create(ctx, pg.ID, "postgres", "stackr", "")
+	m, err := w.f.Operated.Create(ctx, pg.ID, "postgres", "stackr", "")
 	must(t, err)
 	now := time.Now()
 	p := store.Provision{
@@ -345,21 +345,21 @@ func TestSliceRef(t *testing.T) {
 	}
 	// The consumer joins the instance's network, wherever the instance sits.
 	if !slices.ContainsFunc(w.fake.Specs[0].Networks, func(n docker.NetAttach) bool {
-		return n.Name == managed.Network(m.ID)
+		return n.Name == operated.Network(m.ID)
 	}) {
-		t.Errorf("networks = %+v, want %s", w.fake.Specs[0].Networks, managed.Network(m.ID))
+		t.Errorf("networks = %+v, want %s", w.fake.Specs[0].Networks, operated.Network(m.ID))
 	}
 
 	// On another node: an ExtraHosts line to the instance's VIP, no network.
 	w.f.LinkHost = func(_ context.Context, _ store.Environment, id string) (string, error) {
-		return managed.Alias("pg-db", id) + ":10.209.0.5", nil
+		return operated.Alias("pg-db", id) + ":10.209.0.5", nil
 	}
 	last, err := w.f.Spec(ctx, w.tile, "nginx@sha256:aa", io.Discard)
 	must(t, err)
-	if want := managed.Alias("pg-db", m.ID) + ":10.209.0.5"; !slices.Equal(last.ExtraHosts, []string{want}) {
+	if want := operated.Alias("pg-db", m.ID) + ":10.209.0.5"; !slices.Equal(last.ExtraHosts, []string{want}) {
 		t.Errorf("extra hosts = %v, want %s", last.ExtraHosts, want)
 	}
-	if slices.ContainsFunc(last.Networks, func(n docker.NetAttach) bool { return n.Name == managed.Network(m.ID) }) {
+	if slices.ContainsFunc(last.Networks, func(n docker.NetAttach) bool { return n.Name == operated.Network(m.ID) }) {
 		t.Errorf("a consumer on another node joined the instance network: %+v", last.Networks)
 	}
 	w.f.LinkHost = nil

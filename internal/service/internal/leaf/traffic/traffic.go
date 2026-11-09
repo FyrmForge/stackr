@@ -164,7 +164,7 @@ func (l *Leaf) Seq() int64 {
 	return l.seq
 }
 
-// Slices renames consumer <-> managed instance lanes to consumer <-> slice.
+// Slices renames consumer <-> operated instance lanes to consumer <-> slice.
 // bind maps {consumer tile, instance tile} to the consumer's provision id on
 // that instance; a pair without a binding keeps the instance as its end.
 func Slices(pairs map[Pair]float64, bind map[Pair]string) map[Pair]float64 {

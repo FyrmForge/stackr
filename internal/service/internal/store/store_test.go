@@ -323,7 +323,7 @@ func TestRoundTrip(t *testing.T) {
 		EnvironmentID: "e1",
 		Name:          "DB",
 		Slug:          "db",
-		Kind:          "managed",
+		Kind:          "operated",
 		UpdatePolicy:  "manual",
 		CreatedAt:     t0,
 		UpdatedAt:     t0,
@@ -378,7 +378,7 @@ func TestRoundTrip(t *testing.T) {
 		CreatedAt:  t0,
 		UpdatedAt:  t0,
 	}, func(p *store.Param) { p.Value, p.UpdatedAt = "hunter3", t1 })
-	roundTrip(t, s.ManagedInstances, store.ManagedInstance{
+	roundTrip(t, s.OperatedInstances, store.OperatedInstance{
 		ID:     "mi1",
 		TileID: "t2",
 		Engine: "postgres",
@@ -395,7 +395,7 @@ func TestRoundTrip(t *testing.T) {
 		AdminPassword: "pw",
 		Endpoint:      "db:5432",
 		CreatedAt:     t0,
-	}, func(m *store.ManagedInstance) {
+	}, func(m *store.OperatedInstance) {
 		m.AdminPassword = "pw2"
 		m.Allow = store.StringList{}
 		m.EnvPairs = store.StringMap{}
@@ -686,7 +686,7 @@ func TestRoundTrip(t *testing.T) {
 		{"volumes", s.Volumes.Delete, "v1"},
 		{"bindings", s.Bindings.Delete, "b1"},
 		{"provisions", s.Provisions.Delete, "pr1"},
-		{"managed_instances", s.ManagedInstances.Delete, "mi1"},
+		{"operated_instances", s.OperatedInstances.Delete, "mi1"},
 		{"params", s.Params.Delete, "p1"},
 		{"release_tiles", s.ReleaseTiles.Delete, "rt1"},
 		{"images", s.Images.Delete, "img1"},

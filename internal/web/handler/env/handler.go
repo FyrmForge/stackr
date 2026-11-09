@@ -1,5 +1,5 @@
 // Package env is the env canvas's routes that are not the canvas itself:
-// the env-level drawers and dialogs (managed instance, slice tile, volume,
+// the env-level drawers and dialogs (operated instance, slice tile, volume,
 // proxy, create tile, rollback) and the drawers' job stream. Every handler is one verb call and a
 // view struct.
 package env
@@ -65,7 +65,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/pitr", h.PITR, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/restore", h.InstanceRestore, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/promote-restore", h.InstancePromote, a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
+	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("operated.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
@@ -171,7 +171,7 @@ func (h *handler) NewTile(c echo.Context) error {
 
 // POST …/-/new-tile creates the tile and opens its drawer on the env
 // page; a refusal re-renders the form with the field marked (422). A
-// managed tile may carry a dump (multipart "dump"), past the body limit.
+// operated tile may carry a dump (multipart "dump"), past the body limit.
 func (h *handler) CreateTile(c echo.Context) error {
 	lim, err := h.orch.SeedLimit(c.Request().Context())
 	if err != nil {
@@ -182,7 +182,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 		// Go drops every field of a form whose body overruns the cap, so the
 		// create below would read an empty name; say what went wrong instead.
 		v := createView(c)
-		v.Source = "managed"
+		v.Source = "operated"
 		v.Errors = map[string]string{"dump": "That dump is larger than this server takes."}
 		return respond.HTML(c, http.StatusUnprocessableEntity, dialog.CreateTile(v))
 	}
@@ -194,7 +194,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 		Kind:          v.Source,
 	}
 	switch v.Source {
-	case "managed":
+	case "operated":
 		fh, ferr := c.FormFile("dump")
 		switch {
 		case errors.As(ferr, new(*http.MaxBytesError)):
@@ -202,7 +202,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 		case ferr == nil && fh.Filename != "": // an empty file is refused, not dropped
 			t, err = h.createFromDump(c, t, v.Engine, fh)
 		default:
-			t, err = h.orch.CreateManagedTile(c.Request().Context(), t, v.Engine)
+			t, err = h.orch.CreateOperatedTile(c.Request().Context(), t, v.Engine)
 		}
 	case "slice":
 		t, err = h.orch.CreateSliceTile(c.Request().Context(), s.Env.ID, v.Name, v.From, v.Access)
@@ -250,7 +250,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
-// createFromDump is a managed tile seeded from the uploaded dump; the
+// createFromDump is an operated tile seeded from the uploaded dump; the
 // upload outlives the request timeout, so the verb runs without it.
 func (h *handler) createFromDump(c echo.Context, t service.Tile, engine string, fh *multipart.FileHeader) (service.Tile, error) {
 	f, err := fh.Open()
@@ -258,7 +258,7 @@ func (h *handler) createFromDump(c echo.Context, t service.Tile, engine string, 
 		return t, err
 	}
 	defer func() { _ = f.Close() }()
-	out, _, err := h.orch.CreateManagedTileFromDump(context.WithoutCancel(c.Request().Context()), t, engine, "", f)
+	out, _, err := h.orch.CreateOperatedTileFromDump(context.WithoutCancel(c.Request().Context()), t, engine, "", f)
 	return out, err
 }
 
@@ -275,7 +275,7 @@ var createFields = []string{
 	"dump",
 }
 
-// ---- managed instance ----
+// ---- operated instance ----
 
 // GET …/-/instances/:tile?tab=
 func (h *handler) Instance(c echo.Context) error {
@@ -383,7 +383,7 @@ func (h *handler) Allow(c echo.Context) error {
 	}
 	add := strings.TrimSpace(form.Get("add"))
 	list := nonBlank(append(form["allow"], add))
-	_, err = h.orch.SetManagedAllow(c.Request().Context(), scope(c).Tile.ID, list)
+	_, err = h.orch.SetOperatedAllow(c.Request().Context(), scope(c).Tile.ID, list)
 	return h.saved(c, "allow", err, instance.SettingsView{Add: add})
 }
 
@@ -412,7 +412,7 @@ func (h *handler) EnvPairs(c echo.Context) error {
 	} else if form.Get("adding") != "" { // Add with nothing typed; a remove posts no adding
 		return h.saved(c, "env_pairs", errs.Invalidf("env_pairs", "Name the consumer env to pair."), typed)
 	}
-	_, err = h.orch.SetManagedEnvPairs(c.Request().Context(), scope(c).Tile.ID, pairs)
+	_, err = h.orch.SetOperatedEnvPairs(c.Request().Context(), scope(c).Tile.ID, pairs)
 	return h.saved(c, "env_pairs", err, typed)
 }
 
@@ -446,7 +446,7 @@ func nonBlank(list []string) []string {
 	return out
 }
 
-// instance is the managed instance drawer on tab; each tab is one read.
+// instance is the operated instance drawer on tab; each tab is one read.
 // form is a Settings save's answer: what was typed and why it was refused.
 func (h *handler) instance(c echo.Context, tab, note string, actErr error, form instance.SettingsView) error {
 	msg, status, fail := refused(actErr)
@@ -620,10 +620,10 @@ func pgView(p service.PGSettings, typed *instance.PGView) *instance.PGView {
 
 // settingsView is the instance's allow list and env pairs over what a
 // refused save typed.
-func settingsView(c echo.Context, m service.ManagedInstance, form instance.SettingsView) instance.SettingsView {
+func settingsView(c echo.Context, m service.OperatedInstance, form instance.SettingsView) instance.SettingsView {
 	s := scope(c)
 	form.Allow = m.Allow
-	form.CanAllow = can(c, s, "managed.allow")
+	form.CanAllow = can(c, s, "operated.allow")
 	form.Open = cmp.Or(form.Open, c.FormValue("open"))
 	if form.Add == "" {
 		form.Add = s.Org.Slug + ":"
@@ -1066,7 +1066,7 @@ func polls(c echo.Context, note, msg string) int {
 // blocked is why a volume cannot be deleted now; "" = it can.
 func blocked(vol service.Volume, ms []volume.Mount) string {
 	if vol.InstanceID != nil {
-		return "Its managed instance owns it. Deleting the instance orphans it; then it can go."
+		return "Its operated instance owns it. Deleting the instance orphans it; then it can go."
 	}
 	if len(ms) > 0 {
 		return "Detach before deleting: " + ms[0].Tile + " mounts it. The mount lives in that tile's settings."

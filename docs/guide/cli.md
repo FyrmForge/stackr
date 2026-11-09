@@ -1375,7 +1375,7 @@ stackr logs search [text] [flags]
 
 ```
       --env string      the environment (default: the linked one)
-      --kind string     only this tile kind (service, image, managed, cron, function)
+      --kind string     only this tile kind (service, image, operated, cron, function)
       --run string      a cron or function run's id
       --since string    how far back, up to the log retention (like 15m, 6h, 24h, 7d) (default "1h")
       --source string   app, access, run or build
@@ -1388,79 +1388,6 @@ Example:
 
 ```
   stackr logs search --env prod --tile api --source access 500
-```
-
-## `stackr managed`
-
-Managed tiles
-
-### `stackr managed create`
-
-Make a managed tile (postgres, s3) in --env
-
-```
-stackr managed create <name> [flags]
-```
-
-```
-      --branch string             git branch
-      --build-args string         build args, a JSON object of strings: '{"ARG":"value"}'
-      --command string            the command, split like a shell would (quotes work, nothing expands)
-      --context string            build context
-      --cpus float                CPU limit
-      --depends-on string         tiles to start first, one per line: tile[:started|healthy|completed]
-      --devices string            devices, one per line: host[:container[:perms]] (needs admin approval)
-      --dockerfile string         Dockerfile path
-      --engine string             postgres or s3
-      --env string                the environment (default: the linked one)
-      --env-json string           environment, a JSON object of strings: '{"KEY":"value"}'
-      --files string              files from the repo to mount, one per line: repo/path:/container/path[:template]
-      --from-dump string          load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin
-      --git string                git URL (service tiles)
-      --health-interval int       health check interval, seconds
-      --health-path string        HTTP health path
-      --health-retries int        health check retries
-      --health-start-period int   health check start period, seconds
-      --health-timeout int        health check timeout, seconds
-      --healthcheck string        health check command, run in the container
-      --host-network              use the server's network (needs admin approval)
-      --image string              image ref (image tiles)
-      --lan string                LAN access, one ip|cidr[:port] per line (needs admin approval)
-      --memory int                memory limit, MB
-      --no-wait                   print the job and return; it runs server-side
-      --port int                  container port
-      --privileged                run privileged (needs admin approval)
-      --protocol string           endpoint protocol
-      --published-ports string    ports published on the host, one per line: host:container[/udp]
-      --replicas int              replica count
-      --restart string            restart policy
-      --schedule string           cron expression, CRON_TZ= prefix allowed (cron tiles)
-      --shared-net string         shared network
-      --shm-size int              shm size, MB
-      --slice string              the slice tile the dump loads into (default <name>-db)
-      --stack string              the stack (default: the linked one)
-      --tag-policy string         tag policy
-      --tile string               the tile (default: the linked one)
-      --timeout int               a run's timeout, minutes (cron and function tiles; 0 = 30)
-      --trigger string            manual or on_deploy (function tiles)
-      --update-policy string      update policy
-      --user string               run as user
-      --volumes string            mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
-      --watch-paths string        paths whose change triggers a build, one per line
-```
-
-### `stackr managed ls`
-
-List the env's managed tiles
-
-```
-stackr managed ls [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
 ```
 
 ## `stackr metrics`
@@ -1715,6 +1642,79 @@ Example:
 
 ```
   stackr node untag vps-fsn1 egress
+```
+
+## `stackr operated`
+
+Operated tiles
+
+### `stackr operated create`
+
+Make an operated tile (postgres, s3) in --env
+
+```
+stackr operated create <name> [flags]
+```
+
+```
+      --branch string             git branch
+      --build-args string         build args, a JSON object of strings: '{"ARG":"value"}'
+      --command string            the command, split like a shell would (quotes work, nothing expands)
+      --context string            build context
+      --cpus float                CPU limit
+      --depends-on string         tiles to start first, one per line: tile[:started|healthy|completed]
+      --devices string            devices, one per line: host[:container[:perms]] (needs admin approval)
+      --dockerfile string         Dockerfile path
+      --engine string             postgres or s3
+      --env string                the environment (default: the linked one)
+      --env-json string           environment, a JSON object of strings: '{"KEY":"value"}'
+      --files string              files from the repo to mount, one per line: repo/path:/container/path[:template]
+      --from-dump string          load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin
+      --git string                git URL (service tiles)
+      --health-interval int       health check interval, seconds
+      --health-path string        HTTP health path
+      --health-retries int        health check retries
+      --health-start-period int   health check start period, seconds
+      --health-timeout int        health check timeout, seconds
+      --healthcheck string        health check command, run in the container
+      --host-network              use the server's network (needs admin approval)
+      --image string              image ref (image tiles)
+      --lan string                LAN access, one ip|cidr[:port] per line (needs admin approval)
+      --memory int                memory limit, MB
+      --no-wait                   print the job and return; it runs server-side
+      --port int                  container port
+      --privileged                run privileged (needs admin approval)
+      --protocol string           endpoint protocol
+      --published-ports string    ports published on the host, one per line: host:container[/udp]
+      --replicas int              replica count
+      --restart string            restart policy
+      --schedule string           cron expression, CRON_TZ= prefix allowed (cron tiles)
+      --shared-net string         shared network
+      --shm-size int              shm size, MB
+      --slice string              the slice tile the dump loads into (default <name>-db)
+      --stack string              the stack (default: the linked one)
+      --tag-policy string         tag policy
+      --tile string               the tile (default: the linked one)
+      --timeout int               a run's timeout, minutes (cron and function tiles; 0 = 30)
+      --trigger string            manual or on_deploy (function tiles)
+      --update-policy string      update policy
+      --user string               run as user
+      --volumes string            mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
+      --watch-paths string        paths whose change triggers a build, one per line
+```
+
+### `stackr operated ls`
+
+List the env's operated tiles
+
+```
+stackr operated ls [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
 ```
 
 ## `stackr org`
@@ -2795,7 +2795,7 @@ stackr share rm <slug>
 
 ## `stackr slice`
 
-Slice tiles: a database or bucket cut from a managed tile
+Slice tiles: a database or bucket cut from an operated tile
 
 ### `stackr slice add`
 
@@ -2808,7 +2808,7 @@ stackr slice add <slug> [flags]
 ```
       --access string   the default access of its consumers, read or write (default write)
       --env string      the environment (default: the linked one)
-      --from string     the managed tile, <stack>:<env>:<tile>
+      --from string     the operated tile, <stack>:<env>:<tile>
       --stack string    the stack (default: the linked one)
       --tile string     the tile (default: the linked one)
 ```
@@ -3129,7 +3129,7 @@ stackr tile access [tile] [flags]
 
 ### `stackr tile allow`
 
-Edit who outside the env may cut slices from a managed tile (org:stack:env:tile patterns)
+Edit who outside the env may cut slices from an operated tile (org:stack:env:tile patterns)
 
 ```
 stackr tile allow [tile] [flags]
@@ -3385,7 +3385,7 @@ stackr tile domain set <host> [flags]
 
 ### `stackr tile env-pairs`
 
-Replace a managed tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks
+Replace an operated tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks
 
 ```
 stackr tile env-pairs <tile> [consumer-env=env ...] [flags]

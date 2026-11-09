@@ -4092,7 +4092,7 @@ func tagHelp(t string) string {
 	case "builder":
 		return "Builds images."
 	case "storage":
-		return "Holds volumes and managed databases."
+		return "Holds volumes and operated databases."
 	}
 	return ""
 }

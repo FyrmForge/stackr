@@ -473,7 +473,7 @@ func (o *Orchestrator) placementUse(ctx context.Context, p store.Placement) (str
 }
 
 // envNeeds is what an env asks of its placement's node: storage once it has
-// a volume or a managed tile.
+// a volume or an operated tile.
 func (o *Orchestrator) envNeeds(ctx context.Context, envID string) (Needs, error) {
 	vs, err := o.store.Volumes.ListByScope(ctx, "env", envID)
 	if err != nil {
@@ -486,7 +486,7 @@ func (o *Orchestrator) envNeeds(ctx context.Context, envID string) (Needs, error
 	if err != nil {
 		return Needs{}, err
 	}
-	return Needs{Storage: slices.ContainsFunc(ts, func(t store.Tile) bool { return t.Kind == tile.Managed })}, nil
+	return Needs{Storage: slices.ContainsFunc(ts, func(t store.Tile) bool { return t.Kind == tile.Operated })}, nil
 }
 
 // unfit is why the placement's node does not fit n, "" when it fits or has

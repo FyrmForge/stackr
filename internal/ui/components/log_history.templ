@@ -42,7 +42,7 @@ type LogHistoryLine struct {
 // LogRanges are the time ranges the viewer offers, as Go durations.
 var LogRanges = []LogOption{{"15m", "15 min"}, {"1h", "1 hour"}, {"6h", "6 hours"}, {"24h", "24 hours"}, {"168h", "7 days"}}
 
-var logKinds = []LogOption{{"", "any kind"}, {"service", "service"}, {"image", "image"}, {"managed", "managed"}, {"cron", "cron"}, {"function", "function"}}
+var logKinds = []LogOption{{"", "any kind"}, {"service", "service"}, {"image", "image"}, {"operated", "operated"}, {"cron", "cron"}, {"function", "function"}}
 
 var logSources = []LogOption{{"", "any source"}, {"app", "app"}, {"access", "access"}, {"run", "run"}, {"build", "build"}}
 

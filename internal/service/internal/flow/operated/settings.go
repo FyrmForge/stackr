@@ -1,4 +1,4 @@
-package managed
+package operated
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func pgConfWrite(i Instance, conf string) []string {
 }
 
 // postgres is the instance's engine, refused for any other.
-func (f *Flow) postgres(ctx context.Context, it store.Tile) (store.ManagedInstance, Instance, Tools, error) {
+func (f *Flow) postgres(ctx context.Context, it store.Tile) (store.OperatedInstance, Instance, Tools, error) {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return m, Instance{}, Tools{}, err

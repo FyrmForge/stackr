@@ -10,7 +10,7 @@ import (
 
 // Step 7b task 6: an allow edit is an owner's (a member gets 403); env
 // pairs, slice tiles, access and on_remove are a member's; a viewer reads.
-func TestManagedAndSliceRoutes(t *testing.T) {
+func TestOperatedAndSliceRoutes(t *testing.T) {
 	w := newWorld(t)
 	u := w.env.User(t, "member@x", false)
 	w.env.Member(t, w.acme, u, "member")
@@ -18,7 +18,7 @@ func TestManagedAndSliceRoutes(t *testing.T) {
 	v := w.env.User(t, "viewer@x", false)
 	w.env.Member(t, w.acme, v, "viewer")
 	viewer := w.env.APIKey(t, v, w.acme)
-	if _, err := w.env.Orch.CreateManagedTile(
+	if _, err := w.env.Orch.CreateOperatedTile(
 		context.Background(),
 		service.Tile{EnvironmentID: w.tile.Env, Name: "pg"},
 		"postgres",
@@ -67,7 +67,7 @@ func TestManagedAndSliceRoutes(t *testing.T) {
 
 // A dump upload is past the server's 2M body limit, which still holds
 // everywhere else; a viewer is refused.
-func TestManagedFromDumpRoute(t *testing.T) {
+func TestOperatedFromDumpRoute(t *testing.T) {
 	w := newWorld(t)
 	v := w.env.User(t, "viewer@x", false)
 	w.env.Member(t, w.acme, v, "viewer")
@@ -75,14 +75,14 @@ func TestManagedFromDumpRoute(t *testing.T) {
 	const env = "/orgs/acme/stacks/shop/envs/dev"
 	big := "PGDMP" + strings.Repeat("x", 3<<20)
 
-	if code, out := w.do(t, viewer, "POST", env+"/managed/from-dump?name=pg&engine=postgres", big); code != 403 {
+	if code, out := w.do(t, viewer, "POST", env+"/operated/from-dump?name=pg&engine=postgres", big); code != 403 {
 		t.Errorf("viewer = %d %s, want 403", code, out)
 	}
-	code, out := w.do(t, w.owner, "POST", env+"/managed/from-dump?name=pg&engine=postgres", big)
+	code, out := w.do(t, w.owner, "POST", env+"/operated/from-dump?name=pg&engine=postgres", big)
 	if code != 202 || !strings.Contains(out, `"kind":"seed"`) || !strings.Contains(out, `"slug":"pg"`) {
 		t.Errorf("from-dump = %d %s, want 202 with the tile and its seed job", code, out)
 	}
-	if code, _ := w.do(t, w.owner, "POST", env+"/managed", `{"name":"`+big+`"}`); code != 413 {
+	if code, _ := w.do(t, w.owner, "POST", env+"/operated", `{"name":"`+big+`"}`); code != 413 {
 		t.Errorf("a 3M JSON body = %d, want 413", code)
 	}
 }

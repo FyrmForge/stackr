@@ -14,7 +14,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
@@ -146,7 +146,7 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 	if err != nil {
 		return Tile{}, Job{}, err
 	}
-	if m, err := o.managed.GetByTile(ctx, inst.ID); err != nil || m.Engine != "postgres" {
+	if m, err := o.operated.GetByTile(ctx, inst.ID); err != nil || m.Engine != "postgres" {
 		return Tile{}, Job{}, errs.Invalidf("instance", "%s is not a postgres instance", inst.Slug)
 	}
 	if err := o.gateTile(ctx, inst.ID, true); err != nil {
@@ -163,7 +163,7 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 	j, err := o.enqueue(ctx, kindSeed, seedJob{
 		TileID:  inst.ID,
 		SliceID: br.ID,
-		Format:  managed.DumpCustom,
+		Format:  operated.DumpCustom,
 		Source:  seedSource{Kind: "slice", SliceID: src.ID, At: at},
 	}, lock...)
 	if err != nil {
@@ -181,14 +181,14 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 
 // postgresOf is the postgres instance tile slice s is cut on.
 func (o *Orchestrator) postgresOf(ctx context.Context, s Tile) (Tile, error) {
-	p, ok, err := o.managed.ProvisionOf(ctx, s.ID)
+	p, ok, err := o.operated.ProvisionOf(ctx, s.ID)
 	if err != nil {
 		return Tile{}, err
 	}
 	if !ok {
 		return Tile{}, errs.Conflictf("slice %s is not deployed yet; deploy it first", s.Slug)
 	}
-	m, err := o.managed.Get(ctx, p.InstanceID)
+	m, err := o.operated.Get(ctx, p.InstanceID)
 	if err != nil {
 		return Tile{}, err
 	}
@@ -325,7 +325,7 @@ func (o *Orchestrator) SliceCreds(ctx context.Context, by *Principal, sliceID st
 	if _, err := o.postgresOf(ctx, s); err != nil {
 		return SliceCreds{}, err
 	}
-	p, _, err := o.managed.ProvisionOf(ctx, s.ID)
+	p, _, err := o.operated.ProvisionOf(ctx, s.ID)
 	if err != nil {
 		return SliceCreds{}, err
 	}
@@ -334,7 +334,7 @@ func (o *Orchestrator) SliceCreds(ctx context.Context, by *Principal, sliceID st
 		Database: p.DBName,
 		User:     p.DBUser,
 		Password: p.DBPassword,
-		Port:     managed.Engines["postgres"].Definition().Port,
+		Port:     operated.Engines["postgres"].Definition().Port,
 	}, nil
 }
 

@@ -25,11 +25,11 @@ func TestRenameCarriesSliceRefs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pg, err := o.CreateManagedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
 	must(err)
-	_, err = o.SetManagedAllow(ctx, pg.ID, []string{"acme:shop:dev:web", "acme:*:dev:*"})
+	_, err = o.SetOperatedAllow(ctx, pg.ID, []string{"acme:shop:dev:web", "acme:*:dev:*"})
 	must(err)
-	_, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{"dev": "dev"})
+	_, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{"dev": "dev"})
 	must(err)
 	db, err := o.CreateSliceTile(ctx, tl.Env, "db", "shop:dev:pg", "")
 	must(err)
@@ -40,7 +40,7 @@ func TestRenameCarriesSliceRefs(t *testing.T) {
 		if v.Blocker != "" || v.ProvisionFrom != from {
 			t.Errorf("%s: slice = %q, blocker %q; want %q, healthy", step, v.ProvisionFrom, v.Blocker, from)
 		}
-		ms, err := o.ManagedInstances(ctx, tl.Env)
+		ms, err := o.OperatedInstances(ctx, tl.Env)
 		must(err)
 		if len(ms) != 1 || !slices.Equal(ms[0].Allow, allow) || len(ms[0].EnvPairs) != len(pairs) {
 			t.Fatalf("%s: instances = %+v", step, ms)

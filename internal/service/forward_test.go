@@ -40,7 +40,7 @@ func TestDialTilePort(t *testing.T) {
 		t.Errorf("default dial = %v, want a refused dial of the declared port", err)
 	}
 
-	// no declared port and not managed: invalid input
+	// no declared port and not operated: invalid input
 	bare := w.tile(t, "bare", true)
 	row, err = w.st.Tiles.Get(ctx, bare.ID)
 	must(t, err)

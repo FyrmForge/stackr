@@ -334,13 +334,13 @@ func (e *Env) FailedJob(t *testing.T, tileID string) {
 }
 
 // Bound seeds what a consumer's deploy leaves behind: slice tile
-// sliceTileID provisioned on managed tile instanceTileID (once), and
+// sliceTileID provisioned on operated tile instanceTileID (once), and
 // consumer consumerTileID holding a cred on it at access. The cred's user
 // is "<consumer id>_user".
 func (e *Env) Bound(t *testing.T, sliceTileID, instanceTileID, consumerTileID, access string) {
 	t.Helper()
 	ctx := context.Background()
-	m, err := e.Store.ManagedInstances.GetByTile(ctx, instanceTileID)
+	m, err := e.Store.OperatedInstances.GetByTile(ctx, instanceTileID)
 	must(t, err)
 	p, err := e.Store.Provisions.GetByTile(ctx, sliceTileID)
 	if errors.Is(err, errs.ErrNotFound) {

@@ -1327,7 +1327,7 @@ func Inherited(value, from string) templ.Component {
 }
 
 // scopeLabel is a settings card's scope chip: the server's own cards are
-// tagged "instance" in code, shown as "server" ("instance" is a managed DB's).
+// tagged "instance" in code, shown as "server" ("instance" is an operated DB's).
 func scopeLabel(scope string) string {
 	if scope == "instance" {
 		return "server"

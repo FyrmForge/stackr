@@ -106,12 +106,12 @@ func (f *Flow) planPlacing(ctx context.Context, p *Plan, w *work, r *Resolved) e
 }
 
 // FileNeeds is what an env asks of its node by the file alone: volumes or a
-// managed tile need storage before the first deploy writes them down. Pins
+// operated tile need storage before the first deploy writes them down. Pins
 // set outside the file (CLI, API, panel, org file) check it too.
 func FileNeeds(e ResolvedEnv) planfile.Needs {
 	n := planfile.Needs{Storage: len(e.Volumes) > 0}
 	for _, t := range e.Tiles {
-		n.Storage = n.Storage || t.Type == tile.Managed
+		n.Storage = n.Storage || t.Type == tile.Operated
 	}
 	return n
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -274,17 +274,17 @@ func TestSyncBlockers(t *testing.T) {
 	}
 }
 
-func TestSyncManagedInUseBlocks(t *testing.T) {
+func TestSyncOperatedInUseBlocks(t *testing.T) {
 	w := syncWorld(t)
-	db := w.mk(t, w.prd, "db", store.Tile{Kind: tile.Managed})
-	m, err := w.f.D.Managed.Create(ctx, db.ID, "postgres", "stackr", "")
+	db := w.mk(t, w.prd, "db", store.Tile{Kind: tile.Operated})
+	m, err := w.f.D.Operated.Create(ctx, db.ID, "postgres", "stackr", "")
 	must(t, err)
 	// A slice tile on the instance that both envs keep.
 	from := "shop:prd:db"
 	for _, e := range []store.Environment{w.dev, w.prd} {
 		sl := w.mk(t, e, "app-db", store.Tile{Kind: tile.Slice, ProvisionFrom: &from})
 		if e.ID == w.prd.ID {
-			_, err = w.f.D.Managed.CreateProvision(ctx, m, sl.ID, managed.Slice{DBName: "x", DBUser: "u", DBPassword: "p"})
+			_, err = w.f.D.Operated.CreateProvision(ctx, m, sl.ID, operated.Slice{DBName: "x", DBUser: "u", DBPassword: "p"})
 			must(t, err)
 		}
 	}
@@ -294,13 +294,13 @@ func TestSyncManagedInUseBlocks(t *testing.T) {
 	}
 }
 
-// The same managed slug on another engine is an Edited tile that blocks, as
+// The same operated slug on another engine is an Edited tile that blocks, as
 // in a promote, even when no other field differs.
 func TestSyncEngineChangeBlocks(t *testing.T) {
 	w := syncWorld(t)
 	for env, engine := range map[store.Environment]string{w.dev: "s3", w.prd: "postgres"} {
-		m := w.mk(t, env, "m3", store.Tile{Kind: tile.Managed})
-		_, err := w.f.D.Managed.Create(ctx, m.ID, engine, "stackr", "")
+		m := w.mk(t, env, "m3", store.Tile{Kind: tile.Operated})
+		_, err := w.f.D.Operated.Create(ctx, m.ID, engine, "stackr", "")
 		must(t, err)
 	}
 	s := w.syncPlan(t)
@@ -389,10 +389,10 @@ func TestSyncSigDrift(t *testing.T) {
 	}
 }
 
-func TestSyncRemovedManagedOrphansItsVolume(t *testing.T) {
+func TestSyncRemovedOperatedOrphansItsVolume(t *testing.T) {
 	w := syncWorld(t)
-	db := w.mk(t, w.prd, "db", store.Tile{Kind: tile.Managed})
-	m, err := w.f.D.Managed.Create(ctx, db.ID, "postgres", "stackr", "")
+	db := w.mk(t, w.prd, "db", store.Tile{Kind: tile.Operated})
+	m, err := w.f.D.Operated.Create(ctx, db.ID, "postgres", "stackr", "")
 	must(t, err)
 	vol, _, err := w.f.D.Volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.prd.ID}, "db-data", &m.ID)
 	must(t, err)

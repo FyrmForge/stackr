@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
@@ -23,7 +23,7 @@ func TestCrossNodeLink(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	n := newTwoNodes(t)
-	m, err := managed.New(n.st.ManagedInstances, n.st.Provisions, n.st.Bindings).Create(ctx, n.devT.ID, "postgres", "stackr", "")
+	m, err := operated.New(n.st.OperatedInstances, n.st.Provisions, n.st.Bindings).Create(ctx, n.devT.ID, "postgres", "stackr", "")
 	must(t, err)
 	from := "shop:dev:" + n.devT.Slug
 	sl, err := n.orch.tiles.Create(ctx, store.Tile{StackID: n.stack, EnvironmentID: n.edge.ID, Name: "db", Kind: tile.Slice, ProvisionFrom: &from})
@@ -41,7 +41,7 @@ func TestCrossNodeLink(t *testing.T) {
 	must(t, n.st.Environments.SetSubnet(ctx, edge.ID, edge.Subnet))
 	dev, err := n.st.Environments.Get(ctx, n.dev.ID)
 	must(t, err)
-	if h, err := n.orch.linkHost(ctx, edge, m.ID); err != nil || h != managed.Alias(n.devT.Slug, m.ID)+":10.208.1.2" {
+	if h, err := n.orch.linkHost(ctx, edge, m.ID); err != nil || h != operated.Alias(n.devT.Slug, m.ID)+":10.208.1.2" {
 		t.Errorf("host from w1 = %q %v", h, err)
 	}
 	if h, err := n.orch.linkHost(ctx, dev, m.ID); err != nil || h != "" {

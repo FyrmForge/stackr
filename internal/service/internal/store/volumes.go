@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Volume is a row of volumes. InstanceID is set when a managed instance
+// Volume is a row of volumes. InstanceID is set when an operated instance
 // owns it; OrphanedAt when its owner is gone and the retention clock runs.
 type Volume struct {
 	ID         string     `db:"id" json:"id"`

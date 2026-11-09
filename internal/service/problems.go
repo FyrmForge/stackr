@@ -197,7 +197,7 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return o.scheduleLink(ctx, id)
 	case "pitr": // pitr.lag.<instance id>, pitr.disk.<instance id>
 		_, id, _ := strings.Cut(rest, ".")
-		m, err := o.managed.Get(ctx, id)
+		m, err := o.operated.Get(ctx, id)
 		if err != nil {
 			return "", "", false
 		}

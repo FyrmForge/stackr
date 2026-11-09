@@ -268,7 +268,7 @@ func setPort(t *testing.T, s *webtest.Site, port int) {
 func TestAccessTab(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	pg, err := s.Orch.CreateManagedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
+	pg, err := s.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}

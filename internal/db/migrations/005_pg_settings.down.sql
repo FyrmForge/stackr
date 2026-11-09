@@ -1,1 +1,1 @@
-ALTER TABLE managed_instances DROP COLUMN settings;
+ALTER TABLE operated_instances DROP COLUMN settings;

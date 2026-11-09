@@ -59,7 +59,7 @@ func envCards() []placed {
 		Status:    "running",
 		Consumers: 2,
 	})
-	pg := sample("t-pg2", "managed", "cache-pg", "postgres 16", "slices", cards.FooterView{Status: "running"})
+	pg := sample("t-pg2", "operated", "cache-pg", "postgres 16", "slices", cards.FooterView{Status: "running"})
 	pg.Subs = []cards.SubView{{
 		ID:     "v-pgdata",
 		Kind:   "volume",

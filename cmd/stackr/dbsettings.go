@@ -9,7 +9,7 @@ import (
 // dbSettings is `stackr db settings`: a postgres instance's own settings,
 // mirroring the API. The instance is the tile (--tile, or the linked one).
 func (a *app) dbSettings() *cobra.Command {
-	list := leaf("get", "managed.settings", "Show a postgres instance's settings and where each value comes from", exact(0),
+	list := leaf("get", "operated.settings", "Show a postgres instance's settings and where each value comes from", exact(0),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/settings", nil)
 			if err != nil {
@@ -54,7 +54,7 @@ func (a *app) dbSettings() *cobra.Command {
 			return nil
 		}
 	}
-	set := leaf("set <name=value>...", "managed.settings-set",
+	set := leaf("set <name=value>...", "operated.settings-set",
 		"Set settings; a reload applies them, or the instance restarts when one needs it", atLeast(1), nil)
 	set.RunE = func(c *cobra.Command, args []string) error {
 		kv := map[string]string{}
@@ -67,7 +67,7 @@ func (a *app) dbSettings() *cobra.Command {
 		}
 		return a.at(atTile, put(map[string]any{"set": kv}))(c, nil)
 	}
-	unset := leaf("unset <name>...", "managed.settings-set",
+	unset := leaf("unset <name>...", "operated.settings-set",
 		"Remove your override of settings, back to the computed or postgres default", atLeast(1), nil)
 	unset.RunE = func(c *cobra.Command, args []string) error {
 		return a.at(atTile, put(map[string]any{"unset": args}))(c, nil)

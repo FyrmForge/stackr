@@ -99,7 +99,7 @@ type (
 		Kind string `json:"kind"` // service | image | cron | function
 		TilePatch
 	}
-	ManagedIn struct {
+	OperatedIn struct {
 		Name   string `json:"name"`
 		Engine string `json:"engine"` // postgres | s3
 		TilePatch
@@ -215,41 +215,41 @@ func (h *H) CreateTile() Endpoint {
 	})
 }
 
-func (h *H) ManagedInstances() Endpoint {
-	return Get(func(c echo.Context) ([]service.ManagedInstance, error) {
-		return list(h.Orch.ManagedInstances(rc(c), envID(c)))
+func (h *H) OperatedInstances() Endpoint {
+	return Get(func(c echo.Context) ([]service.OperatedInstance, error) {
+		return list(h.Orch.OperatedInstances(rc(c), envID(c)))
 	})
 }
 
-func (h *H) CreateManagedTile() Endpoint {
-	return JSON(201, func(c echo.Context, in ManagedIn) (service.TileView, error) {
+func (h *H) CreateOperatedTile() Endpoint {
+	return JSON(201, func(c echo.Context, in OperatedIn) (service.TileView, error) {
 		t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: in.Name}
 		if err := in.apply(&t); err != nil {
 			return service.NewTileView(t), err
 		}
-		return tileView(h.Orch.CreateManagedTile(rc(c), t, in.Engine))
+		return tileView(h.Orch.CreateOperatedTile(rc(c), t, in.Engine))
 	})
 }
 
-// ManagedSeeded is a managed tile made from a dump: the instance, the
+// OperatedSeeded is an operated tile made from a dump: the instance, the
 // slice the dump loads into, and the job doing it.
-type ManagedSeeded struct {
+type OperatedSeeded struct {
 	Tile service.TileView `json:"tile"`
 	Job  service.Job      `json:"job"`
 }
 
-// CreateManagedFromDump makes a postgres managed tile from the request
+// CreateOperatedFromDump makes a postgres operated tile from the request
 // body, a pg_dump (custom or plain SQL), streamed to disk. ?slice= names
 // the slice tile it loads into ("" = <name>-db). Past the 30s request
 // timeout: the upload runs as long as the dump takes to arrive.
-func (h *H) CreateManagedFromDump() Endpoint {
+func (h *H) CreateOperatedFromDump() Endpoint {
 	e := Endpoint{
 		Status: http.StatusAccepted,
-		Out:    reflect.TypeFor[ManagedSeeded](),
+		Out:    reflect.TypeFor[OperatedSeeded](),
 		InRaw:  "application/octet-stream",
 		Handle: func(c echo.Context) error {
 			t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: c.QueryParam("name")}
-			out, j, err := h.Orch.CreateManagedTileFromDump(
+			out, j, err := h.Orch.CreateOperatedTileFromDump(
 				context.WithoutCancel(rc(c)),
 				t,
 				c.QueryParam("engine"),
@@ -259,7 +259,7 @@ func (h *H) CreateManagedFromDump() Endpoint {
 			if err != nil {
 				return err
 			}
-			return c.JSON(http.StatusAccepted, ManagedSeeded{Tile: service.NewTileView(out), Job: j})
+			return c.JSON(http.StatusAccepted, OperatedSeeded{Tile: service.NewTileView(out), Job: j})
 		},
 	}
 	return e.Q("name", "engine", "slice")
@@ -453,11 +453,11 @@ func (h *H) RemoveDomainRecord() Endpoint {
 	})
 }
 
-// ---- managed tiles and slices ----
+// ---- operated tiles and slices ----
 
-func (h *H) SetManagedAllow() Endpoint {
-	return JSON(200, func(c echo.Context, in AllowIn) (service.ManagedInstance, error) {
-		return h.Orch.SetManagedAllow(rc(c), tileID(c), in.Allow)
+func (h *H) SetOperatedAllow() Endpoint {
+	return JSON(200, func(c echo.Context, in AllowIn) (service.OperatedInstance, error) {
+		return h.Orch.SetOperatedAllow(rc(c), tileID(c), in.Allow)
 	})
 }
 
@@ -516,9 +516,9 @@ func (h *H) PITRStatus() Endpoint {
 	return Get(func(c echo.Context) (service.PITRHealth, error) { return h.Orch.PITRStatus(rc(c), tileID(c)) })
 }
 
-func (h *H) SetManagedEnvPairs() Endpoint {
-	return JSON(200, func(c echo.Context, in EnvPairsIn) (service.ManagedInstance, error) {
-		return h.Orch.SetManagedEnvPairs(rc(c), tileID(c), in.EnvPairs)
+func (h *H) SetOperatedEnvPairs() Endpoint {
+	return JSON(200, func(c echo.Context, in EnvPairsIn) (service.OperatedInstance, error) {
+		return h.Orch.SetOperatedEnvPairs(rc(c), tileID(c), in.EnvPairs)
 	})
 }
 

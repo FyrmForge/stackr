@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -43,16 +43,16 @@ func TestNewInstanceDefaultsToPITRWithAnOffBoxDestination(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	local, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "local"}, "postgres")
+	local, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "local"}, "postgres")
 	must(t, err)
-	if m, _ := w.orch.managed.GetByTile(ctx, local.ID); m.PITRDays != 0 {
+	if m, _ := w.orch.operated.GetByTile(ctx, local.ID); m.PITRDays != 0 {
 		t.Fatalf("local disk only: pitr_days = %d", m.PITRDays)
 	}
 	_, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
-	pg, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
 	must(t, err)
-	m, err := w.orch.managed.GetByTile(ctx, pg.ID)
+	m, err := w.orch.operated.GetByTile(ctx, pg.ID)
 	must(t, err)
 	if m.PITRDays != DefaultPITRDays {
 		t.Fatalf("off-box destination: pitr_days = %d", m.PITRDays)
@@ -82,7 +82,7 @@ func TestNewInstanceDefaultsToPITRWithAnOffBoxDestination(t *testing.T) {
 	}
 	// A base backup of an instance with PITR off is refused, never a tar of the volume.
 	m.PITRDays = 0
-	must(t, w.st.ManagedInstances.Update(ctx, m))
+	must(t, w.st.OperatedInstances.Update(ctx, m))
 	if _, err := w.orch.subject(ctx, data, "base"); err == nil {
 		t.Error("a base subject without PITR")
 	}
@@ -92,7 +92,7 @@ func TestSetPITROnAndOff(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	pg, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
 	must(t, err)
 	if _, err := w.orch.engines.Container(w.node(t, ctx), pg); err != nil { // declares the volumes
 		t.Fatal(err)
@@ -161,9 +161,9 @@ func TestPITRTickShipsAndGuards(t *testing.T) {
 	ctx := context.Background()
 	s3, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
-	pg, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
 	must(t, err)
-	m, _ := w.orch.managed.GetByTile(ctx, pg.ID)
+	m, _ := w.orch.operated.GetByTile(ctx, pg.ID)
 	if m.PITRDays == 0 {
 		t.Fatal("not on by default")
 	}

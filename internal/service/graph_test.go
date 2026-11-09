@@ -131,7 +131,7 @@ func seedWorld(t *testing.T) world {
 	})
 	worker := tileRow(w.shop, w.dev, "worker", "image", nil)
 	web := tileRow(w.shop, w.dev, "web", "image", func(t *store.Tile) { t.DependsOn = "api:healthy" })
-	pg := tileRow(w.shop, w.dev, "pg", "managed", nil)
+	pg := tileRow(w.shop, w.dev, "pg", "operated", nil)
 	for _, tl := range []store.Tile{api, worker, web, pg} {
 		must(e.Store.Tiles.Create(ctx, tl))
 	}
@@ -139,7 +139,7 @@ func seedWorld(t *testing.T) world {
 	w.worker = worker.ID
 	w.web = web.ID
 	w.pg = pg.ID
-	inst := store.ManagedInstance{
+	inst := store.OperatedInstance{
 		ID:            uuid.NewString(),
 		TileID:        pg.ID,
 		Engine:        "postgres",
@@ -147,7 +147,7 @@ func seedWorld(t *testing.T) world {
 		AdminPassword: "p",
 		CreatedAt:     time.Now(),
 	}
-	must(e.Store.ManagedInstances.Create(ctx, inst))
+	must(e.Store.OperatedInstances.Create(ctx, inst))
 	sl := tileRow(w.shop, w.dev, "main", "slice", func(t *store.Tile) {
 		from := "shop:dev:pg"
 		t.ImageRef = ""
@@ -413,7 +413,7 @@ func TestCanvasSliceGhost(t *testing.T) {
 	t.Parallel()
 	w := seedWorld(t)
 	ctx := context.Background()
-	if _, err := w.e.Orch.SetManagedAllow(ctx, w.pg, []string{"acme:shop:*"}); err != nil {
+	if _, err := w.e.Orch.SetOperatedAllow(ctx, w.pg, []string{"acme:shop:*"}); err != nil {
 		t.Fatal(err)
 	}
 	var ids []string

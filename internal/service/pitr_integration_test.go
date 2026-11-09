@@ -22,7 +22,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"

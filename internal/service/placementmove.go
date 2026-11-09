@@ -716,7 +716,7 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 // empty volume. The runner starts jobs whose locks overlap in the order they
 // were queued, so the queue order is the mechanism: the tar restores first,
 // each holding every tile of ts; then the deploys, dependencies first, with
-// a managed instance's dump restore queued right after the instance's own
+// an operated instance's dump restore queued right after the instance's own
 // deploy (a dump loads into a running engine; the restore holds the
 // instance's consumers, which deploy after it). Only a volume that holds no
 // data is restored, so one that kept its data is never rolled back. notes
@@ -766,7 +766,7 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 		if err := o.pitrVolumeRestoreOK(ctx, newest.ID, v); err != nil {
 			// the data comes back all the same; the archive starts over, as
 			// the restored data writes WAL under names it already holds
-			m, merr := o.managed.Get(ctx, *v.InstanceID)
+			m, merr := o.operated.Get(ctx, *v.InstanceID)
 			if !errors.Is(err, errs.ErrRefused) || merr != nil {
 				errl = append(errl, fmt.Errorf("restore %s: %w", v.Slug, errors.Join(err, merr)))
 				continue

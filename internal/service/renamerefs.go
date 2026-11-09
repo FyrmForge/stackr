@@ -7,7 +7,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -37,8 +37,8 @@ func (o *Orchestrator) renameCarrying(
 
 // carrySlug rewrites, inside the rename's own transaction, every stored
 // reference in org that names the renamed slug: slice provision_from
-// (stack:env:tile), managed allow lists (org:stack:env:tile) and, for an env,
-// the env pairs of its own stack's managed tiles. pos is the moved segment
+// (stack:env:tile), operated allow lists (org:stack:env:tile) and, for an env,
+// the env pairs of its own stack's operated tiles. pos is the moved segment
 // of an address (0 org, 1 stack, 2 env, 3 tile), above the slugs before it,
 // as they are after the rename. A reference in a config-managed stack is
 // its stack file's, so it is left alone and comes back as a warning.
@@ -93,12 +93,12 @@ func (o *Orchestrator) carrySlug(
 			}
 		}
 	}
-	ms := managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings)
+	ms := operated.New(tx.OperatedInstances, tx.Provisions, tx.Bindings)
 	orgSlug := nu
 	if pos > 0 {
 		orgSlug = above[0]
 	}
-	ts, err := tiles.ListByKind(ctx, tile.Managed)
+	ts, err := tiles.ListByKind(ctx, tile.Operated)
 	if err != nil {
 		return nil, err
 	}

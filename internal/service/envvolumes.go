@@ -17,7 +17,7 @@ type EnvVolume struct {
 	Volume
 	SizeBytes int64    // -1 = Docker cannot tell (never deployed, node away)
 	MountedBy []string // the tiles whose volumes lines name it
-	OwnedBy   string   // the managed tile that owns it; "" = the env's own
+	OwnedBy   string   // the operated tile that owns it; "" = the env's own
 }
 
 // EnvVolumes is the env's volumes. Managed: a stack file declares them, so
@@ -49,10 +49,10 @@ func (o *Orchestrator) ListEnvVolumes(ctx context.Context, envID string) (EnvVol
 	}
 	owners := map[string]string{}
 	for _, t := range ts {
-		if t.Kind != tile.Managed {
+		if t.Kind != tile.Operated {
 			continue
 		}
-		m, err := o.managed.GetByTile(ctx, t.ID)
+		m, err := o.operated.GetByTile(ctx, t.ID)
 		if errors.Is(err, errs.ErrNotFound) {
 			continue
 		}
@@ -66,7 +66,7 @@ func (o *Orchestrator) ListEnvVolumes(ctx context.Context, envID string) (EnvVol
 	for _, v := range vs {
 		ev := EnvVolume{Volume: v, SizeBytes: sizes[v.ID], MountedBy: mountedBy(ts, v.Slug)}
 		if v.InstanceID != nil {
-			ev.OwnedBy = cmp.Or(owners[*v.InstanceID], "a managed instance")
+			ev.OwnedBy = cmp.Or(owners[*v.InstanceID], "an operated instance")
 		}
 		out.Volumes = append(out.Volumes, ev)
 	}
@@ -93,7 +93,7 @@ func (o *Orchestrator) DeclareEnvVolume(ctx context.Context, envID, name string)
 
 // RemoveEnvVolume orphans a volume of the env: its data stays for the
 // retention window, and declaring the name again takes it back. Refused
-// while a tile mounts it or a managed instance owns it.
+// while a tile mounts it or an operated instance owns it.
 func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID string) error {
 	if err := o.envVolumesWritable(ctx, envID); err != nil {
 		return err
@@ -106,7 +106,7 @@ func (o *Orchestrator) RemoveEnvVolume(ctx context.Context, envID, volumeID stri
 		return errs.ErrNotFound
 	}
 	if v.InstanceID != nil {
-		return errs.Conflictf("%s belongs to a managed instance; it goes when the instance does", v.Slug)
+		return errs.Conflictf("%s belongs to an operated instance; it goes when the instance does", v.Slug)
 	}
 	ts, err := o.tiles.List(ctx, envID)
 	if err != nil {
@@ -198,9 +198,8 @@ func mountedBy(ts []Tile, sl string) []string {
 	return out
 }
 
-
 // MountableVolumes are the names a tile of the env may mount: its live
-// volumes a managed instance does not own.
+// volumes an operated instance does not own.
 func (o *Orchestrator) MountableVolumes(ctx context.Context, envID string) ([]string, error) {
 	vs, err := o.volumes.List(ctx, VolumeScope{Kind: "env", ID: envID})
 	var out []string

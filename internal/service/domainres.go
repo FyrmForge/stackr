@@ -378,7 +378,7 @@ func (o *Orchestrator) panelDomain(ctx context.Context) string {
 
 // applyRename writes a checked rename: the resources, then the tile domains
 // (each old host keeps a generated redirect to its new one), no proxy push, all
-// in one transaction so a store error leaves no partial rename. Managed tiles
+// in one transaction so a store error leaves no partial rename. Operated tiles
 // whose domain moved then re-publish their URLs and redeploy the tiles that
 // read them.
 // Inside the transaction nothing reads through o: the pool is one connection.
@@ -444,12 +444,12 @@ func (o *Orchestrator) applyRename(ctx context.Context, p renamePlan, orgs []sto
 	if err != nil {
 		return err
 	}
-	return o.republishManaged(ctx, p.rows)
+	return o.republishOperated(ctx, p.rows)
 }
 
-// republishManaged refreshes the stored URLs of the managed tiles that own
+// republishOperated refreshes the stored URLs of the operated tiles that own
 // rows and redeploys their running readers.
-func (o *Orchestrator) republishManaged(ctx context.Context, rows []Domain) error {
+func (o *Orchestrator) republishOperated(ctx context.Context, rows []Domain) error {
 	seen := map[string]bool{}
 	var readers []Tile
 	for _, d := range rows {
@@ -461,7 +461,7 @@ func (o *Orchestrator) republishManaged(ctx context.Context, rows []Domain) erro
 		if err != nil {
 			return err
 		}
-		if t.Kind != tile.Managed {
+		if t.Kind != tile.Operated {
 			continue
 		}
 		ids, err := o.engines.Republish(ctx, t)

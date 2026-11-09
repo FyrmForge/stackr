@@ -1,17 +1,17 @@
-# Managed databases
+# Operated databases
 
-A managed tile is a database instance stackr runs for an env: `postgres` or `s3`. Apps never use the instance directly. They use a slice tile, a database (or bucket) cut from it, and each app that names the slice gets its own login on it.
+An operated tile is a database instance stackr runs for an env: `postgres` or `s3`. Apps never use the instance directly. They use a slice tile, a database (or bucket) cut from it, and each app that names the slice gets its own login on it.
 
 ## Make one
 
-1. Open the env, New tile, source Managed, pick the engine, Create.
+1. Open the env, New tile, source Operated, pick the engine, Create.
 2. Deploy the tile. Postgres is ready when its deploy finishes.
 3. Add a slice tile (source Slice) that provisions from it, `<stack>:<env>:<tile>`.
 
 Or from the CLI:
 
 ```bash
-stackr managed create pg --engine postgres --env dev
+stackr operated create pg --engine postgres --env dev
 stackr slice add pg-db --from shop:dev:pg --env dev
 ```
 
@@ -19,14 +19,14 @@ stackr slice add pg-db --from shop:dev:pg --env dev
 
 A new postgres tile can start with your data in it.
 
-1. Open the env, New tile, source Managed, engine postgres.
+1. Open the env, New tile, source Operated, engine postgres.
 2. Pick the file under Start from a dump, then Create.
 
 Or from the CLI, with a file or `-` for stdin:
 
 ```bash
-stackr managed create pg --engine postgres --env dev --from-dump shop.dump
-pg_dump -Fc "$OLD_DATABASE_URL" | stackr managed create pg --engine postgres --env dev --from-dump -
+stackr operated create pg --engine postgres --env dev --from-dump shop.dump
+pg_dump -Fc "$OLD_DATABASE_URL" | stackr operated create pg --engine postgres --env dev --from-dump -
 ```
 
 This makes two tiles, the instance `pg` and a slice `pg-db`, then runs one job. It deploys the instance, waits until postgres answers, deploys the slice and loads the dump into the slice's database. Apps that use `pg-db` see the data. Name the slice with `--slice`.
@@ -37,7 +37,7 @@ What it loads:
 
 - `pg_dump -Fc` (custom format) goes through `pg_restore`.
 - Plain SQL (`pg_dump` with no `-F`) goes through `psql`.
-- A gzipped dump is refused. Unpack it first: `gunzip -c shop.sql.gz | stackr managed create ... --from-dump -`.
+- A gzipped dump is refused. Unpack it first: `gunzip -c shop.sql.gz | stackr operated create ... --from-dump -`.
 - Tar dumps, `pg_dumpall` and dumps made with `-C` are not loaded.
 
 The source's roles do not matter. Owners and grants in the dump are skipped, and everything is made by the slice's owner, so every app bound to the slice reaches it.

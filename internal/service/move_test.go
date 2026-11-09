@@ -104,7 +104,7 @@ func TestDeployOrderPutsDependenciesFirst(t *testing.T) {
 		{Slug: "web", Kind: tile.Image, DependsOn: "api"},
 		{Slug: "api", Kind: tile.Image, DependsOn: "db:healthy"},
 		{Slug: "db", Kind: tile.Image},
-		{Slug: "pg", Kind: tile.Managed},
+		{Slug: "pg", Kind: tile.Operated},
 	}
 	var got []string
 	for _, x := range deployOrder(ts) {

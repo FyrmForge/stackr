@@ -13,7 +13,7 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 // CreateTileView is the create-tile form. Source picks the fields: image
 // (a ref), service (a repo: connector + URL; it builds from the env's branch), cron (image +
-// schedule), function (image + trigger), managed (an engine). Switching
+// schedule), function (image + trigger), operated (an engine). Switching
 // the source re-GETs the form with the typed values kept. ponytail: the
 // repo pick is a URL field (a private repo goes through the connector for
 // its host); no verb lists a connector's repos yet.
@@ -46,14 +46,14 @@ func hostsHelp(hosts string) string {
 
 // encoding is the form's: multipart where it can carry a dump.
 func encoding(source string) string {
-	if source == "managed" {
+	if source == "operated" {
 		return "multipart/form-data"
 	}
 	return "application/x-www-form-urlencoded"
 }
 
 // Sources are the create form's source switch.
-var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"managed", "Managed"}, {"slice", "Slice"}}
+var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"operated", "Operated"}, {"slice", "Slice"}}
 
 func CreateTile(v CreateTileView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -193,8 +193,8 @@ func CreateTile(v CreateTileView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		case "managed":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<div><label for=\"engine\" class=\"label\">Engine</label> ")
+		case "operated":
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<p class=\"text-xs text-rw-faint\" data-hint>stackr runs it, you own it: backups and upgrades are yours to schedule.</p><div><label for=\"engine\" class=\"label\">Engine</label> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -209,7 +209,7 @@ func CreateTile(v CreateTileView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Switch).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dialog/create_tile.templ`, Line: 72, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/dialog/create_tile.templ`, Line: 73, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
@@ -295,7 +295,7 @@ func CreateTile(v CreateTileView) templ.Component {
 				}
 			}
 		case "slice":
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The managed tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The operated tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -363,7 +363,7 @@ func CreateTile(v CreateTileView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if v.Source != "managed" && v.Source != "slice" {
+		if v.Source != "operated" && v.Source != "slice" {
 			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "command", Label: "Command", Value: v.Command, Placeholder: "echo hi", Help: "Optional; replaces the image's command. Split like a shell line.", Error: v.Errors["command"]}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

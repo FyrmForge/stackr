@@ -18,7 +18,7 @@ import (
 
 // The create dialog takes a dump past the 2M body limit, as multipart, with
 // the CSRF token in its header; a dump stackr does not load marks the field.
-func TestCreateManagedFromDump(t *testing.T) {
+func TestCreateOperatedFromDump(t *testing.T) {
 	s := webtest.New(t)
 	u := s.User(t, "dba@acme.test", false)
 	s.Member(t, s.Org, u, "owner")
@@ -26,7 +26,7 @@ func TestCreateManagedFromDump(t *testing.T) {
 	post := func(name string, dump []byte) *httptest.ResponseRecorder {
 		var b bytes.Buffer
 		mw := multipart.NewWriter(&b)
-		for k, v := range map[string]string{"source": "managed", "name": name, "engine": "postgres"} {
+		for k, v := range map[string]string{"source": "operated", "name": name, "engine": "postgres"} {
 			_ = mw.WriteField(k, v)
 		}
 		fw, _ := mw.CreateFormFile("dump", "shop.dump")
@@ -74,7 +74,7 @@ func TestFailedSeedShowsInDrawers(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	in := service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}
-	pg, j, err := s.Orch.CreateManagedTileFromDump(ctx, in, "postgres", "", strings.NewReader("PGDMP"))
+	pg, j, err := s.Orch.CreateOperatedTileFromDump(ctx, in, "postgres", "", strings.NewReader("PGDMP"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestFailedSeedShowsInDrawers(t *testing.T) {
 
 // A dump over seed_max_gb (1 GiB at the least) is refused saying so, not
 // with "a tile needs a name": Go drops every field of an overrun form.
-func TestCreateManagedDumpOverLimit(t *testing.T) {
+func TestCreateOperatedDumpOverLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("streams a GiB through the form parser")
 	}
@@ -120,7 +120,7 @@ func TestCreateManagedDumpOverLimit(t *testing.T) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	go func() {
-		for k, v := range map[string]string{"source": "managed", "name": "big", "engine": "postgres"} {
+		for k, v := range map[string]string{"source": "operated", "name": "big", "engine": "postgres"} {
 			_ = mw.WriteField(k, v)
 		}
 		fw, _ := mw.CreateFormFile("dump", "big.dump")

@@ -3304,438 +3304,6 @@
         ],
         "type": "object"
       },
-      "ManagedIn": {
-        "properties": {
-          "build_args": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "build_context": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "command": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "container_port": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "cpu_limit": {
-            "oneOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "depends_on": {
-            "oneOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "devices": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "dockerfile_path": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "endpoint_protocol": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "engine": {
-            "type": "string"
-          },
-          "env_json": {
-            "oneOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "files": {
-            "oneOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "git_branch": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "git_url": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "health_path": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_cmd": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_interval_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_retries": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_start_period_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "healthcheck_timeout_s": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "host_network": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "image_ref": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "lan": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "mem_limit_mb": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "privileged": {
-            "oneOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "published_ports": {
-            "oneOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "replicas": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "restart_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "schedule": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shared_net": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shm_size_mb": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tag_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "timeout_minutes": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "trigger": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "update_policy": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "user": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "volumes": {
-            "oneOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "watch_paths": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "name",
-          "engine"
-        ],
-        "type": "object"
-      },
-      "ManagedInstance": {
-        "properties": {
-          "admin_user": {
-            "type": "string"
-          },
-          "allow": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "endpoint": {
-            "type": "string"
-          },
-          "engine": {
-            "type": "string"
-          },
-          "env_pairs": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "id": {
-            "type": "string"
-          },
-          "pitr_days": {
-            "type": "integer"
-          },
-          "settings": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "tile_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "tile_id",
-          "engine",
-          "allow",
-          "env_pairs",
-          "admin_user",
-          "endpoint",
-          "pitr_days",
-          "settings",
-          "created_at"
-        ],
-        "type": "object"
-      },
       "ManagedRecord": {
         "properties": {
           "drift": {
@@ -3798,21 +3366,6 @@
           "value",
           "whose",
           "whose_text"
-        ],
-        "type": "object"
-      },
-      "ManagedSeeded": {
-        "properties": {
-          "job": {
-            "$ref": "#/components/schemas/Job"
-          },
-          "tile": {
-            "$ref": "#/components/schemas/TileView"
-          }
-        },
-        "required": [
-          "tile",
-          "job"
         ],
         "type": "object"
       },
@@ -4654,6 +4207,453 @@
         "required": [
           "all",
           "orgs"
+        ],
+        "type": "object"
+      },
+      "OperatedIn": {
+        "properties": {
+          "build_args": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "build_context": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "command": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "container_port": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cpu_limit": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "depends_on": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "devices": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dockerfile_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endpoint_protocol": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "engine": {
+            "type": "string"
+          },
+          "env_json": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "files": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "git_branch": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "git_url": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health_path": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_cmd": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_interval_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_retries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_start_period_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthcheck_timeout_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_network": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_ref": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lan": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mem_limit_mb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "privileged": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "published_ports": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replicas": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "restart_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_net": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shm_size_mb": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tag_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_minutes": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trigger": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "update_policy": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volumes": {
+            "oneOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch_paths": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "engine"
+        ],
+        "type": "object"
+      },
+      "OperatedInstance": {
+        "properties": {
+          "admin_user": {
+            "type": "string"
+          },
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "env_pairs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "pitr_days": {
+            "type": "integer"
+          },
+          "settings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "tile_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tile_id",
+          "engine",
+          "allow",
+          "env_pairs",
+          "admin_user",
+          "endpoint",
+          "pitr_days",
+          "settings",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "OperatedSeeded": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "tile": {
+            "$ref": "#/components/schemas/TileView"
+          }
+        },
+        "required": [
+          "tile",
+          "job"
         ],
         "type": "object"
       },
@@ -18893,9 +18893,9 @@
         "x-verb": "tile.read"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/managed": {
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/operated": {
       "get": {
-        "operationId": "managed.list",
+        "operationId": "operated.list",
         "parameters": [
           {
             "in": "path",
@@ -18928,7 +18928,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/ManagedInstance"
+                    "$ref": "#/components/schemas/OperatedInstance"
                   },
                   "type": "array"
                 }
@@ -18950,7 +18950,7 @@
         "x-verb": "tile.read"
       },
       "post": {
-        "operationId": "managed.create",
+        "operationId": "operated.create",
         "parameters": [
           {
             "in": "path",
@@ -18981,7 +18981,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ManagedIn"
+                "$ref": "#/components/schemas/OperatedIn"
               }
             }
           },
@@ -19012,9 +19012,9 @@
         "x-verb": "tile.write"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/managed/from-dump": {
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/operated/from-dump": {
       "post": {
-        "operationId": "managed.from-dump",
+        "operationId": "operated.from-dump",
         "parameters": [
           {
             "in": "path",
@@ -19073,7 +19073,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ManagedSeeded"
+                  "$ref": "#/components/schemas/OperatedSeeded"
                 }
               }
             },
@@ -20342,7 +20342,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/allow": {
       "put": {
-        "operationId": "managed.allow",
+        "operationId": "operated.allow",
         "parameters": [
           {
             "in": "path",
@@ -20392,7 +20392,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ManagedInstance"
+                  "$ref": "#/components/schemas/OperatedInstance"
                 }
               }
             },
@@ -20409,7 +20409,7 @@
             "description": "error"
           }
         },
-        "x-verb": "managed.allow"
+        "x-verb": "operated.allow"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bindings": {
@@ -21199,7 +21199,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/env-pairs": {
       "put": {
-        "operationId": "managed.env-pairs",
+        "operationId": "operated.env-pairs",
         "parameters": [
           {
             "in": "path",
@@ -21249,7 +21249,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ManagedInstance"
+                  "$ref": "#/components/schemas/OperatedInstance"
                 }
               }
             },
@@ -22277,7 +22277,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/pitr": {
       "get": {
-        "operationId": "managed.pitr-status",
+        "operationId": "operated.pitr-status",
         "parameters": [
           {
             "in": "path",
@@ -22337,7 +22337,7 @@
         "x-verb": "tile.read"
       },
       "put": {
-        "operationId": "managed.pitr",
+        "operationId": "operated.pitr",
         "parameters": [
           {
             "in": "path",
@@ -22418,7 +22418,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/promote-restore": {
       "post": {
-        "operationId": "managed.promote-restore",
+        "operationId": "operated.promote-restore",
         "parameters": [
           {
             "in": "path",
@@ -22631,7 +22631,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/restore": {
       "post": {
-        "operationId": "managed.restore",
+        "operationId": "operated.restore",
         "parameters": [
           {
             "in": "path",
@@ -22978,7 +22978,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/settings": {
       "get": {
-        "operationId": "managed.settings",
+        "operationId": "operated.settings",
         "parameters": [
           {
             "in": "path",
@@ -23038,7 +23038,7 @@
         "x-verb": "tile.read"
       },
       "put": {
-        "operationId": "managed.settings-set",
+        "operationId": "operated.settings-set",
         "parameters": [
           {
             "in": "path",

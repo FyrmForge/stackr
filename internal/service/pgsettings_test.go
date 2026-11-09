@@ -21,7 +21,7 @@ func TestPGSettingsApply(t *testing.T) {
 	org := env.Org(t, "acme")
 	tl := env.Tile(t, org)
 	o := env.Orch
-	pg, err := o.CreateManagedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}

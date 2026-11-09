@@ -472,15 +472,15 @@ func TestRenameRedirectKeepsHTTPSFlags(t *testing.T) {
 	}
 }
 
-// A managed tile's stored S3_ENDPOINT follows a rename of the resource its
+// An operated tile's stored S3_ENDPOINT follows a rename of the resource its
 // auto host sits under, and the consumer reading it redeploys.
-func TestRenameRepublishesManagedURL(t *testing.T) {
+func TestRenameRepublishesOperatedURL(t *testing.T) {
 	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
-	files, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "files"}, "s3")
+	files, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "files"}, "s3")
 	must(t, err)
-	m, err := w.st.ManagedInstances.GetByTile(ctx, files.ID)
+	m, err := w.st.OperatedInstances.GetByTile(ctx, files.ID)
 	must(t, err)
 	_, err = w.orch.AttachDomain(ctx, files.ID, DomainSpec{Auto: true, Port: 9000})
 	must(t, err)

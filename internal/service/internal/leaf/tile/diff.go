@@ -58,7 +58,7 @@ const (
 
 // Effects: nothing moved (or only watcher keys) → nothing. A serving tile
 // (service, image) always rewrites its route and redeploys unless only
-// route keys moved. A managed instance has no route of its own. A run-to-
+// route keys moved. An operated instance has no route of its own. A run-to-
 // completion tile reads schedule, command and timeouts off the row at each
 // run: it earns a redeploy only for a build key, and a cron reload when
 // the schedule table's view moved.
@@ -88,7 +88,7 @@ func Effects(kind string, c Changed) []Effect {
 	switch {
 	case !rest.Any():
 		return out
-	case kind == Managed:
+	case kind == Operated:
 		return append(out, Redeploy)
 	case rest.ProxyOnly():
 		return append(out, Route)

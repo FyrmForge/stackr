@@ -22,16 +22,16 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// The kinds. service builds from git, image runs a pulled image, managed
+// The kinds. service builds from git, image runs a pulled image, operated
 // is an instance whose definition comes from its engine. cron and function
 // are run-to-completion tiles: built from git or run from an image, they
 // keep no container up; a schedule (cron) or a trigger (function) runs one.
-// slice is one database or bucket cut from a managed tile (DECIDE 194): no
+// slice is one database or bucket cut from an operated tile (DECIDE 194): no
 // container, its consumers bind to it.
 const (
 	Service  = "service"
 	Image    = "image"
-	Managed  = "managed"
+	Operated = "operated"
 	Cron     = "cron"
 	Function = "function"
 	Slice    = "slice"
@@ -60,7 +60,7 @@ func Builds(t store.Tile) bool {
 }
 
 // Pulls: the tile's artifact is a registry image it names (an image tile,
-// or a run kind with an image). Managed pulls its engine's, not this.
+// or a run kind with an image). Operated pulls its engine's, not this.
 func Pulls(t store.Tile) bool {
 	return t.Kind == Image || (RunToCompletion(t.Kind) && t.GitURL == "")
 }
@@ -139,8 +139,8 @@ var refusals = map[string]string{
 	"schedule":       "schedule applies to cron tiles only",
 	"trigger":        "run_on_deploy applies to function tiles only",
 	"paused":         "only cron tiles have a schedule to pause",
-	"command":        "command does not apply to a %s",
-	"port":           "a %s has no endpoint; port does not apply",
+	"command":        "command does not apply to %s tiles",
+	"port":           "%s tiles have no endpoint; port does not apply",
 	"user":           "user applies to service tiles only",
 	"privileged":     "privileged applies to service tiles only",
 	"devices":        "devices apply to service tiles only",
@@ -150,7 +150,7 @@ var refusals = map[string]string{
 	"provision_from": "provision_from applies to slice tiles only",
 	"default_access": "default_access applies to slice tiles only",
 	"on_remove":      "on_remove applies to slice tiles only",
-	"slice_access":   "slice_access does not apply to a %s",
+	"slice_access":   "slice_access does not apply to %s tiles",
 }
 
 func refuse(kind, key string) error {
@@ -214,13 +214,13 @@ var (
 )
 
 // Carries is B26: the one whitelist of what each kind may carry. Restart
-// policy is base, every kind has it. A managed instance's image, command,
+// policy is base, every kind has it. An operated instance's image, command,
 // port and volumes come from its engine; the row carries only the knobs
 // the engine leaves open (an image override, env, limits, published ports).
 var Carries = map[string]map[string]bool{
 	Service:  keys(buildKeys, runKeys, []string{"slice_access"}),
 	Image:    keys(watchKeys, runKeys, []string{"slice_access"}),
-	Managed:  keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
+	Operated: keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
 	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused", "slice_access"}),
 	Function: keys(buildKeys, oneShotKeys, []string{"trigger", "slice_access"}),
 	Slice:    keys([]string{"provision_from", "default_access", "on_remove"}),
@@ -236,7 +236,7 @@ var Carries = map[string]map[string]bool{
 func Validate(t *store.Tile) error {
 	allowed, ok := Carries[t.Kind]
 	if !ok {
-		return errs.Invalidf("kind", "kind must be service, image, managed, cron, function or slice")
+		return errs.Invalidf("kind", "kind must be service, image, operated, cron, function or slice")
 	}
 	var bad []error
 	add := func(err error) {

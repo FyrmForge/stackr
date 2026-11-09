@@ -16,7 +16,7 @@ import (
 // object), read as the tile's env reads them (its tier's block, or an unlocked [x] one), expanded here, so a
 // secret reaches Docker's volume opts and nothing else.
 func (f *Flow) shareBind(ctx context.Context, o store.Org, e store.Environment, st store.Stack, t store.Tile, m tile.Mount) (string, error) {
-	if t.Kind == tile.Managed {
+	if t.Kind == tile.Operated {
 		return "", errs.Conflictf("%s: a database on a share corrupts; give it a volume", t.Slug)
 	}
 	s, err := f.Volumes.ShareBySlug(ctx, o.ID, m.Share)

@@ -62,7 +62,7 @@ on the controller (its placement's node too) that has no container and whose new
 env sync, start or restart is newer than any stop, then removes the file. A worker's tiles, stopped tiles,
 never deployed ones and envs mid move are left alone; crons come back through the scheduler.
 
-Those deploys wait for the env's volumes (managed instances' too) to come back from their newest finished
+Those deploys wait for the env's volumes (operated instances' too) to come back from their newest finished
 backup run. Only a volume that holds no data (gone or measured empty) is restored, so one that survived is
 never rolled back. A tar backup is restored first, holding every tile to deploy; a dump backup is loaded
 right after its instance's deploy, holding the instance's consumers. A volume with no backup starts empty:

@@ -18,7 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -66,7 +66,7 @@ type Flow struct {
 	// PITRChanged runs after an apply moved an instance's recovery window: the
 	// weekly base backup follows it, and the shipper's state goes when it is
 	// off. The restart that makes postgres archive is the rollout's. Nil = none.
-	PITRChanged func(ctx context.Context, t store.Tile, m store.ManagedInstance)
+	PITRChanged func(ctx context.Context, t store.Tile, m store.OperatedInstance)
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -217,8 +217,8 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 		if err != nil {
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
-		if t.Kind == tile.Managed {
-			if _, err := d.Managed.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
+		if t.Kind == tile.Operated {
+			if _, err := d.Operated.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
 				return err
 			}
 		}
@@ -322,7 +322,7 @@ func partly(slug string, err error) error {
 }
 
 // applyInstances writes the file's allow list and env pairs onto each
-// managed tile's instance row whose either moved; nothing redeploys.
+// operated tile's instance row whose either moved; nothing redeploys.
 func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment) error {
 	d := f.D
 	o, err := d.Orgs.Get(ctx, w.st.OrgID)
@@ -335,23 +335,23 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 		if err != nil {
 			return err
 		}
-		m, err := d.Managed.GetByTile(ctx, t.ID)
+		m, err := d.Operated.GetByTile(ctx, t.ID)
 		if err != nil {
 			return err
 		}
-		if m, err = d.Managed.SetAllow(ctx, m, o.Slug, iw.allow); err != nil {
+		if m, err = d.Operated.SetAllow(ctx, m, o.Slug, iw.allow); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		if m, err = d.Managed.SetEnvPairs(ctx, m, iw.pairs); err != nil {
+		if m, err = d.Operated.SetEnvPairs(ctx, m, iw.pairs); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		if iw.settings != nil {
-			if m, err = d.Managed.SetSettings(ctx, m, *iw.settings); err != nil {
+			if m, err = d.Operated.SetSettings(ctx, m, *iw.settings); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
 		if iw.pitr != nil {
-			if m, err = d.Managed.SetPITR(ctx, m, *iw.pitr); err != nil {
+			if m, err = d.Operated.SetPITR(ctx, m, *iw.pitr); err != nil {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 			if f.PITRChanged != nil {
@@ -371,8 +371,8 @@ func (f *Flow) deleteTiles(ctx context.Context, w *work, e store.Environment, lo
 
 // Remove takes tiles of env e off the box and out of the store: containers,
 // ingress, a consumer's bindings, a slice tile's provision (its data dropped
-// or kept by on_remove), a managed tile's instance (volumes orphaned, its
-// network last). Consumers go first, then slices, then managed tiles, so
+// or kept by on_remove), an operated tile's instance (volumes orphaned, its
+// network last). Consumers go first, then slices, then operated tiles, so
 // nothing goes while something in this env still binds it. An engine
 // failure on a binding is logged, not fatal: its row goes with the tile.
 // It returns the ids of the tiles it removed, also on an error.
@@ -384,8 +384,8 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 	})
 	for _, t := range order {
 		net := ""
-		if t.Kind == tile.Managed {
-			m, err := d.Managed.GetByTile(ctx, t.ID)
+		if t.Kind == tile.Operated {
+			m, err := d.Operated.GetByTile(ctx, t.ID)
 			switch {
 			case err == nil:
 				// Refused before anything moves: an instance still holding
@@ -393,7 +393,7 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 				// ponytail: refuse, never drain; removing the slice tiles first
 				// (or a forced Engines.Teardown) is the way out, a UI verb for
 				// the forced drop when someone needs it.
-				if _, err := d.Managed.Teardown(ctx, m, false); err != nil {
+				if _, err := d.Operated.Teardown(ctx, m, false); err != nil {
 					return removed, err
 				}
 				if err := f.orphan(ctx, e, m); err != nil {
@@ -403,7 +403,7 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 				if err := d.Engines.Teardown(ctx, t, false, log); err != nil {
 					return removed, err
 				}
-				net = managed.Network(m.ID)
+				net = operated.Network(m.ID)
 			case !errors.Is(err, errs.ErrNotFound):
 				return removed, err
 			}
@@ -421,7 +421,7 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 			}
 		case d.Engines == nil:
 		case t.Kind == tile.Slice:
-			p, ok, err := d.Managed.ProvisionOf(ctx, t.ID)
+			p, ok, err := d.Operated.ProvisionOf(ctx, t.ID)
 			if err != nil {
 				return removed, err
 			}
@@ -437,7 +437,7 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 				}
 			}
 		default:
-			bound, err := d.Managed.Bound(ctx, t.ID)
+			bound, err := d.Operated.Bound(ctx, t.ID)
 			if err != nil {
 				return removed, err
 			}
@@ -529,12 +529,12 @@ func (f *Flow) forgetSlice(ctx context.Context, e store.Environment, slug string
 	return nil
 }
 
-// removeRank: consumers, then slices, then managed tiles.
+// removeRank: consumers, then slices, then operated tiles.
 func removeRank(t store.Tile) int {
 	switch t.Kind {
 	case tile.Slice:
 		return 1
-	case tile.Managed:
+	case tile.Operated:
 		return 2
 	}
 	return 0
@@ -542,7 +542,7 @@ func removeRank(t store.Tile) int {
 
 // orphan marks the instance's data volumes orphaned: kept, and reclaimed
 // only after retention.
-func (f *Flow) orphan(ctx context.Context, e store.Environment, m store.ManagedInstance) error {
+func (f *Flow) orphan(ctx context.Context, e store.Environment, m store.OperatedInstance) error {
 	vs, err := f.D.Volumes.List(ctx, volume.Scope{Kind: "env", ID: e.ID})
 	if err != nil {
 		return err
@@ -558,7 +558,7 @@ func (f *Flow) orphan(ctx context.Context, e store.Environment, m store.ManagedI
 	return nil
 }
 
-// rollout runs every tile the plan touched: managed tiles, then slice tiles
+// rollout runs every tile the plan touched: operated tiles, then slice tiles
 // (their provision needs the instance up), then the rest, each pass in
 // depends_on order. Image tiles whose tag moved run the tag and are pinned
 // again in one derived release.
@@ -630,10 +630,10 @@ func (f *Flow) rollout(ctx context.Context, w *work, e store.Environment, log io
 	return err
 }
 
-// rolloutPass: managed tiles, then slices, then everything else.
+// rolloutPass: operated tiles, then slices, then everything else.
 func rolloutPass(t store.Tile) int {
 	switch t.Kind {
-	case tile.Managed:
+	case tile.Operated:
 		return 0
 	case tile.Slice:
 		return 1

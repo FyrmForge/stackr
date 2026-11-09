@@ -81,7 +81,7 @@ Grow this list. A case goes here when it has fooled a run once.
   separate features.
 - `--app` is rewritten to `--tile` globally in `root.go`.
 - Config `scope` on a tile is structural (`yaml:"-"`), not a YAML key.
-- Stack snapshot skips org-scoped managed instances (`ScopeKind=="org"`).
+- Stack snapshot skips org-scoped operated instances (`ScopeKind=="org"`).
   Only the org file owns them. Not drift.
 - Panel-created domain resources are adopted (`Declared=false`), not
   deleted by drift.

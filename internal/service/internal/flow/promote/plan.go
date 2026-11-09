@@ -30,7 +30,7 @@ import (
 
 // Change is one line of a plan, planfile's shape. Kind is env | stack |
 // param | volume | orphan | create | update | delete | domain | slice |
-// managed | image. Values that may be credentials (env, params) never
+// operated | image. Values that may be credentials (env, params) never
 // appear, only that they moved.
 type Change = planfile.Change
 
@@ -165,7 +165,7 @@ type work struct {
 	deletes    []store.Tile
 	domains    map[string]domainWork   // by tile slug
 	hosts      []string                // the file's literal hostnames, for the records checks
-	instances  map[string]instanceWork // managed tiles whose allow or env_pairs moved, by slug
+	instances  map[string]instanceWork // operated tiles whose allow or env_pairs moved, by slug
 	list       Lister                  // reads the config repo's tree at the pinned commit
 	sliced     []string                // slice tiles created or moved: their consumers redeploy
 	base       string                  // a PR env's base env slug; "" on a static env
@@ -179,7 +179,7 @@ type work struct {
 	owed       []string       // tile ids a parked sync rollout still has to deploy
 }
 
-// instanceWork is a managed tile's allow list and env pairs as the file
+// instanceWork is an operated tile's allow list and env pairs as the file
 // says; apply writes both onto its instance row.
 type instanceWork struct {
 	allow []string
@@ -422,7 +422,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 	}
 	for _, name := range slices.Sorted(maps.Keys(re.Tiles)) {
 		tc := re.Tiles[name]
-		if tc.Type == tile.Managed && !deploy.KnownEngine(tc.Engine) {
+		if tc.Type == tile.Operated && !deploy.KnownEngine(tc.Engine) {
 			p.block("tile %s: engine %q is not supported (postgres or s3)", name, tc.Engine)
 			continue
 		}
@@ -451,7 +451,7 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			return err
 		}
 		switch row.Kind {
-		case tile.Managed:
+		case tile.Operated:
 			if err := f.planInstance(ctx, p, w, name, tc, old, exists); err != nil {
 				return err
 			}
@@ -505,8 +505,8 @@ func (f *Flow) planUpdate(ctx context.Context, p *Plan, w *work, old, row store.
 		)
 		return nil
 	}
-	if old.Kind == tile.Managed {
-		m, err := f.D.Managed.GetByTile(ctx, old.ID)
+	if old.Kind == tile.Operated {
+		m, err := f.D.Operated.GetByTile(ctx, old.ID)
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return err
 		}
@@ -681,7 +681,7 @@ func (f *Flow) planDomains(
 	old store.Tile,
 	exists bool,
 ) error {
-	if tc.Type == tile.Managed || tc.Type == tile.Slice {
+	if tc.Type == tile.Operated || tc.Type == tile.Slice {
 		return nil
 	}
 	var have []store.Domain
@@ -791,7 +791,7 @@ func (f *Flow) planRecords(ctx context.Context, p *Plan, w *work, name string, d
 	return strings.Join(notes, "; "), nil
 }
 
-// planInstance: a managed tile's allow list and env pairs against its
+// planInstance: an operated tile's allow list and env pairs against its
 // instance row. Either moving is a plan row and a row write on apply,
 // never a redeploy: the instance runs the same either way.
 func (f *Flow) planInstance(
@@ -803,9 +803,9 @@ func (f *Flow) planInstance(
 	old store.Tile,
 	exists bool,
 ) error {
-	var have store.ManagedInstance
+	var have store.OperatedInstance
 	if exists {
-		m, err := f.D.Managed.GetByTile(ctx, old.ID)
+		m, err := f.D.Operated.GetByTile(ctx, old.ID)
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return err
 		}
@@ -828,7 +828,7 @@ func (f *Flow) planInstance(
 	} {
 		if d := signedDiff(x.old, x.cur); d != "" {
 			p.add(Change{
-				Kind:  "managed",
+				Kind:  "operated",
 				Tile:  name,
 				Field: x.field,
 				New:   d,
@@ -838,7 +838,7 @@ func (f *Flow) planInstance(
 	}
 	var pitr *int
 	if tc.PITRDays != nil && *tc.PITRDays != have.PITRDays {
-		p.add(Change{Kind: "managed", Tile: name, Field: "pitr_days", New: strconv.Itoa(*tc.PITRDays)})
+		p.add(Change{Kind: "operated", Tile: name, Field: "pitr_days", New: strconv.Itoa(*tc.PITRDays)})
 		moved, pitr = true, tc.PITRDays
 		if exists {
 			w.redeploy[name] = true // archiving starts or stops with a restart
@@ -854,7 +854,7 @@ func (f *Flow) planInstance(
 		for k, v := range tc.Settings {
 			newS = append(newS, k+"="+v)
 		}
-		p.add(Change{Kind: "managed", Tile: name, Field: "settings", New: signedDiff(oldS, newS)})
+		p.add(Change{Kind: "operated", Tile: name, Field: "settings", New: signedDiff(oldS, newS)})
 		moved, settings = true, &tc.Settings
 		if exists {
 			w.redeploy[name] = true // the new container writes the new conf
@@ -889,7 +889,7 @@ func signedDiff(old, cur []string) string {
 // default access is a row, and every tile that refs the slice redeploys.
 // ponytail: an env_pairs edit upstream that moves the target under an
 // unchanged provision_from shows no row; the slice's next deploy refuses
-// the move (flow/managed Provision). Compare the provision's instance here
+// the move (flow/operated Provision). Compare the provision's instance here
 // if that surprise needs to come earlier.
 func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.Tile, exists bool) error {
 	target, ok, err := f.sliceTarget(ctx, p, w, row)
@@ -958,15 +958,15 @@ func (f *Flow) sliceTarget(ctx context.Context, p *Plan, w *work, row store.Tile
 	}
 	if st.ID == w.st.ID {
 		tc, ok := w.re.Tiles[tg.Tile]
-		if ok && tc.Type == tile.Managed {
+		if ok && tc.Type == tile.Operated {
 			pl.Pairs = tc.EnvPairs
 		}
 		var h *address.Host
 		if ok {
 			h = &address.Host{
-				Managed: tc.Type == tile.Managed,
-				Ready:   true,
-				Allow:   tc.Allow,
+				Operated: tc.Type == tile.Operated,
+				Ready:    true,
+				Allow:    tc.Allow,
 			}
 		}
 		pl.Envs[w.e.Slug] = h
@@ -1041,13 +1041,13 @@ func (f *Flow) planDeletes(ctx context.Context, p *Plan, w *work, live []store.T
 			continue
 		}
 		c := Change{Kind: "delete", Tile: t.Slug}
-		if t.Kind == tile.Managed {
-			m, err := f.D.Managed.GetByTile(ctx, t.ID)
+		if t.Kind == tile.Operated {
+			m, err := f.D.Operated.GetByTile(ctx, t.ID)
 			if err != nil && !errors.Is(err, errs.ErrNotFound) {
 				return err
 			}
 			if err == nil {
-				ps, err := f.D.Managed.ByInstance(ctx, m.ID)
+				ps, err := f.D.Operated.ByInstance(ctx, m.ID)
 				if err != nil {
 					return err
 				}

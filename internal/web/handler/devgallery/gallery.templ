@@ -52,7 +52,7 @@ templ gallery() {
 			<div class="grid gap-4 sm:grid-cols-3">
 				@c.TileCard(c.TileCardView{Name: "api", Href: "/dev/components", Kind: "image", State: "running", Source: "nginx:1",
 					Volumes: []c.VolumeCardView{{Name: "uploads", Href: "/dev/components", Size: "1.2 GB"}}})
-				@c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "managed", State: "stopped", Source: "postgres 16"})
+				@c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "operated", State: "stopped", Source: "postgres 16"})
 				@c.VolumeCard(c.VolumeCardView{Name: "old-cache", Href: "/dev/components", Size: "80 MB", Orphaned: true})
 			</div>
 		}
@@ -79,7 +79,7 @@ templ gallery() {
 						<div class="card py-1 text-xs" hx-get="/dev/components/drawer?node=volume:uploads&tab=backups" hx-target="#drawer-body" hx-push-url="?drawer=volume:uploads&tab=backups">uploads · 1.2 GB</div>
 					</graph-node>
 				}
-				@galleryNode("tile:db", "db", "managed · postgres 16", "620", "220", false)
+				@galleryNode("tile:db", "db", "operated · postgres 16", "620", "220", false)
 				<div class="absolute right-2 top-2 flex items-center gap-2 text-xs">
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="snap"/> snap</label>
 					<label class="flex items-center gap-1"><input type="checkbox" data-look="straight"/> straight</label>

@@ -524,7 +524,7 @@ func Footer(id string, f FooterView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</svg> <span class=\"truncate\">managed tile, open home</span></span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</svg> <span class=\"truncate\">operated tile, open home</span></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1114,7 +1114,7 @@ func glyph(kind string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		case "managed", "ref":
+		case "operated", "ref":
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"></ellipse> <path d=\"M3 5v14a9 3 0 0 0 18 0V5\"></path> <path d=\"M3 12a9 3 0 0 0 18 0\"></path>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

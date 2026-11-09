@@ -58,7 +58,7 @@ type Flow struct {
 type Subject struct {
 	Volume  store.Volume
 	Holders []store.Tile // tiles whose replicas mount the volume
-	Engine  store.Tile   // the managed tile Dump and Load exec in
+	Engine  store.Tile   // the operated tile Dump and Load exec in
 	Dump    []string     // nil = tar the volume
 	Load    []string     // restore argv, reads the dump on stdin
 	// Consumers are the tiles that hold connections to the instance (the

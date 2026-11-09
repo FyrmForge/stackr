@@ -17,7 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
@@ -28,14 +28,14 @@ import (
 const DefaultPath = "/proc/net/nf_conntrack"
 
 type Flow struct {
-	Tiles   *tile.Leaf
-	Envs    *environment.Leaf
-	Stacks  *stack.Leaf
-	Domains *domain.Leaf
-	Managed *managed.Leaf
-	Traffic *ltraffic.Leaf
-	Path    string           // the conntrack file
-	Now     func() time.Time // nil = time.Now
+	Tiles    *tile.Leaf
+	Envs     *environment.Leaf
+	Stacks   *stack.Leaf
+	Domains  *domain.Leaf
+	Operated *operated.Leaf
+	Traffic  *ltraffic.Leaf
+	Path     string           // the conntrack file
+	Now      func() time.Time // nil = time.Now
 	// Remote is every worker's GET /v1/traffic by node id; a node that did
 	// not answer is absent. nil = the controller alone.
 	Remote func(ctx context.Context) map[string]worker.Traffic
@@ -178,12 +178,12 @@ func (f *Flow) Edges(ctx context.Context, envID string) ([]ltraffic.Edge, error)
 	for _, t := range ts {
 		in[t.ID] = true
 		name[t.ID] = t.Slug
-		ps, err := f.Managed.ForConsumer(ctx, t.ID)
+		ps, err := f.Operated.ForConsumer(ctx, t.ID)
 		if err != nil {
 			return nil, err
 		}
 		for _, p := range ps {
-			m, err := f.Managed.Get(ctx, p.InstanceID)
+			m, err := f.Operated.Get(ctx, p.InstanceID)
 			if err != nil {
 				return nil, err
 			}

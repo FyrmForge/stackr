@@ -120,7 +120,7 @@ ui/static/                static assets (not Go)
 - **A flow sequences several leaves.** It computes facts and passes them
   down; it holds no Docker handle (the leaves do).
 - **Flow → flow only on the listed edges:** `flow/promote` → `flow/deploy`,
-  `flow/deploy` → `flow/managed` and `flow/run` → `flow/deploy` (step 3b:
+  `flow/deploy` → `flow/operated` and `flow/run` → `flow/deploy` (step 3b:
   a run uses deploy's spec builder). Never a cycle, never a new edge
   without a plan change.
 - A flow never enqueues; the orchestrator verb queues the job and the

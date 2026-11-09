@@ -1,4 +1,4 @@
-package managed_test
+package operated_test
 
 import (
 	"io"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 )
 
 // The dump streams into the instance as the slice's owner, through

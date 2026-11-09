@@ -36,7 +36,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 )
 
-// ErrExec is every exec on the fake host: managed databases and dump
+// ErrExec is every exec on the fake host: operated databases and dump
 // backups read real command output, so an echo would be a false success.
 var ErrExec = errors.New("fakehost: exec is not available on the fake host; test it on the rig")
 

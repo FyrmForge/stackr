@@ -9,10 +9,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// settings: on a managed postgres tile: a plan row and a restart when they
+// settings: on an operated postgres tile: a plan row and a restart when they
 // move, written onto the instance on apply, nothing when the file leaves
 // them out or already says it.
-func TestManagedSettings(t *testing.T) {
+func TestOperatedSettings(t *testing.T) {
 	w := newSliceWorld(t)
 	rel := func(commit, file string) store.Release {
 		w.files[commit] = file
@@ -27,7 +27,7 @@ func TestManagedSettings(t *testing.T) {
 
 	p, err := w.f.Plan(ctx, staging, rel("s1", on).ID, io.Discard)
 	must(t, err)
-	if got := kinds(p); !strings.Contains(got, "managed:pg-dbsettings+work_mem=8MB") {
+	if got := kinds(p); !strings.Contains(got, "operated:pg-dbsettings+work_mem=8MB") {
 		t.Fatalf("plan = %s", got)
 	}
 	if !strings.Contains(strings.Join(p.Warnings, "|"), "pg-db restarts to change its settings") {
@@ -35,7 +35,7 @@ func TestManagedSettings(t *testing.T) {
 	}
 
 	// a file that leaves them out does not touch what the panel set
-	w.instance(t, "staging", func(m *store.ManagedInstance) { m.Settings = store.StringMap{"work_mem": "8MB"} })
+	w.instance(t, "staging", func(m *store.OperatedInstance) { m.Settings = store.StringMap{"work_mem": "8MB"} })
 	p, err = w.f.Plan(ctx, staging, rel("s2", infraFile).ID, io.Discard)
 	must(t, err)
 	if strings.Contains(kinds(p), "settings") {
@@ -48,14 +48,14 @@ func TestManagedSettings(t *testing.T) {
 	}
 	p, err = w.f.Plan(ctx, staging, rel("s4", infraFile+"      settings: {}\n").ID, io.Discard)
 	must(t, err)
-	if got := kinds(p); !strings.Contains(got, "managed:pg-dbsettings") {
+	if got := kinds(p); !strings.Contains(got, "operated:pg-dbsettings") {
 		t.Errorf("cleared = %s", got)
 	}
 }
 
 func TestSettingsAreRefusedWhereTheyMeanNothing(t *testing.T) {
 	for name, c := range map[string]struct{ file, want string }{
-		"on an image": {tiles("    api:\n      image: x\n      settings:\n        work_mem: 8MB\n"), "tile api: settings: only a managed tile takes it"},
+		"on an image": {tiles("    api:\n      image: x\n      settings:\n        work_mem: 8MB\n"), "tile api: settings: only an operated tile takes it"},
 		"on s3":       {tiles("    s:\n      engine: s3\n      settings:\n        work_mem: 8MB\n"), "tile s: settings: s3 has no settings"},
 		"an owned one": {
 			tiles("    db:\n      engine: postgres\n      settings:\n        wal_level: logical\n"),

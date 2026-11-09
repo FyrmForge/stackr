@@ -17,14 +17,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// edgeData puts a managed postgres (with its instance volume) and a plain
+// edgeData puts an operated postgres (with its instance volume) and a plain
 // volume in the env on w1, both tiles running there.
 func edgeData(t *testing.T, n *twoNodes) (pg Tile, inst, plain store.Volume) {
 	t.Helper()
 	ctx := context.Background()
-	pg, err := n.orch.CreateManagedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "pg"}, "postgres")
+	pg, err := n.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "pg"}, "postgres")
 	must(t, err)
-	m, err := n.st.ManagedInstances.GetByTile(ctx, pg.ID)
+	m, err := n.st.OperatedInstances.GetByTile(ctx, pg.ID)
 	must(t, err)
 	inst, _, err = n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: n.edge.ID}, "pg-data", &m.ID)
 	must(t, err)

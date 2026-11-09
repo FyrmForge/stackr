@@ -233,7 +233,7 @@ func TestOrgPlacementsOffers(t *testing.T) {
 	}
 }
 
-// Volumes and managed tiles need a node tagged storage (planfile.Fits).
+// Volumes and operated tiles need a node tagged storage (planfile.Fits).
 func TestPlacementFit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -266,11 +266,11 @@ func TestPlacementFit(t *testing.T) {
 		t.Errorf("dropped storage under a volume env = %v", err)
 	}
 
-	// a managed tile counts too
-	_, err = n.orch.CreateManagedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "db", MemLimitMB: 512}, "postgres")
+	// an operated tile counts too
+	_, err = n.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "db", MemLimitMB: 512}, "postgres")
 	must(t, err)
 	if got, _ := n.orch.envNeeds(ctx, n.edge.ID); !got.Storage {
-		t.Error("an env with a managed tile does not need storage")
+		t.Error("an env with an operated tile does not need storage")
 	}
 }
 

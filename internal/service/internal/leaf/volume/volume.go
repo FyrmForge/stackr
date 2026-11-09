@@ -1,5 +1,5 @@
 // Package volume owns volumes: the row and the Docker volume. A volume is
-// scoped (env, or the scope of the managed instance that owns it) and is
+// scoped (env, or the scope of the operated instance that owns it) and is
 // never removed by a deploy, rollback, promote or tile delete. It is orphaned
 // (row and data stay) when its entry leaves the stack file or its instance
 // goes; declaring the same slug again re-adopts it. Only an explicit Delete
@@ -128,7 +128,7 @@ func CheckName(sl string) error {
 
 // Declare is the row for a volume the stack file (or an instance) names.
 // An orphan with the same slug in the same scope is re-adopted, data and
-// all; adopted says so. instanceID is the owning managed instance, if any.
+// all; adopted says so. instanceID is the owning operated instance, if any.
 func (l *Leaf) Declare(
 	ctx context.Context,
 	s Scope,

@@ -21,7 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -43,7 +43,7 @@ type Flow struct {
 	Tiers    *tier.Leaf
 	Volumes  *volume.Leaf
 	Domains  *domain.Leaf
-	Managed  *managed.Leaf
+	Operated *operated.Leaf
 	Conns    *connector.Leaf
 	Releases *release.Leaf
 	Jobs     *job.Leaf
@@ -53,11 +53,11 @@ type Flow struct {
 	// Target is a slice tile's instance tile as a deploy resolves it
 	// (flow/deploy); an error is why it does not resolve.
 	Target func(ctx context.Context, s store.Tile) (store.Tile, error)
-	// Slice is a slice tile's status word (flow/managed SliceWord).
+	// Slice is a slice tile's status word (flow/operated SliceWord).
 	Slice func(ctx context.Context, s store.Tile) (string, error)
 }
 
-// Node kinds besides the tile kinds (service, image, managed, cron,
+// Node kinds besides the tile kinds (service, image, operated, cron,
 // function), which a tile card carries as is.
 const (
 	KindOrg       = "org"
@@ -801,7 +801,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 				ref(id, to.ID)
 			}
 		}
-		bound, err := f.Managed.Bound(ctx, id)
+		bound, err := f.Operated.Bound(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -871,7 +871,7 @@ func (f *Flow) env(ctx context.Context, v *View, envID string, in In) error {
 }
 
 // nouns are what a slice is on each engine's instance, as the card says it.
-// ponytail: flow/managed's engines hold a SliceNoun too; one table when a
+// ponytail: flow/operated's engines hold a SliceNoun too; one table when a
 // third engine lands.
 var nouns = map[string]string{
 	"postgres": "database",
@@ -894,7 +894,7 @@ func (f *Flow) sliceCard(ctx context.Context, v *View, i int, s store.Tile) erro
 		n.Detail = "unresolved" // the drawer says why: no such tile, no env pair, or not allowed
 		return err
 	}
-	m, err := f.Managed.GetByTile(ctx, it.ID)
+	m, err := f.Operated.GetByTile(ctx, it.ID)
 	if err != nil {
 		return err
 	}
@@ -920,12 +920,12 @@ func (f *Flow) sliceCard(ctx context.Context, v *View, i int, s store.Tile) erro
 // on, else the one a deploy would resolve now; false when it resolves
 // nowhere.
 func (f *Flow) sliceTarget(ctx context.Context, s store.Tile) (store.Tile, bool, error) {
-	p, ok, err := f.Managed.ProvisionOf(ctx, s.ID)
+	p, ok, err := f.Operated.ProvisionOf(ctx, s.ID)
 	if err != nil {
 		return store.Tile{}, false, err
 	}
 	if ok {
-		m, err := f.Managed.Get(ctx, p.InstanceID)
+		m, err := f.Operated.Get(ctx, p.InstanceID)
 		if err != nil {
 			return store.Tile{}, false, err
 		}
@@ -994,8 +994,8 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 		n.Detail = "on deploy"
 	case t.Kind == tile.Function:
 		n.Detail = "manual"
-	case t.Kind == tile.Managed:
-		if in, err := f.Managed.GetByTile(ctx, t.ID); err == nil {
+	case t.Kind == tile.Operated:
+		if in, err := f.Operated.GetByTile(ctx, t.ID); err == nil {
 			n.Detail = in.Engine
 		}
 	case t.GitURL != "":
@@ -1028,8 +1028,8 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			Detail: path,
 		})
 	}
-	if t.Kind == tile.Managed {
-		if in, err := f.Managed.GetByTile(ctx, t.ID); err == nil {
+	if t.Kind == tile.Operated {
+		if in, err := f.Operated.GetByTile(ctx, t.ID); err == nil {
 			vs, err := f.Volumes.List(ctx, volume.Scope{Kind: "env", ID: t.EnvironmentID})
 			if err != nil {
 				return n, err

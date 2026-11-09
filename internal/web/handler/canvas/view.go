@@ -166,7 +166,7 @@ func envDrawer(base, kind, id, slug string) (url, tab string) {
 	switch kind {
 	case "service", "image", "cron", "function":
 		return base + "/-/tiles/" + slug, "status"
-	case "managed":
+	case "operated":
 		return base + "/-/instances/" + slug, "slices"
 	case "slice":
 		return base + "/-/slices/" + slug, "overview"
