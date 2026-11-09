@@ -590,15 +590,16 @@ func TestContainer(t *testing.T) {
 	}
 }
 
-// A postgres container never restarts itself: the panel starts it. A fenced
-// primary is refused a container at all, and an instance with a standby
-// cannot be torn down before the standby goes.
+// A postgres container keeps the tile's restart policy until it has a
+// standby, then never restarts itself: the panel starts it. A fenced primary
+// is refused a container at all, and an instance with a standby cannot be
+// torn down before the standby goes.
 func TestContainerRestartFenceAndStandbys(t *testing.T) {
 	w := setup(t, "postgres")
 	c, err := w.f.Container(ctx, w.db)
 	must(t, err)
-	if c.Restart != "no" {
-		t.Errorf("postgres restart = %q, want no", c.Restart)
+	if c.Restart != "" {
+		t.Errorf("a postgres without a standby has restart %q, want the tile's", c.Restart)
 	}
 	if s := setup(t, "s3"); func() string { c, _ := s.f.Container(ctx, s.db); return c.Restart }() != "" {
 		t.Error("s3 keeps the tile's restart policy")
@@ -619,6 +620,9 @@ func TestContainerRestartFenceAndStandbys(t *testing.T) {
 
 	if _, err := w.f.Members.AddReplica(ctx, w.instance.ID, "a", "b"); err != nil {
 		t.Fatal(err)
+	}
+	if c, err := w.f.Container(ctx, w.db); err != nil || c.Restart != "no" {
+		t.Errorf("with a standby: restart %q, %v, want no", c.Restart, err)
 	}
 	if err := w.f.Teardown(ctx, w.db, true, io.Discard); !isConflict(err) {
 		t.Errorf("teardown with a standby: %v, want a conflict", err)

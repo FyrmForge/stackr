@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
@@ -128,8 +130,16 @@ func (o *Orchestrator) AddStandby(ctx context.Context, tileID, nodeID string) (I
 	if err == nil {
 		err = o.docker.CreateVolume(nctx, m.Volume, "local", nil, map[string]string{LabelMember: m.ID})
 	}
+	if err == nil {
+		err = o.primaryRestart(ctx, t, true)
+	}
 	if err != nil {
-		_ = o.dropMember(context.WithoutCancel(ctx), m)
+		// kept as 'removing' if the drop fails: the watch tick finishes it
+		bg := context.WithoutCancel(ctx)
+		if x, serr := o.members.SetState(bg, m, opmember.Removing); serr == nil {
+			m = x
+		}
+		_ = o.dropMember(bg, m)
 		return InstanceMember{}, err
 	}
 	o.rerouteVIPsAsync(ctx) // the replica's flow
@@ -149,6 +159,11 @@ func (o *Orchestrator) RemoveStandby(ctx context.Context, memberID string) error
 	if err := o.nodeUp(ctx, m.NodeID); err != nil {
 		return err
 	}
+	// The row stays, as 'removing', until the network is gone; the watch tick
+	// retries a failed drop.
+	if m, err = o.members.SetState(ctx, m, opmember.Removing); err != nil {
+		return err
+	}
 	if err := o.dropMember(ctx, m); err != nil {
 		return err
 	}
@@ -156,8 +171,27 @@ func (o *Orchestrator) RemoveStandby(ctx context.Context, memberID string) error
 	return nil
 }
 
-// dropMember removes a replica's world objects then its row. A network with
-// containers of others still on it stays.
+// finishRemovals retries the drop of members left 'removing'.
+func (o *Orchestrator) finishRemovals(ctx context.Context) {
+	all, err := o.members.All(ctx)
+	if err != nil {
+		slog.Warn("members: list", "err", err)
+		return
+	}
+	for _, m := range all {
+		if m.State != opmember.Removing || o.nodeUp(ctx, m.NodeID) != nil {
+			continue
+		}
+		if err := o.dropMember(ctx, m); err != nil {
+			slog.Warn("members: removal", "member", m.ID, "err", err)
+		}
+	}
+}
+
+// dropMember removes a replica's world objects then its row; the row (and its
+// subnet reservation) stays while the network does. A network with containers
+// of others still on it stays, and the row goes. The last replica's going
+// gives the primary back its tile's restart policy first.
 func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	nctx := docker.WithNode(ctx, m.NodeID)
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
@@ -172,10 +206,108 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	if err := o.docker.RemoveVolume(nctx, m.Volume); err != nil {
 		return err
 	}
-	if err := o.envs.DropShared(nctx, operated.Network(m.InstanceID)); err != nil {
-		slog.Warn("member: network stays", "member", m.ID, "err", err)
+	net := operated.Network(m.InstanceID)
+	if on, err := o.docker.NetworkMembers(nctx, net); err == nil && len(on) > 0 {
+		slog.Warn("member: network stays", "member", m.ID)
+	} else if err := o.envs.DropShared(nctx, net); err != nil {
+		return err
+	}
+	ms, err := o.members.List(ctx, m.InstanceID)
+	if err != nil {
+		return err
+	}
+	if n := len(slices.DeleteFunc(slices.Clone(ms), func(x InstanceMember) bool { return x.Role != opmember.Replica || x.ID == m.ID })); n == 0 {
+		inst, err := o.operated.Get(ctx, m.InstanceID)
+		if err != nil {
+			return err
+		}
+		t, err := o.tiles.Get(ctx, inst.TileID)
+		if err != nil {
+			return err
+		}
+		if err := o.primaryRestart(ctx, t, false); err != nil {
+			return err
+		}
 	}
 	return o.members.Delete(ctx, m)
+}
+
+// noStandbyOn refuses moving env envID's instances onto node: a standby
+// there would share a node with its primary (R4). Checked when the move is
+// planned and again before the env's node changes.
+func (o *Orchestrator) noStandbyOn(ctx context.Context, envID, node string) error {
+	ts, err := o.tiles.List(ctx, envID)
+	if err != nil {
+		return err
+	}
+	for _, t := range ts {
+		inst, err := o.operated.GetByTile(ctx, t.ID)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		ms, err := o.members.List(ctx, inst.ID)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(ms, func(m InstanceMember) bool { return m.Role == opmember.Replica && m.NodeID == node }) {
+			return errs.Conflictf("%s has a standby on %s: remove the standby first", t.Slug, o.nodeName(ctx, node))
+		}
+	}
+	return nil
+}
+
+// noStandbys refuses work that rewrites a primary's data while the instance
+// has a standby row in any state: the standby would follow a history that no
+// longer exists. Rebuilding a standby comes later.
+func (o *Orchestrator) noStandbys(ctx context.Context, instanceID string) error {
+	ms, err := o.members.List(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	if opmember.HasReplica(ms) {
+		return errs.Conflictf("This instance has a standby. Remove the standby first (rebuilding one comes later).")
+	}
+	return nil
+}
+
+// primaryRestart sets the restart policy of the instance tile's container:
+// "no" while it has a standby (the panel starts it, so a rebooted primary
+// never comes back beside a promoted standby), else the tile's own, so a
+// single database survives a reboot with the panel down. With a standby it
+// also records from the container whether the primary is wanted up (a
+// primary made before members was backfilled 'stopped'). A tile not
+// deployed yet has no container: its deploy sets the policy.
+func (o *Orchestrator) primaryRestart(ctx context.Context, t store.Tile, hasStandby bool) error {
+	pn, err := o.primaryNode(ctx, t)
+	if err != nil {
+		return err
+	}
+	if err := o.nodeUp(ctx, pn); err != nil {
+		return err
+	}
+	nctx := docker.WithNode(ctx, pn)
+	cs, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
+	if err != nil {
+		return err
+	}
+	policy := deploy.RestartPolicy(t.RestartPolicy)
+	if hasStandby {
+		policy = mflow.Engines["postgres"].Definition().Restart
+		up := slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" })
+		state := opmember.Stopped
+		if up {
+			state = opmember.Running
+		}
+		o.setPrimaryState(ctx, t.ID, state)
+	}
+	for _, c := range cs {
+		if err := o.docker.UpdateRestart(nctx, c.ID, policy); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // FenceMember sets or clears a member's fence. The row is written first and
@@ -251,18 +383,24 @@ func (o *Orchestrator) mayStartTile(ctx context.Context, t store.Tile) error {
 	return nil
 }
 
-// startMembers starts the members the panel wants running. Postgres
-// containers have restart policy "no": a crash or a node reboot leaves them
-// down until this runs (the watch tick, so within a minute), and a fenced one
-// is never started. A tile with a job in flight is left to it.
+// startMembers starts the members of instances that have a standby and that
+// the panel wants running. Such a primary has restart policy "no": a crash or
+// a node reboot leaves it down until this runs (the watch tick, so within a
+// minute), and a fenced one is never started. An instance without a standby
+// keeps its tile's restart policy and is not touched here, so one the user
+// stopped stays stopped. A tile with a job in flight is left to it.
 func (o *Orchestrator) startMembers(ctx context.Context) {
 	all, err := o.members.All(ctx)
 	if err != nil {
 		slog.Warn("members: list", "err", err)
 		return
 	}
+	byInst := map[string][]InstanceMember{}
 	for _, m := range all {
-		if m.State != opmember.Running || opmember.MayStart(m) != nil {
+		byInst[m.InstanceID] = append(byInst[m.InstanceID], m)
+	}
+	for _, m := range all {
+		if m.State != opmember.Running || opmember.MayStart(m) != nil || !opmember.HasReplica(byInst[m.InstanceID]) {
 			continue
 		}
 		if err := o.startMember(ctx, m); err != nil {

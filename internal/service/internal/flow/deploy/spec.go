@@ -54,7 +54,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		Privileged:         r.privileged,
 		HostNetwork:        r.hostNet,
 		Devices:            r.devices,
-		Restart:            cmp.Or(r.restart, restart(t.RestartPolicy)),
+		Restart:            cmp.Or(r.restart, RestartPolicy(t.RestartPolicy)),
 		HealthCmd:          t.HealthcheckCmd,
 		HealthIntervalS:    t.HealthcheckIntervalS,
 		HealthTimeoutS:     t.HealthcheckTimeoutS,
@@ -76,10 +76,10 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 	return s
 }
 
-// restart maps the row's canonical word onto docker's. "always" is
+// RestartPolicy maps the row's canonical word onto docker's. "always" is
 // unless-stopped: a replica someone stopped by hand stays stopped when the
 // daemon restarts.
-func restart(p string) string {
+func RestartPolicy(p string) string {
 	if p == "" || p == "always" {
 		return "unless-stopped"
 	}

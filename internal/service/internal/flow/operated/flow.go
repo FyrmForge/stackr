@@ -89,11 +89,17 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	if err := checkMajor(def, m, t); err != nil {
 		return Container{}, err
 	}
+	restart := ""
 	if f.Members != nil {
-		if fenced, err := f.Members.FencedPrimary(ctx, m.ID); err != nil {
+		ms, err := f.Members.List(ctx, m.ID)
+		if err != nil {
 			return Container{}, err
-		} else if fenced {
+		}
+		if p, ok := opmember.PrimaryOf(ms); ok && p.Fenced {
 			return Container{}, errs.Conflictf("%s is fenced: it does not start until it rejoins", t.Slug)
+		}
+		if opmember.HasReplica(ms) { // the panel starts it; alone it keeps the tile's policy
+			restart = def.Restart
 		}
 	}
 	inst := f.withNodeMem(ctx, t, f.facts(ctx, t, m, def))
@@ -101,7 +107,7 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		Image:   def.Image,
 		Cmd:     def.Command,
 		Env:     def.Config(inst),
-		Restart: def.Restart,
+		Restart: restart,
 	}
 	if def.Start != nil {
 		c.Cmd = def.Start(inst)
@@ -565,7 +571,7 @@ func (f *Flow) Teardown(ctx context.Context, it store.Tile, force bool, log io.W
 		// the verb that made them
 		if ms, err := f.Members.List(ctx, m.ID); err != nil {
 			return err
-		} else if slices.ContainsFunc(ms, func(x store.OperatedMember) bool { return x.Role == opmember.Replica }) {
+		} else if opmember.HasReplica(ms) {
 			return errs.Conflictf("%s has standbys: remove them first", it.Slug)
 		}
 	}

@@ -296,7 +296,8 @@ func (o *Orchestrator) RestoreBackup(ctx context.Context, by *Principal, runID, 
 // pitrVolumeRestoreOK refuses a volume (tar) restore onto the data volume of
 // an instance with PITR on: it would rewind the data under the archive's
 // timeline, and the archive would hold two histories. A dump restore is SQL
-// on the live cluster and is fine.
+// on the live cluster and is fine. A volume restore is also refused while the
+// instance has a standby.
 func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, dst store.Volume) error {
 	if dst.InstanceID == nil {
 		return nil
@@ -307,6 +308,10 @@ func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, ds
 	}
 	if strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
 		return nil
+	}
+	// a tar restore rewinds the primary's data under its standbys
+	if err := o.noStandbys(ctx, *dst.InstanceID); err != nil {
+		return err
 	}
 	m, err := o.operated.Get(ctx, *dst.InstanceID)
 	if err != nil {

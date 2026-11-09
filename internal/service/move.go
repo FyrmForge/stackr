@@ -420,6 +420,9 @@ func (e moveEnv) Start(ctx context.Context, envID, nodeID string) error {
 	if cur, err := o.envNode(ctx, envID); err != nil {
 		return err
 	} else if cur != nodeID {
+		if err := o.noStandbyOn(ctx, envID, nodeID); err != nil {
+			return err
+		}
 		if err := o.store.Environments.SetNode(ctx, envID, nodeID); err != nil {
 			return err
 		}

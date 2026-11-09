@@ -457,7 +457,7 @@ table operated_members
   index (auto) unique=1 origin=pk partial=0 (id)
   index operated_members_node unique=1 origin=c partial=1 (instance_id,node_id) where role = 'replica'
   index operated_members_primary unique=1 origin=c partial=1 (instance_id) where role = 'primary'
-  sql CREATE TABLE operated_members ( id TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES operated_instances (id) ON DELETE CASCADE, role TEXT NOT NULL CHECK (role IN ('primary', 'replica')), node_id TEXT NOT NULL DEFAULT '', container TEXT NOT NULL DEFAULT '', volume TEXT NOT NULL DEFAULT '', subnet TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running', 'stopped')), fenced INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL )
+  sql CREATE TABLE operated_members ( id TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES operated_instances (id) ON DELETE CASCADE, role TEXT NOT NULL CHECK (role IN ('primary', 'replica')), node_id TEXT NOT NULL DEFAULT '', container TEXT NOT NULL DEFAULT '', volume TEXT NOT NULL DEFAULT '', subnet TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running', 'stopped', 'removing')), fenced INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL )
 table org_config_plans
   col id TEXT notnull=0 default=- pk=1
   col org_id TEXT notnull=1 default=- pk=0

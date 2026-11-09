@@ -9,6 +9,8 @@ package opmember
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,12 +25,20 @@ const (
 
 	Running = "running"
 	Stopped = "stopped"
+	// Removing is a replica being taken away: its row stays until its
+	// network is gone. It may still have a container, so it is not stopped.
+	Removing = "removing"
 
 	// MaxReplicas is how many replicas an instance may have.
 	MaxReplicas = 2
 )
 
-type Leaf struct{ rows store.OperatedMemberStore }
+type Leaf struct {
+	rows store.OperatedMemberStore
+	// addMu makes AddReplica's count-then-insert atomic.
+	// ponytail: one lock for every instance; per-instance if adds ever queue.
+	addMu sync.Mutex
+}
 
 func New(rows store.OperatedMemberStore) *Leaf { return &Leaf{rows: rows} }
 
@@ -89,6 +99,8 @@ func Check(primaryNode, node string, ms []store.OperatedMember) error {
 // AddReplica is the row of a replica on node, refused by Check. It names the
 // container and the data volume, which the caller makes.
 func (l *Leaf) AddReplica(ctx context.Context, instanceID, primaryNode, node string) (store.OperatedMember, error) {
+	l.addMu.Lock()
+	defer l.addMu.Unlock()
 	ms, err := l.rows.ListByInstance(ctx, instanceID)
 	if err != nil {
 		return store.OperatedMember{}, err
@@ -118,8 +130,8 @@ func (l *Leaf) SetSubnet(ctx context.Context, m store.OperatedMember, subnet str
 
 // SetState records what the panel wants of the member: Running or Stopped.
 func (l *Leaf) SetState(ctx context.Context, m store.OperatedMember, state string) (store.OperatedMember, error) {
-	if state != Running && state != Stopped {
-		return m, errs.Invalidf("state", "a member runs or is stopped")
+	if state != Running && state != Stopped && state != Removing {
+		return m, errs.Invalidf("state", "a member runs, is stopped or is being removed")
 	}
 	m.State = state
 	return l.save(ctx, m)
@@ -146,25 +158,22 @@ func MayStart(m store.OperatedMember) error {
 	return nil
 }
 
-// FencedPrimary reports whether the instance's primary is fenced.
-func (l *Leaf) FencedPrimary(ctx context.Context, instanceID string) (bool, error) {
-	ms, err := l.rows.ListByInstance(ctx, instanceID)
-	if err != nil {
-		return false, err
-	}
-	p, ok := PrimaryOf(ms)
-	return ok && p.Fenced, nil
+// HasReplica reports whether any of ms is a replica, whatever its state.
+func HasReplica(ms []store.OperatedMember) bool {
+	return slices.ContainsFunc(ms, func(m store.OperatedMember) bool { return m.Role == Replica })
 }
 
-// LiveReplica is a replica that may be running: not fenced and wanted up.
-// Its node cannot be asked (it may be down), so the rows are the answer.
+// LiveReplica is a replica that may be running: anything but positively
+// stopped. Fenced says nothing (a fence is only the panel refusing to start
+// it; the container may be up), and its node cannot be asked (it may be
+// down), so the rows are the answer.
 func (l *Leaf) LiveReplica(ctx context.Context, instanceID string) (store.OperatedMember, bool, error) {
 	ms, err := l.rows.ListByInstance(ctx, instanceID)
 	if err != nil {
 		return store.OperatedMember{}, false, err
 	}
 	for _, m := range ms {
-		if m.Role == Replica && !m.Fenced && m.State == Running {
+		if m.Role == Replica && m.State != Stopped {
 			return m, true, nil
 		}
 	}

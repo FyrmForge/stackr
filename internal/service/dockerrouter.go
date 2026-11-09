@@ -135,6 +135,10 @@ func (r *DockerRouter) Restart(ctx context.Context, id string) error {
 	return r.do(ctx, func(c Docker) error { return c.Restart(ctx, id) })
 }
 
+func (r *DockerRouter) UpdateRestart(ctx context.Context, id, policy string) error {
+	return r.do(ctx, func(c Docker) error { return c.UpdateRestart(ctx, id, policy) })
+}
+
 func (r *DockerRouter) StopRemove(ctx context.Context, id string) error {
 	return r.do(ctx, func(c Docker) error { return c.StopRemove(ctx, id) })
 }

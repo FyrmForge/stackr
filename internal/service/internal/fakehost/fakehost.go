@@ -415,6 +415,9 @@ func (d *Docker) Restart(ctx context.Context, id string) error {
 	return d.save()
 }
 
+// UpdateRestart is a no-op: the fake host does not model restart policies.
+func (d *Docker) UpdateRestart(ctx context.Context, id, policy string) error { return nil }
+
 func (d *Docker) StopRemove(ctx context.Context, id string) error {
 	if err := d.chaos.hit(ctx, "containers", "StopRemove"); err != nil {
 		return err

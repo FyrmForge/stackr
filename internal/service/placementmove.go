@@ -268,7 +268,29 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 			add("source online", true, nm.label(from)+" is online")
 		}
 	}
+
+	// standby: an instance's standby never shares a node with its primary
+	// (listed only when it fails)
+	if detail, err := o.pmStandbys(ctx, envIDs, to, toName); err != nil {
+		return nil, err
+	} else if detail != "" {
+		add("standby", false, detail)
+	}
 	return out, nil
+}
+
+// pmStandbys is the conflict when a postgres instance of envs has a standby
+// on node to, else "".
+func (o *Orchestrator) pmStandbys(ctx context.Context, envIDs []string, to, toName string) (string, error) {
+	for _, id := range envIDs {
+		if err := o.noStandbyOn(ctx, id, to); err != nil {
+			if _, ok := errs.IsConflict(err); ok {
+				return toName + ": " + err.Error(), nil
+			}
+			return "", err
+		}
+	}
+	return "", nil
 }
 
 // pmDisk: the target's free disk against the volumes' sizes plus 10%. A
@@ -689,6 +711,14 @@ func (o *Orchestrator) pmStartEnv(ctx context.Context, by *Principal, pm store.P
 // and volumes that start empty are collected in warn: the env is on its node
 // by then.
 func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.Environment, toNode string, warn *[]error) (Job, error) {
+	// before the node changes: a refusal must not leave an env rehomed and empty
+	vs, err := o.store.Volumes.ListByScope(ctx, "env", e.ID)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := o.noLiveMembers(ctx, vs); err != nil {
+		return Job{}, err
+	}
 	if err := o.store.Environments.SetNode(ctx, e.ID, toNode); err != nil {
 		return Job{}, err
 	}
@@ -711,6 +741,24 @@ func (o *Orchestrator) pmRestoreEnv(ctx context.Context, by *Principal, e store.
 	return first, nil
 }
 
+// noLiveMembers refuses a restore of postgres volumes while a member of their
+// instance may be alive: a second primary on restored data would fork it.
+// Nothing is queued, deploys included, which would start the instance on an
+// empty volume. A standby counts unless positively stopped.
+func (o *Orchestrator) noLiveMembers(ctx context.Context, vs []store.Volume) error {
+	for _, v := range vs {
+		if v.InstanceID == nil || v.OrphanedAt != nil {
+			continue
+		}
+		if r, ok, err := o.members.LiveReplica(ctx, *v.InstanceID); err != nil {
+			return err
+		} else if ok {
+			return errs.Conflictf("instance has a standby that may be running on node %s: stop or remove it first", o.nodeName(ctx, r.NodeID))
+		}
+	}
+	return nil
+}
+
 // restoreThenDeploy brings an env's lost volumes back from their newest
 // finished backups and queues a deploy of each of ts, so no app starts on an
 // empty volume. The runner starts jobs whose locks overlap in the order they
@@ -727,19 +775,8 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 	if err != nil {
 		return Job{}, nil, err
 	}
-	// A postgres volume is never restored while a member of its instance may
-	// be alive: a second primary on restored data would fork it. Nothing is
-	// queued, deploys included, which would start the instance on an empty
-	// volume.
-	for _, v := range vs {
-		if v.InstanceID == nil || v.OrphanedAt != nil {
-			continue
-		}
-		if r, ok, err := o.members.LiveReplica(ctx, *v.InstanceID); err != nil {
-			return Job{}, nil, err
-		} else if ok {
-			return Job{}, nil, errs.Conflictf("instance has a live member on node %s", o.nodeName(ctx, r.NodeID))
-		}
+	if err := o.noLiveMembers(ctx, vs); err != nil {
+		return Job{}, nil, err
 	}
 	hold := make([]string, 0, len(ts))
 	for _, t := range ts {

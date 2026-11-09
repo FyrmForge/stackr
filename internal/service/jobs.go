@@ -720,6 +720,7 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	o.finishRemovals(ctx)
 	o.startMembers(ctx) // before the rebuild: it routes to what runs
 	o.rerouteVIPs(ctx)
 	if restarted {

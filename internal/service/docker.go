@@ -22,6 +22,8 @@ type Docker interface {
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
+	// UpdateRestart sets a live container's restart policy (docker's word).
+	UpdateRestart(ctx context.Context, id, policy string) error
 	StopRemove(ctx context.Context, id string) error
 	Rename(ctx context.Context, id, name string) error
 	Pause(ctx context.Context, id string) error

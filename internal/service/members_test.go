@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/netip"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -192,8 +194,9 @@ func TestStartMembers(t *testing.T) {
 	}
 }
 
-// Nothing restores a postgres volume while a standby may be alive; a fenced
-// or stopped one does not count.
+// Nothing restores a postgres volume while a standby may be alive; only a
+// positively stopped one does not count. A fence says nothing about the
+// container.
 func TestRestoreRefusedWithLiveMember(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -205,11 +208,201 @@ func TestRestoreRefusedWithLiveMember(t *testing.T) {
 	must(t, err)
 
 	_, _, err = n.orch.restoreThenDeploy(ctx, n.dev.ID, nil)
-	if !conflict(err) || !strings.Contains(err.Error(), "instance has a live member on node w1") {
+	if !conflict(err) || !strings.Contains(err.Error(), "standby that may be running on node w1") {
 		t.Fatalf("restore with a live standby: %v", err)
 	}
 	must(t, n.orch.FenceMember(ctx, r.ID, true))
+	if _, _, err = n.orch.restoreThenDeploy(ctx, n.dev.ID, nil); !conflict(err) {
+		t.Errorf("restore with a fenced standby: %v, want a conflict", err)
+	}
+	// the placement restore asks before the env changes node
+	e, err := n.st.Environments.Get(ctx, n.dev.ID)
+	must(t, err)
+	var warn []error
+	if _, err := n.orch.pmRestoreEnv(ctx, nil, e, "w1", &warn); !conflict(err) {
+		t.Errorf("placement restore with a live standby: %v, want a conflict", err)
+	}
+	if got, _ := n.st.Environments.Get(ctx, n.dev.ID); got.NodeID != e.NodeID {
+		t.Errorf("env node = %q after the refused restore, want %q", got.NodeID, e.NodeID)
+	}
+	_, err = n.orch.members.SetState(ctx, r, opmember.Stopped)
+	must(t, err)
 	if _, _, err = n.orch.restoreThenDeploy(ctx, n.dev.ID, nil); err != nil {
-		t.Errorf("restore with only a fenced standby: %v", err)
+		t.Errorf("restore with only a stopped standby: %v", err)
+	}
+}
+
+// A single database keeps the tile's restart policy; the first standby makes
+// the primary "no" live and records it wanted up, the last one's going gives
+// the policy back. Without a standby the tick never starts it.
+func TestStandbyRestartPolicy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	n.ctlFake.Containers = append(n.ctlFake.Containers, docker.Container{ID: "pg1", State: "running",
+		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "replica"}})
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+
+	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	must(t, err)
+	if !sawCall(n.ctlFake, "UpdateRestart(pg1, no)") {
+		t.Errorf("first standby: %v", callNames(n.ctlFake))
+	}
+	ms, _ := n.orch.members.List(ctx, m.ID)
+	if p, _ := opmember.PrimaryOf(ms); p.State != opmember.Running {
+		t.Errorf("primary state = %q, want running (its container runs)", p.State)
+	}
+	must(t, n.orch.RemoveStandby(ctx, r.ID))
+	if !sawCall(n.ctlFake, "UpdateRestart(pg1, unless-stopped)") {
+		t.Errorf("last standby gone: %v", callNames(n.ctlFake))
+	}
+
+	// no standby: an exited primary is not the tick's to start
+	n.ctlFake.Containers[len(n.ctlFake.Containers)-1].State = "exited"
+	n.orch.startMembers(ctx)
+	if sawCall(n.ctlFake, "Start(") {
+		t.Errorf("started a single instance: %v", callNames(n.ctlFake))
+	}
+}
+
+// A restore or a promote that rewrites the primary's data is refused while
+// the instance has a standby, a promote also over a fenced primary.
+func TestStandbyBlocksRestoreAndPromote(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	if err := n.orch.promoteAllowed(ctx, n.devT); err != nil {
+		t.Fatalf("promote of a plain instance: %v", err)
+	}
+	_, err := n.orch.members.AddReplica(ctx, m.ID, "x", "w1")
+	must(t, err)
+	if err := n.orch.promoteAllowed(ctx, n.devT); !conflict(err) {
+		t.Errorf("promote with a standby: %v, want a conflict", err)
+	}
+	if err := n.orch.noStandbys(ctx, m.ID); !conflict(err) {
+		t.Errorf("tar restore with a standby: %v, want a conflict", err)
+	}
+	ms, _ := n.orch.members.List(ctx, m.ID)
+	for _, x := range ms {
+		if x.Role == opmember.Replica {
+			must(t, n.orch.RemoveStandby(ctx, x.ID))
+		}
+	}
+	prim, _ := opmember.PrimaryOf(ms)
+	must(t, n.orch.FenceMember(ctx, prim.ID, true))
+	if err := n.orch.promoteAllowed(ctx, n.devT); !conflict(err) {
+		t.Errorf("promote over a fenced primary: %v, want a conflict", err)
+	}
+}
+
+// The volume restore guard asks for standbys; a dump restore is exempt.
+func TestVolumeRestoreRefusedWithStandby(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newPITRRig(t)
+	o := r.orch
+	_, err := o.members.AddReplica(ctx, r.m.ID, "a", "b")
+	must(t, err)
+	dest, err := o.pitrDest(ctx, r.org, r.data)
+	must(t, err)
+	tar, err := o.backups.StartIn(ctx, backup.KindVolume, &r.data.ID, nil, dest.ID, "manual", nil)
+	must(t, err)
+	tar, err = o.backups.Finish(ctx, tar, "k/20261107-000000-data.tar.gz.age", 1, nil)
+	must(t, err)
+	if err := o.pitrVolumeRestoreOK(ctx, tar.ID, r.data); !conflict(err) {
+		t.Errorf("tar restore with a standby: %v, want a conflict", err)
+	}
+}
+
+// Two standbys at most, even when the adds race.
+func TestAddReplicaLimitRace(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	var wg sync.WaitGroup
+	for _, node := range []string{"x1", "x2", "x3", "x4", "x5"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = n.orch.members.AddReplica(ctx, m.ID, "p", node)
+		}()
+	}
+	wg.Wait()
+	ms, err := n.orch.members.List(ctx, m.ID)
+	must(t, err)
+	got := 0
+	for _, x := range ms {
+		if x.Role == opmember.Replica {
+			got++
+		}
+	}
+	if got != opmember.MaxReplicas {
+		t.Errorf("%d standbys after the race, want %d", got, opmember.MaxReplicas)
+	}
+}
+
+// An env cannot move onto a node that holds its instance's standby: the
+// plan fails and the move's own start refuses before the node changes.
+func TestMoveOntoStandbyNodeRefused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	pgOn(t, n)
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+	_, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	must(t, err)
+
+	cs, err := n.orch.moveChecks(ctx, []string{n.dev.ID}, n.ctl.ID, "w1")
+	must(t, err)
+	failed := ""
+	for _, c := range cs {
+		if c.Name == "standby" && !c.OK {
+			failed = c.Detail
+		}
+	}
+	if failed == "" {
+		t.Errorf("checks = %+v, want a failed standby check", cs)
+	}
+	if err := (moveEnv{n.orch}).Start(ctx, n.dev.ID, "w1"); !conflict(err) {
+		t.Errorf("move start onto the standby's node: %v, want a conflict", err)
+	}
+	if got, _ := n.st.Environments.Get(ctx, n.dev.ID); got.NodeID != n.ctl.ID {
+		t.Errorf("env node = %q, want it unchanged", got.NodeID)
+	}
+}
+
+// A standby whose network will not go keeps its row (and subnet) as
+// 'removing'; the tick finishes it once the network goes.
+func TestRemoveStandbyKeepsRowUntilNetworkGone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	must(t, err)
+
+	n.wFake.Err = map[string]error{"RemoveNetwork": errors.New("active endpoints")}
+	if err := n.orch.RemoveStandby(ctx, r.ID); err == nil {
+		t.Fatal("remove succeeded with the network stuck")
+	}
+	got, err := n.orch.members.Get(ctx, r.ID)
+	if err != nil || got.State != opmember.Removing || got.Subnet != r.Subnet {
+		t.Fatalf("row after a failed removal = %+v %v, want removing with its subnet", got, err)
+	}
+	n.orch.finishRemovals(ctx) // still stuck
+	if _, err := n.orch.members.Get(ctx, r.ID); err != nil {
+		t.Errorf("row gone while the network stays: %v", err)
+	}
+	delete(n.wFake.Err, "RemoveNetwork")
+	n.orch.finishRemovals(ctx)
+	if _, err := n.orch.members.Get(ctx, r.ID); err == nil {
+		t.Error("row kept after the network went")
+	}
+	if ms, _ := n.orch.members.List(ctx, m.ID); len(ms) != 1 {
+		t.Errorf("members = %+v, want the primary only", ms)
 	}
 }

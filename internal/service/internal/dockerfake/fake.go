@@ -159,6 +159,10 @@ func (f *Fake) Restart(_ context.Context, id string) error {
 	return f.rec("Restart", id)
 }
 
+func (f *Fake) UpdateRestart(_ context.Context, id, policy string) error {
+	return f.rec("UpdateRestart", id, policy)
+}
+
 func (f *Fake) StopRemove(_ context.Context, id string) error {
 	f.stopped(id)
 	return f.rec("StopRemove", id)

@@ -198,6 +198,13 @@ func (d *Client) Restart(ctx context.Context, id string) error {
 	return wrap(d.cli.ContainerRestart(ctx, id, container.StopOptions{}))
 }
 
+// UpdateRestart changes a container's restart policy in place (docker update
+// --restart).
+func (d *Client) UpdateRestart(ctx context.Context, id, policy string) error {
+	_, err := d.cli.ContainerUpdate(ctx, id, container.UpdateConfig{RestartPolicy: restartPolicy(policy)})
+	return wrap(err)
+}
+
 // StopRemove stops (ignoring the error) then force-removes, taking the
 // anonymous volumes an image's VOLUME lines gave it (named stackr-vol-*
 // volumes are not anonymous and stay).

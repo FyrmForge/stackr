@@ -629,6 +629,9 @@ func (o *Orchestrator) PromoteRestore(ctx context.Context, by *Principal, candID
 	if err := o.gateTile(ctx, src.ID, true); err != nil {
 		return Job{}, err
 	}
+	if err := o.promoteAllowed(ctx, src); err != nil {
+		return Job{}, err
+	}
 	sv, err := o.dataVolume(ctx, src)
 	if err != nil {
 		return Job{}, err
@@ -734,6 +737,20 @@ func (s promoteSteps) run(log io.Writer) error {
 	return nil
 }
 
+// promoteAllowed refuses a promote over a fenced primary (it would stop it
+// and start it again) or one with a standby (the standby would follow data
+// that no longer exists). Asked when queued and again when it runs.
+func (o *Orchestrator) promoteAllowed(ctx context.Context, src Tile) error {
+	if err := o.mayStartTile(ctx, src); err != nil {
+		return err
+	}
+	m, err := o.operated.GetByTile(ctx, src.ID)
+	if err != nil {
+		return err
+	}
+	return o.noStandbys(ctx, m.ID)
+}
+
 func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p promoteRestoreJob) error {
 	src, err := o.tiles.Get(ctx, p.SourceID)
 	if err != nil {
@@ -763,6 +780,8 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 		if c, _ := o.candidateOf(ctx, cand.ID); c.Vol != sv.Name {
 			return errs.Conflictf("another copy was promoted over %s since; restore again from its current state", src.Slug)
 		}
+	} else if err := o.promoteAllowed(ctx, src); err != nil { // before stopSrc: nothing destructive yet
+		return err
 	}
 	candWal, err := o.engines.WalDir(ctx, cand)
 	if err != nil {
@@ -825,6 +844,10 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 		},
 		undo: func() {
 			if stopped {
+				if err := o.mayStartTile(ctx, src); err != nil { // a fence set meanwhile still holds
+					_, _ = fmt.Fprintf(r.Log, "warning: %s stays down: %v\n", src.Slug, err)
+					return
+				}
 				if err := o.container.Start(context.WithoutCancel(ctx), src, r.Log); err != nil {
 					_, _ = fmt.Fprintf(r.Log, "warning: %s did not restart: %v\n", src.Slug, err)
 				}
