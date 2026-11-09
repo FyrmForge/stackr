@@ -253,7 +253,14 @@ func checkSigner(vouched []*x509.Certificate, refuses func(string) bool, certPEM
 
 // heardController marks a call from the controller: the listener admits
 // nobody else.
-func (s *Server) heardController() { s.lastCtl.Store(time.Now().UnixNano()) }
+func (s *Server) heardController() { s.lastCtl.Store(int64(time.Since(s.born))) }
+
+// ctlAge is how long the controller has been silent as of now: monotonic, so
+// a wall-clock step does not move it. now must carry a monotonic reading
+// (time.Now() does).
+func (s *Server) ctlAge(now time.Time) time.Duration {
+	return now.Sub(s.born) - time.Duration(s.lastCtl.Load())
+}
 
 // recoverLoop checks every tick whether the controller has gone quiet and,
 // if so, recovers through the panel, pausing longer after each failure.
@@ -285,7 +292,7 @@ type recoverState struct {
 // any other failure (a 500, no route) is the panel's or the network's trouble
 // and does not count. A success starts the count over.
 func (s *Server) recoverStep(now time.Time, st *recoverState) (stop bool) {
-	if now.Sub(time.Unix(0, s.lastCtl.Load())) < RecoverAfter || now.Before(st.next) {
+	if s.ctlAge(now) < RecoverAfter || now.Before(st.next) {
 		return false
 	}
 	err := s.recoverOnce(s.ctx)

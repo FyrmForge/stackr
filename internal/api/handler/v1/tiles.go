@@ -646,6 +646,8 @@ type (
 	PromoteStandbyIn struct {
 		To       string `json:"to"`        // the standby's node
 		NodeGone bool   `json:"node_gone"` // the old primary's node is confirmed gone
+		// PoweredOff is service.PoweredOffPhrase: promote without a lease proof.
+		PoweredOff string `json:"powered_off"`
 	}
 )
 
@@ -660,10 +662,12 @@ func (h *H) Switchover() Endpoint {
 
 // PromoteStandby makes a standby the primary when the primary is down. The
 // old primary must be known stopped; for a node that does not answer, the
-// caller confirms it is really gone (node_gone).
+// caller confirms it is really gone (node_gone), the panel needs its record
+// that the primary was under its worker's lease, or the caller types the
+// powered_off phrase.
 func (h *H) PromoteStandby() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in PromoteStandbyIn) (service.StandbyView, error) {
-		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone)
+		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone, in.PoweredOff)
 	})
 }
 

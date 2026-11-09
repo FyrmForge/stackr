@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -47,6 +49,12 @@ type simCtr struct {
 }
 
 func (s *sim) List(_ context.Context, labels map[string]string) ([]docker.Container, error) {
+	s.rig.mu.Lock()
+	err := s.rig.listErr
+	s.rig.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []docker.Container
@@ -172,6 +180,23 @@ type failRig struct {
 	// before is told the first time anything is changed
 	before func()
 	fired  bool
+	// the leases the workers took; leaseErr makes a push fail
+	pushed   map[string]worker.Lease
+	leaseErr error
+	listErr  error // makes every docker list fail
+}
+
+// ageLease makes every recorded lease binding as old as ago.
+func (r *failRig) ageLease(ago time.Duration) {
+	r.t.Helper()
+	ctx := context.Background()
+	recs, err := r.n.orch.leaseRecs(ctx)
+	must(r.t, err)
+	for k, rec := range recs {
+		rec.Ack = time.Now().Add(-ago)
+		b, _ := json.Marshal(rec)
+		must(r.t, r.n.orch.store.Settings.Set(ctx, leasePrefix+k, string(b)))
+	}
 }
 
 func (r *failRig) log(node, what, detail string) {
@@ -303,6 +328,16 @@ func newFailRig(t *testing.T, onWorker bool) *failRig {
 	if onWorker {
 		must(t, n.st.TileVIPs.Set(ctx, pt.ID, "w1", "10.209.1.2"))
 	}
+	r.pushed = map[string]worker.Lease{}
+	n.orch.leasePush = func(_ context.Context, id string, l worker.Lease) error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.leaseErr != nil {
+			return r.leaseErr
+		}
+		r.pushed[id] = l
+		return nil
+	}
 	rep, err := n.orch.AddStandby(ctx, pt.ID, standbyOn)
 	must(t, err)
 	n.orch.vipAsync.Wait()
@@ -335,16 +370,12 @@ func TestSwitchoverHappyPath(t *testing.T) {
 	ctx := context.Background()
 	r := newFailRig(t, false)
 	o := r.n.orch
-	_, err := o.operated.SetPITR(ctx, r.inst, 7)
-	must(t, err)
-
 	v, err := o.Switchover(ctx, r.inst.TileID, "w1")
 	must(t, err)
 	if v.Role != opmember.Primary || v.Node != "w1" {
 		t.Errorf("view = %+v, want the primary on w1", v)
 	}
 	r.order(
-		"SELECT pg_switch_wal()",     // drain
 		"ctl exec sh -c kill -INT 1", // the clean stop
 		"ctl stop pg",
 		"ctl create stackr-ctl",                    // the control file of the stopped cluster
@@ -393,10 +424,6 @@ func TestSwitchoverHappyPath(t *testing.T) {
 	}
 	if promoted.Networks[0].IPv4 == "" {
 		t.Error("the primary's address is not pinned")
-	}
-	// the archive starts over on the new timeline
-	if st, ok := o.pitrState(ctx, r.inst.ID); !ok || time.Since(st.Since) > time.Minute {
-		t.Errorf("pitr state not reset: %+v %v", st, ok)
 	}
 	// the standby that is left follows the new primary by its address
 	if h, err := o.memberHost(ctx, rep, rep.NodeID); err != nil || !strings.HasSuffix(h, ":"+promoted.Networks[0].IPv4) {
@@ -475,8 +502,9 @@ func TestFencedOldPrimaryStaysDown(t *testing.T) {
 	r := newFailRig(t, true) // the primary on w1
 	o := r.n.orch
 	must(t, setNode(o, "w1", node.StatusOffline))
+	r.ageLease(2 * time.Minute)
 	r.lsn[r.n.ctl.ID] = "0/5000100"
-	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true); err != nil {
+	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, ""); err != nil {
 		t.Fatal(err)
 	}
 	_, old := r.members()
@@ -521,7 +549,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		t.Parallel()
 		r := newFailRig(t, false)
 		for _, gone := range []bool{false, true} {
-			_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, "w1", gone)
+			_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, "w1", gone, "")
 			if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "running") {
 				t.Errorf("promote with the primary running (gone=%v): %v", gone, err)
 			}
@@ -535,7 +563,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		t.Parallel()
 		r := newFailRig(t, true)
 		must(t, setNode(r.n.orch, "w1", node.StatusOffline))
-		_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false)
+		_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "")
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "confirm") {
 			t.Errorf("promote of an unreachable primary without the confirmation: %v", err)
 		}
@@ -546,8 +574,8 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		r := newFailRig(t, true)
 		o := r.n.orch
 		must(t, setNode(o, "w1", node.StatusOffline))
-		o.lease.acked("w1", time.Now().Add(-5*time.Second)) // the worker took the lease 5 s ago
-		_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true)
+		r.ageLease(5 * time.Second) // the worker took the lease 5 s ago
+		_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "")
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "lease") {
 			t.Errorf("promote inside the lease: %v", err)
 		}
@@ -565,8 +593,8 @@ func TestPromoteWithNodeGoneConfirmation(t *testing.T) {
 	r := newFailRig(t, true)
 	o := r.n.orch
 	must(t, setNode(o, "w1", node.StatusOffline))
-	o.lease.acked("w1", time.Now().Add(-2*time.Minute))
-	v, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true)
+	r.ageLease(2 * time.Minute)
+	v, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "")
 	must(t, err)
 	if v.Role != opmember.Primary {
 		t.Errorf("view = %+v", v)
@@ -584,14 +612,83 @@ func TestPromoteWithNodeGoneConfirmation(t *testing.T) {
 	}
 }
 
-// A forgotten node needs no confirmation: forgetting it was the admin's word.
+// A forgotten node is no way round the fence: its last recorded binding and
+// lease deadline outlive its row, and without a record only the typed
+// override promotes.
 func TestPromoteWhenOldNodeForgotten(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r := newFailRig(t, true)
 	o := r.n.orch
-	if err := o.mayPromote(ctx, r.tile(), "gone-node-id", false); err != nil {
-		t.Errorf("forgotten node: %v", err)
+	inst := r.inst
+	must(t, o.store.Nodes.Delete(ctx, "w1")) // forgotten, its lease record stays
+	if _, ok := o.leaseRecOf(ctx, inst.ID, "w1"); !ok {
+		t.Fatal("forgetting the node dropped its lease record")
+	}
+	err := o.mayPromote(ctx, r.tile(), inst, "w1", false, false)
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "lease runs out") {
+		t.Errorf("forgotten node inside its lease: %v", err)
+	}
+	r.ageLease(2 * time.Minute)
+	if err := o.mayPromote(ctx, r.tile(), inst, "w1", false, false); err != nil {
+		t.Errorf("forgotten node, lease run out: %v", err)
+	}
+	// no record: refused, unless the admin typed the override
+	must(t, o.store.Settings.Delete(ctx, leaseKey(inst.ID, "w1")))
+	err = o.mayPromote(ctx, r.tile(), inst, "w1", false, false)
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), PoweredOffPhrase) {
+		t.Errorf("no lease record: %v", err)
+	}
+	if err := o.mayPromote(ctx, r.tile(), inst, "w1", false, true); err != nil {
+		t.Errorf("with the override: %v", err)
+	}
+	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "powered off"); err == nil {
+		t.Error("a wrong phrase was accepted")
+	}
+}
+
+// A promote of an unreachable node with no recorded binding is refused, and
+// goes through on the typed override, which the cursor records.
+func TestPromoteNeedsLeaseProofOrOverride(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	must(t, setNode(o, "w1", node.StatusOffline))
+	must(t, o.store.Settings.Delete(ctx, leaseKey(r.inst.ID, "w1")))
+	_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "")
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "no recorded lease") {
+		t.Fatalf("no proof: %v", err)
+	}
+	if p, _ := r.members(); p.Fenced {
+		t.Error("a refused promote fenced the primary")
+	}
+	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, PoweredOffPhrase)
+	must(t, err)
+	if p, _ := r.members(); p.NodeID != r.n.ctl.ID {
+		t.Errorf("primary after the override: %+v", p)
+	}
+}
+
+// PITR cannot follow a relocated primary yet: a failover of such an instance
+// is refused, nothing fenced, nothing touched.
+func TestFailoverRefusedWithPITR(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	_, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "point-in-time") {
+		t.Errorf("switchover with PITR on: %v", err)
+	}
+	_, err = o.PromoteStandby(ctx, r.inst.TileID, "w1", true, "")
+	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "point-in-time") {
+		t.Errorf("promote with PITR on: %v", err)
+	}
+	if p, _ := r.members(); p.Fenced || r.saw("stop") {
+		t.Error("a refused failover touched the instance")
 	}
 }
 
@@ -672,39 +769,129 @@ func TestPlacementAdoptsPromotedPrimary(t *testing.T) {
 
 // A lease binds the running primaries of instances that have a standby, on
 // workers; an instance with no standby, and the controller's node, are never
-// bound. A worker that had some and has none is told to drop them.
+// bound. A worker that had some and has none is told to drop them, and that
+// is known from the persisted records, not from memory.
 func TestLeaseBindsOnlyPrimariesWithAStandby(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r := newFailRig(t, true) // the primary on w1
 	o := r.n.orch
-	pushed := map[string]worker.Lease{}
-	o.leasePush = func(_ context.Context, id string, l worker.Lease) error { pushed[id] = l; return nil }
 
 	if got := o.leaseContainers(ctx); len(got["w1"]) != 1 || got["w1"][0] != "pg" {
 		t.Fatalf("lease containers = %v, want the primary on w1", got)
 	}
+	// adding the standby already pushed and recorded it, synchronously
+	if l := r.pushed["w1"]; l.Seconds != leaseSeconds || !slices.Equal(l.Containers, []string{"pg"}) {
+		t.Fatalf("pushed at the first standby: %+v", l)
+	}
+	if rec, ok := o.leaseRecOf(ctx, r.inst.ID, "w1"); !ok || !slices.Equal(rec.Containers, []string{"pg"}) {
+		t.Fatalf("lease record = %+v %v", rec, ok)
+	}
+	delete(r.pushed, "w1")
 	o.pushLeases(ctx)
-	if l := pushed["w1"]; l.Seconds != leaseSeconds || len(l.Containers) != 1 {
+	if l := r.pushed["w1"]; len(l.Containers) != 1 {
 		t.Errorf("pushed %+v", l)
 	}
-	if _, ok := pushed[r.n.ctl.ID]; ok {
+	if _, ok := r.pushed[r.n.ctl.ID]; ok {
 		t.Error("the controller's node got a lease")
 	}
-	if o.leaseWait("w1") <= 0 {
+	if o.leaseWait(ctx, "w1") <= 0 {
 		t.Error("no wait counted from a push that was just taken")
 	}
 
 	// the standby goes: the instance is single again, the lease is cleared
-	rep, _ := r.members()
-	_, rep = r.members()
+	_, rep := r.members()
 	must(t, o.store.OperatedMembers.Delete(ctx, rep.ID))
 	if got := o.leaseContainers(ctx); len(got) != 0 {
 		t.Errorf("a single instance is bound: %v", got)
 	}
 	o.pushLeases(ctx)
-	if l := pushed["w1"]; len(l.Containers) != 0 {
-		t.Errorf("the lease was not cleared: %+v", l)
+	if l, ok := r.pushed["w1"]; !ok || len(l.Containers) != 0 {
+		t.Errorf("the lease was not cleared with an explicit empty list: %+v", l)
+	}
+	if _, ok := o.leaseRecOf(ctx, r.inst.ID, "w1"); ok {
+		t.Error("the record outlived the cleared lease")
+	}
+}
+
+// A collection that failed keeps the previous lease: nothing is pushed, an
+// empty list least of all.
+func TestLeaseCollectionErrorPushesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	delete(r.pushed, "w1")
+	r.mu.Lock()
+	r.listErr = errors.New("docker down") // the primaries cannot be listed
+	r.mu.Unlock()
+	o.pushLeases(ctx)
+	if len(r.pushed) != 0 {
+		t.Errorf("pushed after a failed collection: %+v", r.pushed)
+	}
+	if _, ok := o.leaseRecOf(ctx, r.inst.ID, "w1"); !ok {
+		t.Error("the record was dropped by a failed collection")
+	}
+}
+
+// The first standby is only added once the worker took the primary's lease;
+// a push that fails undoes the add.
+func TestAddStandbyNeedsTheLeaseAck(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	_, rep := r.members()
+	must(t, o.RemoveStandby(ctx, rep.ID))
+	r.leaseErr = errors.New("worker unreachable")
+	if _, err := o.AddStandby(ctx, r.inst.TileID, r.n.ctl.ID); err == nil {
+		t.Error("a standby was added without the primary's lease")
+	}
+}
+
+// A primary container that comes up with standbys is leased before it is
+// trusted; if the worker does not take the lease it is stopped.
+func TestReplacedPrimaryIsLeasedOrStopped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	delete(r.pushed, "w1")
+	o.leaseOnPrimaryUp(ctx, r.tile(), "pg")
+	if l := r.pushed["w1"]; len(l.Containers) != 1 {
+		t.Fatalf("no lease pushed for the replaced primary: %+v", r.pushed)
+	}
+	if r.saw("w1 stop pg") {
+		t.Error("a leased primary was stopped")
+	}
+	r.leaseErr = errors.New("worker unreachable")
+	o.leaseOnPrimaryUp(ctx, r.tile(), "pg")
+	if !r.saw("w1 stop pg") {
+		t.Error("a primary with no lease was left running")
+	}
+}
+
+// A failover is not complete until the new primary's worker took its lease:
+// a failed push keeps the cursor, the tick finishes it later.
+func TestFailoverCompletesOnlyWithTheNewPrimaryLeased(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false) // the primary on the controller, the standby on w1
+	o := r.n.orch
+	r.leaseErr = errors.New("worker unreachable")
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+		t.Fatal("the switchover completed with the new primary unleased")
+	}
+	if _, ok := o.failoverOf(ctx, r.inst.ID); !ok {
+		t.Fatal("the cursor was dropped")
+	}
+	r.leaseErr = nil
+	o.resumeFailovers(ctx)
+	if _, ok := o.failoverOf(ctx, r.inst.ID); ok {
+		t.Error("the failover did not finish once the lease was taken")
+	}
+	if l := r.pushed["w1"]; len(l.Containers) != 1 {
+		t.Errorf("new primary's lease = %+v", l)
 	}
 }
 

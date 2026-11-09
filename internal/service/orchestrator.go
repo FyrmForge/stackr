@@ -319,7 +319,6 @@ type Orchestrator struct {
 	// failCrashAfter makes a failover stop after that step, as a dying panel
 	// would (tests).
 	failCrashAfter string
-	lease          leaseBook
 	leasePush      func(ctx context.Context, nodeID string, l worker.Lease) error
 	probeRuns      sync.Map      // standby member id -> consecutive streaming (+) or not (-) probes
 	repoLocks      sync.Map      // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
@@ -599,7 +598,12 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.routes = build("leaf/route", func() *route.Leaf { return route.New(st.Routes) })
 	orch.hostgrant = build("leaf/hostgrant", func() *hostgrant.Leaf { return hostgrant.New(st.HostGrants) })
 	orch.earlyIPs = map[string]earlyEnt{}
-	orch.tiles.Early = orch.earlyLan
+	orch.tiles.Early = func(ctx context.Context, t store.Tile, id string, on bool) {
+		orch.earlyLan(ctx, t, id, on)
+		if on {
+			orch.leaseOnPrimaryUp(ctx, t, id) // a replaced primary with standbys is leased before it is trusted
+		}
+	}
 	orch.tiles.Node = orch.envNode
 	orch.tiles.Pin = orch.pinVIP
 	orch.tiles.Reroute = orch.primaryReroute

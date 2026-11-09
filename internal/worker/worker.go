@@ -73,7 +73,9 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	mesh   meshState
-	// lastCtl is when the controller last called (unix nanos).
+	// born is the process's monotonic zero; lastCtl is when the controller
+	// last called, as an offset from it.
+	born    time.Time
 	lastCtl atomic.Int64
 	// lease binds primaries to the panel's contact (lease.go).
 	lease leaseState
@@ -94,7 +96,7 @@ func New(cfg Config) *Server {
 	if cfg.Trust == nil {
 		cfg.Trust = NewTrust(filepath.Join(cfg.StateDir, "cluster-ca.crt"))
 	}
-	s := &Server{cfg: cfg, renewKick: make(chan struct{}, 1)}
+	s := &Server{cfg: cfg, born: time.Now(), renewKick: make(chan struct{}, 1)}
 	if cfg.TLS != nil && len(cfg.TLS.Certificates) > 0 {
 		s.own.set(cfg.TLS.Certificates[0])
 	} else {
@@ -181,6 +183,7 @@ func Run(ctx context.Context, cfg Config) error {
 		tc.Certificates, tc.GetCertificate = nil, s.serverCert
 		go s.renewLoop()
 	}
+	s.leaseBoot() // what an earlier run bound is stopped before this one serves
 	raw, err := (&net.ListenConfig{Control: freebind}).Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
 		return err

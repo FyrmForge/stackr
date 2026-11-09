@@ -96,14 +96,15 @@ var (
 // failover is the cursor.
 type failover struct {
 	Kind       string    `json:"kind"`
-	Target     string    `json:"target"`     // member promoted
-	Old        string    `json:"old"`        // member that was the primary
-	OldNode    string    `json:"old_node"`   // where the old primary runs
-	NodeGone   bool      `json:"node_gone"`  // the admin confirmed its node is gone
-	Step       string    `json:"step"`       // the next step to run
-	Checkpoint string    `json:"checkpoint"` // the old primary's last checkpoint (switchover)
-	Started    time.Time `json:"started"`    //
-	Error      string    `json:"error"`      // why the last run stopped
+	Target     string    `json:"target"`      // member promoted
+	Old        string    `json:"old"`         // member that was the primary
+	OldNode    string    `json:"old_node"`    // where the old primary runs
+	NodeGone   bool      `json:"node_gone"`   // the admin confirmed its node is gone
+	PoweredOff bool      `json:"powered_off"` // the admin typed PoweredOffPhrase instead of a lease proof
+	Step       string    `json:"step"`        // the next step to run
+	Checkpoint string    `json:"checkpoint"`  // the old primary's last checkpoint (switchover)
+	Started    time.Time `json:"started"`     //
+	Error      string    `json:"error"`       // why the last run stopped
 }
 
 func failoverKey(instanceID string) string { return "pgfail." + instanceID }
@@ -203,22 +204,33 @@ func (o *Orchestrator) FailoverOf(ctx context.Context, tileID string) (FailoverV
 // replayed the shutdown checkpoint, and only then promoted. to names the
 // standby's node; "" picks the streaming standby that replayed the most.
 func (o *Orchestrator) Switchover(ctx context.Context, tileID, to string) (StandbyView, error) {
-	return o.startFailover(ctx, tileID, to, foSwitchover, false)
+	return o.startFailover(ctx, tileID, to, foSwitchover, false, false)
 }
+
+// PoweredOffPhrase is what an admin types to promote past a missing lease
+// proof: the old primary's node has no recorded binding (or its lease is not
+// waited out), and they state they powered it off. It is recorded in the
+// cursor and the log.
+const PoweredOffPhrase = "I powered the node off"
 
 // PromoteStandby is the manual failover for a primary that is down: the
 // standby on node to becomes the primary. The old primary must be known to be
 // stopped: its node answers and the container is not running, or the node is
 // forgotten, or the admin confirmed (nodeGone) that an unreachable node is
-// really gone and the worker's lease on it has run out.
-func (o *Orchestrator) PromoteStandby(ctx context.Context, tileID, to string, nodeGone bool) (StandbyView, error) {
+// really gone and the worker's lease on it has run out, and the panel holds
+// the proof that the primary's container was bound to that lease (see
+// mayPromote); poweredOff (PoweredOffPhrase) replaces that proof and the wait.
+func (o *Orchestrator) PromoteStandby(ctx context.Context, tileID, to string, nodeGone bool, poweredOff string) (StandbyView, error) {
+	if poweredOff != "" && poweredOff != PoweredOffPhrase {
+		return StandbyView{}, errs.Invalidf("powered_off", "Type exactly: %s", PoweredOffPhrase)
+	}
 	if strings.TrimSpace(to) == "" {
 		return StandbyView{}, errs.Invalidf("to", "Pick the standby to promote.")
 	}
-	return o.startFailover(ctx, tileID, to, foPromoted, nodeGone)
+	return o.startFailover(ctx, tileID, to, foPromoted, nodeGone, poweredOff != "")
 }
 
-func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind string, nodeGone bool) (StandbyView, error) {
+func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind string, nodeGone, poweredOff bool) (StandbyView, error) {
 	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
 		return StandbyView{}, err
@@ -227,6 +239,12 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 	t, inst, err := o.memberInstance(ctx, tileID)
 	if err != nil {
 		return StandbyView{}, err
+	}
+	// The archive cannot follow a relocated primary yet (the shipper reads the
+	// archive volume on the env's node), so a failover would end the instance's
+	// PITR chain. Refused rather than suspend protection silently.
+	if inst.PITRDays > 0 {
+		return StandbyView{}, errs.Conflictf("%s has point-in-time recovery on. A switchover or promote would move the primary away from its archive and stop the backups, so it is refused. Turn point-in-time recovery off first.", t.Slug)
 	}
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
 		return StandbyView{}, errs.Conflictf("A %s of %s is in progress (%s). It resumes by itself.", f.Kind, t.Slug, f.Step)
@@ -250,13 +268,13 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 	if kind == foSwitchover {
 		err = o.mayHandOver(ctx, t, old, oldNode)
 	} else {
-		err = o.mayPromote(ctx, t, oldNode, nodeGone)
+		err = o.mayPromote(ctx, t, inst, oldNode, nodeGone, poweredOff)
 	}
 	if err != nil {
 		return StandbyView{}, err
 	}
 	// the fence first: the cursor, then the row. Nothing has been touched yet.
-	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, Step: stepFence, Started: time.Now().UTC()}
+	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, PoweredOff: poweredOff, Step: stepFence, Started: time.Now().UTC()}
 	if err := o.saveFailover(ctx, inst.ID, f); err != nil {
 		return StandbyView{}, err
 	}
@@ -334,33 +352,46 @@ func (o *Orchestrator) mayHandOver(ctx context.Context, t store.Tile, old Instan
 }
 
 // mayPromote is R3 (a) and (b): the old primary is known stopped. Its node
-// answers and the container is not running (or is stopped here), or the node
-// is forgotten; an unreachable node needs the admin's word that it is gone,
-// and the worker's lease on it (it stops a primary that cannot reach the
-// panel) must have run out.
-func (o *Orchestrator) mayPromote(ctx context.Context, t store.Tile, oldNode string, nodeGone bool) error {
+// answers and the container is not running (or is stopped here). Otherwise
+// the node does not answer or is forgotten, and then the old primary is
+// stopped only by its worker's lease: the panel must hold the record that the
+// primary's container was bound on that node (leaseRec, kept past the node's
+// row) and the lease on it, counted from the last ack, must have run out, a
+// forgotten node included. An unreachable node also needs the admin's word
+// that it is gone. poweredOff (the typed phrase) stands in for the record and
+// the wait; it is logged.
+func (o *Orchestrator) mayPromote(ctx context.Context, t store.Tile, inst store.OperatedInstance, oldNode string, nodeGone, poweredOff bool) error {
 	n, err := o.store.Nodes.Get(ctx, oldNode)
-	if errors.Is(err, errs.ErrNotFound) {
-		return nil // forgotten: gone by the admin's own act
-	}
-	if err != nil {
+	forgotten := errors.Is(err, errs.ErrNotFound)
+	if err != nil && !forgotten {
 		return err
 	}
-	if o.nodeUp(ctx, oldNode) == nil {
-		cs, err := o.docker.List(docker.WithNode(ctx, oldNode), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
-		if err != nil {
-			return err
+	name := "The old primary's node"
+	if !forgotten {
+		name = n.Name
+		if o.nodeUp(ctx, oldNode) == nil {
+			cs, err := o.docker.List(docker.WithNode(ctx, oldNode), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
+			if err != nil {
+				return err
+			}
+			if slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" }) {
+				return errs.Conflictf("The primary is running on %s. Switch over instead of promoting.", n.Name)
+			}
+			return nil // its worker says it is stopped
 		}
-		if slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" || c.State == "restarting" }) {
-			return errs.Conflictf("The primary is running on %s. Switch over instead of promoting.", n.Name)
+		if !nodeGone {
+			return errs.Conflictf("%s is not reachable. If it is really gone, confirm that to promote.", n.Name)
 		}
-		return nil // its worker says it is stopped
 	}
-	if !nodeGone {
-		return errs.Conflictf("%s is not reachable. If it is really gone, confirm that to promote.", n.Name)
+	if poweredOff {
+		slog.Warn("failover: promote on the admin's word that the old node is powered off", "instance", inst.ID, "node", oldNode)
+		return nil
 	}
-	if wait := o.leaseWait(oldNode); wait > 0 {
-		return errs.Conflictf("%s may still be running the primary: its lease runs out in %d s. Try again then.", n.Name, int(wait.Seconds())+1)
+	if _, ok := o.leaseRecOf(ctx, inst.ID, oldNode); !ok {
+		return errs.Conflictf("%s has no recorded lease on the primary, so it cannot be shown to stop by itself. If you powered it off, promote with: %s", name, PoweredOffPhrase)
+	}
+	if wait := o.leaseWait(ctx, oldNode); wait > 0 {
+		return errs.Conflictf("%s may still be running the primary: its lease runs out in %d s. Try again then.", name, int(wait.Seconds())+1)
 	}
 	return nil
 }
@@ -400,6 +431,9 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 	}
 	if err := o.store.Settings.Delete(ctx, failoverKey(inst.ID)); err != nil {
 		return err
+	}
+	if o.nodeForgotten(ctx, f.OldNode) {
+		_ = o.store.Settings.Delete(ctx, leaseKey(inst.ID, f.OldNode)) // the fence did its job; no push will ever clear it
 	}
 	o.pitrProblem(ctx, "alert."+AlertPGPrimaryDown+"."+inst.ID, AlertPGPrimaryDown, "", "", "")
 	if m, err := o.members.Get(ctx, f.Old); err == nil {
@@ -832,6 +866,11 @@ func (o *Orchestrator) foRoute(ctx context.Context, t store.Tile, inst store.Ope
 		return err
 	}
 	if err := o.pitrReset(ctx, cur); err != nil {
+		return err
+	}
+	// the new primary runs under its worker's lease, acked, before the
+	// failover counts as complete
+	if err := o.syncLease(ctx, t); err != nil {
 		return err
 	}
 	o.setPrimaryState(ctx, t.ID, opmember.Running)

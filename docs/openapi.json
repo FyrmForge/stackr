@@ -5682,13 +5682,17 @@
           "node_gone": {
             "type": "boolean"
           },
+          "powered_off": {
+            "type": "string"
+          },
           "to": {
             "type": "string"
           }
         },
         "required": [
           "to",
-          "node_gone"
+          "node_gone",
+          "powered_off"
         ],
         "type": "object"
       },

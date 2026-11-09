@@ -182,6 +182,9 @@ func (o *Orchestrator) addStandby(ctx context.Context, tileID, nodeRef string) (
 	if err == nil {
 		err = o.primaryRestart(ctx, t, true)
 	}
+	if err == nil {
+		err = o.syncLease(ctx, t) // a primary with a standby runs under its worker's lease, acked
+	}
 	if err != nil {
 		// kept as 'removing' if the drop fails: the watch tick finishes it
 		bg := context.WithoutCancel(ctx)
