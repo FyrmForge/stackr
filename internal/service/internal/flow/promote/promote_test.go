@@ -95,6 +95,7 @@ func setup(t *testing.T) *world {
 		Volumes:   d.Volumes,
 		Envs:      d.Envs,
 		Stacks:    d.Stacks,
+		Pull:      func(context.Context, string) error { return nil },
 		ReadyWait: time.Millisecond,
 		ReadyPoll: time.Millisecond,
 	}

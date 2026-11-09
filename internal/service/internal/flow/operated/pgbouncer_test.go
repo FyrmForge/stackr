@@ -13,7 +13,10 @@ func poolerInst(settings map[string]string) Instance {
 }
 
 func TestPoolerIni(t *testing.T) {
-	ini := poolerIni(poolerInst(nil), []string{"b_db", "a_db", "a_db"})
+	ini, err := poolerIni(poolerInst(nil), []string{"b_db", "a_db", "a_db"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		"pool_mode = transaction",
 		"max_prepared_statements = 200",
@@ -42,10 +45,15 @@ func TestPoolerIni(t *testing.T) {
 	}
 }
 
-// The pools together stay under max_connections less the headroom.
+// The pools together never exceed max_connections less the headroom; a
+// budget that cannot give every database one connection is refused.
 func TestPoolCaps(t *testing.T) {
-	for _, c := range []struct{ maxConn, n int }{{100, 1}, {100, 3}, {100, 7}, {500, 12}, {30, 2}, {200, 0}} {
-		auth, per := poolCaps(c.maxConn, c.n)
+	for _, c := range []struct{ maxConn, n int }{{100, 1}, {100, 3}, {100, 7}, {500, 12}, {30, 2}, {200, 0}, {100, 88}} {
+		auth, per, err := poolCaps(c.maxConn, c.n)
+		if err != nil {
+			t.Errorf("max_connections %d, %d dbs: %v", c.maxConn, c.n, err)
+			continue
+		}
 		if total := auth + per*c.n; total > c.maxConn-poolerHeadroom {
 			t.Errorf("max_connections %d, %d dbs: pools hold %d", c.maxConn, c.n, total)
 		}
@@ -53,9 +61,14 @@ func TestPoolCaps(t *testing.T) {
 			t.Errorf("max_connections %d, %d dbs: per = %d", c.maxConn, c.n, per)
 		}
 	}
-	// more databases than the budget holds: one each, the floor
-	if _, per := poolCaps(15, 9); per != 1 {
-		t.Errorf("floor = %d", per)
+	// one database too many for the budget: refused, never squeezed in
+	for _, c := range []struct{ maxConn, n int }{{100, 89}, {15, 9}, {10, 1}, {5, 1}} {
+		if _, _, err := poolCaps(c.maxConn, c.n); err == nil {
+			t.Errorf("max_connections %d, %d dbs: no error", c.maxConn, c.n)
+		}
+	}
+	if _, err := poolerIni(poolerInst(map[string]string{"max_connections": "15"}), []string{"a", "b", "c", "d"}); err == nil {
+		t.Errorf("an ini was rendered over the budget")
 	}
 	// max_connections comes from the effective settings, default 100
 	if n := maxConnections(poolerInst(nil)); n != 100 {
@@ -65,8 +78,9 @@ func TestPoolCaps(t *testing.T) {
 	if n := maxConnections(small); n != 40 {
 		t.Errorf("override = %d", n)
 	}
-	if ini := poolerIni(small, []string{"a_db"}); !strings.Contains(ini, "a_db = host=db-1234abcd port=5432 pool_size=20 max_db_connections=28") {
-		t.Errorf("a changed max_connections did not reach the ini:\n%s", ini)
+	ini, err := poolerIni(small, []string{"a_db"})
+	if err != nil || !strings.Contains(ini, "a_db = host=db-1234abcd port=5432 pool_size=20 max_db_connections=28") {
+		t.Errorf("a changed max_connections did not reach the ini (%v):\n%s", err, ini)
 	}
 }
 
@@ -89,6 +103,8 @@ func TestPoolerAuthSQLRepeats(t *testing.T) {
 	all := strings.Join(first, "\n")
 	for _, want := range []string{
 		"SECURITY DEFINER", "SET search_path = pg_catalog",
+		"NOT rolsuper", "NOT rolreplication", "NOT rolbypassrls", "rolname <> 'stackr_pooler'",
+		"CREATE ROLE stackr_pooler_probe LOGIN NOSUPERUSER",
 		"REVOKE ALL ON FUNCTION stackr_pooler.get_auth(text) FROM PUBLIC",
 		"GRANT EXECUTE ON FUNCTION stackr_pooler.get_auth(text) TO stackr_pooler",
 	} {

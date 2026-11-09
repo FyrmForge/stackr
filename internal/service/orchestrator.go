@@ -627,6 +627,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			},
 			PublicBase: orch.publicBase,
 			NodeMemMB:  orch.nodeMemMB,
+			Pull: func(ctx context.Context, ref string) error {
+				_, err := orch.images.Ensure(ctx, ref, "", io.Discard)
+				return err
+			},
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {

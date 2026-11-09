@@ -134,6 +134,13 @@ func (o *Orchestrator) applyPGSettings(ctx context.Context, t Tile, m OperatedIn
 	if len(changed) == 0 {
 		return false, nil
 	}
+	if slices.Contains(changed, "max_connections") {
+		// refused before anything is written: the pooler's budget must hold
+		// every slice database
+		if err := o.engines.CheckPoolBudget(ctx, t, cur, 0); err != nil {
+			return false, err
+		}
+	}
 	restart, err := o.engines.ApplySettings(ctx, t, cur, changed, removed)
 	if err != nil {
 		return false, err
@@ -143,9 +150,10 @@ func (o *Orchestrator) applyPGSettings(ctx context.Context, t Tile, m OperatedIn
 		_, _ = o.engines.ApplySettings(ctx, t, m.Settings, back, backUnset)
 		return false, err
 	}
-	if slices.Contains(changed, "max_connections") {
-		// the pooler's pool caps follow max_connections; a restart's deploy
-		// writes them again once postgres has the new value
+	if !restart && slices.Contains(changed, "max_connections") {
+		// A restart's deploy writes the pool caps once postgres runs with the
+		// new value (they follow the live one); only a change that took
+		// effect now is synced now.
 		if err := o.engines.SyncPooler(ctx, t); err != nil {
 			slog.Warn("sync pooler", "tile", t.ID, "err", err)
 		}

@@ -267,6 +267,11 @@ func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, 
 	return l.Role(ctx, t, "replica")
 }
 
+// OnNode is ctx for Docker calls on the node t runs on.
+func (l *Leaf) OnNode(ctx context.Context, t store.Tile) (context.Context, error) {
+	return l.at(ctx, t.EnvironmentID)
+}
+
 // Role is the tile's containers of one role, any state.
 func (l *Leaf) Role(ctx context.Context, t store.Tile, role string) ([]docker.Container, error) {
 	ctx, err := l.at(ctx, t.EnvironmentID)

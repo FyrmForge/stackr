@@ -129,6 +129,13 @@ func (f *Fake) HostInfo(context.Context) (docker.HostInfo, error) {
 }
 
 func (f *Fake) Start(_ context.Context, id string) error {
+	f.mu.Lock()
+	for i := range f.Containers {
+		if f.Containers[i].ID == id && f.Containers[i].State == "exited" {
+			f.Containers[i].State = "running"
+		}
+	}
+	f.mu.Unlock()
 	return f.rec("Start", id)
 }
 
@@ -449,6 +456,11 @@ func (f *Fake) Exec(_ context.Context, id string, cmd []string) (string, error) 
 func (f *Fake) execOut(cmd []string) string {
 	if f.ExecFn != nil {
 		return f.ExecFn(cmd)
+	}
+	// the proof an operated postgres's pooler runs on its auth lookup:
+	// the probe role found, the admin and the pooler role not
+	if slices.ContainsFunc(cmd, func(a string) bool { return strings.Contains(a, ".get_auth(") }) {
+		return "1,0,0"
 	}
 	return f.ExecOut
 }

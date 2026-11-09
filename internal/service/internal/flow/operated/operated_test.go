@@ -196,6 +196,18 @@ func setup(t *testing.T, engine string) *world {
 		must(t, err)
 	}
 	w.instance = m
+	// a slice makes the instance's pooler: it can be pulled and started, and
+	// its auth lookup proves itself; every other exec answers ExecOut
+	fake.RunID = "pool1"
+	fake.Details = map[string]docker.Detail{"pool1": {Running: true, State: "running"}}
+	tiles.Gate = tile.Gate{Poll: time.Millisecond, Grace: time.Millisecond, Deadline: time.Second}
+	f.Pull = func(context.Context, string) error { return nil }
+	fake.ExecFn = func(cmd []string) string {
+		if strings.Contains(strings.Join(cmd, " "), "get_auth(") {
+			return "1,0,0"
+		}
+		return fake.ExecOut
+	}
 	fake.Containers = []docker.Container{
 		{
 			ID:    "c1",
@@ -213,6 +225,12 @@ func setup(t *testing.T, engine string) *world {
 func execs(f *dockerfake.Fake, n int) string {
 	var b strings.Builder
 	for _, c := range f.Calls()[n:] {
+		// the pooler's own work (its role, its lookup proof, the live
+		// max_connections, its reload) is tested in pooler_flow_test.go
+		if p := strings.Join(c.Args, " ") + c.Stdin; strings.Contains(p, "stackr_pooler") || strings.Contains(p, "kill -HUP") ||
+			strings.Contains(p, "'max_connections'") || strings.Contains(p, "bool_or(pending_restart)") {
+			continue
+		}
 		if c.Method == "Exec" || c.Method == "ExecStream" {
 			b.WriteString(strings.Join(c.Args, " ") + "\n" + c.Stdin)
 		}

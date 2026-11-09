@@ -55,6 +55,9 @@ func newBranchRig(t *testing.T) *branchRig {
 		ID: "c-pg", Name: "c-pg", State: "running",
 		Labels: map[string]string{tile.LabelTile: pg.ID, tile.LabelRole: "replica"},
 	})
+	// a slice's deploy makes the instance's pooler: its container comes up healthy
+	w.fake.RunID = "c-pool"
+	w.fake.Details = map[string]docker.Detail{"c-pool": {Running: true, Health: "healthy"}}
 	return &branchRig{world: w, pg: pg, db: db, api: api, inst: m}
 }
 

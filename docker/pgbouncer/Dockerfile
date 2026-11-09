@@ -2,8 +2,8 @@
 # code of ours. stackr writes /etc/pgbouncer/pgbouncer.ini and the userlist
 # at start and signals a reload. psql and pg_isready are for stackr's admin
 # console reads and the health check. Rebuilt weekly for Alpine's fixes
-# (.github/workflows/pgbouncer-image.yml).
-FROM alpine:3.22
+# (.github/workflows/pgbouncer-image.yml). Bump the base by tag and digest together.
+FROM alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
 
 # stackr's config (max_prepared_statements) needs pgbouncer 1.21 or later.
 RUN apk add --no-cache pgbouncer postgresql-client \

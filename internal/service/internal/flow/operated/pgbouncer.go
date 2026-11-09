@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -35,9 +38,10 @@ const (
 	// PoolerRole is the tile label role of the pooler container.
 	PoolerRole = "pooler"
 
-	poolerUser = "stackr_pooler"
-	poolerSock = "/var/run/pgbouncer"
-	poolerConf = "/etc/pgbouncer/pgbouncer.ini"
+	poolerUser  = "stackr_pooler"
+	poolerProbe = "stackr_pooler_probe"
+	poolerSock  = "/var/run/pgbouncer"
+	poolerConf  = "/etc/pgbouncer/pgbouncer.ini"
 	// poolerHeadroom is what pgbouncer leaves of max_connections to stackr's
 	// own direct connections (admin, backups, branching) and the reserved
 	// slots.
@@ -70,14 +74,19 @@ func maxConnections(i Instance) int {
 
 // poolCaps splits what pgbouncer may hold of postgres: max_connections less
 // the headroom, the auth pool first, the rest shared evenly by the n slice
-// databases. The total, auth pool + n x per, stays within the budget unless
-// the budget cannot hold one connection each.
-func poolCaps(maxConn, n int) (auth, per int) {
-	budget := max(maxConn-poolerHeadroom, poolerAuthPool+max(n, 1))
+// databases. The total, auth pool + n x per, never exceeds the budget: when
+// the budget cannot give every database one connection it is an error, and
+// the caller refuses the change that caused it.
+func poolCaps(maxConn, n int) (auth, per int, err error) {
+	budget := maxConn - poolerHeadroom
 	if n <= 0 {
-		return poolerAuthPool, 0
+		return poolerAuthPool, 0, nil
 	}
-	return poolerAuthPool, max((budget-poolerAuthPool)/n, 1)
+	if budget-poolerAuthPool < n {
+		return 0, 0, errs.Invalidf("max_connections", "max_connections %d leaves %d connections for the pooler, "+
+			"not enough for %d databases; raise max_connections or remove a slice", maxConn, max(budget-poolerAuthPool, 0), n)
+	}
+	return poolerAuthPool, (budget - poolerAuthPool) / n, nil
 }
 
 // poolerIni is pgbouncer.ini for i with one entry per slice database dbs
@@ -85,10 +94,13 @@ func poolCaps(maxConn, n int) (auth, per int) {
 // pool together fits under max_connections; a database not listed is
 // refused by the pooler. The admin database is listed only for auth_query.
 // No secret is in it: stackr_pooler's password is in the userlist.
-func poolerIni(i Instance, dbs []string) string {
+func poolerIni(i Instance, dbs []string) (string, error) {
 	dbs = slices.Compact(slices.Sorted(slices.Values(dbs)))
 	dbs = slices.DeleteFunc(dbs, func(d string) bool { return d == i.AdminDB })
-	auth, per := poolCaps(maxConnections(i), len(dbs))
+	auth, per, err := poolCaps(maxConnections(i), len(dbs))
+	if err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	line := func(f string, a ...any) { fmt.Fprintf(&b, f+"\n", a...) }
 	line("; written by stackr; edits here are overwritten")
@@ -113,7 +125,7 @@ func poolerIni(i Instance, dbs []string) string {
 	line("max_prepared_statements = 200")
 	line("ignore_startup_parameters = extra_float_digits,options")
 	line("max_client_conn = %d", poolerClients)
-	return b.String()
+	return b.String(), nil
 }
 
 // poolerStartScript writes the userlist from the env (the password never
@@ -161,7 +173,9 @@ func poolerConsole(cmd string) []string {
 // auth_dbname): the lookup lives in the admin database only, so a new
 // binding needs no pooler config. The function is SECURITY DEFINER, owned by
 // the admin superuser, pinned to pg_catalog, and executable by the pooler
-// role alone. Every statement is repeatable. roleExists picks CREATE or
+// role alone, and it answers only for plain login roles (no superuser,
+// replication or bypassrls, never the pooler role): the admin's verifier is
+// out of its reach. Every statement is repeatable. roleExists picks CREATE or
 // ALTER, as Provision does: a replayed CREATE failing on "already exists"
 // would make postgres log the statement, password included.
 func poolerAuthSQL(roleExists bool, password string) []string {
@@ -175,7 +189,12 @@ func poolerAuthSQL(roleExists bool, password string) []string {
 		`CREATE OR REPLACE FUNCTION ` + poolerUser + `.get_auth(p_usename text) ` +
 			`RETURNS TABLE (usename name, passwd text) LANGUAGE sql SECURITY DEFINER ` +
 			`SET search_path = pg_catalog AS $$ ` +
-			`SELECT rolname::name, rolpassword FROM pg_catalog.pg_authid WHERE rolname = p_usename AND rolcanlogin $$`,
+			`SELECT rolname::name, rolpassword FROM pg_catalog.pg_authid WHERE rolname = p_usename AND rolcanlogin AND NOT rolsuper AND NOT rolreplication ` +
+			`AND NOT rolbypassrls AND rolname <> '` + poolerUser + `' $$`,
+		// a plain login role with no password, so nobody can log in as it: what
+		// the lookup is proved on
+		`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '` + poolerProbe + `') THEN ` +
+			`CREATE ROLE ` + poolerProbe + ` LOGIN NOSUPERUSER NOREPLICATION NOBYPASSRLS; END IF; END $$`,
 		`REVOKE ALL ON FUNCTION ` + poolerUser + `.get_auth(text) FROM PUBLIC`,
 		`GRANT USAGE ON SCHEMA ` + poolerUser + ` TO ` + poolerUser,
 		`GRANT EXECUTE ON FUNCTION ` + poolerUser + `.get_auth(text) TO ` + poolerUser,
@@ -198,12 +217,16 @@ func (e pg) ensurePoolerAuth(ctx context.Context, i Instance, x Tools) error {
 	return e.verifyPoolerAuth(ctx, i, x)
 }
 
+// verifyPoolerAuth logs in as the pooler role over the network (so its
+// password is checked) and asks the lookup for the probe role, which it must
+// find, and for the admin and the pooler role, which it must not.
 func (pg) verifyPoolerAuth(ctx context.Context, i Instance, x Tools) error {
+	n := func(r string) string { return `(SELECT count(*) FROM ` + poolerUser + `.get_auth('` + r + `'))` }
 	script := `read -r PGPASSWORD; export PGPASSWORD; exec psql -h "$0" -U ` + poolerUser + ` -d "$1" -tA ` +
-		`-c "SELECT count(*) FROM ` + poolerUser + `.get_auth('$2')"`
+		`-c "SELECT ` + n(poolerProbe) + `||','||` + n("$2") + `||','||` + n(poolerUser) + `"`
 	out, err := x.ExecIn(ctx, []string{"sh", "-c", script, i.Host, i.AdminDB, i.AdminUser}, i.PoolerPassword+"\n")
-	if err != nil || strings.TrimSpace(out) != "1" {
-		return errors.New("the pooler's auth lookup does not work: " + poolerUser + " cannot log in or call " + poolerUser + ".get_auth")
+	if err != nil || strings.TrimSpace(out) != "1,0,0" {
+		return errors.New("the pooler's auth lookup does not work: " + poolerUser + " cannot log in, or " + poolerUser + ".get_auth answers wrongly")
 	}
 	return nil
 }
@@ -221,22 +244,74 @@ func (f *Flow) sliceDBs(ctx context.Context, m store.OperatedInstance) ([]string
 	return dbs, nil
 }
 
+// poolerLock serialises the pooler's config of one instance: the snapshot
+// of its databases, the write and the reload are one step, so a slower job
+// never writes a stale list over a newer one.
+func (f *Flow) poolerLock(instanceID string) *sync.Mutex {
+	m, _ := f.poolerMu.LoadOrStore(instanceID, &sync.Mutex{})
+	return m.(*sync.Mutex)
+}
+
 // EnsurePooler is the instance's pooler after its deploy: the auth role and
 // function (also for an instance made before poolers), the pooler container
 // made if it is missing, its config rewritten and reloaded if it is there.
-// pull makes the pooler image available on the node. A postgres that is not
-// there or an engine that is not postgres is nothing to do.
-func (f *Flow) EnsurePooler(ctx context.Context, it store.Tile, pull func(ctx context.Context, ref string) error, log io.Writer) error {
-	return f.pooler(ctx, it, pull, log)
+// A failure is the deploy's: it can be retried, and nothing publishes a
+// pooled address for a pooler that is not there.
+func (f *Flow) EnsurePooler(ctx context.Context, it store.Tile, log io.Writer) error {
+	return f.pooler(ctx, it, true, log)
 }
 
-// SyncPooler rewrites and reloads the pooler's config when one runs (a slice
-// came or went, max_connections moved); it never makes one.
+// SyncPooler is EnsurePooler for a change after the deploy (a slice came,
+// max_connections moved): it makes the pooler when it is missing.
 func (f *Flow) SyncPooler(ctx context.Context, it store.Tile) error {
-	return f.pooler(ctx, it, nil, io.Discard)
+	return f.pooler(ctx, it, true, io.Discard)
 }
 
-func (f *Flow) pooler(ctx context.Context, it store.Tile, pull func(context.Context, string) error, log io.Writer) error {
+// refreshPooler rewrites a pooler that runs and makes none: for a slice
+// going, and an instance being torn down, which must not grow a container.
+func (f *Flow) refreshPooler(ctx context.Context, it store.Tile) error {
+	return f.pooler(ctx, it, false, io.Discard)
+}
+
+// CheckPoolBudget refuses a change the pooler's connection budget cannot
+// hold: settings (the overrides that would be stored) and extra more slice
+// databases must leave every database at least one connection.
+func (f *Flow) CheckPoolBudget(ctx context.Context, it store.Tile, settings map[string]string, extra int) error {
+	m, e, err := f.instance(ctx, it.ID)
+	if err != nil {
+		return err
+	}
+	if _, ok := e.(pg); !ok {
+		return nil
+	}
+	dbs, err := f.sliceDBs(ctx, m)
+	if err != nil {
+		return err
+	}
+	i := f.facts(ctx, it, m, e.Definition())
+	if settings != nil {
+		i.Settings = settings
+	}
+	_, _, err = poolCaps(maxConnections(i), len(dbs)+extra)
+	return err
+}
+
+// liveMaxConnections is the max_connections postgres runs with, which a
+// stored change does not touch until the restart: the pool caps follow it,
+// never the stored value. Unreadable = the effective one.
+func liveMaxConnections(ctx context.Context, i Instance, x Tools) Instance {
+	live, _, err := pgLive(ctx, i, x, []string{"max_connections"})
+	if v, ok := live["max_connections"]; err == nil && ok {
+		i.Settings = maps.Clone(i.Settings)
+		if i.Settings == nil {
+			i.Settings = map[string]string{}
+		}
+		i.Settings["max_connections"] = v.Value
+	}
+	return i
+}
+
+func (f *Flow) pooler(ctx context.Context, it store.Tile, create bool, log io.Writer) error {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return err
@@ -245,11 +320,17 @@ func (f *Flow) pooler(ctx context.Context, it store.Tile, pull func(context.Cont
 	if !ok {
 		return nil
 	}
+	mu := f.poolerLock(m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if m, err = f.Instances.Get(ctx, m.ID); err != nil { // read under the lock
+		return err
+	}
 	cs, err := f.Tiles.Role(ctx, it, PoolerRole)
 	if err != nil {
 		return err
 	}
-	if len(cs) == 0 && pull == nil {
+	if len(cs) == 0 && !create {
 		return nil
 	}
 	if m.PoolerPassword == "" {
@@ -257,8 +338,8 @@ func (f *Flow) pooler(ctx context.Context, it store.Tile, pull func(context.Cont
 			return err
 		}
 	}
-	i := f.withNodeMem(ctx, it, f.facts(ctx, it, m, e.Definition()))
 	x := f.tools(ctx, it, m)
+	i := liveMaxConnections(ctx, f.withNodeMem(ctx, it, f.facts(ctx, it, m, e.Definition())), x)
 	if err := pe.ensurePoolerAuth(ctx, i, x); err != nil {
 		return err
 	}
@@ -266,22 +347,20 @@ func (f *Flow) pooler(ctx context.Context, it store.Tile, pull func(context.Cont
 	if err != nil {
 		return err
 	}
-	ini := poolerIni(i, dbs)
-	if len(cs) == 0 {
-		net := operated.Network(m.ID)
-		if err := f.Envs.Shared(ctx, net); err != nil {
-			return err
-		}
-		if err := pull(ctx, PoolerImage); err != nil {
-			return fmt.Errorf("pull %s: %w", PoolerImage, err)
-		}
-		logf(log, "starting the pooler for %s\n", it.Slug)
-		_, err = f.Tiles.StartRole(ctx, it, PoolerRole, poolerSpec(i, ini, net), log)
+	ini, err := poolerIni(i, dbs)
+	if err != nil {
 		return err
+	}
+	if len(cs) == 0 {
+		return f.startPooler(ctx, it, m, i, ini, log)
 	}
 	c := cs[0]
 	if c.State != "running" {
 		if err := f.Tiles.StartContainer(ctx, it.ID, c.ID); err != nil {
+			return err
+		}
+		// the start races pgbouncer's own startup: reload once it is healthy
+		if err := f.waitPooler(ctx, it); err != nil {
 			return err
 		}
 	}
@@ -289,6 +368,52 @@ func (f *Flow) pooler(ctx context.Context, it store.Tile, pull func(context.Cont
 		return fmt.Errorf("reload the pooler: %w", err)
 	}
 	return nil
+}
+
+func (f *Flow) startPooler(ctx context.Context, it store.Tile, m store.OperatedInstance, i Instance, ini string, log io.Writer) error {
+	if f.Pull == nil {
+		return fmt.Errorf("%s: no way to pull %s", it.Slug, PoolerImage)
+	}
+	nctx, err := f.Tiles.OnNode(ctx, it)
+	if err != nil {
+		return err
+	}
+	net := operated.Network(m.ID)
+	if err := f.Envs.Shared(nctx, net); err != nil {
+		return err
+	}
+	if err := f.Pull(nctx, PoolerImage); err != nil {
+		return fmt.Errorf("pull %s: %w", PoolerImage, err)
+	}
+	logf(log, "starting the pooler for %s\n", it.Slug)
+	_, err = f.Tiles.StartRole(ctx, it, PoolerRole, poolerSpec(i, ini, net), log)
+	return err
+}
+
+// waitPooler waits for the pooler container to be running and healthy.
+func (f *Flow) waitPooler(ctx context.Context, it store.Tile) error {
+	wait, poll := f.ReadyWait, f.ReadyPoll
+	if wait == 0 {
+		wait = time.Minute
+	}
+	if poll == 0 {
+		poll = time.Second
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		cs, err := f.Tiles.Role(ctx, it, PoolerRole)
+		if err == nil && len(cs) > 0 && cs[0].State == "running" && cs[0].Health != "starting" && cs[0].Health != "unhealthy" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("the pooler did not become healthy after its start")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
+	}
 }
 
 // PoolerStatus is the pooler as the drawer shows it. Word: none | running |

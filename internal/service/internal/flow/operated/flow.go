@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -40,6 +41,11 @@ type Flow struct {
 	// NodeMemMB is the memory, in MB, of the node the instance runs on; 0 or
 	// nil = unknown.
 	NodeMemMB func(ctx context.Context, t store.Tile) int
+	// Pull makes an image available on the instance's node (anonymous): the
+	// pooler's. nil = no pooler can be made.
+	Pull func(ctx context.Context, ref string) error
+	// poolerMu is one lock per instance, see poolerLock.
+	poolerMu sync.Map
 	// ReadyWait bounds the readiness poll; 0 = 60s. ReadyPoll is its tick; 0 = 2s.
 	ReadyWait, ReadyPoll time.Duration
 }
@@ -221,7 +227,10 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 				it.Slug,
 			)
 		}
-		return p, e.Provision(ctx, inst, withBucket(slice(p), s), f.tools(ctx, it, m))
+		if err := e.Provision(ctx, inst, withBucket(slice(p), s), f.tools(ctx, it, m)); err != nil {
+			return p, err
+		}
+		return p, f.SyncPooler(ctx, it) // a failed first try is made good here
 	}
 	name, err := f.sliceName(ctx, def, s)
 	if err != nil {
@@ -249,25 +258,36 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 		sl.User = m.AdminUser
 		sl.Password = m.AdminPassword
 	}
-	if err := e.Provision(ctx, inst, sl, f.tools(ctx, it, m)); err != nil {
-		return p, fmt.Errorf("provision %s on %s: %w", sl.Name, it.Slug, err)
+	// the budget check and the new row are one step per instance, so two
+	// slices added together cannot both fit the last connection
+	mu := f.poolerLock(m.ID)
+	mu.Lock()
+	p, err = func() (store.Provision, error) {
+		defer mu.Unlock()
+		if err := f.CheckPoolBudget(ctx, it, nil, 1); err != nil {
+			return p, err
+		}
+		if err := e.Provision(ctx, inst, sl, f.tools(ctx, it, m)); err != nil {
+			return p, fmt.Errorf("provision %s on %s: %w", sl.Name, it.Slug, err)
+		}
+		return f.Instances.CreateProvision(ctx, m, s.ID, operated.Slice{
+			DBName:     sl.Name,
+			DBUser:     sl.User,
+			DBPassword: sl.Password,
+		})
+	}()
+	if err != nil {
+		return p, err
 	}
-	p, err = f.Instances.CreateProvision(ctx, m, s.ID, operated.Slice{
-		DBName:     sl.Name,
-		DBUser:     sl.User,
-		DBPassword: sl.Password,
-	})
-	if err == nil {
-		f.syncPooler(ctx, it) // the pooler lists the new database
-	}
-	return p, err
+	// the pooler lists the new database, and is made if it is missing
+	return p, f.SyncPooler(ctx, it)
 }
 
-// syncPooler tells a running pooler about a slice that came or went. A
+// refreshPoolerAfter tells a pooler that runs about a slice that went. A
 // failure is not the slice's: the next deploy of the instance writes the
 // config again.
-func (f *Flow) syncPooler(ctx context.Context, it store.Tile) {
-	if err := f.SyncPooler(ctx, it); err != nil {
+func (f *Flow) refreshPoolerAfter(ctx context.Context, it store.Tile) {
+	if err := f.refreshPooler(ctx, it); err != nil {
 		slog.Warn("sync pooler", "tile", it.ID, "err", err)
 	}
 }
@@ -483,7 +503,7 @@ func (f *Flow) Drop(ctx context.Context, p store.Provision, drop bool, log io.Wr
 		return err
 	}
 	if _, it, _, err := f.of(ctx, p); err == nil {
-		f.syncPooler(ctx, it)
+		f.refreshPoolerAfter(ctx, it)
 	}
 	return nil
 }

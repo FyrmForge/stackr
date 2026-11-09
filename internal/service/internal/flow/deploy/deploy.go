@@ -339,14 +339,10 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		if err := f.Engines.Ready(ctx, t); err != nil {
 			return digest, err
 		}
-		// Apps dial the instance direct unless they ask for the pooled
-		// address, so a pooler that fails does not fail the deploy.
-		pull := func(ctx context.Context, ref string) error {
-			_, err := f.Images.Ensure(ctx, ref, "", log)
-			return err
-		}
-		if err := f.Engines.EnsurePooler(ctx, t, pull, log); err != nil {
-			logf(log, "warning: the pooler is not up: %v\n", err)
+		// A pooler that fails fails the deploy, which can be retried: the
+		// pooled outputs are not to name a pooler that is not there.
+		if err := f.Engines.EnsurePooler(ctx, t, log); err != nil {
+			return digest, fmt.Errorf("the pooler: %w", err)
 		}
 		return digest, nil
 	}
