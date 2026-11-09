@@ -13,6 +13,7 @@ import (
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -483,6 +484,11 @@ type SliceView struct {
 	Engine        string `json:"engine"`  // the instance's, once provisioned
 	Name          string `json:"name"`    // the database or bucket, once provisioned
 	Network       string `json:"network"` // the instance's network
+	// A bucket's protection as it is applied: days old versions are kept
+	// (0 = versioning off), the size cap in GB (0 = none), CORS origins.
+	VersionDays int      `json:"version_days"`
+	QuotaGB     int      `json:"quota_gb"`
+	CORSOrigins []string `json:"cors_origins"`
 }
 
 // SliceOf is slice tile sliceTileID with its target resolved by the deploy's
@@ -499,6 +505,14 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 		ProvisionFrom: str(s.ProvisionFrom),
 		DefaultAccess: str(s.DefaultAccess),
 		OnRemove:      str(s.OnRemove),
+		VersionDays:   s3.DefaultVersionDays,
+		CORSOrigins:   append([]string{}, s.CORSOrigins...),
+	}
+	if s.VersionDays != nil {
+		v.VersionDays = *s.VersionDays
+	}
+	if s.QuotaGB != nil {
+		v.QuotaGB = *s.QuotaGB
 	}
 	p, ok, err := o.operated.ProvisionOf(ctx, s.ID)
 	if err != nil {
@@ -538,6 +552,7 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 		return v, err
 	}
 	v.Network = operated.Network(m.ID)
+	v.Engine = m.Engine
 	return v, nil
 }
 

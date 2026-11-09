@@ -66,7 +66,11 @@ func Effects(kind string, c Changed) []Effect {
 	var out []Effect
 	if kind == Slice {
 		// No container: a moved target or default reaches the consumers,
-		// and the plan redeploys them.
+		// and the plan redeploys them. A moved protection setting is the
+		// slice's own deploy, which re-syncs its bucket.
+		if c["version_days"] || c["quota_gb"] || c["cors_origins"] {
+			return []Effect{Redeploy}
+		}
 		return nil
 	}
 	if kind == Cron && c.NeedsCronReload() {
@@ -149,8 +153,13 @@ func Diff(old, cur store.Tile) Changed {
 	mark("default_access", deref(old.DefaultAccess) == deref(cur.DefaultAccess))
 	mark("on_remove", deref(old.OnRemove) == deref(cur.OnRemove))
 	mark("slice_access", slices.Equal(old.SliceAccess, cur.SliceAccess))
+	mark("version_days", ptrEq(old.VersionDays, cur.VersionDays))
+	mark("quota_gb", ptrEq(old.QuotaGB, cur.QuotaGB))
+	mark("cors_origins", slices.Equal(old.CORSOrigins, cur.CORSOrigins))
 	return c
 }
+
+func ptrEq(a, b *int) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
 
 func deref(s *string) string {
 	if s == nil {

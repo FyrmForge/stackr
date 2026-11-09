@@ -125,6 +125,19 @@ var shownValues = map[string]func(store.Tile) string{
 	"provision_from":  func(t store.Tile) string { return deref(t.ProvisionFrom) },
 	"default_access":  func(t store.Tile) string { return deref(t.DefaultAccess) },
 	"on_remove":       func(t store.Tile) string { return deref(t.OnRemove) },
+	"version_days": func(t store.Tile) string {
+		if t.VersionDays == nil {
+			return "default"
+		}
+		return strconv.Itoa(*t.VersionDays)
+	},
+	"quota_gb": func(t store.Tile) string {
+		if t.QuotaGB == nil {
+			return "none"
+		}
+		return strconv.Itoa(*t.QuotaGB)
+	},
+	"cors_origins": func(t store.Tile) string { return strings.Join(t.CORSOrigins, " ") },
 }
 
 func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
@@ -1450,6 +1463,7 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		t.ProvisionFrom = &tc.ProvisionFrom
 		t.DefaultAccess = &access
 		t.OnRemove = &onRemove
+		t.VersionDays, t.QuotaGB, t.CORSOrigins = tc.VersionDays, tc.QuotaGB, tc.CORSOrigins
 	}
 	for _, a := range tc.SliceAccess {
 		t.SliceAccess = append(t.SliceAccess, store.SliceAccess{
