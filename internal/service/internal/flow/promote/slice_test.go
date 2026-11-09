@@ -14,7 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -31,7 +31,7 @@ head: main
 base:
   tiles:
     pg-db:
-      kind: managed
+      kind: operated
       engine: postgres
       env_pairs:
         dev: staging
@@ -78,7 +78,7 @@ func TestGrammarSlices(t *testing.T) {
 	r, err := Load([]byte(infraFile), nil, "testorg")
 	must(t, err)
 	pg := r.Envs["staging"].Tiles["pg-db"]
-	if pg.Type != tile.Managed || len(pg.Allow) != 2 || pg.EnvPairs["dev"] != "staging" {
+	if pg.Type != tile.Operated || len(pg.Allow) != 2 || pg.EnvPairs["dev"] != "staging" {
 		t.Errorf("pg-db = %+v", pg)
 	}
 	r, err = Load([]byte(sliceShopFile), nil, "testorg")
@@ -105,11 +105,11 @@ func TestGrammarSlices(t *testing.T) {
 		},
 		"allow on image": {
 			tiles("    api:\n      image: x\n      allow:\n        - testorg:*\n"),
-			"tile api: allow: only a managed tile takes it",
+			"tile api: allow: only an operated tile takes it",
 		},
 		"env_pairs on service": {
 			tiles("    api:\n      kind: service\n      env_pairs:\n        dev: staging\n"),
-			"tile api: env_pairs: only a managed tile takes it",
+			"tile api: env_pairs: only an operated tile takes it",
 		},
 		"allow other org": {
 			tiles("    db:\n      engine: postgres\n      allow:\n        - acme:*\n"),
@@ -175,9 +175,9 @@ func TestGrammarSlices(t *testing.T) {
 			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      schedule: \"0 3 * * *\"\n"),
 			"tile s: a slice tile takes no schedule",
 		},
-		"slice_access on managed": {
+		"slice_access on operated": {
 			tiles("    db:\n      engine: postgres\n      slice_access:\n        - from: s\n          access: read\n"),
-			"tile db: slice_access: a managed tile binds to no slice",
+			"tile db: slice_access: operated tiles bind to no slice",
 		},
 		"slice_access word": {
 			tiles("    api:\n      image: x\n      slice_access:\n        - from: s\n          access: admin\n"),
@@ -196,7 +196,7 @@ func TestGrammarSlices(t *testing.T) {
 }
 
 // sliceWorld is setup's shop in org testorg, plus stack infra with envs
-// staging and production, each with managed tile pg-db carrying the
+// staging and production, each with operated tile pg-db carrying the
 // grammar's allow list and env pairs, and a running replica to exec in. The
 // fake's psql answers "nothing exists yet" to every check.
 type sliceWorld struct {
@@ -247,7 +247,7 @@ func newSliceWorld(t *testing.T) *sliceWorld {
 		}
 		must(t, w.s.Environments.Create(ctx, e))
 		w.envs[name] = e
-		w.pg[name] = w.managedTile(t, e, []string{
+		w.pg[name] = w.operatedTile(t, e, []string{
 			"testorg:shop:*",
 			"testorg:blog:*:api",
 		}, map[string]string{
@@ -268,32 +268,32 @@ func newSliceWorld(t *testing.T) *sliceWorld {
 	return w
 }
 
-// managedTile makes pg-db in e with its instance row.
-func (w *sliceWorld) managedTile(t *testing.T, e store.Environment, allow []string, pairs map[string]string) store.Tile {
+// operatedTile makes pg-db in e with its instance row.
+func (w *sliceWorld) operatedTile(t *testing.T, e store.Environment, allow []string, pairs map[string]string) store.Tile {
 	d := w.f.D
 	pg, err := d.Tiles.Create(ctx, store.Tile{
 		StackID:       e.StackID,
 		EnvironmentID: e.ID,
 		Name:          "pg-db",
 		Slug:          "pg-db",
-		Kind:          tile.Managed,
+		Kind:          tile.Operated,
 	})
 	must(t, err)
-	m, err := d.Managed.Create(ctx, pg.ID, "postgres", "stackr", "")
+	m, err := d.Operated.Create(ctx, pg.ID, "postgres", "stackr", "")
 	must(t, err)
-	m, err = d.Managed.SetAllow(ctx, m, "testorg", allow)
+	m, err = d.Operated.SetAllow(ctx, m, "testorg", allow)
 	must(t, err)
-	_, err = d.Managed.SetEnvPairs(ctx, m, pairs)
+	_, err = d.Operated.SetEnvPairs(ctx, m, pairs)
 	must(t, err)
 	return pg
 }
 
 // instance edits the instance behind infra's pg-db in env.
-func (w *sliceWorld) instance(t *testing.T, env string, edit func(*store.ManagedInstance)) {
-	m, err := w.f.D.Managed.GetByTile(ctx, w.pg[env].ID)
+func (w *sliceWorld) instance(t *testing.T, env string, edit func(*store.OperatedInstance)) {
+	m, err := w.f.D.Operated.GetByTile(ctx, w.pg[env].ID)
 	must(t, err)
 	edit(&m)
-	must(t, w.s.ManagedInstances.Update(ctx, m))
+	must(t, w.s.OperatedInstances.Update(ctx, m))
 }
 
 // shopRelease is a shop release of file at commit, with reporter's build
@@ -323,7 +323,7 @@ func TestSliceBlockers(t *testing.T) {
 			name: "no env pair",
 			prep: func(t *testing.T, w *sliceWorld) {
 				for _, env := range []string{"staging", "production"} {
-					w.instance(t, env, func(m *store.ManagedInstance) {
+					w.instance(t, env, func(m *store.OperatedInstance) {
 						m.EnvPairs = store.StringMap{"staging": "staging"}
 					})
 				}
@@ -333,7 +333,7 @@ func TestSliceBlockers(t *testing.T) {
 		{
 			name: "paired env missing",
 			prep: func(t *testing.T, w *sliceWorld) {
-				w.instance(t, "staging", func(m *store.ManagedInstance) {
+				w.instance(t, "staging", func(m *store.OperatedInstance) {
 					m.EnvPairs = store.StringMap{"dev": "qa"}
 				})
 			},
@@ -343,7 +343,7 @@ func TestSliceBlockers(t *testing.T) {
 			name: "no env pairs, name as written",
 			prep: func(t *testing.T, w *sliceWorld) {
 				for _, env := range []string{"staging", "production"} {
-					w.instance(t, env, func(m *store.ManagedInstance) {
+					w.instance(t, env, func(m *store.OperatedInstance) {
 						m.EnvPairs = nil
 					})
 				}
@@ -358,7 +358,7 @@ func TestSliceBlockers(t *testing.T) {
 			want: "slice api-db: infra/staging has no tile called pg-db to cut it from",
 		},
 		{
-			name: "not managed",
+			name: "not operated",
 			prep: func(t *testing.T, w *sliceWorld) {
 				must(t, w.f.D.Tiles.Delete(ctx, w.pg["staging"].ID))
 				_, err := w.f.D.Tiles.Create(ctx, store.Tile{
@@ -371,12 +371,12 @@ func TestSliceBlockers(t *testing.T) {
 				})
 				must(t, err)
 			},
-			want: "slice api-db: infra/staging/pg-db is not a managed tile",
+			want: "slice api-db: infra/staging/pg-db is not an operated tile",
 		},
 		{
 			name: "not allowed",
 			prep: func(t *testing.T, w *sliceWorld) {
-				w.instance(t, "staging", func(m *store.ManagedInstance) {
+				w.instance(t, "staging", func(m *store.OperatedInstance) {
 					m.Allow = store.StringList{"testorg:blog:*"}
 				})
 			},
@@ -487,7 +487,7 @@ func TestSliceHappyPath(t *testing.T) {
 	if p.Blocked() || !strings.Contains(kinds(p), "slice:api-dbinfra/staging/pg-db (write)") {
 		t.Errorf("pr plan = %s, blockers %q", kinds(p), p.Blockers)
 	}
-	w.instance(t, "staging", func(m *store.ManagedInstance) {
+	w.instance(t, "staging", func(m *store.OperatedInstance) {
 		m.Allow = store.StringList{"testorg:shop:dev:*"}
 	})
 	p, err = w.f.Plan(ctx, pr.ID, w.shopRelease(t, "c4", sliceShopFile).ID, io.Discard)
@@ -552,14 +552,14 @@ func TestSliceDeploy(t *testing.T) {
 	must(t, err)
 	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
 	must(t, err)
-	pr, ok, err := d.Managed.ProvisionOf(ctx, sl.ID)
+	pr, ok, err := d.Operated.ProvisionOf(ctx, sl.ID)
 	must(t, err)
-	m, err := d.Managed.GetByTile(ctx, w.pg["staging"].ID)
+	m, err := d.Operated.GetByTile(ctx, w.pg["staging"].ID)
 	must(t, err)
 	if !ok || pr.InstanceID != m.ID || pr.DBName != "shop_dev_api_db" {
 		t.Fatalf("provision = %+v %v, want shop_dev_api_db on staging's pg-db", pr, ok)
 	}
-	bs, err := d.Managed.Bindings(ctx, pr.ID)
+	bs, err := d.Operated.Bindings(ctx, pr.ID)
 	must(t, err)
 	got := map[string]string{}
 	for _, b := range bs {
@@ -570,7 +570,7 @@ func TestSliceDeploy(t *testing.T) {
 	}
 
 	// Both consumers sit on the instance's network and dial its alias there.
-	net := managed.Network(m.ID)
+	net := operated.Network(m.ID)
 	host := "pg-db-" + m.ID[:8]
 	i := slices.IndexFunc(w.fake.Specs, func(s docker.ContainerSpec) bool {
 		return strings.HasPrefix(s.Name, "stackr-api-")
@@ -616,7 +616,7 @@ func TestSliceDeploy(t *testing.T) {
 	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "shop_dev_api_db_reporter"`) {
 		t.Errorf("reporter removal execs:\n%s", ex)
 	}
-	if bs, _ := d.Managed.Bindings(ctx, pr.ID); len(bs) != 1 || bs[0].DBUser != "shop_dev_api_db_api" {
+	if bs, _ := d.Operated.Bindings(ctx, pr.ID); len(bs) != 1 || bs[0].DBUser != "shop_dev_api_db_api" {
 		t.Errorf("bindings after reporter = %+v", bs)
 	}
 
@@ -633,10 +633,10 @@ func TestSliceDeploy(t *testing.T) {
 			t.Errorf("api-db removal: no %q in\n%s", want, ex)
 		}
 	}
-	if _, err := d.Managed.GetProvision(ctx, pr.ID); err == nil {
+	if _, err := d.Operated.GetProvision(ctx, pr.ID); err == nil {
 		t.Error("the dropped slice kept its provision")
 	}
-	if bs, _ := d.Managed.Bindings(ctx, pr.ID); len(bs) != 0 {
+	if bs, _ := d.Operated.Bindings(ctx, pr.ID); len(bs) != 0 {
 		t.Errorf("bindings after drop = %+v", bs)
 	}
 }
@@ -650,7 +650,7 @@ func TestSliceKeep(t *testing.T) {
 	must(t, err)
 	sl, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api-db")
 	must(t, err)
-	pr, ok, err := d.Managed.ProvisionOf(ctx, sl.ID)
+	pr, ok, err := d.Operated.ProvisionOf(ctx, sl.ID)
 	if err != nil || !ok || sl.OnRemove == nil || *sl.OnRemove != tile.Keep {
 		t.Fatalf("provision = %+v %v %v, on_remove %v", pr, ok, err, sl.OnRemove)
 	}
@@ -661,7 +661,7 @@ func TestSliceKeep(t *testing.T) {
 	if ex := execs(w, n); strings.Contains(ex, "DROP DATABASE") || !strings.Contains(ex, `DROP ROLE IF EXISTS "shop_dev_api_db_api"`) {
 		t.Errorf("keep execs:\n%s", ex)
 	}
-	if _, err := d.Managed.GetProvision(ctx, pr.ID); err == nil {
+	if _, err := d.Operated.GetProvision(ctx, pr.ID); err == nil {
 		t.Error("the kept slice kept its provision row")
 	}
 	p, err := w.f.Plan(ctx, w.dev.ID, r.ID, io.Discard)
@@ -763,7 +763,7 @@ func TestSliceUnbindAfterSwap(t *testing.T) {
 	if err == nil {
 		t.Fatal("apply with a failing rollout succeeded")
 	}
-	if bound, _ := d.Managed.Bound(ctx, api.ID); len(bound) != 1 {
+	if bound, _ := d.Operated.Bound(ctx, api.ID); len(bound) != 1 {
 		t.Fatalf("after a failed rollout bindings = %v, want api's kept", bound)
 	}
 	w.fake.Err = nil
@@ -772,7 +772,7 @@ func TestSliceUnbindAfterSwap(t *testing.T) {
 	if ex := execs(w, n); !strings.Contains(ex, `DROP ROLE IF EXISTS "shop_dev_api_db_api"`) {
 		t.Errorf("redeploy execs:\n%s", ex)
 	}
-	if bound, _ := d.Managed.Bound(ctx, api.ID); len(bound) != 0 {
+	if bound, _ := d.Operated.Bound(ctx, api.ID); len(bound) != 0 {
 		t.Errorf("after the swap bindings = %v, want none", bound)
 	}
 }
@@ -788,7 +788,7 @@ func TestSliceInstanceRemovalRefused(t *testing.T) {
 	if _, ok := errs.IsConflict(err); !ok {
 		t.Fatalf("remove = %v, want a conflict", err)
 	}
-	if _, err := d.Managed.GetByTile(ctx, w.pg["staging"].ID); err != nil {
+	if _, err := d.Operated.GetByTile(ctx, w.pg["staging"].ID); err != nil {
 		t.Errorf("instance row after a refusal: %v", err)
 	}
 	for _, c := range w.fake.Calls()[n:] {
@@ -805,7 +805,7 @@ func TestSliceNotAllowedAtDeploy(t *testing.T) {
 	d := w.f.D
 	_, err := w.f.Apply(ctx, w.dev.ID, w.shopRelease(t, "c1", sliceShopFile).ID, io.Discard, nil)
 	must(t, err)
-	w.instance(t, "staging", func(m *store.ManagedInstance) {
+	w.instance(t, "staging", func(m *store.OperatedInstance) {
 		m.Allow = store.StringList{"testorg:blog:*"}
 	})
 	api, err := d.Tiles.GetBySlug(ctx, w.dev.ID, "api")
@@ -822,7 +822,7 @@ func TestSliceNotAllowedAtDeploy(t *testing.T) {
 	if len(w.fake.Specs) != runs {
 		t.Error("a refused consumer started a container")
 	}
-	bound, err := d.Managed.Bound(ctx, api.ID)
+	bound, err := d.Operated.Bound(ctx, api.ID)
 	must(t, err)
 	if len(bound) != 1 {
 		t.Errorf("bindings = %v, want api's kept", bound)
@@ -831,9 +831,9 @@ func TestSliceNotAllowedAtDeploy(t *testing.T) {
 
 // Infra's own promote: allow and env_pairs are plan rows written onto the
 // instance, never a redeploy.
-func TestManagedAllowRows(t *testing.T) {
+func TestOperatedAllowRows(t *testing.T) {
 	w := newSliceWorld(t)
-	w.instance(t, "staging", func(m *store.ManagedInstance) {
+	w.instance(t, "staging", func(m *store.OperatedInstance) {
 		m.Allow, m.EnvPairs = nil, nil
 	})
 	rel := func(commit, file string) store.Release {
@@ -853,8 +853,8 @@ func TestManagedAllowRows(t *testing.T) {
 	must(t, err)
 	got := kinds(p)
 	for _, want := range []string{
-		"managed:pg-dballow+testorg:blog:*:api +testorg:shop:*",
-		"managed:pg-dbenv_pairs+dev→staging +production→production +staging→staging",
+		"operated:pg-dballow+testorg:blog:*:api +testorg:shop:*",
+		"operated:pg-dbenv_pairs+dev→staging +production→production +staging→staging",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("plan = %s, want %s", got, want)
@@ -863,7 +863,7 @@ func TestManagedAllowRows(t *testing.T) {
 	if len(p.Deployed) != 0 {
 		t.Errorf("deployed %v; an allow edit redeploys nothing", p.Deployed)
 	}
-	m, err := w.f.D.Managed.GetByTile(ctx, w.pg["staging"].ID)
+	m, err := w.f.D.Operated.GetByTile(ctx, w.pg["staging"].ID)
 	must(t, err)
 	if len(m.Allow) != 2 || m.EnvPairs["dev"] != "staging" {
 		t.Errorf("instance = %+v", m)
@@ -872,7 +872,7 @@ func TestManagedAllowRows(t *testing.T) {
 	narrowed := strings.Replace(infraFile, "        - testorg:shop:*\n", "", 1)
 	p, err = w.f.Plan(ctx, staging, rel("i2", narrowed).ID, io.Discard)
 	must(t, err)
-	if got := kinds(p); got != "managed:pg-dballow−testorg:shop:*" {
+	if got := kinds(p); got != "operated:pg-dballow−testorg:shop:*" {
 		t.Errorf("plan = %s, want only the removed entry", got)
 	}
 }

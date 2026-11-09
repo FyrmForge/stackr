@@ -32,7 +32,7 @@ func New(releases store.ReleaseStore, tiles store.ReleaseTileStore) *Leaf {
 const ConfigSlug = "_config"
 
 // Pin is one tile in a release. Built tiles carry ImageID; image and
-// managed tiles carry the digest (never just a tag), and an image tile's
+// operated tiles carry the digest (never just a tag), and an image tile's
 // Repo is the ref it was pinned from, tag included; the config repo's pin
 // carries only its commit.
 type Pin struct {

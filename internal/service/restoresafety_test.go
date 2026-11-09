@@ -22,13 +22,13 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// pg is a managed postgres tile with its running container and data volume.
-func (w *world) pg(t *testing.T, name string) (Tile, store.ManagedInstance, store.Volume) {
+// pg is an operated postgres tile with its running container and data volume.
+func (w *world) pg(t *testing.T, name string) (Tile, store.OperatedInstance, store.Volume) {
 	t.Helper()
 	ctx := context.Background()
-	tl, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: name}, "postgres")
+	tl, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: name}, "postgres")
 	must(t, err)
-	m, err := w.st.ManagedInstances.GetByTile(ctx, tl.ID)
+	m, err := w.st.OperatedInstances.GetByTile(ctx, tl.ID)
 	must(t, err)
 	v, _, err := w.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: w.env}, name+"-data", &m.ID)
 	must(t, err)

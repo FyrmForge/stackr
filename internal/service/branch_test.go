@@ -28,19 +28,19 @@ func roleP(org, role string) *Principal {
 type branchRig struct {
 	*world
 	pg, db, api Tile
-	inst        store.ManagedInstance
+	inst        store.OperatedInstance
 }
 
 func newBranchRig(t *testing.T) *branchRig {
 	t.Helper()
 	w := newWorld(t)
 	ctx := context.Background()
-	pg, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
 	must(t, err)
 	db, err := w.orch.CreateSliceTile(ctx, w.env, "db", "shop:dev:pg", "")
 	must(t, err)
 	api := w.tile(t, "api", false)
-	m, err := w.orch.managed.GetByTile(ctx, pg.ID)
+	m, err := w.orch.operated.GetByTile(ctx, pg.ID)
 	must(t, err)
 	p := store.Provision{
 		ID: uuid.NewString(), TileID: db.ID, InstanceID: m.ID,
@@ -134,7 +134,7 @@ func TestBranchSlice(t *testing.T) {
 	}
 
 	// a branch of a branch drops the old suffix
-	if _, ok, err := o.managed.ProvisionOf(ctx, br.ID); err != nil || !ok {
+	if _, ok, err := o.operated.ProvisionOf(ctx, br.ID); err != nil || !ok {
 		t.Fatalf("branch provisioned = %v, %v", ok, err)
 	}
 	br2, _, err := o.BranchSlice(ctx, writer, br.ID, BranchIn{})
@@ -170,7 +170,7 @@ func TestBranchSliceRefusals(t *testing.T) {
 		}
 	}
 	// the instance named must be postgres
-	s3, err := o.CreateManagedTile(ctx, Tile{EnvironmentID: r.env, Name: "files"}, "s3")
+	s3, err := o.CreateOperatedTile(ctx, Tile{EnvironmentID: r.env, Name: "files"}, "s3")
 	must(t, err)
 	if _, _, err := o.BranchSlice(ctx, writer, r.db.ID, BranchIn{Instance: "shop:dev:" + s3.Slug}); err == nil {
 		t.Error("branched onto an s3 instance")
@@ -189,7 +189,7 @@ func TestBranchSliceRefusals(t *testing.T) {
 	// an s3 slice
 	bucket, err := o.CreateSliceTile(ctx, r.env, "bucket", "shop:dev:"+s3.Slug, "")
 	must(t, err)
-	m3, err := o.managed.GetByTile(ctx, s3.ID)
+	m3, err := o.operated.GetByTile(ctx, s3.ID)
 	must(t, err)
 	must(t, r.st.Provisions.Create(ctx, store.Provision{
 		ID: uuid.NewString(), TileID: bucket.ID, InstanceID: m3.ID, DBName: "b", DBUser: "b", CreatedAt: time.Now(),
@@ -215,7 +215,7 @@ func TestBranchSliceToAnotherEnv(t *testing.T) {
 	} else if _, ok := errs.IsConflict(err); !ok {
 		t.Errorf("not admitted = %v, want conflict", err)
 	}
-	if _, err := o.SetManagedAllow(ctx, r.pg.ID, []string{"acme:shop:*"}); err != nil {
+	if _, err := o.SetOperatedAllow(ctx, r.pg.ID, []string{"acme:shop:*"}); err != nil {
 		t.Fatal(err)
 	}
 	br, _, err := o.BranchSlice(ctx, writer, r.db.ID, BranchIn{Env: "prod"})
@@ -277,7 +277,7 @@ func TestSweepDropsOnlyTheBranchDatabase(t *testing.T) {
 	if got := r.wait(t, j.ID); got.State != "done" {
 		t.Fatalf("seed job = %s: %s", got.State, got.Error)
 	}
-	p, ok, err := o.managed.ProvisionOf(ctx, br.ID)
+	p, ok, err := o.operated.ProvisionOf(ctx, br.ID)
 	if err != nil || !ok || p.DBName == "shop_dev_db" {
 		t.Fatalf("branch provision = %+v, %v, %v", p, ok, err)
 	}

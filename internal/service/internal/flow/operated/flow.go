@@ -1,4 +1,4 @@
-package managed
+package operated
 
 import (
 	"context"
@@ -14,18 +14,18 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// Flow sequences leaf/managed (rows), leaf/tile (exec), leaf/volume (the
+// Flow sequences leaf/operated (rows), leaf/tile (exec), leaf/volume (the
 // instance's data) and the engines.
 type Flow struct {
 	Tiles     *tile.Leaf
-	Instances *managed.Leaf
+	Instances *operated.Leaf
 	Volumes   *volume.Leaf
 	Envs      *environment.Leaf
 	Stacks    *stack.Leaf
@@ -104,7 +104,7 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		}
 		c.Binds = append(c.Binds, name+":"+path)
 	}
-	net := managed.Network(m.ID)
+	net := operated.Network(m.ID)
 	if err := f.Envs.Shared(ctx, net); err != nil {
 		return c, err
 	}
@@ -127,8 +127,8 @@ func IsArchiveVolume(v store.Volume) bool {
 	return v.InstanceID != nil && strings.HasSuffix(v.Slug, "-wal")
 }
 
-// alias is the instance's name on its network (managed.Alias).
-func alias(t store.Tile, m store.ManagedInstance) string { return managed.Alias(t.Slug, m.ID) }
+// alias is the instance's name on its network (operated.Alias).
+func alias(t store.Tile, m store.OperatedInstance) string { return operated.Alias(t.Slug, m.ID) }
 
 // Ready polls the engine's own probe until it answers or the wait runs out.
 // It does not pre-check for a container: a fresh instance has none running
@@ -207,7 +207,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 	}
 	sl := Slice{
 		Name:     name,
-		Password: managed.Password(),
+		Password: operated.Password(),
 	}
 	sl.User = sl.Name
 	if def.RootCreds {
@@ -217,7 +217,7 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 	if err := e.Provision(ctx, inst, sl, f.tools(ctx, it, m)); err != nil {
 		return p, fmt.Errorf("provision %s on %s: %w", sl.Name, it.Slug, err)
 	}
-	return f.Instances.CreateProvision(ctx, m, s.ID, managed.Slice{
+	return f.Instances.CreateProvision(ctx, m, s.ID, operated.Slice{
 		DBName:     sl.Name,
 		DBUser:     sl.User,
 		DBPassword: sl.Password,
@@ -283,7 +283,7 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 	}
 	g := Grant{
 		User:     uniqueSliceName(def.SliceName(p.DBName+"_"+c.Slug), taken, def.SliceSep),
-		Password: managed.Password(),
+		Password: operated.Password(),
 		Access:   access,
 	}
 	if err := e.Bind(ctx, inst, slice(p), g, "", others, f.tools(ctx, it, m)); err != nil {
@@ -292,7 +292,7 @@ func (f *Flow) Bind(ctx context.Context, p store.Provision, c store.Tile, access
 	as := slice(p)
 	as.User = g.User
 	as.Password = g.Password
-	return f.Instances.Bind(ctx, p, c.ID, managed.Cred{
+	return f.Instances.Bind(ctx, p, c.ID, operated.Cred{
 		Access:   access,
 		User:     g.User,
 		Password: g.Password,
@@ -361,7 +361,7 @@ func (f *Flow) Republish(ctx context.Context, it store.Tile) ([]string, error) {
 		for _, b := range bs {
 			as := slice(p)
 			as.User, as.Password = b.DBUser, b.DBPassword
-			have, err := managed.Outputs(b)
+			have, err := operated.Outputs(b)
 			if err != nil {
 				return moved, err
 			}
@@ -613,7 +613,7 @@ func (f *Flow) ArchiverFailed(ctx context.Context, it store.Tile) (int64, error)
 }
 
 // of is the instance a provision lives on: its row, its tile and engine.
-func (f *Flow) of(ctx context.Context, p store.Provision) (store.ManagedInstance, store.Tile, ManagedTile, error) {
+func (f *Flow) of(ctx context.Context, p store.Provision) (store.OperatedInstance, store.Tile, OperatedTile, error) {
 	m, err := f.Instances.Get(ctx, p.InstanceID)
 	if err != nil {
 		return m, store.Tile{}, nil, err
@@ -626,7 +626,7 @@ func (f *Flow) of(ctx context.Context, p store.Provision) (store.ManagedInstance
 	return m, it, e, err
 }
 
-func (f *Flow) instance(ctx context.Context, tileID string) (store.ManagedInstance, ManagedTile, error) {
+func (f *Flow) instance(ctx context.Context, tileID string) (store.OperatedInstance, OperatedTile, error) {
 	m, err := f.Instances.GetByTile(ctx, tileID)
 	if err != nil {
 		return m, nil, err
@@ -637,7 +637,7 @@ func (f *Flow) instance(ctx context.Context, tileID string) (store.ManagedInstan
 
 // facts is the instance as an engine sees it. Consumers dial its alias on
 // the instance network; its port is the engine's.
-func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance, def Definition) Instance {
+func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance, def Definition) Instance {
 	i := Instance{
 		Slug:          t.Slug,
 		Engine:        m.Engine,
@@ -660,7 +660,7 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.ManagedInstance,
 // ponytail: stackrd runs on the host network, which routes to any bridge
 // IP; a stackrd on its own bridge would have to join the instance network
 // instead (DECIDE 28).
-func (f *Flow) tools(ctx context.Context, t store.Tile, m store.ManagedInstance) Tools {
+func (f *Flow) tools(ctx context.Context, t store.Tile, m store.OperatedInstance) Tools {
 	x := Tools{
 		Exec: func(ctx context.Context, cmd []string) (string, error) {
 			cs, err := f.Tiles.Replicas(ctx, t)

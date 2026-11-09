@@ -127,7 +127,7 @@ func TestShareBindRefusals(t *testing.T) {
 		m    tile.Mount
 		want string
 	}{
-		{"managed", acme, store.Tile{Slug: "pg", Kind: tile.Managed}, mount(t, "share:media/pg:/d"), "database on a share"},
+		{"operated", acme, store.Tile{Slug: "pg", Kind: tile.Operated}, mount(t, "share:media/pg:/d"), "database on a share"},
 		{"other org", globex, store.Tile{Slug: "web"}, mount(t, "share:media/a:/d"), "does not have"},
 		{"dotdot", acme, store.Tile{Slug: "web"}, tile.Mount{Kind: tile.MountShare, Share: "media", Sub: "../x", Path: "/d"}, "plain sub path"},
 	} {

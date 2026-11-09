@@ -198,11 +198,11 @@ func sliceWorld(t *testing.T) *sqlx.DB {
 		{`INSERT INTO orgs VALUES ('o1','Acme','acme','','','{}',NULL,'',?,'','','','',0,NULL)`, []any{now}},
 		{`INSERT INTO stacks VALUES ('s1','o1','Shop','shop','','{}','','','','',?,NULL)`, []any{now}},
 		{`INSERT INTO environments VALUES ('e1','s1','Dev','dev','static',NULL,'{}','',0,'net',NULL,'branch','main',1,?,1,'','','')`, []any{now}},
-		tileRow("pg", "managed", nil, nil, now),
+		tileRow("pg", "operated", nil, nil, now),
 		tileRow("api-db", "slice", "infra:${{ env.name }}:pg", "write", now),
 		tileRow("api", "image", nil, nil, now),
 		tileRow("reporter", "cron", nil, nil, now),
-		{`INSERT INTO managed_instances VALUES ('mi1','pg','postgres','["acme:shop:*"]','{"dev":"dev"}','stackr','x','',?,0)`, []any{now}},
+		{`INSERT INTO operated_instances VALUES ('mi1','pg','postgres','["acme:shop:*"]','{"dev":"dev"}','stackr','x','',?,0)`, []any{now}},
 		{`INSERT INTO provisions VALUES ('pr1','api-db','mi1','api_db','api_db','x',0,?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b1','pr1','api','write','api_db_api','x','{}',?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b2','pr1','reporter','read','api_db_reporter','x','{}',?)`, []any{now}},
@@ -232,7 +232,7 @@ func TestSliceCascades(t *testing.T) {
 	}{
 		{"consumer tile", `DELETE FROM tiles WHERE id = 'reporter'`, []string{"pr1"}, []string{"b1"}},
 		{"slice tile", `DELETE FROM tiles WHERE id = 'api-db'`, nil, nil},
-		{"instance", `DELETE FROM managed_instances WHERE id = 'mi1'`, nil, nil},
+		{"instance", `DELETE FROM operated_instances WHERE id = 'mi1'`, nil, nil},
 		{"instance tile", `DELETE FROM tiles WHERE id = 'pg'`, nil, nil},
 		{"org", `DELETE FROM orgs WHERE id = 'o1'`, nil, nil},
 	} {

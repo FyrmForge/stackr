@@ -336,11 +336,11 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 			b.put(k, l)
 		}
 	}
-	if t.Kind != tile.Service && t.Kind != tile.Image && t.Kind != tile.Managed {
+	if t.Kind != tile.Service && t.Kind != tile.Image && t.Kind != tile.Operated {
 		b.put("type", t.Kind)
 	}
-	if t.Kind == tile.Managed {
-		m, err := f.D.Managed.GetByTile(ctx, t.ID)
+	if t.Kind == tile.Operated {
+		m, err := f.D.Operated.GetByTile(ctx, t.ID)
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return nil, err
 		}
@@ -447,7 +447,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		}
 		b.put("slice_access", sa)
 	}
-	if t.Kind == tile.Managed || t.Kind == tile.Slice {
+	if t.Kind == tile.Operated || t.Kind == tile.Slice {
 		return b, nil
 	}
 	have, err := f.D.Domains.ListByTile(ctx, t.ID)

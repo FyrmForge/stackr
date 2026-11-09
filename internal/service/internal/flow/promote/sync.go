@@ -154,7 +154,7 @@ func (f *Flow) syncEnvs(ctx context.Context, envID, fromID string) (e, src store
 type syncItem struct {
 	tag         string
 	old, want   store.Tile
-	oldM, wantM store.ManagedInstance
+	oldM, wantM store.OperatedInstance
 }
 
 // syncWork is the one planner. w.re is a thin ResolvedEnv of the tiles the
@@ -218,7 +218,7 @@ func (f *Flow) syncWork(
 	}
 	have, from := map[string]store.Tile{}, map[string]store.Tile{}
 	names := map[string]bool{}
-	insts := map[string]store.ManagedInstance{} // by tile id
+	insts := map[string]store.OperatedInstance{} // by tile id
 	for _, t := range live {
 		have[t.Slug], names[t.Slug] = t, true
 	}
@@ -226,10 +226,10 @@ func (f *Flow) syncWork(
 		from[t.Slug], names[t.Slug] = t, true
 	}
 	for _, t := range slices.Concat(live, theirs) {
-		if t.Kind != tile.Managed {
+		if t.Kind != tile.Operated {
 			continue
 		}
-		m, err := d.Managed.GetByTile(ctx, t.ID)
+		m, err := d.Operated.GetByTile(ctx, t.ID)
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
 			return nil, nil, err
 		}
@@ -259,7 +259,7 @@ func (f *Flow) syncWork(
 			want.ID, want.StackID, want.EnvironmentID = o.ID, o.StackID, o.EnvironmentID
 			want.Name, want.ImageRef, want.GitBranch, want.Paused = o.Name, o.ImageRef, o.GitBranch, o.Paused
 			want.CreatedAt, want.UpdatedAt = o.CreatedAt, o.UpdatedAt
-			moved := o.Kind == tile.Managed && t.Kind == tile.Managed && instMoved(insts[o.ID], insts[t.ID])
+			moved := o.Kind == tile.Operated && t.Kind == tile.Operated && instMoved(insts[o.ID], insts[t.ID])
 			if tile.Diff(o, want).Any() || moved {
 				items[n] = syncItem{tag: tagEdited, old: o, want: want, oldM: insts[o.ID], wantM: insts[t.ID]}
 			}
@@ -342,7 +342,7 @@ func (f *Flow) syncWork(
 		if err := f.syncKind(ctx, p, w, want, old, true, tc); err != nil {
 			return nil, nil, err
 		}
-		if want.Kind == tile.Managed && w.redeploy[n] {
+		if want.Kind == tile.Operated && w.redeploy[n] {
 			p.Warnings = append(p.Warnings, n+" restarts to take the new settings")
 		}
 		warnHost(p, e, n, want, old)
@@ -394,7 +394,7 @@ func (f *Flow) syncHostAccess(ctx context.Context, p *Plan, st store.Stack, want
 	return nil
 }
 
-// syncKind is the managed and slice rows of one New or Edited tile.
+// syncKind is the operated and slice rows of one New or Edited tile.
 func (f *Flow) syncKind(
 	ctx context.Context,
 	p *Plan,
@@ -404,7 +404,7 @@ func (f *Flow) syncKind(
 	tc TileConf,
 ) error {
 	switch want.Kind {
-	case tile.Managed:
+	case tile.Operated:
 		return f.planInstance(ctx, p, w, want.Slug, tc, old, exists)
 	case tile.Slice:
 		return f.planSlice(ctx, p, w, want, old, exists)
@@ -441,14 +441,14 @@ func warnHost(p *Plan, e store.Environment, slug string, want, old store.Tile) {
 }
 
 // instMoved: the engine, allow list or env pairs of two instances differ.
-func instMoved(a, b store.ManagedInstance) bool {
+func instMoved(a, b store.OperatedInstance) bool {
 	return a.Engine != b.Engine || signedDiff(a.Allow, b.Allow) != "" || !maps.Equal(a.EnvPairs, b.EnvPairs) ||
 		a.PITRDays != b.PITRDays
 }
 
 // thinConf is the part of a TileConf the shared plan helpers read, from a
 // tile row and its instance.
-func thinConf(t store.Tile, m store.ManagedInstance) TileConf {
+func thinConf(t store.Tile, m store.OperatedInstance) TileConf {
 	tc := TileConf{
 		Type:     t.Kind,
 		Engine:   m.Engine,
@@ -734,8 +734,8 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func(
 		if err != nil {
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
-		if t.Kind == tile.Managed {
-			if _, err := d.Managed.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
+		if t.Kind == tile.Operated {
+			if _, err := d.Operated.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
 				return err
 			}
 		}

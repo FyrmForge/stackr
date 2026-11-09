@@ -4,7 +4,7 @@ import c "github.com/FyrmForge/stackr/internal/ui/components"
 
 // CreateTileView is the create-tile form. Source picks the fields: image
 // (a ref), service (a repo: connector + URL; it builds from the env's branch), cron (image +
-// schedule), function (image + trigger), managed (an engine). Switching
+// schedule), function (image + trigger), operated (an engine). Switching
 // the source re-GETs the form with the typed values kept. ponytail: the
 // repo pick is a URL field (a private repo goes through the connector for
 // its host); no verb lists a connector's repos yet.
@@ -37,14 +37,14 @@ func hostsHelp(hosts string) string {
 
 // encoding is the form's: multipart where it can carry a dump.
 func encoding(source string) string {
-	if source == "managed" {
+	if source == "operated" {
 		return "multipart/form-data"
 	}
 	return "application/x-www-form-urlencoded"
 }
 
 // Sources are the create form's source switch.
-var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"managed", "Managed"}, {"slice", "Slice"}}
+var Sources = []Option{{"image", "Image"}, {"service", "Repo"}, {"cron", "Cron"}, {"function", "Function"}, {"operated", "Operated"}, {"slice", "Slice"}}
 
 templ CreateTile(v CreateTileView) {
 	<form id="create-tile" hx-post={ v.Action } hx-target="#create-tile" hx-swap="outerHTML" hx-encoding={ encoding(v.Source) }>
@@ -66,7 +66,8 @@ templ CreateTile(v CreateTileView) {
 			switch v.Source {
 				case "service":
 					@c.Field(c.FieldView{Name: "git_url", Label: "Repo URL", Value: v.GitURL, Placeholder: "https://git.example.com/acme/api", Required: true, Help: hostsHelp(v.Hosts), Error: v.Errors["git_url"]})
-				case "managed":
+				case "operated":
+					<p class="text-xs text-rw-faint" data-hint>stackr runs it, you own it: backups and upgrades are yours to schedule.</p>
 					<div>
 						<label for="engine" class="label">Engine</label>
 						<select id="engine" name="engine" class="input" hx-get={ v.Switch } hx-trigger="change" hx-include="#create-tile" hx-target="#create-tile" hx-swap="outerHTML" { c.Invalid("engine", v.Errors["engine"])... }>
@@ -95,7 +96,7 @@ templ CreateTile(v CreateTileView) {
 						</div>
 					}
 				case "slice":
-					@c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The managed tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]})
+					@c.Field(c.FieldView{Name: "provision_from", Label: "Provision from", Value: v.From, Placeholder: "infra:${{ env.name }}:pg-db", Required: true, Help: "The operated tile to cut it from: stack:env:tile.", Error: v.Errors["provision_from"]})
 					<div>
 						<label for="default_access" class="label">Default access</label>
 						<select id="default_access" name="default_access" class="input" { c.Invalid("default_access", v.Errors["default_access"])... }>
@@ -107,7 +108,7 @@ templ CreateTile(v CreateTileView) {
 				default:
 					@c.Field(c.FieldView{Name: "image_ref", Label: "Image", Value: v.Image, Placeholder: "nginx:1", Required: true, Error: v.Errors["image_ref"]})
 			}
-			if v.Source != "managed" && v.Source != "slice" {
+			if v.Source != "operated" && v.Source != "slice" {
 				@c.Field(c.FieldView{Name: "command", Label: "Command", Value: v.Command, Placeholder: "echo hi", Help: "Optional; replaces the image's command. Split like a shell line.", Error: v.Errors["command"]})
 			}
 			if v.Source == "cron" {

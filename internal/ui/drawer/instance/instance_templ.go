@@ -2,7 +2,7 @@
 
 // templ: version: v0.3.1100
 
-// Package instance is the managed instance drawer (v0's db panel):
+// Package instance is the operated instance drawer (v0's db panel):
 
 // Overview (how to reach it and the slices cut from it), Logs, Backups
 
@@ -67,7 +67,7 @@ func Drawer(v View, body templ.Component) templ.Component {
 		Tab:      v.Tab,
 		Error:    v.Error,
 		Note:     v.Note,
-		Icon:     "managed",
+		Icon:     "operated",
 		Status:   v.Status,
 		Location: v.Location,
 		EnvColor: v.EnvColor,
@@ -893,7 +893,7 @@ func Backups(v View, p PITRView, vols []volume.BackupsView) templ.Component {
 type SettingsView struct {
 	Allow    []string
 	Add      string // the add input: "<org>:" or what was typed
-	CanAllow bool   // the allow list is an owner's (managed.allow)
+	CanAllow bool   // the allow list is an owner's (operated.allow)
 	Pairs    []Pair
 	AddFrom  string
 	AddTo    string

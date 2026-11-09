@@ -24,7 +24,7 @@ func TestCardKinds(t *testing.T) {
 	foot := map[string]string{
 		"cron":     "never run",
 		"function": "never run",
-		"ref":      "managed tile, open home",
+		"ref":      "operated tile, open home",
 		"vars":     "open settings",
 		"secrets":  "open settings",
 	}
@@ -32,7 +32,7 @@ func TestCardKinds(t *testing.T) {
 		"service",
 		"cron",
 		"function",
-		"managed",
+		"operated",
 		"slice",
 		"ref",
 		"volume",

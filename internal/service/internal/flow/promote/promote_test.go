@@ -14,14 +14,14 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -82,7 +82,7 @@ func setup(t *testing.T) *world {
 		Images:   image.New(s.Images, fake),
 		Releases: release.New(s.Releases, s.ReleaseTiles),
 		Params:   params.New(s.Params),
-		Managed:  managed.New(s.ManagedInstances, s.Provisions, s.Bindings),
+		Operated: operated.New(s.OperatedInstances, s.Provisions, s.Bindings),
 		Domains:  domain.New(s.Domains, fake, "proxy"),
 		Cred:     credential.New(s.Credentials).For,
 		Settings: settings.New(s.Settings, nil),
@@ -91,7 +91,7 @@ func setup(t *testing.T) *world {
 	}
 	d.Engines = &mflow.Flow{
 		Tiles:     tiles,
-		Instances: d.Managed,
+		Instances: d.Operated,
 		Volumes:   d.Volumes,
 		Envs:      d.Envs,
 		Stacks:    d.Stacks,
@@ -226,7 +226,7 @@ func TestGrammar(t *testing.T) {
 	r, err = Load([]byte("version: 1\nstack: s\ninclude: [more.yml]\n"),
 		func(string) ([]byte, error) { return []byte(inc), nil }, "acme")
 	must(t, err)
-	if r.Envs["production"].Tiles["db"].Type != tile.Managed {
+	if r.Envs["production"].Tiles["db"].Type != tile.Operated {
 		t.Errorf("include: %+v", r.Envs["production"].Tiles)
 	}
 
@@ -878,7 +878,7 @@ func TestChangeLine(t *testing.T) {
 		"param app.mode":              {Kind: "param", Field: "app.mode"},
 		"volume data":                 {Kind: "volume", New: "data"},
 		"orphan old (note)":           {Kind: "orphan", Old: "old", Note: "note"},
-		"managed db allow -> +x":      {Kind: "managed", Tile: "db", Field: "allow", New: "+x"},
+		"operated db allow -> +x":     {Kind: "operated", Tile: "db", Field: "allow", New: "+x"},
 		"update api env (+A -B)":      {Kind: "update", Tile: "api", Field: "env", Note: "+A -B"},
 		"update api port: 80 -> 8080": {Kind: "update", Tile: "api", Field: "port", Old: "80", New: "8080"},
 		"delete api":                  {Kind: "delete", Tile: "api"},

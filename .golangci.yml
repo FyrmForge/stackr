@@ -34,7 +34,7 @@ linters:
             - "!$test"
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
-              desc: flow -> flow only on listed edges (promote -> deploy, deploy -> managed, run -> deploy)
+              desc: flow -> flow only on listed edges (promote -> deploy, deploy -> operated, run -> deploy)
         flow-promote-edges:
           list-mode: lax
           files:
@@ -61,10 +61,10 @@ linters:
             - "**/internal/service/internal/flow/deploy/**"
             - "!$test"
           allow:
-            - github.com/FyrmForge/stackr/internal/service/internal/flow/managed
+            - github.com/FyrmForge/stackr/internal/service/internal/flow/operated
           deny:
             - pkg: github.com/FyrmForge/stackr/internal/service/internal/flow
-              desc: deploy may only call flow/managed
+              desc: deploy may only call flow/operated
         ui-sees-view-structs:
           list-mode: lax
           files:

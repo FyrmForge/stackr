@@ -2,7 +2,7 @@
 // facts (params, volumes, networks, limits), build the spec, pull, then roll
 // out. A tile without a mount rolls with overlap (new replicas start and
 // pass the gate before the old ones go); a tile with a mount, and every
-// managed tile, stops then starts, one replica. A gate failure in the
+// operated tile, stops then starts, one replica. A gate failure in the
 // overlap keeps the old replicas serving.
 //
 // It runs inside a job: the orchestrator wraps Redeploy and Run into
@@ -26,14 +26,14 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/credential"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -56,7 +56,7 @@ type Flow struct {
 	// network. nil means every env runs on the controller.
 	Remote func(ctx context.Context, e store.Environment) bool
 	// LinkHost is the ExtraHosts line ("alias:vip") a consumer in env e uses
-	// for a managed instance on another node; "" = same node, join its
+	// for an operated instance on another node; "" = same node, join its
 	// network. nil means every instance is on the consumer's node.
 	LinkHost func(ctx context.Context, e store.Environment, instanceID string) (string, error)
 
@@ -69,7 +69,7 @@ type Flow struct {
 	Releases *release.Leaf
 	Params   *params.Leaf
 	Tiers    *tier.Leaf
-	Managed  *managed.Leaf
+	Operated *operated.Leaf
 	Domains  *domain.Leaf
 	Settings *settings.Leaf
 	Jobs     *job.Leaf
@@ -114,9 +114,9 @@ type Flow struct {
 
 	// Sync re-pushes the proxy config (leaf/domain Syncer.Sync); nil = none.
 	Sync func(context.Context) error
-	// Engines is flow/managed (the deploy -> managed edge): a managed
+	// Engines is flow/operated (the deploy -> operated edge): an operated
 	// tile's container and readiness, a slice tile's provision and every
-	// consumer's binding; nil = no managed tiles here.
+	// consumer's binding; nil = no operated tiles here.
 	Engines *mflow.Flow
 
 	// Runs reads a function or cron tile's runs for a `tile:completed`
@@ -281,7 +281,7 @@ func (f *Flow) Current(ctx context.Context, t store.Tile, e store.Environment) (
 	switch {
 	case tile.Pulls(t):
 		return t.ImageRef, false, nil
-	case t.Kind == tile.Managed:
+	case t.Kind == tile.Operated:
 		return "", false, nil // the engine's image
 	case t.Kind == tile.Slice:
 		return "", false, nil // no image: its deploy is a provision
@@ -334,7 +334,7 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	if err := f.rollout(ctx, t, e, r, log, swap); err != nil {
 		return "", err
 	}
-	if t.Kind == tile.Managed {
+	if t.Kind == tile.Operated {
 		logf(log, "waiting for %s to accept connections\n", t.Slug)
 		return digest, f.Engines.Ready(ctx, t)
 	}
@@ -395,9 +395,9 @@ func (f *Flow) prepare(
 		return resolved{}, e, "", err
 	}
 	var def mflow.Container
-	if t.Kind == tile.Managed {
+	if t.Kind == tile.Operated {
 		if f.Engines == nil {
-			return resolved{}, e, "", fmt.Errorf("%s: no managed engines are wired", t.Slug)
+			return resolved{}, e, "", fmt.Errorf("%s: no operated engines are wired", t.Slug)
 		}
 		if def, err = f.Engines.Container(ctx, t); err != nil {
 			return resolved{}, e, "", err
@@ -474,7 +474,7 @@ func (f *Flow) rollout(
 	if err != nil {
 		return err
 	}
-	overlap := t.Kind != tile.Managed && len(r.binds) == 0 && !r.hostNet
+	overlap := t.Kind != tile.Operated && len(r.binds) == 0 && !r.hostNet
 	if !overlap {
 		return f.stopFirst(ctx, t, e, r, old, log, swap)
 	}
@@ -900,8 +900,8 @@ func RepoOf(ref string) string {
 	return ref
 }
 
-// KnownEngine reports whether flow/managed runs the engine; promote checks
-// the file with it (promote may not import flow/managed).
+// KnownEngine reports whether flow/operated runs the engine; promote checks
+// the file with it (promote may not import flow/operated).
 func KnownEngine(name string) bool {
 	_, ok := mflow.Engines[name]
 	return ok

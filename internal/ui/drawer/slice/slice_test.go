@@ -51,7 +51,7 @@ func TestOverviewRenders(t *testing.T) {
 			t.Errorf("lacks %q", w)
 		}
 	}
-	for _, w := range []string{"<form", "provision_from", "slice_access", "stackr-managed"} {
+	for _, w := range []string{"<form", "provision_from", "slice_access", "stackr-operated"} {
 		if strings.Contains(out, w) {
 			t.Errorf("overview has %q", w)
 		}

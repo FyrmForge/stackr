@@ -80,7 +80,7 @@ jobs:
         run: |
           go test -race -timeout 30m ./...
           # streams a GiB through the form parser: too slow under -race
-          go test -timeout 5m -run TestCreateManagedDumpOverLimit ./internal/web/handler/env/
+          go test -timeout 5m -run TestCreateOperatedDumpOverLimit ./internal/web/handler/env/
 
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
@@ -128,7 +128,7 @@ jobs:
           ./internal/service/internal/docker/
           ./internal/service/internal/proxy/
           ./internal/service/internal/s3/
-          ./internal/service/internal/flow/managed/
+          ./internal/service/internal/flow/operated/
           ./internal/service/internal/leaf/registry/
 
   # Installs the last release, upgrades it to this commit's build through the

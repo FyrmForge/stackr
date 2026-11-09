@@ -9,13 +9,13 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	"github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 )
 
 // DialTile opens a TCP connection to a port inside one replica ("" = a
 // running one) over the env network, and returns it with the port used:
-// port, else the tile's declared one, else a managed engine's own. The
+// port, else the tile's declared one, else an operated engine's own. The
 // panel shares the host's network, which reaches every env bridge. A
 // redeploy changes the IP, so each connection resolves again.
 func (o *Orchestrator) DialTile(ctx context.Context, tileID, container string, port int) (net.Conn, int, error) {
@@ -29,9 +29,9 @@ func (o *Orchestrator) DialTile(ctx context.Context, tileID, container string, p
 	if port == 0 {
 		port = t.ContainerPort
 	}
-	if port == 0 && t.Kind == tile.Managed {
-		if m, err := o.managed.GetByTile(ctx, t.ID); err == nil {
-			if e, ok := managed.Engines[m.Engine]; ok {
+	if port == 0 && t.Kind == tile.Operated {
+		if m, err := o.operated.GetByTile(ctx, t.ID); err == nil {
+			if e, ok := operated.Engines[m.Engine]; ok {
 				port = e.Definition().Port
 			}
 		}

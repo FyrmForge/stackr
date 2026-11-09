@@ -42,14 +42,14 @@ func (f *Flow) Place(ctx context.Context, st store.Stack, tileSlug string) (addr
 			return pl, err
 		}
 		h := &address.Host{
-			TileID:  it.ID,
-			Managed: it.Kind == tile.Managed,
+			TileID:   it.ID,
+			Operated: it.Kind == tile.Operated,
 		}
 		pl.Envs[e.Slug] = h
-		if !h.Managed {
+		if !h.Operated {
 			continue
 		}
-		m, err := f.Managed.GetByTile(ctx, it.ID)
+		m, err := f.Operated.GetByTile(ctx, it.ID)
 		if errors.Is(err, errs.ErrNotFound) {
 			continue
 		}
@@ -143,7 +143,7 @@ func (f *Flow) Target(ctx context.Context, s store.Tile) (store.Tile, error) {
 // bucket on the instance it resolves to.
 func (f *Flow) provision(ctx context.Context, s store.Tile, log io.Writer) error {
 	if f.Engines == nil {
-		return fmt.Errorf("%s: no managed engines are wired", s.Slug)
+		return fmt.Errorf("%s: no operated engines are wired", s.Slug)
 	}
 	it, err := f.Target(ctx, s)
 	if err != nil {
@@ -212,7 +212,7 @@ func (f *Flow) bind(
 	o store.Org,
 	log io.Writer,
 ) error {
-	if f.Engines == nil || t.Kind == tile.Managed {
+	if f.Engines == nil || t.Kind == tile.Operated {
 		return nil
 	}
 	us, err := f.uses(ctx, t, e)
@@ -241,7 +241,7 @@ func (f *Flow) bind(
 // the new replicas are up, so a failed rollout leaves the old ones their
 // cred. A failure is logged, never fatal: the deploy already happened.
 func (f *Flow) prune(ctx context.Context, t store.Tile, e store.Environment, log io.Writer) {
-	if f.Engines == nil || t.Kind == tile.Managed {
+	if f.Engines == nil || t.Kind == tile.Operated {
 		return
 	}
 	us, err := f.uses(ctx, t, e)
@@ -249,7 +249,7 @@ func (f *Flow) prune(ctx context.Context, t store.Tile, e store.Environment, log
 		logf(log, "warning: unbind unused slices: %v\n", err)
 		return
 	}
-	bound, err := f.Managed.Bound(ctx, t.ID)
+	bound, err := f.Operated.Bound(ctx, t.ID)
 	if err != nil {
 		logf(log, "warning: unbind unused slices: %v\n", err)
 		return

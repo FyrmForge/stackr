@@ -1,7 +1,7 @@
 //go:build integration
 
 // Seed's argv against a real postgres:17: make test-integration.
-package managed
+package operated
 
 import (
 	"bytes"

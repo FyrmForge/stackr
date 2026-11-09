@@ -15,7 +15,7 @@ import templruntime "github.com/a-h/templ/runtime"
 type TileCardView struct {
 	Name    string
 	Href    string
-	Kind    string // service | image | managed
+	Kind    string // service | image | operated
 	State   string // leaf/tile State.Word
 	Source  string // image ref or repo@branch
 	Volumes []VolumeCardView

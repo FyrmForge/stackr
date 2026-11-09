@@ -92,7 +92,7 @@ func (o *Orchestrator) placingOf(ctx context.Context, kind, id string, pin *stri
 }
 
 // stackFileNeeds is, per env slug, what the stack's file at its config
-// branch's head asks of a node (volumes, a managed tile): a pin is checked
+// branch's head asks of a node (volumes, an operated tile): a pin is checked
 // against an env the file declares before its first deploy writes it down.
 // No config repo: nil. A file that cannot be read refuses, as the stack
 // plan does, rather than let a pin through unchecked.

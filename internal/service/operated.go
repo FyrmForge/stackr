@@ -9,27 +9,27 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 type (
-	ManagedInstance = store.ManagedInstance
-	Provision       = store.Provision
+	OperatedInstance = store.OperatedInstance
+	Provision        = store.Provision
 )
 
-// CreateManagedTile makes a managed tile (postgres | s3) and its env-scoped
+// CreateOperatedTile makes an operated tile (postgres | s3) and its env-scoped
 // instance row. Nothing runs until Deploy.
-func (o *Orchestrator) CreateManagedTile(ctx context.Context, t Tile, engine string) (Tile, error) {
-	out, _, err := o.createManaged(ctx, t, engine, "")
+func (o *Orchestrator) CreateOperatedTile(ctx context.Context, t Tile, engine string) (Tile, error) {
+	out, _, err := o.createOperated(ctx, t, engine, "")
 	return out, err
 }
 
-// createManaged is CreateManagedTile, plus slice tile slice cut from the
+// createOperated is CreateOperatedTile, plus slice tile slice cut from the
 // instance in the same transaction when slice is set ("-" = <tile>-db).
-func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice string) (Tile, Tile, error) {
+func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice string) (Tile, Tile, error) {
 	if !deploy.KnownEngine(engine) {
 		return Tile{}, Tile{}, errs.Invalidf("engine", "%q is not an engine stackr runs.", engine)
 	}
@@ -44,7 +44,7 @@ func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice 
 	if slice != "" && st.ConfigRepo != "" {
 		return Tile{}, Tile{}, errs.Conflictf("stack %s is config-managed; declare the slice tile in its stack file", st.Slug)
 	}
-	t.Kind, t.StackID = tile.Managed, st.ID
+	t.Kind, t.StackID = tile.Operated, st.ID
 	days := 0
 	if mflow.Engines[engine].Definition().ArchiveDir != "" {
 		if _, ok := o.visibleOffBox(ctx, st.OrgID); ok {
@@ -58,7 +58,7 @@ func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice 
 		if out, err = tl.Create(ctx, t); err != nil {
 			return err
 		}
-		ml := managed.New(tx.ManagedInstances, tx.Provisions, tx.Bindings)
+		ml := operated.New(tx.OperatedInstances, tx.Provisions, tx.Bindings)
 		m, err := ml.Create(ctx, out.ID, engine, "stackr", "")
 		if err != nil {
 			return err
@@ -88,20 +88,20 @@ func (o *Orchestrator) createManaged(ctx context.Context, t Tile, engine, slice 
 	return out, sl, err
 }
 
-// ManagedInstances are the env's own instances. Another env or stack reaches
+// OperatedInstances are the env's own instances. Another env or stack reaches
 // one through a slice tile's provision_from, which the instance's allow list
 // gates at plan time.
-func (o *Orchestrator) ManagedInstances(ctx context.Context, envID string) ([]ManagedInstance, error) {
+func (o *Orchestrator) OperatedInstances(ctx context.Context, envID string) ([]OperatedInstance, error) {
 	ts, err := o.tiles.List(ctx, envID)
 	if err != nil {
 		return nil, err
 	}
-	var out []ManagedInstance
+	var out []OperatedInstance
 	for _, t := range ts {
-		if t.Kind != tile.Managed {
+		if t.Kind != tile.Operated {
 			continue
 		}
-		m, err := o.managed.GetByTile(ctx, t.ID)
+		m, err := o.operated.GetByTile(ctx, t.ID)
 		if errors.Is(err, errs.ErrNotFound) {
 			continue
 		}
@@ -113,27 +113,27 @@ func (o *Orchestrator) ManagedInstances(ctx context.Context, envID string) ([]Ma
 	return out, nil
 }
 
-// instanceOf is managed tile tileID and its instance row.
-func (o *Orchestrator) instanceOf(ctx context.Context, tileID string) (Tile, ManagedInstance, error) {
+// instanceOf is operated tile tileID and its instance row.
+func (o *Orchestrator) instanceOf(ctx context.Context, tileID string) (Tile, OperatedInstance, error) {
 	t, err := o.tiles.Get(ctx, tileID)
 	if err != nil {
-		return t, ManagedInstance{}, err
+		return t, OperatedInstance{}, err
 	}
-	if t.Kind != tile.Managed {
-		return t, ManagedInstance{}, errs.Invalidf("tile", "%s is kind %s, not managed", t.Slug, t.Kind)
+	if t.Kind != tile.Operated {
+		return t, OperatedInstance{}, errs.Invalidf("tile", "%s is kind %s, not operated", t.Slug, t.Kind)
 	}
-	m, err := o.managed.GetByTile(ctx, t.ID)
+	m, err := o.operated.GetByTile(ctx, t.ID)
 	if errors.Is(err, errs.ErrNotFound) {
-		return t, m, errs.Conflictf("managed tile %s has no instance", t.Slug)
+		return t, m, errs.Conflictf("operated tile %s has no instance", t.Slug)
 	}
 	return t, m, err
 }
 
-// SetManagedAllow replaces the instance's allow list, the org:stack:env:tile
+// SetOperatedAllow replaces the instance's allow list, the org:stack:env:tile
 // patterns that may cut a slice from it beyond its own env, which always may. Nothing
 // redeploys: a slice the list no longer admits fails its next deploy with
 // the reason. A stack file that declares the list sets it again on promote.
-func (o *Orchestrator) SetManagedAllow(ctx context.Context, tileID string, list []string) (ManagedInstance, error) {
+func (o *Orchestrator) SetOperatedAllow(ctx context.Context, tileID string, list []string) (OperatedInstance, error) {
 	t, m, err := o.instanceOf(ctx, tileID)
 	if err != nil {
 		return m, err
@@ -149,18 +149,18 @@ func (o *Orchestrator) SetManagedAllow(ctx context.Context, tileID string, list 
 	if list == nil {
 		list = []string{}
 	}
-	return o.managed.SetAllow(ctx, m, og.Slug, list)
+	return o.operated.SetAllow(ctx, m, og.Slug, list)
 }
 
-// SetManagedEnvPairs replaces the instance's env pairs: the env a slice's
+// SetOperatedEnvPairs replaces the instance's env pairs: the env a slice's
 // provision_from names (a consumer's env) to one of this stack's envs. A
 // non-empty map is the whole rule: an env it leaves out resolves nowhere.
 // Keys are any env name; values must be envs of the stack.
-func (o *Orchestrator) SetManagedEnvPairs(
+func (o *Orchestrator) SetOperatedEnvPairs(
 	ctx context.Context,
 	tileID string,
 	pairs map[string]string,
-) (ManagedInstance, error) {
+) (OperatedInstance, error) {
 	t, m, err := o.instanceOf(ctx, tileID)
 	if err != nil {
 		return m, err
@@ -190,7 +190,7 @@ func (o *Orchestrator) SetManagedEnvPairs(
 		if err != nil {
 			return m, err
 		}
-		im, err := o.managed.GetByTile(ctx, it.ID)
+		im, err := o.operated.GetByTile(ctx, it.ID)
 		if errors.Is(err, errs.ErrNotFound) {
 			continue
 		}
@@ -200,11 +200,11 @@ func (o *Orchestrator) SetManagedEnvPairs(
 		if im.ID == m.ID {
 			continue
 		}
-		if _, err := o.managed.SetEnvPairs(ctx, im, pairs); err != nil {
+		if _, err := o.operated.SetEnvPairs(ctx, im, pairs); err != nil {
 			return m, err
 		}
 	}
-	return o.managed.SetEnvPairs(ctx, m, pairs)
+	return o.operated.SetEnvPairs(ctx, m, pairs)
 }
 
 // CreateSliceTile makes a slice tile: a database or bucket cut from the
@@ -272,7 +272,7 @@ func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, slice
 	if err != nil {
 		return c, err
 	}
-	if c.Kind == tile.Slice || c.Kind == tile.Managed {
+	if c.Kind == tile.Slice || c.Kind == tile.Operated {
 		return c, errs.Invalidf("tile", "%s is a %s tile; only a tile that runs holds slice access", c.Slug, c.Kind)
 	}
 	s, err := o.tiles.GetBySlug(ctx, c.EnvironmentID, sliceSlug)
@@ -321,7 +321,7 @@ func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, slice
 	if err != nil {
 		return out, err
 	}
-	bound, err := o.managed.Bound(ctx, out.ID)
+	bound, err := o.operated.Bound(ctx, out.ID)
 	if err != nil {
 		return out, err
 	}
@@ -329,7 +329,7 @@ func (o *Orchestrator) SetSliceAccess(ctx context.Context, consumerTileID, slice
 	if !ok {
 		return out, nil
 	}
-	p, err := o.managed.GetProvision(ctx, b.ProvisionID)
+	p, err := o.operated.GetProvision(ctx, b.ProvisionID)
 	if err != nil {
 		return out, err
 	}
@@ -389,11 +389,11 @@ func (o *Orchestrator) Bindings(ctx context.Context, sliceTileID string) ([]Slic
 	if err != nil {
 		return nil, err
 	}
-	p, ok, err := o.managed.ProvisionOf(ctx, s.ID)
+	p, ok, err := o.operated.ProvisionOf(ctx, s.ID)
 	if err != nil || !ok {
 		return nil, err
 	}
-	bs, err := o.managed.Bindings(ctx, p.ID)
+	bs, err := o.operated.Bindings(ctx, p.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +430,7 @@ type ConsumerBinding struct {
 // by slug: the ones its slice_access names and the ones a ref alone bound
 // (DECIDE 204 (b)). Never the password or the outputs.
 func (o *Orchestrator) ConsumerBindings(ctx context.Context, consumerTileID string) ([]ConsumerBinding, error) {
-	bound, err := o.managed.Bound(ctx, consumerTileID)
+	bound, err := o.operated.Bound(ctx, consumerTileID)
 	if err != nil {
 		return nil, err
 	}
@@ -485,15 +485,15 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 		DefaultAccess: str(s.DefaultAccess),
 		OnRemove:      str(s.OnRemove),
 	}
-	p, ok, err := o.managed.ProvisionOf(ctx, s.ID)
+	p, ok, err := o.operated.ProvisionOf(ctx, s.ID)
 	if err != nil {
 		return v, err
 	}
 	if ok {
 		v.Provisioned = true
 		v.Name = p.DBName
-		v.Network = managed.Network(p.InstanceID)
-		if m, err := o.managed.Get(ctx, p.InstanceID); err == nil {
+		v.Network = operated.Network(p.InstanceID)
+		if m, err := o.operated.Get(ctx, p.InstanceID); err == nil {
 			v.Engine = m.Engine
 		}
 	}
@@ -518,11 +518,11 @@ func (o *Orchestrator) SliceOf(ctx context.Context, sliceTileID string) (SliceVi
 	if ok {
 		return v, nil
 	}
-	m, err := o.managed.GetByTile(ctx, it.ID)
+	m, err := o.operated.GetByTile(ctx, it.ID)
 	if err != nil {
 		return v, err
 	}
-	v.Network = managed.Network(m.ID)
+	v.Network = operated.Network(m.ID)
 	return v, nil
 }
 
@@ -552,16 +552,16 @@ type InstanceSlice struct {
 	Bindings int    `json:"bindings"`
 }
 
-// InstanceSlices is a managed tile's instance and every slice cut from it.
+// InstanceSlices is an operated tile's instance and every slice cut from it.
 func (o *Orchestrator) InstanceSlices(
 	ctx context.Context,
 	instanceTileID string,
-) (ManagedInstance, []InstanceSlice, error) {
-	m, err := o.managed.GetByTile(ctx, instanceTileID)
+) (OperatedInstance, []InstanceSlice, error) {
+	m, err := o.operated.GetByTile(ctx, instanceTileID)
 	if err != nil {
 		return m, nil, err
 	}
-	ps, err := o.managed.ByInstance(ctx, m.ID)
+	ps, err := o.operated.ByInstance(ctx, m.ID)
 	if err != nil {
 		return m, nil, err
 	}
@@ -579,7 +579,7 @@ func (o *Orchestrator) InstanceSlices(
 		if err != nil {
 			return m, nil, err
 		}
-		bs, err := o.managed.Bindings(ctx, p.ID)
+		bs, err := o.operated.Bindings(ctx, p.ID)
 		if err != nil {
 			return m, nil, err
 		}

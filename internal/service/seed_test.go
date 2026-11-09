@@ -17,7 +17,7 @@ import (
 // A dump stackr does not load is refused before anything is made; a good
 // one makes the instance and its slice, and queues one seed job that has
 // the dump on disk until it ends.
-func TestCreateManagedTileFromDump(t *testing.T) {
+func TestCreateOperatedTileFromDump(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	env := servicetest.New(t)
@@ -41,7 +41,7 @@ func TestCreateManagedTileFromDump(t *testing.T) {
 		"empty": {"postgres", "", "dump"},
 		"s3":    {"s3", "PGDMP", "engine"},
 	} {
-		_, _, err := o.CreateManagedTileFromDump(ctx, in, c.engine, "", strings.NewReader(c.dump))
+		_, _, err := o.CreateOperatedTileFromDump(ctx, in, c.engine, "", strings.NewReader(c.dump))
 		if bad, ok := errs.IsInvalid(err); !ok || bad.Field != c.field {
 			t.Errorf("%s: err = %v, want invalid %s", name, err, c.field)
 		}
@@ -51,11 +51,11 @@ func TestCreateManagedTileFromDump(t *testing.T) {
 	}
 
 	dump := bytes.Repeat([]byte("PGDMP"), 100_000) // past any one buffer
-	out, j, err := o.CreateManagedTileFromDump(ctx, in, "postgres", "", bytes.NewReader(dump))
+	out, j, err := o.CreateOperatedTileFromDump(ctx, in, "postgres", "", bytes.NewReader(dump))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Kind != "managed" || j.Kind != "seed" {
+	if out.Kind != "operated" || j.Kind != "seed" {
 		t.Errorf("tile %s, job %s", out.Kind, j.Kind)
 	}
 	ts, err := o.Tiles(ctx, tl.Env)
@@ -97,7 +97,7 @@ func TestCancelledSeedDropsDump(t *testing.T) {
 	tl := env.Tile(t, env.Org(t, "acme"))
 	// a running upgrade helper holds the queue: the seed stays queued
 	env.Orch.SetUpgradeHeld(true)
-	_, j, err := env.Orch.CreateManagedTileFromDump(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", "",
+	_, j, err := env.Orch.CreateOperatedTileFromDump(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", "",
 		strings.NewReader("PGDMP"))
 	if err != nil {
 		t.Fatal(err)

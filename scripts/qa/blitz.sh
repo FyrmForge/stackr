@@ -186,7 +186,7 @@ share_check() {
 	expect share-nfs "server /data/sub/f.txt = '$got' (wrote '$msg')" test "$got" = "$msg"
 	# A managed tile on a share is refused (databases corrupt on network shares).
 	local refused
-	refused="$(sr managed create qa-db $T --engine postgres --volumes "share:$SHARE/db:/var/lib/postgresql/data" 2>&1 || true)"
+	refused="$(sr operated create qa-db $T --engine postgres --volumes "share:$SHARE/db:/var/lib/postgresql/data" 2>&1 || true)"
 	expect share-managed-refused "$(echo "$refused" | head -n1)" grep -qiE "share|volumes" <<<"$refused"
 }
 

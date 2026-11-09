@@ -186,10 +186,10 @@ func excluded(n *yaml.Node) bool {
 }
 
 // TileConf is one merged tile. Kinds are service (a git build), image,
-// managed, cron, function and slice; with no type:, engine: makes it managed
+// operated, cron, function and slice; with no type:, engine: makes it operated
 // and a lone image: makes it an image tile. kind: is type:'s other spelling.
 // A cron or function builds from git like a service unless it names an
-// image. A slice is one database or bucket cut from a managed tile
+// image. A slice is one database or bucket cut from an operated tile
 // (DECIDE 194): provision_from, default_access and on_remove, nothing that
 // runs.
 type TileConf struct {
@@ -236,11 +236,11 @@ type TileConf struct {
 	Domains    []DomainConf `yaml:"domains"`
 	// Slices is gone (DECIDE 194); kept only to refuse it by name.
 	Slices any `yaml:"slices"`
-	// managed: who may cut slices (org:stack:env:tile patterns) and the
+	// operated: who may cut slices (org:stack:env:tile patterns) and the
 	// consumer env name → this stack's env name map.
 	Allow    []string          `yaml:"allow"`
 	EnvPairs map[string]string `yaml:"env_pairs"`
-	// managed postgres: days of WAL kept for point-in-time recovery, 0 = off;
+	// operated postgres: days of WAL kept for point-in-time recovery, 0 = off;
 	// nil = the file leaves the instance's window as it is.
 	PITRDays *int `yaml:"pitr_days"`
 	// slice: <stack>:<env>:<tile>, refs allowed; read | write, "" = write;
@@ -651,7 +651,7 @@ func decodeTile(raw RawMap) (TileConf, error) {
 	if tc.Type == "" {
 		switch {
 		case tc.Engine != "":
-			tc.Type = "managed"
+			tc.Type = "operated"
 		case tc.Image != "" && tc.Build == nil && tc.GitURL == "":
 			tc.Type = "image"
 		default:
@@ -675,21 +675,21 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 	switch tc.Type {
 	case "service", "image":
 		if tc.Engine != "" {
-			return fmt.Errorf("tile %s: engine: is a managed key", name)
+			return fmt.Errorf("tile %s: engine: is an operated key", name)
 		}
 	case "cron", "function":
 		if tc.Engine != "" {
-			return fmt.Errorf("tile %s: engine: is a managed key", name)
+			return fmt.Errorf("tile %s: engine: is an operated key", name)
 		}
 		if len(tc.Domains) > 0 {
 			return fmt.Errorf("tile %s: a %s has no endpoint; domains do not apply", name, tc.Type)
 		}
-	case "managed":
+	case "operated":
 		if tc.Engine == "" {
-			return fmt.Errorf("tile %s: a managed tile names its engine", name)
+			return fmt.Errorf("tile %s: an operated tile names its engine", name)
 		}
 		if len(tc.Domains) > 0 {
-			return fmt.Errorf("tile %s: a managed instance takes no domains", name)
+			return fmt.Errorf("tile %s: an operated instance takes no domains", name)
 		}
 		if _, err := address.ParseAllow(orgSlug, tc.Allow); err != nil {
 			return fmt.Errorf("tile %s: %w", name, err)
@@ -712,7 +712,7 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 			return err
 		}
 	default:
-		return fmt.Errorf("tile %s: unknown type %q (service, image, managed, cron, function or slice)", name, tc.Type)
+		return fmt.Errorf("tile %s: unknown type %q (service, image, operated, cron, function or slice)", name, tc.Type)
 	}
 	for k := range tc.Env {
 		if !envKeyRe.MatchString(k) {
@@ -776,20 +776,20 @@ func checkSliceKeys(name string, tc TileConf) error {
 	switch {
 	case tc.Slices != nil:
 		return fmt.Errorf("tile %s: slices: is gone; declare a slice tile, see DECIDE 194", name)
-	case len(tc.Allow) > 0 && tc.Type != "managed":
-		return fmt.Errorf("tile %s: allow: only a managed tile takes it", name)
-	case len(tc.EnvPairs) > 0 && tc.Type != "managed":
-		return fmt.Errorf("tile %s: env_pairs: only a managed tile takes it", name)
-	case tc.PITRDays != nil && tc.Type != "managed":
-		return fmt.Errorf("tile %s: pitr_days: only a managed tile takes it", name)
+	case len(tc.Allow) > 0 && tc.Type != "operated":
+		return fmt.Errorf("tile %s: allow: only an operated tile takes it", name)
+	case len(tc.EnvPairs) > 0 && tc.Type != "operated":
+		return fmt.Errorf("tile %s: env_pairs: only an operated tile takes it", name)
+	case tc.PITRDays != nil && tc.Type != "operated":
+		return fmt.Errorf("tile %s: pitr_days: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: provision_from: only a slice tile takes it", name)
 	case tc.DefaultAccess != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: default_access: only a slice tile takes it", name)
 	case tc.OnRemove != "" && tc.Type != "slice":
 		return fmt.Errorf("tile %s: on_remove: only a slice tile takes it", name)
-	case len(tc.SliceAccess) > 0 && (tc.Type == "managed" || tc.Type == "slice"):
-		return fmt.Errorf("tile %s: slice_access: a %s tile binds to no slice", name, tc.Type)
+	case len(tc.SliceAccess) > 0 && (tc.Type == "operated" || tc.Type == "slice"):
+		return fmt.Errorf("tile %s: slice_access: %s tiles bind to no slice", name, tc.Type)
 	}
 	return nil
 }

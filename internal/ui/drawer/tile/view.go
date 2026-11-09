@@ -16,8 +16,8 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/FyrmForge/stackr/internal/ui/access"
-	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 	c "github.com/FyrmForge/stackr/internal/ui/components"
+	dnsui "github.com/FyrmForge/stackr/internal/ui/dns"
 )
 
 // Root is the id every drawer answer replaces (outerHTML).
@@ -141,12 +141,12 @@ type TerminalView struct {
 
 type DomainsView struct {
 	Rows    []DomainRow
-	Admin   bool          // raw Caddy snippets are an admin's
-	Managed []string      // the managed domains the tile may use: the add form's list
-	Replace *ReplaceOffer // an add refused on a record stackr did not create
-	NoIP    *NoIPRefusal  // an add refused on an ingress node with no public IP
+	Admin   bool              // raw Caddy snippets are an admin's
+	Managed []string          // the managed domains the tile may use: the add form's list
+	Replace *ReplaceOffer     // an add refused on a record stackr did not create
+	NoIP    *NoIPRefusal      // an add refused on an ingress node with no public IP
 	Kept    map[string]string // a refused add's form, drawn again open; nil = none
-	Port    string        // the tile's container port: the add form's prefill
+	Port    string            // the tile's container port: the add form's prefill
 	// AutoHost is the generated name the auto button would attach, "" = not known.
 	AutoHost string
 }

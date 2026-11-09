@@ -1,4 +1,4 @@
-package managed_test
+package operated_test
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -92,10 +92,10 @@ type world struct {
 	db       store.Tile // the instance tile
 	orders   store.Tile // a slice tile on it
 	api, rep store.Tile // consumers
-	instance store.ManagedInstance
+	instance store.OperatedInstance
 }
 
-// setup: an env with a running managed tile "db" of engine, a slice tile
+// setup: an env with a running operated tile "db" of engine, a slice tile
 // "orders" and consumers "api" and "reporter".
 func setup(t *testing.T, engine string) *world {
 	st := servicetest.Store(t)
@@ -104,7 +104,7 @@ func setup(t *testing.T, engine string) *world {
 	tiles := tile.New(st.Tiles, fake, vipStub{})
 	f := &mflow.Flow{
 		Tiles:     tiles,
-		Instances: managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
+		Instances: operated.New(st.OperatedInstances, st.Provisions, st.Bindings),
 		Volumes:   volume.New(st.Volumes, fake),
 		Envs:      environment.New(st.Environments, fake),
 		Stacks:    stack.New(st.Stacks),
@@ -168,7 +168,7 @@ func setup(t *testing.T, engine string) *world {
 		f:      f,
 		fake:   fake,
 		s3:     s3,
-		db:     mk("db", tile.Managed),
+		db:     mk("db", tile.Operated),
 		orders: mk("orders", tile.Slice),
 		api:    mk("api", tile.Image),
 		rep:    mk("reporter", tile.Image),
@@ -243,7 +243,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 		`CREATE ROLE "s_dev_orders_api" LOGIN PASSWORD`,
 		`GRANT ALL ON DATABASE "s_dev_orders" TO "s_dev_orders_api"`,
 	)
-	out, err := managed.Outputs(api)
+	out, err := operated.Outputs(api)
 	must(t, err)
 	host := "db-" + w.instance.ID[:8]
 	if api.DBUser != "s_dev_orders_api" || out["PGHOST"] != host || out["PGUSER"] != "s_dev_orders_api" || out["PGDATABASE"] != "s_dev_orders" ||
@@ -383,7 +383,7 @@ func TestS3BucketPerSlice(t *testing.T) {
 	}
 	b, err := w.f.Bind(ctx, p, w.rep, "read")
 	must(t, err)
-	out, err := managed.Outputs(b)
+	out, err := operated.Outputs(b)
 	must(t, err)
 	user := "s-dev-orders-reporter"
 	if b.DBUser != user || b.Access != "read" || out["S3_BUCKET"] != "s-dev-orders" ||
@@ -409,7 +409,7 @@ func TestContainer(t *testing.T) {
 	w := setup(t, "postgres")
 	c, err := w.f.Container(ctx, w.db)
 	must(t, err)
-	net := managed.Network(w.instance.ID)
+	net := operated.Network(w.instance.ID)
 	want := []docker.NetAttach{
 		{
 			Name:    net,

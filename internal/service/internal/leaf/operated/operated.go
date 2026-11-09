@@ -1,10 +1,10 @@
-// Package managed owns managed instances (engine, admin credentials,
+// Package operated owns operated instances (engine, admin credentials,
 // endpoint, allow list, env pairs), their provisions (one per slice tile:
 // the database or bucket and its owner cred) and the bindings on them (one
 // per consumer: its own cred at read or write, and the outputs minted for
 // it). The instance container is a plain tile (leaf/tile); engines and their
-// commands live in flow/managed.
-package managed
+// commands live in flow/operated.
+package operated
 
 import (
 	"context"
@@ -23,13 +23,13 @@ import (
 )
 
 type Leaf struct {
-	instances  store.ManagedInstanceStore
+	instances  store.OperatedInstanceStore
 	provisions store.ProvisionStore
 	bindings   store.BindingStore
 }
 
 func New(
-	instances store.ManagedInstanceStore,
+	instances store.OperatedInstanceStore,
 	provisions store.ProvisionStore,
 	bindings store.BindingStore,
 ) *Leaf {
@@ -50,7 +50,7 @@ func secret() string {
 // sits on it and every consumer of one of its slices joins it, whatever env
 // or stack the consumer is in.
 func Network(instanceID string) string {
-	return "stackr-managed-" + instanceID
+	return "stackr-operated-" + instanceID
 }
 
 // Alias is the instance's name for consumers: on its network on the same
@@ -60,17 +60,17 @@ func Alias(slug, instanceID string) string {
 	return slug + "-" + instanceID[:min(8, len(instanceID))]
 }
 
-// Create makes the instance row for a managed tile, with a fresh admin
+// Create makes the instance row for an operated tile, with a fresh admin
 // password and no allow list (the tile's own env only). endpoint is where
 // the S3 API is reached, "" = the tile's alias.
 func (l *Leaf) Create(
 	ctx context.Context,
 	tileID, engine, adminUser, endpoint string,
-) (store.ManagedInstance, error) {
+) (store.OperatedInstance, error) {
 	if engine == "" || adminUser == "" {
-		return store.ManagedInstance{}, errs.Invalidf("engine", "an instance needs an engine and an admin user")
+		return store.OperatedInstance{}, errs.Invalidf("engine", "an instance needs an engine and an admin user")
 	}
-	m := store.ManagedInstance{
+	m := store.OperatedInstance{
 		ID:            uuid.NewString(),
 		TileID:        tileID,
 		Engine:        engine,
@@ -82,31 +82,31 @@ func (l *Leaf) Create(
 	return m, l.instances.Create(ctx, m)
 }
 
-func (l *Leaf) Get(ctx context.Context, id string) (store.ManagedInstance, error) {
+func (l *Leaf) Get(ctx context.Context, id string) (store.OperatedInstance, error) {
 	return l.instances.Get(ctx, id)
 }
 
-func (l *Leaf) GetByTile(ctx context.Context, tileID string) (store.ManagedInstance, error) {
+func (l *Leaf) GetByTile(ctx context.Context, tileID string) (store.OperatedInstance, error) {
 	return l.instances.GetByTile(ctx, tileID)
 }
 
 func (l *Leaf) SetEndpoint(
 	ctx context.Context,
-	m store.ManagedInstance,
+	m store.OperatedInstance,
 	endpoint string,
-) (store.ManagedInstance, error) {
+) (store.OperatedInstance, error) {
 	m.Endpoint = endpoint
 	return m, l.instances.Update(ctx, m)
 }
 
 // WithPITR are the instances that archive for point-in-time recovery.
-func (l *Leaf) WithPITR(ctx context.Context) ([]store.ManagedInstance, error) {
+func (l *Leaf) WithPITR(ctx context.Context) ([]store.OperatedInstance, error) {
 	return l.instances.ListPITR(ctx)
 }
 
 // SetPITR stores the instance's point-in-time recovery window; the caller
 // redeploys the instance for archiving to follow.
-func (l *Leaf) SetPITR(ctx context.Context, m store.ManagedInstance, days int) (store.ManagedInstance, error) {
+func (l *Leaf) SetPITR(ctx context.Context, m store.OperatedInstance, days int) (store.OperatedInstance, error) {
 	if days < 0 || days > 365 {
 		return m, errs.Invalidf("days", "the window is off or 1 to 365 days")
 	}
@@ -121,10 +121,10 @@ func (l *Leaf) SetPITR(ctx context.Context, m store.ManagedInstance, days int) (
 // ponytail: no eager revoke; a running consumer keeps its cred until then.
 func (l *Leaf) SetAllow(
 	ctx context.Context,
-	m store.ManagedInstance,
+	m store.OperatedInstance,
 	orgSlug string,
 	list []string,
-) (store.ManagedInstance, error) {
+) (store.OperatedInstance, error) {
 	if _, err := address.ParseAllow(orgSlug, list); err != nil {
 		return m, err
 	}
@@ -135,9 +135,9 @@ func (l *Leaf) SetAllow(
 // SetEnvPairs replaces the instance's consumer env name → own env name map.
 func (l *Leaf) SetEnvPairs(
 	ctx context.Context,
-	m store.ManagedInstance,
+	m store.OperatedInstance,
 	pairs map[string]string,
-) (store.ManagedInstance, error) {
+) (store.OperatedInstance, error) {
 	for k, v := range pairs {
 		for _, name := range []string{k, v} {
 			if !slug.Valid(name) {
@@ -152,7 +152,7 @@ func (l *Leaf) SetEnvPairs(
 // Teardown is step one of removing an instance: refused while slices are
 // held unless force (the caller's, never a constant), else the slices the
 // flow must drop before the container goes.
-func (l *Leaf) Teardown(ctx context.Context, m store.ManagedInstance, force bool) ([]store.Provision, error) {
+func (l *Leaf) Teardown(ctx context.Context, m store.OperatedInstance, force bool) ([]store.Provision, error) {
 	held, err := l.provisions.ListByInstance(ctx, m.ID)
 	if err != nil {
 		return nil, err
@@ -169,7 +169,7 @@ func (l *Leaf) Teardown(ctx context.Context, m store.ManagedInstance, force bool
 // it, plus aimed, the slice tiles not cut yet whose target resolves to it
 // (the caller resolves them). Deleting it would leave them pointing at
 // nothing.
-func (l *Leaf) Deletable(ctx context.Context, m store.ManagedInstance, aimed int) error {
+func (l *Leaf) Deletable(ctx context.Context, m store.OperatedInstance, aimed int) error {
 	held, err := l.provisions.ListByInstance(ctx, m.ID)
 	if err != nil {
 		return err
@@ -232,7 +232,7 @@ func (l *Leaf) Names(ctx context.Context, instanceID string) ([]string, error) {
 // after the engine made it. One per slice tile.
 func (l *Leaf) CreateProvision(
 	ctx context.Context,
-	m store.ManagedInstance,
+	m store.OperatedInstance,
 	sliceTileID string,
 	s Slice,
 ) (store.Provision, error) {

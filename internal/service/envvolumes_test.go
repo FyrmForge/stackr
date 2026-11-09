@@ -91,15 +91,15 @@ func TestEnvVolumes(t *testing.T) {
 	}
 }
 
-// A managed instance's volume is listed as its own, never removable; a
+// An operated instance's volume is listed as its own, never removable; a
 // config-managed stack's env volumes are its file's.
-func TestEnvVolumesOwnedAndManaged(t *testing.T) {
+func TestEnvVolumesOwnedAndOperated(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	_, err := w.orch.CreateManagedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	_, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
 	must(t, err)
-	ms, err := w.orch.ManagedInstances(ctx, w.env)
+	ms, err := w.orch.OperatedInstances(ctx, w.env)
 	must(t, err)
 	must(t, w.st.Volumes.Create(ctx, store.Volume{ID: "v-pg", ScopeKind: "env", ScopeID: w.env, InstanceID: &ms[0].ID, Slug: "pgdata", Name: "stackr-vol-v-pg", CreatedAt: time.Now()}))
 	vs, err := w.orch.ListEnvVolumes(ctx, w.env)

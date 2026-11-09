@@ -17,12 +17,12 @@ import (
 )
 
 // CardView is one card on the env canvas. ID is its node id: the tile id
-// (service, cron, function, managed, slice, ref), the volume id, or one of
+// (service, cron, function, operated, slice, ref), the volume id, or one of
 // proxy, internet, vars, secrets. Tile ids are what the Traffic verb names
 // its ends with, so a lane needs no mapping.
 type CardView struct {
 	ID     string
-	Kind   string // service | image | cron | function | managed | slice | ref | volume | proxy | internet | vars | secrets
+	Kind   string // service | image | cron | function | operated | slice | ref | volume | proxy | internet | vars | secrets
 	Name   string
 	Detail string // image or repo; cron schedule; "manual" / "on deploy"; engine; "database on pg"
 	Drawer string // the drawer GET with its ?tab=; "" = no drawer
@@ -150,7 +150,7 @@ func KindLabel(kind string) string {
 		return "service"
 	case "cron", "function", "slice", "proxy", "connector":
 		return kind
-	case "managed":
+	case "operated":
 		return "database"
 	}
 	return ""

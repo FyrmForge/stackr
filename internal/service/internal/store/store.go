@@ -31,118 +31,118 @@ type querier interface {
 
 // Tables is every table, bound to one querier. Store and Tx both embed it.
 type Tables struct {
-	Users            UserStore
-	Sessions         SessionStore
-	APIKeys          APIKeyStore
-	Nodes            NodeStore
-	Orgs             OrgStore
-	OrgPlans         OrgPlanStore
-	ServerPlans      ServerPlanStore
-	OrgMembers       OrgMemberStore
-	Invites          InviteStore
-	Stacks           StackStore
-	Environments     EnvironmentStore
-	Tiers            TierStore
-	Tiles            TileStore
-	Images           ImageStore
-	Params           ParamStore
-	Settings         SettingStore
-	Volumes          VolumeStore
-	Domains          DomainStore
-	DomainResources  DomainResourceStore
-	Routes           RouteStore
-	Shares           ShareStore
-	HostGrants       HostGrantStore
-	Credentials      CredentialStore
-	Connectors       ConnectorStore
-	DNSDomains       DNSDomainStore
-	DNSRecords       DNSRecordStore
-	ManagedInstances ManagedInstanceStore
-	Provisions       ProvisionStore
-	Bindings         BindingStore
-	Releases         ReleaseStore
-	ReleaseTiles     ReleaseTileStore
-	Jobs             JobStore
-	BackupDests      BackupDestStore
-	BackupSchedules  BackupScheduleStore
-	BackupRuns       BackupRunStore
-	BackupGroups     BackupGroupStore
-	Runs             RunStore
-	Positions        PositionStore
-	Annotations      AnnotationStore
-	SecurityEvents   SecurityEventStore
-	NodeCerts        NodeCertStore
-	ClusterCA        ClusterCAStore
-	ExitLadders      ExitLadderStore
-	RegistryTokens   RegistryTokenStore
-	IdempotencyKeys  IdempotencyKeyStore
-	Moves            MoveStore
-	JoinTokens       JoinTokenStore
-	Placements       PlacementStore
-	PlacementOrgs    PlacementOrgStore
-	PlacementMoves   PlacementMoveStore
-	ForgottenNodes   ForgottenNodeStore
-	IngressPicks     IngressPickStore
-	TileVIPs         TileVIPStore
-	RegistryImages   RegistryImageStore
+	Users             UserStore
+	Sessions          SessionStore
+	APIKeys           APIKeyStore
+	Nodes             NodeStore
+	Orgs              OrgStore
+	OrgPlans          OrgPlanStore
+	ServerPlans       ServerPlanStore
+	OrgMembers        OrgMemberStore
+	Invites           InviteStore
+	Stacks            StackStore
+	Environments      EnvironmentStore
+	Tiers             TierStore
+	Tiles             TileStore
+	Images            ImageStore
+	Params            ParamStore
+	Settings          SettingStore
+	Volumes           VolumeStore
+	Domains           DomainStore
+	DomainResources   DomainResourceStore
+	Routes            RouteStore
+	Shares            ShareStore
+	HostGrants        HostGrantStore
+	Credentials       CredentialStore
+	Connectors        ConnectorStore
+	DNSDomains        DNSDomainStore
+	DNSRecords        DNSRecordStore
+	OperatedInstances OperatedInstanceStore
+	Provisions        ProvisionStore
+	Bindings          BindingStore
+	Releases          ReleaseStore
+	ReleaseTiles      ReleaseTileStore
+	Jobs              JobStore
+	BackupDests       BackupDestStore
+	BackupSchedules   BackupScheduleStore
+	BackupRuns        BackupRunStore
+	BackupGroups      BackupGroupStore
+	Runs              RunStore
+	Positions         PositionStore
+	Annotations       AnnotationStore
+	SecurityEvents    SecurityEventStore
+	NodeCerts         NodeCertStore
+	ClusterCA         ClusterCAStore
+	ExitLadders       ExitLadderStore
+	RegistryTokens    RegistryTokenStore
+	IdempotencyKeys   IdempotencyKeyStore
+	Moves             MoveStore
+	JoinTokens        JoinTokenStore
+	Placements        PlacementStore
+	PlacementOrgs     PlacementOrgStore
+	PlacementMoves    PlacementMoveStore
+	ForgottenNodes    ForgottenNodeStore
+	IngressPicks      IngressPickStore
+	TileVIPs          TileVIPStore
+	RegistryImages    RegistryImageStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
 	return Tables{
-		Users:            users{crud[User]{q, box, usersT}},
-		Sessions:         sessions{q},
-		APIKeys:          apiKeys{crud[APIKey]{q, box, apiKeysT}},
-		Nodes:            nodes{crud[Node]{q, box, nodesT}},
-		Orgs:             orgs{crud[Org]{q, box, orgsT}},
-		OrgPlans:         orgPlans{crud[OrgPlan]{q, box, orgPlansT}},
-		ServerPlans:      serverPlans{crud[ServerPlan]{q, box, serverPlansT}},
-		OrgMembers:       orgMembers{crud[OrgMember]{q, box, orgMembersT}},
-		Invites:          invites{crud[Invite]{q, box, invitesT}},
-		Stacks:           stacks{crud[Stack]{q, box, stacksT}},
-		Environments:     environments{crud[Environment]{q, box, environmentsT}},
-		Tiers:            tiers{crud[Tier]{q, box, tiersT}},
-		Tiles:            tiles{crud[Tile]{q, box, tilesT}},
-		Images:           images{crud[Image]{q, box, imagesT}},
-		Params:           params{crud[Param]{q, box, paramsT}},
-		Settings:         settings{q, box},
-		Volumes:          volumes{crud[Volume]{q, box, volumesT}},
-		Domains:          domains{crud[Domain]{q, box, domainsT}},
-		DomainResources:  domainResources{crud[DomainResource]{q, box, domainResourcesT}},
-		Routes:           routes{crud[Route]{q, box, routesT}},
-		Shares:           shares{crud[Share]{q, box, sharesT}},
-		HostGrants:       hostGrants{crud[HostGrant]{q, box, hostGrantsT}},
-		Credentials:      credentials{crud[Credential]{q, box, credentialsT}},
-		Connectors:       connectors{crud[Connector]{q, box, connectorsT}},
-		DNSDomains:       dnsDomains{crud[DNSDomain]{q, box, dnsDomainsT}},
-		DNSRecords:       dnsRecords{crud[DNSRecord]{q, box, dnsRecordsT}},
-		ManagedInstances: managedInstances{crud[ManagedInstance]{q, box, managedInstancesT}},
-		Provisions:       provisions{crud[Provision]{q, box, provisionsT}},
-		Bindings:         bindings{crud[Binding]{q, box, bindingsT}},
-		Releases:         releases{crud[Release]{q, box, releasesT}},
-		ReleaseTiles:     releaseTiles{crud[ReleaseTile]{q, box, releaseTilesT}},
-		Jobs:             jobs{crud[Job]{q, box, jobsT}},
-		BackupDests:      backupDests{crud[BackupDest]{q, box, backupDestsT}},
-		BackupSchedules:  backupSchedules{crud[BackupSchedule]{q, box, backupSchedulesT}},
-		BackupRuns:       backupRuns{crud[BackupRun]{q, box, backupRunsT}},
-		BackupGroups:     backupGroups{crud[BackupGroup]{q, box, backupGroupsT}},
-		Runs:             runs{crud[Run]{q, box, runsT}},
-		Positions:        positions{q},
-		Annotations:      annotations{crud[Annotation]{q, box, annotationsT}},
-		SecurityEvents:   securityEvents{crud[SecurityEvent]{q, box, securityEventsT}},
-		NodeCerts:        nodeCerts{q},
-		ClusterCA:        clusterCAs{q},
-		ExitLadders:      exitLadders{q},
-		RegistryTokens:   registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
-		IdempotencyKeys:  idempotencyKeys{crud[IdempotencyKey]{q, box, idempotencyKeysT}},
-		Moves:            moves{crud[EnvMove]{q, box, movesT}},
-		JoinTokens:       joinTokens{crud[JoinToken]{q, box, joinTokensT}},
-		Placements:       placements{crud[Placement]{q, box, placementsT}},
-		PlacementOrgs:    placementOrgs{q},
-		PlacementMoves:   placementMoves{crud[PlacementMove]{q, box, placementMovesT}},
-		ForgottenNodes:   forgottenNodes{q},
-		IngressPicks:     ingressPicks{q},
-		TileVIPs:         tileVIPs{q},
-		RegistryImages:   registryImages{crud[RegistryImage]{q, box, registryImagesT}},
+		Users:             users{crud[User]{q, box, usersT}},
+		Sessions:          sessions{q},
+		APIKeys:           apiKeys{crud[APIKey]{q, box, apiKeysT}},
+		Nodes:             nodes{crud[Node]{q, box, nodesT}},
+		Orgs:              orgs{crud[Org]{q, box, orgsT}},
+		OrgPlans:          orgPlans{crud[OrgPlan]{q, box, orgPlansT}},
+		ServerPlans:       serverPlans{crud[ServerPlan]{q, box, serverPlansT}},
+		OrgMembers:        orgMembers{crud[OrgMember]{q, box, orgMembersT}},
+		Invites:           invites{crud[Invite]{q, box, invitesT}},
+		Stacks:            stacks{crud[Stack]{q, box, stacksT}},
+		Environments:      environments{crud[Environment]{q, box, environmentsT}},
+		Tiers:             tiers{crud[Tier]{q, box, tiersT}},
+		Tiles:             tiles{crud[Tile]{q, box, tilesT}},
+		Images:            images{crud[Image]{q, box, imagesT}},
+		Params:            params{crud[Param]{q, box, paramsT}},
+		Settings:          settings{q, box},
+		Volumes:           volumes{crud[Volume]{q, box, volumesT}},
+		Domains:           domains{crud[Domain]{q, box, domainsT}},
+		DomainResources:   domainResources{crud[DomainResource]{q, box, domainResourcesT}},
+		Routes:            routes{crud[Route]{q, box, routesT}},
+		Shares:            shares{crud[Share]{q, box, sharesT}},
+		HostGrants:        hostGrants{crud[HostGrant]{q, box, hostGrantsT}},
+		Credentials:       credentials{crud[Credential]{q, box, credentialsT}},
+		Connectors:        connectors{crud[Connector]{q, box, connectorsT}},
+		DNSDomains:        dnsDomains{crud[DNSDomain]{q, box, dnsDomainsT}},
+		DNSRecords:        dnsRecords{crud[DNSRecord]{q, box, dnsRecordsT}},
+		OperatedInstances: operatedInstances{crud[OperatedInstance]{q, box, operatedInstancesT}},
+		Provisions:        provisions{crud[Provision]{q, box, provisionsT}},
+		Bindings:          bindings{crud[Binding]{q, box, bindingsT}},
+		Releases:          releases{crud[Release]{q, box, releasesT}},
+		ReleaseTiles:      releaseTiles{crud[ReleaseTile]{q, box, releaseTilesT}},
+		Jobs:              jobs{crud[Job]{q, box, jobsT}},
+		BackupDests:       backupDests{crud[BackupDest]{q, box, backupDestsT}},
+		BackupSchedules:   backupSchedules{crud[BackupSchedule]{q, box, backupSchedulesT}},
+		BackupRuns:        backupRuns{crud[BackupRun]{q, box, backupRunsT}},
+		BackupGroups:      backupGroups{crud[BackupGroup]{q, box, backupGroupsT}},
+		Runs:              runs{crud[Run]{q, box, runsT}},
+		Positions:         positions{q},
+		Annotations:       annotations{crud[Annotation]{q, box, annotationsT}},
+		SecurityEvents:    securityEvents{crud[SecurityEvent]{q, box, securityEventsT}},
+		NodeCerts:         nodeCerts{q},
+		ClusterCA:         clusterCAs{q},
+		ExitLadders:       exitLadders{q},
+		RegistryTokens:    registryTokens{crud[RegistryToken]{q, box, registryTokensT}},
+		IdempotencyKeys:   idempotencyKeys{crud[IdempotencyKey]{q, box, idempotencyKeysT}},
+		Moves:             moves{crud[EnvMove]{q, box, movesT}},
+		JoinTokens:        joinTokens{crud[JoinToken]{q, box, joinTokensT}},
+		Placements:        placements{crud[Placement]{q, box, placementsT}},
+		PlacementOrgs:     placementOrgs{q},
+		PlacementMoves:    placementMoves{crud[PlacementMove]{q, box, placementMovesT}},
+		ForgottenNodes:    forgottenNodes{q},
+		IngressPicks:      ingressPicks{q},
+		TileVIPs:          tileVIPs{q},
+		RegistryImages:    registryImages{crud[RegistryImage]{q, box, registryImagesT}},
 	}
 }
 

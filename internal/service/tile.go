@@ -90,10 +90,10 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 }
 
 // CreateTile is the one tile-create path for image and service tiles (B26);
-// managed tiles go through CreateManagedTile. Nothing runs until Deploy.
+// operated tiles go through CreateOperatedTile. Nothing runs until Deploy.
 func (o *Orchestrator) CreateTile(ctx context.Context, t Tile) (Tile, error) {
-	if t.Kind == tile.Managed {
-		return Tile{}, errs.Invalidf("kind", "Create a managed tile with its engine.")
+	if t.Kind == tile.Operated {
+		return Tile{}, errs.Invalidf("kind", "Create an operated tile with its engine.")
 	}
 	if err := refuseServerRefs(t); err != nil {
 		return Tile{}, err
@@ -263,7 +263,7 @@ func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, [
 	if err != nil {
 		return t, nil, err
 	}
-	// a managed tile's slices and allow entries follow its slug
+	// an operated tile's slices and allow entries follow its slug
 	warn, err := o.renameCarrying(ctx, og.ID, 3, []string{og.Slug, st.Slug, e.Slug}, old.Slug, func(tx store.Tx) (string, error) {
 		var err error
 		t, err = tile.New(tx.Tiles, o.docker, o.vip).Rename(ctx, old, name)
@@ -285,12 +285,12 @@ func (o *Orchestrator) RenameTile(ctx context.Context, id, name string) (Tile, [
 func (o *Orchestrator) DeleteTile(ctx context.Context, id string) (Job, error) {
 	// a database still holding slices is refused here, where the drawer
 	// shows it; the job would fail on it out of sight
-	if m, err := o.managed.GetByTile(ctx, id); err == nil {
+	if m, err := o.operated.GetByTile(ctx, id); err == nil {
 		aimed, err := o.slicesAimedAt(ctx, id)
 		if err != nil {
 			return Job{}, err
 		}
-		if err := o.managed.Deletable(ctx, m, aimed); err != nil {
+		if err := o.operated.Deletable(ctx, m, aimed); err != nil {
 			return Job{}, err
 		}
 	}
@@ -307,7 +307,7 @@ func (o *Orchestrator) slicesAimedAt(ctx context.Context, id string) (int, error
 	}
 	n := 0
 	for _, s := range ss {
-		_, cut, err := o.managed.ProvisionOf(ctx, s.ID)
+		_, cut, err := o.operated.ProvisionOf(ctx, s.ID)
 		if err != nil {
 			return 0, err
 		}

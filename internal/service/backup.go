@@ -221,7 +221,7 @@ func (o *Orchestrator) pitrKeepsBase(ctx context.Context, b BackupSchedule) erro
 	if v.InstanceID == nil {
 		return nil
 	}
-	m, err := o.managed.Get(ctx, *v.InstanceID)
+	m, err := o.operated.Get(ctx, *v.InstanceID)
 	if err != nil {
 		return err
 	}
@@ -308,7 +308,7 @@ func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, ds
 	if strings.HasSuffix(run.ObjectKey, ".sql.gz.age") {
 		return nil
 	}
-	m, err := o.managed.Get(ctx, *dst.InstanceID)
+	m, err := o.operated.Get(ctx, *dst.InstanceID)
 	if err != nil {
 		return err
 	}
@@ -423,7 +423,7 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 		// A base lives with its WAL, under the archive's prefix and on its
 		// destination, whoever started it; the recovery window prunes it,
 		// never a count.
-		m, err := o.managed.Get(ctx, *v.InstanceID)
+		m, err := o.operated.Get(ctx, *v.InstanceID)
 		if err != nil {
 			return err
 		}
@@ -489,7 +489,7 @@ func (o *Orchestrator) clusterRestoreOK(ctx context.Context, run store.BackupRun
 	if src.InstanceID == nil || dst.InstanceID == nil || *src.InstanceID != *dst.InstanceID {
 		return errs.Refusedf("restore a cluster dump onto the instance it came from")
 	}
-	ps, err := o.managed.ByInstance(ctx, *dst.InstanceID)
+	ps, err := o.operated.ByInstance(ctx, *dst.InstanceID)
 	if err != nil {
 		return err
 	}
@@ -498,7 +498,7 @@ func (o *Orchestrator) clusterRestoreOK(ctx context.Context, run store.BackupRun
 		if p.CreatedAt.After(run.CreatedAt) {
 			late = append(late, "slice "+p.DBName)
 		}
-		bs, err := o.managed.Bindings(ctx, p.ID)
+		bs, err := o.operated.Bindings(ctx, p.ID)
 		if err != nil {
 			return err
 		}
@@ -523,14 +523,14 @@ func (o *Orchestrator) consumers(ctx context.Context, v store.Volume) ([]store.T
 	if v.InstanceID == nil {
 		return nil, nil
 	}
-	ps, err := o.managed.ByInstance(ctx, *v.InstanceID)
+	ps, err := o.operated.ByInstance(ctx, *v.InstanceID)
 	if err != nil {
 		return nil, err
 	}
 	var out []store.Tile
 	seen := map[string]bool{}
 	for _, p := range ps {
-		bs, err := o.managed.Bindings(ctx, p.ID)
+		bs, err := o.operated.Bindings(ctx, p.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -631,7 +631,7 @@ func (o *Orchestrator) dumpBeforeDrop(ctx context.Context, _ string, p store.Pro
 }
 
 func (o *Orchestrator) instanceTile(ctx context.Context, instanceID string) (store.Tile, error) {
-	m, err := o.managed.Get(ctx, instanceID)
+	m, err := o.operated.Get(ctx, instanceID)
 	if err != nil {
 		return store.Tile{}, err
 	}

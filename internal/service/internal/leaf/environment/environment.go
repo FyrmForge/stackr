@@ -503,7 +503,7 @@ func (l *Leaf) Gateways(ctx context.Context) ([]string, error) {
 }
 
 // Shared ensures a network that crosses envs (a stack- or org-scoped
-// managed instance's); the name is the caller's and the node is the one in
+// operated instance's); the name is the caller's and the node is the one in
 // ctx, whose range the block comes from.
 func (l *Leaf) Shared(ctx context.Context, name string) error {
 	node, _ := docker.NodeFrom(ctx)

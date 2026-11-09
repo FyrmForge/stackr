@@ -11,7 +11,7 @@ import (
 // that is not one, and a restore time with no archive behind it.
 func TestPITRFormErrors(t *testing.T) {
 	s := webtest.New(t)
-	pg := managed(t, s)
+	pg := operated(t, s)
 	d := "/acme/shop/dev/-/instances/" + pg.Slug
 	if rec := s.Do(t, "POST", d+"/pitr", url.Values{"days": {"abc"}}); rec.Code != 400 {
 		t.Errorf("days=abc = %d, want 400", rec.Code)

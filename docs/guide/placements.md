@@ -27,7 +27,7 @@ stackr pin eu-prod --stack shop --env prod
 stackr pin eu-prod --stack shop --yes
 ```
 
-The same pins go in `stackr-org.yml` and the stack files as `pin: eu-prod`. A pin to a placement the org cannot use, or one whose node lacks a tag the envs need, is refused, from the CLI, the panel or a file. Volumes and managed tiles a stack file declares count before their first deploy: they need a node tagged `storage`.
+The same pins go in `stackr-org.yml` and the stack files as `pin: eu-prod`. A pin to a placement the org cannot use, or one whose node lacks a tag the envs need, is refused, from the CLI, the panel or a file. Volumes and operated tiles a stack file declares count before their first deploy: they need a node tagged `storage`.
 
 Pins, ingress and exits are an org owner's to set. A stack file promote that changes one waits for an owner to promote it; a member's promote and a push's auto promote are refused.
 
@@ -40,7 +40,7 @@ stackr exit set eu-prod default --stack shop --env prod
 
 ## Tags
 
-An env with volumes or a managed database only fits a placement whose node has the `storage` tag. A placement used as an ingress pick needs `ingress`; as an exit it needs `egress`.
+An env with volumes or an operated database only fits a placement whose node has the `storage` tag. A placement used as an ingress pick needs `ingress`; as an exit it needs `egress`.
 
 To keep a database off the nodes that run the apps, put it in its own stack, pin that stack to a storage placement and link it across nodes. An env is never split between nodes.
 

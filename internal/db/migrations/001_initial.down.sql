@@ -6,7 +6,7 @@ DROP TABLE IF EXISTS volumes;
 DROP TABLE IF EXISTS tile_vips;
 DROP TABLE IF EXISTS runs;
 DROP TABLE IF EXISTS provisions;
-DROP TABLE IF EXISTS managed_instances;
+DROP TABLE IF EXISTS operated_instances;
 DROP TABLE IF EXISTS job_tiles;
 DROP TABLE IF EXISTS env_moves;
 DROP TABLE IF EXISTS domains;

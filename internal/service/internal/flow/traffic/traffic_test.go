@@ -16,7 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/traffic"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	ltraffic "github.com/FyrmForge/stackr/internal/service/internal/leaf/traffic"
@@ -203,7 +203,7 @@ func TestEdgesSlices(t *testing.T) {
 		must(t, err)
 		ids[n] = tl.ID
 	}
-	ml := managed.New(s.ManagedInstances, s.Provisions, s.Bindings)
+	ml := operated.New(s.OperatedInstances, s.Provisions, s.Bindings)
 	m, err := ml.Create(
 		ctx,
 		ids["pg"],
@@ -223,12 +223,12 @@ func TestEdgesSlices(t *testing.T) {
 			ProvisionFrom: &from,
 		})
 		must(t, err)
-		p, err := ml.CreateProvision(ctx, m, sl.ID, managed.Slice{
+		p, err := ml.CreateProvision(ctx, m, sl.ID, operated.Slice{
 			DBName: n,
 			DBUser: n,
 		})
 		must(t, err)
-		_, err = ml.Bind(ctx, p, ids[n], managed.Cred{
+		_, err = ml.Bind(ctx, p, ids[n], operated.Cred{
 			Access: "write",
 			User:   n + "_app",
 		})
@@ -258,11 +258,11 @@ func TestEdgesSlices(t *testing.T) {
 	})
 	must(t, err)
 	fl := &traffic.Flow{
-		Tiles:   tiles,
-		Envs:    environment.New(s.Environments, nil),
-		Stacks:  stack.New(s.Stacks),
-		Managed: ml,
-		Traffic: ltraffic.New(),
+		Tiles:    tiles,
+		Envs:     environment.New(s.Environments, nil),
+		Stacks:   stack.New(s.Stacks),
+		Operated: ml,
+		Traffic:  ltraffic.New(),
 	}
 	ipMap := map[string]string{
 		"10.0.0.2": ids["web"],

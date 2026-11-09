@@ -11,7 +11,7 @@ Needs a Linux box, root, Docker 26.0 or newer, systemd, WireGuard in the kernel,
 The box needs its own way out to the internet while it joins: the join line fetches from the panel's URL and pulls the stackr image from `ghcr.io`. A box with only a private address needs NAT from its network first.
 
 1. In the panel, open Admin, Nodes, Add node. Give it a name: lowercase letters, digits and dashes.
-   - **Tags:** every new node has `egress`. Tick `ingress`, `builder` or `storage` for more roles. Envs with volumes or managed databases only run on `storage` nodes.
+   - **Tags:** every new node has `egress`. Tick `ingress`, `builder` or `storage` for more roles. Envs with volumes or operated databases only run on `storage` nodes.
 
 2. Press Get join command. The panel shows one line. It works once and expires after 60 minutes.
 

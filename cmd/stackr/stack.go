@@ -19,19 +19,19 @@ import (
 )
 
 var (
-	stackCols   = []string{"slug", "name", "description", "config_repo", "id"}
-	envCols     = []string{"slug", "name", "type", "from_kind", "from_branch", "auto", "release_id", "id"}
-	tileCols    = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
-	managedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
-	sliceCols   = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "id"}
-	releaseCols = []string{"number", "commit", "message", "created_by", "created_at", "id"}
-	domainCols  = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
-	paramCols   = []string{"collection", "name", "kind", "value", "scope_kind"}
-	volumeCols  = []string{"slug", "name", "scope_kind", "orphaned_at", "id"}
-	schedCols   = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
-	runCols     = []string{"id", "status", "trigger", "dest", "created_at", "size_bytes", "object_key", "error"}
-	pinCols     = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
-	tileRunCols = []string{"id", "status", "trigger", "exit_code", "peak_mem_bytes", "cpu_ms", "reason", "created_at", "finished_at"}
+	stackCols    = []string{"slug", "name", "description", "config_repo", "id"}
+	envCols      = []string{"slug", "name", "type", "from_kind", "from_branch", "auto", "release_id", "id"}
+	tileCols     = []string{"slug", "name", "kind", "image_ref", "git_url", "container_port", "id"}
+	operatedCols = []string{"engine", "allow", "env_pairs", "tile_id", "id"}
+	sliceCols    = []string{"slug", "kind", "provision_from", "default_access", "on_remove", "id"}
+	releaseCols  = []string{"number", "commit", "message", "created_by", "created_at", "id"}
+	domainCols   = []string{"host", "path", "container_port", "https", "force_https", "redirect_to", "id"}
+	paramCols    = []string{"collection", "name", "kind", "value", "scope_kind"}
+	volumeCols   = []string{"slug", "name", "scope_kind", "orphaned_at", "id"}
+	schedCols    = []string{"id", "method", "cron", "timezone", "keep", "mode", "dest_id"}
+	runCols      = []string{"id", "status", "trigger", "dest", "created_at", "size_bytes", "object_key", "error"}
+	pinCols      = []string{"slug", "repo", "branch", "commit_sha", "digest", "image_id"}
+	tileRunCols  = []string{"id", "status", "trigger", "exit_code", "peak_mem_bytes", "cpu_ms", "reason", "created_at", "finished_at"}
 )
 
 // tileFlags are the tile settings a create or set takes: flag -> PATCH key.
@@ -136,7 +136,7 @@ func (a *app) stackCommands() []*cobra.Command {
 		a.restart(),
 		a.logsWithSearch(),
 		a.tileMetrics(),
-		a.managed(),
+		a.operated(),
 		a.sliceTiles(),
 		a.params(),
 		a.volumes(),
@@ -1276,14 +1276,14 @@ func (a *app) domains() *cobra.Command {
 	)
 }
 
-// allow edits a managed tile's allow list: --add and --rm read the list
+// allow edits an operated tile's allow list: --add and --rm read the list
 // and send it whole; --set replaces it after printing the diff and asking.
 func (a *app) allow() *cobra.Command {
 	var add, rm, set []string
 	c := leaf(
 		"allow [tile]",
-		"managed.allow,tile.get,managed.list",
-		"Edit who outside the env may cut slices from a managed tile (org:stack:env:tile patterns)",
+		"operated.allow,tile.get,operated.list",
+		"Edit who outside the env may cut slices from an operated tile (org:stack:env:tile patterns)",
 		upTo(1),
 		nil,
 	)
@@ -1295,7 +1295,7 @@ func (a *app) allow() *cobra.Command {
 		if len(add) == 0 && len(rm) == 0 && !replace {
 			return usage("give --add, --rm or --set")
 		}
-		m, err := a.managedOf(c, p)
+		m, err := a.operatedOf(c, p)
 		if err != nil {
 			return err
 		}
@@ -1346,7 +1346,7 @@ func (a *app) allow() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return a.show(v, managedCols...)
+		return a.show(v, operatedCols...)
 	})
 	return c
 }
@@ -1357,7 +1357,7 @@ func (a *app) pitr() *cobra.Command {
 	var days string
 	c := leaf(
 		"pitr [tile]",
-		"managed.pitr",
+		"operated.pitr",
 		"Turn point-in-time recovery on (--days N) or off (--days off) for a postgres instance; restarts it once",
 		upTo(1),
 		nil,
@@ -1390,7 +1390,7 @@ func (a *app) pitr() *cobra.Command {
 // pitrBackups prints an instance's point-in-time recovery health: the range
 // it can restore, the last base backup, the WAL archive.
 func (a *app) pitrBackups() *cobra.Command {
-	return scoped(leaf("backups [tile]", "managed.pitr-status", "Show a postgres instance's point-in-time recovery health", upTo(1),
+	return scoped(leaf("backups [tile]", "operated.pitr-status", "Show a postgres instance's point-in-time recovery health", upTo(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/pitr", nil)
 			if err != nil {
@@ -1445,7 +1445,7 @@ func (a *app) tileRestore() *cobra.Command {
 	var at string
 	c := waits(leaf(
 		"restore [tile]",
-		"managed.restore",
+		"operated.restore",
 		"Restore a postgres instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched",
 		upTo(1),
 		nil,
@@ -1477,7 +1477,7 @@ func (a *app) tileRestore() *cobra.Command {
 func (a *app) tilePromoteRestore() *cobra.Command {
 	c := waits(leaf(
 		"promote-restore [tile]",
-		"managed.promote-restore",
+		"operated.promote-restore",
 		"Make a restored copy the instance it was restored from; the source's apps keep their address and credentials",
 		upTo(1),
 		nil,
@@ -1491,9 +1491,9 @@ func (a *app) tilePromoteRestore() *cobra.Command {
 	return scoped(c, true)
 }
 
-// managedOf is the instance row of the managed tile at p, read from its
-// env's managed list.
-func (a *app) managedOf(c *cobra.Command, p string) (map[string]any, error) {
+// operatedOf is the instance row of the operated tile at p, read from its
+// env's operated list.
+func (a *app) operatedOf(c *cobra.Command, p string) (map[string]any, error) {
 	v, err := a.call(GET, p, nil)
 	if err != nil {
 		return nil, err
@@ -1503,21 +1503,21 @@ func (a *app) managedOf(c *cobra.Command, p string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := a.find(ep+"/managed", "managed tile", cell(t["id"]), "tile_id")
+	m, err := a.find(ep+"/operated", "operated tile", cell(t["id"]), "tile_id")
 	if err != nil {
-		return nil, fmt.Errorf("%s is not a managed tile with an instance", cell(t["slug"]))
+		return nil, fmt.Errorf("%s is not an operated tile with an instance", cell(t["slug"]))
 	}
 	return m, nil
 }
 
-// envPairs replaces a managed tile's env pairs after printing the diff and
+// envPairs replaces an operated tile's env pairs after printing the diff and
 // asking.
 func (a *app) envPairs() *cobra.Command {
 	var empty bool
 	c := leaf(
 		"env-pairs <tile> [consumer-env=env ...]",
-		"tile.get,managed.list,managed.env-pairs",
-		"Replace a managed tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks",
+		"tile.get,operated.list,operated.env-pairs",
+		"Replace an operated tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks",
 		atLeast(1),
 		nil,
 	)
@@ -1537,7 +1537,7 @@ func (a *app) envPairs() *cobra.Command {
 		case !empty && len(pairs) == 0:
 			return usage("give consumer-env=env pairs, or --clear")
 		}
-		m, err := a.managedOf(c, p)
+		m, err := a.operatedOf(c, p)
 		if err != nil {
 			return err
 		}
@@ -1569,7 +1569,7 @@ func (a *app) envPairs() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return a.show(v, managedCols...)
+		return a.show(v, operatedCols...)
 	})
 	return c
 }
@@ -1611,7 +1611,7 @@ func (a *app) sliceAccess() *cobra.Command {
 	return c
 }
 
-// sliceTiles is the slice noun: a database or bucket cut from a managed
+// sliceTiles is the slice noun: a database or bucket cut from an operated
 // tile, bound by the tiles of its env that ref it or name it in slice_access.
 func (a *app) sliceTiles() *cobra.Command {
 	var from, access string
@@ -1632,10 +1632,10 @@ func (a *app) sliceTiles() *cobra.Command {
 			return a.show(v, sliceCols...)
 		}),
 	)
-	add.Flags().StringVar(&from, "from", "", "the managed tile, <stack>:<env>:<tile>")
+	add.Flags().StringVar(&from, "from", "", "the operated tile, <stack>:<env>:<tile>")
 	add.Flags().StringVar(&access, "access", "", "the default access of its consumers, read or write (default write)")
 	_ = add.MarkFlagRequired("from")
-	return scoped(noun("slice", "Slice tiles: a database or bucket cut from a managed tile",
+	return scoped(noun("slice", "Slice tiles: a database or bucket cut from an operated tile",
 		add,
 		a.get("get [slice]", "slice.get", "Show a slice tile and the instance it resolves to", atTile, "/slice"),
 		a.get(
@@ -1755,9 +1755,9 @@ func (a *app) sliceForward() *cobra.Command {
 	return c
 }
 
-func (a *app) managed() *cobra.Command {
+func (a *app) operated() *cobra.Command {
 	var engine, dump, slice string
-	create := waits(leaf("create <name>", "managed.create,managed.from-dump", "Make a managed tile (postgres, s3) in --env", exact(1), nil))
+	create := waits(leaf("create <name>", "operated.create,operated.from-dump", "Make an operated tile (postgres, s3) in --env", exact(1), nil))
 	keys := tileFlags(create)
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")
 	create.Flags().StringVar(&dump, "from-dump", "", "load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin")
@@ -1772,7 +1772,7 @@ func (a *app) managed() *cobra.Command {
 			if body != nil {
 				return usage("--from-dump takes no tile flags; set them once the tile is made")
 			}
-			return a.managedFromDump(c, p, args[0], engine, dump, slice)
+			return a.operatedFromDump(c, p, args[0], engine, dump, slice)
 		}
 		if slice != "" {
 			return usage("--slice goes with --from-dump")
@@ -1781,23 +1781,23 @@ func (a *app) managed() *cobra.Command {
 			body = map[string]any{}
 		}
 		body["name"], body["engine"] = args[0], engine
-		v, err := a.call(POST, p+"/managed", body)
+		v, err := a.call(POST, p+"/operated", body)
 		if err != nil {
 			return err
 		}
 		a.fileHint(p)
 		return a.show(v)
 	})
-	return scoped(noun("managed", "Managed tiles",
-		a.get("ls", "managed.list", "List the env's managed tiles", atEnv, "/managed", managedCols...),
+	return scoped(noun("operated", "Operated tiles",
+		a.get("ls", "operated.list", "List the env's operated tiles", atEnv, "/operated", operatedCols...),
 		create,
 	), true)
 }
 
-// managedFromDump streams the dump (a file, or stdin for -) to the panel,
+// operatedFromDump streams the dump (a file, or stdin for -) to the panel,
 // which makes the tile and its slice and queues the load; the load's job is
 // followed to its end, so a failed load exits non-zero with its error.
-func (a *app) managedFromDump(c *cobra.Command, envPath, name, engine, dump, slice string) error {
+func (a *app) operatedFromDump(c *cobra.Command, envPath, name, engine, dump, slice string) error {
 	var in io.Reader = a.in
 	if dump != "-" {
 		f, err := os.Open(dump)
@@ -1811,7 +1811,7 @@ func (a *app) managedFromDump(c *cobra.Command, envPath, name, engine, dump, sli
 	if slice != "" {
 		q.Set("slice", slice)
 	}
-	v, err := a.call(POST, envPath+"/managed/from-dump?"+q.Encode(), in)
+	v, err := a.call(POST, envPath+"/operated/from-dump?"+q.Encode(), in)
 	if err != nil {
 		return err
 	}

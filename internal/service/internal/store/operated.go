@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// ManagedInstance is a row of managed_instances. Its container is its tile.
+// OperatedInstance is a row of operated_instances. Its container is its tile.
 // Allow holds org:stack:env:tile patterns (empty = the tile's own env);
 // EnvPairs maps a consumer's env name to one of this stack's envs.
-type ManagedInstance struct {
+type OperatedInstance struct {
 	ID            string     `db:"id" json:"id"`
 	TileID        string     `db:"tile_id" json:"tile_id"`
 	Engine        string     `db:"engine" json:"engine"`
@@ -22,27 +22,27 @@ type ManagedInstance struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-type ManagedInstanceStore interface {
-	Create(ctx context.Context, m ManagedInstance) error
-	Get(ctx context.Context, id string) (ManagedInstance, error)
-	GetByTile(ctx context.Context, tileID string) (ManagedInstance, error)
+type OperatedInstanceStore interface {
+	Create(ctx context.Context, m OperatedInstance) error
+	Get(ctx context.Context, id string) (OperatedInstance, error)
+	GetByTile(ctx context.Context, tileID string) (OperatedInstance, error)
 	// ListPITR lists the instances with point-in-time recovery on.
-	ListPITR(ctx context.Context) ([]ManagedInstance, error)
-	Update(ctx context.Context, m ManagedInstance) error
+	ListPITR(ctx context.Context) ([]OperatedInstance, error)
+	Update(ctx context.Context, m OperatedInstance) error
 	Delete(ctx context.Context, id string) error
 }
 
-var managedInstancesT = newTable("managed_instances", func(m *ManagedInstance) []*string {
+var operatedInstancesT = newTable("operated_instances", func(m *OperatedInstance) []*string {
 	return []*string{&m.AdminPassword}
 })
 
-type managedInstances struct{ crud[ManagedInstance] }
+type operatedInstances struct{ crud[OperatedInstance] }
 
-func (s managedInstances) GetByTile(ctx context.Context, tileID string) (ManagedInstance, error) {
+func (s operatedInstances) GetByTile(ctx context.Context, tileID string) (OperatedInstance, error) {
 	return s.one(ctx, "tile_id = ?", tileID)
 }
 
-func (s managedInstances) ListPITR(ctx context.Context) ([]ManagedInstance, error) {
+func (s operatedInstances) ListPITR(ctx context.Context) ([]OperatedInstance, error) {
 	return s.many(ctx, "pitr_days > 0")
 }
 

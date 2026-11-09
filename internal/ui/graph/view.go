@@ -245,7 +245,7 @@ var legendRows = []struct{ kind, label string }{
 	{"egress-own", "egress, own apps"},
 	{"egress-via", "egress through another node"},
 	{"source", "source repo"},
-	{"shared", "managed instance"},
+	{"shared", "operated instance"},
 	{"ref", "reference"},
 	{"startup", "startup order"},
 	{"tunnel", "encrypted tunnel, internet"},

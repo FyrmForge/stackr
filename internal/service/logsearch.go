@@ -52,8 +52,8 @@ func (o *Orchestrator) SearchLogs(ctx context.Context, s Scope, in LogsIn) ([]Lo
 	if s.Org == nil {
 		return nil, logs.ErrNoOrg
 	}
-	if in.Kind != "" && !slices.Contains([]string{tile.Service, tile.Image, tile.Managed, tile.Cron, tile.Function}, in.Kind) {
-		return nil, errs.Invalidf("kind", "must be service, image, managed, cron or function")
+	if in.Kind != "" && !slices.Contains([]string{tile.Service, tile.Image, tile.Operated, tile.Cron, tile.Function}, in.Kind) {
+		return nil, errs.Invalidf("kind", "must be service, image, operated, cron or function")
 	}
 	if in.Source != "" && !slices.Contains([]string{logs.SourceApp, logs.SourceAccess, logs.SourceRun, logs.SourceBuild}, in.Source) {
 		return nil, errs.Invalidf("source", "must be app, access, run or build")

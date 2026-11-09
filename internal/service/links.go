@@ -7,13 +7,13 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
 )
 
-// Cross-node links: a consumer on another node than its managed instance
+// Cross-node links: a consumer on another node than its operated instance
 // reaches the instance's VIP over the mesh, by the same alias it would use on
 // the instance network (an ExtraHosts line), through one flow per consumer
 // env and instance port.
@@ -92,7 +92,7 @@ func (o *Orchestrator) pinVIP(ctx context.Context, t store.Tile, network string)
 // linkHost is deploy.Flow.LinkHost: "alias:vip" when the instance runs on
 // another node than env e, "" when they share one.
 func (o *Orchestrator) linkHost(ctx context.Context, e store.Environment, instanceID string) (string, error) {
-	m, err := o.store.ManagedInstances.Get(ctx, instanceID)
+	m, err := o.store.OperatedInstances.Get(ctx, instanceID)
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +112,7 @@ func (o *Orchestrator) linkHost(ctx context.Context, e store.Environment, instan
 	if !ok {
 		return "", errs.Conflictf("%s runs on another node and has no address there yet: deploy it first", t.Slug)
 	}
-	return managed.Alias(t.Slug, m.ID) + ":" + v.String(), nil
+	return operated.Alias(t.Slug, m.ID) + ":" + v.String(), nil
 }
 
 // link is one binding seen across nodes.
@@ -129,7 +129,7 @@ func (o *Orchestrator) linkOf(ctx context.Context, b store.Binding) (link, bool)
 	if err != nil {
 		return l, false
 	}
-	m, err := o.store.ManagedInstances.Get(ctx, p.InstanceID)
+	m, err := o.store.OperatedInstances.Get(ctx, p.InstanceID)
 	if err != nil {
 		return l, false
 	}
@@ -204,9 +204,9 @@ func (o *Orchestrator) linkFlows(ctx context.Context, n store.Node) []vip.Flow {
 }
 
 // instanceBindings are every binding on the slices of the instance tile
-// tileID; none when it is not a managed instance.
+// tileID; none when it is not an operated instance.
 func (o *Orchestrator) instanceBindings(ctx context.Context, tileID string) []store.Binding {
-	m, err := o.store.ManagedInstances.GetByTile(ctx, tileID)
+	m, err := o.store.OperatedInstances.GetByTile(ctx, tileID)
 	if err != nil {
 		return nil
 	}

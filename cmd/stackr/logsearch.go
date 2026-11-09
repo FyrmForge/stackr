@@ -65,7 +65,7 @@ func (a *app) logSearch() *cobra.Command {
 			return nil
 		}))
 	c.Flags().String("tile", "", "only this tile")
-	c.Flags().StringVar(&kind, "kind", "", "only this tile kind (service, image, managed, cron, function)")
+	c.Flags().StringVar(&kind, "kind", "", "only this tile kind (service, image, operated, cron, function)")
 	c.Flags().StringVar(&source, "source", "", "app, access, run or build")
 	c.Flags().StringVar(&stream, "stream", "", "stdout or stderr")
 	c.Flags().StringVar(&run, "run", "", "a cron or function run's id")

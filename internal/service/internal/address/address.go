@@ -1,5 +1,5 @@
 // Package address is a tile's name across its org and the allow list a
-// managed tile keeps (DECIDE 194). Pure: no store, no docker, no I/O.
+// operated tile keeps (DECIDE 194). Pure: no store, no docker, no I/O.
 // Leaves and flows both use it, so it lives outside leaf/ and flow/, as slug does.
 //
 //	address         org:stack:env:tile, four slugs
@@ -44,7 +44,7 @@ type Pattern struct {
 	segs [4]string
 }
 
-// ParseAllow parses a managed tile's allow list. The first bad entry fails
+// ParseAllow parses an operated tile's allow list. The first bad entry fails
 // the whole list: a half-applied list would widen or narrow access silently.
 func ParseAllow(orgSlug string, list []string) ([]Pattern, error) {
 	out := make([]Pattern, 0, len(list))
@@ -100,7 +100,7 @@ func (p Pattern) match(a Address) bool {
 	return true
 }
 
-// Allowed decides whether the tile at a may connect to the managed tile at
+// Allowed decides whether the tile at a may connect to the operated tile at
 // self. The tile's own env, any tile in it, is always allowed, as env scope
 // was; a list adds to that default (DECIDE 195).
 func Allowed(orgSlug string, list []string, self, a Address) (bool, error) {
@@ -114,7 +114,7 @@ func Allowed(orgSlug string, list []string, self, a Address) (bool, error) {
 	return Match(patterns, a), nil
 }
 
-// Target is a slice tile's provision_from: a managed tile in the consumer's
+// Target is a slice tile's provision_from: an operated tile in the consumer's
 // own org.
 type Target struct {
 	Stack, Env, Tile string
@@ -156,10 +156,10 @@ type Place struct {
 
 // Host is the target tile in one env of the target stack.
 type Host struct {
-	TileID  string // the caller's handle; Resolve never reads it
-	Managed bool
-	Ready   bool // its instance row exists (or lands in this very promote)
-	Allow   []string
+	TileID   string // the caller's handle; Resolve never reads it
+	Operated bool
+	Ready    bool // its instance row exists (or lands in this very promote)
+	Allow    []string
 }
 
 // Resolve picks the env of pl a slice at me lands in and checks the allow
@@ -200,8 +200,8 @@ func Resolve(orgSlug string, me Address, base string, tg Target, pl Place) (stri
 	switch {
 	case h == nil:
 		return "", errs.Conflictf("%s has no tile called %s to cut it from", at, tg.Tile)
-	case !h.Managed:
-		return "", errs.Conflictf("%s/%s is not a managed tile", at, tg.Tile)
+	case !h.Operated:
+		return "", errs.Conflictf("%s/%s is not an operated tile", at, tg.Tile)
 	case !h.Ready:
 		return "", errs.Conflictf("%s/%s has no instance yet; deploy it first", at, tg.Tile)
 	}

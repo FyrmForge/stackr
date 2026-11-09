@@ -19,10 +19,10 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -123,9 +123,9 @@ func (w *restoreWorld) tile(slug, kind string, edit func(*store.Tile)) store.Til
 	return out
 }
 
-// instance gives managed tile t its engine row, with the admin password the
+// instance gives operated tile t its engine row, with the admin password the
 // container runs under.
-func (w *restoreWorld) instance(t store.Tile, pitrDays int) store.ManagedInstance {
+func (w *restoreWorld) instance(t store.Tile, pitrDays int) store.OperatedInstance {
 	w.t.Helper()
 	ctx := context.Background()
 	m, err := w.eng.Instances.Create(ctx, t.ID, "postgres", "stackr", "")
@@ -133,13 +133,13 @@ func (w *restoreWorld) instance(t store.Tile, pitrDays int) store.ManagedInstanc
 		w.t.Fatal(err)
 	}
 	m.AdminPassword, m.PITRDays = "admin", pitrDays
-	if err := w.st.ManagedInstances.Update(ctx, m); err != nil {
+	if err := w.st.OperatedInstances.Update(ctx, m); err != nil {
 		w.t.Fatal(err)
 	}
 	return m
 }
 
-func (w *restoreWorld) volume(slug string, m *store.ManagedInstance) (store.Volume, string) {
+func (w *restoreWorld) volume(slug string, m *store.OperatedInstance) (store.Volume, string) {
 	w.t.Helper()
 	ctx := context.Background()
 	var id *string
@@ -184,7 +184,7 @@ func newRestoreWorld(t *testing.T) *restoreWorld {
 	w.vols = volume.New(st.Volumes, d)
 	w.eng = &mflow.Flow{
 		Tiles:     w.tiles,
-		Instances: managed.New(st.ManagedInstances, st.Provisions, st.Bindings),
+		Instances: operated.New(st.OperatedInstances, st.Provisions, st.Bindings),
 		Volumes:   w.vols,
 		Envs:      environment.New(st.Environments, d),
 		Stacks:    stack.New(st.Stacks),
@@ -228,7 +228,7 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 	w := newRestoreWorld(t)
 	ctx := context.Background()
 	def := mflow.Engines["postgres"].Definition()
-	pgTile := w.tile("pg", tile.Managed, nil)
+	pgTile := w.tile("pg", tile.Operated, nil)
 	pgM := w.instance(pgTile, 7)
 	data, dataName := w.volume("pg-data", &pgM)
 	_, walName := w.volume("pg-wal", &pgM)
@@ -297,7 +297,7 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 	}
 
 	// the restored copy: its own tile, instance and volume, filled before it starts
-	candTile := w.tile("pg-restored", tile.Managed, nil)
+	candTile := w.tile("pg-restored", tile.Operated, nil)
 	candM := w.instance(candTile, 0)
 	candData, candName := w.volume("pg-restored-data", &candM)
 	conf := be.(interface{ RecoveryConf(time.Time) string }).RecoveryConf(t1)

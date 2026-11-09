@@ -58,13 +58,13 @@ user reviews the changes, then deploys them.
   Its volume is kept (orphaned), as promote does; the review notes it.
 - A tile's `image` and `branch` are never synced (they are the version);
   `git_url`, dockerfile and build args are.
-- Managed tiles: a New one is provisioned fresh and empty in the target,
+- Operated tiles: a New one is provisioned fresh and empty in the target,
   never with data; its allow list and env pairs sync. A slice's
   `provision_from` is copied as is; a target the resolver cannot reach
   blocks the deploy, as in promote (`planSlice`).
 - A secret synced by name arrives unset; the review warns which tiles read
   it, as promote's `planParams` does.
-- Removing a managed tile whose instance still serves slices is blocked,
+- Removing an operated tile whose instance still serves slices is blocked,
   with promote's check (`planDeletes`).
 - Permission: `env.write`, as promote.
 - A cron tile's `paused` is never synced; the target keeps its own, as

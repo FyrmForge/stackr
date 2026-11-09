@@ -17,7 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -88,7 +88,7 @@ func (o *Orchestrator) RestoreCandidate(ctx context.Context, tileID string) (sou
 // pitrSource is an instance's archive as a restore reads it.
 type pitrSource struct {
 	tile Tile
-	inst ManagedInstance
+	inst OperatedInstance
 	vol  store.Volume
 	org  string
 	dest store.BackupDest
@@ -198,7 +198,7 @@ func restoredSlug(src string, label time.Time, temp bool) string {
 	return src + tail
 }
 
-// newCandidate makes the candidate's tile row and instance: a managed
+// newCandidate makes the candidate's tile row and instance: an operated
 // postgres in the source's env with its image and sizing, archiving off,
 // the source's admin credentials (the restored cluster holds their hashes),
 // no slices, no expiry. Nothing runs.
@@ -218,14 +218,14 @@ func (o *Orchestrator) newCandidate(ctx context.Context, src pitrSource, label t
 		CPULimit:      src.tile.CPULimit,
 		ShmSizeMB:     src.tile.ShmSizeMB,
 	}
-	t, _, err := o.createManaged(ctx, row, src.inst.Engine, "")
+	t, _, err := o.createOperated(ctx, row, src.inst.Engine, "")
 	if err != nil {
 		return Tile{}, err
 	}
-	m, err := o.managed.GetByTile(ctx, t.ID)
+	m, err := o.operated.GetByTile(ctx, t.ID)
 	if err == nil {
 		m.PITRDays, m.AdminUser, m.AdminPassword = 0, src.inst.AdminUser, src.inst.AdminPassword
-		err = o.store.ManagedInstances.Update(ctx, m)
+		err = o.store.OperatedInstances.Update(ctx, m)
 	}
 	if err == nil {
 		err = o.setCandidate(ctx, t.ID, candidate{Source: src.tile.ID, At: atStr, Temp: temp, Created: time.Now().UTC()})
@@ -290,8 +290,8 @@ func (o *Orchestrator) RestoreInstance(ctx context.Context, by *Principal, tileI
 // forgetCandidate removes a candidate whose job never ran: nothing started,
 // so its rows go.
 func (o *Orchestrator) forgetCandidate(ctx context.Context, cand Tile) {
-	if m, err := o.managed.GetByTile(ctx, cand.ID); err == nil {
-		_ = o.store.ManagedInstances.Delete(ctx, m.ID)
+	if m, err := o.operated.GetByTile(ctx, cand.ID); err == nil {
+		_ = o.store.OperatedInstances.Delete(ctx, m.ID)
 	}
 	_ = o.store.Tiles.Delete(ctx, cand.ID)
 	_ = o.store.Settings.Delete(ctx, candKey+cand.ID)
@@ -404,7 +404,7 @@ func (o *Orchestrator) startOnce(ctx context.Context, r *jobs.Run, cand Tile, do
 }
 
 func (o *Orchestrator) fillCandidate(ctx context.Context, r *jobs.Run, src pitrSource, cand Tile, plan backup.Plan, at time.Time, latest bool) error {
-	m, err := o.managed.GetByTile(ctx, cand.ID)
+	m, err := o.operated.GetByTile(ctx, cand.ID)
 	if err != nil {
 		return err
 	}
@@ -484,7 +484,7 @@ func (o *Orchestrator) logTail(ctx context.Context, t Tile) string {
 func (o *Orchestrator) dropCandidate(ctx context.Context, cand Tile, hard bool, log io.Writer) {
 	ctx = tearingDown(context.WithoutCancel(ctx))
 	var vs []store.Volume
-	if m, err := o.managed.GetByTile(ctx, cand.ID); err == nil {
+	if m, err := o.operated.GetByTile(ctx, cand.ID); err == nil {
 		all, _ := o.volumes.List(ctx, volume.Scope{Kind: "env", ID: cand.EnvironmentID})
 		for _, v := range all {
 			if v.InstanceID != nil && *v.InstanceID == m.ID {
@@ -655,7 +655,7 @@ func (o *Orchestrator) instanceLocks(ctx context.Context, v store.Volume) ([]str
 		return nil, err
 	}
 	lock := []string{it.ID}
-	ps, err := o.managed.ByInstance(ctx, *v.InstanceID)
+	ps, err := o.operated.ByInstance(ctx, *v.InstanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -744,7 +744,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 		return err
 	}
 	o.ensureMesh(ctx)
-	sm, err := o.managed.GetByTile(ctx, src.ID)
+	sm, err := o.operated.GetByTile(ctx, src.ID)
 	if err != nil {
 		return err
 	}
@@ -866,7 +866,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 // queued so that base counts; the guard runs again against the same prefix,
 // as its own. Under the shipper's lock: a tick in flight cannot save the old
 // state over it afterwards. With PITR off the state just goes.
-func (o *Orchestrator) pitrReset(ctx context.Context, m store.ManagedInstance) error {
+func (o *Orchestrator) pitrReset(ctx context.Context, m store.OperatedInstance) error {
 	ctx = context.WithoutCancel(ctx) // a cancelled request must not lose the reset
 	mu := o.pitrLock(m.ID)
 	mu.Lock()

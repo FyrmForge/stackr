@@ -16,7 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
-// Step 7b task 6: allow and env pairs on a managed tile, a slice tile cut
+// Step 7b task 6: allow and env pairs on an operated tile, a slice tile cut
 // from it, a consumer's access re-granted in place, and the slice's
 // bindings without a secret.
 func TestSliceVerbs(t *testing.T) {
@@ -38,21 +38,21 @@ func TestSliceVerbs(t *testing.T) {
 			t.Errorf("%s = %v, want invalid", what, err)
 		}
 	}
-	pg, err := o.CreateManagedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
 	must(t, err)
 
-	_, err = o.SetManagedAllow(ctx, pg.ID, []string{"other:shop:*"})
+	_, err = o.SetOperatedAllow(ctx, pg.ID, []string{"other:shop:*"})
 	invalid("allow in another org", err)
-	_, err = o.SetManagedAllow(ctx, tl.ID, []string{"acme:*"})
+	_, err = o.SetOperatedAllow(ctx, tl.ID, []string{"acme:*"})
 	invalid("allow on an image tile", err)
-	m, err := o.SetManagedAllow(ctx, pg.ID, []string{"acme:shop:*"})
+	m, err := o.SetOperatedAllow(ctx, pg.ID, []string{"acme:shop:*"})
 	must(t, err)
 	if !slices.Equal(m.Allow, []string{"acme:shop:*"}) {
 		t.Errorf("allow = %v", m.Allow)
 	}
-	_, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{"staging": "prod"})
+	_, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{"staging": "prod"})
 	invalid("pair to a missing env", err)
-	m, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{
+	m, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{
 		"dev":     "dev",
 		"staging": "dev",
 	})
@@ -67,16 +67,16 @@ func TestSliceVerbs(t *testing.T) {
 		FromBranch: "main",
 	})
 	must(t, err)
-	pgProd, err := o.CreateManagedTile(ctx, service.Tile{EnvironmentID: prod.ID, Name: "pg"}, "postgres")
+	pgProd, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: prod.ID, Name: "pg"}, "postgres")
 	must(t, err)
-	_, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{"dev": "prod"})
+	_, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{"dev": "prod"})
 	must(t, err)
-	ms, err := o.ManagedInstances(ctx, prod.ID)
+	ms, err := o.OperatedInstances(ctx, prod.ID)
 	must(t, err)
 	if len(ms) != 1 || ms[0].TileID != pgProd.ID || ms[0].EnvPairs["dev"] != "prod" {
 		t.Errorf("prod's pg env pairs = %+v, want dev: prod", ms)
 	}
-	_, err = o.SetManagedEnvPairs(ctx, pg.ID, map[string]string{
+	_, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{
 		"dev":     "dev",
 		"staging": "dev",
 	})
@@ -91,7 +91,7 @@ func TestSliceVerbs(t *testing.T) {
 	}
 	v, err := o.SliceOf(ctx, db.ID)
 	must(t, err)
-	if v.Target != "shop:dev:pg" || v.Blocker != "" || v.Provisioned || v.Network != "stackr-managed-"+m.ID {
+	if v.Target != "shop:dev:pg" || v.Blocker != "" || v.Provisioned || v.Network != "stackr-operated-"+m.ID {
 		t.Errorf("slice view = %+v", v)
 	}
 	far, err := o.CreateSliceTile(ctx, tl.Env, "far", "shop:nope:pg", "read")
@@ -104,9 +104,9 @@ func TestSliceVerbs(t *testing.T) {
 	}
 
 	_, err = o.SetSliceAccess(ctx, pg.ID, "db", "read")
-	invalid("access for a managed tile", err)
+	invalid("access for an operated tile", err)
 	_, err = o.SetSliceAccess(ctx, tl.ID, "pg", "read")
-	invalid("access to a managed tile", err)
+	invalid("access to an operated tile", err)
 	_, err = o.SetSliceAccess(ctx, tl.ID, "nope", "read")
 	invalid("access to a missing slice", err)
 
@@ -160,7 +160,7 @@ func TestSliceVerbs(t *testing.T) {
 	}
 	v, err = o.SliceOf(ctx, db.ID)
 	must(t, err)
-	if !v.Provisioned || v.Name != "shop_dev_db" || v.Network != "stackr-managed-"+m.ID {
+	if !v.Provisioned || v.Name != "shop_dev_db" || v.Network != "stackr-operated-"+m.ID {
 		t.Errorf("provisioned slice view = %+v", v)
 	}
 

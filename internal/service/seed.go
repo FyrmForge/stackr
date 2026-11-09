@@ -13,12 +13,12 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// seedJob deploys a new managed tile and its slice, then loads a dump
+// seedJob deploys a new operated tile and its slice, then loads a dump
 // into the slice's database.
 type seedJob struct {
 	TileID  string     `json:"tile_id"`
@@ -57,12 +57,12 @@ func (s seedSource) drop() {
 	}
 }
 
-// CreateManagedTileFromDump makes a postgres managed tile and slice tile
+// CreateOperatedTileFromDump makes a postgres operated tile and slice tile
 // slice cut from it ("" = <tile>-db), then queues the job that deploys
 // both, waits for postgres and loads dump into the slice's database. The
 // dump goes to disk as it streams in, never whole into memory; an empty
 // one or a format stackr does not load is refused before anything is made.
-func (o *Orchestrator) CreateManagedTileFromDump(
+func (o *Orchestrator) CreateOperatedTileFromDump(
 	ctx context.Context,
 	t Tile,
 	engine, slice string,
@@ -91,7 +91,7 @@ func (o *Orchestrator) CreateManagedTileFromDump(
 	if slice == "" {
 		slice = "-"
 	}
-	out, sl, err := o.createManaged(ctx, t, engine, slice)
+	out, sl, err := o.createOperated(ctx, t, engine, slice)
 	if err != nil {
 		src.drop()
 		return out, Job{}, err

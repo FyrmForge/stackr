@@ -157,7 +157,7 @@ func TestRedeployAfterRestore(t *testing.T) {
 }
 
 // After a restore the lost volumes come back before their apps start: the
-// tar restore is queued first and holds the tiles, the managed instance
+// tar restore is queued first and holds the tiles, the operated instance
 // deploys before its dump is loaded, and the app's deploy waits behind both.
 // A volume with no backup starts empty and says so; one that kept its data
 // is left alone.
@@ -176,12 +176,12 @@ func TestRestoreVolumesBeforeDeploy(t *testing.T) {
 	app := w.tile(t, "app", false)
 	ran(app)
 	pg := store.Tile{
-		ID: uuid.NewString(), StackID: w.stack, EnvironmentID: w.env, Name: "pg", Slug: "pg", Kind: tile.Managed,
+		ID: uuid.NewString(), StackID: w.stack, EnvironmentID: w.env, Name: "pg", Slug: "pg", Kind: tile.Operated,
 		EnvJSON: "{}", BuildArgs: "{}", Replicas: 1, UpdatePolicy: "manual", CreatedAt: old, UpdatedAt: old,
 	}
 	must(t, w.st.Tiles.Create(ctx, pg))
 	ran(pg)
-	must(t, w.st.ManagedInstances.Create(ctx, store.ManagedInstance{ID: "mi", TileID: pg.ID, Engine: "postgres", CreatedAt: old}))
+	must(t, w.st.OperatedInstances.Create(ctx, store.OperatedInstance{ID: "mi", TileID: pg.ID, Engine: "postgres", CreatedAt: old}))
 	must(t, w.st.BackupDests.Create(ctx, store.BackupDest{ID: "d", Kind: "s3", Name: "d", Endpoint: "e", Bucket: "b", AccessKey: "a", SecretKey: "s", CreatedAt: old}))
 	mi := "mi"
 	vol := func(slug string, inst *string, key string) store.Volume {

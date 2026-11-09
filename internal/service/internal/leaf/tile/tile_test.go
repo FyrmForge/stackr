@@ -154,12 +154,12 @@ func TestKindWhitelist(t *testing.T) {
 			t.ImageRef = "nginx:1"
 			t.DockerfilePath = "D"
 		}, "dockerfile"},
-		{"managed ok", func(t *store.Tile) { t.Kind, t.GitURL, t.MemLimitMB = tile.Managed, "", 512 }, ""},
-		{"managed with a port", func(t *store.Tile) {
-			t.Kind, t.GitURL, t.ContainerPort = tile.Managed, "", 5432
+		{"operated ok", func(t *store.Tile) { t.Kind, t.GitURL, t.MemLimitMB = tile.Operated, "", 512 }, ""},
+		{"operated with a port", func(t *store.Tile) {
+			t.Kind, t.GitURL, t.ContainerPort = tile.Operated, "", 5432
 		}, "port"},
-		{"managed with replicas", func(t *store.Tile) {
-			t.Kind, t.GitURL, t.Replicas = tile.Managed, "", 2
+		{"operated with replicas", func(t *store.Tile) {
+			t.Kind, t.GitURL, t.Replicas = tile.Operated, "", 2
 		}, "replicas"},
 		{"unknown kind", func(t *store.Tile) { t.Kind = "batch" }, "kind"},
 		{"bad env key", func(t *store.Tile) { t.EnvJSON = `{"1BAD":"x"}` }, "env"},
@@ -179,7 +179,7 @@ func TestKindWhitelist(t *testing.T) {
 		{"host network with replicas", func(t *store.Tile) { t.HostNetwork, t.Replicas = true, 2 }, "replicas"},
 		{"host network with ports", func(t *store.Tile) { t.HostNetwork, t.PublishedPorts = true, "80:80" }, "published_ports"},
 		{"host network with lan", func(t *store.Tile) { t.HostNetwork, t.Lan = true, "10.0.0.0/8" }, "lan"},
-		{"managed with host network", func(t *store.Tile) { t.Kind, t.GitURL, t.HostNetwork = tile.Managed, "", true }, "host_network"},
+		{"operated with host network", func(t *store.Tile) { t.Kind, t.GitURL, t.HostNetwork = tile.Operated, "", true }, "host_network"},
 	} {
 		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
 		c.edit(&row)
@@ -336,7 +336,7 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"cron with a port",
-			"a cron has no endpoint; port does not apply",
+			"cron tiles have no endpoint; port does not apply",
 			then(cronRow, func(t *store.Tile) { t.ContainerPort = 80 }),
 		},
 		{
@@ -406,7 +406,7 @@ func TestRunKinds(t *testing.T) {
 		},
 		{
 			"function with a port",
-			"a function has no endpoint; port does not apply",
+			"function tiles have no endpoint; port does not apply",
 			then(fnRow, func(t *store.Tile) { t.ContainerPort = 80 }),
 		},
 		{
@@ -430,9 +430,9 @@ func TestRunKinds(t *testing.T) {
 			func(t *store.Tile) { t.TimeoutMinutes = 5 },
 		},
 		{
-			"managed with a command",
-			"command does not apply to a managed",
-			func(t *store.Tile) { t.Kind, t.GitURL, t.Command = tile.Managed, "", "x" },
+			"operated with a command",
+			"command does not apply to operated tiles",
+			func(t *store.Tile) { t.Kind, t.GitURL, t.Command = tile.Operated, "", "x" },
 		},
 	} {
 		row := store.Tile{Name: "x", Kind: tile.Service, GitURL: "https://github.com/a/b"}
@@ -529,10 +529,10 @@ func TestSliceKind(t *testing.T) {
 			func(t *store.Tile) { t.SliceAccess = store.SliceAccessList{{From: "api-db", Access: admin}} },
 		},
 		{
-			"managed reads a slice",
+			"operated reads a slice",
 			"slice_access",
 			func(t *store.Tile) {
-				t.Kind, t.GitURL = tile.Managed, ""
+				t.Kind, t.GitURL = tile.Operated, ""
 				t.SliceAccess = store.SliceAccessList{{From: "api-db", Access: read}}
 			},
 		},
@@ -586,8 +586,8 @@ func TestSideEffects(t *testing.T) {
 	if !(tile.Changed{"branch": true}).NeedsBuild() || (tile.Changed{"port": true}).NeedsBuild() {
 		t.Error("NeedsBuild")
 	}
-	if e := tile.Effects(tile.Managed, tile.Changed{"limits": true}); !slices.Equal(e, []tile.Effect{tile.Redeploy}) {
-		t.Errorf("managed limits = %v", e)
+	if e := tile.Effects(tile.Operated, tile.Changed{"limits": true}); !slices.Equal(e, []tile.Effect{tile.Redeploy}) {
+		t.Errorf("operated limits = %v", e)
 	}
 	for _, c := range []struct {
 		kind string

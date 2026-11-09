@@ -60,7 +60,7 @@ func TestGalleryRendersEveryComponent(t *testing.T) {
 		"service card":  `data-kind="service"`,
 		"cron card":     `data-kind="cron"`,
 		"function card": `data-kind="function"`,
-		"managed card":  `data-kind="managed"`,
+		"operated card": `data-kind="operated"`,
 		"slice card":    `data-kind="slice"`,
 		"ref card":      `data-kind="ref"`,
 		"volume card 2": `data-kind="volume"`,

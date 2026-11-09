@@ -10,13 +10,13 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// pitr_days on a managed postgres tile: a plan row and a restart when it
+// pitr_days on an operated postgres tile: a plan row and a restart when it
 // moves, written onto the instance with the hook told, nothing when the
 // file leaves it out or already says it.
-func TestManagedPITRDays(t *testing.T) {
+func TestOperatedPITRDays(t *testing.T) {
 	w := newSliceWorld(t)
 	var told []int
-	w.f.PITRChanged = func(_ context.Context, _ store.Tile, m store.ManagedInstance) { told = append(told, m.PITRDays) }
+	w.f.PITRChanged = func(_ context.Context, _ store.Tile, m store.OperatedInstance) { told = append(told, m.PITRDays) }
 	rel := func(commit, file string) store.Release {
 		w.files[commit] = file
 		r, err := w.f.D.Releases.Create(ctx, w.infra.ID, "test", []release.Pin{
@@ -30,18 +30,18 @@ func TestManagedPITRDays(t *testing.T) {
 
 	p, err := w.f.Plan(ctx, staging, rel("p1", on).ID, io.Discard)
 	must(t, err)
-	if got := kinds(p); !strings.Contains(got, "managed:pg-dbpitr_days7") {
+	if got := kinds(p); !strings.Contains(got, "operated:pg-dbpitr_days7") {
 		t.Fatalf("plan = %s", got)
 	}
 	if !strings.Contains(strings.Join(p.Warnings, "|"), "pg-db restarts to change its point-in-time recovery window") {
 		t.Errorf("warnings = %v", p.Warnings)
 	}
-	if m, _ := w.f.D.Managed.GetByTile(ctx, w.pg["staging"].ID); m.PITRDays != 0 {
+	if m, _ := w.f.D.Operated.GetByTile(ctx, w.pg["staging"].ID); m.PITRDays != 0 {
 		t.Errorf("a plan wrote the window: %d", m.PITRDays)
 	}
 
 	// a file that leaves it out does not touch what the panel set
-	w.instance(t, "staging", func(m *store.ManagedInstance) { m.PITRDays = 3 })
+	w.instance(t, "staging", func(m *store.OperatedInstance) { m.PITRDays = 3 })
 	p, err = w.f.Plan(ctx, staging, rel("p2", infraFile).ID, io.Discard)
 	must(t, err)
 	if strings.Contains(kinds(p), "pitr_days") {
@@ -54,7 +54,7 @@ func TestManagedPITRDays(t *testing.T) {
 	}
 	p, err = w.f.Plan(ctx, staging, rel("p4", infraFile+"      pitr_days: 0\n").ID, io.Discard)
 	must(t, err)
-	if got := kinds(p); !strings.Contains(got, "managed:pg-dbpitr_days0") {
+	if got := kinds(p); !strings.Contains(got, "operated:pg-dbpitr_days0") {
 		t.Errorf("off = %s", got)
 	}
 
@@ -65,7 +65,7 @@ func TestManagedPITRDays(t *testing.T) {
 	if err != nil && !strings.Contains(err.Error(), "deploy pg-db") {
 		t.Fatal(err)
 	}
-	if m, _ := w.f.D.Managed.GetByTile(ctx, w.pg["staging"].ID); m.PITRDays != 7 {
+	if m, _ := w.f.D.Operated.GetByTile(ctx, w.pg["staging"].ID); m.PITRDays != 7 {
 		t.Errorf("window = %d, want 7", m.PITRDays)
 	}
 	if len(told) != 1 || told[0] != 7 {
@@ -75,7 +75,7 @@ func TestManagedPITRDays(t *testing.T) {
 
 func TestPITRDaysIsRefusedWhereItMeansNothing(t *testing.T) {
 	for name, c := range map[string]struct{ file, want string }{
-		"on an image":   {tiles("    api:\n      image: x\n      pitr_days: 7\n"), "tile api: pitr_days: only a managed tile takes it"},
+		"on an image":   {tiles("    api:\n      image: x\n      pitr_days: 7\n"), "tile api: pitr_days: only an operated tile takes it"},
 		"on s3":         {tiles("    s:\n      engine: s3\n      pitr_days: 7\n"), "tile s: pitr_days: s3 has no point-in-time recovery"},
 		"too many days": {tiles("    db:\n      engine: postgres\n      pitr_days: 400\n"), "tile db: pitr_days: the window is 0 (off) to 365 days"},
 		"negative":      {tiles("    db:\n      engine: postgres\n      pitr_days: -1\n"), "tile db: pitr_days: the window is 0 (off) to 365 days"},
@@ -93,13 +93,13 @@ func TestPITRDaysIsRefusedWhereItMeansNothing(t *testing.T) {
 // The export says the window, 0 too, and the file it writes loads.
 func TestExportWritesPITRDays(t *testing.T) {
 	w := newSliceWorld(t)
-	w.instance(t, "staging", func(m *store.ManagedInstance) { m.PITRDays = 5 })
+	w.instance(t, "staging", func(m *store.OperatedInstance) { m.PITRDays = 5 })
 	out, _, err := w.f.Export(ctx, w.infra.ID, w.envs["staging"].ID)
 	must(t, err)
 	if !strings.Contains(string(out), "pitr_days: 5") {
 		t.Errorf("export lacks the window:\n%s", out)
 	}
-	w.instance(t, "staging", func(m *store.ManagedInstance) { m.PITRDays = 0 })
+	w.instance(t, "staging", func(m *store.OperatedInstance) { m.PITRDays = 0 })
 	out, _, err = w.f.Export(ctx, w.infra.ID, w.envs["staging"].ID)
 	must(t, err)
 	if !strings.Contains(string(out), "pitr_days: 0") {

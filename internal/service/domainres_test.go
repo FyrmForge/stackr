@@ -114,7 +114,7 @@ func TestRenameMovesAutoHosts(t *testing.T) {
 	}
 }
 
-// A managed tile's public base is its auto name under the nearest visible
+// An operated tile's public base is its auto name under the nearest visible
 // resource, once a domain routes that name to it; "" before.
 func TestManagedPublicBase(t *testing.T) {
 	t.Parallel()
@@ -127,7 +127,7 @@ func TestManagedPublicBase(t *testing.T) {
 		EnvironmentID: w.env,
 		Name:          "files",
 		Slug:          "files",
-		Kind:          tile.Managed,
+		Kind:          tile.Operated,
 		EnvJSON:       "{}",
 		BuildArgs:     "{}",
 		Replicas:      1,

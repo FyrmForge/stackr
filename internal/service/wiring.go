@@ -172,7 +172,7 @@ func proxyPush(controller func(context.Context) (string, error), push func(conte
 	}
 }
 
-// publicBase is a managed tile's public URL: its auto name under the
+// publicBase is an operated tile's public URL: its auto name under the
 // nearest resource visible to its stack (REWRITE.md "Domain resources"),
 // once a domain row routes that name to the tile. "" otherwise: an
 // unrouted name as S3_ENDPOINT would send every consumer to a host nothing

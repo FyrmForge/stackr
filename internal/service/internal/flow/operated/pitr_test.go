@@ -1,11 +1,11 @@
-package managed_test
+package operated_test
 
 import (
 	"slices"
 	"strings"
 	"testing"
 
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 )
 

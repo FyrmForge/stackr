@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -14,7 +14,7 @@ import (
 
 // snapshot is everything the resolver may see for tile t: its param blocks
 // (ParamSnapshot) and every tile of its env, a slice tile as t's binding sees it. A
-// managed instance is reached through a slice tile, never by name.
+// operated instance is reached through a slice tile, never by name.
 // ponytail: org.backups is not filled; a ref to it fails the deploy with
 // the resolver's own message until it is.
 func (f *Flow) snapshot(
@@ -33,7 +33,7 @@ func (f *Flow) snapshot(
 		s.Stackr = map[string]string{params.ProxyIP: ip, params.ProxyCIDR: cidr}
 	}
 
-	bound, err := f.Managed.Bound(ctx, t.ID) // by slice tile id
+	bound, err := f.Operated.Bound(ctx, t.ID) // by slice tile id
 	if err != nil {
 		return s, err
 	}
@@ -45,8 +45,8 @@ func (f *Flow) snapshot(
 	s.Tiles = map[string]params.Source{}
 	for _, x := range tiles {
 		switch x.Kind {
-		case tile.Managed:
-			s.Tiles[x.Slug] = params.Source{Managed: true}
+		case tile.Operated:
+			s.Tiles[x.Slug] = params.Source{Operated: true}
 			continue
 		case tile.Slice:
 			src, err := f.sliceSource(ctx, bound, x, e)
@@ -81,12 +81,12 @@ func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, 
 	if !ok {
 		return src, nil
 	}
-	out, err := managed.Outputs(b)
+	out, err := operated.Outputs(b)
 	if err != nil {
 		return src, err
 	}
 	src.Outputs = out
-	p, err := f.Managed.GetProvision(ctx, b.ProvisionID)
+	p, err := f.Operated.GetProvision(ctx, b.ProvisionID)
 	if err != nil {
 		return src, err
 	}
@@ -95,7 +95,7 @@ func (f *Flow) sliceSource(ctx context.Context, bound map[string]store.Binding, 
 			return src, err
 		}
 	}
-	src.Network = managed.Network(p.InstanceID)
+	src.Network = operated.Network(p.InstanceID)
 	return src, nil
 }
 

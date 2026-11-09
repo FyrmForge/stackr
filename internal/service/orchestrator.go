@@ -32,7 +32,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/graph"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/managed"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	frun "github.com/FyrmForge/stackr/internal/service/internal/flow/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/schedule"
@@ -49,8 +49,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/managed"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
@@ -279,7 +279,7 @@ type Orchestrator struct {
 	dns         *dnscap.Leaf
 	kinds       []connectors.Kind // registered connector kinds (connectors/all)
 	dnsOpen     func(kind string, c DNSCreds) (DNSProvider, error)
-	managed     *managed.Leaf
+	operated    *operated.Leaf
 	releases    *release.Leaf
 	jobRows     *job.Leaf
 	backups     *backup.Leaf
@@ -603,8 +603,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.kinds, orch.dnsOpen = append(all.Kinds(), o.kinds...), o.dnsOpen
 	orch.conns = build("leaf/connector", func() *connector.Leaf { return connector.New(st.Connectors, orch.kinds) })
 	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
-	orch.managed = build("leaf/managed",
-		func() *managed.Leaf { return managed.New(st.ManagedInstances, st.Provisions, st.Bindings) })
+	orch.operated = build("leaf/operated",
+		func() *operated.Leaf { return operated.New(st.OperatedInstances, st.Provisions, st.Bindings) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
 	orch.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
 	orch.backups = build("leaf/backup",
@@ -615,10 +615,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.traffic = build("leaf/traffic", ltraffic.New)
 	orch.canvas = build("leaf/canvas", func() *canvas.Leaf { return canvas.New(st.Positions, st.Annotations) })
 
-	orch.engines = build("flow/managed", func() *mflow.Flow {
+	orch.engines = build("flow/operated", func() *mflow.Flow {
 		return &mflow.Flow{
 			Tiles:     orch.tiles,
-			Instances: orch.managed,
+			Instances: orch.operated,
 			Volumes:   orch.volumes,
 			Envs:      orch.envs,
 			Stacks:    orch.stacks,
@@ -646,7 +646,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Releases:    orch.releases,
 			Params:      orch.params,
 			Tiers:       orch.tiers,
-			Managed:     orch.managed,
+			Operated:    orch.operated,
 			Domains:     orch.domains,
 			Import:      orch.importForDeploy,
 			Build: func(ctx context.Context, t store.Tile, commit, ref string, log io.Writer) (string, error) {
@@ -747,14 +747,14 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	})
 	orch.sample = build("flow/traffic", func() *ftraffic.Flow {
 		return &ftraffic.Flow{
-			Tiles:   orch.tiles,
-			Envs:    orch.envs,
-			Stacks:  orch.stacks,
-			Domains: orch.domains,
-			Managed: orch.managed,
-			Traffic: orch.traffic,
-			Path:    cfg.Conntrack,
-			Remote:  orch.workerTraffic,
+			Tiles:    orch.tiles,
+			Envs:     orch.envs,
+			Stacks:   orch.stacks,
+			Domains:  orch.domains,
+			Operated: orch.operated,
+			Traffic:  orch.traffic,
+			Path:     cfg.Conntrack,
+			Remote:   orch.workerTraffic,
 		}
 	})
 	orch.graph = build("flow/graph", func() *graph.Flow {
@@ -767,7 +767,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Tiers:    orch.tiers,
 			Volumes:  orch.volumes,
 			Domains:  orch.domains,
-			Managed:  orch.managed,
+			Operated: orch.operated,
 			Conns:    orch.conns,
 			Releases: orch.releases,
 			Jobs:     orch.jobRows,

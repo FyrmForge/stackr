@@ -227,7 +227,7 @@ func gallery() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "managed", State: "stopped", Source: "postgres 16"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.TileCard(c.TileCardView{Name: "db", Href: "/dev/components", Kind: "operated", State: "stopped", Source: "postgres 16"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -365,7 +365,7 @@ func gallery() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = galleryNode("tile:db", "db", "managed · postgres 16", "620", "220", false).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = galleryNode("tile:db", "db", "operated · postgres 16", "620", "220", false).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

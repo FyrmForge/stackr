@@ -43,7 +43,7 @@ func newRestoreRig(t *testing.T) *restoreRig {
 	r.s3 = s3
 	r.sharedS3(t, srv.URL)
 	r.inst.PITRDays = 7
-	must(t, r.st.ManagedInstances.Update(ctx, r.inst))
+	must(t, r.st.OperatedInstances.Update(ctx, r.inst))
 	_, err := o.engines.Container(r.node(t, ctx), r.pg)
 	must(t, err)
 	if r.data, err = o.dataVolume(ctx, r.pg); err != nil {
@@ -116,7 +116,7 @@ func TestRestoreTimeIsCheckedAgainstTheArchive(t *testing.T) {
 
 	// PITR off: refused up front
 	r.inst.PITRDays = 0
-	must(t, r.st.ManagedInstances.Update(ctx, r.inst))
+	must(t, r.st.OperatedInstances.Update(ctx, r.inst))
 	if _, err := o.pitrSourceOf(ctx, r.pg.ID); err == nil || !strings.Contains(err.Error(), "off") {
 		t.Errorf("pitr off: %v", err)
 	}
@@ -174,10 +174,10 @@ func TestPromoteRestoreLocksAndRefusals(t *testing.T) {
 	must(t, err)
 	cand, err := o.newCandidate(ctx, src, time.Now().Add(-time.Hour), "2026-11-07T10:00:00Z", false)
 	must(t, err)
-	if !strings.HasPrefix(cand.Slug, "pg-restored-") || cand.Kind != tile.Managed || cand.EnvironmentID != r.env {
+	if !strings.HasPrefix(cand.Slug, "pg-restored-") || cand.Kind != tile.Operated || cand.EnvironmentID != r.env {
 		t.Fatalf("candidate = %q %s", cand.Slug, cand.Kind)
 	}
-	cm, err := o.managed.GetByTile(ctx, cand.ID)
+	cm, err := o.operated.GetByTile(ctx, cand.ID)
 	must(t, err)
 	if cm.PITRDays != 0 || cm.AdminPassword != src.inst.AdminPassword {
 		t.Errorf("candidate instance pitr_days %d, password carried = %v", cm.PITRDays, cm.AdminPassword == src.inst.AdminPassword)
@@ -299,7 +299,7 @@ func TestSwapDataKeepsTheOldVolumeAsAnOrphan(t *testing.T) {
 	must(t, err)
 	cand, err := o.newCandidate(ctx, src, time.Now(), "latest", false)
 	must(t, err)
-	cm, _ := o.managed.GetByTile(ctx, cand.ID)
+	cm, _ := o.operated.GetByTile(ctx, cand.ID)
 	cv, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.env}, cand.Slug+"-data", &cm.ID)
 	must(t, err)
 	must(t, o.swapData(ctx, r.data, cv))
@@ -364,7 +364,7 @@ func TestPromoteRerunAfterTheSwapDoesNotSwapBack(t *testing.T) {
 	must(t, err)
 	cand, err := o.newCandidate(ctx, src, time.Now(), "latest", false)
 	must(t, err)
-	cm, _ := o.managed.GetByTile(ctx, cand.ID)
+	cm, _ := o.operated.GetByTile(ctx, cand.ID)
 	cv, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.env}, cand.Slug+"-data", &cm.ID)
 	must(t, err)
 	must(t, o.swapData(ctx, r.data, cv))
@@ -440,7 +440,7 @@ func TestPromoteResumeRefusesAfterAnotherCopyWasPromoted(t *testing.T) {
 	must(t, err)
 	cand, err := o.newCandidate(ctx, src, time.Now().Add(-time.Hour), "2026-11-07T10:00:00Z", false)
 	must(t, err)
-	cm, err := o.managed.GetByTile(ctx, cand.ID)
+	cm, err := o.operated.GetByTile(ctx, cand.ID)
 	must(t, err)
 	cv, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.env}, cand.Slug+"-data", &cm.ID)
 	must(t, err)

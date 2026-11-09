@@ -28,7 +28,7 @@ const (
 )
 
 // Capability tags. The controller is tagged with all four at bootstrap.
-// storage: the node may hold volumes (envs with volumes or managed tiles).
+// storage: the node may hold volumes (envs with volumes or operated tiles).
 const (
 	TagIngress = "ingress"
 	TagEgress  = "egress"

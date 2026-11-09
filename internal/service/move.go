@@ -477,12 +477,12 @@ func (e moveEnv) Remove(ctx context.Context, envID, nodeID string) error {
 	return nil
 }
 
-// deployOrder is the env's tiles managed first, then slices, then the rest,
+// deployOrder is the env's tiles operated first, then slices, then the rest,
 // each group with depends_on first (a cycle keeps the stored order).
 func deployOrder(ts []store.Tile) []store.Tile {
 	pass := func(t store.Tile) int {
 		switch t.Kind {
-		case tile.Managed:
+		case tile.Operated:
 			return 0
 		case tile.Slice:
 			return 1

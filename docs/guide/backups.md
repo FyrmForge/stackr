@@ -71,7 +71,7 @@ After a restore the key you restored with stays the box's recovery key, so it op
 
 The old database is kept as `stackr.db.before-restore-<time>`, with its `-wal` file beside it. Workers reconnect by themselves and keep their tiles running.
 
-On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, managed databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
+On its first boot the restored panel deploys again every tile on the controller that ran before and has no container now. Before those deploys it restores each of their env's empty volumes, operated databases too, from the newest finished backup. The restore jobs run first and the deploys wait for them, so no app starts on an empty volume. Tiles you had stopped stay stopped.
 
 The newest backup has to be reachable from the new box. A backup on an S3 destination is, since the destination's keys come back with the database. A backup on the old controller's local disk went with it. A volume with no backup starts empty, and its deploy log and the security log say `no backup for <volume>; it starts empty`. Anything written after the newest backup is lost. A volume that still holds data is left alone.
 
@@ -103,7 +103,7 @@ stackr tile backups pg           # restorable range, last base backup, archive s
 
 In the panel, the instance's Backups tab shows the same and has the switch. Turning it on adds a weekly `base` schedule next to the daily dump (edit its time like any schedule) and takes the first base backup as soon as the instance is up. Base backups and WAL sit under `stackr/<org>/<data volume id>/pitr/` on the destination. After each good base backup, bases older than the window are removed, keeping the newest one outside it, with the WAL only they needed. You cannot restore to before PITR was turned on.
 
-In a stack file the window is `pitr_days` on the managed tile (`0` is off; leave it out and the file does not touch it), and `stackr stack export` writes it. Changing it restarts the instance once.
+In a stack file the window is `pitr_days` on the operated tile (`0` is off; leave it out and the file does not touch it), and `stackr stack export` writes it. Changing it restarts the instance once.
 
 ### Restore to a time
 
