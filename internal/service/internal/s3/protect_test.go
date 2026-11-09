@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,9 @@ type fakeVersioned struct {
 	Calls []string
 	Copy  []string // x-amz-copy-source of each copy
 	Body  map[string]string
+	Head  map[string]string // path -> live version id; absent = 404
+	live  []entry           // when set, the listing: first 2 entries per page, deletes remove
+	Lists []string          // raw query of each listing
 }
 
 func newFakeVersioned(t *testing.T, list string) *fakeVersioned {
@@ -29,9 +33,37 @@ func newFakeVersioned(t *testing.T, list string) *fakeVersioned {
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if r.Method == http.MethodHead {
+			if id, ok := f.Head[r.URL.Path]; ok {
+				w.Header().Set("X-Amz-Version-Id", id)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if r.Method == http.MethodGet && r.URL.Query().Has("versions") {
+			f.Lists = append(f.Lists, r.URL.RawQuery)
+			if f.live != nil {
+				page, more := "", ""
+				for i, e := range f.live {
+					if i == 2 {
+						more = "true"
+						break
+					}
+					if e.Marker {
+						page += marker(e.Key, e.ID, e.Latest, "2026-01-01T00:00:00Z")
+					} else {
+						page += ver(e.Key, e.ID, e.Latest, "2026-01-01T00:00:00Z", 1)
+					}
+				}
+				_, _ = io.WriteString(w, `<ListVersionsResult><IsTruncated>`+map[bool]string{true: "true", false: "false"}[more != ""]+`</IsTruncated>`+page+`</ListVersionsResult>`)
+				return
+			}
 			_, _ = io.WriteString(w, `<ListVersionsResult><IsTruncated>false</IsTruncated>`+list+`</ListVersionsResult>`)
 			return
+		}
+		if r.Method == http.MethodDelete && f.live != nil {
+			f.live = slices.DeleteFunc(f.live, func(e entry) bool { return e.ID == r.URL.Query().Get("versionId") })
 		}
 		call := r.Method + " " + r.URL.Path
 		q := r.URL.Query()
@@ -65,9 +97,8 @@ func marker(key, id string, latest bool, at string) string {
 }
 
 func TestDropBucketPurgesEveryVersion(t *testing.T) {
-	f := newFakeVersioned(t,
-		ver("a", "a2", true, "2026-01-02T00:00:00Z", 1)+ver("a", "a1", false, "2026-01-01T00:00:00Z", 1)+
-			ver("b", "b1", false, "2026-01-01T00:00:00Z", 1)+marker("b", "b2", true, "2026-01-03T00:00:00Z"))
+	f := newFakeVersioned(t, "")
+	f.live = []entry{{Key: "a", ID: "a2", Latest: true}, {Key: "a", ID: "a1"}, {Key: "b", ID: "b1"}, {Key: "b", ID: "b2", Marker: true, Latest: true}}
 	if err := f.admin().DropBucket(context.Background(), "bk"); err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +128,9 @@ func TestPick(t *testing.T) {
 		{"2025-12-31T00:00:00Z", "", false}, // did not exist yet
 		{"2026-01-01T12:00:00Z", "v1", true},
 		{"2026-01-02T12:00:00Z", "m2", false}, // deleted then: left alone
-		{"2026-02-01T00:00:00Z", "v3", false}, // already current
+		{"2026-02-01T00:00:00Z", "v3", true},  // the cached latest flag never skips
 	} {
-		e, ok := pick(es(), at(c.when))
+		e, ok, _ := pick(es(), at(c.when))
 		if ok != c.ok || (ok && e.ID != c.id) {
 			t.Errorf("%s: got %q %v, want %q %v", c.when, e.ID, ok, c.id, c.ok)
 		}
@@ -114,6 +145,7 @@ func TestRestore(t *testing.T) {
 	at, _ := time.Parse(time.RFC3339, "2026-01-02T12:00:00Z")
 
 	f := newFakeVersioned(t, list)
+	f.Head = map[string]string{"/bk/dir/ab2": "x1"} // already the live version
 	r, err := f.admin().Restore(context.Background(), "bk", "dir/", false, at, nil)
 	if err != nil || r.Restored != 1 || r.Skipped != 3 || r.Failed != 0 {
 		t.Fatalf("prefix: %+v %v", r, err)
@@ -211,6 +243,68 @@ func TestGrantPolicyNeverPurges(t *testing.T) {
 					t.Errorf("read policy grants %s", a)
 				}
 			}
+		}
+	}
+}
+
+// Item: a version and a delete marker with one timestamp, neither the latest,
+// is not guessed at.
+func TestPickTieIsAmbiguous(t *testing.T) {
+	at, _ := time.Parse(time.RFC3339, "2026-01-02T00:00:00Z")
+	es := []entry{
+		{ID: "v1", Modified: at},
+		{ID: "m1", Modified: at, Marker: true},
+		{ID: "v9", Modified: at.Add(time.Hour), Latest: true},
+	}
+	if _, ok, amb := pick(es, at.Add(time.Minute)); ok || !amb {
+		t.Fatalf("ok=%v amb=%v", ok, amb)
+	}
+	// The tie includes the latest: it is newer, no doubt.
+	es = []entry{{ID: "v1", Modified: at}, {ID: "m1", Modified: at, Marker: true, Latest: true}}
+	if e, ok, amb := pick(es, at); ok || amb || e.ID != "m1" {
+		t.Fatalf("latest tie: %+v ok=%v amb=%v", e, ok, amb)
+	}
+	f := newFakeVersioned(t, ver("k", "v1", false, "2026-01-02T00:00:00Z", 1)+marker("k", "m1", false, "2026-01-02T00:00:00Z")+
+		ver("k", "v9", true, "2026-01-03T00:00:00Z", 1))
+	r, _ := f.admin().Restore(context.Background(), "bk", "", false, at.Add(time.Minute), nil)
+	if r.Failed != 1 || r.Restored != 0 || len(f.Copy) != 0 {
+		t.Fatalf("%+v %v", r, f.Copy)
+	}
+}
+
+// The listing marked a version latest, but an app wrote after it: the live
+// head decides, so the restore still copies; the same id live is skipped.
+func TestRestoreChecksLiveHead(t *testing.T) {
+	at, _ := time.Parse(time.RFC3339, "2026-01-05T00:00:00Z")
+	list := ver("k", "v1", true, "2026-01-01T00:00:00Z", 1)
+	f := newFakeVersioned(t, list)
+	f.Head = map[string]string{"/bk/k": "v2"} // written after the listing
+	if r, _ := f.admin().Restore(context.Background(), "bk", "", false, at, nil); r.Restored != 1 || len(f.Copy) != 1 {
+		t.Fatalf("stale latest flag skipped the restore: %+v", r)
+	}
+	f = newFakeVersioned(t, list)
+	f.Head = map[string]string{"/bk/k": "v1"}
+	if r, _ := f.admin().Restore(context.Background(), "bk", "", false, at, nil); r.Restored != 0 || r.Skipped != 1 {
+		t.Fatalf("already current: %+v", r)
+	}
+}
+
+// Drop lists from the start after each delete, never from a marker that
+// points at a deleted entry.
+func TestDropListsFromTheStart(t *testing.T) {
+	f := newFakeVersioned(t, "")
+	for i := 0; i < 5; i++ {
+		f.live = append(f.live, entry{Key: "k", ID: fmt.Sprintf("v%d", i)})
+	}
+	if err := f.admin().DropBucket(context.Background(), "bk"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.live) != 0 || f.Calls[len(f.Calls)-1] != "DELETE /bk" {
+		t.Fatalf("left %v, calls %v", f.live, f.Calls)
+	}
+	for _, q := range f.Lists {
+		if strings.Contains(q, "marker") {
+			t.Fatalf("listing paged with a marker: %s", q)
 		}
 	}
 }

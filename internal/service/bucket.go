@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,7 +11,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 )
 
-const kindBucketRestore jobs.Kind = "bucket-restore"
+const (
+	kindBucketRestore jobs.Kind = "bucket-restore"
+	kindBucketSync    jobs.Kind = "bucket-sync"
+)
 
 // BucketSettings is a bucket slice's data protection, set as one group.
 type BucketSettings struct {
@@ -47,10 +51,29 @@ func (o *Orchestrator) SetSliceBucket(ctx context.Context, sliceTileID string, i
 	if err != nil {
 		return out, err
 	}
-	if ctx, err = o.instanceNode(ctx, out); err != nil {
-		return out, err
+	if _, ok, err := o.operated.ProvisionOf(ctx, out.ID); err != nil || !ok {
+		return out, err // no bucket yet: its first deploy writes them
 	}
-	return out, o.engines.Resync(ctx, out)
+	// The write goes through a job holding the slice's lock, so it never
+	// runs beside a deploy of the slice; the job reads the latest row.
+	_, err = o.enqueue(ctx, kindBucketSync, tileJob{TileID: out.ID}, out.ID)
+	return out, err
+}
+
+func (o *Orchestrator) runBucketSync(ctx context.Context, r *jobs.Run, p tileJob) error {
+	s, err := o.sliceTile(ctx, p.TileID)
+	if err != nil {
+		return err
+	}
+	if ctx, err = o.instanceNode(ctx, s); err != nil {
+		return err
+	}
+	o.ensureMesh(ctx)
+	if err := o.engines.Resync(ctx, s); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.Log, "bucket settings written for %s\n", s.Slug)
+	return nil
 }
 
 // bucketOf is slice tile s's provision, once it exists and is a bucket.

@@ -299,6 +299,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindRestore:       payload(o.runRestore),
 		kindSeed:          payload(o.runSeed),
 		kindBucketRestore: payload(o.runBucketRestore),
+		kindBucketSync:    payload(o.runBucketSync),
 
 		kindRestoreInstance: payload(o.runRestoreInstance),
 		kindPromoteRestore:  payload(o.runPromoteRestore),

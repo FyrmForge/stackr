@@ -416,14 +416,17 @@ func checkSlice(t *store.Tile) error {
 	return CheckBucket(t.VersionDays, t.QuotaGB, t.CORSOrigins)
 }
 
+// MaxQuotaGB keeps quota_gb in bytes well inside an int64 (1 PiB).
+const MaxQuotaGB = 1 << 20
+
 // CheckBucket is the shape of a bucket slice's protection settings: they
 // reach a bucket only, but which engine the target is resolves at deploy.
 func CheckBucket(versionDays, quotaGB *int, cors []string) error {
 	if versionDays != nil && (*versionDays < 0 || *versionDays > 3650) {
 		return errs.Invalidf("version_days", "version_days is 0 (versioning off) to 3650")
 	}
-	if quotaGB != nil && *quotaGB < 0 {
-		return errs.Invalidf("quota_gb", "quota_gb cannot be negative")
+	if quotaGB != nil && (*quotaGB < 0 || *quotaGB > MaxQuotaGB) {
+		return errs.Invalidf("quota_gb", "quota_gb is 0 (no cap) to %d", MaxQuotaGB)
 	}
 	for _, o := range cors {
 		if u, err := url.Parse(o); o != "*" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "") {

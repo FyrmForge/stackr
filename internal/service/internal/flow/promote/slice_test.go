@@ -147,6 +147,10 @@ func TestGrammarSlices(t *testing.T) {
 			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      version_days: -2\n"),
 			"version_days is 0 (versioning off) to 3650",
 		},
+		"slice quota overflow": {
+			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      quota_gb: 99999999999\n"),
+			"quota_gb is 0 (no cap) to 1048576",
+		},
 		"slice cors origin": {
 			tiles("    s:\n      kind: slice\n      provision_from: a:b:c\n      cors_origins:\n        - app.example.com\n"),
 			`"app.example.com" is not an origin`,

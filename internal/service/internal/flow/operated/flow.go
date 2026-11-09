@@ -201,6 +201,10 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 	if err != nil {
 		return store.Provision{}, err
 	}
+	// The caller's copy of the slice tile may be older than a settings edit.
+	if cur, err := f.Tiles.Get(ctx, s.ID); err == nil {
+		s = cur
+	}
 	def := e.Definition()
 	inst := f.facts(ctx, it, m, def)
 	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
@@ -790,6 +794,9 @@ func withBucket(s Slice, t store.Tile) Slice {
 // Resync writes slice tile s's settings to its bucket now, without a
 // deploy; a slice not yet provisioned has nothing to write.
 func (f *Flow) Resync(ctx context.Context, s store.Tile) error {
+	if cur, err := f.Tiles.Get(ctx, s.ID); err == nil {
+		s = cur // the latest row, whatever the caller read
+	}
 	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
 	if err != nil || !ok {
 		return err

@@ -463,6 +463,14 @@ func TestS3Protection(t *testing.T) {
 		t.Fatalf("off wrote %+v", got)
 	}
 
+	// A caller holding an older copy of the slice tile still writes the latest settings.
+	if _, err := w.f.Provision(ctx, w.db, w.orders); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.s3.protect[len(w.s3.protect)-1]; got.VersionDays != 0 {
+		t.Fatalf("stale tile wrote %+v, want the latest row (versioning off)", got)
+	}
+
 	at := time.Unix(1700000000, 0)
 	must(t, w.f.RestoreBucket(ctx, p, "photos/", false, at, io.Discard))
 	if w.s3.restored != "photos/|false|1700000000" {

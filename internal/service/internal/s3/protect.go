@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -160,22 +161,40 @@ func (a Admin) Sizes(ctx context.Context, name string) (current, old int64, err 
 
 // pick is the version of one key that was current at t: the newest entry at
 // or before t. ok is false when there is nothing to copy: the key did not
-// exist then (no entry, or a delete marker was newest), or that version is
-// the current one already. Restore never deletes.
-func pick(es []entry, t time.Time) (e entry, ok bool) {
+// exist then (no entry, or a delete marker was newest). ambiguous is a
+// version and a delete marker with the same timestamp that neither is the
+// latest of: the listing gives no order between them, so the caller leaves
+// the key alone. The listed IsLatest flag is only an ordering hint; whether
+// the version is still current is checked live before copying. Restore
+// never deletes.
+func pick(es []entry, t time.Time) (e entry, ok, ambiguous bool) {
 	sort.SliceStable(es, func(i, j int) bool {
 		if !es[i].Modified.Equal(es[j].Modified) {
 			return es[i].Modified.After(es[j].Modified)
 		}
 		return es[i].Latest && !es[j].Latest
 	})
-	for _, c := range es {
+	for i, c := range es {
 		if c.Modified.After(t) {
 			continue
 		}
-		return c, !c.Marker && !c.Latest
+		if i+1 < len(es) && es[i+1].Modified.Equal(c.Modified) && es[i+1].Marker != c.Marker && !c.Latest {
+			return c, false, true
+		}
+		return c, !c.Marker, false
 	}
-	return entry{}, false
+	return entry{}, false, false
+}
+
+// current is the version id a key serves now; "" when there is none (the key
+// is deleted or gone).
+func (a Admin) current(ctx context.Context, name, key string) (string, error) {
+	out, err := a.c().HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(name), Key: aws.String(key)})
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
+		return "", nil
+	}
+	return aws.ToString(out.VersionId), err
 }
 
 // copyMax is the largest object one CopyObject moves.
@@ -218,9 +237,21 @@ func (a Admin) Restore(ctx context.Context, name, prefix string, exact bool, t t
 		if err := ctx.Err(); err != nil {
 			return r, err
 		}
-		e, ok := pick(by[k], t)
+		e, ok, amb := pick(by[k], t)
+		cur := ""
+		if ok && !amb {
+			var err error
+			if cur, err = a.current(ctx, name, k); err != nil {
+				r.Failed++
+				r.Err = cmpErr(r.Err, fmt.Errorf("%s: %w", k, err))
+				continue
+			}
+		}
 		switch {
-		case !ok:
+		case amb:
+			r.Failed++
+			r.Err = cmpErr(r.Err, fmt.Errorf("%s: a version and a delete marker share a timestamp, left alone", k))
+		case !ok, cur == e.ID:
 			r.Skipped++
 		case e.Size > copyMax:
 			r.Failed++

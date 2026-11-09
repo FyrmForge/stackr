@@ -46,29 +46,45 @@ func (a Admin) CreateBucket(ctx context.Context, name string) error {
 
 // DropBucket empties the bucket of every version and delete marker, then
 // removes it: S3 refuses to delete a bucket that holds objects, and this is
-// the explicit destroy. Purging versions is the root key's job alone.
+// the explicit destroy. Purging versions is the root key's job alone. It
+// lists the first page, deletes it and lists again from the start until
+// nothing is left, so no page marker ever points at a deleted entry.
 func (a Admin) DropBucket(ctx context.Context, name string) error {
 	c := a.c()
-	err := a.versions(ctx, name, "", func(page []entry) error {
-		for _, e := range page {
-			in := &s3.DeleteObjectInput{Bucket: aws.String(name), Key: aws.String(e.Key)}
-			if e.ID != "" {
-				in.VersionId = aws.String(e.ID)
+	var nb *types.NoSuchBucket
+	for {
+		out, err := c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(name)})
+		if errors.As(err, &nb) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		n := 0
+		del := func(key, id *string) error {
+			n++
+			in := &s3.DeleteObjectInput{Bucket: aws.String(name), Key: key}
+			if aws.ToString(id) != "" {
+				in.VersionId = id
 			}
-			if _, err := c.DeleteObject(ctx, in); err != nil {
+			_, err := c.DeleteObject(ctx, in)
+			return err
+		}
+		for _, v := range out.Versions {
+			if err := del(v.Key, v.VersionId); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
-	var nb *types.NoSuchBucket
-	if errors.As(err, &nb) {
-		return nil
+		for _, m := range out.DeleteMarkers {
+			if err := del(m.Key, m.VersionId); err != nil {
+				return err
+			}
+		}
+		if n == 0 {
+			break
+		}
 	}
-	if err != nil {
-		return err
-	}
-	_, err = c.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(name)})
+	_, err := c.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(name)})
 	if errors.As(err, &nb) {
 		return nil
 	}
