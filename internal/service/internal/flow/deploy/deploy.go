@@ -336,7 +336,19 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 	}
 	if t.Kind == tile.Operated {
 		logf(log, "waiting for %s to accept connections\n", t.Slug)
-		return digest, f.Engines.Ready(ctx, t)
+		if err := f.Engines.Ready(ctx, t); err != nil {
+			return digest, err
+		}
+		// Apps dial the instance direct unless they ask for the pooled
+		// address, so a pooler that fails does not fail the deploy.
+		pull := func(ctx context.Context, ref string) error {
+			_, err := f.Images.Ensure(ctx, ref, "", log)
+			return err
+		}
+		if err := f.Engines.EnsurePooler(ctx, t, pull, log); err != nil {
+			logf(log, "warning: the pooler is not up: %v\n", err)
+		}
+		return digest, nil
 	}
 	f.prune(ctx, t, e, log)
 	f.pruneFolders(ctx, t, r, log)

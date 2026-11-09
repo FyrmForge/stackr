@@ -117,6 +117,8 @@ type Instance struct {
 	// follow.
 	Major, MemMB, NodeMemMB int
 	Settings                map[string]string
+	// PoolerPassword is the password of the instance's pooler role.
+	PoolerPassword string
 }
 
 // Slice is one slice tile's unit, a logical db or a bucket, with its owner

@@ -20,7 +20,7 @@ import (
 // proxy containers (stackrd and the installer set it); the guard below reads it.
 const (
 	LabelTile   = "stackr.tile"
-	LabelRole   = "stackr.role" // replica | pause | run
+	LabelRole   = "stackr.role" // replica | pause | run | pooler
 	LabelRun    = "stackr.run"  // a run container's run id
 	LabelSystem = "stackr.system"
 
@@ -82,11 +82,20 @@ var DefaultGate = Gate{Poll: time.Second, Grace: 10 * time.Second, Deadline: 60 
 // copied into log; whatever ran before keeps running. The VIP is not
 // touched: the flow calls Route when the rollout says so.
 func (l *Leaf) Start(ctx context.Context, t store.Tile, spec docker.ContainerSpec, log io.Writer) (string, error) {
+	return l.StartRole(ctx, t, "replica", spec, log)
+}
+
+// StartRole is Start for a container t owns that is not a replica (an
+// operated instance's pooler): it carries t's label and role, so Teardown
+// removes it with the tile and State and Replicas never count it.
+func (l *Leaf) StartRole(ctx context.Context, t store.Tile, role string, spec docker.ContainerSpec, log io.Writer) (string, error) {
 	ctx, err := l.at(ctx, t.EnvironmentID)
 	if err != nil {
 		return "", err
 	}
-	id, err := l.docker.Run(ctx, replica(t, spec))
+	spec = replica(t, spec)
+	spec.Labels[LabelRole] = role
+	id, err := l.docker.Run(ctx, spec)
 	if err != nil {
 		return "", err
 	}
@@ -255,11 +264,16 @@ func (l *Leaf) gate(ctx context.Context, id string, startPeriod time.Duration) e
 
 // Replicas are the tile's replica containers, any state.
 func (l *Leaf) Replicas(ctx context.Context, t store.Tile) ([]docker.Container, error) {
+	return l.Role(ctx, t, "replica")
+}
+
+// Role is the tile's containers of one role, any state.
+func (l *Leaf) Role(ctx context.Context, t store.Tile, role string) ([]docker.Container, error) {
 	ctx, err := l.at(ctx, t.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}
-	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: "replica"})
+	return l.docker.List(ctx, map[string]string{LabelTile: t.ID, LabelRole: role})
 }
 
 // Inspect is docker's live read of one container (a replica from Replicas).

@@ -81,8 +81,19 @@ func stop(v View) c.ConfirmView {
 type OverviewView struct {
 	Endpoint, AdminUser string
 	Slices              []SliceRow
+	Pooler              *PoolerView // nil = the engine has none
 	Job                 *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
 	JobWhen             time.Time
+}
+
+// PoolerView is the instance's pgbouncer. Counted says the console answered,
+// so Active and Waiting are real.
+type PoolerView struct {
+	Status          string // none | running | stopped | unhealthy
+	Host            string
+	Port            int
+	Active, Waiting int
+	Counted         bool
 }
 
 // SliceRow is one slice cut from the instance: its slice tile, which may
@@ -104,6 +115,19 @@ templ Overview(v View, o OverviewView) {
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
+		}
+		if o.Pooler != nil {
+			<h3 class="section-title">Pooler</h3>
+			<div class="panel p-4 space-y-1">
+				@c.Facts() {
+					@c.Fact("Status", o.Pooler.Status)
+					@c.Fact("Address", o.Pooler.Host+":"+strconv.Itoa(o.Pooler.Port))
+					if o.Pooler.Counted {
+						@c.Fact("Connections in use", strconv.Itoa(o.Pooler.Active))
+						@c.Fact("Waiting", strconv.Itoa(o.Pooler.Waiting))
+					}
+				}
+			</div>
 		}
 		if o.Job != nil {
 			<h3 class="section-title">Last job</h3>

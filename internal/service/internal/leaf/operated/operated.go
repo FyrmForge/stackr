@@ -120,6 +120,12 @@ func (l *Leaf) SetMajor(ctx context.Context, m store.OperatedInstance, major int
 	return m, l.instances.Update(ctx, m)
 }
 
+// SetPoolerPassword stores the pooler role's password.
+func (l *Leaf) SetPoolerPassword(ctx context.Context, m store.OperatedInstance, password string) (store.OperatedInstance, error) {
+	m.PoolerPassword = password
+	return m, l.instances.Update(ctx, m)
+}
+
 // SetSettings replaces the instance's own settings (the engine's checks are
 // the caller's). The caller applies them to the running instance.
 func (l *Leaf) SetSettings(ctx context.Context, m store.OperatedInstance, settings map[string]string) (store.OperatedInstance, error) {

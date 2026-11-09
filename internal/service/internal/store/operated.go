@@ -23,8 +23,11 @@ type OperatedInstance struct {
 	// defaults, name to value.
 	Settings StringMap `db:"settings" json:"settings"`
 	// Major is the postgres major the instance was made with; 0 = not postgres.
-	Major     int       `db:"major" json:"major"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	Major int `db:"major" json:"major"`
+	// PoolerPassword is the stackr_pooler role's password, minted when the
+	// instance's pooler is first made.
+	PoolerPassword string    `db:"pooler_password" json:"-"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 }
 
 type OperatedInstanceStore interface {
@@ -38,7 +41,7 @@ type OperatedInstanceStore interface {
 }
 
 var operatedInstancesT = newTable("operated_instances", func(m *OperatedInstance) []*string {
-	return []*string{&m.AdminPassword}
+	return []*string{&m.AdminPassword, &m.PoolerPassword}
 })
 
 type operatedInstances struct{ crud[OperatedInstance] }

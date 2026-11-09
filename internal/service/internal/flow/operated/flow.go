@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"slices"
 	"strconv"
@@ -245,11 +246,24 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 	if err := e.Provision(ctx, inst, sl, f.tools(ctx, it, m)); err != nil {
 		return p, fmt.Errorf("provision %s on %s: %w", sl.Name, it.Slug, err)
 	}
-	return f.Instances.CreateProvision(ctx, m, s.ID, operated.Slice{
+	p, err = f.Instances.CreateProvision(ctx, m, s.ID, operated.Slice{
 		DBName:     sl.Name,
 		DBUser:     sl.User,
 		DBPassword: sl.Password,
 	})
+	if err == nil {
+		f.syncPooler(ctx, it) // the pooler lists the new database
+	}
+	return p, err
+}
+
+// syncPooler tells a running pooler about a slice that came or went. A
+// failure is not the slice's: the next deploy of the instance writes the
+// config again.
+func (f *Flow) syncPooler(ctx context.Context, it store.Tile) {
+	if err := f.SyncPooler(ctx, it); err != nil {
+		slog.Warn("sync pooler", "tile", it.ID, "err", err)
+	}
 }
 
 // sliceName is slice tile s's name on its instance: its stack, env and
@@ -365,6 +379,10 @@ func (f *Flow) Replay(ctx context.Context, it store.Tile, log io.Writer) error {
 		}
 		logf(log, "re-applied %s and its %d binding(s)\n", p.DBName, len(bs))
 	}
+	if pe, ok := e.(pg); ok && inst.PoolerPassword != "" {
+		// a restore brings the source's roles back, the pooler's included
+		return pe.ensurePoolerAuth(ctx, inst, x)
+	}
 	return nil
 }
 
@@ -451,7 +469,13 @@ func (f *Flow) Drop(ctx context.Context, p store.Provision, drop bool, log io.Wr
 	} else {
 		logf(log, "kept %s on the instance (on_remove: keep)\n", p.DBName)
 	}
-	return f.Instances.DeleteProvision(ctx, p.ID)
+	if err := f.Instances.DeleteProvision(ctx, p.ID); err != nil {
+		return err
+	}
+	if _, it, _, err := f.of(ctx, p); err == nil {
+		f.syncPooler(ctx, it)
+	}
+	return nil
 }
 
 // Teardown removes the instance's row: refused while slices live on it
@@ -690,6 +714,8 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 		Major:         m.Major,
 		MemMB:         t.MemLimitMB,
 		Settings:      m.Settings,
+
+		PoolerPassword: m.PoolerPassword,
 	}
 	if f.PublicBase != nil {
 		i.PublicBase = f.PublicBase(ctx, t)

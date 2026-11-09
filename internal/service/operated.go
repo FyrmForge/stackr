@@ -19,6 +19,7 @@ import (
 type (
 	OperatedInstance = store.OperatedInstance
 	Provision        = store.Provision
+	PoolerStatus     = mflow.PoolerStatus
 )
 
 // CreateOperatedTile makes an operated tile (postgres | s3) and its env-scoped
@@ -606,4 +607,13 @@ func (o *Orchestrator) InstanceSlices(
 		})
 	}
 	return m, out, nil
+}
+
+// Pooler is the instance's pooler as the drawer shows it.
+func (o *Orchestrator) Pooler(ctx context.Context, tileID string) (PoolerStatus, error) {
+	t, _, err := o.instanceOf(ctx, tileID)
+	if err != nil {
+		return PoolerStatus{}, err
+	}
+	return o.engines.Pooler(ctx, t)
 }

@@ -202,7 +202,7 @@ func sliceWorld(t *testing.T) *sqlx.DB {
 		tileRow("api-db", "slice", "infra:${{ env.name }}:pg", "write", now),
 		tileRow("api", "image", nil, nil, now),
 		tileRow("reporter", "cron", nil, nil, now),
-		{`INSERT INTO operated_instances VALUES ('mi1','pg','postgres','["acme:shop:*"]','{"dev":"dev"}','stackr','x','',?,0,'{}',0)`, []any{now}},
+		{`INSERT INTO operated_instances VALUES ('mi1','pg','postgres','["acme:shop:*"]','{"dev":"dev"}','stackr','x','',?,0,'{}',0,'')`, []any{now}},
 		{`INSERT INTO provisions VALUES ('pr1','api-db','mi1','api_db','api_db','x',0,?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b1','pr1','api','write','api_db_api','x','{}',?)`, []any{now}},
 		{`INSERT INTO bindings VALUES ('b2','pr1','reporter','read','api_db_reporter','x','{}',?)`, []any{now}},

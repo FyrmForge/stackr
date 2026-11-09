@@ -32,6 +32,13 @@ func pgFlags(major, pitrDays int) []string {
 	if major == 0 || major >= 17 {
 		f = append(f, "allow_alter_system=off")
 	}
+	// slots kept back for stackr's admin role and replication, so a full
+	// pool never locks stackr out
+	if major == 0 || major >= 16 {
+		f = append(f, "reserved_connections="+strconv.Itoa(pgReserved))
+	} else {
+		f = append(f, "superuser_reserved_connections="+strconv.Itoa(pgReserved))
+	}
 	if pitrDays > 0 {
 		f = append(f,
 			"archive_mode=on",
@@ -401,6 +408,10 @@ func (pg) Bindings(i Instance, s Slice) []Binding {
 		{"PGDATABASE", s.Name, false, false},
 		{"PGUSER", s.User, false, false},
 		{"PGPASSWORD", s.Password, true, false},
+		// through the instance's pooler: transaction pooling, see pgbouncer.go
+		{"DATABASE_URL_POOLED", fmt.Sprintf("postgres://%s:%s@%s:%d/%s", s.User, s.Password, PoolerAlias(i), PoolerPort, s.Name), true, true},
+		{"PGHOST_POOLED", PoolerAlias(i), false, true},
+		{"PGPORT_POOLED", strconv.Itoa(PoolerPort), false, false},
 	}
 }
 

@@ -35,7 +35,7 @@ var pgOwned = []string{
 	"wal_level", "restore_command", "listen_addresses", "port", "hba_file", "ident_file",
 	"shared_preload_libraries", "allow_alter_system", "wal_log_hints", "primary_conninfo",
 	"synchronous_standby_names", "data_directory", "config_file", "include", "include_dir",
-	"include_if_exists",
+	"include_if_exists", "reserved_connections", "superuser_reserved_connections",
 }
 
 var pgOwnedPrefix = []string{"archive_", "ssl", "recovery_", "unix_socket_"}

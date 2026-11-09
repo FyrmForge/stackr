@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"maps"
 	"slices"
 	"sync"
@@ -141,6 +142,13 @@ func (o *Orchestrator) applyPGSettings(ctx context.Context, t Tile, m OperatedIn
 		back, backUnset := mflow.ChangedSettings(cur, m.Settings)
 		_, _ = o.engines.ApplySettings(ctx, t, m.Settings, back, backUnset)
 		return false, err
+	}
+	if slices.Contains(changed, "max_connections") {
+		// the pooler's pool caps follow max_connections; a restart's deploy
+		// writes them again once postgres has the new value
+		if err := o.engines.SyncPooler(ctx, t); err != nil {
+			slog.Warn("sync pooler", "tile", t.ID, "err", err)
+		}
 	}
 	return restart, nil
 }

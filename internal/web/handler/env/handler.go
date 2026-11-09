@@ -520,6 +520,14 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			Endpoint:  m.Endpoint,
 			AdminUser: m.AdminUser,
 		}
+		if m.Engine == "postgres" {
+			if ps, err := h.orch.Pooler(ctx, t.ID); err == nil {
+				o.Pooler = &instance.PoolerView{
+					Status: ps.Word, Host: ps.Host, Port: ps.Port,
+					Active: ps.Active, Waiting: ps.Waiting, Counted: ps.Counted,
+				}
+			}
+		}
 		if st.LastJob != nil {
 			j := render.JobView(render.EnvURL(c), *st.LastJob)
 			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
