@@ -27,6 +27,7 @@ type resolved struct {
 	hostNet     bool // t.HostNetwork and the grant says so
 	networks    []docker.NetAttach
 	extraHosts  []string // "name:ip" for linked instances on other nodes
+	restart     string   // docker's word; "" = the tile row's policy
 	cpu         float64
 	memMB       int
 	pids        int64
@@ -53,7 +54,7 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		Privileged:         r.privileged,
 		HostNetwork:        r.hostNet,
 		Devices:            r.devices,
-		Restart:            restart(t.RestartPolicy),
+		Restart:            cmp.Or(r.restart, restart(t.RestartPolicy)),
 		HealthCmd:          t.HealthcheckCmd,
 		HealthIntervalS:    t.HealthcheckIntervalS,
 		HealthTimeoutS:     t.HealthcheckTimeoutS,

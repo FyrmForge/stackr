@@ -57,3 +57,15 @@ func TestSpecDropsNetRaw(t *testing.T) {
 		}
 	}
 }
+
+// An engine's own restart policy wins over the tile row's: postgres members
+// are "no", started only by the panel.
+func TestSpecRestart(t *testing.T) {
+	row := store.Tile{RestartPolicy: "always"}
+	if got := spec(row, resolved{}).Restart; got != "unless-stopped" {
+		t.Errorf("a tile's restart = %q, want unless-stopped", got)
+	}
+	if got := spec(row, resolved{restart: "no"}).Restart; got != "no" {
+		t.Errorf("an engine's restart = %q, want no", got)
+	}
+}

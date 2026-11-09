@@ -727,6 +727,20 @@ func (o *Orchestrator) restoreThenDeploy(ctx context.Context, envID string, ts [
 	if err != nil {
 		return Job{}, nil, err
 	}
+	// A postgres volume is never restored while a member of its instance may
+	// be alive: a second primary on restored data would fork it. Nothing is
+	// queued, deploys included, which would start the instance on an empty
+	// volume.
+	for _, v := range vs {
+		if v.InstanceID == nil || v.OrphanedAt != nil {
+			continue
+		}
+		if r, ok, err := o.members.LiveReplica(ctx, *v.InstanceID); err != nil {
+			return Job{}, nil, err
+		} else if ok {
+			return Job{}, nil, errs.Conflictf("instance has a live member on node %s", o.nodeName(ctx, r.NodeID))
+		}
+	}
 	hold := make([]string, 0, len(ts))
 	for _, t := range ts {
 		hold = append(hold, t.ID)

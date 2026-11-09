@@ -720,6 +720,7 @@ func (f *Flow) resolve(
 		return r, err
 	}
 	r.env = append(r.env, def.Env...)
+	r.restart = def.Restart
 	for _, k := range slices.Sorted(maps.Keys(env)) {
 		v, err := rr.Expand(params.InEnv, env[k])
 		if err != nil {

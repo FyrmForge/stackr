@@ -138,6 +138,7 @@ func (pg) Definition() Definition {
 	return Definition{
 		Image:      "postgres:17",
 		Port:       5432,
+		Restart:    "no",
 		Volumes:    func(major int) []string { return []string{pgMount(major)} },
 		ArchiveDir: PGArchiveDir,
 		Start:      pgCommand,

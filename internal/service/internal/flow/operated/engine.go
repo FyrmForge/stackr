@@ -85,6 +85,9 @@ type Definition struct {
 	Versioned bool
 	Config    func(i Instance) []string // first-boot env, credentials included
 	Port      int
+	// Restart is the container's restart policy; "" = the tile row's. Postgres
+	// is "no": a member comes back only when the panel starts it.
+	Restart string
 	// Volumes are the data paths that must survive a recreate, by the
 	// image's major version (postgres moved its data path in 18).
 	Volumes func(major int) []string

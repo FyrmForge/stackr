@@ -376,6 +376,16 @@ func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
 			out = append(out, p)
 		}
 	}
+	// a standby's network on its node: written before the network is made
+	ms, err := m.st.OperatedMembers.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range ms {
+		if p, err := netip.ParsePrefix(x.Subnet); err == nil {
+			out = append(out, p)
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, f := range m.facts {

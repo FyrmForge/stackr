@@ -11,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -81,6 +82,9 @@ func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice
 		ml := operated.New(tx.OperatedInstances, tx.Provisions, tx.Bindings)
 		m, err := ml.Create(ctx, out.ID, engine, "stackr", "")
 		if err != nil {
+			return err
+		}
+		if _, err = opmember.New(tx.OperatedMembers).CreatePrimary(ctx, m.ID); err != nil {
 			return err
 		}
 		if major > 0 {

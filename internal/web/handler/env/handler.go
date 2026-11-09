@@ -567,6 +567,9 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 				return middleware.HTTPError(err)
 			}
 			o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate}
+			if o.Protection, err = h.orch.Protection(ctx, t.ID); err != nil {
+				return middleware.HTTPError(err)
+			}
 		}
 		for _, p := range ps {
 			r := instance.SliceRow{

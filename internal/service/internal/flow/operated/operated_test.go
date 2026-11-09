@@ -18,6 +18,7 @@ import (
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -124,6 +125,7 @@ func setup(t *testing.T, engine string) *world {
 		Volumes:   volume.New(st.Volumes, fake),
 		Envs:      environment.New(st.Environments, fake),
 		Stacks:    stack.New(st.Stacks),
+		Members:   opmember.New(st.OperatedMembers),
 		S3: func(string, string, string) mflow.S3Admin {
 			return s3
 		},
@@ -585,6 +587,41 @@ func TestContainer(t *testing.T) {
 	w.fake.Err = map[string]error{"Exec": errors.New("no response")}
 	if err := w.f.Ready(ctx, w.db); err == nil {
 		t.Error("ready passed while pg_isready fails")
+	}
+}
+
+// A postgres container never restarts itself: the panel starts it. A fenced
+// primary is refused a container at all, and an instance with a standby
+// cannot be torn down before the standby goes.
+func TestContainerRestartFenceAndStandbys(t *testing.T) {
+	w := setup(t, "postgres")
+	c, err := w.f.Container(ctx, w.db)
+	must(t, err)
+	if c.Restart != "no" {
+		t.Errorf("postgres restart = %q, want no", c.Restart)
+	}
+	if s := setup(t, "s3"); func() string { c, _ := s.f.Container(ctx, s.db); return c.Restart }() != "" {
+		t.Error("s3 keeps the tile's restart policy")
+	}
+
+	p, err := w.f.Members.CreatePrimary(ctx, w.instance.ID)
+	must(t, err)
+	if _, err := w.f.Members.SetFenced(ctx, p, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.f.Container(ctx, w.db); !isConflict(err) {
+		t.Errorf("fenced primary: %v, want a conflict", err)
+	}
+	if _, err := w.f.Members.SetFenced(ctx, p, false); err != nil {
+		t.Fatal(err)
+	}
+	must(t, func() error { _, err := w.f.Container(ctx, w.db); return err }())
+
+	if _, err := w.f.Members.AddReplica(ctx, w.instance.ID, "a", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.f.Teardown(ctx, w.db, true, io.Discard); !isConflict(err) {
+		t.Errorf("teardown with a standby: %v, want a conflict", err)
 	}
 }
 

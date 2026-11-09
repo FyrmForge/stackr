@@ -51,6 +51,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/orgplan"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/panel"
@@ -280,6 +281,7 @@ type Orchestrator struct {
 	kinds       []connectors.Kind // registered connector kinds (connectors/all)
 	dnsOpen     func(kind string, c DNSCreds) (DNSProvider, error)
 	operated    *operated.Leaf
+	members     *opmember.Leaf
 	releases    *release.Leaf
 	jobRows     *job.Leaf
 	backups     *backup.Leaf
@@ -605,6 +607,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
 	orch.operated = build("leaf/operated",
 		func() *operated.Leaf { return operated.New(st.OperatedInstances, st.Provisions, st.Bindings) })
+	orch.members = build("leaf/opmember", func() *opmember.Leaf { return opmember.New(st.OperatedMembers) })
 	orch.releases = build("leaf/release", func() *release.Leaf { return release.New(st.Releases, st.ReleaseTiles) })
 	orch.jobRows = build("leaf/job", func() *job.Leaf { return job.New(st.Jobs) })
 	orch.backups = build("leaf/backup",
@@ -619,6 +622,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return &mflow.Flow{
 			Tiles:     orch.tiles,
 			Instances: orch.operated,
+			Members:   orch.members,
 			Volumes:   orch.volumes,
 			Envs:      orch.envs,
 			Stacks:    orch.stacks,
@@ -870,6 +874,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn("vip: boot rebuild failed", "err", err)
 	}
 	orch.vipLegacy(ctx)
+	orch.detach(context.Background(), orch.startMembers) // after a panel or host restart
 	orch.settleRestored(ctx)
 	orch.sweepMoveTemps()
 	if err := orch.backups.Interrupted(ctx); err != nil {

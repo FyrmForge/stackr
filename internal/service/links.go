@@ -96,15 +96,21 @@ func (o *Orchestrator) linkHost(ctx context.Context, e store.Environment, instan
 	if err != nil {
 		return "", err
 	}
+	cn, err := o.envNode(ctx, e.ID)
+	if err != nil {
+		return "", err
+	}
+	return o.hostOn(ctx, cn, m)
+}
+
+// hostOn is linkHost for a dialer on node cn: "" when the instance's primary
+// is there too.
+func (o *Orchestrator) hostOn(ctx context.Context, cn string, m store.OperatedInstance) (string, error) {
 	t, err := o.store.Tiles.Get(ctx, m.TileID)
 	if err != nil {
 		return "", err
 	}
-	in, err := o.envNode(ctx, t.EnvironmentID)
-	if err != nil {
-		return "", err
-	}
-	cn, err := o.envNode(ctx, e.ID)
+	in, err := o.primaryNode(ctx, t)
 	if err != nil || in == cn {
 		return "", err
 	}
@@ -152,7 +158,7 @@ func (o *Orchestrator) linkOf(ctx context.Context, b store.Binding) (link, bool)
 	if l.src, err = netip.ParsePrefix(ce.Subnet); err != nil {
 		return l, false
 	}
-	if l.instNode, err = o.envNode(ctx, it.EnvironmentID); err != nil {
+	if l.instNode, err = o.primaryNode(ctx, it); err != nil {
 		return l, false
 	}
 	if l.consNode, err = o.envNode(ctx, ce.ID); err != nil || l.consNode == l.instNode {
@@ -198,6 +204,12 @@ func (o *Orchestrator) linkFlows(ctx context.Context, n store.Node) []vip.Flow {
 			for _, b := range o.instanceBindings(ctx, t.ID) {
 				add(b, false)
 			}
+		}
+	}
+	for _, f := range o.memberFlows(ctx, n) {
+		if !seen[f] {
+			seen[f] = true
+			out = append(out, f)
 		}
 	}
 	return out

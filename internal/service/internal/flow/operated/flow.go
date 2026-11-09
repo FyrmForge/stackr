@@ -17,6 +17,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/stack"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -32,6 +33,8 @@ type Flow struct {
 	Volumes   *volume.Leaf
 	Envs      *environment.Leaf
 	Stacks    *stack.Leaf
+	// Members refuses starting a fenced primary; nil = no fence.
+	Members *opmember.Leaf
 	// S3 is the bucket client for an instance's API (s3.Admin in
 	// production); nil = no s3 engine.
 	S3 func(endpoint, access, secret string) S3Admin
@@ -57,6 +60,7 @@ type Container struct {
 	Env      []string
 	Binds    []string           // resolved "volume:/path"
 	Networks []docker.NetAttach // the instance network, with its alias there
+	Restart  string             // docker's word; "" = the tile row's policy
 }
 
 // Image is the instance tile's image: its own pin, else the engine's. Unlike
@@ -85,11 +89,19 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 	if err := checkMajor(def, m, t); err != nil {
 		return Container{}, err
 	}
+	if f.Members != nil {
+		if fenced, err := f.Members.FencedPrimary(ctx, m.ID); err != nil {
+			return Container{}, err
+		} else if fenced {
+			return Container{}, errs.Conflictf("%s is fenced: it does not start until it rejoins", t.Slug)
+		}
+	}
 	inst := f.withNodeMem(ctx, t, f.facts(ctx, t, m, def))
 	c := Container{
-		Image: def.Image,
-		Cmd:   def.Command,
-		Env:   def.Config(inst),
+		Image:   def.Image,
+		Cmd:     def.Command,
+		Env:     def.Config(inst),
+		Restart: def.Restart,
 	}
 	if def.Start != nil {
 		c.Cmd = def.Start(inst)
@@ -547,6 +559,15 @@ func (f *Flow) Teardown(ctx context.Context, it store.Tile, force bool, log io.W
 	}
 	if err != nil {
 		return err
+	}
+	if f.Members != nil {
+		// their volumes and networks are on other nodes: removed first, by
+		// the verb that made them
+		if ms, err := f.Members.List(ctx, m.ID); err != nil {
+			return err
+		} else if slices.ContainsFunc(ms, func(x store.OperatedMember) bool { return x.Role == opmember.Replica }) {
+			return errs.Conflictf("%s has standbys: remove them first", it.Slug)
+		}
 	}
 	held, err := f.Instances.Teardown(ctx, m, force)
 	if err != nil {

@@ -96,6 +96,7 @@ type OverviewView struct {
 	Job                 *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
 	JobWhen             time.Time
 	Version             *VersionView // postgres only
+	Protection          string       // postgres only: the standby line, "" = not shown
 }
 
 // VersionView is the image a postgres instance runs. UpdateTo is the image a
@@ -135,6 +136,9 @@ templ Overview(v View, o OverviewView) {
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
+			if o.Protection != "" {
+				@c.Fact("Protection", o.Protection)
+			}
 			if o.Version != nil {
 				@c.Fact("Image", o.Version.Image)
 			}

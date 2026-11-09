@@ -506,12 +506,20 @@ func (l *Leaf) Gateways(ctx context.Context) ([]string, error) {
 // operated instance's); the name is the caller's and the node is the one in
 // ctx, whose range the block comes from.
 func (l *Leaf) Shared(ctx context.Context, name string) error {
+	return l.SharedBlock(ctx, name, nil)
+}
+
+// SharedBlock is Shared telling commit the block before the network is made
+// on it (never called for a network that already exists). A member of an
+// operated instance on another node than its primary makes the instance's
+// network there, same name, the node's own /24: commit records it.
+func (l *Leaf) SharedBlock(ctx context.Context, name string, commit func(netip.Prefix) error) error {
 	node, _ := docker.NodeFrom(ctx)
 	known, err := l.known(ctx, node)
 	if err != nil {
 		return err
 	}
-	_, err = docker.EnsureReserved(ctx, l.net, l.res, name, map[string]string{"stackr.shared": "true"}, known, nil)
+	_, err = docker.EnsureReserved(ctx, l.net, l.res, name, map[string]string{"stackr.shared": "true"}, known, commit)
 	return err
 }
 

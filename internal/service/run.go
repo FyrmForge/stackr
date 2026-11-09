@@ -10,6 +10,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	lrun "github.com/FyrmForge/stackr/internal/service/internal/leaf/run"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -159,6 +160,7 @@ func (o *Orchestrator) afterDeploy(ctx context.Context, tileIDs []string, reload
 		if err != nil {
 			return err
 		}
+		o.setPrimaryState(ctx, id, opmember.Running)
 		switch {
 		case t.Kind == tile.Cron:
 			reload = true

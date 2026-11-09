@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -268,7 +269,12 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindDelete:        payload(o.runDelete),
 		kindStackTeardown: payload(o.runStackTeardown),
 		kindRestart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Restart(ctx, t, r.Log) })
+			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error {
+				if err := o.mayStartTile(ctx, t); err != nil {
+					return err
+				}
+				return o.container.Restart(ctx, t, r.Log)
+			})
 		}),
 		kindStop: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
 			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error {
@@ -276,11 +282,21 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 					return err
 				}
 				o.clearProblem(ctx, downAlertKey(t.ID)) // stopped on purpose is not down
+				o.setPrimaryState(ctx, t.ID, opmember.Stopped)
 				return nil
 			})
 		}),
 		kindStart: payload(func(ctx context.Context, r *jobs.Run, p tileJob) error {
-			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error { return o.container.Start(ctx, t, r.Log) })
+			return o.onTile(ctx, p.TileID, func(ctx context.Context, t Tile) error {
+				if err := o.mayStartTile(ctx, t); err != nil {
+					return err
+				}
+				if err := o.container.Start(ctx, t, r.Log); err != nil {
+					return err
+				}
+				o.setPrimaryState(ctx, t.ID, opmember.Running)
+				return nil
+			})
 		}),
 		kindBackup: payload(func(ctx context.Context, r *jobs.Run, p backupJob) error {
 			err := o.runBackup(ctx, r, p)
@@ -704,6 +720,7 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	o.startMembers(ctx) // before the rebuild: it routes to what runs
 	o.rerouteVIPs(ctx)
 	if restarted {
 		if err := o.rejoinProxy(ctx); err != nil {
