@@ -15,7 +15,7 @@ func TestContainerPITR(t *testing.T) {
 	w := setup(t, "postgres")
 	off, err := w.f.Container(ctx, w.db)
 	must(t, err)
-	if len(off.Cmd) != 0 {
+	if strings.Contains(strings.Join(off.Cmd, " "), "archive_") {
 		t.Errorf("PITR off: cmd = %v", off.Cmd)
 	}
 	if ms, _ := w.f.Methods(ctx, w.db); !slices.Equal(ms, []string{"dump"}) {

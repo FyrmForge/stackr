@@ -37,7 +37,10 @@ func TestBranchAgainstPostgres(t *testing.T) {
 		}
 		return out.String(), err
 	}
-	x := Tools{Exec: func(_ context.Context, argv []string) (string, error) { return run(argv, nil) }}
+	x := Tools{
+		Exec:   func(_ context.Context, argv []string) (string, error) { return run(argv, nil) },
+		ExecIn: func(_ context.Context, argv []string, in string) (string, error) { return run(argv, []byte(in)) },
+	}
 	ctx := context.Background()
 	for end := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
 		// the image's init server answers on the socket, then restarts; only

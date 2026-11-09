@@ -58,7 +58,41 @@ type Replay struct {
 	// Conf is appended to its postgresql.auto.conf (restore_command and the
 	// recovery target, built by the engine).
 	WalDir string
+	// Prefix is where the data directory sits in the volume ("" = at its
+	// root; 18/docker from postgres 18).
+	Prefix string
 	Conf   string
+}
+
+// inPrefix moves a base tar entry under prefix, the data directory's place
+// in the volume.
+func inPrefix(h *tar.Header, prefix string) *tar.Header {
+	if prefix == "" {
+		return h
+	}
+	slash := strings.HasSuffix(h.Name, "/")
+	h.Name = path.Join(prefix, h.Name)
+	if slash {
+		h.Name += "/"
+	}
+	return h
+}
+
+// prefixDirs are the directories above and at the data directory, which the
+// base tar does not carry.
+func prefixDirs(tw *tar.Writer, prefix string) error {
+	for p := ""; prefix != ""; {
+		head, rest, _ := strings.Cut(prefix, "/")
+		p, prefix = path.Join(p, head), rest
+		mode := int64(0o755)
+		if prefix == "" {
+			mode = 0o700 // the data directory; the image's entrypoint hands it to postgres
+		}
+		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: p + "/", Mode: mode}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // FillVolume unpacks the base into the target volume, adds the WAL files
@@ -105,6 +139,9 @@ func (f *Flow) replayTar(ctx context.Context, r Replay, w io.Writer) error {
 		return err
 	}
 	defer done()
+	if err := prefixDirs(tw, r.Prefix); err != nil {
+		return err
+	}
 	uid, gid, haveConf := 0, 0, false
 	for {
 		h, err := base.Next()
@@ -128,7 +165,7 @@ func (f *Flow) replayTar(ctx context.Context, r Replay, w io.Writer) error {
 			}
 			body := append(bytes.TrimRight(old, "\n"), []byte("\n"+r.Conf)...)
 			h.Size = int64(len(body))
-			if err := tw.WriteHeader(h); err != nil {
+			if err := tw.WriteHeader(inPrefix(h, r.Prefix)); err != nil {
 				return err
 			}
 			if _, err := tw.Write(body); err != nil {
@@ -136,7 +173,7 @@ func (f *Flow) replayTar(ctx context.Context, r Replay, w io.Writer) error {
 			}
 			continue
 		}
-		if err := tw.WriteHeader(h); err != nil {
+		if err := tw.WriteHeader(inPrefix(h, r.Prefix)); err != nil {
 			return err
 		}
 		if _, err := io.Copy(tw, base); err != nil {
@@ -144,14 +181,14 @@ func (f *Flow) replayTar(ctx context.Context, r Replay, w io.Writer) error {
 		}
 	}
 	if !haveConf {
-		if err := writeFile(tw, autoConf, []byte(r.Conf), uid, gid); err != nil {
+		if err := writeFile(tw, path.Join(r.Prefix, autoConf), []byte(r.Conf), uid, gid); err != nil {
 			return err
 		}
 	}
-	if err := writeFile(tw, "recovery.signal", nil, uid, gid); err != nil {
+	if err := writeFile(tw, path.Join(r.Prefix, "recovery.signal"), nil, uid, gid); err != nil {
 		return err
 	}
-	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: r.WalDir + "/", Mode: 0o700, Uid: uid, Gid: gid}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: path.Join(r.Prefix, r.WalDir) + "/", Mode: 0o700, Uid: uid, Gid: gid}); err != nil {
 		return err
 	}
 	for _, b := range r.Plan.Bundles {
@@ -193,7 +230,7 @@ func (f *Flow) copyBundle(ctx context.Context, r Replay, b bk.Bundle, tw *tar.Wr
 		if h.Typeflag != tar.TypeReg || name != path.Base(name) || !bk.WALName(name) {
 			return fmt.Errorf("%s holds %q, which is not a WAL file", b.Key, h.Name)
 		}
-		hh := &tar.Header{Typeflag: tar.TypeReg, Name: r.WalDir + "/" + name, Mode: 0o600, Size: h.Size, Uid: uid, Gid: gid}
+		hh := &tar.Header{Typeflag: tar.TypeReg, Name: path.Join(r.Prefix, r.WalDir) + "/" + name, Mode: 0o600, Size: h.Size, Uid: uid, Gid: gid}
 		if err := tw.WriteHeader(hh); err != nil {
 			return err
 		}

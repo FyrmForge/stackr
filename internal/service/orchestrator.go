@@ -626,6 +626,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
 			},
 			PublicBase: orch.publicBase,
+			NodeMemMB:  orch.nodeMemMB,
 		}
 	})
 	orch.sync = build("leaf/domain.Syncer", func() *domain.Syncer {

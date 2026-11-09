@@ -114,6 +114,13 @@ func (l *Leaf) SetPITR(ctx context.Context, m store.ManagedInstance, days int) (
 	return m, l.instances.Update(ctx, m)
 }
 
+// SetSettings replaces the instance's own settings (the engine's checks are
+// the caller's). The caller applies them to the running instance.
+func (l *Leaf) SetSettings(ctx context.Context, m store.ManagedInstance, settings map[string]string) (store.ManagedInstance, error) {
+	m.Settings = settings
+	return m, l.instances.Update(ctx, m)
+}
+
 // SetAllow replaces the instance's allow list. Every entry is checked
 // against the instance's own org first; a bad one leaves the row as it was.
 // Nothing is torn down: a slice the list no longer admits fails its

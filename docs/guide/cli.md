@@ -599,6 +599,58 @@ The cluster root, any rollover and the nodes not rejoined (server admin)
 stackr cluster trust
 ```
 
+## `stackr db`
+
+Postgres instances
+
+### `stackr db settings`
+
+A postgres instance's settings
+
+#### `stackr db settings get`
+
+Show a postgres instance's settings and where each value comes from
+
+```
+stackr db settings get [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db settings set`
+
+Set settings; a reload applies them, or the instance restarts when one needs it
+
+```
+stackr db settings set <name=value>... [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr db settings unset`
+
+Remove your override of settings, back to the computed or postgres default
+
+```
+stackr db settings unset <name>... [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ## `stackr deploy`
 
 Deploy the tile and follow it

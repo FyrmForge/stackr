@@ -345,6 +345,11 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 		if m, err = d.Managed.SetEnvPairs(ctx, m, iw.pairs); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+		if iw.settings != nil {
+			if m, err = d.Managed.SetSettings(ctx, m, *iw.settings); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
 		if iw.pitr != nil {
 			if m, err = d.Managed.SetPITR(ctx, m, *iw.pitr); err != nil {
 				return fmt.Errorf("%s: %w", name, err)

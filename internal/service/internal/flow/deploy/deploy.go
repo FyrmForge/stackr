@@ -913,6 +913,12 @@ func HasPITR(name string) bool {
 	return ok && e.Definition().ArchiveDir != ""
 }
 
+// CheckSettings refuses a stack file's settings for an engine before any
+// instance exists: not a postgres instance, an owned name, an unusable value.
+func CheckSettings(engine string, s map[string]string) error {
+	return mflow.SettingsPlanError(engine, s)
+}
+
 // logf writes a line to the job log; a log write failing never fails a deploy.
 func logf(w io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(w, format, a...)

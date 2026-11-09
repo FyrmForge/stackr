@@ -21,7 +21,7 @@ func (s3e) Definition() Definition {
 		Image:   "rustfs/rustfs:1.0.4",
 		Command: []string{"--console-enable", "/data"},
 		Port:    9000,
-		Volumes: []string{"/data"},
+		Volumes: func(int) []string { return []string{"/data"} },
 		Config: func(i Instance) []string {
 			return []string{"RUSTFS_ACCESS_KEY=" + i.AdminUser, "RUSTFS_SECRET_KEY=" + i.AdminPassword}
 		},

@@ -193,8 +193,8 @@ func setup(t *testing.T, engine string) *world {
 func execs(f *dockerfake.Fake, n int) string {
 	var b strings.Builder
 	for _, c := range f.Calls()[n:] {
-		if c.Method == "Exec" {
-			b.WriteString(strings.Join(c.Args, " ") + "\n")
+		if c.Method == "Exec" || c.Method == "ExecStream" {
+			b.WriteString(strings.Join(c.Args, " ") + "\n" + c.Stdin)
 		}
 	}
 	return b.String()
@@ -229,7 +229,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 	n := len(w.fake.Calls())
 	again, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
-	if ex := execs(w.fake, n); again.ID != p.ID || !strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) || strings.Contains(ex, "CREATE") {
+	if ex := execs(w.fake, n); again.ID != p.ID || !strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) || strings.Contains(ex, "CREATE ROLE") || strings.Contains(ex, "CREATE DATABASE") {
 		t.Errorf("re-provision %s:\n%s", again.ID, ex)
 	}
 
@@ -351,7 +351,7 @@ func TestKeepAndTeardownNeedsForce(t *testing.T) {
 	back, err := w.f.Provision(ctx, w.db, w.orders)
 	must(t, err)
 	ex := execs(w.fake, n)
-	if back.DBName != "s_dev_orders" || back.ID == p.ID || strings.Contains(ex, "CREATE") ||
+	if back.DBName != "s_dev_orders" || back.ID == p.ID || strings.Contains(ex, "CREATE ROLE") || strings.Contains(ex, "CREATE DATABASE") ||
 		!strings.Contains(ex, `ALTER ROLE "s_dev_orders"`) {
 		t.Errorf("re-added %+v:\n%s", back, ex)
 	}

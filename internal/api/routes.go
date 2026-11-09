@@ -231,6 +231,8 @@ func routes(h *v1.H) []Route {
 		{PUT, tile + "/env-pairs", "managed.env-pairs", "tile.write", h.SetManagedEnvPairs()},
 		{PUT, tile + "/pitr", "managed.pitr", "tile.write", h.SetPITR()},
 		{GET, tile + "/pitr", "managed.pitr-status", "tile.read", h.PITRStatus()},
+		{GET, tile + "/settings", "managed.settings", "tile.read", h.PGSettings()},
+		{PUT, tile + "/settings", "managed.settings-set", "tile.write", h.SetPGSettings()},
 		{POST, tile + "/restore", "managed.restore", "tile.write", h.RestoreInstance()},
 		{POST, tile + "/promote-restore", "managed.promote-restore", "tile.write", h.PromoteRestore()},
 		{PUT, tile + "/slice-access", "slice.access", "tile.write", h.SetSliceAccess()},

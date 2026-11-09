@@ -67,6 +67,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/promote-restore", h.InstancePromote, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("managed.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
@@ -430,7 +432,7 @@ func (h *handler) savedNote(c echo.Context, field, note string, err error, typed
 		form.Errors = map[string]string{field: inv.Msg}
 		err = nil
 	}
-	form.Open = map[string]string{"allow": "allow", "env_pairs": "pairs", "name": "general"}[field] // the row saved stays open
+	form.Open = map[string]string{"allow": "allow", "env_pairs": "pairs", "name": "general", "settings": "postgres", "memory": "postgres"}[field] // the row saved stays open
 	return h.instance(c, "settings", note, err, form)
 }
 
@@ -504,7 +506,15 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		}
 		body = instance.Backups(v, pv, bs)
 	case "settings":
-		body = instance.Settings(v, settingsView(c, m, form))
+		sv := settingsView(c, m, form)
+		if m.Engine == "postgres" {
+			pv, err := h.orch.PGSettings(ctx, t.ID)
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			sv.PG = pgView(pv, form.PG)
+		}
+		body = instance.Settings(v, sv)
 	default:
 		o := instance.OverviewView{
 			Endpoint:  m.Endpoint,
@@ -530,6 +540,82 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		body = instance.Overview(v, o)
 	}
 	return respond.HTML(c, status, instance.Drawer(v, body))
+}
+
+// POST …/-/instances/:tile/settings: a v_<name> field per listed setting
+// (empty = no override of yours) and add_name/add_value, one more.
+func (h *handler) PGSettings(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	set, unset := map[string]string{}, []string{}
+	for k, vs := range form {
+		if name, ok := strings.CutPrefix(k, "v_"); ok {
+			if v := strings.TrimSpace(vs[0]); v != "" {
+				set[name] = v
+			} else {
+				unset = append(unset, name)
+			}
+		}
+	}
+	typed := instance.SettingsView{PG: &instance.PGView{
+		AddName:  strings.TrimSpace(form.Get("add_name")),
+		AddValue: strings.TrimSpace(form.Get("add_value")),
+	}}
+	if typed.PG.AddName != "" {
+		set[typed.PG.AddName] = typed.PG.AddValue
+	}
+	_, j, err := h.orch.SetPGSettings(c.Request().Context(), scope(c).Tile.ID, set, unset)
+	note := "Saved."
+	if j != nil {
+		note = "Saved. The instance restarts for the changes that need it."
+	}
+	return h.savedNote(c, "settings", note, err, typed)
+}
+
+// POST …/-/instances/:tile/memory: the tile's memory limit in MB, empty =
+// none. The instance restarts under it.
+func (h *handler) PGMemory(c echo.Context) error {
+	mb := 0
+	if s := strings.TrimSpace(c.FormValue("memory_mb")); s != "" {
+		var err error
+		if mb, err = strconv.Atoi(s); err != nil || mb < 0 {
+			return h.savedNote(c, "memory", "", errs.Invalidf("memory", "Memory is a number of MB."), instance.SettingsView{})
+		}
+	}
+	_, _, err := h.orch.UpdateTile(c.Request().Context(), scope(c).Tile.ID, func(t *service.Tile) error {
+		t.MemLimitMB = mb
+		return nil
+	})
+	if inv, ok := errs.IsInvalid(err); ok && inv.Field == "limits.memory_mb" {
+		err = errs.Invalidf("memory", "%s", inv.Msg)
+	}
+	return h.savedNote(c, "memory", "Saved. The instance restarts under the new limit.", err, instance.SettingsView{})
+}
+
+// pgView is the service's settings as the Settings tab lists them, over
+// what a refused save typed.
+func pgView(p service.PGSettings, typed *instance.PGView) *instance.PGView {
+	v := &instance.PGView{Restart: p.Restart, Risk: p.Risk, MemoryMB: p.MemoryMB}
+	if typed != nil {
+		v.AddName, v.AddValue = typed.AddName, typed.AddValue
+	}
+	for _, s := range p.Settings {
+		r := instance.PGRow{Name: s.Name, Value: s.Value, Source: s.Source, Pending: s.Pending}
+		if s.Source == service.PGSourceYours {
+			r.Mine = s.Value
+		}
+		switch s.Group {
+		case service.PGGroupMain:
+			v.Main = append(v.Main, r)
+		case service.PGGroupAdvanced:
+			v.Advanced = append(v.Advanced, r)
+		default:
+			v.Other = append(v.Other, r)
+		}
+	}
+	return v
 }
 
 // settingsView is the instance's allow list and env pairs over what a

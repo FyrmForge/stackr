@@ -419,12 +419,12 @@ func (o *Orchestrator) fillCandidate(ctx context.Context, r *jobs.Run, src pitrS
 	if latest {
 		when = time.Time{}
 	}
-	conf, walDir, err := o.engines.RecoveryConf(ctx, cand, when)
+	conf, walDir, prefix, err := o.engines.RecoveryConf(ctx, cand, when)
 	if err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(r.Log, "restoring %s to %s from the base of %s\n", src.tile.Slug, normAt(at, latest), plan.Base.FinishedAt.UTC().Format(time.RFC3339))
-	return o.backup.FillVolume(ctx, fbackup.Replay{Dest: src.dest, Plan: plan, Target: v, WalDir: walDir, Conf: conf}, r.Log)
+	return o.backup.FillVolume(ctx, fbackup.Replay{Dest: src.dest, Plan: plan, Target: v, WalDir: walDir, Prefix: prefix, Conf: conf}, r.Log)
 }
 
 // recoveryFailed are the lines postgres logs when a replay cannot finish: it
@@ -761,6 +761,14 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			return errs.Conflictf("another copy was promoted over %s since; restore again from its current state", src.Slug)
 		}
 	}
+	candWal, err := o.engines.WalDir(ctx, cand)
+	if err != nil {
+		return err
+	}
+	srcWal, err := o.engines.WalDir(ctx, src)
+	if err != nil {
+		return err
+	}
 	running := func(t Tile) bool {
 		cs, err := o.tiles.Replicas(ctx, t)
 		return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" })
@@ -785,7 +793,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			if c, ok := o.candidateOf(ctx, cand.ID); ok && c.Shipped {
 				return nil
 			}
-			return o.backup.CheckHistory(ctx, fbackup.Ship{Engine: cand, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir})
+			return o.backup.CheckHistory(ctx, fbackup.Ship{Engine: cand, Dest: s.dest, Root: s.root, Dir: candWal})
 		},
 		history: func() error {
 			if sm.PITRDays <= 0 {
@@ -798,7 +806,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			if c, ok := o.candidateOf(ctx, cand.ID); ok && c.Shipped {
 				return nil // an earlier run shipped it; the archive holds its own history now
 			}
-			if err := o.backup.ShipHistory(ctx, fbackup.Ship{Engine: src, Dest: s.dest, Root: s.root, Dir: mflow.PGWalDir}, r.Log); err != nil {
+			if err := o.backup.ShipHistory(ctx, fbackup.Ship{Engine: src, Dest: s.dest, Root: s.root, Dir: srcWal}, r.Log); err != nil {
 				return err
 			}
 			c, _ := o.candidateOf(ctx, cand.ID)

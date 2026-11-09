@@ -32,7 +32,10 @@ type S3Admin interface {
 // Tools is how an engine reaches its instance; the flow fills it per call.
 type Tools struct {
 	Exec Exec
-	S3   S3Admin
+	// ExecIn is Exec with stdin: what must not ride an argv (a role's
+	// password) goes here.
+	ExecIn func(ctx context.Context, cmd []string, stdin string) (string, error)
+	S3     S3Admin
 }
 
 // ManagedTile is one engine.
@@ -69,14 +72,15 @@ type ManagedTile interface {
 type Definition struct {
 	Image   string
 	Command []string                  // nil = the image's entrypoint
+	Start   func(i Instance) []string // the command when the engine builds it per instance; wins over Command
 	Config  func(i Instance) []string // first-boot env, credentials included
 	Port    int
-	Volumes []string // data paths that must survive a recreate
+	// Volumes are the data paths that must survive a recreate, by the
+	// image's major version (postgres moved its data path in 18).
+	Volumes func(major int) []string
 	// ArchiveDir is where the archive volume mounts when point-in-time
-	// recovery is on, ArchiveCmd the Command that archives into it; "" = the
-	// engine has no PITR.
+	// recovery is on (Start archives into it); "" = the engine has no PITR.
 	ArchiveDir string
-	ArchiveCmd []string
 
 	PrimaryOutput string   // the binding a consumer gets when it names none
 	InjectAll     bool     // the consumer needs the whole set
@@ -104,6 +108,12 @@ type Instance struct {
 	Port          int
 	PublicBase    string // scheme+host of its public domain, "" if none
 	PITRDays      int    // the point-in-time recovery window; 0 = off
+	// Major is the postgres major the image tag names, 0 = unknown. Settings
+	// are the user's overrides; MemMB the tile's memory limit (0 = none) and
+	// NodeMemMB the node's memory (0 = unknown), which the computed defaults
+	// follow.
+	Major, MemMB, NodeMemMB int
+	Settings                map[string]string
 }
 
 // Slice is one slice tile's unit, a logical db or a bucket, with its owner

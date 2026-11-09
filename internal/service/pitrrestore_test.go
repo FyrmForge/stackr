@@ -412,9 +412,9 @@ func TestNoCommitAfterTargetRetryDecisionAndConf(t *testing.T) {
 		}
 	}
 	at := time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
-	first, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, at)
+	first, _, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, at)
 	must(t, err)
-	retry, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, time.Time{})
+	retry, _, _, err := r.orch.engines.RecoveryConf(ctx, r.pg, time.Time{})
 	must(t, err)
 	if !strings.Contains(first, "recovery_target_time =") {
 		t.Fatalf("first conf has no target:\n%s", first)

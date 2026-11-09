@@ -185,6 +185,8 @@ type instanceWork struct {
 	allow []string
 	pairs map[string]string
 	pitr  *int // the recovery window, nil = untouched
+	// settings are the instance's own settings, nil = untouched.
+	settings *map[string]string
 }
 
 type domainWork struct {
@@ -843,8 +845,24 @@ func (f *Flow) planInstance(
 			p.Warnings = append(p.Warnings, name+" restarts to change its point-in-time recovery window")
 		}
 	}
+	var settings *map[string]string
+	if tc.Settings != nil && !maps.Equal(tc.Settings, have.Settings) {
+		var oldS, newS []string
+		for k, v := range have.Settings {
+			oldS = append(oldS, k+"="+v)
+		}
+		for k, v := range tc.Settings {
+			newS = append(newS, k+"="+v)
+		}
+		p.add(Change{Kind: "managed", Tile: name, Field: "settings", New: signedDiff(oldS, newS)})
+		moved, settings = true, &tc.Settings
+		if exists {
+			w.redeploy[name] = true // the new container writes the new conf
+			p.Warnings = append(p.Warnings, name+" restarts to change its settings")
+		}
+	}
 	if moved {
-		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr}
+		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings}
 	}
 	return nil
 }
