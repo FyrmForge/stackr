@@ -62,15 +62,18 @@ func pgFlags(major, pitrDays int) []string {
 // exist: replLiveScript.) A first boot has no postgresql.conf until initdb
 // has run, so an init script does it then. A start rewrites the two conf
 // files only for a new container (its hostname differs from the one that
-// wrote them), so a plain restart keeps what a later reload wrote; a standby
+// wrote them), so a plain restart keeps what a later reload wrote; stackr-sync.conf
+// (synchronous_standby_names) is only created (empty) when missing, so a recreated
+// primary still waits for the standbys it did; a standby
 // (STACKR_PG_REWRITE) rewrites them at every start, from an env its
 // container is made again to keep current. The conf is written before the include, which is
 // fatal when the file is missing.
 const pgStartScript = `cat > /docker-entrypoint-initdb.d/00-stackr.sh <<'EOF'
 printf '%s\n' "$STACKR_PG_CONF" > "$PGDATA/stackr.conf"
 printf '%s\n' "$STACKR_PG_OWNED" > "$PGDATA/stackr-owned.conf"
+: > "$PGDATA/stackr-sync.conf"
 cat /etc/hostname > "$PGDATA/.stackr.conf.host"
-printf "include 'stackr.conf'\ninclude 'stackr-owned.conf'\n" >> "$PGDATA/postgresql.conf"
+printf "include 'stackr.conf'\ninclude 'stackr-owned.conf'\ninclude 'stackr-sync.conf'\n" >> "$PGDATA/postgresql.conf"
 EOF
 ` + pgStartTail
 
@@ -83,9 +86,11 @@ printf '%s\n' "$STACKR_PG_CONF" > "$d/stackr.conf.new" && mv "$d/stackr.conf.new
 printf '%s\n' "$STACKR_PG_OWNED" > "$d/stackr-owned.conf.new" && mv "$d/stackr-owned.conf.new" "$d/stackr-owned.conf"
 cat /etc/hostname > "$d/.stackr.conf.host"
 fi
-chown postgres:postgres "$d/stackr.conf" "$d/stackr-owned.conf" "$d/.stackr.conf.host"
+[ -e "$d/stackr-sync.conf" ] || : > "$d/stackr-sync.conf"
+chown postgres:postgres "$d/stackr.conf" "$d/stackr-owned.conf" "$d/stackr-sync.conf" "$d/.stackr.conf.host"
 grep -qx "include 'stackr.conf'" "$d/postgresql.conf" || printf "include 'stackr.conf'\n" >> "$d/postgresql.conf"
 grep -qx "include 'stackr-owned.conf'" "$d/postgresql.conf" || printf "include 'stackr-owned.conf'\n" >> "$d/postgresql.conf"
+grep -qx "include 'stackr-sync.conf'" "$d/postgresql.conf" || printf "include 'stackr-sync.conf'\n" >> "$d/postgresql.conf"
 fi
 exec docker-entrypoint.sh "$@"`
 

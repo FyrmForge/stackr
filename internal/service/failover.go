@@ -204,7 +204,7 @@ func (o *Orchestrator) FailoverOf(ctx context.Context, tileID string) (FailoverV
 // replayed the shutdown checkpoint, and only then promoted. to names the
 // standby's node; "" picks the streaming standby that replayed the most.
 func (o *Orchestrator) Switchover(ctx context.Context, tileID, to string) (StandbyView, error) {
-	return o.startFailover(ctx, tileID, to, foSwitchover, false, false)
+	return o.startFailover(ctx, tileID, to, foSwitchover, false, false, false)
 }
 
 // PoweredOffPhrase is what an admin types to promote past a missing lease
@@ -220,17 +220,19 @@ const PoweredOffPhrase = "I powered the node off"
 // really gone and the worker's lease on it has run out, and the panel holds
 // the proof that the primary's container was bound to that lease (see
 // mayPromote); poweredOff (PoweredOffPhrase) replaces that proof and the wait.
-func (o *Orchestrator) PromoteStandby(ctx context.Context, tileID, to string, nodeGone bool, poweredOff string) (StandbyView, error) {
+// A target the primary did not wait for, while one it did is usable, is
+// refused unless allowAsync: it may lack commits the primary confirmed.
+func (o *Orchestrator) PromoteStandby(ctx context.Context, tileID, to string, nodeGone bool, poweredOff string, allowAsync bool) (StandbyView, error) {
 	if poweredOff != "" && poweredOff != PoweredOffPhrase {
 		return StandbyView{}, errs.Invalidf("powered_off", "Type exactly: %s", PoweredOffPhrase)
 	}
 	if strings.TrimSpace(to) == "" {
 		return StandbyView{}, errs.Invalidf("to", "Pick the standby to promote.")
 	}
-	return o.startFailover(ctx, tileID, to, foPromoted, nodeGone, poweredOff != "")
+	return o.startFailover(ctx, tileID, to, foPromoted, nodeGone, poweredOff != "", allowAsync)
 }
 
-func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind string, nodeGone, poweredOff bool) (StandbyView, error) {
+func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (StandbyView, error) {
 	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
 		return StandbyView{}, err
@@ -264,6 +266,11 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 	target, err := o.failoverTarget(ctx, t, ms, to, kind)
 	if err != nil {
 		return StandbyView{}, err
+	}
+	if kind == foPromoted && !allowAsync {
+		if err := syncTargetOK(t, ms, target); err != nil {
+			return StandbyView{}, err
+		}
 	}
 	if kind == foSwitchover {
 		err = o.mayHandOver(ctx, t, old, oldNode)
@@ -660,7 +667,7 @@ func (o *Orchestrator) foCheck(ctx context.Context, t store.Tile, inst store.Ope
 }
 
 // foPromote promotes the standby (pg_promote); done when it is out of recovery.
-func (o *Orchestrator) foPromote(ctx context.Context, t store.Tile, _ store.OperatedInstance, f *failover) error {
+func (o *Orchestrator) foPromote(ctx context.Context, t store.Tile, inst store.OperatedInstance, f *failover) error {
 	target, err := o.members.Get(ctx, f.Target)
 	if err != nil {
 		return err
@@ -694,6 +701,15 @@ func (o *Orchestrator) foPromote(ctx context.Context, t store.Tile, _ store.Oper
 	}
 	if out, err := exec(mflow.SQLInRecovery); err != nil || strings.TrimSpace(out) == "0" {
 		return err // out of recovery already: promoted
+	}
+	if inst.PreferSync && inst.SyncRequired {
+		// the new primary's writes freeze until a standby is in (the sync
+		// pass names them after the slots are made); preferred mode starts
+		// asynchronous and is reported unprotected until that pass
+		run := func(_ context.Context, cmd []string) (string, error) { return o.docker.Exec(nctx, c.ID, cmd) }
+		if err := o.engines.PrimeSync(ctx, t, run, mflow.SyncStandbyNames([]string{mflow.SyncNoneSlot})); err != nil {
+			return err
+		}
 	}
 	if _, err := exec(mflow.SQLPromote); err != nil {
 		return err

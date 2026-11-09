@@ -122,8 +122,9 @@ func slotKeepMB(freeMB, totalMB int) int {
 // settings that are only a reload (nothing here is a postmaster setting). On
 // a standby, primary_conninfo (its secret is in a passfile, not here) and its
 // slot; every member gets the slot cap, so a promoted one has it too.
-// On a primary, synchronous_standby_names is there when it waits for a standby
-// (SyncStandbyNames); the watch tick keeps it.
+// synchronous_standby_names is not here: it lives in stackr-sync.conf
+// (pgSyncConf), which only the sync pass writes, so nothing that rewrites this
+// file can drop it.
 func pgOwnedConf(i Instance) string {
 	var b strings.Builder
 	b.WriteString("# written by stackr; edits here are overwritten\n")
@@ -131,15 +132,23 @@ func pgOwnedConf(i Instance) string {
 	if i.SlotKeepMB > 0 {
 		kv("max_slot_wal_keep_size", strconv.Itoa(i.SlotKeepMB)+"MB")
 	}
-	if i.Slot == "" && i.SyncNames != "" {
-		kv("synchronous_standby_names", i.SyncNames)
-	}
 	if i.Slot != "" {
 		kv("primary_conninfo", fmt.Sprintf("host=%s port=%d user=%s passfile=%s application_name=%s connect_timeout=5",
 			i.PrimaryHost, i.Port, ReplUser, ReplPassfile, i.Slot))
 		kv("primary_slot_name", i.Slot)
 	}
 	return b.String()
+}
+
+// pgSyncConf is stackr-sync.conf: synchronous_standby_names alone (names "" =
+// asynchronous). The start scripts create it when missing and never rewrite
+// it; SyncOwned (the sync pass) does.
+func pgSyncConf(names string) string {
+	s := "# written by stackr; edits here are overwritten\n"
+	if names != "" {
+		s += "synchronous_standby_names = '" + strings.ReplaceAll(names, `'`, `''`) + "'\n"
+	}
+	return s
 }
 
 // PGEffective is the computed defaults with the user's overrides over them.

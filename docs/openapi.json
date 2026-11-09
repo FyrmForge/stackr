@@ -5691,6 +5691,9 @@
       },
       "PromoteStandbyIn": {
         "properties": {
+          "allow_async_target": {
+            "type": "boolean"
+          },
           "node_gone": {
             "type": "boolean"
           },
@@ -5704,7 +5707,8 @@
         "required": [
           "to",
           "node_gone",
-          "powered_off"
+          "powered_off",
+          "allow_async_target"
         ],
         "type": "object"
       },

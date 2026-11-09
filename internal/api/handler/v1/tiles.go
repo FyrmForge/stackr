@@ -652,6 +652,9 @@ type (
 		NodeGone bool   `json:"node_gone"` // the old primary's node is confirmed gone
 		// PoweredOff is service.PoweredOffPhrase: promote without a lease proof.
 		PoweredOff string `json:"powered_off"`
+		// AllowAsyncTarget promotes a standby the primary did not wait for
+		// although one it did wait for is usable.
+		AllowAsyncTarget bool `json:"allow_async_target"`
 	}
 )
 
@@ -671,7 +674,7 @@ func (h *H) Switchover() Endpoint {
 // powered_off phrase.
 func (h *H) PromoteStandby() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in PromoteStandbyIn) (service.StandbyView, error) {
-		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone, in.PoweredOff)
+		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone, in.PoweredOff, in.AllowAsyncTarget)
 	})
 }
 

@@ -198,3 +198,24 @@ echo 17 > "$PGDATA/PG_VERSION"; echo conf > "$PGDATA/stackr.conf"`)
 		t.Fatalf("no marker, no signal: err %v copies %d", err, copies())
 	}
 }
+
+// The sync names are in their own file, which the start scripts never rewrite
+// once it exists and a standby's copy of the primary's never keeps.
+func TestSyncConfFile(t *testing.T) {
+	names := SyncStandbyNames([]string{"stackr_a"})
+	if got := pgSyncConf(names); !strings.Contains(got, `synchronous_standby_names = 'ANY 1 ("stackr_a")'`) {
+		t.Errorf("sync conf lacks the names:\n%s", got)
+	}
+	if strings.Contains(pgSyncConf(""), "synchronous_standby_names") {
+		t.Error("an async sync conf has names")
+	}
+	if strings.Contains(pgOwnedConf(Instance{SlotKeepMB: 1024}), "synchronous_standby_names") {
+		t.Error("the owned conf carries the names")
+	}
+	if !strings.Contains(pgStartTail, `[ -e "$d/stackr-sync.conf" ] ||`) || strings.Contains(pgStartTail, `> "$d/stackr-sync.conf.new"`) {
+		t.Error("a start must create the sync conf only when it is missing")
+	}
+	if !strings.Contains(standbyPrep, "stackr-sync.conf") || !strings.Contains(rewindScript, "stackr-sync.conf") {
+		t.Error("a standby's copy keeps the primary's sync conf")
+	}
+}

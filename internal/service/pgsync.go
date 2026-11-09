@@ -23,9 +23,13 @@ import (
 // run syncInstance, which decides (syncCtl.step, pure) and writes the setting.
 // When no waited-for standby answers, "preferred" (the default) drops the
 // primary to asynchronous after a short grace and alerts; "required" keeps
-// waiting, and writes hang until one is back. The panel does the switch: with
-// the panel down and the standby down too, writes hang (required always,
-// preferred until the panel is back).
+// waiting, and writes hang until one is back (with no standby selected at all
+// it names one that does not exist, so they hang too). The panel does the
+// switch: with the panel down and the standby down too, writes hang (required
+// always, preferred until the panel is back). The outage's start is kept, so
+// a panel restart does not reset the grace, and the loop's first pass runs at
+// startup. What the setting says is in stackr-sync.conf; a verdict is only
+// reported as it is once the running postgres holds it (syncLocked).
 
 const (
 	SyncAuto   = "auto"
@@ -64,7 +68,7 @@ type syncMember struct {
 	RTT       float64 // ms to the primary's node
 	Measured  bool    // RTT is known
 	Reachable bool    // it answers the primary now
-	In        bool    // the primary waits for it now
+	In        bool    // the primary waits for it now (stored: sync_in)
 }
 
 type syncPolicy struct {
@@ -73,20 +77,28 @@ type syncPolicy struct {
 }
 
 // syncCtl is one instance's memory between passes: when a standby began to
-// look clearly under or over the limit, and since when no waited-for standby
-// answers. Fresh (after a failover: the node pairs changed) skips the hold
-// once. Last is the verdict of the newest pass.
+// look clearly under or over the limit, which ones are eligible (apart from
+// what the primary names: a fallback names none and keeps the eligibility, so
+// a standby that returns is not held three minutes), and since when no
+// eligible standby answers (kept in the settings, so a restart keeps it).
+// Fresh (after a failover: the node pairs changed) skips the hold once. Last
+// is the verdict of the newest pass.
+// ponytail: eligibility is seeded from sync_in after a restart; one that was
+// named off by a fallback then waits the hold again.
 type syncCtl struct {
 	flip      map[string]time.Time
+	elig      map[string]bool
 	downSince time.Time
+	saved     time.Time // downSince as the settings hold it
+	loaded    bool
 	fresh     bool
 	last      syncVerdict
 	seen      bool
 }
 
 type syncVerdict struct {
-	In         []string // the slots the primary waits for, sorted
-	Names      []string // what goes into synchronous_standby_names (In, or none after the fallback)
+	In         []string // the eligible slots, sorted
+	Names      []string // what goes into synchronous_standby_names (In, none after the fallback, or the unmatched name when required has none)
 	Protection string
 }
 
@@ -98,13 +110,19 @@ func (c *syncCtl) step(now time.Time, p syncPolicy, ms []syncMember) syncVerdict
 	}
 	if !p.On {
 		clear(c.flip)
+		clear(c.elig)
 		c.downSince = time.Time{}
 		return syncVerdict{Protection: SyncOff}
 	}
+	elig := map[string]bool{}
 	var in []string
 	reachable := 0
 	for _, m := range ms {
-		want := m.In
+		was, ok := c.elig[m.Slot]
+		if !ok {
+			was = m.In
+		}
+		want := was
 		switch m.Mode {
 		case SyncNever:
 			want = false
@@ -114,7 +132,7 @@ func (c *syncCtl) step(now time.Time, p syncPolicy, ms []syncMember) syncVerdict
 			delete(c.flip, m.Slot)
 		default: // auto
 			under := m.RTT <= p.LimitMS
-			if !m.Measured || under == m.In { // no round trip to go by, or nothing to change
+			if !m.Measured || under == was { // no round trip to go by, or nothing to change
 				delete(c.flip, m.Slot)
 				break
 			}
@@ -127,6 +145,7 @@ func (c *syncCtl) step(now time.Time, p syncPolicy, ms []syncMember) syncVerdict
 				delete(c.flip, m.Slot)
 			}
 		}
+		elig[m.Slot] = want
 		if want {
 			in = append(in, m.Slot)
 			if m.Reachable {
@@ -137,11 +156,15 @@ func (c *syncCtl) step(now time.Time, p syncPolicy, ms []syncMember) syncVerdict
 	if len(ms) > 0 {
 		c.fresh = false // a pass with no standby to judge (the old primary still rewinding) leaves it for the next
 	}
+	c.elig = elig
 	slices.Sort(in)
 	v := syncVerdict{In: in, Names: in, Protection: SyncProtected}
 	switch {
 	case len(in) == 0:
 		v.Protection = SyncUnprotected
+		if p.Required { // nothing to wait for: wait for what never answers
+			v.Names, v.Protection = []string{mflow.SyncNoneSlot}, SyncBlocked
+		}
 		c.downSince = time.Time{}
 	case reachable > 0:
 		c.downSince = time.Time{}
@@ -179,7 +202,10 @@ func syncWords(prot string, standbys int) string {
 		}
 		return "Writes are not protected right now: no standby is in sync."
 	case SyncBlocked:
-		return "Writes are frozen: no standby answers, and this instance requires one."
+		if standbys == 0 {
+			return "Writes are frozen: there is no standby, and this instance requires one."
+		}
+		return "Writes are frozen: no standby is in sync, and this instance requires one."
 	}
 	return "Writes do not wait for a standby."
 }
@@ -228,6 +254,15 @@ func (o *Orchestrator) syncLocked(ctx context.Context, t Tile, inst OperatedInst
 		return err
 	}
 	ctl := o.syncCtlOf(inst.ID)
+	downKey := "pgsync.down." + inst.ID
+	if !ctl.loaded { // a restart keeps the grace running
+		if s, _, err := o.store.Settings.Get(ctx, downKey); err == nil {
+			ctl.loaded = true
+			if at, err := time.Parse(time.RFC3339, s); err == nil {
+				ctl.downSince, ctl.saved = at, at
+			}
+		}
+	}
 	if fresh {
 		ctl.fresh = true
 	}
@@ -269,16 +304,42 @@ func (o *Orchestrator) syncLocked(ctx context.Context, t Tile, inst OperatedInst
 		limit = DefaultSyncLimitMS
 	}
 	v := ctl.step(time.Now(), syncPolicy{On: inst.PreferSync, Required: inst.SyncRequired, LimitMS: limit}, in)
-	ctl.remember(v)
-	for _, m := range ms { // what the primary waits for is kept, for a promote to prefer
-		_, err := o.members.SetSync(ctx, m, cmpMode(m.SyncMode), m.Role == opmember.Replica && slices.Contains(v.In, mflow.SlotName(m.ID)))
-		if err != nil {
-			slog.Warn("sync: member flag", "member", m.ID, "err", err)
+	if !ctl.downSince.Equal(ctl.saved) {
+		var serr error
+		if ctl.downSince.IsZero() {
+			serr = o.store.Settings.Delete(ctx, downKey)
+		} else {
+			serr = o.store.Settings.Set(ctx, downKey, ctl.downSince.UTC().Format(time.RFC3339))
+		}
+		if serr == nil {
+			ctl.saved = ctl.downSince
 		}
 	}
 	err = o.engines.SyncOwned(ctx, t, mflow.SyncStandbyNames(v.Names))
+	if err != nil && (v.Protection == SyncProtected || v.Protection == SyncBlocked) {
+		v.Protection = SyncUnprotected // the running postgres may not hold it: never claim it does
+	}
+	ctl.remember(v)
+	if err == nil {
+		// what the primary really waits for is kept (a promote prefers it);
+		// only the flag is written, from the row as it is now
+		for _, m := range ms {
+			o.setSyncIn(ctx, m.ID, m.Role == opmember.Replica && slices.Contains(v.Names, mflow.SlotName(m.ID)))
+		}
+	}
 	o.syncAlert(ctx, t, inst, v, len(sbs))
 	return err
+}
+
+// setSyncIn sets member id's sync_in, leaving its mode as the row has it now.
+func (o *Orchestrator) setSyncIn(ctx context.Context, id string, in bool) {
+	m, err := o.members.Get(ctx, id)
+	if err == nil {
+		_, err = o.members.SetSync(ctx, m, cmpMode(m.SyncMode), in)
+	}
+	if err != nil {
+		slog.Warn("sync: member flag", "member", id, "err", err)
+	}
 }
 
 func cmpMode(m string) string {
@@ -342,6 +403,7 @@ func (o *Orchestrator) startSyncWatch() {
 	o.alertsDone.Add(1)
 	go func() {
 		defer o.alertsDone.Done()
+		o.syncAll(ctx) // reconcile at startup: a panel that was down may have left the setting stale
 		tk := time.NewTicker(syncEvery)
 		defer tk.Stop()
 		for {
@@ -484,6 +546,13 @@ func (o *Orchestrator) SetStandbySync(ctx context.Context, tileID, memberID, mod
 	if !SyncModeOK(mode) {
 		return SyncView{}, errs.Invalidf("mode", "The mode is auto, always or never.")
 	}
+	t, inst, err := o.memberInstance(ctx, tileID)
+	if err != nil {
+		return SyncView{}, err
+	}
+	mu := o.topoLock(inst.ID) // a pass holds it from reading the rows to writing their flags
+	mu.Lock()
+	defer mu.Unlock()
 	m, err := o.standbyOf(ctx, tileID, memberID)
 	if err != nil {
 		return SyncView{}, err
@@ -491,13 +560,27 @@ func (o *Orchestrator) SetStandbySync(ctx context.Context, tileID, memberID, mod
 	if _, err := o.members.SetSync(ctx, m, mode, m.SyncIn); err != nil {
 		return SyncView{}, err
 	}
-	t, inst, err := o.memberInstance(ctx, tileID)
-	if err == nil {
-		if err := o.syncInstance(ctx, t, inst); err != nil && err != errSyncBusy {
+	if !o.failoverActive(ctx, inst.ID) {
+		if err := o.syncLocked(ctx, t, inst, false); err != nil {
 			slog.Warn("sync: not applied yet, the loop retries", "instance", inst.ID, "err", err)
 		}
 	}
 	return o.SyncOf(ctx, tileID)
+}
+
+// syncTargetOK refuses a promote target the primary did not wait for while a
+// usable standby it did wait for exists: only the latter is sure to hold every
+// commit the primary confirmed.
+func syncTargetOK(t Tile, ms []InstanceMember, target InstanceMember) error {
+	if target.SyncIn {
+		return nil
+	}
+	for _, m := range ms {
+		if m.SyncIn && m.Role == opmember.Replica && m.State != opmember.Removing && !m.Fenced && m.Phase != opmember.Rebuild && m.Phase != opmember.Rewind {
+			return errs.Conflictf("%s waited for the standby on another node, which holds every commit it confirmed; the one you picked may miss some. Promote that one, or override with allow_async_target (CLI --allow-async-target).", t.Slug)
+		}
+	}
+	return nil
 }
 
 // syncFirst orders members with the ones the primary waited for first, for a

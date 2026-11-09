@@ -71,3 +71,7 @@ The load is one transaction. If any statement fails, nothing is kept: the job fa
 The upload streams to the panel's disk, under its data dir, until the job loads it, then it is deleted. Leave room there for one copy of the dump.
 
 Only a new tile loads a dump. Loading into an existing tile, and dumps in the stack file, are not supported. A stack run from its stack file refuses `--from-dump`.
+
+## Synchronous replication
+
+With synchronous replication on, a commit waits for a standby; if the panel is down and the standby is down too, writes hang until the panel or a standby returns, in preferred mode as well as required.

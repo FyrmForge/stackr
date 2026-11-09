@@ -184,6 +184,9 @@ type failRig struct {
 	pushed   map[string]worker.Lease
 	leaseErr error
 	listErr  error // makes every docker list fail
+	// the primary's sync conf as last written, and the setting a reload made live
+	syncFile, syncLive string
+	reloadBroken       bool // a reload does not take
 }
 
 // ageLease makes every recorded lease binding as old as ago.
@@ -215,6 +218,17 @@ func (r *failRig) answer(node, c string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch {
+	case strings.Contains(c, "stackr-sync.conf") && strings.Contains(c, "$1.new"):
+		r.syncFile = ""
+		if _, v, ok := strings.Cut(c, "synchronous_standby_names = '"); ok {
+			r.syncFile, _, _ = strings.Cut(v, "'\n")
+		}
+	case strings.Contains(c, "pg_reload_conf"):
+		if !r.reloadBroken {
+			r.syncLive = r.syncFile
+		}
+	case strings.Contains(c, "current_setting('synchronous_standby_names')"):
+		return r.syncLive
 	case strings.Contains(c, "pg_is_in_recovery"):
 		if r.promoted[node] {
 			return "0"
@@ -504,7 +518,7 @@ func TestFencedOldPrimaryStaysDown(t *testing.T) {
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
 	r.lsn[r.n.ctl.ID] = "0/5000100"
-	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, ""); err != nil {
+	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false); err != nil {
 		t.Fatal(err)
 	}
 	_, old := r.members()
@@ -549,7 +563,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		t.Parallel()
 		r := newFailRig(t, false)
 		for _, gone := range []bool{false, true} {
-			_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, "w1", gone, "")
+			_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, "w1", gone, "", false)
 			if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "running") {
 				t.Errorf("promote with the primary running (gone=%v): %v", gone, err)
 			}
@@ -563,7 +577,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		t.Parallel()
 		r := newFailRig(t, true)
 		must(t, setNode(r.n.orch, "w1", node.StatusOffline))
-		_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "")
+		_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "", false)
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "confirm") {
 			t.Errorf("promote of an unreachable primary without the confirmation: %v", err)
 		}
@@ -575,7 +589,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		o := r.n.orch
 		must(t, setNode(o, "w1", node.StatusOffline))
 		r.ageLease(5 * time.Second) // the worker took the lease 5 s ago
-		_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "")
+		_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "lease") {
 			t.Errorf("promote inside the lease: %v", err)
 		}
@@ -594,7 +608,7 @@ func TestPromoteWithNodeGoneConfirmation(t *testing.T) {
 	o := r.n.orch
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
-	v, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "")
+	v, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
 	must(t, err)
 	if v.Role != opmember.Primary {
 		t.Errorf("view = %+v", v)
@@ -642,7 +656,7 @@ func TestPromoteWhenOldNodeForgotten(t *testing.T) {
 	if err := o.mayPromote(ctx, r.tile(), inst, "w1", false, true); err != nil {
 		t.Errorf("with the override: %v", err)
 	}
-	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "powered off"); err == nil {
+	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "powered off", false); err == nil {
 		t.Error("a wrong phrase was accepted")
 	}
 }
@@ -656,14 +670,14 @@ func TestPromoteNeedsLeaseProofOrOverride(t *testing.T) {
 	o := r.n.orch
 	must(t, setNode(o, "w1", node.StatusOffline))
 	must(t, o.store.Settings.Delete(ctx, leaseKey(r.inst.ID, "w1")))
-	_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "")
+	_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
 	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "no recorded lease") {
 		t.Fatalf("no proof: %v", err)
 	}
 	if p, _ := r.members(); p.Fenced {
 		t.Error("a refused promote fenced the primary")
 	}
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, PoweredOffPhrase)
+	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, PoweredOffPhrase, false)
 	must(t, err)
 	if p, _ := r.members(); p.NodeID != r.n.ctl.ID {
 		t.Errorf("primary after the override: %+v", p)
@@ -683,7 +697,7 @@ func TestFailoverRefusedWithPITR(t *testing.T) {
 	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "point-in-time") {
 		t.Errorf("switchover with PITR on: %v", err)
 	}
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, "w1", true, "")
+	_, err = o.PromoteStandby(ctx, r.inst.TileID, "w1", true, "", false)
 	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "point-in-time") {
 		t.Errorf("promote with PITR on: %v", err)
 	}

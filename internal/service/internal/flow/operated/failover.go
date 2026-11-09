@@ -25,7 +25,8 @@ import (
 // labels (every Replicas, exec and stream of the instance finds it there, see
 // tile.Leaf.Reroute) and answers both the write and the read alias on the
 // instance's network of its node, at ip (pinned, "" = Docker picks): the
-// address cross-node consumers dial.
+// address cross-node consumers dial. stackr-sync.conf (written before the
+// promote, PrimeSync) stays on the volume across the recreation.
 // ponytail: it does not archive. The shipper reads the tile's own archive
 // volume on the env's node, so a relocated primary has none to read; PITR
 // restarts when the instance is back on its home node.
@@ -143,7 +144,7 @@ d="$PGDATA"
 rm -f "$d/` + standbyDone + `"
 as() { if command -v gosu >/dev/null 2>&1; then gosu postgres "$@"; else su-exec postgres "$@"; fi; }
 as env PGPASSFILE=` + ReplPassfile + ` pg_rewind -D "$d" --source-server "host=$STACKR_PRIMARY port=$STACKR_PORT user=$STACKR_ADMIN dbname=postgres connect_timeout=10" || exit 1
-rm -f "$d/stackr.conf" "$d/stackr-owned.conf" "$d/.stackr.conf.host" "$d/postgresql.auto.conf"
+rm -f "$d/stackr.conf" "$d/stackr-owned.conf" "$d/stackr-sync.conf" "$d/.stackr.conf.host" "$d/postgresql.auto.conf"
 touch "$d/standby.signal"
 chown -R postgres:postgres "$d"
 chmod 700 "$d"
