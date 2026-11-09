@@ -122,13 +122,17 @@ func slotKeepMB(freeMB, totalMB int) int {
 // settings that are only a reload (nothing here is a postmaster setting). On
 // a standby, primary_conninfo (its secret is in a passfile, not here) and its
 // slot; every member gets the slot cap, so a promoted one has it too.
-// synchronous_standby_names is for the step that adds sync replication.
+// On a primary, synchronous_standby_names is there when it waits for a standby
+// (SyncStandbyNames); the watch tick keeps it.
 func pgOwnedConf(i Instance) string {
 	var b strings.Builder
 	b.WriteString("# written by stackr; edits here are overwritten\n")
 	kv := func(k, v string) { b.WriteString(k + " = '" + strings.ReplaceAll(v, `'`, `''`) + "'\n") }
 	if i.SlotKeepMB > 0 {
 		kv("max_slot_wal_keep_size", strconv.Itoa(i.SlotKeepMB)+"MB")
+	}
+	if i.Slot == "" && i.SyncNames != "" {
+		kv("synchronous_standby_names", i.SyncNames)
 	}
 	if i.Slot != "" {
 		kv("primary_conninfo", fmt.Sprintf("host=%s port=%d user=%s passfile=%s application_name=%s connect_timeout=5",

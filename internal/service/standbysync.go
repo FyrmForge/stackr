@@ -220,7 +220,8 @@ func (o *Orchestrator) watchStandbys(ctx context.Context) {
 		}
 		o.syncStandbyConf(ctx, t)
 		// both need the primary running; an exec that finds it down is no news
-		if err := o.engines.SyncOwned(ctx, t); err == nil {
+		// (the sync pass also writes the rest of stackr-owned.conf)
+		if err := o.syncInstance(ctx, t, inst); err == nil {
 			o.reconcileSlots(ctx, t, inst)
 		}
 	}

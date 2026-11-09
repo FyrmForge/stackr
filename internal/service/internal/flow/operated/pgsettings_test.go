@@ -271,3 +271,20 @@ func TestNoPasswordOnExecArgv(t *testing.T) {
 		t.Error("first boot lost its password")
 	}
 }
+
+// synchronous_standby_names is in a primary's owned conf when it waits for a
+// standby, never in a standby's (a promoted one would wait for nothing).
+func TestOwnedConfSyncNames(t *testing.T) {
+	prim := Instance{SlotKeepMB: 1024, SyncNames: SyncStandbyNames([]string{"stackr_a"})}
+	if got := pgOwnedConf(prim); !strings.Contains(got, `synchronous_standby_names = 'ANY 1 ("stackr_a")'`) {
+		t.Errorf("primary conf lacks the names:\n%s", got)
+	}
+	if got := pgOwnedConf(Instance{SlotKeepMB: 1024}); strings.Contains(got, "synchronous_standby_names") {
+		t.Errorf("an async primary has names:\n%s", got)
+	}
+	sb := prim
+	sb.Slot, sb.PrimaryHost = "stackr_b", "pg"
+	if got := pgOwnedConf(sb); strings.Contains(got, "synchronous_standby_names") {
+		t.Errorf("a standby has names:\n%s", got)
+	}
+}

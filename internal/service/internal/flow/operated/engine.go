@@ -138,6 +138,9 @@ type Instance struct {
 	// DiskFreeMB and DiskTotalMB are the primary's node's disk, 0 = unknown.
 	DiskFreeMB, DiskTotalMB int
 	Slot, PrimaryHost       string
+	// SyncNames is the slots the primary waits for, "" = none: its
+	// synchronous_standby_names (SyncStandbyNames). Set only by SyncOwned.
+	SyncNames string
 }
 
 // Slice is one slice tile's unit, a logical db or a bucket, with its owner

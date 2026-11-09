@@ -197,15 +197,69 @@ func (f *Flow) SyncReplHBA(ctx context.Context, it store.Tile, subnets []string)
 	return err
 }
 
+// SyncStandbyNames is the setting that makes the primary wait for any one of
+// slots (application_name is the slot name); "" for none = asynchronous.
+func SyncStandbyNames(slots []string) string {
+	if len(slots) == 0 {
+		return ""
+	}
+	q := make([]string, len(slots))
+	for k, s := range slots {
+		q[k] = `"` + s + `"`
+	}
+	return "ANY 1 (" + strings.Join(q, ", ") + ")"
+}
+
+// ReplicaState is one row of the primary's pg_stat_replication.
+type ReplicaState struct {
+	Name      string // application_name = the slot
+	Streaming bool
+	ReplyAge  float64 // seconds since the standby last replied; -1 = never
+}
+
+const replicaStatesSQL = `SELECT application_name || '|' || (state = 'streaming')::int || '|' || ` +
+	`coalesce(round(extract(epoch FROM now() - reply_time))::int, -1) FROM pg_stat_replication`
+
+// ReplicaStates reads the primary's pg_stat_replication.
+func (f *Flow) ReplicaStates(ctx context.Context, it store.Tile) ([]ReplicaState, error) {
+	_, i, x, err := f.postgres(ctx, it)
+	if err != nil {
+		return nil, err
+	}
+	out, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", replicaStatesSQL))
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplicaStates(out), nil
+}
+
+// ParseReplicaStates reads replicaStatesSQL's output.
+func ParseReplicaStates(out string) []ReplicaState {
+	var rs []ReplicaState
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		p := strings.Split(strings.TrimSpace(l), "|")
+		if len(p) != 3 {
+			continue
+		}
+		age, err := strconv.Atoi(p[2])
+		if err != nil {
+			continue
+		}
+		rs = append(rs, ReplicaState{Name: p[0], Streaming: p[1] == "1", ReplyAge: float64(age)})
+	}
+	return rs
+}
+
 // SyncOwned rewrites the running primary's stackr-owned.conf when what it
-// should hold (the slot cap follows the node's free disk) is not what it
-// holds, and reloads.
-func (f *Flow) SyncOwned(ctx context.Context, it store.Tile) error {
+// should hold (the slot cap follows the node's free disk, syncNames the
+// slots it waits for) is not what it holds, and reloads.
+func (f *Flow) SyncOwned(ctx context.Context, it store.Tile, syncNames string) error {
 	_, i, x, err := f.postgres(ctx, it)
 	if err != nil {
 		return err
 	}
 	i = f.withNodeMem(ctx, it, i)
+	i.SyncNames = syncNames
 	want := pgOwnedConf(i)
 	have, err := x.Exec(ctx, []string{"sh", "-c", `cat "$0" 2>/dev/null; true`, pgDataDir(i.Major) + "/stackr-owned.conf"})
 	if err != nil || have == want {

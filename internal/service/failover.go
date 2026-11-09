@@ -313,8 +313,15 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, t store.Tile, ms []In
 	return o.mostAdvanced(ctx, t, cands)
 }
 
-// mostAdvanced is the candidate with the highest replay LSN.
+// mostAdvanced is the candidate with the highest replay LSN, among the ones
+// the primary waited for if any can be read: they hold every commit it
+// confirmed (the highest of them holds all, WAL being in order).
 func (o *Orchestrator) mostAdvanced(ctx context.Context, t store.Tile, cands []InstanceMember) (InstanceMember, error) {
+	if waited, _ := syncFirst(cands); len(waited) > 0 && len(waited) < len(cands) {
+		if m, err := o.mostAdvanced(ctx, t, waited); err == nil {
+			return m, nil
+		}
+	}
 	var best InstanceMember
 	var bestLSN uint64
 	found := false
@@ -849,6 +856,9 @@ func (o *Orchestrator) foSlots(ctx context.Context, t store.Tile, inst store.Ope
 			failed = append(failed, fmt.Errorf("standby on %s: %w", o.nodeName(ctx, m.NodeID), err))
 		}
 	}
+	if len(failed) == 0 {
+		o.syncAfterTopology(ctx, t, inst.ID, true) // the slots differ now: the new primary waits for its own standbys
+	}
 	return errors.Join(failed...)
 }
 
@@ -1279,6 +1289,7 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 	fo.Primary = o.nodeName(ctx, pn)
 	up, unreachable := o.primaryUp(ctx, t)
 	fo.Unreachable = unreachable
+	var waited []string
 	for _, m := range ms {
 		if m.Role != opmember.Replica || m.State == opmember.Removing || m.Fenced || m.Phase == opmember.Rebuild || m.Phase == opmember.Rewind {
 			continue
@@ -1287,11 +1298,17 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 			fo.Switch = append(fo.Switch, o.nodeName(ctx, m.NodeID))
 		}
 		if !up {
-			fo.Promote = append(fo.Promote, o.nodeName(ctx, m.NodeID))
+			if m.SyncIn {
+				waited = append(waited, o.nodeName(ctx, m.NodeID))
+			} else {
+				fo.Promote = append(fo.Promote, o.nodeName(ctx, m.NodeID))
+			}
 		}
 	}
 	slices.Sort(fo.Switch)
 	slices.Sort(fo.Promote)
+	slices.Sort(waited)
+	fo.Promote = append(waited, fo.Promote...) // the standby the primary waited for first: the form offers it first
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
 		fo.InFlight, fo.Error = f.Kind+": "+f.Step, f.Error
 	}

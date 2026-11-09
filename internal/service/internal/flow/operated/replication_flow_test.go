@@ -159,18 +159,23 @@ func TestSyncOwned(t *testing.T) {
 		}
 		return n
 	}
-	must(t, w.f.SyncOwned(ctx, w.db))
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
 	if writes() != 1 {
 		t.Fatalf("an empty owned conf was not written: %d", writes())
 	}
 	have = "# written by stackr; edits here are overwritten\nmax_slot_wal_keep_size = '10240MB'\n"
-	must(t, w.f.SyncOwned(ctx, w.db))
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
 	if writes() != 1 {
 		t.Errorf("a current owned conf was rewritten: %d", writes())
 	}
 	free = 300 << 10 // the disk grew: 10% of it is a bigger cap
-	must(t, w.f.SyncOwned(ctx, w.db))
+	must(t, w.f.SyncOwned(ctx, w.db, ""))
 	if writes() != 2 {
 		t.Errorf("a stale cap was not rewritten: %d", writes())
+	}
+	have = "# written by stackr; edits here are overwritten\nmax_slot_wal_keep_size = '30720MB'\n"
+	must(t, w.f.SyncOwned(ctx, w.db, mflow.SyncStandbyNames([]string{"stackr_a"}))) // names asked for: the conf is stale
+	if writes() != 3 {
+		t.Errorf("a changed sync setting was not rewritten: %d", writes())
 	}
 }

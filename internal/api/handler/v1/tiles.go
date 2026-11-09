@@ -639,6 +639,10 @@ type (
 	}
 )
 
+type StandbySyncIn struct {
+	Mode string `json:"mode"` // auto, always or never
+}
+
 type (
 	SwitchoverIn struct {
 		To string `json:"to"` // the standby's node; empty = the one that replayed the most
@@ -668,6 +672,27 @@ func (h *H) Switchover() Endpoint {
 func (h *H) PromoteStandby() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in PromoteStandbyIn) (service.StandbyView, error) {
 		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone, in.PoweredOff)
+	})
+}
+
+// SyncOf is the instance's synchronous replication and whether its writes
+// are protected now.
+func (h *H) SyncOf() Endpoint {
+	return Get(func(c echo.Context) (service.SyncView, error) { return h.Orch.SyncOf(rc(c), tileID(c)) })
+}
+
+// SetSync changes whether the instance prefers synchronous replication, the
+// round trip limit and whether it is required.
+func (h *H) SetSync() Endpoint {
+	return JSON(http.StatusOK, func(c echo.Context, in service.SetSyncIn) (service.SyncView, error) {
+		return h.Orch.SetSync(rc(c), tileID(c), in)
+	})
+}
+
+// SetStandbySync sets how the primary treats one standby: auto, always or never.
+func (h *H) SetStandbySync() Endpoint {
+	return JSON(http.StatusOK, func(c echo.Context, in StandbySyncIn) (service.SyncView, error) {
+		return h.Orch.SetStandbySync(rc(c), tileID(c), c.Param("standby"), in.Mode)
 	})
 }
 

@@ -123,7 +123,7 @@ func (l *Leaf) AddReplica(ctx context.Context, instanceID, primaryNode, node str
 	m := store.OperatedMember{
 		ID: id, InstanceID: instanceID, Role: Replica, NodeID: node,
 		Container: "stackr-member-" + id[:8], Volume: "stackr-member-" + id + "-data",
-		State: Running, Phase: Starting, CreatedAt: now, UpdatedAt: now,
+		State: Running, Phase: Starting, SyncMode: "auto", CreatedAt: now, UpdatedAt: now,
 	}
 	return m, l.rows.Create(ctx, m)
 }
@@ -143,6 +143,15 @@ func (l *Leaf) SetRouted(ctx context.Context, m store.OperatedMember, routed boo
 		return m, nil
 	}
 	m.Routed = routed
+	return l.save(ctx, m)
+}
+
+// SetSync records a replica's sync mode and whether the primary waits for it.
+func (l *Leaf) SetSync(ctx context.Context, m store.OperatedMember, mode string, in bool) (store.OperatedMember, error) {
+	if m.SyncMode == mode && m.SyncIn == in {
+		return m, nil
+	}
+	m.SyncMode, m.SyncIn = mode, in
 	return l.save(ctx, m)
 }
 

@@ -70,6 +70,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/version", h.PGUpdate, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/sync", h.PGSync, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/switchover", h.Switchover, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/promote-standby", h.PromoteStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
@@ -575,6 +576,12 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			if vs, err := h.orch.Standbys(ctx, t.ID); err == nil && len(vs) > 1 {
 				o.Members = memberRows(vs)
 			}
+			if sv, err := h.orch.SyncOf(ctx, t.ID); err == nil && (len(sv.Standbys) > 0 || sv.Prefer) {
+				o.Sync = &instance.SyncView{Prefer: sv.Prefer, Required: sv.Required, LimitMS: sv.LimitMS, Status: sv.Status}
+				for _, b := range sv.Standbys {
+					o.Sync.Standbys = append(o.Sync.Standbys, instance.SyncStandby{ID: b.ID, Node: b.Node, Mode: b.Mode})
+				}
+			}
 			if fo, ok, err := h.orch.FailoverOptionsOf(ctx, t.ID); err == nil && ok {
 				o.Failover = &instance.FailoverView{Primary: fo.Primary, Switch: fo.Switch, Promote: fo.Promote,
 					Unreachable: fo.Unreachable, InFlight: fo.InFlight, Error: fo.Error}
@@ -678,6 +685,34 @@ func (h *handler) PGSettings(c echo.Context) error {
 func (h *handler) PGUpdate(c echo.Context) error {
 	_, _, err := h.orch.UpdatePGVersion(c.Request().Context(), scope(c).Tile.ID)
 	return h.instance(c, "slices", "Updated. The instance restarts on the new version.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/sync: the synchronous replication form: prefer,
+// required, limit_ms and a mode_<standby id> per standby.
+func (h *handler) PGSync(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	ctx, tile := c.Request().Context(), scope(c).Tile.ID
+	prefer, required := form.Get("prefer") == "1", form.Get("required") == "1"
+	in := service.SetSyncIn{Prefer: &prefer, Required: &required}
+	if s := strings.TrimSpace(form.Get("limit_ms")); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return h.instance(c, "slices", "", errs.Invalidf("limit", "The limit is a number of ms."), instance.SettingsView{})
+		}
+		in.LimitMS = &n
+	}
+	for k, v := range form {
+		if id, ok := strings.CutPrefix(k, "mode_"); ok {
+			if _, err := h.orch.SetStandbySync(ctx, tile, id, v[0]); err != nil {
+				return h.instance(c, "slices", "", err, instance.SettingsView{})
+			}
+		}
+	}
+	_, err = h.orch.SetSync(ctx, tile, in)
+	return h.instance(c, "slices", "Saved.", err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/switchover: the primary moves to the standby on

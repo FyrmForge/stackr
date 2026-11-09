@@ -203,6 +203,13 @@ type instanceWork struct {
 	settings *map[string]string
 	// standbys are the nodes that should hold a standby, resolved; nil = untouched.
 	standbys *[]string
+	// sync is the synchronous replication choice, nil = untouched.
+	sync *syncWork
+}
+
+type syncWork struct {
+	prefer, required bool
+	limitMS          int
 }
 
 type domainWork struct {
@@ -902,6 +909,31 @@ func (f *Flow) planInstance(
 			p.Warnings = append(p.Warnings, name+" restarts to change its settings")
 		}
 	}
+	var syncw *syncWork
+	if tc.Sync != nil || tc.SyncLimitMS != nil || tc.SyncRequired != nil {
+		sw := syncWork{prefer: have.PreferSync, required: have.SyncRequired, limitMS: cmp.Or(have.SyncLimitMS, 10)}
+		if tc.Sync != nil {
+			sw.prefer = *tc.Sync
+		}
+		if tc.SyncRequired != nil {
+			sw.required = *tc.SyncRequired
+		}
+		if tc.SyncLimitMS != nil {
+			sw.limitMS = *tc.SyncLimitMS
+		}
+		if sw.prefer != have.PreferSync {
+			p.add(Change{Kind: "operated", Tile: name, Field: "sync", New: strconv.FormatBool(sw.prefer)})
+		}
+		if sw.required != have.SyncRequired {
+			p.add(Change{Kind: "operated", Tile: name, Field: "sync_required", New: strconv.FormatBool(sw.required)})
+		}
+		if sw.limitMS != cmp.Or(have.SyncLimitMS, 10) {
+			p.add(Change{Kind: "operated", Tile: name, Field: "sync_limit_ms", New: strconv.Itoa(sw.limitMS)})
+		}
+		if sw.prefer != have.PreferSync || sw.required != have.SyncRequired || sw.limitMS != cmp.Or(have.SyncLimitMS, 10) {
+			moved, syncw = true, &sw // live at the next sync pass: no restart
+		}
+	}
 	var standbys *[]string
 	if tc.Standbys != nil && f.StandbyPlan != nil {
 		if !exists {
@@ -921,7 +953,7 @@ func (f *Flow) planInstance(
 		}
 	}
 	if moved {
-		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys}
+		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys, sync: syncw}
 	}
 	return nil
 }

@@ -29,7 +29,13 @@ type OperatedInstance struct {
 	PoolerPassword string `db:"pooler_password" json:"-"`
 	// ReplPassword is the stackr_repl role's password, minted with the
 	// first standby.
-	ReplPassword string    `db:"repl_password" json:"-"`
+	ReplPassword string `db:"repl_password" json:"-"`
+	// PreferSync turns synchronous replication on; SyncLimitMS is the round
+	// trip an auto standby may have and still be waited for; SyncRequired
+	// makes writes wait even when no standby answers.
+	PreferSync   bool      `db:"prefer_sync" json:"prefer_sync"`
+	SyncLimitMS  int       `db:"sync_limit_ms" json:"sync_limit_ms"`
+	SyncRequired bool      `db:"sync_required" json:"sync_required"`
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 }
 

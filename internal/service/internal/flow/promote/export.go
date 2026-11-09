@@ -357,6 +357,15 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if len(m.Settings) > 0 {
 			b.put("settings", map[string]string(m.Settings))
 		}
+		if m.PreferSync {
+			b.put("sync", true)
+			if m.SyncRequired {
+				b.put("sync_required", true)
+			}
+			if m.SyncLimitMS > 0 && m.SyncLimitMS != 10 {
+				b.put("sync_limit_ms", m.SyncLimitMS)
+			}
+		}
 		if f.StandbyNames != nil && m.Engine == "postgres" {
 			if ns, err := f.StandbyNames(ctx, t); err == nil && len(ns) > 0 {
 				b.put("standbys", ns)

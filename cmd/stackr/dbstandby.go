@@ -15,7 +15,7 @@ func (a *app) dbStandby() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.show(v, "id", "role", "node", "state", "read_pool", "lag_seconds", "lag_bytes", "slot_bytes", "slot_cap_bytes")
+			return a.show(v, "id", "role", "node", "state", "read_pool", "lag_seconds", "lag_bytes", "slot_bytes", "slot_cap_bytes", "sync_mode", "sync_in")
 		}))
 	node := ""
 	add := leaf("add", "operated.standby-add", "Add a standby on a node; it copies the primary, then streams", exact(0),
@@ -77,5 +77,17 @@ func (a *app) dbStandby() *cobra.Command {
 			a.say("Rebuilding the standby. It is listed as starting until the copy is done and it streams.")
 			return nil
 		}))
-	return noun("standby", "A postgres instance's standbys", list, add, rm, rebuild)
+	mode := leaf("sync <node|id> <auto|always|never>", "operated.standby-sync", "Set whether the primary waits for a standby: auto (while it is close), always or never", exact(2),
+		a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
+			id, err := byRef(p, args[0])
+			if err != nil {
+				return err
+			}
+			if _, err := a.call(PUT, p+"/standbys/"+id+"/sync", map[string]string{"mode": args[1]}); err != nil {
+				return err
+			}
+			a.say("Saved.")
+			return nil
+		}))
+	return noun("standby", "A postgres instance's standbys", list, add, rm, rebuild, mode)
 }

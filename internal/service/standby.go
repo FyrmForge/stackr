@@ -311,6 +311,8 @@ type StandbyView struct {
 	LagSeconds   int64  `json:"lag_seconds"`
 	SlotBytes    int64  `json:"slot_bytes"`
 	SlotCapBytes int64  `json:"slot_cap_bytes"`
+	SyncMode     string `json:"sync_mode,omitempty"` // auto, always or never
+	SyncIn       bool   `json:"sync_in"`             // the primary waits for it
 }
 
 // Standbys lists the instance's members, the primary first.
@@ -335,6 +337,7 @@ func (o *Orchestrator) Standbys(ctx context.Context, tileID string) ([]StandbyVi
 			v.State = m.State
 		} else {
 			v.State = standbyWord(m)
+			v.SyncMode, v.SyncIn = cmpMode(m.SyncMode), m.SyncIn
 			if sampled {
 				slot := mflow.SlotName(m.ID)
 				for _, r := range snap.last.Replicas {

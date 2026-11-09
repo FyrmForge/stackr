@@ -4694,11 +4694,20 @@
           "pitr_days": {
             "type": "integer"
           },
+          "prefer_sync": {
+            "type": "boolean"
+          },
           "settings": {
             "additionalProperties": {
               "type": "string"
             },
             "type": "object"
+          },
+          "sync_limit_ms": {
+            "type": "integer"
+          },
+          "sync_required": {
+            "type": "boolean"
           },
           "tile_id": {
             "type": "string"
@@ -4715,6 +4724,9 @@
           "pitr_days",
           "settings",
           "major",
+          "prefer_sync",
+          "sync_limit_ms",
+          "sync_required",
           "created_at"
         ],
         "type": "object"
@@ -6644,6 +6656,41 @@
         ],
         "type": "object"
       },
+      "SetSyncIn": {
+        "properties": {
+          "limit_ms": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prefer": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Settings": {
         "properties": {
           "cpu_limit": {
@@ -7106,6 +7153,17 @@
         ],
         "type": "object"
       },
+      "StandbySyncIn": {
+        "properties": {
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
       "StandbyView": {
         "properties": {
           "fenced": {
@@ -7137,6 +7195,12 @@
           },
           "state": {
             "type": "string"
+          },
+          "sync_in": {
+            "type": "boolean"
+          },
+          "sync_mode": {
+            "type": "string"
           }
         },
         "required": [
@@ -7149,7 +7213,8 @@
           "lag_bytes",
           "lag_seconds",
           "slot_bytes",
-          "slot_cap_bytes"
+          "slot_cap_bytes",
+          "sync_in"
         ],
         "type": "object"
       },
@@ -7358,6 +7423,29 @@
         ],
         "type": "object"
       },
+      "SyncStandby": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "in": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "node",
+          "mode",
+          "in"
+        ],
+        "type": "object"
+      },
       "SyncTile": {
         "properties": {
           "dropped": {
@@ -7377,6 +7465,40 @@
           "slug",
           "kind",
           "tag"
+        ],
+        "type": "object"
+      },
+      "SyncView": {
+        "properties": {
+          "limit_ms": {
+            "type": "integer"
+          },
+          "prefer": {
+            "type": "boolean"
+          },
+          "protection": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "standbys": {
+            "items": {
+              "$ref": "#/components/schemas/SyncStandby"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prefer",
+          "required",
+          "limit_ms",
+          "protection",
+          "status",
+          "standbys"
         ],
         "type": "object"
       },
@@ -24196,6 +24318,86 @@
         "x-verb": "tile.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}/sync": {
+      "put": {
+        "operationId": "operated.standby-sync",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "standby",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandbySyncIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/start": {
       "post": {
         "operationId": "tile.start",
@@ -24453,6 +24655,138 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StandbyView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/sync": {
+      "get": {
+        "operationId": "operated.sync",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "put": {
+        "operationId": "operated.sync-set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSyncIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncView"
                 }
               }
             },
