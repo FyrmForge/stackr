@@ -290,7 +290,7 @@ func TestPITRRestoreAgainstPostgres(t *testing.T) {
 	if !ok || t1.Before(from) {
 		t.Fatalf("restorable from %v (%v), T1 = %v", from, ok, t1)
 	}
-	plan, err := bk.PickBase(bases, keys, lin, t1, false)
+	plan, err := bk.PickBase(bases, keys, lin, nil, t1, false)
 	must(t, err)
 	if plan.Base.ObjectKey != run.ObjectKey || len(plan.Bundles) == 0 {
 		t.Fatalf("plan base %s, %d bundles", plan.Base.ObjectKey, len(plan.Bundles))

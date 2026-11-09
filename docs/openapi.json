@@ -5255,6 +5255,12 @@
               }
             ]
           },
+          "restorable_ranges": {
+            "items": {
+              "$ref": "#/components/schemas/PITRRange"
+            },
+            "type": "array"
+          },
           "restorable_to": {
             "oneOf": [
               {
@@ -5293,6 +5299,23 @@
         },
         "required": [
           "days"
+        ],
+        "type": "object"
+      },
+      "PITRRange": {
+        "properties": {
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
         ],
         "type": "object"
       },

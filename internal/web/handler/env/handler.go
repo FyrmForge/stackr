@@ -1403,6 +1403,9 @@ func (h *handler) pitr(c echo.Context, tileID string) (instance.PITRView, error)
 	if s.To != nil {
 		v.To = *s.To
 	}
+	for _, r := range s.Ranges {
+		v.Ranges = append(v.Ranges, instance.PITRRange{From: r.From, To: r.To})
+	}
 	if b := s.LastBase; b != nil {
 		v.Base = &instance.PITRBase{At: b.At, OK: b.OK, Active: b.Active, Error: b.Error}
 	}

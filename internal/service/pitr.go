@@ -85,6 +85,21 @@ type pitrState struct {
 	// then; the epoch (ArchSince) starts once the archiver is past it.
 	Paused    bool   `json:"paused,omitempty"`
 	PausedSeg string `json:"paused_seg,omitempty"`
+	// Marks are the moments each failover left the old timeline's archive
+	// known current (restorableTo then), oldest first: where a restore range
+	// ends when the failover lost WAL.
+	Marks []time.Time `json:"marks,omitempty"`
+}
+
+// held is the state a failover leaves: the epoch and the archive's reach
+// carry over (the old timeline's bases still restore onto the new one), the
+// shipping state starts afresh.
+func (st pitrState) held(now time.Time, seg string) pitrState {
+	n := pitrState{Since: now, ArchSince: st.ArchSince, LastCleanAt: st.LastCleanAt, Marks: slices.Clone(st.Marks), Paused: true, PausedSeg: seg}
+	if to := st.restorableTo(); !to.IsZero() && (len(n.Marks) == 0 || !n.Marks[len(n.Marks)-1].Equal(to)) {
+		n.Marks = append(n.Marks, to)
+	}
+	return n
 }
 
 // errPITRState marks a state row that cannot be parsed, as opposed to a read
@@ -500,6 +515,14 @@ func (o *Orchestrator) pitrShip(ctx context.Context, m OperatedInstance) {
 	}
 }
 
+// cmpTime is the later of a and b.
+func cmpTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
 func cmpMax(a, b string) string {
 	if b > a {
 		return b
@@ -522,7 +545,7 @@ func (o *Orchestrator) pitrFirstBase(ctx context.Context, v store.Volume, dest s
 	}
 	base := o.baseSchedules(ctx, v)
 	for _, r := range rs {
-		if isBaseRun(r, base) && r.DestID == dest.ID && !r.CreatedAt.Before(st.ArchSince) && (r.Status == backup.Done || r.Status == backup.Running) {
+		if isBaseRun(r, base) && r.DestID == dest.ID && !r.CreatedAt.Before(cmpTime(st.ArchSince, st.Since)) && (r.Status == backup.Done || r.Status == backup.Running) {
 			return nil
 		}
 	}
@@ -596,7 +619,8 @@ func (o *Orchestrator) pitrHold(ctx context.Context, t store.Tile, m store.Opera
 	mu := o.pitrLock(m.ID)
 	mu.Lock()
 	defer mu.Unlock()
-	err := o.putPITRState(ctx, m.ID, pitrState{Since: time.Now().UTC(), Paused: true, PausedSeg: seg})
+	st, _ := o.pitrState(ctx, m.ID)
+	err := o.putPITRState(ctx, m.ID, st.held(time.Now().UTC(), seg))
 	o.pitrProblem(ctx, "alert.pitr.lag."+m.ID, AlertPITRLag, SevWarning, t.Slug, pausedMsg(t.Slug))
 	return err
 }
@@ -619,7 +643,7 @@ func (o *Orchestrator) pitrHeld(ctx context.Context, m OperatedInstance, it stor
 }
 
 // pitrResume ends the pause once the archiver has shipped the new
-// primary's segment and the first base is queued: the epoch starts now. If
+// primary's segment and the first base is queued: the epoch carries on (it starts now only if there was none). If
 // the base cannot be queued the pause stays, so no range is advertised
 // without a base under it. An unarmed pause never resumes.
 func (o *Orchestrator) pitrResume(ctx context.Context, it store.Tile, v store.Volume, st *pitrState, now time.Time) {
@@ -634,7 +658,10 @@ func (o *Orchestrator) pitrResume(ctx context.Context, it store.Tile, v store.Vo
 		slog.Warn("pitr: first base backup not queued, still paused", "volume", v.ID, "err", err)
 		return
 	}
-	st.Paused, st.PausedSeg, st.ArchSince, st.BaseTriedAt = false, "", now, now
+	st.Paused, st.PausedSeg, st.BaseTriedAt = false, "", now
+	if st.ArchSince.IsZero() {
+		st.ArchSince = now
+	}
 }
 
 // ---- problems ----
@@ -715,6 +742,12 @@ func (o *Orchestrator) pitrProblem(ctx context.Context, key, event, sev, subject
 
 // ---- health ----
 
+// PITRRange is one restorable stretch.
+type PITRRange struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
 // PITRBase is the newest base backup attempt.
 type PITRBase struct {
 	At     time.Time `json:"at"`
@@ -735,6 +768,9 @@ type PITRHealth struct {
 	// archive was known to be current; nil until there is a base or a clean tick.
 	From *time.Time `json:"restorable_from,omitempty"`
 	To   *time.Time `json:"restorable_to,omitempty"`
+	// Ranges is every stretch that can be restored, when a failover lost WAL
+	// and left a gap (more than one); From and To then span them.
+	Ranges []PITRRange `json:"restorable_ranges,omitempty"`
 	// LastShipped is when a WAL bundle last went to the destination.
 	LastShipped *time.Time `json:"last_shipped,omitempty"`
 	LastBase    *PITRBase  `json:"last_base,omitempty"`
@@ -821,10 +857,14 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 	}
 	if derr == nil {
 		// The same rule a restore applies, so the range never counts a base it refuses.
-		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch), m.ID); err == nil {
-			// a base newer than the archive's reach (walLag) is not restorable yet
-			if from, ok := backup.Restorable(bases, keys, lin); ok && (h.To == nil || !h.To.Before(from)) {
-				h.From = &from
+		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch), m.ID); err == nil && h.To != nil {
+			if rs := backup.Ranges(bases, keys, lin, st.Marks, *h.To); len(rs) > 0 {
+				h.From = &rs[0].From
+				if len(rs) > 1 {
+					for _, r := range rs {
+						h.Ranges = append(h.Ranges, PITRRange{r.From, r.To})
+					}
+				}
 			}
 		}
 	}

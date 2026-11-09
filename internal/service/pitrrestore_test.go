@@ -461,3 +461,77 @@ func TestPromoteResumeRefusesAfterAnotherCopyWasPromoted(t *testing.T) {
 		t.Errorf("job = %s: %s", got.State, got.Error)
 	}
 }
+
+// A failover that lost WAL splits the range: the old base reaches up to the
+// failover's mark, the newer base from its finish, PITRStatus shows both, a
+// restore into the gap is refused and one on either side plans. A failover
+// that lost nothing keeps one range. A restore never reads another archive
+// epoch.
+func TestFailoverGapSplitsTheRestorableRange(t *testing.T) {
+	t.Parallel()
+	r := newRestoreRig(t)
+	ctx := context.Background()
+	o := r.orch
+	dest, err := o.pitrDest(ctx, r.org, r.data)
+	must(t, err)
+	// seg3 never shipped; a second base starts after it
+	wseg4 := "000000010000000000000004"
+	newFrom := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	run, err := o.backups.StartIn(ctx, backup.KindVolume, &r.data.ID, nil, dest.ID, "manual", nil)
+	must(t, err)
+	key := r.root + "/base/" + newFrom.Format("20060102-150405") + "-" + wseg4 + "-pg-data.tar.gz.age"
+	run, err = o.backups.SetWalStart(ctx, run, wseg4)
+	must(t, err)
+	run.WalStop = &wseg4
+	run, err = o.backups.Finish(ctx, run, key, 100, nil)
+	must(t, err)
+	run.FinishedAt = &newFrom
+	must(t, r.st.BackupRuns.Update(ctx, run))
+	r.s3.objs[key] = []byte("base")
+	r.s3.objs[backup.WALKey(r.root, wseg4, wseg4)] = []byte("wal")
+
+	mark := time.Now().Add(-30 * time.Hour).UTC().Truncate(time.Second)
+	st, _ := o.pitrState(ctx, r.inst.ID)
+	st.Marks = []time.Time{mark}
+	o.savePITRState(ctx, r.inst.ID, st)
+
+	h, err := o.PITRStatus(ctx, r.pg.ID)
+	must(t, err)
+	if len(h.Ranges) != 2 || !h.Ranges[0].From.Equal(r.from) || !h.Ranges[0].To.Equal(mark) || !h.Ranges[1].From.Equal(newFrom) {
+		t.Fatalf("ranges = %+v, want the old base to the mark and the new base on", h.Ranges)
+	}
+	src, err := o.pitrSourceOf(ctx, r.pg.ID)
+	must(t, err)
+	plan := func(ago time.Duration) error {
+		_, _, _, err := o.pitrPlan(ctx, src, time.Now().Add(-ago).UTC().Format(time.RFC3339), false)
+		return err
+	}
+	if err := plan(40 * time.Hour); err != nil {
+		t.Errorf("a time before the gap: %v", err)
+	}
+	if err := plan(10 * time.Hour); err == nil || !strings.Contains(err.Error(), "gap") {
+		t.Errorf("a time in the gap: %v", err)
+	}
+	if err := plan(30 * time.Minute); err != nil {
+		t.Errorf("a time after the gap: %v", err)
+	}
+
+	// nothing lost: seg3 is there, one range
+	r.s3.objs[backup.WALKey(r.root, wseg3, wseg3)] = []byte("wal")
+	if h, err = o.PITRStatus(ctx, r.pg.ID); err != nil || len(h.Ranges) != 0 || h.From == nil || !h.From.Equal(r.from) {
+		t.Errorf("clean failover: %+v %v, want one range from the first base", h, err)
+	}
+	if err := plan(10 * time.Hour); err != nil {
+		t.Errorf("a clean failover refused a time: %v", err)
+	}
+
+	// another archive epoch is another archive: none of the above is visible
+	r.inst.ArchiveEpoch = 1
+	must(t, r.st.OperatedInstances.Update(ctx, r.inst))
+	if src, err = o.pitrSourceOf(ctx, r.pg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan(30 * time.Minute); err == nil {
+		t.Error("a restore read across archive epochs")
+	}
+}

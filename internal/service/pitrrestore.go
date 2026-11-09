@@ -150,7 +150,7 @@ func (o *Orchestrator) pitrPlan(ctx context.Context, src pitrSource, atStr strin
 	if err := backup.CheckAt(at, latest, from, to, time.Now(), branch); err != nil {
 		return plan, at, latest, err
 	}
-	if plan, err = backup.PickBase(bases, keys, lin, at, latest); err != nil {
+	if plan, err = backup.PickBase(bases, keys, lin, st.Marks, at, latest); err != nil {
 		return plan, at, latest, err
 	}
 	return plan, at, latest, o.restoreRoom(ctx, src, plan)

@@ -116,7 +116,7 @@ func TestPickBase(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			p, err := PickBase(c.bases, c.keys, Lineage{}, c.at, c.latest)
+			p, err := PickBase(c.bases, c.keys, Lineage{}, nil, c.at, c.latest)
 			if c.want == "" {
 				switch c.errKind {
 				case "conflict":
@@ -146,7 +146,7 @@ func TestPickBaseBundlesAndSegments(t *testing.T) {
 	t.Parallel()
 	b := pbase(time.Hour, rs2, rs3)
 	keys := []string{wal(rs1, rs1), wal(rs2, rs3), wal(rs4, rs4), hist, "stackr/o/v/pitr/wal/not-a-bundle"}
-	p, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, t0, false)
+	p, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, nil, t0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestPickBaseSkipsBasesPastTheFork(t *testing.T) {
 		"no history, no constraint":                {[]store.BackupRun{before, after}, Lineage{}, true, time.Time{}, after.ObjectKey},
 		"a timeline outside the lineage":           {[]store.BackupRun{after}, ParseLineage("00000003", "2\t0/3000000\tx\n"), true, time.Time{}, ""},
 	} {
-		p, err := PickBase(c.bases, keys, c.lin, c.at, c.latest)
+		p, err := PickBase(c.bases, keys, c.lin, nil, c.at, c.latest)
 		switch {
 		case c.want == "" && err == nil:
 			t.Errorf("%s: picked %s", name, p.Base.ObjectKey)
@@ -338,21 +338,90 @@ func TestPickBaseSkipsBasesPastTheFork(t *testing.T) {
 func TestPickBaseRefusesAWALHole(t *testing.T) {
 	t.Parallel()
 	b := pbase(time.Hour, rs1, rs2)
-	_, err := PickBase([]store.BackupRun{b}, []string{wal(rs1, rs2), wal(rs4, rs4)}, Lineage{}, time.Time{}, true)
+	_, err := PickBase([]store.BackupRun{b}, []string{wal(rs1, rs2), wal(rs4, rs4)}, Lineage{}, nil, time.Time{}, true)
 	if err == nil || !strings.Contains(err.Error(), rs3) {
 		t.Errorf("hole at %s: err = %v", rs3, err)
 	}
-	if _, err := PickBase([]store.BackupRun{b}, []string{wal(rs1, rs4)}, Lineage{}, time.Time{}, true); err != nil {
+	if _, err := PickBase([]store.BackupRun{b}, []string{wal(rs1, rs4)}, Lineage{}, nil, time.Time{}, true); err != nil {
 		t.Errorf("contiguous WAL refused: %v", err)
 	}
 	lin := ParseLineage("00000002", hist2)
 	keys := []string{wal(rs1, rs2), wal("000000020000000000000003", "000000020000000000000005"), hist}
-	if _, err := PickBase([]store.BackupRun{b}, keys, lin, time.Time{}, true); err != nil {
+	if _, err := PickBase([]store.BackupRun{b}, keys, lin, nil, time.Time{}, true); err != nil {
 		t.Errorf("a timeline switch refused: %v", err)
 	}
 	keys = []string{wal(rs1, rs1), wal("000000020000000000000003", "000000020000000000000005"), hist}
 	b = pbase(time.Hour, rs1, rs1)
-	if _, err := PickBase([]store.BackupRun{b}, keys, lin, time.Time{}, true); err == nil || !strings.Contains(err.Error(), rs2) {
+	if _, err := PickBase([]store.BackupRun{b}, keys, lin, nil, time.Time{}, true); err == nil || !strings.Contains(err.Error(), rs2) {
 		t.Errorf("hole before the fork: err = %v", err)
+	}
+}
+
+// An unplanned promote loses the old primary's last segments: the old base
+// reaches only up to the failover's mark, the new timeline's base from its
+// finish, and a restore into the gap is refused by name. A clean switchover
+// loses nothing and keeps one range.
+func TestRangesAndPickBaseAcrossAFailover(t *testing.T) {
+	t.Parallel()
+	h := time.Hour
+	fork5 := "1\t0/5000060\tno recovery target specified\n"
+	lin := ParseLineage("00000002", fork5)
+	t5, t7 := "000000020000000000000005", "000000020000000000000007"
+	old := pbase(30*h, rs1, rs2)
+	cur := pbase(h, t5, t5)
+	bases := []store.BackupRun{old, cur}
+	mark := t0.Add(-20 * h)
+
+	lost := []string{wal(rs1, rs2), wal(t5, t7), hist} // segments 3 and 4 of timeline 1 never shipped
+	got := Ranges(bases, lost, lin, []time.Time{mark}, t0)
+	want := []Range{{*old.FinishedAt, mark}, {*cur.FinishedAt, t0}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ranges = %v, want %v", got, want)
+	}
+	if got := Ranges(bases, lost, lin, nil, t0); len(got) != 1 || !got[0].From.Equal(*cur.FinishedAt) {
+		t.Errorf("without a mark the old base reaches nowhere: %v", got)
+	}
+	for name, c := range map[string]struct {
+		at      time.Time
+		base    store.BackupRun
+		refused string
+	}{
+		"before the gap, old timeline": {t0.Add(-25 * h), old, ""},
+		"into the gap":                 {t0.Add(-10 * h), old, "gap"},
+		"after the new base":           {t0.Add(-30 * time.Minute), cur, ""},
+	} {
+		p, err := PickBase(bases, lost, lin, []time.Time{mark}, c.at, false)
+		switch {
+		case c.refused == "" && (err != nil || p.Base.ObjectKey != c.base.ObjectKey):
+			t.Errorf("%s: %v, picked %s", name, err, p.Base.ObjectKey)
+		case c.refused != "" && (err == nil || !strings.Contains(err.Error(), c.refused)):
+			t.Errorf("%s: err = %v, want a refusal naming the %s", name, err, c.refused)
+		}
+	}
+	if _, err := PickBase([]store.BackupRun{old}, lost, lin, []time.Time{mark}, time.Time{}, true); err == nil {
+		t.Error("latest on a base with a hole after it was planned")
+	}
+
+	clean := []string{wal(rs1, rs4), wal(t5, t7), hist}
+	if got := Ranges(bases, clean, lin, []time.Time{mark}, t0); len(got) != 1 || !got[0].From.Equal(*old.FinishedAt) || !got[0].To.Equal(t0) {
+		t.Errorf("a clean switchover = %v, want one continuous range", got)
+	}
+	if _, err := PickBase(bases, clean, lin, []time.Time{mark}, t0.Add(-10*h), false); err != nil {
+		t.Errorf("a clean switchover refused a target: %v", err)
+	}
+}
+
+// A hole after the restore target is not the restore's business: the plain
+// hole check still refuses a restore that would run into it, a hole no mark
+// explains included.
+func TestPickBaseHoleNeedsAMarkToBeIgnored(t *testing.T) {
+	t.Parallel()
+	b := pbase(time.Hour, rs1, rs2)
+	keys := []string{wal(rs1, rs2), wal(rs4, rs4)}
+	if _, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, nil, t0, false); err == nil {
+		t.Error("an unexplained hole was ignored")
+	}
+	if _, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, []time.Time{t0.Add(time.Minute)}, t0, false); err != nil {
+		t.Errorf("a target before the hole refused: %v", err)
 	}
 }

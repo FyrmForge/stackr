@@ -967,6 +967,8 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 	mu := o.pitrLock(inst.ID)
 	mu.Lock()
 	defer mu.Unlock()
+	prev, _ := o.pitrState(ctx, inst.ID)
+	held := prev.held(now, "")
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.OperatedMembers.Update(ctx, old); err != nil {
 			return err
@@ -975,7 +977,7 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 			return err
 		}
 		if inst.PITRDays > 0 {
-			b, _ := json.Marshal(pitrState{Since: now, Paused: true})
+			b, _ := json.Marshal(held)
 			if err := tx.Settings.Set(ctx, pitrKey(inst.ID), string(b)); err != nil {
 				return err
 			}

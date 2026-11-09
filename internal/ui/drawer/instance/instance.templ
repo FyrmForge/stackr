@@ -419,6 +419,7 @@ type PITRView struct {
 	Dest     string
 	Local    bool // the archive sits on this server's disk
 	From, To time.Time
+	Ranges   []PITRRange // more than one: a failover lost WAL and left a gap
 	Base     *PITRBase
 	Bundles  int
 	Size     string
@@ -428,6 +429,9 @@ type PITRView struct {
 	// the time. Promote puts its data under that instance.
 	Of, At string
 }
+
+// PITRRange is one restorable stretch.
+type PITRRange struct{ From, To time.Time }
 
 // PITRBase is the newest base backup attempt.
 type PITRBase struct {
@@ -481,6 +485,17 @@ templ pitr(v View, p PITRView) {
 			}
 		} else {
 			<ul class="text-sm text-rw-muted space-y-1">
+				if len(p.Ranges) > 1 {
+					for _, r := range p.Ranges {
+						<li class="flex flex-wrap gap-x-1">
+							<span>Restorable from</span>
+							@c.When(r.From)
+							<span>to</span>
+							@c.When(r.To)
+						</li>
+					}
+					<li>A failover lost WAL between the ranges.</li>
+				} else {
 				<li class="flex flex-wrap gap-x-1">
 					if p.From.IsZero() {
 						<span>Restorable: not yet, no base backup is finished and shipped.</span>
@@ -494,6 +509,7 @@ templ pitr(v View, p PITRView) {
 						@c.When(p.To)
 					}
 				</li>
+				}
 				<li class="flex flex-wrap gap-x-1">
 					if p.Base == nil {
 						<span>Last base backup: none yet.</span>

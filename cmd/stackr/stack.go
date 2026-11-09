@@ -1407,7 +1407,14 @@ func (a *app) pitrBackups() *cobra.Command {
 				return nil
 			}
 			at := func(k string) string { return a.stamp(cell(m[k]), stampLayout) }
+			rs, _ := m["restorable_ranges"].([]any)
 			switch {
+			case len(rs) > 1:
+				for _, r := range rs {
+					r, _ := r.(map[string]any)
+					a.say("Restorable from %s to %s", a.stamp(cell(r["from"]), stampLayout), a.stamp(cell(r["to"]), stampLayout))
+				}
+				a.say("A failover lost WAL between the ranges; a restore into the gap is refused.")
 			case m["restorable_from"] == nil:
 				a.say("Restorable: not yet (no base backup is finished and shipped)")
 			case m["restorable_to"] == nil:

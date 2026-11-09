@@ -782,7 +782,8 @@ func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 
 	// 4. the epoch waits for the new primary's archiver
 	st, _ := o.pitrState(ctx, inst.ID)
-	if !st.Paused || !st.ArchSince.IsZero() || st.PausedSeg == "" || !o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
+	arch := st.ArchSince // the epoch carries through the failover
+	if !st.Paused || arch.IsZero() || len(st.Marks) != 1 || st.PausedSeg == "" || !o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
 		t.Fatalf("state after failover = %+v, want paused with a problem", st)
 	}
 	r.mu.Lock()
@@ -797,8 +798,8 @@ func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 	r.mu.Unlock()
 	o.pitrShip(ctx, inst)
 	st, _ = o.pitrState(ctx, inst.ID)
-	if st.Paused || st.ArchSince.IsZero() || st.BaseTriedAt.IsZero() {
-		t.Errorf("state after archiving = %+v, want a new epoch and a base queued", st)
+	if st.Paused || !st.ArchSince.Equal(arch) || st.BaseTriedAt.IsZero() {
+		t.Errorf("state after archiving = %+v, want the epoch kept and a base queued", st)
 	}
 	if o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
 		t.Error("the paused problem outlived the pause")
@@ -825,11 +826,12 @@ func TestSwapHoldsTheArchiveUntilRouteArms(t *testing.T) {
 		t.Fatal("the crash did not stop the run")
 	}
 	st, _ := o.pitrState(ctx, inst.ID)
-	if !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() {
-		t.Fatalf("state after the swap = %+v, want an unarmed pause", st)
+	arch := st.ArchSince
+	if !st.Paused || st.PausedSeg != "" || arch.IsZero() {
+		t.Fatalf("state after the swap = %+v, want an unarmed pause that keeps the epoch", st)
 	}
 	o.pitrShip(ctx, inst) // a tick between swap and route
-	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() || !st.BaseTriedAt.IsZero() {
+	if st, _ = o.pitrState(ctx, inst.ID); !st.Paused || st.PausedSeg != "" || !st.ArchSince.Equal(arch) || !st.BaseTriedAt.IsZero() {
 		t.Errorf("tick during the failover = %+v, want it still unarmed", st)
 	}
 	if r.saw("w1 exec ls -1 " + mflow.PGArchiveDir) {
@@ -1033,8 +1035,8 @@ func TestAdoptHandsOffTheArchive(t *testing.T) {
 	must(t, o.store.Environments.SetNode(ctx, r.n.dev.ID, "w1"))
 	must(t, o.adoptPrimary(ctx, r.tile()))
 	st, _ := o.pitrState(ctx, inst.ID)
-	if !st.Paused || st.PausedSeg != "" || !st.ArchSince.IsZero() {
-		t.Errorf("state after adoption = %+v, want an unarmed pause", st)
+	if !st.Paused || st.PausedSeg != "" || st.ArchSince.IsZero() {
+		t.Errorf("state after adoption = %+v, want an unarmed pause that keeps the epoch", st)
 	}
 	if !sawCall(r.n.wFake, "RemoveVolume("+mflow.MemberArchiveVolume(p)+")") {
 		t.Error("the member's spool was kept")

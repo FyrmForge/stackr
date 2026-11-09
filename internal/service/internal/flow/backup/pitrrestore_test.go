@@ -86,7 +86,7 @@ func TestFillVolumeLaysBaseWalAndRecoverySettings(t *testing.T) {
 	w.put(t, hist, tgz(t, member{"00000002.history", "1\t0/3000000\tno recovery target specified\n"}))
 	plan, err := bk.PickBase(
 		[]store.BackupRun{baseRun(baseKey, seg1, seg1)},
-		[]string{b1, b2, hist}, bk.Lineage{}, time.Time{}, true)
+		[]string{b1, b2, hist}, bk.Lineage{}, nil, time.Time{}, true)
 	must(t, err)
 
 	err = w.f.FillVolume(ctx, Replay{Dest: w.dest, Plan: plan, Target: w.vol, WalDir: "stackr-restore-wal", Conf: "restore_command = 'cp x'\n"}, io.Discard)
