@@ -7,8 +7,9 @@ FROM alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34
 
 # stackr's config (max_prepared_statements) needs pgbouncer 1.21 or later.
 RUN apk add --no-cache pgbouncer postgresql-client \
- && v=$(pgbouncer --version | sed -n 's/^.*version \([0-9]*\)\.\([0-9]*\).*/\1\2/p') \
+ && v=$(pgbouncer --version | sed -n 's/^PgBouncer \([0-9]*\)\.\([0-9]*\).*/\1\2/p') \
  && [ "${v:-0}" -ge 121 ] \
+ && addgroup -S pgbouncer && adduser -S -H -G pgbouncer -s /sbin/nologin pgbouncer \
  && rm -f /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt \
  && mkdir -p /var/run/pgbouncer \
  && chown -R pgbouncer:pgbouncer /etc/pgbouncer /var/run/pgbouncer \

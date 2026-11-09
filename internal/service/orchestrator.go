@@ -634,6 +634,11 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			NodeDiskMB: orch.nodeDiskMB,
 			Pull: func(ctx context.Context, ref string) error {
 				_, err := orch.images.Ensure(ctx, ref, "", io.Discard)
+				// A tag is pulled every time; a copy already on the node
+				// (a rig build, a registry outage) is good enough to run.
+				if _, lerr := orch.docker.LocalDigest(ctx, ref); err != nil && lerr == nil {
+					return nil
+				}
 				return err
 			},
 		}

@@ -15,7 +15,7 @@
 # old blob as it starts), with their shares by org slug. A server connector
 # stays the server's; an org's goes back to the org of its slug, else --org.
 # A restore refuses when the rig's master key no longer matches the snapshot's. Connector ids are
-# kept, so GitHub's webhook URL (/hooks/connectors/<id>) stays valid.
+# kept (a connector the new install made for the same org and host is replaced), so GitHub's webhook URL (/hooks/connectors/<id>) stays valid.
 #
 # ponytail: sqlite through a python:3-alpine container because the data dir
 # is root-owned and the rig has no sqlite3; a v0 connectors.json (plaintext)
@@ -165,11 +165,17 @@ for c in json.load(open("/s/connectors.json")):
     if c.get("org_id") is not None:  # a server connector stays the server's
         c["org_id"] = slugs.get(c.get("org_slug", ""), org_id)
     row = {k: c[k] for k in cols if k in c}
-    cur = db.execute(
-        f"INSERT OR IGNORE INTO connectors ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+    if db.execute("SELECT 1 FROM connectors WHERE id = ?", (c["id"],)).fetchone():
+        continue  # already restored
+    # the saved id must win: GitHub's webhook URL holds it. A row the new
+    # install made for the same (org, host) would otherwise make the insert
+    # fail its UNIQUE and be skipped, leaving the old id unknown here.
+    db.execute("DELETE FROM connectors WHERE org_id IS ? AND host = ?", (row.get("org_id"), row["host"]))
+    db.execute(  # plain INSERT: a failure must be loud, never skipped
+        f"INSERT INTO connectors ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
         tuple(row.values()),
     )
-    n += cur.rowcount
+    n += 1
     for s in c.get("share_slugs", []):
         if s in slugs:
             db.execute("INSERT OR IGNORE INTO connector_shares (connector_id, org_id) VALUES (?, ?)", (c["id"], slugs[s]))
