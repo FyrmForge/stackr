@@ -58,6 +58,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/new-tile", h.NewTile, a.Require("tile.write"))
 	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
 	g.GET(e+"/instances/:tile", h.Instance, a.Require("tile.read"))
+	g.GET(e+"/instances/:tile/metrics/events", h.InstanceMetricsEvents, a.Require("tile.read"))
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
@@ -505,6 +506,23 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			return middleware.HTTPError(err)
 		}
 		body = instance.Backups(v, pv, bs)
+	case instance.DatabaseTab:
+		if m.Engine != "postgres" {
+			v.Tab = instance.Tabs[0]
+			return h.instance(c, v.Tab, note, actErr, form)
+		}
+		r := comp.MetricRange(c.QueryParam("range"))
+		in := service.MetricsIn{}
+		in.Range, _ = time.ParseDuration(r)
+		ser, err := h.orch.PGMetrics(ctx, t.ID, in)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		mon, err := h.orch.PGMonitor(ctx, t.ID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = instance.Database(v, databaseView(mon, render.MetricsLive(h.orch, ser, r, v.Base+"?tab="+instance.DatabaseTab, v.Base+"/metrics/events")))
 	case "settings":
 		sv := settingsView(c, m, form)
 		if m.Engine == "postgres" {
@@ -540,6 +558,41 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		body = instance.Overview(v, o)
 	}
 	return respond.HTML(c, status, instance.Drawer(v, body))
+}
+
+// GET …/-/instances/:tile/metrics/events: the Database tab's new points.
+func (h *handler) InstanceMetricsEvents(c echo.Context) error {
+	s, err := h.orch.PGScope(c.Request().Context(), scope(c).Tile.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return render.MetricsEvents(c, h.orch, s)
+}
+
+// databaseView is the Database tab over the monitor's model.
+func databaseView(p service.PGMonitor, m comp.MetricsView) instance.DatabaseView {
+	d := instance.DatabaseView{
+		Metrics: m,
+		Sampled: p.Sampled,
+		Charts:  instance.DatabaseCharts(p.DBs, p.Replicas, p.Slots, p.Archiving),
+		TopNote: p.TopError,
+	}
+	if p.Sampled {
+		d.Headline = [][2]string{
+			{"Connections", fmt.Sprintf("%d of %d", p.ConnUsed, p.ConnMax)},
+			{"Oldest transaction", (time.Duration(p.OldestXactS) * time.Second).String()},
+		}
+	}
+	for _, q := range p.Top {
+		d.Top = append(d.Top, instance.QueryRow{
+			Calls: strconv.FormatInt(q.Calls, 10),
+			Total: (time.Duration(q.TotalMS) * time.Millisecond).String(),
+			Mean:  (time.Duration(q.MeanUS) * time.Microsecond).String(),
+			Rows:  strconv.FormatInt(q.Rows, 10),
+			Text:  q.Text,
+		})
+	}
+	return d
 }
 
 // POST …/-/instances/:tile/settings: a v_<name> field per listed setting
