@@ -198,6 +198,20 @@ func Restorable(bases []store.BackupRun, keys []string, lin Lineage) (from time.
 	return *us[len(us)-1].FinishedAt, true
 }
 
+// Mark is what a failover recorded of the old timeline's archive: Seg is the
+// newest segment shipped (so the timeline it ended on), At when the archive
+// was last known current.
+type Mark struct {
+	At  time.Time `json:"at"`
+	Seg string    `json:"seg"`
+}
+
+// explains says whether m is the mark of the timeline hole is on, with the
+// hole after the segment m shipped: a hole elsewhere is nobody's failover.
+func (m Mark) explains(hole string) bool {
+	return Segment(m.Seg) != "" && timeline(m.Seg) == timeline(hole) && segIndex(hole) > segIndex(m.Seg)
+}
+
 // Range is a stretch of time a restore can reach.
 type Range struct{ From, To time.Time }
 
@@ -208,7 +222,7 @@ type Range struct{ From, To time.Time }
 // current) that is after the base and before the next base the hole does not
 // bind; resume is that base's finish, where restores work again. ok is false
 // when no mark explains the hole: the base reaches nowhere.
-func reach(us []store.BackupRun, i int, bundles []Bundle, lin Lineage, marks []time.Time) (hole string, end, resume time.Time, ok bool) {
+func reach(us []store.BackupRun, i int, bundles []Bundle, lin Lineage, marks []Mark) (hole string, end, resume time.Time, ok bool) {
 	hole = firstHole(bundles, baseStart(us[i]), lin)
 	if hole == "" {
 		return hole, end, resume, true
@@ -220,8 +234,8 @@ func reach(us []store.BackupRun, i int, bundles []Bundle, lin Lineage, marks []t
 		}
 	}
 	for _, m := range marks {
-		if !m.Before(*us[i].FinishedAt) && (resume.IsZero() || m.Before(resume)) {
-			end, ok = m, true
+		if m.explains(hole) && !m.At.Before(*us[i].FinishedAt) && (resume.IsZero() || m.At.Before(resume)) {
+			end, ok = m.At, true
 		}
 	}
 	return hole, end, resume, ok
@@ -231,7 +245,7 @@ func reach(us []store.BackupRun, i int, bundles []Bundle, lin Lineage, marks []t
 // base reaches from its finish to the newest WAL (to), or, when the WAL has a
 // hole after it (an unplanned promote lost segments), to the last moment
 // before the hole; stretches that meet are one.
-func Ranges(bases []store.BackupRun, keys []string, lin Lineage, marks []time.Time, to time.Time) []Range {
+func Ranges(bases []store.BackupRun, keys []string, lin Lineage, marks []Mark, to time.Time) []Range {
 	bundles := Bundles(keys)
 	us := usable(bases, bundles, lin)
 	var out []Range
@@ -265,7 +279,7 @@ func later(a, b time.Time) time.Time {
 // from its start on. A hole in the WAL refuses the plan only when the restore
 // would reach it: a target before the hole (marks say where it begins) stops
 // ahead of it, a target inside the gap is refused by name.
-func PickBase(bases []store.BackupRun, keys []string, lin Lineage, marks []time.Time, at time.Time, latest bool) (Plan, error) {
+func PickBase(bases []store.BackupRun, keys []string, lin Lineage, marks []Mark, at time.Time, latest bool) (Plan, error) {
 	bundles := Bundles(keys)
 	us := usable(bases, bundles, lin)
 	if len(us) == 0 {

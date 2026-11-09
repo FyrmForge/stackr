@@ -371,9 +371,10 @@ func TestRangesAndPickBaseAcrossAFailover(t *testing.T) {
 	cur := pbase(h, t5, t5)
 	bases := []store.BackupRun{old, cur}
 	mark := t0.Add(-20 * h)
+	marks := []Mark{{mark, rs2}}
 
 	lost := []string{wal(rs1, rs2), wal(t5, t7), hist} // segments 3 and 4 of timeline 1 never shipped
-	got := Ranges(bases, lost, lin, []time.Time{mark}, t0)
+	got := Ranges(bases, lost, lin, marks, t0)
 	want := []Range{{*old.FinishedAt, mark}, {*cur.FinishedAt, t0}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ranges = %v, want %v", got, want)
@@ -390,7 +391,7 @@ func TestRangesAndPickBaseAcrossAFailover(t *testing.T) {
 		"into the gap":                 {t0.Add(-10 * h), old, "gap"},
 		"after the new base":           {t0.Add(-30 * time.Minute), cur, ""},
 	} {
-		p, err := PickBase(bases, lost, lin, []time.Time{mark}, c.at, false)
+		p, err := PickBase(bases, lost, lin, marks, c.at, false)
 		switch {
 		case c.refused == "" && (err != nil || p.Base.ObjectKey != c.base.ObjectKey):
 			t.Errorf("%s: %v, picked %s", name, err, p.Base.ObjectKey)
@@ -398,15 +399,15 @@ func TestRangesAndPickBaseAcrossAFailover(t *testing.T) {
 			t.Errorf("%s: err = %v, want a refusal naming the %s", name, err, c.refused)
 		}
 	}
-	if _, err := PickBase([]store.BackupRun{old}, lost, lin, []time.Time{mark}, time.Time{}, true); err == nil {
+	if _, err := PickBase([]store.BackupRun{old}, lost, lin, marks, time.Time{}, true); err == nil {
 		t.Error("latest on a base with a hole after it was planned")
 	}
 
 	clean := []string{wal(rs1, rs4), wal(t5, t7), hist}
-	if got := Ranges(bases, clean, lin, []time.Time{mark}, t0); len(got) != 1 || !got[0].From.Equal(*old.FinishedAt) || !got[0].To.Equal(t0) {
+	if got := Ranges(bases, clean, lin, marks, t0); len(got) != 1 || !got[0].From.Equal(*old.FinishedAt) || !got[0].To.Equal(t0) {
 		t.Errorf("a clean switchover = %v, want one continuous range", got)
 	}
-	if _, err := PickBase(bases, clean, lin, []time.Time{mark}, t0.Add(-10*h), false); err != nil {
+	if _, err := PickBase(bases, clean, lin, marks, t0.Add(-10*h), false); err != nil {
 		t.Errorf("a clean switchover refused a target: %v", err)
 	}
 }
@@ -421,7 +422,36 @@ func TestPickBaseHoleNeedsAMarkToBeIgnored(t *testing.T) {
 	if _, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, nil, t0, false); err == nil {
 		t.Error("an unexplained hole was ignored")
 	}
-	if _, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, []time.Time{t0.Add(time.Minute)}, t0, false); err != nil {
+	if _, err := PickBase([]store.BackupRun{b}, keys, Lineage{}, []Mark{{t0.Add(time.Minute), rs2}}, t0, false); err != nil {
 		t.Errorf("a target before the hole refused: %v", err)
+	}
+}
+
+// Two failovers, each losing WAL: a mark explains only the hole on its own
+// timeline, so the second failover's mark never stretches the first one's
+// range, and a hole with no mark of its own stays refused.
+func TestMarksExplainOnlyTheirOwnHole(t *testing.T) {
+	t.Parallel()
+	h := time.Hour
+	lin := ParseLineage("00000003", "1\t0/5000060\tx\n2\t0/9000060\tx\n")
+	t5, t6 := "000000020000000000000005", "000000020000000000000006"
+	t9, tA := "000000030000000000000009", "00000003000000000000000A"
+	a0, b1, b2 := pbase(30*h, rs1, rs2), pbase(20*h, t5, t5), pbase(h, t9, t9)
+	bases := []store.BackupRun{a0, b1, b2}
+	keys := []string{wal(rs1, rs2), wal(t5, t6), wal(t9, tA), hist}
+	m1, m2 := Mark{t0.Add(-25 * h), rs2}, Mark{t0.Add(-10 * h), t6}
+
+	want := []Range{{*a0.FinishedAt, m1.At}, {*b1.FinishedAt, m2.At}, {*b2.FinishedAt, t0}}
+	if got := Ranges(bases, keys, lin, []Mark{m1, m2}, t0); !slices.Equal(got, want) {
+		t.Fatalf("ranges = %v, want %v", got, want)
+	}
+	if got := Ranges(bases, keys, lin, []Mark{m2}, t0); len(got) != 2 || !got[0].From.Equal(*b1.FinishedAt) || !got[0].To.Equal(m2.At) {
+		t.Errorf("only the second failover's mark: %v, want the first hole unexplained", got)
+	}
+	if _, err := PickBase(bases, keys, lin, []Mark{m2}, t0.Add(-28*h), false); err == nil {
+		t.Error("a target before an unexplained hole was planned")
+	}
+	if _, err := PickBase(bases, keys, lin, []Mark{m1, m2}, t0.Add(-28*h), false); err != nil {
+		t.Errorf("a target before the first failover's gap: %v", err)
 	}
 }

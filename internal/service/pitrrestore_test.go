@@ -492,7 +492,7 @@ func TestFailoverGapSplitsTheRestorableRange(t *testing.T) {
 
 	mark := time.Now().Add(-30 * time.Hour).UTC().Truncate(time.Second)
 	st, _ := o.pitrState(ctx, r.inst.ID)
-	st.Marks = []time.Time{mark}
+	st.Marks = []backup.Mark{{At: mark, Seg: wseg2}}
 	o.savePITRState(ctx, r.inst.ID, st)
 
 	h, err := o.PITRStatus(ctx, r.pg.ID)
@@ -533,5 +533,30 @@ func TestFailoverGapSplitsTheRestorableRange(t *testing.T) {
 	}
 	if err := plan(30 * time.Minute); err == nil {
 		t.Error("a restore read across archive epochs")
+	}
+}
+
+// With one bounded range (the newer base is not restorable yet) the status
+// ends at the failover's mark, not at the shipper's last tick.
+func TestPITRStatusEndsAtTheGapWhenOnlyTheOldRangeIsLeft(t *testing.T) {
+	t.Parallel()
+	r := newRestoreRig(t)
+	ctx := context.Background()
+	o := r.orch
+	r.s3.objs[backup.WALKey(r.root, "000000010000000000000004", "000000010000000000000004")] = []byte("wal")
+	mark := time.Now().Add(-30 * time.Hour).UTC().Truncate(time.Second)
+	st, _ := o.pitrState(ctx, r.inst.ID)
+	st.Marks = []backup.Mark{{At: mark, Seg: wseg2}}
+	o.savePITRState(ctx, r.inst.ID, st)
+	h, err := o.PITRStatus(ctx, r.pg.ID)
+	must(t, err)
+	if len(h.Ranges) != 0 || h.From == nil || !h.From.Equal(r.from) || h.To == nil || !h.To.Equal(mark) {
+		t.Errorf("status = from %v to %v ranges %v, want %v to %v", h.From, h.To, h.Ranges, r.from, mark)
+	}
+	// a mark on another timeline explains nothing: the old base reaches nowhere
+	st.Marks = []backup.Mark{{At: mark, Seg: "000000020000000000000002"}}
+	o.savePITRState(ctx, r.inst.ID, st)
+	if h, err = o.PITRStatus(ctx, r.pg.ID); err != nil || h.From != nil {
+		t.Errorf("unexplained hole advertised: %+v %v", h.From, err)
 	}
 }

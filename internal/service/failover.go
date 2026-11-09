@@ -967,8 +967,14 @@ func (o *Orchestrator) foSwap(ctx context.Context, t store.Tile, inst store.Oper
 	mu := o.pitrLock(inst.ID)
 	mu.Lock()
 	defer mu.Unlock()
-	prev, _ := o.pitrState(ctx, inst.ID)
-	held := prev.held(now, "")
+	var held pitrState
+	if inst.PITRDays > 0 {
+		prev, _, err := o.readPITRState(ctx, inst.ID)
+		if err != nil {
+			return err // never swap over a window that could not be read
+		}
+		held = prev.held(now, "")
+	}
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.OperatedMembers.Update(ctx, old); err != nil {
 			return err

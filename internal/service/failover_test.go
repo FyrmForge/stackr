@@ -746,6 +746,9 @@ func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 	if ss, _ := o.backups.Schedules(ctx, dv.ID); len(ss) == 0 {
 		t.Fatal("no base schedule to follow")
 	}
+	pre, _ := o.pitrState(ctx, inst.ID)
+	pre.LastSegment = "000000010000000000000002"
+	o.savePITRState(ctx, inst.ID, pre)
 	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
 	must(t, err)
 	p, rep := r.members()
@@ -783,7 +786,7 @@ func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 	// 4. the epoch waits for the new primary's archiver
 	st, _ := o.pitrState(ctx, inst.ID)
 	arch := st.ArchSince // the epoch carries through the failover
-	if !st.Paused || arch.IsZero() || len(st.Marks) != 1 || st.PausedSeg == "" || !o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
+	if !st.Paused || arch.IsZero() || len(st.Marks) != 1 || st.Marks[0].Seg != pre.LastSegment || st.PausedSeg == "" || !o.hasProblem(ctx, "alert.pitr.lag."+inst.ID) {
 		t.Fatalf("state after failover = %+v, want paused with a problem", st)
 	}
 	r.mu.Lock()
@@ -1559,5 +1562,26 @@ func TestPoolerStopsBeforePromoteAndFenceRetriesStop(t *testing.T) {
 	r2.mu.Unlock()
 	if _, err := o2.FenceStandbyOf(ctx, r2.inst.TileID, rep2.ID, true); err != nil {
 		t.Fatalf("the retry: %v", err)
+	}
+}
+
+// A state row that cannot be read stops the swap and the hold: they never
+// write a fresh window over it.
+func TestFailoverNeverOverwritesUnreadablePITRState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
+	must(t, err)
+	must(t, o.store.Settings.Set(ctx, pitrKey(inst.ID), "{not json"))
+	if err := o.pitrHold(ctx, r.tile(), inst, "x"); err == nil {
+		t.Error("pitrHold wrote over an unreadable state")
+	}
+	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+		t.Error("the swap went through over an unreadable state")
+	}
+	if v, _, _ := o.store.Settings.Get(ctx, pitrKey(inst.ID)); v != "{not json" {
+		t.Errorf("state row = %q, want it untouched", v)
 	}
 }

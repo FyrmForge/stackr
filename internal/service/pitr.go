@@ -85,10 +85,9 @@ type pitrState struct {
 	// then; the epoch (ArchSince) starts once the archiver is past it.
 	Paused    bool   `json:"paused,omitempty"`
 	PausedSeg string `json:"paused_seg,omitempty"`
-	// Marks are the moments each failover left the old timeline's archive
-	// known current (restorableTo then), oldest first: where a restore range
-	// ends when the failover lost WAL.
-	Marks []time.Time `json:"marks,omitempty"`
+	// Marks record each failover's old timeline (newest segment shipped, and
+	// restorableTo then): where a restore range ends when it lost WAL.
+	Marks []backup.Mark `json:"marks,omitempty"`
 }
 
 // held is the state a failover leaves: the epoch and the archive's reach
@@ -96,8 +95,9 @@ type pitrState struct {
 // shipping state starts afresh.
 func (st pitrState) held(now time.Time, seg string) pitrState {
 	n := pitrState{Since: now, ArchSince: st.ArchSince, LastCleanAt: st.LastCleanAt, Marks: slices.Clone(st.Marks), Paused: true, PausedSeg: seg}
-	if to := st.restorableTo(); !to.IsZero() && (len(n.Marks) == 0 || !n.Marks[len(n.Marks)-1].Equal(to)) {
-		n.Marks = append(n.Marks, to)
+	to, seg := st.restorableTo(), backup.Segment(st.LastSegment)
+	if !to.IsZero() && seg != "" && !slices.ContainsFunc(n.Marks, func(m backup.Mark) bool { return m.Seg[:8] == seg[:8] }) {
+		n.Marks = append(n.Marks, backup.Mark{At: to, Seg: seg})
 	}
 	return n
 }
@@ -619,8 +619,11 @@ func (o *Orchestrator) pitrHold(ctx context.Context, t store.Tile, m store.Opera
 	mu := o.pitrLock(m.ID)
 	mu.Lock()
 	defer mu.Unlock()
-	st, _ := o.pitrState(ctx, m.ID)
-	err := o.putPITRState(ctx, m.ID, st.held(time.Now().UTC(), seg))
+	st, _, err := o.readPITRState(ctx, m.ID)
+	if err != nil {
+		return err // never hold over a window that could not be read
+	}
+	err = o.putPITRState(ctx, m.ID, st.held(time.Now().UTC(), seg))
 	o.pitrProblem(ctx, "alert.pitr.lag."+m.ID, AlertPITRLag, SevWarning, t.Slug, pausedMsg(t.Slug))
 	return err
 }
@@ -859,7 +862,7 @@ func (o *Orchestrator) PITRStatus(ctx context.Context, tileID string) (PITRHealt
 		// The same rule a restore applies, so the range never counts a base it refuses.
 		if bases, keys, lin, err := o.pitrArchive(ctx, d, backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch), m.ID); err == nil && h.To != nil {
 			if rs := backup.Ranges(bases, keys, lin, st.Marks, *h.To); len(rs) > 0 {
-				h.From = &rs[0].From
+				h.From, h.To = &rs[0].From, &rs[len(rs)-1].To
 				if len(rs) > 1 {
 					for _, r := range rs {
 						h.Ranges = append(h.Ranges, PITRRange{r.From, r.To})
