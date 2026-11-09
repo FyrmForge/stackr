@@ -313,6 +313,7 @@ type Orchestrator struct {
 	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
 	earlyMu      sync.Mutex            // guards earlyIPs
 	earlyIPs     map[string]earlyEnt   // container id -> address holding early lan rules
+	probeRuns    sync.Map              // standby member id -> consecutive streaming (+) or not (-) probes
 	repoLocks    sync.Map              // clone dir, "settings", "dns row <id>" (rowLock) -> *sync.Mutex; never freed
 	alertMem     *alertState           // the alert tick's memory (alerts.go)
 	platforms    platformCache         // each node's CPU type (imports.go)
@@ -629,9 +630,10 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			S3: func(endpoint, access, secret string) mflow.S3Admin {
 				return s3.Admin{Endpoint: endpoint, AccessKey: access, SecretKey: secret}
 			},
-			PublicBase: orch.publicBase,
-			NodeMemMB:  orch.nodeMemMB,
-			NodeDiskMB: orch.nodeDiskMB,
+			PublicBase:      orch.publicBase,
+			NodeMemMB:       orch.nodeMemMB,
+			NodeDiskMB:      orch.nodeDiskMB,
+			NodeDiskTotalMB: orch.nodeDiskTotalMB,
 			Pull: func(ctx context.Context, ref string) error {
 				_, err := orch.images.Ensure(ctx, ref, "", io.Discard)
 				// A tag is pulled every time; a copy already on the node

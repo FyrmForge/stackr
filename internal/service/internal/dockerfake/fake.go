@@ -64,6 +64,7 @@ type Fake struct {
 	BuildID       string
 	ExecOut       string
 	ExecFn        func(cmd []string) string // when set, answers Exec and ExecStream instead of ExecOut
+	Copied        map[string][]byte         // CopyTo's files by container id + path
 	TarOut        []byte                    // what TarVolume writes
 	Untarred      []byte                    // what UntarVolume last read
 	ExecIn        []byte                    // what ExecStream's stdin last carried
@@ -98,6 +99,16 @@ func (f *Fake) rec(method string, args ...string) error {
 		return err
 	}
 	return f.Err[method]
+}
+
+func (f *Fake) CopyTo(_ context.Context, id, dir, name string, _ int64, data []byte) error {
+	f.mu.Lock()
+	if f.Copied == nil {
+		f.Copied = map[string][]byte{}
+	}
+	f.Copied[id+" "+dir+"/"+name] = data
+	f.mu.Unlock()
+	return f.rec("CopyTo", id, dir+"/"+name)
 }
 
 func (f *Fake) Run(_ context.Context, s docker.ContainerSpec) (string, error) {

@@ -143,6 +143,10 @@ func (r *DockerRouter) StopRemove(ctx context.Context, id string) error {
 	return r.do(ctx, func(c Docker) error { return c.StopRemove(ctx, id) })
 }
 
+func (r *DockerRouter) CopyTo(ctx context.Context, id, dir, name string, mode int64, data []byte) error {
+	return r.do(ctx, func(c Docker) error { return c.CopyTo(ctx, id, dir, name, mode, data) })
+}
+
 func (r *DockerRouter) Rename(ctx context.Context, id, name string) error {
 	return r.do(ctx, func(c Docker) error { return c.Rename(ctx, id, name) })
 }

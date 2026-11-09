@@ -25,7 +25,10 @@ type OperatedMember struct {
 	Fenced bool `db:"fenced" json:"fenced"`
 	// Phase is what the panel observes of a replica: starting, streaming or
 	// rebuild (see leaf/opmember).
-	Phase     string    `db:"phase" json:"phase"`
+	Phase string `db:"phase" json:"phase"`
+	// Routed is whether the consumers on the member's node were last deployed
+	// with it in the read pool: a change owed to them while it differs.
+	Routed    bool      `db:"routed" json:"routed"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }

@@ -2,7 +2,10 @@ package operated
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,10 +23,19 @@ import (
 const (
 	// ReplUser is the replication role.
 	ReplUser = "stackr_repl"
-	// ReplPassfile is the standby's passfile, outside the data directory
-	// (pg_basebackup wants it empty) and rewritten from the env at every
-	// start. primary_conninfo names it, so no secret is in a config file.
-	ReplPassfile = "/var/lib/postgresql/stackr.pgpass"
+	// ReplPassfile is the standby's passfile, outside every volume and the
+	// data directory. The orchestrator copies it into the created container
+	// before it starts (docker.CopyTo), so the password is in no env and no
+	// config file; primary_conninfo names the path.
+	ReplPassfile = "/etc/stackr.pgpass"
+	// standbyDone marks a standby's data directory as completely bootstrapped:
+	// written last, after the copy, the cleanup, standby.signal, ownership and
+	// a sync. A directory with PG_VERSION and no marker is a copy that was cut
+	// short, and is made again.
+	standbyDone = ".stackr.standby.done"
+	// LabelConf is the hash of the settings file a standby's container was
+	// made with; a start with another one makes the container again.
+	LabelConf = "stackr.conf"
 	// LabelMember marks a standby's containers (service.LabelMember).
 	LabelMember = "stackr.member"
 	// ReadSuffix is added to the instance's alias for its read alias.
@@ -82,17 +94,55 @@ func ParseSlotStates(out string) map[string]string {
 	return m
 }
 
-// replLiveScript makes a running primary take the replication line and the
-// owned conf without a restart: the include is added after the file is
-// written (it is fatal when the file is missing).
-const replLiveScript = `d="$0"; grep -qx "include 'stackr-owned.conf'" "$d/postgresql.conf" || printf "include 'stackr-owned.conf'\n" >> "$d/postgresql.conf"
-grep -qxF "$1" "$d/pg_hba.conf" || printf '%s\n' "$1" >> "$d/pg_hba.conf"`
+// replLiveScript makes a running primary take the owned conf and the
+// replication lines without a restart: the include is added after the file
+// is written (it is fatal when the file is missing). The lines ($1, one per
+// standby subnet, empty = none) are a marked block of pg_hba.conf, replaced
+// as a whole: every postgres major reads it (an include in pg_hba.conf is
+// from 16).
+const replLiveScript = `d="$0"
+grep -qx "include 'stackr-owned.conf'" "$d/postgresql.conf" || printf "include 'stackr-owned.conf'\n" >> "$d/postgresql.conf"
+f="$d/pg_hba.conf"
+{ sed '/^# stackr replication begin$/,/^# stackr replication end$/d' "$f"
+if [ -n "$1" ]; then printf '# stackr replication begin\n%s\n# stackr replication end\n' "$1"; fi; } > "$f.new" &&
+chown postgres:postgres "$f.new" && chmod 600 "$f.new" && mv "$f.new" "$f"`
+
+// replHBALines is one replication line per standby network: the replication
+// role only, from that member's /24 (the firewall lets only member networks
+// reach the primary's VIP). The image's own catch-all line is for "all"
+// databases, which never includes replication.
+func replHBALines(subnets []string) string {
+	var l []string
+	for _, s := range subnets {
+		l = append(l, "host replication "+ReplUser+" "+s+" scram-sha-256")
+	}
+	return strings.Join(l, "\n")
+}
+
+// walBudgetMB is what the primary's node can give to WAL a standby's slot
+// holds back: the free disk less a headroom of 10% of the disk (5 GB at
+// least); negative when the disk is short of that.
+func walBudgetMB(freeMB, totalMB int) int { return freeMB - max(5<<10, totalMB/10) }
+
+// minWALBudgetMB is the least budget a standby may be added with.
+const minWALBudgetMB = 1 << 10
+
+// WALBudget refuses adding a standby while the primary's node has under 1 GB
+// to spare for WAL a lagging standby would hold back.
+func (f *Flow) WALBudget(ctx context.Context, it store.Tile) error {
+	i := f.withNodeMem(ctx, it, Instance{Engine: "postgres"})
+	if i.DiskFreeMB > 0 && walBudgetMB(i.DiskFreeMB, i.DiskTotalMB) < minWALBudgetMB {
+		return errs.Conflictf("%s's node has too little free disk to keep WAL for a standby. Free some space first.", it.Slug)
+	}
+	return nil
+}
 
 // PrepareStandby is the primary's half of a new standby: the replication
-// role (the password is minted once and stored), its pg_hba line and the
-// slot cap in a running primary (reloaded), and the standby's slot. The
-// primary has to be running. Every step is repeatable.
-func (f *Flow) PrepareStandby(ctx context.Context, it store.Tile, slot string) error {
+// role (the password is minted once and stored), the replication lines of
+// subnets in pg_hba.conf and the slot cap in a running primary (reloaded),
+// and the standby's slot. The primary has to be running. Every step is
+// repeatable.
+func (f *Flow) PrepareStandby(ctx context.Context, it store.Tile, slot string, subnets []string) error {
 	m, i, x, err := f.postgres(ctx, it)
 	if err != nil {
 		return err
@@ -115,13 +165,57 @@ func (f *Flow) PrepareStandby(ctx context.Context, it store.Tile, slot string) e
 	if _, err := x.Exec(ctx, pgFileWrite(i, "stackr-owned.conf", pgOwnedConf(i))); err != nil {
 		return err
 	}
-	if _, err := x.Exec(ctx, []string{"sh", "-c", replLiveScript, pgDataDir(i.Major), pgReplHBA}); err != nil {
+	if _, err := x.Exec(ctx, []string{"sh", "-c", replLiveScript, pgDataDir(i.Major), replHBALines(subnets)}); err != nil {
 		return err
 	}
 	if _, err := x.Exec(ctx, append(psql, "-tA", "-c", `SELECT pg_reload_conf()`)); err != nil {
 		return err
 	}
 	return pgExecSQL(ctx, x, i, i.AdminDB, []string{slotCreateSQL(slot)})
+}
+
+// SyncReplHBA makes the primary's replication lines those of subnets and
+// reloads. With none left the role is closed: no login, and the stored
+// password is dropped, so the next standby gets a new one (PrepareStandby).
+func (f *Flow) SyncReplHBA(ctx context.Context, it store.Tile, subnets []string) error {
+	m, i, x, err := f.postgres(ctx, it)
+	if err != nil {
+		return err
+	}
+	if _, err := x.Exec(ctx, []string{"sh", "-c", replLiveScript, pgDataDir(i.Major), replHBALines(subnets)}); err != nil {
+		return err
+	}
+	if len(subnets) == 0 && m.ReplPassword != "" {
+		if err := pgExecSQL(ctx, x, i, i.AdminDB, []string{`ALTER ROLE ` + ReplUser + ` NOLOGIN PASSWORD NULL`}); err != nil {
+			return err
+		}
+		if _, err := f.Instances.SetReplPassword(ctx, m, ""); err != nil {
+			return err
+		}
+	}
+	_, err = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
+	return err
+}
+
+// SyncOwned rewrites the running primary's stackr-owned.conf when what it
+// should hold (the slot cap follows the node's free disk) is not what it
+// holds, and reloads.
+func (f *Flow) SyncOwned(ctx context.Context, it store.Tile) error {
+	_, i, x, err := f.postgres(ctx, it)
+	if err != nil {
+		return err
+	}
+	i = f.withNodeMem(ctx, it, i)
+	want := pgOwnedConf(i)
+	have, err := x.Exec(ctx, []string{"sh", "-c", `cat "$0" 2>/dev/null; true`, pgDataDir(i.Major) + "/stackr-owned.conf"})
+	if err != nil || have == want {
+		return err
+	}
+	if _, err := x.Exec(ctx, pgFileWrite(i, "stackr-owned.conf", want)); err != nil {
+		return err
+	}
+	_, err = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
+	return err
 }
 
 // DropSlot drops a standby's slot on the primary.
@@ -164,19 +258,22 @@ func (f *Flow) StandbyProbeArgv(ctx context.Context, it store.Tile) ([]string, e
 // with its WAL receiver streaming.
 func StandbyStreaming(out string) bool { return strings.TrimSpace(out) == "1,streaming" }
 
-// standbyPrep runs before the shared start tail in a standby's container. An
-// empty data directory is filled by pg_basebackup from the primary as the
-// replication role, over a slot made beforehand; never -R, which would write
-// primary_conninfo (and a password) to postgresql.auto.conf, which beats
-// stackr-owned.conf. The passfile holds the password, read from the env; it
-// is never on an argv. A failed copy empties the directory again and stops
-// the container: falling through to the image's entrypoint would initdb a
-// new, independent cluster here. The primary's conf files and auto.conf come
-// along in the copy and are dropped, for the tail to write this member's.
-const standbyPrep = `(umask 077; printf '%s:%s:*:` + ReplUser + `:%s\n' "$STACKR_PRIMARY" "$STACKR_PORT" "$STACKR_REPL_PASS" > ` + ReplPassfile + `)
-chown postgres:postgres ` + ReplPassfile + `
+// standbyPrep runs before the shared start tail in a standby's container.
+// The passfile was copied in before the start (never in the env); its owner
+// and mode are set here, as root. A data directory without the completion
+// marker or without standby.signal is emptied and filled by pg_basebackup
+// from the primary as the replication role, over a slot made beforehand;
+// never -R, which would write primary_conninfo (and a password) to
+// postgresql.auto.conf, which beats stackr-owned.conf. The marker is written
+// last, after the cleanup, standby.signal, ownership and a sync. A failed
+// copy empties the directory again and stops the container: falling through
+// to the image's entrypoint would initdb a new, independent cluster here,
+// and a directory without standby.signal would start as a primary. The
+// primary's conf files and auto.conf come along in the copy and are
+// dropped, for the tail to write this member's.
+const standbyPrep = `[ -s ` + ReplPassfile + ` ] && chown postgres:postgres ` + ReplPassfile + ` && chmod 600 ` + ReplPassfile + ` || exit 1
 d="$PGDATA"
-if [ ! -s "$d/PG_VERSION" ]; then
+if [ ! -s "$d/PG_VERSION" ] || [ ! -e "$d/standby.signal" ] || [ ! -e "$d/` + standbyDone + `" ]; then
 mkdir -p "$d" && find "$d" -mindepth 1 -delete || exit 1
 if ! PGPASSFILE=` + ReplPassfile + ` pg_basebackup -h "$STACKR_PRIMARY" -p "$STACKR_PORT" -U ` + ReplUser +
 	` -D "$d" -X stream -S "$STACKR_SLOT" -c fast -w; then
@@ -187,7 +284,10 @@ rm -f "$d/stackr.conf" "$d/stackr-owned.conf" "$d/.stackr.conf.host" "$d/postgre
 touch "$d/standby.signal"
 chown -R postgres:postgres "$d"
 chmod 700 "$d"
+sync
+touch "$d/` + standbyDone + `" && chown postgres:postgres "$d/` + standbyDone + `" && sync || exit 1
 fi
+[ -e "$d/standby.signal" ] && [ -e "$d/` + standbyDone + `" ] || exit 1
 `
 
 // standbyCommand is a standby container's command: the prep, the shared
@@ -198,6 +298,55 @@ func standbyCommand(i Instance) []string {
 		cmd = append(cmd, "-c", f)
 	}
 	return cmd
+}
+
+// StandbyPassfile is the content of the standby's passfile: the replication
+// role's password for the primary's alias and port. The orchestrator copies
+// it into the created container (ReplPassfile) before it starts.
+func (f *Flow) StandbyPassfile(ctx context.Context, it store.Tile) ([]byte, error) {
+	m, i, _, err := f.postgres(ctx, it)
+	if err != nil {
+		return nil, err
+	}
+	if m.ReplPassword == "" {
+		return nil, errs.Conflictf("%s has no replication role yet", it.Slug)
+	}
+	return []byte(fmt.Sprintf("%s:%d:*:%s:%s\n", i.Host, i.Port, ReplUser, m.ReplPassword)), nil
+}
+
+// ApplySettingsOn is ApplySettings for a running standby, reached by exec:
+// its conf file is made the effective settings and reloaded (or, for a
+// change that needs a restart, reloaded too, so pg_settings reports it as
+// pending). The caller restarts the standby then.
+func (f *Flow) ApplySettingsOn(
+	ctx context.Context,
+	it store.Tile,
+	exec func(ctx context.Context, cmd []string) (string, error),
+	overrides map[string]string,
+	changed, unset []string,
+) (restart bool, err error) {
+	_, i, _, err := f.postgres(ctx, it)
+	if err != nil {
+		return false, err
+	}
+	i = f.withNodeMem(ctx, it, i)
+	i.Settings = overrides
+	x := Tools{Exec: exec}
+	if restart, err = pgApply(ctx, i, x, changed, unset); err == nil && restart {
+		_, err = exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
+	}
+	return restart, err
+}
+
+// StandbyPending says whether the standby reached by exec has a setting that
+// waits for a restart.
+func (f *Flow) StandbyPending(ctx context.Context, it store.Tile, exec func(ctx context.Context, cmd []string) (string, error)) (bool, error) {
+	_, i, _, err := f.postgres(ctx, it)
+	if err != nil {
+		return false, err
+	}
+	out, err := exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT coalesce(bool_or(pending_restart), false)::int FROM pg_settings`))
+	return strings.TrimSpace(out) == "1", err
 }
 
 // StandbySpec is the container of standby mem of instance tile it: the
@@ -226,18 +375,23 @@ func (f *Flow) StandbySpec(ctx context.Context, it store.Tile, mem store.Operate
 	if it.ImageRef != "" {
 		img = it.ImageRef
 	}
-	env := append(def.Config(i),
+	// no secret in the env, which docker inspect shows: not the admin
+	// password (the data directory exists, so no first init needs it) and
+	// not the replication one (a passfile, StandbyPassfile)
+	env := slices.DeleteFunc(def.Config(i), func(e string) bool { return strings.HasPrefix(e, "POSTGRES_PASSWORD=") })
+	env = append(env,
 		"STACKR_PRIMARY="+i.PrimaryHost,
 		"STACKR_PORT="+strconv.Itoa(i.Port),
 		"STACKR_SLOT="+i.Slot,
-		"STACKR_REPL_PASS="+i.ReplPassword,
+		"STACKR_PG_REWRITE=1", // a standby's conf files are rewritten from the env at every start
 	)
+	sum := sha256.Sum256([]byte(pgConf(i)))
 	return docker.ContainerSpec{
 		Name:       mem.Container,
 		Image:      img,
 		Cmd:        standbyCommand(i),
 		Env:        env,
-		Labels:     map[string]string{LabelMember: mem.ID},
+		Labels:     map[string]string{LabelMember: mem.ID, LabelConf: hex.EncodeToString(sum[:8])},
 		Volumes:    []string{mem.Volume + ":" + pgMount(i.Major)},
 		Networks:   []docker.NetAttach{{Name: operated.Network(m.ID), Aliases: []string{ReadAlias(i.Host)}}},
 		ExtraHosts: []string{hostLine},

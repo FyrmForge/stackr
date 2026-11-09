@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
 type pg struct{}
@@ -58,36 +56,29 @@ func pgFlags(major, pitrDays int) []string {
 	return f
 }
 
-// pgReplHBA is the line that lets standbys replicate: the replication role
-// only, from the cluster's pool of member networks (a standby's /24 is a block
-// of it, and the firewall lets only member networks reach the primary's VIP).
-// The image's own catch-all line is for "all" databases, which never
-// includes replication.
-var pgReplHBA = "host replication " + ReplUser + " " + mesh.Supernet.String() + " scram-sha-256"
-
 // pgStartScript runs as root ahead of the image's own entrypoint: it puts
 // stackr.conf, stackr-owned.conf and their include lines in the data
-// directory, and the replication line in pg_hba.conf. A first boot has no
-// postgresql.conf until initdb has run, so an init script does it then. A
-// start rewrites the two conf files only for a new container (its hostname
-// differs from the one that wrote them), so a plain restart keeps what a
-// later reload wrote. The conf is written before the include, which is
+// directory. (The replication lines of pg_hba.conf follow the standbys that
+// exist: replLiveScript.) A first boot has no postgresql.conf until initdb
+// has run, so an init script does it then. A start rewrites the two conf
+// files only for a new container (its hostname differs from the one that
+// wrote them), so a plain restart keeps what a later reload wrote; a standby
+// (STACKR_PG_REWRITE) rewrites them at every start, from an env its
+// container is made again to keep current. The conf is written before the include, which is
 // fatal when the file is missing.
 const pgStartScript = `cat > /docker-entrypoint-initdb.d/00-stackr.sh <<'EOF'
 printf '%s\n' "$STACKR_PG_CONF" > "$PGDATA/stackr.conf"
 printf '%s\n' "$STACKR_PG_OWNED" > "$PGDATA/stackr-owned.conf"
 cat /etc/hostname > "$PGDATA/.stackr.conf.host"
 printf "include 'stackr.conf'\ninclude 'stackr-owned.conf'\n" >> "$PGDATA/postgresql.conf"
-printf '%s\n' "$STACKR_PG_HBA" >> "$PGDATA/pg_hba.conf"
 EOF
 ` + pgStartTail
 
 // pgStartTail is what both starts share: with a data directory, the conf
-// files, the includes and the replication line, then the image's own
-// entrypoint.
+// files and the includes, then the image's own entrypoint.
 const pgStartTail = `d="$PGDATA"
 if [ -s "$d/PG_VERSION" ]; then
-if [ ! -e "$d/stackr.conf" ] || [ ! -e "$d/stackr-owned.conf" ] || [ "$(cat "$d/.stackr.conf.host" 2>/dev/null)" != "$(cat /etc/hostname)" ]; then
+if [ ! -e "$d/stackr.conf" ] || [ ! -e "$d/stackr-owned.conf" ] || [ "$(cat "$d/.stackr.conf.host" 2>/dev/null)" != "$(cat /etc/hostname)" ] || [ -n "$STACKR_PG_REWRITE" ]; then
 printf '%s\n' "$STACKR_PG_CONF" > "$d/stackr.conf.new" && mv "$d/stackr.conf.new" "$d/stackr.conf"
 printf '%s\n' "$STACKR_PG_OWNED" > "$d/stackr-owned.conf.new" && mv "$d/stackr-owned.conf.new" "$d/stackr-owned.conf"
 cat /etc/hostname > "$d/.stackr.conf.host"
@@ -95,7 +86,6 @@ fi
 chown postgres:postgres "$d/stackr.conf" "$d/stackr-owned.conf" "$d/.stackr.conf.host"
 grep -qx "include 'stackr.conf'" "$d/postgresql.conf" || printf "include 'stackr.conf'\n" >> "$d/postgresql.conf"
 grep -qx "include 'stackr-owned.conf'" "$d/postgresql.conf" || printf "include 'stackr-owned.conf'\n" >> "$d/postgresql.conf"
-grep -qxF "$STACKR_PG_HBA" "$d/pg_hba.conf" || printf '%s\n' "$STACKR_PG_HBA" >> "$d/pg_hba.conf"
 fi
 exec docker-entrypoint.sh "$@"`
 
@@ -175,7 +165,6 @@ func (pg) Definition() Definition {
 				"POSTGRES_PASSWORD=" + i.AdminPassword,
 				"STACKR_PG_CONF=" + pgConf(i),
 				"STACKR_PG_OWNED=" + pgOwnedConf(i),
-				"STACKR_PG_HBA=" + pgReplHBA,
 			}
 		},
 		PrimaryOutput: "url",

@@ -47,6 +47,9 @@ type Flow struct {
 	// NodeDiskMB is the free disk, in MB, of the node the instance runs on
 	// (max_slot_wal_keep_size follows it); 0 or nil = unknown.
 	NodeDiskMB func(ctx context.Context, t store.Tile) int
+	// NodeDiskTotalMB is the node's whole disk, in MB: the WAL headroom is a
+	// tenth of it; 0 or nil = unknown.
+	NodeDiskTotalMB func(ctx context.Context, t store.Tile) int
 	// Pull makes an image available on the instance's node (anonymous): the
 	// pooler's. nil = no pooler can be made.
 	Pull func(ctx context.Context, ref string) error
@@ -818,12 +821,14 @@ func (f *Flow) withNodeMem(ctx context.Context, t store.Tile, i Instance) Instan
 	if f.NodeMemMB != nil {
 		i.NodeMemMB = f.NodeMemMB(ctx, t)
 	}
-	disk := 0
 	if f.NodeDiskMB != nil {
-		disk = f.NodeDiskMB(ctx, t)
+		i.DiskFreeMB = f.NodeDiskMB(ctx, t)
+	}
+	if f.NodeDiskTotalMB != nil {
+		i.DiskTotalMB = f.NodeDiskTotalMB(ctx, t)
 	}
 	if i.Engine == "postgres" {
-		i.SlotKeepMB = slotKeepMB(disk)
+		i.SlotKeepMB = slotKeepMB(i.DiskFreeMB, i.DiskTotalMB)
 	}
 	return i
 }

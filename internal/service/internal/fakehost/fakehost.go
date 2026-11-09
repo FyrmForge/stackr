@@ -415,6 +415,11 @@ func (d *Docker) Restart(ctx context.Context, id string) error {
 	return d.save()
 }
 
+// CopyTo is a no-op: the fake host keeps no filesystems.
+func (d *Docker) CopyTo(ctx context.Context, id, dir, name string, mode int64, data []byte) error {
+	return nil
+}
+
 // UpdateRestart is a no-op: the fake host does not model restart policies.
 func (d *Docker) UpdateRestart(ctx context.Context, id, policy string) error { return nil }
 

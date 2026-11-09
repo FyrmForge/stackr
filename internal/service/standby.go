@@ -2,15 +2,19 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"path"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -21,7 +25,9 @@ const AlertPGRebuild = "pgmon.rebuild"
 
 // createStandby makes standby m's container on its node and starts it: its
 // first run copies the primary into the empty data volume (flow/operated
-// StandbySpec). The image is pulled there first.
+// StandbySpec). The image is pulled there first. The replication passfile is
+// copied into the created container before it starts: the password is in no
+// env, argv or image layer.
 func (o *Orchestrator) createStandby(ctx context.Context, t store.Tile, m InstanceMember) error {
 	host, err := o.memberHost(ctx, m, m.NodeID)
 	if err != nil {
@@ -31,22 +37,40 @@ func (o *Orchestrator) createStandby(ctx context.Context, t store.Tile, m Instan
 	if err != nil {
 		return err
 	}
+	pass, err := o.engines.StandbyPassfile(ctx, t)
+	if err != nil {
+		return err
+	}
 	nctx := docker.WithNode(ctx, m.NodeID)
 	if _, err := o.images.Ensure(nctx, spec.Image, "", io.Discard); err != nil {
 		return err
 	}
-	_, err = o.docker.Run(nctx, spec)
+	id, err := o.docker.Create(nctx, spec)
+	if err != nil {
+		return err
+	}
+	dir, name := path.Split(mflow.ReplPassfile)
+	err = o.docker.CopyTo(nctx, id, strings.TrimSuffix(dir, "/"), name, 0o600, pass)
+	if err == nil {
+		err = o.docker.Start(nctx, id)
+	}
+	if err != nil {
+		// not left lying around under a name the retry would collide with
+		_ = o.docker.StopRemove(context.WithoutCancel(nctx), id)
+	}
 	return err
 }
 
 // observeStandbys is the watch tick's look at every instance's standbys,
 // after startMembers: a standby whose slot was lost (wal_status lost, or
 // gone) is marked rebuild, stopped and alerted; one else is streaming or
-// starting by its own report (in recovery, WAL receiver streaming). A change
-// in who may serve reads redeploys the consumers on that standby's node,
-// whose read alias resolves differently now.
-// ponytail: a flapping standby redeploys its node's consumers each time; a
-// hold-down (two ticks) when it shows.
+// starting by its own report (in recovery, WAL receiver streaming). Who may
+// serve reads changes by hysteresis: a standby joins the read pool after two
+// probes in a row that find it streaming and leaves after two that do not,
+// or at once when its container is not running, it is fenced, or it needs a
+// rebuild; so a flapping standby does not redeploy its node's consumers on
+// every flap. A change is routed to those consumers (routeReaders), which
+// the tick retries until it has.
 func (o *Orchestrator) observeStandbys(ctx context.Context) {
 	all, err := o.members.All(ctx)
 	if err != nil {
@@ -61,6 +85,27 @@ func (o *Orchestrator) observeStandbys(ctx context.Context) {
 	for id, reps := range byInst {
 		o.observeInstance(ctx, id, reps)
 	}
+}
+
+// probeHold is how many probes in a row move a standby into or out of the
+// read pool.
+const probeHold = 2
+
+// bumpProbe counts consecutive probes of member id: positive for streaming,
+// negative for not. It returns the run.
+func (o *Orchestrator) bumpProbe(id string, streaming bool) int {
+	n := 0
+	if v, ok := o.probeRuns.Load(id); ok {
+		n = v.(int)
+	}
+	switch {
+	case streaming:
+		n = max(n, 0) + 1
+	default:
+		n = min(n, 0) - 1
+	}
+	o.probeRuns.Store(id, n)
+	return n
 }
 
 func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, reps []InstanceMember) {
@@ -84,9 +129,20 @@ func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, r
 		if st, ok := slots[mflow.SlotName(m.ID)]; slotsErr == nil && (!ok || st == "lost") {
 			phase = opmember.Rebuild
 			o.stopMember(ctx, m)
+			o.probeRuns.Delete(m.ID)
 		} else if phase != opmember.Rebuild {
-			if p, known := o.probeStandby(ctx, m, probe); known {
-				phase = p
+			switch o.probeStandby(ctx, m, probe) {
+			case probeDown:
+				phase = opmember.Starting
+				o.probeRuns.Delete(m.ID)
+			case probeStreaming:
+				if n := o.bumpProbe(m.ID, true); phase != opmember.Streaming && n >= probeHold {
+					phase = opmember.Streaming
+				}
+			case probeBehind:
+				if n := o.bumpProbe(m.ID, false); phase == opmember.Streaming && n <= -probeHold {
+					phase = opmember.Starting
+				}
 			}
 		}
 		needs = needs || phase == opmember.Rebuild
@@ -98,8 +154,8 @@ func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, r
 			slog.Warn("members: phase not recorded", "member", m.ID, "err", err)
 			continue
 		}
-		if opmember.InReadPool(m) != opmember.InReadPool(upd) {
-			o.redeployReaders(ctx, inst.ID, m.NodeID)
+		if err := o.routeReaders(ctx, upd); err != nil {
+			slog.Warn("members: readers not redeployed (the tick retries)", "member", m.ID, "err", err)
 		}
 	}
 	sev, msg := "", ""
@@ -109,29 +165,38 @@ func (o *Orchestrator) observeInstance(ctx context.Context, instanceID string, r
 	o.pitrProblem(ctx, "alert."+AlertPGRebuild+"."+inst.ID, AlertPGRebuild, sev, t.Slug, msg)
 }
 
-// probeStandby is a standby's phase from its own report: streaming when its
-// container runs and the WAL receiver streams, else starting. known is false
-// when its node cannot be asked.
-func (o *Orchestrator) probeStandby(ctx context.Context, m InstanceMember, probe []string) (string, bool) {
+// What a probe of a standby found.
+type probeResult int
+
+const (
+	probeUnknown   probeResult = iota // its node cannot be asked
+	probeDown                         // its container is not running
+	probeStreaming                    // in recovery, WAL receiver streaming
+	probeBehind                       // running, not streaming
+)
+
+// probeStandby asks standby m: streaming when its container runs and the WAL
+// receiver streams.
+func (o *Orchestrator) probeStandby(ctx context.Context, m InstanceMember, probe []string) probeResult {
 	if o.nodeUp(ctx, m.NodeID) != nil {
-		return "", false
+		return probeUnknown
 	}
 	nctx := docker.WithNode(ctx, m.NodeID)
 	cs, err := o.docker.List(nctx, map[string]string{LabelMember: m.ID})
 	if err != nil {
-		return "", false
+		return probeUnknown
 	}
 	i := slices.IndexFunc(cs, func(c docker.Container) bool { return c.State == "running" })
 	if i < 0 {
-		return opmember.Starting, true
+		return probeDown
 	}
 	cctx, cancel := context.WithTimeout(nctx, 10*time.Second)
 	defer cancel()
 	out, err := o.docker.Exec(cctx, cs[i].ID, probe)
 	if err == nil && mflow.StandbyStreaming(out) {
-		return opmember.Streaming, true
+		return probeStreaming
 	}
-	return opmember.Starting, true
+	return probeBehind
 }
 
 // stopMember stops standby m's containers; it stays down (restart "no", and
@@ -151,34 +216,78 @@ func (o *Orchestrator) stopMember(ctx context.Context, m InstanceMember) {
 	}
 }
 
-// redeployReaders redeploys the consumers of the instance's slices that run
-// on node, so their read alias resolves against the standby's new standing.
-// ponytail: every consumer there, not only those that ref a _read output
-// (a ref may come from a params block); narrow it when it hurts.
-func (o *Orchestrator) redeployReaders(ctx context.Context, instanceID, node string) {
-	ps, err := o.operated.ByInstance(ctx, instanceID)
+// routeReaders makes the consumers on standby m's node match its standing in
+// the read pool: when it differs from what they were last deployed with
+// (m.Routed), those that ref a *_read output are redeployed, so the read
+// alias resolves against it. Routed is recorded only once every one of them
+// was queued; until then it differs and the tick calls this again.
+func (o *Orchestrator) routeReaders(ctx context.Context, m InstanceMember) error {
+	want := opmember.InReadPool(m)
+	if m.Role != opmember.Replica || m.Routed == want {
+		return nil
+	}
+	if err := o.redeployReaders(ctx, m.InstanceID, m.NodeID); err != nil {
+		return err
+	}
+	_, err := o.members.SetRouted(ctx, m, want)
+	return err
+}
+
+// routePending retries the routing changes still owed.
+func (o *Orchestrator) routePending(ctx context.Context) {
+	all, err := o.members.All(ctx)
 	if err != nil {
 		return
+	}
+	for _, m := range all {
+		if m.Role == opmember.Replica && m.State != opmember.Removing && m.Routed != opmember.InReadPool(m) {
+			if err := o.routeReaders(ctx, m); err != nil {
+				slog.Warn("members: readers not redeployed", "member", m.ID, "err", err)
+			}
+		}
+	}
+}
+
+// usesRead says whether tile t refs a *_read output of a slice.
+func usesRead(t Tile) bool {
+	for _, b := range params.Refs(t.EnvJSON + "\n" + t.Volumes + "\n" + t.Command) {
+		if r, err := params.Parse(b); err == nil && r.Kind == params.KindTile && strings.Contains(r.Name, "_read") {
+			return true
+		}
+	}
+	return false
+}
+
+// redeployReaders redeploys the consumers of the instance's slices that run
+// on node and ref a *_read output. Every one is tried; the errors are joined.
+func (o *Orchestrator) redeployReaders(ctx context.Context, instanceID, node string) error {
+	ps, err := o.operated.ByInstance(ctx, instanceID)
+	if err != nil {
+		return err
 	}
 	var readers []Tile
 	for _, p := range ps {
 		bs, err := o.operated.Bindings(ctx, p.ID)
 		if err != nil {
-			continue
+			return err
 		}
 		for _, b := range bs {
 			c, err := o.tiles.Get(ctx, b.ConsumerTileID)
 			if err != nil {
-				continue
+				return err
 			}
-			if n, err := o.envNode(ctx, c.EnvironmentID); err == nil && n == node {
+			if n, err := o.envNode(ctx, c.EnvironmentID); err == nil && n == node && usesRead(c) {
 				readers = append(readers, c)
 			}
 		}
 	}
-	if err := o.redeployUnion(ctx, readers); err != nil {
-		slog.Warn("members: readers not redeployed", "instance", instanceID, "err", err)
+	var failed []error
+	for _, c := range readers {
+		if _, err := o.redeployIfRunning(ctx, c); err != nil {
+			failed = append(failed, err)
+		}
 	}
+	return errors.Join(failed...)
 }
 
 // StandbyView is one member of an instance as its drawer and `stackr db
@@ -297,8 +406,14 @@ func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []str
 }
 
 // setStandbys makes instance tile t's standbys exactly nodes (names): the
-// ones off the list are removed first, then the missing ones added.
+// ones off the list are removed first, then the missing ones added. The
+// membership is read under the instance's topology lock.
 func (o *Orchestrator) setStandbys(ctx context.Context, t store.Tile, nodes []string) error {
+	unlock, err := o.lockInstance(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	ms, err := o.InstanceMembers(ctx, t.ID)
 	if err != nil {
 		return err
@@ -311,14 +426,14 @@ func (o *Orchestrator) setStandbys(ctx context.Context, t store.Tile, nodes []st
 		name := o.nodeName(ctx, m.NodeID)
 		have[name] = true
 		if !slices.Contains(nodes, name) {
-			if err := o.RemoveStandby(ctx, m.ID); err != nil {
+			if err := o.removeStandby(ctx, m.ID); err != nil {
 				return err
 			}
 		}
 	}
 	for _, n := range nodes {
 		if !have[n] {
-			if _, err := o.AddStandby(ctx, t.ID, n); err != nil {
+			if _, err := o.addStandby(ctx, t.ID, n); err != nil {
 				return err
 			}
 		}

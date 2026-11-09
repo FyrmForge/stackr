@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +53,20 @@ func TestAddStandbyMakesTheContainer(t *testing.T) {
 	must(t, err)
 	if row.ReplPassword == "" {
 		t.Fatal("no replication password stored")
+	}
+	// the password reaches the container as a file copied in before it starts,
+	// and is in no env docker inspect shows
+	for _, e := range spec.Env {
+		if strings.Contains(e, row.ReplPassword) || strings.HasPrefix(e, "POSTGRES_PASSWORD=") {
+			t.Errorf("a secret is in the standby's env: %s", strings.SplitN(e, "=", 2)[0])
+		}
+	}
+	if got := string(n.wFake.Copied[" /etc/stackr.pgpass"]); !strings.Contains(got, ":stackr_repl:"+row.ReplPassword) {
+		t.Errorf("passfile copied in = %q (%v)", got, callNames(n.wFake))
+	}
+	if cs := callNames(n.wFake); slices.Index(cs, "CopyTo(, /etc/stackr.pgpass)") < slices.Index(cs, "Create("+r.Container+", postgres:17)") ||
+		slices.Index(cs, "CopyTo(, /etc/stackr.pgpass)") > slices.Index(cs, "Start()") {
+		t.Errorf("the passfile is not copied between create and start: %v", cs)
 	}
 	var stdin string
 	for _, c := range append(n.ctlFake.Calls(), n.wFake.Calls()...) {
@@ -146,6 +161,10 @@ func TestObserveStandbys(t *testing.T) {
 		return got.Phase
 	}
 	n.orch.observeStandbys(ctx)
+	if phase() != opmember.Starting {
+		t.Fatalf("one streaming probe: phase = %q, want it still starting (two in a row join the pool)", phase())
+	}
+	n.orch.observeStandbys(ctx)
 	if phase() != opmember.Streaming {
 		t.Fatalf("phase = %q, want streaming", phase())
 	}
@@ -154,6 +173,10 @@ func TestObserveStandbys(t *testing.T) {
 	}
 
 	n.wFake.ExecFn = func(cmd []string) string { return "1," } // the receiver is not streaming
+	n.orch.observeStandbys(ctx)
+	if phase() != opmember.Streaming {
+		t.Fatalf("one failed probe: phase = %q, want it still streaming", phase())
+	}
 	n.orch.observeStandbys(ctx)
 	if phase() != opmember.Starting {
 		t.Errorf("a standby that does not stream is %q, want starting", phase())

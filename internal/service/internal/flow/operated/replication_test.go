@@ -1,7 +1,9 @@
 package operated
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -79,11 +81,20 @@ func TestOwnedSplit(t *testing.T) {
 	}
 }
 
-// max_slot_wal_keep_size: 10 GB, or 10% of the free disk in whole 10 GB steps.
+// max_slot_wal_keep_size: the larger of 10 GB and 10% of the free disk, in
+// whole GB, but never over the free disk less a headroom (10% of the disk, 5
+// GB at least), and 1 GB at the least.
 func TestSlotKeepMB(t *testing.T) {
-	for free, want := range map[int]int{0: 10240, 50 << 10: 10240, 150 << 10: 10240, 250 << 10: 20480, 1 << 20: 102400} {
-		if got := slotKeepMB(free); got != want {
-			t.Errorf("free %d MB: keep %d, want %d", free, got, want)
+	for _, c := range []struct{ free, total, want int }{
+		{0, 0, 10240},                 // unknown
+		{50 << 10, 100 << 10, 10240},  // 10 GB floor
+		{250 << 10, 400 << 10, 25600}, // 10% of free
+		{12 << 10, 100 << 10, 2048},   // free 12 GB less 10 GB headroom
+		{6 << 10, 100 << 10, 1024},    // under the budget: the 1 GB floor
+		{20 << 10, 20 << 10, 10240},   // headroom 5 GB: budget 15 GB, 10 GB wanted
+	} {
+		if got := slotKeepMB(c.free, c.total); got != c.want {
+			t.Errorf("free %d total %d MB: keep %d, want %d", c.free, c.total, got, c.want)
 		}
 	}
 }
@@ -101,7 +112,7 @@ func TestStandbyBootstrap(t *testing.T) {
 	script := cmd[2]
 	for _, want := range []string{
 		"pg_basebackup", "-X stream", `-S "$STACKR_SLOT"`, "-U " + ReplUser, "PGPASSFILE=" + ReplPassfile, "standby.signal",
-		`"$STACKR_REPL_PASS"`, "exit 1",
+		"exit 1",
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("no %q in the standby script", want)
@@ -114,10 +125,70 @@ func TestStandbyBootstrap(t *testing.T) {
 	if strings.Index(script, "pg_basebackup") > strings.Index(script, "exec docker-entrypoint.sh") {
 		t.Error("the entrypoint runs before the copy")
 	}
+	if strings.Contains(script, "STACKR_REPL_PASS") {
+		t.Error("the script reads the password from the env")
+	}
 	if strings.Contains(strings.Join(cmd, " "), "hunter2") {
 		t.Error("the replication password is on the command line")
 	}
 	if !slices.Contains(cmd, "wal_level=replica") || slices.Contains(cmd, "archive_mode=on") {
 		t.Errorf("standby flags = %v", cmd)
+	}
+}
+
+// The standby's bootstrap, run for real with a stand-in pg_basebackup: an
+// empty directory is copied and marked complete; one with PG_VERSION but no
+// marker (a copy cut short), or no standby.signal, is wiped and copied again;
+// a complete one is left alone; a failed copy leaves nothing and fails.
+func TestStandbyBootstrapRuns(t *testing.T) {
+	bin := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("pg_basebackup", `echo run >> "$CALLS"
+[ -n "$FAIL" ] && { echo x > "$PGDATA/partial"; exit 1; }
+echo 17 > "$PGDATA/PG_VERSION"; echo conf > "$PGDATA/stackr.conf"`)
+	write("chown", "exit 0")
+	pass := filepath.Join(t.TempDir(), "pgpass")
+	if err := os.WriteFile(pass, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := strings.ReplaceAll(standbyPrep, ReplPassfile, pass)
+	data := filepath.Join(t.TempDir(), "data")
+	calls := filepath.Join(t.TempDir(), "calls")
+	run := func(fail bool) error {
+		c := exec.Command("sh", "-c", script)
+		c.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "PGDATA="+data, "CALLS="+calls,
+			"STACKR_PRIMARY=p", "STACKR_PORT=5432", "STACKR_SLOT=s")
+		if fail {
+			c.Env = append(c.Env, "FAIL=1")
+		}
+		return c.Run()
+	}
+	copies := func() int {
+		b, _ := os.ReadFile(calls)
+		return strings.Count(string(b), "run")
+	}
+	has := func(n string) bool { _, err := os.Stat(filepath.Join(data, n)); return err == nil }
+
+	if err := run(true); err == nil || has("partial") || has("PG_VERSION") {
+		t.Fatalf("a failed copy: err %v, left partial %v", err, has("partial"))
+	}
+	if err := run(false); err != nil || copies() != 2 || !has(standbyDone) || !has("standby.signal") || has("stackr.conf") {
+		t.Fatalf("first run: err %v copies %d", err, copies())
+	}
+	if err := run(false); err != nil || copies() != 2 {
+		t.Fatalf("a complete directory was copied again: err %v copies %d", err, copies())
+	}
+	os.Remove(filepath.Join(data, standbyDone)) // a copy cut short: data there, no marker
+	os.WriteFile(filepath.Join(data, "stale"), nil, 0o600)
+	if err := run(false); err != nil || copies() != 3 || has("stale") || !has(standbyDone) {
+		t.Fatalf("no marker: err %v copies %d", err, copies())
+	}
+	os.Remove(filepath.Join(data, "standby.signal")) // never starts without it
+	if err := run(false); err != nil || copies() != 4 || !has("standby.signal") {
+		t.Fatalf("no standby.signal: err %v copies %d", err, copies())
 	}
 }

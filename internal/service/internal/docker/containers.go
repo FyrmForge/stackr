@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -110,6 +112,25 @@ func (d *Client) Create(ctx context.Context, spec ContainerSpec) (string, error)
 		return "", wrap(err)
 	}
 	return resp.ID, nil
+}
+
+// CopyTo puts one file into the container's filesystem as it is now, which
+// may be a created container that has not started: name in dir (the dir has to
+// exist in the image), root-owned, with mode. How a secret reaches a
+// container without being in its env, where `docker inspect` shows it.
+func (d *Client) CopyTo(ctx context.Context, id, dir, name string, mode int64, data []byte) error {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
+		return err
+	}
+	if _, err := tw.Write(data); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return wrap(d.cli.CopyToContainer(ctx, id, dir, &buf, container.CopyToContainerOptions{}))
 }
 
 // logConfig caps every container's json-file log at 3 files of 10 MB.

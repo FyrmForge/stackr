@@ -25,6 +25,9 @@ type Docker interface {
 	// UpdateRestart sets a live container's restart policy (docker's word).
 	UpdateRestart(ctx context.Context, id, policy string) error
 	StopRemove(ctx context.Context, id string) error
+	// CopyTo puts one file (root-owned, mode) into a created or running
+	// container: a secret that must not be in its env.
+	CopyTo(ctx context.Context, id, dir, name string, mode int64, data []byte) error
 	Rename(ctx context.Context, id, name string) error
 	Pause(ctx context.Context, id string) error
 	Unpause(ctx context.Context, id string) error

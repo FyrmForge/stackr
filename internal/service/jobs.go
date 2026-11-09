@@ -723,6 +723,7 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 	o.finishRemovals(ctx)
 	o.startMembers(ctx) // before the rebuild: it routes to what runs
 	o.observeStandbys(ctx)
+	o.watchStandbys(ctx)
 	o.rerouteVIPs(ctx)
 	if restarted {
 		if err := o.rejoinProxy(ctx); err != nil {

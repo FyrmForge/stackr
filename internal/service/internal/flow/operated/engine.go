@@ -133,9 +133,11 @@ type Instance struct {
 	// max_slot_wal_keep_size, 0 = none. A standby's Slot names its
 	// replication slot and PrimaryHost the primary's alias; both empty on a
 	// primary.
-	ReplPassword      string
-	SlotKeepMB        int
-	Slot, PrimaryHost string
+	ReplPassword string
+	SlotKeepMB   int
+	// DiskFreeMB and DiskTotalMB are the primary's node's disk, 0 = unknown.
+	DiskFreeMB, DiskTotalMB int
+	Slot, PrimaryHost       string
 }
 
 // Slice is one slice tile's unit, a logical db or a bucket, with its owner

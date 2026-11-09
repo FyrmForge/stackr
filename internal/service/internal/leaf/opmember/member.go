@@ -134,6 +134,15 @@ func (l *Leaf) SetPhase(ctx context.Context, m store.OperatedMember, phase strin
 	return l.save(ctx, m)
 }
 
+// SetRouted records the read pool membership the consumers were deployed with.
+func (l *Leaf) SetRouted(ctx context.Context, m store.OperatedMember, routed bool) (store.OperatedMember, error) {
+	if m.Routed == routed {
+		return m, nil
+	}
+	m.Routed = routed
+	return l.save(ctx, m)
+}
+
 // InReadPool says whether reads may go to replica m: it wants to run, is not
 // fenced, and is streaming. A standby that is stopped, past its slot cap
 // (rebuild) or not yet caught up is out; a lagging one stays in.

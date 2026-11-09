@@ -101,17 +101,21 @@ func pgComputed(memMB, nodeMB int) map[string]string {
 	return c
 }
 
-// slotKeepStepMB is the granularity of max_slot_wal_keep_size, and its floor.
-// It is part of the instance's start flags, so a free-disk figure that moved a
-// little must not change it: whole 10 GB steps.
+// slotKeepStepMB is the floor of max_slot_wal_keep_size (and the cap when
+// the node's disk is unknown); the cap moves in whole GB.
 const slotKeepStepMB = 10 << 10
 
 // slotKeepMB is max_slot_wal_keep_size: the larger of 10 GB and 10% of the
-// data node's free disk, in whole 10 GB steps. diskFreeMB 0 = unknown, 10 GB.
-// ponytail: free disk is read when the container is made, so a primary on a
-// disk that has since filled keeps the cap it started with.
-func slotKeepMB(diskFreeMB int) int {
-	return max(slotKeepStepMB, diskFreeMB/10/slotKeepStepMB*slotKeepStepMB)
+// data node's free disk, but never more than the free disk less a headroom
+// (walBudgetMB), in whole GB and at least 1 GB. freeMB 0 = unknown, 10 GB.
+// It is in stackr-owned.conf, a reload: the watch tick moves it as the free
+// disk does.
+func slotKeepMB(freeMB, totalMB int) int {
+	if freeMB <= 0 {
+		return slotKeepStepMB
+	}
+	want := min(max(slotKeepStepMB, freeMB/10), walBudgetMB(freeMB, totalMB))
+	return max(want/1024*1024, minWALBudgetMB)
 }
 
 // pgOwnedConf is stackr-owned.conf, included after stackr.conf: the owned

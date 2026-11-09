@@ -70,6 +70,19 @@ func (o *Orchestrator) nodeDiskMB(ctx context.Context, t store.Tile) int {
 	return 0
 }
 
+// nodeDiskTotalMB is the whole disk of the node the tile's env runs on, 0 =
+// unknown.
+func (o *Orchestrator) nodeDiskTotalMB(ctx context.Context, t store.Tile) int {
+	n, err := o.nodeOfEnvID(ctx, t.EnvironmentID)
+	if err != nil {
+		return 0
+	}
+	if f := o.reportedFacts(ctx, n); f != nil {
+		return int(f.DiskTotal >> 20)
+	}
+	return 0
+}
+
 // PGSettings lists the settings the panel offers, then any other the user
 // set, with where each value comes from. The running instance adds the
 // values stackr does not set and which ones wait for a restart.
@@ -157,9 +170,18 @@ func (o *Orchestrator) applyPGSettings(ctx context.Context, t Tile, m OperatedIn
 	if err != nil {
 		return false, err
 	}
+	// every running standby takes the file too (a standby's limits may not
+	// be below the primary's); one that refuses puts everything back
+	sbs, err := o.applyToStandbys(ctx, t, m.ID, cur, changed, removed)
+	if err != nil {
+		back, backUnset := mflow.ChangedSettings(cur, m.Settings)
+		_, _ = o.engines.ApplySettings(ctx, t, m.Settings, back, backUnset)
+		return false, err
+	}
 	if _, err := o.operated.SetSettings(ctx, m, cur); err != nil {
 		back, backUnset := mflow.ChangedSettings(cur, m.Settings)
 		_, _ = o.engines.ApplySettings(ctx, t, m.Settings, back, backUnset)
+		o.undoStandbys(ctx, t, sbs, m.Settings, back, backUnset)
 		return false, err
 	}
 	if !restart && slices.Contains(changed, "max_connections") {
@@ -238,6 +260,9 @@ func (o *Orchestrator) SetPGSettings(
 	}
 	var j *Job
 	if restart {
+		// standbys before the primary where the limits allow: those that may
+		// restart now do, the rest wait for the primary (syncStandbyConf)
+		o.syncStandbyConf(ctx, t)
 		job, err := o.deployNoted(ctx, t.ID, "settings changed: restarting for the ones that need it")
 		if err != nil {
 			return PGSettings{}, nil, err
