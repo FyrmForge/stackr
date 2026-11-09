@@ -104,6 +104,11 @@ func (l *Leaf) WithPITR(ctx context.Context) ([]store.OperatedInstance, error) {
 	return l.instances.ListPITR(ctx)
 }
 
+// WithEngine are the instances of one engine.
+func (l *Leaf) WithEngine(ctx context.Context, engine string) ([]store.OperatedInstance, error) {
+	return l.instances.ListEngine(ctx, engine)
+}
+
 // SetPITR stores the instance's point-in-time recovery window; the caller
 // redeploys the instance for archiving to follow.
 func (l *Leaf) SetPITR(ctx context.Context, m store.OperatedInstance, days int) (store.OperatedInstance, error) {

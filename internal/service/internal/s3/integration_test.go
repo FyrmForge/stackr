@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
@@ -53,6 +54,7 @@ func TestRustFS(t *testing.T) {
 	}
 	roundTrip(t, b)
 	userGrants(t, b)
+	protection(t, b)
 }
 
 func denied(t *testing.T, what string, err error) {
@@ -112,5 +114,77 @@ func userGrants(t *testing.T, root Bucket) {
 	}
 	if err := a.RemoveUser(ctx, "appuser"); err != nil {
 		t.Fatalf("second remove: %v", err)
+	}
+}
+
+// protection walks versioning, an app key's limits, restore and the purging
+// drop on a real server. The delete-marker lifecycle rule and a quota of 0
+// are the parts only a real RustFS can confirm.
+func protection(t *testing.T, root Bucket) {
+	ctx := context.Background()
+	a := Admin(root)
+	const name = "prot-bucket"
+	if err := a.CreateBucket(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Protect(ctx, name, Protect{VersionDays: 7, QuotaBytes: 1 << 30, CORS: []string{"https://app.example.com"}}); err != nil {
+		t.Fatalf("protect: %v", err)
+	}
+	if err := a.Protect(ctx, name, Protect{VersionDays: 7}); err != nil {
+		t.Fatalf("protect again, no quota, no CORS: %v", err)
+	}
+	if err := a.AddUser(ctx, "protuser", "protuser-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.GrantUser(ctx, "protuser", name, true); err != nil {
+		t.Fatal(err)
+	}
+	rb := root
+	rb.Bucket = name
+	ub := Bucket{Endpoint: root.Endpoint, Bucket: name, AccessKey: "protuser", SecretKey: "protuser-secret"}
+	if err := rb.Put(ctx, "doc", strings.NewReader("one")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
+	mid := time.Now()
+	time.Sleep(2 * time.Second)
+	if err := ub.Put(ctx, "doc", strings.NewReader("two")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ub.Delete(ctx, "doc"); err != nil { // a marker on top; history stays
+		t.Fatal(err)
+	}
+	// An app key cannot delete a version, whatever its write access.
+	var id string
+	if err := a.versions(ctx, name, "", func(page []entry) error {
+		for _, e := range page {
+			if !e.Latest && !e.Marker {
+				id = e.ID
+			}
+		}
+		return nil
+	}); err != nil || id == "" {
+		t.Fatalf("no old version: %v", err)
+	}
+	_, err := ub.client().DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(name), Key: aws.String("doc"), VersionId: aws.String(id)})
+	denied(t, "app key deletes a version", err)
+
+	r, err := a.Restore(ctx, name, "doc", true, mid, nil)
+	if err != nil || r.Restored != 1 {
+		t.Fatalf("restore: %+v %v", r, err)
+	}
+	body, err := rb.Get(ctx, "doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := io.ReadAll(body); string(got) != "one" {
+		t.Fatalf("restored %q, want one", got)
+	}
+	cur, old, err := a.Sizes(ctx, name)
+	if err != nil || cur != 3 || old != 6 {
+		t.Fatalf("sizes %d %d %v", cur, old, err)
+	}
+	if err := a.DropBucket(ctx, name); err != nil {
+		t.Fatalf("drop a versioned bucket: %v", err)
 	}
 }

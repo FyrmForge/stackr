@@ -113,6 +113,38 @@ func TestInstanceDrawer(t *testing.T) {
 	}
 }
 
+// A bucket slice's drawer: the versions and limits row posts as one group,
+// a bad value comes back in the row (422), a restore needs a past time.
+func TestSliceBucketDrawer(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	if _, err := s.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "files"}, "s3", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "media", "shop:dev:files", ""); err != nil {
+		t.Fatal(err)
+	}
+	d := "/acme/shop/dev/-/slices/media"
+	body := s.Do(t, "GET", d+"?tab=settings", nil).Body.String()
+	for _, w := range []string{`data-acc="bucket"`, `name="version_days"`, `name="quota_gb"`, `name="cors"`} {
+		if !strings.Contains(body, w) {
+			t.Errorf("bucket settings lack %q", w)
+		}
+	}
+	rec := s.Do(t, "POST", d+"/bucket", url.Values{"version_days": {"-3"}, "open": {"bucket"}})
+	if rec.Code != 422 {
+		t.Errorf("negative days = %d, want 422", rec.Code)
+	}
+	rec = s.Do(t, "POST", d+"/bucket", url.Values{"version_days": {"30"}, "quota_gb": {"5"}, "cors": {"https://a.example.com, https://b.example.com"}, "open": {"bucket"}})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="30"`) || !strings.Contains(rec.Body.String(), `value="https://a.example.com, https://b.example.com"`) {
+		t.Errorf("save = %d\n%s", rec.Code, rec.Body)
+	}
+	rec = s.Do(t, "POST", d+"/restore", url.Values{"at": {"2999-01-01T00:00"}})
+	if rec.Code != 422 {
+		t.Errorf("restore to the future = %d, want 422", rec.Code)
+	}
+}
+
 func operated(t *testing.T, s *webtest.Site) service.Tile {
 	t.Helper()
 	pg, err := s.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres", 0)

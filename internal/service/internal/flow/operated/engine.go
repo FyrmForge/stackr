@@ -13,6 +13,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/s3"
 )
 
 // Exec runs argv inside the instance's container (leaf/tile.Exec).
@@ -27,6 +30,9 @@ type S3Admin interface {
 	AddUser(ctx context.Context, key, secret string) error
 	GrantUser(ctx context.Context, user, bucket string, write bool) error
 	RemoveUser(ctx context.Context, user string) error
+	Protect(ctx context.Context, name string, p s3.Protect) error
+	Restore(ctx context.Context, name, prefix string, exact bool, at time.Time, progress func(s3.RestoreResult)) (s3.RestoreResult, error)
+	Sizes(ctx context.Context, name string) (current, old int64, err error)
 }
 
 // Tools is how an engine reaches its instance; the flow fills it per call.
@@ -126,6 +132,11 @@ type Slice struct {
 	User     string
 	Password string
 	Public   bool
+	// s3 buckets: days old versions are kept (0 = versioning off), the hard
+	// size cap in bytes (0 = none) and the origins CORS allows.
+	VersionDays int
+	QuotaBytes  int64
+	CORS        []string
 }
 
 // Grant is one consumer's own cred on a slice.

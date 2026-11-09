@@ -64,6 +64,16 @@ func TestOperatedAndSliceRoutes(t *testing.T) {
 	want(member, "PUT", env+"/tiles/pg/slice-access", `{"slice":"db","access":"read"}`, 400)
 	want(member, "PUT", env+"/tiles/db/on-remove", `{"on_remove":"drop"}`, 200, `"on_remove":"drop"`)
 	want(member, "PUT", env+"/tiles/api/on-remove", `{"on_remove":"drop"}`, 400)
+
+	// bucket protection: one group, a member's; restore and usage need a bucket
+	set := `{"version_days":30,"quota_gb":5,"cors_origins":["https://a.example.com"]}`
+	want(viewer, "PUT", env+"/tiles/db/bucket", set, 403)
+	want(member, "PUT", env+"/tiles/db/bucket", `{"version_days":-1}`, 400)
+	want(member, "PUT", env+"/tiles/db/bucket", set, 200, `"version_days":30`, `"quota_gb":5`, `"cors_origins":["https://a.example.com"]`)
+	want(viewer, "GET", env+"/tiles/db/slice", "", 200, `"version_days":30`, `"quota_gb":5`)
+	want(member, "POST", env+"/tiles/db/bucket-restore", `{"at":"2026-01-01T00:00:00Z"}`, 409)
+	want(viewer, "POST", env+"/tiles/db/bucket-restore", `{"at":"2026-01-01T00:00:00Z"}`, 403)
+	want(viewer, "GET", env+"/tiles/db/bucket-usage", "", 409)
 }
 
 // A dump upload is past the server's 2M body limit, which still holds

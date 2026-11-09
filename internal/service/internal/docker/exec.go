@@ -110,12 +110,25 @@ func (d *Client) Exec(ctx context.Context, id string, cmd []string) (string, err
 		return "", err
 	}
 	var buf bytes.Buffer
-	_, err = stdcopy.StdCopy(&buf, &buf, att.Reader)
+	err = copyUntilDone(ctx, &buf, att.Reader, att.Close)
 	att.Close()
 	if err != nil {
 		return buf.String(), err
 	}
 	return buf.String(), d.execResult(ctx, execID.ID, buf.String())
+}
+
+// copyUntilDone demuxes r into buf and returns when it ends or ctx does: a
+// hijacked connection ignores ctx once attached, so ctx's end closes it. The
+// command itself may run on in the container; bound it there too.
+func copyUntilDone(ctx context.Context, buf *bytes.Buffer, r io.Reader, closeConn func()) error {
+	stop := context.AfterFunc(ctx, closeConn)
+	defer stop()
+	_, err := stdcopy.StdCopy(buf, buf, r)
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
 
 // execResult reads the exit of a finished exec. WithoutCancel: it has to run

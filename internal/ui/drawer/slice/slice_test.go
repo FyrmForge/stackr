@@ -139,3 +139,27 @@ func TestConsumersSummary(t *testing.T) {
 		}
 	}
 }
+
+// A bucket slice has the versions row, the restore row and the lazy size
+// panel; any other slice has none of them.
+func TestBucketRows(t *testing.T) {
+	v := full()
+	v.IsBucket, v.VersionDays, v.QuotaGB, v.CORS = true, 7, 2, "https://a.example.com"
+	out := render(t, v, Settings(v)) + render(t, v, Overview(v))
+	for _, w := range []string{`data-acc="bucket"`, `data-acc="restore"`, `name="version_days"`, `/o/s/e/-/slices/main/usage`, "old versions 7 d", "2 GB cap"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("bucket drawer lacks %q", w)
+		}
+	}
+	v.FileOwned = true
+	if out := render(t, v, Settings(v)); strings.Contains(out, "/bucket\"") || !strings.Contains(out, "Set in the stack file.") {
+		t.Error("a config-managed bucket must not post its settings")
+	}
+	v = full()
+	if out := render(t, v, Settings(v)) + render(t, v, Overview(v)); strings.Contains(out, `data-acc="bucket"`) || strings.Contains(out, "/usage") {
+		t.Error("a postgres slice shows bucket rows")
+	}
+	if SizeText(1536) != "1.5 KB" || SizeText(5<<30) != "5.0 GB" || SizeText(7) != "7 B" {
+		t.Error("SizeText")
+	}
+}

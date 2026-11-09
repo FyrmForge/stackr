@@ -58,6 +58,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.GET(e+"/new-tile", h.NewTile, a.Require("tile.write"))
 	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
 	g.GET(e+"/instances/:tile", h.Instance, a.Require("tile.read"))
+	g.GET(e+"/instances/:tile/metrics/events", h.InstanceMetricsEvents, a.Require("tile.read"))
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
@@ -74,6 +75,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/on-remove", h.SliceOnRemove, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/bucket", h.SliceBucket, a.Require("tile.write"))
+	g.POST(e+"/slices/:tile/restore", h.SliceRestore, a.Require("tile.write"))
+	g.GET(e+"/slices/:tile/usage", h.SliceUsage, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/delete", h.SliceDelete, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/branch", h.SliceBranch, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/rename", h.SliceRename, a.Require("tile.write"))
@@ -512,6 +516,23 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			return middleware.HTTPError(err)
 		}
 		body = instance.Backups(v, pv, bs)
+	case instance.DatabaseTab:
+		if m.Engine != "postgres" {
+			v.Tab = instance.Tabs[0]
+			return h.instance(c, v.Tab, note, actErr, form)
+		}
+		r := comp.MetricRange(c.QueryParam("range"))
+		in := service.MetricsIn{}
+		in.Range, _ = time.ParseDuration(r)
+		ser, err := h.orch.PGMetrics(ctx, t.ID, in)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		mon, err := h.orch.PGMonitor(ctx, t.ID)
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		body = instance.Database(v, databaseView(mon, render.MetricsLive(h.orch, ser, r, v.Base+"?tab="+instance.DatabaseTab, v.Base+"/metrics/events")))
 	case "settings":
 		sv := settingsView(c, m, form)
 		if m.Engine == "postgres" {
@@ -554,6 +575,49 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		body = instance.Overview(v, o)
 	}
 	return respond.HTML(c, status, instance.Drawer(v, body))
+}
+
+// GET …/-/instances/:tile/metrics/events: the Database tab's new points.
+func (h *handler) InstanceMetricsEvents(c echo.Context) error {
+	s, err := h.orch.PGScope(c.Request().Context(), scope(c).Tile.ID)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	return render.MetricsEvents(c, h.orch, s)
+}
+
+func lines(ls []service.PGLine) []instance.Line {
+	out := make([]instance.Line, len(ls))
+	for i, l := range ls {
+		out[i] = instance.Line{Key: l.Key, Label: l.Label}
+	}
+	return out
+}
+
+// databaseView is the Database tab over the monitor's model.
+func databaseView(p service.PGMonitor, m comp.MetricsView) instance.DatabaseView {
+	d := instance.DatabaseView{
+		Metrics: m,
+		Sampled: p.Sampled,
+		Charts:  instance.DatabaseCharts(lines(p.DBs), lines(p.Replicas), lines(p.Slots), p.Archiving),
+		TopNote: p.TopError,
+	}
+	if p.Sampled {
+		d.Headline = [][2]string{
+			{"Connections", fmt.Sprintf("%d of %d", p.ConnUsed, p.ConnMax)},
+			{"Oldest transaction", (time.Duration(p.OldestXactS) * time.Second).String()},
+		}
+	}
+	for _, q := range p.Top {
+		d.Top = append(d.Top, instance.QueryRow{
+			Calls: strconv.FormatInt(q.Calls, 10),
+			Total: (time.Duration(q.TotalMS) * time.Millisecond).String(),
+			Mean:  (time.Duration(q.MeanUS) * time.Microsecond).String(),
+			Rows:  strconv.FormatInt(q.Rows, 10),
+			Text:  q.Text,
+		})
+	}
+	return d
 }
 
 // POST …/-/instances/:tile/settings: a v_<name> field per listed setting
@@ -748,6 +812,56 @@ func (h *handler) SliceOnRemove(c echo.Context) error {
 	return h.slice(c, "Saved.", err)
 }
 
+// POST …/-/slices/:tile/bucket: version_days, quota_gb (a number or empty)
+// and cors (origins, comma separated).
+func (h *handler) SliceBucket(c echo.Context) error {
+	in := service.BucketSettings{CORSOrigins: []string{}}
+	for _, f := range []struct {
+		name string
+		to   **int
+	}{{"version_days", &in.VersionDays}, {"quota_gb", &in.QuotaGB}} {
+		s := strings.TrimSpace(c.FormValue(f.name))
+		if s == "" {
+			continue
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return h.slice(c, "", errs.Invalidf(f.name, "%s is a whole number", f.name))
+		}
+		*f.to = &n
+	}
+	for _, o := range strings.Split(c.FormValue("cors"), ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			in.CORSOrigins = append(in.CORSOrigins, o)
+		}
+	}
+	_, err := h.orch.SetSliceBucket(c.Request().Context(), scope(c).Tile.ID, in)
+	return h.slice(c, "Saved.", err)
+}
+
+// POST …/-/slices/:tile/restore: at (UTC), and one key or a prefix.
+func (h *handler) SliceRestore(c echo.Context) error {
+	at, perr := time.Parse(time.RFC3339, atUTC(c.FormValue("at")))
+	if perr != nil {
+		return h.slice(c, "", errs.Invalidf("at", "pick the time to restore to"))
+	}
+	key, prefix := strings.TrimSpace(c.FormValue("key")), strings.TrimSpace(c.FormValue("prefix"))
+	if key != "" {
+		prefix = key
+	}
+	_, err := h.orch.RestoreSlice(c.Request().Context(), scope(c).Tile.ID, prefix, key != "", at)
+	return h.slice(c, "Restore is running; the newest job shows where it is.", err)
+}
+
+// GET …/-/slices/:tile/usage: the Overview's lazy size facts.
+func (h *handler) SliceUsage(c echo.Context) error {
+	u, err := h.orch.SliceUsage(c.Request().Context(), scope(c).Tile.ID)
+	if err != nil {
+		return respond.HTML(c, http.StatusOK, slice.Usage(0, 0, "Could not read the size: "+err.Error()))
+	}
+	return respond.HTML(c, http.StatusOK, slice.Usage(u.CurrentBytes, u.OldBytes, ""))
+}
+
 // POST …/-/slices/:tile/branch: env, instance, expires and at, each optional.
 func (h *handler) SliceBranch(c echo.Context) error {
 	br, _, err := h.orch.BranchSlice(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, service.BranchIn{
@@ -831,6 +945,10 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 		Provisioned:   sv.Provisioned,
 		DBName:        sv.Name,
 		Note:          note,
+		IsBucket:      sv.Engine == "s3",
+		VersionDays:   sv.VersionDays,
+		QuotaGB:       sv.QuotaGB,
+		CORS:          strings.Join(sv.CORSOrigins, ", "),
 	}
 	if len(js) > 0 {
 		j := render.JobView(render.EnvURL(c), js[0])

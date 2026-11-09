@@ -21,11 +21,22 @@ const Root = c.DrawerRoot
 // Tabs in v0's order. Overview keeps the key "slices": the canvas opens it.
 var Tabs = []string{"slices", "logs", "backups", "settings"}
 
+// DatabaseTab is postgres's own: its health and costliest statements.
+const DatabaseTab = "database"
+
+// tabsFor is the tabs an engine's drawer shows.
+func tabsFor(engine string) []string {
+	if engine != "postgres" {
+		return Tabs
+	}
+	return append([]string{Tabs[0], DatabaseTab}, Tabs[1:]...)
+}
+
 var labels = map[string]string{"slices": "Overview"}
 
 // Tab is the tab a request asks for; an unknown one opens Overview.
 func Tab(tab string) string {
-	if !slices.Contains(Tabs, tab) {
+	if tab != DatabaseTab && !slices.Contains(Tabs, tab) {
 		return Tabs[0]
 	}
 	return tab
@@ -49,7 +60,7 @@ func Drawer(v View, body templ.Component) templ.Component {
 		Title:    v.Name,
 		Kind:     v.Engine,
 		Base:     v.Base,
-		Tabs:     Tabs,
+		Tabs:     tabsFor(v.Engine),
 		Labels:   labels,
 		Tab:      v.Tab,
 		Error:    v.Error,
@@ -183,6 +194,108 @@ templ Logs(v View, l LogsView) {
 			<p class="text-rw-muted text-sm">No container is running yet.</p>
 		}
 	</div>
+}
+
+// ChartSpec is one chart of the Database tab (components.Chart's arguments).
+type ChartSpec struct{ Title, Measures, Labels, Unit string }
+
+// QueryRow is one of the costliest statements.
+type QueryRow struct {
+	Calls, Total, Mean, Rows string
+	Text                     string
+}
+
+// DatabaseView is the Database tab: the live charts, the headline and the
+// statements read when it opened.
+type DatabaseView struct {
+	Metrics c.MetricsView
+	Sampled bool
+	Headline [][2]string // label, value
+	Charts  []ChartSpec
+	Top     []QueryRow
+	TopNote string
+}
+
+// Line is one line of a chart: its series suffix and its label.
+type Line struct{ Key, Label string }
+
+// DatabaseCharts is the charts for the series an instance has: the fixed
+// ones, then one line per database, standby and slot.
+func DatabaseCharts(dbs, replicas, slots []Line, archiving bool) []ChartSpec {
+	lines := func(prefix string, ls []Line) (measures, labels string) {
+		for i, l := range ls {
+			if i > 0 {
+				measures, labels = measures+" ", labels+","
+			}
+			measures, labels = measures+prefix+l.Key, labels+l.Label
+		}
+		return
+	}
+	out := []ChartSpec{
+		{"Connections", "conn_active conn_idle conn_idle_tx conn_max", "active,idle,idle in transaction,max", ""},
+		{"Transactions", "commits_s rollbacks_s", "commits,rollbacks", "rps"},
+		{"Cache hit ratio", "cache_hit", "", "ratio"},
+		{"Oldest open transaction", "xact_oldest_s", "", "s"},
+		{"Deadlocks", "deadlocks_s", "", "rps"},
+	}
+	if len(dbs) > 0 {
+		m, l := lines("db_", dbs)
+		out = append(out, ChartSpec{"Database size", m, l, "bytes"})
+	}
+	if len(replicas) > 0 {
+		m, l := lines("repl_s_", replicas)
+		out = append(out, ChartSpec{"Replica lag", m, l, "s"})
+		m, l = lines("repl_bytes_", replicas)
+		out = append(out, ChartSpec{"Replica lag (bytes)", m, l, "bytes"})
+	}
+	if len(slots) > 0 {
+		m, l := lines("slot_", slots)
+		out = append(out, ChartSpec{"WAL held by slots", m, l, "bytes"})
+	}
+	if archiving {
+		out = append(out, ChartSpec{"WAL waiting to archive", "archive_bytes", "", "bytes"})
+	}
+	return out
+}
+
+// Database is the instance's health: charts, then the top statements.
+templ Database(v View, d DatabaseView) {
+	<div id="tab-database">
+		if len(d.Headline) > 0 {
+			@c.Facts() {
+				for _, h := range d.Headline {
+					@c.Fact(h[0], h[1])
+				}
+			}
+		} else if !d.Sampled {
+			<p class="text-rw-muted text-sm">No sample yet. The first one lands within a minute of the instance running.</p>
+		}
+		@c.Metrics(d.Metrics) {
+			for _, ch := range d.Charts {
+				@c.Chart(d.Metrics, ch.Title, ch.Measures, ch.Labels, ch.Unit)
+			}
+		}
+		<h3 class="section-title">Top statements by time</h3>
+		if len(d.Top) == 0 {
+			<p class="text-rw-muted text-sm">{ cmpOr(d.TopNote, "No statements recorded yet.") }</p>
+		} else {
+			<ul class="space-y-2">
+				for _, q := range d.Top {
+					<li class="panel px-4 py-3">
+						<code class="block font-mono text-xs text-rw-text break-all">{ q.Text }</code>
+						<span class="block mt-1 text-xs text-rw-muted">{ q.Calls } calls, { q.Total } total, { q.Mean } mean, { q.Rows } rows</span>
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // PITRView is the instance's point-in-time recovery health: what it can

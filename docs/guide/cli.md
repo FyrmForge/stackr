@@ -2876,6 +2876,23 @@ stackr slice branch <slice> [flags]
       --to-env string     the env the branch goes to: an env of the stack, or <stack>:<env> (default: the source's)
 ```
 
+### `stackr slice bucket`
+
+Set a bucket slice's version history, size cap and CORS origins
+
+```
+stackr slice bucket <slice> [flags]
+```
+
+```
+      --cors strings       origins CORS allows, e.g. https://app.example.com; "" clears them
+      --env string         the environment (default: the linked one)
+      --quota-gb int       hard size cap in GB; 0 = none
+      --stack string       the stack (default: the linked one)
+      --tile string        the tile (default: the linked one)
+      --version-days int   days old versions are kept; 0 turns versioning off (default 7)
+```
+
 ### `stackr slice forward`
 
 Tunnel a local port to the slice's postgres and print its connection string
@@ -2911,6 +2928,38 @@ Keep or drop the data when the slice tile is removed
 
 ```
 stackr slice on-remove <slice> <keep|drop> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+### `stackr slice restore`
+
+Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically
+
+```
+stackr slice restore <slice> [flags]
+```
+
+```
+      --at string       restore to how the objects were at this time (RFC3339 with an offset)
+      --env string      the environment (default: the linked one)
+      --key string      only this one object
+      --no-wait         print the job and return; it runs server-side
+      --prefix string   only keys under this prefix (default: the whole bucket)
+      --stack string    the stack (default: the linked one)
+      --tile string     the tile (default: the linked one)
+```
+
+### `stackr slice usage`
+
+Show a bucket's current bytes and its old versions' bytes, apart
+
+```
+stackr slice usage [slice] [flags]
 ```
 
 ```

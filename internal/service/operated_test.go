@@ -207,6 +207,24 @@ func TestSliceVerbs(t *testing.T) {
 		t.Errorf("on_remove = %v", *db.OnRemove)
 	}
 
+	// Bucket protection: one group, checked as a whole, before any bucket exists.
+	days, neg := 14, -1
+	_, err = o.SetSliceBucket(ctx, far.ID, service.BucketSettings{VersionDays: &neg})
+	invalid("negative version_days", err)
+	_, err = o.SetSliceBucket(ctx, far.ID, service.BucketSettings{CORSOrigins: []string{"app.example.com"}})
+	invalid("cors without a scheme", err)
+	_, err = o.SetSliceBucket(ctx, db.ID, service.BucketSettings{VersionDays: &days})
+	invalid("bucket settings on a postgres slice", err)
+	_, err = o.SetSliceBucket(ctx, far.ID, service.BucketSettings{VersionDays: &days, CORSOrigins: []string{"https://app.example.com"}})
+	must(t, err)
+	if v, err := o.SliceOf(ctx, far.ID); err != nil || v.VersionDays != 14 || !slices.Equal(v.CORSOrigins, []string{"https://app.example.com"}) {
+		t.Errorf("bucket settings = %+v, %v", v, err)
+	}
+	_, err = o.RestoreSlice(ctx, far.ID, "", false, time.Now().Add(-time.Hour))
+	if _, ok := errs.IsConflict(err); !ok {
+		t.Errorf("restore of an unprovisioned slice: %v", err)
+	}
+
 	// A config-managed stack declares its slices in the file.
 	conn := env.Connector(t, org, "whsec")
 	_, err = o.SetConfigRepo(ctx, tl.Stack, conn, "acme/shop", "", "")
