@@ -10,6 +10,10 @@ import (
 
 type pg struct{}
 
+// pgSocketDir is the unix socket directory every admin client names, so a
+// changed default cannot send it elsewhere; unix_socket_directories is owned.
+const pgSocketDir = "/var/run/postgresql"
+
 // PGArchiveDir is where the archive volume mounts: finished WAL segments
 // land here until the shipper takes them. Outside /var/lib/postgresql, which
 // is the data volume's own mount from 18.
@@ -129,6 +133,7 @@ func (pg) Definition() Definition {
 		Volumes:    func(major int) []string { return []string{pgMount(major)} },
 		ArchiveDir: PGArchiveDir,
 		Start:      pgCommand,
+		Versioned:  true,
 		Config: func(i Instance) []string {
 			return []string{
 				"POSTGRES_DB=" + i.AdminDB,
@@ -147,7 +152,7 @@ func (pg) Definition() Definition {
 }
 
 func (pg) Ready(ctx context.Context, i Instance, x Tools) error {
-	_, err := x.Exec(ctx, []string{"pg_isready", "-U", i.AdminUser})
+	_, err := x.Exec(ctx, []string{"pg_isready", "-h", pgSocketDir, "-U", i.AdminUser})
 	return err
 }
 
@@ -357,6 +362,8 @@ func quote(ident string) string {
 func (pg) psql(i Instance, db string, stmts []string) []string {
 	args := []string{
 		"psql",
+		"-h",
+		pgSocketDir,
 		"-q",
 		"-U",
 		i.AdminUser,
@@ -415,7 +422,7 @@ func (pg) Backup(method string, i Instance) []string {
 	if method != "dump" {
 		return nil
 	}
-	script := `echo '` + pgClusterMarker + `'; exec pg_dumpall -U "$0"`
+	script := `echo '` + pgClusterMarker + `'; exec pg_dumpall -h ` + pgSocketDir + ` -U "$0"`
 	return []string{"sh", "-c", script, i.AdminUser}
 }
 
@@ -426,7 +433,7 @@ func pgBaseBackup(i Instance) []string {
 	if i.PITRDays <= 0 {
 		return nil
 	}
-	return []string{"pg_basebackup", "-U", i.AdminUser,
+	return []string{"pg_basebackup", "-h", pgSocketDir, "-U", i.AdminUser,
 		"-D", "-", "-Ft", "-Xnone", "-z"}
 }
 
@@ -524,17 +531,17 @@ func (pg) Restore(method, target string, i Instance) []string {
 	}
 	script := `IFS= read -r first
 if [ "$first" = '` + pgClusterMarker + `' ]; then
-psql -q -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null <<'SQL' &&
+psql -h ` + pgSocketDir + ` -q -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null <<'SQL' &&
 ` + pgWipe + `
 SQL
 LC_ALL=C awk -v u="$0" 'BEGIN { r = "^(CREATE|ALTER) ROLE \"?" u "\"?( |;)" }
 /^\\connect / { data = 1 }
 !data && $0 ~ r { next }
-{ print }' | psql -q -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null
+{ print }' | psql -h ` + pgSocketDir + ` -q -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null
 else
-psql -v ON_ERROR_STOP=1 -U "$0" -d "$1" ` +
+psql -h ` + pgSocketDir + ` -v ON_ERROR_STOP=1 -U "$0" -d "$1" ` +
 		`-c 'DROP SCHEMA public CASCADE' -c 'CREATE SCHEMA public' >/dev/null && ` +
-		`{ printf '%s\n' "$first"; cat; } | psql -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null
+		`{ printf '%s\n' "$first"; cat; } | psql -h ` + pgSocketDir + ` -v ON_ERROR_STOP=1 -U "$0" -d "$1" >/dev/null
 fi`
 	return []string{"sh", "-c", script, i.AdminUser, target}
 }
@@ -554,7 +561,7 @@ copy { print; if ($0 == "\\.") copy = 0; next }
 // over the container's own socket (trusted there): no password in argv. It
 // runs in the instance's container and its output is what Seed loads.
 func (pg) SliceDump(i Instance, s Slice) []string {
-	return []string{"pg_dump", "-Fc", "--no-owner", "--no-privileges", "-U", i.AdminUser, "-d", s.Name}
+	return []string{"pg_dump", "-h", pgSocketDir, "-Fc", "--no-owner", "--no-privileges", "-U", i.AdminUser, "-d", s.Name}
 }
 
 // Seed loads a pg_dump into slice s as its owner, so the slice's own cred
@@ -568,14 +575,14 @@ func (pg) Seed(format string, _ Instance, s Slice) []string {
 	env := []string{"env", "PGOPTIONS=-c client_min_messages=warning"}
 	switch format {
 	case DumpCustom:
-		return append(env, "pg_restore", "--no-owner", "--no-privileges", "--exit-on-error",
+		return append(env, "pg_restore", "-h", pgSocketDir, "--no-owner", "--no-privileges", "--exit-on-error",
 			"--single-transaction", "-U", s.User, "-d", s.Name)
 	case DumpPlain:
 		// psql runs in restricted mode under a key the dump cannot know: a
 		// meta-command in it (\! runs a shell) fails the load.
 		script := `k=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); ` +
 			`{ printf '\\restrict %s\n' "$k"; LC_ALL=C awk '` + pgSeedFilter + `'; } | ` +
-			`psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$0" -d "$1" -f - >/dev/null`
+			`psql -h ` + pgSocketDir + ` -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$0" -d "$1" -f - >/dev/null`
 		return append(env, "sh", "-c", script, s.User, s.Name)
 	}
 	return nil

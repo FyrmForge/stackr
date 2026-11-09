@@ -185,6 +185,9 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	if cur.GitBranch != old.GitBranch || cur.Kind != old.Kind || cur.GitURL != old.GitURL {
 		bad = append(bad, o.envBranch(ctx, &cur))
 	}
+	if cur.Kind == tile.Operated && cur.ImageRef != old.ImageRef {
+		bad = append(bad, o.engines.CheckImage(ctx, cur))
+	}
 	if cur.DependsOn != old.DependsOn {
 		bad = append(bad, o.checkDeps(ctx, cur))
 	}

@@ -175,6 +175,10 @@ func setup(t *testing.T, engine string) *world {
 	}
 	m, err := f.Instances.Create(ctx, w.db.ID, engine, "stackr", "")
 	must(t, err)
+	if engine == "postgres" {
+		m, err = f.Instances.SetMajor(ctx, m, 17)
+		must(t, err)
+	}
 	w.instance = m
 	fake.Containers = []docker.Container{
 		{
@@ -218,7 +222,7 @@ func TestPostgresSliceAndBindings(t *testing.T) {
 		`CREATE ROLE "s_dev_orders"`,
 		`CREATE DATABASE "s_dev_orders" OWNER "s_dev_orders"`,
 		"SET log_min_error_statement = PANIC",
-		"psql -q ",
+		"psql -h /var/run/postgresql -q ",
 	)
 	if p.DBName != "s_dev_orders" || p.DBUser != "s_dev_orders" {
 		t.Errorf("provision = %+v", p)

@@ -1,7 +1,6 @@
 package operated
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -75,6 +74,9 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		return Container{}, err
 	}
 	def := e.Definition()
+	if err := checkMajor(def, m, t); err != nil {
+		return Container{}, err
+	}
 	inst := f.withNodeMem(ctx, t, f.facts(ctx, t, m, def))
 	c := Container{
 		Image: def.Image,
@@ -122,6 +124,25 @@ func (f *Flow) Container(ctx context.Context, t store.Tile) (Container, error) {
 		},
 	}
 	return c, nil
+}
+
+// checkMajor refuses an image of another major than the instance's data, and
+// one that names none: the data path and the flags follow the stored major.
+func checkMajor(def Definition, m store.OperatedInstance, t store.Tile) error {
+	if !def.Versioned {
+		return nil
+	}
+	img := t.ImageRef
+	if img == "" {
+		img = def.Image
+	}
+	switch got := ImageMajor(img); {
+	case m.Major == 0:
+		return errs.Conflictf("%s has no recorded major version; recreate it", t.Slug)
+	case got != m.Major:
+		return errs.Invalidf("image_ref", "%s runs postgres %d; %s is not that major. Major upgrades are not supported yet.", t.Slug, m.Major, img)
+	}
+	return nil
 }
 
 // ArchiveSlug is the slug of an instance's archive volume (WAL waiting to be
@@ -666,7 +687,7 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 		Host:          alias(t, m),
 		Port:          def.Port,
 		PITRDays:      m.PITRDays,
-		Major:         ImageMajor(cmp.Or(t.ImageRef, def.Image)),
+		Major:         m.Major,
 		MemMB:         t.MemLimitMB,
 		Settings:      m.Settings,
 	}
@@ -765,4 +786,14 @@ func outputs(bs []Binding) map[string]string {
 // logf writes a line to the job log; a log write failing never fails the work.
 func logf(w io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(w, format, a...)
+}
+
+// CheckImage refuses t's image when it is another major than the instance's
+// data (or names none): what a deploy would refuse, said at the edit.
+func (f *Flow) CheckImage(ctx context.Context, t store.Tile) error {
+	m, e, err := f.instance(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	return checkMajor(e.Definition(), m, t)
 }

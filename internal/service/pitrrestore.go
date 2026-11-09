@@ -225,6 +225,8 @@ func (o *Orchestrator) newCandidate(ctx context.Context, src pitrSource, label t
 	m, err := o.operated.GetByTile(ctx, t.ID)
 	if err == nil {
 		m.PITRDays, m.AdminUser, m.AdminPassword = 0, src.inst.AdminUser, src.inst.AdminPassword
+		// the restored stackr.conf is the source's: the copy keeps its settings and major
+		m.Settings, m.Major = src.inst.Settings, src.inst.Major
 		err = o.store.OperatedInstances.Update(ctx, m)
 	}
 	if err == nil {

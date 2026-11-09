@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service"
@@ -109,5 +110,81 @@ func TestPGSettingsApply(t *testing.T) {
 	// a slice tile's owner names nothing to set on an image tile
 	if _, _, err := o.SetPGSettings(ctx, tl.ID, map[string]string{"work_mem": "8MB"}, nil); err == nil {
 		t.Error("settings on an image tile")
+	}
+}
+
+// The major is read from the image once, stored, and an image of another
+// major is refused at the edit; an image that names none is refused at create.
+func TestPGMajorStoredAndFixed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := servicetest.New(t)
+	org := env.Org(t, "acme")
+	tl := env.Tile(t, org)
+	o := env.Orch
+	if _, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "d", ImageRef: "postgres@sha256:abcdef"}, "postgres"); err == nil {
+		t.Error("a digest-pinned image was taken")
+	} else if _, ok := errs.IsInvalid(err); !ok {
+		t.Errorf("digest: %v", err)
+	}
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg", ImageRef: "postgres:18-alpine"}, "postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := o.OperatedInstances(ctx, tl.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms) != 1 || ms[0].Major != 18 {
+		t.Fatalf("instances = %+v", ms)
+	}
+	for _, img := range []string{"postgres:17", "postgres:latest"} {
+		_, _, err := o.UpdateTile(ctx, pg.ID, func(t *service.Tile) error { t.ImageRef = img; return nil })
+		if err == nil || !strings.Contains(err.Error(), "Major upgrades are not supported") && !strings.Contains(err.Error(), "names no") {
+			t.Errorf("image %s: %v", img, err)
+		}
+	}
+	if _, _, err := o.UpdateTile(ctx, pg.ID, func(t *service.Tile) error { t.ImageRef = "postgres:18.1"; return nil }); err != nil {
+		t.Errorf("a minor bump of the same major: %v", err)
+	}
+}
+
+// Concurrent changes to one instance's settings do not lose each other: the
+// row ends with every key.
+func TestPGSettingsAreSerialised(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	env := servicetest.New(t)
+	org := env.Org(t, "acme")
+	tl := env.Tile(t, org)
+	o := env.Orch
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.Docker.Containers = append(env.Docker.Containers, docker.Container{
+		ID: "pg1", State: "running", Labels: map[string]string{"stackr.tile": pg.ID, "stackr.role": "replica"},
+	})
+	env.Docker.ExecFn = func(cmd []string) string {
+		j := strings.Join(cmd, " ")
+		if !strings.Contains(j, "name || '|' || context FROM pg_settings") {
+			return ""
+		}
+		return "work_mem|user\nstatement_timeout|user\nlock_timeout|user\nlog_min_duration_statement|user"
+	}
+	var wg sync.WaitGroup
+	for _, k := range []string{"work_mem", "statement_timeout", "lock_timeout", "log_min_duration_statement"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, _, err := o.SetPGSettings(ctx, pg.ID, map[string]string{k: "5"}, nil); err != nil {
+				t.Errorf("%s: %v", k, err)
+			}
+		}()
+	}
+	wg.Wait()
+	ms, _ := o.OperatedInstances(ctx, tl.Env)
+	if len(ms) != 1 || len(ms[0].Settings) != 4 {
+		t.Errorf("settings after four concurrent changes = %v", ms[0].Settings)
 	}
 }

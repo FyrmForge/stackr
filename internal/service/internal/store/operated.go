@@ -21,7 +21,9 @@ type OperatedInstance struct {
 	PITRDays int `db:"pitr_days" json:"pitr_days"`
 	// Settings are a postgres instance's own overrides of the computed
 	// defaults, name to value.
-	Settings  StringMap `db:"settings" json:"settings"`
+	Settings StringMap `db:"settings" json:"settings"`
+	// Major is the postgres major the instance was made with; 0 = not postgres.
+	Major     int       `db:"major" json:"major"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 

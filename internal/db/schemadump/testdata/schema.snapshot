@@ -436,9 +436,10 @@ table operated_instances
   col created_at DATETIME notnull=1 default=- pk=0
   col pitr_days INTEGER notnull=1 default=0 pk=0
   col settings TEXT notnull=1 default='{}' pk=0
+  col major INTEGER notnull=1 default=0 pk=0
   fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
-  sql CREATE TABLE operated_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0, settings TEXT NOT NULL DEFAULT '{}')
+  sql CREATE TABLE operated_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0, settings TEXT NOT NULL DEFAULT '{}', major INTEGER NOT NULL DEFAULT 0)
 table org_config_plans
   col id TEXT notnull=0 default=- pk=1
   col org_id TEXT notnull=1 default=- pk=0

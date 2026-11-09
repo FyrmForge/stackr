@@ -4615,6 +4615,9 @@
           "id": {
             "type": "string"
           },
+          "major": {
+            "type": "integer"
+          },
           "pitr_days": {
             "type": "integer"
           },
@@ -4638,6 +4641,7 @@
           "endpoint",
           "pitr_days",
           "settings",
+          "major",
           "created_at"
         ],
         "type": "object"

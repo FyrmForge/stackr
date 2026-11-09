@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"slices"
@@ -51,6 +52,14 @@ func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice
 			days = DefaultPITRDays // the daily dump's rule: only with a copy off this box
 		}
 	}
+	major := 0
+	if engine == "postgres" {
+		// the layout and flags follow the major: an image that does not name
+		// one is refused, never guessed at
+		if major = mflow.ImageMajor(cmp.Or(t.ImageRef, mflow.Engines[engine].Definition().Image)); major == 0 {
+			return Tile{}, Tile{}, errs.Invalidf("image_ref", "%s names no postgres major; pin a numeric tag such as postgres:17.", t.ImageRef)
+		}
+	}
 	var out, sl Tile
 	err = o.store.Tx(ctx, func(tx store.Tx) error {
 		tl := tile.New(tx.Tiles, o.docker, nil)
@@ -62,6 +71,11 @@ func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice
 		m, err := ml.Create(ctx, out.ID, engine, "stackr", "")
 		if err != nil {
 			return err
+		}
+		if major > 0 {
+			if m, err = ml.SetMajor(ctx, m, major); err != nil {
+				return err
+			}
 		}
 		if days > 0 {
 			if _, err = ml.SetPITR(ctx, m, days); err != nil {

@@ -38,7 +38,7 @@ var pgOwned = []string{
 	"include_if_exists",
 }
 
-var pgOwnedPrefix = []string{"archive_", "ssl", "recovery_"}
+var pgOwnedPrefix = []string{"archive_", "ssl", "recovery_", "unix_socket_"}
 
 // PGOwned says whether stackr owns name: it is refused as a setting.
 func PGOwned(name string) bool {

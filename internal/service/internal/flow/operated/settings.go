@@ -87,6 +87,11 @@ func (f *Flow) ApplySettings(
 	}
 	i = f.withNodeMem(ctx, it, i)
 	i.Settings = overrides
+	return pgApply(ctx, i, x, changed, unset)
+}
+
+// pgApply is ApplySettings on the instance's facts and tools.
+func pgApply(ctx context.Context, i Instance, x Tools, changed, unset []string) (restart bool, err error) {
 	ctxs, err := pgContexts(ctx, i, x, changed)
 	if err != nil {
 		return false, err
@@ -101,22 +106,31 @@ func (f *Flow) ApplySettings(
 	if _, err := x.Exec(ctx, pgConfWrite(i, pgConf(i))); err != nil {
 		return false, err
 	}
+	// from here a failure puts the old file back and reloads it
+	undo := func() {
+		_, _ = x.Exec(ctx, pgConfWrite(i, old))
+		_, _ = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
+	}
 	// pg_file_settings parses the file as a reload would; a postmaster
 	// setting waiting for a restart is not an error.
 	bad, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c",
 		`SELECT string_agg(name || ': ' || error, '; ') FROM pg_file_settings `+
 			`WHERE sourcefile LIKE '%/stackr.conf' AND error IS NOT NULL AND error <> 'setting could not be applied'`))
 	if err == nil && strings.TrimSpace(bad) != "" {
-		_, _ = x.Exec(ctx, pgConfWrite(i, old)) // the file as it was
+		undo()
 		return false, errs.Invalidf("settings", "postgres refuses it: %s", strings.TrimSpace(bad))
 	}
 	if err != nil {
+		undo()
 		return false, err
 	}
 	if !restart {
-		_, err = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
+		if _, err = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`)); err != nil {
+			undo()
+			return false, err
+		}
 	}
-	return restart, err
+	return restart, nil
 }
 
 // pgContexts is pg_settings.context of each name the instance knows.

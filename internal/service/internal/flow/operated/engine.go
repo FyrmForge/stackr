@@ -73,8 +73,11 @@ type Definition struct {
 	Image   string
 	Command []string                  // nil = the image's entrypoint
 	Start   func(i Instance) []string // the command when the engine builds it per instance; wins over Command
-	Config  func(i Instance) []string // first-boot env, credentials included
-	Port    int
+	// Versioned: the data layout follows the image's major, which the instance
+	// row records (Instance.Major) and an image may not change.
+	Versioned bool
+	Config    func(i Instance) []string // first-boot env, credentials included
+	Port      int
 	// Volumes are the data paths that must survive a recreate, by the
 	// image's major version (postgres moved its data path in 18).
 	Volumes func(major int) []string

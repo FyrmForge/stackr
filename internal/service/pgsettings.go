@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"sync"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
@@ -115,6 +116,53 @@ func (o *Orchestrator) PGSettings(ctx context.Context, tileID string) (PGSetting
 	return out, nil
 }
 
+// pgLock serialises changes to one instance's settings: the row, the file
+// and the live config move together or not at all.
+func (o *Orchestrator) pgLock(instanceID string) *sync.Mutex {
+	m, _ := o.repoLocks.LoadOrStore("pg settings "+instanceID, &sync.Mutex{})
+	return m.(*sync.Mutex)
+}
+
+// applyPGSettings makes cur the instance's settings: the running instance
+// is asked first (unknown names, rejected values), its file written and
+// reloaded or flagged for a restart, then the row stored; a store that fails
+// puts the old file back. The caller holds pgLock. restart: the caller owes
+// the instance a restart.
+func (o *Orchestrator) applyPGSettings(ctx context.Context, t Tile, m OperatedInstance, cur map[string]string) (bool, error) {
+	changed, removed := mflow.ChangedSettings(m.Settings, cur)
+	if len(changed) == 0 {
+		return false, nil
+	}
+	restart, err := o.engines.ApplySettings(ctx, t, cur, changed, removed)
+	if err != nil {
+		return false, err
+	}
+	if _, err := o.operated.SetSettings(ctx, m, cur); err != nil {
+		back, backUnset := mflow.ChangedSettings(cur, m.Settings)
+		_, _ = o.engines.ApplySettings(ctx, t, m.Settings, back, backUnset)
+		return false, err
+	}
+	return restart, nil
+}
+
+// settingsFromFile applies a stack file's settings to an existing instance
+// that is running, with the checks SetPGSettings makes, before the plan
+// stores them: applied is true once they are stored. A stopped instance is
+// not asked (applied false): its next start reads them, and a name postgres
+// does not know shows then as a failed start.
+func (o *Orchestrator) settingsFromFile(ctx context.Context, t Tile, m OperatedInstance, s map[string]string) (bool, error) {
+	mu := o.pgLock(m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if _, err := o.applyPGSettings(ctx, t, m, s); err != nil {
+		if _, stopped := errs.IsConflict(err); stopped {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // SetPGSettings sets and unsets the instance's own settings and applies them
 // to the running instance: a reload when every changed setting takes effect
 // by one, else the instance restarts (the returned job). An owned name, a
@@ -128,6 +176,13 @@ func (o *Orchestrator) SetPGSettings(
 ) (PGSettings, *Job, error) {
 	t, m, err := o.instanceOf(ctx, tileID)
 	if err != nil {
+		return PGSettings{}, nil, err
+	}
+	// the row is read again under the lock: a change that ran first is seen
+	mu := o.pgLock(m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	if t, m, err = o.instanceOf(ctx, tileID); err != nil {
 		return PGSettings{}, nil, err
 	}
 	if m.Engine != "postgres" {
@@ -149,16 +204,8 @@ func (o *Orchestrator) SetPGSettings(
 	for _, n := range unset {
 		delete(cur, n)
 	}
-	changed, removed := mflow.ChangedSettings(m.Settings, cur)
-	if len(changed) == 0 {
-		v, err := o.PGSettings(ctx, tileID)
-		return v, nil, err
-	}
-	restart, err := o.engines.ApplySettings(ctx, t, cur, changed, removed)
+	restart, err := o.applyPGSettings(ctx, t, m, cur)
 	if err != nil {
-		return PGSettings{}, nil, err
-	}
-	if _, err := o.operated.SetSettings(ctx, m, cur); err != nil {
 		return PGSettings{}, nil, err
 	}
 	var j *Job

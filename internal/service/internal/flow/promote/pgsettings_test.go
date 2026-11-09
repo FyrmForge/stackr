@@ -1,6 +1,8 @@
 package promote
 
 import (
+	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -50,6 +52,32 @@ func TestOperatedSettings(t *testing.T) {
 	must(t, err)
 	if got := kinds(p); !strings.Contains(got, "operated:pg-dbsettings") {
 		t.Errorf("cleared = %s", got)
+	}
+}
+
+// An existing instance is asked first: the hook's refusal fails the apply and
+// nothing is stored; a hook that stored them (applied) leaves the row to it.
+func TestFileSettingsAreCheckedAgainstTheInstance(t *testing.T) {
+	w := newSliceWorld(t)
+	rel := func(commit, file string) store.Release {
+		w.files[commit] = file
+		r, err := w.f.D.Releases.Create(ctx, w.infra.ID, "test", []release.Pin{
+			{Slug: release.ConfigSlug, Repo: w.infra.ConfigRepo, CommitSHA: commit},
+		})
+		must(t, err)
+		return r
+	}
+	staging := w.envs["staging"].ID
+	on := infraFile + "      settings:\n        nonsense: 1\n"
+	w.f.PGSettings = func(context.Context, store.Tile, store.OperatedInstance, map[string]string) (bool, error) {
+		return false, errors.New("nonsense is not a setting this postgres knows")
+	}
+	_, err := w.f.Apply(ctx, staging, rel("c1", on).ID, io.Discard, nil)
+	if err == nil || !strings.Contains(err.Error(), "settings: nonsense is not a setting") {
+		t.Fatalf("apply = %v", err)
+	}
+	if m, _ := w.f.D.Operated.GetByTile(ctx, w.pg["staging"].ID); len(m.Settings) != 0 {
+		t.Errorf("a refused setting was stored: %v", m.Settings)
 	}
 }
 
