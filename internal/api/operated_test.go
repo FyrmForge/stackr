@@ -22,6 +22,7 @@ func TestOperatedAndSliceRoutes(t *testing.T) {
 		context.Background(),
 		service.Tile{EnvironmentID: w.tile.Env, Name: "pg"},
 		"postgres",
+		0,
 	); err != nil {
 		t.Fatal(err)
 	}

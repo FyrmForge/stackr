@@ -267,7 +267,7 @@ func TestPlacementFit(t *testing.T) {
 	}
 
 	// an operated tile counts too
-	_, err = n.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "db", MemLimitMB: 512}, "postgres")
+	_, err = n.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "db", MemLimitMB: 512}, "postgres", 0)
 	must(t, err)
 	if got, _ := n.orch.envNeeds(ctx, n.edge.ID); !got.Storage {
 		t.Error("an env with an operated tile does not need storage")

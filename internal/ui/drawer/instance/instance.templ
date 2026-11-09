@@ -83,6 +83,15 @@ type OverviewView struct {
 	Slices              []SliceRow
 	Job                 *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
 	JobWhen             time.Time
+	Version             *VersionView // postgres only
+}
+
+// VersionView is the image a postgres instance runs. UpdateTo is the image a
+// minor update moves it to, "" = none; EOL says its major gets no more
+// security fixes.
+type VersionView struct {
+	Image, UpdateTo, EOLDate string
+	EOL                      bool
 }
 
 // SliceRow is one slice cut from the instance: its slice tile, which may
@@ -104,6 +113,20 @@ templ Overview(v View, o OverviewView) {
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
+			if o.Version != nil {
+				@c.Fact("Image", o.Version.Image)
+			}
+		}
+		if o.Version != nil && o.Version.EOL {
+			<p class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn" role="status">This postgres version gets no more security fixes since { o.Version.EOLDate }.</p>
+		}
+		if o.Version != nil && o.Version.UpdateTo != "" {
+			<div class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn flex items-center justify-between gap-3" role="status">
+				<span>Update available: { o.Version.UpdateTo }.</span>
+				if !v.ReadOnly {
+					@c.PrimaryPost("Apply", v.Base+"/version")
+				}
+			</div>
 		}
 		if o.Job != nil {
 			<h3 class="section-title">Last job</h3>

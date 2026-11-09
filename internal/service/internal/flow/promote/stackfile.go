@@ -243,6 +243,9 @@ type TileConf struct {
 	// operated postgres: days of WAL kept for point-in-time recovery, 0 = off;
 	// nil = the file leaves the instance's window as it is.
 	PITRDays *int `yaml:"pitr_days"`
+	// operated postgres, on create: the major, 14 to 18; 0 = the newest. An
+	// existing instance keeps its image; a major change is not a file edit.
+	Major int `yaml:"major"`
 	// managed postgres: the instance's own settings, name to value; nil = the
 	// file leaves them as they are, an empty map clears them.
 	Settings map[string]string `yaml:"settings"`
@@ -710,6 +713,9 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 				return fmt.Errorf("tile %s: pitr_days: the window is 0 (off) to 365 days", name)
 			}
 		}
+		if tc.Major != 0 && tc.Engine != "postgres" {
+			return fmt.Errorf("tile %s: major: only postgres takes it", name)
+		}
 		if err := deploy.CheckSettings(tc.Engine, tc.Settings); err != nil {
 			return fmt.Errorf("tile %s: settings: %w", name, err)
 		}
@@ -788,6 +794,8 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: env_pairs: only an operated tile takes it", name)
 	case tc.PITRDays != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: pitr_days: only an operated tile takes it", name)
+	case tc.Major != 0 && tc.Type != "operated":
+		return fmt.Errorf("tile %s: major: only an operated tile takes it", name)
 	case tc.Settings != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: settings: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":

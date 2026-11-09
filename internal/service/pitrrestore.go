@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -213,12 +214,12 @@ func (o *Orchestrator) newCandidate(ctx context.Context, src pitrSource, label t
 		EnvironmentID: src.tile.EnvironmentID,
 		Name:          slug,
 		Slug:          slug,
-		ImageRef:      src.tile.ImageRef,
+		ImageRef:      cmp.Or(src.tile.ImageRef, mflow.Engines[src.inst.Engine].Definition().Image),
 		MemLimitMB:    src.tile.MemLimitMB,
 		CPULimit:      src.tile.CPULimit,
 		ShmSizeMB:     src.tile.ShmSizeMB,
 	}
-	t, _, err := o.createOperated(ctx, row, src.inst.Engine, "")
+	t, _, err := o.createOperated(ctx, row, src.inst.Engine, "", -1)
 	if err != nil {
 		return Tile{}, err
 	}

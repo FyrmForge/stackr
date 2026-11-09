@@ -434,6 +434,15 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			row.Name = old.Name
 			row.CreatedAt = old.CreatedAt
 			row.Paused = old.Paused
+			if tc.Image == "" && tc.Type == tile.Operated {
+				row.ImageRef = old.ImageRef // the file leaves an instance's pinned image as it is
+			}
+		} else if tc.Type == tile.Operated && tc.Engine == "postgres" {
+			var err error
+			if row.ImageRef, _, err = deploy.PGPick(tc.Major, tc.Image); err != nil {
+				p.block("tile %s: %v", name, err)
+				continue
+			}
 		}
 		if err := tile.Validate(&row); err != nil {
 			p.block("tile %s: %v", name, err)

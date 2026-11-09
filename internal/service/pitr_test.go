@@ -43,14 +43,14 @@ func TestNewInstanceDefaultsToPITRWithAnOffBoxDestination(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	local, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "local"}, "postgres")
+	local, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "local"}, "postgres", 0)
 	must(t, err)
 	if m, _ := w.orch.operated.GetByTile(ctx, local.ID); m.PITRDays != 0 {
 		t.Fatalf("local disk only: pitr_days = %d", m.PITRDays)
 	}
 	_, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
-	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	m, err := w.orch.operated.GetByTile(ctx, pg.ID)
 	must(t, err)
@@ -92,7 +92,7 @@ func TestSetPITROnAndOff(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	if _, err := w.orch.engines.Container(w.node(t, ctx), pg); err != nil { // declares the volumes
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestPITRTickShipsAndGuards(t *testing.T) {
 	ctx := context.Background()
 	s3, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
-	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	m, _ := w.orch.operated.GetByTile(ctx, pg.ID)
 	if m.PITRDays == 0 {

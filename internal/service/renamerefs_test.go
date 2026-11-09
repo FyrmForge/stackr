@@ -25,7 +25,7 @@ func TestRenameCarriesSliceRefs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", 0)
 	must(err)
 	_, err = o.SetOperatedAllow(ctx, pg.ID, []string{"acme:shop:dev:web", "acme:*:dev:*"})
 	must(err)

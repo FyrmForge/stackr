@@ -68,6 +68,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("operated.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/version", h.PGUpdate, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
@@ -141,6 +142,10 @@ func createView(c echo.Context) dialog.CreateTileView {
 		From:     c.FormValue("provision_from"),
 		Access:   c.FormValue("default_access"),
 		FromFile: scope(c).Stack.ConfigRepo != "",
+		Major:    c.FormValue("major"),
+	}
+	for _, m := range slices.Backward(service.PGMajors()) { // newest first
+		v.Majors = append(v.Majors, dialog.Option{Value: strconv.Itoa(m), Label: strconv.Itoa(m)})
 	}
 	if !slices.ContainsFunc(dialog.Sources, func(o dialog.Option) bool { return o.Value == v.Source }) {
 		v.Source = "image"
@@ -193,6 +198,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 		Name:          v.Name,
 		Kind:          v.Source,
 	}
+	major, _ := strconv.Atoi(v.Major) // empty or odd = the newest
 	switch v.Source {
 	case "operated":
 		fh, ferr := c.FormFile("dump")
@@ -200,9 +206,9 @@ func (h *handler) CreateTile(c echo.Context) error {
 		case errors.As(ferr, new(*http.MaxBytesError)):
 			err = errs.TooLarge{Msg: "That dump is larger than this server takes."}
 		case ferr == nil && fh.Filename != "": // an empty file is refused, not dropped
-			t, err = h.createFromDump(c, t, v.Engine, fh)
+			t, err = h.createFromDump(c, t, v.Engine, major, fh)
 		default:
-			t, err = h.orch.CreateOperatedTile(c.Request().Context(), t, v.Engine)
+			t, err = h.orch.CreateOperatedTile(c.Request().Context(), t, v.Engine, major)
 		}
 	case "slice":
 		t, err = h.orch.CreateSliceTile(c.Request().Context(), s.Env.ID, v.Name, v.From, v.Access)
@@ -252,13 +258,13 @@ func (h *handler) CreateTile(c echo.Context) error {
 
 // createFromDump is an operated tile seeded from the uploaded dump; the
 // upload outlives the request timeout, so the verb runs without it.
-func (h *handler) createFromDump(c echo.Context, t service.Tile, engine string, fh *multipart.FileHeader) (service.Tile, error) {
+func (h *handler) createFromDump(c echo.Context, t service.Tile, engine string, major int, fh *multipart.FileHeader) (service.Tile, error) {
 	f, err := fh.Open()
 	if err != nil {
 		return t, err
 	}
 	defer func() { _ = f.Close() }()
-	out, _, err := h.orch.CreateOperatedTileFromDump(context.WithoutCancel(c.Request().Context()), t, engine, "", f)
+	out, _, err := h.orch.CreateOperatedTileFromDump(context.WithoutCancel(c.Request().Context()), t, engine, "", major, f)
 	return out, err
 }
 
@@ -266,6 +272,7 @@ func (h *handler) createFromDump(c echo.Context, t service.Tile, engine string, 
 // refusal shows over the form.
 var createFields = []string{
 	"name",
+	"major",
 	"image_ref",
 	"git_url",
 	"schedule",
@@ -524,6 +531,13 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			j := render.JobView(render.EnvURL(c), *st.LastJob)
 			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
 		}
+		if m.Engine == "postgres" {
+			pv, err := h.orch.PGVersion(ctx, t.ID)
+			if err != nil {
+				return middleware.HTTPError(err)
+			}
+			o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate}
+		}
 		for _, p := range ps {
 			r := instance.SliceRow{
 				Slice:    p.Slice,
@@ -572,6 +586,13 @@ func (h *handler) PGSettings(c echo.Context) error {
 		note = "Saved. The instance restarts for the changes that need it."
 	}
 	return h.savedNote(c, "settings", note, err, typed)
+}
+
+// POST …/-/instances/:tile/version: the instance moves to the current minor
+// of its major and restarts there.
+func (h *handler) PGUpdate(c echo.Context) error {
+	_, _, err := h.orch.UpdatePGVersion(c.Request().Context(), scope(c).Tile.ID)
+	return h.instance(c, "slices", "Updated. The instance restarts on the new version.", err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/memory: the tile's memory limit in MB, empty =

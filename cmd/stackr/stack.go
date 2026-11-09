@@ -1758,11 +1758,13 @@ func (a *app) sliceForward() *cobra.Command {
 
 func (a *app) operated() *cobra.Command {
 	var engine, dump, slice string
+	var major int
 	create := waits(leaf("create <name>", "operated.create,operated.from-dump", "Make an operated tile (postgres, s3) in --env", exact(1), nil))
 	keys := tileFlags(create)
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")
 	create.Flags().StringVar(&dump, "from-dump", "", "load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin")
 	create.Flags().StringVar(&slice, "slice", "", "the slice tile the dump loads into (default <name>-db)")
+	create.Flags().IntVar(&major, "major", 0, "postgres major, 14 to 18 (default: the newest still supported)")
 	_ = create.MarkFlagRequired("engine")
 	create.RunE = a.at(atEnv, func(c *cobra.Command, p string, args []string) error {
 		body, err := changed(c, keys)
@@ -1773,7 +1775,7 @@ func (a *app) operated() *cobra.Command {
 			if body != nil {
 				return usage("--from-dump takes no tile flags; set them once the tile is made")
 			}
-			return a.operatedFromDump(c, p, args[0], engine, dump, slice)
+			return a.operatedFromDump(c, p, args[0], engine, dump, slice, major)
 		}
 		if slice != "" {
 			return usage("--slice goes with --from-dump")
@@ -1782,6 +1784,9 @@ func (a *app) operated() *cobra.Command {
 			body = map[string]any{}
 		}
 		body["name"], body["engine"] = args[0], engine
+		if major != 0 {
+			body["major"] = major
+		}
 		v, err := a.call(POST, p+"/operated", body)
 		if err != nil {
 			return err
@@ -1798,7 +1803,7 @@ func (a *app) operated() *cobra.Command {
 // operatedFromDump streams the dump (a file, or stdin for -) to the panel,
 // which makes the tile and its slice and queues the load; the load's job is
 // followed to its end, so a failed load exits non-zero with its error.
-func (a *app) operatedFromDump(c *cobra.Command, envPath, name, engine, dump, slice string) error {
+func (a *app) operatedFromDump(c *cobra.Command, envPath, name, engine, dump, slice string, major int) error {
 	var in io.Reader = a.in
 	if dump != "-" {
 		f, err := os.Open(dump)
@@ -1811,6 +1816,9 @@ func (a *app) operatedFromDump(c *cobra.Command, envPath, name, engine, dump, sl
 	q := url.Values{"name": {name}, "engine": {engine}}
 	if slice != "" {
 		q.Set("slice", slice)
+	}
+	if major != 0 {
+		q.Set("major", strconv.Itoa(major))
 	}
 	v, err := a.call(POST, envPath+"/operated/from-dump?"+q.Encode(), in)
 	if err != nil {

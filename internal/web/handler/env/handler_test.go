@@ -115,7 +115,7 @@ func TestInstanceDrawer(t *testing.T) {
 
 func operated(t *testing.T, s *webtest.Site) service.Tile {
 	t.Helper()
-	pg, err := s.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
+	pg, err := s.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

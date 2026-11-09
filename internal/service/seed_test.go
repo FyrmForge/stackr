@@ -41,7 +41,7 @@ func TestCreateOperatedTileFromDump(t *testing.T) {
 		"empty": {"postgres", "", "dump"},
 		"s3":    {"s3", "PGDMP", "engine"},
 	} {
-		_, _, err := o.CreateOperatedTileFromDump(ctx, in, c.engine, "", strings.NewReader(c.dump))
+		_, _, err := o.CreateOperatedTileFromDump(ctx, in, c.engine, "", 0, strings.NewReader(c.dump))
 		if bad, ok := errs.IsInvalid(err); !ok || bad.Field != c.field {
 			t.Errorf("%s: err = %v, want invalid %s", name, err, c.field)
 		}
@@ -51,7 +51,7 @@ func TestCreateOperatedTileFromDump(t *testing.T) {
 	}
 
 	dump := bytes.Repeat([]byte("PGDMP"), 100_000) // past any one buffer
-	out, j, err := o.CreateOperatedTileFromDump(ctx, in, "postgres", "", bytes.NewReader(dump))
+	out, j, err := o.CreateOperatedTileFromDump(ctx, in, "postgres", "", 0, bytes.NewReader(dump))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCancelledSeedDropsDump(t *testing.T) {
 	tl := env.Tile(t, env.Org(t, "acme"))
 	// a running upgrade helper holds the queue: the seed stays queued
 	env.Orch.SetUpgradeHeld(true)
-	_, j, err := env.Orch.CreateOperatedTileFromDump(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", "",
+	_, j, err := env.Orch.CreateOperatedTileFromDump(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", "", 0,
 		strings.NewReader("PGDMP"))
 	if err != nil {
 		t.Fatal(err)

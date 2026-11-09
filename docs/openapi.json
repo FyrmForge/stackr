@@ -4429,6 +4429,9 @@
               }
             ]
           },
+          "major": {
+            "type": "integer"
+          },
           "mem_limit_mb": {
             "oneOf": [
               {
@@ -4581,7 +4584,8 @@
         },
         "required": [
           "name",
-          "engine"
+          "engine",
+          "major"
         ],
         "type": "object"
       },
@@ -4972,6 +4976,33 @@
           "needs_restart",
           "work_mem_risk",
           "settings"
+        ],
+        "type": "object"
+      },
+      "PGVersion": {
+        "properties": {
+          "eol": {
+            "type": "boolean"
+          },
+          "eol_date": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "major": {
+            "type": "integer"
+          },
+          "update_to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "major",
+          "image",
+          "update_to",
+          "eol",
+          "eol_date"
         ],
         "type": "object"
       },
@@ -19064,6 +19095,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "major",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -23637,6 +23675,128 @@
         "responses": {
           "101": {
             "description": "Switching Protocols: the connection is now a websocket"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/version": {
+      "get": {
+        "operationId": "operated.version",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGVersion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "post": {
+        "operationId": "operated.update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TileUpdated"
+                }
+              }
+            },
+            "description": "OK"
           },
           "default": {
             "content": {
