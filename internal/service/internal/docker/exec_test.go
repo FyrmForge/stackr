@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -75,5 +77,24 @@ func TestReadPidNoSh(t *testing.T) {
 	r := bufio.NewReader(strings.NewReader("OCI runtime exec failed: exec: \"sh\": not found\r\n"))
 	if _, err := readPid(r); err == nil || !strings.Contains(err.Error(), "no sh") {
 		t.Fatalf("err = %v, want the no sh error", err)
+	}
+}
+
+// A wedged exec (the connection never delivers) returns when ctx ends.
+func TestCopyUntilDoneCancels(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- copyUntilDone(ctx, &buf, pr, func() { _ = pr.Close() }) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("err = %v, want deadline exceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("copy still blocked after ctx ended")
 	}
 }

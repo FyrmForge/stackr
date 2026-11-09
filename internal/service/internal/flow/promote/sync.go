@@ -737,7 +737,7 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func(
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
 		if t.Kind == tile.Operated {
-			if _, err := d.Operated.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
+			if err := f.createInstance(ctx, t, w.re.Tiles[t.Slug].Engine); err != nil {
 				return err
 			}
 		}

@@ -651,6 +651,35 @@ stackr db settings unset <name>... [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+### `stackr db update`
+
+Move an instance to the current minor of its postgres major; it restarts
+
+```
+stackr db update [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+### `stackr db version`
+
+Show the postgres version an instance runs and whether an update is out
+
+```
+stackr db version [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
 ## `stackr deploy`
 
 Deploy the tile and follow it
@@ -1680,6 +1709,7 @@ stackr operated create <name> [flags]
       --host-network              use the server's network (needs admin approval)
       --image string              image ref (image tiles)
       --lan string                LAN access, one ip|cidr[:port] per line (needs admin approval)
+      --major int                 postgres major, 14 to 18 (default: the newest still supported)
       --memory int                memory limit, MB
       --no-wait                   print the job and return; it runs server-side
       --port int                  container port

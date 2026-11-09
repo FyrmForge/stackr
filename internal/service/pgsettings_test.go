@@ -22,7 +22,7 @@ func TestPGSettingsApply(t *testing.T) {
 	org := env.Org(t, "acme")
 	tl := env.Tile(t, org)
 	o := env.Orch
-	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,12 +122,12 @@ func TestPGMajorStoredAndFixed(t *testing.T) {
 	org := env.Org(t, "acme")
 	tl := env.Tile(t, org)
 	o := env.Orch
-	if _, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "d", ImageRef: "postgres@sha256:abcdef"}, "postgres"); err == nil {
+	if _, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "d", ImageRef: "postgres@sha256:abcdef"}, "postgres", 0); err == nil {
 		t.Error("a digest-pinned image was taken")
 	} else if _, ok := errs.IsInvalid(err); !ok {
 		t.Errorf("digest: %v", err)
 	}
-	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg", ImageRef: "postgres:18-alpine"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg", ImageRef: "postgres:18-alpine"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestPGSettingsAreSerialised(t *testing.T) {
 	org := env.Org(t, "acme")
 	tl := env.Tile(t, org)
 	o := env.Orch
-	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

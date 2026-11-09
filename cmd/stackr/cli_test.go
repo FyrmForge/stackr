@@ -609,7 +609,7 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 	env.Member(t, org, u, "owner")
 	key := env.APIKey(t, u, org)
 	tl := env.Tile(t, org)
-	pg, err := env.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := env.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

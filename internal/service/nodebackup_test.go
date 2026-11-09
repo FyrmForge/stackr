@@ -22,7 +22,7 @@ import (
 func edgeData(t *testing.T, n *twoNodes) (pg Tile, inst, plain store.Volume) {
 	t.Helper()
 	ctx := context.Background()
-	pg, err := n.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "pg"}, "postgres")
+	pg, err := n.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: n.edge.ID, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	m, err := n.st.OperatedInstances.GetByTile(ctx, pg.ID)
 	must(t, err)

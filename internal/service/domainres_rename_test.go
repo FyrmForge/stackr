@@ -478,7 +478,7 @@ func TestRenameRepublishesOperatedURL(t *testing.T) {
 	t.Parallel()
 	w := newRenameWorld(t)
 	ctx := context.Background()
-	files, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "files"}, "s3")
+	files, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "files"}, "s3", 0)
 	must(t, err)
 	m, err := w.st.OperatedInstances.GetByTile(ctx, files.ID)
 	must(t, err)

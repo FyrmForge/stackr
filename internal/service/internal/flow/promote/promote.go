@@ -6,6 +6,7 @@
 package promote
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -223,7 +224,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			return fmt.Errorf("create %s: %w", row.Slug, err)
 		}
 		if t.Kind == tile.Operated {
-			if _, err := d.Operated.Create(ctx, t.ID, w.re.Tiles[t.Slug].Engine, "stackr", ""); err != nil {
+			if err := f.createInstance(ctx, t, w.re.Tiles[t.Slug].Engine); err != nil {
 				return err
 			}
 		}
@@ -376,6 +377,19 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 		}
 	}
 	return nil
+}
+
+// createInstance is the instance row of a new operated tile; a postgres one
+// records the major its image names, which its data path and flags follow.
+func (f *Flow) createInstance(ctx context.Context, t store.Tile, engine string) error {
+	m, err := f.D.Operated.Create(ctx, t.ID, engine, "stackr", "")
+	if err != nil {
+		return err
+	}
+	if major := deploy.ImageMajor(cmp.Or(t.ImageRef, deploy.EngineImage(engine))); engine == "postgres" && major > 0 {
+		_, err = f.D.Operated.SetMajor(ctx, m, major)
+	}
+	return err
 }
 
 // deleteTiles: consumers first, so an instance goes after its slices.

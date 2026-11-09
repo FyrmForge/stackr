@@ -74,7 +74,7 @@ func TestFailedSeedShowsInDrawers(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	in := service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}
-	pg, j, err := s.Orch.CreateOperatedTileFromDump(ctx, in, "postgres", "", strings.NewReader("PGDMP"))
+	pg, j, err := s.Orch.CreateOperatedTileFromDump(ctx, in, "postgres", "", 0, strings.NewReader("PGDMP"))
 	if err != nil {
 		t.Fatal(err)
 	}

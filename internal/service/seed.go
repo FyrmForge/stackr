@@ -66,6 +66,7 @@ func (o *Orchestrator) CreateOperatedTileFromDump(
 	ctx context.Context,
 	t Tile,
 	engine, slice string,
+	major int,
 	dump io.Reader,
 ) (Tile, Job, error) {
 	if engine != "postgres" {
@@ -91,7 +92,7 @@ func (o *Orchestrator) CreateOperatedTileFromDump(
 	if slice == "" {
 		slice = "-"
 	}
-	out, sl, err := o.createOperated(ctx, t, engine, slice)
+	out, sl, err := o.createOperated(ctx, t, engine, slice, major)
 	if err != nil {
 		src.drop()
 		return out, Job{}, err

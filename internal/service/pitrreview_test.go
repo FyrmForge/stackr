@@ -57,7 +57,7 @@ func newPITRRig(t *testing.T) *pitrRig {
 	ctx := context.Background()
 	_, srv := newFakeS3(t)
 	w.sharedS3(t, srv.URL)
-	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	m, err := w.orch.operated.GetByTile(ctx, pg.ID)
 	must(t, err)
@@ -310,7 +310,7 @@ func TestSeedFromSliceDumpsOnTheSourceNode(t *testing.T) {
 	o := n.orch
 	mk := func(env Environment, slug string, fake *dockerfake.Fake) (inst, slice Tile) {
 		var err error
-		inst, err = o.CreateOperatedTile(ctx, Tile{EnvironmentID: env.ID, Name: "pg-" + slug}, "postgres")
+		inst, err = o.CreateOperatedTile(ctx, Tile{EnvironmentID: env.ID, Name: "pg-" + slug}, "postgres", 0)
 		must(t, err)
 		slice, err = o.CreateSliceTile(ctx, env.ID, slug, "shop:"+env.Slug+":"+inst.Slug, "")
 		must(t, err)

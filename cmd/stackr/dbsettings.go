@@ -72,6 +72,45 @@ func (a *app) dbSettings() *cobra.Command {
 	unset.RunE = func(c *cobra.Command, args []string) error {
 		return a.at(atTile, put(map[string]any{"unset": args}))(c, nil)
 	}
+	version := leaf("version", "operated.version", "Show the postgres version an instance runs and whether an update is out", exact(0),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			v, err := a.call(GET, p+"/version", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			if a.json || m == nil {
+				return a.show(v)
+			}
+			a.say("%s (postgres %v)", cell(m["image"]), m["major"])
+			if to := cell(m["update_to"]); to != "" {
+				a.say("Update available: %s. Run `stackr db update`.", to)
+			}
+			if m["eol"] == true {
+				a.say("Postgres %v no longer gets security fixes (ended %s).", m["major"], cell(m["eol_date"]))
+			}
+			return nil
+		}))
+	update := waits(leaf("update", "operated.update", "Move an instance to the current minor of its postgres major; it restarts", exact(0),
+		a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
+			v, err := a.call(POST, p+"/version", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			if m["job"] == nil {
+				a.say("Image updated; it applies on the next deploy.")
+				return nil
+			}
+			if nw, _ := c.Flags().GetBool("no-wait"); nw {
+				return a.show(m["job"], "id", "kind", "state")
+			}
+			base, err := a.orgPath()
+			if err != nil {
+				return err
+			}
+			return a.follow(base, m["job"], "update")
+		})))
 	return scoped(noun("db", "Postgres instances",
-		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset))), true)
+		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), version, update), true)
 }

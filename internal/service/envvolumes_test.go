@@ -97,7 +97,7 @@ func TestEnvVolumesOwnedAndOperated(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	ctx := context.Background()
-	_, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	_, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	ms, err := w.orch.OperatedInstances(ctx, w.env)
 	must(t, err)

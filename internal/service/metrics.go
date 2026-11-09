@@ -40,6 +40,8 @@ type metricsState struct {
 	// HTTP totals (metrics_traffic.go).
 	caddy map[string]caddySample
 	panel panelSample
+	// pg is each postgres instance's last sample by tile id (pgmonitor.go).
+	pg map[string]pgSnap
 }
 
 // Series keys. A link's is its node ids in order, so either end finds it.
@@ -119,6 +121,7 @@ func (o *Orchestrator) metricsTick(ctx context.Context) error {
 	pts = append(pts, wgPoints(pair, o.meshPeers, now)...)
 	pts = append(pts, o.trafficPoints(ctx, now)...)
 	pts = append(pts, o.panelPoints(now)...)
+	pts = append(pts, o.pgTick(ctx)...)
 	if len(pts) > 0 {
 		if err := o.metricsStore().Write(ctx, pts); err != nil {
 			return err

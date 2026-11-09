@@ -20,6 +20,8 @@ type CreateTileView struct {
 	Trigger    string
 	Command    string
 	Engine     string
+	Major      string   // postgres: the picked major, "" = the newest
+	Majors     []Option // the majors a new instance may take, newest first
 	From       string            // slice: provision_from
 	Access     string            // slice: default_access
 	Errors     map[string]string // field -> message; "general" = the form's
@@ -77,6 +79,15 @@ templ CreateTile(v CreateTileView) {
 						@c.FieldError("engine", v.Errors["engine"])
 					</div>
 					if v.Engine != "s3" {
+						<div>
+							<label for="major" class="label">Postgres version</label>
+							<select id="major" name="major" class="input" { c.Invalid("major", v.Errors["major"])... }>
+								for _, m := range v.Majors {
+									<option value={ m.Value } selected?={ m.Value == v.Major }>{ m.Label }</option>
+								}
+							</select>
+							@c.FieldError("major", v.Errors["major"])
+						</div>
 						<div>
 							<label for="dump" class="label">Start from a dump</label>
 							<input

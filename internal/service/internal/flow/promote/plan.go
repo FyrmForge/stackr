@@ -447,6 +447,31 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 			row.Name = old.Name
 			row.CreatedAt = old.CreatedAt
 			row.Paused = old.Paused
+			if tc.Image == "" && tc.Type == tile.Operated {
+				row.ImageRef = old.ImageRef // the file leaves an instance's pinned image as it is
+			}
+			if tc.Type == tile.Operated && tc.Engine == "postgres" {
+				// the data is of the stored major: the file may not move it
+				m, err := f.D.Operated.GetByTile(ctx, old.ID)
+				if err != nil && !errors.Is(err, errs.ErrNotFound) {
+					return err
+				}
+				switch {
+				case m.Major == 0:
+				case tc.Major != 0 && tc.Major != m.Major:
+					p.block("tile %s: runs postgres %d; major: %d is a major change, which is not supported yet", name, m.Major, tc.Major)
+					continue
+				case tc.Image != "" && deploy.ImageMajor(tc.Image) != m.Major:
+					p.block("tile %s: runs postgres %d; image %s is not that major. Major upgrades are not supported yet", name, m.Major, tc.Image)
+					continue
+				}
+			}
+		} else if tc.Type == tile.Operated && tc.Engine == "postgres" {
+			var err error
+			if row.ImageRef, _, err = deploy.PGPick(tc.Major, tc.Image); err != nil {
+				p.block("tile %s: %v", name, err)
+				continue
+			}
 		}
 		if err := tile.Validate(&row); err != nil {
 			p.block("tile %s: %v", name, err)

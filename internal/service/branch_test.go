@@ -35,7 +35,7 @@ func newBranchRig(t *testing.T) *branchRig {
 	t.Helper()
 	w := newWorld(t)
 	ctx := context.Background()
-	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres")
+	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	db, err := w.orch.CreateSliceTile(ctx, w.env, "db", "shop:dev:pg", "")
 	must(t, err)
@@ -173,7 +173,7 @@ func TestBranchSliceRefusals(t *testing.T) {
 		}
 	}
 	// the instance named must be postgres
-	s3, err := o.CreateOperatedTile(ctx, Tile{EnvironmentID: r.env, Name: "files"}, "s3")
+	s3, err := o.CreateOperatedTile(ctx, Tile{EnvironmentID: r.env, Name: "files"}, "s3", 0)
 	must(t, err)
 	if _, _, err := o.BranchSlice(ctx, writer, r.db.ID, BranchIn{Instance: "shop:dev:" + s3.Slug}); err == nil {
 		t.Error("branched onto an s3 instance")

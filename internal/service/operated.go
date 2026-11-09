@@ -1,7 +1,6 @@
 package service
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"slices"
@@ -24,15 +23,18 @@ type (
 )
 
 // CreateOperatedTile makes an operated tile (postgres | s3) and its env-scoped
-// instance row. Nothing runs until Deploy.
-func (o *Orchestrator) CreateOperatedTile(ctx context.Context, t Tile, engine string) (Tile, error) {
-	out, _, err := o.createOperated(ctx, t, engine, "")
+// instance row. Nothing runs until Deploy. major picks a postgres major, 0 =
+// the newest one still getting security fixes.
+func (o *Orchestrator) CreateOperatedTile(ctx context.Context, t Tile, engine string, major int) (Tile, error) {
+	out, _, err := o.createOperated(ctx, t, engine, "", major)
 	return out, err
 }
 
 // createOperated is CreateOperatedTile, plus slice tile slice cut from the
-// instance in the same transaction when slice is set ("-" = <tile>-db).
-func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice string) (Tile, Tile, error) {
+// instance in the same transaction when slice is set ("-" = <tile>-db). major
+// -1 keeps the row's image as it is, whatever its major's support (a restore
+// copy of an instance that already runs it).
+func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice string, major int) (Tile, Tile, error) {
 	if !deploy.KnownEngine(engine) {
 		return Tile{}, Tile{}, errs.Invalidf("engine", "%q is not an engine stackr runs.", engine)
 	}
@@ -54,12 +56,19 @@ func (o *Orchestrator) createOperated(ctx context.Context, t Tile, engine, slice
 			days = DefaultPITRDays // the daily dump's rule: only with a copy off this box
 		}
 	}
-	major := 0
-	if engine == "postgres" {
+	switch {
+	case engine != "postgres" && major > 0:
+		return Tile{}, Tile{}, errs.Invalidf("major", "only postgres has a major version.")
+	case engine != "postgres":
+	case major < 0:
 		// the layout and flags follow the major: an image that does not name
 		// one is refused, never guessed at
-		if major = mflow.ImageMajor(cmp.Or(t.ImageRef, mflow.Engines[engine].Definition().Image)); major == 0 {
+		if major = mflow.ImageMajor(t.ImageRef); major == 0 {
 			return Tile{}, Tile{}, errs.Invalidf("image_ref", "%s names no postgres major; pin a numeric tag such as postgres:17.", t.ImageRef)
+		}
+	default:
+		if t.ImageRef, major, err = mflow.PGPick(major, t.ImageRef, time.Now()); err != nil {
+			return Tile{}, Tile{}, err
 		}
 	}
 	var out, sl Tile

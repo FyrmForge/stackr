@@ -36,6 +36,7 @@ type OperatedInstanceStore interface {
 	GetByTile(ctx context.Context, tileID string) (OperatedInstance, error)
 	// ListPITR lists the instances with point-in-time recovery on.
 	ListPITR(ctx context.Context) ([]OperatedInstance, error)
+	ListEngine(ctx context.Context, engine string) ([]OperatedInstance, error)
 	Update(ctx context.Context, m OperatedInstance) error
 	Delete(ctx context.Context, id string) error
 }
@@ -48,6 +49,10 @@ type operatedInstances struct{ crud[OperatedInstance] }
 
 func (s operatedInstances) GetByTile(ctx context.Context, tileID string) (OperatedInstance, error) {
 	return s.one(ctx, "tile_id = ?", tileID)
+}
+
+func (s operatedInstances) ListEngine(ctx context.Context, engine string) ([]OperatedInstance, error) {
+	return s.many(ctx, "engine = ?", engine)
 }
 
 func (s operatedInstances) ListPITR(ctx context.Context) ([]OperatedInstance, error) {

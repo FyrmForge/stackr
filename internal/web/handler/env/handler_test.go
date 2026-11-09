@@ -118,7 +118,7 @@ func TestInstanceDrawer(t *testing.T) {
 func TestSliceBucketDrawer(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
-	if _, err := s.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "files"}, "s3"); err != nil {
+	if _, err := s.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "files"}, "s3", 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "media", "shop:dev:files", ""); err != nil {
@@ -147,7 +147,7 @@ func TestSliceBucketDrawer(t *testing.T) {
 
 func operated(t *testing.T, s *webtest.Site) service.Tile {
 	t.Helper()
-	pg, err := s.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres")
+	pg, err := s.Orch.CreateOperatedTile(context.Background(), service.Tile{EnvironmentID: s.Tile.Env, Name: "pg"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

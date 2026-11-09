@@ -216,7 +216,7 @@ func TestEnvSyncRemovedOrphansVolume(t *testing.T) {
 	ctx := context.Background()
 	r := newSyncRig(t)
 	r.tile(t, r.staging.ID, "api", 80)
-	pg, err := r.e.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: r.staging.ID, Name: "pg"}, "postgres")
+	pg, err := r.e.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: r.staging.ID, Name: "pg"}, "postgres", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -927,6 +927,24 @@ func CheckSettings(engine string, s map[string]string) error {
 	return mflow.SettingsPlanError(engine, s)
 }
 
+// PGPick is the image and major a new postgres instance gets from the major
+// and image a stack file names ("" and 0 = the newest supported).
+func PGPick(major int, image string) (string, int, error) {
+	return mflow.PGPick(major, image, time.Now())
+}
+
+// EngineImage is the image an operated tile with no image of its own runs.
+func EngineImage(engine string) string {
+	e, ok := mflow.Engines[engine]
+	if !ok {
+		return ""
+	}
+	return e.Definition().Image
+}
+
+// ImageMajor is the postgres major an image tag names, 0 = none.
+func ImageMajor(image string) int { return mflow.ImageMajor(image) }
+
 // logf writes a line to the job log; a log write failing never fails a deploy.
 func logf(w io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(w, format, a...)

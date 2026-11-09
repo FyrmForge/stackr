@@ -38,7 +38,7 @@ func TestSliceVerbs(t *testing.T) {
 			t.Errorf("%s = %v, want invalid", what, err)
 		}
 	}
-	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres")
+	pg, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: tl.Env, Name: "pg"}, "postgres", 0)
 	must(t, err)
 
 	_, err = o.SetOperatedAllow(ctx, pg.ID, []string{"other:shop:*"})
@@ -67,7 +67,7 @@ func TestSliceVerbs(t *testing.T) {
 		FromBranch: "main",
 	})
 	must(t, err)
-	pgProd, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: prod.ID, Name: "pg"}, "postgres")
+	pgProd, err := o.CreateOperatedTile(ctx, service.Tile{EnvironmentID: prod.ID, Name: "pg"}, "postgres", 0)
 	must(t, err)
 	_, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{"dev": "prod"})
 	must(t, err)

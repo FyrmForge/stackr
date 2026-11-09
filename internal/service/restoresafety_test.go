@@ -26,7 +26,7 @@ import (
 func (w *world) pg(t *testing.T, name string) (Tile, store.OperatedInstance, store.Volume) {
 	t.Helper()
 	ctx := context.Background()
-	tl, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: name}, "postgres")
+	tl, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: name}, "postgres", 0)
 	must(t, err)
 	m, err := w.st.OperatedInstances.GetByTile(ctx, tl.ID)
 	must(t, err)

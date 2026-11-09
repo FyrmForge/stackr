@@ -1,10 +1,12 @@
 package v1
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -103,6 +105,7 @@ type (
 	OperatedIn struct {
 		Name   string `json:"name"`
 		Engine string `json:"engine"` // postgres | s3
+		Major  int    `json:"major"`  // postgres only: 14 to 18, 0 = the newest still supported
 		TilePatch
 	}
 	TileUpdated struct {
@@ -233,7 +236,7 @@ func (h *H) CreateOperatedTile() Endpoint {
 		if err := in.apply(&t); err != nil {
 			return service.NewTileView(t), err
 		}
-		return tileView(h.Orch.CreateOperatedTile(rc(c), t, in.Engine))
+		return tileView(h.Orch.CreateOperatedTile(rc(c), t, in.Engine, in.Major))
 	})
 }
 
@@ -255,11 +258,16 @@ func (h *H) CreateOperatedFromDump() Endpoint {
 		InRaw:  "application/octet-stream",
 		Handle: func(c echo.Context) error {
 			t := service.Tile{StackID: stackID(c), EnvironmentID: envID(c), Name: c.QueryParam("name")}
+			major, err := strconv.Atoi(cmp.Or(c.QueryParam("major"), "0"))
+			if err != nil {
+				return errs.Invalidf("major", "the major is a number such as 17")
+			}
 			out, j, err := h.Orch.CreateOperatedTileFromDump(
 				context.WithoutCancel(rc(c)),
 				t,
 				c.QueryParam("engine"),
 				c.QueryParam("slice"),
+				major,
 				middleware.Body(c),
 			)
 			if err != nil {
@@ -268,7 +276,7 @@ func (h *H) CreateOperatedFromDump() Endpoint {
 			return c.JSON(http.StatusAccepted, OperatedSeeded{Tile: service.NewTileView(out), Job: j})
 		},
 	}
-	return e.Q("name", "engine", "slice")
+	return e.Q("name", "engine", "slice", "major")
 }
 
 func (h *H) GetTile() Endpoint {
@@ -515,6 +523,21 @@ func (h *H) SetPGSettings() Endpoint {
 	return JSON(200, func(c echo.Context, in PGSettingsIn) (PGSettingsOut, error) {
 		v, j, err := h.Orch.SetPGSettings(rc(c), tileID(c), in.Set, in.Unset)
 		return PGSettingsOut{PGSettings: v, Job: j}, err
+	})
+}
+
+// PGVersion is the instance's postgres version, whether a newer minor of its
+// major is out and whether its major is past end of life.
+func (h *H) PGVersion() Endpoint {
+	return Get(func(c echo.Context) (service.PGVersion, error) { return h.Orch.PGVersion(rc(c), tileID(c)) })
+}
+
+// UpdatePGVersion moves the instance to the current minor of its own major
+// and restarts it there (job).
+func (h *H) UpdatePGVersion() Endpoint {
+	return JSON(200, func(c echo.Context, _ None) (TileUpdated, error) {
+		t, j, err := h.Orch.UpdatePGVersion(rc(c), tileID(c))
+		return TileUpdated{service.NewTileView(t), j}, err
 	})
 }
 
