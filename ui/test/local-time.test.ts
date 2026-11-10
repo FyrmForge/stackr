@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const g = globalThis as Record<string, unknown>;
 g.HTMLElement = class {};
 g.customElements = { define() {} };
-const { fmtTime, zoneName } = await import("../ts/local-time.ts");
+const { fmtTime, zoneName, elapsed } = await import("../ts/local-time.ts");
 
 const at = "2026-07-01T22:00:05Z";
 
@@ -25,4 +25,10 @@ test("the zone label is its short name", () => {
   assert.equal(zoneName("UTC", d), "UTC");
   assert.equal(zoneName("Europe/Berlin", d), "CEST");
   assert.equal(zoneName("Europe/Berlin", new Date("2026-01-01T00:00:00Z")), "CET");
+});
+
+test("a clock reads mm:ss, h:mm:ss from an hour", () => {
+  assert.equal(elapsed(560_000), "09:20");
+  assert.equal(elapsed(-5), "00:00");
+  assert.equal(elapsed(3_725_000), "1:02:05");
 });
