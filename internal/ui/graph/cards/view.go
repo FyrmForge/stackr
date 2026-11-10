@@ -54,6 +54,8 @@ type FooterView struct {
 	Kind      string    // the card's kind: which strip it is
 	Status    string    // tile word (running, degraded, waiting, ...); "" = idle
 	Waiting   string    // the param a "waiting" tile misses
+	Under     string    // building/queued over a running tile: "running", the word beneath
+	Since     time.Time // that job's start; zero = none, the line reads as the word alone
 	Up, Want  int       // replica roll-up, drawn when Want > 1
 	LastRun   string    // cron/function: "ok · ", "never run", "running · since ", LastAt follows
 	LastAt    time.Time // the last run's start; zero = none
@@ -193,7 +195,11 @@ func word(status, waiting string) (tone, text string) {
 			return "warn", "Waiting for a value"
 		}
 		return "warn", "Waiting for " + waiting
-	case "building", "queued", "removing":
+	case "building":
+		return "warn", "Building"
+	case "queued":
+		return "warn", "Queued"
+	case "removing":
 		return "warn", status
 	case "":
 		return "faint", "idle"
@@ -201,6 +207,15 @@ func word(status, waiting string) (tone, text string) {
 		return "faint", "not deployed"
 	}
 	return "faint", status
+}
+
+// elapsed is mm:ss since t, h:mm:ss from an hour (local-time.ts ticks it on).
+func elapsed(t time.Time) string {
+	s := int(max(time.Since(t), 0) / time.Second)
+	if s >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
+	}
+	return fmt.Sprintf("%02d:%02d", s/60, s%60)
 }
 
 // replica is the dot of a replica sub-tile by its container state.

@@ -207,6 +207,8 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		Kind:    n.Kind,
 		Status:  n.Status,
 		Waiting: n.Waiting,
+		Under:   n.Under,
+		Since:   n.Since,
 		Up:      n.Running,
 		Want:    n.Replicas,
 	}

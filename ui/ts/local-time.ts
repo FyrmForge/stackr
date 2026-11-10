@@ -2,7 +2,7 @@
 // rewrites its <time> in the viewer's zone: <body data-tz>, "" for the
 // browser's, else an IANA name (Account, Appearance). The server's text is
 // the same layout in UTC, so without this the page still reads, in UTC.
-// <local-time zone> shows the zone's short name ("CEST"); a <local-time>
+// <local-time since="ISO"> counts up from then (mm:ss). <local-time zone> shows the zone's short name ("CEST"); a <local-time>
 // around a <select> adds every zone the browser knows to it.
 
 // fmtTime is iso in zone ("" = the browser's) laid out like Go's
@@ -31,8 +31,27 @@ export function zoneName(zone: string, at = new Date()): string {
   return f.formatToParts(at).find((x) => x.type === "timeZoneName")?.value ?? "";
 }
 
+// elapsed is ms as mm:ss, h:mm:ss from an hour.
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = String(Math.floor(s / 60) % 60).padStart(2, "0"), ss = String(s % 60).padStart(2, "0");
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${m}:${ss}` : `${m}:${ss}`;
+}
+
 class LocalTime extends HTMLElement {
+  private timer = 0;
+  disconnectedCallback(): void {
+    clearInterval(this.timer);
+  }
   connectedCallback(): void {
+    // <local-time since="ISO"> is a clock counting up from then, once a second.
+    const since = Date.parse(this.getAttribute("since") ?? "");
+    if (!isNaN(since)) {
+      const tick = (): void => void (this.textContent = elapsed(Date.now() - since));
+      tick();
+      this.timer = setInterval(tick, 1000);
+      return;
+    }
     const zone = document.body.dataset.tz ?? "";
     if (this.hasAttribute("zone")) {
       this.textContent = zoneName(zone);
