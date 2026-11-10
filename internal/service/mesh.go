@@ -86,6 +86,10 @@ var (
 )
 
 type meshSvc struct {
+	// wide, when set, is told per node which reported prefixes on the pool
+	// were wider than an env network (none = clear): the pool ignores them,
+	// the admin must still hear a new env may overlap that network.
+	wide  func(ctx context.Context, nodeID string, prefixes []netip.Prefix)
 	st    *store.Store
 	nodes MeshNodes
 	// syncMu runs one plan-and-push at a time: a sync planned with a key
@@ -361,6 +365,9 @@ func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 	return nil
 }
 
+// envPrefixBits is the size of one env network (node.Reserve hands out /24s).
+const envPrefixBits = 24
+
 // taken is every block of the cluster pool in use: each env's network and
 // each node's reported interfaces on the pool (its shared and ingress
 // bridges). The node leaf's Reserve avoids them, so a network is unique
@@ -386,13 +393,28 @@ func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
 			out = append(out, p)
 		}
 	}
+	wide := map[string][]netip.Prefix{} // node -> prefixes wider than an env network
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, f := range m.facts {
+	for id, f := range m.facts {
+		wide[id] = nil
 		for _, p := range ifacePrefixes(f) {
-			if p.Overlaps(mesh.Supernet) {
-				out = append(out, p.Masked())
+			if !p.Overlaps(mesh.Supernet) {
+				continue
 			}
+			// Networks are /24s: a wider reported prefix (one worker claiming
+			// the whole pool) would block every new env, so it is ignored.
+			if p.Bits() < envPrefixBits {
+				slog.Warn("mesh: ignoring a reported interface prefix wider than an env network", "node", id, "prefix", p)
+				wide[id] = append(wide[id], p)
+				continue
+			}
+			out = append(out, p.Masked())
+		}
+	}
+	m.mu.Unlock()
+	if m.wide != nil {
+		for id, ps := range wide {
+			m.wide(ctx, id, ps)
 		}
 	}
 	return out, nil
@@ -1019,4 +1041,24 @@ func (m *meshSvc) savePairs(ctx context.Context, pairs map[[2]string]int) {
 	if err := m.st.Settings.Set(ctx, pairsKey, string(b)); err != nil {
 		slog.Warn("mesh: keep exit pairs", "err", err)
 	}
+}
+
+// wideProblem opens a warning for a node that reports an interface prefix on
+// the cluster pool wider than an env network, and clears it when the node
+// stops. The pool ignores such a prefix, so a new env could overlap it.
+func (o *Orchestrator) wideProblem(ctx context.Context, nodeID string, ps []netip.Prefix) {
+	key := "alert.mesh-wide-prefix." + nodeID
+	if len(ps) == 0 {
+		o.clearProblem(ctx, key)
+		return
+	}
+	name := nodeID
+	if n, err := o.store.Nodes.Get(ctx, nodeID); err == nil {
+		name = n.Name
+	}
+	var l []string
+	for _, p := range ps {
+		l = append(l, p.String())
+	}
+	o.openProblem(ctx, key, SevWarning, fmt.Sprintf("%s reports %s on the cluster network pool, wider than an env network: new envs may overlap it.", name, strings.Join(l, ", ")))
 }

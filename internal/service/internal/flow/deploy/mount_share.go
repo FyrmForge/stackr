@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -24,6 +25,14 @@ func (f *Flow) shareBind(ctx context.Context, o store.Org, e store.Environment, 
 		return "", errs.Conflictf("%s mounts share %q, which this organization does not have", t.Slug, m.Share)
 	}
 	if err != nil {
+		return "", err
+	}
+	// The host mounts the share from its own network: an admin grant first,
+	// checked on the expanded line too (a param may have written it).
+	if f.HostGrants == nil {
+		return "", errs.Conflictf("%s: share mounts need the grant leaf", t.Slug)
+	}
+	if err := f.HostGrants.Check(ctx, st.ID, hostgrant.Set{Lines: []string{hostgrant.Line(t.Slug, hostgrant.Share+s.Slug)}}); err != nil {
 		return "", err
 	}
 	snap, err := f.ParamSnapshot(ctx, e, st, true)

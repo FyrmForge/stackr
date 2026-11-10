@@ -15,6 +15,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/exits"
 	"github.com/FyrmForge/stackr/internal/mesh"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -235,6 +236,8 @@ func TestPoolTakenSeesBridges(t *testing.T) {
 	m.facts["w1"] = worker.Facts{Interfaces: []worker.Iface{
 		{Name: "br-x", Prefixes: []string{"10.208.9.1/24"}},
 		{Name: "eth0", Prefixes: []string{"192.168.1.5/24"}},
+		{Name: "wide", Prefixes: []string{"10.208.0.1/12"}}, // a worker claiming the whole pool
+		{Name: "wide16", Prefixes: []string{"10.209.0.1/16"}},
 	}}
 	got, err := m.taken(context.Background())
 	if err != nil || !slices.Equal(got, []netip.Prefix{netip.MustParsePrefix("10.208.9.0/24")}) {
@@ -727,5 +730,35 @@ func TestBuildMeshMutualExits(t *testing.T) {
 		if len(s.Links) != 1 || len(s.Serves) != 1 || s.Links[0].Iface == s.Serves[0].Iface {
 			t.Errorf("%s: links %+v serves %+v", id, s.Links, s.Serves)
 		}
+	}
+}
+
+// A wide prefix on the pool is ignored by taken but raises a problem naming
+// the node, cleared once the node stops reporting it.
+func TestPoolWidePrefixProblem(t *testing.T) {
+	o := newClusterPanel(t)
+	ctx := context.Background()
+	must(t, o.store.Nodes.Create(ctx, store.Node{
+		ID: "w1", Name: "wk1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
+		WGPublicKey: "wg-w1", Status: node.StatusOnline, CreatedAt: time.Now(),
+	}))
+	m := newMeshSvc(o.store, func(string) (MeshNode, bool) { return nil, false })
+	m.wide = o.wideProblem
+	m.facts["w1"] = worker.Facts{Interfaces: []worker.Iface{{Name: "x", Prefixes: []string{"10.208.0.1/12"}}}}
+	if got, err := m.taken(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("taken = %v, %v", got, err)
+	}
+	key := "alert.mesh-wide-prefix.w1"
+	if !o.hasProblem(ctx, key) {
+		t.Fatal("no problem opened")
+	}
+	row, _, _ := o.store.Settings.Get(ctx, problemKey(key))
+	if !strings.Contains(row, "wk1") || !strings.Contains(row, "10.208.0.1/12") {
+		t.Fatalf("problem = %s", row)
+	}
+	m.facts["w1"] = worker.Facts{}
+	_, _ = m.taken(ctx)
+	if o.hasProblem(ctx, key) {
+		t.Fatal("problem not cleared")
 	}
 }

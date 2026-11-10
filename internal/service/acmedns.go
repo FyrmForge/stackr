@@ -147,7 +147,8 @@ func (o *Orchestrator) meshDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer, err := clusterca.Verify(o.cluster.roots(), r.TLS.PeerCertificates, clusterca.RoleWorker, "", time.Now())
-	if err != nil {
+	// A keep-alive connection outlives a revocation: check it per request.
+	if err != nil || o.cluster.revoked(peer.Serial) {
 		http.Error(w, "worker cert required", http.StatusForbidden)
 		return
 	}

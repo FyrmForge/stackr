@@ -9,6 +9,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tier"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -16,6 +17,30 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/service/internal/storetest"
 )
+
+// memGrants is a HostGrantStore with no foreign keys: one row per stack.
+type memGrants map[string]store.HostGrant
+
+func (m memGrants) Create(_ context.Context, g store.HostGrant) error { m[g.StackID] = g; return nil }
+func (m memGrants) Update(_ context.Context, g store.HostGrant) error { m[g.StackID] = g; return nil }
+func (m memGrants) Get(context.Context, string) (store.HostGrant, error) {
+	return store.HostGrant{}, errs.ErrNotFound
+}
+func (m memGrants) GetByStack(_ context.Context, id string) (store.HostGrant, error) {
+	if g, ok := m[id]; ok {
+		return g, nil
+	}
+	return store.HostGrant{}, errs.ErrNotFound
+}
+func (m memGrants) Delete(_ context.Context, id string) error {
+	for k, g := range m {
+		if g.ID == id {
+			delete(m, k)
+		}
+	}
+	return nil
+}
+func (m memGrants) List(context.Context) ([]store.HostGrant, error) { return nil, nil }
 
 // Two orgs; acme has an NFS share "media" and an SMB share "docs" whose
 // password is an org secret.
@@ -30,6 +55,16 @@ func shareWorld(t *testing.T) (*Flow, *dockerfake.Fake, store.Org, store.Org) {
 		Tiers:   tier.New(st.Tiers),
 		Envs:    environment.New(st.Environments, nil),
 	}
+	// Both stacks may mount every share the tests name from the tile "web".
+	grants := memGrants{}
+	for _, o := range []string{"acme", "globex"} {
+		var ls []string
+		for _, sh := range []string{"media", "docs", "q", "bad"} {
+			ls = append(ls, hostgrant.Line("web", hostgrant.Share+sh))
+		}
+		grants["s-o-"+o] = store.HostGrant{ID: "g-" + o, StackID: "s-o-" + o, Lines: strings.Join(ls, "\n")}
+	}
+	f.HostGrants = hostgrant.New(grants)
 	mk := func(slug string) store.Org {
 		o := store.Org{ID: "o-" + slug, Name: slug, Slug: slug, EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
 		if err := st.Orgs.Create(ctx, o); err != nil {
@@ -189,10 +224,11 @@ func TestShareBindRefusesStackParams(t *testing.T) {
 	st := storetest.Store(t)
 	fake := dockerfake.New()
 	f := &Flow{
-		Volumes: volume.New(st.Volumes, fake).WithShares(st.Shares),
-		Params:  params.New(st.Params),
-		Tiers:   tier.New(st.Tiers),
-		Envs:    environment.New(st.Environments, nil),
+		Volumes:    volume.New(st.Volumes, fake).WithShares(st.Shares),
+		Params:     params.New(st.Params),
+		Tiers:      tier.New(st.Tiers),
+		Envs:       environment.New(st.Environments, nil),
+		HostGrants: hostgrant.New(memGrants{"s-o-acme": {ID: "g", StackID: "s-o-acme", Lines: "web share:bad"}}),
 	}
 	o := store.Org{ID: "o-acme", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
 	if err := st.Orgs.Create(ctx, o); err != nil {
@@ -275,5 +311,30 @@ func TestParamsVersionFollowsLocks(t *testing.T) {
 		if p[0] == p[1] {
 			t.Errorf("step %d: version %s did not change", i, p[0])
 		}
+	}
+}
+
+// A share mount parks until an admin approved it for the tile, and a grant is
+// dropped when the share changes.
+func TestShareBindNeedsGrant(t *testing.T) {
+	f, _, acme, _ := shareWorld(t)
+	ctx := context.Background()
+	_, err := bindIn(f, ctx, acme, store.Tile{Slug: "other"}, mount(t, "share:media:/d"))
+	n, ok := errs.IsNeedsApproval(err)
+	if !ok || !strings.Contains(n.What, "other share:media") {
+		t.Fatalf("ungranted tile: %v", err)
+	}
+	if _, err := bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:media:/d")); err != nil {
+		t.Fatalf("granted tile: %v", err)
+	}
+	set := HostSet(store.Tile{Slug: "web", Volumes: "share:media/x:/d"})
+	if !set.Has(hostgrant.Line("web", hostgrant.Share+"media")) {
+		t.Errorf("HostSet = %v, want the share line", set.Lines)
+	}
+	if err := f.HostGrants.DropPerm(ctx, "s-o-acme", hostgrant.Share+"media"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:media:/d")); err == nil {
+		t.Error("dropped grant still mounts")
 	}
 }

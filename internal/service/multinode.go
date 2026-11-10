@@ -59,6 +59,7 @@ func (o *Orchestrator) startMesh(ctlID string) {
 		}
 		return c, true
 	})
+	o.mesh.wide = o.wideProblem
 	ctx, cancel := context.WithCancel(context.Background())
 	o.stopMesh, o.meshCtx, o.localWorker = cancel, ctx, local
 	o.track(func() { o.rotateSchedule(ctx) })

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
@@ -43,7 +44,10 @@ func (o *Orchestrator) DeleteShare(ctx context.Context, orgID, ref string) error
 	if err != nil {
 		return err
 	}
-	if err := o.volumes.DeleteShare(ctx, s, users[s.Slug]); err != nil {
+	err = o.shareTx(ctx, orgID, s.Slug, func(v *volume.Leaf) error {
+		return v.DeleteShare(ctx, s, users[s.Slug])
+	}, func() bool { return true })
+	if err != nil {
 		return err
 	}
 	o.reconcileShares(ctx)
@@ -57,11 +61,48 @@ func (o *Orchestrator) UpdateShare(ctx context.Context, orgID, ref string, sp Sh
 	if err != nil {
 		return Share{}, err
 	}
-	if s, err = o.volumes.UpdateShare(ctx, s, sp); err != nil {
-		return s, err
+	old := s
+	changed := false
+	err = o.shareTx(ctx, orgID, s.Slug, func(v *volume.Leaf) error {
+		var uerr error
+		if s, uerr = v.UpdateShare(ctx, old, sp); uerr != nil {
+			return uerr
+		}
+		changed = s.Kind != old.Kind || s.Source != old.Source || s.Options != old.Options || s.User != old.User || s.PasswordRef != old.PasswordRef
+		return nil
+	}, func() bool { return changed })
+	if err != nil {
+		return old, err
 	}
 	o.reconcileShares(ctx)
 	return s, nil
+}
+
+// shareTx runs fn (a write of the share) and, in the same transaction, takes
+// back the admin approval of mounting it on every stack of the org: a changed
+// or replaced share is a new thing to approve, so the owner cannot repoint an
+// approved name at another server, and a failure leaves neither half done.
+// The grants go only when drop says so after fn ran.
+func (o *Orchestrator) shareTx(ctx context.Context, orgID, slug string, fn func(*volume.Leaf) error, drop func() bool) error {
+	sts, err := o.stacks.List(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := fn(o.volumes.InTx(tx.Shares)); err != nil {
+			return err
+		}
+		if !drop() {
+			return nil
+		}
+		g := hostgrant.New(tx.HostGrants)
+		for _, st := range sts {
+			if err := g.DropPerm(ctx, st.ID, hostgrant.Share+slug); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // reconcileShares queues the share volume reconcile across the nodes.

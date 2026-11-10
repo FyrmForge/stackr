@@ -88,6 +88,13 @@ func (l *Leaf) WithShares(s store.ShareStore) *Leaf {
 	return l
 }
 
+// InTx is the leaf with its shares table swapped for a transaction's.
+func (l *Leaf) InTx(s store.ShareStore) *Leaf {
+	c := *l
+	c.shares = s
+	return &c
+}
+
 // CheckShare is every rule a share row obeys, pure.
 func CheckShare(s ShareSpec) error {
 	if !slug.Valid(s.Slug) {

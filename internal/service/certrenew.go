@@ -21,8 +21,8 @@ import (
 // cert as the client cert; with the tunnel down, the same CSR signed with its
 // current key to the panel. Either way a live, unrevoked worker cert of this
 // CA is the only credential, and the new cert names the same node. The old
-// cert is not revoked: it runs out within its last third, and revoking it
-// before the node is known to use the new one could strand it.
+// cert is not revoked at once (that could strand a node that never got the
+// new one); clusterPKI.seen revokes it once the node proves it uses the new.
 
 // NodeCertExpired is the shown status of a worker whose newest cert has run
 // out: it can no longer renew and must be rejoined.
@@ -76,7 +76,8 @@ func (o *Orchestrator) renewTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer, err := clusterca.Verify(o.cluster.roots(), r.TLS.PeerCertificates, clusterca.RoleWorker, "", time.Now())
-	if err != nil {
+	// A keep-alive connection outlives a revocation: check it per request.
+	if err != nil || o.cluster.revoked(peer.Serial) {
 		http.Error(w, "worker cert required", http.StatusForbidden)
 		return
 	}

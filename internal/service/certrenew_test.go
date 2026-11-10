@@ -201,3 +201,56 @@ func TestRenewNotDue(t *testing.T) {
 		t.Fatal("panel renewal of a fresh cert accepted")
 	}
 }
+
+// Once a node is seen with its newer serial, its older ones are revoked; the
+// old serial being seen again changes nothing.
+func TestSeenRevokesSupersededCerts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o, _ := renewRig(t)
+	at := time.Now().UTC()
+	for i, s := range []string{"01", "02", "03"} {
+		must(t, o.store.NodeCerts.Create(ctx, store.NodeCert{Serial: s, NodeID: "w1", Role: "worker", NotAfter: at.Add(time.Hour), CreatedAt: at.Add(time.Duration(i) * time.Minute)}))
+	}
+	live := func() []string {
+		var out []string
+		cs, err := o.store.NodeCerts.ListByNode(ctx, "w1")
+		must(t, err)
+		for _, c := range cs {
+			if c.RevokedAt == nil {
+				out = append(out, c.Serial)
+			}
+		}
+		return out
+	}
+	o.cluster.seen("w1", "02")
+	if got := strings.Join(live(), ","); got != "02,03" && got != "03,02" {
+		t.Fatalf("after seeing 02, live = %s", got)
+	}
+	o.cluster.seen("w1", "01") // revoked, and older: nothing
+	o.cluster.seen("w1", "03")
+	if got := live(); len(got) != 1 || got[0] != "03" {
+		t.Fatalf("after seeing 03, live = %v", got)
+	}
+}
+
+// A cert revoked after the connection opened is refused per request.
+func TestRenewTunnelRefusesRevokedCert(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o, own := renewRig(t)
+	leaf, err := x509.ParseCertificate(own.Certificate[0])
+	must(t, err)
+	serial, err := certSerial(own)
+	must(t, err)
+	must(t, o.store.NodeCerts.Create(ctx, store.NodeCert{Serial: serial, NodeID: "w1", Role: "worker", NotAfter: leaf.NotAfter, CreatedAt: time.Now().UTC()}))
+	must(t, o.store.NodeCerts.Revoke(ctx, serial, time.Now().UTC()))
+	body, _ := json.Marshal(worker.RenewRequest{CSR: newCSR(t)})
+	r := httptest.NewRequest(http.MethodPost, worker.RenewTunnelPath, strings.NewReader(string(body)))
+	r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}}
+	w := httptest.NewRecorder()
+	o.meshHandler().ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("revoked cert: status %d", w.Code)
+	}
+}
