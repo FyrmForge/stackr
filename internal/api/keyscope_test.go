@@ -143,8 +143,12 @@ func TestStackKeyRows(t *testing.T) {
 	if code, _ := w.do(t, shop, "DELETE", "/me/keys/"+own, ""); code != 204 && code != 200 {
 		t.Errorf("stack key revoking itself = %d, want 2xx", code)
 	}
-	if code, _ := w.do(t, w.owner, "DELETE", "/me/keys/"+plain, ""); code != 204 && code != 200 {
-		t.Errorf("uncapped key revoking another = %d, want 2xx", code)
+	// an org-bound key may not touch another /me key, only its own org's via the org route
+	if code, _ := w.do(t, w.owner, "DELETE", "/me/keys/"+plain, ""); code != 403 {
+		t.Errorf("org-bound key revoking another /me key = %d, want 403", code)
+	}
+	if code, _ := w.do(t, w.owner, "DELETE", "/orgs/acme/keys/"+plain, ""); code != 204 && code != 200 {
+		t.Errorf("org-bound key revoking an org key = %d, want 2xx", code)
 	}
 }
 
