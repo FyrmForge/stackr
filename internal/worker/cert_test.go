@@ -205,3 +205,29 @@ func TestLoadNodeCertFallsBack(t *testing.T) {
 		t.Fatalf("fallback: %v", err)
 	}
 }
+
+// The new pair lands with its content and modes, the old one kept as .prev,
+// and no temp file is left.
+func TestSwapCertFilesLands(t *testing.T) {
+	dir := t.TempDir()
+	s := &Server{cfg: Config{StateDir: dir}}
+	for _, f := range []string{certFile, keyFile} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("old-"+f), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.swapCertFiles([]byte("new-cert"), []byte("new-key")); err != nil {
+		t.Fatal(err)
+	}
+	for f, want := range map[string]string{certFile: "new-cert", keyFile: "new-key", certFile + ".prev": "old-" + certFile, keyFile + ".prev": "old-" + keyFile} {
+		if b, _ := os.ReadFile(filepath.Join(dir, f)); string(b) != want {
+			t.Errorf("%s = %q, want %q", f, b, want)
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, keyFile)); fi.Mode().Perm() != 0o600 {
+		t.Errorf("key mode = %v", fi.Mode().Perm())
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, "*.tmp")); len(m) != 0 {
+		t.Errorf("temp files left: %v", m)
+	}
+}

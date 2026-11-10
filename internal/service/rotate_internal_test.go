@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 	o.mesh.rx["w2"] = map[string]rxSample{old: {n: 5}, peer: {n: 7}}
 	o.mesh.mu.Unlock()
 	own := nodeCert(t, o, "w1")
-	o.rotation.trigger.Store("w1", "manual by admin@test.com")
+	must(t, o.markRotation(ctx, "w1", "manual by admin@test.com"))
 	wg, exit := pubKey(t), pubKey(t)
 	req, err := worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r1", Purpose: worker.PurposeRecover, WGPublic: wg, ExitPublic: exit})
 	must(t, err)
@@ -60,7 +61,7 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 	if stale || !kept || gotExit != exit {
 		t.Fatalf("mesh state: stale=%v kept=%v exit ok=%v", stale, kept, gotExit == exit)
 	}
-	if _, ok := o.rotation.trigger.Load("w1"); ok {
+	if _, ok := o.rotationMark(ctx, "w1"); ok {
 		t.Fatal("trigger not consumed")
 	}
 	evs, err := o.SecurityLog(ctx, SecurityFilter{})
@@ -75,7 +76,7 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 		t.Fatalf("audit = %q", row)
 	}
 
-	o.rotation.trigger.Store("w1", "schedule")
+	must(t, o.markRotation(ctx, "w1", "schedule"))
 	req, err = worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r2", Purpose: worker.PurposeRecover, WGPublic: "not-a-key", ExitPublic: exit})
 	must(t, err)
 	if _, err := o.RecoverNode(ctx, req); !errors.Is(err, errs.ErrRefused) {
@@ -234,5 +235,49 @@ func TestRotationSettled(t *testing.T) {
 	m.rx["y"] = map[string]rxSample{"new": {n: 1, changed: time.Now()}}
 	if !m.settled(time.Now()) {
 		t.Fatal("held after the new key carried traffic")
+	}
+}
+
+// The rotation mark lives in the settings table, so a panel restart keeps it
+// until its expiry; an expired one is dropped.
+func TestRotationMarkSurvivesRestart(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	must(t, o.markRotation(ctx, "w1", "schedule"))
+	// a restarted panel reads it from the store, not from memory
+	if v, ok := o.rotationMark(ctx, "w1"); !ok || v != "schedule" {
+		t.Fatalf("mark = %q %v", v, ok)
+	}
+	v, _, _ := o.store.Settings.Get(ctx, rotationKey+"w1")
+	exp, _, _ := strings.Cut(v, "|")
+	if n, _ := strconv.ParseInt(exp, 10, 64); n < time.Now().Add(worker.RotateRevertAfter).Unix() {
+		t.Fatalf("mark expires %s from now, inside the worker's retry window", time.Until(time.Unix(n, 0)))
+	}
+	must(t, o.store.Settings.Set(ctx, rotationKey+"w1", "1|schedule"))
+	if _, ok := o.rotationMark(ctx, "w1"); ok {
+		t.Fatal("expired mark honoured")
+	}
+}
+
+// A worker that already handed its keys over (restarted before it dropped its
+// .prev) recovers again with the key the panel holds: no mark needed, nothing
+// changes.
+func TestRecoverSameKeyIdempotent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	cur := pubKey(t)
+	must(t, o.store.Nodes.Create(ctx, store.Node{
+		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
+		WGPublicKey: cur, Status: node.StatusOnline, CreatedAt: time.Now(),
+	}))
+	req, err := worker.SignRecover(nodeCert(t, o, "w1"), worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "i1", Purpose: worker.PurposeRecover, WGPublic: cur, ExitPublic: pubKey(t)})
+	must(t, err)
+	if _, err := o.RecoverNode(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := o.store.Nodes.Get(ctx, "w1"); n.WGPublicKey != cur {
+		t.Fatal("key changed")
 	}
 }

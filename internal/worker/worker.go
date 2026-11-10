@@ -183,6 +183,9 @@ func Run(ctx context.Context, cfg Config) error {
 		tc.Certificates, tc.GetCertificate = nil, s.serverCert
 		go s.renewLoop()
 	}
+	if s.ResumeRotation() {
+		slog.Warn("worker: a key rotation was cut short by a restart; resuming it")
+	}
 	s.leaseBoot() // what an earlier run bound is stopped before this one serves
 	raw, err := (&net.ListenConfig{Control: freebind}).Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {

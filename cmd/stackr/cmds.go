@@ -731,7 +731,7 @@ func (a *app) dests() *cobra.Command {
 		return a.orgPath()
 	}
 	var name, endpoint, region, bucket string
-	var shared bool
+	var shared, force bool
 	add := leaf(
 		"add <name>",
 		"dest.create,admin.dest-create",
@@ -812,6 +812,34 @@ func (a *app) dests() *cobra.Command {
 		})
 	set.Flags().StringVar(&name, "name", "", "a new name")
 	set.Flags().BoolVar(&shared, "shared", false, "every org may use it")
+	rm := leaf(
+		"rm <id>",
+		"dest.list,dest.delete,admin.dest-list,admin.dest-delete",
+		"Remove a destination; archives in the bucket are kept",
+		exact(1),
+		func(_ *cobra.Command, args []string) error {
+			p, err := base()
+			if err != nil {
+				return err
+			}
+			cur, err := a.find(p+"/backup-dests", "destination", args[0], "id", "name")
+			if err != nil {
+				return err
+			}
+			q := ""
+			if force {
+				if !server {
+					return errors.New("--force is for a server destination; add --server")
+				}
+				q = "?force=true"
+			}
+			if err := a.confirm("Remove backup destination " + cell(cur["name"]) + "? Archives already in the bucket are kept."); err != nil {
+				return err
+			}
+			_, err = a.call(DELETE, p+"/backup-dests/"+cell(cur["id"])+q, nil)
+			return err
+		})
+	rm.Flags().BoolVar(&force, "force", false, "a deleted org's destination: drop its records without touching the bucket (use when the bucket or credentials are gone)")
 	c := noun("dest", "Backup destinations",
 		leaf("ls", "dest.list,admin.dest-list", "List destinations", exact(0), func(*cobra.Command, []string) error {
 			p, err := base()
@@ -826,27 +854,7 @@ func (a *app) dests() *cobra.Command {
 		}),
 		add,
 		set,
-		leaf(
-			"rm <id>",
-			"dest.list,dest.delete,admin.dest-list,admin.dest-delete",
-			"Remove a destination; archives in the bucket are kept",
-			exact(1),
-			func(_ *cobra.Command, args []string) error {
-				p, err := base()
-				if err != nil {
-					return err
-				}
-				cur, err := a.find(p+"/backup-dests", "destination", args[0], "id", "name")
-				if err != nil {
-					return err
-				}
-				if err := a.confirm("Remove backup destination " + cell(cur["name"]) + "? Archives already in the bucket are kept."); err != nil {
-					return err
-				}
-				_, err = a.call(DELETE, p+"/backup-dests/"+cell(cur["id"]), nil)
-				return err
-			},
-		),
+		rm,
 	)
 	c.PersistentFlags().BoolVar(&server, "server", false, "the server-wide destinations (admin)")
 	return c

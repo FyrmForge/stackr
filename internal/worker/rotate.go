@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -38,6 +39,12 @@ func (s *Server) rotate() {
 		slog.Error("worker: rotate mesh keys", "err", err)
 		return
 	}
+	s.recoverOrRevert()
+}
+
+// recoverOrRevert calls the panel with the keys on disk until it takes them
+// (the *.prev keys go), or reverts to *.prev after RotateRevertAfter.
+func (s *Server) recoverOrRevert() {
 	deadline := time.Now().Add(RotateRevertAfter)
 	for {
 		err := s.recoverOnce(s.ctx)
@@ -111,6 +118,20 @@ func (s *Server) revertKeys() error {
 	return nil
 }
 
+// ResumeRotation is the start-up half of a rotation: a *.prev key left
+// behind means a restart cut it short, after the swap. The new keys stay (the
+// panel may already hold them) and the same recover-or-revert runs again, so
+// the node goes back to its old keys only when the panel never takes the new
+// ones. Only a worker's Run calls it: the controller's own *.prev is the
+// panel's to manage. Reports whether a rotation was resumed.
+func (s *Server) ResumeRotation() bool {
+	if _, err := os.Stat(s.wgKeyPath() + ".prev"); err != nil {
+		return false
+	}
+	go s.recoverOrRevert()
+	return true
+}
+
 func (s *Server) dropPrev() {
 	for _, p := range s.keyPaths() {
 		_ = os.Remove(p + ".prev")
@@ -137,12 +158,36 @@ func (s *Server) reapply() error {
 }
 
 // writeKey writes a private key file 0600, atomically.
-func writeKey(path string, b []byte) error {
+func writeKey(path string, b []byte) error { return writeDurable(path, b, 0o600) }
+
+// writeDurable writes temp, fsyncs it, renames, fsyncs the directory: after
+// a power loss the old file or the new one is there, never an older state of
+// a rename the caller already acted on.
+func writeDurable(path string, b []byte, mode os.FileMode) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if _, err = f.Write(b); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return d.Sync()
 }
 
 // StageKeys is the controller's own rotation, step one: new keys in

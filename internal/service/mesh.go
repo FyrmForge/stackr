@@ -368,6 +368,9 @@ func (m *meshSvc) RemoveNode(ctx context.Context, nodeID string) error {
 // envPrefixBits is the size of one env network (node.Reserve hands out /24s).
 const envPrefixBits = 24
 
+// maxNodePoolPrefixes caps the pool /24s one node may report as in use.
+const maxNodePoolPrefixes = 64
+
 // taken is every block of the cluster pool in use: each env's network and
 // each node's reported interfaces on the pool (its shared and ingress
 // bridges). The node leaf's Reserve avoids them, so a network is unique
@@ -393,10 +396,11 @@ func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
 			out = append(out, p)
 		}
 	}
-	wide := map[string][]netip.Prefix{} // node -> prefixes wider than an env network
+	wide := map[string][]netip.Prefix{} // node -> prefixes the pool ignored
 	m.mu.Lock()
 	for id, f := range m.facts {
 		wide[id] = nil
+		var mine []netip.Prefix
 		for _, p := range ifacePrefixes(f) {
 			if !p.Overlaps(mesh.Supernet) {
 				continue
@@ -408,8 +412,17 @@ func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
 				wide[id] = append(wide[id], p)
 				continue
 			}
-			out = append(out, p.Masked())
+			mine = append(mine, p.Masked())
 		}
+		// A node holds a few bridges, never hundreds: one reporting more
+		// would fill the pool, so all its pool prefixes are ignored.
+		mine = slices.Compact(slices.SortedFunc(slices.Values(mine), netip.Prefix.Compare))
+		if len(mine) > maxNodePoolPrefixes {
+			slog.Warn("mesh: ignoring a node reporting too many pool prefixes", "node", id, "count", len(mine))
+			wide[id] = append(wide[id], mine...)
+			continue
+		}
+		out = append(out, mine...)
 	}
 	m.mu.Unlock()
 	if m.wide != nil {
@@ -1057,8 +1070,12 @@ func (o *Orchestrator) wideProblem(ctx context.Context, nodeID string, ps []neti
 		name = n.Name
 	}
 	var l []string
-	for _, p := range ps {
+	for _, p := range ps[:min(len(ps), 3)] {
 		l = append(l, p.String())
 	}
-	o.openProblem(ctx, key, SevWarning, fmt.Sprintf("%s reports %s on the cluster network pool, wider than an env network: new envs may overlap it.", name, strings.Join(l, ", ")))
+	more := ""
+	if len(ps) > 3 {
+		more = fmt.Sprintf(" and %d more", len(ps)-3)
+	}
+	o.openProblem(ctx, key, SevWarning, fmt.Sprintf("%s reports %s%s on the cluster network pool (wider than an env network, or too many): the pool ignores them, so new envs may overlap.", name, strings.Join(l, ", "), more))
 }

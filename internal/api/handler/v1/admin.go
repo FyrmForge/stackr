@@ -169,5 +169,10 @@ func (h *H) UpdateGlobalBackupDest() Endpoint {
 }
 
 func (h *H) DeleteGlobalBackupDest() Endpoint {
-	return Done(func(c echo.Context, _ None) error { return h.Orch.DeleteBackupDest(rc(c), "", c.Param("dest")) })
+	return Done(func(c echo.Context, _ None) error {
+		if c.QueryParam("force") == "true" { // objects untouched: bucket or credentials gone
+			return h.Orch.ForceDeleteBackupDest(rc(c), c.Param("dest"))
+		}
+		return h.Orch.DeleteBackupDest(rc(c), "", c.Param("dest"))
+	})
 }
