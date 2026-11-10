@@ -266,6 +266,12 @@
           "endpoint": {
             "type": "string"
           },
+          "former_org": {
+            "type": "string"
+          },
+          "former_org_id": {
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
@@ -302,7 +308,9 @@
           "shared",
           "created_at",
           "approved_endpoint",
-          "approved_by"
+          "approved_by",
+          "former_org",
+          "former_org_id"
         ],
         "type": "object"
       },

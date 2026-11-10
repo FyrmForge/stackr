@@ -205,7 +205,9 @@ echo 17 > "$PGDATA/PG_VERSION"; echo conf > "$PGDATA/stackr.conf"`)
 		t.Fatalf("promoted directory: err %v copies %d", err, copies())
 	}
 	// without the marker (a rewind that failed) it is copied afresh
-	os.Remove(filepath.Join(data, standbyDone))
+	if err := os.Remove(filepath.Join(data, standbyDone)); err != nil {
+		t.Fatal(err)
+	}
 	if err := run(false); err != nil || copies() != 4 || !has("standby.signal") {
 		t.Fatalf("no marker, no signal: err %v copies %d", err, copies())
 	}
