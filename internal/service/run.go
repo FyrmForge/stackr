@@ -173,6 +173,9 @@ func (o *Orchestrator) afterDeploy(ctx context.Context, tileIDs []string, reload
 	if reload {
 		o.sched.Reload(ctx)
 	}
+	// A new container IP or link flow: push the nodes' flows now, not at the
+	// minute tick (the mesh drop rule fails closed until the accept lands).
+	o.rerouteVIPsAsync(ctx)
 	return nil
 }
 

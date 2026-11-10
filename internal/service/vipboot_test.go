@@ -700,3 +700,17 @@ func TestEarlyEntryDroppedWhenRouted(t *testing.T) {
 		t.Fatalf("routed replica still tracked: %v", r.orch.earlyIPs)
 	}
 }
+
+// A finished deploy pushes the flows now, not at the minute tick.
+func TestAfterDeployRebuildsRules(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newBootRig(t)
+	must(t, r.orch.rebuildVIPs(ctx))
+	*r.scripts = nil
+	must(t, r.orch.afterDeploy(ctx, []string{r.tiles["a"].ID}, false))
+	r.orch.vipAsync.Wait()
+	if len(*r.scripts) == 0 {
+		t.Fatal("deploy did not request a flow rebuild")
+	}
+}
