@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"testing"
 	"time"
@@ -99,7 +100,7 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 	}
 
 	// Retention: the sweep drops what is older than the window, keeps the rest.
-	must(t, w.orch.backup.AgeFormer(ctx, 30*24*time.Hour, time.Now()))
+	must(t, w.orch.backup.AgeFormer(ctx, 30*24*time.Hour, time.Now(), io.Discard))
 	if rs, _ := w.st.BackupRuns.ListByDest(ctx, d.ID); len(rs) != 2 || len(s3.keys(prefix)) != 1 {
 		t.Fatalf("after aging: %d runs, %v", len(rs), s3.keys(prefix))
 	}
@@ -136,5 +137,36 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 	}
 	if _, err := w.st.BackupDests.Get(ctx, d.ID); err == nil {
 		t.Error("destination kept after the admin delete")
+	}
+}
+
+// A former org's destination whose bucket is gone: the sweep skips it, a
+// plain delete fails with the rows kept, and the forced delete drops both.
+func TestFormerDestUnreachable(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := context.Background()
+	ep := "http://127.0.0.1:1"
+	u, _ := url.Parse(ep)
+	d := store.BackupDest{
+		ID: uuid.NewString(), Kind: "s3", Name: "gone", Endpoint: ep, Bucket: "b",
+		AccessKey: "a", SecretKey: "s", ArchiveKey: "k", CreatedAt: time.Now(),
+		ApprovedEndpoint: u.Host, FormerOrg: "beta", FormerOrgID: uuid.NewString(),
+	}
+	must(t, w.st.BackupDests.Create(ctx, d))
+	must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{
+		ID: uuid.NewString(), Kind: "volume", DestID: d.ID, Trigger: "schedule", Status: "done",
+		ObjectKey: "stackr/x/vol/s/0", CreatedAt: time.Now(),
+	}))
+	must(t, w.orch.backup.AgeFormer(ctx, time.Hour, time.Now(), io.Discard))
+	if err := w.orch.DeleteBackupDest(ctx, "", d.ID); err == nil {
+		t.Fatal("plain delete of an unreachable destination succeeded")
+	}
+	if rs, _ := w.st.BackupRuns.ListByDest(ctx, d.ID); len(rs) != 1 {
+		t.Fatalf("runs after failed delete = %d", len(rs))
+	}
+	must(t, w.orch.ForceDeleteBackupDest(ctx, d.ID))
+	if _, err := w.st.BackupDests.Get(ctx, d.ID); err == nil {
+		t.Error("destination kept after the forced delete")
 	}
 }

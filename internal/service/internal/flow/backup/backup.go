@@ -601,7 +601,7 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 		}
 		logf(log, "deleted orphan %s\n", v.Slug)
 	}
-	if err := f.AgeFormer(ctx, retention, time.Now()); err != nil {
+	if err := f.AgeFormer(ctx, retention, time.Now(), log); err != nil {
 		failed = append(failed, err)
 	}
 	return errors.Join(failed...)
@@ -611,10 +611,11 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 // destinations. Their schedules went with the volumes, so the keep count is
 // gone: per archive prefix it keeps what is younger than retention, and
 // always the newest (Prune protects the newest good one). Best effort per
-// destination.
+// destination: one it cannot reach (bucket or credentials gone) is logged and
+// skipped, never failing the sweep.
 // ponytail: the last archive of a prefix never ages out; an admin deletes it
 // with the destination.
-func (f *Flow) AgeFormer(ctx context.Context, retention time.Duration, now time.Time) error {
+func (f *Flow) AgeFormer(ctx context.Context, retention time.Duration, now time.Time, log io.Writer) error {
 	ds, err := f.Backups.Former(ctx)
 	if err != nil {
 		return err
@@ -643,7 +644,7 @@ func (f *Flow) AgeFormer(ctx context.Context, retention time.Duration, now time.
 			f.Backups.Prune(ctx, open(d), p, max(n, 1))
 		}
 		if err := f.agePITR(ctx, d, retention, now); err != nil {
-			failed = append(failed, err)
+			logf(log, "former destination %s unreachable, skipped: %v\n", d.Name, err)
 		}
 	}
 	return errors.Join(failed...)
@@ -690,11 +691,20 @@ func (f *Flow) agePITR(ctx context.Context, d store.BackupDest, retention time.D
 // Purge deletes every archive of a destination, then its run rows. The WAL
 // archives of point-in-time restore have no run row, so they go first, by
 // their key. A failed object delete stops it with the rows kept, so the admin
-// can retry.
-func (f *Flow) Purge(ctx context.Context, d store.BackupDest) error {
+// can retry. force drops the run rows without touching any object, for a
+// destination whose bucket or credentials are gone.
+func (f *Flow) Purge(ctx context.Context, d store.BackupDest, force bool) error {
 	rs, err := f.Backups.RunsOn(ctx, d.ID)
 	if err != nil {
 		return err
+	}
+	if force {
+		for _, r := range rs {
+			if err := f.Backups.DeleteRun(ctx, r.ID); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	obj := open(d)
 	keys, err := formerPITRKeys(ctx, obj, d)

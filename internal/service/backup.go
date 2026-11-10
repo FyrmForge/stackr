@@ -63,6 +63,17 @@ func (o *Orchestrator) UpdateBackupDest(ctx context.Context, orgID, id string, s
 }
 
 func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) error {
+	return o.deleteBackupDest(ctx, orgID, id, false)
+}
+
+// ForceDeleteBackupDest is the admin's delete of a former org's destination
+// whose bucket or credentials are gone: run rows and destination go, objects
+// are not touched.
+func (o *Orchestrator) ForceDeleteBackupDest(ctx context.Context, id string) error {
+	return o.deleteBackupDest(ctx, "", id, true)
+}
+
+func (o *Orchestrator) deleteBackupDest(ctx context.Context, orgID, id string, force bool) error {
 	d, err := o.ownDest(ctx, orgID, id)
 	if err != nil {
 		return err
@@ -73,8 +84,11 @@ func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) e
 	}
 	// A deleted org's destination is the admin's to clear: its archives go
 	// with it, since the row holds the only copy of their key.
+	if force && d.FormerOrg == "" {
+		return errs.Conflictf("Only a deleted org's destination can be force deleted.")
+	}
 	if d.FormerOrg != "" && panelDest != d.ID {
-		if err := o.backup.Purge(ctx, d); err != nil {
+		if err := o.backup.Purge(ctx, d, force); err != nil {
 			return err
 		}
 	}

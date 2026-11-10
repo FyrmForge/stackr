@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,11 +45,41 @@ var (
 	rotatePoll   = 2 * time.Second
 )
 
-// rotation is the controller's state: one node at a time; the trigger of a
-// worker rotation waits here until its new keys come in.
+// rotation is the controller's state: one node at a time. The trigger of a
+// worker rotation waits in the settings table (rotationKey) until its new
+// keys come in, so a panel restart keeps it.
 type rotation struct {
-	mu      sync.Mutex
-	trigger sync.Map // node id -> "manual by <user>" | "schedule"
+	mu sync.Mutex
+}
+
+const rotationKey = "rotation.trigger."
+
+// markRotation records that node id may hand over new keys until the worker's
+// retry window (worker.RotateRevertAfter) is over, plus a minute: a panel
+// restart mid-rotation must still honour its retries. Not rotateWait, which
+// only bounds the panel's own wait in rotateOne.
+// trigger is "manual by <user>" | "schedule".
+func (o *Orchestrator) markRotation(ctx context.Context, id, trigger string) error {
+	exp := time.Now().Add(worker.RotateRevertAfter + time.Minute).Unix()
+	return o.store.Settings.Set(ctx, rotationKey+id, strconv.FormatInt(exp, 10)+"|"+trigger)
+}
+
+// rotationMark is the trigger of a live mark; an expired one is dropped.
+func (o *Orchestrator) rotationMark(ctx context.Context, id string) (string, bool) {
+	v, ok, err := o.store.Settings.Get(ctx, rotationKey+id)
+	if err != nil || !ok {
+		return "", false
+	}
+	exp, trig, _ := strings.Cut(v, "|")
+	if n, err := strconv.ParseInt(exp, 10, 64); err != nil || time.Now().Unix() > n {
+		o.clearRotation(ctx, id)
+		return "", false
+	}
+	return trig, true
+}
+
+func (o *Orchestrator) clearRotation(ctx context.Context, id string) {
+	_ = o.store.Settings.Delete(ctx, rotationKey+id)
 }
 
 // RotateResult is one node's outcome.
@@ -163,9 +194,11 @@ func (o *Orchestrator) rotateOne(ctx context.Context, n store.Node, trigger stri
 		return fmt.Errorf("%s: cannot rotate", n.Name)
 	}
 	old := n.WGPublicKey
-	o.rotation.trigger.Store(n.ID, trigger)
+	if err := o.markRotation(ctx, n.ID, trigger); err != nil {
+		return err
+	}
 	if err := r.RotateKeys(ctx); err != nil {
-		o.rotation.trigger.Delete(n.ID)
+		o.clearRotation(ctx, n.ID)
 		return err
 	}
 	// The worker swaps its keys and recovers through the panel: RecoverNode
@@ -182,7 +215,7 @@ func (o *Orchestrator) rotateOne(ctx context.Context, n store.Node, trigger stri
 		case <-time.After(rotatePoll):
 		}
 	}
-	o.rotation.trigger.Delete(n.ID)
+	o.clearRotation(ctx, n.ID)
 	return fmt.Errorf("%s did not hand its new keys over; it goes back to the old ones", n.Name)
 }
 
@@ -287,8 +320,9 @@ func (o *Orchestrator) takeNodeKeys(ctx context.Context, n store.Node, wg, exit 
 	}
 	o.mesh.tookKeys(n.ID, old, wg, exit)
 	trigger := "by the node"
-	if v, ok := o.rotation.trigger.LoadAndDelete(n.ID); ok {
-		trigger = v.(string)
+	if v, ok := o.rotationMark(ctx, n.ID); ok {
+		trigger = v
+		o.clearRotation(ctx, n.ID)
 	}
 	o.auditRotate(ctx, n, old, wg, trigger)
 	return nil

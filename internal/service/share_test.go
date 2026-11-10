@@ -157,3 +157,28 @@ func TestShareGrantDroppedWithShare(t *testing.T) {
 		t.Fatalf("recreated: %v grant=%v", err, grant())
 	}
 }
+
+// A grant approved for share:foo before foo exists dies when the owner
+// creates foo.
+func TestShareCreateDropsPreapprovedGrant(t *testing.T) {
+	ctx := context.Background()
+	r := newOrgRig(t)
+	tl, err := r.env.Store.Tiles.Get(ctx, r.env.Tile(t, r.org).ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := r.env.Store.Users.Create(ctx, store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	g := store.HostGrant{ID: "g1", StackID: tl.StackID, Lines: tl.Slug + " share:foo", ApprovedBy: "adm", CreatedAt: now}
+	if err := r.env.Store.HostGrants.Create(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.env.Orch.CreateShare(ctx, r.org, service.ShareSpec{Slug: "foo", Kind: "nfs", Source: "evil:/e"}); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := r.env.Store.HostGrants.GetByStack(ctx, tl.StackID); err == nil && strings.Contains(g.Lines, "share:foo") {
+		t.Fatalf("pre-approved grant survived: %q", g.Lines)
+	}
+}

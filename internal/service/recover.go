@@ -66,9 +66,9 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 	force := false
 	if p.WGPublic != "" && p.WGPublic != n.WGPublicKey {
 		// A new key is only taken for a rotation an admin or the schedule
-		// started (rotateOne holds the mark for rotateWait): a signed request
+		// started (rotateOne marks it for rotateWait, kept across a panel restart): a signed request
 		// alone cannot swap a node's key.
-		if _, ok := o.rotation.trigger.Load(n.ID); !ok {
+		if _, ok := o.rotationMark(ctx, n.ID); !ok {
 			o.auditRecover(ctx, n.ID, "refused: new key, no rotation requested")
 			return worker.RecoverAnswer{}, refused
 		}

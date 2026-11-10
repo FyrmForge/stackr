@@ -222,7 +222,7 @@ func (s *Server) offSigningRoot(leaf *x509.Certificate, now time.Time) bool {
 }
 
 // swapCertFiles keeps the current pair as .prev, then renames the new pair
-// in, key last; LoadNodeCert covers a crash in between.
+// in durably, key last; LoadNodeCert covers a crash in between.
 func (s *Server) swapCertFiles(certPEM, keyPEM []byte) error {
 	d := s.cfg.StateDir
 	for _, f := range []string{certFile, keyFile} {
@@ -232,16 +232,13 @@ func (s *Server) swapCertFiles(certPEM, keyPEM []byte) error {
 			}
 		}
 	}
-	if err := os.WriteFile(filepath.Join(d, certFile+".new"), certPEM, 0o644); err != nil {
+	// Each pair file is fsynced and its rename made durable (the panel
+	// revokes the old serial once it sees the new one, so a power loss must
+	// not fall back to the old cert). Key last.
+	if err := writeDurable(filepath.Join(d, certFile), certPEM, 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(d, keyFile+".new"), keyPEM, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(filepath.Join(d, certFile+".new"), filepath.Join(d, certFile)); err != nil {
-		return err
-	}
-	return os.Rename(filepath.Join(d, keyFile+".new"), filepath.Join(d, keyFile))
+	return writeDurable(filepath.Join(d, keyFile), keyPEM, 0o600)
 }
 
 // controllerURL is the controller's mesh listener the applied spec names.

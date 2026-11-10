@@ -27,9 +27,17 @@ func (o *Orchestrator) Shares(ctx context.Context, orgID string) ([]Share, error
 	return o.volumes.Shares(ctx, orgID)
 }
 
-// CreateShare adds a share to the org (leaf/volume holds the rules).
+// CreateShare adds a share to the org (leaf/volume holds the rules). A grant
+// approved for the name before the share existed goes with the create: the
+// owner could otherwise point the pre-approved name anywhere.
 func (o *Orchestrator) CreateShare(ctx context.Context, orgID string, sp ShareSpec) (Share, error) {
-	return o.volumes.CreateShare(ctx, orgID, sp)
+	var s Share
+	err := o.shareTx(ctx, orgID, sp.Slug, func(v *volume.Leaf) error {
+		var cerr error
+		s, cerr = v.CreateShare(ctx, orgID, sp)
+		return cerr
+	}, func() bool { return true })
+	return s, err
 }
 
 // DeleteShare removes one of the org's shares by slug or id; another org's

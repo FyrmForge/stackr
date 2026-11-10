@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"net/netip"
 	"slices"
@@ -242,6 +243,33 @@ func TestPoolTakenSeesBridges(t *testing.T) {
 	got, err := m.taken(context.Background())
 	if err != nil || !slices.Equal(got, []netip.Prefix{netip.MustParsePrefix("10.208.9.0/24")}) {
 		t.Fatalf("taken = %v, %v", got, err)
+	}
+}
+
+// A node reporting more pool /24s than it could hold is ignored for the pool
+// and flagged; the others still count.
+func TestPoolTakenCapsFloodingNode(t *testing.T) {
+	st := storetest.Store(t)
+	storetest.Controller(t, st)
+	var flagged []string
+	m := newMeshSvc(st, func(string) (MeshNode, bool) { return nil, false })
+	m.wide = func(_ context.Context, id string, ps []netip.Prefix) {
+		if len(ps) > 0 {
+			flagged = append(flagged, id)
+		}
+	}
+	var flood []string
+	for i := 0; i < 100; i++ {
+		flood = append(flood, fmt.Sprintf("10.208.%d.1/24", i))
+	}
+	m.facts["bad"] = worker.Facts{Interfaces: []worker.Iface{{Name: "x", Prefixes: flood}}}
+	m.facts["ok"] = worker.Facts{Interfaces: []worker.Iface{{Name: "br", Prefixes: []string{"10.209.9.1/24"}}}}
+	got, err := m.taken(context.Background())
+	if err != nil || !slices.Equal(got, []netip.Prefix{netip.MustParsePrefix("10.209.9.0/24")}) {
+		t.Fatalf("taken = %v, %v", got, err)
+	}
+	if !slices.Equal(flagged, []string{"bad"}) {
+		t.Fatalf("flagged = %v", flagged)
 	}
 }
 

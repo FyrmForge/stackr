@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -154,4 +156,83 @@ func (s *Server) mustInfo(t *testing.T) MeshInfo {
 		t.Fatal(err)
 	}
 	return info
+}
+
+// resumeRig is a worker cut off after its key swap (*.prev on disk), a
+// restart later, with a fake panel that answers recovery calls.
+func resumeRig(t *testing.T, accept bool) (s *Server, newKey, oldKey []byte, calls *atomic.Int32) {
+	t.Helper()
+	calls = new(atomic.Int32)
+	rig := newTrustRig(t)
+	ctl, _ := controller(t, rig.ca1)
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if !accept {
+			http.Error(w, "no", http.StatusServiceUnavailable)
+			return
+		}
+		var req RecoverRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_, p, _ := OpenRecover(req)
+		a, _ := SignAnswer(ctl, p.Nonce, meshSpec())
+		_ = json.NewEncoder(w).Encode(a)
+	}))
+	t.Cleanup(panel.Close)
+	s, _, _ = newMeshServer(t, t.TempDir(), &pingFake{})
+	if err := s.ApplyMesh(context.Background(), meshSpec()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.swapKeys(); err != nil {
+		t.Fatal(err)
+	}
+	s.cfg.Trust = rig.trust
+	s.cfg.Recover = RecoverConfig{Own: selfCert(t), Panel: panel.URL}
+	newKey, _ = os.ReadFile(s.wgKeyPath())
+	oldKey, _ = os.ReadFile(s.wgKeyPath() + ".prev")
+	return
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if ok() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal(what)
+}
+
+// A restart after the swap, with the panel taking the keys (whether this call
+// or an earlier one: it answers the same): the new keys stay, *.prev goes.
+func TestResumeRotationKeepsNewKeys(t *testing.T) {
+	s, newKey, _, calls := resumeRig(t, true)
+	if !s.ResumeRotation() {
+		t.Fatal("rotation not resumed")
+	}
+	waitFor(t, ".prev not dropped", func() bool {
+		_, err := os.Stat(s.wgKeyPath() + ".prev")
+		return err != nil
+	})
+	if b, _ := os.ReadFile(s.wgKeyPath()); string(b) != string(newKey) || calls.Load() == 0 {
+		t.Fatal("the new key did not stay")
+	}
+}
+
+// Nothing pending resumes nothing; a resumed rotation whose panel never takes
+// the keys reverts after RotateRevertAfter.
+func TestResumeRotationRevertsAfterTimeout(t *testing.T) {
+	s, _, oldKey, _ := resumeRig(t, false)
+	defer func(d, r time.Duration) { RotateRevertAfter, rotateRetry = d, r }(RotateRevertAfter, rotateRetry)
+	RotateRevertAfter, rotateRetry = 100*time.Millisecond, 10*time.Millisecond
+	if !s.ResumeRotation() {
+		t.Fatal("not resumed")
+	}
+	waitFor(t, "never reverted", func() bool {
+		b, _ := os.ReadFile(s.wgKeyPath())
+		return string(b) == string(oldKey)
+	})
+	if s.ResumeRotation() {
+		t.Fatal("resumed with no .prev")
+	}
 }

@@ -953,7 +953,11 @@ stackr dest ls
 Remove a destination; archives in the bucket are kept
 
 ```
-stackr dest rm <id>
+stackr dest rm <id> [flags]
+```
+
+```
+      --force   a deleted org's destination: drop its records without touching the bucket (use when the bucket or credentials are gone)
 ```
 
 ### `stackr dest set`
