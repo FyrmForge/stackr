@@ -657,13 +657,15 @@ func (pg) SliceDump(i Instance, s Slice) []string {
 // the source, one transaction, the first error stops it. Notices stay out
 // of stderr so a failure's tail is the error. A pg_dumpall or a -C dump
 // (CREATE DATABASE, \connect) fails and says so.
-// ponytail: an extension only a superuser may create fails the load.
+// ponytail: an extension only a superuser may create fails the load. Comments
+// are not restored: COMMENT ON EXTENSION (pg_stat_statements, made by the
+// admin) needs its owner, so a branch loses object comments.
 func (pg) Seed(format string, _ Instance, s Slice) []string {
 	// over the container's own socket, trusted there: no password rides the exec
 	env := []string{"env", "PGOPTIONS=-c client_min_messages=warning"}
 	switch format {
 	case DumpCustom:
-		return append(env, "pg_restore", "-h", pgSocketDir, "--no-owner", "--no-privileges", "--exit-on-error",
+		return append(env, "pg_restore", "-h", pgSocketDir, "--no-owner", "--no-privileges", "--no-comments", "--exit-on-error",
 			"--single-transaction", "-U", s.User, "-d", s.Name)
 	case DumpPlain:
 		// psql runs in restricted mode under a key the dump cannot know: a
