@@ -83,7 +83,7 @@ const (
 	SQLInRecovery = `SELECT pg_is_in_recovery()::int`
 	SQLReplayLSN  = `SELECT coalesce(pg_last_wal_replay_lsn()::text, '')`
 	SQLPromote    = `SELECT pg_promote(true, 60)::int`
-	SQLSwitchWAL = `SELECT pg_switch_wal()::text`
+	SQLSwitchWAL  = `SELECT pg_switch_wal()::text`
 	// SQLCloseWAL closes the segment in progress and names the last one with
 	// data in it. On a segment with no record yet the switch does nothing and
 	// returns its start, so the name is of the segment before: one that is
