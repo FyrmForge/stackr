@@ -22,6 +22,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/org"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
@@ -102,6 +103,7 @@ func setup(t *testing.T) *world {
 	w := &world{s: s, fake: fake, files: map[string]string{}}
 	w.f = &Flow{
 		D:         d,
+		Members:   opmember.New(s.OperatedMembers),
 		Resources: domainres.New(s.DomainResources),
 		Config: func(_ context.Context, _ store.Stack, commit string, _ io.Writer) ([]byte, Fetcher, error) {
 			f, ok := w.files[commit]

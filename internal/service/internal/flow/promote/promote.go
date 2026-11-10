@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
@@ -32,6 +33,8 @@ import (
 // inside the caller's job.
 type Flow struct {
 	D *deploy.Flow
+	// Members is leaf/opmember: a new postgres instance gets its primary row.
+	Members *opmember.Leaf
 	// Resources is leaf/domainres: the stack file's domains: rows and what
 	// auto and apex domains resolve against.
 	Resources *domainres.Leaf
@@ -406,7 +409,13 @@ func (f *Flow) createInstance(ctx context.Context, t store.Tile, engine string) 
 	if err != nil {
 		return err
 	}
-	if major := deploy.ImageMajor(cmp.Or(t.ImageRef, deploy.EngineImage(engine))); engine == "postgres" && major > 0 {
+	if engine != "postgres" {
+		return nil
+	}
+	if _, err = f.Members.CreatePrimary(ctx, m.ID); err != nil {
+		return err
+	}
+	if major := deploy.ImageMajor(cmp.Or(t.ImageRef, deploy.EngineImage(engine))); major > 0 {
 		_, err = f.D.Operated.SetMajor(ctx, m, major)
 	}
 	return err
