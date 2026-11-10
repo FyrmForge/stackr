@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
-	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -389,7 +388,8 @@ func (f *Flow) syncHostAccess(ctx context.Context, p *Plan, st store.Stack, want
 	for _, n := range slices.Sorted(maps.Keys(wants)) {
 		rows = append(rows, wants[n])
 	}
-	if m := deploy.HostSet(rows...).Missing(have); len(m) > 0 {
+	want, _ := f.D.PinnedHostSet(ctx, st, rows...) // a share that does not resolve keeps its bare line; the deploy reports it
+	if m := want.Missing(have); len(m) > 0 {
 		p.block("%s", hostgrant.Text(m))
 	}
 	return nil

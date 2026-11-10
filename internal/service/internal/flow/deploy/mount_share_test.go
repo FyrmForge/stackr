@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,7 @@ func shareWorld(t *testing.T) (*Flow, *dockerfake.Fake, store.Org, store.Org) {
 	st := storetest.Store(t)
 	fake := dockerfake.New()
 	f := &Flow{
+		LookupHost: func(context.Context, string) ([]string, error) { return []string{"10.0.0.5"}, nil },
 		Volumes: volume.New(st.Volumes, fake).WithShares(st.Shares),
 		Params:  params.New(st.Params),
 		Tiers:   tier.New(st.Tiers),
@@ -60,7 +62,7 @@ func shareWorld(t *testing.T) (*Flow, *dockerfake.Fake, store.Org, store.Org) {
 	for _, o := range []string{"acme", "globex"} {
 		var ls []string
 		for _, sh := range []string{"media", "docs", "q", "bad"} {
-			ls = append(ls, hostgrant.Line("web", hostgrant.Share+sh))
+			ls = append(ls, hostgrant.Line("web", ShareGrant(sh, "10.0.0.5")))
 		}
 		grants["s-o-"+o] = store.HostGrant{ID: "g-" + o, StackID: "s-o-" + o, Lines: strings.Join(ls, "\n")}
 	}
@@ -115,7 +117,7 @@ func TestShareBindOpts(t *testing.T) {
 		t.Fatalf("nfs bind = %q, %v", bind, err)
 	}
 	c := fake.Created[0]
-	if c.Driver != "local" || c.Opts["type"] != "nfs" || c.Opts["o"] != "addr=nas.lan,nfsvers=4" ||
+	if c.Driver != "local" || c.Opts["type"] != "nfs" || c.Opts["o"] != "addr=10.0.0.5,nfsvers=4" ||
 		c.Opts["device"] != ":/export/photos/2026" || c.Labels["stackr.share"] == "" {
 		t.Errorf("nfs create = %+v", c)
 	}
@@ -125,7 +127,7 @@ func TestShareBindOpts(t *testing.T) {
 	}
 	c = fake.Created[1]
 	if c.Opts["type"] != "cifs" || c.Opts["device"] != "//nas.lan/docs" ||
-		c.Opts["o"] != "addr=nas.lan,username=bob,password=hunter2,vers=3.0" {
+		c.Opts["o"] != "addr=10.0.0.5,username=bob,password=hunter2,vers=3.0" {
 		t.Errorf("smb create = %+v", c)
 	}
 
@@ -224,11 +226,12 @@ func TestShareBindRefusesStackParams(t *testing.T) {
 	st := storetest.Store(t)
 	fake := dockerfake.New()
 	f := &Flow{
+		LookupHost: func(context.Context, string) ([]string, error) { return []string{"10.0.0.5"}, nil },
 		Volumes:    volume.New(st.Volumes, fake).WithShares(st.Shares),
 		Params:     params.New(st.Params),
 		Tiers:      tier.New(st.Tiers),
 		Envs:       environment.New(st.Environments, nil),
-		HostGrants: hostgrant.New(memGrants{"s-o-acme": {ID: "g", StackID: "s-o-acme", Lines: "web share:bad"}}),
+		HostGrants: hostgrant.New(memGrants{"s-o-acme": {ID: "g", StackID: "s-o-acme", Lines: "web share:bad@10.0.0.5"}}),
 	}
 	o := store.Org{ID: "o-acme", Name: "acme", Slug: "acme", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}
 	if err := st.Orgs.Create(ctx, o); err != nil {
@@ -321,7 +324,7 @@ func TestShareBindNeedsGrant(t *testing.T) {
 	ctx := context.Background()
 	_, err := bindIn(f, ctx, acme, store.Tile{Slug: "other"}, mount(t, "share:media:/d"))
 	n, ok := errs.IsNeedsApproval(err)
-	if !ok || !strings.Contains(n.What, "other share:media") {
+	if !ok || !strings.Contains(n.What, "other share:media@10.0.0.5") {
 		t.Fatalf("ungranted tile: %v", err)
 	}
 	if _, err := bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:media:/d")); err != nil {
@@ -331,10 +334,52 @@ func TestShareBindNeedsGrant(t *testing.T) {
 	if !set.Has(hostgrant.Line("web", hostgrant.Share+"media")) {
 		t.Errorf("HostSet = %v, want the share line", set.Lines)
 	}
-	if err := f.HostGrants.DropPerm(ctx, "s-o-acme", hostgrant.Share+"media"); err != nil {
+	if err := f.HostGrants.DropPerm(ctx, "s-o-acme", hostgrant.Share+"media"); err != nil { // drops the pinned line
 		t.Fatal(err)
 	}
 	if _, err := bindIn(f, ctx, acme, store.Tile{Slug: "web"}, mount(t, "share:media:/d")); err == nil {
 		t.Error("dropped grant still mounts")
+	}
+}
+
+// DNS repointed after approval parks; multiple answers pin the first IPv4 in
+// sorted order; an IP source needs no lookup; no answer is no mount.
+func TestSharePin(t *testing.T) {
+	f, fake, acme, _ := shareWorld(t)
+	ctx := context.Background()
+	web := store.Tile{Slug: "web"}
+	f.LookupHost = func(context.Context, string) ([]string, error) { return []string{"fe80::1", "10.0.0.9", "10.0.0.5"}, nil }
+	if _, err := bindIn(f, ctx, acme, web, mount(t, "share:media:/d")); err != nil {
+		t.Fatalf("first IPv4 sorted: %v", err)
+	}
+	f.LookupHost = func(context.Context, string) ([]string, error) { return []string{"192.168.1.7"}, nil }
+	_, err := bindIn(f, ctx, acme, web, mount(t, "share:media:/d"))
+	if n, ok := errs.IsNeedsApproval(err); !ok || !strings.Contains(n.What, "web share:media@192.168.1.7") {
+		t.Fatalf("DNS change: %v", err)
+	}
+	if len(fake.Created) != 1 {
+		t.Errorf("a parked deploy created a volume")
+	}
+	f.LookupHost = func(context.Context, string) ([]string, error) { return nil, errors.New("nxdomain") }
+	if _, err = bindIn(f, ctx, acme, web, mount(t, "share:media:/d")); err == nil || errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("unresolvable: %v", err)
+	}
+	if _, err := f.HostGrants.Approve(ctx, "s-o-acme", "u", hostgrant.Set{Lines: []string{"web share:media@192.168.1.7"}}); err != nil {
+		t.Fatal(err)
+	}
+	f.LookupHost = func(context.Context, string) ([]string, error) { return []string{"192.168.1.7"}, nil }
+	n0 := len(fake.Created)
+	if _, err = bindIn(f, ctx, acme, web, mount(t, "share:media:/d")); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.Created[n0]; c.Opts["o"] != "addr=192.168.1.7,nfsvers=4" || fake.Created[0].Name == c.Name {
+		t.Errorf("new address: %+v vs %+v", c, fake.Created[0])
+	}
+
+	// An IP-literal source needs no lookup.
+	f.LookupHost = func(context.Context, string) ([]string, error) { t.Error("looked up an IP"); return nil, nil }
+	ip, err := f.shareAddr(ctx, store.Share{Slug: "q", Kind: "nfs", Source: "10.0.0.5:/e"})
+	if err != nil || ip != "10.0.0.5" {
+		t.Errorf("ip source = %q, %v", ip, err)
 	}
 }

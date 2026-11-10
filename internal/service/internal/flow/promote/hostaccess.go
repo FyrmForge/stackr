@@ -30,7 +30,8 @@ func (f *Flow) checkHostAccess(ctx context.Context, p *Plan, w *work) error {
 	if err != nil {
 		return err
 	}
-	if m := deploy.HostSet(rows...).Missing(have); len(m) > 0 {
+	want, _ := f.D.PinnedHostSet(ctx, w.st, rows...) // a share that does not resolve keeps its bare line; the deploy reports it
+	if m := want.Missing(have); len(m) > 0 {
 		p.block("%s", hostgrant.Text(m))
 	}
 	return nil

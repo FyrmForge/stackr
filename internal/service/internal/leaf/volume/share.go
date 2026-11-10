@@ -230,11 +230,11 @@ func (l *Leaf) ReconcileShares(ctx context.Context, usesByOrg map[string][]Share
 	if err != nil {
 		return nil, err
 	}
-	keep := map[string]bool{}
+	var keep []string
 	for _, s := range ss {
 		for _, u := range usesByOrg[s.OrgID] {
 			if u.Share == s.Slug {
-				keep[ShareVolumeName(s, u.Sub)] = true
+				keep = append(keep, ShareVolumeName(s, u.Sub))
 			}
 		}
 	}
@@ -245,7 +245,7 @@ func (l *Leaf) ReconcileShares(ctx context.Context, usesByOrg map[string][]Share
 		return nil, err
 	}
 	for _, v := range vs {
-		if _, ok := v.Labels[ShareLabel]; !ok || keep[v.Name] {
+		if _, ok := v.Labels[ShareLabel]; !ok || kept(keep, v.Name) {
 			continue
 		}
 		switch err := l.docker.RemoveVolume(ctx, v.Name); {
@@ -256,6 +256,11 @@ func (l *Leaf) ReconcileShares(ctx context.Context, usesByOrg map[string][]Share
 		}
 	}
 	return held, nil
+}
+
+// kept: name is a keep name or a pinned-address volume of one.
+func kept(keep []string, name string) bool {
+	return slices.ContainsFunc(keep, func(k string) bool { return strings.HasPrefix(name, k) })
 }
 
 // ShareUse is one tile line's claim on a share volume: "share:<Share>/<Sub>".
@@ -279,10 +284,10 @@ func (l *Leaf) SweepShares(ctx context.Context, orgID string, uses []ShareUse) (
 		return nil, err
 	}
 	for _, s := range ss {
-		keep := map[string]bool{}
+		var keep []string
 		for _, u := range uses {
 			if u.Share == s.Slug {
-				keep[ShareVolumeName(s, u.Sub)] = true
+				keep = append(keep, ShareVolumeName(s, u.Sub))
 			}
 		}
 		vs, err := l.docker.ListVolumes(ctx, map[string]string{ShareLabel: s.ID})
@@ -290,7 +295,7 @@ func (l *Leaf) SweepShares(ctx context.Context, orgID string, uses []ShareUse) (
 			return held, err
 		}
 		for _, v := range vs {
-			if keep[v.Name] {
+			if kept(keep, v.Name) {
 				continue
 			}
 			switch err := l.docker.RemoveVolume(ctx, v.Name); {
@@ -306,7 +311,9 @@ func (l *Leaf) SweepShares(ctx context.Context, orgID string, uses []ShareUse) (
 
 // ShareOpts are the Docker local-driver options for sub inside s. user and
 // password are expanded values ("" for none or NFS).
-func ShareOpts(s store.Share, sub, user, password string) (map[string]string, error) {
+// addr is the IP the node mounts (the one the admin approved); "" mounts the
+// share's own server name. The device and UNC keep the name.
+func ShareOpts(s store.Share, sub, addr, user, password string) (map[string]string, error) {
 	if sub != "" && (path.IsAbs(sub) || path.Clean(sub) != sub || sub == ".." || strings.HasPrefix(sub, "../")) {
 		return nil, errs.Invalidf("volumes", "share %s: %q is not a plain sub path", s.Slug, sub)
 	}
@@ -332,6 +339,9 @@ func ShareOpts(s store.Share, sub, user, password string) (map[string]string, er
 		}
 	default:
 		return nil, errs.Conflictf("share %s: kind %q", s.Slug, s.Kind)
+	}
+	if addr != "" {
+		o = strings.Replace(o, "addr="+host, "addr="+addr, 1)
 	}
 	if s.Options != "" {
 		o += "," + s.Options
@@ -360,13 +370,37 @@ func ShareVolumeName(s store.Share, sub string) string {
 	return "stackr-share-" + s.ID + "-" + hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-// EnsureShare makes the Docker volume for sub inside s and returns its name.
-func (l *Leaf) EnsureShare(ctx context.Context, s store.Share, sub, user, password string) (string, error) {
-	opts, err := ShareOpts(s, sub, user, password)
+// ShareHost is the server name in a share's source.
+func ShareHost(s store.Share) string {
+	if m := nfsSource.FindStringSubmatch(s.Source); m != nil && s.Kind == NFS {
+		return m[1]
+	}
+	if m := smbSource.FindStringSubmatch(s.Source); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// shareVolume is ShareVolumeName plus a short hash of the pinned address, so
+// a new address is a fresh volume. The sweeps keep by the ShareVolumeName
+// prefix, whatever the address.
+func shareVolume(s store.Share, sub, addr string) string {
+	n := ShareVolumeName(s, sub)
+	if addr == "" {
+		return n
+	}
+	a := sha256.Sum256([]byte(addr))
+	return n + "-" + hex.EncodeToString(a[:])[:8]
+}
+
+// EnsureShare makes the Docker volume for sub inside s, mounting addr (the
+// approved IP, "" = the server name), and returns its name.
+func (l *Leaf) EnsureShare(ctx context.Context, s store.Share, sub, addr, user, password string) (string, error) {
+	opts, err := ShareOpts(s, sub, addr, user, password)
 	if err != nil {
 		return "", err
 	}
-	name := ShareVolumeName(s, sub)
+	name := shareVolume(s, sub, addr)
 	if ctx, err = l.orController(ctx); err != nil {
 		return name, err
 	}

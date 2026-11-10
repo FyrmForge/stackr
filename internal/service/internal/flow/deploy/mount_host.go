@@ -82,7 +82,11 @@ func (f *Flow) checkAccess(ctx context.Context, st store.Stack, t store.Tile) (h
 	if f.HostGrants == nil {
 		return hostgrant.Set{}, nil
 	}
-	if err := f.HostGrants.Check(ctx, st.ID, HostSet(t)); err != nil {
+	want, err := f.PinnedHostSet(ctx, st, t)
+	if err != nil {
+		return hostgrant.Set{}, err
+	}
+	if err := f.HostGrants.Check(ctx, st.ID, want); err != nil {
 		return hostgrant.Set{}, err
 	}
 	return f.HostGrants.Of(ctx, st.ID)

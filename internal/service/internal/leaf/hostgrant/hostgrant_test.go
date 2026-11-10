@@ -100,3 +100,36 @@ func TestApproveCheckRevoke(t *testing.T) {
 		t.Fatal("a revoked grant still passes")
 	}
 }
+
+func TestSharePinnedLines(t *testing.T) {
+	st := servicetest.Store(t)
+	now := time.Now().UTC()
+	for _, err := range []error{
+		st.Orgs.Create(ctx, store.Org{ID: "o1", Name: "A", Slug: "a", EnvColors: "{}", Settings: "{}", CreatedAt: now}),
+		st.Stacks.Create(ctx, store.Stack{ID: "s", OrgID: "o1", Name: "S", Slug: "s", Settings: "{}", CreatedAt: now}),
+		st.Users.Create(ctx, store.User{ID: "u", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}),
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := hostgrant.New(st.HostGrants)
+	if _, err := l.Approve(ctx, "s", "u", hostgrant.Set{Lines: []string{"a share:m@10.0.0.5", "a share:m@10.0.0.6", "a share:mm@10.0.0.5", "b host:/x:/x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if m := (hostgrant.Set{Lines: []string{"a share:m"}}).Missing(hostgrant.Set{}); len(m) != 0 {
+		t.Errorf("bare share marker is missing: %v", m)
+	}
+	if _, err := l.Retain(ctx, "s", "a", []string{"a share:m"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := l.Of(ctx, "s"); len(got.Lines) != 3 {
+		t.Errorf("retain kept %v", got.Lines)
+	}
+	if err := l.DropPerm(ctx, "s", "share:m"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := l.Of(ctx, "s"); len(got.Lines) != 1 || got.Has("a share:m@10.0.0.5") {
+		t.Errorf("drop left %v", got.Lines)
+	}
+}

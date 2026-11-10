@@ -31,8 +31,11 @@ const (
 	// Port marks a published server port: "port:<hostport>[/udp]".
 	Port = "port:"
 	// Share marks a mount of an org's NFS/SMB share, which the host mounts
-	// on its own network: "share:<share slug>". Editing or deleting the
-	// share drops it (DropPerm), so an approval never outlives its source.
+	// on its own network. A tile asks for "share:<share slug>"; what is
+	// approved is "share:<share slug>@<address>", the address the share's
+	// server name resolved to, so DNS repointed later asks again. Editing
+	// or deleting the share drops every pinned line of the slug (DropPerm),
+	// so an approval never outlives its source.
 	Share = "share:"
 	// NetworkHost is the perm of the host network flag.
 	NetworkHost = "network:host"
@@ -56,6 +59,16 @@ func Line(slug, perm string) string { return slug + " " + perm }
 func Split(line string) (slug, perm string) {
 	slug, perm, _ = strings.Cut(line, " ")
 	return slug, perm
+}
+
+// Unpin is perm without a share's "@address": "share:a@10.0.0.5" is
+// "share:a". Any other perm comes back as it is.
+func Unpin(perm string) string {
+	if !strings.HasPrefix(perm, Share) {
+		return perm
+	}
+	p, _, _ := strings.Cut(perm, "@")
+	return p
 }
 
 // Norm sorts and dedupes the lines.
@@ -85,10 +98,15 @@ func (s Set) Empty() bool { return len(s.Lines) == 0 }
 
 // Missing is what s asks for that have does not grant. Only additions need
 // approval; ponytail: dropping a line never parks, and a re-added one needs
-// the row revoked to be asked again.
+// the row revoked to be asked again. An unpinned share line ("share:a") is
+// only a marker that the tile mounts the share; the pinned line is what the
+// deploy asks for, so it is never missing here.
 func (s Set) Missing(have Set) []string {
 	var out []string
 	for _, l := range s.Lines {
+		if _, p := Split(l); strings.HasPrefix(p, Share) && !strings.Contains(p, "@") {
+			continue
+		}
 		if !have.Has(l) {
 			out = append(out, l)
 		}
@@ -204,7 +222,7 @@ func (l *Leaf) DropPerm(ctx context.Context, stackID, perm string) error {
 	}
 	var next []string
 	for _, ln := range lines(g.Lines) {
-		if _, p := Split(ln); p != perm {
+		if _, p := Split(ln); Unpin(p) != perm {
 			next = append(next, ln)
 		}
 	}
@@ -230,7 +248,8 @@ func (l *Leaf) Retain(ctx context.Context, stackID, tileSlug string, keep []stri
 	}
 	var next []string
 	for _, ln := range lines(g.Lines) {
-		if sl, _ := Split(ln); sl != tileSlug || slices.Contains(keep, ln) {
+		sl, p := Split(ln)
+		if sl != tileSlug || slices.Contains(keep, ln) || slices.Contains(keep, Line(sl, Unpin(p))) {
 			next = append(next, ln)
 		}
 	}

@@ -133,7 +133,7 @@ func TestShareGrantDroppedWithShare(t *testing.T) {
 		if _, err := r.env.Orch.CreateShare(ctx, r.org, service.ShareSpec{Slug: "media", Kind: "nfs", Source: "nas:/e"}); err != nil {
 			t.Fatal(err)
 		}
-		g := store.HostGrant{ID: "g1", StackID: tl.StackID, Lines: tl.Slug + " share:media", ApprovedBy: "adm", CreatedAt: time.Now()}
+		g := store.HostGrant{ID: "g1", StackID: tl.StackID, Lines: tl.Slug + " share:media@10.0.0.5", ApprovedBy: "adm", CreatedAt: time.Now()}
 		if err := r.env.Store.HostGrants.Create(ctx, g); err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +146,7 @@ func TestShareGrantDroppedWithShare(t *testing.T) {
 	if _, err := r.env.Orch.UpdateShare(ctx, r.org, "media", service.ShareSpec{Slug: "media", Kind: "nfs", Source: "evil:/e"}); err != nil || grant() {
 		t.Fatalf("repointed: %v grant=%v", err, grant())
 	}
-	g := store.HostGrant{ID: "g2", StackID: tl.StackID, Lines: tl.Slug + " share:media", ApprovedBy: "adm", CreatedAt: time.Now()}
+	g := store.HostGrant{ID: "g2", StackID: tl.StackID, Lines: tl.Slug + " share:media@10.0.0.5", ApprovedBy: "adm", CreatedAt: time.Now()}
 	if err := r.env.Store.HostGrants.Create(ctx, g); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestShareCreateDropsPreapprovedGrant(t *testing.T) {
 	if err := r.env.Store.Users.Create(ctx, store.User{ID: "adm", Email: "a@b.c", Name: "A", Role: "admin", Active: true, CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	g := store.HostGrant{ID: "g1", StackID: tl.StackID, Lines: tl.Slug + " share:foo", ApprovedBy: "adm", CreatedAt: now}
+	g := store.HostGrant{ID: "g1", StackID: tl.StackID, Lines: tl.Slug + " share:foo@10.0.0.5", ApprovedBy: "adm", CreatedAt: now}
 	if err := r.env.Store.HostGrants.Create(ctx, g); err != nil {
 		t.Fatal(err)
 	}

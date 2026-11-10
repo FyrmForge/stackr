@@ -192,11 +192,11 @@ func TestShareVolumeNameIgnoresSecretValue(t *testing.T) {
 	l, d, _, _, _ := sweepWorld(t)
 	s := store.Share{ID: "s1", Slug: "docs", Kind: volume.SMB, Source: "//nas/docs", User: "bob",
 		PasswordRef: "${{ org.params.nas.pw }}"}
-	a, err := l.EnsureShare(ctx, s, "x", "bob", "old")
+	a, err := l.EnsureShare(ctx, s, "x", "", "bob", "old")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := l.EnsureShare(ctx, s, "x", "bob", "new")
+	b, err := l.EnsureShare(ctx, s, "x", "", "bob", "new")
 	if err != nil || a != b {
 		t.Errorf("names %q, %q (%v)", a, b, err)
 	}

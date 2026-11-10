@@ -83,6 +83,8 @@ type Flow struct {
 	// HostGrants is the stack's approved host access (host: mounts,
 	// devices, privileged); nil = nothing is granted.
 	HostGrants *hostgrant.Leaf
+	// LookupHost resolves a share's server name; nil = the system resolver.
+	LookupHost func(ctx context.Context, host string) ([]string, error)
 
 	// Preflight, when set, runs first in Run and refuses a deploy to an env
 	// whose node cannot take it (a full disk); nil = no check.
