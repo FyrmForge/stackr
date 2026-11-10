@@ -710,6 +710,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		}
 		return &promote.Flow{
 			D:              orch.deploy,
+			Members:        orch.members,
 			Resources:      orch.domainres,
 			Config:         orch.stackFile,
 			Build:          b,
