@@ -104,6 +104,8 @@ type Options struct {
 	// Uncapped kinds have no wall-clock limit: their handler holds its own
 	// (a cron or function run's timeout_minutes).
 	Uncapped map[Kind]bool
+	// Caps overrides Cap for a kind (data-moving jobs run for hours).
+	Caps map[Kind]time.Duration
 	// Workers is re-read every pass, so a settings change applies within
 	// one poll. nil = 2.
 	Workers func(ctx context.Context) (int, error)
@@ -376,10 +378,17 @@ func (r *Runner) start(j store.Job) error {
 	return nil
 }
 
+func (r *Runner) capFor(k Kind) time.Duration {
+	if c, ok := r.opt.Caps[k]; ok {
+		return c
+	}
+	return r.opt.Cap
+}
+
 func (r *Runner) run(parent context.Context, j store.Job, a *active) {
 	ctx, cancel := parent, context.CancelFunc(func() {})
 	if !r.opt.Uncapped[Kind(j.Kind)] {
-		ctx, cancel = context.WithTimeout(parent, r.opt.Cap)
+		ctx, cancel = context.WithTimeout(parent, r.capFor(Kind(j.Kind)))
 	}
 	defer cancel()
 	rn := &Run{Job: j, a: a, r: r}
@@ -454,7 +463,7 @@ func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string
 	case errors.Is(cause, errCancelled):
 		return job.Cancelled, "", ""
 	case errors.Is(cause, context.DeadlineExceeded):
-		return job.Failed, "stopped after the " + r.opt.Cap.String() + " cap", ""
+		return job.Failed, "stopped after the " + r.capFor(Kind(j.Kind)).String() + " cap", ""
 	case errors.Is(err, ErrSkipped):
 		return job.Skipped, err.Error(), ""
 	}
