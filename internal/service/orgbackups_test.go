@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
+	bk "github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -46,6 +48,25 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 		}))
 	}
 
+	// PITR WAL objects have no run row: the sweep ages them by the kept base,
+	// the admin's delete takes the rest. Another org's WAL in the same bucket
+	// is never touched.
+	root := "stackr/" + org + "/vol/pitr"
+	seg := func(n int) string { return fmt.Sprintf("0000000100000000000000%02d", n) }
+	staleWAL := bk.WALKey(root, seg(1), seg(2))
+	keptWAL := bk.WALKey(root, seg(5), seg(6))
+	other := bk.WALKey("stackr/"+uuid.NewString()+"/vol/pitr", seg(1), seg(2))
+	for _, k := range []string{staleWAL, keptWAL, other} {
+		s3.objs[k] = []byte("x")
+	}
+	fin, ws := time.Now().Add(-time.Hour), seg(5)
+	baseKey := root + "/base/b-" + seg(5) + ".tar.gz.age"
+	s3.objs[baseKey] = []byte("x")
+	must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{
+		ID: uuid.NewString(), Kind: "volume", DestID: d.ID, Trigger: "schedule", Status: "done",
+		ObjectKey: baseKey, CreatedAt: fin, FinishedAt: &fin, WalStart: &ws,
+	}))
+
 	must(t, w.orch.DeleteOrg(ctx, org))
 
 	got, err := w.st.BackupDests.Get(ctx, d.ID)
@@ -56,8 +77,8 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 	if _, err := w.st.BackupDests.Get(ctx, empty.ID); err == nil {
 		t.Error("a destination with no runs outlived its org")
 	}
-	if rs, _ := w.st.BackupRuns.ListByDest(ctx, d.ID); len(rs) != 3 {
-		t.Fatalf("runs = %d, want 3", len(rs))
+	if rs, _ := w.st.BackupRuns.ListByDest(ctx, d.ID); len(rs) != 4 {
+		t.Fatalf("runs = %d, want 4", len(rs))
 	}
 
 	// Admin sees it; another org does not, now or under a re-used slug.
@@ -79,14 +100,39 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 
 	// Retention: the sweep drops what is older than the window, keeps the rest.
 	must(t, w.orch.backup.AgeFormer(ctx, 30*24*time.Hour, time.Now()))
-	if rs, _ := w.st.BackupRuns.ListByDest(ctx, d.ID); len(rs) != 1 || len(s3.keys(prefix)) != 1 {
+	if rs, _ := w.st.BackupRuns.ListByDest(ctx, d.ID); len(rs) != 2 || len(s3.keys(prefix)) != 1 {
 		t.Fatalf("after aging: %d runs, %v", len(rs), s3.keys(prefix))
+	}
+	if _, ok := s3.objs[staleWAL]; ok {
+		t.Error("WAL no kept base needs was not aged")
+	}
+	if _, ok := s3.objs[keptWAL]; !ok {
+		t.Error("WAL a kept base needs was aged")
+	}
+	if got.FormerOrgID != org {
+		t.Errorf("former org id = %q", got.FormerOrgID)
+	}
+
+	// A former org's destination is read-only except delete, and is no config.
+	if _, err := w.orch.UpdateBackupDest(ctx, "", d.ID, BackupDestSpec{Name: "x", Endpoint: srv.URL, Bucket: "b", AccessKey: "a", SecretKey: "s"}); err == nil {
+		t.Error("a former org's destination was edited")
+	}
+	out, err := w.orch.ExportServerConfig(ctx)
+	must(t, err)
+	if _, err := serverconfig.Parse(out); err != nil {
+		t.Errorf("export after an org delete does not parse: %v\n%s", err, out)
 	}
 
 	// The admin's delete takes the archives, the rows and the destination.
 	must(t, w.orch.DeleteBackupDest(ctx, "", d.ID))
 	if len(s3.keys(prefix)) != 0 {
 		t.Errorf("archives left: %v", s3.keys(prefix))
+	}
+	if left := s3.keys("stackr/" + org + "/"); len(left) != 0 {
+		t.Errorf("objects left: %v", left)
+	}
+	if _, ok := s3.objs[other]; !ok {
+		t.Error("another org's WAL was deleted")
 	}
 	if _, err := w.st.BackupDests.Get(ctx, d.ID); err == nil {
 		t.Error("destination kept after the admin delete")

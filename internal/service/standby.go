@@ -382,7 +382,7 @@ func (o *Orchestrator) Standbys(ctx context.Context, tileID string) ([]StandbyVi
 			node, _ = o.primaryNode(ctx, t)
 			v.State = m.State
 		} else {
-			v.State = standbyWord(m)
+			v.State = standbyWord(m, o.probeRun(m.ID) > 0)
 			v.SyncMode, v.SyncIn = cmpMode(m.SyncMode), m.SyncIn
 			if sampled {
 				slot := mflow.SlotName(m.ID)
@@ -405,7 +405,17 @@ func (o *Orchestrator) Standbys(ctx context.Context, tileID string) ([]StandbyVi
 	return out, nil
 }
 
-func standbyWord(m InstanceMember) string {
+// probeRun is the current run of probes for member id: positive streaming.
+func (o *Orchestrator) probeRun(id string) int {
+	n, _ := o.probeRuns.Load(id)
+	i, _ := n.(int)
+	return i
+}
+
+// standbyWord is the state shown. Phase moves to streaming after probeHold
+// probes (the read pool's hysteresis); the display does not wait for it:
+// one streaming probe in a row already says streaming.
+func standbyWord(m InstanceMember, probedStreaming bool) string {
 	switch {
 	case m.State == opmember.Removing:
 		return "removing"
@@ -417,7 +427,7 @@ func standbyWord(m InstanceMember) string {
 		return "needs rebuild"
 	case m.Fenced:
 		return "fenced"
-	case m.Phase == opmember.Streaming:
+	case m.Phase == opmember.Streaming, probedStreaming && m.Phase == opmember.Starting:
 		return "streaming"
 	}
 	return "starting"

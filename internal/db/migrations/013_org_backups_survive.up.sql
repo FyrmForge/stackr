@@ -5,10 +5,11 @@
 -- destination with no runs goes with the org as before. The org id is a
 -- uuid, never reused, so a new org taking the slug sees nothing of it.
 ALTER TABLE backup_destinations ADD COLUMN former_org TEXT NOT NULL DEFAULT '';
+ALTER TABLE backup_destinations ADD COLUMN former_org_id TEXT NOT NULL DEFAULT '';
 
 CREATE TRIGGER orgs_keep_backups BEFORE DELETE ON orgs BEGIN
     UPDATE backup_destinations
-       SET org_id = NULL, shared = 0, former_org = old.slug,
+       SET org_id = NULL, shared = 0, former_org = old.slug, former_org_id = old.id,
            name = old.slug || '/' || name
      WHERE org_id = old.id
        AND EXISTS (SELECT 1 FROM backup_runs WHERE dest_id = backup_destinations.id);

@@ -456,6 +456,15 @@ func localMax(t time.Time) string {
 	return t.UTC().Truncate(time.Second).Format(localLayout)
 }
 
+// restoreHelp is the restore time's hint; with a gap in the archive the
+// ranges above are the only times that work.
+func restoreHelp(p PITRView) string {
+	if len(p.Ranges) > 1 {
+		return "Pick a time inside one of the ranges above. Makes a new instance."
+	}
+	return "Makes a new instance; this one is not touched."
+}
+
 // pitr is the point-in-time panel at the top of the Backups tab: the health
 // lines when on, the switch when off. Turning it on or off restarts the
 // database, and says so.
@@ -540,7 +549,7 @@ templ pitr(v View, p PITRView) {
 			}
 			if p.Edit && !p.From.IsZero() {
 				<form novalidate hx-post={ v.Base + "/restore" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
-					@c.Field(c.FieldView{Name: "time", Label: "Time (UTC)", Type: "datetime-local", Step: "1", Min: localMin(p.From), Max: localMax(p.To), Help: "Makes a new instance; this one is not touched."})
+					@c.Field(c.FieldView{Name: "time", Label: "Time (UTC)", Type: "datetime-local", Step: "1", Min: localMin(p.From), Max: localMax(p.To), Help: restoreHelp(p)})
 					<div class="flex gap-2">
 						<button type="submit" class="btn btn-sm">Restore</button>
 						<button type="submit" name="at" value="latest" class="btn btn-sm">Latest</button>

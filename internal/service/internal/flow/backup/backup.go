@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -627,7 +628,7 @@ func (f *Flow) AgeFormer(ctx context.Context, retention time.Duration, now time.
 		}
 		young := map[string]int{}
 		for _, r := range rs {
-			if r.ObjectKey == "" {
+			if r.ObjectKey == "" || bk.IsPITRKey(r.ObjectKey) { // agePITR keeps the anchor
 				continue
 			}
 			p := path.Dir(r.ObjectKey)
@@ -641,18 +642,70 @@ func (f *Flow) AgeFormer(ctx context.Context, retention time.Duration, now time.
 		for p, n := range young {
 			f.Backups.Prune(ctx, open(d), p, max(n, 1))
 		}
+		if err := f.agePITR(ctx, d, retention, now); err != nil {
+			failed = append(failed, err)
+		}
 	}
 	return errors.Join(failed...)
 }
 
-// Purge deletes every archive of a destination, then its run rows. A failed
-// object delete stops it with the rows kept, so the admin can retry.
+// formerPITRKeys are the point-in-time archive objects of a former org's
+// destination, only under that org's own prefix: another destination may
+// share the bucket and the stackr/ prefix.
+func formerPITRKeys(ctx context.Context, obj s3.Destination, d store.BackupDest) ([]string, error) {
+	if d.FormerOrgID == "" {
+		return nil, nil
+	}
+	all, err := obj.List(ctx, "stackr/"+d.FormerOrgID+"/")
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(all, func(k string) bool { return !bk.IsPITRKey(k) }), nil
+}
+
+// agePITR applies the recovery window to each point-in-time archive a former
+// org left (its WAL has no run rows to age by): bases past the window go but
+// the anchor, then the WAL no kept base needs.
+func (f *Flow) agePITR(ctx context.Context, d store.BackupDest, retention time.Duration, now time.Time) error {
+	keys, err := formerPITRKeys(ctx, open(d), d)
+	if err != nil {
+		return err
+	}
+	roots := map[string]bool{}
+	for _, k := range keys {
+		if i := strings.Index(k, "/"+bk.PITR+"/"); i >= 0 {
+			roots[k[:i+1+len(bk.PITR)]] = true
+		}
+	}
+	days := int((retention + 24*time.Hour - 1) / (24 * time.Hour))
+	var failed []error
+	for root := range roots {
+		if _, err := f.PruneWindow(ctx, d, root, days, now, io.Discard); err != nil {
+			failed = append(failed, err)
+		}
+	}
+	return errors.Join(failed...)
+}
+
+// Purge deletes every archive of a destination, then its run rows. The WAL
+// archives of point-in-time restore have no run row, so they go first, by
+// their key. A failed object delete stops it with the rows kept, so the admin
+// can retry.
 func (f *Flow) Purge(ctx context.Context, d store.BackupDest) error {
 	rs, err := f.Backups.RunsOn(ctx, d.ID)
 	if err != nil {
 		return err
 	}
 	obj := open(d)
+	keys, err := formerPITRKeys(ctx, obj, d)
+	if err != nil {
+		return err
+	}
+	for _, k := range keys {
+		if err := obj.Delete(ctx, k); err != nil {
+			return err
+		}
+	}
 	for _, r := range rs {
 		if r.ObjectKey != "" {
 			if err := obj.Delete(ctx, r.ObjectKey); err != nil {

@@ -257,3 +257,20 @@ func TestObserveStandbysWALGone(t *testing.T) {
 		t.Error("no rebuild alert")
 	}
 }
+
+// One streaming probe already shows streaming, though the phase (and the read
+// pool) wait for probeHold of them.
+func TestStandbyWordStreamsOnFirstProbe(t *testing.T) {
+	t.Parallel()
+	m := InstanceMember{Role: opmember.Replica, State: opmember.Running, Phase: opmember.Starting}
+	if got := standbyWord(m, false); got != "starting" {
+		t.Fatalf("no probe: %q", got)
+	}
+	if got := standbyWord(m, true); got != "streaming" {
+		t.Fatalf("one probe: %q", got)
+	}
+	m.Fenced = true
+	if got := standbyWord(m, true); got != "fenced" {
+		t.Fatalf("fenced: %q", got)
+	}
+}

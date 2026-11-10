@@ -171,7 +171,7 @@ func exportSettings(live Live) map[string]any {
 func (f *File) exportDests(live Live) error {
 	seen := map[string]string{}
 	for _, d := range live.Dests {
-		if d.Kind != backup.S3 || d.OrgID != nil {
+		if d.Kind != backup.S3 || d.OrgID != nil || d.FormerOrg != "" { // a former org's is not config
 			continue
 		}
 		coll := DestParamCollection(d.Name)

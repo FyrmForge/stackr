@@ -26,6 +26,8 @@ type BackupDest struct {
 	// FormerOrg is the slug of the org that owned the destination before it
 	// was deleted; "" otherwise. Such a destination is server scope, unshared.
 	FormerOrg string `db:"former_org" json:"former_org"`
+	// FormerOrgID is that org's id: the only prefix its purge and aging touch.
+	FormerOrgID string `db:"former_org_id" json:"former_org_id"`
 }
 
 type BackupDestStore interface {

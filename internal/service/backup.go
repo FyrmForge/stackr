@@ -54,6 +54,9 @@ func (o *Orchestrator) UpdateBackupDest(ctx context.Context, orgID, id string, s
 	if err != nil {
 		return d, err
 	}
+	if d.FormerOrg != "" {
+		return d, errs.Conflictf("This destination belongs to a deleted org. It can only be deleted.")
+	}
 	user, key := store.ActorFrom(ctx)
 	d, err = o.backups.Update(ctx, d, s, o.probeDest(o.adminActor(ctx, user, key)))
 	return o.approvedBySaver(ctx, d, err)

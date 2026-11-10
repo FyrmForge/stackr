@@ -1032,6 +1032,15 @@ func localMax(t time.Time) string {
 	return t.UTC().Truncate(time.Second).Format(localLayout)
 }
 
+// restoreHelp is the restore time's hint; with a gap in the archive the
+// ranges above are the only times that work.
+func restoreHelp(p PITRView) string {
+	if len(p.Ranges) > 1 {
+		return "Pick a time inside one of the ranges above. Makes a new instance."
+	}
+	return "Makes a new instance; this one is not touched."
+}
+
 // pitr is the point-in-time panel at the top of the Backups tab: the health
 // lines when on, the switch when off. Turning it on or off restarts the
 // database, and says so.
@@ -1064,7 +1073,7 @@ func pitr(v View, p PITRView) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(p.Of)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 466, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 475, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
@@ -1077,7 +1086,7 @@ func pitr(v View, p PITRView) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(p.At)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 466, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 475, Col: 68}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -1114,7 +1123,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/pitr").Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 481, Col: 36}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 490, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 				if templ_7745c5c3_Err != nil {
@@ -1127,7 +1136,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 481, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 490, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 				if templ_7745c5c3_Err != nil {
@@ -1259,7 +1268,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(p.Base.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 524, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 533, Col: 26}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 				if templ_7745c5c3_Err != nil {
@@ -1277,7 +1286,7 @@ func pitr(v View, p PITRView) templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(p.Bundles))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 527, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 536, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 			if templ_7745c5c3_Err != nil {
@@ -1290,7 +1299,7 @@ func pitr(v View, p PITRView) templ.Component {
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(p.Size)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 527, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 536, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -1303,7 +1312,7 @@ func pitr(v View, p PITRView) templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(p.Dest)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 527, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 536, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 			if templ_7745c5c3_Err != nil {
@@ -1316,7 +1325,7 @@ func pitr(v View, p PITRView) templ.Component {
 			var templ_7745c5c3_Var38 string
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(p.Waiting))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 527, Col: 109}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 536, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 			if templ_7745c5c3_Err != nil {
@@ -1334,7 +1343,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var39 string
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(p.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 529, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 538, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 				if templ_7745c5c3_Err != nil {
@@ -1367,7 +1376,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var40 string
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/pitr").Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 536, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 545, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 				if templ_7745c5c3_Err != nil {
@@ -1380,7 +1389,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 536, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 545, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
@@ -1411,7 +1420,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var42 string
 				templ_7745c5c3_Var42, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/restore").Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 542, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 551, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 				if templ_7745c5c3_Err != nil {
@@ -1424,7 +1433,7 @@ func pitr(v View, p PITRView) templ.Component {
 				var templ_7745c5c3_Var43 string
 				templ_7745c5c3_Var43, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 542, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 551, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 				if templ_7745c5c3_Err != nil {
@@ -1434,7 +1443,7 @@ func pitr(v View, p PITRView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "time", Label: "Time (UTC)", Type: "datetime-local", Step: "1", Min: localMin(p.From), Max: localMax(p.To), Help: "Makes a new instance; this one is not touched."}).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = c.Field(c.FieldView{Name: "time", Label: "Time (UTC)", Type: "datetime-local", Step: "1", Min: localMin(p.From), Max: localMax(p.To), Help: restoreHelp(p)}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1512,7 +1521,7 @@ func Backups(v View, p PITRView, vols []volume.BackupsView) templ.Component {
 				var templ_7745c5c3_Var45 string
 				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(b.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 575, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 584, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 				if templ_7745c5c3_Err != nil {
@@ -1700,7 +1709,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/memory").Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 679, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 688, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 		if templ_7745c5c3_Err != nil {
@@ -1713,7 +1722,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 679, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 688, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 		if templ_7745c5c3_Err != nil {
@@ -1734,7 +1743,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var50 string
 			templ_7745c5c3_Var50, templ_7745c5c3_Err = templruntime.NewAttributeExpression(pgMem(s.PG.MemoryMB)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 682, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 691, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 			if templ_7745c5c3_Err != nil {
@@ -1789,7 +1798,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 		var templ_7745c5c3_Var51 string
 		templ_7745c5c3_Var51, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/settings").Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 692, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 701, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 		if templ_7745c5c3_Err != nil {
@@ -1802,7 +1811,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 692, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 701, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 		if templ_7745c5c3_Err != nil {
@@ -1854,7 +1863,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var53 string
 				templ_7745c5c3_Var53, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.PG.AddName).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 708, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 717, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 				if templ_7745c5c3_Err != nil {
@@ -1885,7 +1894,7 @@ func pgRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.PG.AddValue).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 712, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 721, Col: 69}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 			if templ_7745c5c3_Err != nil {
@@ -1960,7 +1969,7 @@ func pgRows(v View, rows []PGRow) templ.Component {
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templruntime.NewAttributeExpression("pg-" + r.Name).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 737, Col: 31}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 746, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
 			if templ_7745c5c3_Err != nil {
@@ -1973,7 +1982,7 @@ func pgRows(v View, rows []PGRow) templ.Component {
 			var templ_7745c5c3_Var57 string
 			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(r.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 737, Col: 97}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 746, Col: 97}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 			if templ_7745c5c3_Err != nil {
@@ -1986,7 +1995,7 @@ func pgRows(v View, rows []PGRow) templ.Component {
 			var templ_7745c5c3_Var58 string
 			templ_7745c5c3_Var58, templ_7745c5c3_Err = templruntime.NewAttributeExpression("pg-" + r.Name).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 738, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 747, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 			if templ_7745c5c3_Err != nil {
@@ -1999,7 +2008,7 @@ func pgRows(v View, rows []PGRow) templ.Component {
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templruntime.NewAttributeExpression("v_" + r.Name).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 738, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 747, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var59)
 			if templ_7745c5c3_Err != nil {
@@ -2012,7 +2021,7 @@ func pgRows(v View, rows []PGRow) templ.Component {
 			var templ_7745c5c3_Var60 string
 			templ_7745c5c3_Var60, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.Mine).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 738, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 747, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var60)
 			if templ_7745c5c3_Err != nil {
@@ -2025,7 +2034,7 @@ func pgRows(v View, rows []PGRow) templ.Component {
 			var templ_7745c5c3_Var61 string
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.Value).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 738, Col: 94}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 747, Col: 94}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var61)
 			if templ_7745c5c3_Err != nil {
@@ -2136,7 +2145,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var63 string
 				templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(p)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 786, Col: 63}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 795, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 				if templ_7745c5c3_Err != nil {
@@ -2159,7 +2168,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 						var templ_7745c5c3_Var64 string
 						templ_7745c5c3_Var64, templ_7745c5c3_Err = templruntime.NewAttributeExpression(q).Resolve(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 790, Col: 52}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 799, Col: 52}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
 						if templ_7745c5c3_Err != nil {
@@ -2177,7 +2186,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 					var templ_7745c5c3_Var65 string
 					templ_7745c5c3_Var65, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/allow").Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 792, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 801, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var65)
 					if templ_7745c5c3_Err != nil {
@@ -2190,7 +2199,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 					var templ_7745c5c3_Var66 string
 					templ_7745c5c3_Var66, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 792, Col: 82}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 801, Col: 82}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var66)
 					if templ_7745c5c3_Err != nil {
@@ -2203,7 +2212,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 					var templ_7745c5c3_Var67 string
 					templ_7745c5c3_Var67, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Remove " + p).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 792, Col: 174}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 801, Col: 174}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var67)
 					if templ_7745c5c3_Err != nil {
@@ -2232,7 +2241,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var68 string
 			templ_7745c5c3_Var68, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/allow").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 800, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 809, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var68)
 			if templ_7745c5c3_Err != nil {
@@ -2245,7 +2254,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var69 string
 			templ_7745c5c3_Var69, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 800, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 809, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var69)
 			if templ_7745c5c3_Err != nil {
@@ -2263,7 +2272,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var70 string
 				templ_7745c5c3_Var70, templ_7745c5c3_Err = templruntime.NewAttributeExpression(q).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 802, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 811, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var70)
 				if templ_7745c5c3_Err != nil {
@@ -2289,7 +2298,7 @@ func allowRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var71 string
 				templ_7745c5c3_Var71, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.Add).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 806, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 815, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var71)
 				if templ_7745c5c3_Err != nil {
@@ -2378,7 +2387,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var73 string
 				templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(p.From)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 828, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 837, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 				if templ_7745c5c3_Err != nil {
@@ -2391,7 +2400,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var74 string
 				templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(p.To)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 830, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 839, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 				if templ_7745c5c3_Err != nil {
@@ -2414,7 +2423,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 						var templ_7745c5c3_Var75 string
 						templ_7745c5c3_Var75, templ_7745c5c3_Err = templruntime.NewAttributeExpression(q.From).Resolve(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 834, Col: 56}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 843, Col: 56}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var75)
 						if templ_7745c5c3_Err != nil {
@@ -2427,7 +2436,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 						var templ_7745c5c3_Var76 string
 						templ_7745c5c3_Var76, templ_7745c5c3_Err = templruntime.NewAttributeExpression(q.To).Resolve(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 835, Col: 52}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 844, Col: 52}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var76)
 						if templ_7745c5c3_Err != nil {
@@ -2445,7 +2454,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 					var templ_7745c5c3_Var77 string
 					templ_7745c5c3_Var77, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/env-pairs").Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 837, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 846, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var77)
 					if templ_7745c5c3_Err != nil {
@@ -2458,7 +2467,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 					var templ_7745c5c3_Var78 string
 					templ_7745c5c3_Var78, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 837, Col: 86}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 846, Col: 86}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var78)
 					if templ_7745c5c3_Err != nil {
@@ -2471,7 +2480,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 					var templ_7745c5c3_Var79 string
 					templ_7745c5c3_Var79, templ_7745c5c3_Err = templruntime.NewAttributeExpression("Remove " + p.From).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 837, Col: 183}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 846, Col: 183}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 					if templ_7745c5c3_Err != nil {
@@ -2505,7 +2514,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var80 string
 			templ_7745c5c3_Var80, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/env-pairs").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 847, Col: 39}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 856, Col: 39}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var80)
 			if templ_7745c5c3_Err != nil {
@@ -2518,7 +2527,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var81 string
 			templ_7745c5c3_Var81, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 847, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 856, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var81)
 			if templ_7745c5c3_Err != nil {
@@ -2536,7 +2545,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var82 string
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templruntime.NewAttributeExpression(q.From).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 850, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 859, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var82)
 				if templ_7745c5c3_Err != nil {
@@ -2549,7 +2558,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var83 string
 				templ_7745c5c3_Var83, templ_7745c5c3_Err = templruntime.NewAttributeExpression(q.To).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 851, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 860, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var83)
 				if templ_7745c5c3_Err != nil {
@@ -2575,7 +2584,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var84 string
 				templ_7745c5c3_Var84, templ_7745c5c3_Err = templruntime.NewAttributeExpression(s.AddFrom).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 855, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 864, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var84)
 				if templ_7745c5c3_Err != nil {
@@ -2611,7 +2620,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var85 string
 				templ_7745c5c3_Var85, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 861, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 870, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var85)
 				if templ_7745c5c3_Err != nil {
@@ -2634,7 +2643,7 @@ func pairsRow(v View, s SettingsView) templ.Component {
 				var templ_7745c5c3_Var86 string
 				templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(e)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 861, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 870, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 				if templ_7745c5c3_Err != nil {
@@ -2699,7 +2708,7 @@ func nameRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var88 string
 			templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(v.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 886, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 895, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 			if templ_7745c5c3_Err != nil {
@@ -2717,7 +2726,7 @@ func nameRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var89 string
 			templ_7745c5c3_Var89, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/rename").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 890, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 899, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var89)
 			if templ_7745c5c3_Err != nil {
@@ -2730,7 +2739,7 @@ func nameRow(v View, s SettingsView) templ.Component {
 			var templ_7745c5c3_Var90 string
 			templ_7745c5c3_Var90, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 890, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 899, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var90)
 			if templ_7745c5c3_Err != nil {
@@ -2844,7 +2853,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var94 string
 			templ_7745c5c3_Var94, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/major").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 925, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 934, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var94)
 			if templ_7745c5c3_Err != nil {
@@ -2857,7 +2866,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var95 string
 			templ_7745c5c3_Var95, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 925, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 934, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var95)
 			if templ_7745c5c3_Err != nil {
@@ -2875,7 +2884,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 				var templ_7745c5c3_Var96 string
 				templ_7745c5c3_Var96, templ_7745c5c3_Err = templruntime.NewAttributeExpression(strconv.Itoa(n)).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 931, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 940, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var96)
 				if templ_7745c5c3_Err != nil {
@@ -2888,7 +2897,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 				var templ_7745c5c3_Var97 string
 				templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(n))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 931, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 940, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 				if templ_7745c5c3_Err != nil {
@@ -2911,7 +2920,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 				var templ_7745c5c3_Var98 string
 				templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs(ver.Check)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 940, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 949, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 				if templ_7745c5c3_Err != nil {
@@ -2935,7 +2944,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var99 string
 			templ_7745c5c3_Var99, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/major-rollback").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 945, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 954, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var99)
 			if templ_7745c5c3_Err != nil {
@@ -2948,7 +2957,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var100 string
 			templ_7745c5c3_Var100, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 945, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 954, Col: 69}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var100)
 			if templ_7745c5c3_Err != nil {
@@ -2961,7 +2970,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var101 string
 			templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(ver.RollbackFrom))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 946, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 955, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 			if templ_7745c5c3_Err != nil {
@@ -2974,7 +2983,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var102 string
 			templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(ver.RollbackUntil)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 946, Col: 124}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 955, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 			if templ_7745c5c3_Err != nil {
@@ -2987,7 +2996,7 @@ func majorChange(v View, ver VersionView) templ.Component {
 			var templ_7745c5c3_Var103 string
 			templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(v.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 949, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 958, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 			if templ_7745c5c3_Err != nil {
@@ -3026,7 +3035,7 @@ func syncForm(v View, s SyncView) templ.Component {
 		var templ_7745c5c3_Var105 string
 		templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.JoinStringErrs(s.Status)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 961, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 970, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var105))
 		if templ_7745c5c3_Err != nil {
@@ -3049,7 +3058,7 @@ func syncForm(v View, s SyncView) templ.Component {
 			var templ_7745c5c3_Var106 string
 			templ_7745c5c3_Var106, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/sync").Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 965, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 974, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var106)
 			if templ_7745c5c3_Err != nil {
@@ -3062,7 +3071,7 @@ func syncForm(v View, s SyncView) templ.Component {
 			var templ_7745c5c3_Var107 string
 			templ_7745c5c3_Var107, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 965, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 974, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var107)
 			if templ_7745c5c3_Err != nil {
@@ -3085,7 +3094,7 @@ func syncForm(v View, s SyncView) templ.Component {
 			var templ_7745c5c3_Var108 string
 			templ_7745c5c3_Var108, templ_7745c5c3_Err = templruntime.NewAttributeExpression(strconv.Itoa(s.LimitMS)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 970, Col: 110}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 979, Col: 110}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var108)
 			if templ_7745c5c3_Err != nil {
@@ -3123,7 +3132,7 @@ func syncForm(v View, s SyncView) templ.Component {
 				var templ_7745c5c3_Var109 string
 				templ_7745c5c3_Var109, templ_7745c5c3_Err = templruntime.NewAttributeExpression("sync-mode-" + b.ID).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 983, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 992, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var109)
 				if templ_7745c5c3_Err != nil {
@@ -3136,7 +3145,7 @@ func syncForm(v View, s SyncView) templ.Component {
 				var templ_7745c5c3_Var110 string
 				templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinStringErrs(b.Node)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 983, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 992, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 				if templ_7745c5c3_Err != nil {
@@ -3149,7 +3158,7 @@ func syncForm(v View, s SyncView) templ.Component {
 				var templ_7745c5c3_Var111 string
 				templ_7745c5c3_Var111, templ_7745c5c3_Err = templruntime.NewAttributeExpression("sync-mode-" + b.ID).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 984, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 993, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var111)
 				if templ_7745c5c3_Err != nil {
@@ -3162,7 +3171,7 @@ func syncForm(v View, s SyncView) templ.Component {
 				var templ_7745c5c3_Var112 string
 				templ_7745c5c3_Var112, templ_7745c5c3_Err = templruntime.NewAttributeExpression("mode_" + b.ID).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 984, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 993, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var112)
 				if templ_7745c5c3_Err != nil {
@@ -3241,7 +3250,7 @@ func failover(v View, f FailoverView) templ.Component {
 			var templ_7745c5c3_Var114 string
 			templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(f.InFlight)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 999, Col: 79}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1008, Col: 79}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 			if templ_7745c5c3_Err != nil {
@@ -3259,7 +3268,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var115 string
 				templ_7745c5c3_Var115, templ_7745c5c3_Err = templ.JoinStringErrs(f.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1001, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1010, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var115))
 				if templ_7745c5c3_Err != nil {
@@ -3282,7 +3291,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var116 string
 				templ_7745c5c3_Var116, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/switchover-abort").Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1004, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1013, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var116)
 				if templ_7745c5c3_Err != nil {
@@ -3295,7 +3304,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var117 string
 				templ_7745c5c3_Var117, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1004, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1013, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var117)
 				if templ_7745c5c3_Err != nil {
@@ -3315,7 +3324,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var118 string
 				templ_7745c5c3_Var118, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/promote-standby").Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1010, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1019, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var118)
 				if templ_7745c5c3_Err != nil {
@@ -3328,7 +3337,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var119 string
 				templ_7745c5c3_Var119, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1010, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1019, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var119)
 				if templ_7745c5c3_Err != nil {
@@ -3341,7 +3350,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var120 string
 				templ_7745c5c3_Var120, templ_7745c5c3_Err = templ.JoinStringErrs(f.Primary)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1011, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1020, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var120))
 				if templ_7745c5c3_Err != nil {
@@ -3359,7 +3368,7 @@ func failover(v View, f FailoverView) templ.Component {
 					var templ_7745c5c3_Var121 string
 					templ_7745c5c3_Var121, templ_7745c5c3_Err = templruntime.NewAttributeExpression(n).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1017, Col: 25}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1026, Col: 25}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var121)
 					if templ_7745c5c3_Err != nil {
@@ -3372,7 +3381,7 @@ func failover(v View, f FailoverView) templ.Component {
 					var templ_7745c5c3_Var122 string
 					templ_7745c5c3_Var122, templ_7745c5c3_Err = templ.JoinStringErrs(n)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1017, Col: 31}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1026, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var122))
 					if templ_7745c5c3_Err != nil {
@@ -3395,7 +3404,7 @@ func failover(v View, f FailoverView) templ.Component {
 					var templ_7745c5c3_Var123 string
 					templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.JoinStringErrs(f.Primary)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1023, Col: 66}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1032, Col: 66}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var123))
 					if templ_7745c5c3_Err != nil {
@@ -3423,7 +3432,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var124 string
 				templ_7745c5c3_Var124, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Base + "/switchover").Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1032, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1041, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var124)
 				if templ_7745c5c3_Err != nil {
@@ -3436,7 +3445,7 @@ func failover(v View, f FailoverView) templ.Component {
 				var templ_7745c5c3_Var125 string
 				templ_7745c5c3_Var125, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + Root).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1032, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1041, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var125)
 				if templ_7745c5c3_Err != nil {
@@ -3454,7 +3463,7 @@ func failover(v View, f FailoverView) templ.Component {
 					var templ_7745c5c3_Var126 string
 					templ_7745c5c3_Var126, templ_7745c5c3_Err = templruntime.NewAttributeExpression(n).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1037, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1046, Col: 24}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var126)
 					if templ_7745c5c3_Err != nil {
@@ -3467,7 +3476,7 @@ func failover(v View, f FailoverView) templ.Component {
 					var templ_7745c5c3_Var127 string
 					templ_7745c5c3_Var127, templ_7745c5c3_Err = templ.JoinStringErrs(n)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1037, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/instance/instance.templ`, Line: 1046, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var127))
 					if templ_7745c5c3_Err != nil {
