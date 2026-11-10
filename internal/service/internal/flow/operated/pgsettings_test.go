@@ -121,7 +121,7 @@ func TestOwnedNamesAreRefused(t *testing.T) {
 	for _, n := range []string{
 		"wal_level", "archive_mode", "archive_command", "archive_timeout", "restore_command", "listen_addresses", "port",
 		"hba_file", "ssl", "ssl_cert_file", "shared_preload_libraries", "allow_alter_system", "wal_log_hints",
-		"primary_conninfo", "synchronous_standby_names", "recovery_target_time", "include",
+		"primary_conninfo", "synchronous_standby_names", "recovery_target_time", "include", "fsync", "full_page_writes", "wal_keep_size",
 	} {
 		if err := CheckSettings(map[string]string{n: "x"}); err == nil || !strings.Contains(err.Error(), "managed by stackr") {
 			t.Errorf("%s: err = %v", n, err)
@@ -133,6 +133,16 @@ func TestOwnedNamesAreRefused(t *testing.T) {
 		}
 		if err := CheckSettings(map[string]string{n: "1"}); err != nil {
 			t.Errorf("%s: %v", n, err)
+		}
+	}
+	for _, v := range []string{"on", "remote_write", "remote_apply"} {
+		if err := CheckSettings(map[string]string{"synchronous_commit": v}); err != nil {
+			t.Errorf("synchronous_commit=%s: %v", v, err)
+		}
+	}
+	for _, v := range []string{"off", "local", "false", "0"} {
+		if CheckSettings(map[string]string{"synchronous_commit": v}) == nil {
+			t.Errorf("synchronous_commit=%s passed", v)
 		}
 	}
 	for _, bad := range []map[string]string{{"Bad Name": "1"}, {"x": ""}, {"x": "a\nb"}, {"1x": "1"}} {

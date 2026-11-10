@@ -461,6 +461,9 @@ func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []str
 		canon = append(canon, o.nodeName(ctx, n.ID))
 	}
 	slices.Sort(canon)
+	if ok, _ := ctx.Value(mayPlaceKey{}).(bool); !ok && !slices.Equal(have, canon) {
+		return nil, nil, errs.Conflictf("placing a standby on a node is for an org owner (placement.write), so an owner must promote this")
+	}
 	return have, canon, nil
 }
 
