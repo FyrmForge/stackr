@@ -1635,7 +1635,7 @@ func TestSwitchoverChecksTheTargetLive(t *testing.T) {
 				if err == nil {
 					t.Fatal("a standby that is not streaming was taken")
 				}
-				return // the named node holds no standby that can take over
+				return // the standby on the named node is not streaming yet
 			}
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", err, tc.want)

@@ -401,6 +401,7 @@ func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID,
 // LSN (a switchover), or the only usable one (a promote asks for a node).
 func (o *Orchestrator) failoverTarget(ctx context.Context, by *Principal, t store.Tile, ms []InstanceMember, to, kind string) (InstanceMember, error) {
 	var cands []InstanceMember
+	notStreaming := map[string]bool{} // standbys skipped for not streaming yet, by node
 	for _, m := range ms {
 		if m.Role != opmember.Replica || m.State == opmember.Removing || m.Fenced || m.Phase == opmember.Rebuild || m.Phase == opmember.Rewind {
 			continue
@@ -408,6 +409,7 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, by *Principal, t stor
 		// a planned move goes to a standby that is caught up: the stored phase
 		// says so, or a live probe does (the phase lags a rejoin by minutes)
 		if kind == foSwitchover && m.Phase != opmember.Streaming && !o.liveStreaming(ctx, t, m) {
+			notStreaming[m.NodeID] = true
 			continue
 		}
 		cands = append(cands, m)
@@ -424,6 +426,9 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, by *Principal, t stor
 			if m.NodeID == n.ID {
 				return m, o.nodeUp(ctx, n.ID)
 			}
+		}
+		if notStreaming[n.ID] {
+			return InstanceMember{}, errs.Conflictf("The standby on %s is not streaming yet. Nothing was stopped; wait until it streams.", n.Name)
 		}
 		return InstanceMember{}, errs.Conflictf("%s holds no standby that can take over.", n.Name)
 	}
