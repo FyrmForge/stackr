@@ -468,6 +468,11 @@ func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []str
 		if n.ID == pn {
 			return nil, nil, errs.Conflictf("%s is the primary's node: a standby runs on another", ref)
 		}
+		if admin, _ := ctx.Value(placeAdminKey{}).(bool); !admin && !slices.Contains(have, o.nodeName(ctx, n.ID)) {
+			if err := o.nodeOpenToTile(ctx, false, t, n.ID); err != nil {
+				return nil, nil, errs.Invalidf("standbys", "%q is not a node of this cluster", ref)
+			}
+		}
 		canon = append(canon, o.nodeName(ctx, n.ID))
 	}
 	slices.Sort(canon)
@@ -541,9 +546,9 @@ func (o *Orchestrator) viewOf(ctx context.Context, tileID, id string) (StandbyVi
 }
 
 // AddStandbyView is AddStandby for the API and the CLI.
-func (o *Orchestrator) AddStandbyView(ctx context.Context, tileID, nodeRef string) (StandbyView, error) {
+func (o *Orchestrator) AddStandbyView(ctx context.Context, by *Principal, tileID, nodeRef string) (StandbyView, error) {
 	ctx = context.WithoutCancel(ctx) // runs to the end: the request's timeout must not cut it
-	m, err := o.AddStandby(ctx, tileID, nodeRef)
+	m, err := o.AddStandby(ctx, by, tileID, nodeRef)
 	if err != nil {
 		return StandbyView{}, err
 	}

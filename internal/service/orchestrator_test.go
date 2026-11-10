@@ -654,3 +654,9 @@ func TestParamReadersByScope(t *testing.T) {
 		}
 	}
 }
+
+func TestDataCapsCoverRemoveNode(t *testing.T) {
+	if dataCaps[kindRemoveNode] != 12*time.Hour {
+		t.Fatalf("remove-node cap = %v", dataCaps[kindRemoveNode])
+	}
+}

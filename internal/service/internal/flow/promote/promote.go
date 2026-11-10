@@ -14,6 +14,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
@@ -477,7 +478,11 @@ func (f *Flow) Remove(ctx context.Context, e store.Environment, ts []store.Tile,
 			if ok {
 				drop := deref(t.OnRemove) == tile.Drop || e.Type == environment.Ephemeral
 				if deref(t.OnRemove) == tile.Drop && t.BranchOf == nil && f.DumpBeforeDrop != nil { // a branch is a throwaway copy
-					if err := f.DumpBeforeDrop(ctx, e.ID, p, log); err != nil {
+					// a big database outlasts the job's cap: own 12 h budget (the kind is not in dataCaps)
+					dctx, stop := context.WithTimeout(context.WithoutCancel(ctx), 12*time.Hour)
+					err := f.DumpBeforeDrop(dctx, e.ID, p, log)
+					stop()
+					if err != nil {
 						return removed, fmt.Errorf("backup before dropping %s: %w", p.DBName, err)
 					}
 				}

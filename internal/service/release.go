@@ -47,7 +47,7 @@ func (o *Orchestrator) PlanPromote(ctx context.Context, by *Principal, envID, re
 	if err != nil {
 		return PromotePlan{}, err
 	}
-	p, err := o.promote.Plan(withMayPlace(ctx, ok), envID, releaseID, io.Discard)
+	p, err := o.promote.Plan(context.WithValue(withMayPlace(ctx, ok), placeAdminKey{}, by != nil && by.Access.Admin), envID, releaseID, io.Discard)
 	if err != nil {
 		return PromotePlan{}, err
 	}
@@ -67,7 +67,7 @@ func (o *Orchestrator) PromoteTicked(ctx context.Context, by *Principal, envID, 
 	if err != nil {
 		return Job{}, err
 	}
-	return o.enqueuePromote(ctx, envID, releaseID, ok, ticked...)
+	return o.enqueuePromote(ctx, envID, releaseID, ok, by != nil && by.Access.Admin, ticked...)
 }
 
 // Rollback is Promote with an older release: one path, one rule (B2).

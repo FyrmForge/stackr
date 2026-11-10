@@ -775,7 +775,7 @@ func TestStandbyDuringAChangeIsRefused(t *testing.T) {
 	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
 	oldVol, _ := o.dataVolume(ctx, r.pg)
 	u := r.begin(t, 18)
-	if _, err := o.AddStandby(ctx, r.pg.ID, "w1"); err == nil || !strings.Contains(err.Error(), "version change is in progress") {
+	if _, err := o.AddStandby(ctx, adminP(), r.pg.ID, "w1"); err == nil || !strings.Contains(err.Error(), "version change is in progress") {
 		t.Errorf("AddStandby = %v", err)
 	}
 	u.after = func(step string) error {

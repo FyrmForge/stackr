@@ -78,16 +78,16 @@ func TestStandbyPlumbing(t *testing.T) {
 	n := newTwoNodes(t)
 	m := pgOn(t, n)
 
-	if _, err := n.orch.AddStandby(ctx, n.devT.ID, n.ctl.ID); !conflict(err) {
+	if _, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, n.ctl.ID); !conflict(err) {
 		t.Errorf("standby on the primary's node: %v, want a conflict", err)
 	}
-	if _, err := n.orch.AddStandby(ctx, n.devT.ID, "nope"); err == nil {
+	if _, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "nope"); err == nil {
 		t.Error("standby on an unknown node")
 	}
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
-	if _, err := n.orch.AddStandby(ctx, n.devT.ID, "w1"); !conflict(err) {
+	if _, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1"); !conflict(err) {
 		t.Errorf("second standby on w1: %v, want a conflict", err)
 	}
 	// a block of the cluster pool, clear of the env's
@@ -154,7 +154,7 @@ func TestStartMembers(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	m := pgOn(t, n)
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 	n.ctlFake.Containers = append(n.ctlFake.Containers, docker.Container{ID: "pg1", State: "exited",
 		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "replica"}})
@@ -206,7 +206,7 @@ func TestRestoreRefusedWithLiveMember(t *testing.T) {
 	m := pgOn(t, n)
 	_, _, err := n.orch.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: n.dev.ID}, n.devT.Slug+"-data", &m.ID)
 	must(t, err)
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 
 	_, _, err = n.orch.restoreThenDeploy(ctx, n.dev.ID, nil)
@@ -246,7 +246,7 @@ func TestStandbyRestartPolicy(t *testing.T) {
 		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "replica"}})
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
 
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 	if !sawCall(n.ctlFake, "UpdateRestart(pg1, no)") {
 		t.Errorf("first standby: %v", callNames(n.ctlFake))
@@ -354,7 +354,7 @@ func TestMoveOntoStandbyNodeRefused(t *testing.T) {
 	n := newTwoNodes(t)
 	pgOn(t, n)
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
-	_, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	_, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 
 	cs, err := n.orch.moveChecks(ctx, []string{n.dev.ID}, n.ctl.ID, "w1")
@@ -384,7 +384,7 @@ func TestRemoveStandbyKeepsRowUntilNetworkGone(t *testing.T) {
 	n := newTwoNodes(t)
 	m := pgOn(t, n)
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 
 	n.wFake.Err = map[string]error{"RemoveNetwork": errors.New("active endpoints")}
@@ -417,7 +417,7 @@ func TestStandbySubnetIsMeshed(t *testing.T) {
 	n := newTwoNodes(t)
 	pgOn(t, n)
 	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 	n.orch.mesh = newMeshSvc(n.st, func(string) (MeshNode, bool) { return nil, false })
 	in, err := n.orch.mesh.gather(ctx)

@@ -394,7 +394,7 @@ func newFailRig(t *testing.T, onWorker bool) *failRig {
 		r.pushed[id] = l
 		return nil
 	}
-	rep, err := n.orch.AddStandby(ctx, pt.ID, standbyOn)
+	rep, err := n.orch.AddStandby(ctx, adminP(), pt.ID, standbyOn)
 	must(t, err)
 	n.orch.vipAsync.Wait()
 	_, err = n.orch.members.SetPhase(ctx, rep, opmember.Streaming)
@@ -426,7 +426,7 @@ func TestSwitchoverHappyPath(t *testing.T) {
 	ctx := context.Background()
 	r := newFailRig(t, false)
 	o := r.n.orch
-	v, err := o.Switchover(ctx, r.inst.TileID, "w1")
+	v, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	if v.Role != opmember.Primary || v.Node != "w1" {
 		t.Errorf("view = %+v, want the primary on w1", v)
@@ -503,7 +503,7 @@ func TestFailoverResumesAfterCrashAtEveryStep(t *testing.T) {
 			r := newFailRig(t, false)
 			o := r.n.orch
 			o.failCrashAfter = step
-			if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+			if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 				t.Fatal("the crash did not stop the run")
 			}
 			if f, ok := o.failoverOf(ctx, r.inst.ID); !ok {
@@ -545,7 +545,7 @@ func TestFailoverFencePersistsBeforeAnything(t *testing.T) {
 		p, _ := r.members()
 		fenced = p.Fenced
 	}
-	_, err := o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	if !r.fired {
 		t.Fatal("no container was changed")
@@ -565,7 +565,7 @@ func TestFencedOldPrimaryStaysDown(t *testing.T) {
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
 	r.lsn[r.n.ctl.ID] = "0/5000100"
-	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false); err != nil {
+	if _, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false); err != nil {
 		t.Fatal(err)
 	}
 	_, old := r.members()
@@ -610,7 +610,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		t.Parallel()
 		r := newFailRig(t, false)
 		for _, gone := range []bool{false, true} {
-			_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, "w1", gone, "", false)
+			_, err := r.n.orch.PromoteStandby(ctx, adminP(), r.inst.TileID, "w1", gone, "", false)
 			if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "running") {
 				t.Errorf("promote with the primary running (gone=%v): %v", gone, err)
 			}
@@ -624,7 +624,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		t.Parallel()
 		r := newFailRig(t, true)
 		must(t, setNode(r.n.orch, "w1", node.StatusOffline))
-		_, err := r.n.orch.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "", false)
+		_, err := r.n.orch.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, false, "", false)
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "confirm") {
 			t.Errorf("promote of an unreachable primary without the confirmation: %v", err)
 		}
@@ -636,7 +636,7 @@ func TestPromoteRefusedWhileOldPrimaryMayBeAlive(t *testing.T) {
 		o := r.n.orch
 		must(t, setNode(o, "w1", node.StatusOffline))
 		r.ageLease(5 * time.Second) // the worker took the lease 5 s ago
-		_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
+		_, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
 		if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "lease") {
 			t.Errorf("promote inside the lease: %v", err)
 		}
@@ -655,7 +655,7 @@ func TestPromoteWithNodeGoneConfirmation(t *testing.T) {
 	o := r.n.orch
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
-	v, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
+	v, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
 	must(t, err)
 	if v.Role != opmember.Primary {
 		t.Errorf("view = %+v", v)
@@ -703,7 +703,7 @@ func TestPromoteWhenOldNodeForgotten(t *testing.T) {
 	if err := o.mayPromote(ctx, r.tile(), inst, "w1", false, true); err != nil {
 		t.Errorf("with the override: %v", err)
 	}
-	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "powered off", false); err == nil {
+	if _, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, false, "powered off", false); err == nil {
 		t.Error("a wrong phrase was accepted")
 	}
 }
@@ -717,14 +717,14 @@ func TestPromoteNeedsLeaseProofOrOverride(t *testing.T) {
 	o := r.n.orch
 	must(t, setNode(o, "w1", node.StatusOffline))
 	must(t, o.store.Settings.Delete(ctx, leaseKey(r.inst.ID, "w1")))
-	_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
+	_, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
 	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "no recorded lease") {
 		t.Fatalf("no proof: %v", err)
 	}
 	if p, _ := r.members(); p.Fenced {
 		t.Error("a refused promote fenced the primary")
 	}
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, PoweredOffPhrase, false)
+	_, err = o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, PoweredOffPhrase, false)
 	must(t, err)
 	if p, _ := r.members(); p.NodeID != r.n.ctl.ID {
 		t.Errorf("primary after the override: %+v", p)
@@ -749,7 +749,7 @@ func TestSwitchoverWithPITRFollowsThePrimary(t *testing.T) {
 	pre, _ := o.pitrState(ctx, inst.ID)
 	pre.LastSegment = "000000010000000000000002"
 	o.savePITRState(ctx, inst.ID, pre)
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	p, rep := r.members()
 
@@ -825,7 +825,7 @@ func TestSwapHoldsTheArchiveUntilRouteArms(t *testing.T) {
 	inst, err := o.operated.SetPITR(ctx, r.inst, 7)
 	must(t, err)
 	o.failCrashAfter = stepSwap
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 		t.Fatal("the crash did not stop the run")
 	}
 	st, _ := o.pitrState(ctx, inst.ID)
@@ -868,7 +868,7 @@ func TestSwapWaitsForTheVolumeJob(t *testing.T) {
 	must(t, err)
 	_, err = o.jobRows.Start(ctx, j)
 	must(t, err)
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil || !strings.Contains(err.Error(), "holds the data volume") {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil || !strings.Contains(err.Error(), "holds the data volume") {
 		t.Fatalf("switchover under a running backup: %v", err)
 	}
 	if p, _ := r.members(); p.NodeID != "" {
@@ -916,7 +916,7 @@ func TestSwitchoverBackHomeMovesBackupsBack(t *testing.T) {
 	must(t, err)
 	dv, err := o.dataVolume(ctx, r.tile())
 	must(t, err)
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	_, rep := r.members()
 	_, err = o.members.SetPhase(ctx, rep, opmember.Streaming)
@@ -924,7 +924,7 @@ func TestSwitchoverBackHomeMovesBackupsBack(t *testing.T) {
 	r.mu.Lock()
 	r.lsn["ctl"] = "0/5000100"
 	r.mu.Unlock()
-	_, err = o.Switchover(ctx, r.inst.TileID, r.n.ctl.ID)
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, r.n.ctl.ID)
 	must(t, err)
 	p, rep := r.members()
 	if p.NodeID != r.n.ctl.ID {
@@ -954,7 +954,7 @@ func TestPromoteWithPITRKeepsArchiving(t *testing.T) {
 	must(t, err)
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
+	_, err = o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
 	must(t, err)
 	p, _ := r.members()
 	dv, err := o.dataVolume(ctx, r.tile())
@@ -977,27 +977,27 @@ func TestFailoverTargetByLSN(t *testing.T) {
 		Status: node.StatusOnline, CreatedAt: time.Now()}))
 	w2 := &sim{Docker: &subnetFake{Fake: r.n.wFake, nets: map[string]bool{}}, rig: r, node: "w2"}
 	o.docker.(*DockerRouter).Set("w2", w2)
-	rep2, err := o.AddStandby(ctx, r.inst.TileID, "w2")
+	rep2, err := o.AddStandby(ctx, adminP(), r.inst.TileID, "w2")
 	must(t, err)
 	o.vipAsync.Wait()
 	_, err = o.members.SetPhase(ctx, rep2, opmember.Streaming)
 	must(t, err)
 	r.lsn["w1"], r.lsn["w2"] = "0/5000100", "0/7000000"
 	ms, _ := o.members.List(ctx, r.inst.ID)
-	got, err := o.failoverTarget(ctx, r.tile(), ms, "", foSwitchover)
+	got, err := o.failoverTarget(ctx, adminP(), r.tile(), ms, "", foSwitchover)
 	must(t, err)
 	if got.ID != rep2.ID {
 		t.Errorf("target = %s, want the standby on w2 (the most advanced)", got.NodeID)
 	}
 	r.lsn["w1"] = "0/9000000"
-	if got, err = o.failoverTarget(ctx, r.tile(), ms, "", foSwitchover); err != nil || got.NodeID != "w1" {
+	if got, err = o.failoverTarget(ctx, adminP(), r.tile(), ms, "", foSwitchover); err != nil || got.NodeID != "w1" {
 		t.Errorf("target = %v %v, want w1 once it is ahead", got.NodeID, err)
 	}
 	// a named node wins over the LSN, and must hold a standby
-	if got, err = o.failoverTarget(ctx, r.tile(), ms, "w2", foSwitchover); err != nil || got.NodeID != "w2" {
+	if got, err = o.failoverTarget(ctx, adminP(), r.tile(), ms, "w2", foSwitchover); err != nil || got.NodeID != "w2" {
 		t.Errorf("named target = %v %v", got.NodeID, err)
 	}
-	if _, err = o.failoverTarget(ctx, r.tile(), ms, r.n.ctl.ID, foSwitchover); err == nil {
+	if _, err = o.failoverTarget(ctx, adminP(), r.tile(), ms, r.n.ctl.ID, foSwitchover); err == nil {
 		t.Error("a node with no standby was accepted")
 	}
 }
@@ -1011,7 +1011,7 @@ func TestPlacementAdoptsPromotedPrimary(t *testing.T) {
 	o := r.n.orch
 	oldVol, err := o.dataVolume(ctx, r.tile())
 	must(t, err)
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	p, _ := r.members()
 
@@ -1054,7 +1054,7 @@ func TestAdoptHandsOffTheArchive(t *testing.T) {
 	must(t, err)
 	wal, _, err := o.volumes.Declare(ctx, volume.Scope{Kind: "env", ID: r.tile().EnvironmentID}, mflow.ArchiveSlug(r.tile().Slug), &inst.ID)
 	must(t, err)
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	p, _ := r.members()
 	must(t, o.store.Environments.SetNode(ctx, r.n.dev.ID, "w1"))
@@ -1148,7 +1148,7 @@ func TestAddStandbyNeedsTheLeaseAck(t *testing.T) {
 	_, rep := r.members()
 	must(t, o.RemoveStandby(ctx, rep.ID))
 	r.leaseErr = errors.New("worker unreachable")
-	if _, err := o.AddStandby(ctx, r.inst.TileID, r.n.ctl.ID); err == nil {
+	if _, err := o.AddStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID); err == nil {
 		t.Error("a standby was added without the primary's lease")
 	}
 }
@@ -1183,7 +1183,7 @@ func TestFailoverCompletesOnlyWithTheNewPrimaryLeased(t *testing.T) {
 	r := newFailRig(t, false) // the primary on the controller, the standby on w1
 	o := r.n.orch
 	r.leaseErr = errors.New("worker unreachable")
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 		t.Fatal("the switchover completed with the new primary unleased")
 	}
 	if _, ok := o.failoverOf(ctx, r.inst.ID); !ok {
@@ -1272,7 +1272,7 @@ func TestSwitchoverAcceptsConsumersOfTheOldNode(t *testing.T) {
 	must(t, r.n.st.Provisions.Create(ctx, p))
 	must(t, r.n.st.Bindings.Create(ctx, store.Binding{ID: uuid.NewString(), ProvisionID: p.ID, ConsumerTileID: app.ID,
 		Access: tile.Write, DBUser: "b", DBPassword: "y", Outputs: "{}", CreatedAt: time.Now()}))
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	w1, err := r.n.st.Nodes.Get(ctx, "w1")
 	must(t, err)
@@ -1288,7 +1288,7 @@ func TestSwitchoverSurvivesTheRequestContext(t *testing.T) {
 	r := newFailRig(t, false)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	v, err := r.n.orch.Switchover(ctx, r.inst.TileID, "w1")
+	v, err := r.n.orch.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	if err != nil || v.Node != "w1" {
 		t.Errorf("switchover = %+v %v", v, err)
 	}
@@ -1306,11 +1306,11 @@ func TestPromoteWhenTheNodeIsSilentButNotYetOffline(t *testing.T) {
 	r.downNode = "w1"
 	r.mu.Unlock()
 	r.ageLease(2 * time.Minute)
-	_, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, false, "", false)
+	_, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, false, "", false)
 	if _, ok := errs.IsConflict(err); !ok || !strings.Contains(err.Error(), "confirm") {
 		t.Fatalf("not confirmed: %v", err)
 	}
-	if _, err := o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false); err != nil {
+	if _, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := r.members(); p.NodeID != r.n.ctl.ID {
@@ -1326,7 +1326,7 @@ func TestAbortStuckSwitchover(t *testing.T) {
 	r := newFailRig(t, false)
 	o := r.n.orch
 	r.lsn["w1"] = "0/1000000" // behind the shutdown checkpoint
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 		t.Fatal("the switchover did not get stuck")
 	}
 	if fo, _, _ := o.FailoverOptionsOf(ctx, r.inst.TileID); !fo.CanAbort {
@@ -1363,7 +1363,7 @@ func TestAbortRefusedAfterPromote(t *testing.T) {
 		t.Errorf("no failover: err = %v, want a conflict", err)
 	}
 	o.failCrashAfter = stepPromote
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 		t.Fatal("the crash did not stop the run")
 	}
 	if err := o.AbortSwitchover(ctx, r.inst.TileID); !conflict(err) {
@@ -1500,7 +1500,7 @@ func TestPrimaryPoolerFollowsTheSwitchover(t *testing.T) {
 		cs, _ := r.sims[node].List(ctx, map[string]string{tile.LabelTile: pt.ID, tile.LabelRole: mflow.PoolerRole})
 		return cs
 	}
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	if len(poolers("w1")) != 1 || poolers("w1")[0].State != "running" {
 		t.Errorf("poolers on the new primary's node: %v", poolers("w1"))
@@ -1514,7 +1514,7 @@ func TestPrimaryPoolerFollowsTheSwitchover(t *testing.T) {
 	r.mu.Lock()
 	r.lsn["ctl"] = "0/5000100"
 	r.mu.Unlock()
-	_, err = o.Switchover(ctx, r.inst.TileID, r.n.ctl.ID)
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, r.n.ctl.ID)
 	must(t, err)
 	if len(poolers("ctl")) != 1 || len(poolers("w1")) != 0 {
 		t.Errorf("after switching back: ctl %v, w1 %v", poolers("ctl"), poolers("w1"))
@@ -1529,7 +1529,7 @@ func TestAbortFailsClosed(t *testing.T) {
 	r := newFailRig(t, false)
 	o := r.n.orch
 	r.lsn["w1"] = "0/1000000"
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 		t.Fatal("the switchover did not get stuck")
 	}
 	r.sims["w1"].mu.Lock()
@@ -1561,7 +1561,7 @@ func TestPoolerStopsBeforePromoteAndFenceRetriesStop(t *testing.T) {
 	if cs, _ := o.poolerContainers(docker.WithNode(ctx, "w1"), rep.ID); len(cs) != 1 {
 		t.Fatalf("no standby pooler: %v", cs)
 	}
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	r.order("w1 remove stackr-", "SELECT pg_promote")
 
@@ -1600,7 +1600,7 @@ func TestFailoverNeverOverwritesUnreadablePITRState(t *testing.T) {
 	if err := o.pitrHold(ctx, r.tile(), inst, "x"); err == nil {
 		t.Error("pitrHold wrote over an unreadable state")
 	}
-	if _, err := o.Switchover(ctx, r.inst.TileID, "w1"); err == nil {
+	if _, err := o.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err == nil {
 		t.Error("the swap went through over an unreadable state")
 	}
 	if v, _, _ := o.store.Settings.Get(ctx, pitrKey(inst.ID)); v != "{not json" {

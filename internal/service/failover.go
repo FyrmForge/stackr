@@ -212,8 +212,8 @@ func (o *Orchestrator) FailoverOf(ctx context.Context, tileID string) (FailoverV
 // drained, the primary shut down cleanly, the standby confirmed to have
 // replayed the shutdown checkpoint, and only then promoted. to names the
 // standby's node; "" picks the streaming standby that replayed the most.
-func (o *Orchestrator) Switchover(ctx context.Context, tileID, to string) (StandbyView, error) {
-	return o.startFailover(ctx, tileID, to, foSwitchover, false, false, false)
+func (o *Orchestrator) Switchover(ctx context.Context, by *Principal, tileID, to string) (StandbyView, error) {
+	return o.startFailover(ctx, by, tileID, to, foSwitchover, false, false, false)
 }
 
 // AbortSwitchover gives up a switchover that is stuck before the promote
@@ -321,17 +321,17 @@ const PoweredOffPhrase = "I powered the node off"
 // mayPromote); poweredOff (PoweredOffPhrase) replaces that proof and the wait.
 // A target the primary did not wait for, while one it did is usable, is
 // refused unless allowAsync: it may lack commits the primary confirmed.
-func (o *Orchestrator) PromoteStandby(ctx context.Context, tileID, to string, nodeGone bool, poweredOff string, allowAsync bool) (StandbyView, error) {
+func (o *Orchestrator) PromoteStandby(ctx context.Context, by *Principal, tileID, to string, nodeGone bool, poweredOff string, allowAsync bool) (StandbyView, error) {
 	if poweredOff != "" && poweredOff != PoweredOffPhrase {
 		return StandbyView{}, errs.Invalidf("powered_off", "Type exactly: %s", PoweredOffPhrase)
 	}
 	if strings.TrimSpace(to) == "" {
 		return StandbyView{}, errs.Invalidf("to", "Pick the standby to promote.")
 	}
-	return o.startFailover(ctx, tileID, to, foPromoted, nodeGone, poweredOff != "", allowAsync)
+	return o.startFailover(ctx, by, tileID, to, foPromoted, nodeGone, poweredOff != "", allowAsync)
 }
 
-func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (StandbyView, error) {
+func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (StandbyView, error) {
 	// the request's own timeout (hamr's ContextTimeout) ends well before a
 	// switchover does: the answer is still read after the failover ran
 	ctx = context.WithoutCancel(ctx)
@@ -359,7 +359,7 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 	if err != nil {
 		return StandbyView{}, err
 	}
-	target, err := o.failoverTarget(ctx, t, ms, to, kind)
+	target, err := o.failoverTarget(ctx, by, t, ms, to, kind)
 	if err != nil {
 		return StandbyView{}, err
 	}
@@ -395,7 +395,7 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 // failoverTarget picks the standby that is promoted. A named node must hold a
 // usable standby; none named, the streaming standby with the highest replay
 // LSN (a switchover), or the only usable one (a promote asks for a node).
-func (o *Orchestrator) failoverTarget(ctx context.Context, t store.Tile, ms []InstanceMember, to, kind string) (InstanceMember, error) {
+func (o *Orchestrator) failoverTarget(ctx context.Context, by *Principal, t store.Tile, ms []InstanceMember, to, kind string) (InstanceMember, error) {
 	var cands []InstanceMember
 	for _, m := range ms {
 		if m.Role != opmember.Replica || m.State == opmember.Removing || m.Fenced || m.Phase == opmember.Rebuild || m.Phase == opmember.Rewind {
@@ -409,6 +409,9 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, t store.Tile, ms []In
 	if to != "" {
 		n, err := o.nodeByRef(ctx, to)
 		if err != nil {
+			return InstanceMember{}, errs.Invalidf("to", "Pick one of the cluster's nodes.")
+		}
+		if err := o.nodeOpenToTile(ctx, by != nil && by.Access.Admin, t, n.ID); err != nil {
 			return InstanceMember{}, errs.Invalidf("to", "Pick one of the cluster's nodes.")
 		}
 		for _, m := range cands {
@@ -426,11 +429,12 @@ func usableStandby(m InstanceMember) bool {
 	return m.Role == opmember.Replica && m.State != opmember.Removing && !m.Fenced && m.Phase != opmember.Rebuild && m.Phase != opmember.Rewind
 }
 
-// competitor says whether m counts against a promote target: a standby that
-// runs, streams and is not fenced. A stopped or catching-up one cannot be
-// read and is not who the primary was waiting on.
+// competitor says whether m counts against a promote target: a usable standby
+// that runs. Its phase is not asked: with the primary dead every standby
+// drops from streaming to starting, and a lagging one must still be compared.
+// A stopped one cannot be read and does not count.
 func competitor(m InstanceMember) bool {
-	return usableStandby(m) && m.State == opmember.Running && m.Phase == opmember.Streaming
+	return usableStandby(m) && m.State == opmember.Running
 }
 
 // targetBehind refuses a promote target that has replayed less WAL than

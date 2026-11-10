@@ -1077,7 +1077,7 @@ func (o *Orchestrator) Sessions() *auth.SessionManager { return o.sessions }
 var dataCaps = func() map[jobs.Kind]time.Duration {
 	m := map[jobs.Kind]time.Duration{}
 	for _, k := range []jobs.Kind{kindBackup, kindRestore, kindRestoreInstance, kindPromoteRestore,
-		kindPGUpgrade, kindPGRollback, kindSeed, kindPanelBackup, kindNodeBackup, kindBucketSync} {
+		kindPGUpgrade, kindPGRollback, kindSeed, kindPanelBackup, kindNodeBackup, kindBucketSync, kindRemoveNode} {
 		m[k] = 12 * time.Hour
 	}
 	return m

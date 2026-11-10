@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // A promote target that replayed less than another usable standby is refused,
@@ -159,5 +162,62 @@ func TestStandbyPlanNeedsOwner(t *testing.T) {
 	}
 	if _, _, err := o.standbyPlan(context.Background(), tl, []string{"w1"}); err != nil {
 		t.Errorf("unchanged list refused: %v", err)
+	}
+}
+
+// With the primary dead every standby is "starting", not streaming; the lagging
+// one is still refused against the running, more advanced one.
+func TestTargetBehindCountsStartingStandbys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	addSecond(t, r)
+	o := r.n.orch
+	ms, _ := o.members.List(ctx, r.inst.ID)
+	var w1 InstanceMember
+	for _, m := range ms {
+		if m.Role == "replica" {
+			_, err := o.members.SetPhase(ctx, m, "starting")
+			must(t, err)
+		}
+		if m.NodeID == "w1" {
+			w1 = m
+		}
+	}
+	r.sims["ctl"].set("pg", "exited")
+	r.lsn["w1"], r.lsn["w2"] = "0/5000100", "0/9000000"
+	ms, _ = o.members.List(ctx, r.inst.ID)
+	w1, _ = o.members.Get(ctx, w1.ID)
+	if err := o.targetBehind(ctx, r.tile(), ms, w1); err == nil || !strings.Contains(err.Error(), "w2") {
+		t.Errorf("lagging starting standby passed: %v", err)
+	}
+}
+
+// A node no placement opens to the org takes no standby, promote or switchover
+// target from an org owner; an admin may.
+func TestStandbyNodeMustBeOpenToOrg(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w2", Name: "w2", Slug: "w2", Role: node.Worker, Tags: "[]", RangeCIDR: "10.210.0.0/16",
+		Status: node.StatusOnline, CreatedAt: time.Now()}))
+	o.docker.(*DockerRouter).Set("w2", &sim{Docker: &subnetFake{Fake: r.n.wFake, nets: map[string]bool{}}, rig: r, node: "w2"})
+	addPlacement(t, r.n, "w2p", "w2", false) // open to no org
+	own := ownerP(acmeID(t, r.n))
+	if _, err := o.AddStandby(ctx, own, r.inst.TileID, "w2"); err == nil {
+		t.Fatal("owner added a standby on a node closed to the org")
+	}
+	ms, _ := o.members.List(ctx, r.inst.ID)
+	for _, kind := range []string{foSwitchover, foPromoted} {
+		if _, err := o.failoverTarget(ctx, own, r.tile(), ms, "w2", kind); err == nil {
+			t.Errorf("%s: owner picked a node closed to the org", kind)
+		}
+	}
+	if _, _, err := o.standbyPlan(withMayPlace(ctx, true), r.tile(), []string{"w1", "w2"}); err == nil {
+		t.Error("standbyPlan accepted a closed node without admin")
+	}
+	if _, err := o.AddStandby(ctx, adminP(), r.inst.TileID, "w2"); err != nil {
+		t.Fatalf("admin refused: %v", err)
 	}
 }

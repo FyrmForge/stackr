@@ -89,6 +89,8 @@ type promoteJob struct {
 	// MayPlace: an org owner approved it, so it may change pin, ingress
 	// and exits. A push's or an image watch's own promote never may.
 	MayPlace bool `json:"may_place,omitempty"`
+	// Admin: a server admin approved it, so standbys may use any node.
+	Admin bool `json:"admin,omitempty"`
 }
 
 type envSyncJob struct {
@@ -215,7 +217,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			ctx = withRanFirst(ctx, r.Job.CreatedAt)
 			o.ensureMesh(ctx)
 			pre, _ := o.tiles.List(ctx, p.EnvID)
-			plan, err := o.promote.ApplyTicked(withMayPlace(ctx, p.MayPlace), p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
+			plan, err := o.promote.ApplyTicked(context.WithValue(withMayPlace(ctx, p.MayPlace), placeAdminKey{}, p.Admin), p.EnvID, p.ReleaseID, p.Ticked, r.Log, r.Swap)
 			if plan != nil {
 				err = errors.Join(err, o.dropRuns(plan.Removed), o.dropRemoved(ctx, pre, plan.Removed), o.afterDeploy(ctx, plan.Deployed, true))
 			}
@@ -373,7 +375,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			ups, err := o.watch.Check(ctx, sc, r.Log)
 			for _, u := range ups {
 				if u.Auto {
-					if _, perr := o.enqueuePromote(ctx, u.EnvID, u.ReleaseID, false); perr != nil {
+					if _, perr := o.enqueuePromote(ctx, u.EnvID, u.ReleaseID, false, false); perr != nil {
 						err = errors.Join(err, perr)
 					} else {
 						_, _ = fmt.Fprintf(r.Log, "%s: promoting release #%d\n", u.Env, u.Number)
@@ -428,7 +430,7 @@ func (o *Orchestrator) enqueue(ctx context.Context, kind jobs.Kind, p any, lock 
 }
 
 // enqueuePromote locks the env and every tile it runs now.
-func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string, mayPlace bool, ticked ...string) (Job, error) {
+func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID string, mayPlace, admin bool, ticked ...string) (Job, error) {
 	if err := o.gateEnv(ctx, envID, true); err != nil {
 		return Job{}, err
 	}
@@ -440,7 +442,7 @@ func (o *Orchestrator) enqueuePromote(ctx context.Context, envID, releaseID stri
 	for _, t := range ts {
 		lock = append(lock, t.ID)
 	}
-	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked, MayPlace: mayPlace})
+	b, _ := json.Marshal(promoteJob{EnvID: envID, ReleaseID: releaseID, Ticked: ticked, MayPlace: mayPlace, Admin: admin})
 	j, err := o.jobs.Enqueue(ctx, kindPromote, lock, string(o.withOrg(ctx, b)), &releaseID)
 	return j, o.noted(ctx, err, securitylog.JobQueue, "job", j.ID, "kind=promote release="+releaseID)
 }
@@ -466,7 +468,7 @@ func (o *Orchestrator) runPush(ctx context.Context, stackID string, ev promote.E
 	}
 	_, _ = fmt.Fprintf(log, "release #%d\n", rel.Number)
 	for _, e := range auto {
-		if _, err := o.enqueuePromote(ctx, e.ID, rel.ID, false); err != nil {
+		if _, err := o.enqueuePromote(ctx, e.ID, rel.ID, false, false); err != nil {
 			return err
 		}
 	}

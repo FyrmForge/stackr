@@ -124,7 +124,14 @@ func (o *Orchestrator) lockInstance(ctx context.Context, tileID string) (func(),
 // network there and its data volume, the primary's side of the replication
 // (role, slot) and the standby's container, whose first start copies the
 // primary. It is a standby once it reports streaming (the watch tick).
-func (o *Orchestrator) AddStandby(ctx context.Context, tileID, nodeRef string) (InstanceMember, error) {
+func (o *Orchestrator) AddStandby(ctx context.Context, by *Principal, tileID, nodeRef string) (InstanceMember, error) {
+	if t, err := o.tiles.Get(ctx, tileID); err == nil {
+		if n, err := o.nodeByRef(ctx, nodeRef); err == nil {
+			if err := o.nodeOpenToTile(ctx, by != nil && by.Access.Admin, t, n.ID); err != nil {
+				return InstanceMember{}, errs.Invalidf("node", "Pick one of the cluster's nodes.")
+			}
+		}
+	}
 	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
 		return InstanceMember{}, err

@@ -690,7 +690,7 @@ type (
 // replayed the shutdown checkpoint, then promoted. It answers when done.
 func (h *H) Switchover() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in SwitchoverIn) (service.StandbyView, error) {
-		return h.Orch.Switchover(rc(c), tileID(c), in.To)
+		return h.Orch.Switchover(rc(c), middleware.Principal(c), tileID(c), in.To)
 	})
 }
 
@@ -721,7 +721,7 @@ func (h *H) FenceStandby() Endpoint {
 // powered_off phrase.
 func (h *H) PromoteStandby() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in PromoteStandbyIn) (service.StandbyView, error) {
-		return h.Orch.PromoteStandby(rc(c), tileID(c), in.To, in.NodeGone, in.PoweredOff, in.AllowAsyncTarget)
+		return h.Orch.PromoteStandby(rc(c), middleware.Principal(c), tileID(c), in.To, in.NodeGone, in.PoweredOff, in.AllowAsyncTarget)
 	})
 }
 
@@ -755,7 +755,7 @@ func (h *H) Standbys() Endpoint {
 // the copy of the primary is done.
 func (h *H) AddStandby() Endpoint {
 	return JSON(http.StatusAccepted, func(c echo.Context, in StandbyIn) (service.StandbyView, error) {
-		return h.Orch.AddStandbyView(rc(c), tileID(c), in.Node)
+		return h.Orch.AddStandbyView(rc(c), middleware.Principal(c), tileID(c), in.Node)
 	})
 }
 

@@ -284,6 +284,10 @@ func withMayPlace(ctx context.Context, ok bool) context.Context {
 	return context.WithValue(ctx, mayPlaceKey{}, ok)
 }
 
+// placeAdminKey marks a promote's ctx as approved by a server admin, who may
+// use any node.
+type placeAdminKey struct{}
+
 // mayPlace says by may change the placing of the env's stack.
 func (o *Orchestrator) mayPlace(ctx context.Context, by *Principal, envID string) (bool, error) {
 	if by == nil {

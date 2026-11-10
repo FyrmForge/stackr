@@ -166,6 +166,25 @@ func (o *Orchestrator) nodeOpenToOrg(ctx context.Context, nodeID, orgID string) 
 	return false, nil
 }
 
+// nodeOpenToTile errs unless the node is open to the tile's org; admins skip it.
+func (o *Orchestrator) nodeOpenToTile(ctx context.Context, admin bool, t store.Tile, nodeID string) error {
+	if admin {
+		return nil
+	}
+	org, err := o.tileOrg(ctx, t)
+	if err != nil {
+		return err
+	}
+	ok, err := o.nodeOpenToOrg(ctx, nodeID, org)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errs.Invalidf("node", "not open to this organization")
+	}
+	return nil
+}
+
 // offers returns the placement by name, or errs unless it is open to the
 // org. A server admin may use any.
 func (o *Orchestrator) offers(ctx context.Context, by *Principal, orgID, name string) (store.Placement, error) {

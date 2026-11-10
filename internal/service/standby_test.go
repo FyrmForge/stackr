@@ -30,12 +30,12 @@ func TestAddStandbyMakesTheContainer(t *testing.T) {
 	must(t, err)
 	dt.ImageRef = "postgres:17"
 	must(t, n.st.Tiles.Update(ctx, dt))
-	if _, err := n.orch.AddStandby(ctx, n.devT.ID, n.ctl.ID); !conflict(err) {
+	if _, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, n.ctl.ID); !conflict(err) {
 		t.Fatalf("standby on the primary's node: %v, want a conflict (R4)", err)
 	}
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
-	if _, err := n.orch.AddStandby(ctx, n.devT.ID, "w1"); !conflict(err) {
+	if _, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1"); !conflict(err) {
 		t.Errorf("second standby on w1: %v, want a conflict (R4)", err)
 	}
 	if r.Phase != opmember.Starting {
@@ -91,7 +91,7 @@ func TestReadTarget(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	m := pgOn(t, n)
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 	n.orch.vipAsync.Wait()
 	edge, err := n.st.Environments.Get(ctx, n.edge.ID)
@@ -141,7 +141,7 @@ func TestObserveStandbys(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	m := pgOn(t, n)
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 	n.orch.vipAsync.Wait()
 	slot := mflow.SlotName(r.ID)
@@ -227,7 +227,7 @@ func TestObserveStandbysWALGone(t *testing.T) {
 	ctx := context.Background()
 	n := newTwoNodes(t)
 	m := pgOn(t, n)
-	r, err := n.orch.AddStandby(ctx, n.devT.ID, "w1")
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
 	must(t, err)
 	n.orch.vipAsync.Wait()
 	slot := mflow.SlotName(r.ID)

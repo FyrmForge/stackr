@@ -20,7 +20,7 @@ func addSecond(t *testing.T, r *failRig) {
 	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w2", Name: "w2", Slug: "w2", Role: node.Worker, Tags: "[]", RangeCIDR: "10.210.0.0/16",
 		Status: node.StatusOnline, CreatedAt: time.Now()}))
 	o.docker.(*DockerRouter).Set("w2", &sim{Docker: &subnetFake{Fake: r.n.wFake, nets: map[string]bool{}}, rig: r, node: "w2"})
-	rep2, err := o.AddStandby(ctx, r.inst.TileID, "w2")
+	rep2, err := o.AddStandby(ctx, adminP(), r.inst.TileID, "w2")
 	must(t, err)
 	o.vipAsync.Wait()
 	_, err = o.members.SetPhase(ctx, rep2, opmember.Streaming)
@@ -229,7 +229,7 @@ func TestFailoverPrefersSyncStandby(t *testing.T) {
 	}
 	setIn(func(m InstanceMember) bool { return m.NodeID == "w1" })
 	ms, _ = o.members.List(ctx, r.inst.ID)
-	got, err := o.failoverTarget(ctx, r.tile(), ms, "", foSwitchover)
+	got, err := o.failoverTarget(ctx, adminP(), r.tile(), ms, "", foSwitchover)
 	must(t, err)
 	if got.NodeID != "w1" {
 		t.Errorf("target = %s, want w1 (the sync standby, though w2 is ahead)", got.NodeID)
@@ -237,13 +237,13 @@ func TestFailoverPrefersSyncStandby(t *testing.T) {
 	// none waited for: the highest LSN as before
 	setIn(func(InstanceMember) bool { return false })
 	ms, _ = o.members.List(ctx, r.inst.ID)
-	if got, err = o.failoverTarget(ctx, r.tile(), ms, "", foSwitchover); err != nil || got.NodeID != "w2" {
+	if got, err = o.failoverTarget(ctx, adminP(), r.tile(), ms, "", foSwitchover); err != nil || got.NodeID != "w2" {
 		t.Errorf("target = %v %v, want w2 by LSN", got.NodeID, err)
 	}
 	// both waited for: the higher LSN of the two
 	setIn(func(InstanceMember) bool { return true })
 	ms, _ = o.members.List(ctx, r.inst.ID)
-	if got, err = o.failoverTarget(ctx, r.tile(), ms, "", foSwitchover); err != nil || got.NodeID != "w2" {
+	if got, err = o.failoverTarget(ctx, adminP(), r.tile(), ms, "", foSwitchover); err != nil || got.NodeID != "w2" {
 		t.Errorf("target = %v %v, want w2", got.NodeID, err)
 	}
 }
@@ -260,7 +260,7 @@ func TestSwitchoverRecomputesSyncNames(t *testing.T) {
 	_, rep := r.members()
 	_, err = o.members.SetSync(ctx, rep, SyncAlways, false)
 	must(t, err)
-	_, err = o.Switchover(ctx, r.inst.TileID, "w1")
+	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	// the old primary is a standby now, and the next pass makes the primary wait for its slot
 	_, newRep := r.members()
@@ -393,7 +393,7 @@ func TestPromoteRefusesAsyncTarget(t *testing.T) {
 	}
 	_, err := o.members.SetSync(ctx, w1, SyncAuto, true)
 	must(t, err)
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, "w2", true, "", false)
+	_, err = o.PromoteStandby(ctx, adminP(), r.inst.TileID, "w2", true, "", false)
 	if err == nil || !strings.Contains(err.Error(), "allow_async_target") {
 		t.Fatalf("promote of an async target: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestPromoteRequiredPrimesFreeze(t *testing.T) {
 	must(t, err)
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
-	_, err = o.PromoteStandby(ctx, r.inst.TileID, r.n.ctl.ID, true, "", false)
+	_, err = o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
 	must(t, err)
 	r.order(`stackr-sync.conf`, "SELECT pg_promote")
 	if !r.saw(`ANY 1 ("` + mflow.SyncNoneSlot + `")`) {
