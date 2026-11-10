@@ -68,8 +68,11 @@ type clusterPKI struct {
 	st   *store.Store
 	mu   sync.Mutex
 	rev  map[string]revAns
-	addr map[string]string // node id -> address its clients were built for
-	ext  map[string]*workerclient.Client
+	// seenSerial is the newest serial each node was seen with and cleaned up
+	// after; in memory, so a restart checks once more.
+	seenSerial map[string]string
+	addr       map[string]string // node id -> address its clients were built for
+	ext        map[string]*workerclient.Client
 	// probe is the client of every worker that could be online, fails the
 	// refreshes each missed in a row.
 	probe map[string]probeEnt
@@ -199,6 +202,51 @@ func loadPrev(dataDir string, own tls.Certificate) tls.Certificate {
 	return pair
 }
 
+// seen is a node proving, in a finished handshake or a signed call, that it
+// holds the cert with serial: once that is a newer cert than others it still
+// has live, those are revoked. A renewal keeps the old cert valid until the
+// node is known to use the new one (certrenew.go); this is that moment.
+func (c *clusterPKI) seen(nodeID, serial string) {
+	c.mu.Lock()
+	if c.seenSerial[nodeID] == serial {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cs, err := c.st.NodeCerts.ListByNode(ctx, nodeID)
+	if err != nil {
+		return
+	}
+	var cur *store.NodeCert
+	for i := range cs {
+		if cs[i].Serial == serial && cs[i].RevokedAt == nil {
+			cur = &cs[i]
+		}
+	}
+	if cur == nil {
+		return
+	}
+	now := time.Now().UTC()
+	for _, o := range cs {
+		if o.Serial == serial || o.RevokedAt != nil || !o.CreatedAt.Before(cur.CreatedAt) {
+			continue
+		}
+		if err := c.st.NodeCerts.Revoke(ctx, o.Serial, now); err != nil {
+			slog.Warn("cluster: revoke a superseded node cert", "node", nodeID, "serial", o.Serial, "err", err)
+			return
+		}
+		c.mu.Lock()
+		delete(c.rev, o.Serial)
+		c.mu.Unlock()
+		slog.Info("cluster: node cert superseded", "node", nodeID, "serial", o.Serial)
+	}
+	c.mu.Lock()
+	c.seenSerial[nodeID] = serial
+	c.mu.Unlock()
+}
+
 type revAns struct {
 	revoked bool
 	at      time.Time
@@ -250,7 +298,7 @@ func bootCluster(ctx context.Context, st *store.Store, dataDir string) (*cluster
 	if err != nil {
 		return nil, fmt.Errorf("controller cert: %w", err)
 	}
-	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, prev: loadPrev(dataDir, own), st: st, rev: map[string]revAns{},
+	return &clusterPKI{ca: ca, trust: roots, announced: []string{serial}, own: own, prev: loadPrev(dataDir, own), st: st, rev: map[string]revAns{}, seenSerial: map[string]string{},
 		addr: map[string]string{}, ext: map[string]*workerclient.Client{},
 		probe: map[string]probeEnt{}, fails: map[string]int{}, alive: map[string]bool{}, old: map[string]string{}, skew: map[string]time.Duration{}}, nil
 }
@@ -395,6 +443,7 @@ func (c *clusterPKI) probeClient(id, addr string) *workerclient.Client {
 		return e.ext
 	}
 	ext := workerclient.New(addr, clusterca.ClientConfig(c.roots, c.own, id, c.revoked))
+	ext.Seen = func(x *x509.Certificate) { c.seen(id, hex.EncodeToString(x.SerialNumber.Bytes())) }
 	c.probe[id] = probeEnt{addr, ext}
 	return ext
 }

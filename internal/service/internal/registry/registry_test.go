@@ -143,13 +143,39 @@ func TestPlainHTTPPrivateRegistry(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	if d, err := Digest(context.Background(), host+"/app:1", "", ""); err != nil || d != "sha256:plain" {
+	if d, err := Digest(Allowing(context.Background(), "127.0.0.1"), host+"/app:1", "", ""); err != nil || d != "sha256:plain" {
 		t.Errorf("digest = %q, %v", d, err)
 	}
-	if tags, err := Tags(context.Background(), host+"/app:1", "", ""); err != nil || strings.Join(tags, ",") != "a,b" {
+	if tags, err := Tags(Allowing(context.Background(), "127.0.0.1"), host+"/app:1", "", ""); err != nil || strings.Join(tags, ",") != "a,b" {
 		t.Errorf("tags = %v, %v", tags, err)
 	}
 	if plainOK("https://ghcr.io/v2/x/manifests/1") || !plainOK("https://192.168.1.5:5000/v2/x/manifests/1") {
 		t.Error("plainOK: public must be https only, private may fall back")
+	}
+}
+
+// The default client refuses a private address, a registry host or a token
+// realm alike, unless the caller allowed that host; a realm must be https.
+func TestGuard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Content-Digest", "sha256:x")
+	}))
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://") // 127.0.0.1:port
+	old := HTTP
+	HTTP = newClient()
+	t.Cleanup(func() { HTTP = old })
+	ctx := context.Background()
+	if _, err := Digest(ctx, host+"/app:1", "", ""); err == nil {
+		t.Fatal("private registry dialled")
+	}
+	if d, err := Digest(Allowing(ctx, "127.0.0.1"), host+"/app:1", "", ""); err != nil || d != "sha256:x" {
+		t.Fatalf("allowed host: %q %v", d, err)
+	}
+	if _, err := token(ctx, map[string]string{"realm": srv.URL + "/token"}, "app", "u", "p"); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("http realm: %v", err)
+	}
+	if _, err := token(ctx, map[string]string{"realm": "https://127.0.0.1:1/token"}, "app", "u", "p"); err == nil {
+		t.Fatal("private realm dialled")
 	}
 }

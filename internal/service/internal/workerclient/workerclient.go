@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,9 @@ import (
 type Client struct {
 	addr string
 	hc   *http.Client
+	// Seen, when set, gets the worker's cert after each completed call: the
+	// handshake proved the node holds its key.
+	Seen func(*x509.Certificate)
 }
 
 // New takes the controller's client tls.Config (W4 builds it). HTTP/1.1 only,
@@ -65,6 +69,9 @@ func (c *Client) call(ctx context.Context, method, path, ctype string, body []by
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if c.Seen != nil && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		c.Seen(resp.TLS.PeerCertificates[0])
+	}
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("worker %s %s: %s: %s", method, path, resp.Status, bytes.TrimSpace(b))

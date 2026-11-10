@@ -75,10 +75,32 @@ func TestRecoverTakesRotatedKeys(t *testing.T) {
 		t.Fatalf("audit = %q", row)
 	}
 
+	o.rotation.trigger.Store("w1", "schedule")
 	req, err = worker.SignRecover(own, worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "r2", Purpose: worker.PurposeRecover, WGPublic: "not-a-key", ExitPublic: exit})
 	must(t, err)
 	if _, err := o.RecoverNode(ctx, req); !errors.Is(err, errs.ErrRefused) {
 		t.Fatalf("bad key: err = %v", err)
+	}
+}
+
+// A validly signed request with a new key changes nothing when no rotation
+// was started for the node.
+func TestRecoverRefusesUnrequestedKey(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	o := newClusterPanel(t)
+	old := pubKey(t)
+	must(t, o.store.Nodes.Create(ctx, store.Node{
+		ID: "w1", Name: "w1", Slug: "w1", Role: node.Worker, Tags: "[]", RangeCIDR: "10.209.0.0/16", WGAddress: "10.207.255.2",
+		WGPublicKey: old, Status: node.StatusOnline, CreatedAt: time.Now(),
+	}))
+	req, err := worker.SignRecover(nodeCert(t, o, "w1"), worker.RecoverPayload{Time: time.Now().Unix(), Nonce: "x1", Purpose: worker.PurposeRecover, WGPublic: pubKey(t), ExitPublic: pubKey(t)})
+	must(t, err)
+	if _, err := o.RecoverNode(ctx, req); !errors.Is(err, errs.ErrRefused) {
+		t.Fatalf("err = %v, want refused", err)
+	}
+	if n, _ := o.store.Nodes.Get(ctx, "w1"); n.WGPublicKey != old {
+		t.Fatal("key swapped without a rotation")
 	}
 }
 

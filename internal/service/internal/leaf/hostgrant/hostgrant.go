@@ -30,6 +30,10 @@ const (
 	LAN = "lan:"
 	// Port marks a published server port: "port:<hostport>[/udp]".
 	Port = "port:"
+	// Share marks a mount of an org's NFS/SMB share, which the host mounts
+	// on its own network: "share:<share slug>". Editing or deleting the
+	// share drops it (DropPerm), so an approval never outlives its source.
+	Share = "share:"
 	// NetworkHost is the perm of the host network flag.
 	NetworkHost = "network:host"
 	// Source binds a tile's grant to what it runs: "src:<fingerprint>" of
@@ -186,6 +190,31 @@ func (l *Leaf) Revoke(ctx context.Context, stackID, tileSlug string) error {
 		return l.rows.Delete(ctx, g.ID)
 	}
 	g.Lines = strings.Join(keep, "\n")
+	return l.rows.Update(ctx, g)
+}
+
+// DropPerm removes every line, of any tile, whose perm is perm. A stack with
+// no row is a no-op.
+func (l *Leaf) DropPerm(ctx context.Context, stackID, perm string) error {
+	g, err := l.rows.GetByStack(ctx, stackID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var next []string
+	for _, ln := range lines(g.Lines) {
+		if _, p := Split(ln); p != perm {
+			next = append(next, ln)
+		}
+	}
+	if len(next) == len(lines(g.Lines)) {
+		return nil
+	}
+	if len(next) == 0 {
+		return l.rows.Delete(ctx, g.ID)
+	}
+	g.Lines = strings.Join(next, "\n")
 	return l.rows.Update(ctx, g)
 }
 

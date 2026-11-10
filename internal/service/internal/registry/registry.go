@@ -10,10 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -29,8 +32,51 @@ const acceptManifests = "application/vnd.docker.distribution.manifest.list.v2+js
 	"application/vnd.docker.distribution.manifest.v2+json, " +
 	"application/vnd.oci.image.manifest.v1+json"
 
-// HTTP serves every call here; tests swap it.
-var HTTP = &http.Client{Timeout: 15 * time.Second}
+// HTTP serves every call here; tests swap it. It dials public addresses only,
+// checked on the address actually connected to (DNS rebinding, redirects and
+// token realms cannot reach the panel's network), except the host a caller
+// names with Allowing (the panel's own registry).
+var HTTP = newClient()
+
+type allowKey struct{}
+
+// Allowing marks host (no port) as dialable even when private: the panel's
+// own registry, which an admin put there.
+func Allowing(ctx context.Context, host string) context.Context {
+	return context.WithValue(ctx, allowKey{}, strings.ToLower(host))
+}
+
+var errNotPublic = errors.New("registry: host is not a public address")
+
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+
+func publicIP(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsGlobalUnicast() && !a.IsPrivate() && !cgnat.Contains(a)
+}
+
+func newClient() *http.Client {
+	guarded := &net.Dialer{Timeout: 10 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
+		ap, err := netip.ParseAddrPort(address)
+		if err != nil || !publicIP(ap.Addr()) {
+			return errNotPublic
+		}
+		return nil
+	}}
+	open := &net.Dialer{Timeout: 10 * time.Second}
+	tr := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if h, _, err := net.SplitHostPort(addr); err == nil {
+				if a, _ := ctx.Value(allowKey{}).(string); a != "" && strings.EqualFold(h, a) {
+					return open.DialContext(ctx, network, addr)
+				}
+			}
+			return guarded.DialContext(ctx, network, addr)
+		},
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{Timeout: 15 * time.Second, Transport: tr}
+}
 
 // Typed failures, so a caller never reads an error as "no update".
 var (
@@ -274,6 +320,15 @@ func token(ctx context.Context, params map[string]string, repoPath, user, pass s
 	realm := params["realm"]
 	if realm == "" {
 		return "", fmt.Errorf("bearer challenge without realm")
+	}
+	// The realm gets the org's credentials: https only (the dial guard keeps
+	// it public), unless it is the allowed panel host.
+	ru, perr := url.Parse(realm)
+	if perr != nil || ru.Hostname() == "" {
+		return "", fmt.Errorf("bearer challenge: bad realm")
+	}
+	if a, _ := ctx.Value(allowKey{}).(string); ru.Scheme != "https" && !(a != "" && strings.EqualFold(ru.Hostname(), a)) {
+		return "", fmt.Errorf("bearer challenge: realm must be https")
 	}
 	q := url.Values{}
 	if s := params["service"]; s != "" {

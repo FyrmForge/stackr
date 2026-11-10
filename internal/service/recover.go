@@ -65,6 +65,13 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 	}
 	force := false
 	if p.WGPublic != "" && p.WGPublic != n.WGPublicKey {
+		// A new key is only taken for a rotation an admin or the schedule
+		// started (rotateOne holds the mark for rotateWait): a signed request
+		// alone cannot swap a node's key.
+		if _, ok := o.rotation.trigger.Load(n.ID); !ok {
+			o.auditRecover(ctx, n.ID, "refused: new key, no rotation requested")
+			return worker.RecoverAnswer{}, refused
+		}
 		if err := o.takeNodeKeys(ctx, n, p.WGPublic, p.ExitPublic); err != nil {
 			o.auditRecover(ctx, n.ID, "refused: bad keys")
 			return worker.RecoverAnswer{}, err
@@ -136,6 +143,7 @@ func (o *Orchestrator) openSigned(req worker.RecoverRequest, purpose string, ref
 		refuse(peer.NodeID, "refused: replayed or missing nonce")
 		return clusterca.Peer{}, worker.RecoverPayload{}, refused
 	}
+	o.cluster.seen(peer.NodeID, peer.Serial) // the signature proves it holds this cert's key
 	return peer, p, nil
 }
 

@@ -18,7 +18,7 @@ func HostLine(m tile.Mount) string {
 }
 
 // HostSet is the elevated access tiles ask for, one "<slug> <perm>" line
-// each: host mounts, devices, privileged, LAN access, published server ports
+// each: host mounts, network share mounts (the host reaches the share server), devices, privileged, LAN access, published server ports
 // and host networking. A line that does not parse is left out; the tile's
 // own validation reports it.
 func HostSet(ts ...store.Tile) hostgrant.Set {
@@ -29,6 +29,8 @@ func HostSet(ts ...store.Tile) hostgrant.Set {
 		for _, l := range tile.Lines(t.Volumes) {
 			if m, err := tile.ParseMount(l); err == nil && m.Kind == tile.MountHost {
 				add(HostLine(m))
+			} else if err == nil && m.Kind == tile.MountShare {
+				add(hostgrant.Share + m.Share)
 			}
 		}
 		for _, l := range tile.Lines(t.Devices) {

@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/mod/semver"
 
+	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
@@ -185,6 +186,10 @@ func (f *Flow) direct(ctx context.Context, e store.Environment) bool {
 // ask asks the registry and caches the answer on the image row.
 func (f *Flow) ask(ctx context.Context, w watched) *answer {
 	a := &answer{}
+	// The panel's own registry is the one private host an org may watch.
+	if panel, _ := f.Settings.Get(ctx, "panel_domain"); panel != "" {
+		ctx = registry.Allowing(ctx, "registry."+installspec.CleanHost(panel))
+	}
 	user, pass := "", ""
 	if c, ok, err := f.Cred(ctx, w.org, w.t.ImageRef); err != nil {
 		a.err = err
