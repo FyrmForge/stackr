@@ -156,7 +156,7 @@ func (o *Orchestrator) Keys(ctx context.Context, userID string) ([]APIKey, error
 // scope, level and expiry stay, the old secret stops working. A capped or
 // stack key may rotate only itself.
 func (o *Orchestrator) RotateKey(ctx context.Context, by *Principal, keyID string) (string, APIKey, error) {
-	if (by.Access.KeyCapped || by.Access.KeyStack != "") && keyID != by.KeyID {
+	if (by.Access.KeyCapped || by.Access.KeyStack != "" || by.Access.KeyOrg != "") && keyID != by.KeyID {
 		return "", APIKey{}, errs.Refusedf("a limited key can rotate only itself")
 	}
 	var tok string
@@ -208,6 +208,10 @@ func (o *Orchestrator) fillKeyStacks(ctx context.Context, ks []APIKey) error {
 // RevokeOrgKey deletes a key bound to the org, whoever owns it; a key of
 // another org is not found. orgID "" is the admin's: any key.
 func (o *Orchestrator) RevokeOrgKey(ctx context.Context, by *Principal, orgID, keyID string) error {
+	// an org-bound key manages its own org's keys, never another org's or the admin's list
+	if a := by.Access; (a.KeyCapped || a.KeyStack != "" || (a.KeyOrg != "" && orgID != a.KeyOrg)) && keyID != by.KeyID {
+		return errs.Refusedf("a limited key can revoke only itself")
+	}
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		l := user.New(tx.Users, tx.Sessions, tx.APIKeys)
 		k, err := l.KeyOf(ctx, keyID)
@@ -230,7 +234,7 @@ func (o *Orchestrator) RevokeOrgKey(ctx context.Context, by *Principal, orgID, k
 // RevokeKey deletes one of the caller's keys; a capped or stack key may
 // revoke only itself.
 func (o *Orchestrator) RevokeKey(ctx context.Context, by *Principal, keyID string) error {
-	if (by.Access.KeyCapped || by.Access.KeyStack != "") && keyID != by.KeyID {
+	if (by.Access.KeyCapped || by.Access.KeyStack != "" || by.Access.KeyOrg != "") && keyID != by.KeyID {
 		return errs.Refusedf("a limited key can revoke only itself")
 	}
 	return o.store.Tx(ctx, func(tx store.Tx) error {

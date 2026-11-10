@@ -159,11 +159,38 @@ func WriteKeyFile(path string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	return writeDurable(path, b, 0o600)
+}
+
+// writeDurable writes temp, fsyncs it, renames, fsyncs the directory.
+func writeDurable(path string, b []byte, mode os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	if _, err = f.Write(b); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, mode)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Input is everything about this install the containers vary on.
@@ -450,7 +477,7 @@ func Save(in Input) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(in.DataDir, File), append(b, '\n'), 0o600)
+	return writeDurable(filepath.Join(in.DataDir, File), append(b, '\n'), 0o600)
 }
 
 // CleanHost takes what people paste: a URL with scheme, path, port, a

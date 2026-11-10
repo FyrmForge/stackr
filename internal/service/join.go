@@ -342,7 +342,7 @@ func (o *Orchestrator) RequestJoin(ctx context.Context, meta JoinMeta, req JoinR
 		st = JoinStatus{Status: JoinPending, NodeID: n.ID}
 		return audit(tx).Append(ctx, securitylog.Event{
 			Action: jointoken.ActionRequest, TargetKind: "node", TargetID: n.ID,
-			IP: meta.IP, UserAgent: meta.UserAgent, Detail: "token " + row.ID + " node " + n.Name,
+			IP: meta.IP, UserAgent: RequestMeta{UserAgent: meta.UserAgent}.agent(), Detail: "token " + row.ID + " node " + n.Name,
 		})
 	})
 	return st, err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/FyrmForge/hamr/pkg/auth"
 
@@ -19,6 +20,9 @@ type SecurityFilter = store.SecurityFilter
 
 // RequestMeta is what the HTTP layer knows about the caller of a login.
 type RequestMeta struct{ IP, UserAgent string }
+
+// agent is the user agent, clipped for the audit log.
+func (m RequestMeta) agent() string { return strings.ToValidUTF8(clipBytes(m.UserAgent, 512), "") }
 
 // audit is the log bound to a transaction: the act and its row commit or
 // roll back together.
@@ -55,10 +59,11 @@ func (o *Orchestrator) LoginRefused(ctx context.Context, email string, meta Requ
 }
 
 func (o *Orchestrator) auditLogin(ctx context.Context, action, email string, meta RequestMeta) error {
+	email = strings.ToValidUTF8(clipBytes(strings.ToLower(strings.TrimSpace(email)), 254), "")
 	return o.store.Tx(ctx, func(tx store.Tx) error {
 		return audit(tx).Append(ctx, securitylog.Event{
-			Action: action, TargetKind: "email", TargetID: strings.ToLower(strings.TrimSpace(email)),
-			IP: meta.IP, UserAgent: meta.UserAgent,
+			Action: action, TargetKind: "email", TargetID: email,
+			IP: meta.IP, UserAgent: meta.agent(),
 		})
 	})
 }
@@ -96,4 +101,15 @@ func (o *Orchestrator) RevealSecrets(ctx context.Context, by *Principal, s Param
 		return nil, err
 	}
 	return ps, nil
+}
+
+// clipBytes cuts s to at most n bytes on a rune boundary.
+func clipBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

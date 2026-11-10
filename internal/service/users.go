@@ -191,7 +191,7 @@ func (o *Orchestrator) Login(ctx context.Context, email, password string, meta R
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
 			Action: securitylog.LoginOK, ActorID: u.ID, TargetKind: "user", TargetID: u.ID,
-			IP: meta.IP, UserAgent: meta.UserAgent,
+			IP: meta.IP, UserAgent: meta.agent(),
 		})
 	})
 	if err != nil {

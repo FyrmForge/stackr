@@ -6,12 +6,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 const adminPW = "correct horse battery"
@@ -164,6 +166,59 @@ func TestUnboundKeyGates(t *testing.T) {
 	must(t, err)
 	if _, k, err := w.orch.ExchangeCLICode(ctx, code); err != nil || k.OrgID != nil {
 		t.Errorf("CLI login key = %+v %v, want no org", k, err)
+	}
+}
+
+// An org-bound key acts on itself only: it may not rotate or revoke the
+// account's other keys (the CLI login key included).
+func TestOrgBoundKeyActsOnItselfOnly(t *testing.T) {
+	t.Parallel()
+	w, adm := secWorld(t)
+	ctx := context.Background()
+	_, other, err := w.orch.MintKey(ctx, adm, "", "login", "", "")
+	must(t, err)
+	_, mine, err := w.orch.MintKey(ctx, adm, "", "mine", "", "")
+	must(t, err)
+	bound := *adm
+	bound.KeyID = mine.ID
+	bound.Access.Key, bound.Access.KeyOrg = true, "o1"
+	if _, _, err := w.orch.RotateKey(ctx, &bound, other.ID); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("rotate another: %v", err)
+	}
+	if err := w.orch.RevokeKey(ctx, &bound, other.ID); !errors.Is(err, errs.ErrRefused) {
+		t.Errorf("revoke another: %v", err)
+	}
+	for _, org := range []string{"o2", ""} {
+		if err := w.orch.RevokeOrgKey(ctx, &bound, org, other.ID); !errors.Is(err, errs.ErrRefused) {
+			t.Errorf("org-revoke in %q: %v", org, err)
+		}
+	}
+	// its own org's keys are fair game; a key outside that org is not found
+	if err := w.orch.RevokeOrgKey(ctx, &bound, "o1", other.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("org-revoke unbound key in own org: %v", err)
+	}
+	must(t, w.st.Orgs.Create(ctx, store.Org{ID: "o1", Name: "o1", Slug: "o1", EnvColors: "{}", Settings: "{}", CreatedAt: time.Now()}))
+	must(t, w.st.OrgMembers.Create(ctx, store.OrgMember{ID: "m1", OrgID: "o1", UserID: adm.User.ID, Role: "owner", CreatedAt: time.Now()}))
+	_, inOrg, err := w.orch.MintKey(ctx, adm, "o1", "orgkey", "", "")
+	must(t, err)
+	must(t, w.orch.RevokeOrgKey(ctx, &bound, "o1", inOrg.ID))
+	if _, _, err := w.orch.RotateKey(ctx, &bound, mine.ID); err != nil {
+		t.Errorf("rotate itself: %v", err)
+	}
+	must(t, w.orch.RevokeKey(ctx, &bound, mine.ID))
+}
+
+func TestLoginAuditEmailIsClipped(t *testing.T) {
+	t.Parallel()
+	w, _ := secWorld(t)
+	must(t, w.orch.LoginRefused(context.Background(), strings.Repeat("é", 300), RequestMeta{UserAgent: strings.Repeat("é", 400)}))
+	e := one(t, w, securitylog.LoginLimited)
+	if len(e.UserAgent) > 512 || !utf8.ValidString(e.UserAgent) {
+		t.Errorf("user agent = %d bytes", len(e.UserAgent))
+	}
+	id := e.TargetID
+	if len(id) > 254 || !utf8.ValidString(id) {
+		t.Errorf("target id = %d bytes, valid=%v", len(id), utf8.ValidString(id))
 	}
 }
 

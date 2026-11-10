@@ -197,3 +197,28 @@ func TestPanelDockerRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteDurableContentAndMode(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "k")
+	if err := WriteKeyFile(p, []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	in := tlsIn
+	in.DataDir = dir
+	if err := Save(in); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{p, filepath.Join(dir, File)} {
+		st, err := os.Stat(f)
+		if err != nil || st.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v %v", f, st, err)
+		}
+	}
+	if b, _ := os.ReadFile(p); string(b) != "secret" {
+		t.Errorf("content = %q", b)
+	}
+	if m, _ := filepath.Glob(p + ".tmp*"); len(m) > 0 {
+		t.Errorf("temp file left behind: %v", m)
+	}
+}
