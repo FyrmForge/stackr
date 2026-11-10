@@ -838,7 +838,9 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			Workers: func(ctx context.Context) (int, error) { return orch.settings.Int(ctx, "workers") },
 			// A run holds its own clock: the tile's timeout_minutes.
 			Uncapped: map[jobs.Kind]bool{kindRun: true, kindMoveEnv: true, kindBucketRestore: true},
-			Hold:     orch.upgrading.Load,
+			// Kinds that copy a volume or database outrun the 30 minute default.
+			Caps: dataCaps,
+			Hold: orch.upgrading.Load,
 			// The upgrade that swapped this panel in: its row was still
 			// running when the helper stopped the old panel.
 			Survived: orch.upgradeLanded,
@@ -1069,3 +1071,14 @@ func (o *Orchestrator) Ping(ctx context.Context) error {
 
 // Sessions is hamr's session manager, for the web layer's cookie handling.
 func (o *Orchestrator) Sessions() *auth.SessionManager { return o.sessions }
+
+// dataCaps lets the kinds that move a volume or database run for hours; a
+// cut restore leaves the volume half written.
+var dataCaps = func() map[jobs.Kind]time.Duration {
+	m := map[jobs.Kind]time.Duration{}
+	for _, k := range []jobs.Kind{kindBackup, kindRestore, kindRestoreInstance, kindPromoteRestore,
+		kindPGUpgrade, kindPGRollback, kindSeed, kindPanelBackup, kindNodeBackup, kindBucketSync} {
+		m[k] = 12 * time.Hour
+	}
+	return m
+}()

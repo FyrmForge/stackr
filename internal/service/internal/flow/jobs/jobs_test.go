@@ -437,6 +437,25 @@ func TestUncapped(t *testing.T) {
 	waitState(t, l, id, job.Done)
 }
 
+// A kind with its own cap outlives the default; a default kind is cut.
+func TestKindCap(t *testing.T) {
+	wait := func(ctx context.Context, _ *jobs.Run) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(150 * time.Millisecond):
+			return nil
+		}
+	}
+	r, l := setup(t, map[jobs.Kind]jobs.Handler{"long": wait, "short": wait},
+		jobs.Options{Cap: 50 * time.Millisecond, Caps: map[jobs.Kind]time.Duration{"long": time.Hour}})
+	start(t, r)
+	long := enqueue(t, r, "long", "t1")
+	short := enqueue(t, r, "short", "t2")
+	waitState(t, l, long, job.Done)
+	waitState(t, l, short, job.Failed)
+}
+
 // A row left running by a dead process is failed at boot, not resumed.
 func TestRestartRecovery(t *testing.T) {
 	r, l := setup(t, nil, jobs.Options{})
