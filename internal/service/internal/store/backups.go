@@ -23,6 +23,9 @@ type BackupDest struct {
 	// destination on a private address; an Endpoint that differs is pending.
 	ApprovedEndpoint string `db:"approved_endpoint" json:"approved_endpoint"`
 	ApprovedBy       string `db:"approved_by" json:"approved_by"`
+	// FormerOrg is the slug of the org that owned the destination before it
+	// was deleted; "" otherwise. Such a destination is server scope, unshared.
+	FormerOrg string `db:"former_org" json:"former_org"`
 }
 
 type BackupDestStore interface {

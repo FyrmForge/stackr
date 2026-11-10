@@ -68,6 +68,13 @@ func (o *Orchestrator) DeleteBackupDest(ctx context.Context, orgID, id string) e
 	if err != nil {
 		return err
 	}
+	// A deleted org's destination is the admin's to clear: its archives go
+	// with it, since the row holds the only copy of their key.
+	if d.FormerOrg != "" && panelDest != d.ID {
+		if err := o.backup.Purge(ctx, d); err != nil {
+			return err
+		}
+	}
 	return o.backups.Delete(ctx, d, panelDest == d.ID)
 }
 

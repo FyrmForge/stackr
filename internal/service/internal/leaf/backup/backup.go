@@ -170,6 +170,21 @@ func (l *Leaf) Delete(ctx context.Context, d store.BackupDest, usedByPanel bool)
 	return l.dests.Delete(ctx, d.ID)
 }
 
+// Former lists the server destinations left behind by a deleted org, keys
+// included, for the flow that ages and purges them.
+func (l *Leaf) Former(ctx context.Context) ([]store.BackupDest, error) {
+	ds, err := l.dests.ListByOrg(ctx, nil)
+	return slices.DeleteFunc(ds, func(d store.BackupDest) bool { return d.FormerOrg == "" }), err
+}
+
+// RunsOn is every run row of a destination.
+func (l *Leaf) RunsOn(ctx context.Context, destID string) ([]store.BackupRun, error) {
+	return l.runs.ListByDest(ctx, destID)
+}
+
+// DeleteRun removes one run row (its archive is the caller's to delete).
+func (l *Leaf) DeleteRun(ctx context.Context, id string) error { return l.runs.Delete(ctx, id) }
+
 // Get is the raw row, keys included, for the flow that uploads.
 func (l *Leaf) Get(ctx context.Context, id string) (store.BackupDest, error) {
 	return l.dests.Get(ctx, id)

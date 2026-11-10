@@ -600,7 +600,70 @@ func (f *Flow) Orphans(ctx context.Context, retention time.Duration, dest store.
 		}
 		logf(log, "deleted orphan %s\n", v.Slug)
 	}
+	if err := f.AgeFormer(ctx, retention, time.Now()); err != nil {
+		failed = append(failed, err)
+	}
 	return errors.Join(failed...)
+}
+
+// AgeFormer prunes the archives a deleted org left on its former
+// destinations. Their schedules went with the volumes, so the keep count is
+// gone: per archive prefix it keeps what is younger than retention, and
+// always the newest (Prune protects the newest good one). Best effort per
+// destination.
+// ponytail: the last archive of a prefix never ages out; an admin deletes it
+// with the destination.
+func (f *Flow) AgeFormer(ctx context.Context, retention time.Duration, now time.Time) error {
+	ds, err := f.Backups.Former(ctx)
+	if err != nil {
+		return err
+	}
+	var failed []error
+	for _, d := range ds {
+		rs, err := f.Backups.RunsOn(ctx, d.ID)
+		if err != nil {
+			failed = append(failed, err)
+			continue
+		}
+		young := map[string]int{}
+		for _, r := range rs {
+			if r.ObjectKey == "" {
+				continue
+			}
+			p := path.Dir(r.ObjectKey)
+			if _, ok := young[p]; !ok {
+				young[p] = 0
+			}
+			if r.CreatedAt.After(now.Add(-retention)) {
+				young[p]++
+			}
+		}
+		for p, n := range young {
+			f.Backups.Prune(ctx, open(d), p, max(n, 1))
+		}
+	}
+	return errors.Join(failed...)
+}
+
+// Purge deletes every archive of a destination, then its run rows. A failed
+// object delete stops it with the rows kept, so the admin can retry.
+func (f *Flow) Purge(ctx context.Context, d store.BackupDest) error {
+	rs, err := f.Backups.RunsOn(ctx, d.ID)
+	if err != nil {
+		return err
+	}
+	obj := open(d)
+	for _, r := range rs {
+		if r.ObjectKey != "" {
+			if err := obj.Delete(ctx, r.ObjectKey); err != nil {
+				return err
+			}
+		}
+		if err := f.Backups.DeleteRun(ctx, r.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Panel is the self-backup's facts: a consistent copy of the database
@@ -866,7 +929,7 @@ func open(d store.BackupDest) s3.Destination {
 		// An org's endpoint stays off the server's network unless a server
 		// admin approved its host:port; the owner's own destinations may be
 		// private (a LAN bucket).
-		PublicOnly: d.OrgID != nil,
+		PublicOnly: d.OrgID != nil || d.FormerOrg != "",
 		AllowAddr:  ApprovedAddr(d),
 	}
 }
@@ -874,7 +937,7 @@ func open(d store.BackupDest) s3.Destination {
 // ApprovedAddr is the host:port a server admin approved for an org's
 // destination, "" when it has none or the endpoint has moved off it.
 func ApprovedAddr(d store.BackupDest) string {
-	if d.OrgID != nil && d.ApprovedEndpoint != "" && d.ApprovedEndpoint == s3.Addr(d.Endpoint) {
+	if (d.OrgID != nil || d.FormerOrg != "") && d.ApprovedEndpoint != "" && d.ApprovedEndpoint == s3.Addr(d.Endpoint) {
 		return d.ApprovedEndpoint
 	}
 	return ""
