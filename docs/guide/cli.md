@@ -255,7 +255,7 @@ stackr admin placement add <name> [flags]
 
 ```
       --node string   the node it stands on (default: none yet)
-      --open string   all, or the org slugs that may use it, separated by commas (default "all")
+      --open string   all, none (admin only), or the org slugs that may use it, separated by commas (default "all")
 ```
 
 Example:
@@ -263,6 +263,7 @@ Example:
 ```
   stackr admin placement add eu-prod --node h4
   stackr admin placement add eu-db --node h3 --open acme,shop
+  stackr admin placement add standby-h5 --node h5 --open none
 ```
 
 #### `stackr admin placement ls`
@@ -299,7 +300,7 @@ Example:
 Open a placement to every org or to a list; envs already there stay (server admin)
 
 ```
-stackr admin placement open <name> <all|org,org,...>
+stackr admin placement open <name> <all|none|org,org,...>
 ```
 
 #### `stackr admin placement retry`

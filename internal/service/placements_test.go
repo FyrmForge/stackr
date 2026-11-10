@@ -651,3 +651,38 @@ func TestSetIngressPushesRoutes(t *testing.T) {
 		t.Error("an ingress pick pushed no routes")
 	}
 }
+
+// A closed placement is open to no org, not even one that was listed before;
+// an owner's pin is refused, an admin's is not. It survives a reload.
+func TestPlacementClosed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm := adminP()
+	acme := acmeID(t, n)
+	must(t, n.orch.SetPlacementOpen(ctx, adm, DefaultPlacement, true, nil))
+	if _, err := n.orch.CreatePlacement(ctx, adm, PlacementSpec{Name: "standby", Node: "w1"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := n.orch.PlacementByName(ctx, "standby")
+	if got.OpenToAll || len(got.Orgs) != 0 {
+		t.Fatalf("created closed = %+v", got)
+	}
+	if ok, _ := n.orch.nodeOpenToOrg(ctx, "w1", acme); ok {
+		t.Error("a closed placement opens its node to an org")
+	}
+	if err := n.orch.SetPin(ctx, ownerP(acme), ScopeOrg, acme, "standby"); err == nil {
+		t.Error("an owner pinned to a closed placement")
+	}
+	must(t, n.orch.SetPlacementOpen(ctx, adm, "standby", false, []string{"acme"}))
+	must(t, n.orch.SetPlacementOpen(ctx, adm, "standby", false, nil))
+	if ok, _ := n.orch.placementOpenTo(ctx, got.ID, acme); ok {
+		t.Error("closing left acme in")
+	}
+	os, _ := n.orch.OrgPlacements(ctx, acme)
+	for _, o := range os {
+		if o.Name == "standby" {
+			t.Error("a closed placement is offered to an org")
+		}
+	}
+}
