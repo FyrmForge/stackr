@@ -14,7 +14,7 @@ var StaticManifest = map[string]string{
 	"js/elements/flash-toast.js": "js/elements/flash-toast.614ea70a3063.js",
 	"js/elements/graph-canvas.js": "js/elements/graph-canvas.aace918635c3.js",
 	"js/elements/graph-node.js": "js/elements/graph-node.e76610db4e1b.js",
-	"js/elements/local-time.js": "js/elements/local-time.a3529e4b9208.js",
+	"js/elements/local-time.js": "js/elements/local-time.2ab6a8dea30d.js",
 	"js/elements/log-pane.js": "js/elements/log-pane.695cb2926c42.js",
 	"js/elements/metric-chart.js": "js/elements/metric-chart.f0ae4960333e.js",
 	"js/elements/password-toggle.js": "js/elements/password-toggle.cf296dcb046e.js",
