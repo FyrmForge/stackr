@@ -39,13 +39,13 @@ func (s *Server) rotate() {
 		slog.Error("worker: rotate mesh keys", "err", err)
 		return
 	}
-	s.recoverOrRevert()
+	s.recoverOrRevert(RotateRevertAfter, rotateRetry)
 }
 
 // recoverOrRevert calls the panel with the keys on disk until it takes them
 // (the *.prev keys go), or reverts to *.prev after RotateRevertAfter.
-func (s *Server) recoverOrRevert() {
-	deadline := time.Now().Add(RotateRevertAfter)
+func (s *Server) recoverOrRevert(revertAfter, retry time.Duration) {
+	deadline := time.Now().Add(revertAfter)
 	for {
 		err := s.recoverOnce(s.ctx)
 		if err == nil {
@@ -64,7 +64,7 @@ func (s *Server) recoverOrRevert() {
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-time.After(rotateRetry):
+		case <-time.After(retry):
 		}
 	}
 }
@@ -128,7 +128,13 @@ func (s *Server) ResumeRotation() bool {
 	if _, err := os.Stat(s.wgKeyPath() + ".prev"); err != nil {
 		return false
 	}
-	go s.recoverOrRevert()
+	// the timings are read here, not in the goroutine, so nothing races a caller that changes them later
+	revertAfter, retry := RotateRevertAfter, rotateRetry
+	s.resuming.Add(1)
+	go func() {
+		defer s.resuming.Done()
+		s.recoverOrRevert(revertAfter, retry)
+	}()
 	return true
 }
 

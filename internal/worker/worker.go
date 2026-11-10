@@ -68,11 +68,12 @@ type Config struct {
 }
 
 type Server struct {
-	cfg    Config
-	mu     sync.Mutex // serialises applies and replay
-	ctx    context.Context
-	cancel context.CancelFunc
-	mesh   meshState
+	cfg      Config
+	mu       sync.Mutex     // serialises applies and replay
+	resuming sync.WaitGroup // a resumed rotation in flight
+	ctx      context.Context
+	cancel   context.CancelFunc
+	mesh     meshState
 	// born is the process's monotonic zero; lastCtl is when the controller
 	// last called, as an offset from it.
 	born    time.Time

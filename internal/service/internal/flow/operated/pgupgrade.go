@@ -170,7 +170,7 @@ $0 == "CREATE ROLE " admin ";" { next }
 // COPY data only (PGDumpFilter); any other difference fails the load and is said.
 const pgUpgradeScript = `set -eo pipefail
 OLDBIN=/usr/lib/postgresql/$OLDMAJOR/bin; NEWBIN=/usr/lib/postgresql/$NEWMAJOR/bin
-as() { gosu postgres "$@"; }
+as() { setpriv --reuid=postgres --regid=postgres --init-groups "$@"; }
 # a scratch copy's root is the volume's, owned by root: postgres refuses to start on it
 [ -n "$SCRATCH" ] && { chown postgres:postgres "$OLDDIR"; chmod 700 "$OLDDIR"; }
 tab=$(printf '\t')

@@ -228,10 +228,10 @@ func TestResumeRotationRevertsAfterTimeout(t *testing.T) {
 	if !s.ResumeRotation() {
 		t.Fatal("not resumed")
 	}
-	waitFor(t, "never reverted", func() bool {
-		b, _ := os.ReadFile(s.wgKeyPath())
-		return string(b) == string(oldKey)
-	})
+	s.resuming.Wait()
+	if b, _ := os.ReadFile(s.wgKeyPath()); string(b) != string(oldKey) {
+		t.Fatal("never reverted")
+	}
 	if s.ResumeRotation() {
 		t.Fatal("resumed with no .prev")
 	}

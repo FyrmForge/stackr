@@ -11,10 +11,13 @@ FROM postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc5
 RUN mkdir -p /etc/postgresql-common \
  && echo "create_main_cluster = false" > /etc/postgresql-common/createcluster.conf \
  && apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends \
       postgresql-14 postgresql-15 postgresql-16 postgresql-17 \
  && for v in 14 15 16 17 18; do test -x /usr/lib/postgresql/$v/bin/pg_upgrade || exit 1; done \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+# gosu is a Go binary with a stale stdlib (Trivy CVEs); the script uses setpriv.
+ && rm -f /usr/local/bin/gosu
 
 LABEL org.opencontainers.image.source=https://github.com/FyrmForge/stackr
 # stackr-install uninstall --purge finds stackr's images by this label.
