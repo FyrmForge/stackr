@@ -224,6 +224,8 @@ type failRig struct {
 	reloadBroken       bool // a reload does not take
 	// notArchived makes pg_stat_archiver say nothing was archived
 	notArchived bool
+	// what the standby's receiver probe and the primary's slot read answer
+	probeOut, slotOut string
 }
 
 // ageLease makes every recorded lease binding as old as ago.
@@ -255,6 +257,10 @@ func (r *failRig) answer(node, c string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch {
+	case strings.Contains(c, "pg_stat_wal_receiver"):
+		return r.probeOut
+	case strings.Contains(c, "wal_status") && strings.Contains(c, "slot_name = '"):
+		return r.slotOut
 	case strings.Contains(c, ".get_auth('"): // the pooler's auth proof: the probe is found, the admin and the pooler role are not
 		return "1,0,0"
 	case strings.Contains(c, "stackr-sync.conf") && strings.Contains(c, "$1.new"):
@@ -332,7 +338,7 @@ func newFailRig(t *testing.T, onWorker bool) *failRig {
 	t.Helper()
 	ctx := context.Background()
 	n := newTwoNodes(t)
-	r := &failRig{n: n, t: t, promoted: map[string]bool{}, lsn: map[string]string{}, sims: map[string]*sim{}}
+	r := &failRig{n: n, t: t, promoted: map[string]bool{}, lsn: map[string]string{}, sims: map[string]*sim{}, probeOut: "1,streaming", slotOut: "1|0/5000000|reserved"}
 	pt, standbyOn, primaryOn := n.devT, "w1", n.ctl.ID
 	if onWorker {
 		pt, standbyOn, primaryOn = n.edgeT, n.ctl.ID, "w1"
@@ -1606,4 +1612,53 @@ func TestFailoverNeverOverwritesUnreadablePITRState(t *testing.T) {
 	if v, _, _ := o.store.Settings.Get(ctx, pitrKey(inst.ID)); v != "{not json" {
 		t.Errorf("state row = %q, want it untouched", v)
 	}
+}
+
+// A switchover stops nothing when the target's slot would not hold the
+// shutdown checkpoint (or the target is not streaming), whatever the stored
+// phase says; a live-streaming target with a stale phase is taken.
+func TestSwitchoverChecksTheTargetLive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for name, tc := range map[string]struct{ probe, slot, want string }{
+		"slot unreserved":     {"1,streaming", "1||", "holds no WAL"},
+		"slot not active":     {"1,streaming", "0|0/5000000|reserved", "not in use"},
+		"slot lost":           {"1,streaming", "1|0/5000000|lost", "may lose WAL"},
+		"slot missing":        {"1,streaming", "", "does not exist"},
+		"standby not streams": {"1,catchup", "1|0/5000000|reserved", "not streaming"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newFailRig(t, false)
+			r.probeOut, r.slotOut = tc.probe, tc.slot
+			_, err := r.n.orch.Switchover(ctx, adminP(), r.inst.TileID, "w1")
+			if tc.probe != "1,streaming" {
+				if err == nil {
+					t.Fatal("a standby that is not streaming was taken")
+				}
+				return // the named node holds no standby that can take over
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			if r.saw("stop pg") || r.saw("kill -INT") {
+				t.Error("the primary was stopped")
+			}
+			if _, ok := r.n.orch.failoverOf(ctx, r.inst.ID); ok {
+				t.Error("a cursor was saved")
+			}
+		})
+	}
+	t.Run("stale phase", func(t *testing.T) {
+		r := newFailRig(t, false)
+		_, rep := r.members()
+		_, err := r.n.orch.members.SetPhase(ctx, rep, opmember.Starting)
+		must(t, err)
+		if _, err := r.n.orch.Switchover(ctx, adminP(), r.inst.TileID, "w1"); err != nil {
+			t.Fatalf("a live-streaming standby was refused: %v", err)
+		}
+		p, _ := r.members()
+		if p.NodeID != "w1" {
+			t.Errorf("primary on %s", p.NodeID)
+		}
+	})
 }

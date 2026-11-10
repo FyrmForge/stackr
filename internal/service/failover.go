@@ -114,6 +114,7 @@ type failover struct {
 	Checkpoint string    `json:"checkpoint"`  // the old primary's last checkpoint (switchover)
 	Started    time.Time `json:"started"`     //
 	Error      string    `json:"error"`       // why the last run stopped
+	Slots      string    `json:"slots"`       // the primary's slots before it was stopped; logged once on a failed step
 }
 
 func failoverKey(instanceID string) string { return "pgfail." + instanceID }
@@ -368,8 +369,11 @@ func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID,
 			return StandbyView{}, err
 		}
 	}
+	var slots string
 	if kind == foSwitchover {
-		err = o.mayHandOver(ctx, t, old, oldNode)
+		if err = o.mayHandOver(ctx, t, old, oldNode); err == nil {
+			slots, err = o.switchoverReady(ctx, t, target)
+		}
 	} else {
 		err = o.mayPromote(ctx, t, inst, oldNode, nodeGone, poweredOff)
 	}
@@ -382,7 +386,7 @@ func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID,
 		}
 	}
 	// the fence first: the cursor, then the row. Nothing has been touched yet.
-	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, PoweredOff: poweredOff, Step: stepFence, Started: time.Now().UTC()}
+	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, PoweredOff: poweredOff, Step: stepFence, Started: time.Now().UTC(), Slots: slots}
 	if err := o.saveFailover(ctx, inst.ID, f); err != nil {
 		return StandbyView{}, err
 	}
@@ -401,8 +405,10 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, by *Principal, t stor
 		if m.Role != opmember.Replica || m.State == opmember.Removing || m.Fenced || m.Phase == opmember.Rebuild || m.Phase == opmember.Rewind {
 			continue
 		}
-		if kind == foSwitchover && m.Phase != opmember.Streaming {
-			continue // a planned move goes to a standby that is caught up
+		// a planned move goes to a standby that is caught up: the stored phase
+		// says so, or a live probe does (the phase lags a rejoin by minutes)
+		if kind == foSwitchover && m.Phase != opmember.Streaming && !o.liveStreaming(ctx, t, m) {
+			continue
 		}
 		cands = append(cands, m)
 	}
@@ -422,6 +428,43 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, by *Principal, t stor
 		return InstanceMember{}, errs.Conflictf("%s holds no standby that can take over.", n.Name)
 	}
 	return o.mostAdvanced(ctx, t, cands)
+}
+
+// liveStreaming asks standby m itself (not the stored phase) whether it streams.
+func (o *Orchestrator) liveStreaming(ctx context.Context, t store.Tile, m InstanceMember) bool {
+	probe, err := o.engines.StandbyProbeArgv(ctx, t)
+	return err == nil && o.probeStandby(ctx, m, probe) == probeStreaming
+}
+
+// switchoverReady runs before anything is stopped, on live state: the target
+// streams, and the primary holds a slot for it that is in use and keeps WAL
+// (a slot that does not hold the shutdown checkpoint loses the standby). It
+// returns the primary's slots, kept for the log should a later step fail.
+func (o *Orchestrator) switchoverReady(ctx context.Context, t store.Tile, target InstanceMember) (string, error) {
+	if !o.liveStreaming(ctx, t, target) {
+		return "", errs.Conflictf("The standby on %s is not streaming from the primary right now. Nothing was stopped; wait until it streams.", o.nodeName(ctx, target.NodeID))
+	}
+	out, err := o.primarySQL(ctx, t, mflow.SlotHeldSQL(mflow.SlotName(target.ID)))
+	if err != nil {
+		return "", errs.Conflictf("The primary's replication slots could not be read (%v). Nothing was stopped.", err)
+	}
+	if err := mflow.SlotHeld(out); err != nil {
+		return "", errs.Conflictf("The standby on %s cannot take over safely: %v. Nothing was stopped.", o.nodeName(ctx, target.NodeID), err)
+	}
+	dump, _ := o.primarySQL(ctx, t, mflow.SlotDumpSQL)
+	return strings.TrimSpace(dump), nil
+}
+
+// logSlots is the evidence of a switchover step that failed after the primary
+// stopped: the slots as they are (when something answers) and as they were
+// before the stop. Once per failover.
+func (o *Orchestrator) logSlots(ctx context.Context, t store.Tile, instID string, f *failover) {
+	live, err := o.primarySQL(ctx, t, mflow.SlotDumpSQL)
+	if err != nil {
+		live = "unreadable: " + err.Error()
+	}
+	slog.Warn("failover: replication slots (slot|active|restart_lsn|wal_status)", "instance", instID, "step", f.Step, "now", strings.TrimSpace(live), "before_stop", f.Slots)
+	f.Slots = ""
 }
 
 // usableStandby says whether m may take over.
@@ -576,6 +619,9 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 		f.Step = step
 		if err := run[step](ctx, t, inst, &f); err != nil {
 			f.Error = fmt.Sprintf("%s: %v", step, err)
+			if f.Kind == foSwitchover && f.Slots != "" && slices.Index(steps, step) >= slices.Index(steps, stepStop) {
+				o.logSlots(ctx, t, inst.ID, &f)
+			}
 			_ = o.saveFailover(ctx, inst.ID, f)
 			slog.Warn("failover: step failed, the tick resumes it", "instance", inst.ID, "step", step, "err", err)
 			if f.Kind == foSwitchover { // a bare error reads as "internal error"; say what stopped and what happens next

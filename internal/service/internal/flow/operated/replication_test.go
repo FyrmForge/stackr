@@ -24,8 +24,13 @@ func TestReplicationSQL(t *testing.T) {
 	if slot != "stackr_0b7c_4f1e_aa" {
 		t.Errorf("slot = %s", slot)
 	}
-	if c := slotCreateSQL(slot); !strings.Contains(c, "pg_create_physical_replication_slot('"+slot+"')") || !strings.Contains(c, "NOT EXISTS") {
+	if c := slotCreateSQL(slot); !strings.Contains(c, "pg_create_physical_replication_slot('"+slot+"', true)") || !strings.Contains(c, "NOT EXISTS") {
 		t.Errorf("create slot = %s", c)
+	}
+	for out, bad := range map[string]bool{"1|0/5000000|reserved": false, "1|0/5000000|extended\n": false, "": true, "0|0/5|reserved": true, "1||": true, "1|0/5|unreserved": true, "1|0/5|lost": true} {
+		if err := SlotHeld(out); (err != nil) != bad {
+			t.Errorf("SlotHeld(%q) = %v", out, err)
+		}
 	}
 	d := strings.Join(slotDropSQL(slot), ";")
 	if !strings.Contains(d, "pg_terminate_backend(active_pid)") || !strings.Contains(d, "pg_drop_replication_slot") {

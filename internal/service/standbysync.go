@@ -184,7 +184,12 @@ func (o *Orchestrator) reconcileSlots(ctx context.Context, t Tile, inst Operated
 	if err != nil {
 		return
 	}
-	for slot := range slots {
+	for slot, st := range slots {
+		if st == "" && slices.ContainsFunc(ms, func(m InstanceMember) bool { return m.Role == opmember.Replica && mflow.SlotName(m.ID) == slot }) {
+			// no restart_lsn: the slot holds no WAL. Flagged, not recreated: a drop
+			// would end a walsender that may be serving the standby right now.
+			slog.Warn("members: slot holds no WAL", "instance", inst.ID, "slot", slot)
+		}
 		if slices.ContainsFunc(ms, func(m InstanceMember) bool { return m.Role == opmember.Replica && mflow.SlotName(m.ID) == slot }) {
 			continue
 		}

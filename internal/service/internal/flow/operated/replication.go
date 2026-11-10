@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -65,9 +66,10 @@ func replRoleSQL(roleExists bool, password string) []string {
 	return []string{fmt.Sprintf(`%s ROLE %s REPLICATION LOGIN PASSWORD '%s'`, verb, ReplUser, password)}
 }
 
-// slotCreateSQL makes slot unless it exists.
+// slotCreateSQL makes slot unless it exists. immediately_reserve: the slot
+// holds WAL from creation, not from its standby's first connection.
 func slotCreateSQL(slot string) string {
-	return `SELECT pg_create_physical_replication_slot('` + slot + `') WHERE NOT EXISTS ` +
+	return `SELECT pg_create_physical_replication_slot('` + slot + `', true) WHERE NOT EXISTS ` +
 		`(SELECT FROM pg_replication_slots WHERE slot_name = '` + slot + `')`
 }
 
@@ -83,6 +85,32 @@ func slotDropSQL(slot string) []string {
 // slotStatesSQL lists stackr's slots with their wal_status (lost = the cap
 // took the WAL the standby needs).
 const slotStatesSQL = `SELECT slot_name || '|' || coalesce(wal_status, '') FROM pg_replication_slots WHERE slot_name LIKE 'stackr\_%'`
+
+// SlotHeldSQL reads one slot as active|restart_lsn|wal_status.
+func SlotHeldSQL(slot string) string {
+	return `SELECT active::int || '|' || coalesce(restart_lsn::text, '') || '|' || coalesce(wal_status, '') ` +
+		`FROM pg_replication_slots WHERE slot_name = '` + slot + `'`
+}
+
+// SlotHeld reads SlotHeldSQL's output: nil when the slot exists, is in use and
+// holds WAL (restart_lsn set, wal_status reserved or extended).
+func SlotHeld(out string) error {
+	f := strings.Split(strings.TrimSpace(out), "|")
+	switch {
+	case len(f) != 3:
+		return errors.New("its replication slot does not exist on the primary")
+	case f[0] != "1":
+		return errors.New("its replication slot on the primary is not in use")
+	case f[1] == "":
+		return errors.New("its replication slot on the primary holds no WAL (no restart position)")
+	case f[2] != "reserved" && f[2] != "extended":
+		return fmt.Errorf("its replication slot on the primary may lose WAL (wal_status %q)", f[2])
+	}
+	return nil
+}
+
+// SlotDumpSQL lists every slot of the primary, for the log.
+const SlotDumpSQL = `SELECT slot_name || '|' || active::text || '|' || coalesce(restart_lsn::text, '') || '|' || coalesce(wal_status, '') FROM pg_replication_slots`
 
 // ParseSlotStates reads slotStatesSQL's output: slot to wal_status.
 func ParseSlotStates(out string) map[string]string {

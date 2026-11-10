@@ -78,7 +78,7 @@ func TestPrepareStandby(t *testing.T) {
 		stdin.WriteString(c.Stdin)
 		argv.WriteString(strings.Join(c.Args, " ") + "\n")
 	}
-	contains(t, "stdin", stdin.String(), "CREATE ROLE stackr_repl REPLICATION LOGIN PASSWORD '"+m.ReplPassword+"'", "pg_create_physical_replication_slot('stackr_m1')")
+	contains(t, "stdin", stdin.String(), "CREATE ROLE stackr_repl REPLICATION LOGIN PASSWORD '"+m.ReplPassword+"'", "pg_create_physical_replication_slot('stackr_m1', true)")
 	contains(t, "argv", argv.String(), "stackr-owned.conf", "host replication stackr_repl 10.208.1.0/24 scram-sha-256", "pg_reload_conf()")
 	if strings.Contains(argv.String(), m.ReplPassword) {
 		t.Error("the replication password is on an argv")
