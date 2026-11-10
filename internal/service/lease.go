@@ -80,7 +80,7 @@ func (o *Orchestrator) leaseRecOf(ctx context.Context, inst, node string) (lease
 type leaseWanted struct {
 	byNode map[string][]string            // node -> containers, all instances
 	byInst map[string]map[string][]string // node -> instance -> containers
-	hold   map[string]bool                // nodes not to touch: a primary there that cannot be listed
+	hold   map[string]bool                // nodes not to touch: offline, or a primary there that cannot be listed
 	err    error                          // something could not be read: push nothing
 }
 
@@ -128,7 +128,8 @@ func (o *Orchestrator) leaseWanted(ctx context.Context) leaseWanted {
 		}
 		cs, err := o.docker.List(docker.WithNode(ctx, pn), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
 		if err != nil {
-			w.err = err
+			w.hold[pn] = true // only this node is unread: the others still push
+			slog.Warn("lease: a node's primaries could not be listed, it is left as it is", "node", pn, "err", err)
 			continue
 		}
 		for _, c := range cs {
@@ -227,7 +228,7 @@ func (o *Orchestrator) syncLease(ctx context.Context, t store.Tile) error {
 		return fmt.Errorf("lease: %w", w.err)
 	}
 	if w.hold[pn] {
-		return fmt.Errorf("lease: the primary's node is not online")
+		return fmt.Errorf("lease: the primary's node is not online or could not be read")
 	}
 	if err := o.pushNode(ctx, pn, w); err != nil {
 		return fmt.Errorf("the worker did not take the primary's lease: %w", err)

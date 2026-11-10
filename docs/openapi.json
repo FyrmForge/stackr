@@ -23283,7 +23283,7 @@
             "description": "error"
           }
         },
-        "x-verb": "tile.write"
+        "x-verb": "placement.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/rebuild": {
@@ -24305,7 +24305,7 @@
             "description": "error"
           }
         },
-        "x-verb": "tile.write"
+        "x-verb": "placement.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}": {
@@ -24875,7 +24875,7 @@
             "description": "error"
           }
         },
-        "x-verb": "tile.write"
+        "x-verb": "placement.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/switchover/abort": {

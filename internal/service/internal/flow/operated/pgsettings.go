@@ -37,6 +37,7 @@ var pgOwned = []string{
 	"synchronous_standby_names", "primary_slot_name", "max_wal_senders", "max_replication_slots", "hot_standby",
 	"max_slot_wal_keep_size", "data_directory", "config_file", "include", "include_dir",
 	"include_if_exists", "reserved_connections", "superuser_reserved_connections",
+	"fsync", "full_page_writes", "wal_keep_size",
 }
 
 var pgOwnedPrefix = []string{"archive_", "ssl", "recovery_", "unix_socket_"}
@@ -58,6 +59,10 @@ func CheckSettings(s map[string]string) error {
 			return err
 		}
 		v := s[k]
+		if k == "synchronous_commit" && !slices.Contains([]string{"on", "remote_write", "remote_apply"}, strings.ToLower(strings.TrimSpace(v))) {
+			// off and local acknowledge a commit before the standby has it
+			return fmt.Errorf("synchronous_commit: only on, remote_write or remote_apply, so a commit is never acknowledged ahead of the standby")
+		}
 		if strings.TrimSpace(v) == "" || strings.ContainsAny(v, "\n\r\x00") {
 			return fmt.Errorf("%s: the value is empty or has a line break; unset it instead", k)
 		}

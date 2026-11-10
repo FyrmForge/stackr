@@ -77,6 +77,9 @@ const (
 	// AlertPGPrimaryDown is the problem of an instance whose primary is down
 	// while a standby could take over.
 	AlertPGPrimaryDown = "pgmon.primarydown"
+	// AlertPGFailoverStuck is the problem of a failover whose cursor holds an
+	// error or has been open too long; the primary-down alert is muted meanwhile.
+	AlertPGFailoverStuck = "pgmon.failoverstuck"
 )
 
 var failoverSteps = map[string][]string{
@@ -89,6 +92,8 @@ var (
 	failPoll  = time.Second
 	failWait  = 2 * time.Minute
 	downAfter = 2 * time.Minute // how long a primary is down before the alert
+	// stuckAfter is how long a failover may stay open before it alerts.
+	stuckAfter = 10 * time.Minute
 	// leaseMargin is added to the worker's lease before a promote may count
 	// on the old primary being stopped on an unreachable node.
 	leaseMargin = 10 * time.Second
@@ -371,6 +376,11 @@ func (o *Orchestrator) startFailover(ctx context.Context, tileID, to, kind strin
 	if err != nil {
 		return StandbyView{}, err
 	}
+	if kind == foPromoted && !allowAsync {
+		if err := o.targetBehind(ctx, t, ms, target); err != nil {
+			return StandbyView{}, err
+		}
+	}
 	// the fence first: the cursor, then the row. Nothing has been touched yet.
 	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, PoweredOff: poweredOff, Step: stepFence, Started: time.Now().UTC()}
 	if err := o.saveFailover(ctx, inst.ID, f); err != nil {
@@ -409,6 +419,45 @@ func (o *Orchestrator) failoverTarget(ctx context.Context, t store.Tile, ms []In
 		return InstanceMember{}, errs.Conflictf("%s holds no standby that can take over.", n.Name)
 	}
 	return o.mostAdvanced(ctx, t, cands)
+}
+
+// usableStandby says whether m may take over.
+func usableStandby(m InstanceMember) bool {
+	return m.Role == opmember.Replica && m.State != opmember.Removing && !m.Fenced && m.Phase != opmember.Rebuild && m.Phase != opmember.Rewind
+}
+
+// competitor says whether m counts against a promote target: a standby that
+// runs, streams and is not fenced. A stopped or catching-up one cannot be
+// read and is not who the primary was waiting on.
+func competitor(m InstanceMember) bool {
+	return usableStandby(m) && m.State == opmember.Running && m.Phase == opmember.Streaming
+}
+
+// targetBehind refuses a promote target that has replayed less WAL than
+// another usable standby: the one behind may miss commits the primary
+// confirmed. A position that cannot be read refuses too (fail closed);
+// allow_async_target bypasses it.
+func (o *Orchestrator) targetBehind(ctx context.Context, t store.Tile, ms []InstanceMember, target InstanceMember) error {
+	if !slices.ContainsFunc(ms, func(m InstanceMember) bool { return m.ID != target.ID && competitor(m) }) {
+		return nil // the only standby: nothing to be behind
+	}
+	tl, err := o.replayLSN(ctx, t, target)
+	if err != nil {
+		return errs.Conflictf("The replay position of the standby you picked cannot be read (%v), so it cannot be compared with the others. Override with allow_async_target (CLI --allow-async-target).", err)
+	}
+	for _, m := range ms {
+		if m.ID == target.ID || !competitor(m) {
+			continue
+		}
+		l, err := o.replayLSN(ctx, t, m)
+		if err != nil {
+			return errs.Conflictf("The replay position of the standby on %s cannot be read (%v), so it is not known whether the one you picked is behind it. Override with allow_async_target (CLI --allow-async-target).", o.nodeName(ctx, m.NodeID), err)
+		}
+		if l > tl {
+			return errs.Conflictf("The standby on %s is more advanced than the one you picked, which may miss commits the primary confirmed. Promote that one, or override with allow_async_target (CLI --allow-async-target).", o.nodeName(ctx, m.NodeID))
+		}
+	}
+	return nil
 }
 
 // mostAdvanced is the candidate with the highest replay LSN, among the ones
@@ -547,6 +596,7 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 		_ = o.store.Settings.Delete(ctx, leaseKey(inst.ID, f.OldNode)) // the fence did its job; no push will ever clear it
 	}
 	o.pitrProblem(ctx, "alert."+AlertPGPrimaryDown+"."+inst.ID, AlertPGPrimaryDown, "", "", "")
+	o.pitrProblem(ctx, "alert."+AlertPGFailoverStuck+"."+inst.ID, AlertPGFailoverStuck, "", "", "")
 	if m, err := o.members.Get(ctx, f.Old); err == nil {
 		o.tryRejoin(ctx, m) // best effort now; the tick retries when its node returns
 	}
@@ -1474,17 +1524,38 @@ func (o *Orchestrator) observePrimaries(ctx context.Context) {
 		seen[m.InstanceID] = true
 		o.observePrimary(ctx, m.InstanceID)
 	}
+	// a stalled failover is judged whatever its members look like: after the
+	// swap the only other member is a fenced replica that waits for a rewind
+	rows, err := o.store.Settings.ListPrefix(ctx, "pgfail.")
+	if err != nil {
+		return
+	}
+	for k := range rows {
+		if id := strings.TrimPrefix(k, "pgfail."); !seen[id] {
+			seen[id] = true
+			o.observePrimary(ctx, id)
+		}
+	}
 }
 
 func (o *Orchestrator) observePrimary(ctx context.Context, instanceID string) {
 	inst, err := o.operated.Get(ctx, instanceID)
-	if err != nil || o.failoverActive(ctx, instanceID) {
+	if err != nil {
 		return
 	}
 	t, err := o.tiles.Get(ctx, inst.TileID)
 	if err != nil {
 		return
 	}
+	stuckKey := "alert." + AlertPGFailoverStuck + "." + instanceID
+	if f, ok := o.failoverOf(ctx, instanceID); ok {
+		if f.Error != "" || time.Since(f.Started) > stuckAfter {
+			o.pitrProblem(ctx, stuckKey, AlertPGFailoverStuck, SevCritical, t.Slug,
+				t.Slug+": the "+f.Kind+" is stuck at "+f.Step+" and needs attention. See the database tab.")
+		}
+		return
+	}
+	o.pitrProblem(ctx, stuckKey, AlertPGFailoverStuck, "", "", "")
 	key := "alert." + AlertPGPrimaryDown + "." + instanceID
 	if o.primaryRuns(ctx, t) {
 		o.downSince.Delete(instanceID)
@@ -1568,26 +1639,44 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 	fo.Primary = o.nodeName(ctx, pn)
 	up, unreachable := o.primaryUp(ctx, t)
 	fo.Unreachable = unreachable
-	var waited []string
+	type cand struct {
+		name string
+		lsn  uint64
+		ok   bool
+	}
+	var cands []cand
 	for _, m := range ms {
-		if m.Role != opmember.Replica || m.State == opmember.Removing || m.Fenced || m.Phase == opmember.Rebuild || m.Phase == opmember.Rewind {
+		if !usableStandby(m) {
 			continue
 		}
 		if up && m.Phase == opmember.Streaming {
 			fo.Switch = append(fo.Switch, o.nodeName(ctx, m.NodeID))
 		}
 		if !up {
-			if m.SyncIn {
-				waited = append(waited, o.nodeName(ctx, m.NodeID))
-			} else {
-				fo.Promote = append(fo.Promote, o.nodeName(ctx, m.NodeID))
-			}
+			l, err := o.replayLSN(ctx, t, m)
+			cands = append(cands, cand{o.nodeName(ctx, m.NodeID), l, err == nil})
 		}
 	}
 	slices.Sort(fo.Switch)
-	slices.Sort(fo.Promote)
-	slices.Sort(waited)
-	fo.Promote = append(waited, fo.Promote...) // the standby the primary waited for first: the form offers it first
+	// most advanced first, unreadable last: the form offers the first
+	slices.SortFunc(cands, func(a, b cand) int {
+		if a.ok != b.ok {
+			if a.ok {
+				return -1
+			}
+			return 1
+		}
+		if a.lsn != b.lsn {
+			if a.lsn > b.lsn {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.name, b.name)
+	})
+	for _, c := range cands {
+		fo.Promote = append(fo.Promote, c.name)
+	}
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
 		fo.InFlight, fo.Error = f.Kind+": "+f.Step, f.Error
 		steps := failoverSteps[foSwitchover]
