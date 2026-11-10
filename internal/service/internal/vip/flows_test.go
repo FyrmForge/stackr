@@ -24,6 +24,7 @@ func TestRenderMeshFlows(t *testing.T) {
 		"-A STACKR-RAW -i wg0 -s 10.208.0.0/12 -d 10.208.0.0/16 -j ACCEPT",
 		"-A STACKR-RAW -i wg0 -s 10.207.255.0/24 -d 10.208.0.0/16 -j ACCEPT",
 		"-A STACKR-FWD -i wg0 -j STACKR-XN",
+		"-A STACKR-FWD -i wg0 -j DROP",
 		"-A STACKR-XN -i wg0 -s 10.207.255.6/32 -p tcp -m conntrack --ctstate NEW --ctorigdst 10.208.0.3 --ctorigdstport 80 -j ACCEPT",
 		"-A STACKR-XN -s 10.208.1.0/24 -d 10.213.0.9/32 -p tcp --dport 5432 -j ACCEPT",
 	} {

@@ -244,9 +244,11 @@ func renderFilter(next map[string]Entry, b Base) string {
 	}
 	f("-m conntrack ! --ctstate NEW -j RETURN")
 	if b.meshOn() {
-		// from the mesh, the per-flow accepts are the only way in; Docker's
-		// own FORWARD rules drop the rest
+		// from the mesh, the per-flow accepts are the only way in: the raw
+		// accept for the supernet skips Docker's per-container drop, so
+		// whatever XN does not accept is dropped here
 		f("-i %s -j %s", b.WGIface, XNChain)
+		f("-i %s -j DROP", b.WGIface)
 	}
 	// A source outside this node's networks is not a container of this node;
 	// what it may reach is the mesh's business (STACKR-XN, the mesh
