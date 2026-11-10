@@ -180,11 +180,12 @@ func (a *app) placementOpen() *cobra.Command {
 			if _, err := a.call(PUT, placementPath(args[0])+"/open", map[string]any{"all": all, "orgs": orgs}); err != nil {
 				return err
 			}
-			if all {
+			switch {
+			case all:
 				a.say("%s: open to all orgs", args[0])
-			} else if len(orgs) == 0 {
+			case len(orgs) == 0:
 				a.say("%s: admin only; envs already there stay", args[0])
-			} else {
+			default:
 				a.say("%s: open to %s; envs already there stay", args[0], strings.Join(orgs, ", "))
 			}
 			return nil
