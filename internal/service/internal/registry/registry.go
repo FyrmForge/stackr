@@ -327,7 +327,7 @@ func token(ctx context.Context, params map[string]string, repoPath, user, pass s
 	if perr != nil || ru.Hostname() == "" {
 		return "", fmt.Errorf("bearer challenge: bad realm")
 	}
-	if a, _ := ctx.Value(allowKey{}).(string); ru.Scheme != "https" && !(a != "" && strings.EqualFold(ru.Hostname(), a)) {
+	if a, _ := ctx.Value(allowKey{}).(string); ru.Scheme != "https" && (a == "" || !strings.EqualFold(ru.Hostname(), a)) {
 		return "", fmt.Errorf("bearer challenge: realm must be https")
 	}
 	q := url.Values{}

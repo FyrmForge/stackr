@@ -16,7 +16,6 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domain"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
@@ -1139,7 +1138,7 @@ func (p *Plan) sliceRefs(w *work, row store.Tile, engine string) {
 	if w.re == nil {
 		return
 	}
-	valid := mflow.OutputNames(engine)
+	valid := deploy.OutputNames(engine)
 	for _, n := range slices.Sorted(maps.Keys(w.re.Tiles)) {
 		for _, body := range refBodies(w.re.Tiles[n]) {
 			field, ok := strings.CutPrefix(body, "tile."+row.Slug+".")

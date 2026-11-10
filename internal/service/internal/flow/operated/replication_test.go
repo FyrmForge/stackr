@@ -187,13 +187,20 @@ echo 17 > "$PGDATA/PG_VERSION"; echo conf > "$PGDATA/stackr.conf"`)
 	if err := run(false); err != nil || copies() != 2 {
 		t.Fatalf("a complete directory was copied again: err %v copies %d", err, copies())
 	}
-	os.Remove(filepath.Join(data, standbyDone)) // a copy cut short: data there, no marker
-	os.WriteFile(filepath.Join(data, "stale"), nil, 0o600)
+	// a copy cut short: data there, no marker
+	if err := os.Remove(filepath.Join(data, standbyDone)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "stale"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := run(false); err != nil || copies() != 3 || has("stale") || !has(standbyDone) {
 		t.Fatalf("no marker: err %v copies %d", err, copies())
 	}
 	// a promoted directory (marker, no standby.signal) is a primary now: never emptied
-	os.Remove(filepath.Join(data, "standby.signal"))
+	if err := os.Remove(filepath.Join(data, "standby.signal")); err != nil {
+		t.Fatal(err)
+	}
 	if err := run(false); err == nil || copies() != 3 || !has("PG_VERSION") || has("standby.signal") {
 		t.Fatalf("promoted directory: err %v copies %d", err, copies())
 	}

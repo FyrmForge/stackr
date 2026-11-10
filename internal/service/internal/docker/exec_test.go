@@ -83,7 +83,7 @@ func TestReadPidNoSh(t *testing.T) {
 // A wedged exec (the connection never delivers) returns when ctx ends.
 func TestCopyUntilDoneCancels(t *testing.T) {
 	pr, pw := io.Pipe()
-	defer pw.Close()
+	defer func() { _ = pw.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	var buf bytes.Buffer

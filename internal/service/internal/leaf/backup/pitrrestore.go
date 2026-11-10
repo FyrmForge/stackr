@@ -302,7 +302,7 @@ func PickBase(bases []store.BackupRun, keys []string, lin Lineage, marks []Mark,
 			p.Segments += int(segIndex(b.Last)-segIndex(b.First)) + 1
 		}
 	}
-	if hole, end, resume, ok := reach(us, i, bundles, lin, marks); hole != "" && !(ok && !latest && !at.After(end)) {
+	if hole, end, resume, ok := reach(us, i, bundles, lin, marks); hole != "" && (!ok || latest || at.After(end)) {
 		if ok && !latest && !resume.IsZero() {
 			return Plan{}, errs.Conflictf("%s is in a gap in the WAL archive (segments were lost when the primary failed over): restore to a time up to %s, or from %s on",
 				at.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), resume.UTC().Format(time.RFC3339))

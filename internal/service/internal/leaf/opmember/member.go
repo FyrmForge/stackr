@@ -86,10 +86,10 @@ func PrimaryOf(ms []store.OperatedMember) (store.OperatedMember, bool) {
 // may take a replica; an instance holds at most MaxReplicas of them.
 func Check(primaryNode, node string, ms []store.OperatedMember) error {
 	replicas := 0
-	switch {
-	case node == "":
+	switch node {
+	case "":
 		return errs.Invalidf("node", "Pick a node for the standby.")
-	case node == primaryNode:
+	case primaryNode:
 		return errs.Conflictf("A standby must run on a different node than the primary.")
 	}
 	for _, m := range ms {

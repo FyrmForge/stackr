@@ -108,7 +108,8 @@ func TestPGPointsPerDatabaseDeltas(t *testing.T) {
 
 // Two names that sanitise alike stay two series; the label keeps the name.
 func TestPGSeriesCollisions(t *testing.T) {
-	if pgSeries("east-1") == pgSeries("east 1") || pgSeries("east-1") != pgSeries("east-1") {
+	a := pgSeries("east-1")
+	if a == pgSeries("east 1") || a != pgSeries("east-1") {
 		t.Error("collision or unstable")
 	}
 	l := pgLine("a,b\nc")

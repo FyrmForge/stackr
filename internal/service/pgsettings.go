@@ -224,7 +224,7 @@ func (o *Orchestrator) SetPGSettings(
 	set map[string]string,
 	unset []string,
 ) (PGSettings, *Job, error) {
-	t, m, err := o.instanceOf(ctx, tileID)
+	_, m, err := o.instanceOf(ctx, tileID)
 	if err != nil {
 		return PGSettings{}, nil, err
 	}
@@ -232,6 +232,7 @@ func (o *Orchestrator) SetPGSettings(
 	mu := o.pgLock(m.ID)
 	mu.Lock()
 	defer mu.Unlock()
+	var t Tile
 	if t, m, err = o.instanceOf(ctx, tileID); err != nil {
 		return PGSettings{}, nil, err
 	}

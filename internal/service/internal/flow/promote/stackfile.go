@@ -12,7 +12,6 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/address"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -1005,8 +1004,8 @@ func checkRefs(env string, re ResolvedEnv) error {
 // engine is its target's, resolved later; here it is any engine's.
 func checkSliceField(env, name, body, field string) error {
 	var valid []string
-	for _, e := range slices.Sorted(maps.Keys(mflow.Engines)) {
-		names := mflow.OutputNames(e)
+	for _, e := range deploy.EngineNames() {
+		names := deploy.OutputNames(e)
 		if slices.Contains(names, field) {
 			return nil
 		}

@@ -426,8 +426,8 @@ func TestSetStandbySyncTakesTopologyLock(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { _, err := o.SetStandbySync(ctx, r.inst.TileID, rep.ID, SyncNever); done <- err }()
 	select {
-	case <-done:
-		t.Fatal("the mode changed while the lock was held")
+	case err := <-done:
+		t.Fatalf("the mode changed while the lock was held (err %v)", err)
 	case <-time.After(150 * time.Millisecond):
 	}
 	mu.Unlock()

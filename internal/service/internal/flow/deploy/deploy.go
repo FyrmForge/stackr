@@ -949,6 +949,12 @@ func EngineImage(engine string) string {
 	return e.Definition().Image
 }
 
+// OutputNames are the output names an engine publishes on a slice, sorted.
+func OutputNames(engine string) []string { return mflow.OutputNames(engine) }
+
+// EngineNames are the registered operated engines, sorted.
+func EngineNames() []string { return slices.Sorted(maps.Keys(mflow.Engines)) }
+
 // ImageMajor is the postgres major an image tag names, 0 = none.
 func ImageMajor(image string) int { return mflow.ImageMajor(image) }
 

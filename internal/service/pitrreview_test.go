@@ -150,7 +150,9 @@ func TestPITRFirstBaseCountsOnlyThisDestinationAndEpoch(t *testing.T) {
 		"another destination":                           {store.BackupDest{ID: "elsewhere"}, now.Add(-time.Hour), 1},
 	} {
 		before := r.backupJobs(t)
-		o.pitrFirstBase(ctx, r.data, c.dest, &pitrState{ArchSince: c.since}, now)
+		if err := o.pitrFirstBase(ctx, r.data, c.dest, &pitrState{ArchSince: c.since}, now); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
 		if got := r.backupJobs(t) - before; got != c.want {
 			t.Errorf("%s: %d base backups queued, want %d", name, got, c.want)
 		}

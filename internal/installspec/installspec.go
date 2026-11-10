@@ -182,14 +182,14 @@ func writeDurable(path string, b []byte, mode os.FileMode) error {
 		err = os.Rename(tmp, path)
 	}
 	if err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	d, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	return d.Sync()
 }
 

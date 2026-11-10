@@ -431,7 +431,7 @@ func (u *pgupRun) check(ctx context.Context, to int) error {
 		res.Detail = "the data is dumped by postgres " + strconv.Itoa(u.m.Major) + " and loaded into postgres " + strconv.Itoa(to) + "; a load that fails changes nothing"
 		return nil
 	}
-	out, err = u.helper(ctx, mflow.UpgradeRun{Name: "stackr-pgup-check-" + u.m.ID[:8], Step: mflow.PGStepCheck, OldVol: vol, To: to, Facts: facts, ScratchOld: scratch}, 60)
+	_, err = u.helper(ctx, mflow.UpgradeRun{Name: "stackr-pgup-check-" + u.m.ID[:8], Step: mflow.PGStepCheck, OldVol: vol, To: to, Facts: facts, ScratchOld: scratch}, 60)
 	if err != nil {
 		res.Detail = err.Error()
 		_, _ = fmt.Fprintf(u.r.Log, "pg_upgrade --check refused:\n%s\n", res.Detail)

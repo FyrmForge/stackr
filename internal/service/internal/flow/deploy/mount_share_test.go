@@ -52,10 +52,10 @@ func shareWorld(t *testing.T) (*Flow, *dockerfake.Fake, store.Org, store.Org) {
 	fake := dockerfake.New()
 	f := &Flow{
 		LookupHost: func(context.Context, string) ([]string, error) { return []string{"10.0.0.5"}, nil },
-		Volumes: volume.New(st.Volumes, fake).WithShares(st.Shares),
-		Params:  params.New(st.Params),
-		Tiers:   tier.New(st.Tiers),
-		Envs:    environment.New(st.Environments, nil),
+		Volumes:    volume.New(st.Volumes, fake).WithShares(st.Shares),
+		Params:     params.New(st.Params),
+		Tiers:      tier.New(st.Tiers),
+		Envs:       environment.New(st.Environments, nil),
 	}
 	// Both stacks may mount every share the tests name from the tile "web".
 	grants := memGrants{}
@@ -348,7 +348,9 @@ func TestSharePin(t *testing.T) {
 	f, fake, acme, _ := shareWorld(t)
 	ctx := context.Background()
 	web := store.Tile{Slug: "web"}
-	f.LookupHost = func(context.Context, string) ([]string, error) { return []string{"fe80::1", "10.0.0.9", "10.0.0.5"}, nil }
+	f.LookupHost = func(context.Context, string) ([]string, error) {
+		return []string{"fe80::1", "10.0.0.9", "10.0.0.5"}, nil
+	}
 	if _, err := bindIn(f, ctx, acme, web, mount(t, "share:media:/d")); err != nil {
 		t.Fatalf("first IPv4 sorted: %v", err)
 	}
