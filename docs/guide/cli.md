@@ -255,7 +255,7 @@ stackr admin placement add <name> [flags]
 
 ```
       --node string   the node it stands on (default: none yet)
-      --open string   all, or the org slugs that may use it, separated by commas (default "all")
+      --open string   all, none (admin only), or the org slugs that may use it, separated by commas (default "all")
 ```
 
 Example:
@@ -263,6 +263,7 @@ Example:
 ```
   stackr admin placement add eu-prod --node h4
   stackr admin placement add eu-db --node h3 --open acme,shop
+  stackr admin placement add standby-h5 --node h5 --open none
 ```
 
 #### `stackr admin placement ls`
@@ -299,7 +300,7 @@ Example:
 Open a placement to every org or to a list; envs already there stay (server admin)
 
 ```
-stackr admin placement open <name> <all|org,org,...>
+stackr admin placement open <name> <all|none|org,org,...>
 ```
 
 #### `stackr admin placement retry`
@@ -614,8 +615,9 @@ stackr db promote [flags]
 ```
       --allow-async-target   promote a standby the primary did not wait for, although one it did wait for is usable
       --env string           the environment (default: the linked one)
+      --no-wait              print the job and return; it runs server-side
       --node-gone            confirm the old primary's node is really gone (needed when it does not answer)
-      --powered-off          promote without a recorded lease on the old primary: you powered its node off
+      --powered-off string   promote without a recorded lease on the old primary; type "I powered the node off" to say you powered its node off
       --stack string         the stack (default: the linked one)
       --tile string          the tile (default: the linked one)
       --to string            the node of the standby to promote (name or slug)
@@ -798,6 +800,7 @@ stackr db switchover [flags]
 ```
       --abort          give up a switchover stuck before the promote: unfence and restart the old primary
       --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
       --to string      the standby's node (name or slug); default is the one that replayed the most

@@ -15,6 +15,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
@@ -213,7 +214,7 @@ func (o *Orchestrator) FailoverOf(ctx context.Context, tileID string) (FailoverV
 // drained, the primary shut down cleanly, the standby confirmed to have
 // replayed the shutdown checkpoint, and only then promoted. to names the
 // standby's node; "" picks the streaming standby that replayed the most.
-func (o *Orchestrator) Switchover(ctx context.Context, by *Principal, tileID, to string) (StandbyView, error) {
+func (o *Orchestrator) Switchover(ctx context.Context, by *Principal, tileID, to string) (Job, error) {
 	return o.startFailover(ctx, by, tileID, to, foSwitchover, false, false, false)
 }
 
@@ -322,51 +323,104 @@ const PoweredOffPhrase = "I powered the node off"
 // mayPromote); poweredOff (PoweredOffPhrase) replaces that proof and the wait.
 // A target the primary did not wait for, while one it did is usable, is
 // refused unless allowAsync: it may lack commits the primary confirmed.
-func (o *Orchestrator) PromoteStandby(ctx context.Context, by *Principal, tileID, to string, nodeGone bool, poweredOff string, allowAsync bool) (StandbyView, error) {
+func (o *Orchestrator) PromoteStandby(ctx context.Context, by *Principal, tileID, to string, nodeGone bool, poweredOff string, allowAsync bool) (Job, error) {
 	if poweredOff != "" && poweredOff != PoweredOffPhrase {
-		return StandbyView{}, errs.Invalidf("powered_off", "Type exactly: %s", PoweredOffPhrase)
+		return Job{}, errs.Invalidf("powered_off", "Type exactly: %s", PoweredOffPhrase)
 	}
 	if strings.TrimSpace(to) == "" {
-		return StandbyView{}, errs.Invalidf("to", "Pick the standby to promote.")
+		return Job{}, errs.Invalidf("to", "Pick the standby to promote.")
 	}
 	return o.startFailover(ctx, by, tileID, to, foPromoted, nodeGone, poweredOff != "", allowAsync)
 }
 
-func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (StandbyView, error) {
-	// the request's own timeout (hamr's ContextTimeout) ends well before a
-	// switchover does: the answer is still read after the failover ran
+// kindFailover is the job that runs a failover's cursor: a switchover or a
+// promote. The job log carries one line per step.
+const kindFailover jobs.Kind = "pg-failover"
+
+type failoverJob struct {
+	TileID string `json:"tile_id"`
+}
+
+// startFailover checks the failover, writes its cursor and queues the job
+// that runs it. Everything that can be refused is refused here, before any
+// change, and returned as the error.
+func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (Job, error) {
+	t, inst, err := o.beginFailover(ctx, by, tileID, to, kind, nodeGone, poweredOff, allowAsync)
+	if err != nil {
+		return Job{}, err
+	}
+	j, err := o.enqueue(ctx, kindFailover, failoverJob{TileID: t.ID}, t.ID)
+	if err != nil {
+		_ = o.store.Settings.Delete(ctx, failoverKey(inst.ID)) // nothing ran yet
+		return Job{}, err
+	}
+	return j, nil
+}
+
+// runFailoverJob is the job: it takes the topology lock and runs the cursor
+// to its end. A step that fails keeps the cursor; the tick resumes it.
+func (o *Orchestrator) runFailoverJob(ctx context.Context, r *jobs.Run, p failoverJob) error {
+	unlock, err := o.lockInstance(ctx, p.TileID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	t, inst, err := o.memberInstance(ctx, p.TileID)
+	if err != nil {
+		return err
+	}
+	f, ok := o.failoverOf(ctx, inst.ID)
+	if !ok {
+		_, _ = fmt.Fprintln(r.Log, "nothing to run: the failover was aborted or already finished")
+		return nil
+	}
+	return o.runFailover(ctx, t, inst, f, r.Log)
+}
+
+// failoverJobLive says whether a failover job of the tile is queued or running.
+func (o *Orchestrator) failoverJobLive(ctx context.Context, tileID string) bool {
+	live, err := o.store.Jobs.ListByState(ctx, "queued", "waiting", "running")
+	return err == nil && slices.ContainsFunc(live, func(j store.Job) bool {
+		return j.Kind == string(kindFailover) && slices.Contains(j.LockSet, tileID)
+	})
+}
+
+// beginFailover is every check of a failover, then its cursor. Nothing but
+// the cursor is written; the fence and the steps are the job's.
+func (o *Orchestrator) beginFailover(ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (store.Tile, store.OperatedInstance, error) {
+	// the request's own timeout (hamr's ContextTimeout) ends well before the checks do
 	ctx = context.WithoutCancel(ctx)
 	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
-		return StandbyView{}, err
+		return store.Tile{}, store.OperatedInstance{}, err
 	}
 	defer unlock()
 	t, inst, err := o.memberInstance(ctx, tileID)
 	if err != nil {
-		return StandbyView{}, err
+		return t, inst, err
 	}
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
-		return StandbyView{}, errs.Conflictf("A %s of %s is in progress (%s). It resumes by itself.", f.Kind, t.Slug, f.Step)
+		return t, inst, errs.Conflictf("A %s of %s is in progress (%s). It resumes by itself.", f.Kind, t.Slug, f.Step)
 	}
 	ms, err := o.members.List(ctx, inst.ID)
 	if err != nil {
-		return StandbyView{}, err
+		return t, inst, err
 	}
 	old, ok := opmember.PrimaryOf(ms)
 	if !ok {
-		return StandbyView{}, errs.Conflictf("%s has no primary row.", t.Slug)
+		return t, inst, errs.Conflictf("%s has no primary row.", t.Slug)
 	}
 	oldNode, err := o.primaryNode(ctx, t)
 	if err != nil {
-		return StandbyView{}, err
+		return t, inst, err
 	}
 	target, err := o.failoverTarget(ctx, by, t, ms, to, kind)
 	if err != nil {
-		return StandbyView{}, err
+		return t, inst, err
 	}
 	if kind == foPromoted && !allowAsync {
 		if err := syncTargetOK(t, ms, target); err != nil {
-			return StandbyView{}, err
+			return t, inst, err
 		}
 	}
 	var slots string
@@ -378,22 +432,16 @@ func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID,
 		err = o.mayPromote(ctx, t, inst, oldNode, nodeGone, poweredOff)
 	}
 	if err != nil {
-		return StandbyView{}, err
+		return t, inst, err
 	}
 	if kind == foPromoted && !allowAsync {
 		if err := o.targetBehind(ctx, t, ms, target); err != nil {
-			return StandbyView{}, err
+			return t, inst, err
 		}
 	}
-	// the fence first: the cursor, then the row. Nothing has been touched yet.
+	// the cursor first, the old primary's fence (the job's first step) second.
 	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, PoweredOff: poweredOff, Step: stepFence, Started: time.Now().UTC(), Slots: slots}
-	if err := o.saveFailover(ctx, inst.ID, f); err != nil {
-		return StandbyView{}, err
-	}
-	if err := o.runFailover(ctx, t, inst, f); err != nil {
-		return StandbyView{}, err
-	}
-	return o.viewOf(ctx, tileID, target.ID)
+	return t, inst, o.saveFailover(ctx, inst.ID, f)
 }
 
 // failoverTarget picks the standby that is promoted. A named node must hold a
@@ -495,7 +543,7 @@ func (o *Orchestrator) targetBehind(ctx context.Context, t store.Tile, ms []Inst
 	}
 	tl, err := o.replayLSN(ctx, t, target)
 	if err != nil {
-		return errs.Conflictf("The replay position of the standby you picked cannot be read (%v), so it cannot be compared with the others. Override with allow_async_target (CLI --allow-async-target).", err)
+		return errs.Conflictf("The replay position of the standby you picked cannot be read (%v), so it cannot be compared with the others. Allow a target that may lack the last writes to override.", err)
 	}
 	for _, m := range ms {
 		if m.ID == target.ID || !competitor(m) {
@@ -503,10 +551,10 @@ func (o *Orchestrator) targetBehind(ctx context.Context, t store.Tile, ms []Inst
 		}
 		l, err := o.replayLSN(ctx, t, m)
 		if err != nil {
-			return errs.Conflictf("The replay position of the standby on %s cannot be read (%v), so it is not known whether the one you picked is behind it. Override with allow_async_target (CLI --allow-async-target).", o.nodeName(ctx, m.NodeID), err)
+			return errs.Conflictf("The replay position of the standby on %s cannot be read (%v), so it is not known whether the one you picked is behind it. Allow a target that may lack the last writes to override.", o.nodeName(ctx, m.NodeID), err)
 		}
 		if l > tl {
-			return errs.Conflictf("The standby on %s is more advanced than the one you picked, which may miss commits the primary confirmed. Promote that one, or override with allow_async_target (CLI --allow-async-target).", o.nodeName(ctx, m.NodeID))
+			return errs.Conflictf("The standby on %s is more advanced than the one you picked, which may miss commits the primary confirmed. Promote that one, or allow a target that may lack the last writes to override.", o.nodeName(ctx, m.NodeID))
 		}
 	}
 	return nil
@@ -597,7 +645,7 @@ func (o *Orchestrator) mayPromote(ctx context.Context, t store.Tile, inst store.
 		return nil
 	}
 	if _, ok := o.leaseRecOf(ctx, inst.ID, oldNode); !ok {
-		return errs.Conflictf("%s has no recorded lease on the primary, so it cannot be shown to stop by itself. If you powered it off, promote with: %s", name, PoweredOffPhrase)
+		return errs.Conflictf("%s has no recorded lease on the primary, so it cannot be shown to stop by itself. If you powered it off, type: %s", name, PoweredOffPhrase)
 	}
 	if wait := o.leaseWait(ctx, oldNode); wait > 0 {
 		return errs.Conflictf("%s may still be running the primary: its lease runs out in %d s. Try again then.", name, int(wait.Seconds())+1)
@@ -609,7 +657,7 @@ func (o *Orchestrator) mayPromote(ctx context.Context, t store.Tile, inst store.
 
 // runFailover runs the cursor's remaining steps with the topology lock held.
 // A step that fails keeps the cursor (and its error) for the tick to resume.
-func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store.OperatedInstance, f failover) error {
+func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store.OperatedInstance, f failover, log io.Writer) error {
 	ctx = context.WithoutCancel(ctx) // a cancelled request must not leave it half done
 	steps := failoverSteps[f.Kind]
 	from := slices.Index(steps, f.Step)
@@ -622,15 +670,17 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 	}
 	for _, step := range steps[from:] {
 		f.Step = step
+		_, _ = fmt.Fprintln(log, stepLine[step])
 		if err := run[step](ctx, t, inst, &f); err != nil {
 			f.Error = fmt.Sprintf("%s: %v", step, err)
+			_, _ = fmt.Fprintf(log, "failed at %s: %v\nIt carries on by itself; before the promote a switchover can be aborted.\n", step, err)
 			if f.Kind == foSwitchover && f.Slots != "" && slices.Index(steps, step) >= slices.Index(steps, stepStop) {
 				o.logSlots(ctx, t, inst.ID, &f)
 			}
 			_ = o.saveFailover(ctx, inst.ID, f)
 			slog.Warn("failover: step failed, the tick resumes it", "instance", inst.ID, "step", step, "err", err)
 			if f.Kind == foSwitchover { // a bare error reads as "internal error"; say what stopped and what happens next
-				return errs.Conflictf("The switchover stopped at %s: %v. It carries on by itself; before the promote it can be given up with --abort.", step, err)
+				return errs.Conflictf("The switchover stopped at %s: %v. It carries on by itself; before the promote it can be given up with abort.", step, err)
 			}
 			return err
 		}
@@ -652,10 +702,27 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 	}
 	o.pitrProblem(ctx, "alert."+AlertPGPrimaryDown+"."+inst.ID, AlertPGPrimaryDown, "", "", "")
 	o.pitrProblem(ctx, "alert."+AlertPGFailoverStuck+"."+inst.ID, AlertPGFailoverStuck, "", "", "")
+	_, _ = fmt.Fprintln(log, "the primary moved; rejoining the old primary as a standby")
 	if m, err := o.members.Get(ctx, f.Old); err == nil {
 		o.tryRejoin(ctx, m) // best effort now; the tick retries when its node returns
+		if m, err = o.members.Get(ctx, f.Old); err == nil && m.Fenced {
+			_, _ = fmt.Fprintln(log, "the old primary is not back yet; it rejoins when its node answers")
+		}
 	}
 	return nil
+}
+
+// stepLine is what a step writes to the job log as it starts.
+var stepLine = map[string]string{
+	stepFence:    "fencing the old primary",
+	stepDrain:    "draining the WAL archive",
+	stepStop:     "stopping the old primary",
+	stepCheck:    "waiting for the standby to catch up with the shutdown checkpoint",
+	stepPromote:  "promoting the standby",
+	stepRecreate: "making the standby's container the primary's",
+	stepSwap:     "switching the primary role",
+	stepSlots:    "pointing the other standbys at the new primary",
+	stepRoute:    "rerouting the pooler, firewall and consumers",
 }
 
 // resumeFailovers is the watch tick's half: it runs the cursors that stopped
@@ -705,10 +772,10 @@ func (o *Orchestrator) resumeOne(ctx context.Context, instanceID string) {
 		return
 	}
 	t, err := o.tiles.Get(ctx, inst.TileID)
-	if err != nil {
-		return
+	if err != nil || o.failoverJobLive(ctx, t.ID) {
+		return // a job is about to run it, with its log
 	}
-	_ = o.runFailover(ctx, t, inst, f) // logs and records its own failure
+	_ = o.runFailover(ctx, t, inst, f, io.Discard) // logs and records its own failure
 }
 
 // ---- the steps ----
@@ -1704,7 +1771,9 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 		if !usableStandby(m) {
 			continue
 		}
-		if up && m.Phase == opmember.Streaming {
+		// the chip's notion (standbyWord): the stored phase, or the prober's
+		// streaming answer; the phase lags a rejoin by minutes
+		if up && (m.Phase == opmember.Streaming || m.Phase == opmember.Starting && o.probeRun(m.ID) > 0) {
 			fo.Switch = append(fo.Switch, o.nodeName(ctx, m.NodeID))
 		}
 		if !up {

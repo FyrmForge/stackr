@@ -87,6 +87,8 @@ stackr db standby unfence <node|id>
 
 A standby that needs a rewind or a rebuild cannot be fenced or unfenced; it rejoins by itself, or rebuild it. The primary is never fenced by hand.
 
+A switchover or a promote is a job: the checks answer before anything changes, then the steps (stopping, waiting for catch-up, promoting, rerouting, rejoining) are written to the job log, which the drawer shows under Last job and the CLI follows (`--no-wait` prints the job and returns). While the drawer is open its pooler, members, failover and sync sections update by themselves.
+
 A switchover that is stuck before the standby is promoted (the standby never replays the shutdown checkpoint, say) can be given up with the Abort switchover button or `stackr db switchover --abort`: the old primary is unfenced and started again. Once the promote step is reached, or the standby is out of recovery, the abort is refused and the switchover has to finish.
 
 ## Old archive epochs

@@ -45,4 +45,14 @@ func TestRiskyActionsConfirm(t *testing.T) {
 	if strings.Contains(sw, "fence") {
 		t.Error("fence is not a failover action here")
 	}
+	// the confirm posts, never the form: Enter must not submit past it, and an
+	// open dialog must survive a live swap.
+	for name, got := range map[string]string{"pitr": renderPITR(t, PITRView{Edit: true}), "switch": sw} {
+		if strings.Contains(got, "<form hx-post") || strings.Contains(got, "<form novalidate hx-post") || strings.Contains(got, "hx-preserve hx-post") {
+			t.Errorf("%s form posts on its own", name)
+		}
+	}
+	if got := renderTempl(t, failover(v, FailoverView{InFlight: "x", CanAbort: true})); !strings.Contains(got, "hx-preserve") {
+		t.Error("abort confirm is not preserved across live swaps")
+	}
 }

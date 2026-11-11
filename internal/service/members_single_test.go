@@ -23,7 +23,7 @@ func TestProtectionSingleNode(t *testing.T) {
 	if err != nil || len(ms) != 1 || ms[0].Role != "primary" {
 		t.Fatalf("members = %+v %v", ms, err)
 	}
-	if p, err := env.Orch.Protection(ctx, pg.ID); err != nil || p != "No standby. Add a node to get a standby." {
+	if p, err := env.Orch.Protection(ctx, pg.ID); err != nil || p != "No standby. Add a node to the cluster first." {
 		t.Errorf("protection = %q %v", p, err)
 	}
 }

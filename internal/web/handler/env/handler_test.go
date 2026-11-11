@@ -10,6 +10,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/web/handler/env"
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
 
@@ -599,5 +600,36 @@ func TestInstanceAndSliceRename(t *testing.T) {
 	rec = s.Do(t, "POST", "/acme/shop/dev/-/slices/main/rename", url.Values{"name": {"app db"}, "open": {"general"}})
 	if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "/-/slices/app-db/rename") {
 		t.Errorf("slice rename = %d\n%s", rec.Code, body)
+	}
+}
+
+// An open postgres overview connects to its live stream, which sends every
+// region once at connect and again only when a region's markup changes: a
+// switchover with no standby is refused, not queued.
+func TestInstanceLiveStream(t *testing.T) {
+	stream.PollEvery, env.LiveEvery = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	pg := operated(t, s)
+	d := "/acme/shop/dev/-/instances/" + pg.Slug
+	page := s.Do(t, "GET", d, nil).Body.String()
+	if !strings.Contains(page, `sse-connect="`+d+`/live"`) {
+		t.Fatalf("the overview does not open the live stream:\n%s", page)
+	}
+	for _, region := range []string{"pooler", "members", "failover", "sync"} {
+		if !strings.Contains(page, `sse-swap="`+region+`"`) {
+			t.Errorf("no %s region", region)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	body := s.DoCtx(ctx, t, "GET", d+"/live", nil).Body.String()
+	for _, region := range []string{"pooler", "members", "failover", "sync"} {
+		if n := strings.Count(body, "event: "+region+"\n"); n != 1 {
+			t.Errorf("%s sent %d times, want once (it did not change):\n%s", region, n, body)
+		}
+	}
+	rec := s.Do(t, "POST", d+"/switchover", url.Values{"to": {"w1"}})
+	if rec.Code >= 500 || strings.Contains(rec.Body.String(), "Switching over") {
+		t.Errorf("a switchover with no standby = %d:\n%s", rec.Code, rec.Body)
 	}
 }

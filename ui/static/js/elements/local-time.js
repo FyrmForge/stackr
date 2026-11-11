@@ -20,8 +20,24 @@ export function zoneName(zone, at = new Date()) {
     const f = new Intl.DateTimeFormat("en-GB", { timeZone: zone || undefined, timeZoneName: "short" });
     return f.formatToParts(at).find((x) => x.type === "timeZoneName")?.value ?? "";
 }
+export function elapsed(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const m = String(Math.floor(s / 60) % 60).padStart(2, "0"), ss = String(s % 60).padStart(2, "0");
+    return s >= 3600 ? `${Math.floor(s / 3600)}:${m}:${ss}` : `${m}:${ss}`;
+}
 class LocalTime extends HTMLElement {
+    timer = 0;
+    disconnectedCallback() {
+        clearInterval(this.timer);
+    }
     connectedCallback() {
+        const since = Date.parse(this.getAttribute("since") ?? "");
+        if (!isNaN(since)) {
+            const tick = () => void (this.textContent = elapsed(Date.now() - since));
+            tick();
+            this.timer = setInterval(tick, 1000);
+            return;
+        }
         const zone = document.body.dataset.tz ?? "";
         if (this.hasAttribute("zone")) {
             this.textContent = zoneName(zone);

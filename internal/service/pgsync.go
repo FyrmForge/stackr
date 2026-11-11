@@ -577,7 +577,7 @@ func syncTargetOK(t Tile, ms []InstanceMember, target InstanceMember) error {
 	}
 	for _, m := range ms {
 		if m.SyncIn && m.Role == opmember.Replica && m.State != opmember.Removing && !m.Fenced && m.Phase != opmember.Rebuild && m.Phase != opmember.Rewind {
-			return errs.Conflictf("%s waited for the standby on another node, which holds every commit it confirmed; the one you picked may miss some. Promote that one, or override with allow_async_target (CLI --allow-async-target).", t.Slug)
+			return errs.Conflictf("%s waited for the standby on another node, which holds every commit it confirmed; the one you picked may miss some. Promote that one, or allow a target that may lack the last writes to override.", t.Slug)
 		}
 	}
 	return nil

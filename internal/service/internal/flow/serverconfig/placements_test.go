@@ -265,6 +265,7 @@ func TestPlacementRemovalRowKeys(t *testing.T) {
 func TestExportPlacementsRoundTrip(t *testing.T) {
 	l := full()
 	withNodes(&l)
+	l.Placements = append(l.Placements, serverconfig.PlacementLive{ID: "p4", Name: "standby", Node: "h3"}) // closed
 	out, err := serverconfig.Export(l)
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +278,7 @@ func TestExportPlacementsRoundTrip(t *testing.T) {
 	if len(p.Changes) != 0 || p.Blocked() || len(p.Gaps) != 0 {
 		t.Errorf("export diffs against itself: %+v\n%s", p, out)
 	}
-	for _, want := range []string{"nodes:", "placements:", "eu-prod:", "node: h4", "- acme"} {
+	for _, want := range []string{"nodes:", "placements:", "eu-prod:", "node: h4", "- acme", "open: []"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("export lacks %q:\n%s", want, out)
 		}

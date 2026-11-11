@@ -6,6 +6,7 @@
 // the next or previous [data-step] sibling; the server renders which one
 // starts visible. A confirm nested inside keeps its clicks to itself.
 class ConfirmDialog extends HTMLElement {
+  private form: HTMLFormElement | null = null;
   private onClick = (e: Event): void => {
     const target = e.target as Element;
     const dialog = this.querySelector("dialog");
@@ -37,7 +38,17 @@ class ConfirmDialog extends HTMLElement {
     if (button) button.disabled = input.value !== this.word();
   };
 
+  // Enter in a field of a form whose submit is this confirm asks instead of
+  // posting: a submit with no submit button behind it opens the dialog.
+  private onSubmit = (e: Event): void => {
+    if ((e as SubmitEvent).submitter) return;
+    e.preventDefault();
+    this.querySelector<HTMLElement>("[data-open]")?.click();
+  };
+
   connectedCallback(): void {
+    this.form = this.closest("form");
+    this.form?.addEventListener("submit", this.onSubmit);
     this.addEventListener("click", this.onClick);
     this.addEventListener("input", this.onInput);
     // open: the server answered with the question (a promote's plan).
@@ -48,6 +59,7 @@ class ConfirmDialog extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    this.form?.removeEventListener("submit", this.onSubmit);
     this.removeEventListener("click", this.onClick);
     this.removeEventListener("input", this.onInput);
   }

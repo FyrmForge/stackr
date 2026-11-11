@@ -1,4 +1,5 @@
 class ConfirmDialog extends HTMLElement {
+    form = null;
     onClick = (e) => {
         const target = e.target;
         const dialog = this.querySelector("dialog");
@@ -33,7 +34,15 @@ class ConfirmDialog extends HTMLElement {
         if (button)
             button.disabled = input.value !== this.word();
     };
+    onSubmit = (e) => {
+        if (e.submitter)
+            return;
+        e.preventDefault();
+        this.querySelector("[data-open]")?.click();
+    };
     connectedCallback() {
+        this.form = this.closest("form");
+        this.form?.addEventListener("submit", this.onSubmit);
         this.addEventListener("click", this.onClick);
         this.addEventListener("input", this.onInput);
         if (this.hasAttribute("open")) {
@@ -42,6 +51,7 @@ class ConfirmDialog extends HTMLElement {
         }
     }
     disconnectedCallback() {
+        this.form?.removeEventListener("submit", this.onSubmit);
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("input", this.onInput);
     }

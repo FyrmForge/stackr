@@ -183,3 +183,80 @@ func TestMajorChangeAndRollbackRender(t *testing.T) {
 		t.Error("a read-only viewer is offered a version change")
 	}
 }
+
+// With a live stream the overview opens it and wraps the four regions the
+// stream swaps; without one it draws the same parts bare. A region renders
+// the same markup in the page and in the stream.
+func TestOverviewLiveRegions(t *testing.T) {
+	o := OverviewView{
+		Endpoint: "pg:5432",
+		Members:  []MemberRow{{ID: "m1", Node: "w1", Role: "replica", State: "streaming", Tone: "success", CanFence: true}},
+		Failover: &FailoverView{Primary: "ctl", Switch: []string{"w1"}},
+	}
+	render := func(c templ.Component) string {
+		var b strings.Builder
+		if err := c.Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	v := View{Engine: "postgres", Base: "/o/s/e/-/instances/pg"}
+	bare := render(Overview(v, o))
+	if strings.Contains(bare, "sse-connect") || strings.Contains(bare, "sse-swap=\"members\"") {
+		t.Errorf("no stream, yet the page is wired to one:\n%s", bare)
+	}
+	v.Live = v.Base + "/live"
+	live := render(Overview(v, o))
+	for _, want := range []string{`sse-connect="/o/s/e/-/instances/pg/live"`, `sse-swap="pooler"`, `sse-swap="members"`, `sse-swap="failover"`, `sse-swap="sync"`, "Switch over"} {
+		if !strings.Contains(live, want) {
+			t.Errorf("live overview lacks %q", want)
+		}
+	}
+	if m := render(LiveMembers(v, o)); !strings.Contains(live, m) || !strings.Contains(m, "streaming") {
+		t.Errorf("the members region differs between the page and the stream: %q", m)
+	}
+}
+
+// The live forms are preserved across a swap under an id that names what
+// they offer: the same options keep the form (and what is typed or picked),
+// new options give a new id, so the form is replaced and never stale.
+func TestLiveFormsArePreserved(t *testing.T) {
+	render := func(c templ.Component) string {
+		var b strings.Builder
+		if err := c.Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	v := View{Base: "/o/s/e/-/instances/pg", Live: "/live"}
+	id := func(html, prefix string) string {
+		i := strings.Index(html, `id="`+prefix+"-")
+		if i < 0 {
+			t.Fatalf("no %s form with an id in:\n%s", prefix, html)
+		}
+		rest, _, _ := strings.Cut(html[i+4:], `"`)
+		return rest
+	}
+	fo := func(switchTo ...string) string {
+		return render(LiveFailover(v, OverviewView{Members: []MemberRow{{}}, Failover: &FailoverView{Primary: "ctl", Switch: switchTo, Promote: []string{"w1"}}}))
+	}
+	a, b, c := fo("w1"), fo("w1"), fo("w1", "w2")
+	if !strings.Contains(a, "hx-preserve") || id(a, "switch-form") != id(b, "switch-form") || id(a, "switch-form") == id(c, "switch-form") {
+		t.Errorf("switch form ids: %q %q %q", id(a, "switch-form"), id(b, "switch-form"), id(c, "switch-form"))
+	}
+	if id(a, "promote-form") != id(c, "promote-form") {
+		t.Error("the promote form changed with the switch options")
+	}
+	sy := func(limit int, status string) string {
+		return render(LiveSync(v, OverviewView{Sync: &SyncView{LimitMS: limit, Status: status, Standbys: []SyncStandby{{ID: "m1", Mode: "auto"}}}}))
+	}
+	if id(sy(50, "protected"), "sync-form") != id(sy(50, "unprotected"), "sync-form") || id(sy(50, "x"), "sync-form") == id(sy(80, "x"), "sync-form") {
+		t.Error("the sync form id must ignore the status line and follow the saved values")
+	}
+	add := func(nodes ...string) string {
+		return render(LiveMembers(v, OverviewView{AddNodes: nodes}))
+	}
+	if one, again := add("w1"), add("w1"); id(one, "standby-add") != id(again, "standby-add") || id(one, "standby-add") == id(add("w1", "w2"), "standby-add") {
+		t.Error("the add-standby form id must follow the candidate nodes")
+	}
+}

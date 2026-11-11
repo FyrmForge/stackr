@@ -119,10 +119,13 @@ func (a *app) placementLs() *cobra.Command {
 		})
 }
 
-// openFlag reads --open: all, or a comma list of org slugs.
+// openFlag reads --open: all, none (admin only), or a comma list of org slugs.
 func openFlag(s string) (all bool, orgs []string, err error) {
 	if s == "" || s == "all" {
 		return true, nil, nil
+	}
+	if s == "none" {
+		return false, nil, nil
 	}
 	for _, o := range strings.Split(s, ",") {
 		if o = strings.TrimSpace(o); o != "" {
@@ -130,7 +133,7 @@ func openFlag(s string) (all bool, orgs []string, err error) {
 		}
 	}
 	if len(orgs) == 0 {
-		return false, nil, usage("--open is all, or org slugs separated by commas")
+		return false, nil, usage("--open is all, none, or org slugs separated by commas")
 	}
 	return false, orgs, nil
 }
@@ -139,11 +142,15 @@ func (a *app) placementAdd() *cobra.Command {
 	var node, open string
 	c := leaf("add <name>", "admin.placement-create", "Make a placement, on a node or none yet (server admin)", exact(1),
 		func(_ *cobra.Command, args []string) error {
-			_, orgs, err := openFlag(open)
+			all, orgs, err := openFlag(open)
 			if err != nil {
 				return err
 			}
-			v, err := a.call(POST, "/admin/placements", map[string]any{"name": args[0], "node": node, "orgs": orgs})
+			body := map[string]any{"name": args[0], "node": node, "orgs": orgs}
+			if !all && len(orgs) == 0 {
+				body["closed"] = true
+			}
+			v, err := a.call(POST, "/admin/placements", body)
 			if err != nil {
 				return err
 			}
@@ -157,14 +164,14 @@ func (a *app) placementAdd() *cobra.Command {
 			a.say("%s: made, %s", args[0], where)
 			return nil
 		})
-	c.Example = "  stackr admin placement add eu-prod --node h4\n  stackr admin placement add eu-db --node h3 --open acme,shop"
+	c.Example = "  stackr admin placement add eu-prod --node h4\n  stackr admin placement add eu-db --node h3 --open acme,shop\n  stackr admin placement add standby-h5 --node h5 --open none"
 	c.Flags().StringVar(&node, "node", "", "the node it stands on (default: none yet)")
-	c.Flags().StringVar(&open, "open", "all", "all, or the org slugs that may use it, separated by commas")
+	c.Flags().StringVar(&open, "open", "all", "all, none (admin only), or the org slugs that may use it, separated by commas")
 	return c
 }
 
 func (a *app) placementOpen() *cobra.Command {
-	return leaf("open <name> <all|org,org,...>", "admin.placement-open", "Open a placement to every org or to a list; envs already there stay (server admin)", exact(2),
+	return leaf("open <name> <all|none|org,org,...>", "admin.placement-open", "Open a placement to every org or to a list; envs already there stay (server admin)", exact(2),
 		func(_ *cobra.Command, args []string) error {
 			all, orgs, err := openFlag(args[1])
 			if err != nil {
@@ -173,9 +180,12 @@ func (a *app) placementOpen() *cobra.Command {
 			if _, err := a.call(PUT, placementPath(args[0])+"/open", map[string]any{"all": all, "orgs": orgs}); err != nil {
 				return err
 			}
-			if all {
+			switch {
+			case all:
 				a.say("%s: open to all orgs", args[0])
-			} else {
+			case len(orgs) == 0:
+				a.say("%s: admin only; envs already there stay", args[0])
+			default:
 				a.say("%s: open to %s; envs already there stay", args[0], strings.Join(orgs, ", "))
 			}
 			return nil

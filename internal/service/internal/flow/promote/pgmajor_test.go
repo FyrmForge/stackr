@@ -1,6 +1,7 @@
 package promote
 
 import (
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"io"
 	"strconv"
 	"strings"
@@ -122,5 +123,8 @@ func TestCreateInstanceWithoutImageRecordsMajor(t *testing.T) {
 	must(t, err)
 	if m.Major == 0 {
 		t.Error("the major was lost")
+	}
+	if ms, err := w.f.Members.List(ctx, m.ID); err != nil || len(ms) != 1 || ms[0].Role != opmember.Primary {
+		t.Errorf("a new postgres instance needs its primary member: %v %v", ms, err)
 	}
 }
