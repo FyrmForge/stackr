@@ -137,7 +137,7 @@ type apiErr struct {
 
 func (e *apiErr) Error() string { return e.Msg }
 
-// newClient dials in 10s and waits 5m for headers (a switchover answers when done); no overall timeout, so
+// newClient dials in 10s and waits 5m for headers (a verb that checks before it answers); no overall timeout, so
 // log and job streams run as long as the server keeps them open.
 func newClient() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()

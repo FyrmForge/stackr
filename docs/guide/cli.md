@@ -614,6 +614,7 @@ stackr db promote [flags]
 ```
       --allow-async-target   promote a standby the primary did not wait for, although one it did wait for is usable
       --env string           the environment (default: the linked one)
+      --no-wait              print the job and return; it runs server-side
       --node-gone            confirm the old primary's node is really gone (needed when it does not answer)
       --powered-off          promote without a recorded lease on the old primary: you powered its node off
       --stack string         the stack (default: the linked one)
@@ -798,6 +799,7 @@ stackr db switchover [flags]
 ```
       --abort          give up a switchover stuck before the promote: unfence and restart the old primary
       --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
       --to string      the standby's node (name or slug); default is the one that replayed the most

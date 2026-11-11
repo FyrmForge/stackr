@@ -23257,6 +23257,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -23270,15 +23279,15 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StandbyView"
+                  "$ref": "#/components/schemas/Job"
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {
@@ -24849,6 +24858,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -24862,15 +24880,15 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StandbyView"
+                  "$ref": "#/components/schemas/Job"
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "default": {
             "content": {

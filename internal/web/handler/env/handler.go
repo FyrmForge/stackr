@@ -59,6 +59,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/new-tile", h.CreateTile, a.Require("tile.write"))
 	g.GET(e+"/instances/:tile", h.Instance, a.Require("tile.read"))
 	g.GET(e+"/instances/:tile/metrics/events", h.InstanceMetricsEvents, a.Require("tile.read"))
+	g.GET(e+"/instances/:tile/live", h.InstanceLive, a.Require("tile.read"))
 	g.POST(e+"/instances/:tile/deploy", h.instanceJob("deploy queued", h.orch.Deploy), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/stop", h.instanceJob("stop queued", h.orch.StopTile), a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/delete", h.InstanceDelete, a.Require("tile.write"))
@@ -557,12 +558,8 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			AdminUser: m.AdminUser,
 		}
 		if m.Engine == "postgres" {
-			if ps, err := h.orch.Pooler(ctx, t.ID); err == nil {
-				o.Pooler = &instance.PoolerView{
-					Status: ps.Word, Host: ps.Host, Port: ps.Port,
-					Active: ps.Active, Waiting: ps.Waiting, Counted: ps.Counted,
-				}
-			}
+			o = h.pgLive(ctx, t.ID, o)
+			v.Live = v.Base + "/live"
 		}
 		if st.LastJob != nil {
 			j := render.JobView(render.EnvURL(c), *st.LastJob)
@@ -582,19 +579,6 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			}
 			if o.Protection, err = h.orch.Protection(ctx, t.ID); err != nil {
 				return middleware.HTTPError(err)
-			}
-			if vs, err := h.orch.Standbys(ctx, t.ID); err == nil && len(vs) > 1 {
-				o.Members = memberRows(vs)
-			}
-			if sv, err := h.orch.SyncOf(ctx, t.ID); err == nil && (len(sv.Standbys) > 0 || sv.Prefer) {
-				o.Sync = &instance.SyncView{Prefer: sv.Prefer, Required: sv.Required, LimitMS: sv.LimitMS, Status: sv.Status}
-				for _, b := range sv.Standbys {
-					o.Sync.Standbys = append(o.Sync.Standbys, instance.SyncStandby{ID: b.ID, Node: b.Node, Mode: b.Mode})
-				}
-			}
-			if fo, ok, err := h.orch.FailoverOptionsOf(ctx, t.ID); err == nil && ok {
-				o.Failover = &instance.FailoverView{Primary: fo.Primary, Switch: fo.Switch, Promote: fo.Promote,
-					Unreachable: fo.Unreachable, InFlight: fo.InFlight, Error: fo.Error, CanAbort: fo.CanAbort}
 			}
 		}
 		for _, p := range ps {
@@ -755,7 +739,7 @@ func (h *handler) PGSync(c echo.Context) error {
 // node "to" (empty = the one that replayed the most).
 func (h *handler) Switchover(c echo.Context) error {
 	_, err := h.orch.Switchover(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")))
-	return h.instance(c, "slices", "Switched over. The old primary rejoins as a standby when it can.", err, instance.SettingsView{})
+	return h.instance(c, "slices", "Switching over. The steps show under Last job.", err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/switchover-abort: give up a switchover stuck
@@ -790,7 +774,7 @@ func (h *handler) PromoteStandby(c echo.Context) error {
 		gone = true
 	}
 	_, err := h.orch.PromoteStandby(ctx, middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone, strings.TrimSpace(c.FormValue("powered_off")), false)
-	return h.instance(c, "slices", "Promoted. The old primary stays fenced until its node returns.", err, instance.SettingsView{})
+	return h.instance(c, "slices", "Promoting. The steps show under Last job; the old primary stays fenced until its node returns.", err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/memory: the tile's memory limit in MB, empty =

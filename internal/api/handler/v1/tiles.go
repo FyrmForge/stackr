@@ -687,9 +687,10 @@ type (
 
 // Switchover moves the primary to a standby while both run: the archive is
 // drained, the primary shut down cleanly, the standby confirmed to have
-// replayed the shutdown checkpoint, then promoted. It answers when done.
+// replayed the shutdown checkpoint, then promoted (job). What can be refused
+// is refused before the job is queued.
 func (h *H) Switchover() Endpoint {
-	return JSON(http.StatusOK, func(c echo.Context, in SwitchoverIn) (service.StandbyView, error) {
+	return Job(func(c echo.Context, in SwitchoverIn) (service.Job, error) {
 		return h.Orch.Switchover(rc(c), middleware.Principal(c), tileID(c), in.To)
 	})
 }
@@ -718,9 +719,9 @@ func (h *H) FenceStandby() Endpoint {
 // old primary must be known stopped; for a node that does not answer, the
 // caller confirms it is really gone (node_gone), the panel needs its record
 // that the primary was under its worker's lease, or the caller types the
-// powered_off phrase.
+// powered_off phrase (job).
 func (h *H) PromoteStandby() Endpoint {
-	return JSON(http.StatusOK, func(c echo.Context, in PromoteStandbyIn) (service.StandbyView, error) {
+	return Job(func(c echo.Context, in PromoteStandbyIn) (service.Job, error) {
 		return h.Orch.PromoteStandby(rc(c), middleware.Principal(c), tileID(c), in.To, in.NodeGone, in.PoweredOff, in.AllowAsyncTarget)
 	})
 }

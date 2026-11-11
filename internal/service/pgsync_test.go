@@ -260,7 +260,7 @@ func TestSwitchoverRecomputesSyncNames(t *testing.T) {
 	_, rep := r.members()
 	_, err = o.members.SetSync(ctx, rep, SyncAlways, false)
 	must(t, err)
-	_, err = o.Switchover(ctx, adminP(), r.inst.TileID, "w1")
+	_, err = doSwitchover(o, ctx, adminP(), r.inst.TileID, "w1")
 	must(t, err)
 	// the old primary is a standby now, and the next pass makes the primary wait for its slot
 	_, newRep := r.members()
@@ -393,7 +393,7 @@ func TestPromoteRefusesAsyncTarget(t *testing.T) {
 	}
 	_, err := o.members.SetSync(ctx, w1, SyncAuto, true)
 	must(t, err)
-	_, err = o.PromoteStandby(ctx, adminP(), r.inst.TileID, "w2", true, "", false)
+	_, err = doPromote(o, ctx, adminP(), r.inst.TileID, "w2", true, "", false)
 	if err == nil || !strings.Contains(err.Error(), "allow_async_target") {
 		t.Fatalf("promote of an async target: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestPromoteRequiredPrimesFreeze(t *testing.T) {
 	must(t, err)
 	must(t, setNode(o, "w1", node.StatusOffline))
 	r.ageLease(2 * time.Minute)
-	_, err = o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
+	_, err = doPromote(o, ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
 	must(t, err)
 	r.order(`stackr-sync.conf`, "SELECT pg_promote")
 	if !r.saw(`ANY 1 ("` + mflow.SyncNoneSlot + `")`) {

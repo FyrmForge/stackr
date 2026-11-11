@@ -183,3 +183,36 @@ func TestMajorChangeAndRollbackRender(t *testing.T) {
 		t.Error("a read-only viewer is offered a version change")
 	}
 }
+
+// With a live stream the overview opens it and wraps the four regions the
+// stream swaps; without one it draws the same parts bare. A region renders
+// the same markup in the page and in the stream.
+func TestOverviewLiveRegions(t *testing.T) {
+	o := OverviewView{
+		Endpoint: "pg:5432",
+		Members:  []MemberRow{{ID: "m1", Node: "w1", Role: "replica", State: "streaming", Tone: "success", CanFence: true}},
+		Failover: &FailoverView{Primary: "ctl", Switch: []string{"w1"}},
+	}
+	render := func(c templ.Component) string {
+		var b strings.Builder
+		if err := c.Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	v := View{Engine: "postgres", Base: "/o/s/e/-/instances/pg"}
+	bare := render(Overview(v, o))
+	if strings.Contains(bare, "sse-connect") || strings.Contains(bare, "sse-swap=\"members\"") {
+		t.Errorf("no stream, yet the page is wired to one:\n%s", bare)
+	}
+	v.Live = v.Base + "/live"
+	live := render(Overview(v, o))
+	for _, want := range []string{`sse-connect="/o/s/e/-/instances/pg/live"`, `sse-swap="pooler"`, `sse-swap="members"`, `sse-swap="failover"`, `sse-swap="sync"`, "Switch over"} {
+		if !strings.Contains(live, want) {
+			t.Errorf("live overview lacks %q", want)
+		}
+	}
+	if m := render(LiveMembers(v, o)); !strings.Contains(live, m) || !strings.Contains(m, "streaming") {
+		t.Errorf("the members region differs between the page and the stream: %q", m)
+	}
+}

@@ -52,6 +52,9 @@ type View struct {
 	ReadOnly           bool   // the viewer may not write: no Deploy, Stop, pairs or delete
 	Location, EnvColor string
 	Error, Note        string
+	// Live is the stream that re-renders the overview's pooler, members,
+	// failover and sync regions while the drawer is open; "" = none.
+	Live string
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
@@ -175,7 +178,13 @@ type SliceRow struct {
 // Overview is v0's connection panel (no password: it never reaches the
 // page) and the slices on the instance.
 templ Overview(v View, o OverviewView) {
-	<div id="tab-slices">
+	<div
+		id="tab-slices"
+		if v.Live != "" {
+			hx-ext="sse"
+			sse-connect={ v.Live }
+		}
+	>
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
@@ -200,57 +209,17 @@ templ Overview(v View, o OverviewView) {
 		if o.Version != nil && !v.ReadOnly {
 			@majorChange(v, *o.Version)
 		}
-		if o.Pooler != nil {
-			<h3 class="section-title">Pooler</h3>
-			<div class="panel p-4 space-y-1">
-				@c.Facts() {
-					@c.Fact("Status", o.Pooler.Status)
-					@c.Fact("Address", o.Pooler.Host+":"+strconv.Itoa(o.Pooler.Port))
-					if o.Pooler.Counted {
-						@c.Fact("Connections in use", strconv.Itoa(o.Pooler.Active))
-						@c.Fact("Waiting", strconv.Itoa(o.Pooler.Waiting))
-					}
-				}
-			</div>
+		@liveRegion(v, "pooler") {
+			@LivePooler(v, o)
 		}
-		if len(o.Members) > 0 {
-			<h3 class="section-title">Members</h3>
-			<ul class="space-y-2">
-				for _, m := range o.Members {
-					<li class="panel px-4 py-3 flex items-center justify-between gap-3">
-						<span class="text-sm text-rw-text min-w-0">
-							<span class="font-medium">{ m.Node }</span>
-							<span class="text-rw-faint text-xs ml-1">{ m.Role }</span>
-							if m.Lag != "" {
-								<span class="block mt-0.5 text-xs text-rw-faint">{ m.Lag }</span>
-							}
-							if m.Slot != "" {
-								<span class="block text-xs text-rw-faint">{ m.Slot }</span>
-							}
-						</span>
-						<span class="flex items-center gap-2">
-							if m.CanFence && !v.ReadOnly {
-								<form hx-post={ v.Base + "/standby-fence" } hx-target={ "#" + Root } hx-swap="outerHTML">
-									<input type="hidden" name="id" value={ m.ID }/>
-									if m.Fenced {
-										<button type="submit" class="btn btn-ghost btn-sm">Unfence</button>
-									} else {
-										<input type="hidden" name="fenced" value="1"/>
-										<button type="submit" class="btn btn-ghost btn-sm">Fence</button>
-									}
-								</form>
-							}
-							@c.Chip(m.State, m.Tone)
-						</span>
-					</li>
-				}
-			</ul>
-			if o.Failover != nil {
-				@failover(v, *o.Failover)
-			}
+		@liveRegion(v, "members") {
+			@LiveMembers(v, o)
 		}
-		if o.Sync != nil {
-			@syncForm(v, *o.Sync)
+		@liveRegion(v, "failover") {
+			@LiveFailover(v, o)
+		}
+		@liveRegion(v, "sync") {
+			@LiveSync(v, o)
 		}
 		if o.Job != nil {
 			<h3 class="section-title">Last job</h3>
@@ -285,6 +254,85 @@ templ Overview(v View, o OverviewView) {
 			</ul>
 		}
 	</div>
+}
+
+// liveRegion wraps a part of the overview the live stream re-renders under
+// the event name; without a stream it is just the part.
+templ liveRegion(v View, name string) {
+	if v.Live != "" {
+		<div sse-swap={ name }>
+			{ children... }
+		</div>
+	} else {
+		{ children... }
+	}
+}
+
+// LivePooler, LiveMembers, LiveFailover and LiveSync are the regions the
+// stream sends as the events pooler, members, failover and sync: each is
+// rendered whole, and sent again only when its markup changes.
+templ LivePooler(v View, o OverviewView) {
+	if o.Pooler != nil {
+		<h3 class="section-title">Pooler</h3>
+		<div class="panel p-4 space-y-1">
+			@c.Facts() {
+				@c.Fact("Status", o.Pooler.Status)
+				@c.Fact("Address", o.Pooler.Host+":"+strconv.Itoa(o.Pooler.Port))
+				if o.Pooler.Counted {
+					@c.Fact("Connections in use", strconv.Itoa(o.Pooler.Active))
+					@c.Fact("Waiting", strconv.Itoa(o.Pooler.Waiting))
+				}
+			}
+		</div>
+	}
+}
+
+templ LiveMembers(v View, o OverviewView) {
+	if len(o.Members) > 0 {
+		<h3 class="section-title">Members</h3>
+		<ul class="space-y-2">
+			for _, m := range o.Members {
+				<li class="panel px-4 py-3 flex items-center justify-between gap-3">
+					<span class="text-sm text-rw-text min-w-0">
+						<span class="font-medium">{ m.Node }</span>
+						<span class="text-rw-faint text-xs ml-1">{ m.Role }</span>
+						if m.Lag != "" {
+							<span class="block mt-0.5 text-xs text-rw-faint">{ m.Lag }</span>
+						}
+						if m.Slot != "" {
+							<span class="block text-xs text-rw-faint">{ m.Slot }</span>
+						}
+					</span>
+					<span class="flex items-center gap-2">
+						if m.CanFence && !v.ReadOnly {
+							<form hx-post={ v.Base + "/standby-fence" } hx-target={ "#" + Root } hx-swap="outerHTML">
+								<input type="hidden" name="id" value={ m.ID }/>
+								if m.Fenced {
+									<button type="submit" class="btn btn-ghost btn-sm">Unfence</button>
+								} else {
+									<input type="hidden" name="fenced" value="1"/>
+									<button type="submit" class="btn btn-ghost btn-sm">Fence</button>
+								}
+							</form>
+						}
+						@c.Chip(m.State, m.Tone)
+					</span>
+				</li>
+			}
+		</ul>
+	}
+}
+
+templ LiveFailover(v View, o OverviewView) {
+	if len(o.Members) > 0 && o.Failover != nil {
+		@failover(v, *o.Failover)
+	}
+}
+
+templ LiveSync(v View, o OverviewView) {
+	if o.Sync != nil {
+		@syncForm(v, *o.Sync)
+	}
 }
 
 func bindings(n int) string {
