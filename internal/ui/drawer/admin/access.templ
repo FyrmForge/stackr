@@ -52,6 +52,7 @@ type AccessOption struct{ Value, Label string }
 
 templ Access(v AccessView) {
 	<div id="tab-access">
+		@c.LiveTab(Href("host-access"), "tab-access")
 		if len(v.Waiting) > 0 {
 			@c.Section("Waiting", "instance", "Deploys parked until you answer.") {
 				<div class="space-y-5">

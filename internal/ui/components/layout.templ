@@ -221,6 +221,17 @@ templ topBar(s Shell, oob bool) {
 				}
 			</div>
 		}
+		@Banners(s)
+	</header>
+}
+
+// Banners is the header's problem, upgrade and node-down banners in #banners,
+// kept live by a poller on the shell's /-/banners (every page, not a reload).
+templ Banners(s Shell) {
+	<div id="banners">
+		if s.BannersURL != "" {
+			@LiveTab(s.BannersURL, "banners")
+		}
 		if len(s.Problems) > 0 {
 			@problems(s)
 		}
@@ -240,7 +251,7 @@ templ topBar(s Shell, oob bool) {
 				}
 			</div>
 		}
-	</header>
+	</div>
 }
 
 // problems is the admin's problem banner: the worst problems, one line

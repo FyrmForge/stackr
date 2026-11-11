@@ -47,6 +47,7 @@ templ problemLink(r ProblemRow) {
 
 templ Overview(v OverviewView) {
 	<div id="tab-overview">
+		@c.LiveTab(Href("overview"), "tab-overview")
 		@c.Section("Open problems", "instance", "Each one clears by itself once it is fixed.") {
 			if len(v.Problems) == 0 {
 				<p class="text-sm text-rw-muted">Nothing needs you.</p>

@@ -348,6 +348,7 @@ templ People(m *MembersView, k KeysView) {
 
 templ Members(v MembersView) {
 	<div id="org-members">
+		@c.LiveTab(v.Base+"?tab=people", "org-members")
 		if v.Manage {
 			@c.Section("Add people", "organization", "Everyone gets an invite link to accept, and that link is a credential.") {
 				<form novalidate hx-post={ v.Base + "/invite" } hx-target={ target() } hx-swap="outerHTML" class="people-add space-y-4">
@@ -439,6 +440,9 @@ func nameOr(name, email string) string {
 
 templ Keys(v KeysView) {
 	<div id="org-keys">
+		if v.Minted == "" {
+			@c.LiveTab(v.Base+"?tab=people", "org-keys")
+		}
 		@c.Section("Mint a key", "organization", "An API key for the stackr CLI, scoped to this organization. It is shown once, when minted.") {
 			<form novalidate hx-post={ v.Base + "/keys" } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 				@c.Field(c.FieldView{Name: "key_name", Label: "Name", Placeholder: "laptop", Required: true})

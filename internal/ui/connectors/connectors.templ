@@ -28,6 +28,7 @@ type ListView struct {
 	Rows               []Row
 	Synced             string          // the last DNS records sync's failure, "" = fine
 	Foot               templ.Component // under the list, refreshed with it (the wizard's Continue)
+	Live               string          // a GET whose answer holds #connectors-list, polled; "" = static
 }
 
 // Row is one connector, a card: Kind as its title, Name under it, a status
@@ -95,6 +96,9 @@ templ Slot(open templ.Component) {
 
 templ List(v ListView) {
 	<div id={ ListID }>
+		if v.Live != "" {
+			@c.LiveTab(v.Live, ListID)
+		}
 		if v.Add != "" {
 			<div class="flex justify-end mb-3">
 				<button type="button" class="btn btn-primary btn-sm" hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>

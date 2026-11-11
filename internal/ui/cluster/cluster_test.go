@@ -111,7 +111,7 @@ func TestMapDraws(t *testing.T) {
 	}
 	// The refresh is an `every` poll: flash-toast keeps its failures quiet
 	// (a panel restart) on that trigger alone.
-	if !strings.Contains(body, `hx-trigger="every 15s"`) {
+	if !strings.Contains(body, `hx-trigger="every 3s"`) {
 		t.Error("map refresh is not an every poll")
 	}
 	// The canvas fits the map above the legends it finds by this hook.

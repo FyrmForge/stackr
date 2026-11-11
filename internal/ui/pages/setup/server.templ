@@ -8,6 +8,7 @@ package setup
 import (
 	"strings"
 
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/connectors"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/admin"
 )
@@ -373,7 +374,8 @@ templ ServerNodesPanel(v NodesPanel) {
 // ServerSummary is each step's state; Finish stamps the wizard done.
 templ ServerSummary(v ServerSummaryView) {
 	@shell(v.Frame) {
-		<ul class="space-y-2">
+		<ul id="setup-summary" class="space-y-2">
+			@c.LiveTab(v.Base+"/ui/summary", "setup-summary")
 			for _, r := range v.Rows {
 				<li>
 					<a href={ templ.SafeURL(r.Href) } class="panel px-3 py-2 flex items-center justify-between gap-3 hover:border-rw-accent transition-colors">

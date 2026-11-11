@@ -186,6 +186,7 @@ func (h *handler) build(c echo.Context) (ui.View, error) {
 		OwnListed:   pv.OwnListed,
 		NoNet:       pv.NoNet,
 		NoNetWhy:    pv.NoNetWhy,
+		Live:        base(c),
 	}
 	if can(c, write) {
 		v.Base = base(c)

@@ -15,6 +15,7 @@ type ReleasesView struct {
 	Rows   []ReleaseRow
 	Job    *JobStatusView
 	Ask    *ConfirmView // the promote question, open on arrival
+	Live   string       // the tab's own GET, polled while no question is open; "" = static
 }
 
 // EnvRun is one env and the release it runs ("" = nothing deployed).
@@ -52,6 +53,9 @@ const askRows = 5
 
 templ Releases(v ReleasesView) {
 	<div id="tab-releases">
+		if v.Live != "" && v.Ask == nil {
+			@LiveTab(v.Live, "tab-releases")
+		}
 		if v.Job != nil {
 			<div class="mb-4">
 				@JobStatus(*v.Job)

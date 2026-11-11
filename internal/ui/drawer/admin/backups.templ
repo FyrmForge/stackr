@@ -37,6 +37,7 @@ func failedTitle(n int) string {
 
 templ Backups(v BackupsView) {
 	<div id="tab-backups">
+		@c.LiveTab(Href("backups"), "tab-backups")
 		if v.NoOffBox {
 			<p class="banner" role="status" data-backup-warning>Backups are only on this server. <a href="#dest_name" class="underline">Add an S3 destination.</a></p>
 		}

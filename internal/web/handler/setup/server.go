@@ -205,6 +205,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 			Title: "DNS connectors", Scope: "instance",
 			Help:     "Pick the domains and who may use them in a connector's settings.",
 			Add:      connBase + "/new",
+			Live:     stepURL(step),
 			AddLabel: addLabel(h.dnsPanel()),
 		}
 		v.List.Rows, err = h.dnsPanel().Rows(c)
@@ -300,6 +301,7 @@ func (h *handler) gitStep(c echo.Context, s pages.ServerStep) (pages.ServerGitVi
 		Title: v.Label + " connectors", Scope: "instance",
 		Help:     "Shared with every organization. Pick who may use one in its settings.",
 		Add:      gitBase + "/new",
+		Live:     stepURL(service.ServerSetupGit),
 		AddLabel: addLabel(p),
 	}
 	var err error

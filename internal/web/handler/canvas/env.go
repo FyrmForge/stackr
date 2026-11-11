@@ -132,7 +132,7 @@ func (h *handler) envSettings(c echo.Context, cd card, f *comp.DrawerView, write
 // an env the panel may change (a stack file declares a managed one's).
 func volumesView(vs service.EnvVolumes, base string, write bool) envui.VolumesView {
 	edit := write && !vs.Managed
-	var v envui.VolumesView
+	v := envui.VolumesView{Live: base + "?tab=settings"}
 	switch {
 	case edit:
 		v.Add = base + "/volumes"

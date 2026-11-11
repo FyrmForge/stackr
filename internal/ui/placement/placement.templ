@@ -57,6 +57,8 @@ type View struct {
 
 	Why string // a viewer who cannot change it: why, over the disabled controls
 
+	Live string // the tab's own GET: Moving (env) and Offers (org) poll it; "" = static
+
 	// Ingress
 	NoIngress   bool // a cron or function: no inbound traffic, no Ingress section
 	Ingress     string
@@ -122,7 +124,14 @@ templ Placement(v View) {
 
 templ runsOn(v View) {
 	@c.Section("Runs on", v.scopeWord(), "") {
-		if v.Moving != "" {
+		if v.Live != "" && v.Scope == "env" {
+			<div id="placement-moving">
+				@c.LiveTab(v.Live, "placement-moving")
+				if v.Moving != "" {
+					<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
+				}
+			</div>
+		} else if v.Moving != "" {
 			<p class="banner" role="status"><a href={ templ.SafeURL(v.Moving) } class="link">Moving: see progress</a></p>
 		}
 		<div data-field data-changed?={ v.pinSet() }>
@@ -154,7 +163,14 @@ templ runsOn(v View) {
 		if v.Move != nil {
 			@v.Move
 		}
-		if len(v.Offers) > 0 {
+		if v.Live != "" && v.Scope == "org" {
+			<div id="placement-offers">
+				@c.LiveTab(v.Live, "placement-offers")
+				if len(v.Offers) > 0 {
+					@offers(v.Offers)
+				}
+			</div>
+		} else if len(v.Offers) > 0 {
 			@offers(v.Offers)
 		}
 	}

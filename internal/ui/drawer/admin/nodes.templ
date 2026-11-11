@@ -391,6 +391,9 @@ func picked(v *AddNodeView, t string) bool {
 
 templ Nodes(v NodesView) {
 	<div id="tab-nodes">
+		if v.Adder == nil {
+			@c.LiveTab(Href("nodes"), "tab-nodes")
+		}
 		if len(v.Lost) > 0 {
 			@c.Section("Lost envs", "instance", "Their node was forgotten. Repoint the placement they belong to and they come back from backups.") {
 				<ul class="space-y-3">
