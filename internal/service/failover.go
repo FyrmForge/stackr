@@ -185,31 +185,6 @@ func (o *Orchestrator) relocatedAddr(ctx context.Context, p InstanceMember) (net
 
 // ---- starting one ----
 
-// FailoverView is an in-flight failover as the drawer and the CLI show it.
-type FailoverView struct {
-	Kind  string `json:"kind"`
-	Step  string `json:"step"`
-	To    string `json:"to"`
-	Error string `json:"error,omitempty"`
-}
-
-// FailoverOf is the instance's failover in flight; ok is false when none is.
-func (o *Orchestrator) FailoverOf(ctx context.Context, tileID string) (FailoverView, bool, error) {
-	_, inst, err := o.memberInstance(ctx, tileID)
-	if err != nil {
-		return FailoverView{}, false, err
-	}
-	f, ok := o.failoverOf(ctx, inst.ID)
-	if !ok {
-		return FailoverView{}, false, nil
-	}
-	to := ""
-	if m, err := o.members.Get(ctx, f.Target); err == nil {
-		to = o.nodeName(ctx, m.NodeID)
-	}
-	return FailoverView{Kind: f.Kind, Step: f.Step, To: to, Error: f.Error}, true, nil
-}
-
 // Switchover moves the primary to a standby while both run: the archive is
 // drained, the primary shut down cleanly, the standby confirmed to have
 // replayed the shutdown checkpoint, and only then promoted. to names the

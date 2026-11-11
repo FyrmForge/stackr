@@ -7,8 +7,40 @@ import (
 
 	"github.com/a-h/templ"
 
+	c "github.com/FyrmForge/stackr/internal/ui/components"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/volume"
 )
+
+// A failed read shows one line in its region, never nothing; the job is a
+// live region the stream swaps.
+func TestUnreadRegionsAndLiveJob(t *testing.T) {
+	render := func(c templ.Component) string {
+		var b strings.Builder
+		if err := c.Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	v := View{Base: "/o/s/e/-/instances/pg", Live: "/live"}
+	o := OverviewView{Unread: map[string]string{"pooler": "try again shortly", "members": "x", "sync": "y", "failover": "z"}}
+	for want, got := range map[string]string{
+		"read the pooler: try again shortly": render(LivePooler(v, o)),
+		"read members: x":                    render(LiveMembers(v, o)),
+		"read sync: y":                       render(LiveSync(v, o)),
+		"read failover: z":                   render(LiveFailover(v, o)),
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in %q", want, got)
+		}
+	}
+	j := c.JobStatusView{Kind: "deploy", State: "running"}
+	if got := render(LiveJob(v, OverviewView{Job: &j})); !strings.Contains(got, "Last job") {
+		t.Errorf("job region lacks the job: %q", got)
+	}
+	if got := render(Overview(v, OverviewView{Job: &j})); !strings.Contains(got, `sse-swap="job"`) {
+		t.Errorf("job is not a live region:\n%s", got)
+	}
+}
 
 // Every tab draws inside v0's panel header with its marker; no tab draws
 // the admin password (the view has none to draw).
@@ -169,7 +201,7 @@ func TestMajorChangeAndRollbackRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`hx-post="/o/s/e/-/instances/pg/major"`, `<option value="18">`, `value="check"`, "Change version",
-		"Last check for postgres 18: ok", `hx-post="/o/s/e/-/instances/pg/major-rollback"`, "Type pg to roll back", "kept until 2026-11-16 10:00"} {
+		"Last check for postgres 18: ok", `hx-post="/o/s/e/-/instances/pg/rollback-upgrade"`, "Type pg to roll back", "kept until 2026-11-16 10:00"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("overview lacks %q", want)
 		}

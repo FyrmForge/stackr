@@ -47,6 +47,26 @@ document.addEventListener('htmx:sendError', function(evt) {
     document.addEventListener('htmx:sseOpen', function (evt) { mark(evt, false); });
 })();
 
+// Live refreshes of a drawer (data-poll-guard on the polling element) wait
+// while the viewer is busy: a confirm dialog is open, and, by token, a field
+// of the drawer has focus ("fields"), a row under the element's parent is
+// expanded ("rows"), or focus is inside the parent ("region"). htmx filters
+// would need 'unsafe-eval', so the check lives here. data-poll-retry names
+// an event to fire again in 3s, for a refresh no timer repeats.
+document.addEventListener('htmx:beforeRequest', function (evt) {
+    var el = evt.detail.elt, g = el.getAttribute && el.getAttribute('data-poll-guard');
+    if (g === null) return;
+    var drawer = el.closest('#drawer-view'), box = el.parentElement;
+    var busy = document.querySelector('dialog[open]') ||
+        (g.indexOf('fields') >= 0 && drawer && drawer.querySelector('input:focus,textarea:focus,select:focus')) ||
+        (g.indexOf('rows') >= 0 && box && box.querySelector('details[open]')) ||
+        (g.indexOf('region') >= 0 && box && box.matches(':focus-within'));
+    if (!busy) return;
+    evt.preventDefault();
+    var again = el.getAttribute('data-poll-retry');
+    if (again) setTimeout(function () { if (el.isConnected) htmx.trigger(el, again); }, 3000);
+});
+
 // Re-validate a field while typing, but only once it is already showing an
 // error. Pairs with hx-trigger="blur, hamr:revalidate" on the input. The
 // condition lives here rather than in an hx-trigger [...] filter because htmx

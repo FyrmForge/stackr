@@ -51,31 +51,60 @@ var LiveEvery = 3 * time.Second
 // themselves: the pooler, the members, the failover offer and the sync
 // status. The drawer renders it once and its stream renders it again.
 func (h *handler) pgLive(ctx context.Context, by *service.Principal, canAdd bool, tileID string, o instance.OverviewView) instance.OverviewView {
-	if ps, err := h.orch.Pooler(ctx, tileID); err == nil {
+	o.Unread = map[string]string{}
+	fail := func(region string, err error) {
+		o.Unread[region] = unreadReason(err)
+	}
+	if ps, err := h.orch.Pooler(ctx, tileID); err != nil {
+		fail("pooler", err)
+	} else {
 		o.Pooler = &instance.PoolerView{
 			Status: ps.Word, Host: ps.Host, Port: ps.Port,
 			Active: ps.Active, Waiting: ps.Waiting, Counted: ps.Counted,
 		}
 	}
-	vs, _ := h.orch.Standbys(ctx, tileID)
+	vs, err := h.orch.Standbys(ctx, tileID)
+	if err != nil {
+		fail("members", err)
+	}
 	if canAdd {
-		o.AddNodes, _ = h.orch.StandbyCandidates(ctx, by, tileID)
+		var cerr error
+		if o.AddNodes, cerr = h.orch.StandbyCandidates(ctx, by, tileID); cerr != nil && err == nil {
+			fail("members", cerr)
+		}
 	}
 	if len(vs) > 1 || len(o.AddNodes) > 0 {
 		o.Members = memberRows(vs)
 	}
-	if sv, err := h.orch.SyncOf(ctx, tileID); err == nil && (len(sv.Standbys) > 0 || sv.Prefer) {
+	if sv, err := h.orch.SyncOf(ctx, tileID); err != nil {
+		fail("sync", err)
+	} else if len(sv.Standbys) > 0 || sv.Prefer {
 		o.Sync = &instance.SyncView{Prefer: sv.Prefer, Required: sv.Required, LimitMS: sv.LimitMS, Status: sv.Status}
 		for _, b := range sv.Standbys {
 			o.Sync.Standbys = append(o.Sync.Standbys, instance.SyncStandby{ID: b.ID, Node: b.Node, Mode: b.Mode})
 		}
 	}
-	if fo, ok, err := h.orch.FailoverOptionsOf(ctx, tileID); err == nil && ok {
+	if fo, ok, err := h.orch.FailoverOptionsOf(ctx, tileID); err != nil {
+		fail("failover", err)
+	} else if ok {
 		o.Failover = &instance.FailoverView{Primary: fo.Primary, Switch: fo.Switch, Promote: fo.Promote,
 			Unreachable: fo.Unreachable, InFlight: fo.InFlight, Error: fo.Error, CanAbort: fo.CanAbort}
 	}
 	return o
 }
+
+// unreadReason is a failed read as the drawer words it: the refusal's
+// message when the user can act on it, else a plain retry line.
+func unreadReason(err error) string {
+	if msg, ok := render.Refused(err); ok {
+		return msg
+	}
+	return "try again shortly"
+}
+
+// unreadAfter is how many reads in a row must fail before the stream
+// replaces a region's last good markup with the error line.
+const unreadAfter = 3
 
 // GET …/-/instances/:tile/live: the open overview's stream, the same
 // polling stream as the canvas's. One event per region (pooler, members,
@@ -91,8 +120,10 @@ func (h *handler) InstanceLive(c echo.Context) error {
 	}{
 		{"pooler", instance.LivePooler}, {"members", instance.LiveMembers},
 		{"failover", instance.LiveFailover}, {"sync", instance.LiveSync},
+		{"job", instance.LiveJob},
 	}
 	sent := map[string]stream.HTML{}
+	fails := map[string]int{}
 	var last time.Time
 	return stream.Watch(c, func(ctx context.Context) ([]stream.Msg, error) {
 		if time.Since(last) < LiveEvery {
@@ -100,8 +131,23 @@ func (h *handler) InstanceLive(c echo.Context) error {
 		}
 		last = time.Now()
 		o := h.pgLive(ctx, by, canAdd, s.Tile.ID, instance.OverviewView{})
+		if st, err := h.orch.TileStatus(ctx, s.Tile.ID); err != nil {
+			o.Unread["job"] = unreadReason(err)
+		} else if st.LastJob != nil {
+			j := render.JobView(render.EnvURL(c), *st.LastJob)
+			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+		}
 		var out []stream.Msg
 		for _, r := range regions {
+			// a failed read keeps the last good markup until it has
+			// failed unreadAfter times running
+			if _, bad := o.Unread[r.name]; bad {
+				if fails[r.name]++; fails[r.name] < unreadAfter {
+					continue
+				}
+			} else {
+				fails[r.name] = 0
+			}
 			body, err := render.Event(ctx, r.part(v, o))
 			if err != nil {
 				return nil, err
