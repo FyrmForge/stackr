@@ -234,8 +234,8 @@ func TestLiveFormsArePreserved(t *testing.T) {
 		if i < 0 {
 			t.Fatalf("no %s form with an id in:\n%s", prefix, html)
 		}
-		rest := html[i+4:]
-		return rest[:strings.Index(rest, `"`)]
+		rest, _, _ := strings.Cut(html[i+4:], `"`)
+		return rest
 	}
 	fo := func(switchTo ...string) string {
 		return render(LiveFailover(v, OverviewView{Members: []MemberRow{{}}, Failover: &FailoverView{Primary: "ctl", Switch: switchTo, Promote: []string{"w1"}}}))
@@ -256,7 +256,7 @@ func TestLiveFormsArePreserved(t *testing.T) {
 	add := func(nodes ...string) string {
 		return render(LiveMembers(v, OverviewView{AddNodes: nodes}))
 	}
-	if id(add("w1"), "standby-add") != id(add("w1"), "standby-add") || id(add("w1"), "standby-add") == id(add("w1", "w2"), "standby-add") {
+	if one, again := add("w1"), add("w1"); id(one, "standby-add") != id(again, "standby-add") || id(one, "standby-add") == id(add("w1", "w2"), "standby-add") {
 		t.Error("the add-standby form id must follow the candidate nodes")
 	}
 }
