@@ -789,7 +789,7 @@ func (h *handler) PromoteStandby(c echo.Context) error {
 		}
 		gone = true
 	}
-	_, err := h.orch.PromoteStandby(ctx, middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone, strings.TrimSpace(c.FormValue("powered_off")), false)
+	_, err := h.orch.PromoteStandby(ctx, middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone, strings.TrimSpace(c.FormValue("powered_off")), c.FormValue("allow_async") != "")
 	return h.instance(c, "slices", "Promoted. The old primary stays fenced until its node returns.", err, instance.SettingsView{})
 }
 

@@ -1035,6 +1035,14 @@ templ failover(v View, f FailoverView) {
 					}
 					<button type="submit" class="btn btn-danger btn-sm">Promote</button>
 				</div>
+				<div>
+					<label for="promote-powered-off" class="label">To promote over a node you powered off, type: I powered the node off</label>
+					<input id="promote-powered-off" name="powered_off" autocomplete="off" class="input font-mono"/>
+				</div>
+				<label class="flex items-center gap-2 text-sm text-rw-text">
+					<input type="checkbox" name="allow_async" value="1"/>
+					Promote even if it may lack the last writes
+				</label>
 			</form>
 		}
 		if len(f.Switch) > 0 {

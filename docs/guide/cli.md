@@ -615,7 +615,7 @@ stackr db promote [flags]
       --allow-async-target   promote a standby the primary did not wait for, although one it did wait for is usable
       --env string           the environment (default: the linked one)
       --node-gone            confirm the old primary's node is really gone (needed when it does not answer)
-      --powered-off          promote without a recorded lease on the old primary: you powered its node off
+      --powered-off string   promote without a recorded lease on the old primary; type "I powered the node off" to say you powered its node off
       --stack string         the stack (default: the linked one)
       --tile string          the tile (default: the linked one)
       --to string            the node of the standby to promote (name or slug)
