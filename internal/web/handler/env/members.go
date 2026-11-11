@@ -20,6 +20,8 @@ func memberRows(vs []service.StandbyView) []instance.MemberRow {
 		case "needs rebuild", "fenced, needs rewind":
 			r.Tone = "danger"
 		}
+		r.CanRemove = v.Role == "replica" && v.State != "removing"
+		r.CanRebuild = v.Role == "replica" && (v.State == "needs rebuild" || v.State == "fenced, needs rewind")
 		r.CanFence = v.Role == "replica" && v.State != "removing" && v.State != "fenced, needs rewind" && v.State != "needs rebuild"
 		if v.Role == "replica" && v.State == "streaming" {
 			r.Lag = fmt.Sprintf("%s behind, %s", render.Size(v.LagBytes), (time.Duration(v.LagSeconds) * time.Second).String())
