@@ -575,9 +575,40 @@ func (o *Orchestrator) Protection(ctx context.Context, tileID string) (string, e
 		return "", err
 	}
 	if len(ns) < 2 {
-		return "No standby. Add a node to get a standby.", nil
+		return "No standby. Add a node to the cluster first.", nil
 	}
 	return "No standby", nil
+}
+
+// StandbyCandidates lists the names of nodes a standby of tile tileID's
+// instance could go on: online, not the primary's, not holding a member, open
+// to the tile's org (admins see all). Empty once the instance has MaxReplicas.
+func (o *Orchestrator) StandbyCandidates(ctx context.Context, by *Principal, tileID string) ([]string, error) {
+	t, inst, err := o.memberInstance(ctx, tileID)
+	if err != nil {
+		return nil, err
+	}
+	ms, err := o.members.List(ctx, inst.ID)
+	if err != nil {
+		return nil, err
+	}
+	pn, err := o.primaryNode(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	ns, err := o.nodeLeaf().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, n := range ns {
+		if opmember.Check(pn, n.ID, ms) == nil && o.nodeUp(ctx, n.ID) == nil &&
+			o.nodeOpenToTile(ctx, by != nil && by.Access.Admin, t, n.ID) == nil {
+			out = append(out, n.Name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // setPrimaryState records whether the panel wants the instance tile's
