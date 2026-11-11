@@ -1682,12 +1682,19 @@ func doPromote(o *Orchestrator, ctx context.Context, by *Principal, tileID, to s
 }
 
 func doFailover(o *Orchestrator, ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (StandbyView, error) {
-	t, inst, err := o.beginFailover(ctx, by, tileID, to, kind, nodeGone, poweredOff, allowAsync)
+	ctx = context.WithoutCancel(ctx) // the job has its own
+	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
 		return StandbyView{}, err
 	}
-	ctx = context.WithoutCancel(ctx) // the job has its own
-	f, _ := o.failoverOf(ctx, inst.ID)
+	t, inst, f, err := o.beginFailover(ctx, by, "", tileID, to, kind, nodeGone, poweredOff, allowAsync)
+	if err == nil {
+		err = o.saveFailover(ctx, inst.ID, f)
+	}
+	unlock()
+	if err != nil {
+		return StandbyView{}, err
+	}
 	if err := o.runFailover(ctx, t, inst, f, io.Discard); err != nil {
 		return StandbyView{}, err
 	}
@@ -1771,5 +1778,52 @@ func TestSwitchOptionsFollowTheChip(t *testing.T) {
 	o.probeRuns.Store(rep.ID, 1)
 	if fo, _, err = o.FailoverOptionsOf(ctx, r.inst.TileID); err != nil || len(fo.Switch) != 1 {
 		t.Errorf("options after a streaming probe = %v, %v", fo.Switch, err)
+	}
+}
+
+// A queued failover leaves no cursor, so a cancelled one cannot be resumed
+// by the tick; the job writes it when it starts, and checks again then.
+func TestFailoverCursorIsTheJobsToWrite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, true)
+	o := r.n.orch
+	// state changed while queued: the job fails with the reason, no cursor
+	var log strings.Builder
+	err := o.runFailoverJob(ctx, &jobs.Run{Log: &log}, failoverJob{TileID: r.inst.TileID, Kind: foSwitchover, To: "nowhere", Admin: true})
+	if err == nil {
+		t.Fatal("a job whose check fails ran")
+	}
+	if _, ok := o.failoverOf(ctx, r.inst.ID); ok {
+		t.Fatal("a failed check left a cursor")
+	}
+	// a promote's job locks the failover key, never the tile
+	must(t, setNode(o, "w1", node.StatusOffline))
+	r.ageLease(2 * time.Minute)
+	j, err := o.PromoteStandby(ctx, adminP(), r.inst.TileID, r.n.ctl.ID, true, "", false)
+	must(t, err)
+	if !slices.Contains(j.LockSet, failoverKey(r.inst.ID)) || slices.Contains(j.LockSet, r.inst.TileID) {
+		t.Errorf("promote lock set = %v", j.LockSet)
+	}
+}
+
+// The check writes no cursor, so a job that never runs leaves nothing for
+// resumeOne to run.
+func TestFailoverCheckWritesNoCursor(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	unlock, err := o.lockInstance(ctx, r.inst.TileID)
+	must(t, err)
+	_, _, _, err = o.beginFailover(ctx, adminP(), "", r.inst.TileID, "w1", foSwitchover, false, false, false)
+	unlock()
+	must(t, err)
+	if _, ok := o.failoverOf(ctx, r.inst.ID); ok {
+		t.Fatal("the check wrote a cursor")
+	}
+	o.resumeOne(ctx, r.inst.ID)
+	if p, _ := r.members(); p.NodeID == "w1" {
+		t.Error("the tick ran a failover nobody started")
 	}
 }

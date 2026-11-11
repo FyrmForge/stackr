@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
@@ -312,28 +313,48 @@ func (o *Orchestrator) PromoteStandby(ctx context.Context, by *Principal, tileID
 // promote. The job log carries one line per step.
 const kindFailover jobs.Kind = "pg-failover"
 
+// failoverJob is the job's payload: the request itself, checked again when
+// the job runs. The cursor is not written before then, so a job that waits
+// or is cancelled leaves nothing for the tick to resume.
 type failoverJob struct {
-	TileID string `json:"tile_id"`
+	TileID     string `json:"tile_id"`
+	Kind       string `json:"kind,omitempty"`
+	To         string `json:"to,omitempty"`
+	NodeGone   bool   `json:"node_gone,omitempty"`
+	PoweredOff bool   `json:"powered_off,omitempty"`
+	AllowAsync bool   `json:"allow_async,omitempty"`
+	Admin      bool   `json:"admin,omitempty"`
 }
 
-// startFailover checks the failover, writes its cursor and queues the job
-// that runs it. Everything that can be refused is refused here, before any
-// change, and returned as the error.
+// startFailover checks the failover and queues the job that runs it. Everything
+// that can be refused is refused here, before any change, and returned as the
+// error. The cursor is the job's to write when it starts.
 func (o *Orchestrator) startFailover(ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (Job, error) {
-	t, inst, err := o.beginFailover(ctx, by, tileID, to, kind, nodeGone, poweredOff, allowAsync)
+	ctx = context.WithoutCancel(ctx) // the request's own timeout ends well before the checks do
+	unlock, err := o.lockInstance(ctx, tileID)
 	if err != nil {
 		return Job{}, err
 	}
-	j, err := o.enqueue(ctx, kindFailover, failoverJob{TileID: t.ID}, t.ID)
+	t, inst, _, err := o.beginFailover(ctx, by, "", tileID, to, kind, nodeGone, poweredOff, allowAsync)
+	if err == nil && o.failoverJobLive(ctx, inst.ID) {
+		err = errs.Conflictf("A failover of %s is already queued.", t.Slug)
+	}
+	unlock()
 	if err != nil {
-		_ = o.store.Settings.Delete(ctx, failoverKey(inst.ID)) // nothing ran yet
 		return Job{}, err
 	}
-	return j, nil
+	// a promote's primary is down: it never waits behind the tile's deploys
+	// (a deploy locks every tile of its env), only behind another failover.
+	lock := []string{failoverKey(inst.ID)}
+	if kind == foSwitchover {
+		lock = append(lock, t.ID)
+	}
+	return o.enqueue(ctx, kindFailover, failoverJob{TileID: t.ID, Kind: kind, To: to, NodeGone: nodeGone, PoweredOff: poweredOff, AllowAsync: allowAsync, Admin: by != nil && by.Access.Admin}, lock...)
 }
 
-// runFailoverJob is the job: it takes the topology lock and runs the cursor
-// to its end. A step that fails keeps the cursor; the tick resumes it.
+// runFailoverJob is the job: it takes the topology lock, checks the request
+// again (the state may have changed while it waited), writes the cursor and
+// runs it to its end. A step that fails keeps the cursor; the tick resumes it.
 func (o *Orchestrator) runFailoverJob(ctx context.Context, r *jobs.Run, p failoverJob) error {
 	unlock, err := o.lockInstance(ctx, p.TileID)
 	if err != nil {
@@ -346,77 +367,81 @@ func (o *Orchestrator) runFailoverJob(ctx context.Context, r *jobs.Run, p failov
 	}
 	f, ok := o.failoverOf(ctx, inst.ID)
 	if !ok {
-		_, _ = fmt.Fprintln(r.Log, "nothing to run: the failover was aborted or already finished")
-		return nil
+		if p.Kind == "" {
+			_, _ = fmt.Fprintln(r.Log, "nothing to run: the failover was aborted or already finished")
+			return nil
+		}
+		by := &Principal{Access: authz.User{Admin: p.Admin}}
+		_, _, f, err = o.beginFailover(ctx, by, r.Job.ID, p.TileID, p.To, p.Kind, p.NodeGone, p.PoweredOff, p.AllowAsync)
+		if err != nil {
+			return err
+		}
+		if err := o.saveFailover(ctx, inst.ID, f); err != nil {
+			return err
+		}
 	}
 	return o.runFailover(ctx, t, inst, f, r.Log)
 }
 
-// failoverJobLive says whether a failover job of the tile is queued or running.
-func (o *Orchestrator) failoverJobLive(ctx context.Context, tileID string) bool {
+// failoverJobLive says whether a failover job of the instance is queued or running.
+func (o *Orchestrator) failoverJobLive(ctx context.Context, instanceID string) bool {
 	live, err := o.store.Jobs.ListByState(ctx, "queued", "waiting", "running")
 	return err == nil && slices.ContainsFunc(live, func(j store.Job) bool {
-		return j.Kind == string(kindFailover) && slices.Contains(j.LockSet, tileID)
+		return j.Kind == string(kindFailover) && slices.Contains(j.LockSet, failoverKey(instanceID))
 	})
 }
 
-// beginFailover is every check of a failover, then its cursor. Nothing but
-// the cursor is written; the fence and the steps are the job's.
-func (o *Orchestrator) beginFailover(ctx context.Context, by *Principal, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (store.Tile, store.OperatedInstance, error) {
-	// the request's own timeout (hamr's ContextTimeout) ends well before the checks do
-	ctx = context.WithoutCancel(ctx)
-	unlock, err := o.lockInstance(ctx, tileID)
-	if err != nil {
-		return store.Tile{}, store.OperatedInstance{}, err
-	}
-	defer unlock()
+// beginFailover is every check of a failover and the cursor it would start
+// from, which the caller saves. The caller holds the topology lock. Nothing is
+// written; the fence and the steps are the job's.
+func (o *Orchestrator) beginFailover(ctx context.Context, by *Principal, ownJob, tileID, to, kind string, nodeGone, poweredOff, allowAsync bool) (store.Tile, store.OperatedInstance, failover, error) {
 	t, inst, err := o.memberInstance(ctx, tileID)
 	if err != nil {
-		return t, inst, err
+		return t, inst, failover{}, err
 	}
 	if f, ok := o.failoverOf(ctx, inst.ID); ok {
-		return t, inst, errs.Conflictf("A %s of %s is in progress (%s). It resumes by itself.", f.Kind, t.Slug, f.Step)
+		return t, inst, failover{}, errs.Conflictf("A %s of %s is in progress (%s). It resumes by itself.", f.Kind, t.Slug, f.Step)
 	}
 	ms, err := o.members.List(ctx, inst.ID)
 	if err != nil {
-		return t, inst, err
+		return t, inst, failover{}, err
 	}
 	old, ok := opmember.PrimaryOf(ms)
 	if !ok {
-		return t, inst, errs.Conflictf("%s has no primary row.", t.Slug)
+		return t, inst, failover{}, errs.Conflictf("%s has no primary row.", t.Slug)
 	}
 	oldNode, err := o.primaryNode(ctx, t)
 	if err != nil {
-		return t, inst, err
+		return t, inst, failover{}, err
 	}
 	target, err := o.failoverTarget(ctx, by, t, ms, to, kind)
 	if err != nil {
-		return t, inst, err
+		return t, inst, failover{}, err
 	}
 	if kind == foPromoted && !allowAsync {
 		if err := syncTargetOK(t, ms, target); err != nil {
-			return t, inst, err
+			return t, inst, failover{}, err
 		}
 	}
 	var slots string
 	if kind == foSwitchover {
-		if err = o.mayHandOver(ctx, t, old, oldNode); err == nil {
+		if err = o.mayHandOver(ctx, t, old, oldNode, ownJob); err == nil {
 			slots, err = o.switchoverReady(ctx, t, target)
 		}
 	} else {
 		err = o.mayPromote(ctx, t, inst, oldNode, nodeGone, poweredOff)
 	}
 	if err != nil {
-		return t, inst, err
+		return t, inst, failover{}, err
 	}
 	if kind == foPromoted && !allowAsync {
 		if err := o.targetBehind(ctx, t, ms, target); err != nil {
-			return t, inst, err
+			return t, inst, failover{}, err
 		}
 	}
 	// the cursor first, the old primary's fence (the job's first step) second.
 	f := failover{Kind: kind, Target: target.ID, Old: old.ID, OldNode: oldNode, NodeGone: nodeGone, PoweredOff: poweredOff, Step: stepFence, Started: time.Now().UTC(), Slots: slots}
-	return t, inst, o.saveFailover(ctx, inst.ID, f)
+	return t, inst, f, nil
 }
 
 // failoverTarget picks the standby that is promoted. A named node must hold a
@@ -564,7 +589,7 @@ func (o *Orchestrator) mostAdvanced(ctx context.Context, t store.Tile, cands []I
 
 // mayHandOver is the switchover's precondition: the primary runs on a node
 // that answers, and no job of the tile is in flight.
-func (o *Orchestrator) mayHandOver(ctx context.Context, t store.Tile, old InstanceMember, oldNode string) error {
+func (o *Orchestrator) mayHandOver(ctx context.Context, t store.Tile, old InstanceMember, oldNode, ownJob string) error {
 	if err := o.nodeUp(ctx, oldNode); err != nil {
 		return errs.Conflictf("The primary's node is not reachable. If the primary is down, promote a standby instead.")
 	}
@@ -574,7 +599,7 @@ func (o *Orchestrator) mayHandOver(ctx context.Context, t store.Tile, old Instan
 	if cs, err := o.tiles.Replicas(ctx, t); err != nil || !slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" }) {
 		return errs.Conflictf("The primary is not running. If it is down, promote a standby instead.")
 	}
-	if j, ok, err := o.jobRows.Last(ctx, t.ID); err != nil || (ok && job.Live(j.State)) {
+	if j, ok, err := o.jobRows.Last(ctx, t.ID); err != nil || (ok && j.ID != ownJob && job.Live(j.State)) {
 		return errs.Conflictf("%s has a job running. Wait for it, then switch over.", t.Slug)
 	}
 	return nil
@@ -747,7 +772,7 @@ func (o *Orchestrator) resumeOne(ctx context.Context, instanceID string) {
 		return
 	}
 	t, err := o.tiles.Get(ctx, inst.TileID)
-	if err != nil || o.failoverJobLive(ctx, t.ID) {
+	if err != nil || o.failoverJobLive(ctx, instanceID) {
 		return // a job is about to run it, with its log
 	}
 	_ = o.runFailover(ctx, t, inst, f, io.Discard) // logs and records its own failure
