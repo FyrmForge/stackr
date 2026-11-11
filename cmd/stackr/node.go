@@ -592,7 +592,7 @@ func (a *app) nodeRotate() *cobra.Command {
 }
 
 func (a *app) nodeRemove() *cobra.Command {
-	c := leaf("remove <name>", "admin.node-remove", "Take a healthy worker out, once no placement points at it (server admin)", exact(1),
+	c := leaf("rm <name>", "admin.node-remove", "Take a healthy worker out, once no placement points at it (server admin)", exact(1),
 		func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			n, err := a.node(name)
@@ -617,7 +617,7 @@ func (a *app) nodeRemove() *cobra.Command {
 			}
 			return a.follow("/admin", j, "removal of "+name)
 		})
-	c.Example = "  stackr node remove vps-fsn1"
+	c.Example = "  stackr node rm vps-fsn1"
 	return c
 }
 

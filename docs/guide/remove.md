@@ -10,7 +10,7 @@
 2. Remove it. In the panel: Admin, Nodes, the node, Remove this node.
 
    ```bash
-   stackr node remove vps-fsn1
+   stackr node rm vps-fsn1
    ```
 
 What remove does, in order:

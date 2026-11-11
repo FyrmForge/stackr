@@ -229,11 +229,11 @@ func TestNodeRejoin(t *testing.T) {
 func TestNodeRemove(t *testing.T) {
 	empty := `{"name":"w","env_list":[]}`
 	r := fake(t, map[string]string{"/nodes/w": empty})
-	if code, _, _ := cli(t, "node", "remove", "w"); code != 3 || len(writes(r)) != 0 {
+	if code, _, _ := cli(t, "node", "rm", "w"); code != 3 || len(writes(r)) != 0 {
 		t.Errorf("no -y = %d, writes %v", code, writes(r))
 	}
 	// the answer is a job; this fake's has no id, so it is shown, not followed
-	if code, out, errw := cli(t, "-y", "node", "remove", "w"); code != 0 {
+	if code, out, errw := cli(t, "-y", "node", "rm", "w"); code != 0 {
 		t.Fatalf("-y = %d %q %q", code, out, errw)
 	}
 	if w := writes(r); len(w) != 1 || w[0] != "DELETE /api/v1/admin/nodes/w " {
@@ -241,16 +241,16 @@ func TestNodeRemove(t *testing.T) {
 	}
 	// a placement on it, or envs on it: refused, nothing sent
 	r = fake(t, map[string]string{"/nodes/w": strings.Replace(nodeJSON, `"placements":[]`, `"placements":["eu-prod"]`, 1)})
-	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "hosts placement eu-prod") || len(writes(r)) != 0 {
+	if code, _, errw := cli(t, "-y", "node", "rm", "w"); code != 1 || !strings.Contains(errw, "hosts placement eu-prod") || len(writes(r)) != 0 {
 		t.Errorf("with placement = %d %q, writes %v", code, errw, writes(r))
 	}
 	r = fake(t, map[string]string{"/nodes/w": nodeJSON})
-	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "runs 1 env. Repoint its placements first") || len(writes(r)) != 0 {
+	if code, _, errw := cli(t, "-y", "node", "rm", "w"); code != 1 || !strings.Contains(errw, "runs 1 env. Repoint its placements first") || len(writes(r)) != 0 {
 		t.Errorf("with envs = %d %q, writes %v", code, errw, writes(r))
 	}
 	// the controller is refused, envs or not
 	r = fake(t, map[string]string{"/nodes/w": strings.Replace(nodeJSON, `"role":"worker"`, `"role":"controller"`, 1)})
-	if code, _, errw := cli(t, "-y", "node", "remove", "w"); code != 1 || !strings.Contains(errw, "is the controller") || len(writes(r)) != 0 {
+	if code, _, errw := cli(t, "-y", "node", "rm", "w"); code != 1 || !strings.Contains(errw, "is the controller") || len(writes(r)) != 0 {
 		t.Errorf("controller = %d %q, writes %v", code, errw, writes(r))
 	}
 }
@@ -672,7 +672,7 @@ func TestNodeRemoveAndBackupQueueJobs(t *testing.T) {
 		"/admin/nodes/vps":        `{"id":"j1"}`,
 		"/admin/nodes/vps/backup": `{"id":"j2"}`,
 	})
-	cli(t, "-y", "node", "remove", "vps")
+	cli(t, "-y", "node", "rm", "vps")
 	cli(t, "-y", "node", "backup", "vps")
 	want := []string{"DELETE /api/v1/admin/nodes/vps ", "POST /api/v1/admin/nodes/vps/backup "}
 	if w := writes(r); len(w) != 2 || w[0] != want[0] || w[1] != want[1] {

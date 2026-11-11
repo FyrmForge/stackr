@@ -9,7 +9,7 @@ import (
 // operatedStandby is `stackr operated standby`: a postgres instance's standbys,
 // mirroring the API. The instance is the first argument.
 func (a *app) operatedStandby() *cobra.Command {
-	list := leaf("list <tile>", "operated.standby-list", "List an instance's members: the primary and its standbys, with lag and slot size", exact(1),
+	list := leaf("ls <tile>", "operated.standby-list", "List an instance's members: the primary and its standbys, with lag and slot size", exact(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/standbys", nil)
 			if err != nil {
@@ -49,7 +49,7 @@ func (a *app) operatedStandby() *cobra.Command {
 		}
 		return "", fmt.Errorf("no standby %q on this instance", ref)
 	}
-	rm := leaf("remove <tile> <node|id>", "operated.standby-rm", "Remove a standby: its container, volume and slot", exact(2),
+	rm := leaf("rm <tile> <node|id>", "operated.standby-rm", "Remove a standby: its container, volume and slot", exact(2),
 		a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
 			id, err := byRef(p, args[1])
 			if err != nil {

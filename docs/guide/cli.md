@@ -1506,18 +1506,18 @@ New join command for a broken worker; it keeps its envs (server admin)
 stackr node rejoin <name>
 ```
 
-### `stackr node remove`
+### `stackr node rm`
 
 Take a healthy worker out, once no placement points at it (server admin)
 
 ```
-stackr node remove <name>
+stackr node rm <name>
 ```
 
 Example:
 
 ```
-  stackr node remove vps-fsn1
+  stackr node rm vps-fsn1
 ```
 
 ### `stackr node rotate`
@@ -1853,12 +1853,12 @@ stackr operated standby fence <tile> <node|id> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby list`
+#### `stackr operated standby ls`
 
 List an instance's members: the primary and its standbys, with lag and slot size
 
 ```
-stackr operated standby list <tile> [flags]
+stackr operated standby ls <tile> [flags]
 ```
 
 ```
@@ -1879,12 +1879,12 @@ stackr operated standby rebuild <tile> <node|id> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby remove`
+#### `stackr operated standby rm`
 
 Remove a standby: its container, volume and slot
 
 ```
-stackr operated standby remove <tile> <node|id> [flags]
+stackr operated standby rm <tile> <node|id> [flags]
 ```
 
 ```
