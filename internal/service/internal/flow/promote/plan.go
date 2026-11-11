@@ -470,14 +470,14 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 				switch {
 				case m.Major == 0:
 				case tc.Major != 0 && tc.Major != m.Major:
-					p.block("tile %s: runs postgres %d; major: %d is a major change; run `stackr db upgrade --to %d` (or use the instance drawer), then set major: to match", name, m.Major, tc.Major, tc.Major)
+					p.block("tile %s: runs postgres %d; major: %d is a major change; run `stackr operated upgrade --to %d` (or use the instance drawer), then set major: to match", name, m.Major, tc.Major, tc.Major)
 					continue
 				case tc.Image != "" && deploy.ImageMajor(tc.Image) != m.Major:
-					p.block("tile %s: runs postgres %d; image %s is not that major; change the major with `stackr db upgrade --to <major>` (or the instance drawer), then set the image to match", name, m.Major, tc.Image)
+					p.block("tile %s: runs postgres %d; image %s is not that major; change the major with `stackr operated upgrade --to <major>` (or the instance drawer), then set the image to match", name, m.Major, tc.Image)
 					continue
 				case tc.Image != "" && old.ImageRef != "" && tc.Image != old.ImageRef:
-					// ponytail: image: only sets a new instance's image; a minor moves with db update
-					p.block("tile %s: runs %s; image: %s would change its minor; use `stackr db update` (or the instance drawer), and keep major: in the file", name, old.ImageRef, tc.Image)
+					// ponytail: image: only sets a new instance's image; a minor moves with operated update
+					p.block("tile %s: runs %s; image: %s would change its minor; use `stackr operated update` (or the instance drawer), and keep major: in the file", name, old.ImageRef, tc.Image)
 					continue
 				}
 			}

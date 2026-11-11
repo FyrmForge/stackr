@@ -485,7 +485,7 @@ stackr backup methods <volume-id>
 
 ### `stackr backup restore`
 
-Restore a backup run over a volume
+Restore a backup run over a volume. Instances restore with `operated restore`, slices with `slice restore`
 
 ```
 stackr backup restore <volume-id> [flags]
@@ -598,322 +598,6 @@ The cluster root, any rollover and the nodes not rejoined (server admin)
 
 ```
 stackr cluster trust
-```
-
-## `stackr db`
-
-Postgres instances
-
-### `stackr db promote`
-
-Make a standby the primary when the primary is down
-
-```
-stackr db promote [flags]
-```
-
-```
-      --allow-async-target   promote a standby the primary did not wait for, although one it did wait for is usable
-      --env string           the environment (default: the linked one)
-      --no-wait              print the job and return; it runs server-side
-      --node-gone            confirm the old primary's node is really gone (needed when it does not answer)
-      --powered-off string   promote without a recorded lease on the old primary; type "I powered the node off" to say you powered its node off
-      --stack string         the stack (default: the linked one)
-      --tile string          the tile (default: the linked one)
-      --to string            the node of the standby to promote (name or slug)
-```
-
-### `stackr db rollback-upgrade`
-
-Return to the postgres major before the last change, with the data it had then; what was written since is lost
-
-```
-stackr db rollback-upgrade [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-### `stackr db settings`
-
-A postgres instance's settings
-
-#### `stackr db settings get`
-
-Show a postgres instance's settings and where each value comes from
-
-```
-stackr db settings get [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db settings set`
-
-Set settings; a reload applies them, or the instance restarts when one needs it
-
-```
-stackr db settings set <name=value>... [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db settings unset`
-
-Remove your override of settings, back to the computed or postgres default
-
-```
-stackr db settings unset <name>... [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-### `stackr db standby`
-
-A postgres instance's standbys
-
-#### `stackr db standby add`
-
-Add a standby on a node; it copies the primary, then streams
-
-```
-stackr db standby add [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --node string    the node the standby runs on (name or slug)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db standby fence`
-
-Fence a standby: stop it, take it out of the read pool and keep it down
-
-```
-stackr db standby fence <node|id> [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db standby list`
-
-List an instance's members: the primary and its standbys, with lag and slot size
-
-```
-stackr db standby list [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db standby rebuild`
-
-Make a standby again on its node (one that needs a rebuild)
-
-```
-stackr db standby rebuild <node|id> [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db standby remove`
-
-Remove a standby: its container, volume and slot
-
-```
-stackr db standby remove <node|id> [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db standby sync`
-
-Set whether the primary waits for a standby: auto (while it is close), always or never
-
-```
-stackr db standby sync <node|id> <auto|always|never> [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db standby unfence`
-
-Unfence a standby: it starts again and rejoins the read pool once it streams
-
-```
-stackr db standby unfence <node|id> [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-### `stackr db status`
-
-Show a postgres instance's health: connections, oldest transaction, standby lag, pooler
-
-```
-stackr db status [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-      --top            also list the costliest statements
-```
-
-### `stackr db switchover`
-
-Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
-
-```
-stackr db switchover [flags]
-```
-
-```
-      --abort          give up a switchover stuck before the promote: unfence and restart the old primary
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-      --to string      the standby's node (name or slug); default is the one that replayed the most
-```
-
-### `stackr db sync`
-
-Synchronous replication of a postgres instance
-
-#### `stackr db sync off`
-
-Stop waiting for standbys
-
-```
-stackr db sync off [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db sync on`
-
-Make the primary wait for a standby before it confirms a commit
-
-```
-stackr db sync on [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --limit-ms int   the round trip in ms under which an auto standby is waited for (default 10)
-      --preferred      fall back to asynchronous when no standby answers (the default)
-      --required       writes wait even when no standby answers (they freeze until one does)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-#### `stackr db sync status`
-
-Show whether writes are protected by a standby now
-
-```
-stackr db sync status [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-### `stackr db update`
-
-Move an instance to the current minor of its postgres major; it restarts
-
-```
-stackr db update [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-### `stackr db upgrade`
-
-Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can
-
-```
-stackr db upgrade [flags]
-```
-
-```
-      --check          only check whether the data can move; change nothing
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-      --to int         the postgres major to move to
-```
-
-### `stackr db version`
-
-Show the postgres version an instance runs and whether an update is out
-
-```
-stackr db version [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
 ```
 
 ## `stackr deploy`
@@ -1915,7 +1599,37 @@ Example:
 
 ## `stackr operated`
 
-Operated tiles
+Operated tiles: postgres and s3 instances
+
+### `stackr operated accept-restore`
+
+(postgres) Make a restored copy the instance it was restored from; the source's apps keep their address and credentials
+
+```
+stackr operated accept-restore <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated allow`
+
+Edit who outside the env may cut slices from an operated tile (org:stack:env:tile patterns)
+
+```
+stackr operated allow <tile> [flags]
+```
+
+```
+      --add stringArray   add a pattern, e.g. acme:shop:*
+      --env string        the environment (default: the linked one)
+      --rm stringArray    remove a pattern
+      --set stringArray   replace the list (--set '' empties it)
+      --stack string      the stack (default: the linked one)
+```
 
 ### `stackr operated create`
 
@@ -1926,51 +1640,60 @@ stackr operated create <name> [flags]
 ```
 
 ```
-      --branch string             git branch
-      --build-args string         build args, a JSON object of strings: '{"ARG":"value"}'
-      --command string            the command, split like a shell would (quotes work, nothing expands)
-      --context string            build context
-      --cpus float                CPU limit
-      --depends-on string         tiles to start first, one per line: tile[:started|healthy|completed]
-      --devices string            devices, one per line: host[:container[:perms]] (needs admin approval)
-      --dockerfile string         Dockerfile path
-      --engine string             postgres or s3
-      --env string                the environment (default: the linked one)
-      --env-json string           environment, a JSON object of strings: '{"KEY":"value"}'
-      --files string              files from the repo to mount, one per line: repo/path:/container/path[:template]
-      --from-dump string          load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin
-      --git string                git URL (service tiles)
-      --health-interval int       health check interval, seconds
-      --health-path string        HTTP health path
-      --health-retries int        health check retries
-      --health-start-period int   health check start period, seconds
-      --health-timeout int        health check timeout, seconds
-      --healthcheck string        health check command, run in the container
-      --host-network              use the server's network (needs admin approval)
-      --image string              image ref (image tiles)
-      --lan string                LAN access, one ip|cidr[:port] per line (needs admin approval)
-      --major int                 postgres major, 14 to 18 (default: the newest still supported)
-      --memory int                memory limit, MB
-      --no-wait                   print the job and return; it runs server-side
-      --port int                  container port
-      --privileged                run privileged (needs admin approval)
-      --protocol string           endpoint protocol
-      --published-ports string    ports published on the host, one per line: host:container[/udp]
-      --replicas int              replica count
-      --restart string            restart policy
-      --schedule string           cron expression, CRON_TZ= prefix allowed (cron tiles)
-      --shared-net string         shared network
-      --shm-size int              shm size, MB
-      --slice string              the slice tile the dump loads into (default <name>-db)
-      --stack string              the stack (default: the linked one)
-      --tag-policy string         tag policy
-      --tile string               the tile (default: the linked one)
-      --timeout int               a run's timeout, minutes (cron and function tiles; 0 = 30)
-      --trigger string            manual or on_deploy (function tiles)
-      --update-policy string      update policy
-      --user string               run as user
-      --volumes string            mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
-      --watch-paths string        paths whose change triggers a build, one per line
+      --cpus float          CPU limit
+      --devices string      devices, one per line: host[:container[:perms]] (needs admin approval)
+      --engine string       postgres or s3
+      --env string          the environment (default: the linked one)
+      --env-json string     environment, a JSON object of strings: '{"KEY":"value"}'
+      --from-dump string    load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin
+      --host-network        use the server's network (needs admin approval)
+      --image string        image ref (image tiles)
+      --lan string          LAN access, one ip|cidr[:port] per line (needs admin approval)
+      --major int           postgres major, 14 to 18 (default: the newest still supported)
+      --memory int          memory limit, MB
+      --no-wait             print the job and return; it runs server-side
+      --port int            container port
+      --privileged          run privileged (needs admin approval)
+      --replicas int        replica count
+      --restart string      restart policy
+      --shared-net string   shared network
+      --shm-size int        shm size, MB
+      --slice string        the slice tile the dump loads into (default <name>-db)
+      --stack string        the stack (default: the linked one)
+      --user string         run as user
+      --volumes string      mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
+```
+
+### `stackr operated env-pairs`
+
+Replace an operated tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks
+
+```
+stackr operated env-pairs <tile> [consumer-env=env ...] [flags]
+```
+
+```
+      --clear          empty the map
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated failover`
+
+(postgres) Make a standby the primary when the primary is down
+
+```
+stackr operated failover <tile> [flags]
+```
+
+```
+      --allow-async-target   promote a standby the primary did not wait for, although one it did wait for is usable
+      --env string           the environment (default: the linked one)
+      --no-wait              print the job and return; it runs server-side
+      --node-gone            confirm the old primary's node is really gone (needed when it does not answer)
+      --powered-off string   promote without a recorded lease on the old primary; type "I powered the node off" to say you powered its node off
+      --stack string         the stack (default: the linked one)
+      --to string            the node of the standby to promote (name or slug)
 ```
 
 ### `stackr operated ls`
@@ -1984,7 +1707,334 @@ stackr operated ls [flags]
 ```
       --env string     the environment (default: the linked one)
       --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
+```
+
+### `stackr operated pitr`
+
+(postgres) Point-in-time recovery
+
+#### `stackr operated pitr set`
+
+(postgres) Turn point-in-time recovery on (--days N) or off (--days off); restarts it once
+
+```
+stackr operated pitr set <tile> [flags]
+```
+
+```
+      --days string    the recovery window in days, or off
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated pitr status`
+
+(postgres) Show point-in-time recovery health
+
+```
+stackr operated pitr status <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated restore`
+
+(postgres) Restore an instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched. Slices restore with `slice restore`, backups with `backup restore`
+
+```
+stackr operated restore <tile> [flags]
+```
+
+```
+      --at string      the time: RFC3339 with an offset (2026-11-07T10:42:00+01:00, or Z), or latest
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+Example:
+
+```
+  stackr operated restore pg --at 2026-11-07T10:42:00Z
+  stackr operated restore pg --at latest
+```
+
+### `stackr operated rollback-upgrade`
+
+(postgres) Return to the postgres major before the last change, with the data it had then; what was written since is lost
+
+```
+stackr operated rollback-upgrade <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated settings`
+
+(postgres) An instance's settings
+
+#### `stackr operated settings get`
+
+Show an instance's settings and where each value comes from
+
+```
+stackr operated settings get <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated settings set`
+
+Set settings; a reload applies them, or the instance restarts when one needs it
+
+```
+stackr operated settings set <tile> <name=value>... [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated settings unset`
+
+Remove your override of settings, back to the computed or postgres default
+
+```
+stackr operated settings unset <tile> <name>... [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated standby`
+
+(postgres) An instance's standbys
+
+#### `stackr operated standby add`
+
+Add a standby on a node; it copies the primary, then streams
+
+```
+stackr operated standby add <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --node string    the node the standby runs on (name or slug)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated standby fence`
+
+Fence a standby: stop it, take it out of the read pool and keep it down
+
+```
+stackr operated standby fence <tile> <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated standby list`
+
+List an instance's members: the primary and its standbys, with lag and slot size
+
+```
+stackr operated standby list <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated standby rebuild`
+
+Make a standby again on its node (one that needs a rebuild)
+
+```
+stackr operated standby rebuild <tile> <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated standby remove`
+
+Remove a standby: its container, volume and slot
+
+```
+stackr operated standby remove <tile> <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated standby sync`
+
+Set whether the primary waits for a standby: auto (while it is close), always or never
+
+```
+stackr operated standby sync <tile> <node|id> <auto|always|never> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated standby unfence`
+
+Unfence a standby: it starts again and rejoins the read pool once it streams
+
+```
+stackr operated standby unfence <tile> <node|id> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated status`
+
+(postgres) Show instance health: connections, oldest transaction, standby lag, pooler. Not `tile status`, which shows containers
+
+```
+stackr operated status <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --top            also list the costliest statements
+```
+
+### `stackr operated switchover`
+
+(postgres) Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
+
+```
+stackr operated switchover <tile> [flags]
+```
+
+```
+      --abort          give up a switchover stuck before the promote: unfence and restart the old primary
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --to string      the standby's node (name or slug); default is the one that replayed the most
+```
+
+### `stackr operated sync`
+
+(postgres) Synchronous replication of an instance
+
+#### `stackr operated sync off`
+
+Stop waiting for standbys
+
+```
+stackr operated sync off <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated sync on`
+
+Make the primary wait for a standby before it confirms a commit
+
+```
+stackr operated sync on <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --limit-ms int   the round trip in ms under which an auto standby is waited for (default 10)
+      --preferred      fall back to asynchronous when no standby answers (the default)
+      --required       writes wait even when no standby answers (they freeze until one does)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated sync status`
+
+Show whether writes are protected by a standby now
+
+```
+stackr operated sync status <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated update`
+
+(postgres) Move an instance to the current minor of its postgres major; it restarts
+
+```
+stackr operated update <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+```
+
+### `stackr operated upgrade`
+
+(postgres) Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can
+
+```
+stackr operated upgrade <tile> [flags]
+```
+
+```
+      --check          only check whether the data can move; change nothing
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --to int         the postgres major to move to
+```
+
+### `stackr operated version`
+
+(postgres) Show the version an instance runs and whether an update is out
+
+```
+stackr operated version <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
 ```
 
 ## `stackr org`
@@ -3178,7 +3228,7 @@ stackr slice on-remove <slice> <keep|drop> [flags]
 
 ### `stackr slice restore`
 
-Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically
+Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically. Instances restore with `operated restore`, backups with `backup restore`
 
 ```
 stackr slice restore <slice> [flags]
@@ -3460,37 +3510,6 @@ stackr tile access [tile] [flags]
       --tile string     the tile (default: the linked one)
 ```
 
-### `stackr tile allow`
-
-Edit who outside the env may cut slices from an operated tile (org:stack:env:tile patterns)
-
-```
-stackr tile allow [tile] [flags]
-```
-
-```
-      --add stringArray   add a pattern, e.g. acme:shop:*
-      --env string        the environment (default: the linked one)
-      --rm stringArray    remove a pattern
-      --set stringArray   replace the list (--set '' empties it)
-      --stack string      the stack (default: the linked one)
-      --tile string       the tile (default: the linked one)
-```
-
-### `stackr tile backups`
-
-Show a postgres instance's point-in-time recovery health
-
-```
-stackr tile backups [tile] [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
 ### `stackr tile create`
 
 Make a tile in --env
@@ -3716,21 +3735,6 @@ stackr tile domain set <host> [flags]
       --tile string          the tile (default: the linked one)
 ```
 
-### `stackr tile env-pairs`
-
-Replace an operated tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks
-
-```
-stackr tile env-pairs <tile> [consumer-env=env ...] [flags]
-```
-
-```
-      --clear          empty the map
-      --env string     the environment (default: the linked one)
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
 ### `stackr tile exec`
 
 Run a command in a replica; piped stdin goes to it (none from a terminal; stackr ssh opens a shell)
@@ -3873,37 +3877,6 @@ stackr tile pause [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile pitr`
-
-Turn point-in-time recovery on (--days N) or off (--days off) for a postgres instance; restarts it once
-
-```
-stackr tile pitr [tile] [flags]
-```
-
-```
-      --days string    the recovery window in days, or off
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-### `stackr tile promote-restore`
-
-Make a restored copy the instance it was restored from; the source's apps keep their address and credentials
-
-```
-stackr tile promote-restore [tile] [flags]
-```
-
-```
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
 ### `stackr tile rebuild`
 
 Build the running commit without the build cache and deploy it
@@ -3946,29 +3919,6 @@ stackr tile restart [tile] [flags]
       --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
       --tile string    the tile (default: the linked one)
-```
-
-### `stackr tile restore`
-
-Restore a postgres instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched
-
-```
-stackr tile restore [tile] [flags]
-```
-
-```
-      --at string      the time: RFC3339 with an offset (2026-11-07T10:42:00+01:00, or Z), or latest
-      --env string     the environment (default: the linked one)
-      --no-wait        print the job and return; it runs server-side
-      --stack string   the stack (default: the linked one)
-      --tile string    the tile (default: the linked one)
-```
-
-Example:
-
-```
-  stackr tile restore pg --at 2026-11-07T10:42:00Z
-  stackr tile restore pg --at latest
 ```
 
 ### `stackr tile resume`

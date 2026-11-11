@@ -7,11 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// dbStatus is `stackr db status`: a postgres instance's health, the same
+// operatedStatus is `stackr operated status`: a postgres instance's health, the same
 // read as the panel's Database tab, mirroring the API.
-func (a *app) dbStatus() *cobra.Command {
+func (a *app) operatedStatus() *cobra.Command {
 	var top bool
-	c := leaf("status", "operated.health", "Show a postgres instance's health: connections, oldest transaction, standby lag, pooler", exact(0),
+	c := leaf("status <tile>", "operated.health", "(postgres) Show instance health: connections, oldest transaction, standby lag, pooler. Not `tile status`, which shows containers", exact(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/health", nil)
 			if err != nil {

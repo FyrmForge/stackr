@@ -362,9 +362,7 @@ func TestTileArgOnlyWhereUseNamesIt(t *testing.T) {
 		"domain ls web":                      "GET " + p + "web/domains ",
 		"set web --port 8080":                "PATCH " + p + "web ",
 		"domain set a.example.com --path /x": "GET " + p + "api/domains ",
-		"allow --set acme:*":                 "GET " + p + "api ",
 		"access --slice db --access read":    "PUT " + p + "api/slice-access ",
-		"env-pairs pg dev=dev":               "GET " + p + "pg ",
 	} {
 		r.reqs = nil
 		cli(t, append(append([]string{"tile"}, strings.Fields(args)...), at...)...)
@@ -573,10 +571,10 @@ func TestSliceVerbsRoutes(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{
-		{"tile", "allow", "pg"},
-		{"tile", "env-pairs", "pg"},
-		{"tile", "env-pairs", "pg", "--clear", "dev=dev"},
-		{"tile", "env-pairs", "pg", "dev"},
+		{"operated", "allow", "pg"},
+		{"operated", "env-pairs", "pg"},
+		{"operated", "env-pairs", "pg", "--clear", "dev=dev"},
+		{"operated", "env-pairs", "pg", "dev"},
 		{"slice", "add", "db"},
 		{"tile", "access", "api", "--slice", "db"},
 		{"slice", "on-remove", "db", "drop"},
@@ -634,14 +632,14 @@ func TestAllowEditsTheWholeList(t *testing.T) {
 		{[]string{"--add", "acme:blog:*", "--add", "acme:shop:*"}, []string{"acme:shop:*", "acme:blog:*"}},
 		{[]string{"--rm", "acme:shop:*"}, []string{"acme:blog:*"}},
 	} {
-		if code, _, errw := cli(t, append(append([]string{"tile", "allow", "pg"}, c.args...), at...)...); code != 0 {
+		if code, _, errw := cli(t, append(append([]string{"operated", "allow", "pg"}, c.args...), at...)...); code != 0 {
 			t.Fatalf("allow %s = %d %s", c.args, code, errw)
 		}
 		if got := allow(); !slices.Equal(got, c.want) {
 			t.Errorf("allow %s = %v, want %v", c.args, got, c.want)
 		}
 	}
-	if code, _, errw := cli(t, append([]string{"tile", "allow", "pg", "--rm", "acme:shop:*"}, at...)...); code != 2 ||
+	if code, _, errw := cli(t, append([]string{"operated", "allow", "pg", "--rm", "acme:shop:*"}, at...)...); code != 2 ||
 		!strings.Contains(errw, "not in the allow list") {
 		t.Errorf("rm a missing pattern = %d %s", code, errw)
 	}
@@ -870,22 +868,22 @@ func TestReplaceShowsDiffAndAsks(t *testing.T) {
 		diff, want string
 	}{
 		{
-			[]string{"tile", "env-pairs", "pg", "staging=dev", "prod=prod"},
+			[]string{"operated", "env-pairs", "pg", "staging=dev", "prod=prod"},
 			"prod\t(none)\tprod",
 			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{"prod":"prod","staging":"dev"}}`,
 		},
 		{
-			[]string{"tile", "env-pairs", "pg", "--clear"},
+			[]string{"operated", "env-pairs", "pg", "--clear"},
 			"staging\tdev\t(none)",
 			"PUT " + env + `/tiles/pg/env-pairs {"env_pairs":{}}`,
 		},
 		{
-			[]string{"tile", "allow", "pg", "--set", "acme:shop:*"},
+			[]string{"operated", "allow", "pg", "--set", "acme:shop:*"},
 			"remove\tacme:old:*\nadd\tacme:shop:*",
 			"PUT " + env + `/tiles/pg/allow {"allow":["acme:shop:*"]}`,
 		},
 		{
-			[]string{"tile", "allow", "pg", "--set", ""},
+			[]string{"operated", "allow", "pg", "--set", ""},
 			"remove\tacme:old:*",
 			"PUT " + env + `/tiles/pg/allow {"allow":[]}`,
 		},
@@ -1438,8 +1436,8 @@ func TestTileRestoreAndPromoteFollowTheirJob(t *testing.T) {
 	useServer(t, srv.URL)
 	at := []string{"--stack", "shop", "--env", "dev"}
 	for _, args := range [][]string{
-		{"tile", "restore", "pg", "--at", "latest"},
-		{"tile", "promote-restore", "pg-restored", "--yes"},
+		{"operated", "restore", "pg", "--at", "latest"},
+		{"operated", "accept-restore", "pg-restored", "--yes"},
 	} {
 		reqs = nil
 		code, out, errw := cli(t, append(args, at...)...)
@@ -1455,7 +1453,7 @@ func TestTileRestoreAndPromoteFollowTheirJob(t *testing.T) {
 // db upgrade sends the major (and --check for a dry run, with no question
 // asked), waits on the job and prints the dry run's answer; rollback-upgrade
 // asks first. A move without --to is a usage error.
-func TestDBUpgradeAndRollback(t *testing.T) {
+func TestOperatedUpgradeAndRollback(t *testing.T) {
 	var mu sync.Mutex
 	var reqs []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -1478,19 +1476,19 @@ func TestDBUpgradeAndRollback(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	useServer(t, srv.URL)
-	at := []string{"--stack", "shop", "--env", "dev", "--tile", "pg"}
-	code, out, errw := cli(t, append([]string{"db", "upgrade", "--to", "18", "--check"}, at...)...)
+	at := []string{"--stack", "shop", "--env", "dev"}
+	code, out, errw := cli(t, append([]string{"operated", "upgrade", "pg", "--to", "18", "--check"}, at...)...)
 	if code != 0 || !strings.Contains(out, "can take this data") && !strings.Contains(errw, "can take this data") {
 		t.Errorf("check = %d out %q err %q", code, out, errw)
 	}
 	if !slices.ContainsFunc(reqs, func(r string) bool { return strings.HasSuffix(r, `/upgrade {"check":true,"to":18}`) }) {
 		t.Errorf("requests = %v", reqs)
 	}
-	if code, _, _ := cli(t, append([]string{"db", "upgrade"}, at...)...); code != 2 {
+	if code, _, _ := cli(t, append([]string{"operated", "upgrade", "pg"}, at...)...); code != 2 {
 		t.Errorf("no --to = %d, want a usage error", code)
 	}
 	reqs = nil
-	if code, out, errw := cli(t, append([]string{"db", "rollback-upgrade", "--yes"}, at...)...); code != 0 || !strings.Contains(out, "ok") {
+	if code, out, errw := cli(t, append([]string{"operated", "rollback-upgrade", "pg", "--yes"}, at...)...); code != 0 || !strings.Contains(out, "ok") {
 		t.Errorf("rollback = %d out %q err %q", code, out, errw)
 	}
 	if !slices.ContainsFunc(reqs, func(r string) bool { return strings.Contains(r, "POST ") && strings.Contains(r, "/upgrade-rollback") }) {

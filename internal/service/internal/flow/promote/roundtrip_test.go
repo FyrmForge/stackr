@@ -75,7 +75,7 @@ func TestStandbysOnNewInstance(t *testing.T) {
 }
 
 // Export writes major: and no image: for operated postgres, so a minor moved
-// by `db update` is not rolled back; the file plans clean; an image: that
+// by `operated update` is not rolled back; the file plans clean; an image: that
 // would move the minor is refused.
 func TestExportOperatedPostgresMajor(t *testing.T) {
 	w := newSliceWorld(t)
@@ -106,7 +106,7 @@ func TestExportOperatedPostgresMajor(t *testing.T) {
 	}
 	p, err = w.f.Plan(ctx, staging, rel("r2", infraFile+"      image: postgres:17.5\n").ID, io.Discard)
 	must(t, err)
-	if !strings.Contains(strings.Join(p.Blockers, "|"), "db update") {
+	if !strings.Contains(strings.Join(p.Blockers, "|"), "operated update") {
 		t.Errorf("a minor change by image: was not refused: %v", p.Blockers)
 	}
 	p, err = w.f.Plan(ctx, staging, rel("r3", infraFile+"      image: postgres:17.4\n").ID, io.Discard)

@@ -381,7 +381,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 			}
 		}
 		if pgOperated = m.Engine == "postgres"; pgOperated {
-			// the major, not the exact tag: a minor moves with `db update`, and a file
+			// the major, not the exact tag: a minor moves with `operated update`, and a file
 			// that pins it would roll it back
 			if major := cmp.Or(m.Major, deploy.ImageMajor(t.ImageRef)); major > 0 {
 				b.put("major", major)

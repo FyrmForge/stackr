@@ -992,7 +992,7 @@ func (o *Orchestrator) resumePGUpgrades(ctx context.Context) {
 			continue
 		}
 		if st.Resumes >= pgupMaxResumes {
-			slog.Warn("pg upgrade: not resuming again; rerun `stackr db upgrade`", "instance", id, "to", st.To, "step", st.Step)
+			slog.Warn("pg upgrade: not resuming again; rerun `stackr operated upgrade`", "instance", id, "to", st.To, "step", st.Step)
 			continue
 		}
 		if err := o.resumePGUpgrade(ctx, id, st); err != nil {

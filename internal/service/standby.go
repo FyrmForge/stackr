@@ -343,7 +343,7 @@ func (o *Orchestrator) redeployReaders(ctx context.Context, instanceID, node str
 	return errors.Join(failed...)
 }
 
-// StandbyView is one member of an instance as its drawer and `stackr db
+// StandbyView is one member of an instance as its drawer and `stackr operated
 // standby list` show it. State: running (primary), streaming, starting,
 // needs rebuild, stopped or removing. The lag and the slot figures come from
 // the monitor's last sample; the slot's cap is max_slot_wal_keep_size.

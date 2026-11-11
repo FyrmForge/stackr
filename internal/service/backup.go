@@ -342,7 +342,7 @@ func (o *Orchestrator) pitrVolumeRestoreOK(ctx context.Context, runID string, ds
 		return err
 	}
 	if m.PITRDays > 0 {
-		return errs.Refusedf("%s keeps point-in-time recovery: a volume restore would rewind its data under the archive. Turn point-in-time recovery off first, or restore to a time (tile restore --at)", dst.Slug)
+		return errs.Refusedf("%s keeps point-in-time recovery: a volume restore would rewind its data under the archive. Turn point-in-time recovery off first, or restore to a time (operated restore --at)", dst.Slug)
 	}
 	return nil
 }

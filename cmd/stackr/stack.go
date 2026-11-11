@@ -138,7 +138,6 @@ func (a *app) stackCommands() []*cobra.Command {
 		a.logsWithSearch(),
 		a.tileMetrics(),
 		a.operated(),
-		a.dbSettings(),
 		a.sliceTiles(),
 		a.params(),
 		a.volumes(),
@@ -1118,12 +1117,6 @@ func (a *app) tiles() *cobra.Command {
 		a.runs(),
 		a.get("jobs [tile]", "tile.jobs", "List the tile's recent jobs", atTile, "/jobs", jobCols...),
 		a.domains(),
-		a.allow(),
-		a.envPairs(),
-		a.pitr(),
-		a.pitrBackups(),
-		a.tileRestore(),
-		a.tilePromoteRestore(),
 		a.sliceAccess(),
 	), true)
 }
@@ -1283,10 +1276,10 @@ func (a *app) domains() *cobra.Command {
 func (a *app) allow() *cobra.Command {
 	var add, rm, set []string
 	c := leaf(
-		"allow [tile]",
+		"allow <tile>",
 		"operated.allow,tile.get,operated.list",
 		"Edit who outside the env may cut slices from an operated tile (org:stack:env:tile patterns)",
-		upTo(1),
+		exact(1),
 		nil,
 	)
 	c.Flags().StringArrayVar(&add, "add", nil, "add a pattern, e.g. acme:shop:*")
@@ -1358,10 +1351,10 @@ func (a *app) allow() *cobra.Command {
 func (a *app) pitr() *cobra.Command {
 	var days string
 	c := leaf(
-		"pitr [tile]",
+		"set <tile>",
 		"operated.pitr",
-		"Turn point-in-time recovery on (--days N) or off (--days off) for a postgres instance; restarts it once",
-		upTo(1),
+		"(postgres) Turn point-in-time recovery on (--days N) or off (--days off); restarts it once",
+		exact(1),
 		nil,
 	)
 	c.Flags().StringVar(&days, "days", "", "the recovery window in days, or off")
@@ -1386,13 +1379,13 @@ func (a *app) pitr() *cobra.Command {
 		}
 		return a.orgJob(c, PUT, p+"/pitr", map[string]any{"days": n}, "point-in-time recovery")
 	})
-	return scoped(waits(c), true)
+	return waits(c)
 }
 
 // pitrBackups prints an instance's point-in-time recovery health: the range
 // it can restore, the last base backup, the WAL archive.
 func (a *app) pitrBackups() *cobra.Command {
-	return scoped(leaf("backups [tile]", "operated.pitr-status", "Show a postgres instance's point-in-time recovery health", upTo(1),
+	return leaf("status <tile>", "operated.pitr-status", "(postgres) Show point-in-time recovery health", exact(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/pitr", nil)
 			if err != nil {
@@ -1403,7 +1396,7 @@ func (a *app) pitrBackups() *cobra.Command {
 			}
 			m, _ := v.(map[string]any)
 			if m["on"] != true {
-				a.say("Point-in-time restore is off. Turn it on: stackr tile pitr %s --days 7", last(p))
+				a.say("Point-in-time restore is off. Turn it on: stackr operated pitr set %s --days 7", last(p))
 				return nil
 			}
 			at := func(k string) string { return a.stamp(cell(m[k]), stampLayout) }
@@ -1444,24 +1437,24 @@ func (a *app) pitrBackups() *cobra.Command {
 				a.say("Last error: %s", e)
 			}
 			return nil
-		})), true)
+		}))
 }
 
 // tileRestore restores a postgres instance to a time into a new instance
-// tile next to it and keeps it for a look; promote-restore makes it the
+// tile next to it and keeps it for a look; accept-restore makes it the
 // instance.
 func (a *app) tileRestore() *cobra.Command {
 	var at string
 	c := waits(leaf(
-		"restore [tile]",
+		"restore <tile>",
 		"operated.restore",
-		"Restore a postgres instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched",
-		upTo(1),
+		"(postgres) Restore an instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched. Slices restore with `slice restore`, backups with `backup restore`",
+		exact(1),
 		nil,
 	))
 	c.Flags().StringVar(&at, "at", "", "the time: RFC3339 with an offset (2026-11-07T10:42:00+01:00, or Z), or latest")
 	_ = c.MarkFlagRequired("at")
-	c.Example = "  stackr tile restore pg --at 2026-11-07T10:42:00Z\n  stackr tile restore pg --at latest"
+	c.Example = "  stackr operated restore pg --at 2026-11-07T10:42:00Z\n  stackr operated restore pg --at latest"
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		v, err := a.call(POST, p+"/restore", map[string]string{"at": at})
 		if err != nil {
@@ -1469,7 +1462,7 @@ func (a *app) tileRestore() *cobra.Command {
 		}
 		m, _ := v.(map[string]any)
 		t, _ := m["tile"].(map[string]any)
-		a.say("created %s; restoring %s to %s. Promote it with: stackr tile promote-restore %s", cell(t["slug"]), last(p), at, cell(t["slug"]))
+		a.say("created %s; restoring %s to %s. Accept it with: stackr operated accept-restore %s", cell(t["slug"]), last(p), at, cell(t["slug"]))
 		if nw, _ := c.Flags().GetBool("no-wait"); nw {
 			return a.show(m["job"], "id", "kind", "state")
 		}
@@ -1479,16 +1472,16 @@ func (a *app) tileRestore() *cobra.Command {
 		}
 		return a.follow(base, m["job"], "restore")
 	})
-	return scoped(c, true)
+	return c
 }
 
-// tilePromoteRestore swaps a restored copy's data under its source instance.
-func (a *app) tilePromoteRestore() *cobra.Command {
+// tileAcceptRestore swaps a restored copy's data under its source instance.
+func (a *app) tileAcceptRestore() *cobra.Command {
 	c := waits(leaf(
-		"promote-restore [tile]",
+		"accept-restore <tile>",
 		"operated.promote-restore",
-		"Make a restored copy the instance it was restored from; the source's apps keep their address and credentials",
-		upTo(1),
+		"(postgres) Make a restored copy the instance it was restored from; the source's apps keep their address and credentials",
+		exact(1),
 		nil,
 	))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
@@ -1497,7 +1490,7 @@ func (a *app) tilePromoteRestore() *cobra.Command {
 		}
 		return a.orgJob(c, POST, p+"/promote-restore", nil, "promote")
 	})
-	return scoped(c, true)
+	return c
 }
 
 // operatedOf is the instance row of the operated tile at p, read from its
@@ -1758,7 +1751,7 @@ func (a *app) sliceRestore() *cobra.Command {
 	c := waits(leaf(
 		"restore <slice>",
 		"slice.restore",
-		"Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically",
+		"Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically. Instances restore with `operated restore`, backups with `backup restore`",
 		exact(1),
 		nil,
 	))
@@ -1875,6 +1868,10 @@ func (a *app) operated() *cobra.Command {
 	var major int
 	create := waits(leaf("create <name>", "operated.create,operated.from-dump", "Make an operated tile (postgres, s3) in --env", exact(1), nil))
 	keys := tileFlags(create)
+	// ponytail: the flags stay accepted (changed() reads them); they are only hidden from help.
+	for _, n := range []string{"git", "branch", "dockerfile", "context", "watch-paths", "build-args", "schedule", "trigger", "timeout", "command", "files", "protocol", "health-path", "healthcheck", "health-interval", "health-timeout", "health-retries", "health-start-period", "published-ports", "depends-on", "update-policy", "tag-policy"} {
+		_ = create.Flags().MarkHidden(n)
+	}
 	create.Flags().StringVar(&engine, "engine", "", "postgres or s3")
 	create.Flags().StringVar(&dump, "from-dump", "", "load a pg_dump (custom or plain SQL) into a new slice tile; - reads stdin")
 	create.Flags().StringVar(&slice, "slice", "", "the slice tile the dump loads into (default <name>-db)")
@@ -1908,10 +1905,23 @@ func (a *app) operated() *cobra.Command {
 		a.fileHint(p)
 		return a.show(v)
 	})
-	return scoped(noun("operated", "Operated tiles",
+	opr := noun("operated", "Operated tiles: postgres and s3 instances",
 		a.get("ls", "operated.list", "List the env's operated tiles", atEnv, "/operated", operatedCols...),
 		create,
-	), true)
+		a.allow(),
+		a.envPairs(),
+		noun("pitr", "(postgres) Point-in-time recovery", a.pitr(), a.pitrBackups()),
+		a.tileRestore(),
+		a.tileAcceptRestore(),
+		a.operatedStandby(),
+		a.operatedSync(),
+		a.operatedStatus(),
+		a.operatedSwitchover(),
+		a.operatedFailover(),
+	)
+	opr.AddCommand(a.operatedSettings()...)
+	opr.Aliases = []string{"opr"}
+	return scoped(opr, false)
 }
 
 // operatedFromDump streams the dump (a file, or stdin for -) to the panel,
@@ -2429,7 +2439,7 @@ func (a *app) backups() *cobra.Command {
 	now.Flags().StringVar(&dest, "dest", "", "the destination id (default: local)")
 	now.Flags().StringVar(&method, "method", "", "the backup method")
 	now.Flags().StringVar(&mode, "mode", "", "the method's mode")
-	restore := waits(leaf("restore <volume-id>", "backup.restore", "Restore a backup run over a volume", exact(1),
+	restore := waits(leaf("restore <volume-id>", "backup.restore", "Restore a backup run over a volume. Instances restore with `operated restore`, slices with `slice restore`", exact(1),
 		org(func(c *cobra.Command, p string, args []string) error {
 			if runID == "" {
 				return usage("--run is required; stackr backup runs <volume-id> lists them")

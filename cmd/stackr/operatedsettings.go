@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// dbSettings is `stackr db settings`: a postgres instance's own settings,
-// mirroring the API. The instance is the tile (--tile, or the linked one).
-func (a *app) dbSettings() *cobra.Command {
-	list := leaf("get", "operated.settings", "Show a postgres instance's settings and where each value comes from", exact(0),
+// operatedSettings returns the `settings`, `version`, `update`, `upgrade` and `rollback-upgrade` verbs of `stackr operated`: a postgres instance's own settings,
+// mirroring the API. The instance is the first argument.
+func (a *app) operatedSettings() []*cobra.Command {
+	list := leaf("get <tile>", "operated.settings", "Show an instance's settings and where each value comes from", exact(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/settings", nil)
 			if err != nil {
@@ -55,25 +55,25 @@ func (a *app) dbSettings() *cobra.Command {
 			return nil
 		}
 	}
-	set := leaf("set <name=value>...", "operated.settings-set",
-		"Set settings; a reload applies them, or the instance restarts when one needs it", atLeast(1), nil)
+	set := leaf("set <tile> <name=value>...", "operated.settings-set",
+		"Set settings; a reload applies them, or the instance restarts when one needs it", atLeast(2), nil)
 	set.RunE = func(c *cobra.Command, args []string) error {
 		kv := map[string]string{}
-		for _, s := range args {
+		for _, s := range args[1:] {
 			k, v, ok := strings.Cut(s, "=")
 			if !ok || k == "" || v == "" {
 				return usage("%q is not name=value", s)
 			}
 			kv[k] = v
 		}
-		return a.at(atTile, put(map[string]any{"set": kv}))(c, nil)
+		return a.at(atTile, put(map[string]any{"set": kv}))(c, args)
 	}
-	unset := leaf("unset <name>...", "operated.settings-set",
-		"Remove your override of settings, back to the computed or postgres default", atLeast(1), nil)
+	unset := leaf("unset <tile> <name>...", "operated.settings-set",
+		"Remove your override of settings, back to the computed or postgres default", atLeast(2), nil)
 	unset.RunE = func(c *cobra.Command, args []string) error {
-		return a.at(atTile, put(map[string]any{"unset": args}))(c, nil)
+		return a.at(atTile, put(map[string]any{"unset": args[1:]}))(c, args)
 	}
-	version := leaf("version", "operated.version", "Show the postgres version an instance runs and whether an update is out", exact(0),
+	version := leaf("version <tile>", "operated.version", "(postgres) Show the version an instance runs and whether an update is out", exact(1),
 		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
 			v, err := a.call(GET, p+"/version", nil)
 			if err != nil {
@@ -85,17 +85,17 @@ func (a *app) dbSettings() *cobra.Command {
 			}
 			a.say("%s (postgres %v)", cell(m["image"]), m["major"])
 			if to := cell(m["update_to"]); to != "" {
-				a.say("Update available: %s. Run `stackr db update`.", to)
+				a.say("Update available: %s. Run `stackr operated update`.", to)
 			}
 			if m["eol"] == true {
 				a.say("Postgres %v no longer gets security fixes (ended %s).", m["major"], cell(m["eol_date"]))
 			}
 			if rb, _ := m["rollback"].(map[string]any); rb != nil {
-				a.say("The old data of postgres %v is kept until %s. Run `stackr db rollback-upgrade` to return to it.", rb["from"], cell(rb["until"]))
+				a.say("The old data of postgres %v is kept until %s. Run `stackr operated rollback-upgrade` to return to it.", rb["from"], cell(rb["until"]))
 			}
 			return nil
 		}))
-	update := waits(leaf("update", "operated.update", "Move an instance to the current minor of its postgres major; it restarts", exact(0),
+	update := waits(leaf("update <tile>", "operated.update", "(postgres) Move an instance to the current minor of its postgres major; it restarts", exact(1),
 		a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 			v, err := a.call(POST, p+"/version", nil)
 			if err != nil {
@@ -115,19 +115,20 @@ func (a *app) dbSettings() *cobra.Command {
 			}
 			return a.follow(base, m["job"], "update")
 		})))
-	return scoped(noun("db", "Postgres instances",
-		noun("settings", "A postgres instance's settings", list, waits(set), waits(unset)), a.dbStandby(), a.dbSync(), a.dbStatus(), a.dbSwitchover(), a.dbPromote(), version, update,
-		a.dbUpgrade(), a.dbRollbackUpgrade()), true)
+	return []*cobra.Command{
+		noun("settings", "(postgres) An instance's settings", list, waits(set), waits(unset)), version, update,
+		a.operatedUpgrade(), a.operatedRollbackUpgrade(),
+	}
 }
 
-// dbUpgrade is `stackr db upgrade`: move an instance to another postgres
+// operatedUpgrade is `stackr operated upgrade`: move an instance to another postgres
 // major, up or down. The data goes into a new volume; the old one is kept for
 // a week. --check only asks whether it can, and changes nothing.
-func (a *app) dbUpgrade() *cobra.Command {
+func (a *app) operatedUpgrade() *cobra.Command {
 	var to int
 	var check bool
-	c := waits(leaf("upgrade", "operated.upgrade",
-		"Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can", exact(0), nil))
+	c := waits(leaf("upgrade <tile>", "operated.upgrade",
+		"(postgres) Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can", exact(1), nil))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if to == 0 {
 			return usage("pass --to: the postgres major to move to, such as 18")
@@ -160,11 +161,11 @@ func (a *app) dbUpgrade() *cobra.Command {
 	return c
 }
 
-// dbRollbackUpgrade is `stackr db rollback-upgrade`: back to the major the
+// dbRollbackUpgrade is `stackr operated rollback-upgrade`: back to the major the
 // instance ran before its last change, on the data it had then.
-func (a *app) dbRollbackUpgrade() *cobra.Command {
-	c := waits(leaf("rollback-upgrade", "operated.upgrade-rollback",
-		"Return to the postgres major before the last change, with the data it had then; what was written since is lost", exact(0), nil))
+func (a *app) operatedRollbackUpgrade() *cobra.Command {
+	c := waits(leaf("rollback-upgrade <tile>", "operated.upgrade-rollback",
+		"(postgres) Return to the postgres major before the last change, with the data it had then; what was written since is lost", exact(1), nil))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if err := a.confirm("Roll back? Everything written since the version change is lost."); err != nil {
 			return err
