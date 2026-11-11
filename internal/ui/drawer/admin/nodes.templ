@@ -677,9 +677,7 @@ func ofTotal(title, total string) string {
 // NodeBody is one tab of the node drawer.
 templ NodeBody(tab string, v NodeView) {
 	<div id={ "node-" + tab }>
-		if v.Job != nil {
-			<div class="mb-4">@c.JobStatus(*v.Job)</div>
-		}
+		@c.JobSlotFor(v.Job, "", "node="+v.ID)
 		if len(v.DownDomains) > 0 {
 			@c.Section("Domains on this node", "", "This ingress is down, so these stop answering. Move each env's ingress to another node.") {
 				<ul class="space-y-2 mb-4">

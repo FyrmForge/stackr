@@ -24,14 +24,15 @@ func WithPath(ctx context.Context, path string) context.Context {
 
 // jobPoll is the job-live URL of the scope the request path is in: the
 // panel's under /-/admin, an org's (one segment before its "/-/") or an
-// env's (three); "" = no poll (a stack has no job stream route).
-func jobPoll(ctx context.Context, kinds string) string {
+// stack's (two) or an env's (three); "" = no poll. filter is an extra query
+// ("tile=<id>", "node=<id>") narrowing the job to one tile or node.
+func jobPoll(ctx context.Context, kinds, filter string) string {
 	p, _ := ctx.Value(pathKey{}).(string)
 	base := ""
 	if strings.HasPrefix(p, "/-/admin") {
 		base = "/-/admin"
 	} else if i := strings.Index(p, "/-/"); i > 0 {
-		if n := strings.Count(p[:i], "/"); n == 1 || n == 3 {
+		if n := strings.Count(p[:i], "/"); n >= 1 && n <= 3 {
 			base = p[:i]
 		}
 	}
@@ -42,8 +43,15 @@ func jobPoll(ctx context.Context, kinds string) string {
 	if base == "/-/admin" {
 		u = base + "/job-live"
 	}
+	q := []string{}
 	if kinds != "" {
-		u += "?kind=" + kinds
+		q = append(q, "kind="+kinds)
+	}
+	if filter != "" {
+		q = append(q, filter)
+	}
+	if len(q) > 0 {
+		u += "?" + strings.Join(q, "&")
 	}
 	return u
 }
@@ -53,6 +61,33 @@ func jobPoll(ctx context.Context, kinds string) string {
 // (comma list) started since, which arrives as its live status. The slot is
 // always there, so a poll that finds nothing leaves it alone (204).
 func JobSlot(job *JobStatusView, kinds string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = JobSlotFor(job, kinds, "").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// JobSlotFor is JobSlot narrowed by filter ("tile=<id>", "node=<id>"), for a
+// drawer showing one tile's or node's job; kinds may be empty (any kind).
+func JobSlotFor(job *JobStatusView, kinds, filter string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -79,17 +114,17 @@ func JobSlot(job *JobStatusView, kinds string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if u := jobPoll(ctx, kinds); u != "" && (job == nil || !job.Live) {
+		if u := jobPoll(ctx, kinds, filter); u != "" && (job == nil || !job.Live) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<span hidden data-poll-guard=\"region\" hx-get=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var2 string
-			templ_7745c5c3_Var2, templ_7745c5c3_Err = templruntime.NewAttributeExpression(u).Resolve(ctx)
+			var templ_7745c5c3_Var3 string
+			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(u).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/job_slot.templ`, Line: 52, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/job_slot.templ`, Line: 66, Col: 51}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

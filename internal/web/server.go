@@ -187,7 +187,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 		site.GET(cmp.Or(l.path, "/"), cv.Page, page, l.read)
 		site.GET(l.path+"/-/events", cv.Events, l.read)
 		site.GET(l.path+"/-/banners", render.Banners, l.read)
-		if l.path == "/:org" || l.path == "/:org/:stack/:env" {
+		if l.path != "" {
 			site.GET(l.path+"/-/job-live", render.JobLive(deps.Orch), deps.Access.Require("deployment.read"))
 		}
 		site.POST(l.path+"/-/positions", cv.Positions, l.write)

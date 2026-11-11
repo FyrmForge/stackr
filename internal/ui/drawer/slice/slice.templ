@@ -89,6 +89,9 @@ func Drawer(v View, body templ.Component) templ.Component {
 templ Overview(v View) {
 	<div id="tab-overview">
 		@c.LiveTab(v.Base+"?tab=overview", "tab-overview")
+		if v.Job == nil || !v.Job.Live {
+			@c.JobSlotFor(nil, "", "tile="+v.Node)
+		}
 		@c.PanelSection("slice-target", "Target", "") {
 			if v.Target != "" {
 				<a href={ templ.SafeURL(v.TargetLink) } class="font-mono text-sm text-rw-accentHi hover:underline">{ v.Target }</a>

@@ -393,6 +393,17 @@ func (e *Env) QueuedJob(t *testing.T, orgID, tileID string) string {
 	return id
 }
 
+// JobWith records a job of kind in state holding payload (JSON) that nothing
+// picks up, and returns its id.
+func (e *Env) JobWith(t *testing.T, kind, state, payload string) string {
+	t.Helper()
+	id := uuid.NewString()
+	must(t, e.Store.Jobs.Create(context.Background(), store.Job{
+		ID: id, Kind: kind, State: state, LockSet: store.StringList{}, Payload: payload, CreatedAt: time.Now(),
+	}))
+	return id
+}
+
 // Release seeds a release of the stack and returns its id.
 func (e *Env) Release(t *testing.T, stackID string, number int) string {
 	t.Helper()

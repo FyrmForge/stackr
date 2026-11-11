@@ -11,11 +11,11 @@ func TestJobPollScopes(t *testing.T) {
 		"/-/admin/backups":                     "/-/admin/job-live?kind=a",
 		"/acme/-/drawer":                       "/acme/-/job-live?kind=a",
 		"/acme/web/prod/-/drawer":              "/acme/web/prod/-/job-live?kind=a",
-		"/acme/web/-/drawer":                   "",
+		"/acme/web/-/drawer":                   "/acme/web/-/job-live?kind=a",
 		"/acme/web/prod/-/drawer/sync/staging": "/acme/web/prod/-/job-live?kind=a",
 		"/":                                    "",
 	} {
-		if got := jobPoll(WithPath(context.Background(), path), "a"); got != want {
+		if got := jobPoll(WithPath(context.Background(), path), "a", ""); got != want {
 			t.Errorf("%s: %q, want %q", path, got, want)
 		}
 	}
