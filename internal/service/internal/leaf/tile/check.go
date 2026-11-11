@@ -170,6 +170,9 @@ var refusals = map[string]string{
 }
 
 func refuse(kind, key string) error {
+	if kind == "operated" && key == "replicas" {
+		return errs.Invalidf(key, "operated tiles do not take replicas. For postgres copies, list nodes under standbys:")
+	}
 	if msg, ok := refusals[key]; ok {
 		if strings.Contains(msg, "%s") {
 			return errs.Invalidf(key, msg, kind)

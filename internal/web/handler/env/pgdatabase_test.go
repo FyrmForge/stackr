@@ -37,7 +37,7 @@ func TestDatabaseView(t *testing.T) {
 	if c := got["Database size"]; c.Measures != "db_app_1 db_postgres_2" || c.Labels != "app,post gres" || c.Unit != "bytes" {
 		t.Errorf("size chart = %+v", c)
 	}
-	for _, title := range []string{"Replica lag", "Replica lag (bytes)", "WAL held by slots", "WAL waiting to archive", "Connections"} {
+	for _, title := range []string{"Standby lag", "Standby lag (bytes)", "WAL held by slots", "WAL waiting to archive", "Connections"} {
 		if _, ok := got[title]; !ok {
 			t.Errorf("no %q chart", title)
 		}

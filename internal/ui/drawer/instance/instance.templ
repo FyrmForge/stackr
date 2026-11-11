@@ -297,6 +297,13 @@ templ LivePooler(v View, o OverviewView) {
 	}
 }
 
+func memberRole(r string) string {
+	if r == "replica" {
+		return "standby"
+	}
+	return r
+}
+
 templ LiveMembers(v View, o OverviewView) {
 	if len(o.Members) > 0 || len(o.AddNodes) > 0 {
 		<h3 class="section-title">Members</h3>
@@ -305,7 +312,7 @@ templ LiveMembers(v View, o OverviewView) {
 				<li class="panel px-4 py-3 flex items-center justify-between gap-3">
 					<span class="text-sm text-rw-text min-w-0">
 						<span class="font-medium">{ m.Node }</span>
-						<span class="text-rw-faint text-xs ml-1">{ m.Role }</span>
+						<span class="text-rw-faint text-xs ml-1">{ memberRole(m.Role) }</span>
 						if m.Lag != "" {
 							<span class="block mt-0.5 text-xs text-rw-faint">{ m.Lag }</span>
 						}
@@ -469,9 +476,9 @@ func DatabaseCharts(dbs, replicas, slots []Line, archiving bool) []ChartSpec {
 	}
 	if len(replicas) > 0 {
 		m, l := lines("repl_s_", replicas)
-		out = append(out, ChartSpec{"Replica lag", m, l, "s"})
+		out = append(out, ChartSpec{"Standby lag", m, l, "s"})
 		m, l = lines("repl_bytes_", replicas)
-		out = append(out, ChartSpec{"Replica lag (bytes)", m, l, "bytes"})
+		out = append(out, ChartSpec{"Standby lag (bytes)", m, l, "bytes"})
 	}
 	if len(slots) > 0 {
 		m, l := lines("slot_", slots)

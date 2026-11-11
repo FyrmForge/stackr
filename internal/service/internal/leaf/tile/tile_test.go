@@ -430,6 +430,11 @@ func TestRunKinds(t *testing.T) {
 			func(t *store.Tile) { t.TimeoutMinutes = 5 },
 		},
 		{
+			"operated with replicas",
+			"operated tiles do not take replicas. For postgres copies, list nodes under standbys:",
+			func(t *store.Tile) { t.Kind, t.GitURL, t.Replicas = tile.Operated, "", 2 },
+		},
+		{
 			"operated with a command",
 			"command does not apply to operated tiles",
 			func(t *store.Tile) { t.Kind, t.GitURL, t.Command = tile.Operated, "", "x" },

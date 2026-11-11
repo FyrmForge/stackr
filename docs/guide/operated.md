@@ -32,7 +32,7 @@ Postgres slice outputs:
 | `url`, `host`, `port` | the connection the slice's `url` setting picks |
 | `url_direct`, `host_direct`, `port_direct` | the instance itself |
 | `url_pooled`, `host_pooled`, `port_pooled` | the instance's PgBouncer pooler (transaction pooling) |
-| `url_read`, `host_read`, `port_read` (and the `_direct` and `_pooled` forms) | where reads go; the primary's values until replicas exist. Each standby has its own PgBouncer, so the `_pooled` forms pool on a consumer's node when a standby is in reach there |
+| `url_read`, `host_read`, `port_read` (and the `_direct` and `_pooled` forms) | where reads go; the primary's values until standbys exist. Each standby has its own PgBouncer, so the `_pooled` forms pool on a consumer's node when a standby is in reach there |
 | `database`, `user`, `password` | this app's own login (`password` is secret) |
 
 Set `url: pooled` on the slice tile (stack file, `stackr slice url <slice> pooled`, or the slice drawer) to make `url`, `host` and `port` go through the pooler. The default is `direct`. An app on another node than the instance gets the direct values whatever the setting, because the pooler has no address there yet.
