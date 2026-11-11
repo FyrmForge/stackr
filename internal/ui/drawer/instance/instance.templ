@@ -352,7 +352,7 @@ templ LiveMembers(v View, o OverviewView) {
 			}
 		</ul>
 		if len(o.AddNodes) > 0 && !v.ReadOnly {
-			<form hx-post={ v.Base + "/standby-add" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex items-end gap-2">
+			<form id={ formID("standby-add", o.AddNodes...) } hx-preserve hx-post={ v.Base + "/standby-add" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex items-end gap-2">
 				<div class="min-w-32">
 					<label for="standby-node" class="label">Add a standby on</label>
 					<select id="standby-node" name="node" class="input">
@@ -1083,7 +1083,7 @@ templ syncForm(v View, s SyncView) {
 		if v.ReadOnly {
 			<p class="text-xs text-rw-faint" data-hint>Only members and owners can change it.</p>
 		} else {
-			<form hx-post={ v.Base + "/sync" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+			<form id={ formID("sync-form", syncParts(s)...) } hx-preserve hx-post={ v.Base + "/sync" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
 				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="prefer" value="1" checked?={ s.Prefer } class="accent-rw-accent"/> <span>Prefer synchronous</span></label>
 				<div class="flex flex-wrap items-end gap-2">
 					<div class="min-w-32">
@@ -1128,7 +1128,7 @@ templ failover(v View, f FailoverView) {
 		}
 	} else if !v.ReadOnly {
 		if len(f.Promote) > 0 {
-			<form hx-post={ v.Base + "/promote-standby" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
+			<form id={ formID("promote-form", append([]string{f.Primary, strconv.FormatBool(f.Unreachable)}, f.Promote...)...) } hx-preserve hx-post={ v.Base + "/promote-standby" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
 				<p class="text-sm text-rw-text">The primary on { f.Primary } is down.</p>
 				<div class="flex flex-wrap items-end gap-2">
 					<div class="min-w-32">
@@ -1158,7 +1158,7 @@ templ failover(v View, f FailoverView) {
 			</form>
 		}
 		if len(f.Switch) > 0 {
-			<form hx-post={ v.Base + "/switchover" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2 mt-3">
+			<form id={ formID("switch-form", f.Switch...) } hx-preserve hx-post={ v.Base + "/switchover" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex flex-wrap items-end gap-2 mt-3">
 				<div class="min-w-32">
 					<label for="switch-to" class="label">Switch the primary to</label>
 					<select id="switch-to" name="to" class="input">
