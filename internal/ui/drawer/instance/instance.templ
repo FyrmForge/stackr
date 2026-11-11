@@ -489,7 +489,14 @@ templ pitr(v View, p PITRView) {
 			if p.Edit {
 				<form hx-post={ v.Base + "/pitr" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
 					@c.Field(c.FieldView{Name: "days", Label: "Days to keep", Type: "number", Value: "7", Min: "1", Max: "365", Help: "Restarts the database once, a few seconds."})
-					<button type="submit" class="btn btn-primary btn-sm">Turn on</button>
+					@c.Confirm(c.ConfirmView{
+						Button:  "Turn on",
+						Title:   "Turn on point-in-time restore?",
+						Warning: "Restarts the database once.",
+						Action:  v.Base + "/pitr",
+						Target:  "#" + Root,
+						Primary: true,
+					})
 				</form>
 			}
 		} else {
@@ -544,7 +551,14 @@ templ pitr(v View, p PITRView) {
 			if p.Edit {
 				<form novalidate hx-post={ v.Base + "/pitr" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
 					@c.Field(c.FieldView{Name: "days", Label: "Days to keep", Type: "number", Value: strconv.Itoa(p.Days), Min: "1", Max: "365", Help: "Keeps " + strconv.Itoa(p.Days) + " days. Changing it restarts the database once."})
-					<button type="submit" class="btn btn-sm">Save</button>
+					@c.Confirm(c.ConfirmView{
+						Button:  "Save",
+						Title:   "Change the retention?",
+						Warning: "Restarts the database once.",
+						Action:  v.Base + "/pitr",
+						Target:  "#" + Root,
+						Primary: true,
+					})
 				</form>
 			}
 			if p.Edit && !p.From.IsZero() {
@@ -926,6 +940,16 @@ func remove(v View) c.ConfirmView {
 	return d
 }
 
+// majorLabel names a major choice against the running one: "Upgrade to 18".
+func majorLabel(image string, n int) string {
+	tag := image[strings.LastIndex(image, ":")+1:]
+	cur, _ := strconv.Atoi(strings.SplitN(tag, ".", 2)[0])
+	if n < cur {
+		return "Downgrade to " + strconv.Itoa(n)
+	}
+	return "Upgrade to " + strconv.Itoa(n)
+}
+
 // majorChange moves the instance to another postgres major, and returns it
 // to the one before for a week after. A rollback asks the instance's name
 // typed: what was written since is lost.
@@ -934,15 +958,22 @@ templ majorChange(v View, ver VersionView) {
 		<form hx-post={ v.Base + "/major" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
 			<div class="flex flex-wrap items-end gap-2">
 				<div class="min-w-32">
-					<label for="major-to" class="label">Move to postgres</label>
+					<label for="major-to" class="label">Postgres version</label>
 					<select id="major-to" name="to" class="input">
 						for _, n := range ver.Majors {
-							<option value={ strconv.Itoa(n) }>{ strconv.Itoa(n) }</option>
+							<option value={ strconv.Itoa(n) }>{ majorLabel(ver.Image, n) }</option>
 						}
 					</select>
 				</div>
 				<button type="submit" name="action" value="check" class="btn btn-ghost btn-sm">Check</button>
-				<button type="submit" name="action" value="upgrade" class="btn btn-danger btn-sm">Change version</button>
+				@c.Confirm(c.ConfirmView{
+					Button:  "Change version",
+					Title:   "Change the postgres version?",
+					Warning: "Stops the database while the data moves. The old data is kept for 7 days.",
+					Action:  v.Base + "/major",
+					Target:  "#" + Root,
+					Vals:    `{"action":"upgrade"}`,
+				})
 			</div>
 			<p class="text-xs text-rw-faint" data-hint>It stops while the data moves; the old data is kept for 7 days.</p>
 			if ver.Check != "" {
@@ -1010,9 +1041,16 @@ templ failover(v View, f FailoverView) {
 			<p class="text-xs text-rw-danger">{ f.Error }</p>
 		}
 		if f.CanAbort && !v.ReadOnly {
-			<form hx-post={ v.Base + "/switchover-abort" } hx-target={ "#" + Root } hx-swap="outerHTML" class="mt-2">
-				<button type="submit" class="btn btn-ghost btn-sm">Abort switchover</button>
-			</form>
+			<div class="mt-2">
+				@c.Confirm(c.ConfirmView{
+					Button:  "Abort switchover",
+					Title:   "Abort the switchover?",
+					Warning: "Stops the switchover and keeps the current primary.",
+					Action:  v.Base + "/switchover-abort",
+					Target:  "#" + Root,
+					Quiet:   true,
+				})
+			</div>
 		}
 	} else if !v.ReadOnly {
 		if len(f.Promote) > 0 {
@@ -1033,7 +1071,13 @@ templ failover(v View, f FailoverView) {
 							<input id="promote-confirm" name="confirm" autocomplete="off" class="input font-mono"/>
 						</div>
 					}
-					<button type="submit" class="btn btn-danger btn-sm">Promote</button>
+					@c.Confirm(c.ConfirmView{
+						Button:  "Promote",
+						Title:   "Promote the standby?",
+						Warning: "Makes the chosen standby the primary. The old primary can no longer rejoin as is.",
+						Action:  v.Base + "/promote-standby",
+						Target:  "#" + Root,
+					})
 				</div>
 			</form>
 		}
@@ -1047,7 +1091,14 @@ templ failover(v View, f FailoverView) {
 						}
 					</select>
 				</div>
-				<button type="submit" class="btn btn-ghost btn-sm">Switch over</button>
+				@c.Confirm(c.ConfirmView{
+					Button:  "Switch over",
+					Title:   "Switch the primary?",
+					Warning: "Moves the primary to the chosen standby. Clients reconnect once.",
+					Action:  v.Base + "/switchover",
+					Target:  "#" + Root,
+					Quiet:   true,
+				})
 			</form>
 		}
 	}

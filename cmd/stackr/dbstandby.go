@@ -55,6 +55,9 @@ func (a *app) dbStandby() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := a.confirm("Remove the standby " + args[0] + "? Its container, volume and slot go."); err != nil {
+				return err
+			}
 			if _, err := a.call(DELETE, p+"/standbys/"+id, nil); err != nil {
 				return err
 			}
