@@ -98,6 +98,9 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		jv := render.JobView(q.page, q.job)
 		jv.Refresh = f.Base + "?tab=releases"
 		v.Job = &jv
+	} else if jv, _ := render.ActiveJob(c, h.orch, "promote", "deploy"); jv != nil {
+		jv.Refresh = f.Base + "?tab=releases"
+		v.Job = jv
 	}
 	// the question: one env, one release
 	plan, envID := c.QueryParam("plan"), c.QueryParam("env")

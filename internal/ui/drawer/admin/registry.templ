@@ -71,9 +71,7 @@ templ Registry(v RegistryView) {
 				if v.Clean.Action != "" {
 					@c.Confirm(v.Clean)
 				}
-				if v.Job != nil {
-					@c.JobStatus(*v.Job)
-				}
+				@c.JobSlot(v.Job, "registry-clean")
 			</div>
 		}
 		if v.Knobs != nil {

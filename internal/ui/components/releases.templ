@@ -53,14 +53,10 @@ const askRows = 5
 
 templ Releases(v ReleasesView) {
 	<div id="tab-releases">
-		if v.Live != "" && v.Ask == nil {
+		if v.Live != "" && v.Ask == nil && (v.Job == nil || !v.Job.Live) {
 			@LiveTab(v.Live, "tab-releases")
 		}
-		if v.Job != nil {
-			<div class="mb-4">
-				@JobStatus(*v.Job)
-			</div>
-		}
+		@JobSlot(v.Job, "promote,deploy")
 		if v.Ask != nil {
 			@Confirm(*v.Ask)
 		}

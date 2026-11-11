@@ -37,7 +37,9 @@ func failedTitle(n int) string {
 
 templ Backups(v BackupsView) {
 	<div id="tab-backups">
-		@c.LiveTab(Href("backups"), "tab-backups")
+		if v.Job == nil || !v.Job.Live {
+			@c.LiveTab(Href("backups"), "tab-backups")
+		}
 		if v.NoOffBox {
 			<p class="banner" role="status" data-backup-warning>Backups are only on this server. <a href="#dest_name" class="underline">Add an S3 destination.</a></p>
 		}
@@ -101,9 +103,7 @@ templ Backups(v BackupsView) {
 						<button type="submit" class="btn btn-ghost btn-sm">Back up now</button>
 					</form>
 				}
-				if v.Job != nil {
-					@c.JobStatus(*v.Job)
-				}
+				@c.JobSlot(v.Job, "panel-backup")
 			</div>
 		}
 		@c.Dests(v.Dests)

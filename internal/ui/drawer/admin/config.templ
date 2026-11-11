@@ -72,11 +72,7 @@ templ Config(v ConfigView) {
 				</div>
 			}
 		}
-		if v.Job != nil {
-			<div class="mb-4">
-				@c.JobStatus(*v.Job)
-			</div>
-		}
+		@c.JobSlot(v.Job, "server-plan,server-apply")
 		if v.Latest != nil {
 			@c.Section("Latest plan", "instance", "") {
 				<div class="space-y-4">

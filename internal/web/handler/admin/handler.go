@@ -42,6 +42,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		func(c echo.Context) error { return render.JobStream(c, h.orch, "") },
 		a.Require("admin.read"),
 	)
+	g.GET(b+"/job-live", render.JobLive(h.orch), a.Require("admin.read"))
 	jobLog := func(c echo.Context) error { return render.JobLogPage(c, h.orch, "") }
 	g.GET("/-/jobs/:job", jobLog, a.Require("admin.read"))
 	g.GET("/-/jobs/:job/log", jobLog, a.Require("admin.read"))
@@ -193,6 +194,16 @@ func (h *handler) Section(c echo.Context) error {
 		return middleware.HTTPError(err)
 	}
 	return render.Page(c, http.StatusOK, "Server settings", ui.Page(f, body))
+}
+
+// activeJob is the job a tab was handed, else the newest running one of kinds,
+// so a job started elsewhere shows. A read failure shows none.
+func (h *handler) activeJob(c echo.Context, job *comp.JobStatusView, kinds ...string) *comp.JobStatusView {
+	if job != nil {
+		return job
+	}
+	v, _ := render.ActiveJob(c, h.orch, kinds...)
+	return v
 }
 
 // act runs one action and answers its section: a refusal over it (422), or
@@ -381,9 +392,9 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		pv.Resync, pv.Target, pv.Live = ui.Base+"/managed-dns/sync", ui.Target, ui.Href("managed-dns")
 		return dnsui.Page(pv), err
 	case "backups":
-		return h.backupsTab(c, job)
+		return h.backupsTab(c, h.activeJob(c, job, "panel-backup"))
 	case "registry":
-		return h.registryTab(c, job)
+		return h.registryTab(c, h.activeJob(c, job, "registry-clean"))
 	case "cleanup":
 		s, err := h.settings(c, "cleanup", nil)
 		return ui.Knobs("", s), err
@@ -402,7 +413,7 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 		s, err := h.settings(c, "jobs", nil)
 		return ui.Knobs("", s), err
 	case "config":
-		return h.configTab(c, job)
+		return h.configTab(c, h.activeJob(c, job, "server-plan", "server-apply"))
 	case "update":
 		return h.updateTab(c, x, job)
 	}

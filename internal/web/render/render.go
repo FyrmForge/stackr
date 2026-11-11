@@ -259,7 +259,7 @@ func Theme(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		csrf, _ := c.Get("csrf").(string)
 		r := c.Request()
-		c.SetRequest(r.WithContext(components.WithRequest(r.Context(), c.Response().Header().Get(middleware.HeaderRequestID), csrf)))
+		c.SetRequest(r.WithContext(components.WithPath(components.WithRequest(r.Context(), c.Response().Header().Get(middleware.HeaderRequestID), csrf), r.URL.Path)))
 		if p := middleware.Principal(c); p != nil {
 			r = c.Request()
 			c.SetRequest(r.WithContext(components.WithTheme(r.Context(), p.User.Theme)))

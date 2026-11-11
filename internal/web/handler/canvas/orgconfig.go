@@ -58,6 +58,9 @@ func (h *handler) configTab(c echo.Context, cd card, f *comp.DrawerView) (templ.
 		jv := render.JobView(q.page, q.job)
 		jv.Refresh = f.Base + "?tab=config"
 		v.Job = &jv
+	} else if jv, _ := render.ActiveJob(c, h.orch, "org-plan", "org-apply"); jv != nil {
+		jv.Refresh = f.Base + "?tab=config"
+		v.Job = jv
 	}
 	if !can(c, cd.s, "org.owner.read") {
 		return orgui.Config(v), nil

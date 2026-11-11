@@ -1,0 +1,62 @@
+package components
+
+import (
+	"context"
+	"strings"
+)
+
+type pathKey struct{}
+
+// WithPath leaves the request path on ctx, which JobSlot reads to know its
+// scope's poll URL.
+func WithPath(ctx context.Context, path string) context.Context {
+	return context.WithValue(ctx, pathKey{}, path)
+}
+
+// jobPoll is the job-live URL of the scope the request path is in: the
+// panel's under /-/admin, an org's (one segment before its "/-/") or an
+// env's (three); "" = no poll (a stack has no job stream route).
+func jobPoll(ctx context.Context, kinds string) string {
+	p, _ := ctx.Value(pathKey{}).(string)
+	base := ""
+	if strings.HasPrefix(p, "/-/admin") {
+		base = "/-/admin"
+	} else if i := strings.Index(p, "/-/"); i > 0 {
+		if n := strings.Count(p[:i], "/"); n == 1 || n == 3 {
+			base = p[:i]
+		}
+	}
+	if base == "" {
+		return ""
+	}
+	u := base + "/-/job-live"
+	if base == "/-/admin" {
+		u = base + "/job-live"
+	}
+	if kinds != "" {
+		u += "?kind=" + kinds
+	}
+	return u
+}
+
+// JobSlot is where a tab shows its scope's job: the one the page was handed
+// (job), and while that is idle, a poll every 5s for a job of one of kinds
+// (comma list) started since, which arrives as its live status. The slot is
+// always there, so a poll that finds nothing leaves it alone (204).
+templ JobSlot(job *JobStatusView, kinds string) {
+	<div id="job-slot" class="mb-4">
+		if job != nil {
+			@JobStatus(*job)
+		}
+		if u := jobPoll(ctx, kinds); u != "" && (job == nil || !job.Live) {
+			<span hidden data-poll-guard="region" hx-get={ u } hx-trigger="every 5s" hx-select="#job-slot" hx-target="#job-slot" hx-swap="outerHTML"></span>
+		}
+	</div>
+}
+
+// JobSlotLive is a slot answer holding a running job: no poll, its own stream.
+templ JobSlotLive(job JobStatusView) {
+	<div id="job-slot" class="mb-4">
+		@JobStatus(job)
+	</div>
+}

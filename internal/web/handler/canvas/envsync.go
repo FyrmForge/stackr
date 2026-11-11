@@ -155,6 +155,11 @@ func (h *handler) syncTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Co
 			return envui.Sync(v), nil
 		}
 	}
+	if jv, _ := render.ActiveJob(c, h.orch, "env-sync"); jv != nil {
+		jv.Refresh = f.Base + "?tab=sync&sync=" + q.from
+		v.Job = jv
+		return envui.Sync(v), nil
+	}
 	v.Live = f.Base + "?tab=sync&" + q.query()
 	pl, err := h.orch.PlanEnvSync(ctx, e.ID, q.from, q.drop)
 	if err != nil {
