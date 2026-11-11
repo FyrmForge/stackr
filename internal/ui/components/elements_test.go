@@ -83,7 +83,7 @@ var contract = map[string][]string{
 		"--x",
 		"--y",
 	},
-	"local-time": {`"fmt"`, `"zone"`, "time[datetime]", "dataset.tz"},
+	"local-time": {`"fmt"`, `"zone"`, "time[datetime]", "dataset.tz", `"since"`},
 	"log-pane":   {`"level"`, `"search"`, "[data-lines]"},
 	"side-drawer": {
 		`"drawer-closed"`,

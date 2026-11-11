@@ -191,24 +191,26 @@ func (h *H) Placements() Endpoint {
 }
 
 // PlacementIn makes a placement. Node is a node's name, "" for none yet; no
-// orgs means open to every org.
+// orgs means open to every org, unless closed: then only the admin places on it.
 type PlacementIn struct {
-	Name string   `json:"name"`
-	Node string   `json:"node"`
-	Orgs []string `json:"orgs"`
+	Name   string   `json:"name"`
+	Node   string   `json:"node"`
+	Orgs   []string `json:"orgs"`
+	Closed bool     `json:"closed"`
 }
 
 // CreatePlacement (server admin) makes a placement.
 func (h *H) CreatePlacement() Endpoint {
 	return JSON(http.StatusCreated, func(c echo.Context, in PlacementIn) (PlacementOut, error) {
 		p, err := h.Orch.CreatePlacement(rc(c), middleware.Principal(c), service.PlacementSpec{
-			Name: in.Name, Node: in.Node, OpenToAll: len(in.Orgs) == 0, Orgs: in.Orgs,
+			Name: in.Name, Node: in.Node, OpenToAll: len(in.Orgs) == 0 && !in.Closed, Orgs: in.Orgs,
 		})
 		return placementOut(p), err
 	})
 }
 
-// OpenIn is who may use a placement: every org, or the listed slugs.
+// OpenIn is who may use a placement: every org, or the listed slugs; neither
+// (all false, no orgs) is admin only.
 type OpenIn struct {
 	All  bool     `json:"all"`
 	Orgs []string `json:"orgs"`

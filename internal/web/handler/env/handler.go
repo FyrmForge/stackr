@@ -77,6 +77,9 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/switchover", h.Switchover, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/switchover-abort", h.AbortSwitchover, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/standby-fence", h.FenceStandby, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/standby-add", h.AddStandby, a.Require("placement.write"))
+	g.POST(e+"/instances/:tile/standby-remove", h.RemoveStandby, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/standby-rebuild", h.RebuildStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/promote-standby", h.PromoteStandby, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
@@ -558,7 +561,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			AdminUser: m.AdminUser,
 		}
 		if m.Engine == "postgres" {
-			o = h.pgLive(ctx, t.ID, o)
+			o = h.pgLive(ctx, middleware.Principal(c), can(c, s, "placement.write"), t.ID, o)
 			v.Live = v.Base + "/live"
 		}
 		if st.LastJob != nil {
@@ -761,6 +764,26 @@ func (h *handler) FenceStandby(c echo.Context) error {
 	return h.instance(c, "slices", note, err, instance.SettingsView{})
 }
 
+// POST …/-/instances/:tile/standby-add: a standby on node "node".
+func (h *handler) AddStandby(c echo.Context) error {
+	node := strings.TrimSpace(c.FormValue("node"))
+	_, err := h.orch.AddStandbyView(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, node)
+	return h.instance(c, "slices", "Adding a standby on "+node+". It shows streaming once the copy is done.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/standby-remove: remove the standby "id".
+func (h *handler) RemoveStandby(c echo.Context) error {
+	err := h.orch.RemoveStandbyOf(c.Request().Context(), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("id")))
+	return h.instance(c, "slices", "Standby removed.", err, instance.SettingsView{})
+}
+
+// POST …/-/instances/:tile/standby-rebuild: copy the standby "id" again from
+// the primary.
+func (h *handler) RebuildStandby(c echo.Context) error {
+	v, err := h.orch.RebuildStandbyOf(c.Request().Context(), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("id")))
+	return h.instance(c, "slices", "Rebuilding the standby on "+v.Node+".", err, instance.SettingsView{})
+}
+
 // POST …/-/instances/:tile/promote-standby: promote the standby on node "to".
 // When the primary's node does not answer, "confirm" must be that node's name:
 // the admin's word that it is gone.
@@ -773,7 +796,7 @@ func (h *handler) PromoteStandby(c echo.Context) error {
 		}
 		gone = true
 	}
-	_, err := h.orch.PromoteStandby(ctx, middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone, strings.TrimSpace(c.FormValue("powered_off")), false)
+	_, err := h.orch.PromoteStandby(ctx, middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone, strings.TrimSpace(c.FormValue("powered_off")), c.FormValue("allow_async") != "")
 	return h.instance(c, "slices", "Promoting. The steps show under Last job; the old primary stays fenced until its node returns.", err, instance.SettingsView{})
 }
 

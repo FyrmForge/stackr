@@ -394,7 +394,7 @@ func TestPromoteRefusesAsyncTarget(t *testing.T) {
 	_, err := o.members.SetSync(ctx, w1, SyncAuto, true)
 	must(t, err)
 	_, err = doPromote(o, ctx, adminP(), r.inst.TileID, "w2", true, "", false)
-	if err == nil || !strings.Contains(err.Error(), "allow_async_target") {
+	if err == nil || !strings.Contains(err.Error(), "may lack the last writes") {
 		t.Fatalf("promote of an async target: %v", err)
 	}
 	ms, _ = o.members.List(ctx, r.inst.ID)

@@ -5601,6 +5601,9 @@
       },
       "PlacementIn": {
         "properties": {
+          "closed": {
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },
@@ -5617,7 +5620,8 @@
         "required": [
           "name",
           "node",
-          "orgs"
+          "orgs",
+          "closed"
         ],
         "type": "object"
       },

@@ -543,7 +543,7 @@ func (o *Orchestrator) targetBehind(ctx context.Context, t store.Tile, ms []Inst
 	}
 	tl, err := o.replayLSN(ctx, t, target)
 	if err != nil {
-		return errs.Conflictf("The replay position of the standby you picked cannot be read (%v), so it cannot be compared with the others. Override with allow_async_target (CLI --allow-async-target).", err)
+		return errs.Conflictf("The replay position of the standby you picked cannot be read (%v), so it cannot be compared with the others. Allow a target that may lack the last writes to override.", err)
 	}
 	for _, m := range ms {
 		if m.ID == target.ID || !competitor(m) {
@@ -551,10 +551,10 @@ func (o *Orchestrator) targetBehind(ctx context.Context, t store.Tile, ms []Inst
 		}
 		l, err := o.replayLSN(ctx, t, m)
 		if err != nil {
-			return errs.Conflictf("The replay position of the standby on %s cannot be read (%v), so it is not known whether the one you picked is behind it. Override with allow_async_target (CLI --allow-async-target).", o.nodeName(ctx, m.NodeID), err)
+			return errs.Conflictf("The replay position of the standby on %s cannot be read (%v), so it is not known whether the one you picked is behind it. Allow a target that may lack the last writes to override.", o.nodeName(ctx, m.NodeID), err)
 		}
 		if l > tl {
-			return errs.Conflictf("The standby on %s is more advanced than the one you picked, which may miss commits the primary confirmed. Promote that one, or override with allow_async_target (CLI --allow-async-target).", o.nodeName(ctx, m.NodeID))
+			return errs.Conflictf("The standby on %s is more advanced than the one you picked, which may miss commits the primary confirmed. Promote that one, or allow a target that may lack the last writes to override.", o.nodeName(ctx, m.NodeID))
 		}
 	}
 	return nil
@@ -645,7 +645,7 @@ func (o *Orchestrator) mayPromote(ctx context.Context, t store.Tile, inst store.
 		return nil
 	}
 	if _, ok := o.leaseRecOf(ctx, inst.ID, oldNode); !ok {
-		return errs.Conflictf("%s has no recorded lease on the primary, so it cannot be shown to stop by itself. If you powered it off, promote with: %s", name, PoweredOffPhrase)
+		return errs.Conflictf("%s has no recorded lease on the primary, so it cannot be shown to stop by itself. If you powered it off, type: %s", name, PoweredOffPhrase)
 	}
 	if wait := o.leaseWait(ctx, oldNode); wait > 0 {
 		return errs.Conflictf("%s may still be running the primary: its lease runs out in %d s. Try again then.", name, int(wait.Seconds())+1)
@@ -680,7 +680,7 @@ func (o *Orchestrator) runFailover(ctx context.Context, t store.Tile, inst store
 			_ = o.saveFailover(ctx, inst.ID, f)
 			slog.Warn("failover: step failed, the tick resumes it", "instance", inst.ID, "step", step, "err", err)
 			if f.Kind == foSwitchover { // a bare error reads as "internal error"; say what stopped and what happens next
-				return errs.Conflictf("The switchover stopped at %s: %v. It carries on by itself; before the promote it can be given up with --abort.", step, err)
+				return errs.Conflictf("The switchover stopped at %s: %v. It carries on by itself; before the promote it can be given up with abort.", step, err)
 			}
 			return err
 		}

@@ -5,6 +5,8 @@
 package instance
 
 import (
+	"hash/fnv"
+	"encoding/json"
 	"slices"
 	"strconv"
 	"strings"
@@ -86,6 +88,12 @@ templ actions(v View) {
 	}
 }
 
+// memberVals is the hx-vals a member's confirm posts.
+func memberVals(id string) string {
+	b, _ := json.Marshal(map[string]string{"id": id})
+	return string(b)
+}
+
 func stop(v View) c.ConfirmView {
 	s := dialog.Stop(v.Name, v.Base+"/stop", "#"+Root)
 	s.Quiet = true
@@ -101,6 +109,7 @@ type OverviewView struct {
 	Version             *VersionView // postgres only
 	Protection          string       // postgres only: the standby line, "" = not shown
 	Members             []MemberRow  // postgres only: the primary and its standbys; none = not shown
+	AddNodes            []string     // postgres only: nodes a standby may be added on; none = no Add
 	Failover            *FailoverView // postgres with a standby only
 	Sync                *SyncView     // postgres only; nil = not shown
 }
@@ -136,6 +145,7 @@ type MemberRow struct {
 	ID, Node, Role, State, Lag, Slot string
 	Tone                             string // the state's chip tone
 	Fenced, CanFence                 bool   // CanFence: a standby that may be fenced or unfenced by hand
+	CanRemove, CanRebuild            bool   // a standby that may be removed; one that needs a rebuild
 }
 
 // VersionView is the image a postgres instance runs. UpdateTo is the image a
@@ -288,7 +298,7 @@ templ LivePooler(v View, o OverviewView) {
 }
 
 templ LiveMembers(v View, o OverviewView) {
-	if len(o.Members) > 0 {
+	if len(o.Members) > 0 || len(o.AddNodes) > 0 {
 		<h3 class="section-title">Members</h3>
 		<ul class="space-y-2">
 			for _, m := range o.Members {
@@ -315,11 +325,45 @@ templ LiveMembers(v View, o OverviewView) {
 								}
 							</form>
 						}
+						if m.CanRebuild && !v.ReadOnly {
+							@c.Confirm(c.ConfirmView{
+								Button:  "Rebuild",
+								Title:   "Rebuild the standby on " + m.Node + "?",
+								Warning: "Copies the data again from the primary.",
+								Action:  v.Base + "/standby-rebuild",
+								Target:  "#" + Root,
+								Vals:    memberVals(m.ID),
+								Primary: true,
+							})
+						}
+						if m.CanRemove && !v.ReadOnly {
+							@c.Confirm(c.ConfirmView{
+								Button:  "Remove",
+								Title:   "Remove the standby on " + m.Node + "?",
+								Warning: "Removes the standby on " + m.Node + ": its container, data and slot.",
+								Action:  v.Base + "/standby-remove",
+								Target:  "#" + Root,
+								Vals:    memberVals(m.ID),
+							})
+						}
 						@c.Chip(m.State, m.Tone)
 					</span>
 				</li>
 			}
 		</ul>
+		if len(o.AddNodes) > 0 && !v.ReadOnly {
+			<form hx-post={ v.Base + "/standby-add" } hx-target={ "#" + Root } hx-swap="outerHTML" class="flex items-end gap-2">
+				<div class="min-w-32">
+					<label for="standby-node" class="label">Add a standby on</label>
+					<select id="standby-node" name="node" class="input">
+						for _, n := range o.AddNodes {
+							<option value={ n }>{ n }</option>
+						}
+					</select>
+				</div>
+				<button type="submit" class="btn btn-primary btn-sm">Add standby</button>
+			</form>
+		}
 	}
 }
 
@@ -333,6 +377,26 @@ templ LiveSync(v View, o OverviewView) {
 	if o.Sync != nil {
 		@syncForm(v, *o.Sync)
 	}
+}
+
+// formID names a live form by what it offers. The stream swaps its region
+// with htmx's hx-preserve, which keeps an element whose id is unchanged
+// (what is typed or picked stays) and replaces one whose id is new: the
+// options or the saved values moved, so the old form would be stale.
+func formID(prefix string, parts ...string) string {
+	h := fnv.New32a()
+	for _, p := range parts {
+		_, _ = h.Write([]byte(p + "\x00"))
+	}
+	return prefix + "-" + strconv.FormatUint(uint64(h.Sum32()), 36)
+}
+
+func syncParts(s SyncView) []string {
+	p := []string{strconv.FormatBool(s.Prefer), strconv.FormatBool(s.Required), strconv.Itoa(s.LimitMS)}
+	for _, b := range s.Standbys {
+		p = append(p, b.ID, b.Mode)
+	}
+	return p
 }
 
 func bindings(n int) string {
@@ -1083,6 +1147,14 @@ templ failover(v View, f FailoverView) {
 					}
 					<button type="submit" class="btn btn-danger btn-sm">Promote</button>
 				</div>
+				<div>
+					<label for="promote-powered-off" class="label">To promote over a node you powered off, type: I powered the node off</label>
+					<input id="promote-powered-off" name="powered_off" autocomplete="off" class="input font-mono"/>
+				</div>
+				<label class="flex items-center gap-2 text-sm text-rw-text">
+					<input type="checkbox" name="allow_async" value="1"/>
+					Promote even if it may lack the last writes
+				</label>
 			</form>
 		}
 		if len(f.Switch) > 0 {

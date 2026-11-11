@@ -3,7 +3,7 @@
 #
 #   scripts/rig.sh save                    snapshot connectors, master key, install.json, Caddy certs
 #   scripts/rig.sh ship <version>          load the images and installer of a `make release` onto the rig
-#   scripts/rig.sh pave <version>          save, wipe the DB and tiles, install <version> fresh
+#   scripts/rig.sh pave <version>          save, wipe the DB, tiles and image registry, install <version> fresh
 #   scripts/rig.sh upgrade <version>       ship, then replace the stackr and proxy containers, DB kept
 #   scripts/rig.sh restore [--org <slug>] [<snapshot>]
 #                                          put the saved connectors back under <slug> (default: the only org)
@@ -111,9 +111,11 @@ pave() {
 	save
 	rig 'docker ps -aq --filter name=stackr- | xargs -r docker rm -f >/dev/null; docker rm -f stackr stackr-proxy >/dev/null 2>&1 || true'
 	rig 'docker volume ls -q | grep -E "^stackr-(db|vol|stor)-" | xargs -r docker volume rm >/dev/null'
+	# The registry's images carry the old org slugs (a new org of the same slug is refused): the container is gone above, drop its data so the installer makes it fresh.
+	rig 'docker rm -f stackr-registry >/dev/null 2>&1; docker volume rm stackr-registry-data >/dev/null 2>&1 || true'
 	rig 'docker network ls -q --filter name=stackr- | xargs -r docker network rm >/dev/null 2>&1 || true'
 	rig docker run --rm -v "$DATA:/d" alpine sh -c "'rm -rf /d/stackr.db /d/stackr.db-shm /d/stackr.db-wal /d/jobs /d/runs /d/backups'"
-	# keys/, install.json and the stackr-caddy volume (certs) stay.
+	# keys/, install.json and the stackr-caddy volume (certs) stay; the registry volume goes.
 	install
 	echo "paved to $v; log in as $ADMIN_EMAIL, make the org, then: scripts/rig.sh restore --org <slug>"
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/FyrmForge/stackr/internal/api/stream"
+	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
 	"github.com/FyrmForge/stackr/internal/web/render"
@@ -25,6 +26,8 @@ func memberRows(vs []service.StandbyView) []instance.MemberRow {
 		case "needs rebuild", "fenced, needs rewind":
 			r.Tone = "danger"
 		}
+		r.CanRemove = v.Role == "replica" && v.State != "removing"
+		r.CanRebuild = v.Role == "replica" && (v.State == "needs rebuild" || v.State == "fenced, needs rewind")
 		r.CanFence = v.Role == "replica" && v.State != "removing" && v.State != "fenced, needs rewind" && v.State != "needs rebuild"
 		if v.Role == "replica" && v.State == "streaming" {
 			r.Lag = fmt.Sprintf("%s behind, %s", render.Size(v.LagBytes), (time.Duration(v.LagSeconds) * time.Second).String())
@@ -47,14 +50,18 @@ var LiveEvery = 3 * time.Second
 // pgLive fills o with the parts of a postgres overview that change by
 // themselves: the pooler, the members, the failover offer and the sync
 // status. The drawer renders it once and its stream renders it again.
-func (h *handler) pgLive(ctx context.Context, tileID string, o instance.OverviewView) instance.OverviewView {
+func (h *handler) pgLive(ctx context.Context, by *service.Principal, canAdd bool, tileID string, o instance.OverviewView) instance.OverviewView {
 	if ps, err := h.orch.Pooler(ctx, tileID); err == nil {
 		o.Pooler = &instance.PoolerView{
 			Status: ps.Word, Host: ps.Host, Port: ps.Port,
 			Active: ps.Active, Waiting: ps.Waiting, Counted: ps.Counted,
 		}
 	}
-	if vs, err := h.orch.Standbys(ctx, tileID); err == nil && len(vs) > 1 {
+	vs, _ := h.orch.Standbys(ctx, tileID)
+	if canAdd {
+		o.AddNodes, _ = h.orch.StandbyCandidates(ctx, by, tileID)
+	}
+	if len(vs) > 1 || len(o.AddNodes) > 0 {
 		o.Members = memberRows(vs)
 	}
 	if sv, err := h.orch.SyncOf(ctx, tileID); err == nil && (len(sv.Standbys) > 0 || sv.Prefer) {
@@ -75,7 +82,8 @@ func (h *handler) pgLive(ctx context.Context, tileID string, o instance.Overview
 // failover, sync): every region once at connect, then only when its markup
 // changes, so a form is not redrawn under the hands for nothing.
 func (h *handler) InstanceLive(c echo.Context) error {
-	s := scope(c)
+	s, by := scope(c), middleware.Principal(c)
+	canAdd := can(c, s, "placement.write")
 	v := instance.View{Base: render.EnvURL(c) + "/-/instances/" + s.Tile.Slug, ReadOnly: !can(c, s, "tile.write")}
 	regions := []struct {
 		name string
@@ -91,7 +99,7 @@ func (h *handler) InstanceLive(c echo.Context) error {
 			return nil, nil
 		}
 		last = time.Now()
-		o := h.pgLive(ctx, s.Tile.ID, instance.OverviewView{})
+		o := h.pgLive(ctx, by, canAdd, s.Tile.ID, instance.OverviewView{})
 		var out []stream.Msg
 		for _, r := range regions {
 			body, err := render.Event(ctx, r.part(v, o))

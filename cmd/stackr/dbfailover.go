@@ -26,23 +26,26 @@ func (a *app) dbSwitchover() *cobra.Command {
 	return c
 }
 
+// phrase is service.PoweredOffPhrase; the CLI never imports service.
+const phrase = "I powered the node off"
+
 func (a *app) dbPromote() *cobra.Command {
 	to := ""
-	gone, off, async := false, false, false
+	gone, async := false, false
+	off := ""
 	c := waits(leaf("promote", "operated.promote-standby", "Make a standby the primary when the primary is down", exact(0), nil))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if to == "" {
 			return usage("pass --to: the node of the standby to promote")
 		}
-		phrase := ""
-		if off {
-			phrase = "I powered the node off" // service.PoweredOffPhrase
+		if c.Flags().Changed("powered-off") && off != phrase {
+			return usage("--powered-off takes the exact phrase: " + phrase)
 		}
-		return a.orgJob(c, POST, p+"/promote-standby", map[string]any{"to": to, "node_gone": gone, "powered_off": phrase, "allow_async_target": async}, "promote")
+		return a.orgJob(c, POST, p+"/promote-standby", map[string]any{"to": to, "node_gone": gone, "powered_off": off, "allow_async_target": async}, "promote")
 	})
 	c.Flags().StringVar(&to, "to", "", "the node of the standby to promote (name or slug)")
 	c.Flags().BoolVar(&gone, "node-gone", false, "confirm the old primary's node is really gone (needed when it does not answer)")
-	c.Flags().BoolVar(&off, "powered-off", false, "promote without a recorded lease on the old primary: you powered its node off")
+	c.Flags().StringVar(&off, "powered-off", "", `promote without a recorded lease on the old primary; type "`+phrase+`" to say you powered its node off`)
 	c.Flags().BoolVar(&async, "allow-async-target", false, "promote a standby the primary did not wait for, although one it did wait for is usable")
 	return c
 }

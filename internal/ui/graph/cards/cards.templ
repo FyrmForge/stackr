@@ -1,6 +1,10 @@
 package cards
 
-import c "github.com/FyrmForge/stackr/internal/ui/components"
+import (
+	"time"
+
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
 
 // Card is an env card's face (v0 nodeCardFace): a volume is its bottom
 // strip, anything else the head and the live footer. A card with a drawer
@@ -116,7 +120,9 @@ templ Footer(id string, f FooterView) {
 					<span class="truncate">open settings</span>
 				</span>
 			default:
-				if f.Want > 1 && f.Up > 0 && f.Up < f.Want {
+				if !f.Since.IsZero() {
+					@progress(f)
+				} else if f.Want > 1 && f.Up > 0 && f.Up < f.Want {
 					@line("warn", "degraded · "+itoa(f.Up)+"/"+itoa(f.Want))
 				} else if f.Want > 1 && f.Status == "running" {
 					@line("success", "running · "+itoa(f.Up)+"/"+itoa(f.Want))
@@ -134,6 +140,22 @@ templ Footer(id string, f FooterView) {
 templ Status(status, waiting string) {
 	{{ tone, text := word(status, waiting) }}
 	@line(tone, text)
+}
+
+// progress is a live deploy beside the tile's state: "Online · Building
+// (09:20)", the state's dot and the job muted; with nothing running yet
+// the warn word alone. <local-time since> ticks the clock.
+templ progress(f FooterView) {
+	{{ _, w := word(f.Status, "") }}
+	if f.Under == "running" {
+		@line("success", "Online") {
+			<span class="text-rw-faint">{ " · " + w + " (" }<local-time since={ f.Since.UTC().Format(time.RFC3339) }>{ elapsed(f.Since) }</local-time>{ ")" }</span>
+		}
+	} else {
+		@line("warn", w+" (") {
+			<local-time since={ f.Since.UTC().Format(time.RFC3339) }>{ elapsed(f.Since) }</local-time>{ ")" }
+		}
+	}
 }
 
 templ line(tone, text string) {

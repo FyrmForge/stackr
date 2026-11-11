@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 )
@@ -73,6 +74,28 @@ func TestCardKinds(t *testing.T) {
 
 // A new traffic sample redraws the lanes whole: the new rate replaces the
 // old one, a vanished direction goes.
+// A deploy in flight reads beside the live state, not over it.
+func TestProgressLine(t *testing.T) {
+	since := time.Now().Add(-9*time.Minute - 20*time.Second - 500*time.Millisecond)
+	for _, c := range []struct{ status, under, want string }{
+		{"building", "running", "Online<span"},
+		{"building", "", "Building ("},
+		{"queued", "", "Queued ("},
+	} {
+		out := render(t, Footer("n1", FooterView{Kind: "service", Status: c.status, Under: c.under, Since: since}))
+		if !strings.Contains(out, c.want) || !strings.Contains(out, ">09:20</local-time>") {
+			t.Errorf("%s over %q: %s", c.status, c.under, out)
+		}
+	}
+	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Under: "running", Since: since}))
+	if !strings.Contains(out, "text-rw-success") || !strings.Contains(out, " · Building (<local-time") || !strings.Contains(out, "</local-time>)") {
+		t.Errorf("online with the build muted beside it: %s", out)
+	}
+	if elapsed(time.Now().Add(-3725*time.Second)) != "1:02:05" {
+		t.Error("an hour reads h:mm:ss")
+	}
+}
+
 func TestLanesRepaint(t *testing.T) {
 	a := render(t, Lanes([]Lane{
 		{From: "proxy", To: "t1", BPS: 12_600},

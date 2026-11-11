@@ -138,6 +138,8 @@ type Node struct {
 	NextRun    *time.Time // unpaused cron only
 	NewVersion bool       // image watch saw a newer digest
 	Waiting    string     // the param a parked job waits for
+	Under      string     // building/queued over a running tile: the word beneath, "running"
+	Since      time.Time  // that job's start (queued: its creation); zero = no such job
 	// Vars card counts; never a value.
 	Params, Secrets int
 	Consumers       int // slice: the tiles that ref it, name it in slice_access or hold a cred on it
@@ -579,6 +581,8 @@ type status struct {
 	state    tile.State
 	lastRun  *store.Run
 	waiting  string
+	under    string
+	since    time.Time
 	replicas []Sub
 }
 
@@ -647,7 +651,13 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 			s.word = "failed"
 			return s, nil
 		}
-		s.word = LayerJob(s.word, up, tile.RunToCompletion(t.Kind), j)
+		under := s.word
+		if s.word = LayerJob(under, up, tile.RunToCompletion(t.Kind), j); s.word == "building" || s.word == "queued" {
+			s.under, s.since = under, j.CreatedAt
+			if j.StartedAt != nil && s.word == "building" {
+				s.since = *j.StartedAt
+			}
+		}
 	}
 	return s, nil
 }
@@ -1054,6 +1064,7 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 			return n, err
 		}
 		n.Status, n.LastRun, n.Waiting = st.word, st.lastRun, st.waiting
+		n.Under, n.Since = st.under, st.since
 		n.Running = 0
 		for _, c := range st.state.Replicas {
 			if c.State == "running" {
