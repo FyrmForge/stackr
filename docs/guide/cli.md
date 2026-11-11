@@ -789,6 +789,21 @@ stackr db standby unfence <node|id> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
+### `stackr db status`
+
+Show a postgres instance's health: connections, oldest transaction, standby lag, pooler
+
+```
+stackr db status [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+      --top            also list the costliest statements
+```
+
 ### `stackr db switchover`
 
 Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted

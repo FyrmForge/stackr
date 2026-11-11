@@ -4989,6 +4989,109 @@
         ],
         "type": "object"
       },
+      "PGHealth": {
+        "properties": {
+          "archiving": {
+            "type": "boolean"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conn_max": {
+            "type": "integer"
+          },
+          "conn_used": {
+            "type": "integer"
+          },
+          "dbs": {
+            "items": {
+              "$ref": "#/components/schemas/PGLine"
+            },
+            "type": "array"
+          },
+          "oldest_xact_s": {
+            "type": "integer"
+          },
+          "pooler": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PoolerStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replicas": {
+            "items": {
+              "$ref": "#/components/schemas/PGLine"
+            },
+            "type": "array"
+          },
+          "sampled": {
+            "type": "boolean"
+          },
+          "slot_wal": {
+            "items": {
+              "$ref": "#/components/schemas/PGSlotWAL"
+            },
+            "type": "array"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PGLine"
+            },
+            "type": "array"
+          },
+          "standbys": {
+            "items": {
+              "$ref": "#/components/schemas/PGStandbyLag"
+            },
+            "type": "array"
+          },
+          "top": {
+            "items": {
+              "$ref": "#/components/schemas/PGQuery"
+            },
+            "type": "array"
+          },
+          "top_error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sampled",
+          "at",
+          "conn_used",
+          "conn_max",
+          "oldest_xact_s",
+          "archiving",
+          "dbs",
+          "replicas",
+          "slots",
+          "standbys",
+          "slot_wal",
+          "top",
+          "top_error"
+        ],
+        "type": "object"
+      },
+      "PGLine": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "type": "object"
+      },
       "PGMajorIn": {
         "properties": {
           "check": {
@@ -5001,6 +5104,33 @@
         "required": [
           "to",
           "check"
+        ],
+        "type": "object"
+      },
+      "PGQuery": {
+        "properties": {
+          "calls": {
+            "type": "integer"
+          },
+          "mean_us": {
+            "type": "integer"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "total_ms": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "total_ms",
+          "mean_us",
+          "rows",
+          "text"
         ],
         "type": "object"
       },
@@ -5135,6 +5265,40 @@
           "needs_restart",
           "work_mem_risk",
           "settings"
+        ],
+        "type": "object"
+      },
+      "PGSlotWAL": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "PGStandbyLag": {
+        "properties": {
+          "lag_bytes": {
+            "type": "integer"
+          },
+          "lag_seconds": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "lag_bytes",
+          "lag_seconds"
         ],
         "type": "object"
       },
@@ -5760,6 +5924,37 @@
         },
         "required": [
           "changes"
+        ],
+        "type": "object"
+      },
+      "PoolerStatus": {
+        "properties": {
+          "active": {
+            "type": "integer"
+          },
+          "counted": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "waiting": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "host",
+          "port",
+          "active",
+          "waiting",
+          "counted"
         ],
         "type": "object"
       },
@@ -22290,6 +22485,68 @@
           }
         },
         "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/health": {
+      "get": {
+        "operationId": "operated.health",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGHealth"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/image-check": {

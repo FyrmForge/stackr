@@ -61,7 +61,10 @@ func pgSeries(name string) string {
 }
 
 // PGLine is one line of a chart: the series suffix and what to call it.
-type PGLine struct{ Key, Label string }
+type PGLine struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
 
 func pgLine(name string) PGLine {
 	return PGLine{Key: pgSeries(name), Label: strings.NewReplacer(",", " ", "\n", " ", "\r", " ").Replace(name)}
@@ -290,17 +293,32 @@ type PGQuery = mflow.PGQuery
 // of the series that have lines to draw, plus the top statements read when
 // the tab opens.
 type PGMonitor struct {
-	Sampled     bool
-	At          time.Time
-	ConnUsed    int
-	ConnMax     int
-	OldestXactS int64
-	Archiving   bool
-	DBs         []PGLine
-	Replicas    []PGLine
-	Slots       []PGLine
-	Top         []PGQuery
-	TopError    string // why Top is empty when it is not just quiet
+	Sampled     bool           `json:"sampled"`
+	At          time.Time      `json:"at"`
+	ConnUsed    int            `json:"conn_used"`
+	ConnMax     int            `json:"conn_max"`
+	OldestXactS int64          `json:"oldest_xact_s"`
+	Archiving   bool           `json:"archiving"`
+	DBs         []PGLine       `json:"dbs"`
+	Replicas    []PGLine       `json:"replicas"`
+	Slots       []PGLine       `json:"slots"`
+	Standbys    []PGStandbyLag `json:"standbys"`
+	SlotWAL     []PGSlotWAL    `json:"slot_wal"`
+	Top         []PGQuery      `json:"top"`
+	TopError    string         `json:"top_error"` // why Top is empty when it is not just quiet
+}
+
+// PGStandbyLag is how far one standby is behind, from the newest sample.
+type PGStandbyLag struct {
+	Name       string `json:"name"`
+	LagBytes   int64  `json:"lag_bytes"`
+	LagSeconds int64  `json:"lag_seconds"`
+}
+
+// PGSlotWAL is the WAL one replication slot holds back.
+type PGSlotWAL struct {
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
 }
 
 func (o *Orchestrator) pgInstance(ctx context.Context, tileID string) (Tile, OperatedInstance, error) {
@@ -377,6 +395,12 @@ func pgMonitorOf(s mflow.PGSample) PGMonitor {
 	}
 	for _, sl := range s.Slots {
 		out.Slots = append(out.Slots, pgLine(sl.Name))
+	}
+	for _, r := range s.Replicas {
+		out.Standbys = append(out.Standbys, PGStandbyLag{Name: r.Name, LagBytes: r.Bytes, LagSeconds: r.Seconds})
+	}
+	for _, sl := range s.Slots {
+		out.SlotWAL = append(out.SlotWAL, PGSlotWAL{Name: sl.Name, Bytes: sl.Bytes})
 	}
 	for _, l := range [][]PGLine{out.DBs, out.Replicas, out.Slots} {
 		sort.Slice(l, func(i, j int) bool { return l[i].Key < l[j].Key })

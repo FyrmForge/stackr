@@ -466,11 +466,12 @@ func (f *Flow) waitPooler(ctx context.Context, it store.Tile) error {
 // stopped | unhealthy. Active and Waiting are the client connections in use
 // and queued, summed over its pools; Counted says the console answered.
 type PoolerStatus struct {
-	Word            string
-	Host            string
-	Port            int
-	Active, Waiting int
-	Counted         bool
+	Word    string `json:"status"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	Active  int    `json:"active"`
+	Waiting int    `json:"waiting"`
+	Counted bool   `json:"counted"`
 }
 
 // Pooler reads the instance's pooler: the container's state and, when it

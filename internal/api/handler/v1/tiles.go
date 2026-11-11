@@ -529,6 +529,28 @@ func (h *H) SetPGSettings() Endpoint {
 	})
 }
 
+// PGHealth is an operated postgres instance's health: the newest sample, the
+// top statements, and the pooler's client counts when it has a pooler.
+type PGHealth struct {
+	service.PGMonitor
+	Pooler *service.PoolerStatus `json:"pooler"`
+}
+
+// PGHealthOf reads the Database tab's model and the pooler.
+func (h *H) PGHealthOf() Endpoint {
+	return Get(func(c echo.Context) (PGHealth, error) {
+		mon, err := h.Orch.PGMonitor(rc(c), tileID(c))
+		if err != nil {
+			return PGHealth{}, err
+		}
+		out := PGHealth{PGMonitor: mon}
+		if ps, err := h.Orch.Pooler(rc(c), tileID(c)); err == nil {
+			out.Pooler = &ps
+		}
+		return out, nil
+	})
+}
+
 // PGVersion is the instance's postgres version, whether a newer minor of its
 // major is out and whether its major is past end of life.
 func (h *H) PGVersion() Endpoint {

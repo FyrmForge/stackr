@@ -74,6 +74,10 @@ func TestOperatedAndSliceRoutes(t *testing.T) {
 	want(member, "POST", env+"/tiles/db/bucket-restore", `{"at":"2026-01-01T00:00:00Z"}`, 409)
 	want(viewer, "POST", env+"/tiles/db/bucket-restore", `{"at":"2026-01-01T00:00:00Z"}`, 403)
 	want(viewer, "GET", env+"/tiles/db/bucket-usage", "", 409)
+
+	// health is a read: a viewer gets it; a tile that is not postgres is refused
+	want(viewer, "GET", env+"/tiles/pg/health", "", 200, `"sampled":false`, `"pooler"`)
+	want(viewer, "GET", env+"/tiles/api/health", "", 400)
 }
 
 // A dump upload is past the server's 2M body limit, which still holds
