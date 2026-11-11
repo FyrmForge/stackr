@@ -74,7 +74,7 @@ func (a *app) operatedSettings() []*cobra.Command {
 		return a.at(atTile, put(map[string]any{"unset": args[1:]}))(c, args)
 	}
 	version := leaf("version <tile>", "operated.version", "(postgres) Show the version an instance runs and whether an update is out", exact(1),
-		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+		a.at(atTile, func(_ *cobra.Command, p string, args []string) error {
 			v, err := a.call(GET, p+"/version", nil)
 			if err != nil {
 				return err
@@ -85,13 +85,13 @@ func (a *app) operatedSettings() []*cobra.Command {
 			}
 			a.say("%s (postgres %v)", cell(m["image"]), m["major"])
 			if to := cell(m["update_to"]); to != "" {
-				a.say("Update available: %s. Run `stackr operated update`.", to)
+				a.say("Update available: %s. Run `stackr operated update %s`.", to, args[0])
 			}
 			if m["eol"] == true {
 				a.say("Postgres %v no longer gets security fixes (ended %s).", m["major"], cell(m["eol_date"]))
 			}
 			if rb, _ := m["rollback"].(map[string]any); rb != nil {
-				a.say("The old data of postgres %v is kept until %s. Run `stackr operated rollback-upgrade` to return to it.", rb["from"], cell(rb["until"]))
+				a.say("The old data of postgres %v is kept until %s. Run `stackr operated rollback-upgrade %s` to return to it.", rb["from"], cell(rb["until"]), args[0])
 			}
 			return nil
 		}))
