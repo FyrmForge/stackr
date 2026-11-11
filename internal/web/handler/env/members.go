@@ -12,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -93,6 +94,56 @@ func (h *handler) pgLive(ctx context.Context, by *service.Principal, canAdd bool
 	return o
 }
 
+// pgStatic fills o with the overview's endpoint, protection, image and
+// slices: read again by the stream, since an update, a protection change or a
+// slice cut elsewhere moves them. A failed read marks its region unread.
+func (h *handler) pgStatic(ctx context.Context, s service.Scope, tileID string, o instance.OverviewView) instance.OverviewView {
+	if o.Unread == nil {
+		o.Unread = map[string]string{}
+	}
+	m, ps, err := h.orch.InstanceSlices(ctx, tileID)
+	if err != nil {
+		o.Unread["overview"], o.Unread["slices"] = unreadReason(err), unreadReason(err)
+		return o
+	}
+	o.Endpoint, o.AdminUser, o.Slices = m.Endpoint, m.AdminUser, sliceRows(s, ps)
+	pv, err := h.orch.PGVersion(ctx, tileID)
+	if err != nil {
+		o.Unread["overview"] = unreadReason(err)
+		return o
+	}
+	o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate, Majors: pv.Majors}
+	if ck := pv.Check; ck != nil {
+		o.Version.Check = fmt.Sprintf("Last check for postgres %d: %s", ck.To, ck.Detail)
+	}
+	if rb := pv.Rollback; rb != nil {
+		o.Version.RollbackFrom, o.Version.RollbackUntil = rb.From, rb.Until.Format("2006-01-02 15:04")
+	}
+	if o.Protection, err = h.orch.Protection(ctx, tileID); err != nil {
+		o.Unread["overview"] = unreadReason(err)
+	}
+	return o
+}
+
+// sliceRows are the slices cut from an instance, as the overview lists them.
+func sliceRows(s service.Scope, ps []service.InstanceSlice) []instance.SliceRow {
+	var out []instance.SliceRow
+	for _, p := range ps {
+		r := instance.SliceRow{
+			Slice:    p.Slice,
+			Link:     drawerURL(s.Org.Slug, p.Stack, p.Env, p.TileID, slice.Tabs[0]),
+			Name:     p.DBName,
+			Bindings: p.Bindings,
+			Public:   p.Public,
+		}
+		if p.Stack != s.Stack.Slug || p.Env != s.Env.Slug {
+			r.Where = p.Stack + "/" + p.Env
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // unreadReason is a failed read as the drawer words it: the refusal's
 // message when the user can act on it, else a plain retry line.
 func unreadReason(err error) string {
@@ -108,7 +159,7 @@ const unreadAfter = 3
 
 // GET …/-/instances/:tile/live: the open overview's stream, the same
 // polling stream as the canvas's. One event per region (pooler, members,
-// failover, sync): every region once at connect, then only when its markup
+// failover, sync, job, overview, slices): every region once at connect, then only when its markup
 // changes, so a form is not redrawn under the hands for nothing.
 func (h *handler) InstanceLive(c echo.Context) error {
 	s, by := scope(c), middleware.Principal(c)
@@ -118,6 +169,7 @@ func (h *handler) InstanceLive(c echo.Context) error {
 		name string
 		part func(instance.View, instance.OverviewView) templ.Component
 	}{
+		{"overview", instance.LiveOverview}, {"slices", instance.LiveSlices},
 		{"pooler", instance.LivePooler}, {"members", instance.LiveMembers},
 		{"failover", instance.LiveFailover}, {"sync", instance.LiveSync},
 		{"job", instance.LiveJob},
@@ -131,6 +183,7 @@ func (h *handler) InstanceLive(c echo.Context) error {
 		}
 		last = time.Now()
 		o := h.pgLive(ctx, by, canAdd, s.Tile.ID, instance.OverviewView{})
+		o = h.pgStatic(ctx, s, s.Tile.ID, o)
 		if st, err := h.orch.TileStatus(ctx, s.Tile.ID); err != nil {
 			o.Unread["job"] = unreadReason(err)
 		} else if st.LastJob != nil {

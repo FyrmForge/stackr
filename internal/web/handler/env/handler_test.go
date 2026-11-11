@@ -615,7 +615,7 @@ func TestInstanceLiveStream(t *testing.T) {
 	if !strings.Contains(page, `sse-connect="`+d+`/live"`) {
 		t.Fatalf("the overview does not open the live stream:\n%s", page)
 	}
-	for _, region := range []string{"pooler", "members", "failover", "sync"} {
+	for _, region := range []string{"pooler", "members", "failover", "sync", "overview", "slices"} {
 		if !strings.Contains(page, `sse-swap="`+region+`"`) {
 			t.Errorf("no %s region", region)
 		}
@@ -623,7 +623,7 @@ func TestInstanceLiveStream(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(300*time.Millisecond, cancel)
 	body := s.DoCtx(ctx, t, "GET", d+"/live", nil).Body.String()
-	for _, region := range []string{"pooler", "members", "failover", "sync"} {
+	for _, region := range []string{"pooler", "members", "failover", "sync", "overview", "slices"} {
 		if n := strings.Count(body, "event: "+region+"\n"); n != 1 {
 			t.Errorf("%s sent %d times, want once (it did not change):\n%s", region, n, body)
 		}

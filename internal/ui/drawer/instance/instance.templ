@@ -196,6 +196,39 @@ templ Overview(v View, o OverviewView) {
 			sse-connect={ v.Live }
 		}
 	>
+		@liveRegion(v, "overview") {
+			@LiveOverview(v, o)
+		}
+		if o.Version != nil && !v.ReadOnly {
+			@majorChange(v, *o.Version)
+		}
+		@liveRegion(v, "pooler") {
+			@LivePooler(v, o)
+		}
+		@liveRegion(v, "members") {
+			@LiveMembers(v, o)
+		}
+		@liveRegion(v, "failover") {
+			@LiveFailover(v, o)
+		}
+		@liveRegion(v, "sync") {
+			@LiveSync(v, o)
+		}
+		@liveRegion(v, "job") {
+			@LiveJob(v, o)
+		}
+		@liveRegion(v, "slices") {
+			@LiveSlices(v, o)
+		}
+	</div>
+}
+
+// LiveOverview and LiveSlices are the regions the stream sends as the events
+// overview (endpoint, protection, image, update and EOL banners) and slices.
+templ LiveOverview(v View, o OverviewView) {
+	if o.Unread["overview"] != "" {
+		@unread("the instance", o.Unread["overview"])
+	} else {
 		@c.Facts() {
 			@c.Fact("Endpoint", o.Endpoint)
 			@c.Fact("Admin user", o.AdminUser)
@@ -217,24 +250,14 @@ templ Overview(v View, o OverviewView) {
 				}
 			</div>
 		}
-		if o.Version != nil && !v.ReadOnly {
-			@majorChange(v, *o.Version)
-		}
-		@liveRegion(v, "pooler") {
-			@LivePooler(v, o)
-		}
-		@liveRegion(v, "members") {
-			@LiveMembers(v, o)
-		}
-		@liveRegion(v, "failover") {
-			@LiveFailover(v, o)
-		}
-		@liveRegion(v, "sync") {
-			@LiveSync(v, o)
-		}
-		@liveRegion(v, "job") {
-			@LiveJob(v, o)
-		}
+	}
+}
+
+templ LiveSlices(v View, o OverviewView) {
+	if o.Unread["slices"] != "" {
+		<h3 class="section-title">Slices on this instance</h3>
+		@unread("the slices", o.Unread["slices"])
+	} else {
 		<h3 class="section-title">Slices on this instance</h3>
 		if len(o.Slices) == 0 {
 			<p class="text-rw-muted text-sm">No slice tile has been provisioned here yet.</p>
@@ -259,7 +282,7 @@ templ Overview(v View, o OverviewView) {
 				}
 			</ul>
 		}
-	</div>
+	}
 }
 
 // liveRegion wraps a part of the overview the live stream re-renders under
@@ -442,6 +465,8 @@ templ Logs(v View, l LogsView) {
 		if l.Running {
 			@c.LogPane(l.Pane)
 		} else {
+			// look again until a container runs
+			<span hidden data-poll-guard="fields" hx-get={ v.Base + "?tab=logs" } hx-trigger="every 3s" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
 			<p class="text-rw-muted text-sm">No container is running yet.</p>
 		}
 	</div>
@@ -625,7 +650,7 @@ templ pitr(v View, p PITRView) {
 		} else if !p.On {
 			<p class="text-sm text-rw-muted">Point-in-time restore is off.</p>
 			if p.Edit {
-				<form class="space-y-2">
+				<form id="pitr-on" hx-preserve class="space-y-2">
 					@c.Field(c.FieldView{Name: "days", Label: "Days to keep", Type: "number", Value: "7", Min: "1", Max: "365", Help: "Restarts the database once, a few seconds."})
 					@c.Confirm(c.ConfirmView{
 						Button:  "Turn on",
@@ -687,7 +712,7 @@ templ pitr(v View, p PITRView) {
 				<p class="text-xs text-rw-faint">The archive is on this server's disk: it covers a bad migration, not a lost server.</p>
 			}
 			if p.Edit {
-				<form novalidate class="space-y-2">
+				<form id={ formID("pitr-days", strconv.Itoa(p.Days)) } hx-preserve novalidate class="space-y-2">
 					@c.Field(c.FieldView{Name: "days", Label: "Days to keep", Type: "number", Value: strconv.Itoa(p.Days), Min: "1", Max: "365", Help: "Keeps " + strconv.Itoa(p.Days) + " days. Changing it restarts the database once."})
 					@c.Confirm(c.ConfirmView{
 						Button:  "Save",
@@ -700,7 +725,7 @@ templ pitr(v View, p PITRView) {
 				</form>
 			}
 			if p.Edit && !p.From.IsZero() {
-				<form novalidate hx-post={ v.Base + "/restore" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
+				<form id={ formID("pitr-restore", localMin(p.From), localMax(p.To), restoreHelp(p)) } hx-preserve novalidate hx-post={ v.Base + "/restore" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2">
 					@c.Field(c.FieldView{Name: "time", Label: "Time (UTC)", Type: "datetime-local", Step: "1", Min: localMin(p.From), Max: localMax(p.To), Help: restoreHelp(p)})
 					<div class="flex gap-2">
 						<button type="submit" class="btn btn-sm">Restore</button>
@@ -727,6 +752,8 @@ templ pitr(v View, p PITRView) {
 // actions answer that volume's drawer.
 templ Backups(v View, p PITRView, vols []volume.BackupsView) {
 	<div id="tab-backups" class="space-y-6">
+		// the window and the base backup move on their own: look again, keep the panel
+		<span hidden data-poll-guard="fields" hx-get={ v.Base + "?tab=backups" } hx-trigger="every 5s" hx-select="#pitr" hx-target="#pitr" hx-swap="outerHTML"></span>
 		@pitr(v, p)
 		if len(vols) == 0 {
 			<p class="text-rw-muted text-sm">This instance has no volume yet. The first deploy makes one.</p>
