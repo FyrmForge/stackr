@@ -1479,7 +1479,7 @@ func (a *app) tileRestore() *cobra.Command {
 func (a *app) tileAcceptRestore() *cobra.Command {
 	c := waits(leaf(
 		"accept-restore <tile>",
-		"operated.promote-restore",
+		"operated.accept-restore",
 		"(postgres) Make a restored copy the instance it was restored from; the source's apps keep their address and credentials",
 		exact(1),
 		nil,
@@ -1488,7 +1488,7 @@ func (a *app) tileAcceptRestore() *cobra.Command {
 		if err := a.confirm("Replace the data of the instance " + last(p) + " was restored from with this copy? The old data stays as an orphaned volume until retention ends."); err != nil {
 			return err
 		}
-		return a.orgJob(c, POST, p+"/promote-restore", nil, "promote")
+		return a.orgJob(c, POST, p+"/accept-restore", nil, "promote")
 	})
 	return c
 }

@@ -623,12 +623,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "env",
-          "instance",
-          "expires",
-          "at"
-        ],
         "type": "object"
       },
       "BucketRestoreIn": {
@@ -4272,6 +4266,10 @@
       "OnRemoveIn": {
         "properties": {
           "on_remove": {
+            "enum": [
+              "keep",
+              "drop"
+            ],
             "type": "string"
           }
         },
@@ -6032,10 +6030,7 @@
           }
         },
         "required": [
-          "to",
-          "node_gone",
-          "powered_off",
-          "allow_async_target"
+          "to"
         ],
         "type": "object"
       },
@@ -7166,6 +7161,11 @@
       "SliceAccessIn": {
         "properties": {
           "access": {
+            "enum": [
+              "read",
+              "write",
+              "default"
+            ],
             "type": "string"
           },
           "slice": {
@@ -7274,6 +7274,10 @@
       "SliceURLIn": {
         "properties": {
           "url": {
+            "enum": [
+              "direct",
+              "pooled"
+            ],
             "type": "string"
           }
         },
@@ -7487,6 +7491,11 @@
       "StandbySyncIn": {
         "properties": {
           "mode": {
+            "enum": [
+              "auto",
+              "always",
+              "never"
+            ],
             "type": "string"
           }
         },
@@ -7673,9 +7682,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "to"
-        ],
         "type": "object"
       },
       "Sync": {
@@ -19607,6 +19613,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/operated": {
       "get": {
+        "description": "Lists the env's operated instances.",
         "operationId": "operated.list",
         "parameters": [
           {
@@ -19662,6 +19669,7 @@
         "x-verb": "tile.read"
       },
       "post": {
+        "description": "Creates an operated instance.",
         "operationId": "operated.create",
         "parameters": [
           {
@@ -19726,6 +19734,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/operated/from-dump": {
       "post": {
+        "description": "Creates an operated instance loaded from an uploaded dump.",
         "operationId": "operated.from-dump",
         "parameters": [
           {
@@ -20526,6 +20535,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/slices": {
       "post": {
+        "description": "Creates a slice tile on an operated instance.",
         "operationId": "slice.create",
         "parameters": [
           {
@@ -21059,8 +21069,81 @@
         "x-verb": "tile.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/accept-restore": {
+      "post": {
+        "description": "Swaps a restored copy's data under its source instance.",
+        "operationId": "operated.accept-restore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/allow": {
       "put": {
+        "description": "Sets which stacks may bind slices of the instance.",
         "operationId": "operated.allow",
         "parameters": [
           {
@@ -21133,6 +21216,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bindings": {
       "get": {
+        "description": "Lists the consumers bound to the slice.",
         "operationId": "slice.bindings",
         "parameters": [
           {
@@ -21198,6 +21282,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/branch": {
       "post": {
+        "description": "Copies a postgres slice as of now into a new slice tile; the job loads the data.",
         "operationId": "slice.branch",
         "parameters": [
           {
@@ -21270,6 +21355,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bucket": {
       "put": {
+        "description": "Replaces a bucket slice's versioning, quota and CORS.",
         "operationId": "slice.bucket",
         "parameters": [
           {
@@ -21342,6 +21428,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bucket-restore": {
       "post": {
+        "description": "Queues a restore of a bucket to a past time; it copies back and never deletes.",
         "operationId": "slice.restore",
         "parameters": [
           {
@@ -21423,6 +21510,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/bucket-usage": {
       "get": {
+        "description": "Reads a bucket's current bytes and old-version bytes.",
         "operationId": "slice.usage",
         "parameters": [
           {
@@ -22133,6 +22221,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/env-pairs": {
       "put": {
+        "description": "Replaces the map of consumer env names to this stack's env names.",
         "operationId": "operated.env-pairs",
         "parameters": [
           {
@@ -22417,6 +22506,88 @@
         "x-verb": "placement.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/failover": {
+      "post": {
+        "description": "Makes a standby the primary when the primary is down, once the old primary is known stopped.",
+        "operationId": "operated.failover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteStandbyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "placement.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/forward": {
       "get": {
         "description": "A websocket upgrade: each socket is one TCP connection to the port in one replica; binary frames are the bytes both ways, a text frame {\"type\":\"eof\"} half-closes the client's side. The port reached comes back in the X-Stackr-Port response header.",
@@ -22489,6 +22660,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/health": {
       "get": {
+        "description": "Reads the newest health sample, top statements and pooler client counts.",
         "operationId": "operated.health",
         "parameters": [
           {
@@ -23129,6 +23301,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/on-remove": {
       "put": {
+        "description": "Sets whether the slice's data is kept or dropped when it is removed.",
         "operationId": "slice.on-remove",
         "parameters": [
           {
@@ -23273,6 +23446,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/pitr": {
       "get": {
+        "description": "Reads the instance's point-in-time recovery health.",
         "operationId": "operated.pitr-status",
         "parameters": [
           {
@@ -23333,6 +23507,7 @@
         "x-verb": "tile.read"
       },
       "put": {
+        "description": "Sets the recovery window and queues the redeploy that makes postgres archive or stop.",
         "operationId": "operated.pitr",
         "parameters": [
           {
@@ -23410,158 +23585,6 @@
           }
         },
         "x-verb": "tile.write"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/promote-restore": {
-      "post": {
-        "operationId": "operated.promote-restore",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tile",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
-            "in": "header",
-            "name": "Idempotency-Key",
-            "schema": {
-              "maxLength": 200,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            },
-            "description": "Accepted"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "tile.write"
-      }
-    },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/promote-standby": {
-      "post": {
-        "operationId": "operated.promote-standby",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tile",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
-            "in": "header",
-            "name": "Idempotency-Key",
-            "schema": {
-              "maxLength": 200,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PromoteStandbyIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            },
-            "description": "Accepted"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "placement.write"
       }
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/rebuild": {
@@ -23708,6 +23731,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/restore": {
       "post": {
+        "description": "Restores the instance to a time into a new tile next to it; the source is untouched.",
         "operationId": "operated.restore",
         "parameters": [
           {
@@ -23759,6 +23783,78 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InstanceRestored"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/rollback-upgrade": {
+      "post": {
+        "description": "Returns the instance to its previous major and the data it had then; later writes are lost.",
+        "operationId": "operated.rollback-upgrade",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
                 }
               }
             },
@@ -24055,6 +24151,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/settings": {
       "get": {
+        "description": "Lists the instance's settings with where each value comes from.",
         "operationId": "operated.settings",
         "parameters": [
           {
@@ -24115,6 +24212,7 @@
         "x-verb": "tile.read"
       },
       "put": {
+        "description": "Sets and unsets the instance's own settings and applies them: a reload, or a restart job when one needs it.",
         "operationId": "operated.settings-set",
         "parameters": [
           {
@@ -24187,6 +24285,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice": {
       "get": {
+        "description": "Reads the slice's details.",
         "operationId": "slice.get",
         "parameters": [
           {
@@ -24249,6 +24348,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-access": {
       "put": {
+        "description": "Sets a consumer's access to a slice: read, write or default.",
         "operationId": "slice.access",
         "parameters": [
           {
@@ -24321,6 +24421,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-creds": {
       "get": {
+        "description": "Reveals the slice's own owner credentials, logged.",
         "operationId": "slice.creds",
         "parameters": [
           {
@@ -24383,7 +24484,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-forward": {
       "get": {
-        "description": "A websocket upgrade: each socket is one TCP connection to the port in one replica; binary frames are the bytes both ways, a text frame {\"type\":\"eof\"} half-closes the client's side. The port reached comes back in the X-Stackr-Port response header.",
+        "description": "Forwards to the postgres instance the slice lives on.",
         "operationId": "slice.forward",
         "parameters": [
           {
@@ -24453,6 +24554,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys": {
       "get": {
+        "description": "Lists the instance's members: the primary, then its standbys.",
         "operationId": "operated.standby-list",
         "parameters": [
           {
@@ -24516,6 +24618,7 @@
         "x-verb": "tile.read"
       },
       "post": {
+        "description": "Makes the instance a standby on a node; it streams once the copy of the primary is done.",
         "operationId": "operated.standby-add",
         "parameters": [
           {
@@ -24588,7 +24691,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}": {
       "delete": {
-        "description": "Removal rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
+        "description": "Removes a standby: its container, volume, slot and network.\n\nRemoval rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
         "operationId": "operated.standby-rm",
         "parameters": [
           {
@@ -24652,6 +24755,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}/fence": {
       "put": {
+        "description": "Fences or unfences a standby by hand.",
         "operationId": "operated.standby-fence",
         "parameters": [
           {
@@ -24732,6 +24836,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}/rebuild": {
       "post": {
+        "description": "Makes a standby again on its node, for one whose slot was lost.",
         "operationId": "operated.standby-rebuild",
         "parameters": [
           {
@@ -24802,6 +24907,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/standbys/{standby}/sync": {
       "put": {
+        "description": "Sets how the primary treats one standby: auto, always or never.",
         "operationId": "operated.standby-sync",
         "parameters": [
           {
@@ -25086,6 +25192,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/switchover": {
       "post": {
+        "description": "Moves the primary to a standby while both run; refusals come before the job is queued.",
         "operationId": "operated.switchover",
         "parameters": [
           {
@@ -25138,7 +25245,7 @@
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "202": {
@@ -25167,6 +25274,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/switchover/abort": {
       "post": {
+        "description": "Gives up a switchover stuck before the promote; refused once the standby may be promoted.",
         "operationId": "operated.switchover-abort",
         "parameters": [
           {
@@ -25222,6 +25330,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/sync": {
       "get": {
+        "description": "Reads the synchronous replication setup and whether writes are protected now.",
         "operationId": "operated.sync",
         "parameters": [
           {
@@ -25282,6 +25391,7 @@
         "x-verb": "tile.read"
       },
       "put": {
+        "description": "Changes whether sync commits are on, the round trip limit and whether it is required.",
         "operationId": "operated.sync-set",
         "parameters": [
           {
@@ -25424,6 +25534,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/upgrade": {
       "post": {
+        "description": "Moves the instance to another major, or with check only asks whether it can.",
         "operationId": "operated.upgrade",
         "parameters": [
           {
@@ -25494,79 +25605,9 @@
         "x-verb": "tile.write"
       }
     },
-    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/upgrade-rollback": {
-      "post": {
-        "operationId": "operated.upgrade-rollback",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "org",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "stack",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "env",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "tile",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "A retry with the same key, principal and body gets the first answer (kept 24 hours) instead of queuing a second job.",
-            "in": "header",
-            "name": "Idempotency-Key",
-            "schema": {
-              "maxLength": 200,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            },
-            "description": "Accepted"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "tile.write"
-      }
-    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/url": {
       "put": {
+        "description": "Sets whether a postgres slice's url points at the instance or its pooler.",
         "operationId": "slice.url",
         "parameters": [
           {
@@ -25639,6 +25680,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/version": {
       "get": {
+        "description": "Reads the postgres version, whether a newer minor is out and whether the major is end of life.",
         "operationId": "operated.version",
         "parameters": [
           {
@@ -25699,6 +25741,7 @@
         "x-verb": "tile.read"
       },
       "post": {
+        "description": "Moves the instance to the current minor of its major and restarts it there.",
         "operationId": "operated.update",
         "parameters": [
           {

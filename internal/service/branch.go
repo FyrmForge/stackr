@@ -21,10 +21,10 @@ import (
 
 // BranchIn is what BranchSlice takes; every field is optional.
 type BranchIn struct {
-	Env      string `json:"env"`      // the env the branch goes to: <env> of the source's stack, or <stack>:<env>; default the source's
-	Instance string `json:"instance"` // the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of Env; default the source's
-	Expires  string `json:"expires"`  // 3d, 36h ...; default never
-	At       string `json:"at"`       // as of this time (RFC3339 with an offset, or latest); default now
+	Env      string `json:"env,omitempty"`      // the env the branch goes to: <env> of the source's stack, or <stack>:<env>; default the source's
+	Instance string `json:"instance,omitempty"` // the postgres tile it lives on: <stack>:<env>:<tile>, or a tile of Env; default the source's
+	Expires  string `json:"expires,omitempty"`  // 3d, 36h ...; default never
+	At       string `json:"at,omitempty"`       // as of this time (RFC3339 with an offset, or latest); default now
 }
 
 const branchAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"

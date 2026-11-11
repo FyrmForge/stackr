@@ -165,14 +165,14 @@ type (
 		DefaultAccess string `json:"default_access"` // read | write, "" = write
 	}
 	SliceAccessIn struct {
-		Slice  string `json:"slice"`  // a slice tile's slug in the consumer's env
-		Access string `json:"access"` // read | write | default (drops the entry: the slice's default applies)
+		Slice  string `json:"slice"`                            // a slice tile's slug in the consumer's env
+		Access string `json:"access" enum:"read,write,default"` // read | write | default (drops the entry: the slice's default applies)
 	}
 	OnRemoveIn struct {
-		OnRemove string `json:"on_remove"` // keep | drop
+		OnRemove string `json:"on_remove" enum:"keep,drop"` // keep | drop
 	}
 	SliceURLIn struct {
-		URL string `json:"url"` // direct | pooled
+		URL string `json:"url" enum:"direct,pooled"` // direct | pooled
 	}
 	BucketRestoreIn struct {
 		At     time.Time `json:"at"`     // restore to how the objects were then (RFC3339)
@@ -689,23 +689,25 @@ type (
 )
 
 type StandbySyncIn struct {
-	Mode string `json:"mode"` // auto, always or never
+	Mode string `json:"mode" enum:"auto,always,never"` // auto, always or never
 }
 
 type (
 	SwitchoverIn struct {
-		To string `json:"to"` // the standby's node; empty = the one that replayed the most
+		To string `json:"to,omitempty"` // the standby's node; empty = the one that replayed the most
 	}
 	PromoteStandbyIn struct {
-		To       string `json:"to"`        // the standby's node
-		NodeGone bool   `json:"node_gone"` // the old primary's node is confirmed gone
+		To       string `json:"to"`                  // the standby's node
+		NodeGone bool   `json:"node_gone,omitempty"` // the old primary's node is confirmed gone
 		// PoweredOff is service.PoweredOffPhrase: promote without a lease proof.
-		PoweredOff string `json:"powered_off"`
+		PoweredOff string `json:"powered_off,omitempty"`
 		// AllowAsyncTarget promotes a standby the primary did not wait for
 		// although one it did wait for is usable.
-		AllowAsyncTarget bool `json:"allow_async_target"`
+		AllowAsyncTarget bool `json:"allow_async_target,omitempty"`
 	}
 )
+
+func (SwitchoverIn) BodyOptional() {}
 
 // Switchover moves the primary to a standby while both run: the archive is
 // drained, the primary shut down cleanly, the standby confirmed to have
