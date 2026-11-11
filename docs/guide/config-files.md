@@ -83,6 +83,93 @@ The `server_config_*` knobs are the binding itself. Set them with `stackr server
 
 Written by hand or with `stackr stack export [--env ENV]`. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel.
 
+## Operated and slice tiles
+
+Under a tile in `base.tiles` or an environment. `engine:` alone makes a tile operated; `provision_from:` with `type: slice` makes a slice.
+
+### Operated tile
+
+| Key | Holds |
+|---|---|
+| `engine` | `postgres` or `s3`. Required. |
+| `major` | Postgres major, 14 to 18. 0 or left out = the newest on create. An existing instance keeps its image: a minor moves with `stackr operated update`, a major with `operated upgrade`. A `major` equal to its own is a no-op. |
+| `settings` | Postgres settings, name to value. Left out = the file leaves them as they are. An empty map clears them. |
+| `pitr_days` | Days of WAL kept for point-in-time recovery, 0 (off) to 365. Left out = the window is left as it is. Postgres only. |
+| `standbys` | Nodes (name or slug) holding a standby, each a string or `{node, sync}`. At most 2. Left out = standbys are left as they are. An empty list removes them. |
+| `sync` | Wait for a standby before a commit is confirmed. Left out = left as it is. |
+| `sync_required` | Writes wait even when no standby answers. Left out = left as it is. |
+| `sync_limit_ms` | Round trip an `auto` standby may have to be waited for, 1 to 10000 (default 10). Left out = left as it is. |
+| `allow` | Who outside the env may cut slices, `org:stack:env:tile` patterns, a trailing `*` for the rest. Must start with the tile's own org: `acme:*` is anyone in `acme`. |
+| `env_pairs` | Consumer env name to one of this stack's envs. |
+
+`sync`, `sync_required`, `sync_limit_ms`, `standbys` and `pitr_days` are postgres only. An operated tile takes no `domains`.
+
+A standby's `sync` is `auto`, `always` or `never` (blank = auto).
+
+`standbys` lists the cluster's node set, whatever role each node plays. The tile's own placement node counts as a member too. After a switchover the primary sits on a node from the list and the old primary's node is a standby, so the file stays true without an edit. The file is not "the standbys, minus the primary".
+
+```yaml
+base:
+  tiles:
+    pg:
+      engine: postgres
+      major: 17
+      pitr_days: 7
+      settings:
+        work_mem: 64MB
+      standbys:
+        - n2
+        - {node: n3, sync: always}
+      sync: true
+      sync_limit_ms: 10
+      allow:
+        - acme:shop:*
+      env_pairs:
+        staging: dev
+```
+
+### Slice tile
+
+A database or bucket cut from an operated tile. It runs nothing, so it takes no `image`, `build`, `port`, `env`, `domains`, `volumes`, `command`, `schedule` or `trigger`.
+
+| Key | Holds |
+|---|---|
+| `provision_from` | `<stack>:<env>:<tile>` of the operated tile; refs allowed. Required. |
+| `default_access` | `read` or `write`. Left out = `write`. |
+| `on_remove` | `keep` or `drop` the data when the slice tile goes. Left out = `keep`. A PR env drops either way. |
+| `url` | Postgres only: what `url`, `host` and `port` point at, `direct` or `pooled`. Left out = `direct`. |
+| `version_days` | Bucket only: days old versions are kept. Left out = 7. `0` = versioning off. |
+| `quota_gb` | Bucket only: hard size cap in GB. Left out or `0` = none. |
+| `cors_origins` | Bucket only: origins CORS allows. |
+
+```yaml
+base:
+  tiles:
+    pg-db:
+      type: slice
+      provision_from: shop:dev:pg
+      default_access: write
+      on_remove: keep
+      url: pooled
+    files:
+      type: slice
+      provision_from: shop:dev:s3
+      version_days: 14
+      quota_gb: 50
+      cors_origins: [https://app.example.com]
+```
+
+### Consumer side: slice_access
+
+Any tile other than operated and slice may set its access per slice tile of the env. `from` names a slice tile of the env, `access` is `read` or `write`. A tile with no entry uses the slice's `default_access`.
+
+```yaml
+    api:
+      image: ghcr.io/acme/api:1
+      slice_access:
+        - {from: pg-db, access: read}
+```
+
 ## What a file cannot say
 
 Members, roles, invites, users and API keys. Host grants. Registry credentials. Raw Caddy config and VIPs. Server connector creation. Orgs and stacks the panel made and no file binds are left out of an export.
