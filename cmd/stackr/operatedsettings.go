@@ -164,7 +164,7 @@ func (a *app) operatedUpgrade() *cobra.Command {
 // dbRollbackUpgrade is `stackr operated rollback-upgrade`: back to the major the
 // instance ran before its last change, on the data it had then.
 func (a *app) operatedRollbackUpgrade() *cobra.Command {
-	c := waits(leaf("rollback-upgrade <tile>", "operated.upgrade-rollback",
+	c := waits(leaf("rollback-upgrade <tile>", "operated.rollback-upgrade",
 		"(postgres) Return to the postgres major before the last change, with the data it had then; what was written since is lost", exact(1), nil))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if err := a.confirm("Roll back? Everything written since the version change is lost."); err != nil {
@@ -174,7 +174,7 @@ func (a *app) operatedRollbackUpgrade() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return a.job(c, base, POST, p+"/upgrade-rollback", nil, "rollback")
+		return a.job(c, base, POST, p+"/rollback-upgrade", nil, "rollback")
 	})
 	return c
 }

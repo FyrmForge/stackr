@@ -33,7 +33,7 @@ func (a *app) operatedFailover() *cobra.Command {
 	to := ""
 	gone, async := false, false
 	off := ""
-	c := waits(leaf("failover <tile>", "operated.promote-standby", "(postgres) Make a standby the primary when the primary is down", exact(1), nil))
+	c := waits(leaf("failover <tile>", "operated.failover", "(postgres) Make a standby the primary when the primary is down", exact(1), nil))
 	c.RunE = a.at(atTile, func(c *cobra.Command, p string, _ []string) error {
 		if to == "" {
 			return usage("pass --to: the node of the standby to promote")
@@ -41,7 +41,7 @@ func (a *app) operatedFailover() *cobra.Command {
 		if c.Flags().Changed("powered-off") && off != phrase {
 			return usage("--powered-off takes the exact phrase: " + phrase)
 		}
-		return a.orgJob(c, POST, p+"/promote-standby", map[string]any{"to": to, "node_gone": gone, "powered_off": off, "allow_async_target": async}, "promote")
+		return a.orgJob(c, POST, p+"/failover", map[string]any{"to": to, "node_gone": gone, "powered_off": off, "allow_async_target": async}, "promote")
 	})
 	c.Flags().StringVar(&to, "to", "", "the node of the standby to promote (name or slug)")
 	c.Flags().BoolVar(&gone, "node-gone", false, "confirm the old primary's node is really gone (needed when it does not answer)")

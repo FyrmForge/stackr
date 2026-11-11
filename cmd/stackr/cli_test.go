@@ -1411,7 +1411,7 @@ func TestKeyRotate(t *testing.T) {
 	}
 }
 
-// tile restore and promote-restore wait on the job through the org's job
+// tile restore and accept-restore wait on the job through the org's job
 // events route and report its end; --no-wait only prints it.
 func TestTileRestoreAndPromoteFollowTheirJob(t *testing.T) {
 	var mu sync.Mutex
@@ -1491,7 +1491,7 @@ func TestOperatedUpgradeAndRollback(t *testing.T) {
 	if code, out, errw := cli(t, append([]string{"operated", "rollback-upgrade", "pg", "--yes"}, at...)...); code != 0 || !strings.Contains(out, "ok") {
 		t.Errorf("rollback = %d out %q err %q", code, out, errw)
 	}
-	if !slices.ContainsFunc(reqs, func(r string) bool { return strings.Contains(r, "POST ") && strings.Contains(r, "/upgrade-rollback") }) {
+	if !slices.ContainsFunc(reqs, func(r string) bool { return strings.Contains(r, "POST ") && strings.Contains(r, "/rollback-upgrade") }) {
 		t.Errorf("requests = %v", reqs)
 	}
 }

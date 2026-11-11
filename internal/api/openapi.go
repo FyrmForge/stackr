@@ -15,8 +15,7 @@ import (
 // OpenAPI is the /api/v1 spec, read off the route table: paths, verbs,
 // the gate, bodies from each endpoint's In and Out. Deterministic, so the
 // checked-in copy diffs clean.
-// ponytail: schemas say shape only (no enums, no formats beyond time); the
-// verb's typed errors are the source of what a value may be.
+// A field with an enum:"a,b" tag carries it; formats go no further than time.
 func OpenAPI() ([]byte, error) {
 	s := schemas{defs: map[string]any{}, names: map[string]reflect.Type{}}
 	paths := map[string]map[string]any{}
