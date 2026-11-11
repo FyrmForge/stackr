@@ -15,6 +15,27 @@ import (
 // stops, restarts and deploys; a cron runs and pauses; a function runs and
 // deploys.
 templ actions(v View) {
+	if v.Live == "" || v.Tab == "terminal" {
+		@actionButtons(v)
+	} else {
+		// The header buttons follow the tile on their own stream; a changed
+		// status word also draws the drawer again, for the badge (the shell
+		// session of the Terminal tab is left alone).
+		<div class="flex items-center gap-2" hx-ext="sse" sse-connect={ v.Live + "?part=head" }>
+			<div class="flex items-center gap-2" sse-swap="actions">
+				@actionButtons(v)
+			</div>
+			<span hidden data-poll-guard="fields" data-poll-retry="sse:word" hx-get={ v.Base + "?tab=" + v.Tab } hx-trigger="sse:word" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
+		</div>
+	}
+}
+
+// LiveActions is the region the head stream sends as the event actions.
+templ LiveActions(v View) {
+	@actionButtons(v)
+}
+
+templ actionButtons(v View) {
 	if !v.ReadOnly {
 		switch v.Kind {
 			case "cron":
@@ -106,85 +127,131 @@ templ tabLink(v View, query, label string) {
 // Status is v0's Overview: the status and last deployment boxes, the URLs
 // and the ports.
 templ Status(v View, s StatusView) {
-	<div class="space-y-5" id="tab-status">
+	<div
+		class="space-y-5"
+		id="tab-status"
+		if v.Live != "" {
+			hx-ext="sse"
+			sse-connect={ v.Live + "?part=status" }
+		}
+	>
 		<div class="grid grid-cols-2 gap-3">
 			<div class="panel p-4">
-				<div class="label">Status</div>
-				@c.TileBadge(s.Word)
-				for _, r := range s.Replicas {
-					<div class="text-xs text-rw-faint mt-1.5">
-						<span class="font-mono">{ r.Name }</span> { r.State }
-						if r.Health != "" {
-							· { r.Health }
-						}
-					</div>
+				@liveRegion(v, "status") {
+					@LiveStatus(v, s)
 				}
 			</div>
 			<div class="panel p-4">
-				<div class="label">Last deployment</div>
-				if s.Job == nil {
-					<span class="text-sm text-rw-faint">never deployed</span>
-				} else {
-					@c.JobStatus(*s.Job)
-					<div class="text-xs text-rw-faint mt-1.5">@c.When(s.JobWhen)
-</div>
+				@liveRegion(v, "lastjob") {
+					@LiveJob(v, s)
 				}
 			</div>
 		</div>
 		<div>
-			<div class="label">URLs</div>
-			if len(s.URLs) == 0 {
-				<p class="text-sm text-rw-faint">
-					No domains attached.
-					if !v.ReadOnly {
-						{ " Add one in Settings." }
-					}
-				</p>
-			} else {
-				<ul class="space-y-1.5">
-					for _, d := range s.URLs {
-						<li class="flex flex-wrap items-center gap-2 text-sm">
-							<a href={ templ.SafeURL(scheme(d.HTTPS) + d.Host + d.Path) } target="_blank" rel="noopener" class="link font-mono text-xs">{ scheme(d.HTTPS) + d.Host + d.Path }</a>
-							if d.HTTPS {
-								<span class="text-[10px] font-semibold uppercase tracking-wide text-rw-success">https</span>
-							} else {
-								<span class="text-[10px] font-semibold uppercase tracking-wide text-rw-warn">http only</span>
-							}
-							<span class="text-rw-faint text-xs">→ :{ d.Port }</span>
-						</li>
-					}
-				</ul>
+			@liveRegion(v, "urls") {
+				@LiveURLs(v, s)
 			}
 		</div>
 		<div>
-			<div class="label">Access</div>
-			if s.Port == "" && len(s.Ports) == 0 && len(s.Access) == 0 {
-				<p class="text-sm text-rw-faint">No ports configured.</p>
-			} else {
-				<ul class="space-y-1 text-sm text-rw-muted">
-					if s.Port != "" {
-						<li>container port <span class="font-mono text-rw-text">{ s.Port }</span> (proxied via domains above)</li>
-					}
-					for _, p := range s.Ports {
-						<li>host port <span class="font-mono text-rw-text">{ p }</span> published directly</li>
-					}
-					for _, p := range s.Access {
-						<li class="flex flex-wrap items-center gap-2">
-							<span class="text-rw-text">{ p.Label }</span>
-							if p.Detail != "" {
-								<span class="font-mono text-xs">{ p.Detail }</span>
-							}
-							if p.Waiting {
-								@c.Chip("waiting", "warn")
-							} else {
-								@c.Chip("approved", "success")
-							}
-						</li>
-					}
-				</ul>
+			@liveRegion(v, "access") {
+				@LiveAccess(s)
 			}
 		</div>
 	</div>
+}
+
+// liveRegion wraps a part of the Status tab the live stream re-renders under
+// the event name; without a stream it is just the part.
+templ liveRegion(v View, name string) {
+	if v.Live != "" {
+		<div sse-swap={ name }>
+			{ children... }
+		</div>
+	} else {
+		{ children... }
+	}
+}
+
+// LiveStatus, LiveJob, LiveURLs and LiveAccess are the regions the stream
+// sends as the events status, lastjob, urls and access: each rendered
+// whole, and sent again only when its markup changes.
+templ LiveStatus(v View, s StatusView) {
+	<div class="label">Status</div>
+	@c.TileBadge(s.Word)
+	for _, r := range s.Replicas {
+		<div class="text-xs text-rw-faint mt-1.5">
+			<span class="font-mono">{ r.Name }</span> { r.State }
+			if r.Health != "" {
+				· { r.Health }
+			}
+		</div>
+	}
+}
+
+templ LiveJob(v View, s StatusView) {
+	<div class="label">Last deployment</div>
+	if s.Job == nil {
+		<span class="text-sm text-rw-faint">never deployed</span>
+	} else {
+		@c.JobStatus(*s.Job)
+		<div class="text-xs text-rw-faint mt-1.5">@c.When(s.JobWhen)
+</div>
+	}
+}
+
+templ LiveURLs(v View, s StatusView) {
+	<div class="label">URLs</div>
+	if len(s.URLs) == 0 {
+		<p class="text-sm text-rw-faint">
+			No domains attached.
+			if !v.ReadOnly {
+				{ " Add one in Settings." }
+			}
+		</p>
+	} else {
+		<ul class="space-y-1.5">
+			for _, d := range s.URLs {
+				<li class="flex flex-wrap items-center gap-2 text-sm">
+					<a href={ templ.SafeURL(scheme(d.HTTPS) + d.Host + d.Path) } target="_blank" rel="noopener" class="link font-mono text-xs">{ scheme(d.HTTPS) + d.Host + d.Path }</a>
+					if d.HTTPS {
+						<span class="text-[10px] font-semibold uppercase tracking-wide text-rw-success">https</span>
+					} else {
+						<span class="text-[10px] font-semibold uppercase tracking-wide text-rw-warn">http only</span>
+					}
+					<span class="text-rw-faint text-xs">→ :{ d.Port }</span>
+				</li>
+			}
+		</ul>
+	}
+}
+
+templ LiveAccess(s StatusView) {
+	<div class="label">Access</div>
+	if s.Port == "" && len(s.Ports) == 0 && len(s.Access) == 0 {
+		<p class="text-sm text-rw-faint">No ports configured.</p>
+	} else {
+		<ul class="space-y-1 text-sm text-rw-muted">
+			if s.Port != "" {
+				<li>container port <span class="font-mono text-rw-text">{ s.Port }</span> (proxied via domains above)</li>
+			}
+			for _, p := range s.Ports {
+				<li>host port <span class="font-mono text-rw-text">{ p }</span> published directly</li>
+			}
+			for _, p := range s.Access {
+				<li class="flex flex-wrap items-center gap-2">
+					<span class="text-rw-text">{ p.Label }</span>
+					if p.Detail != "" {
+						<span class="font-mono text-xs">{ p.Detail }</span>
+					}
+					if p.Waiting {
+						@c.Chip("waiting", "warn")
+					} else {
+						@c.Chip("approved", "success")
+					}
+				</li>
+			}
+		</ul>
+	}
 }
 
 func scheme(https bool) string {
@@ -218,6 +285,8 @@ templ Logs(v View, l LogsView) {
 			</div>
 		}
 		if l.Run == "" && l.Container == "" {
+			// nothing to follow yet: look again until a container or a run exists
+			@pollDrawer(v.Base+"?tab=logs", "every 3s", "fields")
 			if l.Runs {
 				<p class="text-rw-muted text-sm">No runs yet. Hit Run now to make one.</p>
 			} else {
@@ -279,9 +348,28 @@ templ Metrics(v View, m c.MetricsView) {
 	</div>
 }
 
+// pollDrawer draws the drawer again from url on the trigger every (htmx
+// "every Ns"); it waits while the viewer is busy (guard: the tokens
+// main.js reads). url "" = no poll.
+templ pollDrawer(url, every, guard string) {
+	if url != "" {
+		<span hidden data-poll-guard={ guard } hx-get={ url } hx-trigger={ every } hx-target={ "#" + Root } hx-swap="outerHTML"></span>
+	}
+}
+
+// pollEvery is a job or run list's pace: quick while one is moving, slow
+// otherwise, so one started elsewhere appears.
+func pollEvery(fast bool) string {
+	if fast {
+		return "every 2s"
+	}
+	return "every 5s"
+}
+
 // Jobs is v0's Deployments: one panel row per job, newest first.
 templ Jobs(v View, j JobsView) {
 	<div id="tab-jobs">
+		@pollDrawer(j.Poll, pollEvery(j.Fast), "fields")
 		if len(j.Rows) == 0 {
 			if v.Kind == "cron" {
 				<p class="text-rw-muted text-sm">No deployments yet.</p>
@@ -414,11 +502,14 @@ templ Access(v View, a AccessView) {
 			}
 		}
 		@c.PanelSection("access-bindings", "Bindings", "") {
-			@c.Table(c.TableView{
-				Headers:   []string{"Slice", "Access", "User", "Since"},
-				Rows:      bindingRows(a),
-				EmptyText: "No database access yet. The tile gets it at its next deploy.",
-			})
+			<div id="live-bindings">
+				@pollRegion(v, "live-bindings", "settings")
+				@c.Table(c.TableView{
+					Headers:   []string{"Slice", "Access", "User", "Since"},
+					Rows:      bindingRows(a),
+					EmptyText: "No database access yet. The tile gets it at its next deploy.",
+				})
+			</div>
 		}
 		if v.ReadOnly {
 			<p class="mt-4 text-xs text-rw-faint" data-hint>Only members and owners can change its access.</p>
@@ -487,9 +578,7 @@ func dropVals(name string) string {
 // Runs is v0's runs list: a <details> row per run, the log behind it.
 templ Runs(v View, r RunsView) {
 	<div class="space-y-3" id="tab-runs">
-		if r.Poll != "" {
-			<span hidden hx-get={ r.Poll } hx-trigger="every 2s" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
-		}
+		@pollDrawer(r.Poll, pollEvery(r.Fast), "fields rows")
 		if !r.Next.IsZero() {
 			<p class="text-xs text-rw-faint" data-hint>
 				{ "next run " }
@@ -1007,6 +1096,13 @@ templ addDomain(v View, d DomainsView) {
 }
 
 templ domainList(v View, d DomainsView) {
+	<div id="live-domains">
+		@pollRegion(v, "live-domains", "settings")
+		@domainRowsList(v, d)
+	</div>
+}
+
+templ domainRowsList(v View, d DomainsView) {
 	if len(d.Rows) == 0 {
 		<p class="text-rw-muted text-sm">No domains yet.</p>
 	} else {
@@ -1064,9 +1160,20 @@ templ domainList(v View, d DomainsView) {
 	}
 }
 
+// pollRegion, put first in a region with the id, reads the tab again every
+// 4s and swaps just that region, so a change made elsewhere shows; it waits
+// while focus is inside the region or a dialog is open. Without a stream
+// (v.Live "") a view is drawn once, as in a test.
+templ pollRegion(v View, id, tab string) {
+	if v.Live != "" {
+		<span hidden data-poll-guard="region" hx-get={ v.Base + "?tab=" + tab } hx-trigger="every 4s" hx-select={ "#" + id } hx-target={ "#" + id } hx-swap="outerHTML"></span>
+	}
+}
+
 // image is what the registry watcher knows of the tile's image.
 templ image(v View, i ImageView) {
-	<div class="panel p-4 space-y-3">
+	<div id="live-image" class="panel p-4 space-y-3">
+		@pollRegion(v, "live-image", "settings")
 		<dl class="grid grid-cols-[8rem_minmax(0,1fr)] [&>dd]:[overflow-wrap:anywhere] gap-x-3 gap-y-1.5 text-sm">
 			<dt class="text-rw-faint">Image</dt>
 			<dd class="truncate font-mono text-rw-text">{ i.Ref }</dd>
