@@ -8,18 +8,25 @@ import (
 
 // InstallStatus is what the provider answered for a git row: the repos it
 // may read, none (not installed, or installed on nothing), or no answer.
-templ InstallStatus(repos int, failed bool) {
-	switch {
-		case failed:
-			@c.Chip("did not answer", "danger")
-		case repos == 0:
-			@c.Chip("not installed", "warn")
-		case repos == 1:
-			@c.Chip("installed · 1 repo", "success")
-		default:
-			@c.Chip("installed · "+strconv.Itoa(repos)+" repos", "success")
-	}
+// The wrapper keeps the row's id and hx-preserve: the list's live poll leaves the
+// answered chip alone instead of asking the provider again.
+templ InstallStatus(id string, repos int, failed bool) {
+	<span id={ CheckID(id) } hx-preserve>
+		switch {
+			case failed:
+				@c.Chip("did not answer", "danger")
+			case repos == 0:
+				@c.Chip("not installed", "warn")
+			case repos == 1:
+				@c.Chip("installed · 1 repo", "success")
+			default:
+				@c.Chip("installed · "+strconv.Itoa(repos)+" repos", "success")
+		}
+	</span>
 }
+
+// CheckID is the id of a row's install-status chip.
+func CheckID(id string) string { return "install-check-" + id }
 
 // SettingsView is a connection's settings dialog: a tab per section (the
 // core's Connection and Used by, each capability's own), the open tab's

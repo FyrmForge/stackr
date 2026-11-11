@@ -143,7 +143,7 @@ templ row(r Row) {
 				} else if r.Status != "" {
 					@c.Chip("not working", "danger")
 				} else if r.Check != "" {
-					<span hx-post={ r.Check } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">checking…</span>
+					<span id={ CheckID(r.ID) } hx-preserve hx-post={ r.Check } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">checking…</span>
 				} else {
 					@c.Chip("connected", "success")
 				}

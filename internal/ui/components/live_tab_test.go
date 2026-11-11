@@ -38,13 +38,10 @@ func TestBannersPoll(t *testing.T) {
 	}
 }
 
-func TestJobStatusIdlePollsRefresh(t *testing.T) {
-	got := renderLive(t, JobStatus(JobStatusView{Kind: "deploy", State: "done", Refresh: "/d?tab=t"}))
-	if !strings.Contains(got, `hx-get="/d?tab=t"`) || !strings.Contains(got, "every 5s") {
-		t.Errorf("an idle job does not poll its refresh: %s", got)
-	}
-	if strings.Contains(renderLive(t, JobStatus(JobStatusView{Kind: "deploy", State: "done"})), "hx-get") {
-		t.Error("no Refresh must not poll")
+// An idle job status never swaps the drawer: it only repaints when its tab is.
+func TestJobStatusIdleDoesNotPoll(t *testing.T) {
+	if strings.Contains(renderLive(t, JobStatus(JobStatusView{Kind: "deploy", State: "done", Refresh: "/d?tab=t"})), "hx-get") {
+		t.Error("an idle job polls")
 	}
 }
 
