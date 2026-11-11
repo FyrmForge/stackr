@@ -73,6 +73,8 @@ type View struct {
 
 	NewDigest  string // a newer image than the one running; "" = none
 	AutoUpdate bool   // the watcher deploys it by itself
+
+	Live string // the tile's live stream (…/live); "" = none
 }
 
 // Tabs are the tabs a kind has, in strip order. Variables, database
@@ -231,7 +233,13 @@ type AccessBinding struct {
 	Since                     time.Time
 }
 
-type JobsView struct{ Rows []JobRow }
+// JobsView: Poll is the tab's URL, re-fetched every 2s while a job is
+// moving (Fast) and every 5s when idle, so a job started elsewhere appears.
+type JobsView struct {
+	Rows []JobRow
+	Poll string
+	Fast bool
+}
 
 // Cancel is the cancel action's URL; "" = no button (finished, or no verb).
 // Line is the release line the job makes ("rebuild"), Waits why a queued
@@ -607,7 +615,8 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 type RunsView struct {
 	Next time.Time // cron: the next tick; zero = paused or none
 	Rows []RunRow
-	Poll string // re-fetched every 2 s while a run is live; "" = idle
+	Poll string // re-fetched every 2s while a run is live (Fast), else every 5s; "" = no poll
+	Fast bool
 }
 
 type RunRow struct {

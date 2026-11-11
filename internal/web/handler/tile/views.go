@@ -216,9 +216,9 @@ func without(blob, name string) string {
 }
 
 // jobsView is the rows; base is the tile's drawer URL, "" = the viewer
-// may not cancel.
-func jobsView(base string, js []service.Job) ui.JobsView {
-	var v ui.JobsView
+// may not cancel. The tab polls itself, quickly while a job is moving.
+func jobsView(drawer, base string, js []service.Job) ui.JobsView {
+	v := ui.JobsView{Poll: drawer + "?tab=jobs"}
 	for _, j := range js {
 		r := ui.JobRow{
 			Kind:  j.Kind,
@@ -228,8 +228,11 @@ func jobsView(base string, js []service.Job) ui.JobsView {
 			Error: j.Error,
 			Waits: j.Waits,
 		}
-		if base != "" && j.FinishedAt == nil {
-			r.Cancel = base + "/jobs/" + j.ID + "/cancel"
+		if j.FinishedAt == nil {
+			v.Fast = true
+			if base != "" {
+				r.Cancel = base + "/jobs/" + j.ID + "/cancel"
+			}
 		}
 		v.Rows = append(v.Rows, r)
 	}
@@ -248,7 +251,8 @@ func imageView(t service.Tile, i service.Image) ui.ImageView {
 }
 
 func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
-	v := ui.RunsView{Next: when(s.NextRun)}
+	// always polled: a run that starts later appears, "next run" stays fresh
+	v := ui.RunsView{Next: when(s.NextRun), Poll: base + "?tab=runs"}
 	for _, r := range rs {
 		row := ui.RunRow{
 			ID:      r.ID,
@@ -270,9 +274,7 @@ func runsView(base string, s service.TileStatus, rs []service.Run) ui.RunsView {
 			row.CPU = service.HumanDuration(time.Duration(*r.CPUMs) * time.Millisecond)
 		}
 		v.Rows = append(v.Rows, row)
-		if row.Live {
-			v.Poll = base + "?tab=runs"
-		}
+		v.Fast = v.Fast || row.Live
 	}
 	return v
 }

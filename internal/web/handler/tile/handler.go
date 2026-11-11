@@ -44,6 +44,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	read, write := require("tile.read"), require("tile.write")
 	g.GET(d, h.Drawer, read)
 	g.GET(d+"/logs/stream", h.LogStream, read)
+	g.GET(d+"/live", h.Live, read)
 	g.GET(d+"/metrics/events", h.MetricsEvents, read)
 	for verb, f := range map[string]func(context.Context, string) (service.Job, error){
 		"deploy":  h.orch.Deploy,
@@ -129,6 +130,7 @@ func (h *handler) view(c echo.Context, tab string) (ui.View, head, error) {
 		Rebuild:  service.Rebuildable(*t),
 		Location: s.Stack.Name + " / " + s.Env.Name,
 		EnvColor: s.Env.Color,
+		Live:     base(c) + "/live",
 
 		OutsideFile: h.orch.TileOutsideStackFile(ctx, *t),
 	}
@@ -164,18 +166,9 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 	var body templ.Component
 	switch v.Tab {
 	case "status":
-		ds, err := h.orch.Domains(ctx, t.ID)
+		sv, err := h.statusOf(ctx, render.EnvURL(c), v.Base, *t, hd.status)
 		if err != nil {
 			return middleware.HTTPError(err)
-		}
-		sv := statusView(render.EnvURL(c), *t, hd.status, ds)
-		g, err := h.orch.HostGrant(ctx, t.StackID)
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		sv.Access = access.ForTile(g.Lines, g.Pending, t.Slug)
-		if sv.Job != nil {
-			sv.Job.Refresh = v.Base + "?tab=status"
 		}
 		body = ui.Status(v, sv)
 	case "logs":
@@ -230,7 +223,7 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		if can(c, "deployment.cancel") {
 			cancel = v.Base
 		}
-		body = ui.Jobs(v, jobsView(cancel, js))
+		body = ui.Jobs(v, jobsView(v.Base, cancel, js))
 	case "runs":
 		rs, err := h.orch.Runs(ctx, t.ID, 20)
 		if err != nil {
@@ -239,6 +232,26 @@ func (h *handler) show(c echo.Context, status int, v ui.View, hd head, ty *typed
 		body = ui.Runs(v, runsView(v.Base, hd.status, rs))
 	}
 	return respond.HTML(c, status, ui.Drawer(v, body))
+}
+
+// statusOf is the Status tab's data: the status and last job, the URLs, the
+// ports and the elevated access, read fresh. The tab and its stream both
+// draw from it.
+func (h *handler) statusOf(ctx context.Context, env, base string, t service.Tile, st service.TileStatus) (ui.StatusView, error) {
+	ds, err := h.orch.Domains(ctx, t.ID)
+	if err != nil {
+		return ui.StatusView{}, err
+	}
+	sv := statusView(env, t, st, ds)
+	g, err := h.orch.HostGrant(ctx, t.StackID)
+	if err != nil {
+		return sv, err
+	}
+	sv.Access = access.ForTile(g.Lines, g.Pending, t.Slug)
+	if sv.Job != nil {
+		sv.Job.Refresh = base + "?tab=status"
+	}
+	return sv, nil
 }
 
 // GET …/-/tiles/:tile/metrics/events: the Metrics tab's new points
