@@ -464,9 +464,9 @@ type SyncStandby struct {
 // SyncView is an instance's synchronous replication: the choice, and plainly
 // whether writes are protected right now.
 type SyncView struct {
-	Prefer     bool          `json:"prefer"`
-	Required   bool          `json:"required"`
-	LimitMS    int           `json:"limit_ms"`
+	Prefer     bool          `json:"sync"`
+	Required   bool          `json:"sync_required"`
+	LimitMS    int           `json:"sync_limit_ms"`
 	Protection string        `json:"protection"` // off, protected, unprotected or blocked
 	Status     string        `json:"status"`     // the same in words
 	Standbys   []SyncStandby `json:"standbys"`
@@ -504,9 +504,9 @@ func (o *Orchestrator) SyncOf(ctx context.Context, tileID string) (SyncView, err
 // SetSyncIn is what a change of the instance's choice may carry; nil leaves a
 // field as it is.
 type SetSyncIn struct {
-	Prefer   *bool `json:"prefer"`
-	Required *bool `json:"required"`
-	LimitMS  *int  `json:"limit_ms"`
+	Prefer   *bool `json:"sync"`
+	Required *bool `json:"sync_required"`
+	LimitMS  *int  `json:"sync_limit_ms"`
 }
 
 // SetSync stores the choice and applies it at once.

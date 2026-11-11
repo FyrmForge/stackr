@@ -6989,17 +6989,7 @@
       },
       "SetSyncIn": {
         "properties": {
-          "limit_ms": {
-            "oneOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "prefer": {
+          "sync": {
             "oneOf": [
               {
                 "type": "boolean"
@@ -7009,7 +6999,17 @@
               }
             ]
           },
-          "required": {
+          "sync_limit_ms": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sync_required": {
             "oneOf": [
               {
                 "type": "boolean"
@@ -7801,17 +7801,8 @@
       },
       "SyncView": {
         "properties": {
-          "limit_ms": {
-            "type": "integer"
-          },
-          "prefer": {
-            "type": "boolean"
-          },
           "protection": {
             "type": "string"
-          },
-          "required": {
-            "type": "boolean"
           },
           "standbys": {
             "items": {
@@ -7821,12 +7812,21 @@
           },
           "status": {
             "type": "string"
+          },
+          "sync": {
+            "type": "boolean"
+          },
+          "sync_limit_ms": {
+            "type": "integer"
+          },
+          "sync_required": {
+            "type": "boolean"
           }
         },
         "required": [
-          "prefer",
-          "required",
-          "limit_ms",
+          "sync",
+          "sync_required",
+          "sync_limit_ms",
           "protection",
           "status",
           "standbys"

@@ -754,7 +754,7 @@ func (h *H) SyncOf() Endpoint {
 	return Get(func(c echo.Context) (service.SyncView, error) { return h.Orch.SyncOf(rc(c), tileID(c)) })
 }
 
-// SetSync changes whether the instance prefers synchronous replication, the
+// SetSync changes whether the instance turns sync commits on, the
 // round trip limit and whether it is required.
 func (h *H) SetSync() Endpoint {
 	return JSON(http.StatusOK, func(c echo.Context, in service.SetSyncIn) (service.SyncView, error) {

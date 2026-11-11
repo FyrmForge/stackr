@@ -23,15 +23,15 @@ func (a *app) dbSync() *cobra.Command {
 		}))
 	put := func(prefer bool) func(*cobra.Command, string, []string) error {
 		return func(c *cobra.Command, p string, _ []string) error {
-			body := map[string]any{"prefer": prefer}
+			body := map[string]any{"sync": prefer}
 			if c.Flags().Changed("limit-ms") {
-				body["limit_ms"] = limit
+				body["sync_limit_ms"] = limit
 			}
 			if required && preferred {
 				return usage("pass --required or --preferred, not both")
 			}
 			if required || preferred {
-				body["required"] = required
+				body["sync_required"] = required
 			}
 			v, err := a.call(PUT, p+"/sync", body)
 			if err != nil {

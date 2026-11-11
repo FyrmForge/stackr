@@ -74,7 +74,7 @@ Only a new tile loads a dump. Loading into an existing tile, and dumps in the st
 
 ## Synchronous replication
 
-With synchronous replication on, a commit waits for a standby; if the panel is down and the standby is down too, writes hang until the panel or a standby returns, in preferred mode as well as required.
+With sync commits on (the "Sync commits" setting; `sync` in the stack file and API), a commit waits for a standby; if the panel is down and the standby is down too, writes hang until the panel or a standby returns, in preferred mode as well as required.
 
 ## Standbys by hand
 

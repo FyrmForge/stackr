@@ -1115,7 +1115,8 @@ templ syncForm(v View, s SyncView) {
 			<p class="text-xs text-rw-faint" data-hint>Only members and owners can change it.</p>
 		} else {
 			<form id={ formID("sync-form", syncParts(s)...) } hx-preserve hx-post={ v.Base + "/sync" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
-				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="prefer" value="1" checked?={ s.Prefer } class="accent-rw-accent"/> <span>Prefer synchronous</span></label>
+				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="prefer" value="1" checked?={ s.Prefer } class="accent-rw-accent"/> <span>Sync commits</span></label>
+				<p class="text-xs text-rw-faint" data-hint>Waits for a standby before a commit counts.</p>
 				<div class="flex flex-wrap items-end gap-2">
 					<div class="min-w-32">
 						<label for="sync-limit" class="label">Wait for standbys closer than (ms)</label>
