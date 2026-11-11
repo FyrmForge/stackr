@@ -66,13 +66,13 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/rename", h.InstanceRename, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/pitr", h.PITR, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/restore", h.InstanceRestore, a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/promote-restore", h.InstancePromote, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/accept-restore", h.InstancePromote, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/allow", h.Allow, a.Require("operated.allow"))
 	g.POST(e+"/instances/:tile/env-pairs", h.EnvPairs, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/settings", h.PGSettings, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/version", h.PGUpdate, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/major", h.PGMajor, a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/major-rollback", h.PGMajorRollback, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/rollback-upgrade", h.PGMajorRollback, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/sync", h.PGSync, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/switchover", h.Switchover, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/switchover-abort", h.AbortSwitchover, a.Require("tile.write"))
@@ -80,7 +80,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/standby-add", h.AddStandby, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/standby-remove", h.RemoveStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/standby-rebuild", h.RebuildStandby, a.Require("tile.write"))
-	g.POST(e+"/instances/:tile/promote-standby", h.PromoteStandby, a.Require("placement.write"))
+	g.POST(e+"/instances/:tile/failover", h.PromoteStandby, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
@@ -390,7 +390,7 @@ func (h *handler) InstanceRestore(c echo.Context) error {
 	return h.instance(c, "backups", "restoring into "+cand.Slug, err, instance.SettingsView{})
 }
 
-// POST …/-/instances/:tile/promote-restore: this restored copy's data goes
+// POST …/-/instances/:tile/accept-restore: this restored copy's data goes
 // under the instance it was restored from.
 func (h *handler) InstancePromote(c echo.Context) error {
 	_, err := h.orch.PromoteRestore(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID)
@@ -680,8 +680,12 @@ func (h *handler) PGSettings(c echo.Context) error {
 // POST …/-/instances/:tile/version: the instance moves to the current minor
 // of its major and restarts there.
 func (h *handler) PGUpdate(c echo.Context) error {
-	_, _, err := h.orch.UpdatePGVersion(c.Request().Context(), scope(c).Tile.ID)
-	return h.instance(c, "slices", "Updated. The instance restarts on the new version.", err, instance.SettingsView{})
+	_, j, err := h.orch.UpdatePGVersion(c.Request().Context(), scope(c).Tile.ID)
+	note := "Saved. Applies on the next deploy."
+	if j != nil {
+		note = "Updating. Progress shows under Last job."
+	}
+	return h.instance(c, "slices", note, err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/major: the instance moves to another postgres
@@ -700,7 +704,7 @@ func (h *handler) PGMajor(c echo.Context) error {
 	return h.instance(c, "slices", "Changing the version: the instance stops while the data moves.", err, instance.SettingsView{})
 }
 
-// POST …/-/instances/:tile/major-rollback: back to the major before the last
+// POST …/-/instances/:tile/rollback-upgrade: back to the major before the last
 // change. The instance's name must be typed: what was written since is lost.
 func (h *handler) PGMajorRollback(c echo.Context) error {
 	if strings.TrimSpace(c.FormValue("confirm")) != scope(c).Tile.Name {
@@ -784,7 +788,7 @@ func (h *handler) RebuildStandby(c echo.Context) error {
 	return h.instance(c, "slices", "Rebuilding the standby on "+v.Node+".", err, instance.SettingsView{})
 }
 
-// POST …/-/instances/:tile/promote-standby: promote the standby on node "to".
+// POST …/-/instances/:tile/failover: promote the standby on node "to".
 // When the primary's node does not answer, "confirm" must be that node's name:
 // the admin's word that it is gone.
 func (h *handler) PromoteStandby(c echo.Context) error {
@@ -797,7 +801,11 @@ func (h *handler) PromoteStandby(c echo.Context) error {
 		gone = true
 	}
 	_, err := h.orch.PromoteStandby(ctx, middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("to")), gone, strings.TrimSpace(c.FormValue("powered_off")), c.FormValue("allow_async") != "")
-	return h.instance(c, "slices", "Promoting. The steps show under Last job; the old primary stays fenced until its node returns.", err, instance.SettingsView{})
+	note := "Promoting. The steps show under Last job; the old primary rejoins as a standby."
+	if gone {
+		note = "Promoting. The steps show under Last job; the old primary stays fenced until its node returns."
+	}
+	return h.instance(c, "slices", note, err, instance.SettingsView{})
 }
 
 // POST …/-/instances/:tile/memory: the tile's memory limit in MB, empty =

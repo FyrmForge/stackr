@@ -112,6 +112,7 @@ type OverviewView struct {
 	AddNodes            []string     // postgres only: nodes a standby may be added on; none = no Add
 	Failover            *FailoverView // postgres with a standby only
 	Sync                *SyncView     // postgres only; nil = not shown
+	Unread              map[string]string // region (pooler, members, failover, sync, job) -> why its read failed
 }
 
 // SyncView is the synchronous replication form: the choice, and in words
@@ -231,13 +232,8 @@ templ Overview(v View, o OverviewView) {
 		@liveRegion(v, "sync") {
 			@LiveSync(v, o)
 		}
-		if o.Job != nil {
-			<h3 class="section-title">Last job</h3>
-			<div class="panel p-4">
-				@c.JobStatus(*o.Job)
-				<div class="text-xs text-rw-faint mt-1.5">@c.When(o.JobWhen)
-</div>
-			</div>
+		@liveRegion(v, "job") {
+			@LiveJob(v, o)
 		}
 		<h3 class="section-title">Slices on this instance</h3>
 		if len(o.Slices) == 0 {
@@ -278,11 +274,13 @@ templ liveRegion(v View, name string) {
 	}
 }
 
-// LivePooler, LiveMembers, LiveFailover and LiveSync are the regions the
-// stream sends as the events pooler, members, failover and sync: each is
+// LivePooler, LiveMembers, LiveFailover, LiveSync and LiveJob are the regions the
+// stream sends as the events pooler, members, failover, sync and job: each is
 // rendered whole, and sent again only when its markup changes.
 templ LivePooler(v View, o OverviewView) {
-	if o.Pooler != nil {
+	if o.Unread["pooler"] != "" {
+		@unread("the pooler", o.Unread["pooler"])
+	} else if o.Pooler != nil {
 		<h3 class="section-title">Pooler</h3>
 		<div class="panel p-4 space-y-1">
 			@c.Facts() {
@@ -304,8 +302,25 @@ func memberRole(r string) string {
 	return r
 }
 
+// unread is the one line a region shows when its read failed.
+templ unread(what, reason string) {
+	<p class="text-rw-muted text-sm" role="status">Couldn't read { what }: { reason }</p>
+}
+
+templ LiveJob(v View, o OverviewView) {
+	if o.Job != nil {
+		<h3 class="section-title">Last job</h3>
+		<div class="panel p-4">
+			@c.JobStatus(*o.Job)
+			<div class="text-xs text-rw-faint mt-1.5">@c.When(o.JobWhen)</div>
+		</div>
+	}
+}
+
 templ LiveMembers(v View, o OverviewView) {
-	if len(o.Members) > 0 || len(o.AddNodes) > 0 {
+	if o.Unread["members"] != "" {
+		@unread("members", o.Unread["members"])
+	} else if len(o.Members) > 0 || len(o.AddNodes) > 0 {
 		<h3 class="section-title">Members</h3>
 		<ul class="space-y-2">
 			for _, m := range o.Members {
@@ -375,13 +390,17 @@ templ LiveMembers(v View, o OverviewView) {
 }
 
 templ LiveFailover(v View, o OverviewView) {
-	if len(o.Members) > 0 && o.Failover != nil {
+	if o.Unread["failover"] != "" {
+		@unread("failover", o.Unread["failover"])
+	} else if len(o.Members) > 0 && o.Failover != nil {
 		@failover(v, *o.Failover)
 	}
 }
 
 templ LiveSync(v View, o OverviewView) {
-	if o.Sync != nil {
+	if o.Unread["sync"] != "" {
+		@unread("sync", o.Unread["sync"])
+	} else if o.Sync != nil {
 		@syncForm(v, *o.Sync)
 	}
 }
@@ -598,7 +617,7 @@ templ pitr(v View, p PITRView) {
 					Title:   "Promote this copy?",
 					Warning: "Replaces " + p.Of + "'s data with this copy and restarts it. Its apps keep their address and login.",
 					Kept:    []string{"the old data, as an orphaned volume until retention ends"},
-					Action:  v.Base + "/promote-restore",
+					Action:  v.Base + "/accept-restore",
 					Target:  "#" + Root,
 					Primary: true,
 				})
@@ -1101,7 +1120,7 @@ templ majorChange(v View, ver VersionView) {
 		</form>
 	}
 	if ver.RollbackFrom > 0 {
-		<form hx-post={ v.Base + "/major-rollback" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
+		<form hx-post={ v.Base + "/rollback-upgrade" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-2 mt-3">
 			<p class="text-sm text-rw-text">The data of postgres { strconv.Itoa(ver.RollbackFrom) } is kept until { ver.RollbackUntil }.</p>
 			<div class="flex flex-wrap items-end gap-2">
 				<div class="flex-1 min-w-48">
@@ -1195,7 +1214,7 @@ templ failover(v View, f FailoverView) {
 						Button:  "Promote",
 						Title:   "Promote the standby?",
 						Warning: "Makes the chosen standby the primary. The old primary can no longer rejoin as is.",
-						Action:  v.Base + "/promote-standby",
+						Action:  v.Base + "/failover",
 						Target:  "#" + Root,
 					})
 				</div>
