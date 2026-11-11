@@ -116,6 +116,7 @@ func (h *handler) connectorsTab(c echo.Context, og *service.Org) (templ.Componen
 	v := connectors.ListView{
 		Title: "Connectors", Scope: "organization",
 		Help:   "Git hosts and DNS accounts this organization uses.",
+		Live:   orgRefresh(c),
 		Synced: h.panel().Synced(c),
 	}
 	if len(h.kinds(c)) > 0 {

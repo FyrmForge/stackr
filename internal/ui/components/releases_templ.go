@@ -24,6 +24,7 @@ type ReleasesView struct {
 	Rows   []ReleaseRow
 	Job    *JobStatusView
 	Ask    *ConfirmView // the promote question, open on arrival
+	Live   string       // the tab's own GET, polled while no question is open; "" = static
 }
 
 // EnvRun is one env and the release it runs ("" = nothing deployed).
@@ -79,6 +80,12 @@ func Releases(v ReleasesView) templ.Component {
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"tab-releases\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
+		}
+		if v.Live != "" && v.Ask == nil {
+			templ_7745c5c3_Err = LiveTab(v.Live, "tab-releases").Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
 		if v.Job != nil {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"mb-4\">")
@@ -153,7 +160,7 @@ func Releases(v ReleasesView) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(e.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 68, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 72, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -171,7 +178,7 @@ func Releases(v ReleasesView) templ.Component {
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(e.Runs)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 70, Col: 62}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 74, Col: 62}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -219,7 +226,7 @@ func Releases(v ReleasesView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(Initials(r.By))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 86, Col: 155}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 90, Col: 155}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -232,7 +239,7 @@ func Releases(v ReleasesView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(r.Number)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 87, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 91, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -245,7 +252,7 @@ func Releases(v ReleasesView) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(r.Number)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 89, Col: 96}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 93, Col: 96}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -258,7 +265,7 @@ func Releases(v ReleasesView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(r.By + " · ")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 91, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 95, Col: 24}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -280,7 +287,7 @@ func Releases(v ReleasesView) templ.Component {
 					var templ_7745c5c3_Var10 string
 					templ_7745c5c3_Var10, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.Message).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 95, Col: 109}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 99, Col: 109}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 					if templ_7745c5c3_Err != nil {
@@ -293,7 +300,7 @@ func Releases(v ReleasesView) templ.Component {
 					var templ_7745c5c3_Var11 string
 					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(r.Message)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 95, Col: 123}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 99, Col: 123}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 					if templ_7745c5c3_Err != nil {
@@ -316,7 +323,7 @@ func Releases(v ReleasesView) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.Commit).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 101, Col: 73}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 105, Col: 73}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 					if templ_7745c5c3_Err != nil {
@@ -329,7 +336,7 @@ func Releases(v ReleasesView) templ.Component {
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(r.Commit[:min(12, len(r.Commit))])
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 101, Col: 111}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 105, Col: 111}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -384,7 +391,7 @@ func Releases(v ReleasesView) templ.Component {
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(e.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 104, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 108, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -430,7 +437,7 @@ func Releases(v ReleasesView) templ.Component {
 							var templ_7745c5c3_Var19 string
 							templ_7745c5c3_Var19, templ_7745c5c3_Err = templruntime.NewAttributeExpression(m.Ask).Resolve(ctx)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 113, Col: 24}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 117, Col: 24}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 							if templ_7745c5c3_Err != nil {
@@ -443,7 +450,7 @@ func Releases(v ReleasesView) templ.Component {
 							var templ_7745c5c3_Var20 string
 							templ_7745c5c3_Var20, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + DrawerRoot).Resolve(ctx)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 114, Col: 38}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 118, Col: 38}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 							if templ_7745c5c3_Err != nil {
@@ -475,7 +482,7 @@ func Releases(v ReleasesView) templ.Component {
 							var templ_7745c5c3_Var21 string
 							templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(m.Env)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 118, Col: 28}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 122, Col: 28}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 							if templ_7745c5c3_Err != nil {
@@ -489,7 +496,7 @@ func Releases(v ReleasesView) templ.Component {
 							var templ_7745c5c3_Var22 string
 							templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(m.Env)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 120, Col: 29}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 124, Col: 29}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 							if templ_7745c5c3_Err != nil {
@@ -550,7 +557,7 @@ func Ask(a PromoteAsk) templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(len(a.Carried)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 137, Col: 74}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 141, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -563,7 +570,7 @@ func Ask(a PromoteAsk) templ.Component {
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(plural(len(a.Carried)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 137, Col: 108}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 141, Col: 108}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
@@ -576,7 +583,7 @@ func Ask(a PromoteAsk) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(a.Target)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 137, Col: 126}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 141, Col: 126}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -594,7 +601,7 @@ func Ask(a PromoteAsk) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(a.Skipped)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 139, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 143, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
@@ -630,7 +637,7 @@ func Ask(a PromoteAsk) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(len(a.Carried) - askRows))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 151, Col: 102}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 155, Col: 102}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
@@ -686,7 +693,7 @@ func askRow(r ReleaseRow) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(r.Number)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 167, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 171, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -699,7 +706,7 @@ func askRow(r ReleaseRow) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(Initials(r.By))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 168, Col: 150}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 172, Col: 150}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -712,7 +719,7 @@ func askRow(r ReleaseRow) templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(r.By)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 169, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/releases.templ`, Line: 173, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {

@@ -109,7 +109,9 @@ func (h *handler) orgTab(c echo.Context, cd card, f *comp.DrawerView) (templ.Com
 		return h.orgDomains(c, cd, f.Base)
 	case "dns":
 		ds, err := h.orch.ManagedDomains(ctx, &og.ID)
-		return dnsui.Page(connpanel.ManagedPage(ds, "")), err
+		pv := connpanel.ManagedPage(ds, "")
+		pv.Live = f.Base + "?tab=dns"
+		return dnsui.Page(pv), err
 	case "connectors":
 		return h.connectorsTab(c, og)
 	case "storage":

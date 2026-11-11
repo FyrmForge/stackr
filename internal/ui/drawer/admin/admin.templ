@@ -146,6 +146,7 @@ type Backup struct {
 
 templ Users(v UsersView) {
 	<div id="tab-users">
+		@c.LiveTab(Href("users"), "tab-users")
 		@c.Section("", "", "Server admins bypass every organization check. To invite someone to an organization, use that organization's settings.") {
 			<ul class="space-y-2">
 				for _, u := range v.Rows {
@@ -299,6 +300,7 @@ type Route struct {
 
 templ Routes(v RoutesView) {
 	<div id="tab-routes">
+		@c.LiveTab(Href("traffic"), "tab-routes")
 		@c.Section("External routes", "instance", "Hosts that go to an address outside stackr.") {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">No external routes yet.</p>

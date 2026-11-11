@@ -78,6 +78,7 @@ func (h *handler) connectorsTab(c echo.Context) (templ.Component, error) {
 	// no title or help: the section heading says both
 	v := connectors.ListView{
 		Add:    connBase + "/new",
+		Live:   ui.Href("connectors"),
 		Synced: h.panel().Synced(c),
 	}
 	var err error

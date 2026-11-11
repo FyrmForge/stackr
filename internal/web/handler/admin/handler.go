@@ -378,7 +378,7 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 	case "managed-dns":
 		ds, err := h.orch.ManagedDomains(ctx, nil)
 		pv := connpanel.ManagedPage(ds, ui.Href("connectors"))
-		pv.Resync, pv.Target = ui.Base+"/managed-dns/sync", ui.Target
+		pv.Resync, pv.Target, pv.Live = ui.Base+"/managed-dns/sync", ui.Target, ui.Href("managed-dns")
 		return dnsui.Page(pv), err
 	case "backups":
 		return h.backupsTab(c, job)

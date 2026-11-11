@@ -4,6 +4,8 @@
 package volume
 
 import (
+	"context"
+	"io"
 	"slices"
 	"strconv"
 	"time"
@@ -52,6 +54,17 @@ func Drawer(v View, body templ.Component) templ.Component {
 	}
 	if v.Scope != "env" {
 		d.Scope = v.Scope + "-scoped"
+	}
+	if Tab(v.Tab) == "overview" && v.Base != "" {
+		// the poller sits beside #tab-overview (its builder is the env handler's, which has
+		// no URL to hand): it lives and dies with the drawer's body
+		inner := body
+		body = templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+			if err := c.LiveTab(v.Base+"?tab=overview", "tab-overview").Render(ctx, w); err != nil {
+				return err
+			}
+			return inner.Render(ctx, w)
+		})
 	}
 	return c.Drawer(d, body)
 }
@@ -249,16 +262,24 @@ templ scheduleForm(b BackupsView) {
 	</form>
 }
 
-// History polls its own drawer every 2 s while a run is live, or a few
-// times after Back up now / Restore (the job writes its run row when it
-// starts), and keeps only itself from the answer.
+// historyEvery is the poll beat: 2 s while a run is live or just queued (the
+// job writes its run row when it starts), else 3 s so a run started
+// elsewhere still shows.
+func historyEvery(b BackupsView) string {
+	if b.Live || b.Poll > 0 {
+		return "every 2s"
+	}
+	return "every 3s"
+}
+
+// History polls its own drawer, always, and keeps only itself from the answer.
 templ History(b BackupsView) {
 	<div
 		id={ "backup-history-" + b.ID }
 		class="panel p-5"
-		if b.Live || b.Poll > 0 {
+		if b.Base != "" {
 			hx-get={ b.Base + "?tab=backups&poll=" + strconv.Itoa(max(b.Poll-1, 0)) }
-			hx-trigger="every 2s"
+			hx-trigger={ historyEvery(b) }
 			hx-select={ "#backup-history-" + b.ID }
 			hx-target="this"
 			hx-swap="outerHTML"

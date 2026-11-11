@@ -186,6 +186,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	for _, l := range levels {
 		site.GET(cmp.Or(l.path, "/"), cv.Page, page, l.read)
 		site.GET(l.path+"/-/events", cv.Events, l.read)
+		site.GET(l.path+"/-/banners", render.Banners, l.read)
 		site.POST(l.path+"/-/positions", cv.Positions, l.write)
 		site.POST(l.path+"/-/reset", cv.Reset, l.write)
 		site.POST(l.path+"/-/notes", cv.Notes, l.write)

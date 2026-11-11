@@ -28,6 +28,10 @@ templ JobStatus(v JobStatusView) {
 	} else {
 		<div>
 			@JobStatusBody(v)
+			if v.Refresh != "" {
+				// a job started later flips this to the stream branch
+				<span hidden data-job-poll hx-get={ v.Refresh } hx-trigger="every 5s" hx-target={ orDrawer(v.Target) } hx-swap="outerHTML"></span>
+			}
 		</div>
 	}
 }

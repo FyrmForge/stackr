@@ -93,6 +93,7 @@ func (h *handler) releasesTab(c echo.Context, cd card, f *comp.DrawerView) (temp
 		}
 	}
 	v.Rows = rows
+	v.Live = f.Base + "?tab=releases"
 	if q, ok := c.Get(jobKey).(queued); ok {
 		jv := render.JobView(q.page, q.job)
 		jv.Refresh = f.Base + "?tab=releases"

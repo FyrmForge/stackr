@@ -153,6 +153,8 @@ templ Placements(v PlacementsView) {
 		if v.Progress != nil {
 			@MoveProgress(*v.Progress)
 		}
+		<div id="placements-list">
+			@c.LiveTab(Href("placements"), "placements-list")
 		@c.Section("", "", "A name envs belong to, standing on one node. Orgs pin to placements; you point each at a node.") {
 			if len(v.Rows) == 0 {
 				<p class="text-sm text-rw-faint">No placements yet.</p>
@@ -197,6 +199,7 @@ templ Placements(v PlacementsView) {
 				}
 			</ul>
 		}
+		</div>
 		if v.Add.Action != "" {
 			@c.Section("Add a placement", "instance", "") {
 				@placementForm(v.Add, "pl-add", true)

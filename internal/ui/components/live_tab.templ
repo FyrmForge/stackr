@@ -1,0 +1,11 @@
+package components
+
+// LiveTab is the hidden poller a region carries to stay current: every 3s it
+// refetches url and swaps #id with the same element from the answer (which
+// brings the next poller). main.js's poll guard skips a tick while a dialog is
+// open, focus is inside the region, a <details> in it is open or a drawer
+// field has focus. Put it as a direct child of #id: when the region leaves the
+// page htmx stops the poll.
+templ LiveTab(url, id string) {
+	<span hidden data-live-tab data-poll-guard="region rows fields" hx-get={ url } hx-trigger="every 3s" hx-select={ "#" + id } hx-target={ "#" + id } hx-swap="outerHTML"></span>
+}

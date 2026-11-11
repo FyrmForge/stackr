@@ -70,6 +70,12 @@ func page(c echo.Context, status int, s components.Shell, body, actions, drawer 
 	return respond.HTML(c, status, components.Layout(s, body))
 }
 
+// Banners answers a page's header-banner poll: just #banners, read from the
+// same Shell the page was drawn with (the route sits under the page's scope).
+func Banners(c echo.Context) error {
+	return respond.HTML(c, http.StatusOK, components.Banners(Shell(c, "")))
+}
+
 // Bare is a page with no rail and no top bar, the setup wizard's (v0's
 // chromeless Layout), full page even for htmx: its links navigate.
 func Bare(c echo.Context, status int, title string, body templ.Component) error {
@@ -125,6 +131,12 @@ func Shell(c echo.Context, title string) components.Shell {
 					s.MoveIngress = "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug + "/-/drawer?tab=settings&open=placement"
 				}
 			}
+		}
+	}
+	if s.User != "" {
+		s.BannersURL = "/-/banners"
+		if sc.Env != nil && sc.Org != nil && sc.Stack != nil {
+			s.BannersURL = "/" + sc.Org.Slug + "/" + sc.Stack.Slug + "/" + sc.Env.Slug + "/-/banners"
 		}
 	}
 	href := ""

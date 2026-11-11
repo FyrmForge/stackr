@@ -1,5 +1,7 @@
 package dns
 
+import c "github.com/FyrmForge/stackr/internal/ui/components"
+
 // PageView is the Domains page: every managed domain the viewer sees and
 // the records stackr wrote on it, server or org level.
 type PageView struct {
@@ -9,6 +11,8 @@ type PageView struct {
 	// Resync is the POST that runs the records sync again, answered into
 	// Target; "" = no button (an org cannot).
 	Resync, Target string
+	// Live is the page's own GET, polled for #dns-page; "" = static.
+	Live string
 }
 
 // PageDomain is one managed domain: Scope and Via as the service words
@@ -29,7 +33,10 @@ type PageRecord struct {
 
 // Page is the Domains page body.
 templ Page(v PageView) {
-	<div class="space-y-4 text-sm">
+	<div id="dns-page" class="space-y-4 text-sm">
+		if v.Live != "" {
+			@c.LiveTab(v.Live, "dns-page")
+		}
 		<p class="text-xs text-rw-faint">Only records stackr wrote are listed. The rest are at your DNS host.</p>
 		if v.Resync != "" && len(v.Domains) > 0 {
 			<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Resync } hx-target={ v.Target } hx-swap="outerHTML">Sync records now</button>
