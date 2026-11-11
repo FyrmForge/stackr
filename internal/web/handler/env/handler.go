@@ -569,33 +569,9 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
 		}
 		if m.Engine == "postgres" {
-			pv, err := h.orch.PGVersion(ctx, t.ID)
-			if err != nil {
-				return middleware.HTTPError(err)
-			}
-			o.Version = &instance.VersionView{Image: pv.Image, UpdateTo: pv.UpdateTo, EOL: pv.EOL, EOLDate: pv.EOLDate, Majors: pv.Majors}
-			if ck := pv.Check; ck != nil {
-				o.Version.Check = fmt.Sprintf("Last check for postgres %d: %s", ck.To, ck.Detail)
-			}
-			if rb := pv.Rollback; rb != nil {
-				o.Version.RollbackFrom, o.Version.RollbackUntil = rb.From, rb.Until.Format("2006-01-02 15:04")
-			}
-			if o.Protection, err = h.orch.Protection(ctx, t.ID); err != nil {
-				return middleware.HTTPError(err)
-			}
-		}
-		for _, p := range ps {
-			r := instance.SliceRow{
-				Slice:    p.Slice,
-				Link:     drawerURL(s.Org.Slug, p.Stack, p.Env, p.TileID, slice.Tabs[0]),
-				Name:     p.DBName,
-				Bindings: p.Bindings,
-				Public:   p.Public,
-			}
-			if p.Stack != s.Stack.Slug || p.Env != s.Env.Slug {
-				r.Where = p.Stack + "/" + p.Env
-			}
-			o.Slices = append(o.Slices, r)
+			o = h.pgStatic(ctx, s, t.ID, o)
+		} else {
+			o.Slices = sliceRows(s, ps)
 		}
 		body = instance.Overview(v, o)
 	}
