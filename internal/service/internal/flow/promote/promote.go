@@ -77,15 +77,27 @@ type Flow struct {
 	// fails the apply. A stopped instance is not asked (applied false) and the
 	// apply stores them. Nil = stored unasked.
 	PGSettings func(ctx context.Context, t store.Tile, m store.OperatedInstance, s map[string]string) (bool, error)
-	// StandbyPlan resolves a file's standby nodes against instance tile t's
-	// own: the nodes that hold one now and the wanted ones, both by node name;
-	// an unknown node or the primary's own is an invalid or conflict error.
-	// SetStandbys makes the instance's standbys exactly those nodes (the ones
-	// it no longer lists go first). StandbyNames is the nodes that hold one,
-	// for the export. Nil = the file's standbys are ignored.
-	StandbyPlan  func(ctx context.Context, t store.Tile, want []string) (have, canon []string, err error)
-	SetStandbys  func(ctx context.Context, t store.Tile, nodes []string) error
-	StandbyNames func(ctx context.Context, t store.Tile) ([]string, error)
+	// StandbyPlan compares a file's standbys with instance tile t's cluster.
+	// The cluster's nodes are the listed ones plus the tile's own placement
+	// node, whichever role each plays now; only a node that is in one set and
+	// not the other is a change (never the running primary's). t.ID empty =
+	// a tile this apply creates. An unknown node is an invalid or conflict
+	// error. SetStandbys carries a diff out, once the instance runs. Nil = the
+	// file's standbys are ignored.
+	// StandbyNames is the export's list: every member node but the tile's own
+	// placement node, with a standby's sync mode when it is not auto.
+	StandbyPlan  func(ctx context.Context, t store.Tile, want []Standby) (StandbyDiff, error)
+	SetStandbys  func(ctx context.Context, t store.Tile, d StandbyDiff) error
+	StandbyNames func(ctx context.Context, t store.Tile) ([]Standby, error)
+}
+
+// StandbyDiff is what a file's standbys change: nodes (names) to add with
+// the mode each takes, standbys to remove, existing standbys whose mode
+// moves, and Text, the plan row ("" = nothing).
+type StandbyDiff struct {
+	Add, Mode []Standby
+	Remove    []string
+	Text      string
 }
 
 // Plan is the dry run of promoting releaseID into envID.
@@ -303,7 +315,29 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 	if err := f.rollout(ctx, w, e, log, swap); err != nil {
 		return err
 	}
+	// a new instance's standbys follow its primary, which runs now
+	if err := f.applyNewStandbys(ctx, w, e); err != nil {
+		return err
+	}
 	return f.applyPlacing(ctx, w, log)
+}
+
+// applyNewStandbys adds the standbys of the instances this apply created,
+// once their primaries run (a standby copies a running primary).
+func (f *Flow) applyNewStandbys(ctx context.Context, w *work, e store.Environment) error {
+	if f.SetStandbys == nil {
+		return nil
+	}
+	for _, name := range slices.Sorted(maps.Keys(w.newStandbys)) {
+		t, err := f.D.Tiles.GetBySlug(ctx, e.ID, name)
+		if err != nil {
+			return err
+		}
+		if err := f.SetStandbys(ctx, t, w.newStandbys[name]); err != nil {
+			return fmt.Errorf("%s: standbys: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // swapOrDefer marks the job swapping before the first write, unless a tile of

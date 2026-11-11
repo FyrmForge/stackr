@@ -725,7 +725,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			PGSettings:     orch.settingsFromFile,
 			StandbyPlan:    orch.standbyPlan,
 			SetStandbys:    orch.setStandbys,
-			StandbyNames:   func(ctx context.Context, t store.Tile) ([]string, error) { return orch.StandbyNodes(ctx, t.ID) },
+			StandbyNames:   orch.standbyExport,
 		}
 	})
 	orch.backup = build("flow/backup", func() *fbackup.Flow {

@@ -167,29 +167,30 @@ type work struct {
 	isDefault bool                   // the env is the ladder's top rung (DECIDE 192)
 	params    []params.Entry
 	// paramScope (set by planParams) is where params land: the env's own scope.
-	paramScope params.Scope
-	prParams   []params.Entry // a static env's promote also writes the file's pr block to the stack pr scope
-	drops      []paramDrop    // names the file no longer sets
-	ticked     []string       // secret removal keys the caller ticked
-	declare    map[string]VolumeConf
-	orphan     []store.Volume
-	creates    []store.Tile
-	updates    [][2]store.Tile // old, new
-	deletes    []store.Tile
-	domains    map[string]domainWork   // by tile slug
-	hosts      []string                // the file's literal hostnames, for the records checks
-	instances  map[string]instanceWork // operated tiles whose allow or env_pairs moved, by slug
-	list       Lister                  // reads the config repo's tree at the pinned commit
-	sliced     []string                // slice tiles created or moved: their consumers redeploy
-	base       string                  // a PR env's base env slug; "" on a static env
-	redeploy   map[string]bool
-	unpin      map[string]bool // image tiles whose tag moved: run the tag, pin again
-	sync       bool
-	place      *PlacementLive // the placement facts, when the file names a pin, ingress or exits
-	placing    []placeStep    // the pin, ingress and exits changes apply hands to place.Set
-	deployed   []string       // tile ids rolled out, filled by apply
-	removed    []string       // tile ids actually removed, filled by apply
-	owed       []string       // tile ids a parked sync rollout still has to deploy
+	paramScope  params.Scope
+	prParams    []params.Entry // a static env's promote also writes the file's pr block to the stack pr scope
+	drops       []paramDrop    // names the file no longer sets
+	ticked      []string       // secret removal keys the caller ticked
+	declare     map[string]VolumeConf
+	orphan      []store.Volume
+	creates     []store.Tile
+	updates     [][2]store.Tile // old, new
+	deletes     []store.Tile
+	domains     map[string]domainWork   // by tile slug
+	hosts       []string                // the file's literal hostnames, for the records checks
+	instances   map[string]instanceWork // operated tiles whose allow or env_pairs moved, by slug
+	newStandbys map[string]StandbyDiff  // new instances' standbys, added once the primary runs
+	list        Lister                  // reads the config repo's tree at the pinned commit
+	sliced      []string                // slice tiles created or moved: their consumers redeploy
+	base        string                  // a PR env's base env slug; "" on a static env
+	redeploy    map[string]bool
+	unpin       map[string]bool // image tiles whose tag moved: run the tag, pin again
+	sync        bool
+	place       *PlacementLive // the placement facts, when the file names a pin, ingress or exits
+	placing     []placeStep    // the pin, ingress and exits changes apply hands to place.Set
+	deployed    []string       // tile ids rolled out, filled by apply
+	removed     []string       // tile ids actually removed, filled by apply
+	owed        []string       // tile ids a parked sync rollout still has to deploy
 }
 
 // instanceWork is an operated tile's allow list and env pairs as the file
@@ -200,8 +201,8 @@ type instanceWork struct {
 	pitr  *int // the recovery window, nil = untouched
 	// settings are the instance's own settings, nil = untouched.
 	settings *map[string]string
-	// standbys are the nodes that should hold a standby, resolved; nil = untouched.
-	standbys *[]string
+	// standbys is the change to the instance's standbys; nil = untouched.
+	standbys *StandbyDiff
 	// sync is the synchronous replication choice, nil = untouched.
 	sync *syncWork
 }
@@ -239,14 +240,15 @@ func (f *Flow) plan(ctx context.Context, envID, releaseID string, log io.Writer)
 		Changes: []Change{},
 	}
 	w := &work{
-		e:         e,
-		st:        st,
-		rel:       rel,
-		domains:   map[string]domainWork{},
-		instances: map[string]instanceWork{},
-		declare:   map[string]VolumeConf{},
-		redeploy:  map[string]bool{},
-		unpin:     map[string]bool{},
+		e:           e,
+		st:          st,
+		rel:         rel,
+		domains:     map[string]domainWork{},
+		instances:   map[string]instanceWork{},
+		newStandbys: map[string]StandbyDiff{},
+		declare:     map[string]VolumeConf{},
+		redeploy:    map[string]bool{},
+		unpin:       map[string]bool{},
 	}
 	if rel.StackID != e.StackID {
 		p.block("release #%d belongs to another stack", rel.Number)
@@ -472,6 +474,10 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 					continue
 				case tc.Image != "" && deploy.ImageMajor(tc.Image) != m.Major:
 					p.block("tile %s: runs postgres %d; image %s is not that major; change the major with `stackr db upgrade --to <major>` (or the instance drawer), then set the image to match", name, m.Major, tc.Image)
+					continue
+				case tc.Image != "" && old.ImageRef != "" && tc.Image != old.ImageRef:
+					// ponytail: image: only sets a new instance's image; a minor moves with db update
+					p.block("tile %s: runs %s; image: %s would change its minor; use `stackr db update` (or the instance drawer), and keep major: in the file", name, old.ImageRef, tc.Image)
 					continue
 				}
 			}
@@ -933,21 +939,25 @@ func (f *Flow) planInstance(
 			moved, syncw = true, &sw // live at the next sync pass: no restart
 		}
 	}
-	var standbys *[]string
+	var standbys *StandbyDiff
 	if tc.Standbys != nil && f.StandbyPlan != nil {
+		at := old
 		if !exists {
-			p.block("tile %s: standbys: the instance has to exist and run first; add its standbys in a later apply", name)
-		} else {
-			cur, canon, err := f.StandbyPlan(ctx, old, *tc.Standbys)
-			if _, invalid := errs.IsInvalid(err); invalid {
-				p.block("tile %s: standbys: %v", name, err)
-			} else if _, conflict := errs.IsConflict(err); conflict {
-				p.block("tile %s: standbys: %v", name, err)
-			} else if err != nil {
-				return err
-			} else if d := signedDiff(cur, canon); d != "" {
-				p.add(Change{Kind: "operated", Tile: name, Field: "standbys", New: d})
-				moved, standbys = true, &canon
+			at = store.Tile{StackID: w.st.ID, EnvironmentID: w.e.ID} // not created yet: the plan reads its placement
+		}
+		d, err := f.StandbyPlan(ctx, at, *tc.Standbys)
+		if _, invalid := errs.IsInvalid(err); invalid {
+			p.block("tile %s: standbys: %v", name, err)
+		} else if _, conflict := errs.IsConflict(err); conflict {
+			p.block("tile %s: standbys: %v", name, err)
+		} else if err != nil {
+			return err
+		} else if d.Text != "" {
+			p.add(Change{Kind: "operated", Tile: name, Field: "standbys", New: d.Text})
+			if exists {
+				moved, standbys = true, &d
+			} else {
+				w.newStandbys[name] = d // once the primary runs
 			}
 		}
 	}

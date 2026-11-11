@@ -13,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -338,7 +339,12 @@ func TestTopologyLock(t *testing.T) {
 		t.Fatal("the add never ran")
 	}
 	tl, _ := n.orch.tiles.Get(ctx, n.devT.ID)
-	must(t, n.orch.setStandbys(ctx, tl, nil))
-	must(t, n.orch.setStandbys(ctx, tl, []string{"w1"}))
+	pctx := context.WithValue(withMayPlace(ctx, true), placeAdminKey{}, true)
+	d, err := n.orch.standbyPlan(pctx, tl, nil)
+	must(t, err)
+	must(t, n.orch.setStandbys(ctx, tl, d))
+	d, err = n.orch.standbyPlan(pctx, tl, []promote.Standby{{Node: "w1"}})
+	must(t, err)
+	must(t, n.orch.setStandbys(ctx, tl, d))
 	n.orch.vipAsync.Wait()
 }

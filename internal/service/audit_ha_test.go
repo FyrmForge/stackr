@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -154,13 +155,13 @@ func TestStandbyPlanNeedsOwner(t *testing.T) {
 	t.Parallel()
 	r := newFailRig(t, false)
 	o, tl := r.n.orch, r.tile()
-	if _, _, err := o.standbyPlan(context.Background(), tl, nil); err == nil {
+	if _, err := o.standbyPlan(context.Background(), tl, nil); err == nil {
 		t.Error("removing the standby without an owner passed")
 	}
-	if _, _, err := o.standbyPlan(withMayPlace(context.Background(), true), tl, nil); err != nil {
+	if _, err := o.standbyPlan(withMayPlace(context.Background(), true), tl, nil); err != nil {
 		t.Errorf("owner refused: %v", err)
 	}
-	if _, _, err := o.standbyPlan(context.Background(), tl, []string{"w1"}); err != nil {
+	if _, err := o.standbyPlan(context.Background(), tl, []promote.Standby{{Node: "w1"}}); err != nil {
 		t.Errorf("unchanged list refused: %v", err)
 	}
 }
@@ -214,7 +215,7 @@ func TestStandbyNodeMustBeOpenToOrg(t *testing.T) {
 			t.Errorf("%s: owner picked a node closed to the org", kind)
 		}
 	}
-	if _, _, err := o.standbyPlan(withMayPlace(ctx, true), r.tile(), []string{"w1", "w2"}); err == nil {
+	if _, err := o.standbyPlan(withMayPlace(ctx, true), r.tile(), []promote.Standby{{Node: "w1"}, {Node: "w2"}}); err == nil {
 		t.Error("standbyPlan accepted a closed node without admin")
 	}
 	if _, err := o.AddStandby(ctx, adminP(), r.inst.TileID, "w2"); err != nil {

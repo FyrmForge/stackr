@@ -186,6 +186,21 @@ func excluded(n *yaml.Node) bool {
 	return n.Kind == yaml.ScalarNode && (n.Tag == "!!null" || (n.Decode(&b) == nil && !b))
 }
 
+// Standby is one standbys: entry: a node, and its sync mode (auto | always |
+// never, "" = auto). In a file it is `w1` or `{node: w1, sync: always}`.
+type Standby struct {
+	Node string `yaml:"node"`
+	Sync string `yaml:"sync"`
+}
+
+func (s *Standby) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		return n.Decode(&s.Node)
+	}
+	type plain Standby
+	return n.Decode((*plain)(s))
+}
+
 // TileConf is one merged tile. Kinds are service (a git build), image,
 // operated, cron, function and slice; with no type:, engine: makes it operated
 // and a lone image: makes it an image tile. kind: is type:'s other spelling.
@@ -244,15 +259,19 @@ type TileConf struct {
 	// operated postgres: days of WAL kept for point-in-time recovery, 0 = off;
 	// nil = the file leaves the instance's window as it is.
 	PITRDays *int `yaml:"pitr_days"`
-	// operated postgres, on create: the major, 14 to 18; 0 = the newest. An
-	// existing instance keeps its image; a major change is not a file edit.
+	// operated postgres: the major, 14 to 18; 0 = the newest on create. An
+	// existing instance keeps its image (a minor moves with `stackr db
+	// update`, a major with `db upgrade`); major: equal to its own is a no-op.
 	Major int `yaml:"major"`
 	// managed postgres: the instance's own settings, name to value; nil = the
 	// file leaves them as they are, an empty map clears them.
 	Settings map[string]string `yaml:"settings"`
-	// operated postgres: the nodes (name or slug) that hold a standby; nil =
-	// the file leaves the standbys as they are, an empty list removes them.
-	Standbys *[]string `yaml:"standbys"`
+	// operated postgres: the nodes (name or slug) that hold a standby, each a
+	// string or {node, sync}. Together with the tile's own placement node they
+	// are the cluster's node set whatever role each plays (a switchover moves
+	// the primary onto a listed node). nil = the file leaves the standbys as
+	// they are, an empty list removes them.
+	Standbys *[]Standby `yaml:"standbys"`
 	// operated postgres: wait for a standby before a commit is confirmed;
 	// SyncLimitMS is the round trip an auto standby may have (default 10),
 	// SyncRequired makes writes wait even when no standby answers. nil = the
@@ -752,11 +771,15 @@ func checkTile(name string, tc TileConf, orgSlug string) error {
 				return fmt.Errorf("tile %s: standbys: at most %d", name, opmember.MaxReplicas)
 			}
 			seen := map[string]bool{}
-			for _, n := range *tc.Standbys {
+			for _, sb := range *tc.Standbys {
+				n := sb.Node
 				if strings.TrimSpace(n) == "" || seen[n] {
 					return fmt.Errorf("tile %s: standbys: %q is empty or listed twice", name, n)
 				}
 				seen[n] = true
+				if !slices.Contains([]string{"", "auto", "always", "never"}, strings.ToLower(sb.Sync)) {
+					return fmt.Errorf("tile %s: standbys: %s: sync is auto, always or never", name, n)
+				}
 			}
 		}
 	case "slice":
