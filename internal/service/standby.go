@@ -14,6 +14,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -450,42 +451,160 @@ func (o *Orchestrator) StandbyNodes(ctx context.Context, tileID string) ([]strin
 	return out, nil
 }
 
-// standbyPlan is promote.Flow.StandbyPlan: the file's standby nodes resolved
-// to node names, refused when one is no node or is the primary's own (R4).
-func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []string) (have, canon []string, err error) {
-	if have, err = o.StandbyNodes(ctx, t.ID); err != nil {
-		return nil, nil, err
+// clusterNodes is instance tile t's member nodes by node id: the primary's
+// (primaryNode) and each standby's not being removed, the standby's member
+// alongside. A tile with no ID yet (a new instance) has none.
+func (o *Orchestrator) clusterNodes(ctx context.Context, t store.Tile) (primary string, standbys map[string]InstanceMember, err error) {
+	standbys = map[string]InstanceMember{}
+	if t.ID == "" {
+		primary, err = o.envNode(ctx, t.EnvironmentID)
+		return primary, standbys, err
 	}
-	pn, err := o.primaryNode(ctx, t)
+	ms, err := o.InstanceMembers(ctx, t.ID)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
-	for _, ref := range want {
-		n, err := o.nodeByRef(ctx, ref)
-		if err != nil {
-			return nil, nil, errs.Invalidf("standbys", "%q is not a node of this cluster", ref)
-		}
-		if n.ID == pn {
-			return nil, nil, errs.Conflictf("%s is the primary's node: a standby runs on another", ref)
-		}
-		if admin, _ := ctx.Value(placeAdminKey{}).(bool); !admin && !slices.Contains(have, o.nodeName(ctx, n.ID)) {
-			if err := o.nodeOpenToTile(ctx, false, t, n.ID); err != nil {
-				return nil, nil, errs.Invalidf("standbys", "%q is not a node of this cluster", ref)
-			}
-		}
-		canon = append(canon, o.nodeName(ctx, n.ID))
+	if primary, err = o.primaryNode(ctx, t); err != nil {
+		return "", nil, err
 	}
-	slices.Sort(canon)
-	if ok, _ := ctx.Value(mayPlaceKey{}).(bool); !ok && !slices.Equal(have, canon) {
-		return nil, nil, errs.Conflictf("placing a standby on a node is for an org owner (placement.write), so an owner must promote this")
+	for _, m := range ms {
+		if m.Role == opmember.Replica && m.State != opmember.Removing {
+			standbys[m.NodeID] = m
+		}
 	}
-	return have, canon, nil
+	return primary, standbys, nil
 }
 
-// setStandbys makes instance tile t's standbys exactly nodes (names): the
-// ones off the list are removed first, then the missing ones added. The
-// membership is read under the instance's topology lock.
-func (o *Orchestrator) setStandbys(ctx context.Context, t store.Tile, nodes []string) error {
+// standbyExport is promote.Flow.StandbyNames: the nodes of every member but
+// the tile's own placement node, by name, a standby's mode when not auto. The
+// placement node is left out because a file's cluster is its standbys plus it,
+// whichever of them is primary now.
+func (o *Orchestrator) standbyExport(ctx context.Context, t store.Tile) ([]promote.Standby, error) {
+	primary, sbs, err := o.clusterNodes(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	home, err := o.envNode(ctx, t.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	var out []promote.Standby
+	if primary != home {
+		out = append(out, promote.Standby{Node: o.nodeName(ctx, primary)})
+	}
+	for id, m := range sbs {
+		if id != home {
+			s := promote.Standby{Node: o.nodeName(ctx, id)}
+			if md := cmpMode(m.SyncMode); md != SyncAuto {
+				s.Sync = md
+			}
+			out = append(out, s)
+		}
+	}
+	slices.SortFunc(out, func(a, b promote.Standby) int { return strings.Compare(a.Node, b.Node) })
+	return out, nil
+}
+
+// standbyPlan is promote.Flow.StandbyPlan. The cluster the file names is its
+// standbys plus the tile's placement node; the members' node set is compared
+// with it, so a switchover that left the primary on a listed node changes
+// nothing. A node to add, one to remove (never the primary's) and a standby
+// whose sync mode moves are the diff. A name that is no node is refused.
+func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []promote.Standby) (d promote.StandbyDiff, err error) {
+	primary, have, err := o.clusterNodes(ctx, t)
+	if err != nil {
+		return d, err
+	}
+	home, err := o.envNode(ctx, t.EnvironmentID)
+	if err != nil {
+		return d, err
+	}
+	wantIDs := map[string]string{home: SyncAuto} // node id to mode
+	order := []string{home}
+	for _, s := range want {
+		n, err := o.nodeByRef(ctx, s.Node)
+		if err != nil {
+			return d, errs.Invalidf("standbys", "%q is not a node of this cluster", s.Node)
+		}
+		mode := cmpMode(strings.ToLower(s.Sync))
+		if !SyncModeOK(mode) {
+			return d, errs.Invalidf("standbys", "%s: sync is auto, always or never", s.Node)
+		}
+		if _, dup := wantIDs[n.ID]; dup && n.ID != home {
+			return d, errs.Invalidf("standbys", "%q is listed twice", s.Node)
+		}
+		if n.ID != home || s.Sync != "" {
+			wantIDs[n.ID] = mode
+		}
+		if !slices.Contains(order, n.ID) {
+			order = append(order, n.ID)
+		}
+		if _, has := have[n.ID]; !has && n.ID != primary {
+			if admin, _ := ctx.Value(placeAdminKey{}).(bool); !admin {
+				if err := o.nodeOpenToTile(ctx, false, t, n.ID); err != nil {
+					return d, errs.Invalidf("standbys", "%q is not a node of this cluster", s.Node)
+				}
+			}
+		}
+	}
+	var text []string
+	for _, id := range order {
+		m, has := have[id]
+		switch {
+		case id == primary:
+		case !has:
+			d.Add = append(d.Add, promote.Standby{Node: o.nodeName(ctx, id), Sync: wantIDs[id]})
+			text = append(text, "+"+o.nodeName(ctx, id))
+		case id != home || wantIDs[id] != SyncAuto:
+			if cmpMode(m.SyncMode) != wantIDs[id] {
+				d.Mode = append(d.Mode, promote.Standby{Node: o.nodeName(ctx, id), Sync: wantIDs[id]})
+				text = append(text, o.nodeName(ctx, id)+" sync "+wantIDs[id])
+			}
+		}
+	}
+	for id := range have {
+		if _, keep := wantIDs[id]; !keep {
+			d.Remove = append(d.Remove, o.nodeName(ctx, id))
+			text = append(text, "−"+o.nodeName(ctx, id))
+		}
+	}
+	slices.Sort(d.Remove)
+	slices.Sort(text)
+	d.Text = strings.Join(text, " ")
+	if ok, _ := ctx.Value(mayPlaceKey{}).(bool); !ok && len(d.Add)+len(d.Remove) > 0 {
+		return d, errs.Conflictf("placing a standby on a node is for an org owner (placement.write), so an owner must promote this")
+	}
+	return d, nil
+}
+
+// setStandbys carries a standbys diff out on instance tile t: the standbys
+// off the file go first, then the missing ones are added under the instance's
+// topology lock, and last each listed mode is set (its own lock).
+func (o *Orchestrator) setStandbys(ctx context.Context, t store.Tile, d promote.StandbyDiff) error {
+	if err := o.changeStandbys(ctx, t, d); err != nil {
+		return err
+	}
+	modes := slices.Concat(d.Add, d.Mode)
+	if len(modes) == 0 {
+		return nil
+	}
+	ms, err := o.InstanceMembers(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	for _, s := range modes {
+		for _, m := range ms {
+			if m.Role == opmember.Replica && o.nodeName(ctx, m.NodeID) == s.Node && cmpMode(m.SyncMode) != s.Sync {
+				if _, err := o.SetStandbySync(ctx, t.ID, m.ID, s.Sync); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (o *Orchestrator) changeStandbys(ctx context.Context, t store.Tile, d promote.StandbyDiff) error {
 	unlock, err := o.lockInstance(ctx, t.ID)
 	if err != nil {
 		return err
@@ -495,24 +614,16 @@ func (o *Orchestrator) setStandbys(ctx context.Context, t store.Tile, nodes []st
 	if err != nil {
 		return err
 	}
-	have := map[string]bool{}
 	for _, m := range ms {
-		if m.Role != opmember.Replica || m.State == opmember.Removing {
-			continue
-		}
-		name := o.nodeName(ctx, m.NodeID)
-		have[name] = true
-		if !slices.Contains(nodes, name) {
+		if m.Role == opmember.Replica && m.State != opmember.Removing && slices.Contains(d.Remove, o.nodeName(ctx, m.NodeID)) {
 			if err := o.removeStandby(ctx, m.ID); err != nil {
 				return err
 			}
 		}
 	}
-	for _, n := range nodes {
-		if !have[n] {
-			if _, err := o.addStandby(ctx, t.ID, n); err != nil {
-				return err
-			}
+	for _, s := range d.Add {
+		if _, err := o.addStandby(ctx, t.ID, s.Node); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -18,15 +18,29 @@ import (
 func TestOperatedStandbys(t *testing.T) {
 	w := newSliceWorld(t)
 	have := []string{}
-	var set [][]string
-	w.f.StandbyPlan = func(_ context.Context, _ store.Tile, want []string) ([]string, []string, error) {
-		if slices.Contains(want, "primary") {
-			return nil, nil, errs.Conflictf("primary is the primary's node: a standby runs on another")
+	var set []StandbyDiff
+	w.f.StandbyPlan = func(_ context.Context, tl store.Tile, want []Standby) (StandbyDiff, error) {
+		var d StandbyDiff
+		var ns []string
+		for _, s := range want {
+			if s.Node == "nowhere" {
+				return d, errs.Invalidf("standbys", "%q is not a node of this cluster", s.Node)
+			}
+			ns = append(ns, s.Node)
+			if !slices.Contains(have, s.Node) {
+				d.Add = append(d.Add, s)
+			}
 		}
-		return have, slices.Sorted(slices.Values(want)), nil
+		for _, h := range have {
+			if !slices.Contains(ns, h) {
+				d.Remove = append(d.Remove, h)
+			}
+		}
+		d.Text = signedDiff(have, ns)
+		return d, nil
 	}
-	w.f.SetStandbys = func(_ context.Context, _ store.Tile, nodes []string) error {
-		set = append(set, nodes)
+	w.f.SetStandbys = func(_ context.Context, _ store.Tile, d StandbyDiff) error {
+		set = append(set, d)
 		return nil
 	}
 	rel := func(commit, file string) store.Release {
@@ -53,7 +67,7 @@ func TestOperatedStandbys(t *testing.T) {
 	if _, err := w.f.Apply(ctx, staging, rel("b1", on).ID, io.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(set) != 1 || !slices.Equal(set[0], []string{"w1", "w2"}) {
+	if len(set) != 1 || len(set[0].Add) != 2 || set[0].Add[0].Node != "w1" {
 		t.Errorf("SetStandbys got %v", set)
 	}
 
@@ -68,10 +82,10 @@ func TestOperatedStandbys(t *testing.T) {
 	if got := kinds(p); !strings.Contains(got, "operated:pg-dbstandbys") || !strings.Contains(got, "w1") {
 		t.Errorf("empty list = %s", got)
 	}
-	p, err = w.f.Plan(ctx, staging, rel("b4", infraFile+"      standbys: [primary]\n").ID, io.Discard)
+	p, err = w.f.Plan(ctx, staging, rel("b4", infraFile+"      standbys: [nowhere]\n").ID, io.Discard)
 	must(t, err)
-	if !p.Blocked() || !strings.Contains(strings.Join(p.Blockers, "|"), "the primary's node") {
-		t.Errorf("R4 at plan: blockers %v", p.Blockers)
+	if !p.Blocked() || !strings.Contains(strings.Join(p.Blockers, "|"), "is not a node") {
+		t.Errorf("an unknown node at plan: blockers %v", p.Blockers)
 	}
 }
 

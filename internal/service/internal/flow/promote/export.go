@@ -339,6 +339,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 	if t.Kind != tile.Service && t.Kind != tile.Image && t.Kind != tile.Operated {
 		b.put("type", t.Kind)
 	}
+	pgOperated := false
 	if t.Kind == tile.Operated {
 		m, err := f.D.Operated.GetByTile(ctx, t.ID)
 		if err != nil && !errors.Is(err, errs.ErrNotFound) {
@@ -368,11 +369,28 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		}
 		if f.StandbyNames != nil && m.Engine == "postgres" {
 			if ns, err := f.StandbyNames(ctx, t); err == nil && len(ns) > 0 {
-				b.put("standbys", ns)
+				ents := make([]any, 0, len(ns))
+				for _, s := range ns {
+					if s.Sync == "" || s.Sync == "auto" {
+						ents = append(ents, s.Node)
+					} else {
+						ents = append(ents, omap{{"node", s.Node}, {"sync", s.Sync}})
+					}
+				}
+				b.put("standbys", ents)
+			}
+		}
+		if pgOperated = m.Engine == "postgres"; pgOperated {
+			// the major, not the exact tag: a minor moves with `db update`, and a file
+			// that pins it would roll it back
+			if major := cmp.Or(m.Major, deploy.ImageMajor(t.ImageRef)); major > 0 {
+				b.put("major", major)
 			}
 		}
 	}
-	str("image", t.ImageRef)
+	if !pgOperated {
+		str("image", t.ImageRef)
+	}
 	if tile.Builds(t) {
 		if t.GitURL != st.ConfigRepo {
 			str("git_url", t.GitURL)
@@ -460,7 +478,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 			str("url", u)
 		}
 		if t.VersionDays != nil {
-			num("version_days", *t.VersionDays)
+			b.put("version_days", *t.VersionDays) // 0 too: off, where nil is the default 7
 		}
 		if t.QuotaGB != nil {
 			num("quota_gb", *t.QuotaGB)
