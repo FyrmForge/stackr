@@ -82,7 +82,7 @@ Only a new tile loads a dump. Loading into an existing tile, and dumps in the st
 
 A standby is a second postgres copy on another node. It copies the primary, then streams from it. At most 2 per instance.
 
-In the instance drawer, Overview tab, the Members list shows the primary and its standbys with lag and slot size. Add one with "Add a standby on" (pick a node), then Add standby. Each standby row has Fence or Unfence and Remove, with a confirm; Rebuild shows only on a standby that needs it. The CLI mirror:
+In the instance drawer, Overview tab, the Members list shows the primary and its standbys with lag and slot size. Add one with "Add a standby on" (pick a node), then Add standby. Each standby row has Fence or Unfence and Remove, with a confirm; Rebuild shows only on a standby that needs it, or that has sat in starting for more than 5 minutes (an old primary that cannot rejoin, for one). The CLI mirror:
 
 ```bash
 stackr operated standby add pg --node n2
@@ -91,7 +91,7 @@ stackr operated standby rebuild pg n2
 stackr operated standby rm pg n2
 ```
 
-Rebuild is for a standby that needs it; it copies the data again from the primary. Remove drops its container, volume and slot.
+Rebuild is for a standby that needs it or is stuck in starting; it copies the data again from the primary. Remove drops its container, volume and slot.
 
 ### Fence
 

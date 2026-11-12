@@ -38,3 +38,34 @@ func TestRejoinFillsMissingSubnet(t *testing.T) {
 	}
 	r.order("w1 create stackr-rewind", "w1 create stackr-member")
 }
+
+// A standby that has sat in starting past standbyStuckAfter is reported stuck,
+// so the panel offers Rebuild; a fresh one is not.
+func TestStandbyStuckInStarting(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := newFailRig(t, false)
+	o := r.n.orch
+	_, err := doSwitchover(o, ctx, adminP(), r.inst.TileID, "w1")
+	must(t, err)
+	_, old := r.members()
+	stuck := func() bool {
+		vs, err := o.Standbys(ctx, r.inst.TileID)
+		must(t, err)
+		for _, v := range vs {
+			if v.ID == old.ID {
+				return v.Stuck
+			}
+		}
+		t.Fatal("member not listed")
+		return false
+	}
+	if stuck() {
+		t.Fatal("a fresh standby is stuck")
+	}
+	old.UpdatedAt = time.Now().Add(-2 * standbyStuckAfter)
+	must(t, o.store.OperatedMembers.Update(ctx, old))
+	if !stuck() {
+		t.Fatal("a standby starting for 10 minutes is not stuck")
+	}
+}
