@@ -89,7 +89,7 @@ PY
 }
 
 ship() {
-	local v="$1"
+	local v="${1#v}" # the image tag has no v; make release takes one
 	docker save "$IMAGE:$v" "$IMAGE-observe:$v" | rig docker load
 	scp -q "$PROJECT_ROOT/bin/stackr-install-linux-amd64" "$RIG:$INSTALLER"
 	echo "shipped $v"
