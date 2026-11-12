@@ -83,13 +83,18 @@ func TestProgressLine(t *testing.T) {
 		{"queued", "", "Queued ("},
 	} {
 		out := render(t, Footer("n1", FooterView{Kind: "service", Status: c.status, Under: c.under, Since: since}))
-		if !strings.Contains(out, c.want) || !strings.Contains(out, ">09:20</local-time>") {
+		if !strings.Contains(out, c.want) || !strings.Contains(out, ">00:00</local-time>") {
 			t.Errorf("%s over %q: %s", c.status, c.under, out)
 		}
 	}
 	out := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Under: "running", Since: since}))
 	if !strings.Contains(out, "text-rw-success") || !strings.Contains(out, " · Building (<local-time") || !strings.Contains(out, "</local-time>)") {
 		t.Errorf("online with the build muted beside it: %s", out)
+	}
+	// the same job a poll later renders the same bytes: the canvas dedupes it
+	again := render(t, Footer("n1", FooterView{Kind: "service", Status: "building", Under: "running", Since: since}))
+	if again != out {
+		t.Errorf("footer differs between polls:\n%s\n%s", out, again)
 	}
 	if elapsed(time.Now().Add(-3725*time.Second)) != "1:02:05" {
 		t.Error("an hour reads h:mm:ss")

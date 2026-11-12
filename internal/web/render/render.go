@@ -260,6 +260,9 @@ func Theme(next echo.HandlerFunc) echo.HandlerFunc {
 		csrf, _ := c.Get("csrf").(string)
 		r := c.Request()
 		c.SetRequest(r.WithContext(components.WithPath(components.WithRequest(r.Context(), c.Response().Header().Get(middleware.HeaderRequestID), csrf), r.URL.Path)))
+		if r.Method == http.MethodGet && r.Header.Get("HX-Request") == "true" && !strings.HasSuffix(r.URL.Path, "/job-live") {
+			c.SetRequest(r.WithContext(components.WithTab(c.Request().Context(), r.URL.RequestURI()))) // a job slot refreshes this fragment
+		}
 		if p := middleware.Principal(c); p != nil {
 			r = c.Request()
 			c.SetRequest(r.WithContext(components.WithTheme(r.Context(), p.User.Theme)))

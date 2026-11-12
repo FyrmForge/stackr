@@ -144,16 +144,18 @@ templ Status(status, waiting string) {
 
 // progress is a live deploy beside the tile's state: "Online · Building
 // (09:20)", the state's dot and the job muted; with nothing running yet
-// the warn word alone. <local-time since> ticks the clock.
+// the warn word alone. <local-time since> ticks the clock in the browser; its
+// server text is fixed so a poll's footer never differs and the canvas stream
+// does not resend it.
 templ progress(f FooterView) {
 	{{ _, w := word(f.Status, "") }}
 	if f.Under == "running" {
 		@line("success", "Online") {
-			<span class="text-rw-faint">{ " · " + w + " (" }<local-time since={ f.Since.UTC().Format(time.RFC3339) }>{ elapsed(f.Since) }</local-time>{ ")" }</span>
+			<span class="text-rw-faint">{ " · " + w + " (" }<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>{ ")" }</span>
 		}
 	} else {
 		@line("warn", w+" (") {
-			<local-time since={ f.Since.UTC().Format(time.RFC3339) }>{ elapsed(f.Since) }</local-time>{ ")" }
+			<local-time since={ f.Since.UTC().Format(time.RFC3339) }>00:00</local-time>{ ")" }
 		}
 	}
 }

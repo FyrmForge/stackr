@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -26,8 +27,16 @@ func ActiveJob(c echo.Context, orch *service.Orchestrator, kinds ...string) (*co
 // activeJob is ActiveJob narrowed to the jobs whose payload holds every pair
 // of where (tile_id, node_id); no kinds = any kind.
 func activeJob(c echo.Context, orch *service.Orchestrator, where map[string]string, kinds []string) (*components.JobStatusView, error) {
+	return scopeJob(c, orch, where, kinds, nil)
+}
+
+// scopeJob is activeJob over states (nil = the active ones, empty = any).
+func scopeJob(c echo.Context, orch *service.Orchestrator, where map[string]string, kinds, states []string) (*components.JobStatusView, error) {
 	ctx, s := c.Request().Context(), middleware.ScopeOf(c)
-	active := []string{"queued", "waiting", "running"}
+	active := states
+	if states == nil {
+		active = []string{"queued", "waiting", "running"}
+	}
 	var js []service.Job
 	var err error
 	page := ""
@@ -38,7 +47,7 @@ func activeJob(c echo.Context, orch *service.Orchestrator, where map[string]stri
 		page = EnvURL(c)
 		js, err = orch.ScopeJobs(ctx, s.Org.ID, s.Stack.ID, s.Env.ID, 0, active...)
 	case s.Stack != nil:
-		page = "/" + s.Org.Slug + "/" + s.Stack.Slug
+		page = "/" + s.Org.Slug // job routes exist at the org, not the stack
 		js, err = orch.ScopeJobs(ctx, s.Org.ID, s.Stack.ID, "", 0, active...)
 	default:
 		page = "/" + s.Org.Slug
@@ -73,26 +82,55 @@ func inPayload(j service.Job, where map[string]string) bool {
 // JobLive answers a job slot's poll (components.JobSlot) with ActiveJob's job
 // as the slot's live status, narrowed to ?kind=a,b (none = any), ?tile=<id>
 // and ?node=<id> (the job's payload), or 204 when none runs, which leaves the
-// slot as it is.
+// slot as it is. A live status refreshes ?refresh=<tab uri> when its job ends,
+// else asks for the slot again with ?end=1, which answers the newest job of the
+// slot (finished or not) as an idle slot that polls once more, so a later job
+// is picked up.
 func JobLive(orch *service.Orchestrator) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var kinds []string
 		if k := c.QueryParam("kind"); k != "" {
 			kinds = strings.Split(k, ",")
 		}
-		where := map[string]string{}
+		where, filter := map[string]string{}, ""
 		if t := c.QueryParam("tile"); t != "" {
-			where["tile_id"] = t
+			where["tile_id"], filter = t, "tile="+url.QueryEscape(t)
 		}
 		if n := c.QueryParam("node"); n != "" {
-			where["node_id"] = n
+			where["node_id"], filter = n, "node="+url.QueryEscape(n)
 		}
-		v, err := activeJob(c, orch, where, kinds)
+		tab := c.QueryParam("refresh")
+		if !strings.HasPrefix(tab, "/") || strings.HasPrefix(tab, "//") || strings.Contains(tab, "\\") {
+			tab = ""
+		}
+		r := c.Request()
+		ctx := components.WithTab(r.Context(), tab) // the slot drawn below polls with it
+		c.SetRequest(r.WithContext(ctx))
+		end := c.QueryParam("end") != ""
+		var states []string
+		if end {
+			states = []string{} // any state: the job that just finished shows
+		}
+		v, err := scopeJob(c, orch, where, kinds, states)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
 		if v == nil {
+			if end {
+				return respond.HTML(c, http.StatusOK, components.JobSlotFor(nil, strings.Join(kinds, ","), filter))
+			}
 			return c.NoContent(http.StatusNoContent)
+		}
+		if !v.Live {
+			return respond.HTML(c, http.StatusOK, components.JobSlotFor(v, strings.Join(kinds, ","), filter))
+		}
+		if tab != "" {
+			v.Refresh = tab
+		} else {
+			q := r.URL.Query()
+			q.Set("end", "1")
+			q.Del("refresh") // not the tab: it failed the check above
+			v.Refresh, v.Target = r.URL.Path+"?"+q.Encode(), "#job-slot"
 		}
 		return respond.HTML(c, http.StatusOK, components.JobSlotLive(*v))
 	}
