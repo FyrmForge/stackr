@@ -33,7 +33,7 @@ import (
 var passwordRE = regexp.MustCompile(`PASSWORD '[^']*'`)
 
 func init() { // the polls are for a daemon; the fakes answer at once
-	failPoll, failWait = time.Millisecond, 200*time.Millisecond
+	failPoll, failWait = time.Millisecond, 5*time.Second
 }
 
 // sim is a node's docker that remembers: containers made, started and
