@@ -50,13 +50,19 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 		return TileStatus{}, err
 	}
 	s, err := o.tiles.State(ctx, t)
+	if errors.Is(err, errs.ErrBusy) {
+		// its node is offline: the drawer still opens (Failover lives there)
+		s.Word, err = "offline", nil
+	}
 	if err != nil {
 		return TileStatus{}, err
 	}
 	out := TileStatus{Word: s.Word, Replicas: s.Replicas}
 	if t.Kind == tile.Slice {
 		// No containers of its own: it is up when its instance is.
-		if out.Word, err = o.engines.SliceWord(ctx, t); err != nil {
+		if out.Word, err = o.engines.SliceWord(ctx, t); errors.Is(err, errs.ErrBusy) {
+			out.Word, err = "offline", nil
+		} else if err != nil {
 			return out, err
 		}
 	}

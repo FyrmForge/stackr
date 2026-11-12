@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
@@ -426,5 +427,55 @@ func TestStandbySubnetIsMeshed(t *testing.T) {
 		if x.ID == r.NodeID && !slices.ContainsFunc(x.Subnets, func(p netip.Prefix) bool { return p.String() == r.Subnet }) {
 			t.Errorf("node subnets %v lack the standby's %s", x.Subnets, r.Subnet)
 		}
+	}
+}
+
+// Deleting an instance whose primary a failover moved to w1 removes the
+// member's container, its pooler and the network there, not just the tile's
+// own objects on the env's node.
+func TestDeleteRemovesTheRelocatedPrimary(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	ms, err := n.orch.members.List(ctx, m.ID)
+	must(t, err)
+	p, _ := opmember.PrimaryOf(ms)
+	p.NodeID, p.Volume = "w1", "stackr-member-vol"
+	must(t, n.st.OperatedMembers.Update(ctx, p))
+	n.wFake.Containers = []docker.Container{
+		{ID: "mc", State: "running", Labels: map[string]string{LabelMember: p.ID}},
+		{ID: "pool", State: "running", Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: mflow.PoolerRole}},
+	}
+	rel, ok := n.orch.relocated(ctx, n.devT.ID)
+	if !ok {
+		t.Fatal("the primary is not seen as relocated")
+	}
+	must(t, n.orch.dropRelocated(ctx, n.devT, rel))
+	for _, c := range []string{"StopRemove(mc)", "StopRemove(pool)"} {
+		if !sawCall(n.wFake, c) {
+			t.Errorf("%s missing: %v", c, callNames(n.wFake))
+		}
+	}
+}
+
+// A stuck old primary's tile container still holds the member's volume: a
+// removal takes it first, so the row does not stay 'removing'.
+func TestRemoveStandbyDropsTheOldTileContainer(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	pgOn(t, n)
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
+	must(t, err)
+	n.wFake.Containers = append(n.wFake.Containers, docker.Container{ID: "old-tile", State: "exited",
+		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "replica"}})
+	must(t, n.orch.RemoveStandby(ctx, r.ID))
+	if !sawCall(n.wFake, "StopRemove(old-tile)") {
+		t.Errorf("the old tile container stayed: %v", callNames(n.wFake))
+	}
+	if _, err := n.orch.members.Get(ctx, r.ID); err == nil {
+		t.Error("row kept")
 	}
 }

@@ -578,3 +578,15 @@ func TestRouterPullsOwnRegistryLocally(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", got, want)
 	}
 }
+
+// A tile whose node is offline reads as "offline", not an error: the instance
+// drawer (and its Failover) must open while the primary's node is down.
+func TestTileStatusOfflineNode(t *testing.T) {
+	t.Parallel()
+	n := newTwoNodes(t)
+	n.orch.docker.(*DockerRouter).Remove("w1")
+	s, err := n.orch.TileStatus(context.Background(), n.edgeT.ID)
+	if err != nil || s.Word != "offline" {
+		t.Fatalf("TileStatus = %+v, %v; want offline and no error", s, err)
+	}
+}

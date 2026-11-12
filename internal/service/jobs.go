@@ -694,8 +694,14 @@ func (o *Orchestrator) runDelete(ctx context.Context, r *jobs.Run, p tileJob) er
 	if ctx, err = o.withEnvNode(tearingDown(ctx), e); err != nil {
 		return err
 	}
+	rel, away := o.relocated(ctx, t.ID) // read before the instance row goes
 	if _, err := o.promote.Remove(ctx, e, []store.Tile{t}, r.Log); err != nil {
 		return err
+	}
+	if away {
+		if err := o.dropRelocated(ctx, t, rel); err != nil {
+			return err
+		}
 	}
 	if err := o.dropTileGrant(ctx, t); err != nil {
 		return err

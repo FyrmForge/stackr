@@ -608,7 +608,10 @@ func (f *Flow) status(ctx context.Context, t store.Tile) (status, error) {
 		s.word = RunWord(rs)
 	case t.Kind == tile.Slice && f.Slice != nil:
 		// no container of its own: its instance's word once provisioned
-		if s.word, err = f.Slice(ctx, t); err != nil {
+		switch s.word, err = f.Slice(ctx, t); {
+		case errors.Is(err, errs.ErrBusy): // its instance's node is offline
+			s.word = "offline"
+		case err != nil:
 			return s, err
 		}
 		if s.word == "running" { // a running instance serves it: a failed seed is not a crash
