@@ -695,6 +695,37 @@ func TestTileExecExitCode(t *testing.T) {
 	}
 }
 
+// tile exec sends the caller's stdin only with -i; without it the body is empty
+// (EOF at once), so a command that reads stdin cannot hang; --timeout is passed on.
+func TestTileExecStdinOnlyWithFlag(t *testing.T) {
+	var body, query string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body, query = string(b), r.URL.RawQuery
+		w.Header().Set("Trailer", "X-Exit-Code")
+		w.Header().Set("X-Exit-Code", "0")
+	}))
+	t.Cleanup(srv.Close)
+	useServer(t, srv.URL)
+	at := []string{"--stack", "shop", "--env", "dev", "--container", "c1"}
+	for _, tc := range []struct {
+		flags []string
+		want  string
+	}{{nil, ""}, {[]string{"-i", "--timeout", "5m"}, "piped"}} {
+		args := append(append([]string{"tile", "exec", "api"}, at...), tc.flags...)
+		var out, errw bytes.Buffer
+		if code := run(context.Background(), append(args, "--", "cat"), strings.NewReader("piped"), &out, &errw, false); code != 0 {
+			t.Fatalf("exec %v = %d %s", tc.flags, code, errw.String())
+		}
+		if body != tc.want {
+			t.Errorf("exec %v sent body %q, want %q", tc.flags, body, tc.want)
+		}
+	}
+	if !strings.Contains(query, "timeout=5m") {
+		t.Errorf("query %q lacks timeout=5m", query)
+	}
+}
+
 // An invite with no --role asks for member, the panel's default too; a shared flag var
 // once let `members set` wipe the default and the body carried none.
 func TestInviteDefaultRole(t *testing.T) {

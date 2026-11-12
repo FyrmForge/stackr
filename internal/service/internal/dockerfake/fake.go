@@ -68,6 +68,7 @@ type Fake struct {
 	Copied        map[string][]byte         // CopyTo's files by container id + path
 	TarOut        []byte                    // what TarVolume writes
 	Untarred      []byte                    // what UntarVolume last read
+	ExecHang      bool                      // ExecStream's output stays open until its ctx ends
 	ExecIn        []byte                    // what ExecStream's stdin last carried
 	TTYServer     net.Conn                  // the far end of the last ExecTTY pipe: the "container" side
 	TTYExit       int                       // what ExecTTY's exit answers
@@ -522,11 +523,16 @@ func (f *Fake) execOut(cmd []string) string {
 }
 
 func (f *Fake) ExecStream(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	cmd []string,
 	stdin io.Reader,
 ) (io.Reader, func() error, error) {
+	if f.ExecHang {
+		pr, pw := io.Pipe()
+		context.AfterFunc(ctx, func() { _ = pw.CloseWithError(ctx.Err()) })
+		return pr, func() error { return nil }, f.rec("ExecStream", append([]string{id}, cmd...)...)
+	}
 	if stdin != nil {
 		b, err := io.ReadAll(stdin)
 		if err != nil {
