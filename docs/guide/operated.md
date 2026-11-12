@@ -124,7 +124,7 @@ stackr operated sync status pg
 stackr operated standby sync pg n2 always     # auto, always or never
 ```
 
-In the stack file these are `sync`, `sync_required`, `sync_limit_ms` and each standby's `sync`.
+In the stack file these are `sync`, `sync_required`, `sync_limit_ms` and each standby's `sync`. `stackr stack export` writes them, but the file is applied through the org config repo (a `stacks:` entry in `stackr-org.yml`, then `org plan` and `org approve`) or a push or promote, never directly.
 
 ### Switchover
 

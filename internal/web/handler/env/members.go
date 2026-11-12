@@ -6,11 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/a-h/templ"
-	"github.com/labstack/echo/v4"
 
-	"github.com/FyrmForge/stackr/internal/api/stream"
-	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
@@ -218,63 +214,13 @@ func (h *handler) overviewOf(ctx context.Context, s service.Scope, by *service.P
 	o = h.pgStatic(rctx, s, s.Tile.ID, o)
 	if st, err := h.orch.TileStatus(rctx, s.Tile.ID); err != nil {
 		o.Unread["job"] = unreadReason(err)
-	} else if st.LastJob != nil {
-		j := render.JobView(envURL, *st.LastJob)
-		o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+	} else {
+		o.Word = st.Word
+		if st.LastJob != nil {
+			j := render.JobView(envURL, *st.LastJob)
+			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+		}
 	}
 	e.o, e.at = o, time.Now()
 	return o, nil
-}
-
-// GET …/-/instances/:tile/live: the open overview's stream, the same
-// polling stream as the canvas's. One event per region (pooler, members,
-// failover, sync, job, overview, slices): every region once at connect, then only when its markup
-// changes, so a form is not redrawn under the hands for nothing.
-func (h *handler) InstanceLive(c echo.Context) error {
-	s, by := scope(c), middleware.Principal(c)
-	canAdd := can(c, s, "placement.write")
-	v := instance.View{Base: render.EnvURL(c) + "/-/instances/" + s.Tile.Slug, ReadOnly: !can(c, s, "tile.write")}
-	regions := []struct {
-		name string
-		part func(instance.View, instance.OverviewView) templ.Component
-	}{
-		{"overview", instance.LiveOverview}, {"slices", instance.LiveSlices},
-		{"pooler", instance.LivePooler}, {"members", instance.LiveMembers},
-		{"failover", instance.LiveFailover}, {"sync", instance.LiveSync},
-		{"job", instance.LiveJob},
-	}
-	sent := map[string]stream.HTML{}
-	fails := map[string]int{}
-	var last time.Time
-	return stream.Watch(c, func(ctx context.Context) ([]stream.Msg, error) {
-		if time.Since(last) < LiveEvery {
-			return nil, nil
-		}
-		last = time.Now()
-		o, err := h.overviewOf(ctx, s, by, canAdd, render.EnvURL(c))
-		if err != nil {
-			return nil, err // the viewer left before a read began
-		}
-		var out []stream.Msg
-		for _, r := range regions {
-			// a failed read keeps the last good markup until it has
-			// failed unreadAfter times running
-			if _, bad := o.Unread[r.name]; bad {
-				if fails[r.name]++; fails[r.name] < unreadAfter {
-					continue
-				}
-			} else {
-				fails[r.name] = 0
-			}
-			body, err := render.Event(ctx, r.part(v, o))
-			if err != nil {
-				return nil, err
-			}
-			if b, ok := sent[r.name]; !ok || b != body {
-				sent[r.name] = body
-				out = append(out, stream.Msg{Name: r.name, Body: body})
-			}
-		}
-		return out, nil
-	})
 }
