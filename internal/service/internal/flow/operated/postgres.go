@@ -594,7 +594,8 @@ func (e pg) ArchiverArgv(i Instance) []string {
 func (pg) DumpMarker() string { return pgClusterMarker }
 
 // pgWipe drops every database and role but the target and the admin user,
-// so the load starts from an empty instance. Sliced databases hold
+// and the pooler's schema (owned by the admin, so no role drop reaches it; the
+// dump re-creates it and a dumpall load fails on "already exists"), so the load starts from an empty instance. Sliced databases hold
 // connections from running tiles; FORCE closes them.
 const pgWipe = `SELECT format('DROP DATABASE %I WITH (FORCE)', datname) FROM pg_database
  WHERE datname NOT IN ('template0', 'template1', current_database()) \gexec
@@ -602,6 +603,7 @@ SELECT format('DROP OWNED BY %I', rolname) FROM pg_roles
  WHERE rolname !~ '^pg_' AND rolname <> current_user \gexec
 SELECT format('DROP ROLE %I', rolname) FROM pg_roles
  WHERE rolname !~ '^pg_' AND rolname <> current_user \gexec
+DROP SCHEMA IF EXISTS ` + poolerUser + ` CASCADE;
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;`
 

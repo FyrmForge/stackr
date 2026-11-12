@@ -138,7 +138,7 @@ func TestPostgresRestoreWipesAndLoadsTheCluster(t *testing.T) {
 	if len(got) != 5 || got[0] != "sh" || got[2] == "" {
 		t.Fatalf("argv: %v", got)
 	}
-	for _, want := range []string{pgClusterMarker, "DROP DATABASE", "DROP ROLE", "DROP SCHEMA public CASCADE"} {
+	for _, want := range []string{pgClusterMarker, "DROP DATABASE", "DROP ROLE", "DROP SCHEMA public CASCADE", "DROP SCHEMA IF EXISTS stackr_pooler CASCADE"} {
 		if !strings.Contains(got[2], want) {
 			t.Errorf("script lacks %q", want)
 		}

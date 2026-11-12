@@ -566,8 +566,8 @@ func TestClusterRestoreStopsConsumers(t *testing.T) {
 	}
 }
 
-// A load that dies still brings the consumers back, and the error names the
-// pre-restore run to restore from.
+// A load that dies still brings the consumers back, rolls the pre-restore
+// dump back in (a fourth stream) and the error names the pre-restore run.
 func TestClusterRestoreFailureStartsConsumersAndNamesTheBackup(t *testing.T) {
 	w, sub, r := dumpWorld(t, 3) // backup, pre-restore dump, load
 	before := len(w.fake.Calls())
@@ -586,12 +586,18 @@ func TestClusterRestoreFailureStartsConsumersAndNamesTheBackup(t *testing.T) {
 	if pre == "" || !strings.Contains(err.Error(), pre) {
 		t.Errorf("error %q does not name the pre-restore run %q", err, pre)
 	}
-	started := false
+	started, loads := false, 0
 	for _, c := range w.fake.Calls()[before:] {
 		started = started || c.Method == "Start" && c.Args[0] == "r1"
+		if c.Method == "ExecStream" && c.Args[0] == "r2" {
+			loads++
+		}
 	}
 	if !started {
 		t.Error("the consumers were left stopped")
+	}
+	if !strings.Contains(err.Error(), "rolled back") || loads < 2 {
+		t.Errorf("no rollback: err %q, %d streams", err, loads)
 	}
 }
 

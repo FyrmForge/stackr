@@ -425,7 +425,12 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) (err erro
 	}
 	if t.dumps() {
 		if err := f.load(ctx, t, plain, log); err != nil {
-			return fmt.Errorf("%w (the instance may be half restored; the backup taken before it is run %s)", err, preRun.ID)
+			// a failed load leaves the instance wiped: put the pre-restore state back
+			logf(log, "the load failed, rolling back to run %s\n", preRun.ID)
+			if rerr := f.rollback(ctx, t, pre.Dest, preRun, log); rerr != nil {
+				return fmt.Errorf("%w (the instance may be half restored and the rollback failed too: %v; restore it from the backup taken before, run %s)", err, rerr, preRun.ID)
+			}
+			return fmt.Errorf("%w (rolled back to the state before the restore, run %s)", err, preRun.ID)
 		}
 		return nil
 	}
@@ -437,6 +442,19 @@ func (f *Flow) Restore(ctx context.Context, in Restore, log io.Writer) (err erro
 	defer resume()
 	logf(log, "restoring into %s\n", t.Volume.Slug)
 	return f.Volumes.Untar(ctx, t.Volume, plain)
+}
+
+// rollback loads the pre-restore dump back over a half-loaded instance.
+func (f *Flow) rollback(ctx context.Context, t Subject, d store.BackupDest, pre store.BackupRun, log io.Writer) error {
+	plain, err := f.fetch(ctx, d, pre.ObjectKey, t.Volume.ID)
+	if err != nil {
+		return err
+	}
+	defer drop(plain)
+	if _, err := plain.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	return f.load(ctx, t, plain, log)
 }
 
 // load streams the dump into the engine with its consumers stopped: an app
