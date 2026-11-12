@@ -1808,3 +1808,29 @@ func (o *Orchestrator) FailoverOptionsOf(ctx context.Context, tileID string) (Fa
 	}
 	return fo, true, nil
 }
+
+// dropRelocated removes what a deleted instance's primary left on the node a
+// failover moved it to: its member container, pooler, WAL archive volume and
+// the instance network. The data volume is orphaned by the delete (kept for
+// its retention), as on the instance's own node.
+func (o *Orchestrator) dropRelocated(ctx context.Context, t store.Tile, p InstanceMember) error {
+	nctx := docker.WithNode(ctx, p.NodeID)
+	cs, err := o.docker.List(nctx, map[string]string{LabelMember: p.ID})
+	if err != nil {
+		return err
+	}
+	ps, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID, tile.LabelRole: mflow.PoolerRole})
+	if err != nil {
+		return err
+	}
+	for _, c := range append(cs, ps...) {
+		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
+			return err
+		}
+	}
+	if err := o.removePoolers(nctx, p); err != nil {
+		return err
+	}
+	_ = o.docker.RemoveVolume(nctx, mflow.MemberArchiveVolume(p))
+	return o.envs.DropShared(nctx, operated.Network(p.InstanceID))
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
@@ -425,6 +426,35 @@ func TestStandbySubnetIsMeshed(t *testing.T) {
 	for _, x := range in.Nodes {
 		if x.ID == r.NodeID && !slices.ContainsFunc(x.Subnets, func(p netip.Prefix) bool { return p.String() == r.Subnet }) {
 			t.Errorf("node subnets %v lack the standby's %s", x.Subnets, r.Subnet)
+		}
+	}
+}
+
+// Deleting an instance whose primary a failover moved to w1 removes the
+// member's container, its pooler and the network there, not just the tile's
+// own objects on the env's node.
+func TestDeleteRemovesTheRelocatedPrimary(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	ms, err := n.orch.members.List(ctx, m.ID)
+	must(t, err)
+	p, _ := opmember.PrimaryOf(ms)
+	p.NodeID, p.Volume = "w1", "stackr-member-vol"
+	must(t, n.st.OperatedMembers.Update(ctx, p))
+	n.wFake.Containers = []docker.Container{
+		{ID: "mc", State: "running", Labels: map[string]string{LabelMember: p.ID}},
+		{ID: "pool", State: "running", Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: mflow.PoolerRole}},
+	}
+	rel, ok := n.orch.relocated(ctx, n.devT.ID)
+	if !ok {
+		t.Fatal("the primary is not seen as relocated")
+	}
+	must(t, n.orch.dropRelocated(ctx, n.devT, rel))
+	for _, c := range []string{"StopRemove(mc)", "StopRemove(pool)"} {
+		if !sawCall(n.wFake, c) {
+			t.Errorf("%s missing: %v", c, callNames(n.wFake))
 		}
 	}
 }
