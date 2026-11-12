@@ -3737,7 +3737,7 @@ stackr tile domain set <host> [flags]
 
 ### `stackr tile exec`
 
-Run a command in a replica; piped stdin goes to it (none from a terminal; stackr ssh opens a shell)
+Run a command in a replica; stdin is closed unless -i (stackr ssh opens a shell)
 
 ```
 stackr tile exec [tile] -- <cmd>... [flags]
@@ -3747,7 +3747,9 @@ stackr tile exec [tile] -- <cmd>... [flags]
       --container string   the replica (default: a running one)
       --env string         the environment (default: the linked one)
       --stack string       the stack (default: the linked one)
+  -i, --stdin              send stdin to the command (until its EOF)
       --tile string        the tile (default: the linked one)
+      --timeout string     stop the command after this long, e.g. 5m (default 50s, max 1h)
 ```
 
 ### `stackr tile forward`

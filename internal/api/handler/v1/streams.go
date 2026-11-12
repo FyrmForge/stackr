@@ -3,6 +3,8 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -76,13 +78,27 @@ func (h *H) LogStream() Endpoint {
 	}).Q("container", "run", "tail")
 }
 
+// execLimit is how long an exec may run: under the 60 s a proxy in front
+// typically cuts a quiet response at, so the user gets a message, not a 502.
+// ?timeout= (a Go duration) raises it up to execMax.
+const (
+	execLimit = 50 * time.Second
+	execMax   = time.Hour
+)
+
 // Exec runs ?cmd= (repeated, one argv word each) in one replica
 // (?container=): the request body is its stdin, the response its output
 // (stdout and stderr interleaved) and the X-Exit-Code trailer its exit.
 func (h *H) Exec() Endpoint {
 	return Streamed("application/octet-stream", func(c echo.Context) error {
+		limit := execLimit
+		if err := echo.QueryParamsBinder(c).Duration("timeout", &limit).BindError(); err != nil || limit <= 0 || limit > execMax {
+			return errs.Invalidf("timeout", "timeout must be a duration up to %s", execMax)
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(rc(c)), limit)
+		defer cancel()
 		out, wait, err := h.Orch.Terminal(
-			context.WithoutCancel(rc(c)),
+			ctx,
 			tileID(c),
 			c.QueryParam("container"),
 			c.QueryParams()["cmd"],
@@ -94,17 +110,25 @@ func (h *H) Exec() Endpoint {
 		c.Response().Header().Set("Trailer", "X-Exit-Code")
 		_ = stream.Pipe(c, "application/octet-stream", out)
 		code := 0
+		timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		if timedOut {
+			// The status is sent; the message and exit 124 (timeout(1)'s) say why.
+			_, _ = fmt.Fprintf(c.Response(), "\nthe command ran past %g s and was stopped\n", limit.Seconds())
+		}
 		if err := wait(); err != nil {
 			code = 1
 			if n, ok := service.ExitCode(err); ok {
 				code = n
 			}
 		}
+		if timedOut {
+			code = 124
+		}
 		c.Response().Header().Set("X-Exit-Code", strconv.Itoa(code))
 		return nil
-	}).Q("cmd", "container").Raw("application/octet-stream").Describe(
+	}).Q("cmd", "container", "timeout").Raw("application/octet-stream").Describe(
 		"The request body is the command's stdin (optional); the response is its stdout and stderr interleaved, " +
-			"and its exit code arrives in the X-Exit-Code HTTP trailer. cmd repeats, one argv word each.")
+			"and its exit code arrives in the X-Exit-Code HTTP trailer. cmd repeats, one argv word each. A command past timeout (a Go duration, default 50s, max 1h) is stopped: the output ends with a message and the exit code is 124.")
 }
 
 // ForwardPortHeader carries the port the tunnel reached back on the upgrade

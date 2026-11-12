@@ -1004,11 +1004,12 @@ func (a *app) tiles() *cobra.Command {
 		return a.follow(base, j, "redeploy")
 	})
 	waitFlag(set)
-	var exCont string
+	var exCont, exLimit string
+	var exStdin bool
 	exec := leaf(
 		"exec [tile] -- <cmd>...",
 		"tile.status,tile.exec",
-		"Run a command in a replica; piped stdin goes to it (none from a terminal; stackr ssh opens a shell)",
+		"Run a command in a replica; stdin is closed unless -i (stackr ssh opens a shell)",
 		atLeast(1),
 		nil,
 	)
@@ -1030,8 +1031,11 @@ func (a *app) tiles() *cobra.Command {
 			}
 		}
 		q := url.Values{"container": {exCont}, "cmd": argv}
-		var in io.Reader = strings.NewReader("")
-		if !a.tty {
+		if exLimit != "" {
+			q.Set("timeout", exLimit)
+		}
+		var in io.Reader = strings.NewReader("") // EOF at once: a command that reads stdin never waits on it
+		if exStdin {
 			in = a.in
 		}
 		res, err := a.request(POST, p+"/exec?"+q.Encode(), in)
@@ -1048,6 +1052,8 @@ func (a *app) tiles() *cobra.Command {
 		return nil
 	}
 	exec.Flags().StringVar(&exCont, "container", "", "the replica (default: a running one)")
+	exec.Flags().BoolVarP(&exStdin, "stdin", "i", false, "send stdin to the command (until its EOF)")
+	exec.Flags().StringVar(&exLimit, "timeout", "", "stop the command after this long, e.g. 5m (default 50s, max 1h)")
 
 	return scoped(noun("tile", "Tiles: the deployed units",
 		a.get("ls", "tile.list", "List the env's tiles", atEnv, "/tiles", tileCols...),

@@ -22294,7 +22294,7 @@
     },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/exec": {
       "post": {
-        "description": "The request body is the command's stdin (optional); the response is its stdout and stderr interleaved, and its exit code arrives in the X-Exit-Code HTTP trailer. cmd repeats, one argv word each.",
+        "description": "The request body is the command's stdin (optional); the response is its stdout and stderr interleaved, and its exit code arrives in the X-Exit-Code HTTP trailer. cmd repeats, one argv word each. A command past timeout (a Go duration, default 50s, max 1h) is stopped: the output ends with a message and the exit code is 124.",
         "operationId": "tile.exec",
         "parameters": [
           {
@@ -22342,6 +22342,13 @@
           {
             "in": "query",
             "name": "container",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timeout",
             "schema": {
               "type": "string"
             }

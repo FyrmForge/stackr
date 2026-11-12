@@ -188,6 +188,9 @@ func (d *Client) ExecStream(
 	if err != nil {
 		return nil, nil, err
 	}
+	// A hijacked connection ignores ctx once attached: ctx's end closes it, so
+	// the stream ends instead of hanging on a command that never does.
+	stop := context.AfterFunc(ctx, att.Close)
 	if stdin != nil {
 		go func() {
 			_, _ = io.Copy(att.Conn, stdin)
@@ -211,6 +214,7 @@ func (d *Client) ExecStream(
 		// into the pipe, and waiting on copyDone before unblocking it hangs.
 		_ = pr.CloseWithError(io.ErrClosedPipe)
 		<-copyDone
+		stop()
 		att.Close()
 		return d.execResult(ctx, execID.ID, stderr.String())
 	}
