@@ -62,22 +62,12 @@ const rotationKey = "rotation.trigger."
 // only bounds the panel's own wait in rotateOne.
 // trigger is "manual by <user>" | "schedule".
 func (o *Orchestrator) markRotation(ctx context.Context, id, trigger string) error {
-	exp := time.Now().Add(worker.RotateRevertAfter + time.Minute).Unix()
-	return o.store.Settings.Set(ctx, rotationKey+id, strconv.FormatInt(exp, 10)+"|"+trigger)
+	return o.setTimed(ctx, rotationKey+id, trigger, worker.RotateRevertAfter+time.Minute)
 }
 
 // rotationMark is the trigger of a live mark; an expired one is dropped.
 func (o *Orchestrator) rotationMark(ctx context.Context, id string) (string, bool) {
-	v, ok, err := o.store.Settings.Get(ctx, rotationKey+id)
-	if err != nil || !ok {
-		return "", false
-	}
-	exp, trig, _ := strings.Cut(v, "|")
-	if n, err := strconv.ParseInt(exp, 10, 64); err != nil || time.Now().Unix() > n {
-		o.clearRotation(ctx, id)
-		return "", false
-	}
-	return trig, true
+	return o.getTimed(ctx, rotationKey+id)
 }
 
 // prevKeyWindow is how long past the worker's own revert deadline the panel
@@ -94,24 +84,14 @@ func (o *Orchestrator) keepPrevKey(ctx context.Context, id, old string) {
 	if old == "" {
 		return
 	}
-	exp := time.Now().Add(worker.RotateRevertAfter + prevKeyWindow).Unix()
-	_ = o.store.Settings.Set(ctx, prevKeyKey+id, strconv.FormatInt(exp, 10)+"|"+old)
+	_ = o.setTimed(ctx, prevKeyKey+id, old, worker.RotateRevertAfter+prevKeyWindow)
 }
 
 // prevKeyIs says whether key is the node's key from before its last
 // rotation and the window for coming back to it is still open.
 func (o *Orchestrator) prevKeyIs(ctx context.Context, id, key string) bool {
-	v, ok, err := o.store.Settings.Get(ctx, prevKeyKey+id)
-	if err != nil || !ok {
-		return false
-	}
-	exp, prev, _ := strings.Cut(v, "|")
-	n, err := strconv.ParseInt(exp, 10, 64)
-	if err != nil || time.Now().Unix() > n {
-		o.clearPrevKey(ctx, id)
-		return false
-	}
-	return prev == key
+	prev, ok := o.getTimed(ctx, prevKeyKey+id)
+	return ok && prev == key
 }
 
 func (o *Orchestrator) clearPrevKey(ctx context.Context, id string) {
@@ -120,6 +100,25 @@ func (o *Orchestrator) clearPrevKey(ctx context.Context, id string) {
 
 func (o *Orchestrator) clearRotation(ctx context.Context, id string) {
 	_ = o.store.Settings.Delete(ctx, rotationKey+id)
+}
+
+// setTimed stores val under key as "unixExpiry|val", live for ttl.
+func (o *Orchestrator) setTimed(ctx context.Context, key, val string, ttl time.Duration) error {
+	return o.store.Settings.Set(ctx, key, strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)+"|"+val)
+}
+
+// getTimed reads a setTimed value; an expired or unparsable entry is deleted.
+func (o *Orchestrator) getTimed(ctx context.Context, key string) (string, bool) {
+	v, ok, err := o.store.Settings.Get(ctx, key)
+	if err != nil || !ok {
+		return "", false
+	}
+	exp, val, _ := strings.Cut(v, "|")
+	if n, err := strconv.ParseInt(exp, 10, 64); err != nil || time.Now().Unix() > n {
+		_ = o.store.Settings.Delete(ctx, key)
+		return "", false
+	}
+	return val, true
 }
 
 // RotateResult is one node's outcome.

@@ -292,10 +292,15 @@ func (o *Orchestrator) removeStandby(ctx context.Context, memberID string) error
 // its connection would otherwise block the call (and every later tick, which
 // skips a locked instance) for the TCP retry time.
 func (o *Orchestrator) tickAttempt() time.Duration {
-	if o.tickAttemptFor > 0 {
-		return o.tickAttemptFor
+	return or(o.tickAttemptFor, 3*time.Minute)
+}
+
+// or is d, or def when d is unset (the test overrides on Orchestrator).
+func or(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
 	}
-	return 3 * time.Minute
+	return def
 }
 
 // finishRemovals retries the drop of members left 'removing'.

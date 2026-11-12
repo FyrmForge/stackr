@@ -172,10 +172,7 @@ const recoverSyncWait = 10 * time.Second
 // specs are re-planned (without the push lock another sync may hold) so the
 // caller's answer is fresh either way.
 func (o *Orchestrator) syncForRecover(ctx context.Context, name string, force bool) {
-	wait := recoverSyncWait
-	if o.recoverSyncFor > 0 {
-		wait = o.recoverSyncFor
-	}
+	wait := or(o.recoverSyncFor, recoverSyncWait)
 	done := make(chan error, 1)
 	go func() { done <- o.mesh.Sync(o.rotateCtx(), "", force) }()
 	select {

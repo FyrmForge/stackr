@@ -522,8 +522,14 @@ func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID str
 	if row.RejectedAt != nil || row.CertPEM != "" {
 		return errs.ErrNotFound
 	}
+	return o.rejectJoinRow(ctx, row, by.User.ID, by.KeyID, "")
+}
+
+// rejectJoinRow sends row's node to needs-rejoin and audits it as "node <name>"
+// plus suffix. actor and key are empty for the sweep.
+func (o *Orchestrator) rejectJoinRow(ctx context.Context, row store.JoinToken, actor, key, suffix string) error {
 	return o.store.Tx(ctx, func(tx store.Tx) error {
-		n, err := node.New(tx.Nodes).Reject(ctx, nodeID, StateNeedsRejoin)
+		n, err := node.New(tx.Nodes).Reject(ctx, row.NodeID, StateNeedsRejoin)
 		if err != nil {
 			return err
 		}
@@ -531,8 +537,8 @@ func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID str
 			return err
 		}
 		return audit(tx).Append(ctx, securitylog.Event{
-			Action: jointoken.ActionReject, ActorID: by.User.ID, KeyID: by.KeyID,
-			TargetKind: "node", TargetID: n.ID, Detail: "node " + n.Name,
+			Action: jointoken.ActionReject, ActorID: actor, KeyID: key,
+			TargetKind: "node", TargetID: n.ID, Detail: "node " + n.Name + suffix,
 		})
 	})
 }
@@ -556,18 +562,7 @@ func (o *Orchestrator) dropPendingJoins(ctx context.Context, max time.Duration) 
 		if r.RejectedAt != nil || r.CertPEM != "" || r.NodeID == "" || r.UsedAt == nil || time.Since(*r.UsedAt) < max {
 			continue
 		}
-		err := o.store.Tx(ctx, func(tx store.Tx) error {
-			n, err := node.New(tx.Nodes).Reject(ctx, r.NodeID, StateNeedsRejoin)
-			if err != nil {
-				return err
-			}
-			if err := o.joinTokens(tx).SetRejected(ctx, r, time.Now().UTC()); err != nil {
-				return err
-			}
-			return audit(tx).Append(ctx, securitylog.Event{
-				Action: jointoken.ActionReject, TargetKind: "node", TargetID: n.ID, Detail: "node " + n.Name + " unconfirmed too long",
-			})
-		})
+		err := o.rejectJoinRow(ctx, r, "", "", " unconfirmed too long")
 		if err != nil {
 			slog.Warn("join: pending request not dropped", "node", r.NodeID, "err", err)
 		}
