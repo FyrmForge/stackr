@@ -1340,7 +1340,11 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 		if t, err = o.tiles.Get(c, inst.TileID); err != nil {
 			return err
 		}
-		return o.removeOldPrimary(docker.WithNode(c, m.NodeID), t, m)
+		if err := o.removeOldPrimary(docker.WithNode(c, m.NodeID), t, m); err != nil {
+			return err
+		}
+		m, err = o.fillSubnet(c, t, m)
+		return err
 	}); err != nil {
 		return err
 	}
@@ -1358,6 +1362,31 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 		o.rerouteVIPsAsync(c) // its flow to the new primary
 		return o.startMember(c, m)
 	})
+}
+
+// fillSubnet gives a member that has no network block on its row (its node was
+// down when the failover swapped the rows) the one its node's instance network
+// holds, then makes the block count: the new primary lets it replicate in and
+// the replica flow to the new primary is built, both before the rewind.
+func (o *Orchestrator) fillSubnet(ctx context.Context, t store.Tile, m InstanceMember) (InstanceMember, error) {
+	if m.Subnet != "" {
+		return m, nil
+	}
+	_, cidr, err := o.docker.MemberAddr(docker.WithNode(ctx, m.NodeID), operated.Network(m.InstanceID), "")
+	if err != nil {
+		return m, err
+	}
+	if cidr == "" {
+		return m, nil // the node has no such network yet; the standby's own creation makes it
+	}
+	if m, err = o.members.SetSubnet(ctx, m, cidr); err != nil {
+		return m, err
+	}
+	if err := o.engines.PrepareStandby(ctx, t, mflow.SlotName(m.ID), o.replSubnets(ctx, m.InstanceID, "")); err != nil {
+		return m, err
+	}
+	o.rerouteVIPs(ctx)
+	return m, nil
 }
 
 // removeOldPrimary removes what a fenced old primary left on its node: the
