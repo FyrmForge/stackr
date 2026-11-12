@@ -305,16 +305,14 @@ templ LivePooler(v View, o OverviewView) {
 		@unread("the pooler", o.Unread["pooler"])
 	} else if o.Pooler != nil {
 		<h3 class="section-title">Pooler</h3>
-		<div class="panel p-4 space-y-1">
-			@c.Facts() {
-				@c.Fact("Status", o.Pooler.Status)
-				@c.Fact("Address", o.Pooler.Host+":"+strconv.Itoa(o.Pooler.Port))
-				if o.Pooler.Counted {
-					@c.Fact("Connections in use", strconv.Itoa(o.Pooler.Active))
-					@c.Fact("Waiting", strconv.Itoa(o.Pooler.Waiting))
-				}
+		@c.Facts() {
+			@c.Fact("Status", o.Pooler.Status)
+			@c.Fact("Address", o.Pooler.Host+":"+strconv.Itoa(o.Pooler.Port))
+			if o.Pooler.Counted {
+				@c.Fact("Connections in use", strconv.Itoa(o.Pooler.Active))
+				@c.Fact("Waiting", strconv.Itoa(o.Pooler.Waiting))
 			}
-		</div>
+		}
 	}
 }
 

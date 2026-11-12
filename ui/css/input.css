@@ -614,6 +614,14 @@ flash-toast[leaving] { opacity: 0; }
   .section-title:first-child {
     @apply mt-0;
   }
+  /* a live region (sse-swap) wraps its section: the title keeps its gap
+     unless the region itself opens the tab */
+  [sse-swap] > .section-title:first-child {
+    @apply mt-8;
+  }
+  [sse-swap]:first-child > .section-title:first-child {
+    @apply mt-0;
+  }
   .settings-scope {
     @apply rounded-full border border-rw-border px-2 py-0.5 text-xs uppercase tracking-wide text-rw-faint;
   }
