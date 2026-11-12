@@ -184,5 +184,5 @@ func (p Panel) installed(c echo.Context) error {
 	if err != nil {
 		slog.Warn("connector install check", "connector", c.Param("connector"), "err", err)
 	}
-	return respond.HTML(c, http.StatusOK, connectors.InstallStatus(c.Param("connector"), len(rs), err != nil))
+	return respond.HTML(c, http.StatusOK, connectors.InstallStatus(c.Param("connector"), len(rs), err != nil, c.Request().URL.Path))
 }

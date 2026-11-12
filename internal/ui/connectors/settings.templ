@@ -9,9 +9,11 @@ import (
 // InstallStatus is what the provider answered for a git row: the repos it
 // may read, none (not installed, or installed on nothing), or no answer.
 // The wrapper keeps the row's id and hx-preserve: the list's live poll leaves the
-// answered chip alone instead of asking the provider again.
-templ InstallStatus(id string, repos int, failed bool) {
-	<span id={ CheckID(id) } hx-preserve>
+// answered chip alone instead of asking the provider again. Only a good answer
+// stays for good: "did not answer" and "not installed" post recheck again
+// every 60s (never with the list's 3s poll).
+templ InstallStatus(id string, repos int, failed bool, recheck string) {
+	<span id={ CheckID(id) } hx-preserve if failed || repos == 0 { hx-post={ recheck } hx-trigger="every 60s" hx-swap="outerHTML" }>
 		switch {
 			case failed:
 				@c.Chip("did not answer", "danger")
