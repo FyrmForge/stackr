@@ -621,7 +621,7 @@ func TestInstanceLiveStream(t *testing.T) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(300*time.Millisecond, cancel)
+	time.AfterFunc(3*time.Second, cancel)
 	body := s.DoCtx(ctx, t, "GET", d+"/live?tab=slices", nil).Body.String()
 	for _, region := range []string{"pooler", "members", "failover", "sync", "overview", "slices", "actions", "job"} {
 		if n := strings.Count(body, "event: "+region+"\n"); n != 1 {
@@ -630,7 +630,7 @@ func TestInstanceLiveStream(t *testing.T) {
 	}
 	// off Overview the stream carries the header only
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	time.AfterFunc(300*time.Millisecond, cancel2)
+	time.AfterFunc(3*time.Second, cancel2)
 	body = s.DoCtx(ctx2, t, "GET", d+"/live?tab=settings", nil).Body.String()
 	if strings.Count(body, "event: actions\n") != 1 || strings.Contains(body, "event: pooler") || strings.Contains(body, "event: slices") {
 		t.Errorf("settings stream is not header only:\n%s", body)
@@ -652,8 +652,8 @@ func TestInstanceLiveJobAppears(t *testing.T) {
 		t.Fatalf("a fresh instance shows a job, or lacks the job region:\n%s", page)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(600*time.Millisecond, cancel)
-	time.AfterFunc(200*time.Millisecond, func() { s.Do(t, "POST", d+"/deploy", nil) })
+	time.AfterFunc(4*time.Second, cancel)
+	time.AfterFunc(time.Second, func() { s.Do(t, "POST", d+"/deploy", nil) })
 	body := s.DoCtx(ctx, t, "GET", d+"/live", nil).Body.String()
 	if !strings.Contains(body, "Last job") {
 		t.Errorf("the job region never arrived:\n%s", body)

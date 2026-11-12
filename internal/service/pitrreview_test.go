@@ -82,11 +82,13 @@ func newPITRRig(t *testing.T) *pitrRig {
 // noArchive makes the container's `ls` of the archive dir fail, as a
 // container started without the archive volume does.
 func (r *pitrRig) noArchive(on bool) {
-	if on {
-		r.fake.Err = map[string]error{"ExecStream(c-pg, ls, -1, " + mflow.PGArchiveDir + ")": errors.New("no such directory")}
-	} else {
-		r.fake.Err = nil
-	}
+	r.fake.Edit(func() {
+		if on {
+			r.fake.Err = map[string]error{"ExecStream(c-pg, ls, -1, " + mflow.PGArchiveDir + ")": errors.New("no such directory")}
+		} else {
+			r.fake.Err = nil
+		}
+	})
 }
 
 func (r *pitrRig) backupJobs(t *testing.T) int {
