@@ -103,6 +103,7 @@ func setup(t *testing.T) *world {
 	w := &world{s: s, fake: fake, files: map[string]string{}}
 	w.f = &Flow{
 		D:         d,
+		Tx:        s.Tx,
 		Members:   opmember.New(s.OperatedMembers),
 		Resources: domainres.New(s.DomainResources),
 		Config: func(_ context.Context, _ store.Stack, commit string, _ io.Writer) ([]byte, Fetcher, error) {

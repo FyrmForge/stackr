@@ -2,11 +2,13 @@ package promote
 
 import (
 	"context"
+	"errors"
 	"io"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/release"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -144,5 +146,54 @@ func TestExportStandbyModeAndVersionDays(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(string(out), "version_days: 0") {
 		t.Errorf("version_days: 0 dropped:\n%s", out)
+	}
+}
+
+// A custom postgres image (postgis) exports as image:, not major:, so a new
+// env does not get the stock image; the same image on an existing instance
+// plans clean.
+func TestExportCustomPostgresImage(t *testing.T) {
+	w := newSliceWorld(t)
+	staging := w.envs["staging"].ID
+	old, err := w.f.D.Tiles.GetBySlug(ctx, staging, "pg-db")
+	must(t, err)
+	nw := old
+	nw.ImageRef = "postgis/postgis:16-3.4"
+	_, _, err = w.f.D.Tiles.Update(ctx, old, nw)
+	must(t, err)
+	w.instance(t, "staging", func(m *store.OperatedInstance) { m.Major = 16 })
+
+	out, _, err := w.f.Export(ctx, w.infra.ID, staging)
+	must(t, err)
+	if !strings.Contains(string(out), "image: postgis/postgis:16-3.4") || strings.Contains(string(out), "major:") {
+		t.Fatalf("export:\n%s", out)
+	}
+	w.files["c1"] = string(out)
+	r, err := w.f.D.Releases.Create(ctx, w.infra.ID, "test", []release.Pin{{Slug: release.ConfigSlug, Repo: w.infra.ConfigRepo, CommitSHA: "c1"}})
+	must(t, err)
+	p, err := w.f.Plan(ctx, staging, r.ID, io.Discard)
+	must(t, err)
+	if len(p.Changes) != 0 || p.Blocked() {
+		t.Errorf("plan of the export = %s %v", kinds(p), p.Blockers)
+	}
+}
+
+// The instance row and its primary member are written in one transaction.
+func TestCreateInstanceIsOneTransaction(t *testing.T) {
+	w := newSliceWorld(t)
+	staging := w.envs["staging"]
+	tl, err := w.f.D.Tiles.Create(ctx, store.Tile{StackID: staging.StackID, EnvironmentID: staging.ID, Name: "atomic", Slug: "atomic", Kind: "operated"})
+	must(t, err)
+	w.f.Tx = func(ctx context.Context, fn func(store.Tx) error) error {
+		return w.s.Tx(ctx, func(tx store.Tx) error {
+			must(t, fn(tx))
+			return errors.New("rolled back")
+		})
+	}
+	if err := w.f.createInstance(ctx, tl, "postgres"); err == nil {
+		t.Fatal("the rollback did not surface")
+	}
+	if _, err := w.f.D.Operated.GetByTile(ctx, tl.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("an instance row outlived its rolled back transaction: %v", err)
 	}
 }

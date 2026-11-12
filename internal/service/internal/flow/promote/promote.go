@@ -33,6 +33,9 @@ import (
 // inside the caller's job.
 type Flow struct {
 	D *deploy.Flow
+	// Tx runs fn in one store transaction: a new instance and its primary row
+	// are written together.
+	Tx func(ctx context.Context, fn func(store.Tx) error) error
 	// Members is leaf/opmember: a new postgres instance gets its primary row.
 	Members *opmember.Leaf
 	// Resources is leaf/domainres: the stack file's domains: rows and what
@@ -439,20 +442,23 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 // createInstance is the instance row of a new operated tile; a postgres one
 // records the major its image names, which its data path and flags follow.
 func (f *Flow) createInstance(ctx context.Context, t store.Tile, engine string) error {
-	m, err := f.D.Operated.Create(ctx, t.ID, engine, "stackr", "")
-	if err != nil {
+	return f.Tx(ctx, func(tx store.Tx) error {
+		ml := operated.New(tx.OperatedInstances, tx.Provisions, tx.Bindings)
+		m, err := ml.Create(ctx, t.ID, engine, "stackr", "")
+		if err != nil {
+			return err
+		}
+		if engine != "postgres" {
+			return nil
+		}
+		if _, err = opmember.New(tx.OperatedMembers).CreatePrimary(ctx, m.ID); err != nil {
+			return err
+		}
+		if major := deploy.ImageMajor(cmp.Or(t.ImageRef, deploy.EngineImage(engine))); major > 0 {
+			_, err = ml.SetMajor(ctx, m, major)
+		}
 		return err
-	}
-	if engine != "postgres" {
-		return nil
-	}
-	if _, err = f.Members.CreatePrimary(ctx, m.ID); err != nil {
-		return err
-	}
-	if major := deploy.ImageMajor(cmp.Or(t.ImageRef, deploy.EngineImage(engine))); major > 0 {
-		_, err = f.D.Operated.SetMajor(ctx, m, major)
-	}
-	return err
+	})
 }
 
 // deleteTiles: consumers first, so an instance goes after its slices.

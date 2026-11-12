@@ -4,9 +4,12 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/promote"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // After a switchover the primary sits on a node the file lists as a standby:
@@ -27,21 +30,69 @@ func TestStandbyPlanAfterSwitchover(t *testing.T) {
 		}
 		must(t, o.store.OperatedMembers.Update(ctx, m))
 	}
-	d, err := o.standbyPlan(ctx, tl, []promote.Standby{{Node: "w1"}})
+	home := o.nodeName(ctx, r.n.ctl.ID)
+	ex, err := o.standbyExport(ctx, tl)
+	must(t, err)
+	if !slices.Equal(ex, []promote.Standby{{Node: home}}) {
+		t.Errorf("export = %+v", ex)
+	}
+	// the export applies as a no-op, whichever node is primary
+	d, err := o.standbyPlan(ctx, tl, ex)
 	must(t, err)
 	if d.Text != "" {
 		t.Errorf("a switched cluster planned %q", d.Text)
 	}
-	ex, err := o.standbyExport(ctx, tl)
-	must(t, err)
-	if !slices.Equal(ex, []promote.Standby{{Node: "w1"}}) {
-		t.Errorf("export = %+v", ex)
-	}
-	// a real removal still shows
+	// an empty list removes the standby, never the primary's node
 	d, err = o.standbyPlan(ctx, tl, nil)
 	must(t, err)
-	if d.Text != "" { // the node left is the primary's: never removed
-		t.Errorf("the primary's node was planned away: %q", d.Text)
+	if d.Text != "−"+home {
+		t.Errorf("empty list planned %q", d.Text)
+	}
+}
+
+// The placement node holds no member: the export lists the standbys only, and
+// applying it is a no-op instead of planning the placement node back in.
+func TestStandbyExportApplyWithoutHomeMember(t *testing.T) {
+	t.Parallel()
+	ctx := withMayPlace(context.Background(), true)
+	r := newFailRig(t, false)
+	o, tl := r.n.orch, r.tile()
+	ms, err := o.members.List(ctx, r.inst.ID)
+	must(t, err)
+	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w2", Name: "w2", Slug: "w2", Role: node.Worker, Tags: "[]", RangeCIDR: "10.210.0.0/16", Status: node.StatusOnline, CreatedAt: time.Now()}))
+	for _, m := range ms { // primary on w1, the standby on w2: nothing on home
+		if m.Role == opmember.Primary {
+			m.NodeID = "w1"
+		} else {
+			m.NodeID = "w2"
+		}
+		must(t, o.store.OperatedMembers.Update(ctx, m))
+	}
+	ex, err := o.standbyExport(ctx, tl)
+	must(t, err)
+	if !slices.Equal(ex, []promote.Standby{{Node: o.nodeName(ctx, "w2")}}) {
+		t.Fatalf("export = %+v", ex)
+	}
+	d, err := o.standbyPlan(ctx, tl, ex)
+	must(t, err)
+	if d.Text != "" {
+		t.Errorf("export then apply planned %q", d.Text)
+	}
+}
+
+// On a new instance the primary is created on home: a listed standby on home
+// is dropped, not planned.
+func TestStandbyPlanFreshDropsHome(t *testing.T) {
+	t.Parallel()
+	ctx := withMayPlace(context.Background(), true)
+	r := newFailRig(t, false)
+	o, tl := r.n.orch, r.tile()
+	tl.ID = ""
+	ctx = context.WithValue(ctx, placeAdminKey{}, true)
+	d, err := o.standbyPlan(ctx, tl, []promote.Standby{{Node: o.nodeName(ctx, r.n.ctl.ID)}, {Node: "w1"}})
+	must(t, err)
+	if len(d.Add) != 1 || d.Add[0].Node != o.nodeName(ctx, "w1") {
+		t.Errorf("diff = %+v", d)
 	}
 }
 

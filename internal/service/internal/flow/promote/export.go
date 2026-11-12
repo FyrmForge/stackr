@@ -383,7 +383,9 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if pgOperated = m.Engine == "postgres"; pgOperated {
 			// the major, not the exact tag: a minor moves with `operated update`, and a file
 			// that pins it would roll it back
-			if major := cmp.Or(m.Major, deploy.ImageMajor(t.ImageRef)); major > 0 {
+			if t.ImageRef != "" && imageRepo(t.ImageRef) != imageRepo(deploy.EngineImage("postgres")) {
+				str("image", t.ImageRef) // a custom build (postgis) is not recreated from a major
+			} else if major := cmp.Or(m.Major, deploy.ImageMajor(t.ImageRef)); major > 0 {
 				b.put("major", major)
 			}
 		}
@@ -620,4 +622,13 @@ func exportDomain(row store.Domain, t store.Tile, res []store.DomainResource) (o
 		x.put("records", rs)
 	}
 	return x, warn, true
+}
+
+// imageRepo is an image reference without its tag or digest.
+func imageRepo(ref string) string {
+	ref, _, _ = strings.Cut(ref, "@")
+	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
+		ref = ref[:i]
+	}
+	return ref
 }

@@ -475,25 +475,17 @@ func (o *Orchestrator) clusterNodes(ctx context.Context, t store.Tile) (primary 
 	return primary, standbys, nil
 }
 
-// standbyExport is promote.Flow.StandbyNames: the nodes of every member but
-// the tile's own placement node, by name, a standby's mode when not auto. The
-// placement node is left out because a file's cluster is its standbys plus it,
-// whichever of them is primary now.
+// standbyExport is promote.Flow.StandbyNames: the node of every member but the
+// current primary's, by name, a standby's mode when not auto. An existing
+// instance's cluster is its listed standbys plus wherever its primary is.
 func (o *Orchestrator) standbyExport(ctx context.Context, t store.Tile) ([]promote.Standby, error) {
 	primary, sbs, err := o.clusterNodes(ctx, t)
 	if err != nil {
 		return nil, err
 	}
-	home, err := o.envNode(ctx, t.EnvironmentID)
-	if err != nil {
-		return nil, err
-	}
 	var out []promote.Standby
-	if primary != home {
-		out = append(out, promote.Standby{Node: o.nodeName(ctx, primary)})
-	}
 	for id, m := range sbs {
-		if id != home {
+		if id != primary {
 			s := promote.Standby{Node: o.nodeName(ctx, id)}
 			if md := cmpMode(m.SyncMode); md != SyncAuto {
 				s.Sync = md
@@ -506,9 +498,8 @@ func (o *Orchestrator) standbyExport(ctx context.Context, t store.Tile) ([]promo
 }
 
 // standbyPlan is promote.Flow.StandbyPlan. The cluster the file names is its
-// standbys plus the tile's placement node; the members' node set is compared
-// with it, so a switchover that left the primary on a listed node changes
-// nothing. A node to add, one to remove (never the primary's) and a standby
+// standbys plus the primary's node (the placement node on a new instance); the
+// members' node set is compared with it, so a switchover changes nothing. A node to add, one to remove (never the primary's) and a standby
 // whose sync mode moves are the diff. A name that is no node is refused.
 func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []promote.Standby) (d promote.StandbyDiff, err error) {
 	primary, have, err := o.clusterNodes(ctx, t)
@@ -519,8 +510,13 @@ func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []pro
 	if err != nil {
 		return d, err
 	}
-	wantIDs := map[string]string{home: SyncAuto} // node id to mode
-	order := []string{home}
+	// A new instance's primary is created on home; an existing one's is where it is.
+	fresh := t.ID == ""
+	wantIDs := map[string]string{} // node id to mode
+	var order []string
+	if fresh {
+		wantIDs[home], order = SyncAuto, []string{home}
+	}
 	for _, s := range want {
 		n, err := o.nodeByRef(ctx, s.Node)
 		if err != nil {
@@ -530,12 +526,13 @@ func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []pro
 		if !SyncModeOK(mode) {
 			return d, errs.Invalidf("standbys", "%s: sync is auto, always or never", s.Node)
 		}
-		if _, dup := wantIDs[n.ID]; dup && n.ID != home {
+		if fresh && n.ID == home {
+			continue // the primary is created there; a standby on the same node is dropped
+		}
+		if _, dup := wantIDs[n.ID]; dup {
 			return d, errs.Invalidf("standbys", "%q is listed twice", s.Node)
 		}
-		if n.ID != home || s.Sync != "" {
-			wantIDs[n.ID] = mode
-		}
+		wantIDs[n.ID] = mode
 		if !slices.Contains(order, n.ID) {
 			order = append(order, n.ID)
 		}
@@ -555,11 +552,9 @@ func (o *Orchestrator) standbyPlan(ctx context.Context, t store.Tile, want []pro
 		case !has:
 			d.Add = append(d.Add, promote.Standby{Node: o.nodeName(ctx, id), Sync: wantIDs[id]})
 			text = append(text, "+"+o.nodeName(ctx, id))
-		case id != home || wantIDs[id] != SyncAuto:
-			if cmpMode(m.SyncMode) != wantIDs[id] {
-				d.Mode = append(d.Mode, promote.Standby{Node: o.nodeName(ctx, id), Sync: wantIDs[id]})
-				text = append(text, o.nodeName(ctx, id)+" sync "+wantIDs[id])
-			}
+		case cmpMode(m.SyncMode) != wantIDs[id]:
+			d.Mode = append(d.Mode, promote.Standby{Node: o.nodeName(ctx, id), Sync: wantIDs[id]})
+			text = append(text, o.nodeName(ctx, id)+" sync "+wantIDs[id])
 		}
 	}
 	for id := range have {
