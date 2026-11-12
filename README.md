@@ -103,3 +103,14 @@ docs/                    Documentation
 - **Templ** + HTMX
 - **SQLite**
 - **HAMR Framework** — server, middleware, validation, responses
+
+## License
+
+stackr is licensed under the [Business Source License 1.1](LICENSE).
+Personal, educational and non-commercial use is free, and so is evaluating it.
+Production use by a company needs a commercial license.
+Each version becomes Apache-2.0 four years after it is published.
+
+stackr is early. Future versions may change their license terms, and features
+that are free today may become part of a paid tier. A version you already have
+keeps the license it was published with.
