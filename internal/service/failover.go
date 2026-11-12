@@ -1367,20 +1367,21 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 // fillSubnet gives a member that has no network block on its row (its node was
 // down when the failover swapped the rows) the one its node's instance network
 // holds, then makes the block count: the new primary lets it replicate in and
-// the replica flow to the new primary is built, both before the rewind.
+// the replica flow to the new primary is built, both before the rewind. The
+// making runs on every attempt (it is repeatable), so one that failed or was
+// cut off is redone by the retry although the subnet is already saved.
 func (o *Orchestrator) fillSubnet(ctx context.Context, t store.Tile, m InstanceMember) (InstanceMember, error) {
-	if m.Subnet != "" {
-		return m, nil
-	}
-	_, cidr, err := o.docker.MemberAddr(docker.WithNode(ctx, m.NodeID), operated.Network(m.InstanceID), "")
-	if err != nil {
-		return m, err
-	}
-	if cidr == "" {
-		return m, nil // the node has no such network yet; the standby's own creation makes it
-	}
-	if m, err = o.members.SetSubnet(ctx, m, cidr); err != nil {
-		return m, err
+	if m.Subnet == "" {
+		_, cidr, err := o.docker.MemberAddr(docker.WithNode(ctx, m.NodeID), operated.Network(m.InstanceID), "")
+		if err != nil && !errors.Is(err, docker.ErrNotFound) {
+			return m, err
+		}
+		if cidr == "" {
+			return m, nil // the node has no such network yet; the standby's own creation makes it
+		}
+		if m, err = o.members.SetSubnet(ctx, m, cidr); err != nil {
+			return m, err
+		}
 	}
 	if err := o.engines.PrepareStandby(ctx, t, mflow.SlotName(m.ID), o.replSubnets(ctx, m.InstanceID, "")); err != nil {
 		return m, err

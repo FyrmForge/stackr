@@ -175,6 +175,15 @@ func (s *sim) Logs(_ context.Context, id string, _ int) (string, error) {
 func (s *sim) Exec(_ context.Context, id string, cmd []string) (string, error) {
 	c := strings.Join(cmd, " ")
 	s.rig.log(s.node, "exec", c)
+	s.rig.mu.Lock()
+	hbaErr := s.rig.hbaErr && strings.Contains(c, "stackr replication begin")
+	if hbaErr {
+		s.rig.hbaErr = false
+	}
+	s.rig.mu.Unlock()
+	if hbaErr {
+		return "", errors.New("exec failed")
+	}
 	if strings.Contains(c, "kill -INT 1") {
 		s.set(id, "exited")
 		return "", nil
@@ -220,6 +229,7 @@ type failRig struct {
 	listErr  error  // makes every docker list fail
 	downNode string // the sim whose docker answers nothing (a node not yet marked offline)
 	stopErr  error  // makes a docker stop fail
+	hbaErr   bool   // makes the next pg_hba rewrite fail, once
 	// the primary's sync conf as last written, and the setting a reload made live
 	syncFile, syncLive string
 	reloadBroken       bool // a reload does not take

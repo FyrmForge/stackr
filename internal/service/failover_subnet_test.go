@@ -28,7 +28,15 @@ func TestRejoinFillsMissingSubnet(t *testing.T) {
 	_, err := o.members.SetSubnet(ctx, old, "") // as the swap leaves it when the node cannot be asked
 	must(t, err)
 	must(t, setNode(o, "w1", node.StatusOnline))
+	r.mu.Lock()
+	r.hbaErr = true // the new primary's pg_hba rewrite fails on the first try
+	r.mu.Unlock()
 	o.resumeFailovers(ctx)
+	_, old = r.members()
+	if old.Subnet != "10.209.4.0/24" || !old.Fenced {
+		t.Fatalf("after the failed first try: %+v", old)
+	}
+	o.resumeFailovers(ctx) // the subnet is saved, yet the retry runs PrepareStandby again
 	_, old = r.members()
 	if old.Subnet != "10.209.4.0/24" || old.Fenced || old.Phase != opmember.Starting {
 		t.Fatalf("after its node returned: %+v", old)
