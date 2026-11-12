@@ -328,6 +328,14 @@ func (o *Orchestrator) dropMember(ctx context.Context, m InstanceMember) error {
 	if err := o.removePoolers(nctx, m); err != nil {
 		return err
 	}
+	// a stuck old primary: its tile's own container still holds the volume
+	if inst, err := o.operated.Get(ctx, m.InstanceID); err == nil {
+		if t, err := o.tiles.Get(ctx, inst.TileID); err == nil {
+			if err := o.removeOldPrimary(nctx, t, m); err != nil {
+				return err
+			}
+		}
+	}
 	if err := o.detachStandby(ctx, m); err != nil {
 		return err
 	}

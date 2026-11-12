@@ -1326,26 +1326,8 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 		return err
 	}
 	nctx := docker.WithNode(ctx, m.NodeID)
-	old, err := o.oldPrimaryContainers(nctx, t, m.ID)
-	if err != nil {
+	if err := o.removeOldPrimary(nctx, t, m); err != nil {
 		return err
-	}
-	for _, c := range old { // the tile's own container: never again beside the new primary
-		if c.State == "running" || c.State == "restarting" {
-			o.fastStop(nctx, c.ID)
-		}
-		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
-			return err
-		}
-	}
-	ps, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID, tile.LabelRole: mflow.PoolerRole})
-	if err != nil {
-		return err
-	}
-	for _, c := range ps { // the primary's pooler: the standby's own comes with the tick
-		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
-			return err
-		}
 	}
 	if err := o.rewind(ctx, t, m); err != nil {
 		return err
@@ -1359,6 +1341,34 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 	o.probeRuns.Delete(m.ID)
 	o.rerouteVIPsAsync(ctx) // its flow to the new primary
 	return o.startMember(ctx, m)
+}
+
+// removeOldPrimary removes what a fenced old primary left on its node: the
+// tile's own container (never again beside the new primary), which holds the
+// member's data volume until it goes, and the primary's pooler.
+func (o *Orchestrator) removeOldPrimary(nctx context.Context, t store.Tile, m InstanceMember) error {
+	old, err := o.oldPrimaryContainers(nctx, t, m.ID)
+	if err != nil {
+		return err
+	}
+	for _, c := range old {
+		if c.State == "running" || c.State == "restarting" {
+			o.fastStop(nctx, c.ID)
+		}
+		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
+			return err
+		}
+	}
+	ps, err := o.docker.List(nctx, map[string]string{tile.LabelTile: t.ID, tile.LabelRole: mflow.PoolerRole})
+	if err != nil {
+		return err
+	}
+	for _, c := range ps { // the standby's own pooler comes with the tick
+		if err := o.docker.StopRemove(nctx, c.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // rewind runs pg_rewind in a one-shot container on the member's volume. A

@@ -458,3 +458,24 @@ func TestDeleteRemovesTheRelocatedPrimary(t *testing.T) {
 		}
 	}
 }
+
+// A stuck old primary's tile container still holds the member's volume: a
+// removal takes it first, so the row does not stay 'removing'.
+func TestRemoveStandbyDropsTheOldTileContainer(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	pgOn(t, n)
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
+	must(t, err)
+	n.wFake.Containers = append(n.wFake.Containers, docker.Container{ID: "old-tile", State: "exited",
+		Labels: map[string]string{tile.LabelTile: n.devT.ID, tile.LabelRole: "replica"}})
+	must(t, n.orch.RemoveStandby(ctx, r.ID))
+	if !sawCall(n.wFake, "StopRemove(old-tile)") {
+		t.Errorf("the old tile container stayed: %v", callNames(n.wFake))
+	}
+	if _, err := n.orch.members.Get(ctx, r.ID); err == nil {
+		t.Error("row kept")
+	}
+}
