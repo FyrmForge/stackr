@@ -363,17 +363,13 @@ func TestWatchTickAppliesOnce(t *testing.T) {
 
 // On a systemd-resolved host both files are read: the stub is loopback and
 // skipped, the real upstream sits in the second.
-func TestVipBaseReadsBothResolvConfs(t *testing.T) {
+func TestResolversReadsBothResolvConfs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	a, b := dir+"/a", dir+"/b"
 	must(t, os.WriteFile(a, []byte("nameserver 127.0.0.53\nnameserver 192.168.1.1\n"), 0o600))
 	must(t, os.WriteFile(b, []byte("nameserver 192.168.1.1\nnameserver 9.9.9.9\n"), 0o600))
-	old := worker.ResolvConfs
-	worker.ResolvConfs = []string{a, b, dir + "/missing"}
-	t.Cleanup(func() { worker.ResolvConfs = old })
-	r := newBootRig(t)
-	got := r.orch.vipBase(context.Background(), ctlNode(t, r.orch)).Resolvers
+	got := worker.Resolvers(a, b, dir+"/missing")
 	if !slices.Equal(got, []string{"192.168.1.1", "9.9.9.9"}) {
 		t.Fatalf("got %v", got)
 	}

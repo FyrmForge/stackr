@@ -311,10 +311,14 @@ func readFile(p string) string { b, _ := os.ReadFile(p); return string(b) }
 // 127.0.0.53 stub and the second names the real upstreams.
 var ResolvConfs = []string{"/etc/resolv.conf", "/run/systemd/resolve/resolv.conf"}
 
-// Resolvers are this host's IPv4 DNS servers, loopback stubs left out.
-func Resolvers() []string {
+// Resolvers are this host's IPv4 DNS servers, loopback stubs left out, read
+// from confs (default ResolvConfs).
+func Resolvers(confs ...string) []string {
+	if len(confs) == 0 {
+		confs = ResolvConfs
+	}
 	var out []string
-	for _, p := range ResolvConfs {
+	for _, p := range confs {
 		for _, r := range ParseResolvers(readFile(p)) {
 			if !slices.Contains(out, r) {
 				out = append(out, r)
