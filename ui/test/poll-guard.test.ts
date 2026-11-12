@@ -57,3 +57,17 @@ test("a dirty region cancels the poll and one retry is pending", () => {
   assert.equal(el._pollRetry, first, "a second block adds no timer");
   clearTimeout(first as ReturnType<typeof setTimeout>);
 });
+
+test("a response that lands while a dialog is open is not swapped", () => {
+  const el = { getAttribute: (n: string) => (n === "data-poll-guard" ? "" : null) };
+  const doc = g.document as { querySelector: () => unknown };
+  const run = () => {
+    const detail = { elt: el, shouldSwap: true };
+    handlers["htmx:beforeSwap"].forEach((f) => f({ detail }));
+    return detail.shouldSwap;
+  };
+  assert.equal(run(), true);
+  doc.querySelector = () => ({});
+  assert.equal(run(), false);
+  doc.querySelector = () => null;
+});

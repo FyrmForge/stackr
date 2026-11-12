@@ -85,6 +85,9 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
         (g.indexOf('dirty-drawer') >= 0 && pollDirty(drawer));
     if (!busy) return;
     evt.preventDefault();
+    pollRetry(el);
+});
+function pollRetry(el) {
     var again = el.getAttribute('data-poll-retry');
     if (again && !el._pollRetry) {
         el._pollRetry = setTimeout(function () {
@@ -92,6 +95,14 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
             if (el.isConnected) htmx.trigger(el, again);
         }, 3000);
     }
+}
+// A poll already in flight when a dialog opened must not swap on return: the
+// redraw would close the dialog.
+document.addEventListener('htmx:beforeSwap', function (evt) {
+    var el = evt.detail.elt;
+    if (!el.getAttribute || el.getAttribute('data-poll-guard') === null || !document.querySelector('dialog[open]')) return;
+    evt.detail.shouldSwap = false;
+    pollRetry(el);
 });
 
 // Re-validate a field while typing, but only once it is already showing an
