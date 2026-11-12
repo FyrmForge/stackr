@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -33,7 +34,12 @@ func New(addr string, tc *tls.Config) *Client {
 	tc.NextProtos = []string{"http/1.1"}
 	return &Client{addr: addr, hc: &http.Client{
 		Timeout:   60 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tc},
+		// A dial timeout and keepalive probes; no response-header timeout, it
+		// would cut docker.Wait and the log streams.
+		Transport: &http.Transport{
+			TLSClientConfig: tc,
+			DialContext:     (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second}).DialContext,
+		},
 	}}
 }
 

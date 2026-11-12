@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/mesh"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
@@ -375,6 +376,37 @@ func TestMoveOntoStandbyNodeRefused(t *testing.T) {
 	if got, _ := n.st.Environments.Get(ctx, n.dev.ID); got.NodeID != n.ctl.ID {
 		t.Errorf("env node = %q, want it unchanged", got.NodeID)
 	}
+}
+
+// A worker that stops answering must not hold the instance's topology lock
+// past the attempt deadline: the tick gives up and the next one can run.
+func TestFinishRemovalsGivesUpOnAHungNode(t *testing.T) {
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	pgOn(t, n)
+	must(t, n.st.Environments.SetSubnet(ctx, n.dev.ID, "10.208.0.0/24"))
+	r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
+	must(t, err)
+	n.wFake.Err = map[string]error{"RemoveNetwork": errors.New("active endpoints")}
+	if err := n.orch.RemoveStandby(ctx, r.ID); err == nil {
+		t.Fatal("remove succeeded with the network stuck")
+	}
+	old := tickAttempt
+	tickAttempt = 50 * time.Millisecond
+	defer func() { tickAttempt = old }()
+	n.wFake.Edit(func() { n.wFake.BlockList = true })
+	done := make(chan struct{})
+	go func() { n.orch.finishRemovals(ctx); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("finishRemovals still blocked on the hung node")
+	}
+	mu := n.orch.topoLock(r.InstanceID)
+	if !mu.TryLock() {
+		t.Fatal("topology lock still held")
+	}
+	mu.Unlock()
 }
 
 // A standby whose network will not go keeps its row (and subnet) as

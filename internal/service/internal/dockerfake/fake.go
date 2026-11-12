@@ -41,6 +41,8 @@ type Fake struct {
 	// Err makes a method fail: Err["Pull"] = errors.New("registry down"). A
 	// key can also name one call, as Call.String does: Err["Start(new)"].
 	Err map[string]error
+	// BlockList makes List wait for its context to end.
+	BlockList bool
 	// Scripted answers.
 	RunID         string
 	RunIDs        []string               // when set, each Run takes the next one instead of RunID
@@ -235,7 +237,7 @@ func (f *Fake) Edit(fn func()) {
 	fn()
 }
 
-func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Container, error) {
+func (f *Fake) List(ctx context.Context, labels map[string]string) ([]docker.Container, error) {
 	var out []docker.Container
 	f.mu.Lock()
 	for _, c := range f.Containers {
@@ -248,7 +250,12 @@ func (f *Fake) List(_ context.Context, labels map[string]string) ([]docker.Conta
 			out = append(out, c)
 		}
 	}
+	block := f.BlockList
 	f.mu.Unlock()
+	if block { // a dead connection: no answer until the caller gives up
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return out, f.rec("List")
 }
 

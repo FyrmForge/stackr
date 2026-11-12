@@ -1307,6 +1307,11 @@ func (o *Orchestrator) tryRejoin(ctx context.Context, m InstanceMember) {
 	}
 }
 
+// rejoinRewindWait bounds the rewind step: its one-shot container waits up to
+// ten minutes itself. The other steps get tickAttempt each, so a node that
+// stops answering cannot hold the topology lock past it.
+const rejoinRewindWait = 12 * time.Minute
+
 func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 	if m.Role != opmember.Replica || !m.Fenced || m.Phase != opmember.Rewind {
 		return nil
@@ -1314,33 +1319,45 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 	if o.nodeForgotten(ctx, m.NodeID) {
 		return o.members.Delete(ctx, m)
 	}
-	if err := o.nodeUp(ctx, m.NodeID); err != nil {
+	step := func(d time.Duration, what string, fn func(context.Context) error) error {
+		sctx, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		err := fn(sctx)
+		if err != nil && sctx.Err() != nil && ctx.Err() == nil {
+			slog.Warn("failover: rejoin step timed out", "member", m.ID, "node", m.NodeID, "step", what, "after", d)
+		}
 		return err
 	}
-	inst, err := o.operated.Get(ctx, m.InstanceID)
-	if err != nil {
+	var t store.Tile
+	if err := step(tickAttempt, "remove old primary", func(c context.Context) error {
+		if err := o.nodeUp(c, m.NodeID); err != nil {
+			return err
+		}
+		inst, err := o.operated.Get(c, m.InstanceID)
+		if err != nil {
+			return err
+		}
+		if t, err = o.tiles.Get(c, inst.TileID); err != nil {
+			return err
+		}
+		return o.removeOldPrimary(docker.WithNode(c, m.NodeID), t, m)
+	}); err != nil {
 		return err
 	}
-	t, err := o.tiles.Get(ctx, inst.TileID)
-	if err != nil {
+	if err := step(rejoinRewindWait, "rewind", func(c context.Context) error { return o.rewind(c, t, m) }); err != nil {
 		return err
 	}
-	nctx := docker.WithNode(ctx, m.NodeID)
-	if err := o.removeOldPrimary(nctx, t, m); err != nil {
-		return err
-	}
-	if err := o.rewind(ctx, t, m); err != nil {
-		return err
-	}
-	if m, err = o.members.SetFenced(ctx, m, false); err != nil {
-		return err
-	}
-	if m, err = o.members.SetPhase(ctx, m, opmember.Starting); err != nil {
-		return err
-	}
-	o.probeRuns.Delete(m.ID)
-	o.rerouteVIPsAsync(ctx) // its flow to the new primary
-	return o.startMember(ctx, m)
+	return step(tickAttempt, "start", func(c context.Context) (err error) {
+		if m, err = o.members.SetFenced(c, m, false); err != nil {
+			return err
+		}
+		if m, err = o.members.SetPhase(c, m, opmember.Starting); err != nil {
+			return err
+		}
+		o.probeRuns.Delete(m.ID)
+		o.rerouteVIPsAsync(c) // its flow to the new primary
+		return o.startMember(c, m)
+	})
 }
 
 // removeOldPrimary removes what a fenced old primary left on its node: the
