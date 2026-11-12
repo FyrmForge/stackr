@@ -64,6 +64,8 @@ type Peer struct {
 	Issuer string // Fingerprint of the root that vouched for it
 	// Due is whether the cert is in its last third (NeedsRenewal).
 	Due bool
+	// DueAt is when it enters its last third.
+	DueAt time.Time
 }
 
 // Roots is the trust list: the roots a cert may chain to. It is a func so a
@@ -240,7 +242,7 @@ func Verify(roots []*x509.Certificate, chain []*x509.Certificate, role, nodeID s
 	if got != role {
 		return Peer{}, fmt.Errorf("clusterca: role is %q, want %q", got, role)
 	}
-	p := Peer{Role: got, Serial: hex.EncodeToString(leaf.SerialNumber.Bytes()), Issuer: Fingerprint(ca), Due: NeedsRenewal(leaf, now)}
+	p := Peer{Role: got, Serial: hex.EncodeToString(leaf.SerialNumber.Bytes()), Issuer: Fingerprint(ca), Due: NeedsRenewal(leaf, now), DueAt: leaf.NotAfter.Add(-leaf.NotAfter.Sub(leaf.NotBefore) / 3)}
 	if got == RoleWorker {
 		p.NodeID = leaf.Subject.CommonName
 	}

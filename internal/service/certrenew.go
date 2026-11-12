@@ -106,8 +106,13 @@ func (o *Orchestrator) RenewNodeCert(ctx context.Context, req worker.RecoverRequ
 	if err != nil {
 		return worker.RenewAnswer{}, err
 	}
-	if p.CSR == "" || !o.renewDue(peer) {
+	if p.CSR == "" {
 		return worker.RenewAnswer{}, errs.Refusedf("not a node of this cluster")
+	}
+	// A forced renewal ("renew now") is not told apart: a stolen cert must not
+	// turn into a stream of fresh ones, so the cert is renewed once it is due.
+	if !o.renewDue(peer) {
+		return worker.RenewAnswer{}, errs.Refusedf("the node cert is not due for renewal yet (due %s)", peer.DueAt.UTC().Format(time.DateOnly))
 	}
 	c, err := o.renewNodeCert(ctx, peer.NodeID, []byte(p.CSR), "panel")
 	if err != nil {

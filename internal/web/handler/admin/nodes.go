@@ -397,7 +397,11 @@ func (h *handler) keysTab(c echo.Context) (templ.Component, error) {
 		return nil, err
 	}
 	if len(ns) > 1 {
-		v.Tunnel = ui.TunnelKeysView{Every: nodesBase + "/rotate-every", Rotate: nodesBase + "/rotate", Days: strconv.Itoa(h.orch.RotateSchedule(ctx))}
+		v.Tunnel = ui.TunnelKeysView{Every: nodesBase + "/rotate-every", Rotate: comp.ConfirmView{
+			Button: "Rotate all now", Title: "Rotate every node's keys?", Quiet: true, Primary: true,
+			Warning: "Nodes are rotated one at a time, which can take a while.",
+			Action:  nodesBase + "/rotate", Target: ui.Target,
+		}, Days: strconv.Itoa(h.orch.RotateSchedule(ctx))}
 		if f := refill(c, v.Tunnel.Every); f != nil {
 			v.Tunnel.Days = f.Get("days")
 		}

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -49,7 +50,8 @@ var (
 // worker rotation waits in the settings table (rotationKey) until its new
 // keys come in, so a panel restart keeps it.
 type rotation struct {
-	mu sync.Mutex
+	mu  sync.Mutex
+	all atomic.Bool // a full round runs or waits: a second one is refused
 }
 
 const rotationKey = "rotation.trigger."
@@ -99,7 +101,13 @@ func (o *Orchestrator) RotateNodeKeys(ctx context.Context, by *Principal, ref st
 	}
 	trigger := "manual by " + by.User.Email
 	if ref == "" {
-		go o.rotateAll(o.rotateCtx(), trigger)
+		if !o.rotation.all.CompareAndSwap(false, true) {
+			return errs.Conflictf("A rotation of every node is already running.")
+		}
+		go func() {
+			defer o.rotation.all.Store(false)
+			o.rotateAll(o.rotateCtx(), trigger)
+		}()
 		return nil
 	}
 	n, err := o.nodeByRef(ctx, ref)
@@ -355,8 +363,9 @@ func (o *Orchestrator) rotateSchedule(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if o.rotateDue(ctx, time.Now()) {
+			if o.rotateDue(ctx, time.Now()) && o.rotation.all.CompareAndSwap(false, true) {
 				o.rotateAll(ctx, "schedule")
+				o.rotation.all.Store(false)
 			}
 		}
 	}
