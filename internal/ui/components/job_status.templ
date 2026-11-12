@@ -22,7 +22,11 @@ templ JobStatus(v JobStatusView) {
 				@JobStatusBody(v)
 			</div>
 			if v.Refresh != "" {
-				<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ orDrawer(v.Target) } hx-swap="outerHTML"></span>
+				if v.Target == "" {
+					<span hidden data-poll-guard="fields dirty-drawer" data-poll-retry="sse:end" hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ orDrawer(v.Target) } hx-swap="outerHTML"></span>
+				} else {
+					<span hidden hx-get={ v.Refresh } hx-trigger="sse:end" hx-target={ v.Target } hx-swap="outerHTML"></span>
+				}
 			}
 		</div>
 	} else {

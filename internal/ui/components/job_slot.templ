@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"net/url"
 	"strings"
 )
 
@@ -11,6 +12,19 @@ type pathKey struct{}
 // scope's poll URL.
 func WithPath(ctx context.Context, path string) context.Context {
 	return context.WithValue(ctx, pathKey{}, path)
+}
+
+type tabKey struct{}
+
+// WithTab leaves the URI of the tab fragment being drawn on ctx; a job slot
+// passes it to its poll so a job found later refreshes that tab when it ends.
+func WithTab(ctx context.Context, uri string) context.Context {
+	return context.WithValue(ctx, tabKey{}, uri)
+}
+
+func tabOf(ctx context.Context) string {
+	u, _ := ctx.Value(tabKey{}).(string)
+	return u
 }
 
 // jobPoll is the job-live URL of the scope the request path is in: the
@@ -40,6 +54,9 @@ func jobPoll(ctx context.Context, kinds, filter string) string {
 	}
 	if filter != "" {
 		q = append(q, filter)
+	}
+	if t := tabOf(ctx); t != "" {
+		q = append(q, "refresh="+url.QueryEscape(t))
 	}
 	if len(q) > 0 {
 		u += "?" + strings.Join(q, "&")

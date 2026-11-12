@@ -11,6 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"context"
+	"net/url"
 	"strings"
 )
 
@@ -20,6 +21,19 @@ type pathKey struct{}
 // scope's poll URL.
 func WithPath(ctx context.Context, path string) context.Context {
 	return context.WithValue(ctx, pathKey{}, path)
+}
+
+type tabKey struct{}
+
+// WithTab leaves the URI of the tab fragment being drawn on ctx; a job slot
+// passes it to its poll so a job found later refreshes that tab when it ends.
+func WithTab(ctx context.Context, uri string) context.Context {
+	return context.WithValue(ctx, tabKey{}, uri)
+}
+
+func tabOf(ctx context.Context) string {
+	u, _ := ctx.Value(tabKey{}).(string)
+	return u
 }
 
 // jobPoll is the job-live URL of the scope the request path is in: the
@@ -49,6 +63,9 @@ func jobPoll(ctx context.Context, kinds, filter string) string {
 	}
 	if filter != "" {
 		q = append(q, filter)
+	}
+	if t := tabOf(ctx); t != "" {
+		q = append(q, "refresh="+url.QueryEscape(t))
 	}
 	if len(q) > 0 {
 		u += "?" + strings.Join(q, "&")
@@ -122,7 +139,7 @@ func JobSlotFor(job *JobStatusView, kinds, filter string) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(u).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/job_slot.templ`, Line: 66, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/job_slot.templ`, Line: 83, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {

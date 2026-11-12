@@ -12,9 +12,10 @@ import templruntime "github.com/a-h/templ/runtime"
 // LiveTab is the hidden poller a region carries to stay current: every 3s it
 // refetches url and swaps #id with the same element from the answer (which
 // brings the next poller). main.js's poll guard skips a tick while a dialog is
-// open, focus is inside the region, a <details> in it is open or a drawer
-// field has focus. Put it as a direct child of #id: when the region leaves the
-// page htmx stops the poll.
+// open, focus is inside the region, a <details> in it is open, a drawer
+// field has focus or a field in the region holds what was typed (dirty).
+// Put it as a direct child of #id: when the region leaves the page htmx
+// stops the poll.
 func LiveTab(url, id string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -32,14 +33,14 @@ func LiveTab(url, id string) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<span hidden data-live-tab data-poll-guard=\"region rows fields\" hx-get=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<span hidden data-live-tab data-poll-guard=\"region rows fields dirty\" hx-get=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templruntime.NewAttributeExpression(url).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/live_tab.templ`, Line: 10, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/live_tab.templ`, Line: 11, Col: 83}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 		if templ_7745c5c3_Err != nil {
@@ -52,7 +53,7 @@ func LiveTab(url, id string) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + id).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/live_tab.templ`, Line: 10, Col: 122}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/live_tab.templ`, Line: 11, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -65,7 +66,7 @@ func LiveTab(url, id string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression("#" + id).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/live_tab.templ`, Line: 10, Col: 145}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/live_tab.templ`, Line: 11, Col: 151}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {

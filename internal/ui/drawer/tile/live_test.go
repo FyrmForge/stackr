@@ -72,11 +72,15 @@ func TestStatusRegions(t *testing.T) {
 	if m := render(LiveStatus(v, s)); !strings.Contains(page, m) || !strings.Contains(m, "api-1") {
 		t.Errorf("the status region differs between the page and the stream: %q", m)
 	}
-	head := render(actions(v))
-	if !strings.Contains(head, `sse-connect="/o/s/e/-/tiles/api/live?part=head"`) || !strings.Contains(head, `sse-swap="actions"`) || !strings.Contains(head, "Restart") {
-		t.Errorf("header actions are not live:\n%s", head)
+	if head := render(actions(v)); !strings.Contains(head, `sse-swap="actions"`) || !strings.Contains(head, "Restart") || strings.Contains(head, "sse-connect") {
+		t.Errorf("header actions are not live, or open a stream of their own:\n%s", head)
 	}
-	if v.Tab = "terminal"; strings.Contains(render(actions(v)), "sse-connect") {
-		t.Error("the Terminal tab opens a header stream")
+	// the whole drawer holds one connection, the header's and the tab's regions share it
+	if d := render(Drawer(v, Status(v, s))); strings.Count(d, "sse-connect=") != 1 || !strings.Contains(d, `sse-connect="/o/s/e/-/tiles/api/live?tab=status"`) {
+		t.Errorf("the drawer does not hold exactly one stream:\n%s", d)
+	}
+	v.Tab = "terminal"
+	if strings.Contains(render(Drawer(v, Status(v, s))), "sse-connect") {
+		t.Error("the Terminal tab opens a stream")
 	}
 }

@@ -226,10 +226,28 @@ type Msg struct {
 // Watch sends what poll returns, each PollEvery, until the client leaves
 // or a write fails; a quiet stream gets the heartbeat. For streams with
 // many event names (a canvas's "footer:<id>" and "graph").
+//
+// The poll's ctx ends when the client leaves (not at the server's request
+// timeout), so a read in flight for a gone viewer stops instead of finishing.
 func Watch(c echo.Context, poll func(ctx context.Context) ([]Msg, error)) error {
 	ctx, gone := detach(c)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req := c.Request().Context()
+	go func() {
+		select {
+		case <-req.Done():
+			if errors.Is(req.Err(), context.Canceled) {
+				cancel()
+			}
+		case <-ctx.Done():
+		}
+	}()
 	ms, err := poll(ctx)
 	if err != nil {
+		if gone() {
+			return nil
+		}
 		return err
 	}
 	start(c)
@@ -252,6 +270,9 @@ func Watch(c echo.Context, poll func(ctx context.Context) ([]Msg, error)) error 
 		}
 		time.Sleep(PollEvery)
 		if ms, err = poll(ctx); err != nil {
+			if gone() {
+				return nil
+			}
 			return failed(c, err)
 		}
 	}

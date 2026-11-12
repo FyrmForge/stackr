@@ -42,6 +42,9 @@ func Drawer(v View, body templ.Component) templ.Component {
 		EnvColor: v.EnvColor,
 		Actions:  actions(v),
 	}
+	if v.Live != "" && v.Tab != "terminal" { // the shell session of the Terminal tab is left alone
+		d.Stream = v.Live + "?tab=" + v.Tab
+	}
 	if v.NewDigest != "" || v.OutsideFile {
 		d.Strip = strips(v)
 	}

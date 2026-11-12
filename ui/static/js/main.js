@@ -51,8 +51,23 @@ document.addEventListener('htmx:sendError', function(evt) {
 // while the viewer is busy: a confirm dialog is open, and, by token, a field
 // of the drawer has focus ("fields"), a row under the element's parent is
 // expanded ("rows"), or focus is inside the parent ("region"). htmx filters
-// would need 'unsafe-eval', so the check lives here. data-poll-retry names
-// an event to fire again in 3s, for a refresh no timer repeats.
+// would need 'unsafe-eval', so the check lives here. Token "dirty" waits
+// while any field under the parent differs from the value it arrived with
+// (half-typed, however focus left); "dirty-drawer" says the same of the whole
+// drawer. data-poll-retry names an event to fire again in 3s, for a refresh no
+// timer repeats; one retry is pending per element.
+function pollDirty(root) {
+    if (!root) return false;
+    return Array.prototype.some.call(root.querySelectorAll('input,select,textarea'), function (f) {
+        if (f.type === 'hidden' || f.type === 'submit' || f.type === 'button' || f.type === 'file') return false;
+        if (f.type === 'checkbox' || f.type === 'radio') return f.checked !== f.defaultChecked;
+        if (f.tagName === 'SELECT') {
+            return Array.prototype.some.call(f.options, function (o) { return o.selected !== o.defaultSelected; });
+        }
+        return f.value !== f.defaultValue;
+    });
+}
+window.pollDirty = pollDirty;
 document.addEventListener('htmx:beforeRequest', function (evt) {
     var el = evt.detail.elt, g = el.getAttribute && el.getAttribute('data-poll-guard');
     if (g === null) return;
@@ -60,11 +75,18 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
     var busy = document.querySelector('dialog[open]') ||
         (g.indexOf('fields') >= 0 && drawer && drawer.querySelector('input:focus,textarea:focus,select:focus')) ||
         (g.indexOf('rows') >= 0 && box && box.querySelector('details[open]')) ||
-        (g.indexOf('region') >= 0 && box && box.matches(':focus-within'));
+        (g.indexOf('region') >= 0 && box && box.matches(':focus-within')) ||
+        (/(^| )dirty( |$)/.test(g) && pollDirty(box)) ||
+        (g.indexOf('dirty-drawer') >= 0 && pollDirty(drawer));
     if (!busy) return;
     evt.preventDefault();
     var again = el.getAttribute('data-poll-retry');
-    if (again) setTimeout(function () { if (el.isConnected) htmx.trigger(el, again); }, 3000);
+    if (again && !el._pollRetry) {
+        el._pollRetry = setTimeout(function () {
+            el._pollRetry = null;
+            if (el.isConnected) htmx.trigger(el, again);
+        }, 3000);
+    }
 });
 
 // Re-validate a field while typing, but only once it is already showing an
