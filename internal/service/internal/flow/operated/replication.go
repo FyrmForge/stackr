@@ -217,7 +217,9 @@ func (f *Flow) SyncReplHBA(ctx context.Context, it store.Tile, subnets []string)
 		return err
 	}
 	if len(subnets) == 0 && m.ReplPassword != "" {
-		if err := pgExecSQL(ctx, x, i, i.AdminDB, []string{`ALTER ROLE ` + ReplUser + ` NOLOGIN PASSWORD NULL`}); err != nil {
+		// The role may not exist: a standby add that failed before the
+		// primary ran stored the password but never made it.
+		if err := pgExecSQL(ctx, x, i, i.AdminDB, []string{`DO $$BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname = '` + ReplUser + `') THEN ALTER ROLE ` + ReplUser + ` NOLOGIN PASSWORD NULL; END IF; END$$`}); err != nil {
 			return err
 		}
 		if _, err := f.Instances.SetReplPassword(ctx, m, ""); err != nil {
