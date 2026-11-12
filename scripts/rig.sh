@@ -114,8 +114,8 @@ pave() {
 	# The registry's images carry the old org slugs (a new org of the same slug is refused): the container is gone above, drop its data so the installer makes it fresh.
 	rig 'docker rm -f stackr-registry >/dev/null 2>&1; docker volume rm stackr-registry-data >/dev/null 2>&1 || true'
 	rig 'docker network ls -q --filter name=stackr- | xargs -r docker network rm >/dev/null 2>&1 || true'
-	rig docker run --rm -v "$DATA:/d" alpine sh -c "'rm -rf /d/stackr.db /d/stackr.db-shm /d/stackr.db-wal /d/jobs /d/runs /d/backups'"
-	# keys/, install.json and the stackr-caddy volume (certs) stay; the registry volume goes.
+	rig docker run --rm -v "$DATA:/d" alpine sh -c "'rm -rf /d/stackr.db /d/stackr.db-shm /d/stackr.db-wal /d/jobs /d/runs /d/backups /d/keys/recovery.pub /d/keys/recovery.pending'"
+	# keys/master.key (restore needs it), install.json and the stackr-caddy volume (certs) stay; the registry volume goes. The recovery key goes too: with recovery.pub left, the installer makes no new one.
 	install
 	echo "paved to $v; log in as $ADMIN_EMAIL, make the org, then: scripts/rig.sh restore --org <slug>"
 }

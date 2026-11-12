@@ -21,7 +21,7 @@ The box needs its own way out to the internet while it joins: the join line fetc
 
 3. Run it on the new machine as root. It checks the box (Linux, amd64, Docker), downloads `stackr-install` from the panel into a temporary folder, and joins with the same token. The folder is removed when it ends. `/usr/local/bin/stackr-install` stays for upgrades and removal.
 
-   A dev build of the panel has an image that is not on `ghcr.io`, so the join line cannot pull it. Load it on the new machine first, by its digest, and the line uses it: `docker save ghcr.io/fyrmforge/stackr@sha256:<digest> | ssh root@new-machine docker load`. The line only takes an image that has exactly the digest the panel names, so a release is pinned the same way. `docker image inspect ghcr.io/fyrmforge/stackr@sha256:<digest>` on the new machine must succeed.
+   A dev build of the panel has an image that is not on `ghcr.io`, so the join line cannot pull it. Load it on the new machine first, by its tag, and the line uses it: `docker save ghcr.io/fyrmforge/stackr:<version> | ssh root@new-machine docker load`. Saving by digest does not work: the saved image has no tag, and the line looks the image up by `ghcr.io/fyrmforge/stackr:<version>`. `docker image inspect ghcr.io/fyrmforge/stackr:<version>` on the new machine must succeed.
 
    A panel without a trusted certificate (`--https=false`) shows a two-step version instead: download the installer from GitHub, then run its `join` line. The one line is only served over https.
 
