@@ -14,10 +14,11 @@ type KeysView struct {
 
 // TunnelKeysView is the WireGuard keys between nodes. Every (POST days=)
 // sets the schedule, Days the one in force (0 = off) or a refused one as
-// typed; Rotate (POST) rotates them all now. "" = may not.
+// typed; Rotate confirms, then rotates them all now.
 type TunnelKeysView struct {
-	Every, Rotate string
-	Days          string
+	Every  string
+	Rotate c.ConfirmView
+	Days   string
 }
 
 templ Keys(v KeysView) {
@@ -35,9 +36,7 @@ templ Keys(v KeysView) {
 						</div>
 						<button type="submit" class="btn btn-primary btn-sm">Save</button>
 					</form>
-					<form hx-post={ v.Tunnel.Rotate } hx-target={ target() } hx-swap="outerHTML">
-						<button type="submit" class="btn btn-ghost btn-sm">Rotate all now</button>
-					</form>
+					@c.Confirm(v.Tunnel.Rotate)
 				</div>
 				<p class="mt-1.5 text-xs text-rw-faint">0 turns scheduled rotation off.</p>
 			}
