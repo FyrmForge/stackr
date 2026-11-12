@@ -95,6 +95,9 @@ type meshSvc struct {
 	// syncMu runs one plan-and-push at a time: a sync planned with a key
 	// that a controller rotation is replacing must not push after it.
 	syncMu sync.Mutex
+	// planMu runs one plan at a time: a recover re-plans outside syncMu, and
+	// two plans adding the same new pair would save different addresses.
+	planMu sync.Mutex
 	ctlID  string
 	// Controller is the controller's mesh listener URL, named in every
 	// worker's spec (cert renewal over the tunnel); "" = none.
@@ -248,6 +251,8 @@ func (m *meshSvc) Sync(ctx context.Context, only string, force bool) error {
 // plan gathers the nodes, decides the routes and builds every node's spec,
 // keeping them as the last sync's.
 func (m *meshSvc) plan(ctx context.Context) (meshIn, map[string]worker.MeshSpec, error) {
+	m.planMu.Lock()
+	defer m.planMu.Unlock()
 	in, err := m.gather(ctx)
 	if err != nil {
 		return meshIn{}, nil, err
