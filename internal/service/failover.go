@@ -1329,7 +1329,7 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 		return err
 	}
 	var t store.Tile
-	if err := step(tickAttempt, "remove old primary", func(c context.Context) error {
+	if err := step(o.tickAttempt(), "remove old primary", func(c context.Context) error {
 		if err := o.nodeUp(c, m.NodeID); err != nil {
 			return err
 		}
@@ -1347,7 +1347,7 @@ func (o *Orchestrator) rejoin(ctx context.Context, m InstanceMember) error {
 	if err := step(rejoinRewindWait, "rewind", func(c context.Context) error { return o.rewind(c, t, m) }); err != nil {
 		return err
 	}
-	return step(tickAttempt, "start", func(c context.Context) (err error) {
+	return step(o.tickAttempt(), "start", func(c context.Context) (err error) {
 		if m, err = o.members.SetFenced(c, m, false); err != nil {
 			return err
 		}

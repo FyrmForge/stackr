@@ -391,9 +391,7 @@ func TestFinishRemovalsGivesUpOnAHungNode(t *testing.T) {
 	if err := n.orch.RemoveStandby(ctx, r.ID); err == nil {
 		t.Fatal("remove succeeded with the network stuck")
 	}
-	old := tickAttempt
-	tickAttempt = 50 * time.Millisecond
-	defer func() { tickAttempt = old }()
+	n.orch.tickAttemptFor = 50 * time.Millisecond
 	n.wFake.Edit(func() { n.wFake.BlockList = true })
 	done := make(chan struct{})
 	go func() { n.orch.finishRemovals(ctx); close(done) }()

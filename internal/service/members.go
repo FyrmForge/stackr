@@ -290,8 +290,13 @@ func (o *Orchestrator) removeStandby(ctx context.Context, memberID string) error
 // tickAttempt bounds one member's rejoin or removal in the watch tick, which
 // holds the instance's topology lock: a worker that went away without closing
 // its connection would otherwise block the call (and every later tick, which
-// skips a locked instance) for the TCP retry time. A var for tests.
-var tickAttempt = 3 * time.Minute
+// skips a locked instance) for the TCP retry time.
+func (o *Orchestrator) tickAttempt() time.Duration {
+	if o.tickAttemptFor > 0 {
+		return o.tickAttemptFor
+	}
+	return 3 * time.Minute
+}
 
 // finishRemovals retries the drop of members left 'removing'.
 func (o *Orchestrator) finishRemovals(ctx context.Context) {
@@ -309,7 +314,7 @@ func (o *Orchestrator) finishRemovals(ctx context.Context) {
 			continue // an add, remove or rebuild of this instance is in flight
 		}
 		if cur, err := o.members.Get(ctx, m.ID); err == nil {
-			actx, cancel := context.WithTimeout(ctx, tickAttempt)
+			actx, cancel := context.WithTimeout(ctx, o.tickAttempt())
 			if err := o.dropMember(actx, cur); err != nil {
 				slog.Warn("members: removal", "member", m.ID, "timedOut", actx.Err() != nil, "err", err)
 			}
