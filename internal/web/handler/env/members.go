@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/a-h/templ"
@@ -157,6 +158,74 @@ func unreadReason(err error) string {
 // replaces a region's last good markup with the error line.
 const unreadAfter = 3
 
+// overviewMemo shares one overview read per tile among its open drawers: a
+// read is a docker exec (SHOW POOLS), a container list, TileStatus and about
+// eight store reads, and every viewer's stream asked for it every LiveEvery.
+// ponytail: one entry per tile (and per user when the viewer can add
+// standbys), reused for LiveEvery and dropped after a minute unused; one
+// process only, no per-region staleness.
+type overviewMemo struct {
+	mu sync.Mutex
+	m  map[string]*overviewEntry
+}
+
+type overviewEntry struct {
+	mu   sync.Mutex // held while the read runs, so a second viewer waits for it
+	at   time.Time
+	used time.Time
+	o    instance.OverviewView
+}
+
+// overviewOf is the tile's overview, read at most once per LiveEvery however
+// many viewers watch it. A viewer that has gone does not start a read; one
+// already running finishes for the others (detached from the viewer's ctx).
+// o is shared: streams only read it.
+func (h *handler) overviewOf(ctx context.Context, s service.Scope, by *service.Principal, canAdd bool, envURL string) (instance.OverviewView, error) {
+	key := s.Tile.ID
+	if canAdd { // the standby candidates depend on who asks
+		key += "|" + by.User.ID
+	}
+	m := &h.memo
+	m.mu.Lock()
+	if m.m == nil {
+		m.m = map[string]*overviewEntry{}
+	}
+	e := m.m[key]
+	if e == nil {
+		e = &overviewEntry{used: time.Now()}
+		m.m[key] = e
+		for k, x := range m.m {
+			if k != key && x.mu.TryLock() {
+				if time.Since(x.used) > time.Minute {
+					delete(m.m, k)
+				}
+				x.mu.Unlock()
+			}
+		}
+	}
+	m.mu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return instance.OverviewView{}, err
+	}
+	e.used = time.Now()
+	if !e.at.IsZero() && time.Since(e.at) < LiveEvery {
+		return e.o, nil
+	}
+	rctx := context.WithoutCancel(ctx)
+	o := h.pgLive(rctx, by, canAdd, s.Tile.ID, instance.OverviewView{})
+	o = h.pgStatic(rctx, s, s.Tile.ID, o)
+	if st, err := h.orch.TileStatus(rctx, s.Tile.ID); err != nil {
+		o.Unread["job"] = unreadReason(err)
+	} else if st.LastJob != nil {
+		j := render.JobView(envURL, *st.LastJob)
+		o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+	}
+	e.o, e.at = o, time.Now()
+	return o, nil
+}
+
 // GET …/-/instances/:tile/live: the open overview's stream, the same
 // polling stream as the canvas's. One event per region (pooler, members,
 // failover, sync, job, overview, slices): every region once at connect, then only when its markup
@@ -182,13 +251,9 @@ func (h *handler) InstanceLive(c echo.Context) error {
 			return nil, nil
 		}
 		last = time.Now()
-		o := h.pgLive(ctx, by, canAdd, s.Tile.ID, instance.OverviewView{})
-		o = h.pgStatic(ctx, s, s.Tile.ID, o)
-		if st, err := h.orch.TileStatus(ctx, s.Tile.ID); err != nil {
-			o.Unread["job"] = unreadReason(err)
-		} else if st.LastJob != nil {
-			j := render.JobView(render.EnvURL(c), *st.LastJob)
-			o.Job, o.JobWhen = &j, st.LastJob.CreatedAt
+		o, err := h.overviewOf(ctx, s, by, canAdd, render.EnvURL(c))
+		if err != nil {
+			return nil, err // the viewer left before a read began
 		}
 		var out []stream.Msg
 		for _, r := range regions {

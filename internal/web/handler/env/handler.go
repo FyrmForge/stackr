@@ -36,7 +36,10 @@ import (
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
-type handler struct{ orch *service.Orchestrator }
+type handler struct {
+	orch *service.Orchestrator
+	memo overviewMemo // the instance drawers' shared overview reads
+}
 
 func NewHandler(orch *service.Orchestrator) *handler {
 	return &handler{orch: orch}
