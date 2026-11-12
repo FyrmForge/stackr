@@ -1031,6 +1031,9 @@ func (a *app) tiles() *cobra.Command {
 			}
 		}
 		q := url.Values{"container": {exCont}, "cmd": argv}
+		if exLimit == "" && exStdin {
+			exLimit = "1h" // a piped restore or import outlives the 50s default
+		}
 		if exLimit != "" {
 			q.Set("timeout", exLimit)
 		}
@@ -1053,7 +1056,7 @@ func (a *app) tiles() *cobra.Command {
 	}
 	exec.Flags().StringVar(&exCont, "container", "", "the replica (default: a running one)")
 	exec.Flags().BoolVarP(&exStdin, "stdin", "i", false, "send stdin to the command (until its EOF)")
-	exec.Flags().StringVar(&exLimit, "timeout", "", "stop the command after this long, e.g. 5m (default 50s, max 1h)")
+	exec.Flags().StringVar(&exLimit, "timeout", "", "stop the command after this long, e.g. 5m (default 50s, 1h with -i; max 1h)")
 
 	return scoped(noun("tile", "Tiles: the deployed units",
 		a.get("ls", "tile.list", "List the env's tiles", atEnv, "/tiles", tileCols...),

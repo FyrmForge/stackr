@@ -3749,7 +3749,7 @@ stackr tile exec [tile] -- <cmd>... [flags]
       --stack string       the stack (default: the linked one)
   -i, --stdin              send stdin to the command (until its EOF)
       --tile string        the tile (default: the linked one)
-      --timeout string     stop the command after this long, e.g. 5m (default 50s, max 1h)
+      --timeout string     stop the command after this long, e.g. 5m (default 50s, 1h with -i; max 1h)
 ```
 
 ### `stackr tile forward`
