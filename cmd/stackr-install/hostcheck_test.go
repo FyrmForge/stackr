@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/netip"
 	"strings"
 	"testing"
@@ -114,5 +115,35 @@ func TestBusyPorts(t *testing.T) {
 	ctl := fixedPorts(false, 51900)
 	if len(ctl) != 1 || ctl[0].addr != ":51900" {
 		t.Fatalf("controller ports = %v", ctl)
+	}
+}
+
+func TestControllerPortsMeshUpNoPanic(t *testing.T) {
+	if got := controllerPorts(0, true); len(got) != 0 {
+		t.Fatalf("mesh up: %v, want none", got)
+	}
+	if got := controllerPorts(0, false); len(got) != 1 {
+		t.Fatalf("mesh down: %v, want the WireGuard port", got)
+	}
+}
+
+func TestPruneStackrNets(t *testing.T) {
+	var out strings.Builder
+	rd := func(_ context.Context, _ string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "network ls --format {{.Name}}":
+			return "bridge\nstackr-builder-net\nstackr-ingress-a\nstackr-ingress-b\nmine", nil
+		case "network inspect --format {{len .Containers}} stackr-ingress-b":
+			return "2", nil
+		}
+		return "0", nil
+	}
+	runner{dry: true, out: &out}.pruneStackrNets(context.Background(), rd)
+	got := out.String()
+	if !strings.Contains(got, "network rm stackr-builder-net") || !strings.Contains(got, "network rm stackr-ingress-a") {
+		t.Errorf("empty stackr networks not removed:\n%s", got)
+	}
+	if strings.Contains(got, "rm stackr-ingress-b") || strings.Contains(got, "rm mine") {
+		t.Errorf("removed a busy or foreign network:\n%s", got)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -250,6 +251,40 @@ func fixedPorts(worker bool, wgPort int) []portUse {
 	return []portUse{wg,
 		{":" + joinWorkerPort, "tcp", "the worker API"},
 		{":7444", "tcp", "the worker's liveness answer"},
+	}
+}
+
+// controllerPorts are the fixed ports a fresh controller install checks; a
+// mesh already up holds the WireGuard port itself, so it is skipped.
+func controllerPorts(wgPort int, meshUp bool) []portUse {
+	ps := fixedPorts(false, cmp.Or(wgPort, mesh.DefaultPort))
+	if meshUp {
+		return ps[1:]
+	}
+	return ps
+}
+
+// stackrNet reports whether a Docker network is one stackr made itself.
+func stackrNet(name string) bool {
+	return name == "stackr-builder-net" || strings.HasPrefix(name, "stackr-ingress-")
+}
+
+// pruneStackrNets removes stackr's own networks that no container uses: a
+// restore on the box that ran the old panel finds them sitting in the
+// cluster's pool, where they would fail the overlap check.
+func (r runner) pruneStackrNets(ctx context.Context, rd func(context.Context, string, ...string) (string, error)) {
+	out, _ := rd(ctx, "docker", "network", "ls", "--format", "{{.Name}}")
+	for _, name := range strings.Fields(out) {
+		if !stackrNet(name) {
+			continue
+		}
+		if n, _ := rd(ctx, "docker", "network", "inspect", "--format", "{{len .Containers}}", name); n != "0" {
+			continue
+		}
+		r.say("  removing leftover empty network", name)
+		if err := r.docker(ctx, "network", "rm", name); err != nil {
+			r.say("  could not remove it (docker network rm "+name+"):", err)
+		}
 	}
 }
 

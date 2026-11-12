@@ -139,16 +139,12 @@ Flags:
 		fillFrom(&in, saved, given)
 	}
 	if !r.dry {
+		if fresh {
+			r.pruneStackrNets(ctx, read)
+		}
 		miss := requirements(gatherHost(ctx), false, fresh)
 		if fresh {
-			ps := fixedPorts(false, cmp.Or(in.WGPort, mesh.DefaultPort))
-			if meshUp() {
-				ps = ps[1:]
-			}
-			if r.exists(ctx, "container", installspec.RegistryName) {
-				ps = ps[:len(ps)-1]
-			}
-			miss = append(miss, busyPorts(ps, hostBusy)...)
+			miss = append(miss, busyPorts(controllerPorts(in.WGPort, meshUp()), hostBusy)...)
 		}
 		if err := failRequirements(r, miss); err != nil {
 			return err

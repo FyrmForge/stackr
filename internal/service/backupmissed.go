@@ -117,7 +117,7 @@ func (o *Orchestrator) unscheduled(ctx context.Context, scheduled map[string]*vo
 			continue
 		}
 		if runs, err := o.store.BackupRuns.ListByVolume(ctx, v.ID); err == nil && len(runs) == 0 {
-			if _, err := o.AddBackupSchedule(ctx, v.ID, ScheduleSpec{Cron: "@daily", Keep: 7}); err == nil {
+			if err := o.defaultSchedule(ctx, v.ID); err == nil {
 				o.clearProblem(ctx, key)
 				continue
 			}
@@ -126,6 +126,21 @@ func (o *Orchestrator) unscheduled(ctx context.Context, scheduled map[string]*vo
 		o.openProblem(ctx, key, SevWarning, v.Slug+" has no backup.")
 	}
 	o.sweep(ctx, "backup.none.", func(rest string) bool { return keep[rest] })
+}
+
+// defaultSchedule adds the @daily default unless the volume already has a
+// schedule. Several schedules per volume are legal, so no unique index can
+// guard it; the lock plus re-check makes concurrent callers add one.
+func (o *Orchestrator) defaultSchedule(ctx context.Context, volumeID string) error {
+	o.defSchedMu.Lock()
+	defer o.defSchedMu.Unlock()
+	if ss, err := o.backups.Schedules(ctx, volumeID); err != nil {
+		return err
+	} else if len(ss) > 0 {
+		return nil
+	}
+	_, err := o.AddBackupSchedule(ctx, volumeID, ScheduleSpec{Cron: "@daily", Keep: 7})
+	return err
 }
 
 func noneKey(volumeID string) string { return "alert.backup.none." + volumeID }

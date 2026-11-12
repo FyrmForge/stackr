@@ -245,9 +245,10 @@ type Orchestrator struct {
 	cfg Config
 	// recMu guards the recovery key's public half and generation, which a
 	// rotation changes while backups read them (backup.go).
-	recMu  sync.Mutex
-	recPub string
-	recGen int
+	recMu      sync.Mutex
+	defSchedMu sync.Mutex // serialises default-schedule creation (see defaultSchedule)
+	recPub     string
+	recGen     int
 	// recoverSeen are the nonces of recent recovery calls (RecoverNode).
 	recoverSeen recoverNonces
 	db          *sqlx.DB

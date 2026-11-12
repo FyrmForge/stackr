@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,5 +96,23 @@ func TestBackupWatchDefaultsAndWarns(t *testing.T) {
 	}
 	if hasRow(t, o, "problem.backup.none."+bare.ID) {
 		t.Error("orphaned volume's problem row not cleared")
+	}
+}
+
+func TestDefaultScheduleConcurrentOnce(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	v := store.Volume{ID: "v-c", ScopeKind: "env", ScopeID: w.env, Slug: "c", Name: "c", CreatedAt: time.Now()}
+	must(t, w.st.Volumes.Create(ctx, v))
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _ = w.orch.defaultSchedule(ctx, v.ID) }()
+	}
+	wg.Wait()
+	ss, err := w.orch.backups.Schedules(ctx, v.ID)
+	must(t, err)
+	if len(ss) != 1 {
+		t.Errorf("schedules = %d, want 1", len(ss))
 	}
 }

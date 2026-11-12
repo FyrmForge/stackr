@@ -48,7 +48,9 @@ The recovery key is never in the archive; keep it off the box.
 
 ### Restore the panel
 
-1. On a new box, install first with the same flags as the old one (see [Install](install.md)). Restore needs that install's answers.
+1. Note the old install's flags before the old box is gone (`--panel-host`, `--domain`, `--proxy` and the rest). They are kept in `install.json` in the old box's data dir, which the archive does not hold, so copy that file or write them down. On the new box, install first with the same flags (see [Install](install.md)). Restore needs that install's answers.
+
+   On the same box, the installer copes with what the old install left: `stackr-registry` may still be running, and empty `stackr-builder-net` and `stackr-ingress-*` networks are removed with a printed line instead of failing the address check. A network with a container in it is left and still fails the check.
 2. On the controller, as root, from a local archive (they are under `/var/lib/stackr/backups/stackr/_panel/`):
 
    ```bash
