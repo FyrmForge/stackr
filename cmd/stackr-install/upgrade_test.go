@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -90,5 +92,38 @@ func TestSwapPanelMountsDataDir(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "/data:/data") {
 		t.Fatalf("no data dir mount in:\n%s", out.String())
+	}
+}
+
+// A swap that rolls the panel back puts the proxy back on the old image.
+func TestFailedSwapRestoresProxy(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "log")
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\n" + `case "$*" in
+*upgrade-swap*) exit 1;;
+*Config.Image*) echo img:old;;
+*Labels*) echo stamp;;
+container*) exit 1;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	in := installspec.Input{Root: "x.io", PanelHost: "p.x.io", HTTPPort: "80", DataDir: "/data", Bind: "172.17.0.1"}
+	var swap step
+	for _, s := range (runner{out: &bytes.Buffer{}}).upgradeSteps(in, "old", "0.8.2", true) {
+		if s.name == "panel swap" {
+			swap = s
+		}
+	}
+	if err := swap.do(context.Background()); err == nil {
+		t.Fatal("want the swap failure")
+	}
+	b, _ := os.ReadFile(log)
+	i := strings.Index(string(b), "upgrade-swap")
+	if i < 0 || !strings.Contains(string(b)[i:], "img:old") {
+		t.Fatalf("proxy not re-run from img:old after the failed swap:\n%s", b)
 	}
 }
