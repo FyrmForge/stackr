@@ -33,7 +33,7 @@ func newRollbackRig(t *testing.T, code int) *rollbackRig {
 		{ID: "pn", Name: "stackr-0.9.0", State: "running", Image: oldImg, Labels: map[string]string{installspec.LabelRole: "panel"}},
 		{ID: "px", Name: installspec.ProxyName, State: "running", Image: newImg, Labels: map[string]string{installspec.LabelRole: "proxy", installspec.LabelSpec: newImg}},
 	}
-	n.ctlFake.Details = map[string]docker.Detail{"up": {State: "exited", ExitCode: code}}
+	n.ctlFake.Details = map[string]docker.Detail{"up": {State: "exited", ExitCode: code, Image: newImg}}
 	n.orch.upgrade.Docker = n.orch.docker
 	n.orch.upgrade.ProxySpec = func(image string) docker.ContainerSpec {
 		return docker.ContainerSpec{Name: installspec.ProxyName, Image: image, Labels: map[string]string{installspec.LabelRole: "proxy", installspec.LabelSpec: image}}
@@ -119,5 +119,29 @@ func TestUndoFailedUpgradeAfterCleanExit(t *testing.T) {
 	}
 	if !slices.ContainsFunc(r.n.ctlFake.Calls(), func(c dockerfake.Call) bool { return c.Method == "StopRemove" && c.Args[0] == "up" }) {
 		t.Error("helper kept")
+	}
+}
+
+// The installer writes no upgrade job. The target of the failed trial is the
+// helper's image tag: an older job for the running version is left alone and
+// the running version's image stays in the registry.
+func TestUndoFailedUpgradeKeepsRunningVersion(t *testing.T) {
+	r := newRollbackRig(t, 1)
+	ctx := context.Background()
+	r.n.orch.cfg.Version = "0.9.0"
+	// a newer job naming the running version; the helper's target is 0.9.1
+	must(t, r.n.st.Jobs.Create(ctx, store.Job{ID: uuid.NewString(), Kind: string(kindUpgrade), State: "done", Payload: `{"tag":"v0.9.0"}`, LockSet: store.StringList{}, CreatedAt: time.Now().Add(time.Hour)}))
+	stackrDigests.Store("0.9.0", "sha256:old")
+	r.n.orch.undoFailedUpgrade(ctx)
+	if !r.reg.has(stackrRepo, "0.9.0") || r.reg.has(stackrRepo, "0.9.1") {
+		t.Errorf("registry tags: %v", r.reg.tags[stackrRepo])
+	}
+	if _, ok := stackrDigests.Load("0.9.0"); !ok {
+		t.Error("running version's digest dropped")
+	}
+	js, err := r.n.st.Jobs.ListByState(ctx, "failed")
+	must(t, err)
+	if len(js) != 1 || js[0].ID != r.job.ID {
+		t.Errorf("failed jobs: %v", js)
 	}
 }

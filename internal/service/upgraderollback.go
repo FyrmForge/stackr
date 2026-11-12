@@ -37,13 +37,19 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 	}
 	for _, c := range cs {
 		d, err := o.docker.Inspect(ctx, c.ID)
-		if err != nil || d.State != "exited" || (d.ExitCode == 0 && !o.cleanRollback(ctx)) {
+		// The helper runs the target's image (installer and panel alike), so
+		// its tag is the trial's target, whatever the job table says.
+		target := ""
+		if i := strings.LastIndex(d.Image, ":"); i >= 0 && !strings.Contains(d.Image[i:], "/") {
+			target = d.Image[i+1:]
+		}
+		if err != nil || d.State != "exited" || (d.ExitCode == 0 && !o.cleanRollback(target)) {
 			continue
 		}
 		logs, _ := o.docker.Logs(ctx, c.ID, 20)
 		slog.Warn("upgrade: the new panel failed its trial, rolling back", "helper", logs)
 		// Kept on an error: the helper is the marker the next boot retries from.
-		if err := o.rollBackUpgrade(ctx); err != nil {
+		if err := o.rollBackUpgrade(ctx, target); err != nil {
 			slog.Warn("upgrade rollback: not finished, retried at next boot", "err", err)
 			continue
 		}
@@ -57,28 +63,15 @@ func (o *Orchestrator) undoFailedUpgrade(ctx context.Context) {
 // restart policy must not rerun it) left this panel in place, not the
 // upgrade's target. Exit 0 with this panel AT the target is a pass. A dev
 // build or an unknown target is never a rollback.
-func (o *Orchestrator) cleanRollback(ctx context.Context) bool {
+func (o *Orchestrator) cleanRollback(target string) bool {
 	v := strings.TrimPrefix(o.cfg.Version, "v")
-	if v == "" || v == "dev" {
-		return false
-	}
-	js, err := o.store.Jobs.ListByState(ctx, "done", "failed") // newest first
-	if err != nil {
-		return false
-	}
-	for _, j := range js {
-		if j.Kind != string(kindUpgrade) {
-			continue
-		}
-		var p upgradeJob
-		_ = json.Unmarshal([]byte(j.Payload), &p)
-		return p.Tag != "" && strings.TrimPrefix(p.Tag, "v") != v
-	}
-	return false
+	return v != "" && v != "dev" && target != "" && strings.TrimPrefix(target, "v") != v
 }
 
-// rollBackUpgrade undoes the newest upgrade job's effects and fails it.
-func (o *Orchestrator) rollBackUpgrade(ctx context.Context) error {
+// rollBackUpgrade undoes the failed trial of target (the helper's image tag):
+// its effects, and the upgrade job for that tag if the panel ran one (the
+// installer writes none). Other jobs are left alone.
+func (o *Orchestrator) rollBackUpgrade(ctx context.Context, target string) error {
 	// done: as the old panel left it; failed: a restored database that still
 	// had it running, which boot fails as interrupted.
 	js, err := o.store.Jobs.ListByState(ctx, "done", "failed") // newest first
@@ -91,9 +84,11 @@ func (o *Orchestrator) rollBackUpgrade(ctx context.Context) error {
 		}
 		var p upgradeJob
 		_ = json.Unmarshal([]byte(j.Payload), &p)
-		return errors.Join(o.undoUpgradeEffects(ctx, p.Tag), o.jobRows.Finish(ctx, j, job.Failed, upgradeRolledBackMsg))
+		if target != "" && strings.TrimPrefix(p.Tag, "v") == strings.TrimPrefix(target, "v") {
+			return errors.Join(o.undoUpgradeEffects(ctx, target), o.jobRows.Finish(ctx, j, job.Failed, upgradeRolledBackMsg))
+		}
 	}
-	return nil
+	return o.undoUpgradeEffects(ctx, target)
 }
 
 // undoUpgradeEffects puts back what the upgrade changed before the swap:
@@ -104,7 +99,8 @@ func (o *Orchestrator) undoUpgradeEffects(ctx context.Context, tag string) error
 	if err == nil {
 		err = o.upgrade.EnsureProxy(ctx, img)
 	}
-	if tag == "" {
+	// Never the running version's own image: it is what the workers pull.
+	if tag == "" || strings.TrimPrefix(tag, "v") == strings.TrimPrefix(o.cfg.Version, "v") {
 		return err
 	}
 	ref := stackrTagRef(upgrade.ImageRef(tag))
