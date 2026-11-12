@@ -12,7 +12,9 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"context"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type pathKey struct{}
@@ -67,10 +69,9 @@ func jobPoll(ctx context.Context, kinds, filter string) string {
 	if t := tabOf(ctx); t != "" {
 		q = append(q, "refresh="+url.QueryEscape(t))
 	}
-	if len(q) > 0 {
-		u += "?" + strings.Join(q, "&")
-	}
-	return u
+	// since: a job created after this render shows even when it ends between polls
+	q = append(q, "since="+strconv.FormatInt(time.Now().UnixMilli(), 10))
+	return u + "?" + strings.Join(q, "&")
 }
 
 // JobSlot is where a tab shows its scope's job: the one the page was handed
@@ -139,7 +140,7 @@ func JobSlotFor(job *JobStatusView, kinds, filter string) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(u).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/job_slot.templ`, Line: 83, Col: 51}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/job_slot.templ`, Line: 84, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {

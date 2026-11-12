@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sync"
+	"time"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
 	"github.com/labstack/echo/v4"
@@ -20,6 +22,39 @@ import (
 // The Git source capability's tab: where its provider delivers events,
 // the provider's page for it, who may use a server one, and the repos it
 // may read. The same for every git kind.
+
+// installAnswer is the provider's last install-status answer for a connection.
+type installAnswer struct {
+	repos  int
+	failed bool
+	at     time.Time
+}
+
+const installTTL = time.Minute
+
+// installCache holds the answers by "<org>/<connector>", so a list poll or
+// a recheck inside installTTL never asks the provider again.
+// ponytail: in-memory per process, grows by one entry per connector and org;
+// a shared cache if the panel ever runs more than one instance.
+var (
+	installMu    sync.Mutex
+	installCache = map[string]installAnswer{}
+)
+
+func (p Panel) installKey(c echo.Context, id string) string {
+	org := ""
+	if o := p.Org(c); o != nil {
+		org = *o
+	}
+	return org + "/" + id
+}
+
+func cachedInstall(key string) (installAnswer, bool) {
+	installMu.Lock()
+	defer installMu.Unlock()
+	a, ok := installCache[key]
+	return a, ok && time.Since(a.at) < installTTL
+}
 
 func (p Panel) mountGit(g *echo.Group, prefix string, gate, repos echo.MiddlewareFunc) {
 	g.POST(prefix+"/:connector/share", p.share, gate)
@@ -62,6 +97,9 @@ func (p Panel) gitRow(c echo.Context, k service.Connector, shares map[string]ser
 		return nil
 	}
 	r.Check = p.Base(c) + "/" + k.ID + "/installed"
+	if a, ok := cachedInstall(p.installKey(c, k.ID)); ok {
+		r.Answered, r.Repos, r.Failed = true, a.repos, a.failed
+	}
 	if p.Org(c) == nil {
 		u, err := p.Orch.ConnectorInstallBack(c.Request().Context(), nil, k.ID, p.ret(c))
 		if err != nil {
@@ -177,12 +215,21 @@ func (p Panel) repos(c echo.Context) error {
 // provider as the row loads. One that does not answer is a chip, not an
 // error page: the rest of the tab still works.
 func (p Panel) installed(c echo.Context) error {
-	rs, err := p.reposOf(c)
-	if errors.Is(err, errs.ErrNotFound) {
-		return middleware.HTTPError(err)
+	id := c.Param("connector")
+	key := p.installKey(c, id)
+	a, ok := cachedInstall(key)
+	if !ok {
+		rs, err := p.reposOf(c)
+		if errors.Is(err, errs.ErrNotFound) {
+			return middleware.HTTPError(err)
+		}
+		if err != nil {
+			slog.Warn("connector install check", "connector", id, "err", err)
+		}
+		a = installAnswer{repos: len(rs), failed: err != nil, at: time.Now()}
+		installMu.Lock()
+		installCache[key] = a
+		installMu.Unlock()
 	}
-	if err != nil {
-		slog.Warn("connector install check", "connector", c.Param("connector"), "err", err)
-	}
-	return respond.HTML(c, http.StatusOK, connectors.InstallStatus(c.Param("connector"), len(rs), err != nil, c.Request().URL.Path))
+	return respond.HTML(c, http.StatusOK, connectors.InstallStatus(id, a.repos, a.failed, c.Request().URL.Path))
 }

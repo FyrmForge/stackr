@@ -27,3 +27,24 @@ func TestInstallStatusRechecks(t *testing.T) {
 		}
 	}
 }
+
+// A row with a known install answer renders it and fires no load-time check,
+// so the list's poll never re-asks; one without asks once as it loads.
+func TestRowChecksOnlyWithoutAnswer(t *testing.T) {
+	render := func(r Row) string {
+		var b strings.Builder
+		if err := row(r).Render(context.Background(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	base := Row{ID: "c1", Kind: "GitHub", Name: "n", Check: "/x/c1/installed"}
+	if got := render(base); !strings.Contains(got, `hx-trigger="load"`) {
+		t.Errorf("unanswered row does not check: %s", got)
+	}
+	base.Answered, base.Repos = true, 2
+	got := render(base)
+	if strings.Contains(got, `hx-trigger="load"`) || strings.Contains(got, "hx-post") || !strings.Contains(got, "2 repos") {
+		t.Errorf("answered row checks again or lacks the answer: %s", got)
+	}
+}

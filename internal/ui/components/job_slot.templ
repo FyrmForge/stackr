@@ -3,7 +3,9 @@ package components
 import (
 	"context"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type pathKey struct{}
@@ -58,10 +60,9 @@ func jobPoll(ctx context.Context, kinds, filter string) string {
 	if t := tabOf(ctx); t != "" {
 		q = append(q, "refresh="+url.QueryEscape(t))
 	}
-	if len(q) > 0 {
-		u += "?" + strings.Join(q, "&")
-	}
-	return u
+	// since: a job created after this render shows even when it ends between polls
+	q = append(q, "since="+strconv.FormatInt(time.Now().UnixMilli(), 10))
+	return u + "?" + strings.Join(q, "&")
 }
 
 // JobSlot is where a tab shows its scope's job: the one the page was handed

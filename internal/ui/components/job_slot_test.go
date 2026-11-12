@@ -15,7 +15,7 @@ func TestJobPollScopes(t *testing.T) {
 		"/acme/web/prod/-/drawer/sync/staging": "/acme/web/prod/-/job-live?kind=a",
 		"/":                                    "",
 	} {
-		if got := jobPoll(WithPath(context.Background(), path), "a", ""); got != want {
+		if got := jobPoll(WithPath(context.Background(), path), "a", ""); !strings.HasPrefix(got, want) || (want != "" && !strings.Contains(got, "&since=")) {
 			t.Errorf("%s: %q, want %q", path, got, want)
 		}
 	}
@@ -28,7 +28,7 @@ func TestJobSlot(t *testing.T) {
 	if err := JobSlot(nil, "env-sync").Render(ctx, &b); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`id="job-slot"`, `hx-get="/acme/web/prod/-/job-live?kind=env-sync"`, `hx-select="#job-slot"`, `every 5s`} {
+	for _, want := range []string{`id="job-slot"`, `hx-get="/acme/web/prod/-/job-live?kind=env-sync&amp;since=`, `hx-select="#job-slot"`, `every 5s`} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("idle slot lacks %q: %s", want, b.String())
 		}

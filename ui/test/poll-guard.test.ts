@@ -28,8 +28,13 @@ test("a field that differs from what arrived is dirty", () => {
   assert.equal(pollDirty(root([field({ value: "typed" })])), true);
   assert.equal(pollDirty(root([field({ type: "checkbox", checked: true, defaultChecked: false })])), true);
   assert.equal(pollDirty(root([field({ type: "hidden", value: "x" })])), false);
-  const sel = { type: "select-one", tagName: "SELECT", options: [{ selected: true, defaultSelected: false }] };
-  assert.equal(pollDirty(root([sel])), true);
+  const opt = (defaultSelected: boolean) => ({ defaultSelected });
+  const select = (options: unknown[], selectedIndex: number) => ({ type: "select-one", tagName: "SELECT", multiple: false, options, selectedIndex });
+  // no option marked selected: the browser selects option 0, which is not dirty
+  assert.equal(pollDirty(root([select([opt(false), opt(false)], 0)])), false);
+  assert.equal(pollDirty(root([select([opt(false), opt(false)], 1)])), true);
+  assert.equal(pollDirty(root([select([opt(false), opt(true)], 1)])), false);
+  assert.equal(pollDirty(root([select([opt(false), opt(true)], 0)])), true);
   assert.equal(pollDirty(null), false);
 });
 

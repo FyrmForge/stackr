@@ -3,8 +3,10 @@ package web_test
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/web/webtest"
 )
@@ -81,5 +83,28 @@ func TestJobLiveEndsIdleAndRefreshes(t *testing.T) {
 	b = get(stack + "&end=1")
 	if !strings.Contains(b, `id="job-slot"`) || !strings.Contains(b, `hx-trigger="every 5s"`) {
 		t.Errorf("slot not idle and polling after its job ended:\n%s", b)
+	}
+}
+
+// A job that began and ended between two polls shows once the slot sent its
+// render time, and the answer polls on with a newer since.
+func TestJobLiveFinishedSinceShows(t *testing.T) {
+	s := webtest.New(t)
+	since := time.Now().Add(-time.Second).UnixMilli()
+	path := "/acme/shop/dev/-/job-live?since=" + strconv.FormatInt(since, 10)
+	if code := s.Do(t, "GET", path, nil).Code; code != http.StatusNoContent {
+		t.Fatalf("no job: %d, want 204", code)
+	}
+	payload := `{"org_id":"` + s.Org + `","stack_id":"` + s.Tile.Stack + `","tile_id":"` + s.Tile.ID + `"}`
+	s.JobWith(t, "panel-backup", "done", payload)
+	r := s.Do(t, "GET", path, nil)
+	if r.Code != http.StatusOK || !strings.Contains(r.Body.String(), "/-/jobs/") {
+		t.Fatalf("finished job not shown: %d\n%s", r.Code, r.Body.String())
+	}
+	if !strings.Contains(r.Body.String(), "since=") {
+		t.Errorf("answer does not poll on with a new since:\n%s", r.Body.String())
+	}
+	if code := s.Do(t, "GET", "/acme/shop/dev/-/job-live", nil).Code; code != http.StatusNoContent {
+		t.Errorf("without since a finished job showed: %d", code)
 	}
 }

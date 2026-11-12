@@ -62,6 +62,11 @@ function pollDirty(root) {
         if (f.type === 'hidden' || f.type === 'submit' || f.type === 'button' || f.type === 'file') return false;
         if (f.type === 'checkbox' || f.type === 'radio') return f.checked !== f.defaultChecked;
         if (f.tagName === 'SELECT') {
+            if (!f.multiple) {
+                // no option marked selected: the browser picks option 0, so that is the default
+                var d = Array.prototype.findIndex.call(f.options, function (o) { return o.defaultSelected; });
+                return f.selectedIndex !== (d < 0 ? 0 : d);
+            }
             return Array.prototype.some.call(f.options, function (o) { return o.selected !== o.defaultSelected; });
         }
         return f.value !== f.defaultValue;
