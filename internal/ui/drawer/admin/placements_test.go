@@ -44,7 +44,7 @@ func TestMoveWizardChecks(t *testing.T) {
 	v.OK, v.Checks[1].OK, v.Checks[1].Detail = true, true, ""
 	v.Confirm = c.ConfirmView{Button: "Move", Title: "Move eu-prod to h4?", Word: "eu-prod", Kept: []string{"data"}, Action: "/x/move", Target: "#drawer"}
 	out = render(t, MoveWizard(v))
-	if !strings.Contains(out, "<confirm-dialog") || !strings.Contains(out, `word="eu-prod"`) || strings.Contains(out, "disabled") ||
+	if !strings.Contains(out, "<confirm-dialog") || !strings.Contains(out, `word="eu-prod"`) || strings.Contains(out, `btn-danger" disabled`) ||
 		!strings.Contains(out, `font-medium">2 Checks`) {
 		t.Errorf("passing wizard lacks the confirm\n%s", out)
 	}

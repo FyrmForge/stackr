@@ -51,6 +51,8 @@ class ConfirmDialog extends HTMLElement {
     this.form?.addEventListener("submit", this.onSubmit);
     this.addEventListener("click", this.onClick);
     this.addEventListener("input", this.onInput);
+    // rendered disabled so a click before this element upgrades is not lost
+    this.querySelectorAll<HTMLButtonElement>("button[data-open]").forEach((b) => (b.disabled = false));
     // open: the server answered with the question (a promote's plan).
     if (this.hasAttribute("open")) {
       this.reset();

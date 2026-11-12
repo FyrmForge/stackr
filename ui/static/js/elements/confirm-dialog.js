@@ -45,6 +45,7 @@ class ConfirmDialog extends HTMLElement {
         this.form?.addEventListener("submit", this.onSubmit);
         this.addEventListener("click", this.onClick);
         this.addEventListener("input", this.onInput);
+        this.querySelectorAll("button[data-open]").forEach((b) => (b.disabled = false));
         if (this.hasAttribute("open")) {
             this.reset();
             this.querySelector("dialog")?.showModal();

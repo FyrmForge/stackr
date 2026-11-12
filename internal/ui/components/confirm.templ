@@ -49,7 +49,8 @@ func swapOf(target string) string {
 }
 
 // confirm is v0's typed Modal look (.modal-panel/head/body/foot) on a
-// native <dialog>; the X in the head is a second [data-cancel]. Vals and
+// native <dialog>; the opener renders disabled and confirm-dialog enables it
+// when it upgrades, so a click before the element is defined is never lost; the X in the head is a second [data-cancel]. Vals and
 // Include stay on the wrapper; a form in Body (the plan's scope) posts its
 // own fields and sets hx-vals="unset".
 templ confirm(v ConfirmView, swap string) {
@@ -72,7 +73,7 @@ templ confirm(v ConfirmView, swap string) {
 	>
 		<confirm-dialog word={ v.Word } open?={ v.Open }>
 			if !v.Open {
-				<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open if v.Label != "" { aria-label={ v.Label } }>{ v.Button }</button>
+				<button type="button" class={ "btn btn-sm", templ.KV("btn-ghost", v.Quiet), templ.KV("btn-primary", !v.Quiet && v.Primary), templ.KV("btn-danger", !v.Quiet && !v.Primary) } data-open disabled if v.Label != "" { aria-label={ v.Label } }>{ v.Button }</button>
 			}
 			<dialog class="modal-panel text-rw-text">
 				<div class="modal-head">
