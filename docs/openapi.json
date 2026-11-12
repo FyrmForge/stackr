@@ -7536,6 +7536,9 @@
           "state": {
             "type": "string"
           },
+          "stuck": {
+            "type": "boolean"
+          },
           "sync_in": {
             "type": "boolean"
           },
