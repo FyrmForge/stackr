@@ -18,14 +18,15 @@ templ actions(v View) {
 	if v.Live == "" || v.Tab == "terminal" {
 		@actionButtons(v)
 	} else {
-		// The header buttons follow the tile on their own stream; a changed
+		// The header buttons follow the tile on the drawer's stream (Drawer's
+		// Stream; Status tab regions ride on it too); a changed
 		// status word also draws the drawer again, for the badge (the shell
 		// session of the Terminal tab is left alone).
-		<div class="flex items-center gap-2" hx-ext="sse" sse-connect={ v.Live + "?part=head" }>
+		<div class="flex items-center gap-2">
 			<div class="flex items-center gap-2" sse-swap="actions">
 				@actionButtons(v)
 			</div>
-			<span hidden data-poll-guard="fields" data-poll-retry="sse:word" hx-get={ v.Base + "?tab=" + v.Tab } hx-trigger="sse:word" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
+			<span hidden data-poll-guard="fields dirty-drawer" data-poll-retry="sse:word" hx-get={ v.Base + "?tab=" + v.Tab } hx-trigger="sse:word" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
 		</div>
 	}
 }
@@ -130,10 +131,6 @@ templ Status(v View, s StatusView) {
 	<div
 		class="space-y-5"
 		id="tab-status"
-		if v.Live != "" {
-			hx-ext="sse"
-			sse-connect={ v.Live + "?part=status" }
-		}
 	>
 		<div class="grid grid-cols-2 gap-3">
 			<div class="panel p-4">
