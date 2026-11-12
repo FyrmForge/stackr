@@ -612,7 +612,7 @@ func TestInstanceLiveStream(t *testing.T) {
 	pg := operated(t, s)
 	d := "/acme/shop/dev/-/instances/" + pg.Slug
 	page := s.Do(t, "GET", d, nil).Body.String()
-	if !strings.Contains(page, `sse-connect="`+d+`/live"`) {
+	if !strings.Contains(page, `sse-connect="`+d+`/live?tab=slices"`) {
 		t.Fatalf("the overview does not open the live stream:\n%s", page)
 	}
 	for _, region := range []string{"pooler", "members", "failover", "sync", "overview", "slices"} {
@@ -622,14 +622,40 @@ func TestInstanceLiveStream(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(300*time.Millisecond, cancel)
-	body := s.DoCtx(ctx, t, "GET", d+"/live", nil).Body.String()
-	for _, region := range []string{"pooler", "members", "failover", "sync", "overview", "slices"} {
+	body := s.DoCtx(ctx, t, "GET", d+"/live?tab=slices", nil).Body.String()
+	for _, region := range []string{"pooler", "members", "failover", "sync", "overview", "slices", "actions", "job"} {
 		if n := strings.Count(body, "event: "+region+"\n"); n != 1 {
 			t.Errorf("%s sent %d times, want once (it did not change):\n%s", region, n, body)
 		}
 	}
+	// off Overview the stream carries the header only
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel2)
+	body = s.DoCtx(ctx2, t, "GET", d+"/live?tab=settings", nil).Body.String()
+	if strings.Count(body, "event: actions\n") != 1 || strings.Contains(body, "event: pooler") || strings.Contains(body, "event: slices") {
+		t.Errorf("settings stream is not header only:\n%s", body)
+	}
 	rec := s.Do(t, "POST", d+"/switchover", url.Values{"to": {"w1"}})
 	if rec.Code >= 500 || strings.Contains(rec.Body.String(), "Switching over") {
 		t.Errorf("a switchover with no standby = %d:\n%s", rec.Code, rec.Body)
+	}
+}
+
+// A drawer opened before any job exists gets the job region on a later poll,
+// once a deploy is queued, without a reload.
+func TestInstanceLiveJobAppears(t *testing.T) {
+	stream.PollEvery, env.LiveEvery = 10*time.Millisecond, 0
+	s := webtest.New(t)
+	pg := operated(t, s)
+	d := "/acme/shop/dev/-/instances/" + pg.Slug
+	if page := s.Do(t, "GET", d, nil).Body.String(); strings.Contains(page, "Last job") || !strings.Contains(page, `sse-swap="job"`) {
+		t.Fatalf("a fresh instance shows a job, or lacks the job region:\n%s", page)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(600*time.Millisecond, cancel)
+	time.AfterFunc(200*time.Millisecond, func() { s.Do(t, "POST", d+"/deploy", nil) })
+	body := s.DoCtx(ctx, t, "GET", d+"/live", nil).Body.String()
+	if !strings.Contains(body, "Last job") {
+		t.Errorf("the job region never arrived:\n%s", body)
 	}
 }

@@ -54,13 +54,13 @@ type View struct {
 	ReadOnly           bool   // the viewer may not write: no Deploy, Stop, pairs or delete
 	Location, EnvColor string
 	Error, Note        string
-	// Live is the stream that re-renders the overview's pooler, members,
-	// failover and sync regions while the drawer is open; "" = none.
+	// Live is the drawer's one stream (…/live): the header's buttons and badge
+	// on every tab, the overview's regions on Overview; "" = none.
 	Live string
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
-	return c.Drawer(c.DrawerView{
+	d := c.DrawerView{
 		Node:     v.Node,
 		Title:    v.Name,
 		Kind:     v.Engine,
@@ -75,10 +75,27 @@ func Drawer(v View, body templ.Component) templ.Component {
 		Location: v.Location,
 		EnvColor: v.EnvColor,
 		Actions:  actions(v),
-	}, body)
+	}
+	if v.Live != "" {
+		d.Stream = v.Live + "?tab=" + v.Tab
+	}
+	return c.Drawer(d, body)
 }
 
 templ actions(v View) {
+	if v.Live == "" {
+		@actionButtons(v)
+	} else {
+		@c.LiveHead(v.Base, v.Tab, actionButtons(v))
+	}
+}
+
+// LiveActions is the region the stream sends as the event actions.
+templ LiveActions(v View) {
+	@actionButtons(v)
+}
+
+templ actionButtons(v View) {
 	if !v.ReadOnly {
 		if v.Running {
 			@c.Confirm(stop(v))
@@ -112,6 +129,7 @@ type OverviewView struct {
 	AddNodes            []string     // postgres only: nodes a standby may be added on; none = no Add
 	Failover            *FailoverView // postgres with a standby only
 	Sync                *SyncView     // postgres only; nil = not shown
+	Word                string            // the status word the header's badge shows
 	Unread              map[string]string // region (pooler, members, failover, sync, job) -> why its read failed
 }
 
@@ -189,13 +207,7 @@ type SliceRow struct {
 // Overview is v0's connection panel (no password: it never reaches the
 // page) and the slices on the instance.
 templ Overview(v View, o OverviewView) {
-	<div
-		id="tab-slices"
-		if v.Live != "" {
-			hx-ext="sse"
-			sse-connect={ v.Live }
-		}
-	>
+	<div id="tab-slices">
 		@liveRegion(v, "overview") {
 			@LiveOverview(v, o)
 		}

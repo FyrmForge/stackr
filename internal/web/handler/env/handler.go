@@ -505,6 +505,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		EnvColor: s.Env.Color,
 		Error:    msg,
 	}
+	v.Live = v.Base + "/live"
 	if msg == "" && len(form.Errors) == 0 {
 		v.Note = note
 	}
@@ -565,7 +566,6 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		}
 		if m.Engine == "postgres" {
 			o = h.pgLive(ctx, middleware.Principal(c), can(c, s, "placement.write"), t.ID, o)
-			v.Live = v.Base + "/live"
 		}
 		if st.LastJob != nil {
 			j := render.JobView(render.EnvURL(c), *st.LastJob)

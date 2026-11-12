@@ -106,6 +106,19 @@ templ Drawer(v DrawerView, body templ.Component) {
 	</div>
 }
 
+// LiveHead wraps a drawer's header buttons so its one stream (DrawerView.Stream)
+// keeps them current: the stream's "actions" event swaps the buttons, and its
+// "word" event (the status word changed) draws the drawer again, for the badge.
+// The redraw waits while a field is dirty (data-poll-guard) and retries.
+templ LiveHead(base, tab string, buttons templ.Component) {
+	<div class="flex items-center gap-2">
+		<div class="flex items-center gap-2" sse-swap="actions">
+			@buttons
+		</div>
+		<span hidden data-poll-guard="fields dirty-drawer" data-poll-retry="sse:word" hx-get={ base + "?tab=" + tab } hx-trigger="sse:word" hx-target={ "#" + DrawerRoot } hx-swap="outerHTML"></span>
+	</div>
+}
+
 // panelHeader is v0's PanelHeader: identity on the left, actions and the
 // close X on the right.
 templ panelHeader(v DrawerView) {

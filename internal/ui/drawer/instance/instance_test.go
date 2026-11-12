@@ -239,10 +239,16 @@ func TestOverviewLiveRegions(t *testing.T) {
 	}
 	v.Live = v.Base + "/live"
 	live := render(Overview(v, o))
-	for _, want := range []string{`sse-connect="/o/s/e/-/instances/pg/live"`, `sse-swap="pooler"`, `sse-swap="members"`, `sse-swap="failover"`, `sse-swap="sync"`, "Switch over"} {
+	for _, want := range []string{`sse-swap="pooler"`, `sse-swap="members"`, `sse-swap="failover"`, `sse-swap="sync"`, "Switch over"} {
 		if !strings.Contains(live, want) {
 			t.Errorf("live overview lacks %q", want)
 		}
+	}
+	// the drawer holds the one connection and the header follows it
+	frame := render(Drawer(v, Overview(v, o)))
+	if n := strings.Count(frame, "sse-connect="); n != 1 || !strings.Contains(frame, `sse-connect="/o/s/e/-/instances/pg/live?tab="`) ||
+		!strings.Contains(frame, `sse-swap="actions"`) || !strings.Contains(frame, `hx-trigger="sse:word"`) {
+		t.Errorf("the drawer frame is not wired to one stream with a live header:\n%s", frame)
 	}
 	if m := render(LiveMembers(v, o)); !strings.Contains(live, m) || !strings.Contains(m, "streaming") {
 		t.Errorf("the members region differs between the page and the stream: %q", m)

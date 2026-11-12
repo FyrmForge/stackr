@@ -22,12 +22,7 @@ templ actions(v View) {
 		// Stream; Status tab regions ride on it too); a changed
 		// status word also draws the drawer again, for the badge (the shell
 		// session of the Terminal tab is left alone).
-		<div class="flex items-center gap-2">
-			<div class="flex items-center gap-2" sse-swap="actions">
-				@actionButtons(v)
-			</div>
-			<span hidden data-poll-guard="fields dirty-drawer" data-poll-retry="sse:word" hx-get={ v.Base + "?tab=" + v.Tab } hx-trigger="sse:word" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
-		</div>
+		@c.LiveHead(v.Base, v.Tab, actionButtons(v))
 	}
 }
 

@@ -16,7 +16,7 @@ Every file starts with `version: 1`. An unknown key is refused with its line num
 2. Read it: `plans`, `plan-show <plan>`. `preview -f FILE` diffs a local file without storing it.
 3. `stackr server approve <plan>` (or `stackr org approve <plan>`) applies it. A plan with impact lines asks first. `--remove KEY` ticks a removal row.
 4. `stackr server apply -f FILE` plans and applies a local file from any machine with an admin key.
-5. `export` writes the live install as a file. A fresh export plans clean.
+5. `export` writes the live install as a file. A fresh export plans clean. `stackr stack export` has no apply of its own: a stack file reaches the install through the org file (a `stacks:` entry, then `org plan` and `org approve`), a push to the stack's config repo (`stackr stack config-repo --repo <repo>`), or a promote.
 
 With `auto` on, a plan with no impact lines and no removals is approved by itself. That includes the daily re-plan and the one at panel start: a panel edit the file does not hold is put back.
 
@@ -81,7 +81,7 @@ The `server_config_*` knobs are the binding itself. Set them with `stackr server
 
 ## stackr-compose.yml
 
-Written by hand or with `stackr stack export [--env ENV]`. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel.
+Written by hand or with `stackr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stackr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel.
 
 ## Operated and slice tiles
 
