@@ -215,9 +215,21 @@ func (l *Leaf) Taken(ctx context.Context, a Provider, zone, host string) (bool, 
 // name cannot hold (a CNAME next to anything) is a *RecordClash.
 // ponytail: one zone read per sync for zones with custom records; throttle
 // per zone if a provider's rate limit bites.
-func (l *Leaf) Reconcile(ctx context.Context, wants []Want, replace map[string]bool, acct Accounts) error {
+//
+// wantsFn is called under the records lock: wants read before it could name
+// a scope a rescope has since narrowed, and write back what it handed back.
+func (l *Leaf) Reconcile(ctx context.Context, wantsFn func(context.Context) ([]Want, error), replace map[string]bool, acct Accounts) error {
 	l.recMu.Lock()
 	defer l.recMu.Unlock()
+	wants, werr := wantsFn(ctx)
+	if wants == nil && werr != nil {
+		return werr // the list itself failed: nothing to go on
+	}
+	return errors.Join(werr, l.reconcile(ctx, wants, replace, acct))
+}
+
+// reconcile is Reconcile's work, the records lock held.
+func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]bool, acct Accounts) error {
 	rows, err := l.recs.List(ctx)
 	if err != nil {
 		return err
