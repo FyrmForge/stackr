@@ -83,7 +83,11 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
         (g.indexOf('region') >= 0 && box && box.matches(':focus-within')) ||
         (/(^| )dirty( |$)/.test(g) && pollDirty(box)) ||
         (g.indexOf('dirty-drawer') >= 0 && pollDirty(drawer));
-    if (!busy) return;
+    if (!busy) {
+        // beforeSwap only sees the swap target: mark the request with its poller
+        if (evt.detail.xhr) evt.detail.xhr._poller = el;
+        return;
+    }
     evt.preventDefault();
     pollRetry(el);
 });
@@ -99,9 +103,9 @@ function pollRetry(el) {
 // A poll already in flight when a dialog opened must not swap on return: the
 // redraw would close the dialog.
 document.addEventListener('htmx:beforeSwap', function (evt) {
-    // detail.elt is the swap target; the poller is the requesting element
-    var el = (evt.detail.requestConfig && evt.detail.requestConfig.elt) || evt.detail.elt;
-    if (!el.getAttribute || el.getAttribute('data-poll-guard') === null || !document.querySelector('dialog[open]')) return;
+    // detail.elt is the swap target (htmx 2.0.4); the poller rode on the xhr
+    var el = evt.detail.xhr && evt.detail.xhr._poller;
+    if (!el || !document.querySelector('dialog[open]')) return;
     evt.detail.shouldSwap = false;
     pollRetry(el);
 });

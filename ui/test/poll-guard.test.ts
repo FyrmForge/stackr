@@ -59,16 +59,20 @@ test("a dirty region cancels the poll and one retry is pending", () => {
 });
 
 test("a response that lands while a dialog is open is not swapped", () => {
-  const el = { getAttribute: (n: string) => (n === "data-poll-guard" ? "" : null) };
+  const el = { getAttribute: (n: string) => (n === "data-poll-guard" ? "" : null), closest: () => null, parentElement: null };
   const doc = g.document as { querySelector: () => unknown };
   const run = () => {
-    // htmx 2.0.4: elt is the swap target, the poller is requestConfig.elt
-    const detail = { elt: { getAttribute: () => null }, requestConfig: { elt: el }, shouldSwap: true };
+    // htmx 2.0.4: beforeSwap's elt is the swap target; the poller rides on the xhr from beforeRequest
+    const xhr: Record<string, unknown> = {};
+    handlers["htmx:beforeRequest"].forEach((f) => f({ detail: { elt: el, xhr }, preventDefault: () => {} }));
+    const detail = { elt: { getAttribute: () => null }, xhr, shouldSwap: true };
+    doc.querySelector = open;
     handlers["htmx:beforeSwap"].forEach((f) => f({ detail }));
+    doc.querySelector = () => null;
     return detail.shouldSwap;
   };
+  let open: () => unknown = () => null;
   assert.equal(run(), true);
-  doc.querySelector = () => ({});
+  open = () => ({});
   assert.equal(run(), false);
-  doc.querySelector = () => null;
 });
