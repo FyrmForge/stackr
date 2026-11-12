@@ -292,6 +292,26 @@ func TestJoinConfirmIssuesCert(t *testing.T) {
 	}
 }
 
+func TestDropPendingJoins(t *testing.T) {
+	t.Parallel()
+	w, adm, _ := joinWorld(t)
+	ctx := context.Background()
+	tok := mint(t, w, adm, "w1")
+	st, err := w.orch.RequestJoin(ctx, httpsMeta, joinReq(t, tok.Token))
+	must(t, err)
+	w.orch.dropPendingJoins(ctx, time.Hour) // not old enough
+	if n := count(t, w, `SELECT COUNT(*) FROM nodes WHERE id = ?`, st.NodeID); n != 1 {
+		t.Fatal("a fresh request was dropped")
+	}
+	w.orch.dropPendingJoins(ctx, -time.Minute)
+	if n := count(t, w, `SELECT COUNT(*) FROM nodes WHERE id = ?`, st.NodeID); n != 0 {
+		t.Error("stale pending node row remains")
+	}
+	if s, _ := w.orch.JoinStatus(ctx, tok.Token); s.Status != JoinRejected {
+		t.Errorf("status = %+v", s)
+	}
+}
+
 func TestJoinReject(t *testing.T) {
 	t.Parallel()
 	w, adm, _ := joinWorld(t)

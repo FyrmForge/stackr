@@ -682,6 +682,7 @@ func (o *Orchestrator) watchNodeClients() {
 		case <-hour.C:
 			o.detach(ctx, o.sweepExpired)
 			o.detach(ctx, o.sweepCandidates)
+			o.detach(ctx, o.sweepPendingJoins)
 			o.detach(ctx, o.sweepPGUpgrades)
 			o.detach(ctx, o.sweepArchiveEpochs)
 		case <-conn.C:

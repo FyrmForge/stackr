@@ -537,6 +537,43 @@ func (o *Orchestrator) RejectJoin(ctx context.Context, by *Principal, nodeID str
 	})
 }
 
+// pendingJoinMax is how long a join request may wait for a confirm. A worker
+// that was stopped or failed after it called in leaves no word, so the panel
+// drops the request itself.
+const pendingJoinMax = 24 * time.Hour
+
+// sweepPendingJoins rejects every request that has waited past pendingJoinMax,
+// as an admin's reject would; the node runs `join` again with a new command.
+func (o *Orchestrator) sweepPendingJoins(ctx context.Context) { o.dropPendingJoins(ctx, pendingJoinMax) }
+
+func (o *Orchestrator) dropPendingJoins(ctx context.Context, max time.Duration) {
+	rows, err := jointoken.New(o.store.JoinTokens).Used(ctx)
+	if err != nil {
+		slog.Warn("join: pending sweep failed", "err", err)
+		return
+	}
+	for _, r := range rows {
+		if r.RejectedAt != nil || r.CertPEM != "" || r.NodeID == "" || r.UsedAt == nil || time.Since(*r.UsedAt) < max {
+			continue
+		}
+		err := o.store.Tx(ctx, func(tx store.Tx) error {
+			n, err := node.New(tx.Nodes).Reject(ctx, r.NodeID, StateNeedsRejoin)
+			if err != nil {
+				return err
+			}
+			if err := o.joinTokens(tx).SetRejected(ctx, r, time.Now().UTC()); err != nil {
+				return err
+			}
+			return audit(tx).Append(ctx, securitylog.Event{
+				Action: jointoken.ActionReject, TargetKind: "node", TargetID: n.ID, Detail: "node " + n.Name + " unconfirmed too long",
+			})
+		})
+		if err != nil {
+			slog.Warn("join: pending request not dropped", "node", r.NodeID, "err", err)
+		}
+	}
+}
+
 // reportedPrefixes is every interface prefix a joining node reported, less
 // stackr's own: stackr0 and the Docker bridges stackr made (the installer
 // names them in stackr_bridges). A rejoin keeps them; a box that was a node
