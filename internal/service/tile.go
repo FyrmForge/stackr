@@ -61,7 +61,7 @@ func (o *Orchestrator) TileStatus(ctx context.Context, id string) (TileStatus, e
 	if t.Kind == tile.Slice {
 		// No containers of its own: it is up when its instance is.
 		if out.Word, err = o.engines.SliceWord(ctx, t); errors.Is(err, errs.ErrBusy) {
-			out.Word, err = "offline", nil
+			out.Word = "offline"
 		} else if err != nil {
 			return out, err
 		}
