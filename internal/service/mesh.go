@@ -165,6 +165,7 @@ func (m *meshSvc) Report(ctx context.Context, id string, f worker.Facts) {
 	m.sampleRx(id, f, m.at[id])
 	m.mu.Unlock()
 	m.keepPublic(ctx, id, publicAddrs(f))
+	m.checkWide(ctx, id, f)
 }
 
 // Kick asks Run for a sync soon; it never blocks.
@@ -399,30 +400,9 @@ func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
 	wide := map[string][]netip.Prefix{} // node -> prefixes the pool ignored
 	m.mu.Lock()
 	for id, f := range m.facts {
-		wide[id] = nil
-		var mine []netip.Prefix
-		for _, p := range ifacePrefixes(f) {
-			if !p.Overlaps(mesh.Supernet) {
-				continue
-			}
-			// Networks are /24s: a wider reported prefix (one worker claiming
-			// the whole pool) would block every new env, so it is ignored.
-			if p.Bits() < envPrefixBits {
-				slog.Warn("mesh: ignoring a reported interface prefix wider than an env network", "node", id, "prefix", p)
-				wide[id] = append(wide[id], p)
-				continue
-			}
-			mine = append(mine, p.Masked())
-		}
-		// A node holds a few bridges, never hundreds: one reporting more
-		// would fill the pool, so all its pool prefixes are ignored.
-		mine = slices.Compact(slices.SortedFunc(slices.Values(mine), netip.Prefix.Compare))
-		if len(mine) > maxNodePoolPrefixes {
-			slog.Warn("mesh: ignoring a node reporting too many pool prefixes", "node", id, "count", len(mine))
-			wide[id] = append(wide[id], mine...)
-			continue
-		}
+		mine, w := poolPrefixes(id, f)
 		out = append(out, mine...)
+		wide[id] = w
 	}
 	m.mu.Unlock()
 	if m.wide != nil {
@@ -431,6 +411,42 @@ func (m *meshSvc) taken(ctx context.Context) ([]netip.Prefix, error) {
 		}
 	}
 	return out, nil
+}
+
+// poolPrefixes splits a node's reported interface prefixes on the pool into
+// the ones taken counts and the ones it ignores (wider than an env network,
+// or too many); both masked.
+func poolPrefixes(id string, f worker.Facts) (mine, wide []netip.Prefix) {
+	for _, p := range ifacePrefixes(f) {
+		if !p.Overlaps(mesh.Supernet) {
+			continue
+		}
+		// Networks are /24s: a wider reported prefix (one worker claiming
+		// the whole pool) would block every new env, so it is ignored.
+		if p.Bits() < envPrefixBits {
+			slog.Warn("mesh: ignoring a reported interface prefix wider than an env network", "node", id, "prefix", p.Masked())
+			wide = append(wide, p.Masked())
+			continue
+		}
+		mine = append(mine, p.Masked())
+	}
+	// A node holds a few bridges, never hundreds: one reporting more
+	// would fill the pool, so all its pool prefixes are ignored.
+	mine = slices.Compact(slices.SortedFunc(slices.Values(mine), netip.Prefix.Compare))
+	if len(mine) > maxNodePoolPrefixes {
+		slog.Warn("mesh: ignoring a node reporting too many pool prefixes", "node", id, "count", len(mine))
+		return nil, append(wide, mine...)
+	}
+	return mine, wide
+}
+
+// checkWide re-evaluates the node's wide-prefix problem from facts it just
+// reported, so it clears without waiting for a network reservation.
+func (m *meshSvc) checkWide(ctx context.Context, id string, f worker.Facts) {
+	if m.wide != nil {
+		_, w := poolPrefixes(id, f)
+		m.wide(ctx, id, w)
+	}
 }
 
 // transitOf is a node's transit address; the controller's row of a cluster
@@ -622,6 +638,7 @@ func (m *meshSvc) refresh(ctx context.Context, id string, cl MeshNode) {
 		m.sampleRx(id, f, m.at[id])
 		m.mu.Unlock()
 		m.keepPublic(ctx, id, publicAddrs(f))
+		m.checkWide(ctx, id, f)
 	}
 	m.mu.Lock()
 	have := m.exitPK[id] != ""

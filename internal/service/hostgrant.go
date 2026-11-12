@@ -65,6 +65,9 @@ func (o *Orchestrator) parkOnApproval(ctx context.Context, r *jobs.Run, err erro
 		if ask, ok := hostgrant.Parse(n.What); ok && o.adminActor(ctx, r.Job.ActorID, r.Job.ActorKeyID) {
 			if gerr := o.grantLines(ctx, n.Stack, r.Job.ActorID, ask); gerr != nil {
 				slog.Error("auto-approve host access", "stack", n.Stack, "error", gerr.Error())
+			} else {
+				n.Granted = true
+				err = n // the job log says it was approved, not that it waits
 			}
 		}
 	} else if strings.Contains(r.Job.Payload, `"host_access"`) {

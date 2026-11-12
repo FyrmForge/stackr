@@ -80,9 +80,17 @@ func (e Unset) Error() string {
 // NeedsApproval is a change that waits on a server admin: host access a
 // stack has not been granted. A job that meets it parks with What instead of
 // failing; approving the grant requeues it.
-type NeedsApproval struct{ Stack, What string }
+// Granted is set when the asking user is a server admin and the grant was
+// made on the spot: the job still parks once, then resumes.
+type NeedsApproval struct {
+	Stack, What string
+	Granted     bool
+}
 
 func (e NeedsApproval) Error() string {
+	if e.Granted {
+		return e.What + "; approved by you as a server admin, the job resumes"
+	}
 	return "waiting: " + e.What + "; a server admin approves it on the stack"
 }
 

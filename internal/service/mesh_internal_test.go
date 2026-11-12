@@ -781,7 +781,7 @@ func TestPoolWidePrefixProblem(t *testing.T) {
 		t.Fatal("no problem opened")
 	}
 	row, _, _ := o.store.Settings.Get(ctx, problemKey(key))
-	if !strings.Contains(row, "wk1") || !strings.Contains(row, "10.208.0.1/12") {
+	if !strings.Contains(row, "wk1") || !strings.Contains(row, "10.208.0.0/12") {
 		t.Fatalf("problem = %s", row)
 	}
 	m.facts["w1"] = worker.Facts{}
