@@ -38,7 +38,10 @@ func (h *handler) Live(c echo.Context) error {
 		last = time.Now()
 		st, err := h.orch.TileStatus(ctx, t.ID)
 		if err != nil {
-			return nil, err
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			return nil, nil // a failed read (a switchover, a node away) keeps the last view; the next poll tries again
 		}
 		var out []stream.Msg
 		v.Status, v.Stopped, v.Paused = st.Word, st.Word == "stopped", st.Paused
