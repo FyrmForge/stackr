@@ -95,7 +95,17 @@ func (r runner) upgradeSteps(in installspec.Input, oldID, ver string, proxyUp bo
 		}},
 		{"proxy", func(ctx context.Context) error { return r.ensureProxy(ctx, image, in, proxyUp) }},
 		{"registry", func(ctx context.Context) error { return r.ensureRegistry(ctx, in.DataDir) }},
-		{"panel swap", func(ctx context.Context) error { return r.swapPanel(ctx, in, ver) }},
+		{"panel swap", func(ctx context.Context) error {
+			prev, _ := read(ctx, "docker", "inspect", "-f", "{{.Config.Image}}", oldID)
+			err := r.swapPanel(ctx, in, ver)
+			if err != nil && prev != "" && prev != image {
+				// The swap rolled the panel back: the proxy goes back to its image too.
+				if perr := r.ensureProxy(ctx, prev, in, true); perr != nil {
+					err = fmt.Errorf("%w; proxy not restored to %s: %v", err, prev, perr)
+				}
+			}
+			return err
+		}},
 		{"health", func(ctx context.Context) error {
 			if r.dry {
 				return nil

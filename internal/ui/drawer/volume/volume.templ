@@ -278,7 +278,8 @@ templ History(b BackupsView) {
 		id={ "backup-history-" + b.ID }
 		class="panel p-5"
 		if b.Base != "" {
-			hx-get={ b.Base + "?tab=backups&poll=" + strconv.Itoa(max(b.Poll-1, 0)) }
+			data-poll-guard=""
+			hx-get={ b.Base + "?tab=backups&poll="+ strconv.Itoa(max(b.Poll-1, 0)) }
 			hx-trigger={ historyEvery(b) }
 			hx-select={ "#backup-history-" + b.ID }
 			hx-target="this"
