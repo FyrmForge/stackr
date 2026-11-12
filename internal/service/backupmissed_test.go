@@ -107,7 +107,31 @@ func TestDefaultScheduleConcurrentOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); _ = w.orch.defaultSchedule(ctx, v.ID) }()
+		go func() { defer wg.Done(); _ = w.orch.addDefaultSchedule(ctx, v.ID) }()
+	}
+	wg.Wait()
+	ss, err := w.orch.backups.Schedules(ctx, v.ID)
+	must(t, err)
+	if len(ss) != 1 {
+		t.Errorf("schedules = %d, want 1", len(ss))
+	}
+}
+
+// A declare's default backup racing the sweep adds one schedule, not two.
+func TestDefaultBackupVsSweepOnce(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	must(t, w.st.BackupDests.Create(ctx, store.BackupDest{
+		ID: "d-off", Kind: "s3", Name: "off", Endpoint: "http://127.0.0.1:1", Bucket: "b",
+		AccessKey: "a", SecretKey: "s", ArchiveKey: "k", CreatedAt: time.Now(),
+	}))
+	v := store.Volume{ID: "v-r", ScopeKind: "env", ScopeID: w.env, Slug: "r", Name: "r", CreatedAt: time.Now()}
+	must(t, w.st.Volumes.Create(ctx, v))
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); w.orch.defaultBackup(ctx, v) }()
+		go func() { defer wg.Done(); _ = w.orch.addDefaultSchedule(ctx, v.ID) }()
 	}
 	wg.Wait()
 	ss, err := w.orch.backups.Schedules(ctx, v.ID)

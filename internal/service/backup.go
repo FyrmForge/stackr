@@ -133,6 +133,12 @@ func (o *Orchestrator) defaultBackup(ctx context.Context, v store.Volume) {
 	}
 	s := defaultSchedule
 	s.DestID = &d.ID
+	// the sweep adds the default too (addDefaultSchedule): same lock, same re-check
+	o.defSchedMu.Lock()
+	defer o.defSchedMu.Unlock()
+	if ss, err := o.backups.Schedules(ctx, v.ID); err != nil || len(ss) > 0 {
+		return
+	}
 	if _, err := o.backups.AddSchedule(ctx, v.ID, org, ms, s); err != nil {
 		slog.Warn("backup: default schedule not added", "volume", v.ID, "err", err)
 		return

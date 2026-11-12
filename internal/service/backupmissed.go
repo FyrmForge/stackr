@@ -117,7 +117,7 @@ func (o *Orchestrator) unscheduled(ctx context.Context, scheduled map[string]*vo
 			continue
 		}
 		if runs, err := o.store.BackupRuns.ListByVolume(ctx, v.ID); err == nil && len(runs) == 0 {
-			if err := o.defaultSchedule(ctx, v.ID); err == nil {
+			if err := o.addDefaultSchedule(ctx, v.ID); err == nil {
 				o.clearProblem(ctx, key)
 				continue
 			}
@@ -128,10 +128,11 @@ func (o *Orchestrator) unscheduled(ctx context.Context, scheduled map[string]*vo
 	o.sweep(ctx, "backup.none.", func(rest string) bool { return keep[rest] })
 }
 
-// defaultSchedule adds the @daily default unless the volume already has a
-// schedule. Several schedules per volume are legal, so no unique index can
-// guard it; the lock plus re-check makes concurrent callers add one.
-func (o *Orchestrator) defaultSchedule(ctx context.Context, volumeID string) error {
+// addDefaultSchedule adds the default schedule unless the volume already has
+// one. Several schedules per volume are legal, so no unique index can guard
+// it; the lock plus re-check makes concurrent callers (the sweep and a
+// declare's defaultBackup) add one.
+func (o *Orchestrator) addDefaultSchedule(ctx context.Context, volumeID string) error {
 	o.defSchedMu.Lock()
 	defer o.defSchedMu.Unlock()
 	if ss, err := o.backups.Schedules(ctx, volumeID); err != nil {
@@ -139,7 +140,7 @@ func (o *Orchestrator) defaultSchedule(ctx context.Context, volumeID string) err
 	} else if len(ss) > 0 {
 		return nil
 	}
-	_, err := o.AddBackupSchedule(ctx, volumeID, ScheduleSpec{Cron: "@daily", Keep: 7})
+	_, err := o.AddBackupSchedule(ctx, volumeID, defaultSchedule)
 	return err
 }
 
