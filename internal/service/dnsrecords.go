@@ -271,11 +271,7 @@ func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool
 	if err := o.releaseMatchedHolds(ctx); err != nil {
 		return err
 	}
-	wants, werr := o.dnsWants(ctx)
-	if wants == nil && werr != nil {
-		return werr // the list itself failed: nothing to go on
-	}
-	return errors.Join(werr, o.dns.Reconcile(ctx, wants, replace, o.dnsAccounts))
+	return o.dns.Reconcile(ctx, o.dnsWants, replace, o.dnsAccounts)
 }
 
 // managedZone is the managed domain host sits in, for a tile of orgID. ok
