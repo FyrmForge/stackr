@@ -322,6 +322,8 @@ type Orchestrator struct {
 	failCrashAfter string
 	// tickAttemptFor overrides tickAttempt (tests).
 	tickAttemptFor time.Duration
+	// recoverSyncFor overrides recoverSyncWait (tests).
+	recoverSyncFor time.Duration
 	leasePush      func(ctx context.Context, nodeID string, l worker.Lease) error
 	syncCtls       sync.Map      // instance id -> *syncCtl (pgsync.go)
 	behindSince    sync.Map      // standby member id -> when its probes stopped streaming

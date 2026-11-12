@@ -80,6 +80,44 @@ func (o *Orchestrator) rotationMark(ctx context.Context, id string) (string, boo
 	return trig, true
 }
 
+// prevKeyWindow is how long past the worker's own revert deadline the panel
+// still accepts a node coming back on the key it had before a rotation: the
+// worker reverts after worker.RotateRevertAfter and retries for a while more.
+const (
+	prevKeyWindow = 10 * time.Minute
+	prevKeyKey    = "rotation.prev."
+)
+
+// keepPrevKey remembers the key a node had before the rotation just taken,
+// so a worker that reverted to it is let back. Only that one key is kept.
+func (o *Orchestrator) keepPrevKey(ctx context.Context, id, old string) {
+	if old == "" {
+		return
+	}
+	exp := time.Now().Add(worker.RotateRevertAfter + prevKeyWindow).Unix()
+	_ = o.store.Settings.Set(ctx, prevKeyKey+id, strconv.FormatInt(exp, 10)+"|"+old)
+}
+
+// prevKeyIs says whether key is the node's key from before its last
+// rotation and the window for coming back to it is still open.
+func (o *Orchestrator) prevKeyIs(ctx context.Context, id, key string) bool {
+	v, ok, err := o.store.Settings.Get(ctx, prevKeyKey+id)
+	if err != nil || !ok {
+		return false
+	}
+	exp, prev, _ := strings.Cut(v, "|")
+	n, err := strconv.ParseInt(exp, 10, 64)
+	if err != nil || time.Now().Unix() > n {
+		o.clearPrevKey(ctx, id)
+		return false
+	}
+	return prev == key
+}
+
+func (o *Orchestrator) clearPrevKey(ctx context.Context, id string) {
+	_ = o.store.Settings.Delete(ctx, prevKeyKey+id)
+}
+
 func (o *Orchestrator) clearRotation(ctx context.Context, id string) {
 	_ = o.store.Settings.Delete(ctx, rotationKey+id)
 }
@@ -143,8 +181,16 @@ func (o *Orchestrator) rotateAll(ctx context.Context, trigger string) []RotateRe
 	if err != nil {
 		return []RotateResult{{Error: err.Error()}}
 	}
+	// Workers farthest from the controller first (a routed node before the
+	// hop it routes through), the controller last.
+	o.mesh.mu.Lock()
+	next, ctl := o.mesh.next, o.mesh.ctlID
+	o.mesh.mu.Unlock()
 	slices.SortStableFunc(ns, func(a, b store.Node) int {
-		return boolCmp(a.Role == node.Controller, b.Role == node.Controller)
+		if c := boolCmp(a.Role == node.Controller, b.Role == node.Controller); c != 0 {
+			return c
+		}
+		return hops(next, ctl, b.ID) - hops(next, ctl, a.ID)
 	})
 	var out []RotateResult
 	for _, n := range ns {
@@ -327,6 +373,7 @@ func (o *Orchestrator) takeNodeKeys(ctx context.Context, n store.Node, wg, exit 
 		return err
 	}
 	o.mesh.tookKeys(n.ID, old, wg, exit)
+	o.keepPrevKey(ctx, n.ID, old)
 	trigger := "by the node"
 	if v, ok := o.rotationMark(ctx, n.ID); ok {
 		trigger = v

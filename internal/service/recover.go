@@ -68,7 +68,9 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 		// A new key is only taken for a rotation an admin or the schedule
 		// started (rotateOne marks it for rotateWait, kept across a panel restart): a signed request
 		// alone cannot swap a node's key.
-		if _, ok := o.rotationMark(ctx, n.ID); !ok {
+		_, marked := o.rotationMark(ctx, n.ID)
+		reverted := !marked && o.prevKeyIs(ctx, n.ID, p.WGPublic)
+		if !marked && !reverted {
 			o.auditRecover(ctx, n.ID, "refused: new key, no rotation requested")
 			return worker.RecoverAnswer{}, refused
 		}
@@ -76,13 +78,16 @@ func (o *Orchestrator) RecoverNode(ctx context.Context, req worker.RecoverReques
 			o.auditRecover(ctx, n.ID, "refused: bad keys")
 			return worker.RecoverAnswer{}, err
 		}
+		if reverted {
+			// The worker gave up on the rotation and is back on its old keys:
+			// they are the node's again, and the one-step undo is spent.
+			o.clearPrevKey(ctx, n.ID)
+			o.auditRecover(ctx, n.ID, "went back to its previous keys: "+n.Name)
+		}
 		force = true // every peer learns the new key now
 	}
 	o.mesh.Report(ctx, n.ID, p.Facts)
-	if err := o.mesh.Sync(ctx, "", force); err != nil {
-		// Pushes to other nodes may fail; the spec below is computed anyway.
-		slog.Warn("recover: mesh sync", "node", n.Name, "err", err)
-	}
+	o.syncForRecover(ctx, n.Name, force)
 	spec, ok := o.mesh.Spec(n.ID)
 	if !ok {
 		return worker.RecoverAnswer{}, errs.ErrBusy
@@ -155,4 +160,34 @@ func (o *Orchestrator) auditRecover(ctx context.Context, nodeID, detail string) 
 			Action: securitylog.NodeRecover, TargetKind: "node", TargetID: nodeID, Detail: detail,
 		})
 	})
+}
+
+// recoverSyncWait is how long a recovery waits for the mesh push to the
+// other nodes: they may be mid-rotation or down, and the caller's own spec
+// does not depend on them.
+const recoverSyncWait = 10 * time.Second
+
+// syncForRecover pushes the mesh to every node but gives the caller only
+// recoverSyncWait of it. A push still running goes on in the background; the
+// specs are re-planned (without the push lock another sync may hold) so the
+// caller's answer is fresh either way.
+func (o *Orchestrator) syncForRecover(ctx context.Context, name string, force bool) {
+	wait := recoverSyncWait
+	if o.recoverSyncFor > 0 {
+		wait = o.recoverSyncFor
+	}
+	done := make(chan error, 1)
+	go func() { done <- o.mesh.Sync(o.rotateCtx(), "", force) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			// Pushes to other nodes may fail; the spec below is computed anyway.
+			slog.Warn("recover: mesh sync", "node", name, "err", err)
+		}
+	case <-time.After(wait):
+		slog.Warn("recover: mesh push still running, answering without it", "node", name)
+		if _, _, err := o.mesh.plan(ctx); err != nil {
+			slog.Warn("recover: mesh plan", "node", name, "err", err)
+		}
+	}
 }
