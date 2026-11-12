@@ -99,7 +99,8 @@ function pollRetry(el) {
 // A poll already in flight when a dialog opened must not swap on return: the
 // redraw would close the dialog.
 document.addEventListener('htmx:beforeSwap', function (evt) {
-    var el = evt.detail.elt;
+    // detail.elt is the swap target; the poller is the requesting element
+    var el = (evt.detail.requestConfig && evt.detail.requestConfig.elt) || evt.detail.elt;
     if (!el.getAttribute || el.getAttribute('data-poll-guard') === null || !document.querySelector('dialog[open]')) return;
     evt.detail.shouldSwap = false;
     pollRetry(el);

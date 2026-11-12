@@ -62,7 +62,8 @@ test("a response that lands while a dialog is open is not swapped", () => {
   const el = { getAttribute: (n: string) => (n === "data-poll-guard" ? "" : null) };
   const doc = g.document as { querySelector: () => unknown };
   const run = () => {
-    const detail = { elt: el, shouldSwap: true };
+    // htmx 2.0.4: elt is the swap target, the poller is requestConfig.elt
+    const detail = { elt: { getAttribute: () => null }, requestConfig: { elt: el }, shouldSwap: true };
     handlers["htmx:beforeSwap"].forEach((f) => f({ detail }));
     return detail.shouldSwap;
   };
