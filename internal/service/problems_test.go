@@ -165,6 +165,7 @@ func TestProblemsOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	o := quietWorld(t).orch
+	o.trustAsync.Wait() // the boot chores clear a healthy root cert's problem; open ours after
 	must(t, o.store.Nodes.Create(ctx, store.Node{ID: "w1", Name: "h3", Slug: "h3", Role: node.Worker, Tags: "[]",
 		Status: node.StatusOffline, CreatedAt: time.Now()}))
 	o.openProblem(ctx, "alert.disk.w1", SevWarning, "h3 is low on disk.")
