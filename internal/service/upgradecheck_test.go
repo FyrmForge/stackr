@@ -37,4 +37,9 @@ func TestLastUpgradeCheckRemembered(t *testing.T) {
 	if _, newer, _ := w.orch.LastUpgradeCheck(ctx); newer {
 		t.Error("v0.9.0 is newer than itself")
 	}
+	// A check from before this build was installed is stale: not shown.
+	w.orch.upgrade.Version = "v0.9.1"
+	if latest, _, ok := w.orch.LastUpgradeCheck(ctx); ok {
+		t.Errorf("stale check %q still shown", latest)
+	}
 }

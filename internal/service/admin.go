@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/upgrade"
+
 	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
@@ -538,8 +540,22 @@ func (o *Orchestrator) LastUpgradeCheck(ctx context.Context) (latest string, new
 		return "", false, true
 	}
 	latest, ok, _ = o.store.Settings.Get(ctx, keyUpgradeLatest)
+	if ok && upgrade.Newer(o.upgrade.Version, latest) {
+		return "", false, false // checked before this build was installed: stale
+	}
 	_, newer = o.upgrade.Available(latest)
 	return latest, newer, ok
+}
+
+// dailyUpgradeCheck refreshes upgrade_latest so the Update tab and the
+// overview never sit on an old answer. A dev build has nothing to check.
+func (o *Orchestrator) dailyUpgradeCheck(ctx context.Context) {
+	if !o.upgrade.Upgradable() {
+		return
+	}
+	if _, _, err := o.CheckUpgrade(ctx); err != nil {
+		slog.Warn("update check: daily", "err", err)
+	}
 }
 
 // Upgrade queues the self-upgrade to tag: pull, pre-upgrade archive, then

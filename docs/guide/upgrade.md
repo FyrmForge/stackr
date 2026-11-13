@@ -47,7 +47,7 @@ Run the `stackr-install` of the release you want on the panel's box, as root. No
 - A dev build counts by its version: 0.8.2-dev.1 is after 0.8.1 and before 0.8.2.
 - A box without Docker's log cap gets it first (see [Install](install.md)), and Docker restarts once. Apps come back on their own. Workers get it after their upgrade.
 
-The archive is taken before anything changes. It is listed in Backups as a manual backup, under `/var/lib/stackr/backups/stackr/_panel/<install>/manual/`. The way back is `stackr-install restore <that file>`.
+The archive is taken before anything changes. It is listed in Backups, under `/var/lib/stackr/backups/stackr/_panel/<install>/upgrade/`. The way back is `stackr-install restore <that file>`.
 
 This is the way off a dev build, which the Update button cannot move.
 

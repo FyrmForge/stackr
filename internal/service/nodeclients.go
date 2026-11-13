@@ -697,6 +697,7 @@ func (o *Orchestrator) watchNodeClients() {
 				defer cancel()
 				o.dailyChores(ctx)
 				o.reconcileShares(ctx)
+				o.dailyUpgradeCheck(ctx)
 				o.dnsKick.Kick() // releases held DNS hosts that now match
 			})
 		case <-t.C:
