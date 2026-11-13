@@ -113,6 +113,9 @@ jobs:
           make release-installer RELEASE=v${VERSION} DIGEST=${DIGEST}
           echo "${DIGEST}" > bin/stackr-image.digest
           (cd bin && sha256sum stackr-install-linux-amd64 stackr-image.digest > SHA256SUMS)
+          # install.sh of a release installs that release, not the latest.
+          sed "s/^VERSION=\"\"\$/VERSION=\"${VERSION}\"/" scripts/install.sh > bin/install.sh
+          grep -q "^VERSION=\"${VERSION}\"\$" bin/install.sh || { echo "::error::install.sh was not stamped"; exit 1; }
 
       - name: Tag and publish the release
         if: steps.next.outputs.version != ''
@@ -130,6 +133,6 @@ jobs:
           VERSION: ${{ steps.next.outputs.version }}
         run: |
           [ "${{ steps.semantic.outputs.version }}" = "$VERSION" ] || { echo "::error::released ${{ steps.semantic.outputs.version }}, built $VERSION"; exit 1; }
-          gh release upload v${VERSION} bin/stackr-install-linux-amd64 bin/stackr-image.digest bin/SHA256SUMS
+          gh release upload v${VERSION} bin/stackr-install-linux-amd64 bin/stackr-image.digest bin/SHA256SUMS bin/install.sh
           docker tag ghcr.io/fyrmforge/stackr:${VERSION} ghcr.io/fyrmforge/stackr:latest
           docker push ghcr.io/fyrmforge/stackr:latest

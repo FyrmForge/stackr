@@ -12,31 +12,35 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
 ## Install
 
-1. Download the installer from the latest GitHub release and check it against the release's checksums.
+1. Run the install line as root. It downloads the installer from the latest GitHub release, checks it against the release's checksums and keeps it as `/usr/local/bin/stackr-install`. In a terminal the installer then asks for the domain, an ACME contact email and the admin login.
+
+   ```bash
+   curl -fsSL https://github.com/FyrmForge/stackr/releases/latest/download/install.sh | sudo sh
+   ```
+
+   The installer carries the digest of its release's panel image and pulls that image by digest, not by tag.
+
+2. To skip the questions, pass flags after `-s --`. The password is never a flag; it comes from the environment.
+
+   ```bash
+   curl -fsSL https://github.com/FyrmForge/stackr/releases/latest/download/install.sh |
+     sudo STACKR_ADMIN_PASSWORD='replace-with-a-strong-password' sh -s -- \
+       --domain apps.example.com \
+       --email you@example.com \
+       --admin-email you@example.com
+   ```
+
+   To download and check by hand instead:
 
    ```bash
    base=https://github.com/FyrmForge/stackr/releases/latest/download
    curl -fLO "$base/stackr-install-linux-amd64" -O "$base/SHA256SUMS"
    sha256sum -c --ignore-missing SHA256SUMS
-   mv stackr-install-linux-amd64 stackr-install && chmod +x stackr-install
+   sudo install -m 0755 stackr-install-linux-amd64 /usr/local/bin/stackr-install
+   sudo stackr-install
    ```
 
-   `sha256sum` must print `stackr-install-linux-amd64: OK`. The installer carries the digest of its release's panel image and pulls that image by digest, not by tag.
-
-2. Run it as root. In a terminal it asks for the domain, an ACME contact email and the admin login.
-
-   ```bash
-   sudo ./stackr-install
-   ```
-
-   To skip the questions, pass flags. The password is never a flag; it comes from the environment.
-
-   ```bash
-   sudo STACKR_ADMIN_PASSWORD='replace-with-a-strong-password' ./stackr-install \
-     --domain apps.example.com \
-     --email you@example.com \
-     --admin-email you@example.com
-   ```
+   `sha256sum` must print `stackr-install-linux-amd64: OK`.
 
 3. Save the recovery key the installer prints. It is shown once. It opens the panel's own backups, and a restore needs it.
 
