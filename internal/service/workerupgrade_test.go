@@ -493,6 +493,12 @@ func TestWorkerRolloutViewDoneThenBehind(t *testing.T) {
 	if g := v.Nodes[len(v.Nodes)-1]; g.Name != "w1" || g.State != stateDone || g.Behind {
 		t.Fatalf("row = %+v", g)
 	}
+	// done on a direct ask, mesh copy still the old build: not behind
+	o.mesh.Report(ctx, "w1", worker.Facts{Version: "v9.8.0"})
+	v, _ = o.WorkerRollout(ctx)
+	if g := v.Nodes[len(v.Nodes)-1]; g.State != stateDone || g.Behind || g.Current != "v9.9.9" {
+		t.Fatalf("stale facts row = %+v", g)
+	}
 }
 
 // A stop leaves the nodes after the failed one waiting, but no job runs, so

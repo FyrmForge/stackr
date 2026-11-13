@@ -231,7 +231,10 @@ templ Update(v UpdateView) {
 				} else if v.Checked {
 					<p class="text-rw-muted">Up to date: <span class="font-mono">{ v.Latest }</span> is the latest release.</p>
 				}
-				if v.Upgrading {
+				if v.Upgrading && v.Checked && v.Latest != "" && !v.Newer {
+					// the new panel is up; its upgrade helper is still finishing
+					<p class="text-rw-text" role="status">Upgraded. Finishing the swap.</p>
+				} else if v.Upgrading {
 					<p class="text-rw-text" role="status">Upgrading. The panel restarts and this tab reloads when it is back.</p>
 				}
 				if v.Waits != "" {

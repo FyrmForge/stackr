@@ -262,6 +262,10 @@ func (o *Orchestrator) WorkerRollout(ctx context.Context) (Rollout, error) {
 			// done for an older build: the panel moved on, so it is behind,
 			// offline (no facts) or not
 			row.State, row.Behind = "", true
+		} else if row.State == stateDone && row.Behind {
+			// the rollout saw the node report the build on a direct ask; the
+			// mesh's copy of its facts catches up a heartbeat later
+			row.Current, row.Behind = u.Version, false
 		}
 		out.Nodes = append(out.Nodes, row)
 	}
