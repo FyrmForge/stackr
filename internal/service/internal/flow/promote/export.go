@@ -358,7 +358,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if len(m.Settings) > 0 {
 			b.put("settings", map[string]string(m.Settings))
 		}
-		if len(m.Preload) > 0 {
+		if len(m.Preload) > 0 && !deploy.RecipeBuilt(m.ExtBuild) { // a built instance's startup modules come from its recipes
 			b.put("preload", slices.Clone([]string(m.Preload)))
 		}
 		if len(m.Extensions) > 0 {
@@ -389,7 +389,7 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if pgOperated = m.Engine == "postgres"; pgOperated {
 			// the major, not the exact tag: a minor moves with `operated update`, and a file
 			// that pins it would roll it back
-			if t.ImageRef != "" && imageRepo(t.ImageRef) != imageRepo(deploy.EngineImage("postgres")) {
+			if t.ImageRef != "" && !deploy.RecipeBuilt(m.ExtBuild) && imageRepo(t.ImageRef) != imageRepo(deploy.EngineImage("postgres")) {
 				str("image", t.ImageRef) // a custom build (postgis) is not recreated from a major
 			} else if major := cmp.Or(m.Major, deploy.ImageMajor(t.ImageRef)); major > 0 {
 				b.put("major", major)

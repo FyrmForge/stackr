@@ -424,6 +424,15 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment,
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
+		if iw.pgPlan != "" && f.PGExtApply != nil {
+			// the plan the plan step stored; a stale one fails here (message 28)
+			if err := f.PGExtApply(ctx, t, iw.pgPlan, log); err != nil {
+				return fmt.Errorf("%s: extensions: %w", name, err)
+			}
+			if m, err = d.Operated.GetByTile(ctx, t.ID); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
 		if iw.settings != nil {
 			applied := false
 			if f.PGSettings != nil {
