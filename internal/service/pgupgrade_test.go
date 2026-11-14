@@ -905,7 +905,7 @@ func recipePGUpRig(t *testing.T) *pgupRig {
 		Dockerfile: func(base string, major int, arch string, rs []mflow.Recipe, pins map[string]string) (string, error) {
 			return fmt.Sprintf("FROM %s\n# %d %v\n", base, major, pins), nil
 		},
-		Tag: func(base, arch, df string) string {
+		Tag: func(base string, _ int, arch, df string) string {
 			return fmt.Sprintf("%s-ext-%s-%x", imageTag(base), arch, sha256.Sum256([]byte(df)))[:30]
 		},
 		Helper: func(from, to mflow.ExtBuild, arch string, extra ...mflow.Recipe) (string, error) {

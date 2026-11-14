@@ -65,6 +65,11 @@ type PGExtPlanIn struct {
 	Preload    []string
 	// Update: the plan moves the base to the newest minor (UpdatePGVersion).
 	Update bool
+	// Recipes is the reviewed snapshot the apply puts in its cursor (the
+	// recipes as the plan's hash saw them): the job builds from these, never
+	// from the live definitions an admin may have edited since. A stored plan
+	// has none.
+	Recipes []mflow.Recipe `json:",omitempty"`
 }
 
 // PGExtPlan is the reviewed plan of a recipe change (R21): its id and a hash
@@ -136,14 +141,21 @@ type pgRecipeFns struct {
 	Script     func(major int, pkgs []string) string
 	Parse      func(out string) (mflow.Resolved, error)
 	Dockerfile func(base string, major int, arch string, rs []mflow.Recipe, pinned map[string]string) (string, error)
-	Tag        func(base, arch, dockerfile string) string
+	Tag        func(base string, major int, arch, dockerfile string) string
 	// Helper is the major-change helper's Dockerfile (lane A3's).
 	Helper func(from, to mflow.ExtBuild, arch string, extra ...mflow.Recipe) (string, error)
 }
 
+// buildTagOf is mflow.BuildTag with the major the build is for.
+// DEPENDENCY (worker A, A2): once mflow.BuildTag takes the major, set Tag to
+// mflow.BuildTag directly and delete this.
+func buildTagOf(base string, _ int, arch, dockerfile string) string {
+	return mflow.BuildTag(base, arch, dockerfile)
+}
+
 var defaultPGFns = pgRecipeFns{
 	Check: mflow.CheckRecipe, Resolve: mflow.ResolveRecipes, Preload: mflow.DerivedPreload,
-	Script: mflow.ResolveScript, Parse: mflow.ParseResolve, Dockerfile: mflow.RecipeDockerfile, Tag: mflow.BuildTag, Helper: mflow.HelperDockerfile,
+	Script: mflow.ResolveScript, Parse: mflow.ParseResolve, Dockerfile: mflow.RecipeDockerfile, Tag: buildTagOf, Helper: mflow.HelperDockerfile,
 }
 
 // pgfn is the recipe engine's table: the default, or the one a test put in
@@ -479,7 +491,7 @@ func (o *Orchestrator) pgOneShot(ctx context.Context, node, name, image, script 
 
 // pgResolveOn runs the resolver in base: what installs there under hold.
 func (o *Orchestrator) pgResolveOn(ctx context.Context, node, base, instID string, major int, pkgs []string) (mflow.Resolved, error) {
-	out, code, err := o.pgOneShot(ctx, node, "stackr-extresolve-"+instID[:min(8, len(instID))], base, o.pgfn().Script(major, pkgs), nil, 10*time.Minute)
+	out, code, err := o.pgOneShot(ctx, node, "stackr-extresolve-"+instID[:min(8, len(instID))]+"-"+uuid.NewString()[:8], base, o.pgfn().Script(major, pkgs), nil, 10*time.Minute)
 	if err != nil {
 		return mflow.Resolved{}, err
 	}
@@ -491,18 +503,29 @@ func (o *Orchestrator) pgResolveOn(ctx context.Context, node, base, instID strin
 
 // planPGExt is the plan job: resolve, price the change, store the plan.
 func (o *Orchestrator) planPGExt(ctx context.Context, t Tile, m OperatedInstance, req pgExtPlanReq, log io.Writer) error {
+	p, err := o.makePGPlan(ctx, t, m, req, log)
+	if err != nil {
+		return err
+	}
+	return o.storePGPlan(ctx, m, p)
+}
+
+// makePGPlan resolves and prices a recipe change and hashes it against live
+// state, storing nothing: the plan job stores it, the stack file's apply runs
+// it at once.
+func (o *Orchestrator) makePGPlan(ctx context.Context, t Tile, m OperatedInstance, req pgExtPlanReq, log io.Writer) (PGExtPlan, error) {
 	exts := req.Extensions
 	if exts == nil {
 		exts = slices.Clone([]string(m.Extensions))
 	}
 	rows, err := o.store.PGRecipes.List(ctx)
 	if err != nil {
-		return err
+		return PGExtPlan{}, err
 	}
 	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
 	node, err := o.envNode(ctx, t.EnvironmentID)
 	if err != nil {
-		return err
+		return PGExtPlan{}, err
 	}
 	p := PGExtPlan{ID: uuid.NewString(), In: PGExtPlanIn{
 		Extensions: exts, Names: pgRecipesFor(pgRecipeDefs(rows), exts), Arch: o.pgNodeArch(ctx, node), NodeID: node,
@@ -512,12 +535,12 @@ func (o *Orchestrator) planPGExt(ctx context.Context, t Tile, m OperatedInstance
 	base := pgBaseOf(t, eb)
 	if !mflow.PGOfficial(base) {
 		block(errs.Conflictf("%s runs a custom image; recipes need the official one.", t.Slug))
-		return o.storePGPlan(ctx, m, p)
+		return o.sealPGPlan(ctx, m, p)
 	}
 	if req.Update {
 		nb, ok := mflow.PGUpdate(base)
 		if !ok {
-			return errs.Conflictf("already on the newest minor stackr offers")
+			return PGExtPlan{}, errs.Conflictf("already on the newest minor stackr offers")
 		}
 		base = nb
 	}
@@ -533,16 +556,16 @@ func (o *Orchestrator) planPGExt(ctx context.Context, t Tile, m OperatedInstance
 	}
 	if len(p.Blockers) == 0 && len(rs) > 0 {
 		if err := o.planPGResolvePins(ctx, t, m, &p, rs, node, log); err != nil {
-			return err
+			return PGExtPlan{}, err
 		}
 	}
 	if len(p.Blockers) == 0 {
 		o.planPGImage(ctx, t, m, eb, &p, rs, log)
 	}
 	if err := o.planPGLines(ctx, t, m, eb, rows, &p, rs); err != nil {
-		return err
+		return PGExtPlan{}, err
 	}
-	return o.storePGPlan(ctx, m, p)
+	return o.sealPGPlan(ctx, m, p)
 }
 
 // planPGResolvePins finds the newest build of every package that installs
@@ -590,7 +613,7 @@ func (o *Orchestrator) planPGImage(ctx context.Context, t Tile, m OperatedInstan
 			p.Blockers = append(p.Blockers, err.Error())
 			return
 		}
-		ref, err := o.pgBuildRef(ctx, t, fn.Tag(p.In.Base, p.In.Arch, df))
+		ref, err := o.pgBuildRef(ctx, t, fn.Tag(p.In.Base, m.Major, p.In.Arch, df))
 		if err != nil {
 			p.Blockers = append(p.Blockers, err.Error())
 			return
@@ -683,15 +706,20 @@ func (p PGExtPlan) pgExtIn() PGExtIn {
 	return PGExtIn{Image: &img, Preload: &pre, Extensions: &exts, viaPlan: true}
 }
 
-// storePGPlan hashes the plan against live state and stores it.
-func (o *Orchestrator) storePGPlan(ctx context.Context, m OperatedInstance, p PGExtPlan) error {
+// sealPGPlan hashes the plan against live state.
+func (o *Orchestrator) sealPGPlan(ctx context.Context, m OperatedInstance, p PGExtPlan) (PGExtPlan, error) {
 	t, m, err := o.instanceOf(ctx, m.TileID)
 	if err != nil {
-		return err
+		return p, err
 	}
 	if p.Hash, err = o.pgPlanHash(ctx, t, m, p.In); err != nil && len(p.Blockers) == 0 {
-		return err
+		return p, err
 	}
+	return p, nil
+}
+
+// storePGPlan stores a sealed plan under the instance.
+func (o *Orchestrator) storePGPlan(ctx context.Context, m OperatedInstance, p PGExtPlan) error {
 	b, _ := json.Marshal(p)
 	return o.store.Settings.Set(ctx, pgextplanKey+m.ID, string(b))
 }
@@ -761,6 +789,13 @@ func (o *Orchestrator) ApplyPGExtPlan(ctx context.Context, by *Principal, tileID
 	in, err := o.pgApplyIn(ctx, t, m, p)
 	if err != nil {
 		return PGExtView{}, nil, err
+	}
+	if in.build != nil {
+		if reach, err := o.reachedByRedeploy(ctx, t); err != nil {
+			return PGExtView{}, nil, err
+		} else if !reach { // never store an image that was not built and boot-checked
+			return PGExtView{}, nil, errs.Conflictf("%s is not running. Start it, then apply the plan: the image is built and checked first.", t.Slug)
+		}
 	}
 	if _, j, err := o.setPGExtLocked(ctx, t, m, in); err != nil {
 		return PGExtView{}, nil, err
@@ -854,77 +889,104 @@ func parsePGCheck(out string) pgBuilt {
 }
 
 // pgBuildImage builds the plan's image on the instance's node and runs the
-// recipe boot check on it. A check that fails at an extension walks the failing
-// recipe's packages down one build and tries again, up to pgBuildWalkMax times,
-// then fails naming the extension. On success st.New carries the built ref, the
-// build record with the installed versions and the startup modules.
+// recipe boot check on it (pgBuildChecked). The recipes are the reviewed
+// snapshot the cursor carries; a cursor from before the snapshot resolves the
+// names. On success st.New carries the built ref, the build record with the
+// installed versions and the startup modules.
 func (o *Orchestrator) pgBuildImage(ctx context.Context, t Tile, m OperatedInstance, st *pgExtState, log io.Writer) error {
 	in := *st.Build
-	fn := o.pgfn()
 	node, err := o.envNode(ctx, t.EnvironmentID)
 	if err != nil {
 		return err
 	}
-	rs, err := o.pgResolve(ctx, t, m, in.Names)
+	rs := in.Recipes
+	if len(rs) == 0 {
+		if rs, err = o.pgResolve(ctx, t, m, in.Names); err != nil {
+			return err
+		}
+	}
+	old, _ := mflow.ParseExtBuild(st.Old.ExtBuild)
+	ref, pkgs, err := o.pgBuildChecked(ctx, t, m, node, in.Base, in.Arch, rs, in.Pins, st.New.Extensions, log)
 	if err != nil {
 		return err
 	}
-	old, _ := mflow.ParseExtBuild(st.Old.ExtBuild)
-	pins := maps.Clone(in.Pins)
+	preload := o.pgfn().Preload(rs)
+	eb := o.pgPlanBuild(in, rs, old)
+	eb.Ref = ref
+	if len(pkgs) > 0 {
+		eb.Packages = pkgs
+	}
+	if old.Built() && old.Ref != ref {
+		eb.PrevRef, eb.PrevAt = old.Ref, time.Now().UTC()
+	}
+	st.New.Image, st.New.Preload, st.New.ExtBuild = ref, preload, eb.String()
+	return nil
+}
+
+// pgBuildChecked builds the image of rs at pins on base for m's major and runs
+// the recipe boot check on it. A check that fails at an extension walks the
+// failing recipe's packages down one build and tries again, up to
+// pgBuildWalkMax times, then fails naming the extension. want are names the
+// image must offer. It returns the ref and the installed package versions
+// (dpkg's, with the pin of every package dpkg did not list: a recipe package
+// outside postgresql-*).
+func (o *Orchestrator) pgBuildChecked(ctx context.Context, t Tile, m OperatedInstance, node, base, arch string, rs []mflow.Recipe, pins map[string]string, want []string, log io.Writer) (string, map[string]string, error) {
+	fn := o.pgfn()
+	pins = maps.Clone(pins)
 	var create []string
 	for _, r := range rs {
 		create = append(create, r.Extensions...)
 	}
 	preload := fn.Preload(rs)
 	for step := 0; ; step++ {
-		df, err := fn.Dockerfile(in.Base, m.Major, in.Arch, rs, pins)
+		df, err := fn.Dockerfile(base, m.Major, arch, rs, pins)
 		if err != nil {
-			return err
+			return "", nil, err
 		}
-		ref, err := o.pgBuildRef(ctx, t, fn.Tag(in.Base, in.Arch, df))
+		ref, err := o.pgBuildRef(ctx, t, fn.Tag(base, m.Major, arch, df))
 		if err != nil {
-			return err
+			return "", nil, err
 		}
 		logf(log, "building %s\n", ref)
 		if err := o.pgBuild(ctx, t, node, ref, df, rs, log); err != nil {
-			return err
+			return "", nil, err
 		}
 		b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, preload, create)
 		if err != nil {
-			return err
+			return "", nil, err
 		}
 		if code == 0 {
-			if want := pgMinorRE.FindString(imageTag(in.Base)); want != "" && b.Server != "" && b.Server != want {
-				return fmt.Errorf("the build moved postgres from %s to %s; nothing was changed", want, b.Server)
+			if mm := pgMinorRE.FindString(imageTag(base)); mm != "" && b.Server != "" && b.Server != mm {
+				return "", nil, fmt.Errorf("the build moved postgres from %s to %s; nothing was changed", mm, b.Server)
 			}
-			for _, n := range st.New.Extensions {
+			for _, n := range want {
 				if _, ok := b.Avail[n]; !ok {
-					return fmt.Errorf("the image %s has no extension %s; nothing was changed", ref, n)
+					return "", nil, fmt.Errorf("the image %s has no extension %s; nothing was changed", ref, n)
 				}
 			}
-			eb := o.pgPlanBuild(in, rs, old)
-			eb.Ref = ref
-			if len(b.Pkgs) > 0 {
-				eb.Packages = b.Pkgs
+			pkgs := maps.Clone(b.Pkgs)
+			if pkgs == nil {
+				pkgs = map[string]string{}
 			}
-			if old.Built() && old.Ref != ref {
-				eb.PrevRef, eb.PrevAt = old.Ref, time.Now().UTC()
+			for name, v := range pins { // a recipe package dpkg's postgresql-* query did not list
+				if _, ok := pkgs[name]; !ok {
+					pkgs[name] = v
+				}
 			}
-			st.New.Image, st.New.Preload, st.New.ExtBuild = ref, preload, eb.String()
-			return nil
+			return ref, pkgs, nil
 		}
 		if b.Failed == "" {
-			return fmt.Errorf("postgres did not start in %s with startup modules %s; nothing was changed:\n%s", ref, strings.Join(preload, ", "), out)
+			return "", nil, fmt.Errorf("postgres did not start in %s with startup modules %s; nothing was changed:\n%s", ref, strings.Join(preload, ", "), out)
 		}
 		down, ok := map[string]string(nil), false
 		if step < pgBuildWalkMax {
-			down, ok, err = o.pgWalkDown(ctx, node, m, in.Base, rs, b.Failed, pins)
+			down, ok, err = o.pgWalkDown(ctx, node, m, base, rs, b.Failed, pins)
 			if err != nil {
-				return err
+				return "", nil, err
 			}
 		}
 		if !ok {
-			return fmt.Errorf("the build of %s did not pass its check: extension %s was not created; nothing was changed:\n%s", strings.Join(pgNames(rs), ", "), b.Failed, out)
+			return "", nil, fmt.Errorf("the build of %s did not pass its check: extension %s was not created; nothing was changed:\n%s", strings.Join(pgNames(rs), ", "), b.Failed, out)
 		}
 		logf(log, "extension %s did not create; trying older builds\n", b.Failed)
 		pins = down
@@ -955,10 +1017,18 @@ func (o *Orchestrator) pgBuild(ctx context.Context, t Tile, node, ref, df string
 		return err
 	}
 	_, err = o.buildOn(ctx, node, st.OrgID, regfront.Repo(og.Slug, st.Slug, t.Slug), ref, dir, path, nil, log)
-	if err != nil && (strings.Contains(err.Error(), "checksum") || strings.Contains(err.Error(), "sha256")) {
+	if err != nil && isChecksumMismatch(err) {
 		return fmt.Errorf("the file for %s does not match its sha256: %w", strings.Join(pgNames(rs), ", "), err)
 	}
 	return err
+}
+
+// isChecksumMismatch says a build failed because a downloaded file did not
+// match its ADD --checksum (BuildKit's "digest mismatch ... (expected: ...)"),
+// not just because the error mentions a sha256 somewhere.
+func isChecksumMismatch(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "digest mismatch") || strings.Contains(s, "checksum mismatch")
 }
 
 // pgRecipeCheck runs the recipe boot check in the built image.
@@ -1050,7 +1120,7 @@ func (o *Orchestrator) rebuildOperated(ctx context.Context, t store.Tile, log io
 	if err != nil {
 		return err
 	}
-	ref, err := o.pgBuildRef(ctx, t, fn.Tag(eb.Base, eb.Arch, df))
+	ref, err := o.pgBuildRef(ctx, t, fn.Tag(eb.Base, m.Major, eb.Arch, df))
 	if err != nil {
 		return err
 	}
@@ -1062,7 +1132,7 @@ func (o *Orchestrator) rebuildOperated(ctx context.Context, t store.Tile, log io
 		return err
 	}
 	if err := o.pgBuild(ctx, t, node, ref, df, rs, log); err != nil {
-		if strings.Contains(err.Error(), "sha256") {
+		if isChecksumMismatch(err) {
 			return err
 		}
 		return fmt.Errorf("%w (%v)", o.pgNoLongerInstalls(eb, pins), err)
@@ -1112,63 +1182,78 @@ func (o *Orchestrator) loadSavedImage(ctx context.Context, t Tile, eb mflow.ExtB
 }
 
 // pgExtPlanFromFile and pgExtApplyFromFile are promote's PGExtPlan and
-// PGExtApply hooks: a stack file's recipe change is planned in the plan step
-// and applied with the plan id it stored (G2 calls them). The plan is made
-// inline (the plan step is not a job), stored like the panel's, and applied
-// without a confirm: the file's own approve was the confirm.
-func (o *Orchestrator) pgExtPlanFromFile(ctx context.Context, t store.Tile, m store.OperatedInstance, exts []string, log io.Writer) ([]string, string, error) {
-	// an instance not built from recipes whose names need none: no plan, the
-	// file's plain path (planID "") stores the list
-	if !mflow.RecipeBuilt(m.ExtBuild) {
-		rows, err := o.store.PGRecipes.List(ctx)
-		if err != nil {
-			return nil, "", err
-		}
-		if len(pgRecipesFor(pgRecipeDefs(rows), exts)) == 0 {
-			return nil, "", nil
-		}
-	}
-	nctx, err := o.withTileNode(ctx, t.ID)
+// PGExtApply hooks. The stack file's plan step only says that a recipe build
+// is needed and refuses what the build would refuse from stored state (an
+// unknown recipe, a custom image): no container runs and nothing is stored, so
+// a plan request stays fast and side-effect free. The apply step resolves,
+// builds and applies in the apply job, without a confirm (the file's own
+// approve was the confirm). t may be a tile the apply has not made yet (empty
+// ID, its stack set): the plan reads the stack and the majors default only.
+func (o *Orchestrator) pgExtPlanFromFile(ctx context.Context, t store.Tile, m store.OperatedInstance, exts []string, log io.Writer) ([]string, bool, error) {
+	rows, err := o.store.PGRecipes.List(ctx)
 	if err != nil {
-		return nil, "", err
+		return nil, false, err
 	}
-	if err := o.planPGExt(nctx, t, m, pgExtPlanReq{Extensions: slices.Clone(exts)}, log); err != nil {
-		return nil, "", err
+	names := pgRecipesFor(pgRecipeDefs(rows), exts)
+	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
+	// an instance not built from recipes whose names need none: no plan, the
+	// file's plain path stores the list
+	if !eb.Built() && len(names) == 0 {
+		return nil, false, nil
 	}
-	p, err := o.LastPGExtPlan(ctx, m.ID)
-	if err != nil || p == nil {
-		return nil, "", errors.Join(err, errors.New("the plan was not stored"))
+	if !mflow.PGOfficial(pgBaseOf(t, eb)) {
+		return nil, false, errs.Conflictf("%s runs a custom image; recipes need the official one.", t.Slug)
 	}
-	lines := slices.Clone(p.Lines)
-	for _, b := range p.Blockers {
-		lines = append(lines, "blocked: "+b)
+	if len(m.Preload) > 0 && !eb.Built() && len(names) > 0 {
+		return nil, false, errs.Conflictf("the startup modules of %s come from its recipes; remove preload, or set a custom image.", t.Slug)
 	}
-	return lines, p.ID, nil
+	if len(names) == 0 {
+		return []string{t.Slug + " goes back to the official image."}, true, nil
+	}
+	if m.Major == 0 {
+		var err error
+		if _, m.Major, err = mflow.PGPick(0, t.ImageRef, time.Now()); err != nil {
+			return nil, false, err
+		}
+	}
+	if _, err := o.pgResolve(ctx, t, m, names); err != nil {
+		return nil, false, err
+	}
+	return []string{fmt.Sprintf("Build an image for %s with %s. The versions are chosen when the file is applied.", t.Slug, strings.Join(names, ", "))}, true, nil
 }
 
-func (o *Orchestrator) pgExtApplyFromFile(ctx context.Context, t store.Tile, planID string, log io.Writer) error {
+// pgExtApplyFromFile plans the file's list for the instance (resolve in the
+// plan's container, no stored plan: a panel plan of the instance is left as
+// it is) and applies it inline with the apply job's log. An instance that does
+// not run builds and boot-checks the image before anything is stored, and
+// starts nothing.
+func (o *Orchestrator) pgExtApplyFromFile(ctx context.Context, t store.Tile, exts []string, log io.Writer) error {
 	t, m, err := o.instanceOf(ctx, t.ID)
 	if err != nil {
 		return err
 	}
-	p, err := o.LastPGExtPlan(ctx, m.ID)
+	nctx, err := o.withTileNode(ctx, t.ID)
 	if err != nil {
 		return err
 	}
-	if p == nil || p.ID != planID {
-		return errs.Conflictf("this plan is out of date; a new one is being made. Review it and apply again.")
+	p, err := o.makePGPlan(nctx, t, m, pgExtPlanReq{Extensions: slices.Clone(exts)}, log)
+	if err != nil {
+		return err
+	}
+	if len(p.Blockers) > 0 {
+		return errs.Conflictf("This plan is blocked: %s", strings.Join(p.Blockers, "; "))
 	}
 	mu := o.pgLock(m.ID)
 	mu.Lock()
+	if t, m, err = o.instanceOf(ctx, t.ID); err != nil {
+		mu.Unlock()
+		return err
+	}
 	if h, err := o.pgPlanHash(ctx, t, m, p.In); err != nil || h != p.Hash {
 		mu.Unlock()
-		return errs.Conflictf("this plan is out of date; a new one is being made. Review it and apply again.")
+		return errs.Conflictf("%s changed while the file was planned. Apply again.", t.Slug)
 	}
-	if len(p.Blockers) > 0 {
-		mu.Unlock()
-		return errs.Conflictf("This plan is blocked: %s", strings.Join(p.Blockers, "; "))
-	}
-	in, err := o.pgApplyIn(ctx, t, m, p)
+	in, err := o.pgApplyIn(ctx, t, m, &p)
 	if err != nil {
 		mu.Unlock()
 		return err
@@ -1178,26 +1263,64 @@ func (o *Orchestrator) pgExtApplyFromFile(ctx context.Context, t store.Tile, pla
 		mu.Unlock()
 		return err
 	}
-	if c.extsOnly() || !c.running {
+	if c.build == nil && (c.extsOnly() || !c.running) {
 		defer mu.Unlock()
 		ps, err := o.operated.ByInstance(ctx, m.ID)
 		if err != nil {
 			return err
 		}
-		if err := o.pgExtStoreNow(ctx, c, len(ps) == 0); err != nil {
-			return err
-		}
-		o.delPGPlan(ctx, m.ID)
-		return nil
+		return o.pgExtStoreNow(ctx, c, len(ps) == 0)
 	}
 	st := pgExtState{Phase: pgExtQueued, Old: c.old, New: c.new, Build: c.build}
+	if !c.running { // stopped: the cursor holds the instance while it builds
+		st.Phase = pgExtBuild
+	}
 	err = o.setPGExtState(ctx, m.ID, st)
 	mu.Unlock()
 	if err != nil {
 		return err
 	}
-	o.delPGPlan(ctx, m.ID)
-	return o.applyPGExt(ctx, t, m, st, log)
+	if c.running {
+		return o.applyPGExt(nctx, t, m, st, log)
+	}
+	return o.pgExtBuildStopped(nctx, t, m, st, log)
+}
+
+// pgExtBuildStopped builds and boot-checks the image of a change to an
+// instance that does not run, then stores it (the instance's rows must be what
+// the change read) and leaves the start to the next deploy. Any failure leaves
+// the rows as they were.
+func (o *Orchestrator) pgExtBuildStopped(ctx context.Context, t Tile, m OperatedInstance, st pgExtState, log io.Writer) error {
+	fail := func(err error) error {
+		o.delPGExtState(context.WithoutCancel(ctx), m.ID)
+		return err
+	}
+	if err := o.pgBuildImage(ctx, t, m, &st, log); err != nil {
+		return fail(err)
+	}
+	mu := o.pgLock(m.ID)
+	mu.Lock()
+	defer mu.Unlock()
+	ft, fm, err := o.instanceOf(ctx, t.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if !pgExtValsOf(ft, fm).equal(st.Old) {
+		return fail(errors.New("changed while it was built; nothing was changed"))
+	}
+	if err := o.pgExtWriteLocked(ctx, t.ID, fm, st.New); err != nil {
+		return fail(err)
+	}
+	ps, err := o.operated.ByInstance(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	if len(ps) == 0 { // nothing to reconcile at the first start
+		o.delPGExtState(ctx, m.ID)
+		return nil
+	}
+	st.Phase, st.Due = pgExtDue, true
+	return o.setPGExtState(ctx, m.ID, st)
 }
 
 // pgApplyIn is the request that applies plan p to the instance.
@@ -1218,6 +1341,7 @@ func (o *Orchestrator) pgApplyIn(ctx context.Context, t Tile, m OperatedInstance
 	in.extBuild = &next
 	if p.Build {
 		bq := p.In
+		bq.Recipes = rs // the reviewed snapshot: the job builds from it
 		in.build = &bq
 	}
 	return in, nil

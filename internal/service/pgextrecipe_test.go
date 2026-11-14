@@ -98,7 +98,7 @@ func newRecipeRig(t *testing.T) *recipeRig {
 			b, _ := json.Marshal(pins)
 			return fmt.Sprintf("FROM %s\n# %s %v\n", base, arch, string(b)), nil
 		},
-		Tag: func(base, arch, df string) string {
+		Tag: func(base string, _ int, arch, df string) string {
 			return fmt.Sprintf("%s-ext-%s-%x", imageTag(base), arch, sha256.Sum256([]byte(df)))[:30]
 		},
 	}
@@ -709,18 +709,18 @@ func TestPGRecipeMovePlanLine(t *testing.T) {
 	}
 }
 
-// A stack file on a not-yet-built instance: names no recipe brings make no
-// plan (the file's plain path stores them); a recipe name does.
+// A stack file on a not-yet-built instance: names no recipe brings need no
+// build (the file's plain path stores them); a recipe name does.
 func TestPGExtPlanFromFileFirstBuild(t *testing.T) {
 	t.Parallel()
 	r := newRecipeRig(t)
 	tl, m, err := r.orch.instanceOf(r.ctx, r.pg.ID)
 	must(t, err)
-	if _, id, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"pgcrypto"}, io.Discard); err != nil || id != "" {
-		t.Fatalf("plain name: id %q, %v", id, err)
+	if _, build, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"pgcrypto"}, io.Discard); err != nil || build {
+		t.Fatalf("plain name: build %v, %v", build, err)
 	}
-	if _, id, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"vector"}, io.Discard); err != nil || id == "" {
-		t.Fatalf("recipe name: id %q, %v", id, err)
+	if _, build, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"vector"}, io.Discard); err != nil || !build {
+		t.Fatalf("recipe name: build %v, %v", build, err)
 	}
 }
 
