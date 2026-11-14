@@ -659,7 +659,8 @@ func (h *handler) serverDestTest(c echo.Context) error {
 		msg, ok = inv.Msg, true
 	}
 	if !ok {
-		return middleware.HTTPError(err)
+		// an unreachable endpoint is the usual cause: say it inline, not as a toast
+		msg = "Could not reach the bucket: " + err.Error()
 	}
 	return respond.HTML(c, http.StatusOK, pages.ServerDestTest(msg))
 }
