@@ -60,6 +60,8 @@ class GraphCanvas extends HTMLElement {
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => this.repath());
   });
+  // The canvas can connect before layout gives it a height: fit once it has a size, and when it changes, until the viewer moves the camera.
+  private sizer = new ResizeObserver(() => { if (!this.touched && this.clientWidth && this.clientHeight) this.fit(); });
   // Listeners are arrow fields, so wire(false) removes the same functions.
   private wire(on: boolean): void {
     const pairs: [EventTarget, string, (e: never) => void][] = [
@@ -77,6 +79,7 @@ class GraphCanvas extends HTMLElement {
       i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
     });
     this.wire(true);
+    this.sizer.observe(this);
     this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
     this.repath();
     // A swap in the parent (timer, note) adds this beside the old canvas: keep its camera, or refit
@@ -90,6 +93,7 @@ class GraphCanvas extends HTMLElement {
   }
   disconnectedCallback(): void {
     this.observer.disconnect();
+    this.sizer.disconnect();
     cancelAnimationFrame(this.frame);
     this.wire(false);
   }
@@ -148,6 +152,7 @@ class GraphCanvas extends HTMLElement {
   }
   // The whole graph, clear of the controls and legends; zooming out then goes as far as this.
   private fit(): void {
+    if (!this.clientWidth || !this.clientHeight) return; // no size yet: the sizer fits once there is one
     const max = clamp(Number(this.getAttribute("scale")) || 0.8);
     const b = this.bounds(true);
     const ctrl = this.querySelector<HTMLElement>("[data-zoom]")?.parentElement;

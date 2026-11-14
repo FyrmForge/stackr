@@ -42,6 +42,8 @@ class GraphCanvas extends HTMLElement {
         cancelAnimationFrame(this.frame);
         this.frame = requestAnimationFrame(() => this.repath());
     });
+    sizer = new ResizeObserver(() => { if (!this.touched && this.clientWidth && this.clientHeight)
+        this.fit(); });
     wire(on) {
         const pairs = [
             [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
@@ -62,6 +64,7 @@ class GraphCanvas extends HTMLElement {
             i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
         });
         this.wire(true);
+        this.sizer.observe(this);
         this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
         this.repath();
         const old = [...(this.parentElement?.children ?? [])].find((c) => c !== this && c instanceof GraphCanvas);
@@ -78,6 +81,7 @@ class GraphCanvas extends HTMLElement {
     }
     disconnectedCallback() {
         this.observer.disconnect();
+        this.sizer.disconnect();
         cancelAnimationFrame(this.frame);
         this.wire(false);
     }
@@ -134,6 +138,8 @@ class GraphCanvas extends HTMLElement {
         this.style.setProperty("--s", String(this.s));
     }
     fit() {
+        if (!this.clientWidth || !this.clientHeight)
+            return;
         const max = clamp(Number(this.getAttribute("scale")) || 0.8);
         const b = this.bounds(true);
         const ctrl = this.querySelector("[data-zoom]")?.parentElement;
