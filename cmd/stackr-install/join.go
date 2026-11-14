@@ -146,7 +146,8 @@ func (j joinCall) run(ctx context.Context, csrPEM []byte, wgPub string, facts an
 	if err != nil {
 		return st, fmt.Errorf("join request: %w", err)
 	}
-	j.say("Waiting for an admin to confirm this node in the panel (Nodes, pending)...")
+	j.say("Go back to the panel and press Add: " + j.panel + "/-/admin/nodes")
+	j.say("Waiting for an admin to confirm this node...")
 	for st.Status != "confirmed" || len(st.Mesh) == 0 || string(st.Mesh) == "null" {
 		if st.Status == "rejected" {
 			return st, errors.New("the admin rejected this node")
