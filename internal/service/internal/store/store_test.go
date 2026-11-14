@@ -398,9 +398,10 @@ func TestRoundTrip(t *testing.T) {
 		Endpoint:      "db:5432",
 		Preload:       store.NameList{"vchord"},
 		Extensions:    store.NameList{"vector", "vchord"},
+		ExtBuild:      `{"base":"postgres:17.11","ref":"r"}`,
 		CreatedAt:     t0,
 	}, func(m *store.OperatedInstance) {
-		m.Preload, m.Extensions = nil, store.NameList{"vector"}
+		m.Preload, m.Extensions, m.ExtBuild = nil, store.NameList{"vector"}, "{}"
 		m.AdminPassword = "pw2"
 		m.Allow = store.StringList{}
 		m.EnvPairs = store.StringMap{}
@@ -620,8 +621,9 @@ func TestRoundTrip(t *testing.T) {
 		Status:     "running",
 		ObjectKey:  "k",
 		SizeBytes:  1 << 40,
+		ImageKey:   "stackr/o/v/pitr/image/17.11-ext-amd64-abcd1234.tar.age",
 		CreatedAt:  t0,
-	}, func(b *store.BackupRun) { b.Status, b.FinishedAt, b.VolumeID = "done", ptr(t1), nil })
+	}, func(b *store.BackupRun) { b.Status, b.FinishedAt, b.VolumeID, b.ImageKey = "done", ptr(t1), nil, "" })
 	roundTrip(t, s.Jobs, store.Job{
 		ID:        "j1",
 		Kind:      "deploy",
@@ -808,6 +810,19 @@ func columnWrites(t *testing.T, s *store.Store) {
 	}
 	m.Preload, m.Extensions = store.NameList{"vchord"}, store.NameList{"vector", "vchord"}
 	same(t, "SetExt", m, got)
+	if err := s.OperatedInstances.SetBuild(ctx, "mi1", nil, []string{"vector"}, `{"base":"b","ref":"r2"}`); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.OperatedInstances.Get(ctx, "mi1")
+	m.Preload, m.Extensions, m.ExtBuild = nil, store.NameList{"vector"}, `{"base":"b","ref":"r2"}`
+	same(t, "SetBuild", m, got)
+	// The put-back writes the old values back whole.
+	if err := s.OperatedInstances.SetBuild(ctx, "mi1", []string{"vchord"}, []string{"vector", "vchord"}, "{}"); err != nil {
+		t.Fatal(err)
+	}
+	m.Preload, m.Extensions, m.ExtBuild = store.NameList{"vchord"}, store.NameList{"vector", "vchord"}, "{}"
+	got, _ = s.OperatedInstances.Get(ctx, "mi1")
+	same(t, "SetBuild back", m, got)
 	if err := s.OperatedInstances.SetExt(ctx, "mi1", nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -816,6 +831,9 @@ func columnWrites(t *testing.T, s *store.Store) {
 	}
 	if err := s.OperatedInstances.SetExt(ctx, "nope", nil, nil); !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("SetExt on a missing id: %v", err)
+	}
+	if err := s.OperatedInstances.SetBuild(ctx, "nope", nil, nil, "{}"); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("SetBuild on a missing id: %v", err)
 	}
 
 	tl, err := s.Tiles.Get(ctx, "t2")

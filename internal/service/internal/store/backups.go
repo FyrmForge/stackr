@@ -114,6 +114,10 @@ type BackupRun struct {
 	// WalStop is the WAL segment current when a base backup finished; the
 	// base restores only once shipped WAL reaches it. nil on any other run.
 	WalStop *string `db:"wal_stop" json:"wal_stop"`
+	// ImageKey is the object key of the saved instance image a base backup
+	// needs ("" = none: any other run, or a base of an instance that is not
+	// recipe-built).
+	ImageKey string `db:"image_key" json:"image_key"`
 	// Dest is the destination's name ("local" for the install's disk),
 	// filled by the leaf's run lists, never stored.
 	Dest string `db:"-" json:"dest"`

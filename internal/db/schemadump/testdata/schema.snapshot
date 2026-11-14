@@ -81,6 +81,7 @@ table backup_runs
   col master_gen INTEGER notnull=1 default=0 pk=0
   col wal_start TEXT notnull=0 default=- pk=0
   col wal_stop TEXT notnull=0 default=- pk=0
+  col image_key TEXT notnull=1 default='' pk=0
   fk dest_id -> backup_destinations(id) on_update=NO ACTION on_delete=CASCADE
   fk group_id -> backup_groups(id) on_update=NO ACTION on_delete=SET NULL
   fk schedule_id -> backup_schedules(id) on_update=NO ACTION on_delete=SET NULL
@@ -90,7 +91,7 @@ table backup_runs
   index backup_runs_group unique=0 origin=c partial=0 (group_id)
   index backup_runs_kind unique=0 origin=c partial=0 (kind)
   index backup_runs_volume unique=0 origin=c partial=0 (volume_id)
-  sql CREATE TABLE backup_runs ( id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('volume', 'panel')), volume_id TEXT REFERENCES volumes (id) ON DELETE SET NULL, schedule_id TEXT REFERENCES backup_schedules (id) ON DELETE SET NULL, dest_id TEXT NOT NULL REFERENCES backup_destinations (id) ON DELETE CASCADE, trigger TEXT NOT NULL, status TEXT NOT NULL, object_key TEXT NOT NULL, size_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at DATETIME NOT NULL, finished_at DATETIME , group_id TEXT REFERENCES backup_groups (id) ON DELETE SET NULL, recovery_gen INTEGER NOT NULL DEFAULT 0, master_gen INTEGER NOT NULL DEFAULT 0, wal_start TEXT, wal_stop TEXT)
+  sql CREATE TABLE backup_runs ( id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('volume', 'panel')), volume_id TEXT REFERENCES volumes (id) ON DELETE SET NULL, schedule_id TEXT REFERENCES backup_schedules (id) ON DELETE SET NULL, dest_id TEXT NOT NULL REFERENCES backup_destinations (id) ON DELETE CASCADE, trigger TEXT NOT NULL, status TEXT NOT NULL, object_key TEXT NOT NULL, size_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at DATETIME NOT NULL, finished_at DATETIME , group_id TEXT REFERENCES backup_groups (id) ON DELETE SET NULL, recovery_gen INTEGER NOT NULL DEFAULT 0, master_gen INTEGER NOT NULL DEFAULT 0, wal_start TEXT, wal_stop TEXT, image_key TEXT NOT NULL DEFAULT '')
 table backup_schedules
   col id TEXT notnull=0 default=- pk=1
   col volume_id TEXT notnull=1 default=- pk=0
@@ -447,9 +448,10 @@ table operated_instances
   col archive_epoch INTEGER notnull=1 default=0 pk=0
   col preload TEXT notnull=1 default='[]' pk=0
   col extensions TEXT notnull=1 default='[]' pk=0
+  col ext_build TEXT notnull=1 default='{}' pk=0
   fk tile_id -> tiles(id) on_update=NO ACTION on_delete=CASCADE
   index (auto) unique=1 origin=pk partial=0 (id)
-  sql CREATE TABLE operated_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0, settings TEXT NOT NULL DEFAULT '{}', major INTEGER NOT NULL DEFAULT 0, pooler_password TEXT NOT NULL DEFAULT '', repl_password TEXT NOT NULL DEFAULT '', prefer_sync INTEGER NOT NULL DEFAULT 0, sync_limit_ms INTEGER NOT NULL DEFAULT 10, sync_required INTEGER NOT NULL DEFAULT 0, archive_epoch INTEGER NOT NULL DEFAULT 0, preload TEXT NOT NULL DEFAULT '[]', extensions TEXT NOT NULL DEFAULT '[]')
+  sql CREATE TABLE operated_instances ( id TEXT PRIMARY KEY, tile_id TEXT NOT NULL REFERENCES tiles (id) ON DELETE CASCADE, engine TEXT NOT NULL, allow TEXT NOT NULL DEFAULT '[]', -- JSON list env_pairs TEXT NOT NULL DEFAULT '{}', -- JSON object admin_user TEXT NOT NULL, admin_password TEXT NOT NULL, -- encrypted endpoint TEXT NOT NULL, created_at DATETIME NOT NULL , pitr_days INTEGER NOT NULL DEFAULT 0, settings TEXT NOT NULL DEFAULT '{}', major INTEGER NOT NULL DEFAULT 0, pooler_password TEXT NOT NULL DEFAULT '', repl_password TEXT NOT NULL DEFAULT '', prefer_sync INTEGER NOT NULL DEFAULT 0, sync_limit_ms INTEGER NOT NULL DEFAULT 10, sync_required INTEGER NOT NULL DEFAULT 0, archive_epoch INTEGER NOT NULL DEFAULT 0, preload TEXT NOT NULL DEFAULT '[]', extensions TEXT NOT NULL DEFAULT '[]', ext_build TEXT NOT NULL DEFAULT '{}')
 table operated_members
   col id TEXT notnull=0 default=- pk=1
   col instance_id TEXT notnull=1 default=- pk=0
@@ -531,6 +533,14 @@ table params
   index (auto) unique=1 origin=pk partial=0 (id)
   index (auto) unique=1 origin=u partial=0 (scope_kind,scope_id,collection,name)
   sql CREATE TABLE "params" ( id TEXT PRIMARY KEY, scope_kind TEXT NOT NULL CHECK (scope_kind IN ('org', 'env', 'server', 'tier', 'stack_pr', 'org_pr')), scope_id TEXT NOT NULL, collection TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('param', 'secret')), value TEXT NOT NULL, -- encrypted created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, UNIQUE (scope_kind, scope_id, collection, name) )
+table pg_recipes
+  col id TEXT notnull=0 default=- pk=1
+  col spec TEXT notnull=1 default='{}' pk=0
+  col enabled INTEGER notnull=1 default=1 pk=0
+  col share TEXT notnull=1 default='[]' pk=0
+  col created_at TIMESTAMP notnull=1 default=- pk=0
+  index (auto) unique=1 origin=pk partial=0 (id)
+  sql CREATE TABLE pg_recipes ( id TEXT PRIMARY KEY, spec TEXT NOT NULL DEFAULT '{}', enabled INTEGER NOT NULL DEFAULT 1, share TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP NOT NULL )
 table placement_moves
   col id TEXT notnull=0 default=- pk=1
   col placement_id TEXT notnull=1 default=- pk=0

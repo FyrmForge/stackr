@@ -157,6 +157,14 @@ func (d *Client) Save(ctx context.Context, ref string, w io.Writer) error {
 	return nil
 }
 
+// Load is a direct ImageLoad of the docker save tar in r, then a check that
+// ref is present on this daemon. It is not a wrapper over load: that one asks
+// the cluster registry first, and this path exists for when the registry copy
+// is gone (V8). Stub until lane C2.
+func (d *Client) Load(_ context.Context, ref string, _ io.Reader) error {
+	return fmt.Errorf("load %s: saved instance images are not built yet", ref)
+}
+
 type progressLine struct {
 	Status      string `json:"status"`
 	Progress    string `json:"progress"`

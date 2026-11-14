@@ -129,6 +129,13 @@ type Flow struct {
 	// an image or startup-list change. Its error is a "reconcile" phase
 	// error. nil = none owed.
 	PGExtDue func(ctx context.Context, t store.Tile, log io.Writer) error
+	// RebuildOperated brings back the image of a recipe-built operated tile
+	// whose image is missing from the cluster registry (a restore keeps no
+	// builds): from the saved image in the backup destination, else by
+	// building the recorded pins again. It returns an error wrapping
+	// docker.ErrNoClusterImage when there is nothing to rebuild, and the
+	// deploy then fails with the pull error as before. nil = none.
+	RebuildOperated func(ctx context.Context, t store.Tile, log io.Writer) error
 
 	// Runs reads a function or cron tile's runs for a `tile:completed`
 	// dependency; RunFirst runs an on_deploy function (and fails when its
@@ -470,6 +477,13 @@ func (f *Flow) prepare(
 				return r, e, "", err
 			}
 			digest, err = f.Images.Ensure(docker.WithPullOrg(ctx, o.Slug), run, auth, log)
+		}
+	}
+	if errors.Is(err, docker.ErrNoClusterImage) && t.Kind == tile.Operated && f.RebuildOperated != nil {
+		if rerr := f.RebuildOperated(ctx, t, log); rerr == nil {
+			digest, err = f.Images.Ensure(docker.WithPullOrg(ctx, o.Slug), run, auth, log)
+		} else if !errors.Is(rerr, docker.ErrNoClusterImage) {
+			return r, e, "", rerr
 		}
 	}
 	if errors.Is(err, image.ErrCleanedUp) {
@@ -978,6 +992,10 @@ func CheckSettings(engine string, s map[string]string) error {
 // is the stock default. promote reaches it here (it may not import
 // flow/operated).
 func PGOfficial(image string) bool { return mflow.PGOfficial(image) }
+
+// RecipeBuilt reports whether an ext_build column holds a recipe-built
+// instance (a parsed record with a base and a ref; never a non-empty test).
+func RecipeBuilt(extBuild string) bool { return mflow.RecipeBuilt(extBuild) }
 
 // CheckExtNames refuses a name that is not an extension name (message 9).
 func CheckExtNames(names []string) error { return mflow.CheckExtNames(names) }

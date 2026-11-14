@@ -445,6 +445,10 @@ func (f *Fake) RemoveBuilder(_ context.Context, name string) error {
 
 func (f *Fake) Save(_ context.Context, ref string, _ io.Writer) error { return f.rec("Save", ref) }
 
+// Load records the load of ref; the tar is not read (lane C2 may keep what it
+// was given).
+func (f *Fake) Load(_ context.Context, ref string, _ io.Reader) error { return f.rec("Load", ref) }
+
 func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker.Image, error) {
 	var out []docker.Image
 	for _, im := range f.Images {

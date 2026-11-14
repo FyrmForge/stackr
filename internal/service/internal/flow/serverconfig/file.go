@@ -35,6 +35,26 @@ type File struct {
 	Orgs        []Org                       `yaml:"orgs,omitempty"`
 	Nodes       map[string]Node             `yaml:"nodes,omitempty"`      // by node name; the file declares, never creates
 	Placements  map[string]Placement        `yaml:"placements,omitempty"` // by placement name
+	// PGExtensions are Postgres extension recipes by name (admin-added ones,
+	// or a built-in switched off). Parsed since the Stage 2 seam; nothing
+	// reads it until lane D2.
+	PGExtensions map[string]RecipeConf `yaml:"pg_extensions,omitempty"`
+}
+
+// RecipeConf is one pg_extensions entry: the recipe definition
+// (flow/operated.Recipe) plus who may use it. SHA256 keys are "<major>-<arch>".
+// Enabled nil = on. A nil Share says nothing about the shares.
+type RecipeConf struct {
+	Majors     []int             `yaml:"majors,omitempty"`
+	Packages   []string          `yaml:"packages,omitempty"`
+	PackageURL string            `yaml:"package_url,omitempty"`
+	SHA256     map[string]string `yaml:"sha256,omitempty"`
+	Version    string            `yaml:"version,omitempty"`
+	Extensions []string          `yaml:"extensions,omitempty"`
+	Preload    []string          `yaml:"preload,omitempty"`
+	Requires   []string          `yaml:"requires,omitempty"`
+	Share      *Share            `yaml:"share,omitempty"`
+	Enabled    *bool             `yaml:"enabled,omitempty"`
 }
 
 // setting is a settings: value as text; Parse leaves every value a string.

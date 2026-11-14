@@ -1133,6 +1133,10 @@ func (d *Docker) Save(ctx context.Context, _ string, _ io.Writer) error {
 	return d.chaos.hit(ctx, "images", "Save")
 }
 
+func (d *Docker) Load(ctx context.Context, _ string, _ io.Reader) error {
+	return d.chaos.hit(ctx, "images", "Load")
+}
+
 func (d *Docker) Build(
 	ctx context.Context,
 	_, _, dockerfile, tag string,
