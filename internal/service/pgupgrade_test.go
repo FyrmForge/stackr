@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -866,5 +868,171 @@ func TestRestartMidChangeResumesAutomatically(t *testing.T) {
 	r.orch.resumePGUpgrades(ctx)
 	if queued() != cur {
 		t.Fatal("resumed past the cap")
+	}
+}
+
+// ---- recipe-built instances (R28, V11) ----
+
+const pgupRecipeOld = "registry.test/acme/shop/pg:17.5-ext-amd64-old"
+
+// recipePGUpRig is a postgres 17 instance built from the pgvector recipe, with
+// a recipe engine fake that builds for 17 and 18 and a recipe "gone" with no
+// build for 18.
+func recipePGUpRig(t *testing.T) *pgupRig {
+	t.Helper()
+	r := newPGUpRig(t)
+	ctx := context.Background()
+	r.orch.cfg.FakeHost = t.TempDir()
+	eb := mflow.ExtBuild{Base: "postgres:17.5", Recipes: []string{"pgvector"}, Packages: map[string]string{"postgresql-17-pgvector": "0.8.5-1"}, Arch: "amd64", Ref: pgupRecipeOld}
+	must(t, r.st.OperatedInstances.SetBuild(ctx, r.inst.ID, []string{"vectors"}, []string{"vector"}, eb.String()))
+	must(t, r.st.Tiles.SetImageRef(ctx, r.pg.ID, pgupRecipeOld))
+	fns := pgRecipeFns{
+		Resolve: func(names []string, major int, orgID string, rows []store.PGRecipe) ([]mflow.Recipe, error) {
+			var out []mflow.Recipe
+			for _, n := range names {
+				if n == "gone" && major == 18 {
+					return nil, errs.Conflictf("no build")
+				}
+				out = append(out, mflow.Recipe{Name: n, Packages: []string{"postgresql-%d-pgvector"}, Extensions: []string{"vector"}})
+			}
+			return out, nil
+		},
+		Preload: func([]mflow.Recipe) []string { return []string{"vectors"} },
+		Script:  func(major int, pkgs []string) string { return "RESOLVE " + strings.Join(pkgs, " ") },
+		Parse: func(out string) (mflow.Resolved, error) {
+			return mflow.Resolved{Versions: map[string]string{"postgresql-18-pgvector": "0.8.6-1"}}, nil
+		},
+		Dockerfile: func(base string, major int, arch string, rs []mflow.Recipe, pins map[string]string) (string, error) {
+			return fmt.Sprintf("FROM %s\n# %d %v\n", base, major, pins), nil
+		},
+		Tag: func(base, arch, df string) string {
+			return fmt.Sprintf("%s-ext-%s-%x", pgTagOf(base), arch, sha256.Sum256([]byte(df)))[:30]
+		},
+		Helper: func(from, to mflow.ExtBuild, arch string) (string, error) {
+			return fmt.Sprintf("FROM helper\n# %v %v\n", from.Packages, to.Packages), nil
+		},
+	}
+	pgFnsFor.Store(r.orch, fns)
+	t.Cleanup(func() { pgFnsFor.Delete(r.orch) })
+	next := r.fake.Helper
+	r.fake.Helper = func(s docker.ContainerSpec) (string, int, bool) {
+		if len(s.Cmd) == 3 && s.Cmd[0] == "sh" {
+			if s.Cmd[2] == pgRecipeCheckScript {
+				return "P\tpostgresql-18\t18.1-1\nP\tpostgresql-18-pgvector\t0.8.6-1\nX\tvector\t0.8.6\n", 0, true
+			}
+			return "OK", 0, true
+		}
+		return next(s)
+	}
+	return r
+}
+
+func (r *pgupRig) builds() int {
+	n := 0
+	for _, c := range r.fake.Calls() {
+		if c.Method == "Build" {
+			n++
+		}
+	}
+	return n
+}
+
+// A recipe-built instance reaches the upgrade path: the run builds the new
+// major's image and the helper before stopping, every helper step runs in the
+// helper with the preload, the swap writes the new build, and a rollback puts
+// the old one back.
+func TestPGUpgradeRecipeBuiltRunsInItsOwnHelper(t *testing.T) {
+	t.Parallel()
+	r := recipePGUpRig(t)
+	o := r.orch
+	u := r.begin(t, 18)
+	var runs []mflow.UpgradeRun
+	u.ran = func(run mflow.UpgradeRun) { runs = append(runs, run) }
+	ctx, _ := o.withTileNode(context.Background(), r.pg.ID)
+	must(t, u.run(ctx))
+
+	st, _ := o.pgupOf(ctx, r.inst.ID)
+	if st.Helper == "" || !st.ToBuild.Built() || !st.FromBuild.Built() || st.ToImage == mustPGImage(18) || st.ToImage != st.ToBuild.Ref || st.FromImage != pgupRecipeOld {
+		t.Fatalf("state = %+v", st)
+	}
+	if len(runs) < 3 {
+		t.Fatalf("runs = %d", len(runs))
+	}
+	for _, run := range runs {
+		if run.Image != st.Helper || !slices.Equal(run.Preload, []string{"vectors"}) {
+			t.Errorf("%s ran in %q with %v", run.Step, run.Image, run.Preload)
+		}
+	}
+	tl, m, _ := o.instanceOf(ctx, r.pg.ID)
+	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
+	if m.Major != 18 || tl.ImageRef != st.ToImage || eb.Ref != st.ToImage || eb.Base != mustPGImage(18) || eb.Packages["postgresql-18-pgvector"] != "0.8.6-1" {
+		t.Errorf("after: %d %s %+v", m.Major, tl.ImageRef, eb)
+	}
+	if r.builds() != 2 { // the helper and the instance image
+		t.Errorf("%d builds, want 2", r.builds())
+	}
+
+	j, err := o.RollbackPGUpgrade(ctx, roleP(r.org, "member"), r.pg.ID)
+	must(t, err)
+	if got := r.wait(t, j.ID); got.State != "done" {
+		t.Fatalf("rollback %s: %s", got.State, got.Error)
+	}
+	tl, m, _ = o.instanceOf(ctx, r.pg.ID)
+	eb, _ = mflow.ParseExtBuild(m.ExtBuild)
+	if m.Major != 17 || tl.ImageRef != pgupRecipeOld || eb.Ref != pgupRecipeOld || eb.Packages["postgresql-17-pgvector"] != "0.8.5-1" {
+		t.Errorf("after rollback: %d %s %+v", m.Major, tl.ImageRef, eb)
+	}
+}
+
+// The dry run of a recipe-built instance runs in a pinned helper the dry run
+// builds (V11); the run reuses it, so only the instance image is built then.
+func TestPGUpgradeRecipeBuiltCheckBuildsTheHelperAndRunReusesIt(t *testing.T) {
+	t.Parallel()
+	r := recipePGUpRig(t)
+	o := r.orch
+	u, ctx := r.bare(t)
+	var runs []mflow.UpgradeRun
+	u.ran = func(run mflow.UpgradeRun) { runs = append(runs, run) }
+	must(t, u.check(ctx, 18))
+	c := o.lastPGCheck(ctx, r.inst.ID)
+	if c == nil || !c.OK || c.Helper == "" || r.builds() != 1 {
+		t.Fatalf("check = %+v, %d builds", c, r.builds())
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d", len(runs))
+	}
+	for _, run := range runs {
+		if run.Image != c.Helper || !slices.Equal(run.Preload, []string{"vectors"}) {
+			t.Errorf("%s ran in %q with %v", run.Step, run.Image, run.Preload)
+		}
+	}
+	u2 := r.begin(t, 18)
+	must(t, u2.buildImages(ctx))
+	if u2.st.Helper != c.Helper || r.builds() != 2 {
+		t.Errorf("helper %q (check built %q), %d builds", u2.st.Helper, c.Helper, r.builds())
+	}
+}
+
+// Message 24: a recipe with no build for the new major refuses the dry run and
+// the change, and nothing is made.
+func TestPGUpgradeRecipeWithoutABuildIsRefused(t *testing.T) {
+	t.Parallel()
+	r := recipePGUpRig(t)
+	ctx := context.Background()
+	m, err := r.orch.operated.GetByTile(ctx, r.pg.ID)
+	must(t, err)
+	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
+	eb.Recipes = []string{"pgvector", "gone"}
+	must(t, r.st.OperatedInstances.SetBuild(ctx, r.inst.ID, nil, nil, eb.String()))
+	by := roleP(r.org, "member")
+	want := "the recipe pgvector, gone has no build for postgres 18; pg cannot move to it."
+	if _, err := r.orch.ChangePGMajor(ctx, by, r.pg.ID, 18); err == nil || err.Error() != want {
+		t.Errorf("change = %v", err)
+	}
+	if _, err := r.orch.CheckPGUpgrade(ctx, by, r.pg.ID, 18); err == nil || err.Error() != want {
+		t.Errorf("check = %v", err)
+	}
+	if _, ok := r.orch.pgupOf(ctx, r.inst.ID); ok || r.builds() != 0 {
+		t.Error("something was made for a refused change")
 	}
 }

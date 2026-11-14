@@ -54,7 +54,8 @@ type PGCheck struct {
 	To        int       `json:"to"`
 	OK        bool      `json:"ok"`
 	Detail    string    `json:"detail"`
-	NeedBytes int64     `json:"need_bytes"` // the free disk a change needs
+	NeedBytes int64     `json:"need_bytes"`       // the free disk a change needs
+	Helper    string    `json:"helper,omitempty"` // the pinned helper the dry run built (recipe-built), reused by the run
 	At        time.Time `json:"at"`
 }
 
@@ -70,7 +71,11 @@ type PGRollback struct {
 type pgUp struct {
 	From, To           int
 	FromImage, ToImage string
-	Cand               string // the candidate tile
+	// A recipe-built instance (R28): the build it leaves, the build the new
+	// major gets (set once built), and the pinned helper that runs pg_upgrade.
+	FromBuild, ToBuild mflow.ExtBuild `json:",omitzero"`
+	Helper             string         `json:",omitempty"`
+	Cand               string         // the candidate tile
 	Step               int
 	WasUp              bool // the instance ran when the change began
 	Facts              mflow.ClusterFacts
@@ -138,6 +143,9 @@ func (o *Orchestrator) pgChangeOf(ctx context.Context, by *Principal, tileID str
 	if err := noCustomImageForChange(c.t, c.m, to); err != nil {
 		return c, err
 	}
+	if err := o.pgMoveRecipes(ctx, c.t, c.m, to); err != nil {
+		return c, err
+	}
 	return c, mflow.PGChangeCheck(c.from, to, time.Now())
 }
 
@@ -145,11 +153,28 @@ func (o *Orchestrator) pgChangeOf(ctx context.Context, by *Principal, tileID str
 // image or with startup modules (message 2): the new major would run a stock
 // image without them.
 func noCustomImageForChange(t Tile, m OperatedInstance, to int) error {
-	if mflow.RecipeBuilt(m.ExtBuild) { // Stage 2 only; Stage 3 removes it (R28)
-		return errs.Conflictf("%s was built from recipes; changing its major is not possible yet.", t.Slug)
+	if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.Built() { // R28: a recipe build moves by rebuilding
+		return nil
 	}
 	if !mflow.PGOfficial(t.ImageRef) || len(m.Preload) > 0 {
 		return errs.Conflictf("%s runs a custom image. Make a new instance on postgres %d and branch the slices to it.", t.Slug, to)
+	}
+	return nil
+}
+
+// pgMoveRecipes is message 24: a recipe-built instance moves only when every
+// recipe it holds has a build for the new major.
+func (o *Orchestrator) pgMoveRecipes(ctx context.Context, t Tile, m OperatedInstance, to int) error {
+	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
+	if !eb.Built() || to == m.Major {
+		return nil
+	}
+	if _, err := o.pgResolveAt(ctx, t, m, eb.Recipes, to); err != nil {
+		_, conflict := errs.IsConflict(err)
+		if _, invalid := errs.IsInvalid(err); conflict || invalid {
+			return errs.Conflictf("the recipe %s has no build for postgres %d; %s cannot move to it.", strings.Join(eb.Recipes, ", "), to, t.Slug)
+		}
+		return err
 	}
 	return nil
 }
@@ -291,6 +316,9 @@ func (o *Orchestrator) beginPGChange(ctx context.Context, by *Principal, tileID 
 	if err = noCustomImageForChange(c.t, c.m, to); err != nil {
 		return
 	}
+	if err = o.pgMoveRecipes(ctx, c.t, c.m, to); err != nil {
+		return
+	}
 	st, have := o.pgupOf(ctx, c.m.ID)
 	if have && !st.Done {
 		if st.To != to {
@@ -320,6 +348,9 @@ func (o *Orchestrator) beginPGChange(ctx context.Context, by *Principal, tileID 
 		}
 	}
 	n := pgUp{From: c.from, To: to, FromImage: cmp.Or(c.t.ImageRef, mflow.Engines["postgres"].Definition().Image), ToImage: mustPGImage(to), Cand: cand.ID}
+	if eb, _ := mflow.ParseExtBuild(c.m.ExtBuild); eb.Built() {
+		n.FromBuild = eb // the new build and the helper come with the job
+	}
 	if have {
 		n.Prev = &st // the change it replaces, still rollbackable until this one is done
 	}
@@ -358,6 +389,7 @@ type pgupRun struct {
 	sv    store.Volume
 	st    pgUp
 	after func(step string) error // a test's way to stop the run after a step
+	ran   func(mflow.UpgradeRun)  // a test's view of each helper run
 }
 
 func (o *Orchestrator) runPGUpgrade(ctx context.Context, r *jobs.Run, p pgUpgradeJob) error {
@@ -388,6 +420,12 @@ func (o *Orchestrator) runPGUpgrade(ctx context.Context, r *jobs.Run, p pgUpgrad
 // helper runs one step of the helper image to its end and returns its output.
 func (u *pgupRun) helper(ctx context.Context, run mflow.UpgradeRun, tail int) (string, error) {
 	run.Instance, run.Admin, run.From = u.m.ID, u.m.AdminUser, u.st.From
+	if u.st.Helper != "" { // recipe-built: the pinned helper, with the instance's startup modules
+		run.Image, run.Preload = u.st.Helper, u.m.Preload
+	}
+	if u.ran != nil {
+		u.ran(run)
+	}
 	if run.From == 0 {
 		run.From = u.m.Major
 	}
@@ -421,6 +459,11 @@ func (u *pgupRun) check(ctx context.Context, to int) error {
 			_ = o.store.Settings.Set(context.WithoutCancel(ctx), pgupCheckKey+u.m.ID, string(b))
 		}
 	}()
+	helper, err := u.pgHelper(ctx, to, true)
+	if err != nil {
+		return err
+	}
+	u.st.Helper, res.Helper = helper, helper
 	vol, scratch := u.sv.Name, false
 	if o.tileRunning(ctx, u.t) {
 		// the instance runs: check a copy, so it is neither stopped nor touched
@@ -554,6 +597,9 @@ func (u *pgupRun) run(ctx context.Context) error {
 func (u *pgupRun) candidate(ctx context.Context) (Tile, error) { return u.o.tiles.Get(ctx, u.st.Cand) }
 
 func (u *pgupRun) stop(ctx context.Context) error {
+	if err := u.buildImages(ctx); err != nil { // before anything is stopped
+		return err
+	}
 	if !u.o.tileRunning(ctx, u.t) {
 		return nil
 	}
@@ -718,6 +764,9 @@ func (u *pgupRun) swap(ctx context.Context) error {
 	u.st.OldVol, u.st.OldName, u.st.NewName, u.st.Swapped = cv.ID, sv.Name, cv.Name, true
 	st := u.st
 	err = o.swapMajor(ctx, sv, cv, u.t.ID, u.m.ID, u.st.ToImage, u.st.To, func(tx store.Tx) error {
+		if err := setExtBuild(ctx, tx, u.m.ID, st.ToBuild); err != nil {
+			return err
+		}
 		b, _ := json.Marshal(st)
 		return tx.Settings.Set(ctx, pgupKey+u.m.ID, string(b))
 	})
@@ -725,6 +774,21 @@ func (u *pgupRun) swap(ctx context.Context) error {
 		u.st.Swapped = false
 	}
 	return err
+}
+
+// setExtBuild writes a recipe build into the instance's ext_build in the
+// swap's transaction; a change of an instance that is not recipe-built has no
+// build to write and leaves the column alone.
+func setExtBuild(ctx context.Context, tx store.Tx, instanceID string, eb mflow.ExtBuild) error {
+	if !eb.Built() {
+		return nil
+	}
+	m, err := tx.OperatedInstances.Get(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	m.ExtBuild = eb.String()
+	return tx.OperatedInstances.Update(ctx, m)
 }
 
 // pgChangeSafe is what must hold for the swap: no standby (it would follow
@@ -929,7 +993,9 @@ func (o *Orchestrator) runPGRollback(ctx context.Context, r *jobs.Run, p pgUpgra
 		if err := r.Swap(); err != nil {
 			return err
 		}
-		if err := o.swapMajor(ctx, sv, ov, t.ID, m.ID, st.FromImage, st.From, nil); err != nil {
+		if err := o.swapMajor(ctx, sv, ov, t.ID, m.ID, st.FromImage, st.From, func(tx store.Tx) error {
+			return setExtBuild(ctx, tx, m.ID, st.FromBuild)
+		}); err != nil {
 			if was {
 				_ = o.container.Start(context.WithoutCancel(ctx), t, r.Log)
 			}
@@ -1056,4 +1122,132 @@ type slogWriter struct{}
 func (slogWriter) Write(p []byte) (int, error) {
 	slog.Warn("pg upgrade", "msg", strings.TrimSpace(string(p)))
 	return len(p), nil
+}
+
+// ---- the recipe-built images ----
+
+// pgHelper builds the pinned helper of a recipe-built instance's change to
+// `to`: PGUpgradeImage with both majors' packages at the recorded pins
+// (V11). It returns "" for an instance that is not recipe-built, which runs
+// in the published helper. The build is named by its Dockerfile, so a run
+// whose pins still match the dry run's reuses the helper the dry run built
+// (rebuild false).
+// ponytail: reuse trusts the ref; if the node lost the image the run fails
+// at its first helper step and a new dry run builds it again.
+func (u *pgupRun) pgHelper(ctx context.Context, to int, rebuild bool) (string, error) {
+	eb, _ := mflow.ParseExtBuild(u.m.ExtBuild)
+	if !eb.Built() {
+		return "", nil
+	}
+	o := u.o
+	rs, tb, err := u.toBuild(ctx, eb, to)
+	if err != nil {
+		return "", err
+	}
+	fn := o.pgfn()
+	df, err := fn.Helper(eb, tb, eb.Arch)
+	if err != nil {
+		return "", err
+	}
+	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(mflow.PGUpgradeImage, eb.Arch, df))
+	if err != nil {
+		return "", err
+	}
+	if c := o.lastPGCheck(ctx, u.m.ID); !rebuild && c != nil && c.To == to && c.Helper == ref {
+		return ref, nil
+	}
+	node, _ := docker.NodeFrom(ctx)
+	_, _ = fmt.Fprintf(u.r.Log, "building the upgrade helper %s\n", ref)
+	return ref, o.pgBuild(ctx, u.t, node, ref, df, rs, u.r.Log)
+}
+
+// toBuild is the recipes for the new major and the build record the helper
+// is made from: the new major's official image and the pins the packages
+// resolve to on it.
+func (u *pgupRun) toBuild(ctx context.Context, eb mflow.ExtBuild, to int) ([]mflow.Recipe, mflow.ExtBuild, error) {
+	o := u.o
+	rs, err := o.pgResolveAt(ctx, u.t, u.m, eb.Recipes, to)
+	if err != nil {
+		return nil, eb, err
+	}
+	tb := mflow.ExtBuild{Base: mustPGImage(to), Recipes: eb.Recipes, Arch: eb.Arch}
+	if pkgs := pgAptPackages(rs, to); len(pkgs) > 0 {
+		node, _ := docker.NodeFrom(ctx)
+		res, err := o.pgResolveOn(ctx, node, tb.Base, u.m.ID, to, pkgs)
+		if err != nil {
+			return nil, eb, err
+		}
+		if res.NeedMinor != "" {
+			return nil, eb, errs.Conflictf("the recipe %s has no build for postgres %d; %s cannot move to it.", strings.Join(eb.Recipes, ", "), to, u.t.Slug)
+		}
+		tb.Packages = res.Versions
+	}
+	return rs, tb, nil
+}
+
+// buildImages is the first thing a recipe-built change does, before the
+// instance is stopped: the helper, and the new major's instance image, built
+// on the instance's node and boot-checked. A resume finds ToBuild set.
+func (u *pgupRun) buildImages(ctx context.Context) error {
+	eb, _ := mflow.ParseExtBuild(u.m.ExtBuild)
+	if !eb.Built() || u.st.ToBuild.Built() {
+		return nil
+	}
+	o, to := u.o, u.st.To
+	helper, err := u.pgHelper(ctx, to, false)
+	if err != nil {
+		return err
+	}
+	rs, tb, err := u.toBuild(ctx, eb, to)
+	if err != nil {
+		return err
+	}
+	fn := o.pgfn()
+	node, _ := docker.NodeFrom(ctx)
+	df, err := fn.Dockerfile(tb.Base, to, tb.Arch, rs, tb.Packages)
+	if err != nil {
+		return err
+	}
+	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(tb.Base, tb.Arch, df))
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(u.r.Log, "building %s for postgres %d\n", ref, to)
+	if err := o.pgBuild(ctx, u.t, node, ref, df, rs, u.r.Log); err != nil {
+		return err
+	}
+	var create []string
+	for _, r := range rs {
+		create = append(create, r.Extensions...)
+	}
+	m := u.m
+	m.Major = to
+	b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, fn.Preload(rs), create)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("the build of %s for postgres %d did not pass its check:\n%s", strings.Join(eb.Recipes, ", "), to, firstLines(out, 12))
+	}
+	if len(b.Pkgs) > 0 {
+		tb.Packages = b.Pkgs
+	}
+	tb.Ref = ref
+	cand, err := u.candidate(ctx)
+	if err != nil {
+		return err
+	}
+	cm, err := o.operated.GetByTile(ctx, cand.ID)
+	if err != nil {
+		return err
+	}
+	cm.ExtBuild = tb.String()
+	if err := o.store.OperatedInstances.Update(ctx, cm); err != nil {
+		return err
+	}
+	if err := o.store.Tiles.SetImageRef(ctx, cand.ID, ref); err != nil {
+		return err
+	}
+	u.st.FromBuild, u.st.ToBuild, u.st.ToImage, u.st.Helper = eb, tb, ref, helper
+	return o.setPGUp(ctx, u.m.ID, u.st)
 }

@@ -137,11 +137,13 @@ type pgRecipeFns struct {
 	Parse      func(out string) (mflow.Resolved, error)
 	Dockerfile func(base string, major int, arch string, rs []mflow.Recipe, pinned map[string]string) (string, error)
 	Tag        func(base, arch, dockerfile string) string
+	// Helper is the major-change helper's Dockerfile (lane A3's).
+	Helper func(from, to mflow.ExtBuild, arch string) (string, error)
 }
 
 var defaultPGFns = pgRecipeFns{
 	Check: mflow.CheckRecipe, Resolve: mflow.ResolveRecipes, Preload: mflow.DerivedPreload,
-	Script: mflow.ResolveScript, Parse: mflow.ParseResolve, Dockerfile: mflow.RecipeDockerfile, Tag: mflow.BuildTag,
+	Script: mflow.ResolveScript, Parse: mflow.ParseResolve, Dockerfile: mflow.RecipeDockerfile, Tag: mflow.BuildTag, Helper: mflow.HelperDockerfile,
 }
 
 // pgFnsFor holds the per-Orchestrator tables tests install.
@@ -442,6 +444,11 @@ func (o *Orchestrator) pgPlanHash(ctx context.Context, t Tile, m OperatedInstanc
 // pgResolve resolves recipe names for the instance's major and org; the
 // recipes the instance already holds resolve even when switched off.
 func (o *Orchestrator) pgResolve(ctx context.Context, t Tile, m OperatedInstance, names []string) ([]mflow.Recipe, error) {
+	return o.pgResolveAt(ctx, t, m, names, m.Major)
+}
+
+// pgResolveAt is pgResolve for another major (a major change's target).
+func (o *Orchestrator) pgResolveAt(ctx context.Context, t Tile, m OperatedInstance, names []string, major int) ([]mflow.Recipe, error) {
 	orgID, err := o.tileOrg(ctx, t)
 	if err != nil {
 		return nil, err
@@ -451,7 +458,7 @@ func (o *Orchestrator) pgResolve(ctx context.Context, t Tile, m OperatedInstance
 		return nil, err
 	}
 	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
-	return o.pgfn().Resolve(names, m.Major, orgID, pgRowsKeeping(rows, eb.Recipes))
+	return o.pgfn().Resolve(names, major, orgID, pgRowsKeeping(rows, eb.Recipes))
 }
 
 // pgOneShot runs script in image on node and returns its output.

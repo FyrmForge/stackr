@@ -290,6 +290,7 @@ func (o *Orchestrator) keepOperatedRefs(ctx context.Context, t store.Tile, refs 
 	if st, ok := o.pgupOf(ctx, m.ID); ok && (!st.Done || time.Since(st.At) < pgupKeep) {
 		keep(st.FromImage)
 		keep(st.ToImage)
+		keep(st.Helper)
 	}
 	if st, ok := o.pgExtOf(ctx, m.ID); ok {
 		keep(st.Old.Image)
