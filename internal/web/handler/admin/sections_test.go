@@ -31,6 +31,7 @@ func TestAdminSections(t *testing.T) {
 		"backups":      {`name="panel_backup_schedule"`, `name="panel_backup_dest"`, "Encrypted to recovery key generation", `href="/-/admin/keys"`, "History"},
 		"registry":     {`name="registry_cleanup_schedule"`, `name="registry_keep"`, "Clean up now"},
 		"cleanup":      {`name="image_check_interval"`, `name="cleanup_enabled"`, `name="cleanup_schedule"`, `name="orphans_enabled"`, `name="orphans_schedule"`, `name="orphan_retention_days"`},
+		"extensions":   {`id="tab-extensions"`, `name="package_url"`, "pgvector"}, // needs B2's PGRecipes
 		"metrics":      {`name="observe_enabled"`, `name="observe_logs_enabled"`, `name="observe_access_ip"`, "Keep metrics history"},
 		"alerts":       {"Webhook URL", "Heartbeat URL"},
 		"keys":         {`id="master-key"`, `id="recovery"`, "Cluster root"},
