@@ -848,6 +848,22 @@ type ExtView struct {
 	Slices              []string
 	Busy                string
 	Unread              string
+	Check               *ExtPlanView // the last recipe plan; nil = none yet
+}
+
+// ExtPlanView is a stored recipe plan as the Extensions row shows it. Versions
+// are one line each ("pgvector 0.8.5 to 0.8.6"); Blockers refuse the apply;
+// Unread is why the plan could not be read.
+type ExtPlanView struct {
+	ID       string
+	Lines    []string
+	Versions []string
+	PGUpdate string
+	Slices   []string
+	Blockers []string
+	Build    bool
+	Restart  bool
+	Unread   string
 }
 
 // PGView is a postgres instance's settings page: each value with where it
@@ -964,6 +980,8 @@ templ extRow(v View, s SettingsView) {
 			if v.ReadOnly {
 				<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
 			} else if s.Ext.Busy == "" {
+				<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/extensions/plan" } hx-target={ "#" + Root } hx-swap="outerHTML">Check</button>
+				<p class="text-xs text-rw-faint" data-hint>Check shows what a change builds before you apply it.</p>
 				if s.Ext.Running {
 					@c.Confirm(extApply(v, s))
 				} else {
@@ -972,7 +990,54 @@ templ extRow(v View, s SettingsView) {
 				}
 			}
 		</form>
+		@liveRegion(v, "extplan") {
+			@LiveExtPlan(v, s.Ext.Check)
+		}
 	}
+}
+
+// LiveExtPlan is the region the stream sends as the event extplan: the last
+// recipe plan, with its Apply. A plan job that ends changes it, so the row
+// follows the job without a reload.
+templ LiveExtPlan(v View, p *ExtPlanView) {
+	<div class="space-y-3" id="ext-plan">
+		if p != nil {
+			if p.Unread != "" {
+				@unread("the plan", p.Unread)
+			} else {
+				<h4 class="text-sm font-medium text-rw-text">Plan</h4>
+				<ul class="text-sm text-rw-muted space-y-1">
+					for _, l := range p.Lines {
+						<li>{ l }</li>
+					}
+					for _, l := range p.Versions {
+						<li class="font-mono text-xs">{ l }</li>
+					}
+					if p.PGUpdate != "" {
+						<li>{ p.PGUpdate }</li>
+					}
+					if len(p.Slices) > 0 {
+						<li>{ "Slices on it: " + strings.Join(p.Slices, ", ") + "." }</li>
+					}
+				</ul>
+				if len(p.Blockers) > 0 {
+					<ul class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn space-y-1" role="status">
+						for _, b := range p.Blockers {
+							<li>{ b }</li>
+						}
+					</ul>
+				} else if !v.ReadOnly {
+					<form hx-post={ v.Base + "/extensions/apply" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+						<input type="hidden" name="plan" value={ p.ID }/>
+						if p.Restart {
+							<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" name="confirm" value="true" class="accent-rw-accent"/> Restart the instance</label>
+						}
+						<button type="submit" class="btn btn-primary btn-sm">Apply plan</button>
+					</form>
+				}
+			}
+		}
+	</div>
 }
 
 // extApply asks before an Apply that restarts the instance: the plan's

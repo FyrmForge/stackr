@@ -1,0 +1,130 @@
+package admin
+
+import (
+	c "github.com/FyrmForge/stackr/internal/ui/components"
+)
+
+// ExtensionsView is the Postgres extensions section: the built-in recipes
+// with their switch, the admin's own with edit and delete, and the add form.
+type ExtensionsView struct {
+	Builtins []RecipeRow
+	Own      []RecipeRow
+	Add      RecipeForm
+}
+
+// RecipeRow is one recipe. Toggle is the POST that switches it; Edit is nil
+// for a built-in (it has a switch only); Delete.Action "" = not offered.
+type RecipeRow struct {
+	Name, Info, Shared string
+	Enabled            bool
+	Toggle             string
+	Edit               *RecipeForm
+	Delete             c.ConfirmView
+}
+
+// RecipeForm is the add or edit form of an own recipe. The list fields are
+// one entry per line (sha256 as 17-amd64=hex); Majors is comma separated.
+type RecipeForm struct {
+	ID, Action, Name, Majors, Packages, PackageURL, Version string
+	SHA256, Extensions, Preload, Requires               string
+	Share                                               c.ShareView
+}
+
+templ Extensions(v ExtensionsView) {
+	<div id="tab-extensions">
+		@c.Section("Built in", "", "Recipes that ship with stackr. Switch one off to stop new enables.") {
+			@recipeList(v.Builtins, "None.")
+		}
+		@c.Section("Your recipes", "", "Packages stackr builds into an instance's image.") {
+			@recipeList(v.Own, "None yet.")
+		}
+		@c.Section("Add a recipe", "", "Name it after the package. Set packages or a package URL, not both.") {
+			@recipeForm(v.Add, "Add recipe", true)
+		}
+	</div>
+}
+
+templ recipeList(rows []RecipeRow, none string) {
+	if len(rows) == 0 {
+		<p class="text-sm text-rw-faint">{ none }</p>
+	} else {
+		<ul class="space-y-3">
+			for _, r := range rows {
+				<li class="panel px-4 py-3 text-sm space-y-2">
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="text-rw-text font-medium">{ r.Name }</span>
+						<span class="text-xs text-rw-muted">{ r.Info }</span>
+						if r.Shared != "" {
+							<span class="text-xs text-rw-faint">{ r.Shared }</span>
+						}
+						<span class="ml-auto flex items-center gap-2">
+							if r.Enabled {
+								@c.Chip("on", "success")
+							} else {
+								@c.Chip("off", "")
+							}
+							if r.Toggle != "" {
+								if r.Enabled {
+									@post("Switch off", r.Toggle)
+								} else {
+									@post("Switch on", r.Toggle)
+								}
+							}
+							if r.Delete.Action != "" {
+								@c.Confirm(r.Delete)
+							}
+						</span>
+					</div>
+					if r.Edit != nil {
+						<details>
+							<summary class="cursor-pointer text-xs text-rw-muted hover:text-rw-text">Edit</summary>
+							<div class="mt-2">
+								@recipeForm(*r.Edit, "Save", false)
+							</div>
+						</details>
+					}
+				</li>
+			}
+		</ul>
+	}
+}
+
+// recipeForm draws its own inputs from f, not through the refusal context:
+// several forms share a page and a refused post must refill only its own.
+templ recipeForm(f RecipeForm, button string, withName bool) {
+	<form hx-post={ f.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
+		if withName {
+			@recipeInput(f.ID, "name", "Name", f.Name, "pg_cron", "")
+		}
+		@recipeInput(f.ID, "majors", "Postgres versions", f.Majors, "16, 17, 18", "Comma separated.")
+		@recipeText(f.ID, "packages", "Packages", f.Packages, "One per line.")
+		@recipeInput(f.ID, "package_url", "Package URL", f.PackageURL, "https://example.com/pkg_{version}_{major}_{arch}.deb", "https only. Needs a version and a sha256 for each version and CPU type.")
+		@recipeInput(f.ID, "version", "Version", f.Version, "", "")
+		@recipeText(f.ID, "sha256", "sha256", f.SHA256, "One per line, like 17-amd64=hex.")
+		@recipeText(f.ID, "extensions", "Extensions it creates", f.Extensions, "One per line.")
+		@recipeText(f.ID, "preload", "Startup modules", f.Preload, "One per line.")
+		@recipeText(f.ID, "requires", "Needs recipes", f.Requires, "One per line.")
+		<div class="text-sm">
+			@c.Share(f.Share)
+		</div>
+		<button type="submit" class="btn btn-primary btn-sm">{ button }</button>
+	</form>
+}
+
+templ recipeInput(id, name, label, value, placeholder, help string) {
+	<div data-field>
+		<label for={ id + "-" + name } class="label">{ label }</label>
+		<input id={ id + "-" + name } name={ name } value={ value } placeholder={ placeholder } class="input font-mono"/>
+		if help != "" {
+			<p class="mt-1.5 text-xs text-rw-faint" data-hint>{ help }</p>
+		}
+	</div>
+}
+
+templ recipeText(id, name, label, value, help string) {
+	<div data-field>
+		<label for={ id + "-" + name } class="label">{ label }</label>
+		<textarea id={ id + "-" + name } name={ name } rows="2" class="input font-mono">{ value }</textarea>
+		<p class="mt-1.5 text-xs text-rw-faint" data-hint>{ help }</p>
+	</div>
+}

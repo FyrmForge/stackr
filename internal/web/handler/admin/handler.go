@@ -133,6 +133,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	h.mountNodes(g, a)
 	h.mountRegistry(g, a)
 	h.mountObserve(g, a)
+	h.mountExtensions(g, a)
 	g.POST(b+"/dests/:dest/delete", h.act("backups", func(c echo.Context) (string, *service.Job, error) {
 		return "Destination removed.", nil, h.orch.DeleteBackupDest(c.Request().Context(), "", c.Param("dest"))
 	}), dests)
@@ -399,6 +400,8 @@ func (h *handler) section(c echo.Context, section string, x extra, ps []service.
 	case "cleanup":
 		s, err := h.settings(c, "cleanup", nil)
 		return ui.Knobs("", s), err
+	case "extensions":
+		return h.extensionsTab(c)
 	case "metrics":
 		return h.observeTab(c)
 	case "alerts":
