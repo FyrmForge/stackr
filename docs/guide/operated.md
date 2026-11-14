@@ -160,6 +160,10 @@ A standby the primary did not wait for may lack the last commits. While one it d
 
 If the primary is running, failover is refused: switch over instead.
 
+## Extensions
+
+An instance lists the extensions its slices may use, and each slice lists the ones its database gets. See [Postgres extensions](postgres-extensions.md).
+
 ## Settings
 
 Drawer, Settings tab. Rows: Name, Allow, Env pairs, Postgres, Delete.

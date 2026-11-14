@@ -100,6 +100,8 @@ Under a tile in `base.tiles` or an environment. `engine:` alone makes a tile ope
 | `sync` | Wait for a standby before a commit is confirmed. Left out = left as it is. |
 | `sync_required` | Writes wait even when no standby answers. Left out = left as it is. |
 | `sync_limit_ms` | Round trip an `auto` standby may have to be waited for, 1 to 10000 (default 10). Left out = left as it is. |
+| `preload` | Postgres startup modules after `pg_stat_statements`. Left out = left as it is. See [Postgres extensions](postgres-extensions.md). |
+| `extensions` | Extensions the instance's slices may list. Left out = left as it is. |
 | `allow` | Who outside the env may cut slices, `org:stack:env:tile` patterns, a trailing `*` for the rest. Must start with the tile's own org: `acme:*` is anyone in `acme`. |
 | `env_pairs` | Consumer env name to one of this stack's envs. |
 
@@ -136,6 +138,7 @@ A database or bucket cut from an operated tile. It runs nothing, so it takes no 
 | Key | Holds |
 |---|---|
 | `provision_from` | `<stack>:<env>:<tile>` of the operated tile; refs allowed. Required. |
+| `extensions` | Postgres slice only: extensions its database gets, from its instance's list. |
 | `default_access` | `read` or `write`. Left out = `write`. |
 | `on_remove` | `keep` or `drop` the data when the slice tile goes. Left out = `keep`. A PR env drops either way. |
 | `url` | Postgres only: what `url`, `host` and `port` point at, `direct` or `pooled`. Left out = `direct`. |
