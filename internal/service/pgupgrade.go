@@ -135,7 +135,20 @@ func (o *Orchestrator) pgChangeOf(ctx context.Context, by *Principal, tileID str
 		return c, err
 	}
 	c.to = to
+	if err := noCustomImageForChange(c.t, c.m, to); err != nil {
+		return c, err
+	}
 	return c, mflow.PGChangeCheck(c.from, to, time.Now())
+}
+
+// noCustomImageForChange refuses a major change of an instance on a custom
+// image or with startup modules (message 2): the new major would run a stock
+// image without them.
+func noCustomImageForChange(t Tile, m OperatedInstance, to int) error {
+	if !mflow.PGOfficial(t.ImageRef) || len(m.Preload) > 0 {
+		return errs.Conflictf("%s runs a custom image. Make a new instance on postgres %d and branch the slices to it.", t.Slug, to)
+	}
+	return nil
 }
 
 // pgInstanceOf is the instance of tileID when the caller may write to its
@@ -270,6 +283,9 @@ func (o *Orchestrator) ChangePGMajor(ctx context.Context, by *Principal, tileID 
 func (o *Orchestrator) beginPGChange(ctx context.Context, by *Principal, tileID string, to int) (c pgChange, lock []string, undo func(), err error) {
 	undo = func() {}
 	if c, err = o.pgInstanceOf(ctx, by, tileID); err != nil {
+		return
+	}
+	if err = noCustomImageForChange(c.t, c.m, to); err != nil {
 		return
 	}
 	st, have := o.pgupOf(ctx, c.m.ID)

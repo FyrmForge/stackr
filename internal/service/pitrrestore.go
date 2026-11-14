@@ -242,6 +242,7 @@ func (o *Orchestrator) newCandidateAs(ctx context.Context, src pitrSource, slug,
 		m.PITRDays, m.AdminUser, m.AdminPassword = 0, src.inst.AdminUser, src.inst.AdminPassword
 		// the restored stackr.conf is the source's: the copy keeps its settings
 		m.Settings, m.Major = src.inst.Settings, major
+		m.Preload, m.Extensions = src.inst.Preload, src.inst.Extensions
 		err = o.store.OperatedInstances.Update(ctx, m)
 	}
 	if err == nil && mark != nil {
@@ -891,7 +892,12 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			}
 			return o.afterDeploy(ctx, []string{src.ID}, false)
 		},
-		replay: func() error { return o.engines.Replay(ctx, src, r.Log) },
+		replay: func() error {
+			if err := o.engines.Replay(ctx, src, r.Log); err != nil {
+				return err
+			}
+			return o.engines.Reconcile(ctx, src, r.Log) // R10: the restored data may predate an extension update
+		},
 		drop: func() error {
 			o.dropCandidate(ctx, cand, false, r.Log) // the volume is the old data: orphaned, undo until retention
 			return nil
