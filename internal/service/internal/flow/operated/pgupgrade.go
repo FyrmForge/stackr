@@ -232,6 +232,12 @@ type UpgradeRun struct {
 	Facts          ClusterFacts
 	Counts         bool // facts: count the rows too
 	ScratchOld     bool // OldVol is a copy with the data directory at its root
+	// Image is the helper to run in, "" = PGUpgradeImage; a recipe-built
+	// instance runs in a helper built with both majors' pinned packages.
+	Image string
+	// Preload is the instance's startup modules after pg_stat_statements,
+	// loaded by every server the helper starts. Names are pattern-checked.
+	Preload []string
 }
 
 // Spec is the container: both volumes at fixed paths, the script, and the

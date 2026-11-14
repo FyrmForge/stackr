@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -637,4 +638,11 @@ func BuildTag(base, arch, dockerfile string) string {
 	}, arch)
 	sum := sha256.Sum256([]byte(dockerfile))
 	return mm + "-ext-" + arch + "-" + hex.EncodeToString(sum[:])[:8]
+}
+
+// HelperDockerfile is the major-change helper for a recipe-built instance:
+// PGUpgradeImage with both majors' server, client and extension packages at
+// the versions the two builds recorded, held, checked against the pins.
+func HelperDockerfile(from, to ExtBuild, arch string) (string, error) {
+	return "", errors.New("pg upgrade helper: not built yet")
 }
