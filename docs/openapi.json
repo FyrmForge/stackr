@@ -465,6 +465,9 @@
           "id": {
             "type": "string"
           },
+          "image_key": {
+            "type": "string"
+          },
           "kind": {
             "type": "string"
           },
@@ -539,6 +542,7 @@
           "created_at",
           "recovery_gen",
           "master_gen",
+          "image_key",
           "dest"
         ],
         "type": "object"
@@ -4702,6 +4706,9 @@
             },
             "type": "object"
           },
+          "ext_build": {
+            "type": "string"
+          },
           "extensions": {
             "items": {
               "type": "string"
@@ -4758,6 +4765,7 @@
           "sync_required",
           "preload",
           "extensions",
+          "ext_build",
           "created_at"
         ],
         "type": "object"
@@ -5001,6 +5009,21 @@
         ],
         "type": "object"
       },
+      "PGExtApplyIn": {
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan",
+          "confirm"
+        ],
+        "type": "object"
+      },
       "PGExtIn": {
         "properties": {
           "extensions": {
@@ -5078,6 +5101,9 @@
       },
       "PGExtOut": {
         "properties": {
+          "built": {
+            "type": "boolean"
+          },
           "busy": {
             "type": "string"
           },
@@ -5118,6 +5144,12 @@
             },
             "type": "array"
           },
+          "recipes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "running": {
             "type": "boolean"
           },
@@ -5137,7 +5169,64 @@
           "items",
           "slices",
           "plan",
-          "busy"
+          "busy",
+          "built",
+          "recipes"
+        ],
+        "type": "object"
+      },
+      "PGExtPlanBody": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "build": {
+            "type": "boolean"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "pg_update": {
+            "type": "string"
+          },
+          "restart": {
+            "type": "boolean"
+          },
+          "slices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/PGPkgChangeBody"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "hash",
+          "lines",
+          "build",
+          "restart",
+          "versions",
+          "pg_update",
+          "slices",
+          "blockers"
         ],
         "type": "object"
       },
@@ -5259,6 +5348,25 @@
         ],
         "type": "object"
       },
+      "PGPkgChangeBody": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
       "PGQuery": {
         "properties": {
           "calls": {
@@ -5283,6 +5391,82 @@
           "mean_us",
           "rows",
           "text"
+        ],
+        "type": "object"
+      },
+      "PGRecipeBody": {
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "majors": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "package_url": {
+            "type": "string"
+          },
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "preload": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "requires": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sha256": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "share": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "builtin",
+          "enabled",
+          "majors",
+          "packages",
+          "package_url",
+          "sha256",
+          "version",
+          "extensions",
+          "preload",
+          "requires",
+          "share"
         ],
         "type": "object"
       },
@@ -13121,6 +13305,118 @@
           }
         },
         "x-verb": "serverparams.write"
+      }
+    },
+    "/api/v1/admin/pg-extensions": {
+      "get": {
+        "description": "Lists the built-in and admin-added postgres extension recipes.",
+        "operationId": "admin.pg-extension-list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PGRecipeBody"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "admin.read"
+      }
+    },
+    "/api/v1/admin/pg-extensions/{name}": {
+      "delete": {
+        "description": "Removes an admin recipe, or a built-in's switch-off row.\n\nRemoval rule: a delete that touches containers answers 202 with a Job (or a list of them) to poll; a delete of a plain record answers 204 and is done when it returns.",
+        "operationId": "admin.pg-extension-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverdefaults.set"
+      },
+      "put": {
+        "description": "Adds or rewrites a recipe, or switches a built-in on or off.",
+        "operationId": "admin.pg-extension-set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PGRecipeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGRecipeBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "serverdefaults.set"
       }
     },
     "/api/v1/admin/placements": {
@@ -22886,6 +23182,213 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PGExtOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/extensions/apply": {
+      "post": {
+        "description": "Applies the reviewed plan by id; a plan out of date is refused, and one that restarts needs confirm.",
+        "operationId": "operated.extensions-apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PGExtApplyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGExtOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/extensions/plan": {
+      "get": {
+        "description": "Reads the instance's last extension plan and its id.",
+        "operationId": "operated.extensions-plan-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGExtPlanBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "post": {
+        "description": "Queues the plan of an extension change that needs a build; read it from the plan route when the job is done.",
+        "operationId": "operated.extensions-plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PGExtIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
                 }
               }
             },

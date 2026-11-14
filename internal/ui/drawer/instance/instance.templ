@@ -843,6 +843,8 @@ type SettingsView struct {
 type ExtView struct {
 	Image               string
 	Official, Running   bool
+	Built               bool     // the image is built from Recipes
+	Recipes             []string
 	Preload, Extensions string
 	Plan                string
 	Slices              []string
@@ -954,7 +956,11 @@ templ extRow(v View, s SettingsView) {
 		}
 		<form hx-post={ v.Base + "/extensions" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 			<div data-field>
-				if s.Ext.Official {
+				if s.Ext.Built {
+					<p class="label">Image</p>
+					<p class="text-sm text-rw-text font-mono">{ s.Ext.Image }</p>
+					<p class="text-xs text-rw-faint" data-hint>{ "Built by stackr from " + strings.Join(s.Ext.Recipes, ", ") + "." }</p>
+				} else if s.Ext.Official {
 					<p class="label">Image</p>
 					<p class="text-sm text-rw-text font-mono">{ s.Ext.Image }</p>
 					<p class="text-xs text-rw-faint" data-hint>The official image.</p>
@@ -967,7 +973,7 @@ templ extRow(v View, s SettingsView) {
 			</div>
 			<div data-field>
 				<label for="ext-preload" class="label">Startup modules</label>
-				<textarea id="ext-preload" name="preload" rows="3" class="input font-mono" disabled?={ v.ReadOnly || s.Ext.Busy != "" } { c.Invalid("preload", s.Errors["preload"])... }>{ s.Ext.Preload }</textarea>
+				<textarea id="ext-preload" name="preload" rows="3" class="input font-mono" disabled?={ v.ReadOnly || s.Ext.Busy != "" || s.Ext.Built } { c.Invalid("preload", s.Errors["preload"])... }>{ s.Ext.Preload }</textarea>
 				<p class="text-xs text-rw-faint" data-hint>One per line. pg_stat_statements is always loaded.</p>
 				@c.FieldError("preload", s.Errors["preload"])
 			</div>

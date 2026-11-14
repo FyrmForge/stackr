@@ -1067,6 +1067,29 @@ func (f *Flow) planPGExt(
 	if exists && deploy.RecipeBuilt(have.ExtBuild) {
 		return x, f.planBuiltPGExt(ctx, p, name, tc, old, have, &x)
 	}
+	// official image, list changes, nothing else: names a recipe brings make
+	// the first build, the hook's plan (planID ""= none needed, the plain path)
+	if exists && f.PGExtPlan != nil && deploy.PGOfficial(old.ImageRef) && (tc.Image == "" || tc.Image == old.ImageRef) &&
+		tc.Preload == nil && tc.Extensions != nil && signedDiff(have.Extensions, tc.Extensions) != "" {
+		lines, id, err := f.PGExtPlan(ctx, old, have, tc.Extensions, io.Discard)
+		if _, invalid := errs.IsInvalid(err); invalid {
+			p.block("tile %s: %v", name, err)
+			return x, nil
+		} else if _, conflict := errs.IsConflict(err); conflict {
+			p.block("tile %s: %v", name, err)
+			return x, nil
+		} else if err != nil {
+			return x, err
+		}
+		if id != "" {
+			p.add(Change{Kind: "operated", Tile: name, Field: "extensions", New: signedDiff(have.Extensions, tc.Extensions)})
+			for _, l := range lines {
+				p.Warnings = append(p.Warnings, name+": "+l)
+			}
+			x.planID = id
+			return x, nil
+		}
+	}
 	restart := false
 	// an official image moves with the row (a new instance, or "" to a tag); a custom one here
 	if exists && tc.Image != "" && tc.Image != old.ImageRef && (!deploy.PGOfficial(tc.Image) || !deploy.PGOfficial(old.ImageRef)) {

@@ -566,7 +566,7 @@ func (o *Orchestrator) pgExtOwnedRefusal(ctx context.Context, t Tile, m Operated
 			return errs.Conflictf("the startup modules of %s come from its recipes; remove preload, or set a custom image.", t.Slug)
 		}
 	}
-	if in.Extensions == nil || !(eb.Built() || mflow.PGOfficial(t.ImageRef)) {
+	if in.Extensions == nil || (!eb.Built() && !mflow.PGOfficial(t.ImageRef)) {
 		return nil
 	}
 	rows, err := o.store.PGRecipes.List(ctx)

@@ -938,7 +938,7 @@ func (h *handler) extForm(ctx context.Context, id string, typed *instance.ExtVie
 		return &instance.ExtView{Unread: unreadReason(err)}
 	}
 	v := &instance.ExtView{
-		Image: p.Image, Official: p.Official, Running: p.Running,
+		Image: p.Image, Official: p.Official, Running: p.Running, Built: p.Built, Recipes: p.Recipes,
 		Preload: strings.Join(p.Preload, "\n"), Extensions: strings.Join(p.Extensions, "\n"),
 		Plan: p.Plan, Slices: p.Slices, Busy: p.Busy,
 		Check: h.planView(ctx, id),

@@ -145,8 +145,11 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 	var key string
 	var size int64
 	if s.Base && s.Image != nil {
-		// Before the base: a base without its image cannot be rebuilt.
-		if err = f.saveImage(ctx, sp.Dest, s.Image.Key, s.Image.Save, log); err == nil {
+		// Before the base, but never in its way: a base without its image
+		// still restores, the image is then rebuilt from its pins.
+		if ierr := f.saveImage(ctx, sp.Dest, s.Image.Key, s.Image.Save, log); ierr != nil {
+			logf(log, "warning: %v; the base is kept without it\n", ierr)
+		} else {
 			r.ImageKey = s.Image.Key
 		}
 	}

@@ -393,7 +393,7 @@ func TestPGRecipeApplyMinorMoved(t *testing.T) {
 	_, j, err := r.orch.ApplyPGExtPlan(context.Background(), r.by, r.pg.ID, p.ID, ApproveOpts{Confirm: true})
 	must(t, err)
 	got := r.wait(t, j.ID)
-	if got.State != "failed" || !strings.Contains(got.Error, "the build moved postgres from 18.6 to 18.7; nothing was changed.") {
+	if got.State != "failed" || !strings.Contains(got.Error, "the build moved postgres from 18.6 to 18.7; nothing was changed") {
 		t.Fatalf("job = %s: %s", got.State, got.Error)
 	}
 	if rows := r.rows(t); rows.Image != "postgres:18.6" {
@@ -661,6 +661,10 @@ func TestPGRecipeAdmin(t *testing.T) {
 	if err := r.orch.DeletePGRecipe(ctx, admin, "mine"); err != nil {
 		t.Errorf("delete: %v", err)
 	}
+	w := &world{orch: r.orch, st: r.st}
+	if len(events(t, w, "pg.recipe-set")) != 2 || len(events(t, w, "pg.recipe-delete")) != 1 {
+		t.Error("recipe changes are not audited")
+	}
 }
 
 // A placement move names each recipe-built instance whose build is for another
@@ -692,5 +696,31 @@ func TestPGRecipeMovePlanLine(t *testing.T) {
 	n.m.facts["w1"] = worker.Facts{Arch: "arm64", DiskFree: 500 << 30, DiskTotal: 1000 << 30, MemFree: 8 << 30}
 	if got, want := line(), "pg was built for amd64; it is built again for arm64 on w1."; got != want {
 		t.Errorf("line = %q, want %q", got, want)
+	}
+}
+
+// A stack file on a not-yet-built instance: names no recipe brings make no
+// plan (the file's plain path stores them); a recipe name does.
+func TestPGExtPlanFromFileFirstBuild(t *testing.T) {
+	t.Parallel()
+	r := newRecipeRig(t)
+	tl, m, err := r.orch.instanceOf(r.ctx, r.pg.ID)
+	must(t, err)
+	if _, id, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"pgcrypto"}, io.Discard); err != nil || id != "" {
+		t.Fatalf("plain name: id %q, %v", id, err)
+	}
+	if _, id, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"vector"}, io.Discard); err != nil || id == "" {
+		t.Fatalf("recipe name: id %q, %v", id, err)
+	}
+}
+
+// The check's output as a real image prints it: packages dpkg only knows of
+// carry no version and are not installed.
+func TestParsePGCheckRealOutput(t *testing.T) {
+	out := "P\tpostgresql-17\t17.11-1.pgdg13+2\nP\tpostgresql-17-jit-llvm\t\nP\tpostgresql-17-vchord\t1.1.1-1\n" +
+		"S\tpostgres (PostgreSQL) 17.11 (Debian 17.11-1.pgdg13+2)\nX\tvchord\t1.1.1\nX\tvector\t0.8.7\n"
+	b := parsePGCheck(out)
+	if len(b.Pkgs) != 2 || b.Pkgs["postgresql-17-vchord"] != "1.1.1-1" || b.Server != "17.11" || b.Avail["vector"] != "0.8.7" {
+		t.Errorf("parsed = %+v", b)
 	}
 }

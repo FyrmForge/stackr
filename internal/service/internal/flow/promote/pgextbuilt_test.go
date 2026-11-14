@@ -96,3 +96,34 @@ func TestBuiltExportOmitsImageAndPreload(t *testing.T) {
 		t.Errorf("export:\n%s", s)
 	}
 }
+
+// An official-image instance not yet built: a name a recipe brings goes
+// through the plan hook (the first build); names that need none take the
+// plain path (PGExt).
+func TestOfficialFirstRecipeEnable(t *testing.T) {
+	w := newPGExtWorld(t)
+	w.instance(t, "staging", func(*store.OperatedInstance) {})
+	var applied []string
+	w.f.PGExtPlan = func(_ context.Context, _ store.Tile, _ store.OperatedInstance, exts []string, _ io.Writer) ([]string, string, error) {
+		if slices.Contains(exts, "vector") {
+			return []string{"builds an image"}, "plan-9", nil
+		}
+		return nil, "", nil
+	}
+	w.f.PGExtApply = func(_ context.Context, _ store.Tile, id string, _ io.Writer) error {
+		applied = append(applied, id)
+		return nil
+	}
+	file := infraFile + "      extensions: [vector]\n"
+	_, err := w.f.Apply(ctx, w.envs["staging"].ID, w.rel(t, "o1", file).ID, io.Discard, nil)
+	must(t, err)
+	if !slices.Equal(applied, []string{"plan-9"}) || len(w.calls) != 0 {
+		t.Fatalf("recipe name: applied %v, PGExt calls %v", applied, w.calls)
+	}
+	file = infraFile + "      extensions: [pgcrypto]\n"
+	_, err = w.f.Apply(ctx, w.envs["staging"].ID, w.rel(t, "o2", file).ID, io.Discard, nil)
+	must(t, err)
+	if len(applied) != 1 || len(w.calls) != 1 {
+		t.Fatalf("plain name: applied %v, PGExt calls %v", applied, w.calls)
+	}
+}

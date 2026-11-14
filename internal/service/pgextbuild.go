@@ -26,6 +26,7 @@ import (
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -282,7 +283,7 @@ func (o *Orchestrator) SetPGRecipe(ctx context.Context, by *Principal, v PGRecip
 		b, _ := json.Marshal(r)
 		row.Spec = string(b)
 	}
-	if err := o.store.PGRecipes.Upsert(ctx, row); err != nil {
+	if err := o.pgRecipeWrite(ctx, by, "pg.recipe-set", v.Name, func(tx store.Tx) error { return tx.PGRecipes.Upsert(ctx, row) }); err != nil {
 		return PGRecipeView{}, err
 	}
 	all, err := o.PGRecipes(ctx)
@@ -321,7 +322,20 @@ func (o *Orchestrator) DeletePGRecipe(ctx context.Context, by *Principal, name s
 	if n > 0 {
 		return errs.Conflictf("%s is enabled on %d instances; it stays until they drop it.", name, n)
 	}
-	return o.store.PGRecipes.Delete(ctx, name)
+	return o.pgRecipeWrite(ctx, by, "pg.recipe-delete", name, func(tx store.Tx) error { return tx.PGRecipes.Delete(ctx, name) })
+}
+
+// pgRecipeWrite runs write with its audit event, as the server defaults do;
+// the server file's own apply (by nil) is audited by its apply.
+func (o *Orchestrator) pgRecipeWrite(ctx context.Context, by *Principal, action, name string, write func(store.Tx) error) error {
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := write(tx); err != nil || by == nil {
+			return err
+		}
+		return audit(tx).Append(ctx, securitylog.Event{
+			Action: action, ActorID: by.User.ID, KeyID: by.KeyID, TargetKind: "pg-recipe", TargetID: name, Detail: "recipe " + name,
+		})
+	})
 }
 
 // ---- the plan ----
@@ -820,7 +834,7 @@ func parsePGCheck(out string) pgBuilt {
 		switch f := strings.Split(l, "\t"); {
 		case strings.HasPrefix(l, "FAILED "):
 			b.Failed = strings.TrimPrefix(l, "FAILED ")
-		case len(f) == 3 && f[0] == "P":
+		case len(f) == 3 && f[0] == "P" && f[2] != "": // dpkg lists packages it only knows of with no version
 			b.Pkgs[f[1]] = f[2]
 		case len(f) == 2 && f[0] == "S":
 			if i := strings.Index(f[1], ") "); i >= 0 {
@@ -874,7 +888,7 @@ func (o *Orchestrator) pgBuildImage(ctx context.Context, t Tile, m OperatedInsta
 		}
 		if code == 0 {
 			if want := pgMinorRE.FindString(pgTagOf(in.Base)); want != "" && b.Server != "" && b.Server != want {
-				return fmt.Errorf("the build moved postgres from %s to %s; nothing was changed.", want, b.Server)
+				return fmt.Errorf("the build moved postgres from %s to %s; nothing was changed", want, b.Server)
 			}
 			for _, n := range st.New.Extensions {
 				if _, ok := b.Avail[n]; !ok {
@@ -1096,6 +1110,17 @@ func (o *Orchestrator) loadSavedImage(ctx context.Context, t Tile, eb mflow.ExtB
 // inline (the plan step is not a job), stored like the panel's, and applied
 // without a confirm: the file's own approve was the confirm.
 func (o *Orchestrator) pgExtPlanFromFile(ctx context.Context, t store.Tile, m store.OperatedInstance, exts []string, log io.Writer) ([]string, string, error) {
+	// an instance not built from recipes whose names need none: no plan, the
+	// file's plain path (planID "") stores the list
+	if !mflow.RecipeBuilt(m.ExtBuild) {
+		rows, err := o.store.PGRecipes.List(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		if len(pgRecipesFor(pgRecipeDefs(rows), exts)) == 0 {
+			return nil, "", nil
+		}
+	}
 	nctx, err := o.withTileNode(ctx, t.ID)
 	if err != nil {
 		return nil, "", err

@@ -153,3 +153,28 @@ func TestBaseWithoutImageIsUnchanged(t *testing.T) {
 		t.Errorf("key %q, objects %v", r.ImageKey, keys)
 	}
 }
+
+// A failed image save warns and keeps the base: a backup is never lost to
+// its image.
+func TestFailedImageSaveKeepsTheBase(t *testing.T) {
+	w := setup(t)
+	w.baseExec(t)
+	root := bk.PITRRoot("o1", w.vol.ID)
+	sub := Subject{
+		Volume: w.vol, Engine: w.api, Base: true, Dump: []string{"pg_basebackup"}, WalStart: []string{"psql", "walfile"},
+		Image: &Image{Key: bk.ImageKey("o1", w.vol.ID, "t1"), Save: func(io.Writer) error { return io.ErrUnexpectedEOF }},
+	}
+	var log strings.Builder
+	r, err := w.f.Backup(ctx, sub, Spec{Dest: w.dest, Prefix: root + "/base", Trigger: "manual", PITRDays: 7}, &log)
+	must(t, err)
+	if r.ImageKey != "" || r.ObjectKey == "" {
+		t.Errorf("image key %q, object %q", r.ImageKey, r.ObjectKey)
+	}
+	if !strings.Contains(log.String(), "warning: saving the image") {
+		t.Errorf("no warning in %q", log.String())
+	}
+	// no half-written image left for the next base to take as saved
+	if keys, _ := open(w.dest).List(ctx, root+"/image/"); len(keys) != 0 {
+		t.Errorf("image objects after a failed save: %v", keys)
+	}
+}

@@ -41,3 +41,17 @@ func TestLiveExtPlan(t *testing.T) {
 		t.Errorf("read-only:\n%s", got)
 	}
 }
+
+// A recipe-built instance names its recipes and keeps its startup modules
+// read-only: they come from the recipes.
+func TestExtRowBuilt(t *testing.T) {
+	s := SettingsView{Ext: &ExtView{Image: "localhost:5000/o/s/pg:17.11-ext-amd64-aaaaaaaa", Built: true, Recipes: []string{"vchord", "pgvector"}, Preload: "vchord"}}
+	var b strings.Builder
+	if err := extRow(View{Base: "/o/s/e/-/instances/pg"}, s).Render(t.Context(), &b); err != nil {
+		t.Fatal(err)
+	}
+	html := b.String()
+	if !strings.Contains(html, "Built by stackr from vchord, pgvector.") || !strings.Contains(html, `id="ext-preload" name="preload" rows="3" class="input font-mono" disabled`) {
+		t.Errorf("built row:\n%s", html)
+	}
+}
