@@ -98,7 +98,7 @@ func (l *Leaf) SetEndpoint(
 	endpoint string,
 ) (store.OperatedInstance, error) {
 	m.Endpoint = endpoint
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // WithPITR are the instances that archive for point-in-time recovery.
@@ -118,7 +118,7 @@ func (l *Leaf) SetPITR(ctx context.Context, m store.OperatedInstance, days int) 
 		return m, errs.Invalidf("days", "the window is off or 1 to 365 days")
 	}
 	m.PITRDays = days
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetSync stores the instance's synchronous replication choice; the watch
@@ -128,32 +128,32 @@ func (l *Leaf) SetSync(ctx context.Context, m store.OperatedInstance, prefer boo
 		return m, errs.Invalidf("limit", "The limit is 1 to 10000 ms")
 	}
 	m.PreferSync, m.SyncLimitMS, m.SyncRequired = prefer, limitMS, required
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetMajor records the postgres major the instance is made with.
 func (l *Leaf) SetMajor(ctx context.Context, m store.OperatedInstance, major int) (store.OperatedInstance, error) {
 	m.Major = major
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetPoolerPassword stores the pooler role's password.
 func (l *Leaf) SetPoolerPassword(ctx context.Context, m store.OperatedInstance, password string) (store.OperatedInstance, error) {
 	m.PoolerPassword = password
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetReplPassword stores the replication role's password.
 func (l *Leaf) SetReplPassword(ctx context.Context, m store.OperatedInstance, password string) (store.OperatedInstance, error) {
 	m.ReplPassword = password
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetSettings replaces the instance's own settings (the engine's checks are
 // the caller's). The caller applies them to the running instance.
 func (l *Leaf) SetSettings(ctx context.Context, m store.OperatedInstance, settings map[string]string) (store.OperatedInstance, error) {
 	m.Settings = settings
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetAllow replaces the instance's allow list. Every entry is checked
@@ -171,7 +171,7 @@ func (l *Leaf) SetAllow(
 		return m, err
 	}
 	m.Allow = list
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // SetEnvPairs replaces the instance's consumer env name → own env name map.
@@ -188,7 +188,7 @@ func (l *Leaf) SetEnvPairs(
 		}
 	}
 	m.EnvPairs = pairs
-	return m, l.instances.Update(ctx, m)
+	return m, l.instances.UpdateCore(ctx, m)
 }
 
 // Teardown is step one of removing an instance: refused while slices are

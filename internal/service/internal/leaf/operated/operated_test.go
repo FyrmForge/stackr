@@ -211,3 +211,20 @@ func TestDirectKeepsReadPooled(t *testing.T) {
 		t.Errorf("out = %v, want url_pooled direct and url_read_pooled kept", out)
 	}
 }
+
+// A writer of another column works from a row read earlier: it must not put
+// the extensions columns of that read back over a change made since.
+func TestWritersKeepExtensions(t *testing.T) {
+	l, st, _, tiles := setup(t)
+	m, err := l.Create(ctx, tiles["db"], "postgres", "root", "db:5432")
+	must(t, err)
+	must(t, st.OperatedInstances.SetBuild(ctx, m.ID, []string{"timescaledb"}, []string{"vector"}, "{\"ref\":\"r\"}"))
+	if _, err := l.SetPITR(ctx, m, 7); err != nil { // m is the stale read
+		t.Fatal(err)
+	}
+	got, err := l.Get(ctx, m.ID)
+	must(t, err)
+	if got.PITRDays != 7 || !slices.Equal(got.Preload, []string{"timescaledb"}) || !slices.Equal(got.Extensions, []string{"vector"}) || got.ExtBuild != "{\"ref\":\"r\"}" {
+		t.Errorf("row = %+v", got)
+	}
+}

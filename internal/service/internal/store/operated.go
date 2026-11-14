@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,9 @@ type OperatedInstanceStore interface {
 	ListPITR(ctx context.Context) ([]OperatedInstance, error)
 	ListEngine(ctx context.Context, engine string) ([]OperatedInstance, error)
 	Update(ctx context.Context, m OperatedInstance) error
+	// UpdateCore is Update without preload, extensions and ext_build: a writer
+	// of another column cannot revert an extensions change from a stale row.
+	UpdateCore(ctx context.Context, m OperatedInstance) error
 	// SetExt writes preload and extensions and no other column.
 	SetExt(ctx context.Context, id string, preload, extensions []string) error
 	// SetBuild writes preload, extensions and ext_build in one statement and
@@ -74,6 +78,18 @@ var operatedInstancesT = newTable("operated_instances", func(m *OperatedInstance
 })
 
 type operatedInstances struct{ crud[OperatedInstance] }
+
+// operatedCoreSQL is the table's update without the extensions columns.
+var operatedCoreSQL = strings.NewReplacer(", preload = :preload", "", ", extensions = :extensions", "", ", ext_build = :ext_build", "").
+	Replace(operatedInstancesT.update)
+
+func (s operatedInstances) UpdateCore(ctx context.Context, row OperatedInstance) error {
+	if err := s.seal(&row); err != nil {
+		return err
+	}
+	res, err := s.q.NamedExecContext(ctx, operatedCoreSQL, row)
+	return affected(res, err)
+}
 
 func (s operatedInstances) GetByTile(ctx context.Context, tileID string) (OperatedInstance, error) {
 	return s.one(ctx, "tile_id = ?", tileID)

@@ -82,7 +82,9 @@ var ErrFinished = errs.Conflictf("the job already finished")
 var (
 	// ErrSuperseded is the cancel cause when a newer job takes over.
 	ErrSuperseded = errors.New("superseded by a newer job")
-	errCancelled  = errors.New("cancelled")
+	// ErrCancelled is the cancel cause when a user stops the job (a panel
+	// shutdown has another cause).
+	ErrCancelled = errors.New("cancelled")
 	// ErrSkipped from a handler records the job as skipped, not failed, with
 	// the error as the reason (a scheduled run whose node dropped before it
 	// was marked offline).
@@ -460,7 +462,7 @@ func (r *Runner) call(ctx context.Context, rn *Run) (state, reason, param string
 		return job.Done, "", ""
 	case errors.Is(cause, ErrSuperseded) || errors.Is(err, ErrSuperseded):
 		return job.Superseded, "", ""
-	case errors.Is(cause, errCancelled):
+	case errors.Is(cause, ErrCancelled):
 		return job.Cancelled, "", ""
 	case errors.Is(cause, context.DeadlineExceeded):
 		return job.Failed, "stopped after the " + r.capFor(Kind(j.Kind)).String() + " cap", ""
@@ -560,7 +562,7 @@ func (r *Runner) Cancel(ctx context.Context, id string) error {
 		if a.swapping {
 			return errs.Conflictf("the job is swapping containers and cannot be stopped now")
 		}
-		a.cancel(errCancelled)
+		a.cancel(ErrCancelled)
 		return nil
 	}
 	j, err := r.jobs.Get(ctx, id)
