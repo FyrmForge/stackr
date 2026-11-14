@@ -727,6 +727,8 @@ func (f *Flow) agePITR(ctx context.Context, d store.BackupDest, retention time.D
 	for root := range roots {
 		if _, err := f.PruneWindow(ctx, d, root, days, now, io.Discard); err != nil {
 			failed = append(failed, err)
+		} else if !f.held(root) {
+			f.pruneImages(ctx, d, root+"/"+bk.ImageDir+"/", io.Discard) // the bases it dropped took their images' last reference
 		}
 	}
 	return errors.Join(failed...)
@@ -1168,7 +1170,8 @@ func (f *Flow) LoadImage(ctx context.Context, dest, key string, load func(io.Rea
 }
 
 // pruneImages deletes the saved images beside keep (an image key of the same
-// instance) that no run row on d references: a base the window dropped took
+// instance, or the image directory itself with a trailing slash) that no run
+// row on d references: a base the window dropped took
 // its row with it, a retained base keeps its image, however many rebuilds
 // came after. keep itself is referenced by the base just finished. A failure
 // is logged; the next base retries.

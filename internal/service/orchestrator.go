@@ -246,6 +246,8 @@ func WithProxy(push func(context.Context, json.RawMessage) error) Option {
 // main, the API and the web handlers see. One method per user-facing verb.
 type Orchestrator struct {
 	cfg Config
+	// pgFns replaces the recipe engine's functions; only tests set it.
+	pgFns *pgRecipeFns
 	// recMu guards the recovery key's public half and generation, which a
 	// rotation changes while backups read them (backup.go).
 	recMu      sync.Mutex

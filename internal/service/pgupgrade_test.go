@@ -906,7 +906,7 @@ func recipePGUpRig(t *testing.T) *pgupRig {
 			return fmt.Sprintf("FROM %s\n# %d %v\n", base, major, pins), nil
 		},
 		Tag: func(base, arch, df string) string {
-			return fmt.Sprintf("%s-ext-%s-%x", pgTagOf(base), arch, sha256.Sum256([]byte(df)))[:30]
+			return fmt.Sprintf("%s-ext-%s-%x", imageTag(base), arch, sha256.Sum256([]byte(df)))[:30]
 		},
 		Helper: func(from, to mflow.ExtBuild, arch string, extra ...mflow.Recipe) (string, error) {
 			// the helper is made from the checked new-major build (its server
@@ -917,8 +917,7 @@ func recipePGUpRig(t *testing.T) *pgupRig {
 			return fmt.Sprintf("FROM helper\n# %v %v\n", from.Packages, to.Packages), nil
 		},
 	}
-	pgFnsFor.Store(r.orch, fns)
-	t.Cleanup(func() { pgFnsFor.Delete(r.orch) })
+	r.orch.pgFns = &fns
 	next := r.fake.Helper
 	r.fake.Helper = func(s docker.ContainerSpec) (string, int, bool) {
 		if len(s.Cmd) == 3 && s.Cmd[0] == "sh" {

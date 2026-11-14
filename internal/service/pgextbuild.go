@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -147,12 +146,11 @@ var defaultPGFns = pgRecipeFns{
 	Script: mflow.ResolveScript, Parse: mflow.ParseResolve, Dockerfile: mflow.RecipeDockerfile, Tag: mflow.BuildTag, Helper: mflow.HelperDockerfile,
 }
 
-// pgFnsFor holds the per-Orchestrator tables tests install.
-var pgFnsFor sync.Map
-
+// pgfn is the recipe engine's table: the default, or the one a test put in
+// the Orchestrator's pgFns.
 func (o *Orchestrator) pgfn() pgRecipeFns {
-	if v, ok := pgFnsFor.Load(o); ok {
-		return v.(pgRecipeFns)
+	if o.pgFns != nil {
+		return *o.pgFns
 	}
 	return defaultPGFns
 }
@@ -205,20 +203,6 @@ func pgRowsKeeping(rows []store.PGRecipe, keep []string) []store.PGRecipe {
 	return out
 }
 
-// pgAptPackages are the packages of rs from apt, with {major} expanded.
-func pgAptPackages(rs []mflow.Recipe, major int) []string {
-	var out []string
-	for _, r := range rs {
-		for _, p := range r.Packages {
-			p = strings.ReplaceAll(p, "{major}", fmt.Sprint(major))
-			if !slices.Contains(out, p) {
-				out = append(out, p)
-			}
-		}
-	}
-	return out
-}
-
 func pgNames(rs []mflow.Recipe) []string {
 	out := make([]string, 0, len(rs))
 	for _, r := range rs {
@@ -226,15 +210,6 @@ func pgNames(rs []mflow.Recipe) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// pgTagOf is the tag of an image ref.
-func pgTagOf(ref string) string {
-	ref, _, _ = strings.Cut(ref, "@")
-	if i := strings.LastIndex(ref, ":"); i > strings.LastIndex(ref, "/") {
-		return ref[i+1:]
-	}
-	return ""
 }
 
 var pgMinorRE = regexp.MustCompile(`^(\d+\.\d+)`)
@@ -574,7 +549,7 @@ func (o *Orchestrator) planPGExt(ctx context.Context, t Tile, m OperatedInstance
 // under hold, on the base; when a package needs a newer Postgres it resolves a
 // second time on the newest minor stackr offers (R26): messages 18a and 18b.
 func (o *Orchestrator) planPGResolvePins(ctx context.Context, t Tile, m OperatedInstance, p *PGExtPlan, rs []mflow.Recipe, node string, log io.Writer) error {
-	pkgs := pgAptPackages(rs, m.Major)
+	pkgs := mflow.RecipePackages(rs, m.Major)
 	if len(pkgs) == 0 {
 		return nil
 	}
@@ -597,7 +572,7 @@ func (o *Orchestrator) planPGResolvePins(ctx context.Context, t Tile, m Operated
 			p.Blockers = append(p.Blockers, fmt.Sprintf("%s needs postgres %s, which this stackr does not offer yet. Update stackr.", names, res.NeedMinor))
 			return nil
 		}
-		p.PGUpdate = fmt.Sprintf("%s needs postgres %s. %s runs %s and is updated too.", names, res.NeedMinor, t.Slug, pgTagOf(p.In.Base))
+		p.PGUpdate = fmt.Sprintf("%s needs postgres %s. %s runs %s and is updated too.", names, res.NeedMinor, t.Slug, imageTag(p.In.Base))
 		p.In.Base, res = nb, res2
 	}
 	p.In.Pins = maps.Clone(res.Versions)
@@ -647,7 +622,7 @@ func (o *Orchestrator) planPGLines(ctx context.Context, t Tile, m OperatedInstan
 					old = append(old, d)
 				}
 			}
-			for _, name := range pgAptPackages(old, m.Major) {
+			for _, name := range mflow.RecipePackages(old, m.Major) {
 				if _, kept := p.In.Pins[name]; !kept && eb.Packages[name] != "" {
 					p.Versions = append(p.Versions, PGPkgChange{Name: name, From: eb.Packages[name]})
 				}
@@ -797,13 +772,6 @@ func (o *Orchestrator) ApplyPGExtPlan(ctx context.Context, by *Principal, tileID
 	}
 }
 
-func (o *Orchestrator) pgResolveFor(ctx context.Context, t Tile, m OperatedInstance, names []string) ([]mflow.Recipe, error) {
-	if len(names) == 0 {
-		return nil, nil
-	}
-	return o.pgResolve(ctx, t, m, names)
-}
-
 func (o *Orchestrator) delPGPlan(ctx context.Context, instanceID string) {
 	_ = o.store.Settings.Delete(ctx, pgextplanKey+instanceID)
 }
@@ -926,7 +894,7 @@ func (o *Orchestrator) pgBuildImage(ctx context.Context, t Tile, m OperatedInsta
 			return err
 		}
 		if code == 0 {
-			if want := pgMinorRE.FindString(pgTagOf(in.Base)); want != "" && b.Server != "" && b.Server != want {
+			if want := pgMinorRE.FindString(imageTag(in.Base)); want != "" && b.Server != "" && b.Server != want {
 				return fmt.Errorf("the build moved postgres from %s to %s; nothing was changed", want, b.Server)
 			}
 			for _, n := range st.New.Extensions {
@@ -1016,7 +984,7 @@ func (o *Orchestrator) pgWalkDown(ctx context.Context, node string, m OperatedIn
 		}
 	}
 	var kv []string
-	for _, p := range pgAptPackages(own, m.Major) {
+	for _, p := range mflow.RecipePackages(own, m.Major) {
 		if v := pins[p]; v != "" {
 			if mflow.CheckPackage(p, m.Major) != nil || mflow.CheckVersion(v) != nil {
 				return nil, false, nil
@@ -1072,7 +1040,7 @@ func (o *Orchestrator) rebuildOperated(ctx context.Context, t store.Tile, log io
 		return err
 	}
 	pins := map[string]string{}
-	for _, p := range pgAptPackages(rs, m.Major) {
+	for _, p := range mflow.RecipePackages(rs, m.Major) {
 		if v := eb.Packages[p]; v != "" {
 			pins[p] = v
 		}
@@ -1126,7 +1094,7 @@ func (o *Orchestrator) loadSavedImage(ctx context.Context, t Tile, eb mflow.ExtB
 	if err != nil {
 		return err
 	}
-	key := backup.ImageKey(org, v.ID, pgTagOf(eb.Ref))
+	key := backup.ImageKey(org, v.ID, imageTag(eb.Ref))
 	err = o.backup.LoadImage(ctx, d.ID, key, func(r io.Reader) error { return o.docker.Load(ctx, eb.Ref, r) }, log)
 	if err != nil {
 		return err
@@ -1236,9 +1204,12 @@ func (o *Orchestrator) pgExtApplyFromFile(ctx context.Context, t store.Tile, pla
 func (o *Orchestrator) pgApplyIn(ctx context.Context, t Tile, m OperatedInstance, p *PGExtPlan) (PGExtIn, error) {
 	in := p.pgExtIn()
 	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
-	rs, err := o.pgResolveFor(ctx, t, m, p.In.Names)
-	if err != nil {
-		return in, err
+	var rs []mflow.Recipe
+	if len(p.In.Names) > 0 {
+		var err error
+		if rs, err = o.pgResolve(ctx, t, m, p.In.Names); err != nil {
+			return in, err
+		}
 	}
 	next := "{}"
 	if len(rs) > 0 {

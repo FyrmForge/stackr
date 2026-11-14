@@ -63,9 +63,12 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 	fin, ws := time.Now().Add(-time.Hour), seg(5)
 	baseKey := root + "/base/b-" + seg(5) + ".tar.gz.age"
 	s3.objs[baseKey] = []byte("x")
+	// saved images: one the kept base references, one only a dropped base had
+	keptImg, orphanImg := bk.ImageKey(org, "vol", "17.1-ext-amd64-aaaaaaaa"), bk.ImageKey(org, "vol", "17.0-ext-amd64-bbbbbbbb")
+	s3.objs[keptImg], s3.objs[orphanImg] = []byte("x"), []byte("x")
 	must(t, w.st.BackupRuns.Create(ctx, store.BackupRun{
 		ID: uuid.NewString(), Kind: "volume", DestID: d.ID, Trigger: "schedule", Status: "done",
-		ObjectKey: baseKey, CreatedAt: fin, FinishedAt: &fin, WalStart: &ws,
+		ObjectKey: baseKey, ImageKey: keptImg, CreatedAt: fin, FinishedAt: &fin, WalStart: &ws,
 	}))
 
 	must(t, w.orch.DeleteOrg(ctx, org))
@@ -109,6 +112,12 @@ func TestOrgDeleteKeepsBackups(t *testing.T) {
 	}
 	if _, ok := s3.objs[keptWAL]; !ok {
 		t.Error("WAL a kept base needs was aged")
+	}
+	if _, ok := s3.objs[orphanImg]; ok {
+		t.Error("a saved image no base references survived the sweep")
+	}
+	if _, ok := s3.objs[keptImg]; !ok {
+		t.Error("a saved image a kept base references was pruned")
 	}
 	if got.FormerOrgID != org {
 		t.Errorf("former org id = %q", got.FormerOrgID)

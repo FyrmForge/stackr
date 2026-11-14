@@ -247,7 +247,7 @@ func (o *Orchestrator) registryInUse(ctx context.Context) (map[string]bool, erro
 						refs[repo+":"+tag] = true
 					}
 					if t.Kind == tile.Operated {
-						o.keepOperatedRefs(ctx, t, refs)
+						o.keepOperatedRefs(ctx, t, og.Slug, refs)
 					}
 				}
 			}
@@ -274,7 +274,7 @@ func (o *Orchestrator) registryInUse(ctx context.Context) (map[string]bool, erro
 // finds it), the images of a major change in flight or still rollable back,
 // and those of an extensions change in flight (D5: a built image is named by
 // its own ref, not an import repo).
-func (o *Orchestrator) keepOperatedRefs(ctx context.Context, t store.Tile, refs map[string]bool) {
+func (o *Orchestrator) keepOperatedRefs(ctx context.Context, t store.Tile, orgSlug string, refs map[string]bool) {
 	m, err := o.operated.GetByTile(ctx, t.ID)
 	if err != nil {
 		return
@@ -282,6 +282,9 @@ func (o *Orchestrator) keepOperatedRefs(ctx context.Context, t store.Tile, refs 
 	keep := func(ref string) {
 		if path, ok := strings.CutPrefix(ref, image.ClusterRegistry); ok {
 			refs[path] = true
+		} else if ref != "" { // an imported outside image: the org's import copy, as for a current tile
+			repo, tag := regfront.ImportName(orgSlug, ref)
+			refs[repo+":"+tag] = true
 		}
 	}
 	if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.PrevRef != "" && time.Since(eb.PrevAt) < pgupKeep {

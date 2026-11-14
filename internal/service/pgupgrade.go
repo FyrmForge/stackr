@@ -1173,7 +1173,7 @@ func (u *pgupRun) toBuild(ctx context.Context, eb mflow.ExtBuild, to int) ([]mfl
 		return nil, eb, err
 	}
 	tb := mflow.ExtBuild{Base: mustPGImage(to), Recipes: eb.Recipes, Arch: eb.Arch}
-	if pkgs := pgAptPackages(rs, to); len(pkgs) > 0 {
+	if pkgs := mflow.RecipePackages(rs, to); len(pkgs) > 0 {
 		node, _ := docker.NodeFrom(ctx)
 		res, err := o.pgResolveOn(ctx, node, tb.Base, u.m.ID, to, pkgs)
 		if err != nil {
