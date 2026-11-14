@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -282,6 +283,27 @@ func (o *Orchestrator) SetPGRecipe(ctx context.Context, by *Principal, v PGRecip
 		if err := o.pgfn().Check(r); err != nil {
 			return PGRecipeView{}, err
 		}
+		for _, m := range r.Majors {
+			if _, ok := mflow.PGReleaseOf(m); !ok {
+				var sup []string
+				for _, pr := range mflow.PGReleases {
+					sup = append(sup, strconv.Itoa(pr.Major))
+				}
+				return PGRecipeView{}, errs.Invalidf("majors", "%d is not supported. Use %s.", m, strings.Join(sup, ", "))
+			}
+		}
+		if len(r.Requires) > 0 {
+			rows, err := o.store.PGRecipes.List(ctx)
+			if err != nil {
+				return PGRecipeView{}, err
+			}
+			known := pgRecipeDefs(rows)
+			for _, n := range r.Requires {
+				if !slices.ContainsFunc(known, func(k mflow.Recipe) bool { return k.Name == n }) {
+					return PGRecipeView{}, errs.Invalidf("requires", "no recipe %s", n)
+				}
+			}
+		}
 		b, _ := json.Marshal(r)
 		row.Spec = string(b)
 	}
@@ -400,6 +422,16 @@ func (o *Orchestrator) LastPGExtPlan(ctx context.Context, instanceID string) (*P
 		return nil, errs.Conflictf("the stored plan of %s is unreadable; plan again.", instanceID)
 	}
 	return &p, nil
+}
+
+// LastPGExtPlanOf is LastPGExtPlan by tile id, for callers that hold the
+// tile (the plan is stored under the operated instance).
+func (o *Orchestrator) LastPGExtPlanOf(ctx context.Context, tileID string) (*PGExtPlan, error) {
+	_, m, err := o.instanceOf(ctx, tileID)
+	if err != nil {
+		return nil, err
+	}
+	return o.LastPGExtPlan(ctx, m.ID)
 }
 
 // pgNodeArch is the CPU type of a node (the panel's own when it cannot ask).

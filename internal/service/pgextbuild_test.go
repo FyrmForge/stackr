@@ -28,6 +28,19 @@ func TestLastPGExtPlan(t *testing.T) {
 	}
 }
 
+// The web holds the tile id; the plan is stored under its instance.
+func TestLastPGExtPlanOf(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	ctx := context.Background()
+	_, m, err := r.orch.instanceOf(ctx, r.pg.ID)
+	must(t, err)
+	must(t, r.orch.store.Settings.Set(ctx, pgextplanKey+m.ID, `{"ID":"p9"}`))
+	if p, err := r.orch.LastPGExtPlanOf(ctx, r.pg.ID); err != nil || p == nil || p.ID != "p9" {
+		t.Fatalf("by tile: %+v, %v", p, err)
+	}
+}
+
 // The stub rebuild leaves a missing image to fail the way it always did.
 func TestRebuildOperatedStub(t *testing.T) {
 	t.Parallel()

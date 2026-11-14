@@ -48,14 +48,16 @@ func (h *handler) saveRecipe(edit bool) func(echo.Context) (string, *service.Job
 			return "", nil, err
 		}
 		v.Enabled = true
-		if edit { // an edit keeps the switch where it was
-			rs, err := h.orch.PGRecipes(c.Request().Context())
-			if err != nil {
-				return "", nil, err
-			}
-			if i := slices.IndexFunc(rs, func(r service.PGRecipeView) bool { return r.Name == v.Name }); i >= 0 {
-				v.Enabled = rs[i].Enabled
-			}
+		rs, err := h.orch.PGRecipes(c.Request().Context())
+		if err != nil {
+			return "", nil, err
+		}
+		i := slices.IndexFunc(rs, func(r service.PGRecipeView) bool { return r.Name == v.Name })
+		switch {
+		case i >= 0 && !edit:
+			return "", nil, errs.Invalidf("name", "a recipe %s already exists", v.Name)
+		case i >= 0: // an edit keeps the switch where it was
+			v.Enabled = rs[i].Enabled
 		}
 		_, err = h.orch.SetPGRecipe(c.Request().Context(), middleware.Principal(c), v)
 		return "Saved.", nil, err
@@ -179,6 +181,7 @@ func fillRecipeForm(c echo.Context, f *ui.RecipeForm) {
 	if p == nil {
 		return
 	}
+	f.Refused = true
 	if p.Has("name") {
 		f.Name = p.Get("name")
 	}

@@ -861,10 +861,15 @@ func (h *handler) PGExtPlan(c echo.Context) error {
 		l := nonBlank(strings.Split(form.Get("extensions"), "\n"))
 		in.Extensions = &l
 	}
-	if _, err := h.orch.PlanPGExtensions(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, in); err != nil {
-		return h.instance(c, "settings", "", err, instance.SettingsView{Open: "extensions"})
+	// the box keeps what was typed; the other two fields stay as stored
+	typed := &instance.ExtView{Extensions: form.Get("extensions")}
+	if p, err := h.orch.PGExtensions(c.Request().Context(), scope(c).Tile.ID); err == nil || p.Plan != "" {
+		typed.Image, typed.Preload = p.Image, strings.Join(p.Preload, "\n")
 	}
-	return h.instance(c, "settings", "Checking. The plan shows here when it is ready.", nil, instance.SettingsView{Open: "extensions"})
+	if _, err := h.orch.PlanPGExtensions(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, in); err != nil {
+		return h.instance(c, "settings", "", err, instance.SettingsView{Ext: typed, Open: "extensions"})
+	}
+	return h.instance(c, "settings", "Checking. The plan shows here when it is ready.", nil, instance.SettingsView{Ext: typed, Open: "extensions"})
 }
 
 // POST …/-/instances/:tile/extensions/apply: plan (its id) and confirm (the
@@ -887,7 +892,7 @@ func (h *handler) PGExtApply(c echo.Context) error {
 // planView is the instance's last recipe plan as the row draws it; nil = no
 // plan yet. A failed read is the view's Unread.
 func (h *handler) planView(ctx context.Context, id string) *instance.ExtPlanView {
-	p, err := h.orch.LastPGExtPlan(ctx, id)
+	p, err := h.orch.LastPGExtPlanOf(ctx, id)
 	if err != nil {
 		return &instance.ExtPlanView{Unread: unreadReason(err)}
 	}

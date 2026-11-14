@@ -652,6 +652,20 @@ func TestPGRecipeAdmin(t *testing.T) {
 	if v, err = r.orch.SetPGRecipe(ctx, admin, own); err != nil || v.Builtin || !slices.Equal(v.Extensions, []string{"mine"}) {
 		t.Fatalf("add: %+v, %v", v, err)
 	}
+	for field, bad := range map[string]PGRecipeView{
+		"requires": {Name: "r1", Packages: []string{"postgresql-{major}-r1"}, Extensions: []string{"r1"}, Requires: []string{"nope"}},
+		"majors":   {Name: "r2", Packages: []string{"postgresql-{major}-r2"}, Extensions: []string{"r2"}, Majors: []int{99}},
+	} {
+		if _, err := r.orch.SetPGRecipe(ctx, admin, bad); err == nil || !strings.Contains(err.Error(), field) && !isInvalidOn(err, field) {
+			t.Errorf("%s: %v", field, err)
+		}
+	}
+	own.Requires = []string{"pgvector"}
+	own.Name = "mine2"
+	if _, err := r.orch.SetPGRecipe(ctx, admin, own); err != nil {
+		t.Errorf("a built-in is a known recipe: %v", err)
+	}
+	must(t, r.orch.DeletePGRecipe(ctx, admin, "mine2"))
 	eb := mflow.ExtBuild{Base: pgStock, Ref: "localhost:5000/o/s/pg:x", Recipes: []string{"mine"}}
 	must(t, r.st.OperatedInstances.SetBuild(ctx, r.inst.ID, nil, nil, eb.String()))
 	if err := r.orch.DeletePGRecipe(ctx, admin, "mine"); !isConflict(err) || !strings.Contains(err.Error(), "mine is enabled on 1 instances; it stays until they drop it.") {
@@ -662,7 +676,7 @@ func TestPGRecipeAdmin(t *testing.T) {
 		t.Errorf("delete: %v", err)
 	}
 	w := &world{orch: r.orch, st: r.st}
-	if len(events(t, w, "pg.recipe-set")) != 2 || len(events(t, w, "pg.recipe-delete")) != 1 {
+	if len(events(t, w, "pg.recipe-set")) != 3 || len(events(t, w, "pg.recipe-delete")) != 2 {
 		t.Error("recipe changes are not audited")
 	}
 }
@@ -723,4 +737,9 @@ func TestParsePGCheckRealOutput(t *testing.T) {
 	if len(b.Pkgs) != 2 || b.Pkgs["postgresql-17-vchord"] != "1.1.1-1" || b.Server != "17.11" || b.Avail["vector"] != "0.8.7" {
 		t.Errorf("parsed = %+v", b)
 	}
+}
+
+func isInvalidOn(err error, field string) bool {
+	bad, ok := errs.IsInvalid(err)
+	return ok && bad.Field == field
 }

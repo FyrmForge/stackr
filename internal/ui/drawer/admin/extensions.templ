@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"context"
+
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
 
@@ -28,6 +30,15 @@ type RecipeForm struct {
 	ID, Action, Name, Majors, Packages, PackageURL, Version string
 	SHA256, Extensions, Preload, Requires               string
 	Share                                               c.ShareView
+	Refused                                             bool // this form's post was refused: its fields show their reasons
+}
+
+// err is the refusal's reason for field, only in the form that posted.
+func (f RecipeForm) err(ctx context.Context, field string) string {
+	if !f.Refused {
+		return ""
+	}
+	return c.KeptErr(ctx, field, "")
 }
 
 templ Extensions(v ExtensionsView) {
@@ -94,16 +105,16 @@ templ recipeList(rows []RecipeRow, none string) {
 templ recipeForm(f RecipeForm, button string, withName bool) {
 	<form hx-post={ f.Action } hx-target={ target() } hx-swap="outerHTML" class="space-y-4">
 		if withName {
-			@recipeInput(f.ID, "name", "Name", f.Name, "pg_cron", "")
+			@recipeInput(ctx, f, "name", "Name", f.Name, "pg_cron", "")
 		}
-		@recipeInput(f.ID, "majors", "Postgres versions", f.Majors, "16, 17, 18", "Comma separated.")
-		@recipeText(f.ID, "packages", "Packages", f.Packages, "One per line.")
-		@recipeInput(f.ID, "package_url", "Package URL", f.PackageURL, "https://example.com/pkg_{version}_{major}_{arch}.deb", "https only. Needs a version and a sha256 for each version and CPU type.")
-		@recipeInput(f.ID, "version", "Version", f.Version, "", "")
-		@recipeText(f.ID, "sha256", "sha256", f.SHA256, "One per line, like 17-amd64=hex.")
-		@recipeText(f.ID, "extensions", "Extensions it creates", f.Extensions, "One per line.")
-		@recipeText(f.ID, "preload", "Startup modules", f.Preload, "One per line.")
-		@recipeText(f.ID, "requires", "Needs recipes", f.Requires, "One per line.")
+		@recipeInput(ctx, f, "majors", "Postgres versions", f.Majors, "16, 17, 18", "Comma separated.")
+		@recipeText(ctx, f, "packages", "Packages", f.Packages, "One per line.")
+		@recipeInput(ctx, f, "package_url", "Package URL", f.PackageURL, "https://example.com/pkg_{version}_{major}_{arch}.deb", "https only. Needs a version and a sha256 for each version and CPU type.")
+		@recipeInput(ctx, f, "version", "Version", f.Version, "", "")
+		@recipeText(ctx, f, "sha256", "sha256", f.SHA256, "One per line, like 17-amd64=hex.")
+		@recipeText(ctx, f, "extensions", "Extensions it creates", f.Extensions, "One per line.")
+		@recipeText(ctx, f, "preload", "Startup modules", f.Preload, "One per line.")
+		@recipeText(ctx, f, "requires", "Needs recipes", f.Requires, "One per line.")
 		<div class="text-sm">
 			@c.Share(f.Share)
 		</div>
@@ -111,20 +122,24 @@ templ recipeForm(f RecipeForm, button string, withName bool) {
 	</form>
 }
 
-templ recipeInput(id, name, label, value, placeholder, help string) {
+templ recipeInput(ctx context.Context, f RecipeForm, name, label, value, placeholder, help string) {
+	{{ id, err := f.ID + "-" + name, f.err(ctx, name) }}
 	<div data-field>
-		<label for={ id + "-" + name } class="label">{ label }</label>
-		<input id={ id + "-" + name } name={ name } value={ value } placeholder={ placeholder } class="input font-mono"/>
+		<label for={ id } class="label">{ label }</label>
+		<input id={ id } name={ name } value={ value } placeholder={ placeholder } class="input font-mono" { c.Invalid(id, err)... }/>
 		if help != "" {
 			<p class="mt-1.5 text-xs text-rw-faint" data-hint>{ help }</p>
 		}
+		@c.FieldError(id, err)
 	</div>
 }
 
-templ recipeText(id, name, label, value, help string) {
+templ recipeText(ctx context.Context, f RecipeForm, name, label, value, help string) {
+	{{ id, err := f.ID + "-" + name, f.err(ctx, name) }}
 	<div data-field>
-		<label for={ id + "-" + name } class="label">{ label }</label>
-		<textarea id={ id + "-" + name } name={ name } rows="2" class="input font-mono">{ value }</textarea>
+		<label for={ id } class="label">{ label }</label>
+		<textarea id={ id } name={ name } rows="2" class="input font-mono" { c.Invalid(id, err)... }>{ value }</textarea>
 		<p class="mt-1.5 text-xs text-rw-faint" data-hint>{ help }</p>
+		@c.FieldError(id, err)
 	</div>
 }
