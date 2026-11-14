@@ -870,6 +870,10 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: settings: only an operated tile takes it", name)
 	case (tc.Sync != nil || tc.SyncLimitMS != nil || tc.SyncRequired != nil) && tc.Type != "operated":
 		return fmt.Errorf("tile %s: sync: only an operated tile takes it", name)
+	case tc.Preload != nil && tc.Type != "operated":
+		return fmt.Errorf("tile %s: preload: only an operated tile takes it", name)
+	case tc.Extensions != nil && tc.Type != "operated" && tc.Type != "slice":
+		return fmt.Errorf("tile %s: extensions: only an operated or slice tile takes it", name)
 	case tc.Standbys != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: standbys: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":

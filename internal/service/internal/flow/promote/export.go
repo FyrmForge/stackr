@@ -358,6 +358,12 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		if len(m.Settings) > 0 {
 			b.put("settings", map[string]string(m.Settings))
 		}
+		if len(m.Preload) > 0 {
+			b.put("preload", slices.Clone([]string(m.Preload)))
+		}
+		if len(m.Extensions) > 0 {
+			b.put("extensions", slices.Clone([]string(m.Extensions)))
+		}
 		if m.PreferSync {
 			b.put("sync", true)
 			if m.SyncRequired {
@@ -487,6 +493,9 @@ func (f *Flow) exportTile(ctx context.Context, st store.Stack, t store.Tile, res
 		}
 		if len(t.CORSOrigins) > 0 {
 			b.put("cors_origins", slices.Clone([]string(t.CORSOrigins)))
+		}
+		if len(t.Extensions) > 0 {
+			b.put("extensions", slices.Clone([]string(t.Extensions)))
 		}
 	}
 	if len(t.SliceAccess) > 0 {
