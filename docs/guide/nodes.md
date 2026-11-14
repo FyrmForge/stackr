@@ -6,7 +6,7 @@ The `stackr` commands below run on the controller and need a login first. See [L
 
 ## Add a worker node
 
-Needs a Linux box, root, Docker 26.0 or newer, systemd, WireGuard in the kernel, UDP 51871 and TCP 7443 and 7444. The [README](../../README.md#system-requirements) has the rest.
+Needs a Linux box, root, curl, Docker 26.0 or newer (the join offers to install it), systemd, WireGuard in the kernel, UDP 51871 and TCP 7443 and 7444. The [README](../../README.md#system-requirements) has the rest.
 
 The box needs its own way out to the internet while it joins: the join line fetches from the panel's URL and pulls the stackr image from `ghcr.io`. A box with only a private address needs NAT from its network first.
 
@@ -19,13 +19,13 @@ The box needs its own way out to the internet while it joins: the join line fetc
    curl -fsSL https://stkr.apps.example.com/join/<token> | sh
    ```
 
-3. Run it on the new machine as root. It checks the box (Linux, amd64, Docker), downloads `stackr-install` from the panel into a temporary folder, and joins with the same token. The folder is removed when it ends. `/usr/local/bin/stackr-install` stays for upgrades and removal.
+3. Run it on the new machine as root. It checks the box (Linux, amd64, curl), downloads `stackr-install` from the panel into a temporary folder, and joins with the same token. If Docker is missing it asks to install Docker with Docker's install script. An installed Docker is never upgraded. With no terminal it stops and says what to do. The folder is removed when it ends. `/usr/local/bin/stackr-install` stays for upgrades and removal.
 
    A dev build of the panel has an image that is not on `ghcr.io`, so the join line cannot pull it. Load it on the new machine first, by its tag, and the line uses it: `docker save ghcr.io/fyrmforge/stackr:<version> | ssh root@new-machine docker load`. Saving by digest does not work: the saved image has no tag, and the line looks the image up by `ghcr.io/fyrmforge/stackr:<version>`. `docker image inspect ghcr.io/fyrmforge/stackr:<version>` on the new machine must succeed.
 
    A panel without a trusted certificate (`--https=false`) shows a two-step version instead: download the installer from GitHub, then run its `join` line. The one line is only served over https.
 
-4. Back in the panel, the Add node dialog shows the machine that called in. Check it and press Add.
+4. The new machine prints the panel's Nodes link and waits. Go back to the panel: the Add node dialog shows the machine that called in. Check it and press Add.
 
 5. The new machine prints a link to the node in the panel. Open it to set tags and exits. Orgs reach a node through a [placement](placements.md).
 
@@ -40,6 +40,23 @@ stackr node ls
 ```
 
 `--tag ingress`, `--tag builder` or `--tag storage` adds roles; `egress` is always on. The node's address defaults to `<name>.<panel address>`; `--address` sets another, `--address ""` none. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
+
+## Proxmox container (LXC)
+
+A worker can run in a Proxmox container. Docker, WireGuard and the mesh need more than the defaults give.
+
+1. Create the container as privileged: untick "Unprivileged container". It cannot be changed later. Unprivileged containers are not supported for now.
+2. Under Options, Features, tick Nesting. Tick NFS and SMB/CIFS as well if apps will mount network shares.
+3. On the Proxmox host, load the WireGuard module and keep it across reboots:
+
+   ```bash
+   modprobe wireguard
+   echo wireguard >> /etc/modules-load.d/stackr.conf
+   ```
+
+   Without the second line a host reboot breaks the join with "wireguard: the kernel has no module".
+4. Join the container as in [Add a worker node](#add-a-worker-node).
+5. For a GPU, pass the render device into the container: Resources, Add, Device Passthrough, device `/dev/dri/renderD128`, access mode `0666`. Then grant the device to the tile in the panel.
 
 ## Nodes and placements
 

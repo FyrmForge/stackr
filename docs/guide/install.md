@@ -12,7 +12,7 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
 ## Install
 
-1. Run the install line as root. It downloads the installer from the latest GitHub release, checks it against the release's checksums and keeps it as `/usr/local/bin/stackr-install`. In a terminal the installer then asks for the domain, an ACME contact email and the admin login.
+1. Run the install line as root. It downloads the installer from the latest GitHub release, checks it against the release's checksums and keeps it as `/usr/local/bin/stackr-install`. In a terminal the installer then asks for the root domain, the panel address (it offers `stkr.` and the domain), the node name (it offers this machine's hostname), an ACME contact email and the admin login.
 
    ```bash
    curl -fsSL https://github.com/FyrmForge/stackr/releases/latest/download/install.sh | sudo sh
@@ -60,7 +60,8 @@ Flags you may want:
 | Flag | What it does |
 | --- | --- |
 | `--domain` | Root domain. Required. |
-| `--panel-host` | The panel's own name. Default `stkr.<domain>`. |
+| `--panel-host` | The panel's own name, the "Panel address" question. Default `stkr.<domain>`. |
+| `--node-name` | The controller's node name, on a fresh install only. Default the machine's hostname. An install made before this keeps `controller`. |
 | `--email` | ACME contact address. Required with HTTPS. |
 | `--admin-email` | The first admin. |
 | `--https=false` | Serve plain HTTP. The panel is then on `http://`. |

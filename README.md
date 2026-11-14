@@ -32,9 +32,10 @@ names whatever is missing.
   chains only see in the same backend. A worker uses the host's own.
 - **WireGuard in the kernel:** Linux 5.6 or newer, or the `wireguard`
   module. A single controller runs without it and warns; a worker refuses.
-  In a container (LXC) the module must be loaded on the host.
-- **Worker only:** systemd (the worker is a systemd service) and iproute2's
-  `ip`.
+  In a Proxmox container (LXC) load it on the host and make it permanent, see
+  [Nodes](docs/guide/nodes.md#proxmox-container-lxc).
+- **Worker only:** systemd (the worker is a systemd service), iproute2's
+  `ip` and curl (the join line uses it).
 - **Free ports**, checked on a first install:
   - UDP 51871, the mesh's WireGuard (`--wg-port` to pick another; stackr's
     interface is `stackr0`, so a VPN on `wg0`/51820 is left alone).
