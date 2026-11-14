@@ -65,6 +65,10 @@ type Step struct {
 	Fields []Field  `json:"fields,omitempty"`
 	Note   string   `json:"note,omitempty"` // a line under the fields
 	Out    bool     `json:"out,omitempty"`
+	// LinkLabel and LinkURL: a page at the provider the step needs, opened
+	// in a new tab. "" = none.
+	LinkLabel string `json:"link_label,omitempty"`
+	LinkURL   string `json:"link_url,omitempty"`
 }
 
 // Field is one value a step asks for.

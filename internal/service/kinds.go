@@ -256,6 +256,52 @@ func (o *Orchestrator) beginSetup(ctx context.Context, in ConnectorAdd, k connec
 	return c, &out, err
 }
 
+// ResumeConnector is where the browser goes to finish pending connection id
+// of orgID (nil = the server's), which only userID, who began it, may do.
+// It also returns the kind.
+func (o *Orchestrator) ResumeConnector(ctx context.Context, orgID *string, userID, id string) (ConnectorOut, ConnectorKind, error) {
+	if _, err := o.conns.Of(ctx, orgID, id); err != nil {
+		return ConnectorOut{}, ConnectorKind{}, err
+	}
+	c, p, blob, err := o.conns.Pending(ctx, id)
+	if err != nil {
+		return ConnectorOut{}, ConnectorKind{}, err
+	}
+	if p.User != userID || time.Since(c.CreatedAt) > pendingTTL {
+		return ConnectorOut{}, ConnectorKind{}, errs.Refusedf("this setup is not yours to finish; start again")
+	}
+	k, err := o.kind(c.Kind)
+	if err != nil {
+		return ConnectorOut{}, ConnectorKind{}, err
+	}
+	conn := k.New()
+	if err := json.Unmarshal([]byte(blob), conn); err != nil {
+		return ConnectorOut{}, ConnectorKind{}, err
+	}
+	r, ok := conn.(connectors.Redirector)
+	if !ok {
+		return ConnectorOut{}, ConnectorKind{}, errs.ErrNotFound
+	}
+	out, err := r.Out(ctx, id, o.appBase(ctx)+ConnectorCallbackPath, id+"."+p.Nonce)
+	return out, kindOf(k), err
+}
+
+// CancelConnectorSetup removes connection id of orgID (nil = the server's)
+// while its provider has not answered. One already gone or connected is left alone.
+func (o *Orchestrator) CancelConnectorSetup(ctx context.Context, orgID *string, id string) error {
+	_, err := o.conns.Of(ctx, orgID, id)
+	if err == nil {
+		_, _, _, err = o.conns.Pending(ctx, id)
+	}
+	if errors.Is(err, errs.ErrNotFound) {
+		return nil // already gone, swept or connected
+	}
+	if err != nil {
+		return err
+	}
+	return o.conns.Remove(ctx, orgID, id)
+}
+
 // local: a panel path, never another site.
 func local(p string) bool {
 	return strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") && !strings.HasPrefix(p, "/\\")

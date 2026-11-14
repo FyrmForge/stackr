@@ -221,12 +221,20 @@ func TestServerWizardSteps(t *testing.T) {
 			if step == "domains" && skip {
 				t.Error("domains offers Skip")
 			}
-			// domains moves on by saving
-			if step != "domains" && i+1 < len(steps) && !strings.Contains(body, `href="`+setup.ServerBase+"/ui/"+steps[i+1]+`"`) {
+			// domains and observability move on by saving; backups on its second part
+			way := body
+			if step == "backups" {
+				way = s.do(adm, "GET", setup.ServerBase+"/ui/backups?sub=panel", nil, false).Body.String()
+			}
+			if step != "domains" && step != "observability" && i+1 < len(steps) && !strings.Contains(way, `href="`+setup.ServerBase+"/ui/"+steps[i+1]+`"`) {
 				t.Errorf("%s has no way on to %s", step, steps[i+1])
 			}
-			if (step == "certificates" || step == "git" || step == "observability" || step == "backups") && !skip {
+			// the DNS cards and the Observability choice are the skip
+			if (step == "git" || step == "backups") && !skip {
 				t.Errorf("%s offers no Skip", step)
+			}
+			if (step == "certificates" || step == "observability") && skip {
+				t.Errorf("%s offers Skip", step)
 			}
 		}
 	}
@@ -258,8 +266,12 @@ func TestServerWizardObserve(t *testing.T) {
 	s := newSrvSite(t)
 	ctx := context.Background()
 	adm := s.env.Session(t, s.env.User(t, "root@x.test", true))
-	if !strings.Contains(s.do(adm, "GET", setup.ServerBase+"/ui/observability", nil, false).Body.String(), `name="observe_enabled" value="1" checked`) {
-		t.Error("observability is not on by default")
+	body := s.do(adm, "GET", setup.ServerBase+"/ui/observability", nil, false).Body.String()
+	if !strings.Contains(body, `name="observe_enabled" value="1"`) || !strings.Contains(body, `name="observe_enabled" value="0"`) || strings.Contains(body, ">Skip<") {
+		t.Errorf("observability does not ask on or off:\n%s", body)
+	}
+	if v, _ := s.env.Orch.Setting(ctx, "observe_enabled"); v != "false" {
+		t.Errorf("observe_enabled before the choice = %q, want false", v)
 	}
 	rec := s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{
 		"observe_metrics_retention": {"10"}, "observe_min_free": {"3"},
@@ -272,6 +284,16 @@ func TestServerWizardObserve(t *testing.T) {
 		if v, _ := s.env.Orch.Setting(ctx, k); v != want {
 			t.Errorf("%s = %q, want %q", k, v, want)
 		}
+	}
+	rec = s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"1"}}, true)
+	if v, _ := s.env.Orch.Setting(ctx, "observe_enabled"); v != "true" {
+		t.Errorf("Turn it on saved observe_enabled = %q", v)
+	}
+	if rec := s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"0"}}, true); rec.Code != http.StatusOK {
+		t.Fatalf("Keep it off = %d", rec.Code)
+	}
+	if v, _ := s.env.Orch.Setting(ctx, "observe_enabled"); v != "false" {
+		t.Errorf("Keep it off saved observe_enabled = %q", v)
 	}
 	rec = s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"1"}, "observe_metrics_retention": {"lots"}}, true)
 	refused(t, rec, `value="lots"`, `id="error-observe_metrics_retention"`, "Use a whole number")
@@ -307,7 +329,7 @@ func TestServerWizardBackups(t *testing.T) {
 	if id == "" {
 		t.Fatal("destination not saved")
 	}
-	if back != setup.ServerBase+"/ui/backups?dest="+id {
+	if back != setup.ServerBase+"/ui/backups?sub=panel&dest="+id {
 		t.Fatalf("dest = %d %q", rec.Code, back)
 	}
 	// the panel backup form picks what was just added, not This box
@@ -323,10 +345,29 @@ func TestServerWizardBackups(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, v, want)
 		}
 	}
-	rec = s.do(adm, "POST", setup.ServerBase+"/panel-backup", url.Values{"panel_backup_schedule": {"whenever"}}, true)
+	rec = s.do(adm, "POST", setup.ServerBase+"/panel-backup", url.Values{"sub": {"panel"}, "panel_backup_schedule": {"whenever"}}, true)
 	refused(t, rec, `value="whenever"`, `id="error-panel_backup_schedule"`)
 	if regexp.MustCompile(`name="panel_backup_enabled"[^>]*checked`).MatchString(rec.Body.String()) {
 		t.Error("the switch posted off came back on")
+	}
+	// Test connection answers in place, writes nothing and keeps the form
+	before, _ := s.env.Orch.GlobalBackupDests(ctx)
+	rec = s.do(adm, "POST", setup.ServerBase+"/dest/test", url.Values{
+		"endpoint": {"https://s3.example.test"}, "bucket": {"b"}, "access_key": {"ak"}, "secret_key": {"sk"},
+	}, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "Connection works.") {
+		t.Errorf("test connection = %d\n%s", rec.Code, b)
+	}
+	rec = s.do(adm, "POST", setup.ServerBase+"/dest/test", url.Values{"endpoint": {"ftp://nope"}, "bucket": {"b"}, "access_key": {"ak"}, "secret_key": {"sk"}}, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "http(s) URL") || strings.Contains(b, "Connection works.") {
+		t.Errorf("refused test connection = %d\n%s", rec.Code, b)
+	}
+	rec = s.do(adm, "POST", setup.ServerBase+"/dest/test", url.Values{"endpoint": {"https://s3.example.test"}, "bucket": {"b"}, "access_key": {"ak"}}, true)
+	if b := rec.Body.String(); !strings.Contains(b, "secret key") {
+		t.Errorf("test without a secret = %d\n%s", rec.Code, b)
+	}
+	if after, _ := s.env.Orch.GlobalBackupDests(ctx); len(after) != len(before) {
+		t.Errorf("test connection saved a destination: %d, was %d", len(after), len(before))
 	}
 	// a refused destination keeps every field, the secret key too
 	rec = s.do(adm, "POST", setup.ServerBase+"/dest", url.Values{
@@ -369,10 +410,15 @@ func TestServerWizardGitHub(t *testing.T) {
 		t.Fatalf("connectors = %+v, want one shared with all", cs)
 	}
 	body := s.do(adm, "GET", setup.ServerBase+"/ui/git", nil, false).Body.String()
-	for _, w := range []string{"/hooks/connectors/" + cs[0].ID, "github.com/apps/my-app/installations/new?state="} {
-		if !strings.Contains(body, w) {
-			t.Errorf("git step lacks %s", w)
-		}
+	if !strings.Contains(body, "github.com/apps/my-app/installations/new?state=") {
+		t.Error("git step lacks the install page")
+	}
+	// the webhook is the settings dialog's, not the card's
+	if strings.Contains(body, "/hooks/connectors/") || strings.Contains(body, "Webhook") {
+		t.Errorf("the card shows the webhook:\n%s", body)
+	}
+	if strings.Contains(body, "GitHub · my-app") {
+		t.Errorf("the row says the kind twice:\n%s", body)
 	}
 	if strings.Contains(body, "PRIVATE KEY-----\n") || strings.Contains(body, "whsec") {
 		t.Error("the step shows a secret back")
@@ -399,6 +445,33 @@ func TestServerWizardPendingApp(t *testing.T) {
 	if !strings.Contains(body, ">Skip</a>") || strings.Contains(body, ">Continue</a>") {
 		t.Errorf("a pending App turned Skip into Continue:\n%s", body)
 	}
+	// the half-made row says so, can be resumed or removed, and shows no webhook
+	for _, w := range []string{"Setup not finished", ">Continue</button>", "/-/setup/server/git/", "/resume", "/cancel", ">Remove</button>"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("pending row lacks %s\n%s", w, body)
+		}
+	}
+	if strings.Contains(body, "Webhook") || strings.Contains(body, "connecting") {
+		t.Errorf("pending row shows the webhook or its working name:\n%s", body)
+	}
+	cs, _ := s.env.Orch.ServerConnectors(ctx)
+	if len(cs) != 1 {
+		t.Fatalf("connectors = %+v, want the pending one", cs)
+	}
+	rec := s.do(adm, "GET", setup.ServerBase+"/git/"+cs[0].ID+"/resume", nil, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, `id="connector-out"`) || !strings.Contains(b, `hx-post="`+setup.ServerBase+"/git/"+cs[0].ID+`/cancel"`) {
+		t.Errorf("resume = %d\n%s", rec.Code, b)
+	}
+	// closing the dialog drops it; a second cancel is harmless
+	for range 2 {
+		if rec := s.do(adm, "POST", setup.ServerBase+"/git/"+cs[0].ID+"/cancel", url.Values{}, true); rec.Header().Get("HX-Redirect") != setup.ServerBase+"/ui/git" {
+			t.Errorf("cancel = %d %q", rec.Code, rec.Header().Get("HX-Redirect"))
+		}
+	}
+	if cs, _ := s.env.Orch.ServerConnectors(ctx); len(cs) != 0 {
+		t.Fatalf("cancel left %+v", cs)
+	}
+	s.do(adm, "POST", setup.ServerBase+"/git/new/github", url.Values{"owner": {""}}, true)
 	if n, err := s.env.Orch.SweepPendingConnectors(ctx, time.Now()); err != nil || n != 0 {
 		t.Errorf("fresh sweep = %d, %v; want none", n, err)
 	}
@@ -421,9 +494,22 @@ func TestServerWizardCertificates(t *testing.T) {
 	step := setup.ServerBase + "/ui/certificates"
 
 	body := s.do(adm, "GET", step, nil, false).Body.String()
-	for _, w := range []string{`hx-get="/-/setup/server/connectors/new"`, "+ Add Namecheap", "No connectors yet.", ">Skip</a>", "you point its DNS yourself"} {
+	for _, w := range []string{`hx-get="/-/setup/server/connectors/new"`, "Connect a DNS provider", "I'll point DNS myself", "One certificate per host", `href="/-/setup/server/ui/git"`, ">DNS</h2>"} {
 		if !strings.Contains(body, w) {
 			t.Fatalf("step lacks %s\n%s", w, body)
+		}
+	}
+	for _, w := range []string{"No connectors yet.", ">Skip</a>", "Certificates", "+ Add Namecheap"} {
+		if strings.Contains(body, w) {
+			t.Fatalf("step still has %s\n%s", w, body)
+		}
+	}
+	// the manual path shows the records to add, once the domains are set
+	s.env.Orch.SetSettings(ctx, map[string]string{"root_domain": "acme.dev", "panel_domain": "stackr.acme.dev"})
+	body = s.do(adm, "GET", step, nil, false).Body.String()
+	for _, w := range []string{"stackr.acme.dev A", "*.acme.dev A"} {
+		if !strings.Contains(body, w) {
+			t.Errorf("manual card lacks the record %s", w)
 		}
 	}
 	// the add dialog opens straight on Namecheap: no kind picker, no Back to one
@@ -458,6 +544,13 @@ func TestServerWizardCertificates(t *testing.T) {
 	body = s.do(adm, "GET", step, nil, false).Body.String()
 	if !strings.Contains(body, `hx-get="`+setup.ServerBase+"/connectors/"+cs[0].ID+`/settings?tab=domains"`) || !strings.Contains(body, ">Continue</a>") || !strings.Contains(body, "No domains managed yet.") {
 		t.Errorf("step after add:\n%s", body)
+	}
+	// the row sits straight in the step: no connectors card, the kind said once, Continue is the primary
+	if strings.Contains(body, "DNS connectors") || strings.Contains(body, "Namecheap · jo") || strings.Contains(body, "Connect a DNS provider") || strings.Contains(body, "Webhook") {
+		t.Errorf("step after add keeps the old box or a repeat:\n%s", body)
+	}
+	if !strings.Contains(body, "+ Add Namecheap") || !strings.Contains(body, `class="btn btn-sm w-full btn-ghost"`) {
+		t.Errorf("Add is not secondary after a connector exists:\n%s", body)
 	}
 	// a closing dialog refreshes the list from the step, Continue with it
 	body = s.do(adm, "GET", step, nil, true).Body.String()

@@ -65,6 +65,8 @@ func (p Panel) Mount(g *echo.Group, prefix string, gate echo.MiddlewareFunc, add
 		g.GET(prefix+"/new/"+k.Name, p.form(k.Name), kg)
 		g.POST(prefix+"/new/"+k.Name, p.add(k.Name), kg)
 	}
+	g.GET(prefix+"/:connector/resume", p.resume, gate)
+	g.POST(prefix+"/:connector/cancel", p.cancel, gate)
 	g.GET(prefix+"/:connector/settings", p.Settings, gate)
 	g.POST(prefix+"/:connector/check", p.check, gate)
 	g.POST(prefix+"/:connector/rename", p.rename, gate)
@@ -194,11 +196,43 @@ func (p Panel) view(c echo.Context, k service.ConnectorKind, alt bool, vals, err
 	}
 	for _, s := range formSteps(k, alt) {
 		v.Steps = append(v.Steps, connectors.Step{
-			Title: s.Title, Intro: s.Intro, List: s.List, Note: s.Note,
+			Title: s.Title, Intro: s.Intro, List: s.List, Note: s.Note, LinkLabel: s.LinkLabel, LinkURL: s.LinkURL,
 			Fields: p.fieldsOf(c, s.Fields, vals, errs),
 		})
 	}
 	return v
+}
+
+// outView is the screen that sends the browser to the provider for pending
+// connection id; closing the dialog before the provider answered cancels it.
+func (p Panel) outView(c echo.Context, k service.ConnectorKind, id string, out service.ConnectorOut) *connectors.OutView {
+	i := len(formSteps(k, false)) - 1
+	return &connectors.OutView{
+		Step: i + 1, Title: k.Steps[i].Title, Intro: k.Steps[i].Intro,
+		Method: out.Method, URL: out.URL, Values: out.Values, Label: k.Label,
+		Cancel: p.Base(c) + "/" + id + "/cancel",
+	}
+}
+
+// GET <base>/:connector/resume: the screen that sends the browser to the
+// provider again, for a setup that was left unfinished.
+func (p Panel) resume(c echo.Context) error {
+	id := c.Param("connector")
+	out, k, err := p.Orch.ResumeConnector(c.Request().Context(), p.Org(c), middleware.Principal(c).User.ID, id)
+	if err != nil {
+		return middleware.HTTPError(err)
+	}
+	v := connectors.SetupView{Total: total(k, false), Out: p.outView(c, k, id, out)}
+	return respond.HTML(c, http.StatusOK, connectors.Modal(k.Label+" setup", p.Refresh(c), connectors.Setup(v)))
+}
+
+// POST <base>/:connector/cancel: drop a setup the provider never answered,
+// then reload the page so the list is as it is.
+func (p Panel) cancel(c echo.Context) error {
+	if err := p.Orch.CancelConnectorSetup(c.Request().Context(), p.Org(c), c.Param("connector")); err != nil {
+		return middleware.HTTPError(err)
+	}
+	return respond.Redirect(c, p.Refresh(c))
 }
 
 // Open is the add dialog opened straight on kind (a wizard's, the canvas's).
@@ -253,11 +287,7 @@ func (p Panel) add(kind string) echo.HandlerFunc {
 			id := a.Connector.ID
 			switch {
 			case a.Out != nil:
-				i := len(formSteps(k, false)) - 1
-				v.Out = &connectors.OutView{
-					Step: i + 1, Title: k.Steps[i].Title, Intro: k.Steps[i].Intro,
-					Method: a.Out.Method, URL: a.Out.URL, Values: a.Out.Values, Label: k.Label,
-				}
+				v.Out = p.outView(c, k, id, *a.Out)
 			case hasDNS(k):
 				v.Done = &connectors.DoneView{Step: v.Total, Title: dnsui.Title, Body: dnsui.Connected(id, p.DNSBase(c)+"/"+id+"/domains", k.Label)}
 			case slices.Contains(k.Caps, service.CapGit):
@@ -336,8 +366,10 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 			continue
 		}
 		r := connectors.Row{
-			ID: k.ID, Kind: p.label(k), Name: k.Name, Pending: k.Pending, Status: k.CheckError,
+			ID: k.ID, Kind: p.label(k), Pending: k.Pending, Status: k.CheckError,
 		}
+		// the kind is the title: its name does not say it again
+		r.Name = strings.TrimPrefix(k.Name, r.Kind+" · ")
 		if slices.Contains(k.Capabilities, service.CapDNS) {
 			r.Summary = managed(n[k.ID])
 		}
@@ -346,15 +378,12 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 				return nil, err
 			}
 		}
-		if h, ok := strings.CutPrefix(r.Detail, "Webhook URL "); ok {
-			r.Hook, r.Detail = h, ""
-		}
 		settings := p.Base(c) + "/" + k.ID + "/settings"
 		switch {
 		case r.Drawer != "":
 			r.Actions = []connectors.Action{{Label: "Manage", URL: r.Drawer, Drawer: true, Push: r.Push}}
 		case k.Pending:
-			r.Actions = []connectors.Action{{Label: "Settings", URL: settings}}
+			r.Actions = []connectors.Action{{Label: "Continue", URL: p.Base(c) + "/" + k.ID + "/resume"}}
 		case slices.Contains(k.Capabilities, service.CapDNS):
 			r.Actions = []connectors.Action{{Label: "Manage domains", URL: settings + "?tab=domains"}, {Label: "Settings", URL: settings + "?tab=connection"}}
 		case slices.Contains(k.Capabilities, service.CapGit) && p.Org(c) == nil:
@@ -362,7 +391,13 @@ func (p Panel) Rows(c echo.Context) ([]connectors.Row, error) {
 		default:
 			r.Actions = []connectors.Action{{Label: "Settings", URL: settings}}
 		}
-		if p.Delete != nil {
+		if k.Pending {
+			r.Name, r.Summary = "", ""
+			r.Remove = comp.ConfirmView{
+				Button: "Remove", Title: "Remove this setup?", Warning: "stackr forgets it. Nothing at the provider changes.",
+				Action: p.Base(c) + "/" + k.ID + "/cancel",
+			}
+		} else if p.Delete != nil {
 			r.Remove = p.Delete(c, k)
 		}
 		out = append(out, r)

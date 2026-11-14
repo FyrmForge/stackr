@@ -6,6 +6,7 @@ package setup
 // Finish, then org setup. Admin's Setup guide reopens the by-hand screens.
 
 import (
+	"cmp"
 	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -32,11 +33,14 @@ type ServerDomainsView struct {
 	Root, Panel, Email string
 }
 
-// ServerCertsView is the certificates screen: the server DNS connectors.
+// ServerCertsView is the DNS screen: the server DNS connectors, or the
+// records to add by hand (Host and Wildcard point at IP; "" = not known).
 type ServerCertsView struct {
 	ServerStep
-	List connectors.ListView
-	Done bool // a DNS connector is added: Continue, not Skip
+	List           connectors.ListView
+	Done           bool // a DNS connector is added: Continue, not Skip
+	Host, Wildcard string
+	IP             string
 }
 
 // ServerGitView is the git screen: the server's git connectors, each with
@@ -52,17 +56,18 @@ type ServerGitView struct {
 // ServerObserveView is the observability screen, prefilled from the settings.
 type ServerObserveView struct {
 	ServerStep
-	Enabled                             bool
 	Retention, MinFree, LogsDays, LogsMax string
 }
 
-// ServerBackupsView is the backups screen.
+// ServerBackupsView is the backups screen, in two parts: the destination
+// (Panel false), then the panel's own backup (Panel true).
 type ServerBackupsView struct {
 	ServerStep
-	Dests       []ServerDest
-	PanelOn     bool
-	Schedule    string
-	PanelDests  []Option // the global destinations, the current one picked
+	Panel      bool
+	Dests      []ServerDest
+	PanelOn    bool
+	Schedule   string
+	PanelDests []Option // the global destinations, the current one picked
 }
 
 // ServerNodesView is the nodes screen.
@@ -160,14 +165,39 @@ templ ServerDomains(v ServerDomainsView) {
 	}
 }
 
-// ServerCertificates adds a DNS connector and picks the domains
-// stackr manages; skipped, every host keeps its own certificate.
+// ServerCertificates is the DNS screen: connect a provider, so stackr sets
+// DNS and gets wildcard certificates, or point DNS by hand.
 templ ServerCertificates(v ServerCertsView) {
 	@shell(v.Frame) {
-		<p class="text-sm text-rw-muted mb-6">Connect your DNS provider and stackr sets DNS and gets wildcard certificates for the domains you pick.</p>
-		{{ v.List.Foot = serverNext(v.Next, v.Done, "Without one, each host gets its own certificate and you point its DNS yourself.") }}
+		{{
+			if v.Done {
+				v.List.Foot = serverNext(v.Next, true, "")
+			} else {
+				v.List.Empty = dnsChoices(v)
+			}
+		}}
 		@connectors.Tab(v.List, nil)
 	}
+}
+
+// dnsChoices are the two ways before a connector exists, as equal cards.
+templ dnsChoices(v ServerCertsView) {
+	<div class="space-y-3">
+		<button type="button" hx-get={ v.List.Add } hx-target={ "#" + connectors.SlotID } class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
+			<span class="block text-sm font-semibold text-rw-text">Connect a DNS provider</span>
+			<span class="block mt-0.5 text-xs text-rw-muted">stackr writes the records and gets wildcard certificates.</span>
+		</button>
+		<a href={ templ.SafeURL(v.Next) } class="block w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
+			<span class="block text-sm font-semibold text-rw-text">I'll point DNS myself</span>
+			<span class="block mt-0.5 text-xs text-rw-muted">One certificate per host. Add these records, pointing at this server.</span>
+			if v.Host != "" {
+				<span class="block mt-2 font-mono text-xs text-rw-text">{ v.Host } A { cmp.Or(v.IP, "this server's IP") }</span>
+			}
+			if v.Wildcard != "" {
+				<span class="block font-mono text-xs text-rw-text">{ v.Wildcard } A { cmp.Or(v.IP, "this server's IP") }</span>
+			}
+		</a>
+	</div>
 }
 
 // ServerGit adds a git connector shared with every organization: made at
@@ -202,7 +232,6 @@ templ ServerObserve(v ServerObserveView) {
 		</div>
 		<form novalidate hx-post={ v.Base + "/observe" } class="space-y-4">
 			@formError(v.Base + "/observe")
-			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-observe" name="observe_enabled" value="1" checked?={ ticked(ctx, v.Base+"/observe", "observe_enabled", v.Enabled) } class="accent-rw-accent"/> Keep metrics history</label>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
 					<label class="label" for="srv-ob-days">Metrics retention (days)</label>
@@ -226,60 +255,94 @@ templ ServerObserve(v ServerObserveView) {
 				</div>
 			</div>
 			<p class="text-xs text-rw-faint">Writes stop below the free disk floor.</p>
-			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
+			<div class="grid grid-cols-2 gap-3">
+				<button type="submit" name="observe_enabled" value="0" class="btn btn-ghost w-full">Keep it off</button>
+				<button type="submit" name="observe_enabled" value="1" class="btn btn-primary w-full">Turn it on</button>
+			</div>
 		</form>
-		@nav(v.Next, "Skip")
 	}
 }
 
-// ServerBackups adds an S3 destination and points the panel's own backup at it.
+// ServerBackups is the destination first, then the panel's own backup.
 templ ServerBackups(v ServerBackupsView) {
 	@shell(v.Frame) {
-		<p class="text-sm text-rw-muted mb-5">Without an off-box destination, backups stay on this box and die with it.</p>
-		<div class="space-y-4">
-			<h3 class="text-sm font-semibold text-rw-text">S3 destination</h3>
-			for _, d := range v.Dests {
-				<p class="text-sm text-rw-muted"><span class="text-rw-text">{ d.Name }</span> <span class="font-mono text-rw-faint">{ d.Detail }</span></p>
-			}
-			<form novalidate hx-post={ v.Base + "/dest" } class="space-y-3">
-				@formError(v.Base + "/dest")
-				@destField("dest_name", "Name", "text", "", "")
-				@destField("endpoint", "S3 endpoint", "text", "https://s3.example.com", "Empty for AWS.")
-				@destField("bucket", "Bucket", "text", "", "")
-				@destField("region", "Region", "text", "", "")
-				@destField("access_key", "Access key", "text", "", "")
-				@destField("secret_key", "Secret key", "password", "", "")
-				<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-dest-shared" name="shared" value="1" checked?={ ticked(ctx, v.Base+"/dest", "shared", true) } class="accent-rw-accent"/> Let orgs use it</label>
-				<p class="text-xs text-rw-faint">Organizations can send their volume backups here too.</p>
-				<button type="submit" class="btn btn-ghost w-full">Add destination</button>
-			</form>
-		</div>
-		<hr class="my-6 border-rw-border"/>
-		<form novalidate hx-post={ v.Base + "/panel-backup" } class="space-y-4">
-			<h3 class="text-sm font-semibold text-rw-text">Panel backup</h3>
-			<p class="text-xs text-rw-faint">A copy of stackr's own database, with the key to its secrets.</p>
-			@formError(v.Base + "/panel-backup")
-			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-pb-on" name="panel_backup_enabled" value="1" checked?={ ticked(ctx, v.Base+"/panel-backup", "panel_backup_enabled", v.PanelOn) } class="accent-rw-accent"/> Back up the panel on a schedule</label>
-			<div>
-				<label class="label" for="srv-pb-cron">Schedule</label>
-				<input type="text" id="srv-pb-cron" name="panel_backup_schedule" value={ val(ctx, "panel_backup_schedule", v.Schedule) } placeholder="0 3 * * *" class="input font-mono" { invalid(ctx, "panel_backup_schedule")... }/>
-				@fieldError("panel_backup_schedule")
-				<p class="mt-1.5 text-xs text-rw-faint">A cron line. Empty is 03:00 every day.</p>
-			</div>
-			<div>
-				<label class="label" for="srv-pb-dest">Destination</label>
-				<select id="srv-pb-dest" name="panel_backup_dest" class="input" { invalid(ctx, "panel_backup_dest")... }>
-					<option value="">This box</option>
-					for _, o := range v.PanelDests {
-						<option value={ o.Value } selected?={ picked(ctx, "panel_backup_dest", o.Value, o.Picked) }>{ o.Label }</option>
-					}
-				</select>
-				@fieldError("panel_backup_dest")
-			</div>
-			<button type="submit" class="btn btn-primary w-full">Save and continue</button>
-		</form>
-		@nav(v.Next, "Skip")
+		if v.Panel {
+			@serverPanelBackup(v)
+		} else {
+			@serverDestForm(v)
+		}
 	}
+}
+
+// serverDestForm adds an S3 destination; Test connection runs the check
+// the save runs, and leaves the form as typed.
+templ serverDestForm(v ServerBackupsView) {
+	<p class="text-sm text-rw-muted mb-5">Without an off-box destination, backups stay on this box and die with it.</p>
+	<div class="space-y-4">
+		<h3 class="text-sm font-semibold text-rw-text">S3 destination</h3>
+		for _, d := range v.Dests {
+			<p class="text-sm text-rw-muted"><span class="text-rw-text">{ d.Name }</span> <span class="font-mono text-rw-faint">{ d.Detail }</span></p>
+		}
+		<form novalidate hx-post={ v.Base + "/dest" } class="space-y-3">
+			@formError(v.Base + "/dest")
+			@destField("dest_name", "Name", "text", "", "")
+			@destField("endpoint", "S3 endpoint", "text", "https://s3.example.com", "Empty for AWS.")
+			@destField("bucket", "Bucket", "text", "", "")
+			@destField("region", "Region", "text", "", "Empty is us-east-1, fine off AWS.")
+			@destField("access_key", "Access key", "text", "", "")
+			@destField("secret_key", "Secret key", "password", "", "")
+			<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-dest-shared" name="shared" value="1" checked?={ ticked(ctx, v.Base+"/dest", "shared", true) } class="accent-rw-accent"/> Let orgs use it</label>
+			<p class="text-xs text-rw-faint">Organizations can send their volume backups here too.</p>
+			<div id="srv-dest-test" aria-live="polite"></div>
+			<div class="grid grid-cols-2 gap-3">
+				<button type="button" hx-post={ v.Base + "/dest/test" } hx-target="#srv-dest-test" hx-swap="innerHTML" class="btn btn-ghost w-full">Test connection</button>
+				<button type="submit" class="btn btn-primary w-full">Add and next</button>
+			</div>
+		</form>
+	</div>
+	@nav(v.Base+"/ui/backups?sub=panel", "Skip")
+}
+
+// ServerDestTest is the answer to Test connection: Err "" = it works.
+templ ServerDestTest(err string) {
+	if err == "" {
+		<p class="text-sm text-rw-success" role="status">Connection works.</p>
+	} else {
+		<p class="text-sm text-rw-danger whitespace-pre-line" role="alert">{ err }</p>
+	}
+}
+
+// serverPanelBackup is the panel's own backup, its destination picked from
+// the ones added.
+templ serverPanelBackup(v ServerBackupsView) {
+	<form novalidate hx-post={ v.Base + "/panel-backup" } class="space-y-4">
+		<input type="hidden" name="sub" value="panel"/>
+		<h3 class="text-sm font-semibold text-rw-text">Panel backup</h3>
+		<p class="text-xs text-rw-faint">A copy of stackr's own database, with the key to its secrets.</p>
+		@formError(v.Base + "/panel-backup")
+		<label class="flex items-center gap-2 text-sm text-rw-text"><input type="checkbox" id="srv-pb-on" name="panel_backup_enabled" value="1" checked?={ ticked(ctx, v.Base+"/panel-backup", "panel_backup_enabled", v.PanelOn) } class="accent-rw-accent"/> Back up the panel on a schedule</label>
+		<div>
+			<label class="label" for="srv-pb-cron">Schedule</label>
+			<input type="text" id="srv-pb-cron" name="panel_backup_schedule" value={ val(ctx, "panel_backup_schedule", v.Schedule) } placeholder="0 3 * * *" class="input font-mono" { invalid(ctx, "panel_backup_schedule")... }/>
+			@fieldError("panel_backup_schedule")
+			<p class="mt-1.5 text-xs text-rw-faint">A cron line. Empty is 03:00 every day.</p>
+		</div>
+		<div>
+			<label class="label" for="srv-pb-dest">Destination</label>
+			<select id="srv-pb-dest" name="panel_backup_dest" class="input" { invalid(ctx, "panel_backup_dest")... }>
+				<option value="">This box</option>
+				for _, o := range v.PanelDests {
+					<option value={ o.Value } selected?={ picked(ctx, "panel_backup_dest", o.Value, o.Picked) }>{ o.Label }</option>
+				}
+			</select>
+			@fieldError("panel_backup_dest")
+		</div>
+		<button type="submit" class="btn btn-primary w-full">Save and continue</button>
+	</form>
+	<div class="grid grid-cols-2 gap-3">
+		<a href={ templ.SafeURL(v.Base + "/ui/backups") } class="btn btn-ghost btn-sm w-full mt-3">Back</a>
+		<a href={ templ.SafeURL(v.Next) } class="btn btn-ghost btn-sm w-full mt-3">Skip</a>
+	</div>
 }
 
 // destField is one input of the destination form, refilled on a refused save.
@@ -383,7 +446,7 @@ templ ServerSummary(v ServerSummaryView) {
 							<span class="block text-sm text-rw-text">{ r.Label }</span>
 							<span class="block text-xs text-rw-faint">{ r.Detail }</span>
 						</span>
-						<span class={ "text-xs font-semibold " + stateClass(r.State) }>{ r.State }</span>
+						@c.Chip(r.State, stateTone(r.State))
 					</a>
 				</li>
 			}
@@ -395,11 +458,16 @@ templ ServerSummary(v ServerSummaryView) {
 	}
 }
 
-func stateClass(s string) string {
-	if s == "on" {
-		return "text-rw-accent"
+// stateTone is a summary word's chip: on is success, failing danger,
+// off and skipped neutral.
+func stateTone(s string) string {
+	switch s {
+	case "on":
+		return "success"
+	case "failing":
+		return "danger"
 	}
-	return "text-rw-faint"
+	return ""
 }
 
 // serverNext is Continue once something is set, else Skip with what

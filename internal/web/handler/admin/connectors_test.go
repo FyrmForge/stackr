@@ -126,7 +126,7 @@ func TestAdminConnectors(t *testing.T) {
 		}
 	}
 	rec = s.As(t, root, "GET", "/-/admin/connectors", nil)
-	if !strings.Contains(rec.Body.String(), "pending") {
+	if !strings.Contains(rec.Body.String(), "Setup not finished") {
 		t.Errorf("a pending connector is not marked:\n%s", rec.Body)
 	}
 	// set up server: GitHub's install return lands on the Connectors tab

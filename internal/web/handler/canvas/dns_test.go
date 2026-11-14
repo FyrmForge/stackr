@@ -71,17 +71,17 @@ func TestOrgDNSConnectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := s.Do(t, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String()
-	if strings.Count(body, `hx-push-url="?drawer=connector:`) != 1 || !strings.Contains(body, ">pending<") {
+	if strings.Count(body, `hx-push-url="?drawer=connector:`) != 1 || !strings.Contains(body, "Setup not finished") {
 		t.Errorf("GitHub rows: want the org's own pending one only\n%s", body)
 	}
-	if !strings.Contains(body, "Namecheap · jo") || !strings.Contains(body, "No managed domains") ||
+	if !strings.Contains(body, ">jo</p>") || !strings.Contains(body, "No managed domains") ||
 		!strings.Contains(body, `hx-get="/acme/-/drawer/connectors/`+cs[0].ID+`/settings?tab=domains"`) || !strings.Contains(body, `hx-push-url="?drawer=connector:`) {
 		t.Fatalf("tab:\n%s", body)
 	}
 	// a member sees the cards with only what their role reaches: the git
 	// drawer, no settings, install check or remove
 	mb := s.As(t, member, "GET", "/acme/-/drawer?tab=connectors", nil).Body.String()
-	if !strings.Contains(mb, "Namecheap · jo") || !strings.Contains(mb, `hx-push-url="?drawer=connector:`) ||
+	if !strings.Contains(mb, ">jo</p>") || !strings.Contains(mb, `hx-push-url="?drawer=connector:`) ||
 		strings.Contains(mb, "/settings") || strings.Contains(mb, "/installed") || strings.Contains(mb, "/delete") {
 		t.Errorf("member cards:\n%s", mb)
 	}
