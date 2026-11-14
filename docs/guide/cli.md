@@ -1679,6 +1679,39 @@ stackr operated env-pairs <tile> [consumer-env=env ...] [flags]
       --stack string   the stack (default: the linked one)
 ```
 
+### `stackr operated extensions`
+
+(postgres) An instance's extensions
+
+#### `stackr operated extensions get`
+
+(postgres) Show an instance's image, startup modules and extensions
+
+```
+stackr operated extensions get <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated extensions set`
+
+(postgres) Set an instance's extensions, startup modules or image; with no names and no flags the list is emptied
+
+```
+stackr operated extensions set <tile> [name...] [flags]
+```
+
+```
+      --env string        the environment (default: the linked one)
+      --image string      the image ref
+      --no-wait           print the job and return; it runs server-side
+      --preload strings   startup modules, comma separated; "" empties the list
+      --stack string      the stack (default: the linked one)
+```
+
 ### `stackr operated failover`
 
 (postgres) Make a standby the primary when the primary is down
@@ -3127,11 +3160,12 @@ stackr slice add <slug> [flags]
 ```
 
 ```
-      --access string   the default access of its consumers, read or write (default write)
-      --env string      the environment (default: the linked one)
-      --from string     the operated tile, <stack>:<env>:<tile>
-      --stack string    the stack (default: the linked one)
-      --tile string     the tile (default: the linked one)
+      --access string        the default access of its consumers, read or write (default write)
+      --env string           the environment (default: the linked one)
+      --extensions strings   postgres extensions of the slice's database, comma separated
+      --from string          the operated tile, <stack>:<env>:<tile>
+      --stack string         the stack (default: the linked one)
+      --tile string          the tile (default: the linked one)
 ```
 
 ### `stackr slice bindings`
@@ -3182,6 +3216,39 @@ stackr slice bucket <slice> [flags]
       --stack string       the stack (default: the linked one)
       --tile string        the tile (default: the linked one)
       --version-days int   days old versions are kept; 0 turns versioning off (default 7)
+```
+
+### `stackr slice extensions`
+
+Extensions of a postgres slice's database
+
+#### `stackr slice extensions get`
+
+Show a slice's extensions against the ones its instance allows
+
+```
+stackr slice extensions get <slice> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
+```
+
+#### `stackr slice extensions set`
+
+Set a slice's extensions; with no names the list is emptied
+
+```
+stackr slice extensions set <slice> [name...] [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --stack string   the stack (default: the linked one)
+      --tile string    the tile (default: the linked one)
 ```
 
 ### `stackr slice forward`

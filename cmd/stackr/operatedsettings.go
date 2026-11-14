@@ -117,7 +117,7 @@ func (a *app) operatedSettings() []*cobra.Command {
 		})))
 	return []*cobra.Command{
 		noun("settings", "(postgres) An instance's settings", list, waits(set), waits(unset)), version, update,
-		a.operatedUpgrade(), a.operatedRollbackUpgrade(),
+		a.operatedUpgrade(), a.operatedRollbackUpgrade(), a.operatedExtensions(),
 	}
 }
 
@@ -177,4 +177,109 @@ func (a *app) operatedRollbackUpgrade() *cobra.Command {
 		return a.job(c, base, POST, p+"/rollback-upgrade", nil, "rollback")
 	})
 	return c
+}
+
+// operatedExtensions is `stackr operated extensions`: an instance's image,
+// startup modules and extensions. set follows the job a change queues.
+func (a *app) operatedExtensions() *cobra.Command {
+	get := leaf("get <tile>", "operated.extensions", "(postgres) Show an instance's image, startup modules and extensions", exact(1),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			v, err := a.call(GET, p+"/extensions", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			if a.json || m == nil {
+				return a.show(v)
+			}
+			a.say("%s", cell(m["image"]))
+			if s := cell(m["busy"]); s != "" {
+				a.say("A change is in progress: %s.", s)
+			}
+			if s := cell(m["plan"]); s != "" {
+				a.say("%s", s)
+			}
+			return a.show(m["items"], "name", "installed", "available", "listed", "startup", "used_by")
+		}))
+	var image string
+	var preload []string
+	set := waits(leaf("set <tile> [name...]", "operated.extensions-set",
+		"(postgres) Set an instance's extensions, startup modules or image; with no names and no flags the list is emptied", atLeast(1), nil))
+	set.Flags().StringVar(&image, "image", "", "the image ref")
+	set.Flags().StringSliceVar(&preload, "preload", nil, "startup modules, comma separated; \"\" empties the list")
+	set.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
+		body := map[string]any{}
+		if c.Flags().Changed("image") {
+			body["image"] = image
+		}
+		if c.Flags().Changed("preload") {
+			body["preload"] = append([]string{}, preload...)
+		}
+		if len(args) > 1 || len(body) == 0 {
+			body["extensions"] = append([]string{}, args[1:]...)
+		}
+		v, err := a.call(PUT, p+"/extensions", body)
+		if err != nil {
+			return err
+		}
+		m, _ := v.(map[string]any)
+		if m["job"] == nil {
+			if a.json {
+				return a.show(v)
+			}
+			a.say("Saved. Applies on the next deploy.")
+			return nil
+		}
+		if nw, _ := c.Flags().GetBool("no-wait"); nw {
+			return a.show(m["job"], "id", "kind", "state")
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		return a.follow(base, m["job"], "extensions")
+	})
+	return noun("extensions", "(postgres) An instance's extensions", get, set)
+}
+
+// sliceExtensions is `stackr slice extensions`: the extensions of a slice's
+// database. set follows the slice's deploy when one comes back.
+func (a *app) sliceExtensions() *cobra.Command {
+	get := leaf("get <slice>", "slice.extensions", "Show a slice's extensions against the ones its instance allows", exact(1),
+		a.at(atTile, func(_ *cobra.Command, p string, _ []string) error {
+			v, err := a.call(GET, p+"/slice-extensions", nil)
+			if err != nil {
+				return err
+			}
+			m, _ := v.(map[string]any)
+			if a.json || m == nil {
+				return a.show(v)
+			}
+			return a.show(m["items"], "name", "installed", "available", "added_with", "listed")
+		}))
+	set := waits(leaf("set <slice> [name...]", "slice.extensions-set",
+		"Set a slice's extensions; with no names the list is emptied", atLeast(1), nil))
+	set.RunE = a.at(atTile, func(c *cobra.Command, p string, args []string) error {
+		v, err := a.call(PUT, p+"/slice-extensions", map[string]any{"extensions": append([]string{}, args[1:]...)})
+		if err != nil {
+			return err
+		}
+		m, _ := v.(map[string]any)
+		if m["job"] == nil {
+			if a.json {
+				return a.show(v)
+			}
+			a.say("Saved. Applies on the next deploy.")
+			return nil
+		}
+		if nw, _ := c.Flags().GetBool("no-wait"); nw {
+			return a.show(m["job"], "id", "kind", "state")
+		}
+		base, err := a.orgPath()
+		if err != nil {
+			return err
+		}
+		return a.follow(base, m["job"], "extensions")
+	})
+	return noun("extensions", "Extensions of a postgres slice's database", get, set)
 }
