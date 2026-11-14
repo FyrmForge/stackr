@@ -818,6 +818,8 @@ func (f *Flow) facts(ctx context.Context, t store.Tile, m store.OperatedInstance
 		Major:         m.Major,
 		MemMB:         t.MemLimitMB,
 		Settings:      m.Settings,
+		Preload:       m.Preload,
+		Extensions:    m.Extensions,
 
 		PoolerPassword: m.PoolerPassword,
 		ReplPassword:   m.ReplPassword,
@@ -919,6 +921,7 @@ func withTile(s Slice, t store.Tile) Slice {
 		s.QuotaBytes = int64(*t.QuotaGB) << 30
 	}
 	s.CORS = t.CORSOrigins
+	s.Extensions = t.Extensions
 	s.Pooled = tile.URLOf(t) == tile.Pooled
 	return s
 }

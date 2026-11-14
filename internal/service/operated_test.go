@@ -82,9 +82,9 @@ func TestSliceVerbs(t *testing.T) {
 	})
 	must(t, err)
 
-	_, err = o.CreateSliceTile(ctx, tl.Env, "bad", "shop:dev", "")
+	_, err = o.CreateSliceTile(ctx, tl.Env, "bad", "shop:dev", "", nil)
 	invalid("two-segment provision_from", err)
-	db, err := o.CreateSliceTile(ctx, tl.Env, "db", "shop:dev:pg", "")
+	db, err := o.CreateSliceTile(ctx, tl.Env, "db", "shop:dev:pg", "", nil)
 	must(t, err)
 	if db.Kind != "slice" || *db.DefaultAccess != "write" || *db.OnRemove != "keep" {
 		t.Errorf("slice tile = %+v", db)
@@ -94,7 +94,7 @@ func TestSliceVerbs(t *testing.T) {
 	if v.Target != "shop:dev:pg" || v.Blocker != "" || v.Provisioned || v.Network != "stackr-operated-"+m.ID {
 		t.Errorf("slice view = %+v", v)
 	}
-	far, err := o.CreateSliceTile(ctx, tl.Env, "far", "shop:nope:pg", "read")
+	far, err := o.CreateSliceTile(ctx, tl.Env, "far", "shop:nope:pg", "read", nil)
 	must(t, err)
 	if v, err := o.SliceOf(ctx, far.ID); err != nil || v.Blocker == "" || v.Target != "" {
 		t.Errorf("unresolved slice view = %+v, %v", v, err)
@@ -239,7 +239,7 @@ func TestSliceVerbs(t *testing.T) {
 	conn := env.Connector(t, org, "whsec")
 	_, err = o.SetConfigRepo(ctx, tl.Stack, conn, "acme/shop", "", "")
 	must(t, err)
-	if _, err := o.CreateSliceTile(ctx, tl.Env, "late", "shop:dev:pg", ""); err == nil {
+	if _, err := o.CreateSliceTile(ctx, tl.Env, "late", "shop:dev:pg", "", nil); err == nil {
 		t.Error("slice tile on a config-managed stack was made")
 	} else if _, ok := errs.IsConflict(err); !ok {
 		t.Errorf("config-managed = %v, want conflict", err)

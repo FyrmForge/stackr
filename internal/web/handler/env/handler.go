@@ -230,7 +230,7 @@ func (h *handler) CreateTile(c echo.Context) error {
 			t, err = h.orch.CreateOperatedTile(c.Request().Context(), t, v.Engine, major)
 		}
 	case "slice":
-		t, err = h.orch.CreateSliceTile(c.Request().Context(), s.Env.ID, v.Name, v.From, v.Access)
+		t, err = h.orch.CreateSliceTile(c.Request().Context(), s.Env.ID, v.Name, v.From, v.Access, nil)
 	default:
 		t.ImageRef = v.Image
 		t.GitURL = v.GitURL

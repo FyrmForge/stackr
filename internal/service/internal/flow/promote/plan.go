@@ -201,6 +201,10 @@ type instanceWork struct {
 	pitr  *int // the recovery window, nil = untouched
 	// settings are the instance's own settings, nil = untouched.
 	settings *map[string]string
+	// image, preload and extensions are the instance's image, startup modules
+	// and extension list as the file sets them, nil = untouched.
+	image               *string
+	preload, extensions *[]string
 	// standbys is the change to the instance's standbys; nil = untouched.
 	standbys *StandbyDiff
 	// sync is the synchronous replication choice, nil = untouched.

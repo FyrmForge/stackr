@@ -80,6 +80,11 @@ type Flow struct {
 	// fails the apply. A stopped instance is not asked (applied false) and the
 	// apply stores them. Nil = stored unasked.
 	PGSettings func(ctx context.Context, t store.Tile, m store.OperatedInstance, s map[string]string) (bool, error)
+	// PGExt sets a postgres instance's image, startup modules and extension
+	// list from a file, nil = the file leaves that field alone. A new or
+	// stopped instance only stores them; a running one runs the extensions
+	// change inline, with the apply's log. Nil = ignored.
+	PGExt func(ctx context.Context, t store.Tile, m store.OperatedInstance, image *string, preload, exts *[]string, log io.Writer) error
 	// StandbyPlan compares a file's standbys with instance tile t's cluster.
 	// The cluster's nodes are the listed ones plus the tile's own placement
 	// node, whichever role each plays now; only a node that is in one set and

@@ -101,12 +101,17 @@ func PGPick(major int, image string, now time.Time) (string, int, error) {
 	return image, major, nil
 }
 
+// pgOfficialRepo is whether repo names the stock postgres image.
+func pgOfficialRepo(repo string) bool {
+	return repo == "postgres" || repo == "library/postgres" || repo == "docker.io/library/postgres"
+}
+
 // PGUpdate is the image the instance would move to on a minor update, when
 // its tag is an official postgres:<major> or :<major>.<minor> older than the
 // table's. A custom repo or tag is the owner's own and is left alone.
 func PGUpdate(image string) (string, bool) {
 	repo, tag, ok := strings.Cut(image, ":")
-	if !ok || (repo != "postgres" && repo != "library/postgres" && repo != "docker.io/library/postgres") {
+	if !ok || !pgOfficialRepo(repo) {
 		return "", false
 	}
 	major, minor, _ := strings.Cut(tag, ".")

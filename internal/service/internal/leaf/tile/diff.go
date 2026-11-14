@@ -157,6 +157,7 @@ func Diff(old, cur store.Tile) Changed {
 	mark("version_days", ptrEq(old.VersionDays, cur.VersionDays))
 	mark("quota_gb", ptrEq(old.QuotaGB, cur.QuotaGB))
 	mark("cors_origins", slices.Equal(old.CORSOrigins, cur.CORSOrigins))
+	mark("extensions", slices.Equal(old.Extensions, cur.Extensions))
 	mark("url", URLOf(old) == URLOf(cur))
 	return c
 }

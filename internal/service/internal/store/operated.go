@@ -37,10 +37,16 @@ type OperatedInstance struct {
 	// PreferSync turns synchronous replication on; SyncLimitMS is the round
 	// trip an auto standby may have and still be waited for; SyncRequired
 	// makes writes wait even when no standby answers.
-	PreferSync   bool      `db:"prefer_sync" json:"prefer_sync"`
-	SyncLimitMS  int       `db:"sync_limit_ms" json:"sync_limit_ms"`
-	SyncRequired bool      `db:"sync_required" json:"sync_required"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	PreferSync   bool `db:"prefer_sync" json:"prefer_sync"`
+	SyncLimitMS  int  `db:"sync_limit_ms" json:"sync_limit_ms"`
+	SyncRequired bool `db:"sync_required" json:"sync_required"`
+	// Preload is a postgres instance's startup modules after
+	// pg_stat_statements (shared_preload_libraries); Extensions is what its
+	// slices may list. Both are written by their own column write (SetExt),
+	// never by a whole-row update from an earlier read.
+	Preload    NameList  `db:"preload" json:"preload"`
+	Extensions NameList  `db:"extensions" json:"extensions"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type OperatedInstanceStore interface {
@@ -51,6 +57,8 @@ type OperatedInstanceStore interface {
 	ListPITR(ctx context.Context) ([]OperatedInstance, error)
 	ListEngine(ctx context.Context, engine string) ([]OperatedInstance, error)
 	Update(ctx context.Context, m OperatedInstance) error
+	// SetExt writes preload and extensions and no other column.
+	SetExt(ctx context.Context, id string, preload, extensions []string) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -62,6 +70,12 @@ type operatedInstances struct{ crud[OperatedInstance] }
 
 func (s operatedInstances) GetByTile(ctx context.Context, tileID string) (OperatedInstance, error) {
 	return s.one(ctx, "tile_id = ?", tileID)
+}
+
+func (s operatedInstances) SetExt(ctx context.Context, id string, preload, extensions []string) error {
+	res, err := s.q.ExecContext(ctx, "UPDATE operated_instances SET preload = ?, extensions = ? WHERE id = ?",
+		NameList(preload), NameList(extensions), id)
+	return affected(res, err)
 }
 
 func (s operatedInstances) ListEngine(ctx context.Context, engine string) ([]OperatedInstance, error) {

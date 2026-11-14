@@ -605,7 +605,7 @@ func (h *H) SetOperatedEnvPairs() Endpoint {
 
 func (h *H) CreateSliceTile() Endpoint {
 	return JSON(201, func(c echo.Context, in SliceTileIn) (service.TileView, error) {
-		return tileView(h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess))
+		return tileView(h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess, nil))
 	})
 }
 

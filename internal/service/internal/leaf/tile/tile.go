@@ -219,3 +219,10 @@ func (l *Leaf) Rename(ctx context.Context, t store.Tile, name string) (store.Til
 // ponytail: the "detach the volume first" refusal needs the volumes table,
 // so it lives in leaf/volume (task 8), not here.
 func (l *Leaf) Delete(ctx context.Context, id string) error { return l.tiles.Delete(ctx, id) }
+
+// SetImageRef writes the tile's image_ref and no other column, so a job that
+// owns the image (the extensions change and its put-back) never writes a
+// whole row from an earlier read. It raises no effects: the caller redeploys.
+func (l *Leaf) SetImageRef(ctx context.Context, id, ref string) error {
+	return l.tiles.SetImageRef(ctx, id, ref)
+}

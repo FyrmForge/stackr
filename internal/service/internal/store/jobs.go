@@ -188,3 +188,20 @@ func scanJSON(name string, src, dst any) error {
 	}
 	return json.Unmarshal(b, dst)
 }
+
+// NameList is a JSON array column of names (extensions, startup modules); no
+// entries reads back as nil, so a stored default never differs from an unset
+// field.
+type NameList []string
+
+func (l NameList) Value() (driver.Value, error) { return StringList(l).Value() }
+
+func (l *NameList) Scan(src any) error {
+	if err := (*StringList)(l).Scan(src); err != nil {
+		return err
+	}
+	if len(*l) == 0 {
+		*l = nil
+	}
+	return nil
+}

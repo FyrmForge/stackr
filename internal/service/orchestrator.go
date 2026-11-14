@@ -708,6 +708,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			DataDir:    cfg.DataDir,
 			Sync:       orch.sync.Sync,
 			Engines:    orch.engines,
+			PGExtDue:   orch.pgExtDue,
 			Runs:       orch.runs,
 			RunFirst:   orch.runFirst,
 		}
@@ -733,6 +734,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			DumpBeforeDrop: orch.dumpBeforeDrop,
 			PITRChanged:    orch.pitrApplied,
 			PGSettings:     orch.settingsFromFile,
+			PGExt:          orch.pgExtFromFile,
 			StandbyPlan:    orch.standbyPlan,
 			SetStandbys:    orch.setStandbys,
 			StandbyNames:   orch.standbyExport,
@@ -941,6 +943,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		slog.Warn("moves: resume failed", "err", err)
 	}
 	orch.resumePGUpgrades(ctx)
+	orch.resumePGExt(ctx)
 	orch.redeployRestored(ctx)
 	// Tracked like the rollover steps: Close waits for it, stopNodes cancels it.
 	orch.startAlerts()
@@ -1088,7 +1091,7 @@ func (o *Orchestrator) Sessions() *auth.SessionManager { return o.sessions }
 var dataCaps = func() map[jobs.Kind]time.Duration {
 	m := map[jobs.Kind]time.Duration{}
 	for _, k := range []jobs.Kind{kindBackup, kindRestore, kindRestoreInstance, kindPromoteRestore,
-		kindPGUpgrade, kindPGRollback, kindFailover, kindSeed, kindPanelBackup, kindNodeBackup, kindBucketSync, kindRemoveNode} {
+		kindPGUpgrade, kindPGRollback, kindPGExt, kindFailover, kindSeed, kindPanelBackup, kindNodeBackup, kindBucketSync, kindRemoveNode} {
 		m[k] = 12 * time.Hour
 	}
 	return m

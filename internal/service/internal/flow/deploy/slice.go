@@ -155,7 +155,9 @@ func (f *Flow) provision(ctx context.Context, s store.Tile, log io.Writer) error
 		return err
 	}
 	logf(log, "slice %s is %s on %s\n", s.Slug, p.DBName, it.Slug)
-	return nil
+	// A consumer's bind provisions too but does not reconcile: only the
+	// slice's own deploy makes its database hold the listed extensions.
+	return f.Engines.ReconcileSlice(ctx, it, s, log)
 }
 
 // use is one slice of a consumer's env it uses, at the access it gets.
