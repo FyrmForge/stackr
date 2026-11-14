@@ -739,6 +739,7 @@ func (o *Orchestrator) watchTick(ctx context.Context) error {
 	o.observePrimaries(ctx)
 	o.watchStandbys(ctx)
 	o.rerouteVIPs(ctx)
+	o.recheckFailingCerts(ctx)
 	if restarted {
 		if err := o.rejoinProxy(ctx); err != nil {
 			return err

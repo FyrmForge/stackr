@@ -79,7 +79,10 @@ func (o *Orchestrator) certHostsOf(ctx context.Context, wild bool) (out map[stri
 	p, err := o.settings.Get(ctx, "panel_domain")
 	complete = complete && err == nil
 	if p != "" {
-		add(def, p, time.Time{})
+		// The panel's name is as old as the install: the first check runs at
+		// boot, before the proxy has the certificate it just asked for.
+		ctl, _ := o.nodeLeaf().Controller(ctx)
+		add(def, p, ctl.CreatedAt)
 	}
 	rs, err := o.routes.List(ctx)
 	complete = complete && err == nil
@@ -182,6 +185,16 @@ func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 			cancel()
 			o.certHostAlert(ctx, n, h.Host, certProblem(c, err, h.Host, h.Added, now))
 		}
+	}
+}
+
+// recheckFailingCerts runs the host check again while a host is failing, so
+// its problem goes when the certificate arrives, not at the next daily check.
+// ponytail: dials every HTTPS host each watch tick while one fails; narrow it
+// to the failing rows if an install with hundreds of hosts feels it.
+func (o *Orchestrator) recheckFailingCerts(ctx context.Context) {
+	if rows, err := o.store.Settings.ListPrefix(ctx, "alert.certfail."); err == nil && len(rows) > 0 {
+		o.hostCertAlerts(ctx)
 	}
 }
 

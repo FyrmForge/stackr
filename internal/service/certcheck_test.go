@@ -155,3 +155,42 @@ func TestCertProblem(t *testing.T) {
 		}
 	}
 }
+
+// A fresh install's panel name gets the grace: the boot check runs before the
+// proxy has its certificate. Past the grace it fails, and the watch tick's
+// recheck clears the problem as soon as the certificate is there.
+func TestPanelCertGraceAndRecheck(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	must(t, w.orch.SetSetting(ctx, "panel_domain", "stkr.acme.dev"))
+	certs := map[string]*x509.Certificate{}
+	dialled := fakeProbe(t, certs)
+	failing := func() int {
+		rows, err := w.st.Settings.ListPrefix(ctx, "alert.certfail.")
+		must(t, err)
+		return len(rows)
+	}
+
+	w.orch.hostCertAlerts(ctx)
+	if failing() != 0 {
+		t.Fatal("a fresh install's panel name fired before its certificate could arrive")
+	}
+	w.orch.recheckFailingCerts(ctx)
+	if n := len(*dialled); n != 1 {
+		t.Fatalf("nothing failing, yet the recheck dialled (%d dials)", n)
+	}
+
+	ctl, err := w.orch.nodeLeaf().Controller(ctx)
+	must(t, err)
+	_, err = w.st.DB().ExecContext(ctx, "UPDATE nodes SET created_at = ? WHERE id = ?", time.Now().Add(-48*time.Hour), ctl.ID)
+	must(t, err)
+	w.orch.hostCertAlerts(ctx)
+	if failing() != 1 {
+		t.Fatal("an old install's panel name without a certificate stayed quiet")
+	}
+	certs["stkr.acme.dev"] = certFor("stkr.acme.dev", time.Now().Add(60*24*time.Hour))
+	w.orch.recheckFailingCerts(ctx)
+	if failing() != 0 {
+		t.Fatal("the recheck did not clear the problem once the certificate was there")
+	}
+}
