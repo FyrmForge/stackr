@@ -78,3 +78,32 @@ func TestServerFilePGExtensionsApply(t *testing.T) {
 		}
 	}
 }
+
+// A recipe that requires one later in the same file still applies: the
+// required one is written first.
+func TestServerFilePGExtensionsRequiresOrder(t *testing.T) {
+	ctx := context.Background()
+	r := newFileRig(t)
+	file := "version: 1\npg_extensions:\n  aa:\n    majors: [17]\n    packages: ['postgresql-{major}-aa']\n    extensions: [aa]\n    requires: [zz]\n    share: all\n  zz:\n    majors: [17]\n    packages: ['postgresql-{major}-zz']\n    extensions: [zz]\n    share: all\n"
+	pl, err := r.env.Orch.PlanServerFile(ctx, []byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.env.Orch.ApproveServerPlan(ctx, pl.ID, service.ApproveOpts{Confirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	r.applied(t, pl.ID)
+	vs, err := r.env.Orch.PGRecipes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, v := range vs {
+		if v.Name == "aa" || v.Name == "zz" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("recipes = %+v", vs)
+	}
+}

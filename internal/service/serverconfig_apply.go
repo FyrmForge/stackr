@@ -903,12 +903,7 @@ func (w *serverWalk) unshare(conn, field, from string) error {
 // laid over what is live (a field the file leaves out stays). A share's org
 // slugs become ids.
 func (w *serverWalk) pgRecipes() error {
-	done := map[string]bool{}
-	for _, c := range w.pick("pg-extension") {
-		if done[c.Tile] {
-			continue
-		}
-		done[c.Tile] = true
+	for _, c := range w.recipeOrder(w.pick("pg-extension")) {
 		w.say(c)
 		fr := w.f.PGExtensions[c.Tile]
 		v := PGRecipeView{Name: c.Tile, Enabled: true}
@@ -946,6 +941,43 @@ func (w *serverWalk) pgRecipes() error {
 		}
 	}
 	return nil
+}
+
+// recipeOrder is one change per recipe, a recipe after the ones in this file
+// it requires, so SetPGRecipe finds them (a cycle keeps the file's order and
+// is refused there).
+func (w *serverWalk) recipeOrder(cs []serverconfig.Change) []serverconfig.Change {
+	var todo []serverconfig.Change
+	seen := map[string]bool{}
+	for _, c := range cs {
+		if !seen[c.Tile] {
+			seen[c.Tile] = true
+			todo = append(todo, c)
+		}
+	}
+	var out []serverconfig.Change
+	placed := map[string]bool{}
+	for len(todo) > 0 {
+		var rest []serverconfig.Change
+		for _, c := range todo {
+			ready := true
+			for _, r := range w.f.PGExtensions[c.Tile].Requires {
+				if seen[r] && !placed[r] && r != c.Tile {
+					ready = false
+				}
+			}
+			if ready {
+				out, placed[c.Tile] = append(out, c), true
+			} else {
+				rest = append(rest, c)
+			}
+		}
+		if len(rest) == len(todo) {
+			return append(out, rest...)
+		}
+		todo = rest
+	}
+	return out
 }
 
 func setRecipeDef(v *PGRecipeView, c serverconfig.RecipeConf) {
