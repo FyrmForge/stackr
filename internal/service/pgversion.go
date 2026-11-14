@@ -39,6 +39,9 @@ func (o *Orchestrator) PGVersion(ctx context.Context, tileID string) (PGVersion,
 		return PGVersion{}, errs.Invalidf("engine", "%s has no version to update; only postgres does", m.Engine)
 	}
 	v := pgVersionOf(cmp.Or(t.ImageRef, mflow.Engines["postgres"].Definition().Image), m.Major, time.Now())
+	if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.Built() {
+		v.UpdateTo, _ = mflow.PGUpdate(eb.Base) // the update moves the base the build sits on
+	}
 	v.Majors = slices.DeleteFunc(PGMajors(), func(n int) bool { return n == m.Major })
 	v.Check, v.Rollback = o.lastPGCheck(ctx, m.ID), o.pgupRollback(ctx, m.ID)
 	return v, nil
@@ -60,6 +63,16 @@ func pgVersionOf(image string, major int, now time.Time) PGVersion {
 func (o *Orchestrator) UpdatePGVersion(ctx context.Context, tileID string) (Tile, *Job, error) {
 	if _, err := o.PGVersion(ctx, tileID); err != nil {
 		return Tile{}, nil, err
+	}
+	// A recipe build is stackr's image: the update is a plan on the new base,
+	// reviewed and applied like any recipe change.
+	if t, m, err := o.instanceOf(ctx, tileID); err == nil && mflow.RecipeBuilt(m.ExtBuild) {
+		eb, _ := mflow.ParseExtBuild(m.ExtBuild)
+		if _, ok := mflow.PGUpdate(eb.Base); !ok {
+			return t, nil, errs.Conflictf("already on the newest minor stackr offers")
+		}
+		j, err := o.queuePGPlan(ctx, t, pgExtPlanReq{Extensions: slices.Clone([]string(m.Extensions)), Update: true})
+		return t, &j, err
 	}
 	return o.UpdateTile(ctx, tileID, func(t *Tile) error {
 		to, ok := mflow.PGUpdate(cmp.Or(t.ImageRef, mflow.Engines["postgres"].Definition().Image))
