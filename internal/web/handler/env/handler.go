@@ -869,7 +869,7 @@ func (h *handler) PGExtPlan(c echo.Context) error {
 	if _, err := h.orch.PlanPGExtensions(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, in); err != nil {
 		return h.instance(c, "settings", "", err, instance.SettingsView{Ext: typed, Open: "extensions"})
 	}
-	return h.instance(c, "settings", "Checking. The plan shows here when it is ready.", nil, instance.SettingsView{Ext: typed, Open: "extensions"})
+	return h.instance(c, "settings", "", nil, instance.SettingsView{Ext: typed, Open: "extensions"})
 }
 
 // POST …/-/instances/:tile/extensions/apply: plan (its id) and confirm (the
