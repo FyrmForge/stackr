@@ -1,6 +1,7 @@
 package serverconfig
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -48,10 +49,28 @@ type Live struct {
 
 	Managed []string // managed DNS domains: wildcards under them get certificates
 
+	// PGRecipes is every recipe the server knows: the built-ins (Enabled
+	// unless a switch-off row says otherwise) and the admin-added ones.
+	PGRecipes []RecipeLive
+	// RecipeErrors is why a file recipe is not well formed, by name: the
+	// orchestrator runs operated.CheckRecipe (a flow does not import a flow).
+	RecipeErrors map[string]string
+
 	Nodes      []NodeLive
 	Placements []PlacementLive
 	Moves      map[string][]planfile.Check // "placement->node": checks for each repoint the file asks for
 	MoveEnvs   map[string][]string         // "placement->node": env paths it moves
+}
+
+// RecipeLive is one Postgres recipe. Conf is its definition (Share and Enabled
+// unset); ShareOrgs are org ids.
+type RecipeLive struct {
+	Name      string
+	Builtin   bool
+	Enabled   bool
+	Conf      RecipeConf
+	ShareAll  bool
+	ShareOrgs []string
 }
 
 // NodeLive is one node row, pending ones included.
@@ -83,7 +102,7 @@ type ConnectorLive struct {
 
 // Diff is the plan for f against live, in the order apply walks it: params,
 // connector shares, settings and the cascade rung, backup dests, domains,
-// routes, orgs, nodes and placements, then the removal rows. The file never deletes on its own:
+// routes, orgs, Postgres recipes, nodes and placements, then the removal rows. The file never deletes on its own:
 // what a present block no longer names is an unticked removal row, and a
 // removal the verb would refuse (a dest a schedule uses, a resource tiles
 // sit under) gets a note instead of a row, so a blocker never makes the plan
@@ -101,6 +120,7 @@ func Diff(f *File, live Live) Plan {
 	d.domains()
 	d.routes()
 	d.orgs()
+	d.pgExtensions()
 	d.nodes()
 	d.placements()
 	d.p.Changes = append(d.p.Changes, d.removals...)
@@ -1067,4 +1087,115 @@ func (d *differ) createOrg(fo Org) {
 		c.Note = "bound to " + fo.Repo
 	}
 	d.add(c)
+}
+
+// ---- postgres recipes ----
+
+func (d *differ) recipeLive(name string) (RecipeLive, bool) {
+	i := slices.IndexFunc(d.live.PGRecipes, func(r RecipeLive) bool { return r.Name == name })
+	if i < 0 {
+		return RecipeLive{}, false
+	}
+	return d.live.PGRecipes[i], true
+}
+
+func sameRecipe(a, b RecipeConf) bool {
+	return slices.Equal(a.Majors, b.Majors) && slices.Equal(a.Packages, b.Packages) &&
+		a.PackageURL == b.PackageURL && maps.Equal(a.SHA256, b.SHA256) && a.Version == b.Version &&
+		slices.Equal(a.Extensions, b.Extensions) && slices.Equal(a.Preload, b.Preload) &&
+		slices.Equal(a.Requires, b.Requires)
+}
+
+// recipeShare is a share as one word: "all", or the sorted org slugs; "none"
+// for an empty one.
+func recipeShare(all bool, orgs []string) string {
+	if all {
+		return "all"
+	}
+	if len(orgs) == 0 {
+		return "none"
+	}
+	return strings.Join(slices.Sorted(slices.Values(orgs)), ",")
+}
+
+func recipeWhat(c RecipeConf) string {
+	return cmp.Or(strings.Join(c.Packages, " "), show(c.PackageURL))
+}
+
+// pgExtensions diffs the file's pg_extensions: an admin recipe the server
+// lacks or holds differently, a switch on or off, a share. A built-in only
+// takes enabled. It never deletes on its own: an admin recipe the block no
+// longer names is an unticked removal row. Rows go by name and field; the
+// apply writes the whole recipe once per name.
+func (d *differ) pgExtensions() {
+	for _, name := range slices.Sorted(maps.Keys(d.f.PGExtensions)) {
+		fr := d.f.PGExtensions[name]
+		lr, live := d.recipeLive(name)
+		item := "pg_extensions." + name
+		def := fr
+		def.Share, def.Enabled = nil, nil
+		if lr.Builtin && (!sameRecipe(def, RecipeConf{}) || fr.Share != nil) {
+			d.block("%s is built in; the file can only set enabled", item)
+			continue
+		}
+		if msg, ok := d.live.RecipeErrors[name]; ok {
+			d.block("%s: %s", item, msg)
+			continue
+		}
+		share, bad := "", false
+		if fr.Share != nil {
+			for _, s := range fr.Share.Orgs {
+				if !d.orgKnown(s) {
+					d.block("%s: no organization %q", item, s)
+					bad = true
+				}
+			}
+			share = recipeShare(fr.Share.All, fr.Share.Orgs)
+		}
+		if bad {
+			continue
+		}
+		if !live {
+			d.add(Change{Kind: "pg-extension", Tile: name, Field: "recipe", New: recipeWhat(fr)})
+			if share != "" && share != "none" {
+				d.add(Change{Kind: "pg-extension", Tile: name, Field: "share", New: share})
+			}
+			if fr.Enabled != nil && !*fr.Enabled {
+				d.add(Change{Kind: "pg-extension", Tile: name, Field: "enabled", Old: "on", New: "off"})
+			}
+			continue
+		}
+		if !lr.Builtin && !sameRecipe(def, lr.Conf) {
+			d.add(Change{Kind: "pg-extension", Tile: name, Field: "recipe", Old: recipeWhat(lr.Conf), New: recipeWhat(fr),
+				Note: "instances already built keep their pins"})
+		}
+		if fr.Share != nil {
+			ids := make([]string, 0, len(lr.ShareOrgs))
+			for _, id := range lr.ShareOrgs {
+				ids = append(ids, orgSlug(d.live.Orgs, id))
+			}
+			if have := recipeShare(lr.ShareAll, ids); have != share {
+				d.add(Change{Kind: "pg-extension", Tile: name, Field: "share", Old: have, New: share})
+			}
+		}
+		if fr.Enabled != nil && *fr.Enabled != lr.Enabled {
+			d.add(Change{Kind: "pg-extension", Tile: name, Field: "enabled", Old: onOff(lr.Enabled), New: onOff(*fr.Enabled),
+				Note: "blocks new enables only; instances that have it keep it"})
+		}
+	}
+	if d.f.PGExtensions == nil {
+		return
+	}
+	for _, lr := range d.live.PGRecipes {
+		if _, ok := d.f.PGExtensions[lr.Name]; !lr.Builtin && !ok {
+			d.remove(Change{Kind: "pg-extension-delete", Tile: lr.Name, Field: "recipe", Key: "pg-extension:" + lr.Name})
+		}
+	}
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
