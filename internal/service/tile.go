@@ -202,6 +202,9 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 			if old, err = o.tiles.Get(ctx, id); err != nil {
 				return old, nil, err
 			}
+			if inst, err = o.operated.GetByTile(ctx, id); err != nil {
+				return old, nil, err
+			}
 			if err := o.pgExtBusy(ctx, old, inst); err != nil {
 				return old, nil, err
 			}

@@ -205,6 +205,10 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 			}
 			if err := o.deploy.Redeploy(ctx, p.TileID, r.Log, r.Swap); err != nil {
 				o.downAfterFailedDeploy(ctx, p.TileID, err)
+				if ph := deploy.PhaseOf(err); ph == deploy.PhasePooler || ph == deploy.PhaseReconcile {
+					// the instance runs; only a step after its start failed
+					err = errors.Join(err, o.afterDeploy(ctx, []string{p.TileID}, false))
+				}
 				return o.parkOnApproval(ctx, r, err)
 			}
 			return o.afterDeploy(ctx, []string{p.TileID}, false)

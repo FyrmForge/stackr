@@ -86,20 +86,17 @@ func (h *handler) InstanceLive(c echo.Context) error {
 		// The Settings tab's Extensions row draws the drawer again when a
 		// change starts or ends (event extbusy; a body is needed, the
 		// browser drops an empty event).
-		// ponytail: reads the whole extensions view each tick for one
-		// phase; a service call that returns only the cursor phase is the
-		// upgrade if that read gets dear.
 		if settings && pg {
 			// the plan job's end changes the stored plan; the region
 			// follows it (sent once at connect, then on change)
 			if err := send("extplan", instance.LiveExtPlan(v, h.planView(ctx, s.Tile.ID))); err != nil {
 				return nil, err
 			}
-			if p, err := h.orch.PGExtensions(ctx, s.Tile.ID); err == nil {
-				if busySeen && p.Busy != busy {
-					out = append(out, stream.Msg{Name: "extbusy", Body: stream.HTML(cmp.Or(p.Busy, "done"))})
+			if ph, err := h.orch.PGExtBusy(ctx, s.Tile.ID); err == nil { // the cursor only: no query of the server
+				if busySeen && ph != busy {
+					out = append(out, stream.Msg{Name: "extbusy", Body: stream.HTML(cmp.Or(ph, "done"))})
 				}
-				busy, busySeen = p.Busy, true
+				busy, busySeen = ph, true
 			}
 		}
 		if !overview {

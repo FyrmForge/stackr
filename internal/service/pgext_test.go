@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"slices"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -453,10 +456,16 @@ func TestPGExtUpdateTile(t *testing.T) {
 	if got := r.wait(t, j.ID); got.State != "done" {
 		t.Fatalf("job = %s: %s", got.State, got.Error)
 	}
-	must(t, o.setPGExtState(ctx, r.inst.ID, pgExtState{Phase: pgExtStore}))
+	// a stored change no job runs is queued again, and the edit waits for it
+	must(t, o.setPGExtState(ctx, r.inst.ID, pgExtState{Phase: pgExtStore, Old: r.rows(t), New: r.rows(t)}))
 	_, _, err = o.UpdateTile(ctx, r.pg.ID, func(x *Tile) error { x.MemLimitMB = 256; return nil })
 	if err == nil || !strings.Contains(err.Error(), "is in progress") {
 		t.Errorf("edit during a change: %v", err)
+	}
+	js, err := o.TileJobs(ctx, []string{r.pg.ID}, 10)
+	must(t, err)
+	for _, j := range js {
+		r.wait(t, j.ID)
 	}
 	must(t, o.setPGExtState(ctx, r.inst.ID, pgExtState{Phase: pgExtDue, Due: true}))
 	if _, _, err = o.UpdateTile(ctx, r.pg.ID, func(x *Tile) error { x.MemLimitMB = 256; return nil }); err != nil {
@@ -527,8 +536,7 @@ func TestPGExtCandidateAndMajor(t *testing.T) {
 	o := r.orch
 	tl, m, err := o.instanceOf(ctx, r.pg.ID)
 	must(t, err)
-	_, err = o.operated.SetExtensions(ctx, m, []string{"vchord"}, []string{"vector"})
-	must(t, err)
+	must(t, r.st.OperatedInstances.SetBuild(ctx, m.ID, []string{"vchord"}, []string{"vector"}, "{\"ref\":\"built\"}"))
 	_, m, err = o.instanceOf(ctx, r.pg.ID)
 	must(t, err)
 	cand, err := o.newCandidateAs(ctx, pitrSource{tile: tl, inst: m}, "pg-cand", pgCustom, 18, nil)
@@ -537,6 +545,9 @@ func TestPGExtCandidateAndMajor(t *testing.T) {
 	must(t, err)
 	if !slices.Equal(cm.Preload, []string{"vchord"}) || !slices.Equal(cm.Extensions, []string{"vector"}) {
 		t.Errorf("candidate = %v %v", cm.Preload, cm.Extensions)
+	}
+	if cm.ExtBuild != m.ExtBuild || cm.ExtBuild == "{}" {
+		t.Errorf("candidate build = %q, want the source's %q", cm.ExtBuild, m.ExtBuild)
 	}
 
 	if err := noCustomImageForChange(tl, m, 17); err == nil || !strings.Contains(err.Error(), "runs a custom image. Make a new instance on postgres 17") {
@@ -576,5 +587,213 @@ func TestPGExtMajorRefused(t *testing.T) {
 	}
 	if _, err := o.CheckPGUpgrade(ctx, by, r.pg.ID, 18); err == nil || !strings.Contains(err.Error(), "runs a custom image") {
 		t.Errorf("check: %v", err)
+	}
+}
+
+// A cursor no live job owns (the job was cancelled while queued, or failed
+// before it took the cursor over) does not block every later edit: nothing
+// stored goes; a stored change is queued again and still says busy.
+func TestPGExtStaleCursorSettled(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	ctx := context.Background()
+	by := roleP(r.org, "member")
+	old := r.rows(t)
+	want := pgExtVals{Image: pgStock, Extensions: []string{"vector"}}
+	r.queue(t, want) // queued, no job
+	img := pgStock
+	_, j, err := r.orch.SetPGExtensions(ctx, by, r.pg.ID, PGExtIn{Image: &img})
+	if err != nil || j == nil {
+		t.Fatalf("a queued cursor without a job blocked: job %+v, err %v", j, err)
+	}
+	r.wait(t, j.ID)
+
+	must(t, r.orch.setPGExtState(r.ctx, r.inst.ID, pgExtState{Phase: pgExtStore, Due: true, Old: r.rows(t), New: want}))
+	back := pgCustom
+	_, _, err = r.orch.SetPGExtensions(ctx, by, r.pg.ID, PGExtIn{Image: &back})
+	if err == nil || !strings.Contains(err.Error(), "is in progress") {
+		t.Fatalf("err = %v, want busy while the resumed change runs", err)
+	}
+	js, err := r.orch.TileJobs(r.ctx, []string{r.pg.ID}, 10)
+	must(t, err)
+	if len(js) == 0 || js[0].Kind != string(kindPGExt) {
+		t.Fatalf("the stored change was not queued again: %+v", js)
+	}
+	r.wait(t, js[0].ID)
+	if got := r.rows(t); !got.equal(want) {
+		t.Errorf("rows = %+v, want %+v (was %+v)", got, want, old)
+	}
+}
+
+// A plan job prices a change and owns no cursor.
+func TestPGExtJobLive(t *testing.T) {
+	t.Parallel()
+	mk := func(payload string) store.Job {
+		return store.Job{Kind: string(kindPGExt), LockSet: store.StringList{"t1"}, Payload: payload}
+	}
+	if pgExtJobLive([]store.Job{mk(`{"TileID":"t1","Plan":{}}`)}, "t1") {
+		t.Error("a plan job counts as a change")
+	}
+	if !pgExtJobLive([]store.Job{mk(`{"TileID":"t1"}`)}, "t1") {
+		t.Error("a change job does not count")
+	}
+	if !pgExtJobLive([]store.Job{{Kind: string(kindPromote), LockSet: store.StringList{"env:e", "t1"}}}, "t1") {
+		t.Error("a promote holding the tile does not count")
+	}
+	if pgExtJobLive([]store.Job{mk(`{"TileID":"t1"}`)}, "t2") {
+		t.Error("another tile's job counts")
+	}
+}
+
+// A user's stop in the start phase puts the old values back; a panel
+// shutdown leaves the cursor for the boot resume.
+func TestPGExtStopInStart(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		cause error
+		back  bool
+	}{{"user stop", jobs.ErrCancelled, true}, {"shutdown", errors.New("stackrd is shutting down"), false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newPGExtRig(t)
+			old := r.rows(t)
+			want := pgExtVals{Image: pgStock, Extensions: []string{"vector"}}
+			must(t, r.orch.pgExtWrite(r.ctx, r.pg.ID, want))
+			st := pgExtState{Phase: pgExtStart, Old: old, New: want, Due: true}
+			must(t, r.orch.setPGExtState(r.ctx, r.inst.ID, st))
+			ctx, cancel := context.WithCancelCause(r.ctx)
+			cancel(tc.cause)
+			tl, m, err := r.orch.instanceOf(r.ctx, r.pg.ID)
+			must(t, err)
+			if err := r.orch.applyPGExt(ctx, tl, m, st, io.Discard); err == nil {
+				t.Fatal("a stopped change reported success")
+			}
+			_, cur := r.cursor(t)
+			if tc.back && (cur || !r.rows(t).equal(old)) {
+				t.Errorf("user stop: cursor %v, rows %+v, want the old back and no cursor", cur, r.rows(t))
+			}
+			if !tc.back && (!cur || !r.rows(t).equal(want)) {
+				t.Errorf("shutdown: cursor %v, rows %+v, want the cursor kept", cur, r.rows(t))
+			}
+		})
+	}
+}
+
+// The image and the build columns are one write: a failure of the second
+// leaves the image as it was.
+func TestPGExtWriteAtomic(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	tl, m, err := r.orch.instanceOf(r.ctx, r.pg.ID)
+	must(t, err)
+	m.ID = "gone" // SetBuild matches no row
+	if err := r.orch.pgExtWriteLocked(r.ctx, tl.ID, m, pgExtVals{Image: pgStock}); err == nil {
+		t.Fatal("write to a missing instance succeeded")
+	}
+	if got := r.rows(t); got.Image != pgCustom {
+		t.Errorf("image = %q, want it untouched", got.Image)
+	}
+}
+
+// An edit that waited for the instance's lock works from the rows as the
+// change that held it left them.
+func TestPGExtUpdateTileReadsUnderLock(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	o := r.orch
+	mu := o.pgLock(r.inst.ID)
+	mu.Lock()
+	done := make(chan error, 1)
+	other := pgStock
+	go func() {
+		_, _, err := o.UpdateTile(context.Background(), r.pg.ID, func(x *Tile) error { x.ImageRef = other; return nil })
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond) // it read the rows and waits for the lock
+	must(t, r.st.OperatedInstances.SetBuild(r.ctx, r.inst.ID, nil, []string{"vector"}, "{}"))
+	mu.Unlock()
+	must(t, <-done)
+	js, err := o.TileJobs(r.ctx, []string{r.pg.ID}, 10)
+	must(t, err)
+	for _, j := range js {
+		if got := r.wait(t, j.ID); got.State != "done" {
+			t.Logf("job %s %s: %s", j.Kind, got.State, got.Error)
+		}
+	}
+	if got := r.rows(t); got.Image != other || !slices.Equal(got.Extensions, []string{"vector"}) {
+		t.Errorf("rows = %+v, want the new image over the extensions the lock holder wrote", got)
+	}
+}
+
+// The old image starts but the step after it fails (the pooler): the instance
+// runs, so it is not reported down and the cursor goes.
+func TestPGExtPutBackPoolerFails(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	old := r.rows(t)
+	want := pgExtVals{Image: pgStock, Extensions: []string{"vector"}}
+	// the old image starts, then the step after the start (phase reconcile) fails
+	r.orch.deploy.PGExtDue = func(context.Context, store.Tile, io.Writer) error { return errors.New("boom") }
+	r.fake.Helper = func(s docker.ContainerSpec) (string, int, bool) {
+		switch s.Image {
+		case pgStock:
+			r.fake.Err = map[string]error{"Create": io.ErrUnexpectedEOF}
+		case pgCustom:
+			r.fake.Err = nil
+		}
+		return "", 0, false
+	}
+	err := r.apply(t, r.queue(t, want))
+	if err == nil || strings.Contains(err.Error(), "did not start either") || !strings.Contains(err.Error(), "a step after the start failed") {
+		t.Fatalf("err = %v, want the old image reported as running", err)
+	}
+	if got := r.rows(t); !got.equal(old) {
+		t.Errorf("rows = %+v, want the old %+v", got, old)
+	}
+	if st, ok := r.cursor(t); ok {
+		t.Errorf("cursor left: %+v", st)
+	}
+}
+
+// The drawer's busy poll reads the cursor only.
+func TestPGExtBusyPhase(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	if ph, err := r.orch.PGExtBusy(r.ctx, r.pg.ID); err != nil || ph != "" {
+		t.Fatalf("idle = %q, %v", ph, err)
+	}
+	must(t, r.orch.setPGExtState(r.ctx, r.inst.ID, pgExtState{Phase: pgExtStart}))
+	if ph, err := r.orch.PGExtBusy(r.ctx, r.pg.ID); err != nil || ph != pgExtStart {
+		t.Fatalf("busy = %q, %v", ph, err)
+	}
+	must(t, r.orch.setPGExtState(r.ctx, r.inst.ID, pgExtState{Phase: pgExtDue, Due: true}))
+	if ph, _ := r.orch.PGExtBusy(r.ctx, r.pg.ID); ph != "" {
+		t.Errorf("due = %q, want idle", ph)
+	}
+}
+
+// A deploy that fails only after the server started (the pooler) leaves an
+// instance that runs: its primary is recorded as running, as a good deploy's
+// afterDeploy does.
+func TestPGExtDeployJobPoolerFails(t *testing.T) {
+	t.Parallel()
+	r := newPGExtRig(t)
+	o := r.orch
+	ms, err := o.members.List(r.ctx, r.inst.ID)
+	must(t, err)
+	if _, ok := opmember.PrimaryOf(ms); !ok {
+		t.Fatal("the rig has no primary member row")
+	}
+	o.setPrimaryState(r.ctx, r.pg.ID, opmember.Stopped)
+	o.deploy.PGExtDue = func(context.Context, store.Tile, io.Writer) error { return errors.New("boom") }
+	j, err := o.Deploy(r.ctx, r.pg.ID)
+	must(t, err)
+	if got := r.wait(t, j.ID); got.State != "failed" {
+		t.Fatalf("job = %s: %s", got.State, got.Error)
+	}
+	ms, _ = o.members.List(r.ctx, r.inst.ID)
+	if p, _ := opmember.PrimaryOf(ms); p.State != opmember.Running {
+		t.Errorf("primary state = %q, want running", p.State)
 	}
 }

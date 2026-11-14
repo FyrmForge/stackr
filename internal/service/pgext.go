@@ -161,12 +161,65 @@ func (o *Orchestrator) delPGExtState(ctx context.Context, instanceID string) {
 }
 
 // pgExtBusy is the error while a change is in flight (message 29): a cursor in
-// any phase but due.
+// any phase but due that a live change job (or the file hook) owns. A cursor
+// no job owns (the job was cancelled while queued, or failed before it took
+// the cursor over) is settled like a boot resume does, so it cannot block
+// every later edit: nothing stored goes, a stored change is queued again.
+// The caller holds pgLock.
 func (o *Orchestrator) pgExtBusy(ctx context.Context, t Tile, m OperatedInstance) error {
-	if st, ok := o.pgExtOf(ctx, m.ID); ok && st.Phase != pgExtDue {
-		return errs.Conflictf("a change to the extensions of %s is in progress; wait for it to end.", t.Slug)
+	st, ok := o.pgExtOf(ctx, m.ID)
+	if !ok || st.Phase == pgExtDue {
+		return nil
+	}
+	busy := errs.Conflictf("a change to the extensions of %s is in progress; wait for it to end.", t.Slug)
+	live, err := o.store.Jobs.ListByState(ctx, "queued", "waiting", "running")
+	if err != nil || pgExtJobLive(live, t.ID) {
+		return busy
+	}
+	if o.pgExtSettle(ctx, m, st) {
+		return busy
 	}
 	return nil
+}
+
+// pgExtJobLive reports whether a live job holds tileID, so may own its
+// cursor: a change job, or the job running the stack file hook inline (a
+// promote). A plan job only prices a change and owns no cursor.
+func pgExtJobLive(live []store.Job, tileID string) bool {
+	return slices.ContainsFunc(live, func(j store.Job) bool {
+		if !slices.Contains(j.LockSet, tileID) {
+			return false
+		}
+		var p pgExtJob
+		return j.Kind != string(kindPGExt) || json.Unmarshal([]byte(j.Payload), &p) != nil || p.Plan == nil
+	})
+}
+
+// pgExtSettle handles a cursor no live job owns: queued, check and build
+// stored nothing, so it goes (false); a later phase is queued again and
+// continues from its phase (true: a job owns it again).
+func (o *Orchestrator) pgExtSettle(ctx context.Context, m OperatedInstance, st pgExtState) bool {
+	if st.Phase == pgExtQueued || st.Phase == pgExtCheck || st.Phase == pgExtBuild {
+		o.delPGExtState(ctx, m.ID)
+		return false
+	}
+	if err := o.resumePGExtOne(ctx, m, st); err != nil {
+		slog.Warn("pg extensions: resume failed", "instance", m.ID, "err", err)
+	}
+	return true
+}
+
+// PGExtBusy is the phase of the change in flight on instance tileID, "" when
+// none: the cursor only, for the live drawer's poll.
+func (o *Orchestrator) PGExtBusy(ctx context.Context, tileID string) (string, error) {
+	_, m, err := o.instanceOf(ctx, tileID)
+	if err != nil {
+		return "", err
+	}
+	if st, ok := o.pgExtOf(ctx, m.ID); ok && st.Phase != pgExtDue {
+		return st.Phase, nil
+	}
+	return "", nil
 }
 
 func pgExtValsOf(t Tile, m OperatedInstance) pgExtVals {
@@ -193,10 +246,13 @@ func (o *Orchestrator) pgExtWrite(ctx context.Context, tileID string, v pgExtVal
 }
 
 func (o *Orchestrator) pgExtWriteLocked(ctx context.Context, tileID string, m OperatedInstance, v pgExtVals) error {
-	if err := o.tiles.SetImageRef(ctx, tileID, v.Image); err != nil {
-		return err
-	}
-	return o.store.OperatedInstances.SetBuild(ctx, m.ID, v.Preload, v.Extensions, cmp.Or(v.ExtBuild, "{}"))
+	// one transaction: the image never names a build the lists do not match
+	return o.store.Tx(ctx, func(tx store.Tx) error {
+		if err := tx.Tiles.SetImageRef(ctx, tileID, v.Image); err != nil {
+			return err
+		}
+		return tx.OperatedInstances.SetBuild(ctx, m.ID, v.Preload, v.Extensions, cmp.Or(v.ExtBuild, "{}"))
+	})
 }
 
 // ---- views ----
@@ -755,6 +811,9 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 		o.delPGExtState(ctx, m.ID)
 		return err
 	}
+	// a user's stop ends the change; a panel shutdown leaves the cursor for
+	// the boot resume
+	stopped := errors.Is(context.Cause(ctx), jobs.ErrCancelled)
 	if st.Phase == pgExtPutBack {
 		return o.pgExtPutBack(ctx, t, m, st, log, nil)
 	}
@@ -778,7 +837,7 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 	}
 	if st.Phase == pgExtBuild { // a recipe image: build it, boot-check it, record it
 		if err := o.pgBuildImage(ctx, t, m, &st, log); err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil && !stopped {
 				return err
 			}
 			return fail(err)
@@ -790,7 +849,7 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 	}
 	if st.Phase == pgExtCheck {
 		if err := o.pgExtBootCheck(ctx, t, m, st.New, log); err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil && !stopped {
 				return err
 			}
 			return fail(err)
@@ -801,10 +860,15 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 		}
 	}
 	if st.Phase == pgExtStore {
-		if err := o.pgExtWrite(ctx, t.ID, st.New); err != nil {
-			return err
+		err := o.pgExtWrite(ctx, t.ID, st.New)
+		if err == nil {
+			err = save(pgExtStart)
 		}
-		if err := save(pgExtStart); err != nil {
+		if err != nil {
+			if stopped { // the old container still runs: the columns go back
+				bg := context.WithoutCancel(ctx)
+				return errors.Join(err, o.pgExtWrite(bg, t.ID, st.Old), o.store.Settings.Delete(bg, pgextKey+m.ID))
+			}
 			return err
 		}
 	}
@@ -815,7 +879,10 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 		return o.afterDeploy(ctx, []string{t.ID}, false)
 	}
 	if ctx.Err() != nil {
-		return err // a panel stop: the cursor resumes
+		if stopped { // the stop may have come after the old container went
+			return o.pgExtPutBack(ctx, t, m, st, log, err)
+		}
+		return err // a panel shutdown: the cursor resumes
 	}
 	switch deploy.PhaseOf(err) {
 	case deploy.PhaseStart: // R1
@@ -854,8 +921,15 @@ func (o *Orchestrator) pgExtPutBack(ctx context.Context, t Tile, m OperatedInsta
 	}
 	logf(log, "%s did not start on %s; putting the previous image and startup modules back\n", t.Slug, st.New.Image)
 	if err := o.deploy.Redeploy(ctx, t.ID, log, nil); err != nil {
-		o.downAfterFailedDeploy(ctx, t.ID, err)
 		o.delPGExtState(ctx, m.ID)
+		if ph := deploy.PhaseOf(err); ph == deploy.PhasePooler || ph == deploy.PhaseReconcile {
+			// the old server runs; only the step after it failed
+			if aerr := o.afterDeploy(ctx, []string{t.ID}, false); aerr != nil {
+				err = errors.Join(err, aerr)
+			}
+			return fmt.Errorf("%s did not start on %s. The previous image and startup modules are back and it runs again, but a step after the start failed%s: %w", t.Slug, st.New.Image, why, err)
+		}
+		o.downAfterFailedDeploy(ctx, t.ID, err)
 		return fmt.Errorf("%s did not start on %s. The previous image and startup modules are back, but it did not start either: %w", t.Slug, st.New.Image, err)
 	}
 	o.delPGExtState(ctx, m.ID)
@@ -1011,20 +1085,18 @@ func (o *Orchestrator) resumePGExt(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		if slices.ContainsFunc(live, func(j store.Job) bool { return j.Kind == string(kindPGExt) && slices.Contains(j.LockSet, m.TileID) }) {
+		if pgExtJobLive(live, m.TileID) {
 			continue // its job may still run it
 		}
 		if st.Phase == pgExtQueued || st.Phase == pgExtCheck || st.Phase == pgExtBuild {
-			o.delPGExtState(ctx, id) // nothing was stored
+			o.pgExtSettle(ctx, m, st) // nothing was stored: the cursor goes
 			continue
 		}
 		if st.Resumes >= pgExtMaxResumes {
 			slog.Warn("pg extensions: not resuming again; change the extensions again", "instance", id, "phase", st.Phase)
 			continue
 		}
-		if err := o.resumePGExtOne(ctx, m, st); err != nil {
-			slog.Warn("pg extensions: resume failed", "instance", id, "err", err)
-		}
+		o.pgExtSettle(ctx, m, st)
 	}
 }
 
