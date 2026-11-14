@@ -1024,7 +1024,7 @@ func (f *Flow) planPGExt(
 	}
 	restart := false
 	// an official image moves with the row (a new instance, or "" to a tag); a custom one here
-	if exists && tc.Image != "" && tc.Image != old.ImageRef && !(deploy.PGOfficial(tc.Image) && deploy.PGOfficial(old.ImageRef)) {
+	if exists && tc.Image != "" && tc.Image != old.ImageRef && (!deploy.PGOfficial(tc.Image) || !deploy.PGOfficial(old.ImageRef)) {
 		p.add(Change{Kind: "operated", Tile: name, Field: "image", Old: old.ImageRef, New: tc.Image})
 		x.image, restart = &tc.Image, true
 	}

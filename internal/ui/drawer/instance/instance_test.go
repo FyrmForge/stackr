@@ -346,7 +346,11 @@ func TestExtensionsRow(t *testing.T) {
 		}
 	}
 	// only the extensions row: the other settings rows keep their own buttons
-	ext := busy[strings.Index(busy, `data-acc="extensions"`):]
+	_, ext, ok := strings.Cut(busy, `data-acc="extensions"`)
+	if !ok {
+		t.Fatal("no extensions row")
+	}
+	ext = `data-acc="extensions"` + ext
 	if i := strings.Index(ext[1:], `data-acc="`); i >= 0 {
 		ext = ext[:i+1]
 	}

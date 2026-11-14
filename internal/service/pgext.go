@@ -830,7 +830,7 @@ func (o *Orchestrator) pgExtBootCheck(ctx context.Context, t Tile, m OperatedIns
 	}
 	for _, n := range nw.Extensions {
 		if _, ok := avail[n]; !ok {
-			return fmt.Errorf("the image %s has no extension %s; nothing was changed.", nw.Image, n)
+			return fmt.Errorf("the image %s has no extension %s; nothing was changed", nw.Image, n)
 		}
 	}
 	return nil

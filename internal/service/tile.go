@@ -235,7 +235,7 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	// A postgres image change that is not official to official is an
 	// extensions change: image only, handed to its path (R7).
 	if inst.Engine == "postgres" && cur.ImageRef != old.ImageRef &&
-		!(mflow.PGOfficial(old.ImageRef) && mflow.PGOfficial(cur.ImageRef)) {
+		(!mflow.PGOfficial(old.ImageRef) || !mflow.PGOfficial(cur.ImageRef)) {
 		same := cur
 		same.ImageRef = old.ImageRef
 		if !reflect.DeepEqual(same, old) {
