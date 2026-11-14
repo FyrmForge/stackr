@@ -268,7 +268,7 @@ func (f *Flow) apply(ctx context.Context, w *work, log io.Writer, swap func() er
 			return fmt.Errorf("update %s: %w", u[0].Slug, err)
 		}
 	}
-	if err := f.applyInstances(ctx, w, e); err != nil {
+	if err := f.applyInstances(ctx, w, e, log); err != nil {
 		return err
 	}
 	dns01 := func(host string) bool { return f.DNS01 != nil && f.DNS01(ctx, host) }
@@ -383,8 +383,10 @@ func partly(slug string, err error) error {
 }
 
 // applyInstances writes the file's allow list and env pairs onto each
-// operated tile's instance row whose either moved; nothing redeploys.
-func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment) error {
+// operated tile's instance row whose either moved; nothing redeploys. A
+// moved image, startup list or extension list goes through PGExt, for a new
+// instance too (the service stores it, or runs the change inline).
+func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment, log io.Writer) error {
 	d := f.D
 	o, err := d.Orgs.Get(ctx, w.st.OrgID)
 	if err != nil {
@@ -405,6 +407,15 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment)
 		}
 		if m, err = d.Operated.SetEnvPairs(ctx, m, iw.pairs); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
+		}
+		if (iw.image != nil || iw.preload != nil || iw.extensions != nil) && f.PGExt != nil {
+			// before the settings: an extension's settings need its module loaded
+			if err := f.PGExt(ctx, t, m, iw.image, iw.preload, iw.extensions, log); err != nil {
+				return fmt.Errorf("%s: extensions: %w", name, err)
+			}
+			if m, err = d.Operated.GetByTile(ctx, t.ID); err != nil { // the hook stored them
+				return fmt.Errorf("%s: %w", name, err)
+			}
 		}
 		if iw.settings != nil {
 			applied := false

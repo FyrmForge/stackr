@@ -683,12 +683,14 @@ func envNotes(p *Plan, items map[string]syncItem) {
 // and the display does not matter.
 func (w *work) sig() string {
 	type inst struct {
-		Allow []string
-		Pairs map[string]string
+		Allow               []string
+		Pairs               map[string]string
+		Image               *string
+		Preload, Extensions *[]string
 	}
 	in := map[string]inst{}
 	for k, v := range w.instances {
-		in[k] = inst{v.allow, v.pairs}
+		in[k] = inst{v.allow, v.pairs, v.image, v.preload, v.extensions}
 	}
 	var upd []store.Tile
 	for _, u := range w.updates {
@@ -753,7 +755,7 @@ func (f *Flow) applySync(ctx context.Context, w *work, log io.Writer, swap func(
 			return fmt.Errorf("update %s: %w", u[0].Slug, err)
 		}
 	}
-	if err := f.applyInstances(ctx, w, e); err != nil {
+	if err := f.applyInstances(ctx, w, e, log); err != nil {
 		return err
 	}
 	var err error
