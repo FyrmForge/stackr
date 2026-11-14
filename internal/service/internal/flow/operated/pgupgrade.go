@@ -359,7 +359,7 @@ func (f *Flow) PGAfterChange(ctx context.Context, it store.Tile, log io.Writer) 
 	if err != nil {
 		return err
 	}
-	if err := f.reconcile(ctx, it, log, true); err != nil {
+	if err := f.reconcile(ctx, it, log, reconcileMajor); err != nil {
 		return err
 	}
 	_, err = x.Exec(ctx, []string{"vacuumdb", "-h", pgSocketDir, "-U", i.AdminUser, "--all", "--analyze-in-stages"})

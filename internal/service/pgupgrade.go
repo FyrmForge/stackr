@@ -1151,7 +1151,7 @@ func (u *pgupRun) pgHelper(ctx context.Context, to int, rebuild bool) (string, m
 	if err != nil {
 		return "", tb, err
 	}
-	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(mflow.PGUpgradeImage, eb.Arch, df))
+	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(mflow.PGUpgradeImage, 0, eb.Arch, df))
 	if err != nil {
 		return "", tb, err
 	}
@@ -1202,7 +1202,7 @@ func (u *pgupRun) toImage(ctx context.Context, eb mflow.ExtBuild, to int) ([]mfl
 	if err != nil {
 		return nil, tb, err
 	}
-	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(tb.Base, tb.Arch, df))
+	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(tb.Base, to, tb.Arch, df))
 	if err != nil {
 		return nil, tb, err
 	}
@@ -1216,7 +1216,7 @@ func (u *pgupRun) toImage(ctx context.Context, eb mflow.ExtBuild, to int) ([]mfl
 	}
 	m := u.m
 	m.Major = to
-	b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, fn.Preload(rs), create)
+	b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, fn.Preload(rs), create, pgAptPackages(rs, to))
 	if err != nil {
 		return nil, tb, err
 	}

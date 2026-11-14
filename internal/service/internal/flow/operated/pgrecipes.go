@@ -8,6 +8,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -94,10 +95,57 @@ type ExtBuild struct {
 	Base     string            `json:"base,omitempty"`
 	Recipes  []string          `json:"recipes,omitempty"`
 	Packages map[string]string `json:"packages,omitempty"`
-	Arch     string            `json:"arch,omitempty"`
-	Ref      string            `json:"ref,omitempty"`
-	PrevRef  string            `json:"prev_ref,omitempty"`
-	PrevAt   time.Time         `json:"prev_at,omitzero"`
+	// URLs are the release files the build installed, by package name: the
+	// helper of a later major change fetches these, not whatever the recipe
+	// says by then. Older records have none (the recipe is used).
+	URLs    map[string]URLPkg `json:"urls,omitempty"`
+	Arch    string            `json:"arch,omitempty"`
+	Ref     string            `json:"ref,omitempty"`
+	PrevRef string            `json:"prev_ref,omitempty"`
+	PrevAt  time.Time         `json:"prev_at,omitzero"`
+}
+
+// URLPkg is one release file a build installed.
+type URLPkg struct {
+	URL     string `json:"url"`
+	SHA256  string `json:"sha256"`
+	Version string `json:"version,omitempty"`
+}
+
+// recipeURL is the release file of recipe r for major and arch, with its
+// package name (the file is named <package>_<version>_<arch>.deb).
+func recipeURL(r Recipe, major int, arch string) (pkg string, u URLPkg, err error) {
+	ms := strconv.Itoa(major)
+	sum, ok := r.SHA256[ms+"-"+arch]
+	if !ok || (len(r.Majors) > 0 && !slices.Contains(r.Majors, major)) {
+		return "", URLPkg{}, errs.Refusedf("the recipe %s has no build for postgres %d on %s.", r.Name, major, arch)
+	}
+	url := strings.NewReplacer("{version}", r.Version, "{major}", ms, "{arch}", arch).Replace(r.PackageURL)
+	if err := CheckPackageURL(url); err != nil {
+		return "", URLPkg{}, err
+	}
+	pkg, _, _ = strings.Cut(url[strings.LastIndex(url, "/")+1:], "_")
+	return pkg, URLPkg{URL: url, SHA256: sum, Version: r.Version}, nil
+}
+
+// URLPackages are the release files rs install for major and arch, by
+// package name, for the build record (ExtBuild.URLs). Nil when there are none.
+func URLPackages(rs []Recipe, major int, arch string) (map[string]URLPkg, error) {
+	var out map[string]URLPkg
+	for _, r := range rs {
+		if r.PackageURL == "" {
+			continue
+		}
+		pkg, u, err := recipeURL(r, major, arch)
+		if err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = map[string]URLPkg{}
+		}
+		out[pkg] = u
+	}
+	return out, nil
 }
 
 // ParseExtBuild reads an ext_build column. "" and "{}" are the zero value;
@@ -426,17 +474,14 @@ func RecipePackages(rs []Recipe, major int) []string {
 	return out
 }
 
-// maxCandidates is how many installable builds of a package the resolve keeps
-// (the walk-down depth); maxSims caps the apt simulations per package.
-const (
-	maxCandidates = 6
-	maxSims       = 30
-)
+// maxSims caps the apt simulations per package. The walk-down after a failed
+// boot check is pgWalkScript's, not the resolve's.
+const maxSims = 30
 
 // ResolveScript is the shell (run with sh) that goes in a base image and
-// prints, per package, one line: "ok <pkg> <v1> <v2> ..." with the installable
-// builds newest first (up to maxCandidates; under hold on the server and
-// client packages, each tried with apt-get install -s), or "none <pkg>
+// prints, per package, one line: "ok <pkg> <v>" with the newest installable
+// build (under hold on the server and client packages, each tried with
+// apt-get install -s), or "none <pkg>
 // [minor]" with the Postgres version the newest build depends on. A failure
 // prints "err <text>". pkgs are expanded names; an invalid one yields a script
 // that prints err. ParseResolve reads the output.
@@ -450,17 +495,16 @@ func ResolveScript(major int, pkgs []string) string {
 		return "echo 'err no packages'; exit 1\n"
 	}
 	r := strings.NewReplacer("@MAJOR@", strconv.Itoa(major), "@PKGS@", strings.Join(pkgs, " "),
-		"@N@", strconv.Itoa(maxCandidates), "@SIMS@", strconv.Itoa(maxSims))
+		"@SIMS@", strconv.Itoa(maxSims))
 	return r.Replace(`set -u
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null 2>&1 || { echo "err apt-get update failed"; exit 1; }
 apt-mark hold postgresql-@MAJOR@ postgresql-client-@MAJOR@ >/dev/null 2>&1 || { echo "err apt-mark hold failed"; exit 1; }
 for p in @PKGS@; do
-  vs=; n=0; t=0
+  vs=; t=0
   for v in $(apt-cache madison "$p" | awk -F'|' '{gsub(/[ \t]/,"",$2); if ($2!="" && !s[$2]++) print $2}'); do
-    [ "$n" -ge @N@ ] && break
     t=$((t+1)); [ "$t" -gt @SIMS@ ] && break
-    if apt-get install -s --no-install-recommends "$p=$v" >/dev/null 2>&1; then vs="$vs $v"; n=$((n+1)); fi
+    if apt-get install -s --no-install-recommends "$p=$v" >/dev/null 2>&1; then vs=" $v"; break; fi
   done
   if [ -n "$vs" ]; then echo "ok $p$vs"; else
     m=$(apt-get install -s --no-install-recommends "$p" 2>&1 | sed -n 's/.*Depends: postgresql-@MAJOR@ (>*=* *\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n1)
@@ -470,42 +514,14 @@ done
 `)
 }
 
-// Resolved is a ParseResolve result. Candidates holds the installable builds
-// of each package, newest first; Versions the newest of them. None lists the
-// packages with no installable build and NeedMinor the Postgres version the
-// first of them depends on (empty when apt did not say), which the caller
-// weighs against a newer base (R26).
+// Resolved is a ParseResolve result. Versions holds the newest installable
+// build of each package; None lists the packages with no installable build and
+// NeedMinor the Postgres version the first of them depends on (empty when apt
+// did not say), which the caller weighs against a newer base (R26).
 type Resolved struct {
-	Versions   map[string]string
-	Candidates map[string][]string
-	None       []string
-	NeedMinor  string
-}
-
-// Pin is the build of pkg `down` builds below the newest installable one: the
-// walk-down after a failed boot check (Stage 0 spike 6). False when the
-// candidates run out; the caller then ends with message 19 and the failing
-// symbol.
-func (r Resolved) Pin(pkg string, down int) (string, bool) {
-	c := r.Candidates[pkg]
-	if down < 0 || down >= len(c) {
-		return "", false
-	}
-	return c[down], true
-}
-
-// Pins is Pin for every package, each at its own depth in down (missing is 0).
-// False when any package has no such build.
-func (r Resolved) Pins(down map[string]int) (map[string]string, bool) {
-	out := make(map[string]string, len(r.Candidates))
-	for p := range r.Candidates {
-		v, ok := r.Pin(p, down[p])
-		if !ok {
-			return nil, false
-		}
-		out[p] = v
-	}
-	return out, true
+	Versions  map[string]string
+	None      []string
+	NeedMinor string
 }
 
 var minorRE = regexp.MustCompile(`^[0-9]{1,2}\.[0-9]{1,3}$`)
@@ -513,7 +529,7 @@ var minorRE = regexp.MustCompile(`^[0-9]{1,2}\.[0-9]{1,3}$`)
 // ParseResolve reads ResolveScript's output. Every version in it is checked
 // with CheckVersion (it goes back into a Dockerfile).
 func ParseResolve(out string) (Resolved, error) {
-	res := Resolved{Versions: map[string]string{}, Candidates: map[string][]string{}}
+	res := Resolved{Versions: map[string]string{}}
 	lines := 0
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
@@ -533,7 +549,6 @@ func ParseResolve(out string) (Resolved, error) {
 					return Resolved{}, err
 				}
 			}
-			res.Candidates[f[1]] = f[2:]
 			res.Versions[f[1]] = f[2]
 		case f[0] == "none" && (len(f) == 2 || len(f) == 3):
 			if !pkgName.MatchString(f[1]) {
@@ -568,6 +583,9 @@ func RecipeDockerfile(base string, major int, arch string, rs []Recipe, pinned m
 	if major < 1 || major > 99 {
 		return "", errs.Invalidf("major", "%d is not a postgres major", major)
 	}
+	// the same recipes and pins give the same file, whatever order they were
+	// resolved in: a rebuild must land on the tag the build had
+	rs = slices.SortedFunc(slices.Values(rs), func(a, b Recipe) int { return strings.Compare(a.Name, b.Name) })
 	var b strings.Builder
 	fmt.Fprintf(&b, "FROM %s\nLABEL stackr.image=pgext\n", base)
 	var debs []string
@@ -594,7 +612,9 @@ func RecipeDockerfile(base string, major int, arch string, rs []Recipe, pinned m
 		fmt.Fprintf(&b, "ADD --checksum=sha256:%s %s %s\n", sum, url, deb)
 	}
 	var pins []string
-	for _, p := range RecipePackages(rs, major) {
+	pkgs := RecipePackages(rs, major)
+	sort.Strings(pkgs)
+	for _, p := range pkgs {
 		v, ok := pinned[p]
 		if !ok {
 			return "", errs.Invalidf("packages", "no pinned version for %s", p)
@@ -621,10 +641,14 @@ var imageTagMinor = regexp.MustCompile(`^([0-9]+)\.([0-9]+)`)
 
 // BuildTag names a built image: <major>.<minor>-ext-<arch>-<8 hex> (R25). The
 // hex is the start of the Dockerfile's sha256; major.minor come from the tag
-// of base ("unknown" when it has none, such as a digest-only reference).
-func BuildTag(base, arch, dockerfile string) string {
+// of base; without a minor (postgres:17, a digest) it is <major>-ext-... from
+// major, so ImageMajor still reads it ("unknown" only when major is 0 too).
+func BuildTag(base string, major int, arch, dockerfile string) string {
 	tag := base[strings.LastIndex(base, "/")+1:]
 	mm := "unknown"
+	if major > 0 {
+		mm = strconv.Itoa(major)
+	}
 	if i := strings.LastIndex(tag, ":"); i >= 0 {
 		if m := imageTagMinor.FindStringSubmatch(tag[i+1:]); m != nil {
 			mm = m[1] + "." + m[2]
@@ -678,19 +702,21 @@ func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, 
 			if r.PackageURL == "" {
 				continue
 			}
-			sum, ok := r.SHA256[ms+"-"+arch]
-			if !ok || (len(r.Majors) > 0 && !slices.Contains(r.Majors, m)) {
-				return "", errs.Refusedf("the recipe %s has no build for postgres %d on %s.", r.Name, m, arch)
-			}
-			url := strings.NewReplacer("{version}", r.Version, "{major}", ms, "{arch}", arch).Replace(r.PackageURL)
-			if err := CheckPackageURL(url); err != nil {
+			pkg, u, err := recipeURL(r, m, arch)
+			if err != nil {
 				return "", err
 			}
+			// the build's own record wins over what the recipe says now
+			if rec, ok := b.URLs[pkg]; ok {
+				u = rec
+				if err := CheckPackageURL(u.URL); err != nil {
+					return "", err
+				}
+			}
+			url, sum := u.URL, u.SHA256
 			if err := CheckSHA256(sum); err != nil {
 				return "", err
 			}
-			// the release file is named <package>_<version>_<arch>.deb
-			pkg, _, _ := strings.Cut(url[strings.LastIndex(url, "/")+1:], "_")
 			if err := CheckPackage(pkg, m); err != nil {
 				return "", err
 			}

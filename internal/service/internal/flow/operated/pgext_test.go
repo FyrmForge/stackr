@@ -74,7 +74,7 @@ func TestReconcileNothingToDo(t *testing.T) {
 func TestReconcileOrder(t *testing.T) {
 	t.Parallel()
 	f := &extFake{rows: extRows}
-	if err := pgReconcile(context.Background(), extInst, f.tools(), "app", []string{"vector", "earthdistance", "vector"}, io.Discard); err != nil {
+	if err := pgReconcile(context.Background(), extInst, f.tools(), "app", []string{"vector", "earthdistance", "vector", "pg_stat_statements"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.in) != 1 {
@@ -129,7 +129,7 @@ func TestReconcileFailures(t *testing.T) {
 		t.Errorf("8a: %v", err)
 	}
 	f = &extFake{rows: extRows, stdinErr: errors.New("psql:<stdin>:4: ERROR:  no update path")}
-	err = pgReconcile(context.Background(), extInst, f.tools(), "app", []string{"vector", "earthdistance"}, io.Discard)
+	err = pgReconcile(context.Background(), extInst, f.tools(), "app", []string{"vector", "earthdistance", "pg_stat_statements"}, io.Discard)
 	if err == nil || err.Error() != "extension pg_stat_statements in app was not updated to 1.11: ERROR:  no update path" {
 		t.Errorf("8b: %v", err)
 	}
@@ -301,15 +301,37 @@ func TestReconcileWarnUpdates(t *testing.T) {
 	t.Parallel()
 	var log strings.Builder
 	f := &extFake{rows: extRows, stdinErr: errors.New("psql:<stdin>:2: ERROR:  no update path")}
-	if err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", nil, &log, true); err != nil {
+	if err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", nil, &log, reconcileMajor); err != nil {
 		t.Fatalf("update failure failed the step: %v", err)
 	}
 	if !strings.Contains(log.String(), "warning: extension pg_stat_statements in app was not updated") {
 		t.Errorf("log = %q", log.String())
 	}
 	f = &extFake{rows: extRows, stdinErr: errors.New("psql:<stdin>:2: ERROR:  could not open extension control file")}
-	err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", []string{"vector"}, io.Discard, true)
+	err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", []string{"vector"}, io.Discard, reconcileMajor)
 	if err == nil || !strings.HasPrefix(err.Error(), "extension vector was not created in app: ") {
 		t.Errorf("create: %v", err)
+	}
+}
+
+// Compat: a slice that lists nothing runs no exec at all, and a listed name
+// leaves every other outdated extension alone.
+func TestReconcileUnlistedIsUntouched(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []reconcileMode{reconcileListed, reconcileWarn} {
+		f := &extFake{rows: extRows}
+		if err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", nil, io.Discard, mode); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.calls) != 0 || len(f.in) != 0 {
+			t.Errorf("mode %d: calls = %v, in = %q", mode, f.calls, f.in)
+		}
+	}
+	f := &extFake{rows: extRows}
+	if err := pgReconcile(context.Background(), extInst, f.tools(), "app", []string{"vector"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.in) != 1 || strings.Contains(f.in[0], "ALTER EXTENSION") {
+		t.Errorf("an unlisted extension was updated: %q", f.in)
 	}
 }

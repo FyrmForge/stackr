@@ -1108,18 +1108,6 @@ func (f *Flow) checkSpace(ctx context.Context, v store.Volume) error {
 
 func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 
-// SaveImage streams the image save writes, age-encrypted, to key on the
-// destination with id dest, and skips the write when the destination already
-// lists key. A recipe-built instance's base backup saves its image next to the
-// base (bk.ImageKey), so a restore needs no registry copy.
-func (f *Flow) SaveImage(ctx context.Context, dest, key string, save func(io.Writer) error, log io.Writer) error {
-	d, err := f.Backups.Get(ctx, dest)
-	if err != nil {
-		return err
-	}
-	return f.saveImage(ctx, d, key, save, log)
-}
-
 func (f *Flow) saveImage(ctx context.Context, d store.BackupDest, key string, save func(io.Writer) error, log io.Writer) error {
 	o := open(d)
 	keys, err := o.List(ctx, key)

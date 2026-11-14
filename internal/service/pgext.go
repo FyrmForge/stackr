@@ -602,7 +602,7 @@ func (o *Orchestrator) pgExtNotOffered(ctx context.Context, c pgExtChange) error
 	if len(add) == 0 {
 		return nil
 	}
-	infos, err := o.engines.Extensions(ctx, c.t)
+	infos, err := o.engines.ExtensionsAll(ctx, c.t)
 	if err != nil {
 		return err
 	}

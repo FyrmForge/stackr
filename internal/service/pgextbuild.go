@@ -137,7 +137,7 @@ type pgRecipeFns struct {
 	Script     func(major int, pkgs []string) string
 	Parse      func(out string) (mflow.Resolved, error)
 	Dockerfile func(base string, major int, arch string, rs []mflow.Recipe, pinned map[string]string) (string, error)
-	Tag        func(base, arch, dockerfile string) string
+	Tag        func(base string, major int, arch, dockerfile string) string
 	// Helper is the major-change helper's Dockerfile (lane A3's).
 	Helper func(from, to mflow.ExtBuild, arch string, extra ...mflow.Recipe) (string, error)
 }
@@ -615,7 +615,7 @@ func (o *Orchestrator) planPGImage(ctx context.Context, t Tile, m OperatedInstan
 			p.Blockers = append(p.Blockers, err.Error())
 			return
 		}
-		ref, err := o.pgBuildRef(ctx, t, fn.Tag(p.In.Base, p.In.Arch, df))
+		ref, err := o.pgBuildRef(ctx, t, fn.Tag(p.In.Base, m.Major, p.In.Arch, df))
 		if err != nil {
 			p.Blockers = append(p.Blockers, err.Error())
 			return
@@ -839,7 +839,7 @@ pg_ctl -D "$D" -w -t 60 -o "$FLAGS -c listen_addresses= -k $D -c fsync=off" -l "
 for n in $CREATE; do
   psql -v ON_ERROR_STOP=1 -h "$D" -U bc -d postgres -c "CREATE EXTENSION IF NOT EXISTS \"$n\" CASCADE" >/dev/null || { echo "FAILED $n"; exit 3; }
 done
-dpkg-query -W -f='P\t${Package}\t${Version}\n' 'postgresql-*' || true
+dpkg-query -W -f='P\t${Package}\t${Version}\n' 'postgresql-*' $PKGS || true
 printf 'S\t%s\n' "$(postgres --version)"
 psql -v ON_ERROR_STOP=1 -h "$D" -U bc -d postgres -tA -c "SELECT 'X' || chr(9) || name || chr(9) || default_version FROM pg_available_extensions ORDER BY name"
 `
@@ -913,7 +913,7 @@ func (o *Orchestrator) pgBuildImage(ctx context.Context, t Tile, m OperatedInsta
 		if err != nil {
 			return err
 		}
-		ref, err := o.pgBuildRef(ctx, t, fn.Tag(in.Base, in.Arch, df))
+		ref, err := o.pgBuildRef(ctx, t, fn.Tag(in.Base, m.Major, in.Arch, df))
 		if err != nil {
 			return err
 		}
@@ -921,7 +921,7 @@ func (o *Orchestrator) pgBuildImage(ctx context.Context, t Tile, m OperatedInsta
 		if err := o.pgBuild(ctx, t, node, ref, df, rs, log); err != nil {
 			return err
 		}
-		b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, preload, create)
+		b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, preload, create, pgAptPackages(rs, m.Major))
 		if err != nil {
 			return err
 		}
@@ -994,11 +994,19 @@ func (o *Orchestrator) pgBuild(ctx context.Context, t Tile, node, ref, df string
 }
 
 // pgRecipeCheck runs the recipe boot check in the built image.
-func (o *Orchestrator) pgRecipeCheck(ctx context.Context, node string, m OperatedInstance, ref string, preload, create []string) (pgBuilt, string, int, error) {
+func (o *Orchestrator) pgRecipeCheck(ctx context.Context, node string, m OperatedInstance, ref string, preload, create, pkgs []string) (pgBuilt, string, int, error) {
 	bc := mflow.BootCheck{Name: "stackr-extcheck-" + m.ID[:min(8, len(m.ID))], Image: ref, Major: m.Major, Preload: preload, Conf: pgDottedConf(m.Settings)}
 	spec := bc.Spec()
 	spec.Cmd = []string{"sh", "-c", pgRecipeCheckScript}
 	spec.Env = append(spec.Env, "CREATE="+strings.Join(create, " "))
+	// the recipes' own packages are recorded too, not only postgresql-*
+	var names []string
+	for _, p := range pkgs {
+		if mflow.CheckPackage(p, m.Major) == nil {
+			names = append(names, p)
+		}
+	}
+	spec.Env = append(spec.Env, "PKGS="+strings.Join(names, " "))
 	out, code, err := o.oneShotFor(ctx, node, spec, nil, 10*time.Minute, 2000)
 	if err != nil {
 		return pgBuilt{}, "", 0, err
@@ -1082,7 +1090,7 @@ func (o *Orchestrator) rebuildOperated(ctx context.Context, t store.Tile, log io
 	if err != nil {
 		return err
 	}
-	ref, err := o.pgBuildRef(ctx, t, fn.Tag(eb.Base, eb.Arch, df))
+	ref, err := o.pgBuildRef(ctx, t, fn.Tag(eb.Base, m.Major, eb.Arch, df))
 	if err != nil {
 		return err
 	}

@@ -161,19 +161,6 @@ func TestResolveScriptAndParse(t *testing.T) {
 	if err != nil || r.Versions["postgresql-17-pgvector"] != "0.8.6-1.pgdg13+2" || r.NeedMinor != "17.12" || !slices.Equal(r.None, []string{"postgresql-17-foo"}) {
 		t.Fatalf("parse: %+v %v", r, err)
 	}
-	if v, ok := r.Pin("postgresql-17-pgvector", 1); !ok || v != "0.8.0-1" {
-		t.Errorf("walk down: %q %v", v, ok)
-	}
-	if _, ok := r.Pin("postgresql-17-pgvector", 2); ok {
-		t.Error("walked off the end")
-	}
-	r.None = nil
-	if pins, ok := r.Pins(nil); !ok || pins["postgresql-17-pgvector"] != "0.8.6-1.pgdg13+2" {
-		t.Errorf("pins %v %v", pins, ok)
-	}
-	if _, ok := r.Pins(map[string]int{"postgresql-17-pgvector": 5}); ok {
-		t.Error("pins past the end")
-	}
 	for _, bad := range []string{"", "err apt-get update failed", "ok p", "ok p 1.0\nbogus", "ok p 1.0;rm", "ok P 1.0", "none p 17.1 x", "ok p -x", "ok pg$(id) 1.0"} {
 		if _, err := ParseResolve(bad); err == nil {
 			t.Errorf("ParseResolve(%q) accepted", bad)
@@ -253,17 +240,46 @@ func TestRecipeDockerfile(t *testing.T) {
 
 func TestBuildTag(t *testing.T) {
 	d := "FROM x\n"
-	tag := BuildTag("postgres:17.11", "amd64", d)
+	tag := BuildTag("postgres:17.11", 0, "amd64", d)
 	if !strings.HasPrefix(tag, "17.11-ext-amd64-") || len(tag) != len("17.11-ext-amd64-")+8 {
 		t.Errorf("tag %q", tag)
 	}
-	if BuildTag("postgres:17.11", "amd64", d) != tag || BuildTag("postgres:17.11", "amd64", d+" ") == tag || BuildTag("postgres:17.11", "arm64", d) == tag {
+	if BuildTag("postgres:17.11", 0, "amd64", d) != tag || BuildTag("postgres:17.11", 0, "amd64", d+" ") == tag || BuildTag("postgres:17.11", 0, "arm64", d) == tag {
 		t.Error("tag is not a function of the dockerfile and arch")
 	}
-	if got := BuildTag("reg.example:5000/lib/postgres:18.7-bookworm", "arm64", d); !strings.HasPrefix(got, "18.7-ext-arm64-") {
+	if got := BuildTag("reg.example:5000/lib/postgres:18.7-bookworm", 0, "arm64", d); !strings.HasPrefix(got, "18.7-ext-arm64-") {
 		t.Errorf("registry base: %q", got)
 	}
-	if got := BuildTag("postgres@sha256:abc", "a$md64", d); !strings.HasPrefix(got, "unknown-ext-amd64-") {
+	if got := BuildTag("postgres@sha256:abc", 0, "a$md64", d); !strings.HasPrefix(got, "unknown-ext-amd64-") {
 		t.Errorf("digest base: %q", got)
+	}
+}
+
+// A tag without a minor still names the major, and the same recipes and pins
+// make the same Dockerfile and tag in any order.
+func TestBuildTagMajorAndOrder(t *testing.T) {
+	d := "FROM x\n"
+	for _, base := range []string{"postgres:17", "postgres@sha256:abc", "postgres"} {
+		tag := BuildTag(base, 17, "amd64", d)
+		if !strings.HasPrefix(tag, "17-ext-amd64-") || ImageMajor("reg/org/pg:"+tag) != 17 {
+			t.Errorf("%s: tag %q", base, tag)
+		}
+	}
+	if !strings.HasPrefix(BuildTag("postgres:17.11", 17, "amd64", d), "17.11-ext-") {
+		t.Error("a minor in the base is lost")
+	}
+	gis, _ := ResolveRecipes([]string{"postgis"}, 17, "o1", nil)
+	vch, _ := ResolveRecipes([]string{"vchord"}, 17, "o1", nil)
+	pins := map[string]string{"postgresql-17-pgvector": "0.8.6-1", "postgresql-17-postgis-3": "3.5-1", "postgresql-17-postgis-3-scripts": "3.5-1"}
+	a, err := RecipeDockerfile("postgres:17.11", 17, "amd64", slices.Concat(gis, vch), pins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := RecipeDockerfile("postgres:17.11", 17, "amd64", slices.Concat(vch, gis), pins)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b || BuildTag("postgres:17.11", 17, "amd64", a) != BuildTag("postgres:17.11", 17, "amd64", b) {
+		t.Errorf("order changed the build:\n%s\n---\n%s", a, b)
 	}
 }
