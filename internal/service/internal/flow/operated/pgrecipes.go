@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -643,6 +643,130 @@ func BuildTag(base, arch, dockerfile string) string {
 // HelperDockerfile is the major-change helper for a recipe-built instance:
 // PGUpgradeImage with both majors' server, client and extension packages at
 // the versions the two builds recorded, held, checked against the pins.
-func HelperDockerfile(from, to ExtBuild, arch string) (string, error) {
-	return "", errors.New("pg upgrade helper: not built yet")
+func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, error) {
+	if !archName.MatchString(arch) {
+		return "", errs.Invalidf("arch", "%q is not a CPU type", arch)
+	}
+	all := map[string]string{}
+	var servers, apt, adds, debs []string
+	hold := []string{"postgresql-common", "postgresql-client-common"}
+	for _, b := range []ExtBuild{from, to} {
+		m, err := buildMajor(b)
+		if err != nil {
+			return "", err
+		}
+		ms := strconv.Itoa(m)
+		if _, ok := b.Packages["postgresql-client-"+ms]; !ok {
+			return "", errs.Refusedf("the build has no pinned postgresql-client-%s.", ms)
+		}
+		urlPkgs := map[string]bool{}
+		for _, name := range b.Recipes {
+			var r Recipe
+			found := false
+			for _, c := range slices.Concat(extra, BuiltinRecipes) {
+				if c.Name == name {
+					r, found = c, true
+					break
+				}
+			}
+			if !found {
+				return "", errs.Refusedf("the recipe %s is not known, so the helper cannot be built.", name)
+			}
+			if err := CheckRecipe(r); err != nil {
+				return "", err
+			}
+			if r.PackageURL == "" {
+				continue
+			}
+			sum, ok := r.SHA256[ms+"-"+arch]
+			if !ok || (len(r.Majors) > 0 && !slices.Contains(r.Majors, m)) {
+				return "", errs.Refusedf("the recipe %s has no build for postgres %d on %s.", r.Name, m, arch)
+			}
+			url := strings.NewReplacer("{version}", r.Version, "{major}", ms, "{arch}", arch).Replace(r.PackageURL)
+			if err := CheckPackageURL(url); err != nil {
+				return "", err
+			}
+			if err := CheckSHA256(sum); err != nil {
+				return "", err
+			}
+			// the release file is named <package>_<version>_<arch>.deb
+			pkg, _, _ := strings.Cut(url[strings.LastIndex(url, "/")+1:], "_")
+			if err := CheckPackage(pkg, m); err != nil {
+				return "", err
+			}
+			if _, ok := b.Packages[pkg]; !ok {
+				return "", errs.Refusedf("the build has no recorded version of %s.", pkg)
+			}
+			urlPkgs[pkg] = true
+			deb := fmt.Sprintf("/tmp/ext-%s-%d.deb", ms, len(debs))
+			adds = append(adds, fmt.Sprintf("ADD --checksum=sha256:%s %s %s\n", sum, url, deb))
+			debs = append(debs, deb)
+		}
+		for _, name := range slices.Sorted(maps.Keys(b.Packages)) {
+			v := b.Packages[name]
+			if err := CheckPackage(name, m); err != nil {
+				return "", err
+			}
+			if err := CheckVersion(v); err != nil {
+				return "", err
+			}
+			old, seen := all[name]
+			if seen && old != v {
+				return "", errs.Refusedf("the two builds pin %s at %s and %s.", name, old, v)
+			}
+			all[name] = v
+			switch {
+			case urlPkgs[name] || seen:
+			case name == "postgresql-"+ms || name == "postgresql-client-"+ms:
+				servers = append(servers, name+"="+v)
+				hold = append(hold, name)
+			case name == "postgresql-common" || name == "postgresql-client-common":
+				servers = append(servers, name+"="+v)
+			default:
+				apt = append(apt, name+"="+v)
+			}
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "FROM %s\n", PGUpgradeImage)
+	// The server and client pins go in first (downgrades allowed: the base
+	// holds the newest minors) and are held, then the rest of the base gets
+	// Debian's fixes, then the extension packages.
+	b.WriteString("RUN apt-get update \\\n && apt-get install -y --no-install-recommends --allow-downgrades " + strings.Join(servers, " ") + " \\\n")
+	b.WriteString(" && apt-mark hold " + strings.Join(hold, " ") + " \\\n")
+	b.WriteString(" && apt-get upgrade -y --no-install-recommends \\\n")
+	if len(apt) > 0 {
+		b.WriteString(" && apt-get install -y --no-install-recommends " + strings.Join(apt, " ") + " \\\n")
+	}
+	b.WriteString(" && rm -rf /var/lib/apt/lists/* /usr/local/bin/gosu\n")
+	if len(debs) > 0 {
+		b.WriteString(strings.Join(adds, ""))
+		b.WriteString("RUN apt-get update && apt-get install -y " + strings.Join(debs, " ") + " && rm -rf /tmp/*.deb /var/lib/apt/lists/*\n")
+	}
+	var pins []string
+	for _, n := range slices.Sorted(maps.Keys(all)) {
+		pins = append(pins, n+"="+all[n])
+	}
+	b.WriteString(`RUN for p in ` + strings.Join(pins, " ") + `; do [ "$(dpkg-query -W -f='${Version}' "${p%%=*}")" = "${p#*=}" ] || { echo "version differs from its pin: $p" >&2; exit 1; }; done` + "\n")
+	return b.String(), nil
+}
+
+var serverPkgRE = regexp.MustCompile(`^postgresql-([0-9]{1,2})$`)
+
+// buildMajor is the one postgres major a build record holds, read from its
+// pinned server package.
+func buildMajor(b ExtBuild) (int, error) {
+	major := 0
+	for name := range b.Packages {
+		if m := serverPkgRE.FindStringSubmatch(name); m != nil {
+			if major != 0 {
+				return 0, errs.Refusedf("the build records more than one postgres server.")
+			}
+			major, _ = strconv.Atoi(m[1])
+		}
+	}
+	if major == 0 {
+		return 0, errs.Refusedf("the build has no pinned postgres server.")
+	}
+	return major, nil
 }

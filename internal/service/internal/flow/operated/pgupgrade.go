@@ -6,6 +6,7 @@ import (
 	"io"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -174,8 +175,11 @@ as() { setpriv --reuid=postgres --regid=postgres --init-groups "$@"; }
 # a scratch copy's root is the volume's, owned by root: postgres refuses to start on it
 [ -n "$SCRATCH" ] && { chown postgres:postgres "$OLDDIR"; chmod 700 "$OLDDIR"; }
 tab=$(printf '\t')
+# the startup modules every server this script starts needs, when the instance has any
+SPL=; PGU_PRE=()
+if [ -n "$PRELOAD" ]; then SPL="-c shared_preload_libraries=$PRELOAD"; PGU_PRE=(-o "$SPL" -O "$SPL"); fi
 q() { db=$1; shift; as "$OLDBIN/psql" -X -A -t -h /tmp -U "$ADMIN" -d "$db" "$@"; }
-startold() { as "$OLDBIN/pg_ctl" -D "$OLDDIR" -w -s -l /tmp/old.log -o "-c listen_addresses= -c unix_socket_directories=/tmp -c archive_mode=off" start || { cat /tmp/old.log; exit 1; }; }
+startold() { as "$OLDBIN/pg_ctl" -D "$OLDDIR" -w -s -l /tmp/old.log -o "-c listen_addresses= -c unix_socket_directories=/tmp -c archive_mode=off $SPL" start || { cat /tmp/old.log; exit 1; }; }
 stopold() { as "$OLDBIN/pg_ctl" -D "$OLDDIR" -m fast -w -s stop || true; }
 mknew() {
   mkdir -p "$NEWDIR"; chown postgres:postgres "$NEWDIR"; chmod 700 "$NEWDIR"
@@ -205,8 +209,9 @@ check|upgrade)
   [ "$STEP" = upgrade ] && find /new -mindepth 1 -delete
   mknew
   mkdir -p /tmp/pgu; chown postgres:postgres /tmp/pgu; cd /tmp/pgu
-  if ! as "$NEWBIN/pg_upgrade" -U "$ADMIN" -b "$OLDBIN" -B "$NEWBIN" -d "$OLDDIR" -D "$NEWDIR" $COPYFLAG -j "$(nproc)" $PGU_FLAGS; then
-    find /tmp/pgu -name '*.txt' -exec cat {} + 2>/dev/null | tail -n 40
+  if ! as "$NEWBIN/pg_upgrade" -U "$ADMIN" -b "$OLDBIN" -B "$NEWBIN" -d "$OLDDIR" -D "$NEWDIR" $COPYFLAG -j "$(nproc)" "${PGU_PRE[@]}" $PGU_FLAGS; then
+    # pg_upgrade 15+ writes its reason files under the new data directory
+    { find /tmp/pgu "$NEWDIR/pg_upgrade_output.d" -name '*.txt' -exec cat {} + 2>/dev/null || true; } | tail -n 40
     exit 1
   fi
   ;;
@@ -214,7 +219,7 @@ dump)
   find /new -mindepth 1 -delete
   mknew
   startold; trap stopold EXIT
-  as "$NEWBIN/pg_ctl" -D "$NEWDIR" -w -s -l /tmp/new.log -o "-c listen_addresses= -c unix_socket_directories=/tmp -c port=5433" start || { cat /tmp/new.log; exit 1; }
+  as "$NEWBIN/pg_ctl" -D "$NEWDIR" -w -s -l /tmp/new.log -o "-c listen_addresses= -c unix_socket_directories=/tmp -c port=5433 $SPL" start || { cat /tmp/new.log; exit 1; }
   as "$OLDBIN/pg_dumpall" -h /tmp -U "$ADMIN" | awk -v admin="$ADMIN" "$DUMP_FILTER" \
     | as "$NEWBIN/psql" -X -q -h /tmp -p 5433 -U "$ADMIN" -d postgres -v ON_ERROR_STOP=1 -f - >/dev/null
   as "$NEWBIN/pg_ctl" -D "$NEWDIR" -m fast -w -s stop
@@ -246,6 +251,13 @@ func (r UpgradeRun) Spec() (docker.ContainerSpec, error) {
 	if !safeWord.MatchString(r.Admin) {
 		return docker.ContainerSpec{}, errs.Conflictf("the admin role %q has a name a major change cannot handle", r.Admin)
 	}
+	image := PGUpgradeImage
+	if r.Image != "" {
+		if !baseRef.MatchString(r.Image) {
+			return docker.ContainerSpec{}, errs.Conflictf("the helper image %q is not an image reference", r.Image)
+		}
+		image = r.Image
+	}
 	oldDir, newDir := path.Join("/old", PGDataPrefix(r.From)), path.Join("/new", PGDataPrefix(r.To))
 	if r.ScratchOld {
 		oldDir = "/old"
@@ -260,6 +272,14 @@ func (r UpgradeRun) Spec() (docker.ContainerSpec, error) {
 		"INITDB_FLAGS=" + strings.Join(r.Facts.InitdbArgs(r.To), " "),
 		"DBS_SQL=" + pgDBsSQL, "COUNT_SQL=" + pgCountSQL, "DUMP_FILTER=" + PGDumpFilter,
 	}
+	if len(r.Preload) > 0 {
+		for _, n := range r.Preload {
+			if !extName.MatchString(n) {
+				return docker.ContainerSpec{}, errs.Conflictf("the startup module %q has a name a major change cannot handle", n)
+			}
+		}
+		env = append(env, "PRELOAD="+strings.Join(slices.Compact(append([]string{"pg_stat_statements"}, r.Preload...)), ","))
+	}
 	if r.Counts {
 		env = append(env, "COUNTS=1")
 	}
@@ -271,7 +291,7 @@ func (r UpgradeRun) Spec() (docker.ContainerSpec, error) {
 		vols = append(vols, r.NewVol+":/new")
 	}
 	return docker.ContainerSpec{
-		Name: r.Name, Image: PGUpgradeImage, Cmd: []string{"bash", "-c", pgUpgradeScript},
+		Name: r.Name, Image: image, Cmd: []string{"bash", "-c", pgUpgradeScript},
 		Env: env, Labels: map[string]string{LabelPGUpgrade: r.Instance}, Volumes: vols, Restart: "no",
 	}, nil
 }
