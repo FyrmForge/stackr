@@ -129,6 +129,7 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 		OnRemove:      &drop,
 		ExpiresAt:     expires,
 		BranchOf:      &src.ID,
+		Extensions:    src.Extensions,
 	}
 	base := branchSuffix.ReplaceAllString(src.Slug, "")
 	for { // a taken suffix draws again
@@ -146,8 +147,12 @@ func (o *Orchestrator) BranchSlice(ctx context.Context, by *Principal, sliceID s
 	if err != nil {
 		return Tile{}, Job{}, err
 	}
-	if m, err := o.operated.GetByTile(ctx, inst.ID); err != nil || m.Engine != "postgres" {
+	im, err := o.operated.GetByTile(ctx, inst.ID)
+	if err != nil || im.Engine != "postgres" {
 		return Tile{}, Job{}, errs.Invalidf("instance", "%s is not a postgres instance", inst.Slug)
+	}
+	if miss := operated.ExtMissing(im.Extensions, row.Extensions); len(miss) > 0 { // R9
+		return Tile{}, Job{}, errs.Conflictf("slice %s: %s is not enabled on %s. Add it to the instance's extensions first.", row.Slug, miss[0], inst.Slug)
 	}
 	if err := o.gateTile(ctx, inst.ID, true); err != nil {
 		return Tile{}, Job{}, err

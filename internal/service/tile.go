@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/imagewatch"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/connector"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/job"
@@ -184,6 +186,27 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	if err != nil {
 		return old, nil, err
 	}
+	// An operated tile's edit runs under its instance's lock, on the row read
+	// again under it, and is refused while an extensions change is in flight
+	// (V1): the change's own writes cannot be overwritten by a whole row from
+	// an earlier read. The lock is never held across a job.
+	var inst OperatedInstance
+	if old.Kind == tile.Operated {
+		if inst, err = o.operated.GetByTile(ctx, id); err != nil && !errors.Is(err, errs.ErrNotFound) {
+			return old, nil, err
+		}
+		if inst.ID != "" {
+			mu := o.pgLock(inst.ID)
+			mu.Lock()
+			defer mu.Unlock()
+			if old, err = o.tiles.Get(ctx, id); err != nil {
+				return old, nil, err
+			}
+			if err := o.pgExtBusy(ctx, old, inst); err != nil {
+				return old, nil, err
+			}
+		}
+	}
 	cur := old
 	// every refusal at once: an edit's own (a line that does not parse)
 	// and each check here come back with the row's Validate, none written
@@ -208,6 +231,18 @@ func (o *Orchestrator) UpdateTile(ctx context.Context, id string, edit func(*Til
 	if err := errors.Join(bad...); err != nil {
 		v := cur
 		return old, nil, errors.Join(err, tile.Validate(&v))
+	}
+	// A postgres image change that is not official to official is an
+	// extensions change: image only, handed to its path (R7).
+	if inst.Engine == "postgres" && cur.ImageRef != old.ImageRef &&
+		!(mflow.PGOfficial(old.ImageRef) && mflow.PGOfficial(cur.ImageRef)) {
+		same := cur
+		same.ImageRef = old.ImageRef
+		if !reflect.DeepEqual(same, old) {
+			return old, nil, errs.Invalidf("image_ref", "Change the image on its own.")
+		}
+		img := cur.ImageRef
+		return o.setPGExtLocked(ctx, old, inst, PGExtIn{Image: &img})
 	}
 	// only a limit this edit changed: a tile already over the host's size
 	// can still be renamed or retargeted
