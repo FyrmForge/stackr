@@ -110,6 +110,11 @@ func TestResolveRecipes(t *testing.T) {
 	refused([]string{"vchord"}, 16, nil, "the recipe vchord has no build for postgres 16.")
 	refused([]string{"vchord"}, 17, []store.PGRecipe{{ID: "pgvector"}}, "the recipe pgvector is switched off on this server.")
 	refused([]string{"vector"}, 17, []store.PGRecipe{{ID: "pgvector", Enabled: false}}, "the recipe pgvector is switched off on this server.")
+	// a built-in's share narrows it too; an empty share is its default, all
+	refused([]string{"vector"}, 17, []store.PGRecipe{{ID: "pgvector", Enabled: true, Share: store.NameList{"o2"}}}, "the recipe pgvector is not shared with o1.")
+	if _, err := ResolveRecipes([]string{"vector"}, 17, "o1", []store.PGRecipe{{ID: "pgvector", Enabled: true}}); err != nil {
+		t.Errorf("built-in with an empty share: %v", err)
+	}
 
 	spec := func(r Recipe) string { b, _ := json.Marshal(r); return string(b) }
 	mine := Recipe{Packages: []string{"postgresql-{major}-foo"}, Extensions: []string{"foo"}, Requires: []string{"ghost"}}

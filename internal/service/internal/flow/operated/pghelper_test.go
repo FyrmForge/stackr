@@ -1,6 +1,7 @@
 package operated
 
 import (
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -113,5 +114,24 @@ func TestHelperDockerfileUsesRecordedURL(t *testing.T) {
 	}
 	if !strings.Contains(df, "/1.1.1/postgresql-18-vchord_1.1.1-1_amd64.deb") {
 		t.Errorf("the new major (no record) did not use the recipe:\n%s", df)
+	}
+}
+
+// A build record with its own release files needs no recipe: one removed or
+// edited to drop the old major since still gives the helper (Codex review 2).
+func TestHelperDockerfileRecordWithoutRecipe(t *testing.T) {
+	from := helperBuild("17", map[string]string{"postgresql-17-mine": "2.0-1"}, "mine")
+	to := helperBuild("18", map[string]string{"postgresql-18-mine": "2.0-1"}, "mine")
+	for i, b := range []*ExtBuild{&from, &to} {
+		m := 17 + i
+		b.URLs = map[string]URLPkg{fmt.Sprintf("postgresql-%d-mine", m): {
+			URL: fmt.Sprintf("https://example.com/mine/postgresql-%d-mine_2.0-1_amd64.deb", m), SHA256: strings.Repeat("cd", 32), Version: "2.0"}}
+	}
+	df, err := HelperDockerfile(from, to, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(df, "postgresql-17-mine_2.0-1_amd64.deb") || !strings.Contains(df, "postgresql-18-mine_2.0-1_amd64.deb") {
+		t.Errorf("recorded files not used:\n%s", df)
 	}
 }

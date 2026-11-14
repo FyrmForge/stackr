@@ -50,7 +50,7 @@ func canonRecipe(r Recipe) Recipe {
 	r.Majors = sorted(r.Majors)
 	r.Packages = sorted(r.Packages)
 	r.Extensions = sorted(r.Extensions)
-	r.Requires = sorted(r.Requires)
+	r.Requires = slices.Clone(r.Requires) // order: it sets the derived preload order
 	r.Preload = slices.Clone(r.Preload)
 	r.SHA256 = maps.Clone(r.SHA256)
 	return r

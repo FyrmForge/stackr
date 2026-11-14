@@ -235,3 +235,14 @@ func TestBuiltinRecipesWellFormed(t *testing.T) {
 		t.Errorf("vchord requires %v preload %v", v.Requires, v.Preload)
 	}
 }
+
+// Requires order sets the derived preload order: a reorder after review is a
+// new plan (Codex review 2).
+func TestPlanHashRequiresOrder(t *testing.T) {
+	a, b := planIn(), planIn()
+	a.Recipes[0].Requires = []string{"pgvector", "postgis"}
+	b.Recipes[0].Requires = []string{"postgis", "pgvector"}
+	if PlanHash(a) == PlanHash(b) {
+		t.Error("a requires reorder kept the hash")
+	}
+}

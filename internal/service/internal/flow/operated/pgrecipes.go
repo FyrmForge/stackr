@@ -341,7 +341,7 @@ type candidate struct {
 }
 
 // recipeCandidates are the recipes in effect for one org: the built-ins (a
-// bare row with enabled=0 switches one off; a row never edits a built-in) and
+// row switches one off or narrows its share; a row never edits a built-in) and
 // the admin rows that parse, built-ins first.
 func recipeCandidates(orgID string, rows []store.PGRecipe) []candidate {
 	byID := map[string]store.PGRecipe{}
@@ -351,8 +351,14 @@ func recipeCandidates(orgID string, rows []store.PGRecipe) []candidate {
 	var out []candidate
 	for _, b := range BuiltinRecipes {
 		c := candidate{r: b}
-		if row, ok := byID[b.Name]; ok && !row.Enabled {
-			c.err = errs.Refusedf("the recipe %s is switched off on this server.", b.Name)
+		if row, ok := byID[b.Name]; ok { // no row: on and shared with all
+			switch {
+			case !row.Enabled:
+				c.err = errs.Refusedf("the recipe %s is switched off on this server.", b.Name)
+			// an empty share is the built-in default (all); only a list narrows it
+			case len(row.Share) > 0 && !slices.Contains(row.Share, "all") && !slices.Contains(row.Share, orgID):
+				c.err = errs.Refusedf("the recipe %s is not shared with %s.", b.Name, orgID)
+			}
 		}
 		out = append(out, c)
 	}
@@ -683,38 +689,21 @@ func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, 
 		if _, ok := b.Packages["postgresql-client-"+ms]; !ok {
 			return "", errs.Refusedf("the build has no pinned postgresql-client-%s.", ms)
 		}
+		// the build's own record of its release files wins: a recipe edited or
+		// removed since does not matter; older records ask the recipes
+		urls := b.URLs
+		if len(urls) == 0 {
+			if urls, err = recipeURLs(b, m, arch, extra); err != nil {
+				return "", err
+			}
+		}
 		urlPkgs := map[string]bool{}
-		for _, name := range b.Recipes {
-			var r Recipe
-			found := false
-			for _, c := range slices.Concat(extra, BuiltinRecipes) {
-				if c.Name == name {
-					r, found = c, true
-					break
-				}
-			}
-			if !found {
-				return "", errs.Refusedf("the recipe %s is not known, so the helper cannot be built.", name)
-			}
-			if err := CheckRecipe(r); err != nil {
+		for _, pkg := range slices.Sorted(maps.Keys(urls)) {
+			u := urls[pkg]
+			if err := CheckPackageURL(u.URL); err != nil {
 				return "", err
 			}
-			if r.PackageURL == "" {
-				continue
-			}
-			pkg, u, err := recipeURL(r, m, arch)
-			if err != nil {
-				return "", err
-			}
-			// the build's own record wins over what the recipe says now
-			if rec, ok := b.URLs[pkg]; ok {
-				u = rec
-				if err := CheckPackageURL(u.URL); err != nil {
-					return "", err
-				}
-			}
-			url, sum := u.URL, u.SHA256
-			if err := CheckSHA256(sum); err != nil {
+			if err := CheckSHA256(u.SHA256); err != nil {
 				return "", err
 			}
 			if err := CheckPackage(pkg, m); err != nil {
@@ -725,7 +714,7 @@ func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, 
 			}
 			urlPkgs[pkg] = true
 			deb := fmt.Sprintf("/tmp/ext-%s-%d.deb", ms, len(debs))
-			adds = append(adds, fmt.Sprintf("ADD --checksum=sha256:%s %s %s\n", sum, url, deb))
+			adds = append(adds, fmt.Sprintf("ADD --checksum=sha256:%s %s %s\n", u.SHA256, u.URL, deb))
 			debs = append(debs, deb)
 		}
 		for _, name := range slices.Sorted(maps.Keys(b.Packages)) {
@@ -778,6 +767,31 @@ func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, 
 	}
 	b.WriteString(`RUN for p in ` + strings.Join(pins, " ") + `; do [ "$(dpkg-query -W -f='${Version}' "${p%%=*}")" = "${p#*=}" ] || { echo "version differs from its pin: $p" >&2; exit 1; }; done` + "\n")
 	return b.String(), nil
+}
+
+// recipeURLs is a build record's release files as its recipes say them, for
+// records older than ExtBuild.URLs.
+func recipeURLs(b ExtBuild, m int, arch string, extra []Recipe) (map[string]URLPkg, error) {
+	out := map[string]URLPkg{}
+	for _, name := range b.Recipes {
+		i := slices.IndexFunc(slices.Concat(extra, BuiltinRecipes), func(c Recipe) bool { return c.Name == name })
+		if i < 0 {
+			return nil, errs.Refusedf("the recipe %s is not known, so the helper cannot be built.", name)
+		}
+		r := slices.Concat(extra, BuiltinRecipes)[i]
+		if err := CheckRecipe(r); err != nil {
+			return nil, err
+		}
+		if r.PackageURL == "" {
+			continue
+		}
+		pkg, u, err := recipeURL(r, m, arch)
+		if err != nil {
+			return nil, err
+		}
+		out[pkg] = u
+	}
+	return out, nil
 }
 
 var serverPkgRE = regexp.MustCompile(`^postgresql-([0-9]{1,2})$`)
