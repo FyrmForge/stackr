@@ -34,12 +34,17 @@ func TestJoinScriptGate(t *testing.T) {
 	must(t, err)
 	for _, want := range []string{
 		"'https://panel.test/join/" + out.Token + "/stackr-install'",
-		"'join' '--panel' 'https://panel.test' '--token' '" + out.Token + "' '--ca-sha256' '" + caFingerprint(ca) + "' '--version' '0.7.0' </dev/null",
+		"'join' '--panel' 'https://panel.test' '--token' '" + out.Token + "' '--ca-sha256' '" + caFingerprint(ca) + "' '--version' '0.7.0' </dev/tty",
+		"' '--version' '0.7.0' </dev/null",
 		"mktemp -d", "trap 'rm -rf \"$tmp\"' EXIT", "\nmain\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("script lacks %q:\n%s", want, s)
 		}
+	}
+	// a box with no Docker still runs the script: the installer offers it
+	if strings.Contains(s, "command -v docker") || strings.Contains(s, "install Docker 26.0") {
+		t.Errorf("script refuses a box with no Docker:\n%s", s)
 	}
 	if p, err := w.orch.JoinInstaller(ctx, httpsMeta, out.Token); err != nil || p != bin {
 		t.Errorf("installer = %q, %v", p, err)

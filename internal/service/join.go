@@ -690,7 +690,7 @@ func shLine(args []string) string {
 
 // joinScript takes the installer URL and the quoted join arguments. The body
 // sits in a function so a cut-off download runs nothing; the installer reads
-// /dev/null, never the rest of the piped script.
+// the terminal or /dev/null, never the rest of the piped script.
 const joinScript = `#!/bin/sh
 # stackr: join this machine to the cluster as a worker node.
 set -eu
@@ -704,16 +704,21 @@ main() {
 	*) fail "a worker needs amd64, this machine is $(uname -m)" ;;
 	esac
 	[ "$(id -u)" = 0 ] || fail "run as root: pipe it to sudo sh"
-	command -v docker >/dev/null 2>&1 || fail "install Docker 26.0 or newer first: https://docs.docker.com/engine/install/"
-	docker info >/dev/null 2>&1 || fail "Docker is installed but not running"
 	command -v curl >/dev/null 2>&1 || fail "curl is missing"
 
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT
 	trap 'exit 1' HUP INT TERM
-	curl -fsSL -o "$tmp/stackr-install" %s
+	curl -fsSL -o "$tmp/stackr-install" %[1]s
 	chmod 0755 "$tmp/stackr-install"
-	"$tmp/stackr-install" %s </dev/null
+	# Docker may be missing: the installer offers to install it. Piped to sh,
+	# stdin is this script, so its question reads the terminal; with none
+	# it reads /dev/null and stops with what to do.
+	if (: </dev/tty) 2>/dev/null; then
+		"$tmp/stackr-install" %[2]s </dev/tty
+	else
+		"$tmp/stackr-install" %[2]s </dev/null
+	fi
 }
 
 main
