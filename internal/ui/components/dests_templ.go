@@ -62,7 +62,7 @@ func sharedWord(shared bool) string {
 	if shared {
 		return "Every org"
 	}
-	return "Server only"
+	return ShareNoneWord
 }
 
 // destShare is the one sharing control for a destination: it keeps no org

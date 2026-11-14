@@ -195,7 +195,7 @@ func TestLostEnvNamesPlacement(t *testing.T) {
 // A join command carries a token: it never lands in htmx's history cache.
 func TestJoinCommandKeptOutOfHistory(t *testing.T) {
 	out := render(t, joinCommand("curl one", "curl two"))
-	if strings.Count(out, `hx-history="false"`) != 2 {
+	if strings.Count(out, `hx-history="false"`) != 4 {
 		t.Errorf("join command cached by history:\n%s", out)
 	}
 }

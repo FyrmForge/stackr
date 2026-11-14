@@ -13,7 +13,7 @@ type ShareView struct {
 	Mode     string // ShareAll, ShareOnly or ShareServer
 	Orgs     []ShareOrg
 	// NoOnly drops "Only these orgs" for a thing that keeps no org list
-	// (a backup destination): Every org or Server only.
+	// (a backup destination): Every org or No org.
 	NoOnly bool
 }
 
@@ -30,7 +30,7 @@ const (
 )
 
 // ShareSummary is a row's sharing in the control's own words: Every org,
-// Only these orgs (n), or Server only when no org is picked.
+// Only these orgs (n), or No org (admins only) when no org is picked.
 func ShareSummary(all bool, orgs int) string {
 	switch {
 	case all:
@@ -38,15 +38,18 @@ func ShareSummary(all bool, orgs int) string {
 	case orgs > 0:
 		return "Only these orgs (" + strconv.Itoa(orgs) + ")"
 	}
-	return "Server only"
+	return ShareNoneWord
 }
+
+// ShareNoneWord is the third choice: no org may use it, server admins only.
+const ShareNoneWord = "No org (admins only)"
 
 templ Share(v ShareView) {
 	<fieldset class="space-y-1" data-share>
 		<legend class="label">Available to</legend>
-		@shareMode(v, ShareAll, "Every org")
+		@shareMode(v, ShareAll, "Every org", "Any org can use it.")
 		if !v.NoOnly {
-			@shareMode(v, ShareOnly, "Only these orgs")
+			@shareMode(v, ShareOnly, "Only these orgs", "Tick the orgs that can use it.")
 			<div class="space-y-1 pl-6">
 				for _, o := range v.Orgs {
 					<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name={ v.OrgName } value={ o.ID } checked?={ o.On } disabled?={ v.Mode != ShareOnly } class="accent-rw-accent" data-share-org/> { o.Name }</label>
@@ -56,10 +59,10 @@ templ Share(v ShareView) {
 				}
 			</div>
 		}
-		@shareMode(v, ShareServer, "Server only")
+		@shareMode(v, ShareServer, ShareNoneWord, "No org can use it. Server admins only.")
 	</fieldset>
 }
 
-templ shareMode(v ShareView, mode, label string) {
-	<label class="flex items-center gap-2 text-rw-text"><input type="radio" name={ v.ModeName } value={ mode } checked?={ v.Mode == mode } class="accent-rw-accent"/> { label }</label>
+templ shareMode(v ShareView, mode, label, hint string) {
+	<label class="block text-rw-text"><input type="radio" name={ v.ModeName } value={ mode } checked?={ v.Mode == mode } class="accent-rw-accent"/> { label }<span class="block pl-6 text-xs text-rw-faint">{ hint }</span></label>
 }

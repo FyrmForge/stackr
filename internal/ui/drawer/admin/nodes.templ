@@ -353,6 +353,8 @@ func NodeHint(status string, stalled bool) string {
 	switch {
 	case status == "joined" && stalled:
 		return "Run the join again on the box. It picks up where it stopped."
+	case status == "joined":
+		return "The mesh link is not up yet. UDP 51871 must be reachable on the new node."
 	case status == "needs-rejoin":
 		return "Run the join command on the box. Lost it? Get a new one under Security."
 	case status == "rejoining":
@@ -380,13 +382,51 @@ func StatusWord(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// picked says a tag is ticked: storage until the form is answered once.
 func picked(v *AddNodeView, t string) bool {
+	if v.Picked == nil && t == "storage" {
+		return true
+	}
 	for _, p := range v.Picked {
 		if p == t {
 			return true
 		}
 	}
 	return false
+}
+
+// NodeItem is one node's row: the Nodes list and the setup wizard's, so both
+// show the same chips. Open "" = the name is plain text (no drawer there).
+templ NodeItem(r NodeRow) {
+<li class="panel px-4 py-3 text-sm">
+	<div class="flex flex-wrap items-center gap-2">
+		if r.Open != "" {
+	<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(r.Push) } class="text-rw-text font-medium hover:underline">{ r.Name }</button>
+} else {
+	<span class="text-rw-text font-medium">{ r.Name }</span>
+}
+		@c.Chip(r.Role, "")
+		for _, t := range r.Tags {
+			@c.Chip(t, "accent")
+		}
+		if len(r.Tags) == 0 {
+			<span class="text-xs text-rw-faint">no tags</span>
+		}
+		<span class="ml-auto">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
+	</div>
+	if r.Hint != "" {
+		<p class="mt-2 text-xs text-rw-warn">{ r.Hint }</p>
+	}
+	<p class="mt-2 text-xs text-rw-muted">
+		{ plural(r.Envs, "env") }
+		if r.Cores != "" {
+			· { r.Cores } · { r.Mem }
+		}
+		if r.Disk != "" {
+			· { r.Disk }
+		}
+	</p>
+</li>
 }
 
 templ Nodes(v NodesView) {
@@ -445,37 +485,13 @@ templ Nodes(v NodesView) {
 				</ul>
 			}
 		}
+		if v.Adder != nil {
+			@AddNodeModal(*v.Adder)
+		}
 		@c.Section("", "", "") {
-			if v.Adder != nil {
-				@AddNode(*v.Adder)
-			}
 			<ul class="space-y-3">
 				for _, r := range v.Rows {
-					<li class="panel px-4 py-3 text-sm">
-						<div class="flex flex-wrap items-center gap-2">
-							<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(r.Push) } class="text-rw-text font-medium hover:underline">{ r.Name }</button>
-							@c.Chip(r.Role, "")
-							for _, t := range r.Tags {
-								@c.Chip(t, "accent")
-							}
-							if len(r.Tags) == 0 {
-								<span class="text-xs text-rw-faint">no tags</span>
-							}
-							<span class="ml-auto">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
-						</div>
-						if r.Hint != "" {
-							<p class="mt-2 text-xs text-rw-warn">{ r.Hint }</p>
-						}
-						<p class="mt-2 text-xs text-rw-muted">
-							{ plural(r.Envs, "env") }
-							if r.Cores != "" {
-								· { r.Cores } · { r.Mem }
-							}
-							if r.Disk != "" {
-								· { r.Disk }
-							}
-						</p>
-					</li>
+					@NodeItem(r)
 				}
 			</ul>
 			if len(v.Rows) == 1 && v.Adder == nil {
@@ -561,10 +577,34 @@ templ addSteps(step int) {
 	</ol>
 }
 
+// AddNodeModal is the add-node dialog, open as it lands: the steps inside it
+// swap themselves, and closing it (X, Esc) fetches Cancel, whose answer puts
+// the page back, live again.
+templ AddNodeModal(v AddNodeView) {
+	<confirm-dialog open>
+		<dialog id="add-node-dialog" class="modal-panel modal-tall text-rw-text" aria-labelledby="add-node-title">
+			<div class="modal-head">
+				<div class="min-w-0">
+					<h2 id="add-node-title" class="modal-title">Add a node</h2>
+				</div>
+				<button type="button" class="ml-auto text-rw-faint hover:text-rw-text transition-colors" data-cancel aria-label="Close">
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<line x1="18" y1="6" x2="6" y2="18"></line>
+						<line x1="6" y1="6" x2="18" y2="18"></line>
+					</svg>
+				</button>
+			</div>
+			<div class="modal-body">
+				@AddNode(v)
+			</div>
+		</dialog>
+	</confirm-dialog>
+	<span hidden hx-get={ v.Cancel } hx-trigger="close from:#add-node-dialog" hx-target={ v.target() } hx-swap="outerHTML"></span>
+}
+
 // AddNode is the add-node dialog's body: the three steps on the join API.
 templ AddNode(v AddNodeView) {
-	<div id="add-node" class="panel px-4 py-4 mb-4 space-y-4" if v.Step == 2 && !v.Expired { hx-get={ v.Poll } hx-trigger="every 3s" hx-target="#add-node" hx-swap="outerHTML" }>
-		<h3 class="text-sm font-semibold text-rw-text">Add a node</h3>
+	<div id="add-node" class="space-y-4" if v.Step == 2 && !v.Expired { hx-get={ v.Poll } hx-trigger="every 3s" hx-target="#add-node" hx-swap="outerHTML" }>
 		@addSteps(v.Step)
 		if v.Error != "" {
 			<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
@@ -576,15 +616,13 @@ templ AddNode(v AddNodeView) {
 					<div data-field>
 						<label for="node_address" class="label">Address</label>
 						<input id="node_address" name="node_address" type="text" value={ v.Address } placeholder={ "vps-fsn1" + v.AddressSuffix } class="input font-mono" data-follows="name" data-suffix={ v.AddressSuffix } data-edited?={ addressEdited(v) } { c.Invalid("node_address", v.AddressError)... }/>
-						<p class="mt-1.5 text-xs text-rw-faint" data-hint>The node's own name. Optional.</p>
+						<p class="mt-1.5 text-xs text-rw-faint" data-hint>Becomes the node's public DNS name. Leave empty if it has no public address.</p>
 						@c.FieldError("node_address", v.AddressError)
 					</div>
-					<fieldset class="space-y-1">
+					<fieldset class="space-y-2">
 						<legend class="label">Tags</legend>
 						for _, t := range v.Tags {
-							<label class="flex items-center gap-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ t == "egress" || picked(&v, t) } disabled?={ t == "egress" } class="accent-rw-accent"/> { t }if t == "egress" {
-								<span class="text-xs text-rw-faint">Every node starts with egress.</span>
-							}</label>
+							<label class="flex flex-wrap items-center gap-x-2 text-rw-text"><input type="checkbox" name="tag" value={ t } checked?={ t == "egress" || picked(&v, t) } disabled?={ t == "egress" } class="accent-rw-accent"/> { t }<span class="text-xs text-rw-faint">{ tagHelp(t) }</span></label>
 						}
 						<p class="text-xs text-rw-faint">You can change these later.</p>
 					</fieldset>
@@ -1056,9 +1094,11 @@ templ ifaceList(rows []IfaceRow) {
 templ joinCommand(oneLine, twoStep string) {
 	if oneLine != "" {
 		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all" hx-history="false">{ oneLine }</pre>
+		<button type="button" data-copy={ oneLine } hx-history="false" class="btn btn-ghost btn-sm">Copy</button>
 	}
 	if twoStep != "" {
 		<p class="text-xs text-rw-muted mb-2">The panel has no trusted certificate, so it takes two steps.</p>
 		<pre class="panel px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all select-all" hx-history="false">{ twoStep }</pre>
+		<button type="button" data-copy={ twoStep } hx-history="false" class="btn btn-ghost btn-sm">Copy</button>
 	}
 }

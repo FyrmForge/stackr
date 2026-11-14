@@ -68,7 +68,7 @@ func TestShare(t *testing.T) {
 		`name="share" value="only" checked`,
 		`name="org" value="o1" checked class=`,
 		`name="org" value="o2" class=`,
-		"Every org", "Only these orgs", "Server only",
+		"Every org", "Only these orgs", "No org (admins only)", "Server admins only.",
 	} {
 		if !strings.Contains(only, want) {
 			t.Errorf("only: missing %q in\n%s", want, only)

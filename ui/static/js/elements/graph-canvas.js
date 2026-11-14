@@ -42,6 +42,7 @@ class GraphCanvas extends HTMLElement {
         cancelAnimationFrame(this.frame);
         this.frame = requestAnimationFrame(() => this.repath());
     });
+    sizer = new ResizeObserver(() => !this.touched && this.fit());
     wire(on) {
         const pairs = [
             [this, "pointerdown", this.onDown], [this, "mousedown", this.onMouseDown], [this, "wheel", this.onWheel], [this, "click", this.onClick],
@@ -62,14 +63,15 @@ class GraphCanvas extends HTMLElement {
             i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
         });
         this.wire(true);
+        this.sizer.observe(this);
         this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
         this.repath();
         const old = [...(this.parentElement?.children ?? [])].find((c) => c !== this && c instanceof GraphCanvas);
         const refit = !old || (!old.touched && old.ids() !== this.ids());
-        if (old)
+        if (old) {
             [this.px, this.py, this.s, this.floor, this.touched] = [old.px, old.py, old.s, old.floor, old.touched];
-        if (old)
             requestAnimationFrame(() => (refit ? this.fit() : this.apply()));
+        }
         else
             this.fit();
         const focus = this.getAttribute("focus");
@@ -78,6 +80,7 @@ class GraphCanvas extends HTMLElement {
     }
     disconnectedCallback() {
         this.observer.disconnect();
+        this.sizer.disconnect();
         cancelAnimationFrame(this.frame);
         this.wire(false);
     }
@@ -135,7 +138,7 @@ class GraphCanvas extends HTMLElement {
     }
     fit() {
         const max = clamp(Number(this.getAttribute("scale")) || 0.8);
-        const b = this.bounds(true);
+        const b = this.clientWidth && this.clientHeight ? this.bounds(true) : null;
         const ctrl = this.querySelector("[data-zoom]")?.parentElement;
         const legends = [...this.querySelectorAll(".graph-legend, [data-legend]")].filter((l) => l.offsetParent);
         const bottom = Math.max(0, ...legends.map((l) => this.clientHeight - l.offsetTop));

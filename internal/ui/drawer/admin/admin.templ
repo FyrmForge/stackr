@@ -371,13 +371,12 @@ templ Recovery(v RecoveryView) {
 							<button type="submit" class="btn btn-primary btn-sm">Show the key</button>
 						</form>
 					} else if v.Rotate != "" {
-						<form hx-post={ v.Rotate } hx-target="#recovery" hx-swap="outerHTML">
-							<div class="flex flex-wrap items-end gap-2">
-								@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true})
-								<button type="submit" class="btn btn-ghost btn-sm">Rotate the recovery key</button>
-							</div>
-							<p class="mt-1.5 text-xs text-rw-faint">Older backups keep the old key.</p>
-						</form>
+						@c.Confirm(c.ConfirmView{
+							Button: "Rotate the recovery key", Title: "Rotate the recovery key?", Primary: true,
+							Warning: "A new key opens the panel's backups from now on. It is shown once, so save it off this server. Older backups keep the old key.",
+							Body:    passwordBody("recovery-key-password"), Include: "input[name=password]",
+							Action: v.Rotate, Target: "#recovery",
+						})
 					}
 				}
 			</div>

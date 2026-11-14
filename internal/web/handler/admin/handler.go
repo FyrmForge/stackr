@@ -164,7 +164,7 @@ func (h *handler) share(c echo.Context) (string, *service.Job, error) {
 	if all {
 		return "Saved. Every org may use it.", nil, err
 	}
-	return "Saved. Server only.", nil, err
+	return "Saved. No org may use it.", nil, err
 }
 
 // extra is what an action adds to its section's answer.

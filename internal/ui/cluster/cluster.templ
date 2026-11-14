@@ -76,7 +76,7 @@ templ nodeCard(n Node) {
 		tabindex="0"
 		role="button"
 	>
-		<div class="flex h-[162px] shrink-0 flex-col p-[14px]">
+		<div class="flex h-[184px] shrink-0 flex-col p-[14px]">
 			<div class="flex items-center gap-[10px]">
 				<span class="node-icon flex h-[28px] w-[28px] items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0">
 					<svg class="h-[16px] w-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -95,7 +95,7 @@ templ nodeCard(n Node) {
 					</div>
 				</div>
 			</div>
-			<div class="flex flex-wrap gap-[4px] mt-[8px] h-[18px] shrink-0 overflow-hidden">
+			<div class="flex flex-wrap gap-[4px] mt-[8px] h-[40px] shrink-0 content-start overflow-hidden">
 				for _, t := range n.Tags {
 					<span class="shrink-0 rounded-md border border-rw-border bg-rw-inset px-[6px] py-[2px] text-[12px] leading-[12px] text-rw-muted">{ t }</span>
 				}

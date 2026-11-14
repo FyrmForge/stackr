@@ -60,6 +60,7 @@ class GraphCanvas extends HTMLElement {
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => this.repath());
   });
+  private sizer = new ResizeObserver(() => !this.touched && this.fit()); // the canvas may connect before layout sizes it: fit when it has one
   // Listeners are arrow fields, so wire(false) removes the same functions.
   private wire(on: boolean): void {
     const pairs: [EventTarget, string, (e: never) => void][] = [
@@ -76,20 +77,19 @@ class GraphCanvas extends HTMLElement {
     this.querySelectorAll<HTMLInputElement>("input[data-look]").forEach((i) => {
       i.checked = this.hasAttribute(i.dataset.look ?? "") === (i.type !== "radio" || i.value === "1");
     });
-    this.wire(true);
+    this.wire(true); this.sizer.observe(this);
     this.observer.observe(this, { subtree: true, childList: true, attributes: true, attributeFilter: ["x", "y", "w", "h", "user-w", "user-h"] });
     this.repath();
     // A swap in the parent (timer, note) adds this beside the old canvas: keep its camera, or refit
     // if untouched and the cards changed, once it is gone (they share the height). A new page fits.
     const old = [...(this.parentElement?.children ?? [])].find((c): c is GraphCanvas => c !== this && c instanceof GraphCanvas);
     const refit = !old || (!old.touched && old.ids() !== this.ids());
-    if (old) [this.px, this.py, this.s, this.floor, this.touched] = [old.px, old.py, old.s, old.floor, old.touched];
-    if (old) requestAnimationFrame(() => (refit ? this.fit() : this.apply())); else this.fit();
+    if (old) { [this.px, this.py, this.s, this.floor, this.touched] = [old.px, old.py, old.s, old.floor, old.touched]; requestAnimationFrame(() => (refit ? this.fit() : this.apply())); } else this.fit();
     const focus = this.getAttribute("focus");
     if (focus) this.centre(focus);
   }
   disconnectedCallback(): void {
-    this.observer.disconnect();
+    this.observer.disconnect(); this.sizer.disconnect();
     cancelAnimationFrame(this.frame);
     this.wire(false);
   }
@@ -149,7 +149,7 @@ class GraphCanvas extends HTMLElement {
   // The whole graph, clear of the controls and legends; zooming out then goes as far as this.
   private fit(): void {
     const max = clamp(Number(this.getAttribute("scale")) || 0.8);
-    const b = this.bounds(true);
+    const b = this.clientWidth && this.clientHeight ? this.bounds(true) : null; // no size yet: the sizer fits once there is one
     const ctrl = this.querySelector<HTMLElement>("[data-zoom]")?.parentElement;
     const legends = [...this.querySelectorAll<HTMLElement>(".graph-legend, [data-legend]")].filter((l) => l.offsetParent);
     const bottom = Math.max(0, ...legends.map((l) => this.clientHeight - l.offsetTop));

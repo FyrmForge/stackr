@@ -19,11 +19,11 @@ func TestNodeCardFooterOnBottomEdge(t *testing.T) {
 			faceH = n.H
 		}
 	}
-	if faceH != 164 {
-		t.Fatalf("a bare node card is %d px tall, want 164", faceH)
+	if faceH != 186 {
+		t.Fatalf("a bare node card is %d px tall, want 186", faceH)
 	}
 	body := render(t)
-	for _, want := range []string{"h-[162px]", "node-footer mt-auto"} {
+	for _, want := range []string{"h-[184px]", "node-footer mt-auto"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("node card lacks %q", want)
 		}

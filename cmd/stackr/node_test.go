@@ -35,7 +35,15 @@ func TestNodeAdd(t *testing.T) {
 		strings.Contains(out, "trusted certificate") {
 		t.Fatalf("add = %d %q %q", code, out, errw)
 	}
-	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"vps-fsn1","tags":["ingress","egress"]}` {
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"vps-fsn1","tags":["ingress","egress","storage"]}` {
+		t.Errorf("writes = %v", w)
+	}
+	// storage is on unless --no-storage
+	r = fake(t, map[string]string{"/admin/join-tokens": `{"node_name":"n","one_line":"x","expires_at":"2099-01-01T00:00:00Z"}`})
+	if code, _, errw = cli(t, "node", "add", "n", "--no-storage"); code != 0 {
+		t.Fatalf("add --no-storage = %d %q", code, errw)
+	}
+	if w := writes(r); len(w) != 1 || w[0] != `POST /api/v1/admin/join-tokens {"node_name":"n","tags":null}` {
 		t.Errorf("writes = %v", w)
 	}
 	// a panel without a trusted certificate gets the two-step command

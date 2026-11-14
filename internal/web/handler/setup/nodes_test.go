@@ -33,7 +33,7 @@ func TestServerWizardAddNode(t *testing.T) {
 	}
 
 	page := s.do(adm, "GET", setup.ServerBase+"/ui/nodes", nil, false)
-	want(page.Body.String(), `hx-get="`+nodes+`?add=1"`, "controller", `hx-trigger="every 5s"`)
+	want(page.Body.String(), `hx-get="`+nodes+`?add=1"`, "controller", "data-live-tab")
 
 	rec := s.do(adm, "GET", nodes+"?add=1", nil, true)
 	want(rec.Body.String(), "Get join command", `hx-post="`+nodes+`/add"`, `hx-target="#setup-nodes"`)
