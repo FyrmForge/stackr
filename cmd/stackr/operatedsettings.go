@@ -239,7 +239,7 @@ func (a *app) operatedExtensions() *cobra.Command {
 		}
 		return a.follow(base, m["job"], "extensions")
 	})
-	return noun("extensions", "(postgres) An instance's extensions", get, set)
+	return noun("extensions", "(postgres) An instance's extensions", get, set, a.operatedExtensionsPlan(), a.operatedExtensionsApply())
 }
 
 // sliceExtensions is `stackr slice extensions`: the extensions of a slice's

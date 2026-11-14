@@ -1683,6 +1683,21 @@ stackr operated env-pairs <tile> [consumer-env=env ...] [flags]
 
 (postgres) An instance's extensions
 
+#### `stackr operated extensions apply`
+
+(postgres) Apply a reviewed extension plan; --yes confirms a plan that restarts the instance
+
+```
+stackr operated extensions apply <tile> [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
+      --plan string    the plan id that plan printed
+      --stack string   the stack (default: the linked one)
+```
+
 #### `stackr operated extensions get`
 
 (postgres) Show an instance's image, startup modules and extensions
@@ -1693,6 +1708,20 @@ stackr operated extensions get <tile> [flags]
 
 ```
       --env string     the environment (default: the linked one)
+      --stack string   the stack (default: the linked one)
+```
+
+#### `stackr operated extensions plan`
+
+(postgres) Plan an extension change that needs a build; prints the plan and its id for apply
+
+```
+stackr operated extensions plan <tile> [name...] [flags]
+```
+
+```
+      --env string     the environment (default: the linked one)
+      --no-wait        print the job and return; it runs server-side
       --stack string   the stack (default: the linked one)
 ```
 
@@ -3064,6 +3093,49 @@ stackr server export [flags]
 ```
       --force           overwrite an existing -o file
   -o, --output string   write here instead of stdout
+```
+
+### `stackr server pg-extensions`
+
+Postgres extension recipes the server offers (admin)
+
+#### `stackr server pg-extensions list`
+
+List the built-in and added postgres extension recipes
+
+```
+stackr server pg-extensions list
+```
+
+#### `stackr server pg-extensions rm`
+
+Remove an added recipe, or a built-in's switch-off row
+
+```
+stackr server pg-extensions rm <name>
+```
+
+#### `stackr server pg-extensions set`
+
+Add or rewrite a recipe, or switch a built-in on or off (--off); --org or --all say who may use it
+
+```
+stackr server pg-extensions set <name> [flags]
+```
+
+```
+      --all                  every organization may use it
+      --extension strings    names CREATE EXTENSION creates
+      --major strings        postgres majors it supports
+      --off                  switch the recipe off
+      --on                   switch the recipe on (the default)
+      --org stringArray      an organization id that may use it (repeatable)
+      --package strings      apt package names, with {major} where the postgres major goes
+      --package-url string   download url of a package file
+      --preload strings      startup modules it needs
+      --requires strings     recipes it needs first
+      --sha256 stringArray   arch=hex checksum of the package file (repeatable)
+      --version string       the version to pin
 ```
 
 ### `stackr server plan`
