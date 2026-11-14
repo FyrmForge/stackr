@@ -114,6 +114,19 @@ func (l *Leaf) Create(ctx context.Context, orgID *string, s Dest, probe Probe) (
 	return d, l.dests.Create(ctx, d)
 }
 
+// Check is Create's validation and test write, saving nothing. A name left
+// empty is not an error here: a destination is tested before it is named.
+func (l *Leaf) Check(ctx context.Context, orgID *string, s Dest, probe Probe) error {
+	if strings.TrimSpace(s.Name) == "" {
+		s.Name = "check"
+	}
+	var noSecret error
+	if s.SecretKey == "" {
+		noSecret = errs.Invalidf("secret_key", "An S3 destination needs a secret key.")
+	}
+	return l.fill(ctx, &store.BackupDest{OrgID: orgID}, s, probe, noSecret)
+}
+
 // Update changes a destination; like Create, only once probe can write to it.
 func (l *Leaf) Update(ctx context.Context, d store.BackupDest, s Dest, probe Probe) (store.BackupDest, error) {
 	if d.Kind == Local {

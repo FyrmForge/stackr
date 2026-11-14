@@ -25,6 +25,9 @@ func (Kind) Hint() string {
 
 func (Kind) New() connectors.Conn { return &Account{} }
 
+// apiAccessURL is Namecheap's API access page, where the key and the allow list live.
+const apiAccessURL = "https://ap.www.namecheap.com/settings/tools/apiaccess/"
+
 // Steps 1 to 4 are one form posted at the last: the key never comes back.
 func (Kind) Steps() []connectors.Step {
 	return []connectors.Step{
@@ -35,6 +38,7 @@ func (Kind) Steps() []connectors.Step {
 				"Open Profile, Tools, Business & Dev Tools, Namecheap API Access.",
 				"Turn API access on and copy the API key.",
 			},
+			LinkLabel: "Open Namecheap API access", LinkURL: apiAccessURL,
 		},
 		{Title: "Account", Fields: []connectors.Field{
 			{Name: "user", Label: "Namecheap username"},
@@ -46,7 +50,8 @@ func (Kind) Steps() []connectors.Step {
 				Name: "client_ip", Label: "Calls come from", Prefill: connectors.ServerIPv4,
 				Help: "Add this IP to Namecheap's API allow list.",
 			}},
-			Note: "Behind NAT, use your router's public IPv4.",
+			Note:      "Behind NAT, use your router's public IPv4.",
+			LinkLabel: "Open Namecheap API access", LinkURL: apiAccessURL,
 		},
 		{Title: "Check", Intro: "stackr asks Namecheap for your domains to check the account."},
 	}

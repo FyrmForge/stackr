@@ -91,7 +91,6 @@ func (p Panel) gitRow(c echo.Context, k service.Connector, shares map[string]ser
 	}
 	if sc, ok := shares[k.ID]; ok {
 		r.Summary = sharedWith(sc)
-		r.Detail = "Webhook URL " + p.Orch.ConnectorHookURL(c.Request().Context(), k.ID)
 	}
 	if k.Pending {
 		return nil

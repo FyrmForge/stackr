@@ -7,7 +7,6 @@ package connectors
 
 import (
 	"strconv"
-	"strings"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
 )
@@ -29,14 +28,16 @@ type ListView struct {
 	Synced             string          // the last DNS records sync's failure, "" = fine
 	Foot               templ.Component // under the list, refreshed with it (the wizard's Continue)
 	Live               string          // a GET whose answer holds #connectors-list, polled; "" = static
+	Bare               bool            // the rows sit straight in the page: no card, title or top button (the wizard)
+	Empty              templ.Component // Bare, with no rows: the choices that start one (nil = an Add button)
 }
 
 // Row is one connector, a card: Kind as its title, Name under it, a status
 // pill right. Actions are its own buttons (Settings opens its dialog into
 // the Slot; Drawer instead opens a drawer, an org's git connector has its
 // own), Link a page at the provider, Remove apart on the right. Status is
-// its last check gone wrong ("" = fine); Hook where the provider delivers
-// events.
+// its last check gone wrong ("" = fine). Pending: its provider never
+// answered, Continue resumes it.
 type Row struct {
 	ID, Kind, Name, Summary string
 	Check                   string // POST answering an install-status chip as the row loads
@@ -46,7 +47,6 @@ type Row struct {
 	Pending                 bool
 	Status                  string
 	Detail                  string
-	Hook                    string
 	Link, LinkLabel         string
 	Settings                string
 	Drawer, Push            string // GET into #drawer-body, and the URL it pushes
@@ -60,17 +60,6 @@ type Action struct {
 	Label, URL string
 	Drawer     bool
 	Push       string
-}
-
-// short is a webhook URL as a card shows it: no scheme, the middle cut.
-func short(u string) string {
-	if _, rest, ok := strings.Cut(u, "://"); ok {
-		u = rest
-	}
-	if r := []rune(u); len(r) > 36 {
-		return string(r[:22]) + "…" + string(r[len(r)-10:])
-	}
-	return u
 }
 
 func addLabel(v ListView) string {
@@ -102,26 +91,21 @@ templ List(v ListView) {
 		if v.Live != "" {
 			@c.LiveTab(v.Live, ListID)
 		}
-		if v.Add != "" {
-			<div class="flex justify-end mb-3">
-				<button type="button" class="btn btn-primary btn-sm" hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>
-			</div>
-		}
-		@c.Section(v.Title, v.Scope, v.Help) {
-			if v.Synced != "" {
-				<div class="banner banner-danger mb-3 text-sm" role="alert">
-					<p>DNS records are out of date. stackr tries again on the next change.</p>
-					<p class="mt-1 font-mono text-xs break-all">{ v.Synced }</p>
+		if v.Bare {
+			@bare(v)
+		} else {
+			if v.Add != "" {
+				<div class="flex justify-end mb-3">
+					<button type="button" class="btn btn-primary btn-sm" hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>
 				</div>
 			}
-			if len(v.Rows) == 0 {
-				<p class="text-sm text-rw-faint mb-4">No connectors yet.</p>
-			} else {
-				<ul class="space-y-3 mb-4">
-					for _, r := range v.Rows {
-						@row(r)
-					}
-				</ul>
+			@c.Section(v.Title, v.Scope, v.Help) {
+				@synced(v.Synced)
+				if len(v.Rows) == 0 {
+					<p class="text-sm text-rw-faint mb-4">No connectors yet.</p>
+				} else {
+					@rows(v.Rows)
+				}
 			}
 		}
 		if v.Foot != nil {
@@ -130,19 +114,55 @@ templ List(v ListView) {
 	</div>
 }
 
+// bare is the list with no card of its own: the rows sit in the page, and
+// with none the page's own choices (Empty), else an Add button.
+templ bare(v ListView) {
+	@synced(v.Synced)
+	if len(v.Rows) > 0 {
+		if v.Help != "" {
+			<p class="text-xs text-rw-faint mb-3">{ v.Help }</p>
+		}
+		@rows(v.Rows)
+	} else if v.Empty != nil {
+		@v.Empty
+	}
+	if v.Add != "" && (len(v.Rows) > 0 || v.Empty == nil) {
+		<button type="button" class={ "btn btn-sm w-full", templ.KV("btn-ghost", len(v.Rows) > 0), templ.KV("btn-primary", len(v.Rows) == 0) } hx-get={ v.Add } hx-target={ "#" + SlotID }>{ addLabel(v) }</button>
+	}
+}
+
+templ synced(msg string) {
+	if msg != "" {
+		<div class="banner banner-danger mb-3 text-sm" role="alert">
+			<p>DNS records are out of date. stackr tries again on the next change.</p>
+			<p class="mt-1 font-mono text-xs break-all">{ msg }</p>
+		</div>
+	}
+}
+
+templ rows(rs []Row) {
+	<ul class="space-y-3 mb-4">
+		for _, r := range rs {
+			@row(r)
+		}
+	</ul>
+}
+
 templ row(r Row) {
 	<li class="rounded-lg border border-rw-border p-4 text-sm space-y-2">
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 			<div class="min-w-0">
 				<p class="font-medium text-rw-text">{ r.Kind }</p>
-				<p class="text-xs text-rw-muted break-all">{ r.Name }</p>
+				if r.Name != "" {
+					<p class="text-xs text-rw-muted break-all">{ r.Name }</p>
+				}
 			</div>
 			<span class="ml-auto flex items-center gap-2">
 				if r.Summary != "" {
 					<span class="text-xs text-rw-faint">{ r.Summary }</span>
 				}
 				if r.Pending {
-					@c.Chip("pending", "warn")
+					@c.Chip("Setup not finished", "warn")
 				} else if r.Status != "" {
 					@c.Chip("not working", "danger")
 				} else if r.Check != "" && r.Answered {
@@ -156,13 +176,6 @@ templ row(r Row) {
 		</div>
 		if r.Detail != "" {
 			<p class="font-mono text-xs text-rw-faint break-all">{ r.Detail }</p>
-		}
-		if r.Hook != "" {
-			<p class="flex items-center gap-2 text-xs text-rw-faint">
-				<span>Webhook</span>
-				<span class="font-mono" title={ r.Hook }>{ short(r.Hook) }</span>
-				<button type="button" data-copy={ r.Hook } class="btn btn-ghost btn-sm">Copy</button>
-			</p>
 		}
 		<div class="flex flex-wrap items-center gap-2">
 			if r.Link != "" {

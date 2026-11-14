@@ -9,12 +9,12 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 )
 
-// A fresh install keeps metrics history on, wizard or not.
-func TestObserveOnByDefault(t *testing.T) {
+// A fresh install keeps metrics history off until the wizard or Admin turns it on.
+func TestObserveOffByDefault(t *testing.T) {
 	t.Parallel()
 	orch := servicetest.New(t).Orch
-	if v, err := orch.Setting(context.Background(), "observe_enabled"); err != nil || v != "true" {
-		t.Errorf("observe_enabled = %q, %v; want true", v, err)
+	if v, err := orch.Setting(context.Background(), "observe_enabled"); err != nil || v != "false" {
+		t.Errorf("observe_enabled = %q, %v; want false", v, err)
 	}
 }
 

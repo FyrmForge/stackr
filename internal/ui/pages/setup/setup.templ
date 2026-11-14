@@ -187,7 +187,7 @@ templ shell(f Frame) {
 // stepper is each step by name under its number; a done one that can be
 // reopened is a link back to it.
 templ stepper(step int, steps []StepLink) {
-	<nav class="mb-6" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(len(steps)) }>
+	<nav class="mb-6 -mx-6" aria-label={ "Step " + strconv.Itoa(step) + " of " + strconv.Itoa(len(steps)) }>
 		<ol class="flex items-start justify-center">
 			for i, s := range steps {
 				<li
@@ -199,11 +199,11 @@ templ stepper(step int, steps []StepLink) {
 					if i+1 < step && s.Href != "" {
 						<a href={ templ.SafeURL(s.Href) } class="group flex flex-col items-center gap-1.5 min-w-0 max-w-full focus:outline-none">
 							@stepDot(i+1, step)
-							<span class="text-[11px] leading-tight text-rw-muted group-hover:text-rw-text group-focus-visible:underline truncate max-w-full">{ s.Name }</span>
+							<span class="text-[11px] leading-tight text-center text-rw-muted group-hover:text-rw-text group-focus-visible:underline [overflow-wrap:anywhere] max-w-full">{ s.Name }</span>
 						</a>
 					} else {
 						@stepDot(i+1, step)
-						<span class={ "text-[11px] leading-tight truncate max-w-full", templ.KV("text-rw-text font-medium", i+1 == step), templ.KV("text-rw-faint", i+1 != step) }>{ s.Name }</span>
+						<span class={ "text-[11px] leading-tight text-center [overflow-wrap:anywhere] max-w-full", templ.KV("text-rw-text font-medium", i+1 == step), templ.KV("text-rw-faint", i+1 != step) }>{ s.Name }</span>
 					}
 				</li>
 			}

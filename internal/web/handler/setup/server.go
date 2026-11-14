@@ -52,6 +52,7 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	h.gitPanel().Mount(site, gitBase, conn, nil)
 	site.POST(ServerBase+"/observe", h.serverObserve, set)
 	site.POST(ServerBase+"/dest", h.serverDest, set)
+	site.POST(ServerBase+"/dest/test", h.serverDestTest, set)
 	site.POST(ServerBase+"/panel-backup", h.serverPanelBackup, set)
 	site.POST(ServerBase+"/bind", h.serverBind, bind)
 	node := a.Require("node.manage")
@@ -150,7 +151,7 @@ func adminURL(section string) string { return admin.Href(section) }
 // serverSteps' titles and subtitles, by step.
 var serverStepTitles = map[string][2]string{
 	"domains":       {"Domains", "Where the panel and your stacks are reached."},
-	"certificates":  {"Certificates", "HTTPS for every domain, wildcards where stackr runs the DNS."},
+	"certificates":  {"DNS", "Connect your DNS provider, or point it yourself."},
 	"observability": {"Observability", "Graphs and logs, kept past today."},
 	"backups":       {"Backups", "Where backups go, and the panel's own."},
 	"nodes":         {"Nodes", "The boxes stacks run on."},
@@ -202,13 +203,21 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 	case "certificates":
 		v := pages.ServerCertsView{ServerStep: s}
 		v.List = connectors.ListView{
-			Title: "DNS connectors", Scope: "instance",
-			Help:     "Pick the domains and who may use them in a connector's settings.",
+			Bare:     true,
 			Add:      connBase + "/new",
 			Live:     stepURL(step),
 			AddLabel: addLabel(h.dnsPanel()),
 		}
-		v.List.Rows, err = h.dnsPanel().Rows(c)
+		var root string
+		if err = h.settings(ctx, map[string]*string{"panel_domain": &v.Host, "root_domain": &root}); err == nil {
+			if root != "" {
+				v.Wildcard = "*." + root
+			}
+			v.IP = h.orch.ServerAddress(ctx)
+		}
+		if err == nil {
+			v.List.Rows, err = h.dnsPanel().Rows(c)
+		}
 		v.Done = len(v.List.Rows) > 0
 		if v.Done && err == nil {
 			var n map[string]int
@@ -226,7 +235,6 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		o, err = h.orch.ObserveStatus(ctx)
 		body = pages.ServerObserve(pages.ServerObserveView{
 			ServerStep: s,
-			Enabled:    o.Enabled,
 			Retention:  strconv.Itoa(o.RetentionDays),
 			MinFree:    strconv.FormatUint(o.MinFreeBytes>>30, 10),
 			LogsDays:   strconv.Itoa(o.LogsDays),
@@ -234,7 +242,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 		})
 	case "backups":
 		var v pages.ServerBackupsView
-		v, err = h.backupsStep(ctx, s, c.QueryParam("dest"))
+		v, err = h.backupsStep(ctx, s, c.FormValue("dest"), c.FormValue("sub") == "panel")
 		body = pages.ServerBackups(v)
 	case "nodes":
 		var v pages.ServerNodesView
@@ -298,8 +306,8 @@ func (h *handler) gitStep(c echo.Context, s pages.ServerStep) (pages.ServerGitVi
 	p := h.gitPanel()
 	v := pages.ServerGitView{ServerStep: s, Label: gitLabel(p)}
 	v.List = connectors.ListView{
-		Title: v.Label + " connectors", Scope: "instance",
 		Help:     "Shared with every organization. Pick who may use one in its settings.",
+		Bare:     true,
 		Add:      gitBase + "/new",
 		Live:     stepURL(service.ServerSetupGit),
 		AddLabel: addLabel(p),
@@ -316,8 +324,8 @@ func (h *handler) gitStep(c echo.Context, s pages.ServerStep) (pages.ServerGitVi
 
 // backupsStep: added is the destination just added, which the panel backup
 // form picks while the panel still backs up to this box.
-func (h *handler) backupsStep(ctx context.Context, s pages.ServerStep, added string) (pages.ServerBackupsView, error) {
-	v := pages.ServerBackupsView{ServerStep: s}
+func (h *handler) backupsStep(ctx context.Context, s pages.ServerStep, added string, panel bool) (pages.ServerBackupsView, error) {
+	v := pages.ServerBackupsView{ServerStep: s, Panel: panel}
 	var on, dest string
 	if err := h.settings(ctx, map[string]*string{"panel_backup_enabled": &on, "panel_backup_schedule": &v.Schedule, "panel_backup_dest": &dest}); err != nil {
 		return v, err
@@ -599,7 +607,7 @@ func (h *handler) serverDomains(c echo.Context) error {
 // (the access log flags keep their values).
 func (h *handler) serverObserve(c echo.Context) error {
 	f, on := c.FormValue, "false"
-	if f("observe_enabled") != "" {
+	if f("observe_enabled") == "1" {
 		on = "true"
 	}
 	if err := h.orch.SetSettings(c.Request().Context(), map[string]string{
@@ -632,7 +640,28 @@ func (h *handler) serverDest(c echo.Context) error {
 		return h.refillStep(c, err, "backups")
 	}
 	hamrmw.SetFlash(c, "Destination added.", hamrmw.FlashSuccess)
-	return respond.Redirect(c, stepURL("backups")+"?dest="+url.QueryEscape(d.ID))
+	return respond.Redirect(c, stepURL("backups")+"?sub=panel&dest="+url.QueryEscape(d.ID))
+}
+
+// POST /-/setup/server/dest/test: the check a save runs (a test write and
+// delete), without saving. The form stays as typed; only the answer moves.
+func (h *handler) serverDestTest(c echo.Context) error {
+	f := c.FormValue
+	err := h.orch.TestBackupDest(c.Request().Context(), nil, service.BackupDestSpec{
+		Name: f("dest_name"), Endpoint: f("endpoint"), Region: f("region"),
+		Bucket: f("bucket"), AccessKey: f("access_key"), SecretKey: f("secret_key"),
+	})
+	if err == nil {
+		return respond.HTML(c, http.StatusOK, pages.ServerDestTest(""))
+	}
+	msg, ok := render.Refused(err)
+	if inv, isInv := errs.IsInvalid(err); isInv {
+		msg, ok = inv.Msg, true
+	}
+	if !ok {
+		return middleware.HTTPError(err)
+	}
+	return respond.HTML(c, http.StatusOK, pages.ServerDestTest(msg))
 }
 
 // POST /-/setup/server/panel-backup: the panel's own backup switch,

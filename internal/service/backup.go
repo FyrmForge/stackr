@@ -42,6 +42,13 @@ func (o *Orchestrator) CreateBackupDest(ctx context.Context, orgID *string, s Ba
 	return o.approvedBySaver(ctx, d, err)
 }
 
+// TestBackupDest runs CreateBackupDest's checks and its test write without
+// saving anything.
+func (o *Orchestrator) TestBackupDest(ctx context.Context, orgID *string, s BackupDestSpec) error {
+	user, key := store.ActorFrom(ctx)
+	return o.backups.Check(ctx, orgID, s, o.probeDest(o.adminActor(ctx, user, key)))
+}
+
 // GlobalBackupDests lists the admin-global destinations, shared or not.
 func (o *Orchestrator) GlobalBackupDests(ctx context.Context) ([]BackupDest, error) {
 	return o.backups.Global(ctx)

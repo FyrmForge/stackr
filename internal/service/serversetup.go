@@ -178,6 +178,10 @@ func (o *Orchestrator) ServerSetupSummary(ctx context.Context) ([]SetupLine, err
 	return out, nil
 }
 
+// ServerAddress is the controller's public IPv4, what DNS records by hand
+// point at; "" when it is not known (a single box behind NAT).
+func (o *Orchestrator) ServerAddress(ctx context.Context) string { return o.serverIPv4(ctx) }
+
 // FinishServerSetup stamps server_setup_done_at and drops the resume step.
 func (o *Orchestrator) FinishServerSetup(ctx context.Context, by *Principal) error {
 	if err := o.store.Settings.Delete(ctx, keyServerSetupStep); err != nil {

@@ -33,6 +33,8 @@ type Step struct {
 	List         []string
 	Fields       []Field
 	Note         string
+	LinkLabel    string // a page at the provider, opened in a new tab; "" = none
+	LinkURL      string
 }
 
 // Field is a step's input; Multiline: a text area (a pasted key), never
@@ -62,6 +64,7 @@ type OutView struct {
 	Method, URL  string
 	Values       map[string]string
 	Label        string
+	Cancel       string // POST dropping the pending connection, fired as the dialog closes; "" = none
 }
 
 // start is the step shown first: the one holding the first field error,
@@ -201,6 +204,9 @@ templ Setup(v SetupView) {
 								if s.Note != "" {
 									<p class="text-xs text-rw-faint">{ s.Note }</p>
 								}
+								if s.LinkURL != "" {
+									<a href={ templ.SafeURL(s.LinkURL) } target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">{ s.LinkLabel }</a>
+								}
 								if i == 0 && v.Alt != "" {
 									<p class="border-t border-rw-border pt-3"><button type="button" class="link text-xs" hx-get={ v.Alt } hx-target={ "#" + BodyID } hx-swap="outerHTML">{ v.AltLabel }</button></p>
 								}
@@ -226,6 +232,9 @@ templ Setup(v SetupView) {
 }
 
 templ out(total int, o OutView) {
+	if o.Cancel != "" {
+		<span hidden hx-post={ o.Cancel } hx-trigger={ "close from:#" + dialogID }></span>
+	}
 	if o.Method == "POST" {
 		// templint:ignore no-native-form-actions -- a provider's sign-in takes a browser form POST
 		<form id="connector-out" method="post" action={ templ.SafeURL(o.URL) }>
