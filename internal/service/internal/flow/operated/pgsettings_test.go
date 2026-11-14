@@ -78,7 +78,7 @@ func TestPGFlagsPerMajor(t *testing.T) {
 		{18, 7, true, true},
 		{0, 0, true, false},
 	} {
-		f := pgFlags(c.major, c.days, 0)
+		f := pgFlags(c.major, c.days, 0, nil)
 		if has(f, "allow_alter_system") != c.alter || has(f, "archive_mode") != c.archive {
 			t.Errorf("major %d days %d: %v", c.major, c.days, f)
 		}
@@ -93,7 +93,7 @@ func TestPGFlagsPerMajor(t *testing.T) {
 			}
 		}
 	}
-	if f := pgFlags(17, 0, 0); !slices.Contains(f, "shared_preload_libraries=pg_stat_statements") || !slices.Contains(f, "wal_log_hints=on") {
+	if f := pgFlags(17, 0, 0, nil); !slices.Contains(f, "shared_preload_libraries=pg_stat_statements") || !slices.Contains(f, "wal_log_hints=on") {
 		t.Errorf("flags = %v", f)
 	}
 	cmd := pgCommand(Instance{Major: 16, PITRDays: 7})
@@ -212,7 +212,7 @@ func TestReloadOrRestart(t *testing.T) {
 		{[]string{"nope"}, []string{"nope"}, false, false},
 		{[]string{"server_version_num"}, nil, false, true},
 	} {
-		restart, err := pgJudge(ctxs, c.changed, c.unset)
+		restart, err := pgJudge(ctxs, c.changed, c.unset, false)
 		if restart != c.restart || (err != nil) != c.err {
 			t.Errorf("%v: restart %v err %v, want %v %v", c.changed, restart, err, c.restart, c.err)
 		}

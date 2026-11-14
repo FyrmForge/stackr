@@ -177,7 +177,7 @@ func TestReservedConnectionsPerMajor(t *testing.T) {
 		{18, "reserved_connections=5", "superuser_reserved_connections=5"},
 		{0, "reserved_connections=5", "superuser_reserved_connections=5"},
 	} {
-		f := pgFlags(c.major, 0, 0)
+		f := pgFlags(c.major, 0, 0, nil)
 		if !has(f, c.want) || has(f, c.not) {
 			t.Errorf("major %d: %v", c.major, f)
 		}
