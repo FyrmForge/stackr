@@ -867,7 +867,9 @@ func extFieldErrors(err error) (map[string]string, error) {
 // leaves the row saying so, never the whole tab failing.
 func (h *handler) extForm(ctx context.Context, id string, typed *instance.ExtView) *instance.ExtView {
 	p, err := h.orch.PGExtensions(ctx, id)
-	if err != nil {
+	// Plan is set once the stored rows are read; a later failure is the live
+	// read of the running server, which the form does not need
+	if err != nil && p.Plan == "" {
 		return &instance.ExtView{Unread: unreadReason(err)}
 	}
 	v := &instance.ExtView{
