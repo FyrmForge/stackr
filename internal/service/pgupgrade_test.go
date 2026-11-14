@@ -908,7 +908,12 @@ func recipePGUpRig(t *testing.T) *pgupRig {
 		Tag: func(base, arch, df string) string {
 			return fmt.Sprintf("%s-ext-%s-%x", pgTagOf(base), arch, sha256.Sum256([]byte(df)))[:30]
 		},
-		Helper: func(from, to mflow.ExtBuild, arch string) (string, error) {
+		Helper: func(from, to mflow.ExtBuild, arch string, extra ...mflow.Recipe) (string, error) {
+			// the helper is made from the checked new-major build (its server
+			// pin) and the instance's recipes (custom URL ones among them)
+			if to.Packages["postgresql-18"] == "" || len(extra) == 0 {
+				return "", fmt.Errorf("helper without the new server pin or the recipes: %v %d", to.Packages, len(extra))
+			}
 			return fmt.Sprintf("FROM helper\n# %v %v\n", from.Packages, to.Packages), nil
 		},
 	}
@@ -985,7 +990,9 @@ func TestPGUpgradeRecipeBuiltRunsInItsOwnHelper(t *testing.T) {
 }
 
 // The dry run of a recipe-built instance runs in a pinned helper the dry run
-// builds (V11); the run reuses it, so only the instance image is built then.
+// builds (V11), after the new major's image whose dpkg list gives the helper
+// its pins; the run reuses the helper, so only the instance image is built
+// again then.
 func TestPGUpgradeRecipeBuiltCheckBuildsTheHelperAndRunReusesIt(t *testing.T) {
 	t.Parallel()
 	r := recipePGUpRig(t)
@@ -995,7 +1002,7 @@ func TestPGUpgradeRecipeBuiltCheckBuildsTheHelperAndRunReusesIt(t *testing.T) {
 	u.ran = func(run mflow.UpgradeRun) { runs = append(runs, run) }
 	must(t, u.check(ctx, 18))
 	c := o.lastPGCheck(ctx, r.inst.ID)
-	if c == nil || !c.OK || c.Helper == "" || r.builds() != 1 {
+	if c == nil || !c.OK || c.Helper == "" || r.builds() != 2 {
 		t.Fatalf("check = %+v, %d builds", c, r.builds())
 	}
 	if len(runs) != 2 {
@@ -1005,10 +1012,14 @@ func TestPGUpgradeRecipeBuiltCheckBuildsTheHelperAndRunReusesIt(t *testing.T) {
 		if run.Image != c.Helper || !slices.Equal(run.Preload, []string{"vectors"}) {
 			t.Errorf("%s ran in %q with %v", run.Step, run.Image, run.Preload)
 		}
+		spec, err := run.Spec()
+		if err != nil || spec.Image != c.Helper || !slices.Contains(spec.Env, "PRELOAD=pg_stat_statements,vectors") {
+			t.Errorf("%s container: %v %q %v", run.Step, err, spec.Image, spec.Env)
+		}
 	}
 	u2 := r.begin(t, 18)
 	must(t, u2.buildImages(ctx))
-	if u2.st.Helper != c.Helper || r.builds() != 2 {
+	if u2.st.Helper != c.Helper || r.builds() != 3 {
 		t.Errorf("helper %q (check built %q), %d builds", u2.st.Helper, c.Helper, r.builds())
 	}
 }

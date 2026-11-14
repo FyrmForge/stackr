@@ -138,7 +138,7 @@ type pgRecipeFns struct {
 	Dockerfile func(base string, major int, arch string, rs []mflow.Recipe, pinned map[string]string) (string, error)
 	Tag        func(base, arch, dockerfile string) string
 	// Helper is the major-change helper's Dockerfile (lane A3's).
-	Helper func(from, to mflow.ExtBuild, arch string) (string, error)
+	Helper func(from, to mflow.ExtBuild, arch string, extra ...mflow.Recipe) (string, error)
 }
 
 var defaultPGFns = pgRecipeFns{

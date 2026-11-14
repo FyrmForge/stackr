@@ -21,7 +21,7 @@ func TestHelperDockerfile(t *testing.T) {
 	}
 	for _, want := range []string{
 		"FROM " + PGUpgradeImage + "\n",
-		"--allow-downgrades postgresql-17=1.2-1 postgresql-client-17=1.2-1 postgresql-client-common=300 postgresql-common=300 postgresql-18=1.2-1 postgresql-client-18=1.2-1",
+		"--allow-downgrades postgresql-17=1.2-1 postgresql-client-17=1.2-1 postgresql-18=1.2-1 postgresql-client-18=1.2-1 postgresql-client-common=300 postgresql-common=300",
 		"apt-mark hold postgresql-common postgresql-client-common postgresql-17 postgresql-client-17 postgresql-18 postgresql-client-18",
 		"postgresql-17-pgvector=0.8.7-1.pgdg13+1 postgresql-18-pgvector=0.8.7-1.pgdg13+1",
 		"ADD --checksum=sha256:a48132c8d616c0d52a9811b32f12f88a8f6cc8542d7cc0180c8d0986bfbd03c5 https://github.com/supervc-stack/VectorChord/releases/download/1.1.1/postgresql-17-vchord_1.1.1-1_amd64.deb /tmp/ext-17-0.deb\n",
@@ -44,6 +44,12 @@ func TestHelperDockerfile(t *testing.T) {
 	if _, err := HelperDockerfile(from, to, "riscv64"); err == nil {
 		t.Error("an arch with no checksum was accepted")
 	}
+	// the two images may carry different builds of the shared common
+	// packages: the new major's wins, nothing is refused
+	from.Packages["postgresql-common"] = "290"
+	if df, err := HelperDockerfile(from, to, "amd64"); err != nil || strings.Contains(df, "=290") {
+		t.Errorf("older common in the old build: %v\n%s", err, df)
+	}
 }
 
 func TestHelperDockerfileRefusals(t *testing.T) {
@@ -59,9 +65,6 @@ func TestHelperDockerfileRefusals(t *testing.T) {
 	}
 	if _, err := HelperDockerfile(helperBuild("17", nil, "vchord"), ok18, "amd64"); err == nil {
 		t.Error("vchord build without its recorded version accepted")
-	}
-	if _, err := HelperDockerfile(ok17, helperBuild("18", map[string]string{"postgresql-common": "301"}), "amd64"); err == nil {
-		t.Error("two versions of a shared package accepted")
 	}
 	for _, bad := range hostileMore {
 		if _, err := HelperDockerfile(helperBuild("17", map[string]string{"postgresql-17-pgvector": bad}), ok18, "amd64"); err == nil {

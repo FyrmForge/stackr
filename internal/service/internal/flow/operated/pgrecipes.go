@@ -650,7 +650,7 @@ func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, 
 	all := map[string]string{}
 	var servers, apt, adds, debs []string
 	hold := []string{"postgresql-common", "postgresql-client-common"}
-	for _, b := range []ExtBuild{from, to} {
+	for i, b := range []ExtBuild{from, to} {
 		m, err := buildMajor(b)
 		if err != nil {
 			return "", err
@@ -704,6 +704,9 @@ func HelperDockerfile(from, to ExtBuild, arch string, extra ...Recipe) (string, 
 		}
 		for _, name := range slices.Sorted(maps.Keys(b.Packages)) {
 			v := b.Packages[name]
+			if i == 0 && (name == "postgresql-common" || name == "postgresql-client-common") {
+				continue // shared by both majors: the new major's image's build wins
+			}
 			if err := CheckPackage(name, m); err != nil {
 				return "", err
 			}
