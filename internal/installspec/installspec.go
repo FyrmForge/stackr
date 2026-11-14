@@ -243,7 +243,7 @@ func CheckNodeName(s string) (string, error) {
 func CleanNodeName(host string) string {
 	b := []byte(strings.ToLower(host))
 	for i, c := range b {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
 			b[i] = '-'
 		}
 	}

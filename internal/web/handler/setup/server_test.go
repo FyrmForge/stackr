@@ -285,7 +285,7 @@ func TestServerWizardObserve(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, v, want)
 		}
 	}
-	rec = s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"1"}}, true)
+	s.do(adm, "POST", setup.ServerBase+"/observe", url.Values{"observe_enabled": {"1"}}, true)
 	if v, _ := s.env.Orch.Setting(ctx, "observe_enabled"); v != "true" {
 		t.Errorf("Turn it on saved observe_enabled = %q", v)
 	}
@@ -505,7 +505,9 @@ func TestServerWizardCertificates(t *testing.T) {
 		}
 	}
 	// the manual path shows the records to add, once the domains are set
-	s.env.Orch.SetSettings(ctx, map[string]string{"root_domain": "acme.dev", "panel_domain": "stackr.acme.dev"})
+	if err := s.env.Orch.SetSettings(ctx, map[string]string{"root_domain": "acme.dev", "panel_domain": "stackr.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
 	body = s.do(adm, "GET", step, nil, false).Body.String()
 	for _, w := range []string{"stackr.acme.dev A", "*.acme.dev A"} {
 		if !strings.Contains(body, w) {
