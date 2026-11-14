@@ -98,7 +98,7 @@ func newRecipeRig(t *testing.T) *recipeRig {
 			b, _ := json.Marshal(pins)
 			return fmt.Sprintf("FROM %s\n# %s %v\n", base, arch, string(b)), nil
 		},
-		Tag: func(base, arch, df string) string {
+		Tag: func(base string, _ int, arch, df string) string {
 			return fmt.Sprintf("%s-ext-%s-%x", pgTagOf(base), arch, sha256.Sum256([]byte(df)))[:30]
 		},
 	}

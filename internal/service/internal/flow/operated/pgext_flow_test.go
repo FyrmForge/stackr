@@ -127,8 +127,8 @@ func TestReconcileEveryDatabase(t *testing.T) {
 			reads++
 		}
 	}
-	if reads != 2 {
-		t.Errorf("catalog reads = %d, want 2 (one per database)", reads)
+	if reads != 1 {
+		t.Errorf("catalog reads = %d, want 1 (only the database that lists something)", reads)
 	}
 	if got := string(w.fake.ExecIn); strings.Count(got, "CREATE EXTENSION") != 1 {
 		t.Errorf("session = %q: only the slice's database lists vector", got)
@@ -185,5 +185,32 @@ func TestExtensionReads(t *testing.T) {
 	if len(sl) != 2 || sl[0].Name != "earthdistance" || !sl[0].Listed ||
 		sl[1].Name != "cube" || sl[1].Listed || sl[1].AddedWith != "earthdistance" || sl[1].Installed != "1.5" {
 		t.Errorf("slice = %+v", sl)
+	}
+}
+
+// Compat: an instance whose slices list nothing runs no exec on a slice
+// reconcile, an instance reconcile or the drawer read.
+func TestNoListsNoExec(t *testing.T) {
+	w := setup(t, "postgres")
+	p, err := w.f.Provision(ctx, w.db, w.orders)
+	must(t, err)
+	_ = p
+	execs := func() (n int) {
+		for _, c := range w.fake.Calls() {
+			if strings.HasPrefix(c.Method, "Exec") {
+				n++
+			}
+		}
+		return n
+	}
+	before := execs()
+	must(t, w.f.ReconcileSlice(ctx, w.db, w.orders, io.Discard))
+	must(t, w.f.Reconcile(ctx, w.db, io.Discard))
+	must(t, w.f.ReconcileWarn(ctx, w.db, io.Discard))
+	if infos, err := w.f.Extensions(ctx, w.db); err != nil || len(infos) != 0 {
+		t.Errorf("drawer read: %v %v", infos, err)
+	}
+	if got := execs(); got != before || strings.Contains(string(w.fake.ExecIn), "ALTER EXTENSION") {
+		t.Errorf("%d extra execs", got-before)
 	}
 }

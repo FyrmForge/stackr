@@ -89,3 +89,29 @@ func TestHelperDockerfileRefusals(t *testing.T) {
 		t.Error("hostile checksum accepted")
 	}
 }
+
+// The helper fetches the file the build recorded, not what the recipe says
+// now; a record without URLs falls back to the recipe.
+func TestHelperDockerfileUsesRecordedURL(t *testing.T) {
+	from := helperBuild("17", map[string]string{"postgresql-17-pgvector": "0.8.7-1", "postgresql-17-vchord": "1.0.9-1"}, "pgvector", "vchord")
+	to := helperBuild("18", map[string]string{"postgresql-18-pgvector": "0.8.7-1", "postgresql-18-vchord": "1.0.9-1"}, "pgvector", "vchord")
+	old := BuiltinRecipes[2]
+	old.Version = "1.0.9"
+	var err error
+	if from.URLs, err = URLPackages([]Recipe{old}, 17, "amd64"); err != nil {
+		t.Fatal(err)
+	}
+	rec := from.URLs["postgresql-17-vchord"]
+	rec.SHA256 = strings.Repeat("ab", 32)
+	from.URLs["postgresql-17-vchord"] = rec
+	df, err := HelperDockerfile(from, to, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(df, "sha256:"+rec.SHA256+" "+rec.URL+" ") || !strings.Contains(rec.URL, "/1.0.9/") {
+		t.Errorf("recorded file not used:\n%s", df)
+	}
+	if !strings.Contains(df, "/1.1.1/postgresql-18-vchord_1.1.1-1_amd64.deb") {
+		t.Errorf("the new major (no record) did not use the recipe:\n%s", df)
+	}
+}

@@ -130,18 +130,38 @@ func pgReadExt(ctx context.Context, i Instance, x Tools, db string) (recovery bo
 	return recovery, rows, nil
 }
 
-// pgReconcile makes database db hold the extensions in want and brings every
-// installed extension to the image's default version. It never runs on a
-// standby (it returns nil there). Nothing to do costs the one catalog read;
-// otherwise one session takes an advisory lock, creates, then updates.
+// reconcileMode says which extensions a reconcile updates and what a failed
+// update does.
+type reconcileMode int
+
+const (
+	// reconcileListed creates the listed names and updates the listed names
+	// that are behind the image; a failure fails. Nothing listed: no work and
+	// no exec, so an install that never uses extensions is untouched.
+	reconcileListed reconcileMode = iota
+	// reconcileWarn is reconcileListed where an update that fails is said
+	// and left (a restore replay, which must not block its cleanup).
+	reconcileWarn
+	// reconcileMajor is a major change's rule: every installed extension is
+	// updated, one that cannot update is said and left, only a listed name
+	// that cannot be created fails.
+	reconcileMajor
+)
+
+// pgReconcile makes database db hold the extensions in want and brings the
+// listed ones to the image's default version. It never runs on a standby (it
+// returns nil there). An empty want does nothing, not even a read; otherwise
+// one session takes an advisory lock, creates, then updates.
 func pgReconcile(ctx context.Context, i Instance, x Tools, db string, want []string, log io.Writer) error {
-	return pgReconcileAs(ctx, i, x, db, want, log, false)
+	return pgReconcileAs(ctx, i, x, db, want, log, reconcileListed)
 }
 
-// pgReconcileAs is pgReconcile; warnUpdates keeps a major change's old rule:
-// an extension that cannot update is said and left, only a listed name that
-// cannot be created fails.
-func pgReconcileAs(ctx context.Context, i Instance, x Tools, db string, want []string, log io.Writer, warnUpdates bool) error {
+// pgReconcileAs is pgReconcile in the given mode.
+func pgReconcileAs(ctx context.Context, i Instance, x Tools, db string, want []string, log io.Writer, mode reconcileMode) error {
+	if len(want) == 0 && mode != reconcileMajor {
+		return nil
+	}
+	warnUpdates := mode != reconcileListed
 	recovery, rows, err := pgReadExt(ctx, i, x, db)
 	if err != nil {
 		return err
@@ -165,6 +185,9 @@ func pgReconcileAs(ctx context.Context, i Instance, x Tools, db string, want []s
 	var update []string
 	for n, r := range rows {
 		if r.installed == "" || r.def == "" || r.installed == r.def {
+			continue
+		}
+		if mode != reconcileMajor && !slices.Contains(want, n) {
 			continue
 		}
 		if !catName.MatchString(n) {
@@ -246,10 +269,15 @@ func psqlLine(err error) (int, string) {
 // only (open item 1: Exec can land on a standby, so pgReconcile itself does
 // nothing in recovery). Not postgres: nil.
 func (f *Flow) Reconcile(ctx context.Context, it store.Tile, log io.Writer) error {
-	return f.reconcile(ctx, it, log, false)
+	return f.reconcile(ctx, it, log, reconcileListed)
 }
 
-func (f *Flow) reconcile(ctx context.Context, it store.Tile, log io.Writer, warnUpdates bool) error {
+// ReconcileWarn is Reconcile where an update that fails is said and left.
+func (f *Flow) ReconcileWarn(ctx context.Context, it store.Tile, log io.Writer) error {
+	return f.reconcile(ctx, it, log, reconcileWarn)
+}
+
+func (f *Flow) reconcile(ctx context.Context, it store.Tile, log io.Writer, mode reconcileMode) error {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return err
@@ -263,19 +291,24 @@ func (f *Flow) reconcile(ctx context.Context, it store.Tile, log io.Writer, warn
 		return err
 	}
 	want := map[string][]string{}
+	listed := false
 	for _, p := range ps {
 		t, err := f.Tiles.Get(ctx, p.TileID)
 		if err != nil {
 			return err
 		}
 		want[p.DBName] = t.Extensions
+		listed = listed || len(t.Extensions) > 0
+	}
+	if !listed && mode != reconcileMajor {
+		return nil // nothing listed anywhere: no exec
 	}
 	dbs, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", pgDBsSQL))
 	if err != nil {
 		return err
 	}
 	for _, db := range strings.Fields(dbs) {
-		if err := pgReconcileAs(ctx, i, x, db, want[db], log, warnUpdates); err != nil {
+		if err := pgReconcileAs(ctx, i, x, db, want[db], log, mode); err != nil {
 			return err
 		}
 	}
@@ -307,13 +340,27 @@ func (f *Flow) ReconcileSlice(ctx context.Context, it, s store.Tile, log io.Writ
 // lists or loads at start, with the version installed in its databases (the
 // first that has it) and the one the image offers, then every other
 // extension the image offers, neither listed nor loaded (what a new list may
-// name). Not postgres: none.
+// name). An instance that lists and loads nothing is not read: none, no exec
+// (ExtensionsAll reads it). Not postgres: none.
 func (f *Flow) Extensions(ctx context.Context, it store.Tile) ([]ExtInfo, error) {
+	return f.extensions(ctx, it, false)
+}
+
+// ExtensionsAll is Extensions that reads the image's offer even when the
+// instance lists and loads nothing: what a first list may name.
+func (f *Flow) ExtensionsAll(ctx context.Context, it store.Tile) ([]ExtInfo, error) {
+	return f.extensions(ctx, it, true)
+}
+
+func (f *Flow) extensions(ctx context.Context, it store.Tile, all bool) ([]ExtInfo, error) {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return nil, err
 	}
 	if _, ok := e.(pg); !ok {
+		return nil, nil
+	}
+	if !all && len(m.Extensions) == 0 && len(m.Preload) == 0 {
 		return nil, nil
 	}
 	names := slices.Clone(m.Extensions)
