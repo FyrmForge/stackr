@@ -16,17 +16,24 @@ func TestRecoverySection(t *testing.T) {
 		return b.String()
 	}
 	unsaved := render(RecoveryView{Gen: 1, Unsaved: true, Show: "/s", Saved: "/v"})
-	for _, want := range []string{"data-recovery-warning", `type="password"`, "Show the key"} {
+	for _, want := range []string{"data-recovery-warning", "Show the key", "<dialog"} {
 		if !strings.Contains(unsaved, want) {
 			t.Errorf("unsaved section lacks %q", want)
 		}
 	}
-	if strings.Contains(unsaved, "AGE-SECRET-KEY") || strings.Contains(unsaved, "Rotate the recovery key") {
+	if strings.Contains(unsaved, `<confirm-dialog open`) || strings.Contains(unsaved, "AGE-SECRET-KEY") || strings.Contains(unsaved, "Rotate the recovery key") {
 		t.Error("an unsaved section showed the key or offered rotation")
 	}
-	shown := render(RecoveryView{Gen: 1, Unsaved: true, Key: "AGE-SECRET-KEY-X", Saved: "/v"})
+	shown := render(RecoveryView{Gen: 1, Unsaved: true, Key: "AGE-SECRET-KEY-X", Show: "/s", Saved: "/v"})
 	if !strings.Contains(shown, "AGE-SECRET-KEY-X") || !strings.Contains(shown, "saved it") {
 		t.Errorf("revealed section:\n%s", shown)
+	}
+	if !strings.Contains(shown, "<confirm-dialog open") || strings.Contains(shown, `type="password"`) {
+		t.Errorf("the key is not shown alone inside an open dialog:\n%s", shown)
+	}
+	wrong := render(RecoveryView{Gen: 1, Unsaved: true, Show: "/s", Error: "the password is wrong"})
+	if !strings.Contains(wrong, "<confirm-dialog open") || !strings.Contains(wrong, `type="password"`) || !strings.Contains(wrong, "autofocus") {
+		t.Errorf("a refusal does not leave the dialog open on the password:\n%s", wrong)
 	}
 	saved := render(RecoveryView{Gen: 2, Rotate: "/r"})
 	if strings.Contains(saved, "data-recovery-warning") || !strings.Contains(saved, "Rotate the recovery key") {

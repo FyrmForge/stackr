@@ -90,6 +90,7 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 		})
 		return "Saved.", nil, err
 	}), a.Require("serverdefaults.set"))
+	g.GET(b+"/backups/recovery", h.RecoverySection, a.Require("container.admin"))
 	g.POST(b+"/backups/recovery/show", h.ShowRecoveryKey, a.Require("container.admin"))
 	g.POST(b+"/backups/recovery/saved", h.SavedRecoveryKey, a.Require("container.admin"))
 	g.POST(b+"/backups/recovery/rotate", h.RotateRecoveryKey, a.Require("container.admin"))

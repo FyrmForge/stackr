@@ -399,7 +399,8 @@ func picked(v *AddNodeView, t string) bool {
 // show the same chips. Open "" = the name is plain text (no drawer there).
 templ NodeItem(r NodeRow) {
 <li class="panel px-4 py-3 text-sm">
-	<div class="flex flex-wrap items-center gap-2">
+	<div class="flex items-start gap-2">
+		<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
 		if r.Open != "" {
 	<button type="button" hx-get={ r.Open } hx-target="#drawer-body" hx-push-url={ templ.SafeURL(r.Push) } class="text-rw-text font-medium hover:underline">{ r.Name }</button>
 } else {
@@ -412,7 +413,8 @@ templ NodeItem(r NodeRow) {
 		if len(r.Tags) == 0 {
 			<span class="text-xs text-rw-faint">no tags</span>
 		}
-		<span class="ml-auto">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
+		</div>
+		<span class="shrink-0 whitespace-nowrap">@c.Chip(StatusWord(r.Status), statusTone(r.Status))</span>
 	</div>
 	if r.Hint != "" {
 		<p class="mt-2 text-xs text-rw-warn">{ r.Hint }</p>

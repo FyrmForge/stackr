@@ -125,8 +125,9 @@ type BackupsView struct {
 type RecoveryView struct {
 	Gen                int
 	Unsaved            bool
-	Key, Error         string
+	Key, Error, Done   string // Done: the note after "I've saved it"
 	Show, Saved, Rotate string
+	Refresh            string // GET for the section, fetched when the dialog is closed with the key shown
 }
 
 // PanelSchedule is the panel backup's switch, cron line, how many archives
@@ -349,38 +350,56 @@ templ Routes(v RoutesView) {
 }
 
 // Recovery is the recovery key section; every action re-renders it alone.
+// Each action is a button and a modal: a refusal comes back inside the
+// modal, the new key shows once inside it, and "I've saved it" closes it.
 templ Recovery(v RecoveryView) {
 	<div id="recovery">
 		@c.Section("Recovery key", "instance", "Opens the panel's own backups. Only its public half is kept on this server.") {
 			<div class="space-y-3">
 				<p class="text-sm text-rw-muted">{ "Key generation " + strconv.Itoa(v.Gen) + "." }</p>
-				if v.Error != "" {
-					<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
+				if v.Done != "" {
+					<p class="text-sm text-rw-muted" role="status">{ v.Done }</p>
 				}
-				if v.Key != "" {
-					<p class="text-sm text-rw-warn" role="status">Save this key off this server. It is shown only until you confirm.</p>
-					<pre class="panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all" hx-history="false" data-recovery-key>{ v.Key }</pre>
-					<form hx-post={ v.Saved } hx-target="#recovery" hx-swap="outerHTML">
-						<button type="submit" class="btn btn-primary btn-sm">I've saved it</button>
-					</form>
-				} else {
-					if v.Unsaved {
-						<p class="text-sm text-rw-warn" role="status" data-recovery-warning>Your recovery key is not saved yet. Backups cannot be restored without it.</p>
-						<form hx-post={ v.Show } hx-target="#recovery" hx-swap="outerHTML" class="flex flex-wrap items-end gap-2">
-							@c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true})
-							<button type="submit" class="btn btn-primary btn-sm">Show the key</button>
-						</form>
-					} else if v.Rotate != "" {
-						@c.Confirm(c.ConfirmView{
-							Button: "Rotate the recovery key", Title: "Rotate the recovery key?", Primary: true,
-							Warning: "A new key opens the panel's backups from now on. It is shown once, so save it off this server. Older backups keep the old key.",
-							Body:    passwordBody("recovery-key-password"), Include: "input[name=password]",
-							Action: v.Rotate, Target: "#recovery",
+				if v.Unsaved {
+					<p class="text-sm text-rw-warn" role="status" data-recovery-warning>Your recovery key is not saved yet. Backups cannot be restored without it.</p>
+					if v.Show != "" {
+						@recoveryDialog(v, keyAsk{
+							ID: "recovery-key-dialog", Button: "Show the key", Title: "Show the recovery key", Submit: "Show the key",
+							Warning: "Enter your password to see the key. Save it off this server.",
+							Action: v.Show,
 						})
 					}
+				} else if v.Rotate != "" {
+					@recoveryDialog(v, keyAsk{
+						ID: "recovery-key-dialog", Button: "Rotate the recovery key", Title: "Rotate the recovery key?", Submit: "Rotate",
+						Warning: "A new key opens the panel's backups from now on. It is shown once, so save it off this server. Older backups keep the old key.",
+						Action: v.Rotate,
+					})
 				}
 			</div>
 		}
 	</div>
 }
 
+// recoveryDialog is the modal: the password ask, or once it is right the key.
+templ recoveryDialog(v RecoveryView, d keyAsk) {
+	{{ d.Target, d.Error, d.Open = "#recovery", v.Error, v.Error != "" || v.Key != "" }}
+	@keyDialog(d) {
+		if v.Key != "" {
+			<form hx-post={ v.Saved } hx-target="#recovery" hx-swap="outerHTML" class="contents">
+				<div class="modal-body">
+					<p class="text-rw-warn" role="status">Save this key off this server. It is shown only once.</p>
+					<pre class="panel px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap select-all" hx-history="false" data-recovery-key>{ v.Key }</pre>
+				</div>
+				<div class="modal-foot">
+					<button type="submit" class="btn btn-primary btn-sm" autofocus>I've saved it</button>
+				</div>
+			</form>
+			if v.Refresh != "" {
+				<span hidden hx-get={ v.Refresh } hx-trigger="close from:#recovery-key-dialog" hx-target="#recovery" hx-swap="outerHTML"></span>
+			}
+		} else {
+			@passwordForm(d)
+		}
+	}
+}

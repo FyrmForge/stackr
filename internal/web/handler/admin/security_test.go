@@ -69,7 +69,7 @@ func TestAdminMasterKeyRotateWrongPassword(t *testing.T) {
 		t.Fatalf("no Master key section in\n%s", body)
 	}
 	rec := s.As(t, root, "POST", "/-/admin/security/master-key/rotate", url.Values{"password": {"wrong"}})
-	if rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "restarting") {
+	if rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "restarting") || !strings.Contains(rec.Body.String(), "<confirm-dialog open") {
 		t.Errorf("wrong password = %d\n%s", rec.Code, rec.Body.String())
 	}
 }

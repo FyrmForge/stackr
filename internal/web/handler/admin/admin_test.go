@@ -487,14 +487,18 @@ func TestAdminRecoveryKey(t *testing.T) {
 	post := func(action, pw string) *httptest.ResponseRecorder {
 		return s.As(t, root, "POST", "/-/admin/backups/recovery/"+action, url.Values{"password": {pw}})
 	}
-	if rec := post("show", "wrong"); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "data-recovery-key") {
+	if rec := post("show", "wrong"); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "data-recovery-key") ||
+		!strings.Contains(rec.Body.String(), "<confirm-dialog open") || !strings.Contains(rec.Body.String(), `role="alert"`) {
 		t.Errorf("show with a wrong password = %d", rec.Code)
 	}
 	if rec := post("rotate", "correct horse battery"); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "data-recovery-key") {
 		t.Errorf("rotate while unsaved = %d", rec.Code)
 	}
-	if rec := post("show", "correct horse battery"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `hx-history="false" data-recovery-key`) {
+	if rec := post("show", "correct horse battery"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `hx-history="false" data-recovery-key`) || !strings.Contains(rec.Body.String(), "<confirm-dialog open") {
 		t.Errorf("show with the password = %d", rec.Code)
+	}
+	if rec := post("saved", ""); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "data-recovery-key") || !strings.Contains(rec.Body.String(), "Recovery key saved.") {
+		t.Errorf("saved = %d\n%s", rec.Code, rec.Body.String())
 	}
 }
 

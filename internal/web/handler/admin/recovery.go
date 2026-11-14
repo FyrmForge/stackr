@@ -22,6 +22,7 @@ func (h *handler) recoveryView() ui.RecoveryView {
 		Unsaved: unsaved,
 		Show:    ui.Base + "/backups/recovery/show",
 		Saved:   ui.Base + "/backups/recovery/saved",
+		Refresh: ui.Base + "/backups/recovery",
 	}
 	if !unsaved {
 		v.Rotate = ui.Base + "/backups/recovery/rotate"
@@ -48,6 +49,14 @@ func (h *handler) SavedRecoveryKey(c echo.Context) error {
 	if err := h.orch.ConfirmRecoveryKey(); err != nil {
 		return middleware.HTTPError(err)
 	}
+	v := h.recoveryView()
+	v.Done = "Recovery key saved."
+	return respond.HTML(c, http.StatusOK, ui.Recovery(v))
+}
+
+// RecoverySection is GET /-/admin/backups/recovery: the section drawn again,
+// which drops a key left in a dialog closed without "I've saved it".
+func (h *handler) RecoverySection(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, ui.Recovery(h.recoveryView()))
 }
 

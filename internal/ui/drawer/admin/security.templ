@@ -102,6 +102,17 @@ templ securityPicker(name, label, any string, opts []AccessOption, cur string) {
 	</select>
 }
 
+templ masterKeyDialog(v MasterKeyView) {
+	{{ d := keyAsk{
+		ID: "master-key-dialog", Button: "Rotate the master key", Title: "Rotate the master key?", Submit: "Rotate",
+		Warning: "Every stored secret is sealed again under a new key. The panel restarts, and older backups keep the old key.",
+		Action: v.Rotate, Target: "#master-key", Error: v.Error, Open: v.Error != "",
+	} }}
+	@keyDialog(d) {
+		@passwordForm(d)
+	}
+}
+
 // MasterKey is the master key section; the rotation answers with it alone.
 templ MasterKey(v MasterKeyView) {
 	<div id="master-key">
@@ -115,20 +126,12 @@ templ MasterKey(v MasterKeyView) {
 					}
 					{ "." }
 				</p>
-				if v.Error != "" {
-					<p class="text-sm text-rw-danger" role="alert">{ v.Error }</p>
-				}
 				if v.Done != "" {
 					<p class="text-sm text-rw-warn" role="status">{ v.Done }</p>
 				} else if v.Pending {
 					<p class="text-sm text-rw-warn" role="status">A new key is waiting for the panel to restart.</p>
 				} else if v.Rotate != "" {
-					@c.Confirm(c.ConfirmView{
-						Button: "Rotate the master key", Title: "Rotate the master key?", Primary: true,
-						Warning: "Every stored secret is sealed again under a new key. The panel restarts, and older backups keep the old key.",
-						Body:    passwordBody("master-key-password"), Include: "input[name=password]",
-						Action: v.Rotate, Target: "#master-key",
-					})
+					@masterKeyDialog(v)
 				} else {
 					<p class="text-sm text-rw-faint">This key is set in the environment.</p>
 				}
@@ -137,10 +140,53 @@ templ MasterKey(v MasterKeyView) {
 	</div>
 }
 
-// passwordBody is the password a key rotation asks for in its dialog.
-templ passwordBody(id string) {
-	<div>
-		<label for={ id } class="label">Your password</label>
-		<input id={ id } name="password" type="password" autocomplete="current-password" class="input" required/>
-	</div>
+// keyAsk is a password-confirmed action's modal. Its form posts to
+// Action and the answer replaces the whole section (Target), so a refusal
+// comes back as the section drawn again with the dialog open on the error,
+// and a success without it. Open is set on that answer; the element then
+// opens the dialog as it lands.
+type keyAsk struct {
+	ID, Button, Title, Warning, Submit, Action, Target, Error string
+	Open                                                      bool
+}
+
+templ keyDialog(d keyAsk) {
+	<confirm-dialog open?={ d.Open }>
+		<button type="button" class="btn btn-sm btn-primary" data-open disabled>{ d.Button }</button>
+		<dialog id={ d.ID } class="modal-panel text-rw-text" aria-labelledby={ d.ID + "-title" }>
+			<div class="modal-head">
+				<div class="min-w-0">
+					<h2 id={ d.ID + "-title" } class="modal-title">{ d.Title }</h2>
+				</div>
+				<button type="button" class="ml-auto text-rw-faint hover:text-rw-text transition-colors" data-cancel aria-label="Close">
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<line x1="18" y1="6" x2="6" y2="18"></line>
+						<line x1="6" y1="6" x2="18" y2="18"></line>
+					</svg>
+				</button>
+			</div>
+			{ children... }
+		</dialog>
+	</confirm-dialog>
+}
+
+// passwordForm is the ask inside a keyDialog: what the action does, the
+// password, and the refusal under it.
+templ passwordForm(d keyAsk) {
+	<form hx-post={ d.Action } hx-target={ d.Target } hx-swap="outerHTML" class="contents">
+		<div class="modal-body">
+			<p>{ d.Warning }</p>
+			<div>
+				<label for={ d.ID + "-password" } class="label">Your password</label>
+				<input id={ d.ID + "-password" } name="password" type="password" autocomplete="current-password" class="input" required autofocus { c.Invalid(d.ID+"-password", d.Error)... }/>
+				if d.Error != "" {
+					<p id={ "error-" + d.ID + "-password" } class="mt-1.5 text-sm text-rw-danger" role="alert">{ d.Error }</p>
+				}
+			</div>
+		</div>
+		<div class="modal-foot">
+			<button type="button" class="btn btn-ghost btn-sm" data-cancel>Cancel</button>
+			<button type="submit" class="btn btn-primary btn-sm">{ d.Submit }</button>
+		</div>
+	</form>
 }
