@@ -298,3 +298,94 @@ func TestLiveFormsArePreserved(t *testing.T) {
 		t.Error("the add-standby form id must follow the candidate nodes")
 	}
 }
+
+func renderOf(t *testing.T, c templ.Component) string {
+	t.Helper()
+	var b strings.Builder
+	if err := c.Render(context.Background(), &b); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// The Extensions row: an official image is text, a custom one an input; a
+// running instance asks first with the plan and its slices, a stopped one
+// saves; a change in flight turns the form off and says the phase; a
+// refusal sits under its own field.
+func TestExtensionsRow(t *testing.T) {
+	v := View{Name: "pg", Engine: "postgres", Base: "/o/s/e/-/instances/pg", Live: "/o/s/e/-/instances/pg/live"}
+	row := func(e ExtView, fieldErrs map[string]string) string {
+		return renderOf(t, Settings(v, SettingsView{Ext: &e, Errors: fieldErrs}))
+	}
+	official := row(ExtView{Image: "postgres:17", Official: true, Running: true, Preload: "pg_cron", Extensions: "vector\npostgis",
+		Plan: "pg restarts. Slices on it: app.", Slices: []string{"app"}}, nil)
+	for _, w := range []string{
+		`data-acc="extensions"`, "2 listed", "postgres:17", `hx-post="/o/s/e/-/instances/pg/extensions"`,
+		`name="preload"`, `name="extensions"`, "pg restarts. Slices on it: app.", "Apply to pg?", `sse:extbusy`,
+	} {
+		if !strings.Contains(official, w) {
+			t.Errorf("official row lacks %q", w)
+		}
+	}
+	if strings.Contains(official, `name="image"`) {
+		t.Error("an official image is an input")
+	}
+	custom := row(ExtView{Image: "me/pg:1"}, map[string]string{"image": "no such image", "extensions": "bad name"})
+	for _, w := range []string{`name="image"`, "no such image", "bad name", "Applies on the next deploy.", `aria-invalid="true"`} {
+		if !strings.Contains(custom, w) {
+			t.Errorf("custom row lacks %q", w)
+		}
+	}
+	if strings.Contains(custom, "Apply to pg?") {
+		t.Error("a stopped instance asks before saving")
+	}
+	busy := row(ExtView{Image: "me/pg:1", Running: true, Busy: "start"}, nil)
+	for _, w := range []string{"Applying: start.", "applying", "disabled"} {
+		if !strings.Contains(busy, w) {
+			t.Errorf("busy row lacks %q", w)
+		}
+	}
+	if strings.Contains(busy, "Apply to pg?") || strings.Contains(busy, `type="submit"`) {
+		t.Error("a busy row can still be applied")
+	}
+	if out := row(ExtView{Unread: "try again shortly"}, nil); !strings.Contains(out, "read the extensions: try again shortly") || strings.Contains(out, `name="preload"`) {
+		t.Errorf("unread row:\n%s", out)
+	}
+	if strings.Contains(official, "\u2014") {
+		t.Error("em dash in the copy")
+	}
+	v.ReadOnly = true
+	if out := row(ExtView{Image: "me/pg:1"}, nil); strings.Contains(out, `type="submit"`) || !strings.Contains(out, "Only members and owners") {
+		t.Error("a read-only viewer can apply")
+	}
+}
+
+// The extensions region draws the instance's list with versions, the
+// startup module mark and the slices using each; it is a live region on the
+// overview and its failed read is one line.
+func TestExtensionsRegion(t *testing.T) {
+	v := View{Engine: "postgres", Base: "/o/s/e/-/instances/pg"}
+	o := OverviewView{Extensions: []ExtRow{
+		{Name: "vector", Installed: "0.7.0", UsedBy: []string{"app", "api"}},
+		{Name: "pg_cron", Startup: true},
+	}}
+	got := renderOf(t, LiveExtensions(v, o))
+	for _, w := range []string{"vector", "0.7.0", "Used by app, api", "pg_cron", "startup module"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("region lacks %q:\n%s", w, got)
+		}
+	}
+	if renderOf(t, LiveExtensions(v, OverviewView{})) != "" {
+		t.Error("an empty list draws something")
+	}
+	if u := renderOf(t, LiveExtensions(v, OverviewView{Unread: map[string]string{"extensions": "x"}})); !strings.Contains(u, "read the extensions: x") {
+		t.Errorf("unread region: %q", u)
+	}
+	if strings.Contains(renderOf(t, Overview(v, o)), `sse-swap="extensions"`) {
+		t.Error("no stream, yet the region is wired to one")
+	}
+	v.Live = v.Base + "/live"
+	if live := renderOf(t, Overview(v, o)); !strings.Contains(live, `sse-swap="extensions"`) || !strings.Contains(live, got) {
+		t.Errorf("the overview's region differs from the stream's:\n%s", live)
+	}
+}

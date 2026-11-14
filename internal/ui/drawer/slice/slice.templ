@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	c "github.com/FyrmForge/stackr/internal/ui/components"
@@ -61,6 +62,27 @@ type View struct {
 	CORS        string
 	Job           *c.JobStatusView // the newest job, a failed seed's error with it; nil = none yet
 	JobWhen       time.Time
+
+	// Live is the drawer's one stream (…/live), carrying the extensions
+	// region; "" = none.
+	Live string
+	// Ext is a postgres slice's extensions; nil = not a postgres slice.
+	Ext *ExtView
+}
+
+// ExtView is a postgres slice's extensions: what its database has, and the
+// names its instance lets it list. Unread is why the read failed, "" = read.
+type ExtView struct {
+	Unread  string
+	Allowed []string
+	Listed  []string
+	Items   []ExtItem
+}
+
+// ExtItem is one extension of the slice's database; AddedWith names the
+// extension that pulled it in.
+type ExtItem struct {
+	Name, Installed, Available, AddedWith string
 }
 
 // Consumer is one tile holding a cred on the slice.
@@ -70,7 +92,7 @@ type Consumer struct {
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
-	return c.Drawer(c.DrawerView{
+	d := c.DrawerView{
 		Node:     v.Node,
 		Title:    v.Name,
 		Kind:     "slice",
@@ -83,7 +105,9 @@ func Drawer(v View, body templ.Component) templ.Component {
 		Status:   v.Status,
 		Location: v.Location,
 		EnvColor: v.EnvColor,
-	}, body)
+		Stream:   v.Live,
+	}
+	return c.Drawer(d, body)
 }
 
 templ Overview(v View) {
@@ -113,6 +137,13 @@ templ Overview(v View) {
 				@c.Fact("Name", v.DBName)
 			}
 		}
+		if v.Ext != nil {
+			@c.PanelSection("slice-extensions", "Extensions", "") {
+				@liveRegion(v, "extensions") {
+					@LiveExtensions(v)
+				}
+			}
+		}
 		if v.IsBucket && v.Provisioned {
 			@c.PanelSection("slice-storage", "Storage", "") {
 				<div hx-get={ v.Base + "/usage" } hx-trigger="load" hx-swap="outerHTML" aria-busy="true" class="text-xs text-rw-faint">Measuring…</div>
@@ -126,6 +157,75 @@ templ Overview(v View) {
 			}
 		}
 	</div>
+}
+
+// liveRegion wraps a part of the overview the live stream re-renders under
+// the event name; without a stream it is just the part.
+templ liveRegion(v View, name string) {
+	if v.Live != "" {
+		<div sse-swap={ name }>
+			{ children... }
+		</div>
+	} else {
+		{ children... }
+	}
+}
+
+// LiveExtensions is the region the stream sends as the event extensions:
+// what the slice's database has, rendered whole and sent again only when its
+// markup changes.
+templ LiveExtensions(v View) {
+	if v.Ext != nil {
+		if v.Ext.Unread != "" {
+			<p class="text-sm text-rw-muted" role="status">{ "Could not read extensions: " + v.Ext.Unread }</p>
+		} else if len(v.Ext.Items) == 0 {
+			<p class="text-sm text-rw-muted">None yet.</p>
+		} else {
+			<ul class="space-y-1.5">
+				for _, e := range v.Ext.Items {
+					<li class="panel px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
+						<span class="flex-1 min-w-0 font-mono text-rw-text">{ e.Name }</span>
+						<span class="text-xs text-rw-muted">{ extState(e) }</span>
+						if e.AddedWith != "" {
+							@c.Chip("added with "+e.AddedWith, "muted")
+						}
+					</li>
+				}
+			</ul>
+		}
+	}
+}
+
+// extState is an extension's version: installed, with a newer one when the
+// image has it.
+func extState(e ExtItem) string {
+	switch {
+	case e.Installed == "":
+		return "not installed yet"
+	case e.Available != "" && e.Available != e.Installed:
+		return e.Installed + ", " + e.Available + " available"
+	}
+	return e.Installed
+}
+
+// ExtSummary is the Extensions row closed.
+func ExtSummary(e ExtView) string {
+	if len(e.Listed) == 0 {
+		return "none"
+	}
+	return strings.Join(e.Listed, ", ")
+}
+
+// extChoices are the names the form offers: what the instance allows, and
+// anything the slice lists that it no longer does, so it can be taken off.
+func extChoices(e ExtView) []string {
+	out := slices.Clone(e.Allowed)
+	for _, n := range e.Listed {
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // Settings is one accordion row per thing the slice sets, each with its
@@ -146,6 +246,9 @@ func settingsRows(v View) []c.AccRow {
 	}
 	if len(v.Consumers) > 0 {
 		rows = append(rows, c.AccRow{Key: "consumers", Title: "Consumer access", Summary: ConsumersSummary(v.Consumers), Body: consumersRow(v)})
+	}
+	if v.Ext != nil {
+		rows = append(rows, c.AccRow{Key: "extensions", Title: "Extensions", Summary: ExtSummary(*v.Ext), Changed: len(v.Ext.Listed) > 0, Body: extRow(v)})
 	}
 	if v.CanBranch && !v.ReadOnly {
 		rows = append(rows, c.AccRow{Key: "branch", Title: "Branch", Summary: "copy now or as of a time", Body: branchRow(v)})
@@ -206,6 +309,42 @@ templ accessRow(v View) {
 					@c.FieldMarks(v.DefaultAccess == "read", "")
 				</label>
 				@accessSelect("slice-default", "access", v.DefaultAccess)
+			</div>
+			<button type="submit" class="btn btn-primary btn-sm">Save</button>
+		</form>
+	}
+}
+
+// extRow ticks the extensions the slice's database gets from its instance's
+// list. Unticking one only takes it off the list; the database keeps it.
+templ extRow(v View) {
+	<p class="text-xs text-rw-faint" data-hint>Only what the instance allows. Unticking one leaves it in the database.</p>
+	if v.FileOwned || v.ReadOnly {
+		<div data-field data-changed?={ len(v.Ext.Listed) > 0 }>
+			<p class="label">Extensions</p>
+			<p class="text-sm text-rw-text font-mono">{ ExtSummary(*v.Ext) }</p>
+			if v.FileOwned {
+				<p class="text-xs text-rw-faint" data-hint>Set in the stack file.</p>
+			} else {
+				<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
+			}
+		</div>
+	} else if len(extChoices(*v.Ext)) == 0 {
+		<p class="text-sm text-rw-muted">The instance allows none yet.</p>
+	} else {
+		<form hx-post={ v.Base + "/extensions" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-3">
+			@c.KeepOpen("extensions")
+			<div data-field data-changed?={ len(v.Ext.Listed) > 0 }>
+				<fieldset class="space-y-1.5">
+					<legend class="label">Extensions</legend>
+					for _, n := range extChoices(*v.Ext) {
+						<label class="flex items-center gap-2 text-sm font-mono text-rw-text">
+							<input type="checkbox" name="extension" value={ n } checked?={ slices.Contains(v.Ext.Listed, n) } class="accent-rw-accent"/>
+							{ n }
+						</label>
+					}
+				</fieldset>
+				@c.FieldError("extensions", c.KeptErr(ctx, "extensions", ""))
 			</div>
 			<button type="submit" class="btn btn-primary btn-sm">Save</button>
 		</form>

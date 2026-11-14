@@ -85,7 +85,10 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/standby-rebuild", h.RebuildStandby, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/failover", h.PromoteStandby, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/extensions", h.PGExt, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
+	g.GET(e+"/slices/:tile/live", h.SliceLive, a.Require("tile.read"))
+	g.POST(e+"/slices/:tile/extensions", h.SliceExtensions, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/default-access", h.SliceDefaultAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/access", h.SliceAccess, a.Require("tile.write"))
 	g.POST(e+"/slices/:tile/url", h.SliceURL, a.Require("tile.write"))
@@ -557,6 +560,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 				return middleware.HTTPError(err)
 			}
 			sv.PG = pgView(pv, form.PG)
+			sv.Ext = h.extForm(ctx, t.ID, form.Ext)
 		}
 		body = instance.Settings(v, sv)
 	default:
@@ -573,6 +577,7 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		}
 		if m.Engine == "postgres" {
 			o = h.pgStatic(ctx, s, t.ID, o)
+			o = h.extsOf(ctx, t.ID, o)
 		} else {
 			o.Slices = sliceRows(s, ps)
 		}
@@ -807,6 +812,100 @@ func (h *handler) PGMemory(c echo.Context) error {
 	return h.savedNote(c, "memory", "Saved. The instance restarts under the new limit.", err, instance.SettingsView{})
 }
 
+// POST …/-/instances/:tile/extensions: image (a custom image only), preload
+// and extensions (one name per line); a field not posted stays as it is.
+// A refusal of one of the three shows under it (422), what was typed kept.
+func (h *handler) PGExt(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	in := service.PGExtIn{}
+	typed := &instance.ExtView{}
+	if form.Has("image") {
+		img := strings.TrimSpace(form.Get("image"))
+		in.Image, typed.Image = &img, img
+	}
+	if form.Has("preload") {
+		l := nonBlank(strings.Split(form.Get("preload"), "\n"))
+		in.Preload, typed.Preload = &l, form.Get("preload")
+	}
+	if form.Has("extensions") {
+		l := nonBlank(strings.Split(form.Get("extensions"), "\n"))
+		in.Extensions, typed.Extensions = &l, form.Get("extensions")
+	}
+	_, j, err := h.orch.SetPGExtensions(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, in)
+	if err != nil {
+		by, rest := extFieldErrors(err)
+		return h.instance(c, "settings", "", rest, instance.SettingsView{Ext: typed, Errors: by, Open: "extensions"})
+	}
+	note := "Saved. Applies on the next deploy."
+	if j != nil {
+		note = "Applying. Progress shows under Last job."
+	}
+	return h.instance(c, "settings", note, nil, instance.SettingsView{Open: "extensions"})
+}
+
+// extFieldErrors splits a refusal: the reasons that belong under the image,
+// preload and extensions fields (the service names the image "image_ref"),
+// and what is left for the banner when none does.
+func extFieldErrors(err error) (map[string]string, error) {
+	by := map[string]string{}
+	for _, bad := range errs.Invalids(err) {
+		f := cmp.Or(map[string]string{"image_ref": "image"}[bad.Field], bad.Field)
+		if _, dup := by[f]; !dup && (f == "image" || f == "preload" || f == "extensions") {
+			by[f] = bad.Msg
+		}
+	}
+	if len(by) == 0 {
+		return nil, err
+	}
+	return by, nil
+}
+
+// extForm is the Extensions row over the instance's state; a failed read
+// leaves the row saying so, never the whole tab failing.
+func (h *handler) extForm(ctx context.Context, id string, typed *instance.ExtView) *instance.ExtView {
+	p, err := h.orch.PGExtensions(ctx, id)
+	if err != nil {
+		return &instance.ExtView{Unread: unreadReason(err)}
+	}
+	v := &instance.ExtView{
+		Image: p.Image, Official: p.Official, Running: p.Running,
+		Preload: strings.Join(p.Preload, "\n"), Extensions: strings.Join(p.Extensions, "\n"),
+		Plan: p.Plan, Slices: p.Slices, Busy: p.Busy,
+	}
+	if typed != nil { // a refused save: what was typed
+		v.Preload, v.Extensions = typed.Preload, typed.Extensions
+		if !p.Official {
+			v.Image = typed.Image
+		}
+	}
+	return v
+}
+
+// extsOf fills o's extensions region: the names the instance lists or loads
+// at start. o.Unread may be shared (the overview memo), so a failed read
+// writes into a copy.
+func (h *handler) extsOf(ctx context.Context, id string, o instance.OverviewView) instance.OverviewView {
+	p, err := h.orch.PGExtensions(ctx, id)
+	if err != nil {
+		o.Unread = maps.Clone(o.Unread)
+		if o.Unread == nil {
+			o.Unread = map[string]string{}
+		}
+		o.Unread["extensions"] = unreadReason(err)
+		return o
+	}
+	o.Extensions = nil
+	for _, it := range p.Items {
+		if it.Listed || it.Startup {
+			o.Extensions = append(o.Extensions, instance.ExtRow{Name: it.Name, Installed: it.Installed, Startup: it.Startup, UsedBy: it.UsedBy})
+		}
+	}
+	return o
+}
+
 // pgView is the service's settings as the Settings tab lists them, over
 // what a refused save typed.
 func pgView(p service.PGSettings, typed *instance.PGView) *instance.PGView {
@@ -996,6 +1095,37 @@ func (h *handler) SliceUsage(c echo.Context) error {
 	return respond.HTML(c, http.StatusOK, slice.Usage(u.CurrentBytes, u.OldBytes, ""))
 }
 
+// POST …/-/slices/:tile/extensions: the ticked names (extension, repeated),
+// the whole list; none ticked empties it. A refusal shows in the row (422).
+func (h *handler) SliceExtensions(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	_, j, err := h.orch.SetSliceExtensions(c.Request().Context(), scope(c).Tile.ID, nonBlank(form["extension"]))
+	note := "Saved. Applies on the next deploy."
+	if j != nil {
+		note = "Saved. The slice deploys now."
+	}
+	return h.slice(c, note, err)
+}
+
+// sliceExtView is a slice's extensions as the drawer shows them; a failed
+// read says so in the region instead of failing the drawer. Only the names
+// the slice lists, or that a listed one pulled in, are drawn.
+func sliceExtView(ev service.SliceExtView, err error) *slice.ExtView {
+	if err != nil {
+		return &slice.ExtView{Unread: unreadReason(err)}
+	}
+	out := &slice.ExtView{Allowed: ev.Allowed, Listed: ev.Extensions}
+	for _, it := range ev.Items {
+		if it.Listed || it.AddedWith != "" {
+			out.Items = append(out.Items, slice.ExtItem{Name: it.Name, Installed: it.Installed, Available: it.Available, AddedWith: it.AddedWith})
+		}
+	}
+	return out
+}
+
 // POST …/-/slices/:tile/branch: env, instance, expires and at, each optional.
 func (h *handler) SliceBranch(c echo.Context) error {
 	br, _, err := h.orch.BranchSlice(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, service.BranchIn{
@@ -1089,6 +1219,13 @@ func (h *handler) slice(c echo.Context, note string, actErr error) error {
 	if len(js) > 0 {
 		j := render.JobView(render.EnvURL(c), js[0])
 		v.Job, v.JobWhen = &j, js[0].CreatedAt
+	}
+	if sv.Engine == "postgres" {
+		ev, err := h.orch.SliceExtensions(ctx, t.ID)
+		v.Ext = sliceExtView(ev, err)
+		if v.Tab == slice.Tabs[0] { // only Overview has the live region
+			v.Live = v.Base + "/live"
+		}
 	}
 	// Target is <stack>:<env>:<tile>; a slug never holds a colon.
 	if at := strings.Split(sv.Target, ":"); len(at) == 3 {

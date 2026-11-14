@@ -1,6 +1,7 @@
 package env
 
 import (
+	"cmp"
 	"context"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/api/stream"
 	"github.com/FyrmForge/stackr/internal/middleware"
 	"github.com/FyrmForge/stackr/internal/ui/drawer/instance"
+	"github.com/FyrmForge/stackr/internal/ui/drawer/slice"
 	"github.com/FyrmForge/stackr/internal/web/render"
 )
 
@@ -38,12 +40,14 @@ func (h *handler) InstanceLive(c echo.Context) error {
 		{"overview", instance.LiveOverview}, {"slices", instance.LiveSlices},
 		{"pooler", instance.LivePooler}, {"members", instance.LiveMembers},
 		{"failover", instance.LiveFailover}, {"sync", instance.LiveSync},
-		{"job", instance.LiveJob},
+		{"job", instance.LiveJob}, {"extensions", instance.LiveExtensions},
 	}
+	settings := instance.Tab(c.QueryParam("tab")) == "settings"
 	sent := map[string]stream.HTML{}
 	fails := map[string]int{}
 	var last time.Time
-	var word string
+	var word, busy string
+	var busySeen bool
 	return stream.Watch(c, func(ctx context.Context) ([]stream.Msg, error) {
 		if time.Since(last) < LiveEvery {
 			return nil, nil
@@ -79,8 +83,25 @@ func (h *handler) InstanceLive(c echo.Context) error {
 				return nil, err
 			}
 		}
+		// The Settings tab's Extensions row draws the drawer again when a
+		// change starts or ends (event extbusy; a body is needed, the
+		// browser drops an empty event).
+		// ponytail: reads the whole extensions view each tick for one
+		// phase; a service call that returns only the cursor phase is the
+		// upgrade if that read gets dear.
+		if settings && pg {
+			if p, err := h.orch.PGExtensions(ctx, s.Tile.ID); err == nil {
+				if busySeen && p.Busy != busy {
+					out = append(out, stream.Msg{Name: "extbusy", Body: stream.HTML(cmp.Or(p.Busy, "done"))})
+				}
+				busy, busySeen = p.Busy, true
+			}
+		}
 		if !overview {
 			return out, nil
+		}
+		if pg {
+			o = h.extsOf(ctx, s.Tile.ID, o)
 		}
 		for _, r := range regions {
 			// a failed read keeps the last good markup until it has
@@ -122,4 +143,39 @@ func (h *handler) headOf(ctx context.Context, c echo.Context, overview bool) ins
 		}
 	}
 	return o
+}
+
+// GET …/-/slices/:tile/live: a postgres slice's open drawer stream (Overview
+// holds the connection). One event, extensions: what its database has,
+// sent once at connect and again only when its markup changes. A failed
+// read keeps the last good markup until it has failed unreadAfter times
+// running.
+func (h *handler) SliceLive(c echo.Context) error {
+	id := scope(c).Tile.ID
+	var sent stream.HTML
+	var last time.Time
+	fails := 0
+	return stream.Watch(c, func(ctx context.Context) ([]stream.Msg, error) {
+		if time.Since(last) < LiveEvery {
+			return nil, nil
+		}
+		last = time.Now()
+		ev, err := h.orch.SliceExtensions(ctx, id)
+		if err != nil {
+			if fails++; fails < unreadAfter {
+				return nil, nil
+			}
+		} else {
+			fails = 0
+		}
+		body, err := render.Event(ctx, slice.LiveExtensions(slice.View{Ext: sliceExtView(ev, err)}))
+		if err != nil {
+			return nil, err
+		}
+		if body == sent {
+			return nil, nil
+		}
+		sent = body
+		return []stream.Msg{{Name: "extensions", Body: body}}, nil
+	})
 }
