@@ -22,7 +22,7 @@ type ShareView struct {
 	Mode     string // ShareAll, ShareOnly or ShareServer
 	Orgs     []ShareOrg
 	// NoOnly drops "Only these orgs" for a thing that keeps no org list
-	// (a backup destination): Every org or Server only.
+	// (a backup destination): Every org or No org.
 	NoOnly bool
 }
 
@@ -39,7 +39,7 @@ const (
 )
 
 // ShareSummary is a row's sharing in the control's own words: Every org,
-// Only these orgs (n), or Server only when no org is picked.
+// Only these orgs (n), or No org (admins only) when no org is picked.
 func ShareSummary(all bool, orgs int) string {
 	switch {
 	case all:
@@ -47,8 +47,11 @@ func ShareSummary(all bool, orgs int) string {
 	case orgs > 0:
 		return "Only these orgs (" + strconv.Itoa(orgs) + ")"
 	}
-	return "Server only"
+	return ShareNoneWord
 }
+
+// ShareNoneWord is the third choice: no org may use it, server admins only.
+const ShareNoneWord = "No org (admins only)"
 
 func Share(v ShareView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -71,12 +74,12 @@ func Share(v ShareView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = shareMode(v, ShareAll, "Every org").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shareMode(v, ShareAll, "Every org", "Any org can use it.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if !v.NoOnly {
-			templ_7745c5c3_Err = shareMode(v, ShareOnly, "Only these orgs").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = shareMode(v, ShareOnly, "Only these orgs", "Tick the orgs that can use it.").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -92,7 +95,7 @@ func Share(v ShareView) templ.Component {
 				var templ_7745c5c3_Var2 string
 				templ_7745c5c3_Var2, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.OrgName).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 52, Col: 96}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 55, Col: 96}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 				if templ_7745c5c3_Err != nil {
@@ -105,7 +108,7 @@ func Share(v ShareView) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(o.ID).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 52, Col: 111}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 55, Col: 111}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 				if templ_7745c5c3_Err != nil {
@@ -134,7 +137,7 @@ func Share(v ShareView) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(o.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 52, Col: 216}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 55, Col: 216}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -156,7 +159,7 @@ func Share(v ShareView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = shareMode(v, ShareServer, "Server only").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shareMode(v, ShareServer, ShareNoneWord, "No org can use it. Server admins only.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -168,7 +171,7 @@ func Share(v ShareView) templ.Component {
 	})
 }
 
-func shareMode(v ShareView, mode, label string) templ.Component {
+func shareMode(v ShareView, mode, label, hint string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -185,14 +188,14 @@ func shareMode(v ShareView, mode, label string) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<label class=\"flex items-center gap-2 text-rw-text\"><input type=\"radio\" name=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<label class=\"block text-rw-text\"><input type=\"radio\" name=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.ModeName).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 64, Col: 90}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 67, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -205,7 +208,7 @@ func shareMode(v ShareView, mode, label string) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templruntime.NewAttributeExpression(mode).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 64, Col: 105}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 67, Col: 87}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -228,13 +231,26 @@ func shareMode(v ShareView, mode, label string) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 64, Col: 170}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 67, Col: 152}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</label>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<span class=\"block pl-6 text-xs text-rw-faint\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var9 string
+		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(hint)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/components/share.templ`, Line: 67, Col: 207}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</span></label>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

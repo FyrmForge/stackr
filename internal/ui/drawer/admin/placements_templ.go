@@ -105,7 +105,7 @@ type MoveProgressEnv struct {
 }
 
 // placementShare is who may pin to the placement: every org, the ticked
-// ones, or none (Server only). It posts share and org (slugs).
+// ones, or none (No org). It posts share and org (slugs).
 func placementShare(f PlacementFormView) c.ShareView {
 	v := c.ShareView{ModeName: "share", OrgName: "org", Mode: c.ShareServer}
 	for _, o := range f.Orgs {

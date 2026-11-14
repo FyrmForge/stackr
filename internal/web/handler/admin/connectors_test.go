@@ -26,7 +26,7 @@ func TestAdminConnectors(t *testing.T) {
 	rec := s.As(t, root, "GET", "/-/admin/connectors", nil)
 	body := rec.Body.String()
 	for _, want := range []string{
-		`id="tab-connectors"`, `id="connectors-list"`, "main", "Server only",
+		`id="tab-connectors"`, `id="connectors-list"`, "main", "No org (admins only)",
 		`<li class="rounded-lg border`, `hx-get="/-/admin/connectors/` + srv + `/settings?tab=git"`, ">Sharing<",
 		`hx-get="/-/admin/connectors/new"`, "+ Add connector",
 	} {
