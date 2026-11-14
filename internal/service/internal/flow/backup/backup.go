@@ -76,6 +76,16 @@ type Subject struct {
 	// WalStop is the same for the moment the base finished; the run row
 	// keeps it, and the base restores only once shipped WAL reaches it.
 	WalStop []string
+	// Image is the saved image a base of a recipe-built instance needs; nil
+	// for every other subject.
+	Image *Image
+}
+
+// Image is the image a base backup saves beside the base, so a restore needs
+// no registry copy.
+type Image struct {
+	Key  string                // bk.ImageKey, under the instance's PITR root
+	Save func(io.Writer) error // writes the image as docker save does
 }
 
 func (s Subject) dumps() bool { return len(s.Dump) > 0 }
@@ -132,7 +142,17 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 			return r, err
 		}
 	}
-	key, size, err := f.write(ctx, s, sp, walStart, log)
+	var key string
+	var size int64
+	if s.Base && s.Image != nil {
+		// Before the base: a base without its image cannot be rebuilt.
+		if err = f.saveImage(ctx, sp.Dest, s.Image.Key, s.Image.Save, log); err == nil {
+			r.ImageKey = s.Image.Key
+		}
+	}
+	if err == nil {
+		key, size, err = f.write(ctx, s, sp, walStart, log)
+	}
 	if err == nil && s.Base && len(s.WalStop) > 0 {
 		var stop string
 		if stop, err = f.walSegment(ctx, s.Engine, s.WalStop); err == nil {
@@ -152,6 +172,9 @@ func (f *Flow) backup(ctx context.Context, s Subject, sp Spec, log io.Writer) (s
 			logf(log, "pruning the archive: %v\n", err)
 		} else if n > 0 {
 			logf(log, "pruned %d old object(s)\n", n)
+		}
+		if s.Image != nil && !f.held(path.Dir(sp.Prefix)) {
+			f.pruneImages(ctx, sp.Dest, s.Image.Key, log)
 		}
 		return f.Backups.GetRun(ctx, r.ID)
 	}
@@ -740,6 +763,11 @@ func (f *Flow) Purge(ctx context.Context, d store.BackupDest, force bool) error 
 				return err
 			}
 		}
+		if r.ImageKey != "" { // the saved image of a base: no row of its own
+			if err := obj.Delete(ctx, r.ImageKey); err != nil {
+				return err
+			}
+		}
 		if err := f.Backups.DeleteRun(ctx, r.ID); err != nil {
 			return err
 		}
@@ -1077,20 +1105,97 @@ func (f *Flow) checkSpace(ctx context.Context, v store.Volume) error {
 
 func logf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 
-// errImageNotBuilt is what the saved-image stubs return until lane C2 builds
-// them.
-var errImageNotBuilt = errors.New("saved instance images are not built yet")
-
 // SaveImage streams the image save writes, age-encrypted, to key on the
 // destination with id dest, and skips the write when the destination already
 // lists key. A recipe-built instance's base backup saves its image next to the
 // base (bk.ImageKey), so a restore needs no registry copy.
 func (f *Flow) SaveImage(ctx context.Context, dest, key string, save func(io.Writer) error, log io.Writer) error {
-	return errImageNotBuilt
+	d, err := f.Backups.Get(ctx, dest)
+	if err != nil {
+		return err
+	}
+	return f.saveImage(ctx, d, key, save, log)
+}
+
+func (f *Flow) saveImage(ctx context.Context, d store.BackupDest, key string, save func(io.Writer) error, log io.Writer) error {
+	o := open(d)
+	keys, err := o.List(ctx, key)
+	if err != nil {
+		return fmt.Errorf("saving the image: %w", err)
+	}
+	if slices.Contains(keys, key) {
+		logf(log, "the image is already saved at %s\n", key)
+		return nil
+	}
+	logf(log, "saving the image to %s\n", key)
+	_, err = f.stream(ctx, o, key, func(ctx context.Context, w io.Writer) error {
+		enc, err := encrypt(w, d.ArchiveKey, keyWorkFactor)
+		if err != nil {
+			return err
+		}
+		if err := save(enc); err != nil {
+			return err
+		}
+		return enc.Close()
+	})
+	if err != nil {
+		return fmt.Errorf("saving the image: %w", err)
+	}
+	return nil
 }
 
 // LoadImage reads key from the destination with id dest, decrypts it and hands
 // the tar to load.
 func (f *Flow) LoadImage(ctx context.Context, dest, key string, load func(io.Reader) error, log io.Writer) error {
-	return errImageNotBuilt
+	d, err := f.Backups.Get(ctx, dest)
+	if err != nil {
+		return err
+	}
+	rc, err := open(d).Get(ctx, key)
+	if err != nil {
+		return fmt.Errorf("reading the saved image %s: %w", key, err)
+	}
+	defer func() { _ = rc.Close() }()
+	r, err := decrypt(rc, d.ArchiveKey)
+	if err != nil {
+		return err
+	}
+	logf(log, "loading the saved image %s\n", key)
+	return load(r)
+}
+
+// pruneImages deletes the saved images beside keep (an image key of the same
+// instance) that no run row on d references: a base the window dropped took
+// its row with it, a retained base keeps its image, however many rebuilds
+// came after. keep itself is referenced by the base just finished. A failure
+// is logged; the next base retries.
+func (f *Flow) pruneImages(ctx context.Context, d store.BackupDest, keep string, log io.Writer) {
+	dir := path.Dir(keep) + "/"
+	o := open(d)
+	keys, err := o.List(ctx, dir)
+	if err != nil {
+		logf(log, "pruning the saved images: %v\n", err)
+		return
+	}
+	rs, err := f.Backups.RunsOn(ctx, d.ID)
+	if err != nil {
+		logf(log, "pruning the saved images: %v\n", err)
+		return
+	}
+	used := map[string]bool{keep: true}
+	for _, r := range rs {
+		if r.ImageKey != "" {
+			used[r.ImageKey] = true
+		}
+	}
+	for _, k := range keys {
+		if used[k] {
+			continue
+		}
+		if err := o.Delete(ctx, k); err != nil {
+			logf(log, "not pruned %s: %v\n", k, err)
+			continue
+		}
+		logf(log, "pruned the saved image %s\n", k)
+	}
 }
