@@ -101,6 +101,7 @@ func Export(live Live) ([]byte, error) {
 	}
 	f.exportConnectors(live)
 	f.exportOrgs(live)
+	f.exportPGExtensions(live)
 	f.exportPlacements(live)
 	if len(f.Params) == 0 {
 		f.Params = nil
@@ -214,6 +215,37 @@ func (f *File) exportConnectors(live Live) {
 			slices.Sort(fc.Share.Orgs)
 		}
 		f.Connectors = append(f.Connectors, fc)
+	}
+}
+
+// exportPGExtensions writes the admin recipes whole and a built-in only when
+// it is switched off.
+func (f *File) exportPGExtensions(live Live) {
+	for _, r := range live.PGRecipes {
+		c := r.Conf
+		if r.Builtin {
+			if r.Enabled {
+				continue
+			}
+			c = RecipeConf{}
+		} else {
+			c.Share = &Share{All: r.ShareAll}
+			if !r.ShareAll {
+				c.Share.Orgs = []string{}
+				for _, id := range r.ShareOrgs {
+					c.Share.Orgs = append(c.Share.Orgs, orgSlug(live.Orgs, id))
+				}
+				slices.Sort(c.Share.Orgs)
+			}
+		}
+		if !r.Enabled {
+			off := false
+			c.Enabled = &off
+		}
+		if f.PGExtensions == nil {
+			f.PGExtensions = map[string]RecipeConf{}
+		}
+		f.PGExtensions[r.Name] = c
 	}
 }
 

@@ -35,9 +35,8 @@ type File struct {
 	Orgs        []Org                       `yaml:"orgs,omitempty"`
 	Nodes       map[string]Node             `yaml:"nodes,omitempty"`      // by node name; the file declares, never creates
 	Placements  map[string]Placement        `yaml:"placements,omitempty"` // by placement name
-	// PGExtensions are Postgres extension recipes by name (admin-added ones,
-	// or a built-in switched off). Parsed since the Stage 2 seam; nothing
-	// reads it until lane D2.
+	// PGExtensions are Postgres extension recipes by name: admin-added ones,
+	// or a built-in switched off. A nil map says nothing about them.
 	PGExtensions map[string]RecipeConf `yaml:"pg_extensions,omitempty"`
 }
 
@@ -174,6 +173,7 @@ func Parse(data []byte) (*File, error) {
 		f.checkDests,
 		f.checkDomains,
 		f.checkConnectors,
+		f.checkPGExtensions,
 		f.checkOrgs,
 		f.checkNodes,
 		f.checkPlacements,
@@ -428,6 +428,29 @@ func (f *File) checkConnectors() error {
 		for _, o := range c.Share.Orgs {
 			if !slug.Valid(o) || slug.Reserved(o) {
 				return fmt.Errorf("connectors.%s: %q is not an org slug", c.Name, o)
+			}
+		}
+	}
+	return nil
+}
+
+var recipeName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+
+// checkPGExtensions checks what only the file can tell: names and share
+// slugs. Each definition goes through operated.CheckRecipe in the
+// orchestrator (a flow does not import a flow), and which names are built in
+// is the Diff's to say.
+func (f *File) checkPGExtensions() error {
+	for name, r := range f.PGExtensions {
+		if !recipeName.MatchString(name) {
+			return fmt.Errorf("pg_extensions: %q is not a recipe name", name)
+		}
+		if r.Share == nil {
+			continue
+		}
+		for _, o := range r.Share.Orgs {
+			if !slug.Valid(o) || slug.Reserved(o) {
+				return fmt.Errorf("pg_extensions.%s: %q is not an org slug", name, o)
 			}
 		}
 	}
