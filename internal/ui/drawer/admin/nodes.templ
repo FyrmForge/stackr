@@ -354,7 +354,7 @@ func NodeHint(status string, stalled bool) string {
 	case status == "joined" && stalled:
 		return "Run the join again on the box. It picks up where it stopped."
 	case status == "joined":
-		return "The mesh link is not up yet. UDP 51871 must be reachable on the new node."
+		return "The mesh link is not up yet. The node's WireGuard UDP port must be reachable."
 	case status == "needs-rejoin":
 		return "Run the join command on the box. Lost it? Get a new one under Security."
 	case status == "rejoining":

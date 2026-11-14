@@ -72,8 +72,8 @@ func (h *handler) recoveryAnswer(c echo.Context, do func() (string, error)) erro
 		}
 		v.Error, status = msg, http.StatusUnprocessableEntity
 	} else {
+		v = h.recoveryView() // after the action: the new generation
 		v.Key = key
-		v.Gen, v.Unsaved = h.orch.RecoveryStatus()
 	}
 	return respond.HTML(c, status, ui.Recovery(v))
 }

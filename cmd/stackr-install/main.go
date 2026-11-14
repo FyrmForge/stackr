@@ -140,6 +140,10 @@ Flags:
 			h, _ := os.Hostname()
 			in.NodeName = installspec.CleanNodeName(h)
 		}
+		// the prompt checks it too, but --yes, a flag or no terminal skip it
+		if in.NodeName, err = installspec.CheckNodeName(in.NodeName); err != nil {
+			return fmt.Errorf("--node-name: %w", err)
+		}
 	} else {
 		fillFrom(&in, saved, given)
 	}

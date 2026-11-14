@@ -176,6 +176,7 @@ func TestPanelCertGraceAndRecheck(t *testing.T) {
 		t.Fatal("a fresh install's panel name fired before its certificate could arrive")
 	}
 	w.orch.recheckFailingCerts(ctx)
+	w.orch.trustAsync.Wait() // it runs off the tick
 	if n := len(*dialled); n != 1 {
 		t.Fatalf("nothing failing, yet the recheck dialled (%d dials)", n)
 	}
@@ -190,6 +191,7 @@ func TestPanelCertGraceAndRecheck(t *testing.T) {
 	}
 	certs["stkr.acme.dev"] = certFor("stkr.acme.dev", time.Now().Add(60*24*time.Hour))
 	w.orch.recheckFailingCerts(ctx)
+	w.orch.trustAsync.Wait()
 	if failing() != 0 {
 		t.Fatal("the recheck did not clear the problem once the certificate was there")
 	}

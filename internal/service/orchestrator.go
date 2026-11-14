@@ -323,6 +323,7 @@ type Orchestrator struct {
 	// failCrashAfter makes a failover stop after that step, as a dying panel
 	// would (tests).
 	failCrashAfter string
+	certRecheck    atomic.Bool // a failing-cert recheck runs
 	// tickAttemptFor overrides tickAttempt (tests).
 	tickAttemptFor time.Duration
 	// recoverSyncFor overrides recoverSyncWait (tests).

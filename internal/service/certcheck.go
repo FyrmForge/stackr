@@ -190,12 +190,18 @@ func (o *Orchestrator) hostCertAlerts(ctx context.Context) {
 
 // recheckFailingCerts runs the host check again while a host is failing, so
 // its problem goes when the certificate arrives, not at the next daily check.
-// ponytail: dials every HTTPS host each watch tick while one fails; narrow it
-// to the failing rows if an install with hundreds of hosts feels it.
+// It runs off the tick, one at a time: each host dial may take its timeout.
+// ponytail: dials every HTTPS host while one fails; narrow it to the failing
+// rows if an install with hundreds of hosts feels it.
 func (o *Orchestrator) recheckFailingCerts(ctx context.Context) {
-	if rows, err := o.store.Settings.ListPrefix(ctx, "alert.certfail."); err == nil && len(rows) > 0 {
-		o.hostCertAlerts(ctx)
+	rows, err := o.store.Settings.ListPrefix(ctx, "alert.certfail.")
+	if err != nil || len(rows) == 0 || !o.certRecheck.CompareAndSwap(false, true) {
+		return
 	}
+	o.detach(ctx, func(ctx context.Context) {
+		defer o.certRecheck.Store(false)
+		o.hostCertAlerts(ctx)
+	})
 }
 
 func (o *Orchestrator) certHostAlert(ctx context.Context, n store.Node, host, problem string) {

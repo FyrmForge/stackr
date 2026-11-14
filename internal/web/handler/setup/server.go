@@ -239,6 +239,7 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 			MinFree:    strconv.FormatUint(o.MinFreeBytes>>30, 10),
 			LogsDays:   strconv.Itoa(o.LogsDays),
 			LogsMax:    strconv.FormatUint(o.LogsMaxBytes>>30, 10),
+			Enabled:    o.Enabled,
 		})
 	case "backups":
 		var v pages.ServerBackupsView
@@ -659,8 +660,7 @@ func (h *handler) serverDestTest(c echo.Context) error {
 		msg, ok = inv.Msg, true
 	}
 	if !ok {
-		// an unreachable endpoint is the usual cause: say it inline, not as a toast
-		msg = "Could not reach the bucket: " + err.Error()
+		return middleware.HTTPError(err)
 	}
 	return respond.HTML(c, http.StatusOK, pages.ServerDestTest(msg))
 }

@@ -57,6 +57,7 @@ type ServerGitView struct {
 type ServerObserveView struct {
 	ServerStep
 	Retention, MinFree, LogsDays, LogsMax string
+	Enabled                               bool
 }
 
 // ServerBackupsView is the backups screen, in two parts: the destination
@@ -252,8 +253,14 @@ templ ServerObserve(v ServerObserveView) {
 			</div>
 			<p class="text-xs text-rw-faint">Writes stop below the free disk floor.</p>
 			<div class="grid grid-cols-2 gap-3">
-				<button type="submit" name="observe_enabled" value="0" class="btn btn-ghost w-full">Keep it off</button>
-				<button type="submit" name="observe_enabled" value="1" class="btn btn-primary w-full">Turn it on</button>
+				// the first button keeps the current state: Enter in a field submits it
+				if v.Enabled {
+					<button type="submit" name="observe_enabled" value="1" class="btn btn-primary w-full">Keep it on</button>
+					<button type="submit" name="observe_enabled" value="0" class="btn btn-ghost w-full">Turn it off</button>
+				} else {
+					<button type="submit" name="observe_enabled" value="0" class="btn btn-ghost w-full">Keep it off</button>
+					<button type="submit" name="observe_enabled" value="1" class="btn btn-primary w-full">Turn it on</button>
+				}
 			</div>
 		</form>
 	}
