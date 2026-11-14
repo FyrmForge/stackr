@@ -345,7 +345,12 @@ func TestExtensionsRow(t *testing.T) {
 			t.Errorf("busy row lacks %q", w)
 		}
 	}
-	if strings.Contains(busy, "Apply to pg?") || strings.Contains(busy, `type="submit"`) {
+	// only the extensions row: the other settings rows keep their own buttons
+	ext := busy[strings.Index(busy, `data-acc="extensions"`):]
+	if i := strings.Index(ext[1:], `data-acc="`); i >= 0 {
+		ext = ext[:i+1]
+	}
+	if strings.Contains(ext, "Apply to pg?") || strings.Contains(ext, `type="submit"`) {
 		t.Error("a busy row can still be applied")
 	}
 	if out := row(ExtView{Unread: "try again shortly"}, nil); !strings.Contains(out, "read the extensions: try again shortly") || strings.Contains(out, `name="preload"`) {

@@ -135,6 +135,13 @@ func pgReadExt(ctx context.Context, i Instance, x Tools, db string) (recovery bo
 // standby (it returns nil there). Nothing to do costs the one catalog read;
 // otherwise one session takes an advisory lock, creates, then updates.
 func pgReconcile(ctx context.Context, i Instance, x Tools, db string, want []string, log io.Writer) error {
+	return pgReconcileAs(ctx, i, x, db, want, log, false)
+}
+
+// pgReconcileAs is pgReconcile; warnUpdates keeps a major change's old rule:
+// an extension that cannot update is said and left, only a listed name that
+// cannot be created fails.
+func pgReconcileAs(ctx context.Context, i Instance, x Tools, db string, want []string, log io.Writer, warnUpdates bool) error {
 	recovery, rows, err := pgReadExt(ctx, i, x, db)
 	if err != nil {
 		return err
@@ -170,7 +177,30 @@ func pgReconcile(ctx context.Context, i Instance, x Tools, db string, want []str
 	if len(create) == 0 && len(update) == 0 {
 		return nil
 	}
-	stmts := []string{"SELECT pg_advisory_lock(" + strconv.Itoa(pgExtLockKey) + ")"}
+	lock := "SELECT pg_advisory_lock(" + strconv.Itoa(pgExtLockKey) + ")"
+	if warnUpdates {
+		if len(create) > 0 {
+			stmts := []string{lock}
+			for _, n := range create {
+				stmts = append(stmts, "CREATE EXTENSION IF NOT EXISTS "+quote(n)+" CASCADE")
+			}
+			if err := pgExecSQL(ctx, x, i, db, stmts); err != nil {
+				line, detail := psqlLine(err)
+				if idx := line - 1; idx >= 1 && idx <= len(create) {
+					return fmt.Errorf("extension %s was not created in %s: %s", create[idx-1], db, detail)
+				}
+				return fmt.Errorf("extensions in %s: %s", db, detail)
+			}
+		}
+		for _, n := range update {
+			if err := pgExecSQL(ctx, x, i, db, []string{lock, "ALTER EXTENSION " + quote(n) + " UPDATE"}); err != nil {
+				_, detail := psqlLine(err)
+				logf(log, "warning: extension %s in %s was not updated: %s\n", n, db, detail)
+			}
+		}
+		return nil
+	}
+	stmts := []string{lock}
 	for _, n := range create {
 		stmts = append(stmts, "CREATE EXTENSION IF NOT EXISTS "+quote(n)+" CASCADE")
 	}
@@ -216,6 +246,10 @@ func psqlLine(err error) (int, string) {
 // only (open item 1: Exec can land on a standby, so pgReconcile itself does
 // nothing in recovery). Not postgres: nil.
 func (f *Flow) Reconcile(ctx context.Context, it store.Tile, log io.Writer) error {
+	return f.reconcile(ctx, it, log, false)
+}
+
+func (f *Flow) reconcile(ctx context.Context, it store.Tile, log io.Writer, warnUpdates bool) error {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
 		return err
@@ -241,7 +275,7 @@ func (f *Flow) Reconcile(ctx context.Context, it store.Tile, log io.Writer) erro
 		return err
 	}
 	for _, db := range strings.Fields(dbs) {
-		if err := pgReconcile(ctx, i, x, db, want[db], log); err != nil {
+		if err := pgReconcileAs(ctx, i, x, db, want[db], log, warnUpdates); err != nil {
 			return err
 		}
 	}
@@ -271,8 +305,9 @@ func (f *Flow) ReconcileSlice(ctx context.Context, it, s store.Tile, log io.Writ
 
 // Extensions reads instance it's extensions for its drawer: every name it
 // lists or loads at start, with the version installed in its databases (the
-// first that has it) and the one the image offers. Not postgres, or nothing
-// listed: none.
+// first that has it) and the one the image offers, then every other
+// extension the image offers, neither listed nor loaded (what a new list may
+// name). Not postgres: none.
 func (f *Flow) Extensions(ctx context.Context, it store.Tile) ([]ExtInfo, error) {
 	m, e, err := f.instance(ctx, it.ID)
 	if err != nil {
@@ -286,9 +321,6 @@ func (f *Flow) Extensions(ctx context.Context, it store.Tile) ([]ExtInfo, error)
 		if !slices.Contains(names, n) {
 			names = append(names, n)
 		}
-	}
-	if len(names) == 0 {
-		return nil, nil
 	}
 	i, x := f.facts(ctx, it, m, e.Definition()), f.tools(ctx, it, m)
 	dbs, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", pgDBsSQL))
@@ -317,6 +349,16 @@ func (f *Flow) Extensions(ctx context.Context, it store.Tile) ([]ExtInfo, error)
 			}
 			if out[k].AddedWith == "" && len(r.by) > 0 {
 				out[k].AddedWith = r.by[0]
+			}
+		}
+		for _, n := range slices.Sorted(maps.Keys(rows)) {
+			if !slices.Contains(names, n) && rows[n].def != "" {
+				names = append(names, n)
+				add := ExtInfo{Name: n, Available: rows[n].def, Installed: rows[n].installed}
+				if len(rows[n].by) > 0 {
+					add.AddedWith = rows[n].by[0]
+				}
+				out = append(out, add)
 			}
 		}
 	}

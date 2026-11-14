@@ -206,7 +206,11 @@ func TestExtensionsRowAndRegion(t *testing.T) {
 	if !strings.Contains(frame, `sse-connect="/o/s/e/-/slices/main/live"`) || !strings.Contains(frame, `sse-swap="extensions"`) {
 		t.Errorf("the drawer is not wired to its stream:\n%s", frame)
 	}
-	if got := render(t, v, LiveExtensions(v)); !strings.Contains(frame, got) {
+	var region strings.Builder
+	if err := LiveExtensions(v).Render(context.Background(), &region); err != nil {
+		t.Fatal(err)
+	}
+	if got := region.String(); got == "" || !strings.Contains(frame, got) {
 		t.Errorf("the region differs between the page and the stream: %q", got)
 	}
 	v.FileOwned = true

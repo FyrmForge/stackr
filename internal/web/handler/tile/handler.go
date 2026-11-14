@@ -629,14 +629,22 @@ func (h *handler) SetRawCaddy(c echo.Context) error {
 // update applies edit through UpdateTile and says whether it redeploys.
 func (h *handler) update(c echo.Context, tab string, edit func(*service.Tile) error) error {
 	t, j, err := h.orch.UpdateTile(c.Request().Context(), tileOf(c).ID, edit)
-	note := "Saved."
-	if j != nil {
-		note = "Saved. A redeploy is queued."
-	}
 	if err == nil {
 		*tileOf(c) = t // the tab shows the edited row, not the scope's
 	}
-	return h.after(c, tab, note, err)
+	return h.after(c, tab, savedNote(j), err)
+}
+
+// savedNote says what a saved edit set off: nothing, a redeploy, or an
+// extension change (a new image on a postgres instance).
+func savedNote(j *service.Job) string {
+	switch {
+	case j == nil:
+		return "Saved."
+	case j.Kind == "pg-extensions":
+		return "Saved. Applying. Progress shows under Last job."
+	}
+	return "Saved. A redeploy is queued."
 }
 
 // POST …/env: the editor's KEY=VALUE lines, or one row's × (drop).
@@ -693,11 +701,7 @@ func (h *handler) SetSettings(c echo.Context) error {
 	})
 	if err == nil {
 		*tileOf(c) = t
-		note := "Saved."
-		if j != nil {
-			note = "Saved. A redeploy is queued."
-		}
-		return h.after(c, "settings", note, nil)
+		return h.after(c, "settings", savedNote(j), nil)
 	}
 	return h.after(c, "settings", "", rowRefusal(err, form.Get("fields")))
 }

@@ -174,7 +174,9 @@ func TestExtensionReads(t *testing.T) {
 	}
 	got, err := w.f.Extensions(ctx, w.db)
 	must(t, err)
-	if len(got) != 2 || got[0].Name != "earthdistance" || !got[0].Listed || got[0].Installed != "1.2" ||
+	// listed and startup first, then the rest the image offers, unmarked
+	if len(got) != 4 || got[2].Name != "cube" || got[2].Listed || got[2].Startup || got[2].Available != "1.5" || got[3].Name != "plpgsql" ||
+		got[0].Name != "earthdistance" || !got[0].Listed || got[0].Installed != "1.2" ||
 		got[1].Name != "vchord" || !got[1].Startup || got[1].Listed || got[1].Available != "1.1.1" || got[1].Installed != "" {
 		t.Errorf("instance = %+v", got)
 	}

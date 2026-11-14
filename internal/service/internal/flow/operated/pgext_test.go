@@ -294,3 +294,22 @@ func TestProvisionStatementsUnchanged(t *testing.T) {
 		t.Errorf("provision reconciles:\n%s", all)
 	}
 }
+
+// A major change keeps its old rule: an update that fails is a warning, a
+// listed name that cannot be created still fails.
+func TestReconcileWarnUpdates(t *testing.T) {
+	t.Parallel()
+	var log strings.Builder
+	f := &extFake{rows: extRows, stdinErr: errors.New("psql:<stdin>:2: ERROR:  no update path")}
+	if err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", nil, &log, true); err != nil {
+		t.Fatalf("update failure failed the step: %v", err)
+	}
+	if !strings.Contains(log.String(), "warning: extension pg_stat_statements in app was not updated") {
+		t.Errorf("log = %q", log.String())
+	}
+	f = &extFake{rows: extRows, stdinErr: errors.New("psql:<stdin>:2: ERROR:  could not open extension control file")}
+	err := pgReconcileAs(context.Background(), extInst, f.tools(), "app", []string{"vector"}, io.Discard, true)
+	if err == nil || !strings.HasPrefix(err.Error(), "extension vector was not created in app: ") {
+		t.Errorf("create: %v", err)
+	}
+}

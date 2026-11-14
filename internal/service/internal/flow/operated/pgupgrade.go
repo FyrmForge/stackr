@@ -325,15 +325,15 @@ func (f *Flow) PGLogins(ctx context.Context, it store.Tile, logins []PGLogin) er
 }
 
 // PGAfterChange brings the new cluster's extensions to the new version's
-// (Reconcile: an extension that cannot be created or updated fails the step)
-// and builds the statistics a copy does not carry (vacuumdb in stages, so
+// (an extension that cannot update is said and left; a listed one that cannot
+// be created fails the step) and builds the statistics a copy does not carry (vacuumdb in stages, so
 // queries plan well soon).
 func (f *Flow) PGAfterChange(ctx context.Context, it store.Tile, log io.Writer) error {
 	_, i, x, err := f.postgres(ctx, it)
 	if err != nil {
 		return err
 	}
-	if err := f.Reconcile(ctx, it, log); err != nil {
+	if err := f.reconcile(ctx, it, log, true); err != nil {
 		return err
 	}
 	_, err = x.Exec(ctx, []string{"vacuumdb", "-h", pgSocketDir, "-U", i.AdminUser, "--all", "--analyze-in-stages"})
