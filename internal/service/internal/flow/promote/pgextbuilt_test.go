@@ -13,8 +13,10 @@ import (
 
 type builtCalls struct {
 	plans   [][]string
-	applied []string
-	stale   bool
+	applied [][]string
+	failed  bool
+	// seen: the tiles the plan hook was asked about (a new one has no ID)
+	seen []store.Tile
 }
 
 // builtWorld is the pgext world with a recipe-built instance and fake plan and
@@ -28,15 +30,16 @@ func builtWorld(t *testing.T) (*pgExtWorld, *builtCalls) {
 		m.ExtBuild = `{"base":"postgres:17.5","ref":"stackr-pg:abc"}`
 	})
 	w.setImage(t, "stackr-pg:abc")
-	w.f.PGExtPlan = func(_ context.Context, _ store.Tile, _ store.OperatedInstance, exts []string, _ io.Writer) ([]string, string, error) {
+	w.f.PGExtPlan = func(_ context.Context, tl store.Tile, _ store.OperatedInstance, exts []string, _ io.Writer) ([]string, bool, error) {
 		c.plans = append(c.plans, exts)
-		return []string{"builds an image", "restarts"}, "plan-1", nil
+		c.seen = append(c.seen, tl)
+		return []string{"builds an image", "restarts"}, true, nil
 	}
-	w.f.PGExtApply = func(_ context.Context, _ store.Tile, id string, _ io.Writer) error {
-		if c.stale {
-			return errors.New("this plan is out of date; a new one is being made. Review it and apply again.")
+	w.f.PGExtApply = func(_ context.Context, _ store.Tile, exts []string, _ io.Writer) error {
+		if c.failed {
+			return errors.New("the build failed")
 		}
-		c.applied = append(c.applied, id)
+		c.applied = append(c.applied, exts)
 		return nil
 	}
 	return w, c
@@ -67,7 +70,7 @@ func TestBuiltExtensionsPlanAndApply(t *testing.T) {
 	}
 	_, err := w.f.Apply(ctx, w.envs["staging"].ID, w.rel(t, "b3", file).ID, io.Discard, nil)
 	must(t, err)
-	if !slices.Equal(c.applied, []string{"plan-1"}) || len(w.calls) != 0 {
+	if len(c.applied) != 1 || !slices.Equal(c.applied[0], []string{"vector", "postgis"}) || len(w.calls) != 0 {
 		t.Fatalf("applied %v, PGExt calls %v", c.applied, w.calls)
 	}
 	c.plans = nil
@@ -76,13 +79,13 @@ func TestBuiltExtensionsPlanAndApply(t *testing.T) {
 	}
 }
 
-func TestBuiltStalePlanFailsApply(t *testing.T) {
+func TestBuiltFailedBuildFailsApply(t *testing.T) {
 	w, c := builtWorld(t)
 	file := infraFile + "      extensions: [vector, postgis]\n"
 	rel := w.rel(t, "b5", file)
-	c.stale = true
+	c.failed = true
 	_, err := w.f.Apply(ctx, w.envs["staging"].ID, rel.ID, io.Discard, nil)
-	if err == nil || !strings.Contains(err.Error(), "this plan is out of date") {
+	if err == nil || !strings.Contains(err.Error(), "the build failed") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -103,21 +106,18 @@ func TestBuiltExportOmitsImageAndPreload(t *testing.T) {
 func TestOfficialFirstRecipeEnable(t *testing.T) {
 	w := newPGExtWorld(t)
 	w.instance(t, "staging", func(*store.OperatedInstance) {})
-	var applied []string
-	w.f.PGExtPlan = func(_ context.Context, _ store.Tile, _ store.OperatedInstance, exts []string, _ io.Writer) ([]string, string, error) {
-		if slices.Contains(exts, "vector") {
-			return []string{"builds an image"}, "plan-9", nil
-		}
-		return nil, "", nil
+	var applied [][]string
+	w.f.PGExtPlan = func(_ context.Context, _ store.Tile, _ store.OperatedInstance, exts []string, _ io.Writer) ([]string, bool, error) {
+		return []string{"builds an image"}, slices.Contains(exts, "vector"), nil
 	}
-	w.f.PGExtApply = func(_ context.Context, _ store.Tile, id string, _ io.Writer) error {
-		applied = append(applied, id)
+	w.f.PGExtApply = func(_ context.Context, _ store.Tile, exts []string, _ io.Writer) error {
+		applied = append(applied, exts)
 		return nil
 	}
 	file := infraFile + "      extensions: [vector]\n"
 	_, err := w.f.Apply(ctx, w.envs["staging"].ID, w.rel(t, "o1", file).ID, io.Discard, nil)
 	must(t, err)
-	if !slices.Equal(applied, []string{"plan-9"}) || len(w.calls) != 0 {
+	if len(applied) != 1 || !slices.Equal(applied[0], []string{"vector"}) || len(w.calls) != 0 {
 		t.Fatalf("recipe name: applied %v, PGExt calls %v", applied, w.calls)
 	}
 	file = infraFile + "      extensions: [pgcrypto]\n"
@@ -125,5 +125,36 @@ func TestOfficialFirstRecipeEnable(t *testing.T) {
 	must(t, err)
 	if len(applied) != 1 || len(w.calls) != 1 {
 		t.Fatalf("plain name: applied %v, PGExt calls %v", applied, w.calls)
+	}
+}
+
+// A new instance whose file lists a recipe name is planned on the tile it will
+// be (no ID yet, its stack and slug set) and built by the apply hook after it
+// exists, never handed to the plain PGExt path (which would refuse the name).
+func TestNewInstanceRecipeNamesBuildBeforeFirstRollout(t *testing.T) {
+	w, c := builtWorld(t)
+	file := infraFile + "    pgnew:\n      engine: postgres\n      extensions: [vector]\n"
+	p := w.plan(t, "n1", file)
+	if p.Blocked() || !strings.Contains(kinds(p), "operated:pgnewextensions+vector") {
+		t.Fatalf("plan = %s %v", kinds(p), p.Blockers)
+	}
+	if len(c.seen) != 1 || c.seen[0].ID != "" || c.seen[0].Slug != "pgnew" || c.seen[0].StackID == "" {
+		t.Fatalf("plan hook tiles = %+v", c.seen)
+	}
+	if len(c.applied) != 0 {
+		t.Fatal("the plan applied")
+	}
+	// the fake docker cannot roll an instance out; the hook has run by then
+	_, err := w.f.Apply(ctx, w.envs["staging"].ID, w.rel(t, "n1", file).ID, io.Discard, nil)
+	if err != nil && !strings.Contains(err.Error(), "deploy ") {
+		t.Fatal(err)
+	}
+	if len(c.applied) != 1 || !slices.Equal(c.applied[0], []string{"vector"}) {
+		t.Errorf("applied = %v", c.applied)
+	}
+	for _, call := range w.calls {
+		if call.slug == "pgnew" {
+			t.Errorf("the plain path was handed the new instance: %+v", call)
+		}
 	}
 }

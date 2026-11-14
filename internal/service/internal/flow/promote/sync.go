@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/deploy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/environment"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/hostgrant"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/params"
@@ -253,6 +254,11 @@ func (f *Flow) syncWork(
 			if tile.Builds(want) && e.FromKind == environment.FromBranch {
 				want.GitBranch = e.FromBranch
 			}
+			if m := insts[t.ID]; t.Kind == tile.Operated && deploy.RecipeBuilt(m.ExtBuild) {
+				// the source's built image is its own: the new instance starts on
+				// the official base and builds for the list it carries
+				want.ImageRef = buildBase(m.ExtBuild)
+			}
 			items[n] = syncItem{tag: tagNew, want: want, wantM: insts[t.ID]}
 		default:
 			want := t
@@ -406,6 +412,9 @@ func (f *Flow) syncKind(
 ) error {
 	switch want.Kind {
 	case tile.Operated:
+		if !exists { // the plan of a new instance reads the image it starts on
+			tc.Image = want.ImageRef
+		}
 		return f.planInstance(ctx, p, w, want.Slug, tc, old, exists)
 	case tile.Slice:
 		return f.planSlice(ctx, p, w, want, old, exists)
@@ -441,9 +450,22 @@ func warnHost(p *Plan, e store.Environment, slug string, want, old store.Tile) {
 	}
 }
 
-// instMoved: the engine, allow list or env pairs of two instances differ.
+// buildBase is the official base image an ext_build column records.
+func buildBase(extBuild string) string {
+	var eb struct {
+		Base string `json:"base"`
+	}
+	_ = json.Unmarshal([]byte(extBuild), &eb)
+	return eb.Base
+}
+
+// instMoved: the engine, allow list, env pairs, extension list or startup
+// modules of two instances differ. A recipe-built instance's startup modules
+// come from its recipes and are not compared.
 func instMoved(a, b store.OperatedInstance) bool {
 	return a.Engine != b.Engine || signedDiff(a.Allow, b.Allow) != "" || !maps.Equal(a.EnvPairs, b.EnvPairs) ||
+		signedDiff(a.Extensions, b.Extensions) != "" ||
+		(!deploy.RecipeBuilt(a.ExtBuild) && !deploy.RecipeBuilt(b.ExtBuild) && signedDiff(a.Preload, b.Preload) != "") ||
 		a.PITRDays != b.PITRDays || !maps.Equal(a.Settings, b.Settings) ||
 		a.PreferSync != b.PreferSync || a.SyncRequired != b.SyncRequired || cmp.Or(a.SyncLimitMS, 10) != cmp.Or(b.SyncLimitMS, 10)
 }
@@ -463,6 +485,12 @@ func thinConf(t store.Tile, m store.OperatedInstance) TileConf {
 		Sync:     &m.PreferSync, SyncRequired: &m.SyncRequired, SyncLimitMS: &lim,
 	}
 	maps.Copy(tc.Settings, m.Settings) // never nil: a plan reads nil as "untouched"
+	if m.Engine == "postgres" {
+		tc.Extensions = append([]string{}, m.Extensions...)
+		if !deploy.RecipeBuilt(m.ExtBuild) { // a built instance's startup modules come from its recipes
+			tc.Preload = append([]string{}, m.Preload...)
+		}
+	}
 	_ = json.Unmarshal([]byte(t.EnvJSON), &tc.Env)
 	return tc
 }
@@ -687,10 +715,11 @@ func (w *work) sig() string {
 		Pairs               map[string]string
 		Image               *string
 		Preload, Extensions *[]string
+		Build               *[]string
 	}
 	in := map[string]inst{}
 	for k, v := range w.instances {
-		in[k] = inst{v.allow, v.pairs, v.image, v.preload, v.extensions}
+		in[k] = inst{v.allow, v.pairs, v.image, v.preload, v.extensions, v.pgBuild}
 	}
 	var upd []store.Tile
 	for _, u := range w.updates {

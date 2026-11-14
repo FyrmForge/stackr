@@ -1151,7 +1151,7 @@ func (u *pgupRun) pgHelper(ctx context.Context, to int, rebuild bool) (string, m
 	if err != nil {
 		return "", tb, err
 	}
-	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(mflow.PGUpgradeImage, 0, eb.Arch, df))
+	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(mflow.PGUpgradeImage, to, eb.Arch, df))
 	if err != nil {
 		return "", tb, err
 	}
@@ -1173,7 +1173,7 @@ func (u *pgupRun) toBuild(ctx context.Context, eb mflow.ExtBuild, to int) ([]mfl
 		return nil, eb, err
 	}
 	tb := mflow.ExtBuild{Base: mustPGImage(to), Recipes: eb.Recipes, Arch: eb.Arch}
-	if pkgs := pgAptPackages(rs, to); len(pkgs) > 0 {
+	if pkgs := mflow.RecipePackages(rs, to); len(pkgs) > 0 {
 		node, _ := docker.NodeFrom(ctx)
 		res, err := o.pgResolveOn(ctx, node, tb.Base, u.m.ID, to, pkgs)
 		if err != nil {
@@ -1196,35 +1196,16 @@ func (u *pgupRun) toImage(ctx context.Context, eb mflow.ExtBuild, to int) ([]mfl
 	if err != nil {
 		return nil, tb, err
 	}
-	fn := o.pgfn()
 	node, _ := docker.NodeFrom(ctx)
-	df, err := fn.Dockerfile(tb.Base, to, tb.Arch, rs, tb.Packages)
-	if err != nil {
-		return nil, tb, err
-	}
-	ref, err := o.pgBuildRef(ctx, u.t, fn.Tag(tb.Base, to, tb.Arch, df))
-	if err != nil {
-		return nil, tb, err
-	}
-	_, _ = fmt.Fprintf(u.r.Log, "building %s for postgres %d\n", ref, to)
-	if err := o.pgBuild(ctx, u.t, node, ref, df, rs, u.r.Log); err != nil {
-		return nil, tb, err
-	}
-	var create []string
-	for _, r := range rs {
-		create = append(create, r.Extensions...)
-	}
 	m := u.m
 	m.Major = to
-	b, out, code, err := o.pgRecipeCheck(ctx, node, m, ref, fn.Preload(rs), create, pgAptPackages(rs, to))
+	// the same build, boot check and walk-down as a recipe change's apply
+	ref, pkgs, err := o.pgBuildChecked(ctx, u.t, m, node, tb.Base, tb.Arch, rs, tb.Packages, nil, u.r.Log)
 	if err != nil {
 		return nil, tb, err
 	}
-	if code != 0 {
-		return nil, tb, fmt.Errorf("the build of %s for postgres %d did not pass its check:\n%s", strings.Join(eb.Recipes, ", "), to, firstLines(out, 12))
-	}
-	if len(b.Pkgs) > 0 {
-		tb.Packages = b.Pkgs
+	if len(pkgs) > 0 {
+		tb.Packages = pkgs
 	}
 	tb.Ref = ref
 	return rs, tb, nil

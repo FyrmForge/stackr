@@ -15,11 +15,9 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/move"
-	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
-	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/planfile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 	"github.com/FyrmForge/stackr/internal/worker"
@@ -247,21 +245,6 @@ func (o *Orchestrator) pmChecks(ctx context.Context, envIDs []string, from, to s
 		add("cpu arch", false, fmt.Sprintf("%s is %s, %s is %s", nm.label(from), fromFacts.Arch, toName, toFacts.Arch))
 	default:
 		add("cpu arch", true, toFacts.Arch)
-	}
-
-	// recipe builds (message 32): an instance built for another CPU type is
-	// built again for the target's
-	if toFacts != nil && toFacts.Arch != "" {
-		for _, t := range tiles {
-			if t.Kind != tile.Operated {
-				continue
-			}
-			if m, err := o.operated.GetByTile(ctx, t.ID); err == nil {
-				if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.Built() && eb.Arch != "" && eb.Arch != toFacts.Arch {
-					add("extension build", true, fmt.Sprintf("%s was built for %s; it is built again for %s on %s.", t.Slug, eb.Arch, toFacts.Arch, toName))
-				}
-			}
-		}
 	}
 
 	// source online

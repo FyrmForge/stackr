@@ -85,13 +85,17 @@ type Flow struct {
 	// stopped instance only stores them; a running one runs the extensions
 	// change inline, with the apply's log. Nil = ignored.
 	PGExt func(ctx context.Context, t store.Tile, m store.OperatedInstance, image *string, preload, exts *[]string, log io.Writer) error
-	// PGExtPlan plans a recipe change of a postgres instance from a file: the
-	// plan's rendered lines and its id, which the apply step must name.
-	// Nil = recipe changes in a file are not planned.
-	PGExtPlan func(ctx context.Context, t store.Tile, m store.OperatedInstance, exts []string, log io.Writer) (lines []string, planID string, err error)
-	// PGExtApply applies the plan planID of instance tile t; a stale plan is
-	// an error (message 28). Nil = ignored.
-	PGExtApply func(ctx context.Context, t store.Tile, planID string, log io.Writer) error
+	// PGExtPlan says whether a file's extension list for a postgres instance
+	// needs a recipe build, with the lines to show. It must be fast and free of
+	// side effects (no container, nothing stored): the plan step runs in a
+	// request. t may be a tile the apply has not made yet (empty ID). build
+	// false = the plain path stores the list. Nil = recipe changes in a file
+	// are not planned.
+	PGExtPlan func(ctx context.Context, t store.Tile, m store.OperatedInstance, exts []string, log io.Writer) (lines []string, build bool, err error)
+	// PGExtApply plans, builds and applies the file's extension list exts for
+	// instance tile t, in the apply job (the instance exists by then). Nil =
+	// ignored.
+	PGExtApply func(ctx context.Context, t store.Tile, exts []string, log io.Writer) error
 	// StandbyPlan compares a file's standbys with instance tile t's cluster.
 	// The cluster's nodes are the listed ones plus the tile's own placement
 	// node, whichever role each plays now; only a node that is in one set and
@@ -424,9 +428,9 @@ func (f *Flow) applyInstances(ctx context.Context, w *work, e store.Environment,
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
-		if iw.pgPlan != "" && f.PGExtApply != nil {
-			// the plan the plan step stored; a stale one fails here (message 28)
-			if err := f.PGExtApply(ctx, t, iw.pgPlan, log); err != nil {
+		if iw.pgBuild != nil && f.PGExtApply != nil {
+			// the recipe build the plan step announced, resolved and run here
+			if err := f.PGExtApply(ctx, t, *iw.pgBuild, log); err != nil {
 				return fmt.Errorf("%s: extensions: %w", name, err)
 			}
 			if m, err = d.Operated.GetByTile(ctx, t.ID); err != nil {

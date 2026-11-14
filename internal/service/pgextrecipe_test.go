@@ -24,7 +24,7 @@ import (
 )
 
 // The recipe engine is lane A2's; these tests give the Orchestrator a small
-// fake of it (pgFnsFor) and script the one-shot containers through the fake
+// fake of it (Orchestrator.pgFns) and script the one-shot containers through the fake
 // daemon's Helper, so the plan, the apply and the walk down are tested here
 // and not through A2's bodies.
 
@@ -99,11 +99,10 @@ func newRecipeRig(t *testing.T) *recipeRig {
 			return fmt.Sprintf("FROM %s\n# %s %v\n", base, arch, string(b)), nil
 		},
 		Tag: func(base string, _ int, arch, df string) string {
-			return fmt.Sprintf("%s-ext-%s-%x", pgTagOf(base), arch, sha256.Sum256([]byte(df)))[:30]
+			return fmt.Sprintf("%s-ext-%s-%x", imageTag(base), arch, sha256.Sum256([]byte(df)))[:30]
 		},
 	}
-	pgFnsFor.Store(r.orch, fns)
-	t.Cleanup(func() { pgFnsFor.Delete(r.orch) })
+	r.orch.pgFns = &fns
 	r.fake.Helper = func(s docker.ContainerSpec) (string, int, bool) {
 		if len(s.Cmd) == 3 && s.Cmd[0] == "sh" {
 			switch {
@@ -554,7 +553,7 @@ func TestRegistryCleanKeepsInstanceBuilds(t *testing.T) {
 	tl, _, err := r.orch.instanceOf(ctx, r.pg.ID)
 	must(t, err)
 	refs := map[string]bool{}
-	r.orch.keepOperatedRefs(ctx, tl, refs)
+	r.orch.keepOperatedRefs(ctx, tl, "o", refs)
 	if !refs["o/s/pg:prev"] {
 		t.Errorf("refs = %v: the previous build is swept", refs)
 	}
@@ -562,21 +561,21 @@ func TestRegistryCleanKeepsInstanceBuilds(t *testing.T) {
 	eb.PrevAt = time.Now().Add(-2 * pgupKeep)
 	must(t, r.st.OperatedInstances.SetBuild(ctx, r.inst.ID, nil, nil, eb.String()))
 	refs = map[string]bool{}
-	r.orch.keepOperatedRefs(ctx, tl, refs)
+	r.orch.keepOperatedRefs(ctx, tl, "o", refs)
 	if refs["o/s/pg:prev"] {
 		t.Error("an old previous build is kept")
 	}
 	// a change in flight keeps both ends
 	must(t, r.orch.setPGExtState(ctx, r.inst.ID, pgExtState{Phase: pgExtStart, Old: pgExtVals{Image: prev}, New: pgExtVals{Image: cur}}))
 	refs = map[string]bool{}
-	r.orch.keepOperatedRefs(ctx, tl, refs)
+	r.orch.keepOperatedRefs(ctx, tl, "o", refs)
 	if !refs["o/s/pg:prev"] || !refs["o/s/pg:cur"] {
 		t.Errorf("refs = %v", refs)
 	}
 	// a major change keeps its images
 	must(t, r.orch.setPGUp(ctx, r.inst.ID, pgUp{FromImage: image.ClusterRegistry + "o/s/pg:from", ToImage: image.ClusterRegistry + "o/s/pg:to"}))
 	refs = map[string]bool{}
-	r.orch.keepOperatedRefs(ctx, tl, refs)
+	r.orch.keepOperatedRefs(ctx, tl, "o", refs)
 	if !refs["o/s/pg:from"] || !refs["o/s/pg:to"] {
 		t.Errorf("refs = %v", refs)
 	}
@@ -681,9 +680,8 @@ func TestPGRecipeAdmin(t *testing.T) {
 	}
 }
 
-// A placement move names each recipe-built instance whose build is for another
-// CPU type than the target's (message 32). The plain "cpu arch" check still
-// decides the move.
+// A recipe-built instance moving to another CPU type is refused by the plain
+// "cpu arch" check, and no check claims it is built again.
 func TestPGRecipeMovePlanLine(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -694,37 +692,35 @@ func TestPGRecipeMovePlanLine(t *testing.T) {
 	must(t, err)
 	eb := mflow.ExtBuild{Base: pgStock, Ref: "localhost:5000/o/s/pg:x", Arch: "amd64"}
 	must(t, n.st.OperatedInstances.SetBuild(ctx, m.ID, nil, nil, eb.String()))
-	line := func() string {
-		plan, err := n.orch.PlanPlacementMove(ctx, "eu", "w1")
-		must(t, err)
-		for _, c := range plan.Checks {
-			if c.Name == "extension build" {
-				return c.Detail
-			}
-		}
-		return ""
-	}
-	if got := line(); got != "" {
-		t.Errorf("same CPU type: %q", got)
-	}
 	n.m.facts["w1"] = worker.Facts{Arch: "arm64", DiskFree: 500 << 30, DiskTotal: 1000 << 30, MemFree: 8 << 30}
-	if got, want := line(), "pg was built for amd64; it is built again for arm64 on w1."; got != want {
-		t.Errorf("line = %q, want %q", got, want)
+	plan, err := n.orch.PlanPlacementMove(ctx, "eu", "w1")
+	must(t, err)
+	var arch bool
+	for _, c := range plan.Checks {
+		if c.Name == "extension build" {
+			t.Errorf("a rebuild is claimed: %q", c.Detail)
+		}
+		if c.Name == "cpu arch" && !c.OK {
+			arch = true
+		}
+	}
+	if !arch {
+		t.Error("the cpu arch check does not refuse a move to another CPU type")
 	}
 }
 
-// A stack file on a not-yet-built instance: names no recipe brings make no
-// plan (the file's plain path stores them); a recipe name does.
+// A stack file on a not-yet-built instance: names no recipe brings need no
+// build (the file's plain path stores them); a recipe name does.
 func TestPGExtPlanFromFileFirstBuild(t *testing.T) {
 	t.Parallel()
 	r := newRecipeRig(t)
 	tl, m, err := r.orch.instanceOf(r.ctx, r.pg.ID)
 	must(t, err)
-	if _, id, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"pgcrypto"}, io.Discard); err != nil || id != "" {
-		t.Fatalf("plain name: id %q, %v", id, err)
+	if _, build, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"pgcrypto"}, io.Discard); err != nil || build {
+		t.Fatalf("plain name: build %v, %v", build, err)
 	}
-	if _, id, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"vector"}, io.Discard); err != nil || id == "" {
-		t.Fatalf("recipe name: id %q, %v", id, err)
+	if _, build, err := r.orch.pgExtPlanFromFile(r.ctx, tl, m, []string{"vector"}, io.Discard); err != nil || !build {
+		t.Fatalf("recipe name: build %v, %v", build, err)
 	}
 }
 

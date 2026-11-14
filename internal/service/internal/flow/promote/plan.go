@@ -206,8 +206,9 @@ type instanceWork struct {
 	// and extension list as the file sets them, nil = untouched.
 	image               *string
 	preload, extensions *[]string
-	// pgPlan is the recipe plan id of a built instance's extensions change.
-	pgPlan string
+	// pgBuild is the extension list a recipe build applies (PGExtApply), nil =
+	// none.
+	pgBuild *[]string
 	// standbys is the change to the instance's standbys; nil = untouched.
 	standbys *StandbyDiff
 	// sync is the synchronous replication choice, nil = untouched.
@@ -995,7 +996,7 @@ func (f *Flow) planInstance(
 	}
 	if moved {
 		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys, sync: syncw,
-			image: pgx.image, preload: pgx.preload, extensions: pgx.exts, pgPlan: pgx.planID}
+			image: pgx.image, preload: pgx.preload, extensions: pgx.exts, pgBuild: pgx.build}
 	}
 	return nil
 }
@@ -1011,13 +1012,12 @@ func pgCustom(old store.Tile, m store.OperatedInstance) bool {
 type pgExtWork struct {
 	image         *string
 	preload, exts *[]string
-	// planID is the recipe plan a built instance's extensions change runs
-	// (PGExtPlan), "" = none.
-	planID string
+	// build is the list a recipe build applies (PGExtPlan said so), nil = none.
+	build *[]string
 }
 
 func (x pgExtWork) any() bool {
-	return x.image != nil || x.preload != nil || x.exts != nil || x.planID != ""
+	return x.image != nil || x.preload != nil || x.exts != nil || x.build != nil
 }
 
 // planBuiltPGExt is planPGExt for a recipe-built instance: its image and
@@ -1037,7 +1037,7 @@ func (f *Flow) planBuiltPGExt(ctx context.Context, p *Plan, name string, tc Tile
 	if d == "" {
 		return nil
 	}
-	lines, id, err := f.PGExtPlan(ctx, old, have, tc.Extensions, io.Discard)
+	lines, _, err := f.PGExtPlan(ctx, old, have, tc.Extensions, io.Discard)
 	if _, invalid := errs.IsInvalid(err); invalid {
 		p.block("tile %s: %v", name, err)
 		return nil
@@ -1051,7 +1051,7 @@ func (f *Flow) planBuiltPGExt(ctx context.Context, p *Plan, name string, tc Tile
 	for _, l := range lines {
 		p.Warnings = append(p.Warnings, name+": "+l)
 	}
-	x.planID = id
+	x.build = &tc.Extensions
 	return nil
 }
 
@@ -1068,10 +1068,17 @@ func (f *Flow) planPGExt(
 		return x, f.planBuiltPGExt(ctx, p, name, tc, old, have, &x)
 	}
 	// official image, list changes, nothing else: names a recipe brings make
-	// the first build, the hook's plan (planID ""= none needed, the plain path)
-	if exists && f.PGExtPlan != nil && deploy.PGOfficial(old.ImageRef) && (tc.Image == "" || tc.Image == old.ImageRef) &&
-		tc.Preload == nil && tc.Extensions != nil && signedDiff(have.Extensions, tc.Extensions) != "" {
-		lines, id, err := f.PGExtPlan(ctx, old, have, tc.Extensions, io.Discard)
+	// the first build, the hook's plan (build false = none needed, the plain
+	// path). A new instance is planned the same way on the tile it will be: it
+	// is built by the apply, before its first rollout.
+	at, official := old, deploy.PGOfficial(old.ImageRef) && (tc.Image == "" || tc.Image == old.ImageRef)
+	if !exists {
+		at = store.Tile{StackID: w.st.ID, EnvironmentID: w.e.ID, Slug: name, ImageRef: tc.Image}
+		official = tc.Image == "" || deploy.PGOfficial(tc.Image)
+		have = store.OperatedInstance{Engine: "postgres", Major: tc.Major}
+	}
+	if f.PGExtPlan != nil && official && tc.Preload == nil && tc.Extensions != nil && signedDiff(have.Extensions, tc.Extensions) != "" {
+		lines, build, err := f.PGExtPlan(ctx, at, have, tc.Extensions, io.Discard)
 		if _, invalid := errs.IsInvalid(err); invalid {
 			p.block("tile %s: %v", name, err)
 			return x, nil
@@ -1081,12 +1088,12 @@ func (f *Flow) planPGExt(
 		} else if err != nil {
 			return x, err
 		}
-		if id != "" {
+		if build {
 			p.add(Change{Kind: "operated", Tile: name, Field: "extensions", New: signedDiff(have.Extensions, tc.Extensions)})
 			for _, l := range lines {
 				p.Warnings = append(p.Warnings, name+": "+l)
 			}
-			x.planID = id
+			x.build = &tc.Extensions
 			return x, nil
 		}
 	}

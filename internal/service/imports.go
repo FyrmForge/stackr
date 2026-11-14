@@ -16,6 +16,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/imgcopy"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
@@ -116,10 +117,31 @@ func (o *Orchestrator) ownClusterRef(ctx context.Context, orgID, ref string) err
 	if err != nil {
 		return err
 	}
-	if owner != og.Slug {
+	if owner != og.Slug && !o.ownBuildRef(ctx, orgID, ref) {
 		return errs.Refusedf("%s is not an image of this org", ref)
 	}
 	return nil
+}
+
+// ownBuildRef says ref is the recorded build of a recipe-built instance of this
+// org: an org rename leaves the build under the old slug, and the instance
+// still runs it. Only the cold path (a ref under another name) asks.
+func (o *Orchestrator) ownBuildRef(ctx context.Context, orgID, ref string) bool {
+	ms, err := o.store.OperatedInstances.ListEngine(ctx, "postgres")
+	if err != nil {
+		return false
+	}
+	for _, m := range ms {
+		if eb, _ := mflow.ParseExtBuild(m.ExtBuild); !eb.Built() || eb.Ref != ref {
+			continue
+		}
+		if t, err := o.tiles.Get(ctx, m.TileID); err == nil {
+			if id, err := o.tileOrg(ctx, t); err == nil && id == orgID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // importForDeploy is flow/deploy's Import hook: an outside ref is imported on
