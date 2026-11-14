@@ -1626,17 +1626,22 @@ func (a *app) sliceAccess() *cobra.Command {
 // tile, bound by the tiles of its env that ref it or name it in slice_access.
 func (a *app) sliceTiles() *cobra.Command {
 	var from, access string
+	var exts []string
 	add := leaf(
 		"add <slug>",
 		"slice.create",
 		"Make a slice tile in --env, cut from --from at its deploy",
 		exact(1),
 		a.at(atEnv, func(_ *cobra.Command, p string, args []string) error {
-			v, err := a.call(POST, p+"/slices", map[string]string{
+			body := map[string]any{
 				"name":           args[0],
 				"provision_from": from,
 				"default_access": access,
-			})
+			}
+			if len(exts) > 0 {
+				body["extensions"] = exts
+			}
+			v, err := a.call(POST, p+"/slices", body)
 			if err != nil {
 				return err
 			}
@@ -1645,6 +1650,7 @@ func (a *app) sliceTiles() *cobra.Command {
 	)
 	add.Flags().StringVar(&from, "from", "", "the operated tile, <stack>:<env>:<tile>")
 	add.Flags().StringVar(&access, "access", "", "the default access of its consumers, read or write (default write)")
+	add.Flags().StringSliceVar(&exts, "extensions", nil, "postgres extensions of the slice's database, comma separated")
 	_ = add.MarkFlagRequired("from")
 	return scoped(noun("slice", "Slice tiles: a database or bucket cut from an operated tile",
 		add,
@@ -1662,6 +1668,7 @@ func (a *app) sliceTiles() *cobra.Command {
 			"since",
 		),
 		a.sliceBranch(),
+		a.sliceExtensions(),
 		a.sliceForward(),
 		a.sliceBucket(),
 		a.get("usage [slice]", "slice.usage", "Show a bucket's current bytes and its old versions' bytes, apart", atTile,

@@ -542,6 +542,30 @@ func TestSliceVerbsRoutes(t *testing.T) {
 			"POST " + env + `/slices {"default_access":"read","name":"db","provision_from":"infra:dev:pg"}`,
 		},
 		{
+			[]string{"slice", "add", "db", "--from", "infra:dev:pg", "--extensions", "citext,pgcrypto"},
+			"POST " + env + `/slices {"default_access":"","extensions":["citext","pgcrypto"],"name":"db","provision_from":"infra:dev:pg"}`,
+		},
+		{
+			[]string{"slice", "extensions", "get", "db"},
+			"GET " + env + "/tiles/db/slice-extensions ",
+		},
+		{
+			[]string{"slice", "extensions", "set", "db", "citext", "--no-wait"},
+			"PUT " + env + `/tiles/db/slice-extensions {"extensions":["citext"]}`,
+		},
+		{
+			[]string{"operated", "extensions", "get", "pg"},
+			"GET " + env + "/tiles/pg/extensions ",
+		},
+		{
+			[]string{"operated", "extensions", "set", "pg", "pgcrypto", "--preload", "pg_cron,pg_stat_statements", "--no-wait"},
+			"PUT " + env + `/tiles/pg/extensions {"extensions":["pgcrypto"],"preload":["pg_cron","pg_stat_statements"]}`,
+		},
+		{
+			[]string{"operated", "extensions", "set", "pg", "--image", "reg/pg:17", "--no-wait"},
+			"PUT " + env + `/tiles/pg/extensions {"image":"reg/pg:17"}`,
+		},
+		{
 			[]string{"slice", "get", "db"},
 			"GET " + env + "/tiles/db/slice ",
 		},
