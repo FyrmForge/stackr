@@ -324,6 +324,7 @@ func (o *Orchestrator) handlers() map[jobs.Kind]jobs.Handler {
 		kindPGUpgrade:       payload(o.runPGUpgrade),
 		kindFailover:        payload(o.runFailoverJob),
 		kindPGRollback:      payload(o.runPGRollback),
+		kindPGExt:           payload(o.runPGExt),
 		kindOrphans: func(ctx context.Context, r *jobs.Run) error {
 			ctx, err := o.withController(ctx)
 			if err != nil {

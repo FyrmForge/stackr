@@ -62,6 +62,7 @@ type Tile struct {
 	QuotaGB                 *int            `db:"quota_gb" json:"quota_gb"`               // bucket slice: hard size cap; nil or 0 = none
 	CORSOrigins             OriginList      `db:"cors_origins" json:"cors_origins"`       // bucket slice: origins CORS allows
 	SliceURL                *string         `db:"slice_url" json:"url"`                   // postgres slice: what url, host and port point at, direct | pooled; nil = direct
+	Extensions              NameList        `db:"extensions" json:"extensions"`           // postgres slice: the extensions its database lists
 	CreatedAt               time.Time       `db:"created_at" json:"created_at"`
 	UpdatedAt               time.Time       `db:"updated_at" json:"updated_at"`
 	ExpiresAt               *time.Time      `db:"expires_at" json:"expires_at"` // a branch slice: swept after this; nil = never
@@ -119,6 +120,8 @@ type TileStore interface {
 	ListByKind(ctx context.Context, kind string) ([]Tile, error)
 	ListAll(ctx context.Context) ([]Tile, error)
 	Update(ctx context.Context, t Tile) error
+	// SetImageRef writes image_ref and no other column.
+	SetImageRef(ctx context.Context, id, ref string) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -128,6 +131,11 @@ type tiles struct{ crud[Tile] }
 
 func (s tiles) GetBySlug(ctx context.Context, envID, slug string) (Tile, error) {
 	return s.one(ctx, "environment_id = ? AND slug = ?", envID, slug)
+}
+
+func (s tiles) SetImageRef(ctx context.Context, id, ref string) error {
+	res, err := s.q.ExecContext(ctx, "UPDATE tiles SET image_ref = ? WHERE id = ?", ref, id)
+	return affected(res, err)
 }
 
 func (s tiles) ListAll(ctx context.Context) ([]Tile, error) { return s.many(ctx, "1 = 1") }

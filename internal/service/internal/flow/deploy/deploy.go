@@ -124,6 +124,11 @@ type Flow struct {
 	// tile's container and readiness, a slice tile's provision and every
 	// consumer's binding; nil = no operated tiles here.
 	Engines *mflow.Flow
+	// PGExtDue is called after an operated tile's deploy has started it and
+	// its pooler is up: it reconciles the extensions the instance owes after
+	// an image or startup-list change. Its error is a "reconcile" phase
+	// error. nil = none owed.
+	PGExtDue func(ctx context.Context, t store.Tile, log io.Writer) error
 
 	// Runs reads a function or cron tile's runs for a `tile:completed`
 	// dependency; RunFirst runs an on_deploy function (and fails when its
@@ -338,17 +343,24 @@ func (f *Flow) Run(ctx context.Context, t store.Tile, ref string, log io.Writer,
 		return "", fmt.Errorf("pull %s: %w", tile.PauseImage, err)
 	}
 	if err := f.rollout(ctx, t, e, r, log, swap); err != nil {
-		return "", err
+		// Every error out of the rollout is "start": by now a container may
+		// have changed. Only a tile with an engine reads the phase.
+		return "", &PhaseError{Phase: PhaseStart, Err: err}
 	}
 	if t.Kind == tile.Operated {
 		logf(log, "waiting for %s to accept connections\n", t.Slug)
 		if err := f.Engines.Ready(ctx, t); err != nil {
-			return digest, err
+			return digest, &PhaseError{Phase: PhaseStart, Err: err}
 		}
 		// A pooler that fails fails the deploy, which can be retried: the
 		// pooled outputs are not to name a pooler that is not there.
 		if err := f.Engines.EnsurePooler(ctx, t, log); err != nil {
-			return digest, fmt.Errorf("the pooler: %w", err)
+			return digest, &PhaseError{Phase: PhasePooler, Err: fmt.Errorf("the pooler: %w", err)}
+		}
+		if f.PGExtDue != nil {
+			if err := f.PGExtDue(ctx, t, log); err != nil {
+				return digest, &PhaseError{Phase: PhaseReconcile, Err: err}
+			}
 		}
 		return digest, nil
 	}
@@ -928,10 +940,66 @@ func HasPITR(name string) bool {
 	return ok && e.Definition().ArchiveDir != ""
 }
 
+// The phases a deploy of an operated tile reports through PhaseError.
+const (
+	PhaseStart     = "start"     // the rollout or the readiness wait failed
+	PhasePooler    = "pooler"    // the instance runs, its pooler does not
+	PhaseReconcile = "reconcile" // the instance runs, its extensions were not reconciled
+)
+
+// PhaseError says which step of a deploy failed. Its text is the wrapped
+// error's, unchanged. An error that is no PhaseError came before the first
+// container changed (preflight, preparing the spec, waiting for dependencies,
+// pulling the pause image).
+type PhaseError struct {
+	Phase string
+	Err   error
+}
+
+func (e *PhaseError) Error() string { return e.Err.Error() }
+func (e *PhaseError) Unwrap() error { return e.Err }
+
+// PhaseOf is the phase err carries, "" for an error that has none.
+func PhaseOf(err error) string {
+	var p *PhaseError
+	if errors.As(err, &p) {
+		return p.Phase
+	}
+	return ""
+}
+
 // CheckSettings refuses a stack file's settings for an engine before any
 // instance exists: not a postgres instance, an owned name, an unusable value.
 func CheckSettings(engine string, s map[string]string) error {
 	return mflow.SettingsPlanError(engine, s)
+}
+
+// PGOfficial reports whether image is the stock postgres image; an empty image
+// is the stock default. promote reaches it here (it may not import
+// flow/operated).
+func PGOfficial(image string) bool { return mflow.PGOfficial(image) }
+
+// CheckExtNames refuses a name that is not an extension name (message 9).
+func CheckExtNames(names []string) error { return mflow.CheckExtNames(names) }
+
+// CheckPreload refuses a name that is not a startup module name (message 10).
+func CheckPreload(names []string) error { return mflow.CheckPreload(names) }
+
+// ExtMissing are the names a slice lists that its instance does not.
+func ExtMissing(instanceList, sliceList []string) []string {
+	return mflow.ExtMissing(instanceList, sliceList)
+}
+
+// ExtPlanError is a stack file's refusal of extensions or startup modules
+// for an engine that has none, before any instance exists (message 11).
+func ExtPlanError(engine string, preload, exts []string) error {
+	if len(preload) == 0 && len(exts) == 0 {
+		return nil
+	}
+	if engine != "postgres" {
+		return fmt.Errorf("%s has no extensions; only postgres does", engine)
+	}
+	return nil
 }
 
 // PGPick is the image and major a new postgres instance gets from the major

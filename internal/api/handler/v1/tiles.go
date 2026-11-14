@@ -160,9 +160,10 @@ type (
 		EnvPairs map[string]string `json:"env_pairs"` // consumer env -> this stack's env; the full map
 	}
 	SliceTileIn struct {
-		Name          string `json:"name"`
-		ProvisionFrom string `json:"provision_from"` // <stack>:<env>:<tile>
-		DefaultAccess string `json:"default_access"` // read | write, "" = write
+		Name          string   `json:"name"`
+		ProvisionFrom string   `json:"provision_from"` // <stack>:<env>:<tile>
+		DefaultAccess string   `json:"default_access"` // read | write, "" = write
+		Extensions    []string `json:"extensions"`     // postgres extensions of the slice's database
 	}
 	SliceAccessIn struct {
 		Slice  string `json:"slice"`                            // a slice tile's slug in the consumer's env
@@ -605,7 +606,7 @@ func (h *H) SetOperatedEnvPairs() Endpoint {
 
 func (h *H) CreateSliceTile() Endpoint {
 	return JSON(201, func(c echo.Context, in SliceTileIn) (service.TileView, error) {
-		return tileView(h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess))
+		return tileView(h.Orch.CreateSliceTile(rc(c), envID(c), in.Name, in.ProvisionFrom, in.DefaultAccess, in.Extensions))
 	})
 }
 
@@ -795,5 +796,120 @@ func (h *H) RemoveStandby() Endpoint {
 func (h *H) RebuildStandby() Endpoint {
 	return JSON(http.StatusAccepted, func(c echo.Context, _ None) (service.StandbyView, error) {
 		return h.Orch.RebuildStandbyOf(rc(c), tileID(c), c.Param("standby"))
+	})
+}
+
+// PGExtIn is the body of PUT .../extensions: a field left out stays as it is.
+type PGExtIn struct {
+	Image      *string   `json:"image"`      // the image ref
+	Preload    *[]string `json:"preload"`    // startup modules (shared_preload_libraries)
+	Extensions *[]string `json:"extensions"` // the extensions slices may use
+}
+
+// PGExtOut is an instance's extensions, with the job a change queued.
+type PGExtOut struct {
+	Image      string         `json:"image"`
+	Official   bool           `json:"official"`
+	Running    bool           `json:"running"`
+	Preload    []string       `json:"preload"`
+	Extensions []string       `json:"extensions"`
+	Items      []PGExtItemOut `json:"items"`
+	Slices     []string       `json:"slices"`
+	Plan       string         `json:"plan"`
+	Busy       string         `json:"busy"`
+	Job        *service.Job   `json:"job,omitempty"`
+}
+
+// PGExtItemOut is one extension of an instance.
+type PGExtItemOut struct {
+	Name      string   `json:"name"`
+	Installed string   `json:"installed"`
+	Available string   `json:"available"`
+	Listed    bool     `json:"listed"`
+	Startup   bool     `json:"startup"`
+	UsedBy    []string `json:"used_by"`
+}
+
+// SliceExtIn is the body of PUT .../slice-extensions: the full list.
+type SliceExtIn struct {
+	Extensions []string `json:"extensions"`
+}
+
+// SliceExtOut is a slice's extensions, with the deploy job a change queued.
+type SliceExtOut struct {
+	Instance    string            `json:"instance"`
+	Provisioned bool              `json:"provisioned"`
+	Extensions  []string          `json:"extensions"`
+	Allowed     []string          `json:"allowed"`
+	Items       []SliceExtItemOut `json:"items"`
+	Job         *service.Job      `json:"job,omitempty"`
+}
+
+// SliceExtItemOut is one extension of a slice's database.
+type SliceExtItemOut struct {
+	Name      string `json:"name"`
+	Installed string `json:"installed"`
+	Available string `json:"available"`
+	AddedWith string `json:"added_with"`
+	Listed    bool   `json:"listed"`
+}
+
+func pgExtOut(v service.PGExtView, j *service.Job) PGExtOut {
+	o := PGExtOut{Image: v.Image, Official: v.Official, Running: v.Running, Preload: v.Preload,
+		Extensions: v.Extensions, Slices: v.Slices, Plan: v.Plan, Busy: v.Busy, Job: j,
+		Items: make([]PGExtItemOut, 0, len(v.Items))}
+	for _, i := range v.Items {
+		o.Items = append(o.Items, PGExtItemOut{Name: i.Name, Installed: i.Installed, Available: i.Available,
+			Listed: i.Listed, Startup: i.Startup, UsedBy: i.UsedBy})
+	}
+	return o
+}
+
+func sliceExtOut(v service.SliceExtView, j *service.Job) SliceExtOut {
+	o := SliceExtOut{Instance: v.Instance, Provisioned: v.Provisioned, Extensions: v.Extensions,
+		Allowed: v.Allowed, Job: j, Items: make([]SliceExtItemOut, 0, len(v.Items))}
+	for _, i := range v.Items {
+		o.Items = append(o.Items, SliceExtItemOut{Name: i.Name, Installed: i.Installed,
+			Available: i.Available, AddedWith: i.AddedWith, Listed: i.Listed})
+	}
+	return o
+}
+
+// PGExtensions reads an instance's image, startup modules and extensions.
+func (h *H) PGExtensions() Endpoint {
+	return Get(func(c echo.Context) (PGExtOut, error) {
+		v, err := h.Orch.PGExtensions(rc(c), tileID(c))
+		return pgExtOut(v, nil), err
+	})
+}
+
+// SetPGExtensions changes an instance's image, startup modules or extensions;
+// a change that needs a restart queues a job.
+func (h *H) SetPGExtensions() Endpoint {
+	return JSON(200, func(c echo.Context, in PGExtIn) (PGExtOut, error) {
+		v, j, err := h.Orch.SetPGExtensions(rc(c), middleware.Principal(c), tileID(c),
+			service.PGExtIn{Image: in.Image, Preload: in.Preload, Extensions: in.Extensions})
+		return pgExtOut(v, j), err
+	})
+}
+
+// SliceExtensions reads a slice's extensions against what its instance allows.
+func (h *H) SliceExtensions() Endpoint {
+	return Get(func(c echo.Context) (SliceExtOut, error) {
+		v, err := h.Orch.SliceExtensions(rc(c), tileID(c))
+		return sliceExtOut(v, nil), err
+	})
+}
+
+// SetSliceExtensions sets a slice's extensions; a provisioned slice queues
+// its own deploy.
+func (h *H) SetSliceExtensions() Endpoint {
+	return JSON(200, func(c echo.Context, in SliceExtIn) (SliceExtOut, error) {
+		_, j, err := h.Orch.SetSliceExtensions(rc(c), tileID(c), in.Extensions)
+		if err != nil {
+			return SliceExtOut{}, err
+		}
+		v, err := h.Orch.SliceExtensions(rc(c), tileID(c))
+		return sliceExtOut(v, j), err
 	})
 }

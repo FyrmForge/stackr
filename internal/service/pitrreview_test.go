@@ -317,7 +317,7 @@ func TestSeedFromSliceDumpsOnTheSourceNode(t *testing.T) {
 		var err error
 		inst, err = o.CreateOperatedTile(ctx, Tile{EnvironmentID: env.ID, Name: "pg-" + slug}, "postgres", 0)
 		must(t, err)
-		slice, err = o.CreateSliceTile(ctx, env.ID, slug, "shop:"+env.Slug+":"+inst.Slug, "")
+		slice, err = o.CreateSliceTile(ctx, env.ID, slug, "shop:"+env.Slug+":"+inst.Slug, "", nil)
 		must(t, err)
 		m, err := o.operated.GetByTile(ctx, inst.ID)
 		must(t, err)

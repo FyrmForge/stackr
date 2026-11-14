@@ -254,6 +254,8 @@ func formKey(field string) string {
 		return field + "_s"
 	case "git_branch":
 		return "branch"
+	case "image_ref": // an operated tile's image is changed on its own (message 27)
+		return "image"
 	}
 	return field
 }

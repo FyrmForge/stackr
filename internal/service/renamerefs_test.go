@@ -31,7 +31,7 @@ func TestRenameCarriesSliceRefs(t *testing.T) {
 	must(err)
 	_, err = o.SetOperatedEnvPairs(ctx, pg.ID, map[string]string{"dev": "dev"})
 	must(err)
-	db, err := o.CreateSliceTile(ctx, tl.Env, "db", "shop:dev:pg", "")
+	db, err := o.CreateSliceTile(ctx, tl.Env, "db", "shop:dev:pg", "", nil)
 	must(err)
 	healthy := func(step, from string, allow []string, pairs map[string]string) {
 		t.Helper()

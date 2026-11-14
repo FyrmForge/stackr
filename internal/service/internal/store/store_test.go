@@ -339,9 +339,11 @@ func TestRoundTrip(t *testing.T) {
 		ProvisionFrom: ptr("infra:${{ env.name }}:pg_db"),
 		DefaultAccess: ptr("write"),
 		OnRemove:      ptr("keep"),
+		Extensions:    store.NameList{"vector", "vchord"},
 		CreatedAt:     t0,
 		UpdatedAt:     t0,
 	}, func(ti *store.Tile) {
+		ti.Extensions = nil
 		ti.ProvisionFrom = ptr("infra:staging:pg_db")
 		ti.DefaultAccess = ptr("read")
 		ti.OnRemove = ptr("drop")
@@ -394,13 +396,17 @@ func TestRoundTrip(t *testing.T) {
 		AdminUser:     "root",
 		AdminPassword: "pw",
 		Endpoint:      "db:5432",
+		Preload:       store.NameList{"vchord"},
+		Extensions:    store.NameList{"vector", "vchord"},
 		CreatedAt:     t0,
 	}, func(m *store.OperatedInstance) {
+		m.Preload, m.Extensions = nil, store.NameList{"vector"}
 		m.AdminPassword = "pw2"
 		m.Allow = store.StringList{}
 		m.EnvPairs = store.StringMap{}
 		m.Settings = store.StringMap{}
 	})
+	columnWrites(t, s)
 	roundTrip(t, s.Provisions, store.Provision{
 		ID:         "pr1",
 		TileID:     "t3",
@@ -780,5 +786,52 @@ func mustSeedOrg(t *testing.T, s *store.Store) {
 		CreatedAt: t0,
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// SetExt and SetImageRef write their own columns and nothing else, so a job
+// that owns them never writes a whole row from an earlier read. It runs on
+// the rows TestRoundTrip made (instance mi1, its tile t2).
+func columnWrites(t *testing.T, s *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	m, err := s.OperatedInstances.Get(ctx, "mi1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.OperatedInstances.SetExt(ctx, "mi1", []string{"vchord"}, []string{"vector", "vchord"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.OperatedInstances.Get(ctx, "mi1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Preload, m.Extensions = store.NameList{"vchord"}, store.NameList{"vector", "vchord"}
+	same(t, "SetExt", m, got)
+	if err := s.OperatedInstances.SetExt(ctx, "mi1", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.OperatedInstances.Get(ctx, "mi1"); got.Preload != nil || got.Extensions != nil {
+		t.Errorf("cleared lists = %#v, %#v", got.Preload, got.Extensions)
+	}
+	if err := s.OperatedInstances.SetExt(ctx, "nope", nil, nil); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("SetExt on a missing id: %v", err)
+	}
+
+	tl, err := s.Tiles.Get(ctx, "t2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tiles.SetImageRef(ctx, "t2", "ghcr.io/x/pg:1"); err != nil {
+		t.Fatal(err)
+	}
+	gt, err := s.Tiles.Get(ctx, "t2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tl.ImageRef = "ghcr.io/x/pg:1"
+	same(t, "SetImageRef", tl, gt)
+	if err := s.Tiles.SetImageRef(ctx, "nope", "x"); !errors.Is(err, errs.ErrNotFound) {
+		t.Errorf("SetImageRef on a missing id: %v", err)
 	}
 }

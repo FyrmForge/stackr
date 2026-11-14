@@ -183,12 +183,16 @@ var pgReloadContext = []string{"sighup", "user", "superuser", "superuser-backend
 // running instance reports (pg_settings.context by name): any that only
 // takes effect at start means a restart; one the instance does not report,
 // or cannot change (internal), is refused. A name only unset may be unknown.
-func pgJudge(contexts map[string]string, changed, unset []string) (restart bool, err error) {
+// With ext set (the instance lists at least one extension) a name with a dot
+// that the instance does not report is accepted as reload-level: postgres
+// takes any two-part name, and no catalog maps a prefix to an extension
+// (R27; a typo in such a name is not caught).
+func pgJudge(contexts map[string]string, changed, unset []string, ext bool) (restart bool, err error) {
 	for _, n := range changed {
 		c, ok := contexts[n]
 		switch {
 		case !ok:
-			if slices.Contains(unset, n) {
+			if slices.Contains(unset, n) || (ext && strings.Contains(n, ".")) {
 				continue
 			}
 			return false, fmt.Errorf("%s is not a setting this postgres knows", n)

@@ -138,6 +138,7 @@ var shownValues = map[string]func(store.Tile) string{
 		return strconv.Itoa(*t.QuotaGB)
 	},
 	"cors_origins": func(t store.Tile) string { return strings.Join(t.CORSOrigins, " ") },
+	"extensions":   func(t store.Tile) string { return strings.Join(t.Extensions, " ") },
 }
 
 func (p *Plan) Blocked() bool { return len(p.Blockers) > 0 }
@@ -201,6 +202,10 @@ type instanceWork struct {
 	pitr  *int // the recovery window, nil = untouched
 	// settings are the instance's own settings, nil = untouched.
 	settings *map[string]string
+	// image, preload and extensions are the instance's image, startup modules
+	// and extension list as the file sets them, nil = untouched.
+	image               *string
+	preload, extensions *[]string
 	// standbys is the change to the instance's standbys; nil = untouched.
 	standbys *StandbyDiff
 	// sync is the synchronous replication choice, nil = untouched.
@@ -469,16 +474,26 @@ func (f *Flow) planConfig(ctx context.Context, p *Plan, w *work, r *Resolved) er
 				}
 				switch {
 				case m.Major == 0:
+				case tc.Major != 0 && tc.Major != m.Major && pgCustom(old, m):
+					p.block("tile %s: runs a custom image; its major cannot change. Make a new instance on postgres %d and branch the slices to it", name, tc.Major)
+					continue
 				case tc.Major != 0 && tc.Major != m.Major:
 					p.block("tile %s: runs postgres %d; major: %d is a major change; run `stackr operated upgrade --to %d` (or use the instance drawer), then set major: to match", name, m.Major, tc.Major, tc.Major)
+					continue
+				case tc.Image != "" && deploy.ImageMajor(tc.Image) != m.Major && pgCustom(old, m):
+					p.block("tile %s: runs a custom image; its major cannot change. Make a new instance on postgres %d and branch the slices to it", name, deploy.ImageMajor(tc.Image))
 					continue
 				case tc.Image != "" && deploy.ImageMajor(tc.Image) != m.Major:
 					p.block("tile %s: runs postgres %d; image %s is not that major; change the major with `stackr operated upgrade --to <major>` (or the instance drawer), then set the image to match", name, m.Major, tc.Image)
 					continue
-				case tc.Image != "" && old.ImageRef != "" && tc.Image != old.ImageRef:
-					// ponytail: image: only sets a new instance's image; a minor moves with operated update
-					p.block("tile %s: runs %s; image: %s would change its minor; use `stackr operated update` (or the instance drawer), and keep major: in the file", name, old.ImageRef, tc.Image)
-					continue
+				case tc.Image != "" && tc.Image != old.ImageRef && deploy.PGOfficial(tc.Image) && deploy.PGOfficial(old.ImageRef):
+					if old.ImageRef != "" {
+						// ponytail: official to official only sets a new instance's image; a minor moves with operated update
+						p.block("tile %s: runs %s; image: %s would change its minor; use `stackr operated update` (or the instance drawer), and keep major: in the file", name, old.ImageRef, tc.Image)
+						continue
+					}
+				case tc.Image != "" && tc.Image != old.ImageRef:
+					row.ImageRef = old.ImageRef // a custom image moves through the extensions change, not the row
 				}
 			}
 		} else if tc.Type == tile.Operated && tc.Engine == "postgres" {
@@ -864,6 +879,16 @@ func (f *Flow) planInstance(
 		}
 		have = m
 	}
+	if err := deploy.ExtPlanError(tc.Engine, tc.Preload, tc.Extensions); err != nil {
+		p.block("tile %s: %v", name, err)
+		return nil
+	}
+	for _, err := range []error{deploy.CheckPreload(tc.Preload), deploy.CheckExtNames(tc.Extensions)} {
+		if err != nil {
+			p.block("tile %s: %v", name, err)
+			return nil
+		}
+	}
 	var pairsOld, pairsNew []string
 	for k, v := range have.EnvPairs {
 		pairsOld = append(pairsOld, k+"→"+v)
@@ -914,6 +939,11 @@ func (f *Flow) planInstance(
 			p.Warnings = append(p.Warnings, name+" restarts to change its settings")
 		}
 	}
+	pgx, err := f.planPGExt(ctx, p, w, name, tc, old, have, exists)
+	if err != nil {
+		return err
+	}
+	moved = moved || pgx.any()
 	var syncw *syncWork
 	if tc.Sync != nil || tc.SyncLimitMS != nil || tc.SyncRequired != nil {
 		sw := syncWork{prefer: have.PreferSync, required: have.SyncRequired, limitMS: cmp.Or(have.SyncLimitMS, 10)}
@@ -962,7 +992,152 @@ func (f *Flow) planInstance(
 		}
 	}
 	if moved {
-		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys, sync: syncw}
+		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys, sync: syncw,
+			image: pgx.image, preload: pgx.preload, extensions: pgx.exts}
+	}
+	return nil
+}
+
+// pgCustom: the instance runs a custom image or has startup modules, so its
+// major cannot move (message 2b).
+func pgCustom(old store.Tile, m store.OperatedInstance) bool {
+	return !deploy.PGOfficial(old.ImageRef) || len(m.Preload) > 0
+}
+
+// pgExtWork is what a file changes in an instance's image, startup modules
+// and extension list; nil = untouched.
+type pgExtWork struct {
+	image         *string
+	preload, exts *[]string
+}
+
+func (x pgExtWork) any() bool { return x.image != nil || x.preload != nil || x.exts != nil }
+
+// planPGExt diffs the file's image, preload and extensions against the
+// instance row, and blocks what the service would refuse.
+func (f *Flow) planPGExt(
+	ctx context.Context, p *Plan, w *work, name string, tc TileConf, old store.Tile, have store.OperatedInstance, exists bool,
+) (pgExtWork, error) {
+	var x pgExtWork
+	if tc.Engine != "postgres" {
+		return x, nil
+	}
+	restart := false
+	// an official image moves with the row (a new instance, or "" to a tag); a custom one here
+	if exists && tc.Image != "" && tc.Image != old.ImageRef && (!deploy.PGOfficial(tc.Image) || !deploy.PGOfficial(old.ImageRef)) {
+		p.add(Change{Kind: "operated", Tile: name, Field: "image", Old: old.ImageRef, New: tc.Image})
+		x.image, restart = &tc.Image, true
+	}
+	startup := false
+	if tc.Preload != nil {
+		if d := signedDiff(have.Preload, tc.Preload); d != "" {
+			p.add(Change{Kind: "operated", Tile: name, Field: "preload", New: d})
+			x.preload, restart, startup = &tc.Preload, true, true
+		}
+	}
+	var removed []string
+	if tc.Extensions != nil {
+		if d := signedDiff(have.Extensions, tc.Extensions); d != "" {
+			p.add(Change{Kind: "operated", Tile: name, Field: "extensions", New: d})
+			x.exts = &tc.Extensions
+			removed = deploy.ExtMissing(tc.Extensions, have.Extensions)
+		}
+	}
+	if !exists {
+		return x, nil
+	}
+	if len(removed) > 0 {
+		if err := f.blockListed(ctx, p, w, name, have, removed); err != nil {
+			return x, err
+		}
+	}
+	if x.image != nil || startup {
+		standbys := tc.Standbys != nil && len(*tc.Standbys) > 0
+		if !standbys && f.StandbyNames != nil {
+			cur, err := f.StandbyNames(ctx, old)
+			if err != nil {
+				return x, err
+			}
+			standbys = len(cur) > 0
+		}
+		if standbys {
+			p.block("tile %s: %s has a standby. Remove the standby, change the image or the startup modules, then add the standby again.", name, name)
+		}
+	}
+	if startup {
+		p.Warnings = append(p.Warnings, fmt.Sprintf(
+			"%s restarts. A startup module runs in every database; a crash in it restarts every slice. Slices on it: %s.",
+			name, f.sliceSlugs(ctx, have)))
+	} else if restart {
+		p.Warnings = append(p.Warnings, name+" restarts to change its image")
+	}
+	return x, nil
+}
+
+// sliceSlugs lists the slices cut from the instance, for the restart warning.
+func (f *Flow) sliceSlugs(ctx context.Context, m store.OperatedInstance) string {
+	var out []string
+	ps, _ := f.D.Operated.ByInstance(ctx, m.ID)
+	for _, pr := range ps {
+		if t, err := f.D.Tiles.Get(ctx, pr.TileID); err == nil {
+			out = append(out, t.Slug)
+		}
+	}
+	if len(out) == 0 {
+		return "none"
+	}
+	slices.Sort(out)
+	return strings.Join(out, ", ")
+}
+
+// blockListed: a name leaves the instance's list while a slice, in this file
+// or live and untouched by it, lists it (message 5).
+func (f *Flow) blockListed(ctx context.Context, p *Plan, w *work, name string, m store.OperatedInstance, removed []string) error {
+	lists := map[string][]string{}
+	ps, err := f.D.Operated.ByInstance(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	for _, pr := range ps {
+		t, err := f.D.Tiles.Get(ctx, pr.TileID)
+		if errors.Is(err, errs.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, inFile := w.re.Tiles[t.Slug]; !inFile {
+			lists[t.Slug] = t.Extensions
+		}
+	}
+	here := w.st.Slug + "/" + w.e.Slug + "/" + name
+	for sn, stc := range w.re.Tiles {
+		if stc.Type != tile.Slice || len(stc.Extensions) == 0 {
+			continue
+		}
+		target, _, ok, err := f.sliceTarget(ctx, &Plan{}, w, toRow(sn, stc, w.st, w.e))
+		if err != nil {
+			return err
+		}
+		if ok && target == here {
+			lists[sn] = stc.Extensions
+		}
+	}
+	for _, ext := range removed {
+		var by []string
+		for _, sn := range slices.Sorted(maps.Keys(lists)) {
+			if slices.Contains(lists[sn], ext) {
+				by = append(by, sn)
+			}
+		}
+		if len(by) == 0 {
+			continue
+		}
+		more := ""
+		if len(by) > 1 {
+			more = fmt.Sprintf(" and %d more", len(by)-1)
+		}
+		p.block("tile %s: %s is listed by slice %s%s. Take it off the slice first.", name, ext, by[0], more)
 	}
 	return nil
 }
@@ -997,7 +1172,10 @@ func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.T
 		return err
 	}
 	p.sliceRefs(w, row, engine)
-	now := target + " (" + deref(row.DefaultAccess) + sliceURLNote(row) + ")"
+	if err := f.checkSliceExt(ctx, p, w, row, target, engine); err != nil {
+		return err
+	}
+	now := target + " (" + deref(row.DefaultAccess) + sliceURLNote(row) + sliceExtNote(row) + ")"
 	c := Change{
 		Kind: "slice",
 		Tile: row.Slug,
@@ -1005,18 +1183,91 @@ func (f *Flow) planSlice(ctx context.Context, p *Plan, w *work, row, old store.T
 	}
 	if exists {
 		sameFrom := deref(old.ProvisionFrom) == deref(row.ProvisionFrom)
-		if sameFrom && deref(old.DefaultAccess) == deref(row.DefaultAccess) && tile.URLOf(old) == tile.URLOf(row) {
+		if sameFrom && deref(old.DefaultAccess) == deref(row.DefaultAccess) && tile.URLOf(old) == tile.URLOf(row) &&
+			slices.Equal(old.Extensions, row.Extensions) {
 			return nil
+		}
+		if !slices.Equal(old.Extensions, row.Extensions) {
+			w.redeploy[row.Slug] = true // the slice's own deploy creates the new extensions
 		}
 		c.Old = deref(old.ProvisionFrom)
 		if sameFrom {
 			c.Old = target
 		}
-		c.Old += " (" + deref(old.DefaultAccess) + sliceURLNote(old) + ")"
+		c.Old += " (" + deref(old.DefaultAccess) + sliceURLNote(old) + sliceExtNote(old) + ")"
 	}
 	p.add(c)
 	w.sliced = append(w.sliced, row.Slug)
 	return nil
+}
+
+// sliceExtNote is ", extensions a b" for a slice that lists some, "" otherwise.
+func sliceExtNote(t store.Tile) string {
+	if len(t.Extensions) == 0 {
+		return ""
+	}
+	return ", extensions " + strings.Join(t.Extensions, " ")
+}
+
+// checkSliceExt refuses a slice's extension list the target cannot serve:
+// not a postgres instance (message 31), a bad name (9), or a name the
+// instance does not list (3). The instance's list is the file's when the file
+// declares it, else its stored row's; neither known: no blocker, the deploy
+// refuses.
+func (f *Flow) checkSliceExt(ctx context.Context, p *Plan, w *work, row store.Tile, target, engine string) error {
+	if len(row.Extensions) == 0 {
+		return nil
+	}
+	if engine != "" && engine != "postgres" {
+		p.block("slice %s: extensions apply to postgres slices only", row.Slug)
+		return nil
+	}
+	if err := deploy.CheckExtNames(row.Extensions); err != nil {
+		p.block("slice %s: %v", row.Slug, err)
+		return nil
+	}
+	parts := strings.Split(target, "/")
+	if len(parts) != 3 {
+		return nil
+	}
+	var list []string
+	if tc, ok := w.re.Tiles[parts[2]]; ok && parts[0] == w.st.Slug && parts[1] == w.e.Slug && tc.Extensions != nil {
+		list = tc.Extensions
+	} else {
+		m, ok, err := f.storedInstance(ctx, w, parts)
+		if err != nil || !ok {
+			return err
+		}
+		list = m.Extensions
+	}
+	for _, n := range deploy.ExtMissing(list, row.Extensions) {
+		p.block("slice %s: %s is not enabled on %s. Add it to the instance's extensions first.", row.Slug, n, parts[2])
+	}
+	return nil
+}
+
+// storedInstance reads the instance row at stack/env/tile; false when there is none.
+func (f *Flow) storedInstance(ctx context.Context, w *work, parts []string) (store.OperatedInstance, bool, error) {
+	st, err := f.D.Stacks.GetBySlug(ctx, w.st.OrgID, parts[0])
+	if err == nil {
+		var e store.Environment
+		if e, err = f.D.Envs.GetBySlug(ctx, st.ID, parts[1]); err == nil {
+			var t store.Tile
+			if t, err = f.D.Tiles.GetBySlug(ctx, e.ID, parts[2]); err == nil {
+				var m store.OperatedInstance
+				m, err = f.D.Operated.GetByTile(ctx, t.ID)
+				return m, err == nil, ignoreMissing(err)
+			}
+		}
+	}
+	return store.OperatedInstance{}, false, ignoreMissing(err)
+}
+
+func ignoreMissing(err error) error {
+	if errors.Is(err, errs.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 // sliceURLNote is ", pooled" for a slice that says so, "" for the default.
@@ -1614,6 +1865,7 @@ func toRow(name string, tc TileConf, st store.Stack, e store.Environment) store.
 		t.DefaultAccess = &access
 		t.OnRemove = &onRemove
 		t.VersionDays, t.QuotaGB, t.CORSOrigins = tc.VersionDays, tc.QuotaGB, tc.CORSOrigins
+		t.Extensions = tc.Extensions
 		u := cmp.Or(tc.URL, tile.Direct)
 		t.SliceURL = &u
 	}

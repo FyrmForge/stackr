@@ -142,6 +142,7 @@ var fields = []field{
 	{"version_days", func(t *store.Tile) bool { return t.VersionDays != nil }},
 	{"quota_gb", func(t *store.Tile) bool { return t.QuotaGB != nil }},
 	{"cors_origins", func(t *store.Tile) bool { return len(t.CORSOrigins) > 0 }},
+	{"extensions", func(t *store.Tile) bool { return len(t.Extensions) > 0 }},
 	{"url", func(t *store.Tile) bool { return t.SliceURL != nil }},
 }
 
@@ -166,6 +167,7 @@ var refusals = map[string]string{
 	"version_days":   "version_days applies to slice tiles only",
 	"quota_gb":       "quota_gb applies to slice tiles only",
 	"cors_origins":   "cors_origins applies to slice tiles only",
+	"extensions":     "extensions apply to slice tiles only",
 	"url":            "url applies to slice tiles only",
 }
 
@@ -242,7 +244,7 @@ var Carries = map[string]map[string]bool{
 	Operated: keys([]string{"image", "env", "limits", "shm_size_mb", "published_ports"}),
 	Cron:     keys(buildKeys, oneShotKeys, []string{"schedule", "paused", "slice_access"}),
 	Function: keys(buildKeys, oneShotKeys, []string{"trigger", "slice_access"}),
-	Slice:    keys([]string{"provision_from", "default_access", "on_remove", "version_days", "quota_gb", "cors_origins", "url"}),
+	Slice:    keys([]string{"provision_from", "default_access", "on_remove", "version_days", "quota_gb", "cors_origins", "url", "extensions"}),
 }
 
 // Validate is one gate over the finished row, create and update alike; every

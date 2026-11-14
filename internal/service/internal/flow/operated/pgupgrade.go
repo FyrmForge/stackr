@@ -324,28 +324,17 @@ func (f *Flow) PGLogins(ctx context.Context, it store.Tile, logins []PGLogin) er
 	return nil
 }
 
-// PGAfterChange brings the new cluster's extensions to the new version's and
-// builds the statistics a copy does not carry (vacuumdb in stages, so queries
-// plan well soon). An extension that cannot update is said and left.
+// PGAfterChange brings the new cluster's extensions to the new version's
+// (an extension that cannot update is said and left; a listed one that cannot
+// be created fails the step) and builds the statistics a copy does not carry (vacuumdb in stages, so
+// queries plan well soon).
 func (f *Flow) PGAfterChange(ctx context.Context, it store.Tile, log io.Writer) error {
 	_, i, x, err := f.postgres(ctx, it)
 	if err != nil {
 		return err
 	}
-	dbs, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", pgDBsSQL))
-	if err != nil {
+	if err := f.reconcile(ctx, it, log, true); err != nil {
 		return err
-	}
-	for _, db := range strings.Fields(dbs) {
-		exts, err := x.Exec(ctx, append(pg{}.psql(i, db, nil), "-tA", "-c", `SELECT extname FROM pg_extension ORDER BY 1`))
-		if err != nil {
-			return err
-		}
-		for _, e := range strings.Fields(exts) {
-			if _, err := x.Exec(ctx, pg{}.psql(i, db, []string{"ALTER EXTENSION " + quote(e) + " UPDATE"})); err != nil {
-				logf(log, "warning: extension %s in %s was not updated: %v\n", e, db, err)
-			}
-		}
 	}
 	_, err = x.Exec(ctx, []string{"vacuumdb", "-h", pgSocketDir, "-U", i.AdminUser, "--all", "--analyze-in-stages"})
 	return err

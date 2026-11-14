@@ -4702,6 +4702,12 @@
             },
             "type": "object"
           },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "id": {
             "type": "string"
           },
@@ -4713,6 +4719,12 @@
           },
           "prefer_sync": {
             "type": "boolean"
+          },
+          "preload": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "settings": {
             "additionalProperties": {
@@ -4744,6 +4756,8 @@
           "prefer_sync",
           "sync_limit_ms",
           "sync_required",
+          "preload",
+          "extensions",
           "created_at"
         ],
         "type": "object"
@@ -4984,6 +4998,146 @@
           "detail",
           "need_bytes",
           "at"
+        ],
+        "type": "object"
+      },
+      "PGExtIn": {
+        "properties": {
+          "extensions": {
+            "oneOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preload": {
+            "oneOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PGExtItemOut": {
+        "properties": {
+          "available": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "string"
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startup": {
+            "type": "boolean"
+          },
+          "used_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "installed",
+          "available",
+          "listed",
+          "startup",
+          "used_by"
+        ],
+        "type": "object"
+      },
+      "PGExtOut": {
+        "properties": {
+          "busy": {
+            "type": "string"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "image": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PGExtItemOut"
+            },
+            "type": "array"
+          },
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "official": {
+            "type": "boolean"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "preload": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "slices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "image",
+          "official",
+          "running",
+          "preload",
+          "extensions",
+          "items",
+          "slices",
+          "plan",
+          "busy"
         ],
         "type": "object"
       },
@@ -7252,10 +7406,103 @@
         ],
         "type": "object"
       },
+      "SliceExtIn": {
+        "properties": {
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "extensions"
+        ],
+        "type": "object"
+      },
+      "SliceExtItemOut": {
+        "properties": {
+          "added_with": {
+            "type": "string"
+          },
+          "available": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "string"
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "installed",
+          "available",
+          "added_with",
+          "listed"
+        ],
+        "type": "object"
+      },
+      "SliceExtOut": {
+        "properties": {
+          "allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SliceExtItemOut"
+            },
+            "type": "array"
+          },
+          "job": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Job"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provisioned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "instance",
+          "provisioned",
+          "extensions",
+          "allowed",
+          "items"
+        ],
+        "type": "object"
+      },
       "SliceTileIn": {
         "properties": {
           "default_access": {
             "type": "string"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "name": {
             "type": "string"
@@ -7267,7 +7514,8 @@
         "required": [
           "name",
           "provision_from",
-          "default_access"
+          "default_access",
+          "extensions"
         ],
         "type": "object"
       },
@@ -8889,6 +9137,12 @@
               }
             ]
           },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "files": {
             "items": {
               "$ref": "#/components/schemas/FileView"
@@ -9105,6 +9359,7 @@
           "timeout_minutes",
           "slice_access",
           "cors_origins",
+          "extensions",
           "created_at",
           "updated_at"
         ],
@@ -22516,6 +22771,140 @@
         "x-verb": "placement.write"
       }
     },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/extensions": {
+      "get": {
+        "description": "Reads the instance's image, startup modules and extensions, with each one's installed and available version.",
+        "operationId": "operated.extensions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGExtOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "put": {
+        "description": "Changes the instance's image, startup modules or extensions; one that needs a restart returns a job.",
+        "operationId": "operated.extensions-set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PGExtIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PGExtOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
     "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/failover": {
       "post": {
         "description": "Makes a standby the primary when the primary is down, once the old primary is known stopped.",
@@ -24473,6 +24862,140 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SliceCreds"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.write"
+      }
+    },
+    "/api/v1/orgs/{org}/stacks/{stack}/envs/{env}/tiles/{tile}/slice-extensions": {
+      "get": {
+        "description": "Reads a slice's extensions against the ones its instance allows.",
+        "operationId": "slice.extensions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SliceExtOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "error"
+          }
+        },
+        "x-verb": "tile.read"
+      },
+      "put": {
+        "description": "Sets a slice's extensions; a provisioned slice returns its deploy job.",
+        "operationId": "slice.extensions-set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stack",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tile",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SliceExtIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SliceExtOut"
                 }
               }
             },

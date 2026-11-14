@@ -465,3 +465,12 @@ func (l *Leaf) SetOutputs(ctx context.Context, b store.Binding, outputs map[stri
 func (l *Leaf) Unbind(ctx context.Context, id string) error {
 	return l.bindings.Delete(ctx, id)
 }
+
+// SetExtensions stores a postgres instance's startup modules and the
+// extensions its slices may list, in one write of those two columns only. The
+// caller holds its own lock and owes the instance a restart when the modules
+// moved.
+func (l *Leaf) SetExtensions(ctx context.Context, m store.OperatedInstance, preload, exts []string) (store.OperatedInstance, error) {
+	m.Preload, m.Extensions = preload, exts
+	return m, l.instances.SetExt(ctx, m.ID, preload, exts)
+}

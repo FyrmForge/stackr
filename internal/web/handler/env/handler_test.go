@@ -122,7 +122,7 @@ func TestSliceBucketDrawer(t *testing.T) {
 	if _, err := s.Orch.CreateOperatedTile(ctx, service.Tile{EnvironmentID: s.Tile.Env, Name: "files"}, "s3", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "media", "shop:dev:files", ""); err != nil {
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "media", "shop:dev:files", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	d := "/acme/shop/dev/-/slices/media"
@@ -256,7 +256,7 @@ func TestSliceDrawer(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	pg := operated(t, s)
-	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestSliceDrawer(t *testing.T) {
 		t.Errorf("default access = %d, the note is not in its row or the row is not changed\n%s", rec.Code, body)
 	}
 
-	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "far", "shop:nope:pg", ""); err != nil {
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "far", "shop:nope:pg", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	rec = s.Do(t, "GET", "/acme/shop/dev/-/slices/far", nil)
@@ -349,7 +349,7 @@ func TestSliceBranchRow(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	pg := operated(t, s)
-	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestInstanceDeleteWithSlicesRefused(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	pg := operated(t, s)
-	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +566,7 @@ func TestInstanceDeleteWithUncutSliceRefused(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	operated(t, s)
-	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	rec := s.Do(t, "POST", "/acme/shop/dev/-/instances/pg/delete", nil)
@@ -581,7 +581,7 @@ func TestInstanceAndSliceRename(t *testing.T) {
 	s := webtest.New(t)
 	ctx := context.Background()
 	operated(t, s)
-	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", ""); err != nil {
+	if _, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	// a refused rename keeps what was typed in the field

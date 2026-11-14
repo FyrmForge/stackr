@@ -272,11 +272,11 @@ func TestAccessTab(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "")
+	main, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "main", "shop:dev:pg", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "cache", "shop:dev:pg", "")
+	cache, err := s.Orch.CreateSliceTile(ctx, s.Tile.Env, "cache", "shop:dev:pg", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

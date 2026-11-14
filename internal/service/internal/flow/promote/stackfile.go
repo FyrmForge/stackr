@@ -266,6 +266,11 @@ type TileConf struct {
 	// managed postgres: the instance's own settings, name to value; nil = the
 	// file leaves them as they are, an empty map clears them.
 	Settings map[string]string `yaml:"settings"`
+	// operated postgres: the startup modules after pg_stat_statements and the
+	// extensions its slices may list; nil = the file leaves them as they are.
+	// A slice tile's own extensions (below) uses the same key.
+	Preload    []string `yaml:"preload"`
+	Extensions []string `yaml:"extensions"`
 	// operated postgres: the nodes (name or slug) that hold a standby, each a
 	// string or {node, sync}. Together with the tile's own placement node they
 	// are the cluster's node set whatever role each plays (a switchover moves
@@ -292,6 +297,8 @@ type TileConf struct {
 	VersionDays *int     `yaml:"version_days"`
 	QuotaGB     *int     `yaml:"quota_gb"`
 	CORSOrigins []string `yaml:"cors_origins"`
+	// (A postgres slice's own extensions are Extensions, above: the key is
+	// the same for an instance and a slice.)
 	// any other tile: its access per slice tile of the env.
 	SliceAccess []SliceAccessConf `yaml:"slice_access"`
 	// cron: schedule (a cron expression, CRON_TZ= allowed); function:
@@ -863,6 +870,10 @@ func checkSliceKeys(name string, tc TileConf) error {
 		return fmt.Errorf("tile %s: settings: only an operated tile takes it", name)
 	case (tc.Sync != nil || tc.SyncLimitMS != nil || tc.SyncRequired != nil) && tc.Type != "operated":
 		return fmt.Errorf("tile %s: sync: only an operated tile takes it", name)
+	case tc.Preload != nil && tc.Type != "operated":
+		return fmt.Errorf("tile %s: preload: only an operated tile takes it", name)
+	case tc.Extensions != nil && tc.Type != "operated" && tc.Type != "slice":
+		return fmt.Errorf("tile %s: extensions: only an operated or slice tile takes it", name)
 	case tc.Standbys != nil && tc.Type != "operated":
 		return fmt.Errorf("tile %s: standbys: only an operated tile takes it", name)
 	case tc.ProvisionFrom != "" && tc.Type != "slice":

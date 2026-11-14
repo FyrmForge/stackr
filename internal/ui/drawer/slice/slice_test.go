@@ -163,3 +163,84 @@ func TestBucketRows(t *testing.T) {
 		t.Error("SizeText")
 	}
 }
+
+// The Extensions row ticks only what the instance allows (plus anything the
+// slice lists that it no longer allows), posts the whole list, and is a read
+// when the stack file or the viewer's role owns it. The Overview lists what
+// the database has, with CASCADE additions, and is a live region only when
+// the drawer has a stream.
+func TestExtensionsRowAndRegion(t *testing.T) {
+	v := full()
+	v.IsPostgres = true
+	v.Ext = &ExtView{
+		Allowed: []string{"vector", "postgis"},
+		Listed:  []string{"postgis", "old_one"},
+		Items: []ExtItem{
+			{Name: "postgis", Installed: "3.4.2", Available: "3.5.0"},
+			{Name: "postgis_topology", Installed: "3.4.2", AddedWith: "postgis"},
+		},
+	}
+	set := render(t, v, Settings(v))
+	for _, w := range []string{
+		`data-acc="extensions"`, `hx-post="/o/s/e/-/slices/main/extensions"`, `name="extension" value="vector"`,
+		`name="extension" value="postgis" checked`, `name="extension" value="old_one" checked`, `name="open"`,
+	} {
+		if !strings.Contains(set, w) {
+			t.Errorf("settings lacks %q", w)
+		}
+	}
+	if strings.Contains(set, "Remove") {
+		t.Error("the Extensions row has a Remove button")
+	}
+	ov := render(t, v, Overview(v))
+	for _, w := range []string{"slice-extensions", "3.4.2, 3.5.0 available", "added with postgis"} {
+		if !strings.Contains(ov, w) {
+			t.Errorf("overview lacks %q", w)
+		}
+	}
+	if strings.Contains(ov, "sse-swap") {
+		t.Errorf("the page is wired to a stream it has not:\n%s", ov)
+	}
+	v.Live = v.Base + "/live"
+	frame := render(t, v, Overview(v))
+	if !strings.Contains(frame, `sse-connect="/o/s/e/-/slices/main/live"`) || !strings.Contains(frame, `sse-swap="extensions"`) {
+		t.Errorf("the drawer is not wired to its stream:\n%s", frame)
+	}
+	var region strings.Builder
+	if err := LiveExtensions(v).Render(context.Background(), &region); err != nil {
+		t.Fatal(err)
+	}
+	if got := region.String(); got == "" || !strings.Contains(frame, got) {
+		t.Errorf("the region differs between the page and the stream: %q", got)
+	}
+	v.FileOwned = true
+	if out := render(t, v, Settings(v)); strings.Contains(out, "/extensions\"") || !strings.Contains(out, "Set in the stack file.") {
+		t.Error("a config-managed slice must not post its extensions")
+	}
+	v.FileOwned, v.ReadOnly = false, true
+	if out := render(t, v, Settings(v)); strings.Contains(out, "/extensions\"") {
+		t.Error("a read-only viewer posts extensions")
+	}
+}
+
+// A slice whose instance allows nothing says so; a failed read says so in
+// the region, never an empty one; a slice with no extensions view draws no
+// section.
+func TestExtensionsEmptyAndUnread(t *testing.T) {
+	v := full()
+	v.IsPostgres, v.Ext = true, &ExtView{}
+	if out := render(t, v, Settings(v)); !strings.Contains(out, "The instance allows none yet.") || strings.Contains(out, `name="extension"`) {
+		t.Errorf("empty allowed list:\n%s", out)
+	}
+	if out := render(t, v, LiveExtensions(v)); !strings.Contains(out, "None yet.") {
+		t.Errorf("empty region: %q", out)
+	}
+	v.Ext = &ExtView{Unread: "try again shortly"}
+	if out := render(t, v, LiveExtensions(v)); !strings.Contains(out, "Could not read extensions: try again shortly") {
+		t.Errorf("unread region: %q", out)
+	}
+	v.Ext = nil
+	if out := render(t, v, Settings(v)) + render(t, v, Overview(v)); strings.Contains(out, "xtensions") {
+		t.Error("a slice with no extensions view draws an Extensions section")
+	}
+}

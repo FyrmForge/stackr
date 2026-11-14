@@ -240,12 +240,17 @@ func (o *Orchestrator) SetOperatedEnvPairs(
 // instance provision_from (<stack>:<env>:<tile>) names, provisioned at its
 // deploy. provision_from is parsed here; whether the target exists and
 // admits this env is checked by the promote plan and at deploy, never here.
-// defaultAccess "" is write. A config-managed stack declares its slices in
-// the stack file.
+// defaultAccess "" is write. extensions is the list the slice's database
+// holds (nil = none); the target instance is not asked here, for the reason
+// above. A config-managed stack declares its slices in the stack file.
 func (o *Orchestrator) CreateSliceTile(
 	ctx context.Context,
 	envID, slug, provisionFrom, defaultAccess string,
+	extensions []string,
 ) (Tile, error) {
+	if err := deploy.CheckExtNames(extensions); err != nil {
+		return Tile{}, err
+	}
 	e, err := o.envs.Get(ctx, envID)
 	if err != nil {
 		return Tile{}, err
@@ -264,6 +269,7 @@ func (o *Orchestrator) CreateSliceTile(
 		Slug:          slug,
 		Kind:          tile.Slice,
 		ProvisionFrom: &provisionFrom,
+		Extensions:    extensions,
 	}
 	if defaultAccess != "" {
 		t.DefaultAccess = &defaultAccess

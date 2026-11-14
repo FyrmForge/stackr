@@ -37,7 +37,7 @@ func newBranchRig(t *testing.T) *branchRig {
 	ctx := context.Background()
 	pg, err := w.orch.CreateOperatedTile(ctx, Tile{EnvironmentID: w.env, Name: "pg"}, "postgres", 0)
 	must(t, err)
-	db, err := w.orch.CreateSliceTile(ctx, w.env, "db", "shop:dev:pg", "")
+	db, err := w.orch.CreateSliceTile(ctx, w.env, "db", "shop:dev:pg", "", nil)
 	must(t, err)
 	api := w.tile(t, "api", false)
 	m, err := w.orch.operated.GetByTile(ctx, pg.ID)
@@ -182,7 +182,7 @@ func TestBranchSliceRefusals(t *testing.T) {
 	if _, _, err := o.BranchSlice(ctx, writer, r.api.ID, BranchIn{}); err == nil {
 		t.Error("branched an image tile")
 	}
-	fresh, err := o.CreateSliceTile(ctx, r.env, "fresh", "shop:dev:pg", "")
+	fresh, err := o.CreateSliceTile(ctx, r.env, "fresh", "shop:dev:pg", "", nil)
 	must(t, err)
 	if _, _, err := o.BranchSlice(ctx, writer, fresh.ID, BranchIn{}); err == nil {
 		t.Error("branched a slice that was never deployed")
@@ -190,7 +190,7 @@ func TestBranchSliceRefusals(t *testing.T) {
 		t.Errorf("undeployed = %v, want conflict", err)
 	}
 	// an s3 slice
-	bucket, err := o.CreateSliceTile(ctx, r.env, "bucket", "shop:dev:"+s3.Slug, "")
+	bucket, err := o.CreateSliceTile(ctx, r.env, "bucket", "shop:dev:"+s3.Slug, "", nil)
 	must(t, err)
 	m3, err := o.operated.GetByTile(ctx, s3.ID)
 	must(t, err)
@@ -235,7 +235,7 @@ func TestSweepExpired(t *testing.T) {
 	o := r.orch
 	mk := func(name string, exp *time.Time) Tile {
 		t.Helper()
-		s, err := o.CreateSliceTile(ctx, r.env, name, "shop:dev:pg", "")
+		s, err := o.CreateSliceTile(ctx, r.env, name, "shop:dev:pg", "", nil)
 		must(t, err)
 		s.ExpiresAt = exp
 		must(t, r.st.Tiles.Update(ctx, s))
@@ -332,7 +332,7 @@ func TestSweepDropsOnlyTheBranchDatabase(t *testing.T) {
 	if n := dumps(); n != 0 {
 		t.Errorf("deleting a branch ran %d instance backups", n)
 	}
-	plain, err := o.CreateSliceTile(ctx, r.env, "plain", "shop:dev:pg", "")
+	plain, err := o.CreateSliceTile(ctx, r.env, "plain", "shop:dev:pg", "", nil)
 	must(t, err)
 	must(t, r.st.Provisions.Create(ctx, store.Provision{
 		ID: uuid.NewString(), TileID: plain.ID, InstanceID: r.inst.ID, DBName: "shop_dev_plain", DBUser: "shop_dev_plain", CreatedAt: time.Now(),
@@ -374,7 +374,7 @@ func TestSliceCreds(t *testing.T) {
 	if _, err := o.SliceCreds(ctx, roleP(r.org, "member"), r.api.ID); err == nil {
 		t.Error("creds of an image tile")
 	}
-	fresh, err := o.CreateSliceTile(ctx, r.env, "fresh", "shop:dev:pg", "")
+	fresh, err := o.CreateSliceTile(ctx, r.env, "fresh", "shop:dev:pg", "", nil)
 	must(t, err)
 	if _, _, err := o.DialSlice(ctx, fresh.ID); err == nil {
 		t.Error("dialed a slice that was never deployed")
@@ -415,7 +415,7 @@ func TestRefusedSliceDeployIsNotCrashed(t *testing.T) {
 	t.Parallel()
 	r := newBranchRig(t)
 	ctx := context.Background()
-	bad, err := r.orch.CreateSliceTile(ctx, r.env, "bad", "shop:dev:nope", "")
+	bad, err := r.orch.CreateSliceTile(ctx, r.env, "bad", "shop:dev:nope", "", nil)
 	must(t, err)
 	j, err := r.orch.Deploy(ctx, bad.ID)
 	must(t, err)

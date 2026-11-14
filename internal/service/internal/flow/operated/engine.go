@@ -128,6 +128,9 @@ type Instance struct {
 	// follow.
 	Major, MemMB, NodeMemMB int
 	Settings                map[string]string
+	// Preload is a postgres instance's startup modules after
+	// pg_stat_statements; Extensions is what its slices may list.
+	Preload, Extensions []string
 	// PoolerPassword is the password of the instance's pooler role.
 	PoolerPassword string
 	// ReplPassword is the replication role's password. SlotKeepMB is
@@ -155,6 +158,8 @@ type Slice struct {
 	VersionDays int
 	QuotaBytes  int64
 	CORS        []string
+	// Extensions are the postgres extensions the slice's database lists.
+	Extensions []string
 }
 
 // Grant is one consumer's own cred on a slice.

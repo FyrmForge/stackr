@@ -99,7 +99,7 @@ func pgApply(ctx context.Context, i Instance, x Tools, changed, unset []string) 
 	if err != nil {
 		return false, err
 	}
-	if restart, err = pgJudge(ctxs, changed, unset); err != nil {
+	if restart, err = pgJudge(ctxs, changed, unset, len(i.Extensions) > 0); err != nil {
 		return false, errs.Invalidf("settings", "%s", err.Error())
 	}
 	old, err := x.Exec(ctx, []string{"sh", "-c", `cat "$0" 2>/dev/null; true`, pgDataDir(i.Major) + "/stackr.conf"})
@@ -115,7 +115,9 @@ func pgApply(ctx context.Context, i Instance, x Tools, changed, unset []string) 
 		_, _ = x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c", `SELECT pg_reload_conf()`))
 	}
 	// pg_file_settings parses the file as a reload would; a postmaster
-	// setting waiting for a restart is not an error.
+	// setting waiting for a restart is not an error. A dotted name of an
+	// extension that is not loaded is a placeholder to postgres and is not
+	// flagged either: those names are not checked.
 	bad, err := x.Exec(ctx, append(pg{}.psql(i, i.AdminDB, nil), "-tA", "-c",
 		`SELECT string_agg(name || ': ' || error, '; ') FROM pg_file_settings `+
 			`WHERE sourcefile LIKE '%/stackr.conf' AND error IS NOT NULL AND error <> 'setting could not be applied'`))
