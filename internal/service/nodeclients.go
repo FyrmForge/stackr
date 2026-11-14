@@ -698,6 +698,7 @@ func (o *Orchestrator) watchNodeClients() {
 				o.dailyChores(ctx)
 				o.reconcileShares(ctx)
 				o.dailyUpgradeCheck(ctx)
+				o.checkPGExtUpdates(ctx)
 				o.dnsKick.Kick() // releases held DNS hosts that now match
 			})
 		case <-t.C:

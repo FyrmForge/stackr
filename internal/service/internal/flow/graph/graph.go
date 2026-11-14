@@ -55,6 +55,9 @@ type Flow struct {
 	Target func(ctx context.Context, s store.Tile) (store.Tile, error)
 	// Slice is a slice tile's status word (flow/operated SliceWord).
 	Slice func(ctx context.Context, s store.Tile) (string, error)
+	// ExtUpdates is how many extension packages of an operated instance have
+	// an update (the daily check); nil = none asked.
+	ExtUpdates func(ctx context.Context, m store.OperatedInstance) int
 }
 
 // Node kinds besides the tile kinds (service, image, operated, cron,
@@ -137,6 +140,7 @@ type Node struct {
 	LastRun    *store.Run
 	NextRun    *time.Time // unpaused cron only
 	NewVersion bool       // image watch saw a newer digest
+	ExtUpdates int        // operated postgres: packages with an update; 0 = none
 	Waiting    string     // the param a parked job waits for
 	Under      string     // building/queued over a running tile: the word beneath, "running"
 	Since      time.Time  // that job's start (queued: its creation); zero = no such job
@@ -1017,6 +1021,9 @@ func (f *Flow) tileCard(ctx context.Context, t store.Tile, vols map[string]strin
 	case t.Kind == tile.Operated:
 		if in, err := f.Operated.GetByTile(ctx, t.ID); err == nil {
 			n.Detail = in.Engine
+			if f.ExtUpdates != nil {
+				n.ExtUpdates = f.ExtUpdates(ctx, in)
+			}
 		}
 	case t.GitURL != "":
 		n.Detail = strings.TrimSuffix(t.GitURL[strings.LastIndex(t.GitURL, "/")+1:], ".git")

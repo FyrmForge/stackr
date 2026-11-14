@@ -199,6 +199,14 @@ func (a *app) operatedExtensions() *cobra.Command {
 			if s := cell(m["plan"]); s != "" {
 				a.say("%s", s)
 			}
+			if u, _ := m["updates"].(map[string]any); u != nil {
+				a.say("Extension updates:")
+				cs, _ := u["changes"].([]any)
+				for _, c := range cs {
+					c, _ := c.(map[string]any)
+					a.say("  %s %s to %s", cell(c["package"]), cell(c["from"]), cell(c["to"]))
+				}
+			}
 			return a.show(m["items"], "name", "installed", "available", "listed", "startup", "used_by")
 		}))
 	var image string

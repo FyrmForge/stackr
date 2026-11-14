@@ -73,6 +73,12 @@ func (h *handler) InstanceLive(c echo.Context) error {
 			}
 			return nil
 		}
+		if pg { // the header's chip rides the actions region
+			v.ExtUpdates = 0
+			if u := h.orch.PGExtUpdatesFor(ctx, s.Tile.ID); u != nil {
+				v.ExtUpdates = len(u.Changes)
+			}
+		}
 		if _, bad := o.Unread["job"]; o.Word != "" && !bad {
 			v.Status, v.Running = o.Word, o.Word == "running"
 			if word != "" && o.Word != word {
@@ -93,6 +99,9 @@ func (h *handler) InstanceLive(c echo.Context) error {
 				return nil, err
 			}
 			if ph, err := h.orch.PGExtBusy(ctx, s.Tile.ID); err == nil { // the cursor only: no query of the server
+				if err := send("extupd", instance.LiveExtUpdates(v, extUpdateLines(h.orch.PGExtUpdatesFor(ctx, s.Tile.ID)), ph != "")); err != nil {
+					return nil, err
+				}
 				if busySeen && ph != busy {
 					out = append(out, stream.Msg{Name: "extbusy", Body: stream.HTML(cmp.Or(ph, "done"))})
 				}

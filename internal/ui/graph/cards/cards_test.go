@@ -74,6 +74,16 @@ func TestCardKinds(t *testing.T) {
 
 // A new traffic sample redraws the lanes whole: the new rate replaces the
 // old one, a vanished direction goes.
+// The operated card's footer names extension updates while there are any.
+func TestFooterExtUpdates(t *testing.T) {
+	foot := func(n int) string {
+		return render(t, Footer("n1", FooterView{Kind: "operated", Status: "running", ExtUpdates: n}))
+	}
+	if !strings.Contains(foot(1), "Extension updates") || strings.Contains(foot(0), "Extension updates") {
+		t.Error("the footer chip follows the count")
+	}
+}
+
 // A deploy in flight reads beside the live state, not over it.
 func TestProgressLine(t *testing.T) {
 	since := time.Now().Add(-9*time.Minute - 20*time.Second - 500*time.Millisecond)

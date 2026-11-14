@@ -511,6 +511,9 @@ func (h *handler) instance(c echo.Context, tab, note string, actErr error, form 
 		Error:    msg,
 	}
 	v.Live = v.Base + "/live"
+	if u := h.orch.PGExtUpdatesOf(ctx, m); u != nil {
+		v.ExtUpdates = len(u.Changes)
+	}
 	if msg == "" && len(form.Errors) == 0 {
 		v.Note = note
 	}
@@ -916,6 +919,18 @@ func (h *handler) planView(ctx context.Context, id string) *instance.ExtPlanView
 	return v
 }
 
+// extUpdateLines are the daily check's findings as the row lists them.
+func extUpdateLines(u *service.PGExtUpdates) []string {
+	if u == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range u.Changes {
+		out = append(out, c.Package+" "+c.From+" to "+c.To)
+	}
+	return out
+}
+
 // extFieldErrors splits a refusal: the reasons that belong under the image,
 // preload and extensions fields (the service names the image "image_ref"),
 // and what is left for the banner when none does.
@@ -946,7 +961,7 @@ func (h *handler) extForm(ctx context.Context, id string, typed *instance.ExtVie
 		Image: p.Image, Official: p.Official, Running: p.Running, Built: p.Built, Recipes: p.Recipes,
 		Preload: strings.Join(p.Preload, "\n"), Extensions: strings.Join(p.Extensions, "\n"),
 		Plan: p.Plan, Slices: p.Slices, Busy: p.Busy,
-		Check: h.planView(ctx, id),
+		Check: h.planView(ctx, id), Updates: extUpdateLines(p.Updates),
 	}
 	if typed != nil { // a refused save: what was typed
 		v.Preload, v.Extensions = typed.Preload, typed.Extensions

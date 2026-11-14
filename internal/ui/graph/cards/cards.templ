@@ -129,6 +129,9 @@ templ Footer(id string, f FooterView) {
 				} else {
 					@Status(f.Status, f.Waiting)
 				}
+				if f.ExtUpdates > 0 {
+					<span class="shrink-0 rounded-md border border-rw-warn/40 bg-rw-warn/10 px-1.5 py-0.5 text-[10px] text-rw-warn" title="newer extension builds are available">Extension updates</span>
+				}
 				if f.Domain != "" || f.Domains > 0 {
 					@exposure(f)
 				}

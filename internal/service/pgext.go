@@ -78,6 +78,9 @@ type PGExtView struct {
 	// Built: the image is built from recipes; Recipes are the ones in it.
 	Built   bool
 	Recipes []string
+	// Updates are the packages a newer build exists for (the daily check);
+	// nil = none.
+	Updates *PGExtUpdates
 }
 
 // PGExtItem is one extension of an instance: installed and available
@@ -250,12 +253,16 @@ func (o *Orchestrator) pgExtWrite(ctx context.Context, tileID string, v pgExtVal
 
 func (o *Orchestrator) pgExtWriteLocked(ctx context.Context, tileID string, m OperatedInstance, v pgExtVals) error {
 	// one transaction: the image never names a build the lists do not match
-	return o.store.Tx(ctx, func(tx store.Tx) error {
+	err := o.store.Tx(ctx, func(tx store.Tx) error {
 		if err := tx.Tiles.SetImageRef(ctx, tileID, v.Image); err != nil {
 			return err
 		}
 		return tx.OperatedInstances.SetBuild(ctx, m.ID, v.Preload, v.Extensions, cmp.Or(v.ExtBuild, "{}"))
 	})
+	if err == nil && cmp.Or(v.ExtBuild, "{}") != cmp.Or(m.ExtBuild, "{}") {
+		o.delPGExtUpdates(ctx, m.ID) // the build moved: the update check read the old one
+	}
+	return err
 }
 
 // ---- views ----
@@ -313,7 +320,7 @@ func (o *Orchestrator) PGExtensions(ctx context.Context, tileID string) (PGExtVi
 		v.Busy = st.Phase
 	}
 	if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.Built() {
-		v.Built, v.Recipes = true, slices.Clone(eb.Recipes)
+		v.Built, v.Recipes, v.Updates = true, slices.Clone(eb.Recipes), o.PGExtUpdatesOf(ctx, m)
 	}
 	ss, err := o.slicesOn(ctx, t, m)
 	if err != nil {

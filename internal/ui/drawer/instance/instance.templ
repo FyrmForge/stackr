@@ -57,6 +57,9 @@ type View struct {
 	// Live is the drawer's one stream (…/live): the header's buttons and badge
 	// on every tab, the overview's regions on Overview; "" = none.
 	Live string
+	// ExtUpdates is how many extension packages have a newer build (the daily
+	// check); the header names it. 0 = none.
+	ExtUpdates int
 }
 
 func Drawer(v View, body templ.Component) templ.Component {
@@ -96,6 +99,9 @@ templ LiveActions(v View) {
 }
 
 templ actionButtons(v View) {
+	if v.ExtUpdates > 0 {
+		<button type="button" class="rounded-md border border-rw-warn/40 bg-rw-warn/10 px-2 py-1 text-xs text-rw-warn" hx-get={ v.Base + "?tab=settings&open=extensions" } hx-target={ "#" + Root } hx-swap="outerHTML">Extension updates</button>
+	}
 	if !v.ReadOnly {
 		if v.Running {
 			@c.Confirm(stop(v))
@@ -851,6 +857,7 @@ type ExtView struct {
 	Busy                string
 	Unread              string
 	Check               *ExtPlanView // the last recipe plan; nil = none yet
+	Updates             []string     // newer builds, one line each ("pgvector 0.8.6-1 to 0.8.7-1"); empty = none
 }
 
 // ExtPlanView is a stored recipe plan as the Extensions row shows it. Versions
@@ -954,7 +961,7 @@ templ extRow(v View, s SettingsView) {
 		if s.Ext.Busy != "" {
 			<p class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn" role="status">{ "Applying: " + s.Ext.Busy + "." }</p>
 		}
-		<form hx-post={ v.Base + "/extensions" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+		<form id="ext-form" hx-post={ v.Base + "/extensions" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 			<div data-field>
 				if s.Ext.Built {
 					<p class="label">Image</p>
@@ -996,10 +1003,35 @@ templ extRow(v View, s SettingsView) {
 				}
 			}
 		</form>
+		if s.Ext.Built {
+			@liveRegion(v, "extupd") {
+				@LiveExtUpdates(v, s.Ext.Updates, s.Ext.Busy != "")
+			}
+		}
 		@liveRegion(v, "extplan") {
 			@LiveExtPlan(v, s.Ext.Check)
 		}
 	}
+}
+
+// LiveExtUpdates is the region the stream sends as the event extupd: the
+// newer builds the daily check found, with Update, which runs Check on the
+// lists as they stand in the form.
+templ LiveExtUpdates(v View, lines []string, busy bool) {
+	<div class="space-y-2" id="ext-updates">
+		if len(lines) > 0 {
+			<h4 class="text-sm font-medium text-rw-text">Extension updates</h4>
+			<ul class="text-sm text-rw-muted space-y-1">
+				for _, l := range lines {
+					<li class="font-mono text-xs">{ l }</li>
+				}
+			</ul>
+			if !v.ReadOnly && !busy {
+				<button type="button" class="btn btn-ghost btn-sm" hx-post={ v.Base + "/extensions/plan" } hx-include="#ext-form" hx-target={ "#" + Root } hx-swap="outerHTML">Update</button>
+				<p class="text-xs text-rw-faint" data-hint>Update shows the rebuild as a plan to apply.</p>
+			}
+		}
+	</div>
 }
 
 // LiveExtPlan is the region the stream sends as the event extplan: the last

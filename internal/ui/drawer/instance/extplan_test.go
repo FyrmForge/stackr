@@ -42,6 +42,50 @@ func TestLiveExtPlan(t *testing.T) {
 	}
 }
 
+// The updates region always draws its box; with findings it lists them and
+// offers Update, which posts the plan with the form's lists; a read-only
+// viewer or a busy instance sees the list without the button. The header
+// chip shows while there are updates.
+func TestLiveExtUpdates(t *testing.T) {
+	v := View{Base: "/o/s/e/-/instances/pg"}
+	render := func(v View, lines []string, busy bool) string {
+		var b strings.Builder
+		if err := LiveExtUpdates(v, lines, busy).Render(t.Context(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	if got := render(v, nil, false); !strings.Contains(got, `id="ext-updates"`) || strings.Contains(got, "Update<") {
+		t.Errorf("none: %s", got)
+	}
+	got := render(v, []string{"pgvector 0.8.6-1 to 0.8.7-1"}, false)
+	for _, want := range []string{"pgvector 0.8.6-1 to 0.8.7-1", `hx-post="/o/s/e/-/instances/pg/extensions/plan"`, `hx-include="#ext-form"`, ">Update<"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	ro := v
+	ro.ReadOnly = true
+	if got := render(ro, []string{"a 1 to 2"}, false); strings.Contains(got, ">Update<") || !strings.Contains(got, "a 1 to 2") {
+		t.Errorf("read-only:\n%s", got)
+	}
+	if got := render(v, []string{"a 1 to 2"}, true); strings.Contains(got, ">Update<") {
+		t.Errorf("busy:\n%s", got)
+	}
+	chip := func(n int) string {
+		w := v
+		w.ExtUpdates = n
+		var b strings.Builder
+		if err := LiveActions(w).Render(t.Context(), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	if !strings.Contains(chip(2), "Extension updates") || strings.Contains(chip(0), "Extension updates") {
+		t.Error("the header chip follows the count")
+	}
+}
+
 // A recipe-built instance names its recipes and keeps its startup modules
 // read-only: they come from the recipes.
 func TestExtRowBuilt(t *testing.T) {

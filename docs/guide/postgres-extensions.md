@@ -152,6 +152,12 @@ A key left out leaves the list as it is. An empty list clears it. The instance's
 
 Recipe builds are kept with the instance's backups, so a restore does not rebuild.
 
+## Updates
+
+Once a day stackr checks each recipe-built instance for newer extension builds. Apt packages are compared with the newest build that installs on the instance's image. Release-file recipes (like vchord) are compared with the recipe's current version, which changes when stackr is updated or an admin edits the recipe. Nothing is built, applied or alerted.
+
+An instance with updates shows an "Extension updates" chip on its canvas card and drawer header. The Extensions row lists the changes. Update runs Check with the lists as they stand; Apply plan then goes through the usual confirmation and restart. `stackr operated extensions get` prints the same list, and the API's extensions `GET` has it as `updates`. A check that fails keeps the last list, which goes once the instance is rebuilt.
+
 ## Limits
 
 - Recipes need Debian-based images. A custom image must be Debian-based too.

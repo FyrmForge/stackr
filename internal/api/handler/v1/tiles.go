@@ -819,7 +819,23 @@ type PGExtOut struct {
 	Busy       string         `json:"busy"`
 	Built      bool           `json:"built"`   // the image is built from recipes
 	Recipes    []string       `json:"recipes"` // the recipes in it
-	Job        *service.Job   `json:"job,omitempty"`
+	// Updates: newer builds of the recipe packages, from the daily check;
+	// absent when there are none.
+	Updates *PGExtUpdatesOut `json:"updates,omitempty"`
+	Job     *service.Job     `json:"job,omitempty"`
+}
+
+// PGExtUpdatesOut is the daily extension update check's finding.
+type PGExtUpdatesOut struct {
+	CheckedAt time.Time        `json:"checked_at"`
+	Changes   []PGExtChangeOut `json:"changes"`
+}
+
+// PGExtChangeOut is one package with a newer build.
+type PGExtChangeOut struct {
+	Package string `json:"package"`
+	From    string `json:"from"`
+	To      string `json:"to"`
 }
 
 // PGExtItemOut is one extension of an instance.
@@ -860,6 +876,12 @@ func pgExtOut(v service.PGExtView, j *service.Job) PGExtOut {
 	o := PGExtOut{Image: v.Image, Official: v.Official, Running: v.Running, Preload: v.Preload,
 		Extensions: v.Extensions, Slices: v.Slices, Plan: v.Plan, Busy: v.Busy, Built: v.Built, Recipes: v.Recipes, Job: j,
 		Items: make([]PGExtItemOut, 0, len(v.Items))}
+	if u := v.Updates; u != nil {
+		o.Updates = &PGExtUpdatesOut{CheckedAt: u.CheckedAt}
+		for _, c := range u.Changes {
+			o.Updates.Changes = append(o.Updates.Changes, PGExtChangeOut(c))
+		}
+	}
 	for _, i := range v.Items {
 		o.Items = append(o.Items, PGExtItemOut{Name: i.Name, Installed: i.Installed, Available: i.Available,
 			Listed: i.Listed, Startup: i.Startup, UsedBy: i.UsedBy})

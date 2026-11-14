@@ -233,6 +233,7 @@ func envCard(u *ui.Node, n service.GraphNode, base string, g service.HostGrant) 
 		f.Domain, f.More = n.Domains[0], len(n.Domains)-1
 	}
 	f.Consumers = n.Consumers
+	f.ExtUpdates = n.ExtUpdates
 	cv.Footer = f
 	u.Subs = u.Subs[:0]
 	for _, s := range n.Subs {
