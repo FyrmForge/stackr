@@ -79,13 +79,9 @@ type NodesPanel struct {
 	Base    string              // /-/setup/server
 	Adder   *admin.AddNodeView  // nil = closed
 	Pending []admin.PendingRow
-	Nodes   []NodeLine
+	Nodes   []admin.NodeRow // Admin's rows: Open "" = no drawer here
 	Poll    string // the list's own URL
 }
-
-// NodeLine is one node: Status as the node drawer words it, Hint what to
-// do about it ("" = nothing).
-type NodeLine struct{ Name, Role, Status, Hint string }
 
 // NodesPanelID is the panel's element, what its answers replace.
 const NodesPanelID = "setup-nodes"
@@ -307,11 +303,7 @@ templ destField(name, label, typ, placeholder, help string) {
 // placements.
 templ ServerNodes(v ServerNodesView) {
 	@shell(v.Frame) {
-		<div class="space-y-3 text-sm text-rw-muted">
-			<p>One box works alone. Add a worker when you want more room.</p>
-			<p>Add node gives a one-line command to run on the new box.</p>
-			<p>A placement names where an environment runs. Each points at a node.</p>
-		</div>
+		<p class="text-sm text-rw-muted">One box works alone. Add a worker when you want more room.</p>
 		@ServerNodesPanel(v.Panel)
 		if len(v.Placements) > 0 {
 			<h3 class="mt-5 mb-2 text-sm font-semibold text-rw-text">Placements</h3>
@@ -328,18 +320,22 @@ templ ServerNodes(v ServerNodesView) {
 	}
 }
 
-// ServerNodesPanel is the add-node steps over the node list; the list
-// polls itself, so a node going from pending to online shows as it does.
+// ServerNodesPanel is the node list and the add-node dialog; the list
+// polls itself (not while a dialog is open), so a node going from pending
+// to online shows as it does.
 templ ServerNodesPanel(v NodesPanel) {
-	<div id={ NodesPanelID } class="mt-5 space-y-4">
+	<div id={ NodesPanelID } class="mt-5">
 		if v.Adder != nil {
-			@admin.AddNode(*v.Adder)
-		} else {
-			<button type="button" hx-get={ v.Base + "/nodes?add=1" } hx-target={ "#" + NodesPanelID } hx-swap="outerHTML" class="btn btn-ghost btn-sm w-full">Add node</button>
+			@admin.AddNodeModal(*v.Adder)
 		}
-		<div id="setup-node-list" hx-get={ v.Poll } hx-trigger="every 5s" hx-select="#setup-node-list" hx-target="this" hx-swap="outerHTML" aria-live="polite">
+		<div id="setup-node-list" class="space-y-3" aria-live="polite">
+			@c.LiveTab(v.Poll, "setup-node-list")
+			<div class="flex items-center">
+				<h3 class="text-sm font-semibold text-rw-text">Nodes</h3>
+				<button type="button" hx-get={ v.Base + "/nodes?add=1" } hx-target={ "#" + NodesPanelID } hx-swap="outerHTML" class="btn btn-primary btn-sm ml-auto">Add node</button>
+			</div>
 			for _, p := range v.Pending {
-				<div class="panel px-3 py-2 mb-2 text-sm space-y-2">
+				<div class="panel px-3 py-2 text-sm space-y-2">
 					<p><span class="text-rw-text font-medium">{ p.Name }</span> <span class="text-xs text-rw-warn">called in, waiting for you</span></p>
 					if len(p.Addresses) > 0 {
 						<p class="font-mono text-xs text-rw-muted break-all">{ strings.Join(p.Addresses, ", ") }</p>
@@ -354,17 +350,9 @@ templ ServerNodesPanel(v NodesPanel) {
 					</div>
 				</div>
 			}
-			<h3 class="mb-2 text-sm font-semibold text-rw-text">Nodes</h3>
-			<ul class="space-y-1">
+			<ul class="space-y-3">
 				for _, n := range v.Nodes {
-					<li class="text-sm">
-						<span class="font-mono text-rw-text">{ n.Name }</span>
-						<span class="text-xs text-rw-faint">{ n.Role }</span>
-						<span class="text-xs text-rw-muted">{ n.Status }</span>
-						if n.Hint != "" {
-							<p class="text-xs text-rw-faint">{ n.Hint }</p>
-						}
-					</li>
+					@admin.NodeItem(n)
 				}
 			</ul>
 		</div>

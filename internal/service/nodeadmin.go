@@ -291,7 +291,7 @@ func (o *Orchestrator) SetNodeTags(ctx context.Context, by *Principal, id string
 			if err != nil {
 				return err
 			}
-			return errs.Conflictf("%s is the default ingress: it serves the panel and %d routes. Set another default ingress first.", n.Name, len(rs))
+			return errs.Conflictf("%s is the default ingress: it serves the panel and %s. Set another default ingress first.", n.Name, plural(len(rs), "route"))
 		}
 	}
 	if slices.Contains(node.Tags(n), node.TagStorage) && !slices.Contains(tags, node.TagStorage) {

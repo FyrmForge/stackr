@@ -380,7 +380,7 @@ func (h *handler) nodesPanel(ctx context.Context, adder *admin.AddNodeView, skip
 		return v, err
 	}
 	for _, n := range ns {
-		v.Nodes = append(v.Nodes, pages.NodeLine{Name: n.Name, Role: n.Role, Status: admin.StatusWord(n.Status), Hint: admin.NodeHint(n.Status, n.Stalled)})
+		v.Nodes = append(v.Nodes, admin.NodeRow{Name: n.Name, Role: n.Role, Status: n.Status, Tags: n.Tags, Envs: n.Envs, Hint: admin.NodeHint(n.Status, n.Stalled)})
 	}
 	ps, err := h.orch.PendingNodes(ctx)
 	if err != nil {
@@ -417,6 +417,9 @@ func (h *handler) adderStep1(c echo.Context, name, address string, picked []stri
 			v.Address = name + v.AddressSuffix // the default after the name
 		}
 		return v, nil
+	}
+	if v.Picked == nil {
+		v.Picked = []string{} // all unticked stays unticked, storage is only the first default
 	}
 	var ok bool
 	if v.AddressError, v.Error, ok = render.OnField(refused, "node_address"); !ok {

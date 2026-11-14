@@ -31,7 +31,7 @@ func TestAdminNodes(t *testing.T) {
 
 	rec = s.As(t, root, "GET", "/-/admin/nodes/add", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Get join command") ||
-		!strings.Contains(rec.Body.String(), "Every node starts with egress.") {
+		!strings.Contains(rec.Body.String(), "Builds images.") || !strings.Contains(rec.Body.String(), `value="storage" checked`) {
 		t.Fatalf("add step 1 = %d\n%s", rec.Code, rec.Body)
 	}
 	// a bad name stays on step one with the refusal

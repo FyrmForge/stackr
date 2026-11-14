@@ -104,14 +104,15 @@ func (a *app) nodes() *cobra.Command {
 func (a *app) nodeAdd() *cobra.Command {
 	var tags []string
 	var addr string
-	c := leaf("add <name>", "admin.join-token", "Make the join command for a new worker; it always gets egress (server admin)", exact(1),
+	var noStorage bool
+	c := leaf("add <name>", "admin.join-token", "Make the join command for a new worker; it gets egress and storage unless --no-storage (server admin)", exact(1),
 		func(c *cobra.Command, args []string) error {
 			for _, t := range tags {
 				if !slices.Contains(nodeTags, t) {
 					return usage("unknown tag %q; tags are %s", t, strings.Join(nodeTags, ", "))
 				}
 			}
-			body := map[string]any{"node_name": args[0], "tags": tags}
+			body := map[string]any{"node_name": args[0], "tags": joinTags(tags, noStorage)}
 			if c.Flags().Changed("address") {
 				body["node_address"] = addr
 			}
@@ -128,12 +129,21 @@ func (a *app) nodeAdd() *cobra.Command {
 			}
 			return nil
 		})
-	c.Long = "Make the join command for a new worker (server admin). The node always gets egress; add more tags with --tag.\n" +
+	c.Long = "Make the join command for a new worker (server admin). The node gets egress and storage; add more tags with --tag, or leave storage off with --no-storage.\n" +
 		"Orgs reach it through a placement: stackr admin placement add <name> --node <node>."
-	c.Example = "  stackr node add vps-fsn1 --tag ingress\n  stackr node add vps-fsn1 --tag storage"
-	c.Flags().StringArrayVar(&tags, "tag", nil, "another capability: ingress, builder or storage (repeatable; egress is always on)")
+	c.Example = "  stackr node add vps-fsn1 --tag ingress\n  stackr node add vps-edge --no-storage"
+	c.Flags().StringArrayVar(&tags, "tag", nil, "another capability: ingress, builder or storage (repeatable; egress is always on, storage is on unless --no-storage)")
+	c.Flags().BoolVar(&noStorage, "no-storage", false, "do not give the node the storage tag")
 	c.Flags().StringVar(&addr, "address", "", "the node's own DNS name (default: <name>.<panel address>; empty for none)")
 	return c
+}
+
+// joinTags is the tags a new node asks for: storage too, unless noStorage.
+func joinTags(tags []string, noStorage bool) []string {
+	if noStorage || slices.Contains(tags, "storage") {
+		return tags
+	}
+	return append(slices.Clone(tags), "storage")
 }
 
 // sayJoin prints a minted join command: the one line, or the two-step

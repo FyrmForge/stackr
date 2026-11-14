@@ -11,7 +11,7 @@ Needs a Linux box, root, Docker 26.0 or newer, systemd, WireGuard in the kernel,
 The box needs its own way out to the internet while it joins: the join line fetches from the panel's URL and pulls the stackr image from `ghcr.io`. A box with only a private address needs NAT from its network first.
 
 1. In the panel, open Admin, Nodes, Add node. Give it a name: lowercase letters, digits and dashes.
-   - **Tags:** every new node has `egress`. Tick `ingress`, `builder` or `storage` for more roles. Envs with volumes or operated databases only run on `storage` nodes.
+   - **Tags:** every new node has `egress`. `storage` is ticked by default: envs with volumes or operated databases only run on `storage` nodes. Untick it for an edge box, and tick `ingress` or `builder` for more roles.
 
 2. Press Get join command. The panel shows one line. It works once and expires after 60 minutes.
 
@@ -33,13 +33,13 @@ From the CLI on the controller:
 
 ```bash
 stackr node add vps-fsn1
-stackr node add vps-db --tag storage
+stackr node add vps-edge --no-storage --tag ingress
 stackr node ls --pending
 stackr node confirm vps-fsn1
 stackr node ls
 ```
 
-`--tag ingress`, `--tag builder` or `--tag storage` adds roles; `egress` is always on. The node's address defaults to `<name>.<panel address>`; `--address` sets another, `--address ""` none. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
+A node made from the CLI gets `egress` and `storage`. `--tag ingress` or `--tag builder` adds roles, and `--no-storage` leaves storage off. The node's address defaults to `<name>.<panel address>`; `--address` sets another, `--address ""` none. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
 
 ## Nodes and placements
 

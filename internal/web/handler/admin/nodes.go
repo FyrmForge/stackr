@@ -226,6 +226,9 @@ func (h *handler) step1(c echo.Context, name, address string, picked []string, r
 		}
 		return v, nil
 	}
+	if v.Picked == nil {
+		v.Picked = []string{} // all unticked stays unticked, storage is only the first default
+	}
 	var ok bool
 	if v.AddressError, v.Error, ok = render.OnField(refused, "node_address"); !ok {
 		return nil, refused
@@ -663,7 +666,11 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		v.ExitNodes = append(v.ExitNodes, ui.Option{Value: o.Name, Label: o.Name})
 	}
 	if d.Controller {
-		v.RoutesNote = fmt.Sprintf("%s serves the panel and %d routes.", d.Name, d.RoutesServed)
+		routes := "routes"
+		if d.RoutesServed == 1 {
+			routes = "route"
+		}
+		v.RoutesNote = fmt.Sprintf("%s serves the panel and %d %s.", d.Name, d.RoutesServed, routes)
 	}
 	for _, e := range d.EnvList {
 		v.Envs = append(v.Envs, ui.NodeEnvRow{Path: e.Path, Pin: e.Pin, Tiles: e.Tiles})

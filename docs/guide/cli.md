@@ -1367,25 +1367,26 @@ The cluster's machines: the controller and its workers
 
 ### `stackr node add`
 
-Make the join command for a new worker; it always gets egress (server admin)
+Make the join command for a new worker; it gets egress and storage unless --no-storage (server admin)
 
 ```
 stackr node add <name> [flags]
 ```
 
-Make the join command for a new worker (server admin). The node always gets egress; add more tags with --tag.
+Make the join command for a new worker (server admin). The node gets egress and storage; add more tags with --tag, or leave storage off with --no-storage.
 Orgs reach it through a placement: stackr admin placement add <name> --node <node>.
 
 ```
       --address string    the node's own DNS name (default: <name>.<panel address>; empty for none)
-      --tag stringArray   another capability: ingress, builder or storage (repeatable; egress is always on)
+      --no-storage        do not give the node the storage tag
+      --tag stringArray   another capability: ingress, builder or storage (repeatable; egress is always on, storage is on unless --no-storage)
 ```
 
 Example:
 
 ```
   stackr node add vps-fsn1 --tag ingress
-  stackr node add vps-fsn1 --tag storage
+  stackr node add vps-edge --no-storage
 ```
 
 ### `stackr node backup`
