@@ -43,6 +43,23 @@ func PITREpochRoot(orgID, dataVolumeID string, epoch int) string {
 	return PITRRoot(orgID, dataVolumeID)
 }
 
+const (
+	// ImageDir is the directory under a PITR root that holds an instance's
+	// saved images; ImageExt is their suffix (docker save, age-encrypted).
+	ImageDir = "image"
+	ImageExt = ".tar.age"
+)
+
+// ImageKey is the object key of the saved image tagged tag, keyed under the
+// instance's PITR root: <PITRRoot>/image/<tag>.tar.age. Under the root it is
+// deleted with the archive (Purge of a former org, DropArchive), and it is
+// neither a base nor a WAL key, so PruneWindow and the WAL pruning never touch
+// it: removing an image no retained base needs is the saved-image pruning's
+// own job. tag is a stackr build tag, already pattern-checked.
+func ImageKey(orgID, dataVolumeID, tag string) string {
+	return PITRRoot(orgID, dataVolumeID) + "/" + ImageDir + "/" + tag + ImageExt
+}
+
 // IsPITRKey says whether an object key is in a point-in-time archive.
 func IsPITRKey(key string) bool { return strings.Contains(key, "/"+PITR+"/") }
 

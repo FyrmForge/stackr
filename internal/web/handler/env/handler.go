@@ -86,6 +86,8 @@ func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	g.POST(e+"/instances/:tile/failover", h.PromoteStandby, a.Require("placement.write"))
 	g.POST(e+"/instances/:tile/memory", h.PGMemory, a.Require("tile.write"))
 	g.POST(e+"/instances/:tile/extensions", h.PGExt, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/extensions/plan", h.PGExtPlan, a.Require("tile.write"))
+	g.POST(e+"/instances/:tile/extensions/apply", h.PGExtApply, a.Require("tile.write"))
 	g.GET(e+"/slices/:tile", h.Slice, a.Require("tile.read"))
 	g.GET(e+"/slices/:tile/live", h.SliceLive, a.Require("tile.read"))
 	g.POST(e+"/slices/:tile/extensions", h.SliceExtensions, a.Require("tile.write"))
@@ -846,6 +848,69 @@ func (h *handler) PGExt(c echo.Context) error {
 	return h.instance(c, "settings", note, nil, instance.SettingsView{Open: "extensions"})
 }
 
+// POST …/-/instances/:tile/extensions/plan: Check. Queues the plan job for the
+// extensions as typed; the plan lands in the drawer's plan region when the
+// job ends (the stream sends it). A refusal shows over the row (422).
+func (h *handler) PGExtPlan(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	in := service.PGExtIn{}
+	if form.Has("extensions") {
+		l := nonBlank(strings.Split(form.Get("extensions"), "\n"))
+		in.Extensions = &l
+	}
+	if _, err := h.orch.PlanPGExtensions(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, in); err != nil {
+		return h.instance(c, "settings", "", err, instance.SettingsView{Open: "extensions"})
+	}
+	return h.instance(c, "settings", "Checking. The plan shows here when it is ready.", nil, instance.SettingsView{Open: "extensions"})
+}
+
+// POST …/-/instances/:tile/extensions/apply: plan (its id) and confirm (the
+// restart tick). A stale plan is refused with its message and a new plan is
+// on its way (422); a plan that restarts without the tick is refused, not
+// replanned.
+func (h *handler) PGExtApply(c echo.Context) error {
+	opts := service.ApproveOpts{Confirm: c.FormValue("confirm") == "true"}
+	_, j, err := h.orch.ApplyPGExtPlan(c.Request().Context(), middleware.Principal(c), scope(c).Tile.ID, strings.TrimSpace(c.FormValue("plan")), opts)
+	if err != nil {
+		return h.instance(c, "settings", "", err, instance.SettingsView{Open: "extensions"})
+	}
+	note := "Applied."
+	if j != nil {
+		note = "Applying. Progress shows under Last job."
+	}
+	return h.instance(c, "settings", note, nil, instance.SettingsView{Open: "extensions"})
+}
+
+// planView is the instance's last recipe plan as the row draws it; nil = no
+// plan yet. A failed read is the view's Unread.
+func (h *handler) planView(ctx context.Context, id string) *instance.ExtPlanView {
+	p, err := h.orch.LastPGExtPlan(ctx, id)
+	if err != nil {
+		return &instance.ExtPlanView{Unread: unreadReason(err)}
+	}
+	if p == nil {
+		return nil
+	}
+	v := &instance.ExtPlanView{
+		ID: p.ID, Lines: p.Lines, PGUpdate: p.PGUpdate, Slices: p.Slices,
+		Blockers: p.Blockers, Build: p.Build, Restart: p.Restart,
+	}
+	for _, ch := range p.Versions {
+		switch {
+		case ch.From == "":
+			v.Versions = append(v.Versions, ch.Name+" "+ch.To+" added")
+		case ch.To == "":
+			v.Versions = append(v.Versions, ch.Name+" "+ch.From+" removed")
+		default:
+			v.Versions = append(v.Versions, ch.Name+" "+ch.From+" to "+ch.To)
+		}
+	}
+	return v
+}
+
 // extFieldErrors splits a refusal: the reasons that belong under the image,
 // preload and extensions fields (the service names the image "image_ref"),
 // and what is left for the banner when none does.
@@ -873,9 +938,10 @@ func (h *handler) extForm(ctx context.Context, id string, typed *instance.ExtVie
 		return &instance.ExtView{Unread: unreadReason(err)}
 	}
 	v := &instance.ExtView{
-		Image: p.Image, Official: p.Official, Running: p.Running,
+		Image: p.Image, Official: p.Official, Running: p.Running, Built: p.Built, Recipes: p.Recipes,
 		Preload: strings.Join(p.Preload, "\n"), Extensions: strings.Join(p.Extensions, "\n"),
 		Plan: p.Plan, Slices: p.Slices, Busy: p.Busy,
+		Check: h.planView(ctx, id),
 	}
 	if typed != nil { // a refused save: what was typed
 		v.Preload, v.Extensions = typed.Preload, typed.Extensions

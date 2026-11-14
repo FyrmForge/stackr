@@ -90,6 +90,11 @@ func (h *handler) InstanceLive(c echo.Context) error {
 		// phase; a service call that returns only the cursor phase is the
 		// upgrade if that read gets dear.
 		if settings && pg {
+			// the plan job's end changes the stored plan; the region
+			// follows it (sent once at connect, then on change)
+			if err := send("extplan", instance.LiveExtPlan(v, h.planView(ctx, s.Tile.ID))); err != nil {
+				return nil, err
+			}
 			if p, err := h.orch.PGExtensions(ctx, s.Tile.ID); err == nil {
 				if busySeen && p.Busy != busy {
 					out = append(out, stream.Msg{Name: "extbusy", Body: stream.HTML(cmp.Or(p.Busy, "done"))})

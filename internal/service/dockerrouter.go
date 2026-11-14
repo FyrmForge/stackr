@@ -362,6 +362,10 @@ func (r *DockerRouter) Save(ctx context.Context, ref string, w io.Writer) error 
 	return r.do(ctx, func(c Docker) error { return c.Save(ctx, ref, w) })
 }
 
+func (r *DockerRouter) Load(ctx context.Context, ref string, rd io.Reader) error {
+	return r.do(ctx, func(c Docker) error { return c.Load(ctx, ref, rd) })
+}
+
 func (r *DockerRouter) Logs(ctx context.Context, id string, tail int) (string, error) {
 	return via(r, ctx, func(c Docker) (string, error) { return c.Logs(ctx, id, tail) })
 }

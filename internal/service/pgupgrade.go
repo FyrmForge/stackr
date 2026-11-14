@@ -145,6 +145,9 @@ func (o *Orchestrator) pgChangeOf(ctx context.Context, by *Principal, tileID str
 // image or with startup modules (message 2): the new major would run a stock
 // image without them.
 func noCustomImageForChange(t Tile, m OperatedInstance, to int) error {
+	if mflow.RecipeBuilt(m.ExtBuild) { // Stage 2 only; Stage 3 removes it (R28)
+		return errs.Conflictf("%s was built from recipes; changing its major is not possible yet.", t.Slug)
+	}
 	if !mflow.PGOfficial(t.ImageRef) || len(m.Preload) > 0 {
 		return errs.Conflictf("%s runs a custom image. Make a new instance on postgres %d and branch the slices to it.", t.Slug, to)
 	}

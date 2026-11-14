@@ -79,6 +79,10 @@ type Docker interface {
 	) (imageID string, err error)
 	// Save writes ref from the node's Docker as docker save does.
 	Save(ctx context.Context, ref string, w io.Writer) error
+	// Load is a direct ImageLoad of the docker save tar in r on the node's
+	// Docker, then a check that ref is present locally. It never asks the
+	// cluster registry: it exists for when the registry copy is gone (V8).
+	Load(ctx context.Context, ref string, r io.Reader) error
 
 	// Logs and exec.
 	Logs(ctx context.Context, id string, tail int) (string, error)

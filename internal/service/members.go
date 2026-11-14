@@ -158,6 +158,12 @@ func (o *Orchestrator) addStandby(ctx context.Context, tileID, nodeRef string) (
 	if err := o.nodeUp(ctx, nodeID); err != nil {
 		return InstanceMember{}, err
 	}
+	// message 32: a recipe build runs on its CPU type only
+	if eb, _ := mflow.ParseExtBuild(inst.ExtBuild); eb.Built() && eb.Arch != "" {
+		if f := o.reportedFacts(ctx, n); f != nil && f.Arch != "" && f.Arch != eb.Arch {
+			return InstanceMember{}, errs.Conflictf("%s was built for %s; %s is %s. Add the standby on a %s node.", t.Slug, eb.Arch, n.Name, f.Arch, eb.Arch)
+		}
+	}
 	if err := o.engines.WALBudget(ctx, t); err != nil {
 		return InstanceMember{}, err
 	}

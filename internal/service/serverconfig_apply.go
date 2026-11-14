@@ -13,6 +13,7 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/serverconfig"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/domainres"
@@ -93,7 +94,71 @@ func (o *Orchestrator) serverLive(ctx context.Context, f *serverconfig.File) (se
 	if live.Connectors, err = o.connectorsLive(ctx); err != nil {
 		return live, err
 	}
+	if err = o.recipesLive(ctx, f, &live); err != nil {
+		return live, err
+	}
 	return live, o.placementsLive(ctx, f, &live)
+}
+
+// recipesLive reads the Postgres recipes: the built-ins (on unless a bare row
+// switches one off) and the admin-added rows. When f names recipes, each
+// admin one goes through operated.CheckRecipe here, before the diff, and a
+// refusal lands in live.RecipeErrors (flow/serverconfig may not import
+// flow/operated).
+func (o *Orchestrator) recipesLive(ctx context.Context, f *serverconfig.File, live *serverconfig.Live) error {
+	rows, err := o.store.PGRecipes.List(ctx)
+	if err != nil {
+		return err
+	}
+	builtin := map[string]bool{}
+	for _, b := range operated.BuiltinRecipes {
+		builtin[b.Name] = true
+		r := serverconfig.RecipeLive{Name: b.Name, Builtin: true, Enabled: true}
+		if i := slices.IndexFunc(rows, func(x store.PGRecipe) bool { return x.ID == b.Name }); i >= 0 {
+			r.Enabled = rows[i].Enabled
+		}
+		live.PGRecipes = append(live.PGRecipes, r)
+	}
+	for _, row := range rows {
+		if builtin[row.ID] {
+			continue
+		}
+		var rec operated.Recipe
+		if err := json.Unmarshal([]byte(row.Spec), &rec); err != nil {
+			return fmt.Errorf("the recipe %s is unreadable: %w", row.ID, err)
+		}
+		r := serverconfig.RecipeLive{Name: row.ID, Enabled: row.Enabled, Conf: recipeConf(rec)}
+		for _, s := range row.Share {
+			if s == "all" {
+				r.ShareAll = true
+			} else {
+				r.ShareOrgs = append(r.ShareOrgs, s)
+			}
+		}
+		live.PGRecipes = append(live.PGRecipes, r)
+	}
+	if f == nil {
+		return nil
+	}
+	for name, c := range f.PGExtensions {
+		if builtin[name] {
+			continue
+		}
+		rec := operated.Recipe{Name: name, Majors: c.Majors, Packages: c.Packages, PackageURL: c.PackageURL,
+			SHA256: c.SHA256, Version: c.Version, Extensions: c.Extensions, Preload: c.Preload, Requires: c.Requires}
+		if err := operated.CheckRecipe(rec); err != nil {
+			if live.RecipeErrors == nil {
+				live.RecipeErrors = map[string]string{}
+			}
+			live.RecipeErrors[name] = err.Error()
+		}
+	}
+	return nil
+}
+
+func recipeConf(r operated.Recipe) serverconfig.RecipeConf {
+	return serverconfig.RecipeConf{Majors: r.Majors, Packages: r.Packages, PackageURL: r.PackageURL,
+		SHA256: r.SHA256, Version: r.Version, Extensions: r.Extensions, Preload: r.Preload, Requires: r.Requires}
 }
 
 // runningTiles is how many tiles a cascade change would redeploy.
@@ -306,6 +371,7 @@ func (w *serverWalk) run() error {
 		{"domains", w.domains},
 		{"routes", w.routes},
 		{"orgs", w.orgs},
+		{"postgres recipes", w.pgRecipes},
 		{"nodes and placements", w.placements},
 		{"removals", w.removals},
 	} {
@@ -774,6 +840,8 @@ func (w *serverWalk) removals() error {
 			err = w.deleteDomain(c.Tile)
 		case "connector-share-delete":
 			err = w.unshare(c.Tile, c.Field, c.Old)
+		case "pg-extension-delete":
+			err = w.o.DeletePGRecipe(w.ctx, nil, c.Tile)
 		case "placement-delete":
 			err = w.deletePlacement(c.Tile)
 		case "org-unbind":
@@ -829,4 +897,58 @@ func (w *serverWalk) unshare(conn, field, from string) error {
 	}
 	_, err = w.o.ShareConnector(w.ctx, nil, id, named, false)
 	return err
+}
+
+// pgRecipes writes each recipe the plan names once, whole: the file's entry
+// laid over what is live (a field the file leaves out stays). A share's org
+// slugs become ids.
+func (w *serverWalk) pgRecipes() error {
+	done := map[string]bool{}
+	for _, c := range w.pick("pg-extension") {
+		if done[c.Tile] {
+			continue
+		}
+		done[c.Tile] = true
+		w.say(c)
+		fr := w.f.PGExtensions[c.Tile]
+		v := PGRecipeView{Name: c.Tile, Enabled: true}
+		if i := slices.IndexFunc(w.live.PGRecipes, func(r serverconfig.RecipeLive) bool { return r.Name == c.Tile }); i >= 0 {
+			lr := w.live.PGRecipes[i]
+			v.Builtin, v.Enabled = lr.Builtin, lr.Enabled
+			v.Share = slices.Clone(lr.ShareOrgs)
+			if lr.ShareAll {
+				v.Share = []string{"all"}
+			}
+			setRecipeDef(&v, lr.Conf)
+		}
+		if !v.Builtin {
+			setRecipeDef(&v, serverconfig.RecipeConf{Majors: fr.Majors, Packages: fr.Packages, PackageURL: fr.PackageURL,
+				SHA256: fr.SHA256, Version: fr.Version, Extensions: fr.Extensions, Preload: fr.Preload, Requires: fr.Requires})
+		}
+		if fr.Enabled != nil {
+			v.Enabled = *fr.Enabled
+		}
+		if fr.Share != nil {
+			v.Share = []string{}
+			if fr.Share.All {
+				v.Share = []string{"all"}
+			}
+			for _, slug := range fr.Share.Orgs {
+				id, ok := w.orgIDs[slug]
+				if !ok {
+					return fmt.Errorf("pg-extension %s: no organization %q", c.Tile, slug)
+				}
+				v.Share = append(v.Share, id)
+			}
+		}
+		if _, err := w.o.SetPGRecipe(w.ctx, nil, v); err != nil {
+			return fmt.Errorf("pg-extension %s: %w", c.Tile, err)
+		}
+	}
+	return nil
+}
+
+func setRecipeDef(v *PGRecipeView, c serverconfig.RecipeConf) {
+	v.Majors, v.Packages, v.PackageURL, v.SHA256, v.Version = c.Majors, c.Packages, c.PackageURL, c.SHA256, c.Version
+	v.Extensions, v.Preload, v.Requires = c.Extensions, c.Preload, c.Requires
 }

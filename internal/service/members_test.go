@@ -21,6 +21,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
+	"github.com/FyrmForge/stackr/internal/worker"
 	"github.com/FyrmForge/stackr/internal/service/internal/vip"
 )
 
@@ -507,5 +508,19 @@ func TestRemoveStandbyDropsTheOldTileContainer(t *testing.T) {
 	}
 	if _, err := n.orch.members.Get(ctx, r.ID); err == nil {
 		t.Error("row kept")
+	}
+}
+
+// Message 32: a recipe-built instance's standby goes only on a node of the
+// CPU type it was built for.
+func TestStandbyRefusesOtherCPUForRecipeBuild(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	m := pgOn(t, n)
+	must(t, n.st.OperatedInstances.SetBuild(ctx, m.ID, nil, []string{"vector"}, `{"base":"postgres:18","ref":"r","arch":"amd64"}`))
+	n.orch.mesh.Report(ctx, "w1", worker.Facts{Arch: "arm64"})
+	if _, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1"); !conflict(err) || !strings.Contains(err.Error(), "was built for amd64") {
+		t.Fatalf("standby on an arm64 node: %v, want message 32", err)
 	}
 }

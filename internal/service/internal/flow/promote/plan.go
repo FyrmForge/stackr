@@ -206,6 +206,8 @@ type instanceWork struct {
 	// and extension list as the file sets them, nil = untouched.
 	image               *string
 	preload, extensions *[]string
+	// pgPlan is the recipe plan id of a built instance's extensions change.
+	pgPlan string
 	// standbys is the change to the instance's standbys; nil = untouched.
 	standbys *StandbyDiff
 	// sync is the synchronous replication choice, nil = untouched.
@@ -993,7 +995,7 @@ func (f *Flow) planInstance(
 	}
 	if moved {
 		w.instances[name] = instanceWork{allow: tc.Allow, pairs: tc.EnvPairs, pitr: pitr, settings: settings, standbys: standbys, sync: syncw,
-			image: pgx.image, preload: pgx.preload, extensions: pgx.exts}
+			image: pgx.image, preload: pgx.preload, extensions: pgx.exts, pgPlan: pgx.planID}
 	}
 	return nil
 }
@@ -1009,9 +1011,49 @@ func pgCustom(old store.Tile, m store.OperatedInstance) bool {
 type pgExtWork struct {
 	image         *string
 	preload, exts *[]string
+	// planID is the recipe plan a built instance's extensions change runs
+	// (PGExtPlan), "" = none.
+	planID string
 }
 
-func (x pgExtWork) any() bool { return x.image != nil || x.preload != nil || x.exts != nil }
+func (x pgExtWork) any() bool {
+	return x.image != nil || x.preload != nil || x.exts != nil || x.planID != ""
+}
+
+// planBuiltPGExt is planPGExt for a recipe-built instance: its image and
+// startup modules come from its recipes (messages 34, 21), and an extensions
+// change is the PGExtPlan hook's plan, run by the apply step.
+func (f *Flow) planBuiltPGExt(ctx context.Context, p *Plan, name string, tc TileConf, old store.Tile, have store.OperatedInstance, x *pgExtWork) error {
+	if tc.Image != "" && tc.Image != old.ImageRef {
+		p.block("tile %s: %s is built from its extensions; its image is not set by hand.", name, name)
+	}
+	if tc.Preload != nil && signedDiff(have.Preload, tc.Preload) != "" {
+		p.block("tile %s: the startup modules of %s come from its recipes; remove preload, or set a custom image.", name, name)
+	}
+	if tc.Extensions == nil || f.PGExtPlan == nil {
+		return nil
+	}
+	d := signedDiff(have.Extensions, tc.Extensions)
+	if d == "" {
+		return nil
+	}
+	lines, id, err := f.PGExtPlan(ctx, old, have, tc.Extensions, io.Discard)
+	if _, invalid := errs.IsInvalid(err); invalid {
+		p.block("tile %s: %v", name, err)
+		return nil
+	} else if _, conflict := errs.IsConflict(err); conflict {
+		p.block("tile %s: %v", name, err)
+		return nil
+	} else if err != nil {
+		return err
+	}
+	p.add(Change{Kind: "operated", Tile: name, Field: "extensions", New: d})
+	for _, l := range lines {
+		p.Warnings = append(p.Warnings, name+": "+l)
+	}
+	x.planID = id
+	return nil
+}
 
 // planPGExt diffs the file's image, preload and extensions against the
 // instance row, and blocks what the service would refuse.
@@ -1021,6 +1063,32 @@ func (f *Flow) planPGExt(
 	var x pgExtWork
 	if tc.Engine != "postgres" {
 		return x, nil
+	}
+	if exists && deploy.RecipeBuilt(have.ExtBuild) {
+		return x, f.planBuiltPGExt(ctx, p, name, tc, old, have, &x)
+	}
+	// official image, list changes, nothing else: names a recipe brings make
+	// the first build, the hook's plan (planID ""= none needed, the plain path)
+	if exists && f.PGExtPlan != nil && deploy.PGOfficial(old.ImageRef) && (tc.Image == "" || tc.Image == old.ImageRef) &&
+		tc.Preload == nil && tc.Extensions != nil && signedDiff(have.Extensions, tc.Extensions) != "" {
+		lines, id, err := f.PGExtPlan(ctx, old, have, tc.Extensions, io.Discard)
+		if _, invalid := errs.IsInvalid(err); invalid {
+			p.block("tile %s: %v", name, err)
+			return x, nil
+		} else if _, conflict := errs.IsConflict(err); conflict {
+			p.block("tile %s: %v", name, err)
+			return x, nil
+		} else if err != nil {
+			return x, err
+		}
+		if id != "" {
+			p.add(Change{Kind: "operated", Tile: name, Field: "extensions", New: signedDiff(have.Extensions, tc.Extensions)})
+			for _, l := range lines {
+				p.Warnings = append(p.Warnings, name+": "+l)
+			}
+			x.planID = id
+			return x, nil
+		}
 	}
 	restart := false
 	// an official image moves with the row (a new instance, or "" to a tag); a custom one here

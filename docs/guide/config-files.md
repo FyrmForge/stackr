@@ -51,6 +51,7 @@ An export writes a secret by name only. A stored literal `protect_password` is l
 | `domains` | Instance domain resources: `host`, `from` (rename), `include_env_on_default`, `acme_email`. |
 | `connectors` | Server connectors by `name` and `share` (`all` or a list of org slugs). It never creates one; connect it in the panel. |
 | `orgs` | Orgs to create and bind: `slug`, `name`, `repo`, `branch`, `path`, `connector` (a server connector name), `auto`. |
+| `pg_extensions` | Postgres extension recipes by name. An own recipe: `majors`, `packages` or `package_url` with `version` and `sha256` (keys like `17-amd64`), `extensions`, `preload`, `requires`, `share` (`all` or org slugs), `enabled`. A built-in (`pgvector`, `postgis`, `vchord`) takes only `enabled: false` to switch it off. A recipe the block no longer names is an unticked removal row. |
 | `nodes`, `placements` | By name. The file declares, never creates a node. |
 
 Settings keys:

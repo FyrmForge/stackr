@@ -6,6 +6,7 @@ package dockerfake
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -443,7 +444,35 @@ func (f *Fake) RemoveBuilder(_ context.Context, name string) error {
 	return f.rec("RemoveBuilder", name)
 }
 
-func (f *Fake) Save(_ context.Context, ref string, _ io.Writer) error { return f.rec("Save", ref) }
+// savedPrefix starts the tar Save writes (the image's ref), which Load reads.
+const savedPrefix = "dockerfake-image:"
+
+func (f *Fake) Save(_ context.Context, ref string, w io.Writer) error {
+	if err := f.rec("Save", ref); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, savedPrefix+ref)
+	return err
+}
+
+// Load records the load of ref and reads the tar. A Save tar of ref makes it
+// present again (out of Gone); any other tar is an image without ref.
+func (f *Fake) Load(_ context.Context, ref string, r io.Reader) error {
+	if err := f.rec("Load", ref); err != nil {
+		return err
+	}
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if string(b) != savedPrefix+ref {
+		return fmt.Errorf("%w: the loaded tar does not hold %s", docker.ErrNotFound, ref)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Gone = slices.DeleteFunc(f.Gone, func(g string) bool { return g == ref })
+	return nil
+}
 
 func (f *Fake) ListImages(_ context.Context, labels map[string]string) ([]docker.Image, error) {
 	var out []docker.Image

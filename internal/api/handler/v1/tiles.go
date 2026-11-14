@@ -817,6 +817,8 @@ type PGExtOut struct {
 	Slices     []string       `json:"slices"`
 	Plan       string         `json:"plan"`
 	Busy       string         `json:"busy"`
+	Built      bool           `json:"built"`   // the image is built from recipes
+	Recipes    []string       `json:"recipes"` // the recipes in it
 	Job        *service.Job   `json:"job,omitempty"`
 }
 
@@ -856,7 +858,7 @@ type SliceExtItemOut struct {
 
 func pgExtOut(v service.PGExtView, j *service.Job) PGExtOut {
 	o := PGExtOut{Image: v.Image, Official: v.Official, Running: v.Running, Preload: v.Preload,
-		Extensions: v.Extensions, Slices: v.Slices, Plan: v.Plan, Busy: v.Busy, Job: j,
+		Extensions: v.Extensions, Slices: v.Slices, Plan: v.Plan, Busy: v.Busy, Built: v.Built, Recipes: v.Recipes, Job: j,
 		Items: make([]PGExtItemOut, 0, len(v.Items))}
 	for _, i := range v.Items {
 		o.Items = append(o.Items, PGExtItemOut{Name: i.Name, Installed: i.Installed, Available: i.Available,

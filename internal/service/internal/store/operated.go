@@ -46,7 +46,11 @@ type OperatedInstance struct {
 	// never by a whole-row update from an earlier read.
 	Preload    NameList  `db:"preload" json:"preload"`
 	Extensions NameList  `db:"extensions" json:"extensions"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	// ExtBuild is the recipe build record, JSON ("{}" = not recipe-built);
+	// flow/operated.ExtBuild parses it. Written with the lists in one column
+	// write (SetExt), never from a stale whole row.
+	ExtBuild  string    `db:"ext_build" json:"ext_build"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type OperatedInstanceStore interface {
@@ -59,6 +63,9 @@ type OperatedInstanceStore interface {
 	Update(ctx context.Context, m OperatedInstance) error
 	// SetExt writes preload and extensions and no other column.
 	SetExt(ctx context.Context, id string, preload, extensions []string) error
+	// SetBuild writes preload, extensions and ext_build in one statement and
+	// no other column (a recipe apply and its put-back).
+	SetBuild(ctx context.Context, id string, preload, extensions []string, extBuild string) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -75,6 +82,12 @@ func (s operatedInstances) GetByTile(ctx context.Context, tileID string) (Operat
 func (s operatedInstances) SetExt(ctx context.Context, id string, preload, extensions []string) error {
 	res, err := s.q.ExecContext(ctx, "UPDATE operated_instances SET preload = ?, extensions = ? WHERE id = ?",
 		NameList(preload), NameList(extensions), id)
+	return affected(res, err)
+}
+
+func (s operatedInstances) SetBuild(ctx context.Context, id string, preload, extensions []string, extBuild string) error {
+	res, err := s.q.ExecContext(ctx, "UPDATE operated_instances SET preload = ?, extensions = ?, ext_build = ? WHERE id = ?",
+		NameList(preload), NameList(extensions), extBuild, id)
 	return affected(res, err)
 }
 
