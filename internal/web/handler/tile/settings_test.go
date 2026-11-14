@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/FyrmForge/stackr/internal/service"
+	"github.com/FyrmForge/stackr/internal/service/errs"
 )
 
 // A form drawn from a row and posted back unchanged writes the same row,
@@ -99,5 +100,14 @@ func TestIngressWord(t *testing.T) {
 		if got := ingressWord(tc.name, tc.own, tc.from); got != tc.want {
 			t.Errorf("ingressWord(%q, %q, %q) = %q, want %q", tc.name, tc.own, tc.from, got, tc.want)
 		}
+	}
+}
+
+// Message 27 names image_ref; it lands under the form's image field.
+func TestImageRefRefusalLandsUnderImage(t *testing.T) {
+	err := rowRefusal(errs.Invalidf("image_ref", "Change the image on its own."), "image update_policy")
+	bad, ok := errs.IsInvalid(err)
+	if !ok || bad.Field != "image" || bad.Msg != "Change the image on its own." {
+		t.Fatalf("refusal = %#v", err)
 	}
 }

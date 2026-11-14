@@ -130,7 +130,16 @@ type OverviewView struct {
 	Failover            *FailoverView // postgres with a standby only
 	Sync                *SyncView     // postgres only; nil = not shown
 	Word                string            // the status word the header's badge shows
-	Unread              map[string]string // region (pooler, members, failover, sync, job) -> why its read failed
+	Unread              map[string]string // region (pooler, members, failover, sync, job, extensions) -> why its read failed
+	Extensions          []ExtRow          // postgres only: what the instance lists or loads at start
+}
+
+// ExtRow is one extension of the instance's list: its installed version, a
+// startup module mark, and the slices that use it.
+type ExtRow struct {
+	Name, Installed string
+	Startup         bool
+	UsedBy          []string
 }
 
 // SyncView is the synchronous replication form: the choice, and in words
@@ -229,10 +238,43 @@ templ Overview(v View, o OverviewView) {
 		@liveRegion(v, "job") {
 			@LiveJob(v, o)
 		}
+		@liveRegion(v, "extensions") {
+			@LiveExtensions(v, o)
+		}
 		@liveRegion(v, "slices") {
 			@LiveSlices(v, o)
 		}
 	</div>
+}
+
+// LiveExtensions is the region the stream sends as the event extensions: the
+// extensions the instance lists, with their versions and the slices using
+// them. Nothing is drawn while the list is empty or the instance is stopped.
+templ LiveExtensions(v View, o OverviewView) {
+	if o.Unread["extensions"] != "" {
+		<h3 class="section-title">Extensions</h3>
+		@unread("the extensions", o.Unread["extensions"])
+	} else if len(o.Extensions) > 0 {
+		<h3 class="section-title">Extensions</h3>
+		<ul class="space-y-2">
+			for _, e := range o.Extensions {
+				<li class="panel px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+					<span class="text-sm text-rw-text min-w-0">
+						<span class="font-mono font-medium">{ e.Name }</span>
+						if e.Installed != "" {
+							<span class="text-rw-faint text-xs ml-1">{ e.Installed }</span>
+						}
+						if len(e.UsedBy) > 0 {
+							<span class="block mt-0.5 text-xs text-rw-faint">{ "Used by " + strings.Join(e.UsedBy, ", ") }</span>
+						}
+					</span>
+					if e.Startup {
+						@c.Chip("startup module", "accent")
+					}
+				</li>
+			}
+		</ul>
+	}
 }
 
 // LiveOverview and LiveSlices are the regions the stream sends as the events
@@ -792,6 +834,20 @@ type SettingsView struct {
 	Errors   map[string]string // allow | env_pairs | name | delete → why the save was refused
 	Open     string            // the accordion row open on load: the saved one, or ?open=
 	PG       *PGView           // a postgres instance's own settings; nil = another engine
+	Ext      *ExtView          // a postgres instance's image, startup modules and extensions; nil = another engine
+}
+
+// ExtView is the Extensions row. Preload and Extensions are one name per
+// line, as stored or as a refused save typed them. Busy is the phase of the
+// change in flight, "" for none; Unread is why the read failed.
+type ExtView struct {
+	Image               string
+	Official, Running   bool
+	Preload, Extensions string
+	Plan                string
+	Slices              []string
+	Busy                string
+	Unread              string
 }
 
 // PGView is a postgres instance's settings page: each value with where it
@@ -835,10 +891,113 @@ func settingsRows(v View, s SettingsView) []c.AccRow {
 	if s.PG != nil {
 		rows = append(rows, c.AccRow{Key: "postgres", Title: "Postgres", Summary: PGSummary(*s.PG), Changed: s.PG.Restart, Body: pgRow(v, s)})
 	}
+	if s.Ext != nil {
+		rows = append(rows, c.AccRow{Key: "extensions", Title: "Extensions", Summary: ExtSummary(*s.Ext), Changed: s.Ext.Busy != "", Body: extRow(v, s)})
+	}
 	if !v.ReadOnly {
 		rows = append(rows, c.AccRow{Key: "delete", Title: "Delete", Body: deleteRow(v, s)})
 	}
 	return rows
+}
+
+// ExtSummary is the Extensions row closed.
+func ExtSummary(e ExtView) string {
+	if e.Busy != "" {
+		return "applying"
+	}
+	if n := len(extLines(e.Extensions)); n > 0 {
+		return strconv.Itoa(n) + " listed"
+	}
+	return "none"
+}
+
+// extLines are the names of a one-per-line list.
+func extLines(text string) []string {
+	var out []string
+	for l := range strings.SplitSeq(text, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// extRow is the image, startup modules and extensions of the instance, one
+// Apply. While a change is in flight the form is off and says where it is;
+// the stream's extbusy event draws the drawer again when that moves.
+templ extRow(v View, s SettingsView) {
+	<p class="text-xs text-rw-faint" data-hint>Slices may use only the extensions listed here.</p>
+	if s.Ext.Unread != "" {
+		@unread("the extensions", s.Ext.Unread)
+	} else {
+		if v.Live != "" {
+			<span hidden data-poll-guard="fields dirty-drawer" data-poll-retry="sse:extbusy" hx-get={ v.Base + "?tab=settings&open=extensions" } hx-trigger="sse:extbusy" hx-target={ "#" + Root } hx-swap="outerHTML"></span>
+		}
+		if s.Ext.Busy != "" {
+			<p class="banner border-rw-warn/40 bg-rw-warn/10 text-rw-warn" role="status">{ "Applying: " + s.Ext.Busy + "." }</p>
+		}
+		<form hx-post={ v.Base + "/extensions" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
+			<div data-field>
+				if s.Ext.Official {
+					<p class="label">Image</p>
+					<p class="text-sm text-rw-text font-mono">{ s.Ext.Image }</p>
+					<p class="text-xs text-rw-faint" data-hint>The official image.</p>
+				} else {
+					<label for="ext-image" class="label">Image</label>
+					<input id="ext-image" name="image" value={ s.Ext.Image } class="input font-mono" disabled?={ v.ReadOnly || s.Ext.Busy != "" } { c.Invalid("image", s.Errors["image"])... }/>
+					<p class="text-xs text-rw-faint" data-hint>A custom image must have the extensions you list.</p>
+				}
+				@c.FieldError("image", s.Errors["image"])
+			</div>
+			<div data-field>
+				<label for="ext-preload" class="label">Startup modules</label>
+				<textarea id="ext-preload" name="preload" rows="3" class="input font-mono" disabled?={ v.ReadOnly || s.Ext.Busy != "" } { c.Invalid("preload", s.Errors["preload"])... }>{ s.Ext.Preload }</textarea>
+				<p class="text-xs text-rw-faint" data-hint>One per line. pg_stat_statements is always loaded.</p>
+				@c.FieldError("preload", s.Errors["preload"])
+			</div>
+			<div data-field>
+				<label for="ext-extensions" class="label">Extensions</label>
+				<textarea id="ext-extensions" name="extensions" rows="3" class="input font-mono" disabled?={ v.ReadOnly || s.Ext.Busy != "" } { c.Invalid("extensions", s.Errors["extensions"])... }>{ s.Ext.Extensions }</textarea>
+				<p class="text-xs text-rw-faint" data-hint>One per line.</p>
+				@c.FieldError("extensions", s.Errors["extensions"])
+			</div>
+			if v.ReadOnly {
+				<p class="text-xs text-rw-faint" data-hint>Only members and owners can change this.</p>
+			} else if s.Ext.Busy == "" {
+				if s.Ext.Running {
+					@c.Confirm(extApply(v, s))
+				} else {
+					<button type="submit" class="btn btn-primary btn-sm">Apply</button>
+					<p class="text-xs text-rw-faint" data-hint>Applies on the next deploy.</p>
+				}
+			}
+		</form>
+	}
+}
+
+// extApply asks before an Apply that restarts the instance: the plan's
+// sentence, and the slices on it. The form's fields ride along (the dialog
+// sits inside the form).
+func extApply(v View, s SettingsView) c.ConfirmView {
+	return c.ConfirmView{
+		Button:  "Apply",
+		Title:   "Apply to " + v.Name + "?",
+		Warning: s.Ext.Plan,
+		Body:    extSlices(s.Ext.Slices),
+		Action:  v.Base + "/extensions",
+		Target:  "#" + Root,
+		Primary: true,
+	}
+}
+
+templ extSlices(names []string) {
+	if len(names) > 0 {
+		<ul class="modal-list">
+			for _, n := range names {
+				<li class="modal-list-row text-rw-text">{ n }</li>
+			}
+		</ul>
+	}
 }
 
 // PGSummary is the Postgres row closed.
