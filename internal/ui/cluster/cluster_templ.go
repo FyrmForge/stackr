@@ -319,7 +319,7 @@ func nodeCard(n Node) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" tabindex=\"0\" role=\"button\"><div class=\"flex h-[162px] shrink-0 flex-col p-[14px]\"><div class=\"flex items-center gap-[10px]\"><span class=\"node-icon flex h-[28px] w-[28px] items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0\"><svg class=\"h-[16px] w-[16px]\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\"></rect> <rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\"></rect> <path d=\"M6 6h.01M6 18h.01\"></path></svg></span><div class=\"min-w-0\"><div class=\"font-semibold text-rw-text truncate text-[14px] leading-[17.5px]\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" tabindex=\"0\" role=\"button\"><div class=\"flex h-[184px] shrink-0 flex-col p-[14px]\"><div class=\"flex items-center gap-[10px]\"><span class=\"node-icon flex h-[28px] w-[28px] items-center justify-center rounded-md bg-rw-inset text-rw-muted shrink-0\"><svg class=\"h-[16px] w-[16px]\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\"></rect> <rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\"></rect> <path d=\"M6 6h.01M6 18h.01\"></path></svg></span><div class=\"min-w-0\"><div class=\"font-semibold text-rw-text truncate text-[14px] leading-[17.5px]\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -400,7 +400,7 @@ func nodeCard(n Node) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span></div></div></div><div class=\"flex flex-wrap gap-[4px] mt-[8px] h-[18px] shrink-0 overflow-hidden\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span></div></div></div><div class=\"flex flex-wrap gap-[4px] mt-[8px] h-[40px] shrink-0 content-start overflow-hidden\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
