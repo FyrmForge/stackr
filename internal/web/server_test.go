@@ -46,6 +46,10 @@ func TestCSPNoInlineScripts(t *testing.T) {
 	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || !strings.Contains(csp, "base-uri 'self'") || !strings.Contains(csp, "form-action 'self'") {
 		t.Errorf("CSP = %q", csp)
 	}
+	// The GitHub connector's setup posts a browser form to github.com.
+	if !strings.Contains(csp, "form-action 'self' https://github.com;") {
+		t.Errorf("CSP blocks the GitHub connector's form post: %q", csp)
+	}
 	if rec.Header().Get("Strict-Transport-Security") == "" {
 		t.Error("no HSTS on an https panel")
 	}

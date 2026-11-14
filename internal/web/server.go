@@ -72,8 +72,13 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	if deps.DevMode {
 		script += " 'unsafe-inline'"
 	}
+	// form-action names github.com: the GitHub connector's setup posts the app
+	// manifest there from a browser form (connectors/setup.templ out), and
+	// without it the browser drops the submit with no word to the user.
+	// ponytail: one provider, so one host here; a second provider that takes a
+	// form POST gets its host from the connector kind.
 	csp := "default-src 'self'; script-src " + script + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-		"base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'"
+		"base-uri 'self'; form-action 'self' https://github.com; object-src 'none'; frame-ancestors 'none'"
 
 	// Site routes.
 	site := e.Group("")
