@@ -37,12 +37,13 @@ const PGArchiveDir = "/var/lib/stackr-wal"
 // not emitted: a restore writes its own restore_command into
 // postgresql.auto.conf, and the rest are for later phases. archive_command writes a dotfile and renames
 // it, so the shipper never sees a half-copied segment, and refuses to
-// overwrite one.
-func pgFlags(major, pitrDays, epoch int) []string {
+// overwrite one. preload are the instance's startup modules, loaded after
+// pg_stat_statements (names are checked: CheckPreload).
+func pgFlags(major, pitrDays, epoch int, preload []string) []string {
 	// the replication settings are the same on every member: a standby needs
 	// each of its limits at least the primary's
 	f := []string{
-		"shared_preload_libraries=pg_stat_statements", "wal_log_hints=on",
+		"shared_preload_libraries=" + strings.Join(append([]string{"pg_stat_statements"}, preload...), ","), "wal_log_hints=on",
 		"wal_level=replica", "max_wal_senders=10", "max_replication_slots=10", "hot_standby=on",
 	}
 	if major == 0 || major >= 17 {
@@ -118,7 +119,7 @@ func pgCommand(i Instance) []string {
 		}
 	}
 	cmd := []string{"sh", "-c", script, "sh", "postgres"}
-	for _, f := range pgFlags(i.Major, i.PITRDays, i.ArchiveEpoch) {
+	for _, f := range pgFlags(i.Major, i.PITRDays, i.ArchiveEpoch, i.Preload) {
 		cmd = append(cmd, "-c", f)
 	}
 	return cmd
@@ -637,13 +638,14 @@ fi`
 }
 
 // pgSeedFilter drops what ties a plain dump to its source's roles (owners,
-// grants, session authorization) and the dump's own \restrict lines,
+// grants, session authorization, comments on extensions: the admin owns
+// them) and the dump's own \restrict lines,
 // outside COPY data, where a row can read the same. ponytail: a function
 // body line starting with GRANT is dropped too; such a dump loads as
 // pg_dump -Fc instead.
 const pgSeedFilter = `/^COPY .* FROM stdin;$/ { copy = 1 }
 copy { print; if ($0 == "\\.") copy = 0; next }
-/^(ALTER .* OWNER TO |GRANT |REVOKE |ALTER DEFAULT PRIVILEGES |SET SESSION AUTHORIZATION )/ { next }
+/^(ALTER .* OWNER TO |GRANT |REVOKE |ALTER DEFAULT PRIVILEGES |SET SESSION AUTHORIZATION |COMMENT ON EXTENSION )/ { next }
 /^\\(un)?restrict / { next }
 { print }`
 
@@ -659,9 +661,10 @@ func (pg) SliceDump(i Instance, s Slice) []string {
 // the source, one transaction, the first error stops it. Notices stay out
 // of stderr so a failure's tail is the error. A pg_dumpall or a -C dump
 // (CREATE DATABASE, \connect) fails and says so.
-// ponytail: an extension only a superuser may create fails the load. Comments
-// are not restored: COMMENT ON EXTENSION (pg_stat_statements, made by the
-// admin) needs its owner, so a branch loses object comments.
+// ponytail: an extension only a superuser may create fails the load (the
+// reconcile after the load creates the slice's listed ones). Comments are not
+// restored (--no-comments; the plain filter drops COMMENT ON EXTENSION, which
+// needs the extension's owner, the admin), so a branch loses object comments.
 func (pg) Seed(format string, _ Instance, s Slice) []string {
 	// over the container's own socket, trusted there: no password rides the exec
 	env := []string{"env", "PGOPTIONS=-c client_min_messages=warning"}

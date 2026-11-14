@@ -132,7 +132,9 @@ func (f *Flow) Seed(ctx context.Context, s store.Tile, format string, dump io.Re
 		return err
 	}
 	logf(log, "loaded the dump into %s\n", p.DBName)
-	return nil
+	// the slice's listed extensions, and the loaded ones brought to this
+	// image's versions
+	return f.ReconcileSlice(ctx, it, s, log)
 }
 
 // stderrTail is the last lines of a failed command's stderr.

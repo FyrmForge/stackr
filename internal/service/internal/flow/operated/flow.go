@@ -253,6 +253,18 @@ func (f *Flow) Provision(ctx context.Context, it store.Tile, s store.Tile) (stor
 	if tile.URLOf(s) != tile.Direct && m.Engine != "postgres" {
 		return store.Provision{}, errs.Invalidf("url", "slice %s: url %s applies to postgres slices only", s.Slug, tile.URLOf(s))
 	}
+	// A row-only check, no server read: extensions are a postgres slice's, and
+	// a slice may only list what its instance lists (messages 31 and 3).
+	if len(s.Extensions) > 0 {
+		if m.Engine != "postgres" {
+			return store.Provision{}, errs.Invalidf("extensions", "slice %s: extensions apply to postgres slices only", s.Slug)
+		}
+		if miss := ExtMissing(m.Extensions, s.Extensions); len(miss) > 0 {
+			return store.Provision{}, errs.Conflictf(
+				"slice %s: %s is not enabled on %s. Add it to the instance's extensions first.",
+				s.Slug, strings.Join(miss, ", "), it.Slug)
+		}
+	}
 	def := e.Definition()
 	inst := f.facts(ctx, it, m, def)
 	p, ok, err := f.Instances.ProvisionOf(ctx, s.ID)
