@@ -145,6 +145,9 @@ type Config struct {
 	// MeshWGPort is the controller's mesh UDP port (STACKR_MESH_WG_PORT,
 	// the installer's --wg-port); 0 = mesh.DefaultPort.
 	MeshWGPort int
+	// ControllerName names the controller's node row when it is first made
+	// (STACKR_NODE_NAME); empty is "controller". A row that exists keeps its name.
+	ControllerName string
 	// RegistryImports sends every outside image a deploy runs through the
 	// cluster registry (imports.go). Off for a fake host and for tests with no
 	// registry behind them.
@@ -473,7 +476,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	}
 	nodes := build("leaf/node", func() *node.Leaf { return node.New(st.Nodes) })
 	// The controller row is made once; "the head" is that row, never this process.
-	ctl, created, err := nodes.Bootstrap(ctx)
+	ctl, created, err := nodes.Bootstrap(ctx, cfg.ControllerName)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("controller node: %w", err)

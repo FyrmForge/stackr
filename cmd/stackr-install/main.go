@@ -91,6 +91,7 @@ Flags:
 	release := fs.String("version", "", "release to install (default: this installer's own)")
 	dry := fs.Bool("dry-run", false, "print what would change, change nothing")
 	adminEmail := fs.String("admin-email", "", "the stackr admin's email; the password comes from "+passwordEnv+" or a prompt")
+	fs.StringVar(&in.NodeName, "node-name", "", "the controller's node name on a fresh install (default: this machine's hostname)")
 	fs.IntVar(&in.WGPort, "wg-port", 0, fmt.Sprintf("UDP port of the controller's mesh WireGuard (default %d)", mesh.DefaultPort))
 	allowDown := fs.Bool("allow-downgrade", false, "move the panel to an older release than it runs (migrations may not reverse)")
 	yes := fs.Bool("yes", false, "ask nothing: install Docker with Docker's install script when it is missing, and skip the questions (flags give the answers)")
@@ -135,6 +136,10 @@ Flags:
 	fresh := err != nil
 	if fresh {
 		in.InstallID = newInstallID()
+		if in.NodeName == "" {
+			h, _ := os.Hostname()
+			in.NodeName = installspec.CleanNodeName(h)
+		}
 	} else {
 		fillFrom(&in, saved, given)
 	}
@@ -158,10 +163,10 @@ Flags:
 	}
 	needAdmin := fresh || noPanel || given["admin-email"]
 	if term.IsTerminal(int(os.Stdin.Fd())) && (fresh || noPanel) && !*yes {
-		a := answers{root: in.Root, panel: in.PanelHost, email: in.Email, proxies: in.Proxies, adminEmail: *adminEmail,
+		a := answers{root: in.Root, panel: in.PanelHost, email: in.Email, proxies: in.Proxies, adminEmail: *adminEmail, node: in.NodeName,
 			https: map[bool]string{true: "Yes", false: "No"}[in.HTTPS]} // a given --https steers the follow-ups
 		summary := func() string { return summaryText(a) }
-		qs := installQuestions(&a, given, needAdmin, *adminEmail != "", password != "", summary)
+		qs := installQuestions(&a, given, fresh, needAdmin, *adminEmail != "", password != "", summary)
 		if err := ask(qs); err != nil {
 			return err
 		}
@@ -400,6 +405,7 @@ func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]b
 		"http-port":  func() { in.HTTPPort = saved.HTTPPort },
 		"https-port": func() { in.HTTPSPort = saved.HTTPSPort },
 		"wg-port":    func() { in.WGPort = saved.WGPort },
+		"node-name":  func() { in.NodeName = saved.NodeName },
 	} {
 		if !given[flag] {
 			pick()
@@ -411,6 +417,9 @@ func fillFrom(in *installspec.Input, saved installspec.Input, given map[string]b
 // apply copies the asked answers into the install; given flags stay.
 func apply(in *installspec.Input, a answers, given map[string]bool, adminEmail *string) {
 	in.Root, in.PanelHost, in.Email, in.Proxies = a.root, a.panel, a.email, a.proxies
+	if a.node != "" {
+		in.NodeName = a.node
+	}
 	if !given["https"] {
 		in.HTTPS = a.https != "No"
 	}

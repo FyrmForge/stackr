@@ -222,6 +222,7 @@ func (m asker) View() tea.View {
 type answers struct {
 	root, panel, https, email, cdn, proxies string
 	adminEmail, password, confirm, next     string
+	node                                    string // the controller's node name; a fresh install only
 }
 
 const (
@@ -232,7 +233,7 @@ const (
 
 // installQuestions asks for every answer not given as a flag. withAdmin
 // adds the admin's email and password; summary prints before the last pick.
-func installQuestions(a *answers, given map[string]bool, withAdmin, adminEmailGiven, passwordGiven bool,
+func installQuestions(a *answers, given map[string]bool, fresh, withAdmin, adminEmailGiven, passwordGiven bool,
 	summary func() string) []question {
 	yes := func() string { return "y" }
 	no := func() string { return "n" }
@@ -256,6 +257,9 @@ func installQuestions(a *answers, given map[string]bool, withAdmin, adminEmailGi
 				return checkProxies(s)
 			}},
 	}
+	qs = append(qs, question{title: "Node name", out: &a.node, check: installspec.CheckNodeName,
+		def:  func() string { return a.node }, // the hostname, set by the caller
+		skip: func() bool { return given["node-name"] || !fresh }})
 	if withAdmin {
 		qs = append(qs,
 			question{title: "Admin email", out: &a.adminEmail, check: checkEmail,

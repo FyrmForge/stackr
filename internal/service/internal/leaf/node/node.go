@@ -85,16 +85,20 @@ func (l *Leaf) List(ctx context.Context) ([]store.Node, error) {
 // whether this call made it, so the caller writes the one node.bootstrap
 // security event. A race for the row is settled by the unique index: the
 // loser reads the winner's row and reports created false.
-func (l *Leaf) Bootstrap(ctx context.Context) (n store.Node, created bool, err error) {
+// name is the new row's name and slug; "" is "controller".
+func (l *Leaf) Bootstrap(ctx context.Context, name string) (n store.Node, created bool, err error) {
 	n, err = l.nodes.GetByRole(ctx, Controller)
 	if err == nil || !errors.Is(err, errs.ErrNotFound) {
 		return n, false, err
 	}
 	tags, _ := json.Marshal([]string{TagIngress, TagEgress, TagBuilder, TagStorage})
+	if name == "" {
+		name = Controller
+	}
 	n = store.Node{
 		ID:        uuid.NewString(),
-		Name:      "controller",
-		Slug:      "controller",
+		Name:      name,
+		Slug:      name,
 		Role:      Controller,
 		Tags:      string(tags),
 		RangeCIDR: "controller",
@@ -114,7 +118,7 @@ func (l *Leaf) Bootstrap(ctx context.Context) (n store.Node, created bool, err e
 // Controller is the controller row, made first when missing (a database the
 // boot path has not seen, as in a test).
 func (l *Leaf) Controller(ctx context.Context) (store.Node, error) {
-	n, _, err := l.Bootstrap(ctx)
+	n, _, err := l.Bootstrap(ctx, "")
 	return n, err
 }
 

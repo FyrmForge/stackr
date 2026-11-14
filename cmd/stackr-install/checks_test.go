@@ -226,3 +226,32 @@ func TestRunRefusesUnknownCommand(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A re-run of an install saved before the node name existed keeps the
+// controller's name unset ("controller"), and the question is not asked.
+func TestNodeNameSavedAnswers(t *testing.T) {
+	saved := installspec.Input{Root: "example.com"}
+	in := installspec.Input{}
+	fillFrom(&in, saved, map[string]bool{})
+	if in.NodeName != "" || !reflect.DeepEqual(withBox(saved, in), in) {
+		t.Errorf("an old install re-run got node name %q", in.NodeName)
+	}
+	saved.NodeName = "box1"
+	fillFrom(&in, saved, map[string]bool{})
+	if in.NodeName != "box1" {
+		t.Errorf("a re-run dropped the saved node name: %q", in.NodeName)
+	}
+	var a answers
+	for _, fresh := range []bool{false, true} {
+		qs := installQuestions(&a, map[string]bool{}, fresh, false, false, false, nil)
+		asked := false
+		for _, q := range qs {
+			if q.title == "Node name" {
+				asked = q.skip == nil || !q.skip()
+			}
+		}
+		if asked != fresh {
+			t.Errorf("fresh=%v: node name asked = %v", fresh, asked)
+		}
+	}
+}

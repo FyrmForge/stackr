@@ -222,3 +222,31 @@ func TestWriteDurableContentAndMode(t *testing.T) {
 		t.Errorf("temp file left behind: %v", m)
 	}
 }
+
+func TestNodeName(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"Box_01.local": "box-01-local", "-x-": "x", "": "controller", "___": "controller",
+		strings.Repeat("a", 31) + "-b": strings.Repeat("a", 31),
+	} {
+		if got := CleanNodeName(in); got != want {
+			t.Errorf("CleanNodeName(%q) = %q, want %q", in, got, want)
+		}
+		if _, err := CheckNodeName(CleanNodeName(in)); err != nil {
+			t.Errorf("cleaned %q fails the check: %v", in, err)
+		}
+	}
+	if _, err := CheckNodeName("Bad_Name"); err == nil {
+		t.Error("Bad_Name accepted")
+	}
+	// An install from before the name existed adds no env, so its container
+	// spec (and hash) is unchanged: the controller keeps its name.
+	if slices.ContainsFunc(Panel("img", tlsIn).Env, func(e string) bool { return strings.HasPrefix(e, "STACKR_NODE_NAME=") }) {
+		t.Error("an input without a node name sets STACKR_NODE_NAME")
+	}
+	in := tlsIn
+	in.NodeName = "box1"
+	if !slices.Contains(Panel("img", in).Env, "STACKR_NODE_NAME=box1") {
+		t.Error("node name not passed to the panel")
+	}
+}

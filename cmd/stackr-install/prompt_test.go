@@ -9,7 +9,7 @@ import (
 // check's cleaned form or its fix-it message.
 func TestAnswer(t *testing.T) {
 	var a answers
-	qs := installQuestions(&a, map[string]bool{}, true, false, false, func() string { return "" })
+	qs := installQuestions(&a, map[string]bool{}, true, true, false, false, func() string { return "" })
 	by := map[string]question{}
 	for _, q := range qs {
 		by[q.title] = q
@@ -62,7 +62,7 @@ func TestAnswer(t *testing.T) {
 // A flag given is never asked; follow-ups wait on their answer.
 func TestQuestionsSkip(t *testing.T) {
 	var a answers
-	qs := installQuestions(&a, map[string]bool{"domain": true, "proxy": true}, false, false, false, nil)
+	qs := installQuestions(&a, map[string]bool{"domain": true, "proxy": true}, false, false, false, false, nil)
 	asked := func(title string) bool {
 		for _, q := range qs {
 			if q.title == title {

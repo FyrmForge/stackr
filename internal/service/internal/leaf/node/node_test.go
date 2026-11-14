@@ -17,7 +17,7 @@ var ctx = context.Background()
 func TestBootstrapMakesOneController(t *testing.T) {
 	st := storetest.Store(t)
 	l := node.New(st.Nodes)
-	n, created, err := l.Bootstrap(ctx)
+	n, created, err := l.Bootstrap(ctx, "")
 	if err != nil || !created {
 		t.Fatalf("first boot: created=%v err=%v", created, err)
 	}
@@ -28,7 +28,7 @@ func TestBootstrapMakesOneController(t *testing.T) {
 		t.Fatalf("tags = %v", got)
 	}
 	// A second boot, and a lazy Controller, find the same row.
-	again, created, err := l.Bootstrap(ctx)
+	again, created, err := l.Bootstrap(ctx, "")
 	if err != nil || created || again.ID != n.ID {
 		t.Fatalf("second boot: %+v created=%v err=%v", again, created, err)
 	}
@@ -74,7 +74,7 @@ func TestReserveExhausted(t *testing.T) {
 func TestConfirmTransit(t *testing.T) {
 	st := storetest.Store(t)
 	l := node.New(st.Nodes)
-	if _, _, err := l.Bootstrap(ctx); err != nil {
+	if _, _, err := l.Bootstrap(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	p, err := l.CreatePending(ctx, "w1", nil, "k")
@@ -89,5 +89,19 @@ func TestConfirmTransit(t *testing.T) {
 	if _, err := l.Confirm(ctx, p2.ID, []node.Iface{{Name: "br-lan", Prefix: netip.MustParsePrefix("10.208.4.1/24")}}); err == nil ||
 		!strings.Contains(err.Error(), "network br-lan (10.208.4.1/24)") || !strings.Contains(err.Error(), "run a new join command") {
 		t.Fatalf("a node on the cluster pool: %v", err)
+	}
+}
+
+// A named bootstrap makes that name; a row that exists keeps its own name.
+func TestBootstrapName(t *testing.T) {
+	st := storetest.Store(t)
+	l := node.New(st.Nodes)
+	n, created, err := l.Bootstrap(ctx, "box1")
+	if err != nil || !created || n.Name != "box1" || n.Slug != "box1" {
+		t.Fatalf("named boot: %+v created=%v err=%v", n, created, err)
+	}
+	again, created, err := l.Bootstrap(ctx, "other")
+	if err != nil || created || again.Name != "box1" {
+		t.Fatalf("rename on reboot: %+v created=%v err=%v", again, created, err)
 	}
 }

@@ -280,6 +280,7 @@ func run(log *slog.Logger, generate bool) error {
 		MeshWG:          controllerWG(fake),
 		MeshRunner:      worker.ExecRunner{},
 		MeshWGPort:      config.GetEnvOrDefaultInt("STACKR_MESH_WG_PORT", 0),
+		ControllerName:  config.GetEnvOrDefault("STACKR_NODE_NAME", ""),
 		HostRoot:        config.GetEnvOrDefault("STACKR_HOST_ROOT", ""),
 
 		PanelDomain:    config.GetEnvOrDefault("PANEL_DOMAIN", ""),

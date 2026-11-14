@@ -219,6 +219,42 @@ type Input struct {
 	// it read-only at the same path so it can statfs Docker's disk. Empty
 	// (an older install) mounts nothing.
 	DockerRoot string `json:"docker_root,omitempty"`
+	// NodeName is what the controller's node row is called, set once on a
+	// fresh install. Empty (an older install) keeps the name "controller".
+	NodeName string `json:"node_name,omitempty"`
+}
+
+// DefaultNodeName is the controller's name when none was chosen.
+const DefaultNodeName = "controller"
+
+var nodeNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// CheckNodeName accepts a node name: lowercase letters, digits and dashes,
+// up to 32 characters, as the panel names worker nodes.
+func CheckNodeName(s string) (string, error) {
+	if !nodeNameRe.MatchString(s) {
+		return "", errors.New("use lowercase letters, digits and dashes, up to 32 characters")
+	}
+	return s, nil
+}
+
+// CleanNodeName turns a machine's hostname into a node name: lowercased,
+// anything else a dash, trimmed to 32. "controller" when nothing is left.
+func CleanNodeName(host string) string {
+	b := []byte(strings.ToLower(host))
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9') {
+			b[i] = '-'
+		}
+	}
+	s := strings.Trim(string(b), "-")
+	if len(s) > 32 {
+		s = strings.Trim(s[:32], "-")
+	}
+	if s == "" {
+		return DefaultNodeName
+	}
+	return s
 }
 
 // dockerRootProbe is the empty dir under Docker's data root the panel mounts
@@ -332,6 +368,9 @@ func Panel(image string, in Input) Container {
 	}
 	if in.InstallID != "" {
 		env = append(env, "STACKR_INSTALL_ID="+in.InstallID)
+	}
+	if in.NodeName != "" {
+		env = append(env, "STACKR_NODE_NAME="+in.NodeName)
 	}
 	if in.WGPort != 0 {
 		env = append(env, "STACKR_MESH_WG_PORT="+strconv.Itoa(in.WGPort))
