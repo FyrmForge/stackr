@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -192,21 +193,51 @@ func TestPGExtApplyFromFileStoppedBuildsAndChecks(t *testing.T) {
 	}
 }
 
-// The panel's apply of a build never stores an unbuilt image on an instance
-// that does not run.
-func TestApplyPGExtPlanRefusesStoppedBuild(t *testing.T) {
+// The panel's apply of a build on a stopped instance runs as a job that
+// builds and boot-checks the image, stores it and starts nothing; a failed
+// check stores nothing.
+func TestApplyPGExtPlanStoppedBuildsInAJob(t *testing.T) {
 	t.Parallel()
-	r := newRecipeRig(t)
 	ctx := context.Background()
+	r := newRecipeRig(t)
 	p := r.plan(t, "vector")
-	before := r.rows(t)
 	r.stop()
 	_, j, err := r.orch.ApplyPGExtPlan(ctx, r.by, r.pg.ID, p.ID, ApproveOpts{Confirm: true})
-	if !isConflict(err) || j != nil || !strings.Contains(err.Error(), "is not running") {
+	if err != nil || j == nil {
 		t.Fatalf("job %v, err %v", j, err)
 	}
-	if got := r.rows(t); !got.equal(before) {
-		t.Errorf("rows moved: %+v", got)
+	if got := r.wait(t, j.ID); got.State != "done" {
+		t.Fatalf("job = %s: %s", got.State, got.Error)
+	}
+	rows := r.rows(t)
+	eb, _ := mflow.ParseExtBuild(rows.ExtBuild)
+	if !eb.Built() || rows.Image != eb.Ref {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if _, ok := r.checked.Load(eb.Ref); !ok {
+		t.Error("the built image was stored without its boot check")
+	}
+	tl, _, err := r.orch.instanceOf(ctx, r.pg.ID)
+	must(t, err)
+	if up, _ := r.orch.reachedByRedeploy(ctx, tl); up {
+		t.Error("a stopped instance was started")
+	}
+
+	r2 := newRecipeRig(t)
+	p2 := r2.plan(t, "vector")
+	r2.stop()
+	r2.check = func(string) (string, int) { return "FAILED vector\n", 3 }
+	before := r2.rows(t)
+	_, j2, err := r2.orch.ApplyPGExtPlan(ctx, r2.by, r2.pg.ID, p2.ID, ApproveOpts{Confirm: true})
+	must(t, err)
+	if got := r2.wait(t, j2.ID); got.State != "failed" {
+		t.Fatalf("job = %s", got.State)
+	}
+	if got := r2.rows(t); !got.equal(before) {
+		t.Errorf("rows moved on a failed check: %+v", got)
+	}
+	if _, ok := r2.cursor(t); ok {
+		t.Error("cursor left")
 	}
 }
 
@@ -277,5 +308,37 @@ func TestPGUpgradeTargetImageWalksDown(t *testing.T) {
 	imgs.Range(func(_, _ any) bool { n++; return true })
 	if n != 2 || tb.Packages["postgresql-18-pgvector"] != "0.8.5-1" || tb.Ref == "" || tb.Ref == first.Load() {
 		t.Errorf("%d images checked, build %+v", n, tb)
+	}
+}
+
+// A URL recipe's build record keeps the URL and sha256 it was built from, so a
+// later major change does not take them from a recipe edited since.
+func TestPGBuildImageRecordsURLPackages(t *testing.T) {
+	t.Parallel()
+	r := newRecipeRig(t)
+	ctx := context.Background()
+	var vc mflow.Recipe
+	for _, b := range mflow.BuiltinRecipes {
+		if b.Name == "vchord" {
+			vc = b
+		}
+	}
+	// the rig's fake check offers vector only
+	vc.Extensions, vc.Preload, vc.Requires = []string{"vector"}, nil, nil
+	tl, m, err := r.orch.instanceOf(ctx, r.pg.ID)
+	must(t, err)
+	st := &pgExtState{Old: pgExtValsOf(tl, m), New: pgExtVals{Image: tl.ImageRef, Extensions: []string{"vector"}}, Build: &PGExtPlanIn{
+		Names: []string{"vchord"}, Base: pgStock, Arch: "amd64", Recipes: []mflow.Recipe{vc},
+	}}
+	must(t, r.orch.pgBuildImage(ctx, tl, m, st, io.Discard))
+	eb, _ := mflow.ParseExtBuild(st.New.ExtBuild)
+	want := vc.SHA256[strconv.Itoa(m.Major)+"-amd64"]
+	if len(eb.URLs) != 1 || want == "" {
+		t.Fatalf("urls = %+v, want one for %d-amd64", eb.URLs, m.Major)
+	}
+	for _, u := range eb.URLs {
+		if u.SHA256 != want || u.URL == "" {
+			t.Errorf("url package = %+v, want sha %s", u, want)
+		}
 	}
 }

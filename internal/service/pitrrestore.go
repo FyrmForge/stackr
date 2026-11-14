@@ -899,7 +899,7 @@ func (o *Orchestrator) runPromoteRestore(ctx context.Context, r *jobs.Run, p pro
 			// R10: the restored data may predate an extension update. Only a
 			// warning: a failed update must not block the steps after it
 			// (settle, drop), and nothing here was listed by the restore.
-			if err := o.engines.Reconcile(ctx, src, r.Log); err != nil {
+			if err := o.engines.ReconcileWarn(ctx, src, r.Log); err != nil {
 				logf(r.Log, "warning: extensions were not reconciled after the replay: %v\n", err)
 			}
 			return nil

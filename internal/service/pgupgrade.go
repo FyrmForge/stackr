@@ -1184,6 +1184,9 @@ func (u *pgupRun) toBuild(ctx context.Context, eb mflow.ExtBuild, to int) ([]mfl
 		}
 		tb.Packages = res.Versions
 	}
+	if tb.URLs, err = mflow.URLPackages(rs, to, tb.Arch); err != nil {
+		return nil, eb, err
+	}
 	return rs, tb, nil
 }
 

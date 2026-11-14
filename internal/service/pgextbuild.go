@@ -783,13 +783,6 @@ func (o *Orchestrator) ApplyPGExtPlan(ctx context.Context, by *Principal, tileID
 	if err != nil {
 		return PGExtView{}, nil, err
 	}
-	if in.build != nil {
-		if reach, err := o.reachedByRedeploy(ctx, t); err != nil {
-			return PGExtView{}, nil, err
-		} else if !reach { // never store an image that was not built and boot-checked
-			return PGExtView{}, nil, errs.Conflictf("%s is not running. Start it, then apply the plan: the image is built and checked first.", t.Slug)
-		}
-	}
 	if _, j, err := o.setPGExtLocked(ctx, t, m, in); err != nil {
 		return PGExtView{}, nil, err
 	} else if v, verr := o.PGExtensions(ctx, tileID); verr != nil {
@@ -908,6 +901,11 @@ func (o *Orchestrator) pgBuildImage(ctx context.Context, t Tile, m OperatedInsta
 	eb.Ref = ref
 	if len(pkgs) > 0 {
 		eb.Packages = pkgs
+	}
+	// the URL, sha256 and version each downloaded package came from: a later
+	// major change rebuilds from these, not from a recipe edited since
+	if eb.URLs, err = mflow.URLPackages(rs, m.Major, in.Arch); err != nil {
+		return err
 	}
 	if old.Built() && old.Ref != ref {
 		eb.PrevRef, eb.PrevAt = old.Ref, time.Now().UTC()
@@ -1312,16 +1310,7 @@ func (o *Orchestrator) pgExtBuildStopped(ctx context.Context, t Tile, m Operated
 	if err := o.pgExtWriteLocked(ctx, t.ID, fm, st.New); err != nil {
 		return fail(err)
 	}
-	ps, err := o.operated.ByInstance(ctx, m.ID)
-	if err != nil {
-		return err
-	}
-	if len(ps) == 0 { // nothing to reconcile at the first start
-		o.delPGExtState(ctx, m.ID)
-		return nil
-	}
-	st.Phase, st.Due = pgExtDue, true
-	return o.setPGExtState(ctx, m.ID, st)
+	return o.pgExtSettleStopped(ctx, m, st)
 }
 
 // pgApplyIn is the request that applies plan p to the instance.

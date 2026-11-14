@@ -136,6 +136,9 @@ type pgExtState struct {
 	Resumes  int
 	// Build: the recipe image the change builds first (phase build).
 	Build *PGExtPlanIn
+	// NoStart: the instance was stopped; the job builds, checks and stores,
+	// and the next deploy starts it.
+	NoStart bool `json:",omitempty"`
 }
 
 // ---- cursor ----
@@ -708,8 +711,10 @@ func (o *Orchestrator) setPGExtLocked(ctx context.Context, t Tile, m OperatedIns
 	if err != nil || !changed {
 		return t, nil, err
 	}
-	if c.extsOnly() || !c.running {
-		if c.running && c.build == nil {
+	// a recipe image is built and boot-checked in a job even when stopped:
+	// an image that was never checked is never stored
+	if c.build == nil && (c.extsOnly() || !c.running) {
+		if c.running {
 			if err := o.pgExtNotOffered(ctx, c); err != nil {
 				return t, nil, err
 			}
@@ -724,7 +729,7 @@ func (o *Orchestrator) setPGExtLocked(ctx context.Context, t Tile, m OperatedIns
 	if err != nil {
 		return t, nil, err
 	}
-	if err := o.setPGExtState(ctx, m.ID, pgExtState{Phase: pgExtQueued, Old: c.old, New: c.new, Build: c.build}); err != nil {
+	if err := o.setPGExtState(ctx, m.ID, pgExtState{Phase: pgExtQueued, Old: c.old, New: c.new, Build: c.build, NoStart: !c.running}); err != nil {
 		return t, nil, err
 	}
 	j, err := o.enqueue(ctx, kindPGExt, pgExtJob{TileID: t.ID, Old: c.old, New: c.new}, lock...)
@@ -861,6 +866,9 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 	}
 	if st.Phase == pgExtStore {
 		err := o.pgExtWrite(ctx, t.ID, st.New)
+		if err == nil && st.NoStart {
+			return o.pgExtSettleStopped(ctx, m, st)
+		}
 		if err == nil {
 			err = save(pgExtStart)
 		}
@@ -871,6 +879,9 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 			}
 			return err
 		}
+	}
+	if st.NoStart { // a resumed start of a stopped instance: stored, not started
+		return o.pgExtSettleStopped(ctx, m, st)
 	}
 	logf(log, "restarting %s on the new image and startup modules\n", t.Slug)
 	err := o.deploy.Redeploy(ctx, t.ID, log, nil)
@@ -1122,4 +1133,19 @@ func (o *Orchestrator) resumePGExtOne(ctx context.Context, m OperatedInstance, s
 	slog.Info("pg extensions: resuming after a restart", "instance", m.ID, "phase", st.Phase)
 	_, err = o.enqueue(ctx, kindPGExt, pgExtJob{TileID: t.ID, Old: st.Old, New: st.New}, lock...)
 	return err
+}
+
+// pgExtSettleStopped ends a stored change of a stopped instance: the next
+// deploy starts it and, when it has slices, reconciles them.
+func (o *Orchestrator) pgExtSettleStopped(ctx context.Context, m OperatedInstance, st pgExtState) error {
+	ps, err := o.operated.ByInstance(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	if len(ps) == 0 { // nothing to reconcile at the first start
+		o.delPGExtState(ctx, m.ID)
+		return nil
+	}
+	st.Phase, st.Due, st.NoStart = pgExtDue, true, false
+	return o.setPGExtState(ctx, m.ID, st)
 }
