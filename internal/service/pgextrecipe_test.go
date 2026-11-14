@@ -531,7 +531,7 @@ func TestPGUpgradeRecipeBuiltRefused(t *testing.T) {
 	tl := Tile{Slug: "pg", ImageRef: "localhost:5000/o/s/pg:x"}
 	m := OperatedInstance{ExtBuild: mflow.ExtBuild{Base: pgStock, Ref: "localhost:5000/o/s/pg:x"}.String()}
 	err := noCustomImageForChange(tl, m, 17)
-	if !isConflict(err) || !strings.Contains(err.Error(), "pg was built from recipes; changing its major is not possible yet.") {
+	if err != nil { // message 25 is gone (R28): a recipe build moves by rebuilding
 		t.Errorf("err = %v", err)
 	}
 	m.ExtBuild = "{}"
