@@ -114,7 +114,7 @@ func (h *handler) securityTab(c echo.Context) (templ.Component, error) {
 	}
 	who := map[string]string{}
 	keys := map[string]string{} // live API keys by id; a revoked one is gone
-	v := ui.SecurityView{Filter: q}
+	v := ui.SecurityView{Filter: q, KeepDays: service.SecurityKeepDays}
 	for _, u := range us {
 		who[u.ID] = u.Email
 		v.Actors = append(v.Actors, ui.AccessOption{Value: u.ID, Label: u.Email})

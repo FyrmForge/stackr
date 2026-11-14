@@ -20,7 +20,8 @@ import (
 // ponytail: constants, not settings; make them knobs if 30 and 90 days are wrong for someone.
 const (
 	jobKeep            = 30 * 24 * time.Hour // job rows, their logs, dead join tokens
-	securityKeep       = 90 * 24 * time.Hour // security_events
+	SecurityKeepDays   = 90                  // security_events, and what the security log says
+	securityKeep       = SecurityKeepDays * 24 * time.Hour
 	securityPruneBatch = 1000                // security_events rows per delete statement
 	jobPruneBatch      = 5000                // rows whose log files one pass removes by name
 )

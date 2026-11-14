@@ -1097,34 +1097,18 @@ func Recovery(v RecoveryView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				} else if v.Rotate != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<form hx-post=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var35 string
-					templ_7745c5c3_Var35, templ_7745c5c3_Err = templruntime.NewAttributeExpression(v.Rotate).Resolve(ctx)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/admin.templ`, Line: 374, Col: 30}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "\" hx-target=\"#recovery\" hx-swap=\"outerHTML\"><div class=\"flex flex-wrap items-end gap-2\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = c.Field(c.FieldView{Name: "password", Label: "Your password", Type: "password", Autocomplete: "current-password", Required: true}).Render(ctx, templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "<button type=\"submit\" class=\"btn btn-ghost btn-sm\">Rotate the recovery key</button></div><p class=\"mt-1.5 text-xs text-rw-faint\">Older backups keep the old key.</p></form>")
+					templ_7745c5c3_Err = c.Confirm(c.ConfirmView{
+						Button: "Rotate the recovery key", Title: "Rotate the recovery key?", Primary: true,
+						Warning: "A new key opens the panel's backups from now on. It is shown once, so save it off this server. Older backups keep the old key.",
+						Body:    passwordBody("recovery-key-password"), Include: "input[name=password]",
+						Action: v.Rotate, Target: "#recovery",
+					}).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1134,7 +1118,7 @@ func Recovery(v RecoveryView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
