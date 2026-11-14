@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,7 @@ const (
 	pgExtQueued  = "queued"
 	pgExtCheck   = "check"
 	pgExtStore   = "store"
+	pgExtBuild   = "build"
 	pgExtStart   = "start"
 	pgExtPutBack = "putback"
 	pgExtDue     = "due"
@@ -53,6 +55,13 @@ const (
 type PGExtIn struct {
 	Image               *string
 	Preload, Extensions *[]string
+
+	// The plan's own request (ApplyPGExtPlan): extBuild is the new ext_build
+	// column, build the image to build before the change, viaPlan lets the
+	// recipe-owned values (image, startup modules, list) through.
+	extBuild *string
+	build    *PGExtPlanIn
+	viaPlan  bool
 }
 
 // PGExtView is an instance's extensions as the drawer, API and CLI show them.
@@ -66,6 +75,9 @@ type PGExtView struct {
 	Slices              []string
 	Plan                string
 	Busy                string
+	// Built: the image is built from recipes; Recipes are the ones in it.
+	Built   bool
+	Recipes []string
 }
 
 // PGExtItem is one extension of an instance: installed and available
@@ -94,11 +106,13 @@ type SliceExtItem struct {
 	Listed                                bool
 }
 
-// pgExtVals is the part of an instance a change moves: image and both lists.
+// pgExtVals is the part of an instance a change moves: image, both lists and
+// the build record (the ext_build column text; "" = "{}").
 type pgExtVals struct {
 	Image      string
 	Preload    []string
 	Extensions []string
+	ExtBuild   string
 }
 
 // pgExtJob is a kindPGExt payload: the instance tile and the values the
@@ -107,6 +121,9 @@ type pgExtVals struct {
 type pgExtJob struct {
 	TileID   string
 	Old, New pgExtVals
+	// Plan: the job only plans a recipe change (check mode); Old and New are
+	// unused.
+	Plan *pgExtPlanReq
 }
 
 // pgExtState is the change's persisted cursor, settings key pgext.<instance
@@ -117,6 +134,8 @@ type pgExtState struct {
 	Old, New pgExtVals
 	Due      bool
 	Resumes  int
+	// Build: the recipe image the change builds first (phase build).
+	Build *PGExtPlanIn
 }
 
 // ---- cursor ----
@@ -151,11 +170,12 @@ func (o *Orchestrator) pgExtBusy(ctx context.Context, t Tile, m OperatedInstance
 }
 
 func pgExtValsOf(t Tile, m OperatedInstance) pgExtVals {
-	return pgExtVals{Image: t.ImageRef, Preload: slices.Clone([]string(m.Preload)), Extensions: slices.Clone([]string(m.Extensions))}
+	return pgExtVals{Image: t.ImageRef, Preload: slices.Clone([]string(m.Preload)), Extensions: slices.Clone([]string(m.Extensions)), ExtBuild: m.ExtBuild}
 }
 
 func (v pgExtVals) equal(w pgExtVals) bool {
-	return v.Image == w.Image && slices.Equal(v.Preload, w.Preload) && slices.Equal(v.Extensions, w.Extensions)
+	return v.Image == w.Image && slices.Equal(v.Preload, w.Preload) && slices.Equal(v.Extensions, w.Extensions) &&
+		cmp.Or(v.ExtBuild, "{}") == cmp.Or(w.ExtBuild, "{}")
 }
 
 // pgExtWrite stores v's image and lists, each as a write of its own columns
@@ -176,8 +196,7 @@ func (o *Orchestrator) pgExtWriteLocked(ctx context.Context, tileID string, m Op
 	if err := o.tiles.SetImageRef(ctx, tileID, v.Image); err != nil {
 		return err
 	}
-	_, err := o.operated.SetExtensions(ctx, m, v.Preload, v.Extensions)
-	return err
+	return o.store.OperatedInstances.SetBuild(ctx, m.ID, v.Preload, v.Extensions, cmp.Or(v.ExtBuild, "{}"))
 }
 
 // ---- views ----
@@ -233,6 +252,9 @@ func (o *Orchestrator) PGExtensions(ctx context.Context, tileID string) (PGExtVi
 	}
 	if st, ok := o.pgExtOf(ctx, m.ID); ok && st.Phase != pgExtDue {
 		v.Busy = st.Phase
+	}
+	if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.Built() {
+		v.Built, v.Recipes = true, slices.Clone(eb.Recipes)
 	}
 	ss, err := o.slicesOn(ctx, t, m)
 	if err != nil {
@@ -419,6 +441,7 @@ type pgExtChange struct {
 	m        OperatedInstance
 	old, new pgExtVals
 	running  bool
+	build    *PGExtPlanIn // the recipe image to build first, nil = none
 }
 
 // extsOnly: the change moves the extensions list alone, so no restart.
@@ -453,6 +476,15 @@ func (o *Orchestrator) pgExtPrepare(ctx context.Context, t Tile, m OperatedInsta
 	}
 	if in.Extensions != nil {
 		c.new.Extensions = slices.Clone(*in.Extensions)
+	}
+	if in.extBuild != nil {
+		c.new.ExtBuild = *in.extBuild
+	}
+	c.build = in.build
+	if !in.viaPlan {
+		if err = o.pgExtOwnedRefusal(ctx, t, m, in); err != nil {
+			return c, false, err
+		}
 	}
 	if c.old.equal(c.new) {
 		return c, false, nil
@@ -515,6 +547,39 @@ func (o *Orchestrator) pgExtPrepare(ctx context.Context, t Tile, m OperatedInsta
 	return c, true, nil
 }
 
+// errPGPlanNeeded says a change touches the recipes of an instance that recipes
+// apply to: it goes through a plan (message 28), not the plain path.
+var errPGPlanNeeded = errs.Conflictf("this plan is out of date; a new one is being made. Review it and apply again.")
+
+// pgExtOwnedRefusal is what the plain path refuses on an instance recipes
+// apply to (an official image or a recipe build): an image edit of a recipe
+// build (message 34), startup modules typed by hand beside recipes (21) and a
+// list change that adds or drops a recipe's extension (28, errPGPlanNeeded).
+// A custom image, and any list of names no recipe has, are Stage 1's as ever.
+func (o *Orchestrator) pgExtOwnedRefusal(ctx context.Context, t Tile, m OperatedInstance, in PGExtIn) error {
+	eb, _ := mflow.ParseExtBuild(m.ExtBuild)
+	if eb.Built() {
+		if in.Image != nil && *in.Image != t.ImageRef {
+			return errs.Conflictf("%s is built from its extensions; its image is not set by hand.", t.Slug)
+		}
+		if in.Preload != nil && !slices.Equal(*in.Preload, []string(m.Preload)) {
+			return errs.Conflictf("the startup modules of %s come from its recipes; remove preload, or set a custom image.", t.Slug)
+		}
+	}
+	if in.Extensions == nil || !(eb.Built() || mflow.PGOfficial(t.ImageRef)) {
+		return nil
+	}
+	rows, err := o.store.PGRecipes.List(ctx)
+	if err != nil {
+		return err
+	}
+	defs := pgRecipeDefs(rows)
+	if !slices.Equal(pgRecipesFor(defs, *in.Extensions), pgRecipesFor(defs, m.Extensions)) {
+		return errPGPlanNeeded
+	}
+	return nil
+}
+
 func removedNames(old, nw []string) []string {
 	var out []string
 	for _, n := range old {
@@ -564,6 +629,15 @@ func (o *Orchestrator) pgExtStoreNow(ctx context.Context, c pgExtChange, noCurso
 	return o.setPGExtState(ctx, c.m.ID, pgExtState{Phase: pgExtDue, Due: true, Old: c.old, New: c.new})
 }
 
+// pgExtLocks is the job lock set of a change of t: the tile, and the data
+// volume's other holders when it has one.
+func (o *Orchestrator) pgExtLocks(ctx context.Context, t Tile) ([]string, error) {
+	if sv, err := o.dataVolume(ctx, t); err == nil { // none yet: the tile alone
+		return o.pgupLocks(ctx, pgChange{sv: sv})
+	}
+	return []string{t.ID}, nil
+}
+
 // setPGExtLocked is steps 1 to 11 of setPGExt; the caller holds pgLock and
 // passes rows read under it.
 func (o *Orchestrator) setPGExtLocked(ctx context.Context, t Tile, m OperatedInstance, in PGExtIn) (Tile, *Job, error) {
@@ -571,11 +645,15 @@ func (o *Orchestrator) setPGExtLocked(ctx context.Context, t Tile, m OperatedIns
 		return t, nil, err
 	}
 	c, changed, err := o.pgExtPrepare(ctx, t, m, in)
+	if errors.Is(err, errPGPlanNeeded) {
+		req := pgExtPlanReq{Extensions: slices.Clone(*in.Extensions)}
+		_, _ = o.queuePGPlan(ctx, t, req) // best effort: message 28 is the answer
+	}
 	if err != nil || !changed {
 		return t, nil, err
 	}
 	if c.extsOnly() || !c.running {
-		if c.running {
+		if c.running && c.build == nil {
 			if err := o.pgExtNotOffered(ctx, c); err != nil {
 				return t, nil, err
 			}
@@ -586,13 +664,11 @@ func (o *Orchestrator) setPGExtLocked(ctx context.Context, t Tile, m OperatedIns
 		out, err := o.tiles.Get(ctx, t.ID)
 		return out, nil, err
 	}
-	lock := []string{t.ID}
-	if sv, err := o.dataVolume(ctx, t); err == nil { // none yet: the tile alone
-		if lock, err = o.pgupLocks(ctx, pgChange{sv: sv}); err != nil {
-			return t, nil, err
-		}
+	lock, err := o.pgExtLocks(ctx, t)
+	if err != nil {
+		return t, nil, err
 	}
-	if err := o.setPGExtState(ctx, m.ID, pgExtState{Phase: pgExtQueued, Old: c.old, New: c.new}); err != nil {
+	if err := o.setPGExtState(ctx, m.ID, pgExtState{Phase: pgExtQueued, Old: c.old, New: c.new, Build: c.build}); err != nil {
 		return t, nil, err
 	}
 	j, err := o.enqueue(ctx, kindPGExt, pgExtJob{TileID: t.ID, Old: c.old, New: c.new}, lock...)
@@ -657,6 +733,9 @@ func (o *Orchestrator) runPGExt(ctx context.Context, r *jobs.Run, p pgExtJob) er
 	if err != nil {
 		return err
 	}
+	if p.Plan != nil { // check mode: price the change, store the plan
+		return o.planPGExt(ctx, t, m, *p.Plan, r.Log)
+	}
 	st, ok := o.pgExtOf(ctx, m.ID)
 	if !ok {
 		return errors.New("the change is no longer pending")
@@ -689,7 +768,23 @@ func (o *Orchestrator) applyPGExt(ctx context.Context, t Tile, m OperatedInstanc
 			return fail(errors.New("changed since it was queued; nothing was changed"))
 		}
 		t, m = ft, fm
-		if err := save(pgExtCheck); err != nil {
+		next := pgExtCheck
+		if st.Build != nil {
+			next = pgExtBuild
+		}
+		if err := save(next); err != nil {
+			return err
+		}
+	}
+	if st.Phase == pgExtBuild { // a recipe image: build it, boot-check it, record it
+		if err := o.pgBuildImage(ctx, t, m, &st, log); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			return fail(err)
+		}
+		st.Due = true
+		if err := save(pgExtStore); err != nil {
 			return err
 		}
 	}
@@ -919,7 +1014,7 @@ func (o *Orchestrator) resumePGExt(ctx context.Context) {
 		if slices.ContainsFunc(live, func(j store.Job) bool { return j.Kind == string(kindPGExt) && slices.Contains(j.LockSet, m.TileID) }) {
 			continue // its job may still run it
 		}
-		if st.Phase == pgExtQueued || st.Phase == pgExtCheck {
+		if st.Phase == pgExtQueued || st.Phase == pgExtCheck || st.Phase == pgExtBuild {
 			o.delPGExtState(ctx, id) // nothing was stored
 			continue
 		}

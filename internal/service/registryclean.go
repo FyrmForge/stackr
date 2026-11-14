@@ -11,8 +11,10 @@ import (
 
 	"github.com/FyrmForge/stackr/internal/installspec"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/image"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/regfront"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -238,9 +240,14 @@ func (o *Orchestrator) registryInUse(ctx context.Context) (map[string]bool, erro
 					return nil, err
 				}
 				for _, t := range ts {
-					if t.ImageRef != "" {
+					if path, ok := strings.CutPrefix(t.ImageRef, image.ClusterRegistry); ok {
+						refs[path] = true // a built instance image is in the registry as it is named
+					} else if t.ImageRef != "" {
 						repo, tag := regfront.ImportName(og.Slug, t.ImageRef)
 						refs[repo+":"+tag] = true
+					}
+					if t.Kind == tile.Operated {
+						o.keepOperatedRefs(ctx, t, refs)
 					}
 				}
 			}
@@ -260,4 +267,32 @@ func (o *Orchestrator) registryInUse(ctx context.Context) (map[string]bool, erro
 		}
 	}
 	return used, nil
+}
+
+// keepOperatedRefs adds the cluster registry refs an operated instance may
+// still need: the build a recipe change replaced (for pgupKeep, so a rollback
+// finds it), the images of a major change in flight or still rollable back,
+// and those of an extensions change in flight (D5: a built image is named by
+// its own ref, not an import repo).
+func (o *Orchestrator) keepOperatedRefs(ctx context.Context, t store.Tile, refs map[string]bool) {
+	m, err := o.operated.GetByTile(ctx, t.ID)
+	if err != nil {
+		return
+	}
+	keep := func(ref string) {
+		if path, ok := strings.CutPrefix(ref, image.ClusterRegistry); ok {
+			refs[path] = true
+		}
+	}
+	if eb, _ := mflow.ParseExtBuild(m.ExtBuild); eb.PrevRef != "" && time.Since(eb.PrevAt) < pgupKeep {
+		keep(eb.PrevRef)
+	}
+	if st, ok := o.pgupOf(ctx, m.ID); ok && (!st.Done || time.Since(st.At) < pgupKeep) {
+		keep(st.FromImage)
+		keep(st.ToImage)
+	}
+	if st, ok := o.pgExtOf(ctx, m.ID); ok {
+		keep(st.Old.Image)
+		keep(st.New.Image)
+	}
 }
