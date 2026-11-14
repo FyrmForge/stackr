@@ -159,3 +159,48 @@ func TestPullClusterLoads(t *testing.T) {
 	step("localhost:5000/acme/api:v2", false, "load localhost:5000/acme/api:v2", "rm localhost:5000/acme/api:v2")
 	step("ghcr.io/acme/api:v1", true, "pull ghcr.io/acme/api")
 }
+
+// Load is a direct load of the tar, then a check the ref is here. It never
+// asks the cluster registry: with the source refusing everything it works, and
+// a tar that does not hold the ref fails.
+func TestLoadIgnoresRegistry(t *testing.T) {
+	ids := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path[strings.Index(r.URL.Path[1:], "/")+1:]
+		switch {
+		case strings.HasSuffix(p, "/json") && strings.HasPrefix(p, "/images/"):
+			name := strings.TrimSuffix(strings.TrimPrefix(p, "/images/"), "/json")
+			if id, ok := ids[name]; ok {
+				_, _ = w.Write([]byte(`{"Id":"` + id + `"}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"no such image"}`))
+		case p == "/images/load":
+			b, _ := io.ReadAll(r.Body)
+			if loaded := string(b); loaded != "empty" {
+				ids[loaded] = "sha256:" + strings.Repeat("b", 64)
+			}
+			_, _ = w.Write([]byte(`{"stream":"Loaded image"}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	cli, err := client.NewClientWithOpts(client.WithHost("tcp://"+srv.Listener.Addr().String()), client.WithHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &Client{cli: cli}
+	d.SetClusterSource(func(context.Context, string, string, string) (ClusterImage, error) {
+		return ClusterImage{}, errors.New("registry unavailable")
+	})
+	ctx := context.Background()
+	ref := "localhost:5000/acme/pg:17.11-ext-amd64-0a1b2c3d"
+	if err := d.Load(ctx, ref, strings.NewReader(ref)); err != nil {
+		t.Fatalf("Load = %v", err)
+	}
+	if err := d.Load(ctx, ref+"x", strings.NewReader("empty")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a tar without the tag loaded: %v", err)
+	}
+}

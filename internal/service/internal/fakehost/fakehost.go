@@ -1129,12 +1129,39 @@ func (d *Docker) EnsureBuilder(ctx context.Context, _ string, _ int) error {
 	return d.chaos.hit(ctx, "images", "EnsureBuilder")
 }
 
-func (d *Docker) Save(ctx context.Context, _ string, _ io.Writer) error {
-	return d.chaos.hit(ctx, "images", "Save")
+// savedPrefix starts the tar Save writes: the fake image's name, which Load
+// reads back, so a round trip needs no registry.
+const savedPrefix = "fakehost-image:"
+
+func (d *Docker) Save(ctx context.Context, ref string, w io.Writer) error {
+	if err := d.chaos.hit(ctx, "images", "Save"); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, savedPrefix+norm(ref))
+	return err
 }
 
-func (d *Docker) Load(ctx context.Context, _ string, _ io.Reader) error {
-	return d.chaos.hit(ctx, "images", "Load")
+// Load makes the image a Save tar names present, then checks ref is here.
+func (d *Docker) Load(ctx context.Context, ref string, r io.Reader) error {
+	if err := d.chaos.hit(ctx, "images", "Load"); err != nil {
+		return err
+	}
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if name, ok := strings.CutPrefix(string(b), savedPrefix); ok {
+		d.record(name, hash("digest:"+name), nil, false)
+		if err := d.save(); err != nil {
+			return err
+		}
+	}
+	if d.image(ref) == nil {
+		return notFound("image", ref)
+	}
+	return nil
 }
 
 func (d *Docker) Build(

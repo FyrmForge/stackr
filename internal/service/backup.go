@@ -18,6 +18,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	fbackup "github.com/FyrmForge/stackr/internal/service/internal/flow/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/flow/jobs"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/backup"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/volume"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -473,9 +474,36 @@ func (o *Orchestrator) runBackup(ctx context.Context, r *jobs.Run, p backupJob) 
 			return err
 		}
 		sp.Prefix, sp.Keep, sp.PITRDays = backup.PITREpochRoot(org, v.ID, m.ArchiveEpoch)+"/"+backup.BaseDir, 0, m.PITRDays
+		if mflow.RecipeBuilt(m.ExtBuild) && sub.Engine.ImageRef != "" {
+			ref := sub.Engine.ImageRef
+			sub.Image = &fbackup.Image{
+				Key:  backup.ImageKey(org, v.ID, imageTag(ref)),
+				Save: func(w io.Writer) error {
+					nctx, err := o.withTileNode(ctx, sub.Engine.ID) // the image is on the engine's node
+					if err != nil {
+						return err
+					}
+					return o.docker.Save(nctx, ref, w)
+				},
+			}
+		}
 	}
 	_, err = o.backup.Backup(ctx, sub, sp, r.Log)
 	return err
+}
+
+// imageTag is the tag part of an image ref (a digest ref gives its hash), made
+// safe for an object key.
+func imageTag(ref string) string {
+	if i := strings.LastIndexAny(ref, ":@"); i >= 0 {
+		ref = ref[i+1:]
+	}
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' {
+			return r
+		}
+		return '-'
+	}, ref)
 }
 
 func (o *Orchestrator) runRestore(ctx context.Context, r *jobs.Run, p restoreJob) error {
