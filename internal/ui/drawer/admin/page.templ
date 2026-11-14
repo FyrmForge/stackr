@@ -198,7 +198,7 @@ templ View(f ViewFrame, body templ.Component) {
 		<nav data-row class="settings-nav scrollbar-none" aria-label="Server settings">
 			for _, g := range Groups {
 				if g.Title != "" {
-					<p class="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rw-faint hidden md:block">{ g.Title }</p>
+					<p class="px-3 pt-6 pb-1.5 text-xs font-bold uppercase tracking-wider text-rw-text hidden md:block">{ g.Title }</p>
 				}
 				for _, it := range g.Items {
 					<a

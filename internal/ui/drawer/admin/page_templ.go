@@ -381,14 +381,14 @@ func View(f ViewFrame, body templ.Component) templ.Component {
 		}
 		for _, g := range Groups {
 			if g.Title != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-rw-faint hidden md:block\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"px-3 pt-6 pb-1.5 text-xs font-bold uppercase tracking-wider text-rw-text hidden md:block\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(g.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/page.templ`, Line: 201, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/drawer/admin/page.templ`, Line: 201, Col: 114}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
