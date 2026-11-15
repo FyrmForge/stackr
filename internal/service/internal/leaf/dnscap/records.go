@@ -380,7 +380,8 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	// the names whose delete or put did not land (a provider without
 	// connectors.ReplaceDNS fails step by step); ran: the writes began
 	delPending, putPending, ran := map[string]bool{}, map[string]bool{}, false
-	kept := map[string]bool{} // moved rows that stay as they are
+	kept := map[string]bool{}     // moved rows that stay as they are
+	var liveOld []store.DNSRecord // moved rows whose old record is live
 	err = l.WithZone(ctx, a, zone, func(pv Provider) error {
 		live, noMX, err := readZone(ctx, pv, zone)
 		if err != nil {
@@ -407,6 +408,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 		for _, r := range move {
 			if isLive(r) {
 				del = append(del, rr(r.Name, r.Type, r.Value))
+				liveOld = append(liveOld, r)
 			}
 		}
 		// a move that cannot be written keeps its row and its old record:
@@ -439,6 +441,16 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 					}
 					continue
 				}
+				// a move whose write landed but whose answer was lost: the
+				// live record is the new value already, so it is ours again
+				if slices.ContainsFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() }) &&
+					slices.ContainsFunc(f, func(x libdns.Record) bool {
+						y := x.RR()
+						return y.Type == w.Type && sameData(y.Type, y.Data, w.Value)
+					}) {
+					made = append(made, w)
+					continue
+				}
 				keepOld(w)
 				taken = append(taken, fqdn(zone, w.Name))
 				continue
@@ -469,6 +481,14 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 			}
 			return nil
 		}
+		// a record that is both deleted and put stays: the put is a no-op
+		// and the delete would leave the name bare
+		del = slices.DeleteFunc(del, func(x libdns.Record) bool {
+			return slices.ContainsFunc(put, func(p libdns.Record) bool {
+				a, b := x.RR(), p.RR()
+				return strings.EqualFold(a.Name, b.Name) && a.Type == b.Type && sameData(a.Type, a.Data, b.Data)
+			})
+		})
 		ran = true
 		type step struct{ del, put []libdns.Record }
 		steps := map[string]*step{}
@@ -546,6 +566,16 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 		i := slices.IndexFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() })
 		if i >= 0 {
 			r := move[i]
+			// the new value landed, the delete of the old one did not: the
+			// old record stays owned (a custom row) so the next sync retries
+			if n := strings.ToLower(w.Name); delPending[n] && slices.ContainsFunc(liveOld, func(o store.DNSRecord) bool { return o.ID == r.ID }) {
+				if err := l.recs.Create(ctx, store.DNSRecord{
+					ID: uuid.NewString(), DNSDomainID: &d.ID, Zone: zone, Name: r.Name, Type: r.Type,
+					Value: r.Value, TTL: TTL, Kind: store.RecordCustom, CreatedAt: time.Now().UTC(),
+				}); err != nil {
+					return taken, err
+				}
+			}
 			r.Value, r.DomainID = w.Value, optID(w.DomainID)
 			if err := l.recs.Update(ctx, r); err != nil {
 				return taken, err

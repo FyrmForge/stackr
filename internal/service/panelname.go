@@ -440,7 +440,9 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	resolved := !o.hasProblem(ctx, panelResolveAlert)
 	// right after a write the resolver may still answer the old value: the
 	// next tick's recheck judges it (panelDue)
+	// (any check inside that TTL is as fresh as the writing one)
 	fresh, _ := ctx.Value(panelWroteKey{}).(bool)
+	fresh = fresh || (due != 0 && time.Now().UnixNano() < due)
 	if ips, ok := o.lookupOK(ctx, p); ok && !fresh {
 		o.panelDueAt.CompareAndSwap(due, 0) // judged on a real answer; a failed lookup stays due
 		switch pub := outsiders(ips, t); {
@@ -494,7 +496,7 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 func (o *Orchestrator) recheckPanelName(ctx context.Context) {
 	rows, err := o.store.Settings.ListPrefix(ctx, problemPrefix+"panel.")
 	due := o.panelDueAt.Load()
-	if err != nil || (len(rows) == 0 && (due == 0 || time.Now().UnixNano() < due)) || !o.panelRecheck.CompareAndSwap(false, true) {
+	if err != nil || (due != 0 && time.Now().UnixNano() < due) || (len(rows) == 0 && due == 0) || !o.panelRecheck.CompareAndSwap(false, true) {
 		return
 	}
 	o.detach(ctx, func(ctx context.Context) {

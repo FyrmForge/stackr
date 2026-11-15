@@ -34,6 +34,7 @@ type DNS struct {
 	noRepl   bool              // set by NoReplace: the account has no Replace
 	noMX     map[string]string // set by NoMX: zone -> why it drops MX records
 	afterGet func()            // set by AfterNextGet
+	lose     error             // set by LoseNextAnswer
 }
 
 // AfterNextGet runs fn once, right after the next zone read answered: what
@@ -42,6 +43,14 @@ func (d *DNS) AfterNextGet(fn func()) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.afterGet = fn
+}
+
+// LoseNextAnswer makes the next record write land and then answer err: a
+// reply lost on the way back.
+func (d *DNS) LoseNextAnswer(err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lose = err
 }
 
 // record logs rs under zone into to, holding the zone a moment so two
@@ -197,6 +206,10 @@ func (a fakeAccount) Append(_ context.Context, zone string, rs []libdns.Record) 
 			a.d.Records[zone] = append(a.d.Records[zone], r.RR())
 		}
 	}
+	if e := a.d.lose; e != nil {
+		a.d.lose = nil
+		return nil, e
+	}
 	return rs, nil
 }
 
@@ -246,11 +259,18 @@ func (a fakeAccount) Replace(_ context.Context, zone string, del, put []libdns.R
 			a.d.Records[zone] = append(a.d.Records[zone], p)
 		}
 	}
+	if e := a.d.lose; e != nil {
+		a.d.lose = nil
+		return e
+	}
 	return nil
 }
 
 // Delete removes records by name, type and value.
 func (a fakeAccount) Delete(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+	if err := a.d.failing(); err != nil {
+		return nil, err
+	}
 	a.d.record(zone, rs, &a.d.Deleted)
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()
@@ -261,6 +281,10 @@ func (a fakeAccount) Delete(_ context.Context, zone string, rs []libdns.Record) 
 			return rr.Name == x.Name && rr.Type == x.Type && rr.Data == x.Data
 		})
 	})
+	if e := a.d.lose; e != nil {
+		a.d.lose = nil
+		return nil, e
+	}
 	return rs, nil
 }
 
