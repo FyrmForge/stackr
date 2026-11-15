@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +13,8 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -264,5 +267,171 @@ func TestStoppedStandbyFollowsImage(t *testing.T) {
 	must(t, g.n.orch.startMember(context.Background(), g.m))
 	if !g.recreated(g.n.wFake, "rep1", g.m) {
 		t.Errorf("stopped standby kept its image: %v", callNames(g.n.wFake))
+	}
+}
+
+// staleSettings makes standby container id carry another settings label than
+// its spec has now.
+func staleSettings(f *dockerfake.Fake, id string) {
+	for i := range f.Containers {
+		if f.Containers[i].ID == id {
+			f.Containers[i].Labels[mflow.LabelConf] = "old"
+		}
+	}
+}
+
+// pendingExec makes the standbys report a restart pending (and the primary
+// the default limits).
+func (g *imageRig) pendingExec() {
+	g.n.ctlFake.ExecFn = func(cmd []string) string {
+		c := strings.Join(cmd, " ")
+		switch {
+		case strings.Contains(c, "current_setting"):
+			return "max_connections|0|100|postmaster\nmax_worker_processes|0|8|postmaster\nmax_wal_senders|0|10|postmaster\nmax_prepared_transactions|0|0|postmaster\nmax_locks_per_transaction|0|64|postmaster\n"
+		}
+		return "1"
+	}
+	g.n.wFake.ExecFn = func([]string) string { return "1" }
+}
+
+// A container made with other settings AND from another image is made again
+// at once through the settings path: the image guards (a live job, a primary
+// not yet on the image) do not hold it back, running with a restart pending
+// or stopped.
+func TestStandbyDoubleStaleSettingsPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, stopped := range []bool{false, true} {
+		g := newImageRig(t, true, false) // the primary is not on the new image
+		g.pendingExec()
+		staleSettings(g.n.wFake, "rep1")
+		j, err := g.n.orch.jobRows.Create(ctx, "deploy", []string{g.t.ID}, "{}", nil, t.TempDir())
+		must(t, err)
+		_, err = g.n.orch.jobRows.Start(ctx, j)
+		must(t, err)
+		if stopped {
+			for i := range g.n.wFake.Containers {
+				g.n.wFake.Containers[i].State = "exited"
+			}
+			must(t, g.n.orch.startMember(ctx, g.m))
+		} else {
+			g.pass()
+		}
+		if !g.recreated(g.n.wFake, "rep1", g.m) {
+			t.Errorf("stopped=%v: double-stale standby not made again: %v", stopped, callNames(g.n.wFake))
+		}
+	}
+}
+
+// A sibling standby on a node that is down does not count as streaming, even
+// though its last probe was positive.
+func TestStandbyImageHeldBySiblingOnDownNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	g := newImageRig(t, true, true)
+	n := g.n
+	must(t, n.st.Nodes.Create(ctx, store.Node{
+		ID: "w2", Name: "w2", Slug: "w2", Role: node.Worker, Tags: "[]", RangeCIDR: "10.210.0.0/16",
+		Status: node.StatusOnline, CreatedAt: time.Now(),
+	}))
+	n.orch.docker.(*DockerRouter).Set("w2", &subnetFake{Fake: dockerfake.New(), nets: map[string]bool{}})
+	m2, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w2")
+	must(t, err)
+	n.orch.vipAsync.Wait()
+	n.orch.probeRuns.Store(m2.ID, 5)
+	w2, err := n.st.Nodes.Get(ctx, "w2")
+	must(t, err)
+	w2.Status = node.StatusOffline
+	must(t, n.st.Nodes.Update(ctx, w2))
+	g.pass()
+	if sawCall(n.wFake, "StopRemove(") {
+		t.Errorf("made again with a sibling on a down node: %v", callNames(n.wFake))
+	}
+}
+
+// The row is judged again under the lock: a member fenced, stopped (its
+// container up), rebuilt or removed since is left alone. (The window is the
+// image pull, which the harness cannot pause, so the check is tested alone.)
+func TestStandbyEligible(t *testing.T) {
+	t.Parallel()
+	ok := InstanceMember{Role: opmember.Replica, State: opmember.Running}
+	for name, c := range map[string]struct {
+		m       InstanceMember
+		running bool
+		want    bool
+	}{
+		"running":                {ok, true, true},
+		"stopped, to be started": {InstanceMember{Role: opmember.Replica, State: opmember.Stopped}, false, true},
+		"stopped since":          {InstanceMember{Role: opmember.Replica, State: opmember.Stopped}, true, false},
+		"fenced":                 {InstanceMember{Role: opmember.Replica, State: opmember.Running, Fenced: true}, true, false},
+		"fenced, to be started":  {InstanceMember{Role: opmember.Replica, State: opmember.Stopped, Fenced: true}, false, false},
+		"rebuilding":             {InstanceMember{Role: opmember.Replica, State: opmember.Running, Phase: opmember.Rebuild}, true, false},
+		"removing":               {InstanceMember{Role: opmember.Replica, State: opmember.Removing}, true, false},
+		"promoted":               {InstanceMember{Role: opmember.Primary, State: opmember.Running}, true, false},
+	} {
+		if got := standbyEligible(c.m, c.running); got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// A container made from a recipe-built image inherits that image's
+// stackr.image label; it says nothing about the reference the container was
+// made from, whose image is then judged.
+func TestStandbyInheritedImageLabelIgnored(t *testing.T) {
+	t.Parallel()
+	g := newImageRig(t, false, true)
+	for i := range g.n.wFake.Containers {
+		c := &g.n.wFake.Containers[i]
+		c.Image = g.new
+		c.Labels["stackr.image"] = "pgext"
+	}
+	g.pass()
+	if sawCall(g.n.wFake, "StopRemove(") {
+		t.Errorf("standby on the right image made again: %v", callNames(g.n.wFake))
+	}
+}
+
+// The primary's stamp, from the real deploy path, is the reference a standby
+// of the same instance is made from, with and without an image ref set.
+func TestPrimaryStampMatchesStandbyImage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, set := range []bool{false, true} {
+		n := newTwoNodes(t)
+		in := pgOn(t, n)
+		_, err := n.orch.operated.SetMajor(ctx, in, mflow.ImageMajor(mflow.Engines["postgres"].Definition().Image))
+		must(t, err)
+		// the harness's tile is an image tile; the deploy stamps operated ones
+		row, err := n.st.Tiles.Get(ctx, n.devT.ID)
+		must(t, err)
+		row.Kind = tile.Operated
+		must(t, n.st.Tiles.Update(ctx, row))
+		ref := ""
+		if set {
+			nw, ok := mflow.PGUpdate(mflow.Engines["postgres"].Definition().Image)
+			if !ok {
+				t.Skip("no newer minor known")
+			}
+			ref = nw
+		}
+		must(t, n.st.Tiles.SetImageRef(ctx, n.devT.ID, ref))
+		r, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w1")
+		must(t, err)
+		n.orch.vipAsync.Wait()
+		tl, _ := n.orch.tiles.Get(ctx, n.devT.ID)
+		host, err := n.orch.memberHost(ctx, r, r.NodeID)
+		must(t, err)
+		sb, err := n.orch.engines.StandbySpec(ctx, tl, r, host)
+		must(t, err)
+		n.ctlFake.Specs = nil
+		_ = n.orch.deploy.Redeploy(docker.WithNode(ctx, n.ctl.ID), tl.ID, io.Discard, nil) // the fake container fails the health gate; its spec is made by then
+		if len(n.ctlFake.Specs) == 0 {
+			t.Fatalf("set=%v: the redeploy made no container", set)
+		}
+		got := n.ctlFake.Specs[len(n.ctlFake.Specs)-1].Labels[mflow.LabelImage]
+		if got == "" || got != sb.Image {
+			t.Errorf("set=%v: primary stamp %q, standby image %q", set, got, sb.Image)
+		}
 	}
 }

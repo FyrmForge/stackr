@@ -38,9 +38,10 @@ const (
 	// LabelConf is the hash of the settings file a standby's container was
 	// made with; a start with another one makes the container again.
 	LabelConf = "stackr.conf"
-	// LabelImage is the image reference a standby container was made from;
-	// containers made before it have none, their image is not known.
-	LabelImage = "stackr.image"
+	// LabelImage is the image reference a container was made from;
+	// containers made before it have none, their image is not known. Not
+	// "stackr.image": that key marks images, which containers inherit.
+	LabelImage = "stackr.image-ref"
 	// LabelMember marks a standby's containers (service.LabelMember).
 	LabelMember = "stackr.member"
 	// ReadSuffix is added to the instance's alias for its read alias.

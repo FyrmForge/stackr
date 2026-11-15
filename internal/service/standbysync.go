@@ -131,7 +131,12 @@ func staleImage(c docker.Container, spec docker.ContainerSpec) bool {
 // a standby only follows an image change the primary has made (an update that
 // failed on the primary leaves the stored image ahead of it). The primary's
 // container runs an image ID or the registry copy; the reference it was made
-// for is its label, and one made before the label existed does not match.
+// for is its label. A primary deployed before the label existed runs an ID
+// and does not match, so nothing follows until it is redeployed; one made by a
+// failover before the label existed was created straight from the tag by
+// PromotedSpec, so its image already equals the reference, and standbys left
+// behind by earlier minor updates are made again (one per pass, every guard
+// applying) right after stackr is upgraded.
 func (o *Orchestrator) primaryOnImage(ctx context.Context, t store.Tile, image string) bool {
 	node, err := o.primaryNode(ctx, t)
 	if err != nil {
@@ -153,8 +158,23 @@ func (o *Orchestrator) othersStreaming(ctx context.Context, m InstanceMember) bo
 	}
 	return !slices.ContainsFunc(ms, func(x InstanceMember) bool {
 		return x.ID != m.ID && x.Role == opmember.Replica && x.State != opmember.Removing &&
-			x.Phase != opmember.Rebuild && o.probeRun(x.ID) <= 0
+			x.Phase != opmember.Rebuild && (o.nodeUp(ctx, x.NodeID) != nil || o.probeRun(x.ID) <= 0) // a down node's last probe is stale
 	})
+}
+
+// standbyEligible says whether member row cur may still be made again: a
+// replica not being removed or rebuilt, not fenced, and (when its container
+// runs) not stopped since.
+func standbyEligible(cur InstanceMember, running bool) bool {
+	return cur.Role == opmember.Replica && cur.State != opmember.Removing && cur.Phase != opmember.Rebuild &&
+		opmember.MayStart(cur) == nil && (!running || cur.State != opmember.Stopped)
+}
+
+// liveJob says whether tile t has a job under way: an extensions or image job
+// may still roll the image back.
+func (o *Orchestrator) liveJob(ctx context.Context, t store.Tile) (bool, error) {
+	j, ok, err := o.jobRows.Last(ctx, t.ID)
+	return err == nil && ok && job.Live(j.State), err
 }
 
 // refreshStandby makes standby m's container again from its current spec
@@ -162,7 +182,8 @@ func (o *Orchestrator) othersStreaming(ctx context.Context, m InstanceMember) bo
 // redone) when it was made with other settings, and the primary's running
 // limits allow it, or from another image, once the primary runs on that one
 // (and the tile has no job, the other standbys stream and no failover or
-// topology change is under way). running: the container is up; it is then
+// topology change is under way). A container made with other settings is made
+// again at once, whatever its image. running: the container is up; it is then
 // only made again when it has a restart pending (a reload-only change is
 // already live) or its image is old. recreated says it did; byImage that it
 // did for the image.
@@ -172,9 +193,14 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 		return false, false, err
 	}
 	spec, err := o.engines.StandbySpec(ctx, t, m, host)
-	img := err == nil && staleImage(c, spec)
-	if err != nil || !staleConf(c, spec) && !img {
+	if err != nil {
 		return false, false, err
+	}
+	// a settings-stale container is made again at once, whatever its image
+	// (it is made from the current spec); only an image-only change waits
+	img := staleImage(c, spec) && !staleConf(c, spec)
+	if !img && !staleConf(c, spec) {
+		return false, false, nil
 	}
 	if img && !o.primaryOnImage(ctx, t, spec.Image) {
 		return false, false, nil
@@ -195,8 +221,7 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 		}
 	}
 	if img {
-		// an extensions or image job may still roll the image back
-		if j, ok, err := o.jobRows.Last(ctx, t.ID); err != nil || (ok && job.Live(j.State)) {
+		if live, err := o.liveJob(ctx, t); err != nil || live {
 			return false, false, err
 		}
 		if !o.othersStreaming(ctx, m) {
@@ -211,16 +236,20 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 			return false, false, nil
 		}
 		defer mu.Unlock()
-		if cur, err := o.members.Get(ctx, m.ID); err != nil || cur.State == opmember.Removing || o.failoverActive(ctx, m.InstanceID) {
+		// the pull took a while: the row and the tile may have moved on
+		cur, err := o.members.Get(ctx, m.ID)
+		if err != nil || !standbyEligible(cur, running) || o.failoverActive(ctx, m.InstanceID) {
 			return false, false, nil
 		}
+		if live, err := o.liveJob(ctx, t); err != nil || live {
+			return false, false, err
+		}
+		m = cur
 	}
 	if err := o.docker.StopRemove(nctx, c.ID); err != nil {
 		return false, false, err
 	}
-	if img {
-		o.probeRuns.Delete(m.ID) // not streaming until a probe says so
-	}
+	o.probeRuns.Delete(m.ID) // not streaming until a probe says so
 	return true, img, o.createStandby(ctx, t, m)
 }
 
