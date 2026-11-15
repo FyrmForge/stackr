@@ -59,7 +59,7 @@ func TestPanelResolves(t *testing.T) {
 		want bool
 	}{
 		{[]string{"198.51.100.1"}, true},
-		{[]string{"198.51.100.1", "2001:db8::1"}, true}, // a family the target has none of is not judged
+		{[]string{"198.51.100.1", "2001:db8::1"}, false}, // a stale AAAA elsewhere sends IPv6 clients astray
 		{[]string{"198.51.100.9"}, false},
 		{[]string{"198.51.100.1", "198.51.100.9"}, false},
 		{nil, false},

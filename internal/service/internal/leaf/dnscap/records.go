@@ -388,6 +388,18 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 		for _, w := range add {
 			f := foreign(live, others, zone, w.Name)
 			if len(f) > 0 && !replace[fqdn(zone, w.Name)] {
+				if w.kind() == store.RecordName {
+					// the panel's own name: a record just like the want is
+					// taken over (a row, no write); a different one is the
+					// admin's, left quietly (alert.panel.resolve speaks)
+					if slices.ContainsFunc(f, func(x libdns.Record) bool {
+						y := x.RR()
+						return y.Type == w.Type && sameData(y.Type, y.Data, w.Value)
+					}) {
+						made = append(made, w)
+					}
+					continue
+				}
 				taken = append(taken, fqdn(zone, w.Name))
 				continue
 			}
@@ -407,8 +419,28 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 			made, taken, cw = nil, nil, customWork{}
 			return err
 		}
+		// A moved record is one Set of its name and type: a Delete then a
+		// failed Append would leave the name with no record at all.
+		var set []libdns.Record
+		for _, w := range made {
+			if !slices.ContainsFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() && isLive(r) }) {
+				continue
+			}
+			sameSet := func(r libdns.Record) bool {
+				x := r.RR()
+				return strings.EqualFold(x.Name, w.Name) && x.Type == w.Type
+			}
+			del = slices.DeleteFunc(del, sameSet)
+			put = slices.DeleteFunc(put, sameSet)
+			set = append(set, rr(w.Name, w.Type, w.Value))
+		}
 		if len(del) > 0 {
 			if _, err := pv.Delete(ctx, zone, del); err != nil {
+				return err
+			}
+		}
+		if len(set) > 0 {
+			if _, err := pv.Set(ctx, zone, set); err != nil {
 				return err
 			}
 		}

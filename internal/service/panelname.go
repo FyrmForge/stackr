@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"slices"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // panelname.go is the panel's own DNS name. The panel_address setting says
@@ -56,8 +59,60 @@ func WithPanelSeams(outside func(ctx context.Context, nodeID string) (ipv4, vant
 	}
 }
 
-// outsideOf is the outsideView of node id.
+// panelFacts is what the outside world said, asked once per sync before
+// the records lock (withPanelFacts) and reused by the wants and the check:
+// the mesh's view (probes can take seconds), and the panel name's public
+// addresses (looked up only when auto may write the seen address). One
+// goroutine uses it at a time.
+type panelFacts struct {
+	out            outsideView
+	haveOut        bool
+	ips            []string
+	ipsOK, haveIPs bool
+}
+
+type panelFactsKey struct{}
+
+// factsOf is the sync's panelFacts in ctx, or a fresh one (asked lazily).
+func factsOf(ctx context.Context) *panelFacts {
+	if f, ok := ctx.Value(panelFactsKey{}).(*panelFacts); ok {
+		return f
+	}
+	return &panelFacts{}
+}
+
+// withPanelFacts puts a panelFacts in ctx unless one is there, and asks
+// what the wants will need: the mesh's view and the name's lookup, but only
+// when auto could write the seen address. all asks the mesh regardless (the
+// check needs the vantage).
+func (o *Orchestrator) withPanelFacts(ctx context.Context, all bool) context.Context {
+	if _, ok := ctx.Value(panelFactsKey{}).(*panelFacts); ok {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, panelFactsKey{}, &panelFacts{})
+	p := o.panelDomain(ctx)
+	def, err := o.DefaultIngress(ctx)
+	if p == "" || err != nil || def == "" {
+		return ctx
+	}
+	if all {
+		o.outsideOf(ctx, def)
+	}
+	_, _ = o.panelTarget(ctx, def)
+	return ctx
+}
+
+// outsideOf is the outsideView of node id, asked once per panelFacts.
 func (o *Orchestrator) outsideOf(ctx context.Context, id string) outsideView {
+	f := factsOf(ctx)
+	if f.haveOut {
+		return f.out
+	}
+	f.out, f.haveOut = o.askOutside(ctx, id), true
+	return f.out
+}
+
+func (o *Orchestrator) askOutside(ctx context.Context, id string) outsideView {
 	if f := o.panelSeam.outside; f != nil {
 		return f(ctx, id)
 	}
@@ -91,16 +146,29 @@ func outsideNode(m ClusterMap, id string) string {
 type panelTarget struct {
 	Mode   string
 	V4, V6 netip.Addr
-	// Seen: the address came from outside the box (the router's), not from
-	// the node's own interfaces.
+	// Seen: V4 came from outside the box (the router's), not from the
+	// node's own interfaces.
 	Seen bool
+	// Saw is the outside address stackr sees but does not write: the name
+	// already resolves to HeldAt (or could not be looked up: HeldAt nil).
+	Saw    netip.Addr
+	HeldAt []string
 }
 
 func (t panelTarget) none() bool { return !t.V4.IsValid() && !t.V6.IsValid() }
 
+// publicUnicast is an address a node on the internet can own: no private,
+// loopback, link-local or carrier-grade NAT (100.64.0.0/10) address.
+func publicUnicast(a netip.Addr) bool {
+	return a.IsGlobalUnicast() && !a.IsPrivate() && !a.IsLoopback() && !a.IsLinkLocalUnicast() && !cgnat.Contains(a)
+}
+
 // panelTarget is the target for the default ingress node def, read fresh:
 // the records sync and the daily check both ask, so a changed home IP
-// moves the record.
+// moves the record. In auto, the node's own address wins; without an own
+// IPv4 the address the mesh sees from outside fills it in, but only when
+// the name resolves nowhere, to that address, or to what stackr wrote: a
+// name already pointing elsewhere (a wildcard, a route) is held.
 func (o *Orchestrator) panelTarget(ctx context.Context, def string) (panelTarget, error) {
 	raw, _ := o.settings.Get(ctx, "panel_address")
 	mode, ip, _, _ := settings.ParsePanelAddress(raw)
@@ -120,12 +188,83 @@ func (o *Orchestrator) panelTarget(ctx context.Context, def string) (panelTarget
 	if t.V4, t.V6, _, err = o.nodeAddrs(ctx, def); err != nil {
 		return t, err
 	}
-	if t.none() {
-		if a, err := netip.ParseAddr(o.outsideOf(ctx, def).IPv4); err == nil {
-			t.V4, t.Seen = a, true
-		}
+	if t.V4.IsValid() {
+		return t, nil
+	}
+	a, err := netip.ParseAddr(o.outsideOf(ctx, def).IPv4)
+	if err != nil || !a.Is4() || !publicUnicast(a) {
+		return t, nil
+	}
+	ips, ok := o.panelIPs(ctx)
+	switch {
+	case !ok: // cannot tell what the name does: write nothing
+		t.Saw = a
+	case o.mayWriteSeen(ctx, ips, a):
+		t.V4, t.Seen = a, true
+	default:
+		t.Saw, t.HeldAt = a, ips
 	}
 	return t, nil
+}
+
+// mayWriteSeen: the panel name resolves nowhere, to the seen address, or
+// only to values of its own record stackr made (the home IP moved).
+func (o *Orchestrator) mayWriteSeen(ctx context.Context, ips []string, seen netip.Addr) bool {
+	own := o.panelRecordValues(ctx)
+	for _, s := range ips {
+		if s != seen.String() && !slices.Contains(own, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// panelRecordValues is the values of the panel name's records stackr made.
+func (o *Orchestrator) panelRecordValues(ctx context.Context) []string {
+	p := o.panelDomain(ctx)
+	rows, err := o.store.DNSRecords.List(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, r := range rows {
+		host := r.Zone
+		if r.Name != "@" {
+			host = r.Name + "." + r.Zone
+		}
+		if r.Kind == store.RecordName && strings.EqualFold(host, p) {
+			out = append(out, r.Value)
+		}
+	}
+	return out
+}
+
+// panelIPs is the panel name's addresses, asked once per panelFacts. ok
+// false: the lookup failed (timeout, SERVFAIL), so nothing is known; a name
+// with no address at all is nil, true.
+func (o *Orchestrator) panelIPs(ctx context.Context) (ips []string, ok bool) {
+	f := factsOf(ctx)
+	if !f.haveIPs {
+		f.ips, f.ipsOK = o.lookupOK(ctx, o.panelDomain(ctx))
+		f.haveIPs = true
+	}
+	return f.ips, f.ipsOK
+}
+
+// lookupOK is lookup with its own short time limit (never the sync's) and
+// the failures told apart: no such name or no address is an answer (nil,
+// true), anything else is not (nil, false).
+func (o *Orchestrator) lookupOK(ctx context.Context, host string) ([]string, bool) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	ips, err := o.lookup(ctx, host)
+	if err == nil {
+		return ips, true
+	}
+	if de := (*net.DNSError)(nil); errors.As(err, &de) && de.IsNotFound {
+		return nil, true
+	}
+	return nil, false
 }
 
 // PanelAddressInfo is the panel_address setting as the Domains screens
@@ -152,11 +291,14 @@ func (o *Orchestrator) PanelAddress(ctx context.Context) (PanelAddressInfo, erro
 	if p == "" || err != nil || def == "" {
 		return out, nil
 	}
-	if v4, v6, _, err := o.nodeAddrs(ctx, def); err == nil && !v4.IsValid() && !v6.IsValid() {
+	if v4, _, _, err := o.nodeAddrs(ctx, def); err == nil && !v4.IsValid() {
 		out.Behind = true
-		out.Seen = o.outsideOf(ctx, def).IPv4
+		if a, err := netip.ParseAddr(o.outsideOf(ctx, def).IPv4); err == nil && publicUnicast(a) {
+			out.Seen = a.String()
+		}
 	}
-	out.Wildcard = o.onlyWildcardCached(ctx, p)
+	// once stackr has a record for the name, a wildcard no longer hides it
+	out.Wildcard = len(o.panelRecordValues(ctx)) == 0 && o.onlyWildcardCached(ctx, p)
 	return out, nil
 }
 
@@ -209,7 +351,8 @@ func (o *Orchestrator) onlyWildcard(ctx context.Context, host string) bool {
 }
 
 // panelResolves is whether the resolved addresses are the target's: one at
-// least, and none of a family the target has that it does not list.
+// least, and none that is not one of its addresses (a stale AAAA elsewhere
+// sends IPv6 clients to the wrong server).
 func panelResolves(ips []string, t panelTarget) bool {
 	hit := false
 	for _, s := range ips {
@@ -217,14 +360,23 @@ func panelResolves(ips []string, t panelTarget) bool {
 		if err != nil {
 			continue
 		}
-		switch {
-		case a == t.V4 || a == t.V6:
+		if a.Unmap() == t.V4 || a == t.V6 {
 			hit = true
-		case a.Is4() && t.V4.IsValid(), a.Is6() && t.V6.IsValid():
+		} else {
 			return false
 		}
 	}
 	return hit
+}
+
+// outsiders keeps the addresses of ips a name can point at from outside:
+// private and loopback answers (/etc/hosts, split horizon) say nothing of
+// what the world sees, unless they are the target's own.
+func outsiders(ips []string, t panelTarget) []string {
+	return slices.DeleteFunc(slices.Clone(ips), func(s string) bool {
+		a, err := netip.ParseAddr(s)
+		return err != nil || (a != t.V4 && a != t.V6 && !publicUnicast(a.Unmap()))
+	})
 }
 
 // checkPanelName opens or clears the panel name's problems: no address to
@@ -244,25 +396,39 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 		}
 		return
 	}
+	ctx = o.withPanelFacts(ctx, true)
 	t, err := o.panelTarget(ctx, def)
 	if err != nil {
 		return
 	}
 	switch {
+	case t.Saw.IsValid() && len(t.HeldAt) > 0:
+		o.openProblem(ctx, panelAddrAlert, SevWarning, fmt.Sprintf("%s points at %s; stackr sees %s. Type the address to use, or say you handle that record yourself.", p, strings.Join(t.HeldAt, ", "), t.Saw))
 	case t.Mode == settings.PanelAuto && t.none():
 		o.openProblem(ctx, panelAddrAlert, SevWarning, "stackr cannot tell which address "+p+" should point at. Type an address, or say you handle that record yourself.")
 	case o.hasProblem(ctx, panelAddrAlert):
 		o.clearProblem(ctx, panelAddrAlert)
 		o.dnsKick.Kick() // an address is known now: write the record
 	}
-	resolved := true
-	if t.Mode == settings.PanelSelf || t.none() {
-		o.clearProblem(ctx, panelResolveAlert)
-	} else if ips, err := o.lookup(ctx, p); err != nil || !panelResolves(ips, t) {
-		o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
-		resolved = false
-	} else {
-		o.clearProblem(ctx, panelResolveAlert)
+	// A lookup that fails (timeout, SERVFAIL) keeps the alert as it is; an
+	// answer with no address (even in self mode: the original outage), or
+	// with the wrong ones, opens it. Private answers say nothing: clear.
+	resolved := !o.hasProblem(ctx, panelResolveAlert)
+	if ips, ok := o.lookupOK(ctx, p); ok {
+		switch pub := outsiders(ips, t); {
+		case len(ips) == 0:
+			o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
+			resolved = false
+		case len(pub) == 0 || t.Mode == settings.PanelSelf || t.none():
+			o.clearProblem(ctx, panelResolveAlert)
+			resolved = true
+		case !panelResolves(pub, t):
+			o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
+			resolved = false
+		default:
+			o.clearProblem(ctx, panelResolveAlert)
+			resolved = true
+		}
 	}
 	v := o.outsideOf(ctx, def)
 	if !resolved || v.Vantage == "" || o.cfg.TLSOff {

@@ -249,6 +249,7 @@ func (o *Orchestrator) nameWants(ctx context.Context, zones []store.DNSDomain) (
 // reconcileDNS brings the managed domains' records to the tile domains.
 // replace names the hosts whose foreign records may be taken over.
 func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool) error {
+	ctx = o.withPanelFacts(ctx, false) // asked here, not inside the records lock
 	if err := o.releaseMatchedHolds(ctx); err != nil {
 		return err
 	}
@@ -403,7 +404,7 @@ func (o *Orchestrator) SetNodePublicIP(ctx context.Context, by *Principal, ref, 
 	ip = strings.TrimSpace(ip)
 	if ip != "" {
 		a, err := netip.ParseAddr(ip)
-		if err != nil || !a.IsGlobalUnicast() || a.IsPrivate() || cgnat.Contains(a) {
+		if err != nil || !publicUnicast(a) {
 			return NodeOut{}, errs.Invalidf("public_ip", "give a public IPv4 or IPv6 address")
 		}
 		ip = a.Unmap().String()

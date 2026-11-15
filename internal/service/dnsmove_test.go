@@ -40,8 +40,16 @@ func (f *zoneFake) Append(_ context.Context, _ string, rs []libdns.Record) ([]li
 	return rs, nil
 }
 
-func (f *zoneFake) Set(context.Context, string, []libdns.Record) ([]libdns.Record, error) {
-	panic("stackr never sets a whole name: it would drop someone else's records")
+func (f *zoneFake) Set(_ context.Context, _ string, rs []libdns.Record) ([]libdns.Record, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rs = slices.DeleteFunc(f.rs, func(x libdns.RR) bool {
+		return slices.ContainsFunc(rs, func(r libdns.Record) bool { return r.RR().Name == x.Name && r.RR().Type == x.Type })
+	})
+	for _, r := range rs {
+		f.rs = append(f.rs, r.RR())
+	}
+	return rs, nil
 }
 
 func (f *zoneFake) Delete(_ context.Context, _ string, rs []libdns.Record) ([]libdns.Record, error) {

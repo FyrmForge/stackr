@@ -70,6 +70,7 @@ const dnsRetryEvery = 5 * time.Minute
 func (o *Orchestrator) syncDNS() {
 	ctx, cancel := context.WithTimeout(context.Background(), domain.Timeout)
 	defer cancel()
+	ctx = o.withPanelFacts(ctx, true) // the outside is asked once, before the records lock
 	err := o.reconcileDNS(ctx, nil)
 	o.checkPanelName(ctx) // the panel's name, after every sync and the daily one
 	o.dnsSync.mu.Lock()

@@ -85,7 +85,7 @@ func natPublic(m *ClusterMap) {
 			case netOf[l.B] == c.ID && netOf[l.A] != c.ID:
 				seen = l.Ends[0].SeenFrom
 			}
-			if ap, err := netip.ParseAddrPort(seen); err == nil && !ap.Addr().IsPrivate() && !ap.Addr().IsLoopback() {
+			if ap, err := netip.ParseAddrPort(seen); err == nil && publicUnicast(ap.Addr().Unmap()) {
 				c.Public = ap.Addr().Unmap().String()
 				break
 			}

@@ -157,6 +157,10 @@ func (a fakeAccount) Append(_ context.Context, zone string, rs []libdns.Record) 
 }
 
 func (a fakeAccount) Set(_ context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
+	if err := a.d.failing(); err != nil {
+		return nil, err
+	}
+	a.d.record(zone, rs, &a.d.Appended)
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()
 	a.d.Calls++
