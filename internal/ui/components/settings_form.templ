@@ -35,7 +35,7 @@ type SettingRowView struct {
 	Secret    bool   // never echoed: a password box, blank keeps it
 	ReadOnly  bool   // the installer set it: shown as text, never posted
 	Error     string
-	Found     bool   // a search hit opened this row: marked, its control focused
+	Found     bool   // a search hit opened this row: marked, its control (not a secret's) focused
 	Changed   bool  // this rung sets it: the dot, and data-changed for settings-find
 	From      string // where an inherited value comes from ("org"): a tag after the label
 	// NoInherit: a flat knob, no rung above it. No Inherit choice and no
@@ -263,7 +263,7 @@ templ settingRow(form string, r SettingRowView) {
 // readOnlyRow is a knob the installer set: its value as text, no input, so
 // a save never posts it.
 templ readOnlyRow(r SettingRowView) {
-	<div data-field data-changed?={ r.Changed } if r.Found { class="is-found" }>
+	<div data-field data-changed?={ r.Changed } if r.Found { class="is-found" tabindex="-1" autofocus }>
 		<span class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)
@@ -301,7 +301,7 @@ templ editRow(form string, r SettingRowView) {
 					}
 				</select>
 			case r.Secret:
-				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 			default:
 				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 		}

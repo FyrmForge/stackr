@@ -36,12 +36,14 @@ templ findBox() {
 			placeholder="Find a setting"
 			aria-label="Find a setting"
 			autocomplete="off"
+			maxlength="100"
 			hx-get={ Base + "/find" }
 			hx-trigger="input changed delay:250ms, search"
 			hx-target="#admin-find-results"
 			hx-swap="innerHTML"
 		/>
-		<div id="admin-find-results" aria-live="polite"></div>
+		<p id="admin-find-status" class="sr-only" role="status"></p>
+		<div id="admin-find-results"></div>
 	</div>
 }
 
@@ -55,8 +57,18 @@ templ parts(ps []FindPart) {
 	}
 }
 
-// FindResults fills #admin-find-results; nothing for an empty query.
+// FindResults fills #admin-find-results, and swaps the count into the fixed
+// status line out of band (the only live region); nothing for an empty query.
 templ FindResults(v FindView) {
+	<p id="admin-find-status" class="sr-only" role="status" hx-swap-oob="true">
+		switch {
+			case !v.Asked:
+			case v.Total == 0:
+				No matches.
+			default:
+				{ plural(v.Total, "match") }
+		}
+	</p>
 	switch {
 	case !v.Asked:
 	case len(v.Hits) == 0:
@@ -84,6 +96,5 @@ templ FindResults(v FindView) {
 		if v.Total > len(v.Hits) {
 			<p class="settings-help">{ strconv.Itoa(v.Total - len(v.Hits)) } more, keep typing.</p>
 		}
-		<p class="sr-only">{ plural(v.Total, "match") }</p>
 	}
 }

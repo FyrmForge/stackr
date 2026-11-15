@@ -664,13 +664,16 @@ flash-toast[leaving] { opacity: 0; }
   .settings-find-hit:focus-visible {
     outline-offset: -2px;
   }
-  .settings-find-hit mark,
-  .is-found mark {
+  .settings-find-box {
+    @apply mb-3;
+  }
+  .settings-find-hit mark {
     @apply rounded-sm bg-rw-accent/20 px-0.5 text-inherit;
   }
   /* the row a search hit opened */
   [data-field].is-found {
-    @apply rounded-lg bg-rw-accent/10 p-2 -m-2;
+    @apply rounded-lg bg-rw-accent/10;
+    box-shadow: 0 0 0 0.5rem rgb(var(--rw-accent) / 0.1);
   }
   .settings-body {
     @apply min-w-0 flex-1 max-w-3xl;

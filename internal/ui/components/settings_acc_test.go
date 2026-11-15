@@ -127,3 +127,16 @@ func TestAccordionRefused(t *testing.T) {
 		t.Errorf("a reason no field takes goes over the row, once\n%s", html)
 	}
 }
+
+// A found read-only row has no control, so the row itself takes focus.
+func TestFoundReadOnlyRow(t *testing.T) {
+	row := func(found bool) string {
+		return render(t, readOnlyRow(SettingRowView{Key: "k", Label: "K", Value: "v", ReadOnly: true, Found: found}))
+	}
+	if h := row(true); !strings.Contains(h, `tabindex="-1"`) || !strings.Contains(h, "autofocus") || !strings.Contains(h, "is-found") {
+		t.Errorf("found row = %s", h)
+	}
+	if h := row(false); strings.Contains(h, "tabindex") || strings.Contains(h, "autofocus") {
+		t.Errorf("plain row = %s", h)
+	}
+}

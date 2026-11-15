@@ -636,6 +636,16 @@ var ownEditor = []string{
 	"observe_access_query", "observe_access_ip", "observe_access_headers",
 }
 
+// ownSection is the section whose own editor shows each ownEditor knob; the
+// Find box links there. TestAdminKnobsHaveOneHome keeps it whole.
+var ownSection = map[string]string{
+	"proxy_custom":         "domains",
+	"panel_backup_enabled": "backups", "panel_backup_schedule": "backups", "panel_backup_keep": "backups", "panel_backup_dest": "backups",
+	"observe_enabled": "metrics", "observe_metrics_retention": "metrics", "observe_min_free": "metrics", "observe_max_memory": "metrics",
+	"observe_logs_enabled": "metrics", "observe_logs_retention": "metrics", "observe_logs_max_size": "metrics",
+	"observe_access_query": "metrics", "observe_access_ip": "metrics", "observe_access_headers": "metrics",
+}
+
 // settings is one section's knobs as a settings form; refused marks the
 // row it names, or the form.
 func (h *handler) settings(c echo.Context, form string, refused error) (comp.SettingsFormView, error) {
@@ -741,6 +751,12 @@ func (h *handler) SaveSettings(c echo.Context) error {
 		v.Note = "Saved. Redeploying " + strings.Join(names, ", ") + "."
 	default:
 		v.Note = "Saved."
+	}
+	// a save from a ?find= page leaves the clean section URL behind
+	if actErr == nil {
+		if u, err := url.Parse(c.Request().Header.Get("HX-Current-URL")); err == nil && u.Query().Has("find") {
+			c.Response().Header().Set("HX-Replace-Url", ui.Base+"/"+form)
+		}
 	}
 	return respond.HTML(c, status, comp.SettingsForm(v))
 }

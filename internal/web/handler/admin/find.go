@@ -16,17 +16,27 @@ import (
 // findCap is how many hits the box lists.
 const findCap = 8
 
+// findSections is how many of those slots a matching section is promised.
+const findSections = 2
+
+// findMaxQuery is the longest query the box matches, in runes.
+const findMaxQuery = 100
+
 // findEntry is one thing the box can find: a catalogue setting (Key set) or
 // a section (Key ""). Section is the section's key, SectionLabel its name.
 type findEntry struct {
 	Key, Label, Help      string
 	Section, SectionLabel string
+	NoFind                bool // the section's form has no highlight: link without ?find=
 }
 
 // GET /-/admin/find?q=: the hits for the Find a setting box, as the
 // fragment that fills its results.
 func (h *handler) Find(c echo.Context) error {
 	q := strings.TrimSpace(c.QueryParam("q"))
+	if r := []rune(q); len(r) > findMaxQuery {
+		q = string(r[:findMaxQuery])
+	}
 	var v ui.FindView
 	if q != "" {
 		es, err := h.findEntries(c)
@@ -58,6 +68,14 @@ func (h *handler) findEntries(c echo.Context) ([]findEntry, error) {
 					out = append(out, e)
 				}
 			}
+		}
+	}
+	for _, k := range ownEditor {
+		if e, ok := by[k]; ok {
+			e.Section, e.NoFind = ownSection[k], true
+			it, _ := ui.Find(e.Section)
+			e.SectionLabel = it.Label
+			out = append(out, e)
 		}
 	}
 	for _, g := range ui.Groups {
@@ -98,20 +116,24 @@ func matchFind(q string, es []findEntry) ui.FindView {
 		if tier < 0 {
 			continue
 		}
-		if e.Key != "" {
+		if e.Key != "" && !e.NoFind {
 			hit.Href += "?find=" + url.QueryEscape(e.Key)
 		}
 		tiers[tier] = append(tiers[tier], hit)
 	}
-	var all []ui.FindHit
-	for _, t := range tiers {
-		all = append(all, t...)
+	var settings []ui.FindHit
+	for _, t := range tiers[:3] {
+		settings = append(settings, t...)
 	}
-	v := ui.FindView{Total: len(all), Hits: all, Asked: true}
-	if len(all) > findCap {
-		v.Hits = all[:findCap]
+	secs := tiers[3]
+	// up to findSections slots are held for sections, so a matching section
+	// is never pushed out by settings
+	room := findCap - min(len(secs), findSections)
+	if len(settings) < room {
+		room = len(settings)
 	}
-	return v
+	hits := append(settings[:room:room], secs[:min(len(secs), findCap-room)]...)
+	return ui.FindView{Total: len(settings) + len(secs), Hits: hits, Asked: true}
 }
 
 // marked is s in pieces, the lower-case q's matches flagged. A string whose

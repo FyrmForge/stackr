@@ -2,9 +2,10 @@ package admin
 
 // Seams for the external tests.
 var (
-	KnobForms = knobForms
-	OwnEditor = ownEditor
-	Badges    = badges
+	KnobForms  = knobForms
+	OwnEditor  = ownEditor
+	OwnSection = ownSection
+	Badges     = badges
 	// ActionWord is the security log's word for an action key.
 	ActionWord = func(action string) string {
 		label := map[string]string{}

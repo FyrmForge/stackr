@@ -133,6 +133,19 @@ func TestAdminKnobsHaveOneHome(t *testing.T) {
 	}
 }
 
+// Every ownEditor knob names the section that shows it, so the Find box
+// can link there.
+func TestAdminOwnEditorHasSection(t *testing.T) {
+	for _, k := range admin.OwnEditor {
+		if _, ok := ui.Find(admin.OwnSection[k]); !ok {
+			t.Errorf("%s has no section (%q)", k, admin.OwnSection[k])
+		}
+	}
+	if len(admin.OwnSection) != len(admin.OwnEditor) {
+		t.Errorf("OwnSection has %d keys, OwnEditor %d", len(admin.OwnSection), len(admin.OwnEditor))
+	}
+}
+
 // A section's badge counts the problems fixed there; Overview counts all.
 func TestAdminBadges(t *testing.T) {
 	b := admin.Badges([]service.Problem{
