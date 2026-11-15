@@ -403,22 +403,29 @@ func outsiders(ips []string, t panelTarget) []string {
 // name not reachable from outside. It runs after every records sync and
 // daily (dnssync.go), and from the tick while one is open.
 func (o *Orchestrator) checkPanelName(ctx context.Context) {
-	o.panelMu.Lock() // no record write lands while this judges
-	defer o.panelMu.Unlock()
 	due := o.panelDueAt.Load()
 	// a panel record write that lands mid-check makes what it sees stale:
-	// it judges nothing, the write's own check does
+	// it judges nothing, the write's own check does. The slow part (lookups,
+	// probes) runs unlocked; the verdict is applied under panelMu, which a
+	// record write (reconcileDNS) holds while it writes and bumps panelGen.
 	gen := o.panelGen.Load()
+	var verdict []func()
 	open := func(ctx context.Context, k, sev, msg string) {
-		if o.panelGen.Load() == gen {
-			o.openProblem(ctx, k, sev, msg)
-		}
+		verdict = append(verdict, func() { o.openProblem(ctx, k, sev, msg) })
 	}
 	clear := func(ctx context.Context, k string) {
-		if o.panelGen.Load() == gen {
-			o.clearProblem(ctx, k)
-		}
+		verdict = append(verdict, func() { o.clearProblem(ctx, k) })
 	}
+	defer func() {
+		o.panelMu.Lock()
+		defer o.panelMu.Unlock()
+		if o.panelGen.Load() != gen {
+			return
+		}
+		for _, f := range verdict {
+			f()
+		}
+	}()
 	p := o.panelDomain(ctx)
 	zones, err := o.dns.All(ctx)
 	if err != nil {
