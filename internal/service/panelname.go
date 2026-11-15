@@ -73,8 +73,6 @@ type panelFacts struct {
 
 type panelFactsKey struct{}
 
-// panelWroteKey in ctx: this sync changed the panel name's records.
-type panelWroteKey struct{}
 
 // factsOf is the sync's panelFacts in ctx, or a fresh one (asked lazily).
 func factsOf(ctx context.Context) *panelFacts {
@@ -405,6 +403,8 @@ func outsiders(ips []string, t panelTarget) []string {
 // name not reachable from outside. It runs after every records sync and
 // daily (dnssync.go), and from the tick while one is open.
 func (o *Orchestrator) checkPanelName(ctx context.Context) {
+	o.panelMu.Lock() // no record write lands while this judges
+	defer o.panelMu.Unlock()
 	due := o.panelDueAt.Load()
 	// a panel record write that lands mid-check makes what it sees stale:
 	// it judges nothing, the write's own check does
@@ -454,8 +454,7 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	// right after a write the resolver may still answer the old value: the
 	// next tick's recheck judges it (panelDue)
 	// (any check inside that TTL is as fresh as the writing one)
-	fresh, _ := ctx.Value(panelWroteKey{}).(bool)
-	fresh = fresh || (due != 0 && time.Now().UnixNano() < due)
+	fresh := due != 0 && time.Now().UnixNano() < due
 	if ips, ok := o.lookupOK(ctx, p); ok && !fresh {
 		o.panelDueAt.CompareAndSwap(due, 0) // judged on a real answer; a failed lookup stays due
 		switch pub := outsiders(ips, t); {

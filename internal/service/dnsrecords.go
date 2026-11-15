@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
@@ -259,10 +260,18 @@ func (o *Orchestrator) nameWants(ctx context.Context, zones []store.DNSDomain) (
 // replace names the hosts whose foreign records may be taken over.
 func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool) error {
 	ctx = o.withPanelFacts(ctx, false) // asked here, not inside the records lock
+	o.panelMu.Lock()                   // a panel check never sees a write half done
+	defer o.panelMu.Unlock()
+	before := o.panelRecordValues(ctx)
 	if err := o.releaseMatchedHolds(ctx); err != nil {
 		return err
 	}
-	return o.dns.Reconcile(ctx, o.dnsWants, replace, o.dnsAccounts)
+	err := o.dns.Reconcile(ctx, o.dnsWants, replace, o.dnsAccounts)
+	if after := o.panelRecordValues(ctx); !slices.Equal(slices.Sorted(slices.Values(before)), slices.Sorted(slices.Values(after))) {
+		o.panelGen.Add(1)
+		o.panelDueAt.Store(time.Now().Add(dnscap.TTL * time.Second).UnixNano()) // a resolver may keep the old answer for a TTL
+	}
+	return err
 }
 
 // managedZone is the managed domain host sits in, for a tile of orgID. ok
