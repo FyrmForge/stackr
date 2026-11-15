@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 
@@ -17,8 +19,32 @@ import (
 	"golang.org/x/term"
 )
 
-// version is set at build time via ldflags.
+// version is set at build time via ldflags. A go install build is not
+// stamped; shownVersion falls back to the module version then.
 var version = "dev"
+
+// pseudoVersion matches the vX.Y.Z-0.<time>-<sha> form Go gives untagged commits.
+var pseudoVersion = regexp.MustCompile(`[-.]\d{14}-[0-9a-f]{12}$`)
+
+// shownVersion picks the version to print: a stamped one wins; an unstamped
+// build uses the module version Go recorded when it is a real release
+// (go install ...@v0.8.24 gives "v0.8.24"). "(devel)", empty, pseudo-versions
+// and +dirty builds, which is what a local checkout build records, stay "dev".
+func shownVersion(stamped, module string) string {
+	if stamped != "dev" || module == "" || module == "(devel)" ||
+		strings.Contains(module, "+") || pseudoVersion.MatchString(module) {
+		return stamped
+	}
+	return module
+}
+
+func buildVersion() string {
+	mod := ""
+	if info, ok := debug.ReadBuildInfo(); ok {
+		mod = info.Main.Version
+	}
+	return shownVersion(version, mod)
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -75,7 +101,7 @@ Environment (each beats the config file; nothing here is written to disk):
   STACKR_ORG     org slug
   STACKR_PROFILE login to use (see stackr profile ls); --profile beats it
   STACKR_CONFIG  config file path`,
-		Version:       version,
+		Version:       buildVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.ArbitraryArgs,

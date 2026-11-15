@@ -68,6 +68,17 @@ hamr dev
 
 The server starts at [http://localhost:3000](http://localhost:3000) (proxied from `:8080`). If those ports are busy on your machine, hamr walks +1 (3001/8081 etc.) and prints the actual URL in its startup banner.
 
+## CLI
+
+Needs Go. Install the latest, or pin a release:
+
+```bash
+go install github.com/FyrmForge/stackr/cmd/stackr@latest
+go install github.com/FyrmForge/stackr/cmd/stackr@vX.Y.Z
+```
+
+From a checkout, `make installcli` does the same.
+
 ## Development
 
 ```bash

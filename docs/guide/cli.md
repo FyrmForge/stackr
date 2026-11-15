@@ -2,6 +2,8 @@
 
 Generated from the command definitions: `go test ./cmd/stackr -run TestCLIReference -update`. `stackr <command> --help` prints the same text.
 
+Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stackr@latest`, or pin a release with `@vX.Y.Z`. From a checkout: `make installcli`.
+
 ```
 Drive a stackr server from the terminal.
 
