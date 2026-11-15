@@ -680,6 +680,25 @@ and `serverconfig_apply.go`.
 - Add `// GET /path` comments above handler methods
 - Keep handlers thin — business logic in service layer (see "Layering rules")
 
+## Design docs on fraedi
+
+RFCs, plans, research notes and UI boards for stackr are published to fraedi,
+in the FyrmForge org, folder `Projects/stackr`. Read
+[stackr · start here](https://fraedi.ai/artifacts/2c27b113-33a4-47b2-99e7-3d8050b97313)
+first: it says which subfolder takes what.
+
+- RFCs, build plans and audits go in `rfc`, research in `research`, UI boards
+  in `design`, write-ups of finished parts in `architecture`.
+- Every artifact you publish gets a card on the
+  [timeline board](https://fraedi.ai/artifacts/fed49ad1-71d4-45db-92b4-e4aedc9646d1)
+  in the same session, under the day of its first revision, in its
+  workstream's frame. The board's agent notes say how to add one. Never
+  regenerate the board: it holds hand-placed items.
+- An RFC or plan says at the top whether it is agreed and whether it is built.
+  When that changes, update the page and the note at the end of its frame on
+  the board.
+- A new subfolder or workstream is added to the start-here page too.
+
 ## hamr MCP
 
 `hamr dev` exposes these tools over MCP. Prefer them over doing the same

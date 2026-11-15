@@ -313,7 +313,7 @@ Retest: v0.8.15-dev.3 PARTIAL (found R1, R2); v0.8.16-dev.1 PASS (rotate all: no
 
 Open:
 
-- 8: the panel Update path (and its "Rolled back" job) cannot run on dev builds, so the rig cannot test it.
+- 8: the panel Update tab is proven release to release with 4 workers rolled (v0.8.16 to v0.8.17 to v0.8.18 to v0.8.19, 2026-11-12/13, about 110s each); its UI lags were fixed in 70f65a31. Still unproven: the "Rolled back" path through the Update tab.
 - 8: a failed version's tag stays in the cluster registry after an installer-driven trial.
 - 9: no panel action to renew one node certificate; worker renew-now cannot force one (by design: a stolen cert must not mint fresh ones).
 - 9: key rotation of a node reached through another (h3 via h4) takes it offline about 60s (was minutes before df1c4542); /api/v1/cluster 500 seen once during rotation, not rechecked.
