@@ -140,3 +140,23 @@ func TestFoundReadOnlyRow(t *testing.T) {
 		t.Errorf("plain row = %s", h)
 	}
 }
+
+// settings-find matches a field by data-find-key: a SettingsForm row carries
+// its Key, a Field only the Key it is given.
+func TestFindKey(t *testing.T) {
+	for name, h := range map[string]string{
+		"edit row":      render(t, editRow("f", SettingRowView{Key: "mem_limit_mb", Label: "Memory limit"})),
+		"read-only row": render(t, readOnlyRow(SettingRowView{Key: "mem_limit_mb", Label: "Memory limit", ReadOnly: true})),
+		"field":         render(t, Field(FieldView{Name: "mem", Key: "mem_limit_mb", Label: "Memory limit"})),
+	} {
+		if !strings.Contains(h, `data-find-key="mem_limit_mb"`) {
+			t.Errorf("%s: no data-find-key in\n%s", name, h)
+		}
+		if strings.Contains(h, `aria-label="mem_limit_mb"`) {
+			t.Errorf("%s: the key is in an aria-label", name)
+		}
+	}
+	if h := render(t, Field(FieldView{Name: "name", Label: "Name"})); strings.Contains(h, "data-find-key") {
+		t.Errorf("a field with no key carries one:\n%s", h)
+	}
+}

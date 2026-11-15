@@ -1593,15 +1593,15 @@ func bucketRow(v View) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "version_days", Label: "Keep old versions (days)", Type: "number", Min: "0", Value: strconv.Itoa(v.VersionDays), Help: "0 turns versioning off."}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "version_days", Key: "version_days", Label: "Keep old versions (days)", Type: "number", Min: "0", Value: strconv.Itoa(v.VersionDays), Help: "0 turns versioning off."}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "quota_gb", Label: "Size cap (GB)", Type: "number", Min: "0", Value: strconv.Itoa(v.QuotaGB), Help: "0 means no cap."}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "quota_gb", Key: "quota_gb", Label: "Size cap (GB)", Type: "number", Min: "0", Value: strconv.Itoa(v.QuotaGB), Help: "0 means no cap."}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "cors", Label: "CORS origins", Value: v.CORS, Placeholder: "https://app.example.com", Help: "Separate with commas."}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = c.Field(c.FieldView{Name: "cors", Key: "cors", Label: "CORS origins", Value: v.CORS, Placeholder: "https://app.example.com", Help: "Separate with commas."}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

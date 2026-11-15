@@ -470,9 +470,9 @@ templ bucketRow(v View) {
 	} else {
 		<form novalidate hx-post={ v.Base + "/bucket" } hx-target={ "#" + Root } hx-swap="outerHTML" class="space-y-4">
 			@c.KeepOpen("bucket")
-			@c.Field(c.FieldView{Name: "version_days", Label: "Keep old versions (days)", Type: "number", Min: "0", Value: strconv.Itoa(v.VersionDays), Help: "0 turns versioning off."})
-			@c.Field(c.FieldView{Name: "quota_gb", Label: "Size cap (GB)", Type: "number", Min: "0", Value: strconv.Itoa(v.QuotaGB), Help: "0 means no cap."})
-			@c.Field(c.FieldView{Name: "cors", Label: "CORS origins", Value: v.CORS, Placeholder: "https://app.example.com", Help: "Separate with commas."})
+			@c.Field(c.FieldView{Name: "version_days", Key: "version_days", Label: "Keep old versions (days)", Type: "number", Min: "0", Value: strconv.Itoa(v.VersionDays), Help: "0 turns versioning off."})
+			@c.Field(c.FieldView{Name: "quota_gb", Key: "quota_gb", Label: "Size cap (GB)", Type: "number", Min: "0", Value: strconv.Itoa(v.QuotaGB), Help: "0 means no cap."})
+			@c.Field(c.FieldView{Name: "cors", Key: "cors", Label: "CORS origins", Value: v.CORS, Placeholder: "https://app.example.com", Help: "Separate with commas."})
 			<button type="submit" class="btn btn-primary btn-sm">Save</button>
 		</form>
 	}

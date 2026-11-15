@@ -322,6 +322,25 @@ func TestSettingsRowsChanged(t *testing.T) {
 	}
 }
 
+// Every field of the tile's Settings tab carries its key for settings-find;
+// the rename field has none.
+func TestFieldsCarryFindKey(t *testing.T) {
+	s := SettingsView{Kind: "image", Vals: map[string]string{"image": "nginx:1", "cpu_limit": "", "mem_limit_mb": "512", "restart_policy": "always", "port": "8080"}}
+	var b strings.Builder
+	for _, r := range settingsRows(View{}, s) {
+		_ = r.Body.Render(context.Background(), &b)
+	}
+	html := b.String()
+	for _, k := range []string{"mem_limit_mb", "cpu_limit", "restart_policy", "port"} {
+		if !strings.Contains(html, `data-find-key="`+k+`"`) {
+			t.Errorf("no data-find-key for %s", k)
+		}
+	}
+	if strings.Contains(html, `data-find-key="name"`) {
+		t.Error("the rename field carries a key")
+	}
+}
+
 // Restart is safe to repeat, so it posts without a dialog; Stop still asks.
 func TestRestartHasNoConfirm(t *testing.T) {
 	var b strings.Builder

@@ -1,4 +1,4 @@
-const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit]";
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit], [data-find-key]";
 export function matches(n) {
     return n === 0 ? "No settings match." : n === 1 ? "1 section matches." : `${n} sections match.`;
 }
@@ -44,8 +44,8 @@ class SettingsFind extends HTMLElement {
             let hit = !q;
             if (q) {
                 for (const el of row.querySelectorAll(LABELS)) {
-                    const opt = el.matches("option"), said = opt ? (el.textContent ?? "") : el.getAttribute("aria-label");
-                    if (!el.closest("[data-field][hidden]") && ((said !== null && pattern(q).test(said.toLowerCase())) || (!opt && this.mark(el, q)))) {
+                    const opt = el.matches("option"), key = el.getAttribute("data-find-key"), said = key?.replace(/_/g, " ") ?? (opt ? (el.textContent ?? "") : el.getAttribute("aria-label"));
+                    if (!el.closest("[data-field][hidden]") && ((said !== null && pattern(key === null ? q : q.replace(/_/g, " ")).test(said.toLowerCase())) || (!opt && key === null && this.mark(el, q)))) {
                         hit = true;
                         this.opened.push(...openTo(el, row));
                     }

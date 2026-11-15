@@ -263,7 +263,7 @@ templ settingRow(form string, r SettingRowView) {
 // readOnlyRow is a knob the installer set: its value as text, no input, so
 // a save never posts it.
 templ readOnlyRow(r SettingRowView) {
-	<div data-field data-changed?={ r.Changed } if r.Found { class="is-found" tabindex="-1" autofocus }>
+	<div data-field data-find-key={ r.Key } data-changed?={ r.Changed } if r.Found { class="is-found" tabindex="-1" autofocus }>
 		<span class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)
@@ -280,7 +280,7 @@ templ readOnlyRow(r SettingRowView) {
 }
 
 templ editRow(form string, r SettingRowView) {
-	<div data-field data-changed?={ r.Changed } if r.Found { class="is-found" }>
+	<div data-field data-find-key={ r.Key } data-changed?={ r.Changed } if r.Found { class="is-found" }>
 		<label for={ form + "-" + r.Key } class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)

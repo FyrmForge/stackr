@@ -701,7 +701,7 @@ func deploys(v SettingsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = c.Field(c.FieldView{Name: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Used when deploying a branch."}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = c.Field(c.FieldView{Name: "branch", Key: "branch", Label: "Branch", Value: v.Branch, Placeholder: "main", Help: "Used when deploying a branch."}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -6,8 +6,8 @@
 // hides the [data-field]s without data-changed and the rows with none. While a
 // filter runs the rows leave the name group and the URL is left alone; clearing
 // it restores the row open before. [data-find-skip] and .sr-only are never searched.
-// A hit inside a closed <details> (Show advanced) opens it until the filter changes.
-const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit]";
+// A hit inside a closed <details> (Show advanced) opens it until the filter changes; a [data-find-key] (a field's config key) matches too, _ as a space.
+const LABELS = "[data-acc-title], [data-acc-sum], label, .label, .settings-label, h2, h3, h4, legend, [data-hint], .settings-help, :is(input, select, textarea)[aria-label], option, button[type=submit], [data-find-key]";
 
 // matches is the live region's count of the rows a filter shows.
 export function matches(n: number): string {
@@ -54,8 +54,8 @@ class SettingsFind extends HTMLElement {
       let hit = !q;
       if (q) {
         for (const el of row.querySelectorAll(LABELS)) {
-          const opt = el.matches("option"), said = opt ? (el.textContent ?? "") : el.getAttribute("aria-label");
-          if (!el.closest("[data-field][hidden]") && ((said !== null && pattern(q).test(said.toLowerCase())) || (!opt && this.mark(el, q)))) {
+          const opt = el.matches("option"), key = el.getAttribute("data-find-key"), said = key?.replace(/_/g, " ") ?? (opt ? (el.textContent ?? "") : el.getAttribute("aria-label"));
+          if (!el.closest("[data-field][hidden]") && ((said !== null && pattern(key === null ? q : q.replace(/_/g, " ")).test(said.toLowerCase())) || (!opt && key === null && this.mark(el, q)))) {
             hit = true;
             this.opened.push(...openTo(el, row));
           }

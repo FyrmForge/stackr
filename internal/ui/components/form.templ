@@ -21,6 +21,7 @@ type FieldView struct {
 	Required    bool
 	Disabled    bool
 	Why         string
+	Key         string // the config/CLI key when it differs from a label: settings-find matches it
 	Changed     bool   // set here, not inherited: the dot, and data-changed for settings-find
 	From        string // where an inherited value comes from ("org"): a tag after the label
 }
@@ -47,7 +48,7 @@ templ Note(msg string) {
 }
 
 templ Field(f FieldView) {
-	<div data-field data-changed?={ f.Changed }>
+	<div data-field data-changed?={ f.Changed } if f.Key != "" { data-find-key={ f.Key } }>
 		<label for={ f.Name } class="label">
 			{ f.Label }
 			@FieldMarks(f.Changed, f.From)
