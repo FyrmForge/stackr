@@ -417,6 +417,43 @@ func (o *Orchestrator) SetPlacementOpen(ctx context.Context, by *Principal, name
 	})
 }
 
+// ClosedPlacements (admin) is the names of the placements open to no org, for
+// the setup wizard to offer. Anyone else gets none.
+func (o *Orchestrator) ClosedPlacements(ctx context.Context, by *Principal) ([]string, error) {
+	if nodeAdmin(by) != nil {
+		return nil, nil
+	}
+	ps, err := o.Placements(ctx)
+	var out []string
+	for _, p := range ps {
+		if !p.OpenToAll && len(p.Orgs) == 0 {
+			out = append(out, p.Name)
+		}
+	}
+	return out, err
+}
+
+// OpenPlacementsToOrg (admin) adds the org to the named placements' lists,
+// keeping the orgs already on them; one open to all stays as it is.
+func (o *Orchestrator) OpenPlacementsToOrg(ctx context.Context, by *Principal, orgSlug string, names []string) error {
+	if err := nodeAdmin(by); err != nil {
+		return err
+	}
+	for _, name := range names {
+		p, err := o.PlacementByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if p.OpenToAll || slices.Contains(p.Orgs, orgSlug) {
+			continue
+		}
+		if err := o.SetPlacementOpen(ctx, by, name, false, append(p.Orgs, orgSlug)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeletePlacement (admin) deletes a placement no pin, env, ingress pick or
 // exit rung references. The default placement is never deleted.
 func (o *Orchestrator) DeletePlacement(ctx context.Context, by *Principal, name string) error {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/servicetest"
 	pages "github.com/FyrmForge/stackr/internal/ui/pages/setup"
@@ -522,5 +523,61 @@ func TestPlanGapForm(t *testing.T) {
 	}
 	if strings.Contains(page(t, s, sess, next, "Review the plan"), `name="secret.email.token"`) {
 		t.Error("gap still open after the fill")
+	}
+}
+
+// The domain step offers the managed domains with a name under one, and
+// drops the A record line; the summary offers placements open to no org;
+// the branch card says what the file route needs.
+func TestSetupOffers(t *testing.T) {
+	s := webtest.New(t)
+	ctx := context.Background()
+	s.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}}
+	uid, sess := admin(t, s)
+
+	page(t, s, sess, "/setup", "Needs a repo stackr can read through a git connector.")
+	og, _ := draft(t, s, uid, sess, "ui")
+	b := "/" + og.Slug + "/-/setup"
+	redirect(t, s, sess, b+"/name", url.Values{"name": {"Globex"}}, "/globex/-/setup/connector")
+	b = "/globex/-/setup"
+
+	// no managed domain: the step is the plain box
+	body := page(t, s, sess, b+"/domain", "Point an A record at this server first.", `name="host" required`)
+	if strings.Contains(body, `name="domain"`) {
+		t.Errorf("a select without managed domains:\n%s", body)
+	}
+
+	s.As(t, sess, "POST", "/-/admin/connectors/new/namecheap", url.Values{"user": {"jo"}, "key": {"k-1234567890"}, "client_ip": {"203.0.113.7"}})
+	cs, _ := s.Orch.DNSConnectors(ctx, nil)
+	if len(cs) != 1 {
+		t.Fatalf("connectors = %v", cs)
+	}
+	if _, err := s.Orch.ManageDNSDomain(ctx, nil, cs[0].ID, "acme.dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	body = page(t, s, sess, b+"/domain", `name="domain"`, `<option value="acme.dev"`, `name="sub" value="globex"`, "Other")
+	if strings.Contains(body, "Stacks generate their hostnames under it. Point an A record") {
+		t.Errorf("the A record line stays over a managed domain:\n%s", body)
+	}
+	redirect(t, s, sess, b+"/domain", url.Values{"domain": {"acme.dev"}, "sub": {"shop"}, "host": {""}}, b+"/team")
+	rs, _ := s.Orch.DomainResources(ctx, org(t, s, uid).ID)
+	if !slices.ContainsFunc(rs, func(r service.DomainResource) bool { return r.Host == "shop.acme.dev" }) {
+		t.Errorf("domains = %+v", rs)
+	}
+	redirect(t, s, sess, b+"/domain", url.Values{"domain": {""}, "host": {"globex.example.com"}}, b+"/team")
+
+	// placements open to no org
+	body = page(t, s, sess, b+"/done", "Finish and go to Globex")
+	if strings.Contains(body, `name="placement"`) {
+		t.Errorf("a placement offered when every one is open:\n%s", body)
+	}
+	adm := &service.Principal{User: service.User{ID: uid}, Access: authz.User{ID: uid, Active: true, Admin: true}}
+	if _, err := s.Orch.CreatePlacement(ctx, adm, service.PlacementSpec{Name: "media"}); err != nil {
+		t.Fatal(err)
+	}
+	page(t, s, sess, b+"/done", `name="placement" value="media"`)
+	redirect(t, s, sess, b+"/done", url.Values{"placement": {"media"}}, "/globex")
+	if p, err := s.Orch.PlacementByName(ctx, "media"); err != nil || p.OpenToAll || !slices.Equal(p.Orgs, []string{"globex"}) {
+		t.Errorf("media = %+v %v", p, err)
 	}
 }

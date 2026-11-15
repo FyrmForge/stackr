@@ -112,6 +112,8 @@ type DomainView struct {
 	Managed bool     // the config file declares the domains
 	Hosts   []string // the org's own domain resources
 	Prefill string
+	Zones   []string // managed domains the org may use; none = the plain host box
+	Sub     string   // the name under a managed domain, prefilled
 }
 
 // Person is one row of the team step's list: a member, an invite nobody
@@ -160,6 +162,7 @@ type DoneView struct {
 	Draft    bool // still carries the placeholder name
 	Config   bool // the config branch
 	Finished bool // Finish has been pressed
+	Placements []string // placements open to no org, offered to this one
 }
 
 // shell is the bare centred page every step shares.
@@ -258,12 +261,16 @@ templ install(href, label string) {
 
 // Branch is step 1, the fork the rest of the wizard hangs off. Both
 // buttons post to /setup, which makes the draft.
-templ Branch() {
+templ Branch(gitConnected bool) {
 	@shell(Frame{Title: "Set up your organization", Subtitle: "Stacks, variables, domains and people all live inside one."}) {
 		<form novalidate hx-post="/setup" class="space-y-3">
 			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Describe it in a config file</span>
-				<span class="block mt-0.5 text-xs text-rw-muted">One file in a git repo declares the whole organization, its name included.</span>
+				if gitConnected {
+					<span class="block mt-0.5 text-xs text-rw-muted">Reads one file from a repo to set up the whole organization.</span>
+				} else {
+					<span class="block mt-0.5 text-xs text-rw-muted">Needs a repo stackr can read through a git connector. Connect one first.</span>
+				}
 			</button>
 			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Fill it in here</span>
@@ -671,11 +678,27 @@ templ Domain(v DomainView) {
 		} else {
 			<form novalidate hx-post={ v.Base + "/domain" } class="space-y-5">
 				@formError(v.Base + "/domain")
-				<div>
+				<div class="group/dom">
 					<label class="label" for="setup-host">Host</label>
-					<input type="text" id="setup-host" name="host" required value={ val(ctx, "host", v.Prefill) } placeholder="example.com" class="input font-mono" { invalid(ctx, "host")... }/>
+					if len(v.Zones) > 0 {
+						<div class="flex flex-wrap gap-2 items-center">
+							<input type="text" name="sub" value={ val(ctx, "sub", v.Sub) } aria-label="Name under the domain" placeholder="name" class="input !w-32 font-mono group-has-[.dns-other:checked]/dom:hidden"/>
+							<span class="text-rw-faint group-has-[.dns-other:checked]/dom:hidden" aria-hidden="true">.</span>
+							<select name="domain" aria-label="Domain" class="input !w-auto">
+								for i, z := range v.Zones {
+									<option value={ z } selected?={ picked(ctx, "domain", z, i == 0) }>{ z }</option>
+								}
+								<option value="" class="dns-other" selected?={ picked(ctx, "domain", "", false) }>Other</option>
+							</select>
+						</div>
+						<p class="mt-1.5 text-xs text-rw-faint group-has-[.dns-other:checked]/dom:hidden">Leave the name empty for the domain itself.</p>
+						<input type="text" id="setup-host" name="host" value={ val(ctx, "host", v.Prefill) } placeholder="example.com" class="input font-mono hidden group-has-[.dns-other:checked]/dom:block" { invalid(ctx, "host")... }/>
+						<p class="mt-1.5 text-xs text-rw-faint hidden group-has-[.dns-other:checked]/dom:block">Point an A record at this server first.</p>
+					} else {
+						<input type="text" id="setup-host" name="host" required value={ val(ctx, "host", v.Prefill) } placeholder="example.com" class="input font-mono" { invalid(ctx, "host")... }/>
+						<p class="mt-1.5 text-xs text-rw-faint">A bare lowercase hostname, unique across the server.</p>
+					}
 					@fieldError("host")
-					<p class="mt-1.5 text-xs text-rw-faint">A bare lowercase hostname, unique across the server.</p>
 				</div>
 				<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
 					<input type="checkbox" name="include_env_on_default" value="1" checked?={ ticked(ctx, v.Base+"/domain", "include_env_on_default", false) } class="accent-rw-accent"/>
@@ -870,7 +893,18 @@ templ Done(v DoneView) {
 				<a href={ templ.SafeURL(v.Base + "/name") } class="btn btn-primary w-full">Name it</a>
 			}
 		} else {
-			<form novalidate hx-post={ v.Base + "/done" }>
+			<form novalidate hx-post={ v.Base + "/done" } class="space-y-3">
+				if len(v.Placements) > 0 && !v.Finished {
+					<fieldset class="space-y-1.5">
+						<legend class="text-xs text-rw-faint mb-1.5">Open to nobody yet.</legend>
+						for _, p := range v.Placements {
+							<label class="flex items-center gap-2 text-sm text-rw-muted cursor-pointer">
+								<input type="checkbox" name="placement" value={ p } class="accent-rw-accent"/>
+								Let this organization use { p }
+							</label>
+						}
+					</fieldset>
+				}
 				<button type="submit" class="btn btn-primary w-full">Finish and go to { v.Name }</button>
 			</form>
 		}

@@ -122,7 +122,12 @@ func isHTMX(c echo.Context) bool { return c.Request().Header.Get("HX-Request") =
 func (h *handler) start(c echo.Context) error {
 	p := middleware.Principal(c)
 	if authz.Can(p.Access, "org.create", authz.Resource{}) == nil {
-		return render.Bare(c, http.StatusOK, "Setup: Set up your organization", pages.Branch())
+		// no org yet, so only the server connectors shared with every org count
+		conns, err := h.orch.ConnectedConnectors(c.Request().Context(), "")
+		if err != nil {
+			return middleware.HTTPError(err)
+		}
+		return render.Bare(c, http.StatusOK, "Setup: Set up your organization", pages.Branch(len(conns) > 0))
 	}
 	orgs, err := h.orch.Orgs(c.Request().Context(), p.User.ID)
 	if err != nil {
@@ -257,11 +262,21 @@ func (h *handler) domainPage(c echo.Context, og *service.Org) (pages.Frame, temp
 	if err != nil {
 		return pages.Frame{}, nil, err
 	}
+	zones, err := h.orch.UsableDNSDomains(c.Request().Context(), og.ID)
+	if err != nil {
+		return pages.Frame{}, nil, err
+	}
+	sub := "Stacks generate their hostnames under it."
+	if len(zones) == 0 {
+		sub += " Point an A record at this server first."
+	}
 	v := pages.DomainView{
-		Frame:   frame(og, "domain", "Add a domain", "Stacks generate their hostnames under it. Point an A record at this server first."),
+		Frame:   frame(og, "domain", "Add a domain", sub),
 		Base:    base(og),
 		Next:    next(og, "domain"),
 		Managed: og.ConfigRepo != "",
+		Zones:   zones,
+		Sub:     og.Slug,
 	}
 	if v.Managed {
 		v.Title, v.Subtitle = "Domains", ""
@@ -370,6 +385,10 @@ func (h *handler) summary(c echo.Context, og *service.Org) (pages.Frame, templ.C
 		Draft:    og.Name == service.DraftOrgName,
 		Config:   og.SetupMode == service.SetupConfig,
 		Finished: og.SetupDoneAt != nil,
+	}
+	var err error
+	if v.Placements, err = h.orch.ClosedPlacements(ctx, middleware.Principal(c)); err != nil {
+		return v.Frame, nil, err
 	}
 	conns, err := h.orch.ConnectedConnectors(ctx, og.ID)
 	if err != nil {
@@ -750,11 +769,15 @@ func (h *handler) reject(c echo.Context) error {
 // for one domain; having it is the step done.
 func (h *handler) domain(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
+	host := c.FormValue("host")
+	if d := c.FormValue("domain"); d != "" { // a managed domain and the name under it
+		host = service.ManagedHost(d, c.FormValue("sub"))
+	}
 	r, err := h.orch.CreateDomainResource(
 		c.Request().Context(),
 		"org",
 		og.ID,
-		c.FormValue("host"),
+		host,
 		c.FormValue("include_env_on_default") != "",
 		"",
 	)
@@ -805,9 +828,15 @@ func (h *handler) remove(c echo.Context) error {
 // nobody named yet goes back to the step that names it.
 func (h *handler) done(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
-	n, err := h.orch.FinishOrg(c.Request().Context(), og.ID)
+	ctx := c.Request().Context()
+	n, err := h.orch.FinishOrg(ctx, og.ID)
 	if err != nil {
 		return back(c, err, first(og))
+	}
+	if form, _ := c.FormParams(); len(form["placement"]) > 0 {
+		if err := h.orch.OpenPlacementsToOrg(ctx, middleware.Principal(c), n.Slug, form["placement"]); err != nil {
+			hamrmw.SetFlash(c, "The organization is ready, but its placements could not be opened.", hamrmw.FlashError)
+		}
 	}
 	return respond.Redirect(c, "/"+n.Slug)
 }

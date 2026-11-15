@@ -686,3 +686,42 @@ func TestPlacementClosed(t *testing.T) {
 		}
 	}
 }
+
+// The wizard offers the placements open to no org, to an admin only, and
+// opening them keeps the orgs a placement already has.
+func TestOpenPlacementsToOrg(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	n := newTwoNodes(t)
+	adm, own := adminP(), ownerP(acmeID(t, n))
+	addPlacement(t, n, "closed", "w1", false)
+	addPlacement(t, n, "shared", "w1", false, acmeID(t, n))
+	addPlacement(t, n, "wide", "w1", true)
+
+	if got, err := n.orch.ClosedPlacements(ctx, own); err != nil || len(got) != 0 {
+		t.Fatalf("an owner is offered %v %v", got, err)
+	}
+	if got, err := n.orch.ClosedPlacements(ctx, adm); err != nil || !slices.Equal(got, []string{"closed"}) {
+		t.Fatalf("closed = %v %v", got, err)
+	}
+	if err := n.orch.OpenPlacementsToOrg(ctx, own, "acme", []string{"closed"}); err == nil {
+		t.Fatal("an owner opened a placement")
+	}
+	must(t, n.orch.OpenPlacementsToOrg(ctx, adm, "acme", []string{"closed", "shared", "wide"}))
+	for name, want := range map[string]struct {
+		all  bool
+		orgs []string
+	}{"closed": {false, []string{"acme"}}, "shared": {false, []string{"acme"}}, "wide": {true, nil}} {
+		p, err := n.orch.PlacementByName(ctx, name)
+		must(t, err)
+		if p.OpenToAll != want.all || (!want.all && !slices.Equal(p.Orgs, want.orgs)) {
+			t.Errorf("%s = all %v orgs %v", name, p.OpenToAll, p.Orgs)
+		}
+	}
+	if got, _ := n.orch.ClosedPlacements(ctx, adm); len(got) != 0 {
+		t.Errorf("still closed: %v", got)
+	}
+	if err := n.orch.OpenPlacementsToOrg(ctx, adm, "acme", []string{"nope"}); err == nil {
+		t.Error("an unknown placement was opened")
+	}
+}
