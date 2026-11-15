@@ -250,3 +250,29 @@ func TestGetMailNoMX(t *testing.T) {
 		}
 	}
 }
+
+// A replace takes out only the record it owned; another of the same name
+// and type stays (a Set would take both).
+func TestNamecheapReplaceKeepsOtherRecords(t *testing.T) {
+	var set []string
+	srv := hostsServer(t, &set)
+	defer srv.Close()
+	n := account(srv.URL)
+	ctx := context.Background()
+	// the old record is gone from the zone: the new one is added, the other stays
+	if err := n.Replace(ctx, "shop.co.uk", libdns.RR{Name: "@", Type: "A", Data: "203.0.113.1"}, libdns.RR{Name: "@", Type: "A", Data: "203.0.113.2"}); err != nil {
+		t.Fatal(err)
+	}
+	got := "|" + strings.Join(set, "|") + "|"
+	if !strings.Contains(got, "|Address1=109.148.70.232|") || !strings.Contains(got, "203.0.113.2") {
+		t.Errorf("foreign record not kept or new one not added: %s", got)
+	}
+	set = nil
+	if err := n.Replace(ctx, "shop.co.uk", libdns.RR{Name: "@", Type: "A", Data: "109.148.70.232"}, libdns.RR{Name: "@", Type: "A", Data: "203.0.113.2"}); err != nil {
+		t.Fatal(err)
+	}
+	got = "|" + strings.Join(set, "|") + "|"
+	if strings.Contains(got, "109.148.70.232") || !strings.Contains(got, "203.0.113.2") {
+		t.Errorf("the owned record did not move: %s", got)
+	}
+}

@@ -673,6 +673,9 @@ func (o *Orchestrator) watchNodeClients() {
 	defer hour.Stop()
 	lease := time.NewTicker(leaseEvery)
 	defer lease.Stop()
+	if o.localWorker != nil { // a real host only, like the boot publish
+		o.detach(ctx, o.bootPGExtCheck) // a restart never skips the daily extension check
+	}
 	for {
 		select {
 		case <-ctx.Done():

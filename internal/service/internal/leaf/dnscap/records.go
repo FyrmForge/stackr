@@ -14,6 +14,7 @@ import (
 	"github.com/libdns/libdns"
 
 	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/connectors"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -356,6 +357,7 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	var made []Want
 	var cw customWork
 	gone := map[string]bool{} // row ids whose record is off the zone
+	kept := map[string]bool{} // moved rows that stay as they are
 	err = l.WithZone(ctx, a, zone, func(pv Provider) error {
 		live, noMX, err := readZone(ctx, pv, zone)
 		if err != nil {
@@ -385,6 +387,19 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 				del = append(del, rr(r.Name, r.Type, r.Value))
 			}
 		}
+		// a move that cannot be written keeps its row and its old record:
+		// the old value goes only when the new one is written
+		keepOld := func(w Want) {
+			for _, r := range move {
+				if rowKey(r) == w.key() {
+					kept[r.ID] = true
+					del = slices.DeleteFunc(del, func(x libdns.Record) bool {
+						y := x.RR()
+						return strings.EqualFold(y.Name, r.Name) && y.Type == r.Type && sameData(r.Type, y.Data, r.Value)
+					})
+				}
+			}
+		}
 		for _, w := range add {
 			f := foreign(live, others, zone, w.Name)
 			if len(f) > 0 && !replace[fqdn(zone, w.Name)] {
@@ -397,9 +412,12 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 						return y.Type == w.Type && sameData(y.Type, y.Data, w.Value)
 					}) {
 						made = append(made, w)
+					} else {
+						keepOld(w)
 					}
 					continue
 				}
+				keepOld(w)
 				taken = append(taken, fqdn(zone, w.Name))
 				continue
 			}
@@ -419,33 +437,53 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 			made, taken, cw = nil, nil, customWork{}
 			return err
 		}
-		// A moved record is one Set of its name and type: a Delete then a
-		// failed Append would leave the name with no record at all.
-		var set []libdns.Record
+		// A moved record is swapped in one provider step when it can
+		// (only the old value goes), else the new one is appended before the
+		// old one is deleted: a failure never leaves the name bare.
+		type swap struct{ old, put libdns.Record }
+		var swaps []swap
+		var late []libdns.Record // deleted after the puts
+		_, canSwap := pv.(connectors.ReplaceDNS)
 		for _, w := range made {
-			if !slices.ContainsFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() && isLive(r) }) {
+			i := slices.IndexFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() && isLive(r) })
+			if i < 0 {
 				continue
 			}
-			sameSet := func(r libdns.Record) bool {
-				x := r.RR()
-				return strings.EqualFold(x.Name, w.Name) && x.Type == w.Type
+			old, nw := rr(move[i].Name, move[i].Type, move[i].Value), rr(w.Name, w.Type, w.Value)
+			del = slices.DeleteFunc(del, func(x libdns.Record) bool { return sameRec(x, old) })
+			if canSwap {
+				put = slices.DeleteFunc(put, func(x libdns.Record) bool { return sameRec(x, nw) })
+				swaps = append(swaps, swap{old, nw})
+			} else {
+				late = append(late, old)
 			}
-			del = slices.DeleteFunc(del, sameSet)
-			put = slices.DeleteFunc(put, sameSet)
-			set = append(set, rr(w.Name, w.Type, w.Value))
+		}
+		// deletes at a name that gets a record go first (a CNAME replacing
+		// an A); the rest wait for the puts, so a failed put deletes nothing
+		for _, r := range slices.Clone(del) {
+			x := r.RR()
+			if !slices.ContainsFunc(put, func(p libdns.Record) bool { return strings.EqualFold(p.RR().Name, x.Name) }) {
+				late = append(late, r)
+				del = slices.DeleteFunc(del, func(y libdns.Record) bool { return sameRec(y, r) })
+			}
 		}
 		if len(del) > 0 {
 			if _, err := pv.Delete(ctx, zone, del); err != nil {
 				return err
 			}
 		}
-		if len(set) > 0 {
-			if _, err := pv.Set(ctx, zone, set); err != nil {
+		for _, s := range swaps {
+			if err := pv.(connectors.ReplaceDNS).Replace(ctx, zone, s.old, s.put); err != nil {
 				return err
 			}
 		}
 		if len(put) > 0 {
 			if _, err := pv.Append(ctx, zone, put); err != nil {
+				return err
+			}
+		}
+		if len(late) > 0 {
+			if _, err := pv.Delete(ctx, zone, late); err != nil {
 				return err
 			}
 		}
@@ -481,13 +519,19 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	}
 	// a moved row left behind (its name now someone else's) is no longer ours
 	for _, r := range move {
-		if !slices.ContainsFunc(made, func(w Want) bool { return w.key() == rowKey(r) }) {
+		if !kept[r.ID] && !slices.ContainsFunc(made, func(w Want) bool { return w.key() == rowKey(r) }) {
 			if err := l.recs.Delete(ctx, r.ID); err != nil {
 				return taken, err
 			}
 		}
 	}
 	return taken, errors.Join(cw.clash...)
+}
+
+// sameRec: one record by name, type and value.
+func sameRec(a, b libdns.Record) bool {
+	x, y := a.RR(), b.RR()
+	return strings.EqualFold(x.Name, y.Name) && x.Type == y.Type && sameData(x.Type, x.Data, y.Data)
 }
 
 // customWork is a zone's custom records against its live records: what to

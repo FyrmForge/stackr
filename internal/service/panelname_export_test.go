@@ -10,5 +10,11 @@ func (o *Orchestrator) SetPanelSeams(outside func(context.Context, string) (ipv4
 	o.panelSeam = op.panelSeam
 }
 
+// RecheckPanelName is the tick's recheck, and WaitRecheck waits for it.
+func (o *Orchestrator) RecheckPanelName(ctx context.Context) {
+	o.recheckPanelName(ctx)
+	o.trustAsync.Wait()
+}
+
 // CheckPanelName runs the panel name check now.
 func (o *Orchestrator) CheckPanelName(ctx context.Context) { o.checkPanelName(ctx) }

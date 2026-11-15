@@ -328,6 +328,19 @@ func (n *Account) set(ctx context.Context, zone string, rs []libdns.Record) ([]l
 	})
 }
 
+// replace swaps old for put in one read and write: only old goes, other
+// records of the same name and type stay.
+func (n *Account) replace(ctx context.Context, zone string, old, put libdns.Record) error {
+	o, p := toHost(old), toHost(put)
+	return n.edit(ctx, zone, func(hs []host) ([]host, bool) {
+		hs = slices.DeleteFunc(hs, o.same)
+		if !slices.ContainsFunc(hs, p.same) {
+			hs = append(hs, p)
+		}
+		return hs, true
+	})
+}
+
 // Delete removes the records matching rs by name, type and value; others
 // of the same name are left.
 func (n *Account) delete(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {

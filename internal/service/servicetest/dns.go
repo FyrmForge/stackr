@@ -30,6 +30,15 @@ type DNS struct {
 	inZone   map[string]int
 	fail     error             // set by Fail: what every record write returns
 	noMX     map[string]string // set by NoMX: zone -> why it drops MX records
+	afterGet func()            // set by AfterNextGet
+}
+
+// AfterNextGet runs fn once, right after the next zone read answered: what
+// someone else does between stackr's read and its write.
+func (d *DNS) AfterNextGet(fn func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.afterGet = fn
 }
 
 // record logs rs under zone into to, holding the zone a moment so two
@@ -92,11 +101,16 @@ func (a fakeAccount) Zones(context.Context) ([]service.DNSZone, error) {
 // Get is the zone's records as set by the test (Records) and the writes.
 func (a fakeAccount) Get(_ context.Context, zone string) ([]libdns.Record, error) {
 	a.d.mu.Lock()
-	defer a.d.mu.Unlock()
 	a.d.Calls++
 	var out []libdns.Record
 	for _, r := range a.d.Records[zone] {
 		out = append(out, r)
+	}
+	fn := a.d.afterGet
+	a.d.afterGet = nil
+	a.d.mu.Unlock()
+	if fn != nil {
+		fn()
 	}
 	return out, nil
 }
@@ -175,6 +189,29 @@ func (a fakeAccount) Set(_ context.Context, zone string, rs []libdns.Record) ([]
 		a.d.Records[zone] = append(a.d.Records[zone], r.RR())
 	}
 	return rs, nil
+}
+
+// Replace swaps old for put: only old (name, type, value) goes, other
+// records of the name stay.
+func (a fakeAccount) Replace(_ context.Context, zone string, old, put libdns.Record) error {
+	if err := a.d.failing(); err != nil {
+		return err
+	}
+	a.d.record(zone, []libdns.Record{put}, &a.d.Appended)
+	a.d.mu.Lock()
+	defer a.d.mu.Unlock()
+	a.d.Calls++
+	if a.d.Records == nil {
+		a.d.Records = map[string][]libdns.RR{}
+	}
+	o, p := old.RR(), put.RR()
+	a.d.Records[zone] = slices.DeleteFunc(a.d.Records[zone], func(x libdns.RR) bool {
+		return x.Name == o.Name && x.Type == o.Type && x.Data == o.Data
+	})
+	if !slices.Contains(a.d.Records[zone], p) {
+		a.d.Records[zone] = append(a.d.Records[zone], p)
+	}
+	return nil
 }
 
 // Delete removes records by name, type and value.

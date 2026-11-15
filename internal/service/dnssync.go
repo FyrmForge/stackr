@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -71,7 +72,12 @@ func (o *Orchestrator) syncDNS() {
 	ctx, cancel := context.WithTimeout(context.Background(), domain.Timeout)
 	defer cancel()
 	ctx = o.withPanelFacts(ctx, true) // the outside is asked once, before the records lock
+	before := o.panelRecordValues(ctx)
 	err := o.reconcileDNS(ctx, nil)
+	if after := o.panelRecordValues(ctx); !slices.Equal(slices.Sorted(slices.Values(before)), slices.Sorted(slices.Values(after))) {
+		ctx = context.WithValue(ctx, panelWroteKey{}, true)
+		o.panelDue.Store(true)
+	}
 	o.checkPanelName(ctx) // the panel's name, after every sync and the daily one
 	o.dnsSync.mu.Lock()
 	defer o.dnsSync.mu.Unlock()

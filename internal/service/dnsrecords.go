@@ -13,6 +13,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/dnscap"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/securitylog"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/settings"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -243,7 +244,15 @@ func (o *Orchestrator) nameWants(ctx context.Context, zones []store.DNSDomain) (
 		w.Hold = true
 		return []dnscap.Want{w}, nil
 	}
-	return addrWants(w, t.V4, t.V6), nil
+	out := addrWants(w, t.V4, t.V6)
+	if t.Mode == settings.PanelAuto && !t.V4.IsValid() {
+		// auto cannot say the IPv4 (lookup failed, held, nothing seen): an
+		// A row stackr has stays as it is next to the AAAA
+		h := w
+		h.Hold = true
+		out = append(out, h)
+	}
+	return out, nil
 }
 
 // reconcileDNS brings the managed domains' records to the tile domains.

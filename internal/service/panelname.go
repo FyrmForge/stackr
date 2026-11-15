@@ -73,6 +73,9 @@ type panelFacts struct {
 
 type panelFactsKey struct{}
 
+// panelWroteKey in ctx: this sync changed the panel name's records.
+type panelWroteKey struct{}
+
 // factsOf is the sync's panelFacts in ctx, or a fresh one (asked lazily).
 func factsOf(ctx context.Context) *panelFacts {
 	if f, ok := ctx.Value(panelFactsKey{}).(*panelFacts); ok {
@@ -196,6 +199,12 @@ func (o *Orchestrator) panelTarget(ctx context.Context, def string) (panelTarget
 		return t, nil
 	}
 	ips, ok := o.panelIPs(ctx)
+	// a private or loopback answer (hosts file, split horizon) says nothing
+	// of what the world sees
+	ips = slices.DeleteFunc(slices.Clone(ips), func(s string) bool {
+		a, err := netip.ParseAddr(s)
+		return err != nil || !publicUnicast(a.Unmap())
+	})
 	switch {
 	case !ok: // cannot tell what the name does: write nothing
 		t.Saw = a
@@ -207,16 +216,28 @@ func (o *Orchestrator) panelTarget(ctx context.Context, def string) (panelTarget
 	return t, nil
 }
 
-// mayWriteSeen: the panel name resolves nowhere, to the seen address, or
-// only to values of its own record stackr made (the home IP moved).
+// mayWriteSeen: stackr already has a record at the panel name (it wrote
+// it; a hand edit is protected where records are applied), or the name
+// resolves nowhere or to the seen address.
 func (o *Orchestrator) mayWriteSeen(ctx context.Context, ips []string, seen netip.Addr) bool {
 	own := o.panelRecordValues(ctx)
+	if len(own) > 0 {
+		return true
+	}
 	for _, s := range ips {
 		if s != seen.String() && !slices.Contains(own, s) {
 			return false
 		}
 	}
 	return true
+}
+
+// panelHasA is whether stackr has an A record at the panel name.
+func (o *Orchestrator) panelHasA(ctx context.Context) bool {
+	return slices.ContainsFunc(o.panelRecordValues(ctx), func(v string) bool {
+		a, err := netip.ParseAddr(v)
+		return err == nil && a.Is4()
+	})
 }
 
 // panelRecordValues is the values of the panel name's records stackr made.
@@ -404,7 +425,8 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	switch {
 	case t.Saw.IsValid() && len(t.HeldAt) > 0:
 		o.openProblem(ctx, panelAddrAlert, SevWarning, fmt.Sprintf("%s points at %s; stackr sees %s. Type the address to use, or say you handle that record yourself.", p, strings.Join(t.HeldAt, ", "), t.Saw))
-	case t.Mode == settings.PanelAuto && t.none():
+	case t.Saw.IsValid() && len(t.HeldAt) == 0: // the lookup failed: the alert stays as it is
+	case t.Mode == settings.PanelAuto && !t.V4.IsValid() && !t.Saw.IsValid() && (t.none() || o.panelHasA(ctx)):
 		o.openProblem(ctx, panelAddrAlert, SevWarning, "stackr cannot tell which address "+p+" should point at. Type an address, or say you handle that record yourself.")
 	case o.hasProblem(ctx, panelAddrAlert):
 		o.clearProblem(ctx, panelAddrAlert)
@@ -414,7 +436,10 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	// answer with no address (even in self mode: the original outage), or
 	// with the wrong ones, opens it. Private answers say nothing: clear.
 	resolved := !o.hasProblem(ctx, panelResolveAlert)
-	if ips, ok := o.lookupOK(ctx, p); ok {
+	// right after a write the resolver may still answer the old value: the
+	// next tick's recheck judges it (panelDue)
+	fresh, _ := ctx.Value(panelWroteKey{}).(bool)
+	if ips, ok := o.lookupOK(ctx, p); ok && !fresh {
 		switch pub := outsiders(ips, t); {
 		case len(ips) == 0:
 			o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
@@ -462,11 +487,12 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 // without waiting for the daily one. Off the tick, one at a time.
 func (o *Orchestrator) recheckPanelName(ctx context.Context) {
 	rows, err := o.store.Settings.ListPrefix(ctx, problemPrefix+"panel.")
-	if err != nil || len(rows) == 0 || !o.panelRecheck.CompareAndSwap(false, true) {
+	if err != nil || (len(rows) == 0 && !o.panelDue.Load()) || !o.panelRecheck.CompareAndSwap(false, true) {
 		return
 	}
 	o.detach(ctx, func(ctx context.Context) {
 		defer o.panelRecheck.Store(false)
+		o.panelDue.Store(false)
 		o.checkPanelName(ctx)
 	})
 }

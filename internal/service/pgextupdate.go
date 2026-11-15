@@ -1,11 +1,13 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,6 +98,9 @@ func (o *Orchestrator) checkPGExtUpdates(ctx context.Context) {
 			slog.Warn("pg extension updates: check", "instance", m.ID, "err", err)
 		}
 	}
+	if err := o.store.Settings.Set(ctx, pgextCheckedKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		slog.Warn("pg extension updates: run time not kept", "err", err)
+	}
 	rows, err := o.store.Settings.ListPrefix(ctx, pgextupdKey)
 	if err != nil {
 		return
@@ -105,6 +110,95 @@ func (o *Orchestrator) checkPGExtUpdates(ctx context.Context) {
 			o.delPGExtUpdates(ctx, id)
 		}
 	}
+}
+
+// pgextCheckedKey is when the update check last ran (RFC 3339).
+const pgextCheckedKey = "pgextcheck.last"
+
+// bootPGExtCheck runs the update check once after boot when a day has gone
+// by since the last run, so a panel restarted more often than daily still
+// checks. The daily ticker runs it from then on.
+func (o *Orchestrator) bootPGExtCheck(ctx context.Context) {
+	if v, ok, _ := o.store.Settings.Get(ctx, pgextCheckedKey); ok {
+		if at, err := time.Parse(time.RFC3339, v); err == nil && time.Since(at) < 24*time.Hour {
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, dailyChoresBudget)
+	defer cancel()
+	o.checkPGExtUpdates(ctx)
+}
+
+// debVersionCmp orders two package versions as dpkg does (epoch, upstream,
+// revision; letters before digits' runs, "~" before everything): -1, 0, 1.
+// The URL recipes' versions (1.2.0, v1.2.0) order the same way.
+func debVersionCmp(a, b string) int {
+	ea, a := debEpoch(a)
+	eb, b := debEpoch(b)
+	if ea != eb {
+		return cmp.Compare(ea, eb)
+	}
+	ua, ra := a, ""
+	if i := strings.LastIndex(a, "-"); i >= 0 {
+		ua, ra = a[:i], a[i+1:]
+	}
+	ub, rb := b, ""
+	if i := strings.LastIndex(b, "-"); i >= 0 {
+		ub, rb = b[:i], b[i+1:]
+	}
+	if c := debPartCmp(ua, ub); c != 0 {
+		return c
+	}
+	return debPartCmp(ra, rb)
+}
+
+func debEpoch(v string) (int, string) {
+	if e, rest, ok := strings.Cut(v, ":"); ok {
+		if n, err := strconv.Atoi(e); err == nil {
+			return n, rest
+		}
+	}
+	return 0, v
+}
+
+func debPartCmp(a, b string) int {
+	digit := func(c byte) bool { return c >= '0' && c <= '9' }
+	order := func(s string, i int) int {
+		if i >= len(s) || digit(s[i]) {
+			return 0
+		}
+		switch c := s[i]; {
+		case c == '~':
+			return -1
+		case c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z':
+			return int(c)
+		default:
+			return int(c) + 256
+		}
+	}
+	for a != "" || b != "" {
+		i, j := 0, 0
+		for i < len(a) && !digit(a[i]) || j < len(b) && !digit(b[j]) {
+			if c := cmp.Compare(order(a, i), order(b, j)); c != 0 {
+				return c
+			}
+			i, j = i+1, j+1
+		}
+		a, b = a[min(i, len(a)):], b[min(j, len(b)):]
+		i, j = 0, 0
+		for i < len(a) && digit(a[i]) {
+			i++
+		}
+		for j < len(b) && digit(b[j]) {
+			j++
+		}
+		na, nb := strings.TrimLeft(a[:i], "0"), strings.TrimLeft(b[:j], "0")
+		if c := cmp.Or(cmp.Compare(len(na), len(nb)), strings.Compare(na, nb)); c != 0 {
+			return c
+		}
+		a, b = a[i:], b[j:]
+	}
+	return 0
 }
 
 func (o *Orchestrator) checkPGExtUpdate(ctx context.Context, m OperatedInstance, eb mflow.ExtBuild, shared map[string]*mflow.Resolved) error {
@@ -137,7 +231,12 @@ func (o *Orchestrator) checkPGExtUpdate(ctx context.Context, m OperatedInstance,
 			return fmt.Errorf("resolve on %s failed", eb.Base)
 		}
 		for _, p := range pkgs {
-			if to, from := res.Versions[p], eb.Packages[p]; to != "" && from != "" && to != from {
+			to, from := res.Versions[p], eb.Packages[p]
+			switch {
+			case to == "" || from == "" || to == from:
+			case debVersionCmp(to, from) <= 0: // the repository dropped or rolled back the build
+				slog.Info("pg extension updates: candidate is not newer", "package", p, "have", from, "candidate", to)
+			default:
 				changes = append(changes, PGExtChange{Package: p, From: from, To: to})
 			}
 		}
@@ -148,7 +247,12 @@ func (o *Orchestrator) checkPGExtUpdate(ctx context.Context, m OperatedInstance,
 		return err
 	}
 	for p, u := range urls {
-		if old, ok := eb.URLs[p]; ok && old.Version != u.Version {
+		old, ok := eb.URLs[p]
+		switch {
+		case !ok || old.Version == u.Version:
+		case debVersionCmp(u.Version, old.Version) <= 0:
+			slog.Info("pg extension updates: recipe version is not newer", "package", p, "have", old.Version, "recipe", u.Version)
+		default:
 			changes = append(changes, PGExtChange{Package: p, From: old.Version, To: u.Version})
 		}
 	}

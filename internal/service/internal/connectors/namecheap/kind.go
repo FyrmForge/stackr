@@ -163,6 +163,11 @@ func (a *Account) Set(ctx context.Context, zone string, rs []libdns.Record) ([]l
 	return out, a.plain(err)
 }
 
+// Replace is connectors.ReplaceDNS.
+func (a *Account) Replace(ctx context.Context, zone string, old, put libdns.Record) error {
+	return a.plain(a.replace(ctx, zone, old, put))
+}
+
 func (a *Account) Delete(ctx context.Context, zone string, rs []libdns.Record) ([]libdns.Record, error) {
 	out, err := a.delete(ctx, zone, rs)
 	return out, a.plain(err)

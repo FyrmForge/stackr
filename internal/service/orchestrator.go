@@ -328,6 +328,7 @@ type Orchestrator struct {
 	failCrashAfter string
 	certRecheck    atomic.Bool // a failing-cert recheck runs
 	panelRecheck   atomic.Bool // a panel-name recheck runs
+	panelDue       atomic.Bool // a sync wrote the panel record: the tick rechecks once
 	wildcard       sync.Map    // panel host -> wildHit (panelname.go)
 	panelSeam      panelSeams  // the outside world, for tests (panelname.go)
 	// tickAttemptFor overrides tickAttempt (tests).

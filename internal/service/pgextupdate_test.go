@@ -222,3 +222,94 @@ func TestPGExtUpdateOnCanvas(t *testing.T) {
 	}
 	t.Error("the instance is not on the canvas")
 }
+
+// Versions order as dpkg orders them.
+func TestDebVersionCmp(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"0.8.7-1", "0.8.6-1", 1},
+		{"0.8.10-1", "0.8.9-1", 1},
+		{"0.8.6-1", "0.8.6-1", 0},
+		{"0.8.6-1", "0.8.6-2", -1},
+		{"1:0.1-1", "0.9-1", 1},
+		{"1.0~rc1-1", "1.0-1", -1},
+		{"1.0-1+b2", "1.0-1", 1},
+		{"1.2.0", "1.1.1", 1},
+		{"v1.2.0", "v1.10.0", -1},
+	} {
+		if got := debVersionCmp(c.a, c.b); got != c.want {
+			t.Errorf("cmp(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+		if got := debVersionCmp(c.b, c.a); got != -c.want {
+			t.Errorf("cmp(%q, %q) = %d, want %d", c.b, c.a, got, -c.want)
+		}
+	}
+}
+
+// A candidate older than what the build holds is no update.
+func TestPGExtUpdateOlderCandidateIsNoUpdate(t *testing.T) {
+	t.Parallel()
+	r := newRecipeRig(t)
+	r.countResolves("0.8.5-1")
+	m := r.markBuilt(t, r.pg.ID, "ref1", "0.8.6-1")
+	r.orch.checkPGExtUpdates(r.ctx)
+	if u := r.orch.PGExtUpdatesOf(r.ctx, m); u != nil {
+		t.Errorf("a rollback shows as an update: %+v", u)
+	}
+}
+
+// A URL recipe whose version went back is no update either.
+func TestPGExtUpdateOlderURLVersionIsNoUpdate(t *testing.T) {
+	t.Parallel()
+	r := newRecipeRig(t)
+	r.countResolves("0.8.6-1")
+	fns := r.orch.pgFns
+	was := fns.Resolve
+	fns.Resolve = func(names []string, major int, orgID string, rows []store.PGRecipe) ([]mflow.Recipe, error) {
+		rs, err := was(names, major, orgID, rows)
+		for i := range rs {
+			if rs[i].Name == "vchord" {
+				rs[i].Version = "1.0.0"
+			}
+		}
+		return rs, err
+	}
+	m, err := r.orch.operated.GetByTile(r.ctx, r.pg.ID)
+	must(t, err)
+	eb := mflow.ExtBuild{
+		Base: pgStock, Recipes: []string{"vchord"}, Arch: "amd64", Ref: "ref1",
+		URLs: map[string]mflow.URLPkg{"postgresql-18-vchord": {Version: "1.1.1"}},
+	}
+	must(t, r.st.OperatedInstances.SetBuild(r.ctx, m.ID, nil, nil, eb.String()))
+	r.orch.checkPGExtUpdates(r.ctx)
+	m, _ = r.orch.operated.GetByTile(r.ctx, r.pg.ID)
+	if u := r.orch.PGExtUpdatesOf(r.ctx, m); u != nil {
+		t.Errorf("an older recipe version shows as an update: %+v", u)
+	}
+}
+
+// After boot the check runs once when a day has passed since the last run,
+// and not again before that.
+func TestPGExtUpdateBootCheckWhenDue(t *testing.T) {
+	t.Parallel()
+	r := newRecipeRig(t)
+	n := r.countResolves("0.8.7-1")
+	r.markBuilt(t, r.pg.ID, "ref1", "0.8.6-1")
+	must(t, r.orch.store.Settings.Delete(r.ctx, pgextCheckedKey)) // the rig's own boot stamped it
+	r.orch.bootPGExtCheck(r.ctx)                                  // never ran: due
+	if n() != 1 {
+		t.Fatalf("resolves after the first boot = %d", n())
+	}
+	r.orch.bootPGExtCheck(r.ctx) // ran a moment ago
+	if n() != 1 {
+		t.Errorf("a boot within a day ran the check again: %d", n())
+	}
+	must(t, r.orch.store.Settings.Set(r.ctx, pgextCheckedKey, time.Now().Add(-25*time.Hour).UTC().Format(time.RFC3339)))
+	r.orch.bootPGExtCheck(r.ctx)
+	if n() != 2 {
+		t.Errorf("a boot after a day did not check: %d", n())
+	}
+}
