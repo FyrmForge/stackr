@@ -652,6 +652,26 @@ flash-toast[leaving] { opacity: 0; }
   .settings-nav-item.is-active {
     @apply bg-rw-inset text-rw-text font-medium;
   }
+  .settings-side {
+    @apply min-w-0 md:w-52 md:shrink-0;
+  }
+  .settings-find-list {
+    @apply mt-2 space-y-1;
+  }
+  .settings-find-hit {
+    @apply flex flex-col gap-0.5 rounded-lg px-3 py-2 hover:bg-rw-inset;
+  }
+  .settings-find-hit:focus-visible {
+    outline-offset: -2px;
+  }
+  .settings-find-hit mark,
+  .is-found mark {
+    @apply rounded-sm bg-rw-accent/20 px-0.5 text-inherit;
+  }
+  /* the row a search hit opened */
+  [data-field].is-found {
+    @apply rounded-lg bg-rw-accent/10 p-2 -m-2;
+  }
   .settings-body {
     @apply min-w-0 flex-1 max-w-3xl;
   }

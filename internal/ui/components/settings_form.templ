@@ -35,7 +35,8 @@ type SettingRowView struct {
 	Secret    bool   // never echoed: a password box, blank keeps it
 	ReadOnly  bool   // the installer set it: shown as text, never posted
 	Error     string
-	Changed   bool   // this rung sets it: the dot, and data-changed for settings-find
+	Found     bool   // a search hit opened this row: marked, its control focused
+	Changed   bool  // this rung sets it: the dot, and data-changed for settings-find
 	From      string // where an inherited value comes from ("org"): a tag after the label
 	// NoInherit: a flat knob, no rung above it. No Inherit choice and no
 	// "inherit" placeholder.
@@ -151,6 +152,9 @@ func sentence(s string) string {
 	return s
 }
 
+// Sentence is a catalogue description as help text.
+func Sentence(s string) string { return sentence(s) }
+
 // from names the rung a value comes from, as v0's Inherited says it.
 func from(rung string) string {
 	if rung == "" || rung == "default" {
@@ -259,7 +263,7 @@ templ settingRow(form string, r SettingRowView) {
 // readOnlyRow is a knob the installer set: its value as text, no input, so
 // a save never posts it.
 templ readOnlyRow(r SettingRowView) {
-	<div data-field data-changed?={ r.Changed }>
+	<div data-field data-changed?={ r.Changed } if r.Found { class="is-found" }>
 		<span class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)
@@ -276,14 +280,14 @@ templ readOnlyRow(r SettingRowView) {
 }
 
 templ editRow(form string, r SettingRowView) {
-	<div data-field data-changed?={ r.Changed }>
+	<div data-field data-changed?={ r.Changed } if r.Found { class="is-found" }>
 		<label for={ form + "-" + r.Key } class="settings-label">
 			{ knobLabel(r) }
 			@FieldMarks(r.Changed, r.From)
 		</label>
 		switch {
 			case r.Type == "bool":
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
+				<select id={ form + "-" + r.Key } name={ r.Key } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					if !r.NoInherit {
 						<option value="" selected?={ Kept(ctx, r.Key, r.Value) == "" }>{ inheritChoice(r) }</option>
 					}
@@ -291,15 +295,15 @@ templ editRow(form string, r SettingRowView) {
 					<option value="false" selected?={ Kept(ctx, r.Key, r.Value) == "false" }>Off</option>
 				</select>
 			case len(r.Options) > 0:
-				<select id={ form + "-" + r.Key } name={ r.Key } class="input" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
+				<select id={ form + "-" + r.Key } name={ r.Key } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }>
 					for _, o := range r.Options {
 						<option value={ o.Value } selected?={ Kept(ctx, r.Key, r.Value) == o.Value }>{ o.Label }</option>
 					}
 				</select>
 			case r.Secret:
-				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type="password" value="" placeholder={ secretHint(r.Effective) } autocomplete="new-password" class="input font-mono" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 			default:
-				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
+				<input id={ form + "-" + r.Key } name={ r.Key } type={ knobInput(r.Type) } step={ knobStep(r.Type) } value={ Kept(ctx, r.Key, r.Value) } placeholder={ inheritHint(r) } class="input" autofocus?={ r.Found } { Invalid(r.Key, KeptErr(ctx, r.Key, r.Error))... }/>
 		}
 		if r.Secret {
 			<span class="settings-help">{ secretHelp(r.Effective) }</span>

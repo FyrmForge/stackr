@@ -1,0 +1,89 @@
+package admin
+
+import "strconv"
+
+// FindPart is a piece of a hit's text; Hit marks what the query matched.
+type FindPart struct {
+	Text string
+	Hit  bool
+}
+
+// FindHit is one result: a setting (Section names where it lives) or a
+// section (Section "").
+type FindHit struct {
+	Label, Help []FindPart
+	Section     string
+	Href        string
+}
+
+// FindView is the hits shown and how many matched in all; Asked false = no
+// query, nothing to show.
+type FindView struct {
+	Hits  []FindHit
+	Total int
+	Asked bool
+}
+
+// findBox is the "Find a setting" box above the side menu. hx-preserve keeps
+// the box and its results across a section swap, so the typed text and the
+// focus stay.
+templ findBox() {
+	<div id="admin-find" hx-preserve class="settings-find-box">
+		<input
+			type="search"
+			name="q"
+			class="input"
+			placeholder="Find a setting"
+			aria-label="Find a setting"
+			autocomplete="off"
+			hx-get={ Base + "/find" }
+			hx-trigger="input changed delay:250ms, search"
+			hx-target="#admin-find-results"
+			hx-swap="innerHTML"
+		/>
+		<div id="admin-find-results" aria-live="polite"></div>
+	</div>
+}
+
+templ parts(ps []FindPart) {
+	for _, p := range ps {
+		if p.Hit {
+			<mark>{ p.Text }</mark>
+		} else {
+			{ p.Text }
+		}
+	}
+}
+
+// FindResults fills #admin-find-results; nothing for an empty query.
+templ FindResults(v FindView) {
+	switch {
+	case !v.Asked:
+	case len(v.Hits) == 0:
+		<p class="settings-help">No setting matches.</p>
+	default:
+		<ul class="settings-find-list">
+			for _, h := range v.Hits {
+				<li>
+					<a
+						href={ templ.SafeURL(h.Href) }
+						hx-get={ h.Href }
+						hx-target="#main"
+						hx-push-url="true"
+						class="settings-find-hit"
+					>
+						<span class="text-sm text-rw-text">@parts(h.Label)</span>
+						if h.Section != "" {
+							<span class="text-xs text-rw-faint">{ h.Section }</span>
+						}
+						<span class="text-xs text-rw-muted">@parts(h.Help)</span>
+					</a>
+				</li>
+			}
+		</ul>
+		if v.Total > len(v.Hits) {
+			<p class="settings-help">{ strconv.Itoa(v.Total - len(v.Hits)) } more, keep typing.</p>
+		}
+		<p class="sr-only">{ plural(v.Total, "match") }</p>
+	}
+}

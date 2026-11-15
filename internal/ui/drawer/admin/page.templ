@@ -195,6 +195,8 @@ templ Page(f ViewFrame, body templ.Component) {
 templ View(f ViewFrame, body templ.Component) {
 	<div id={ Root } class="settings-layout">
 		// tab-strip scrolls the active item into view while the menu is a row (mobile)
+		<div class="settings-side">
+		@findBox()
 		<tab-strip class="block">
 		<nav data-row class="settings-nav scrollbar-none" aria-label="Server settings">
 			for _, g := range Groups {
@@ -221,6 +223,7 @@ templ View(f ViewFrame, body templ.Component) {
 			}
 		</nav>
 		</tab-strip>
+		</div>
 		<div class="settings-body space-y-4">
 			if it, ok := Find(f.Section); ok {
 				<div>

@@ -32,6 +32,7 @@ func NewHandler(orch *service.Orchestrator) *handler { return &handler{orch: orc
 
 func (h *handler) Mount(g *echo.Group, a *middleware.Access) {
 	b := ui.Base
+	g.GET(b+"/find", h.Find, a.Require("admin.read"))
 	g.GET(b+"/:section", h.Section, a.Require("admin.read"))
 	// the page's own root is its first section
 	overview := func(c echo.Context) error { return c.Redirect(http.StatusSeeOther, ui.Href("overview")) }
@@ -649,6 +650,11 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 		c.Set(refusedKey, true)
 	}
 	posted := refill(c, v.Action)
+	// a search hit's key marks its row on a plain GET, if this form shows it
+	find := ""
+	if c.Request().Method == http.MethodGet {
+		find = c.QueryParam("find")
+	}
 	for _, s := range ss {
 		if !slices.Contains(v.Keys, s.Key) {
 			continue
@@ -664,6 +670,7 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 			Secret:    s.Secret,
 			ReadOnly:  s.ReadOnly,
 			NoInherit: s.DecidedBy == "install",
+			Found:     find != "" && s.Key == find,
 		}
 		if s.Key == "update_check" {
 			for _, o := range service.UpdateCheckChoices() {
