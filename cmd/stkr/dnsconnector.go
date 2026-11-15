@@ -1,0 +1,297 @@
+package main
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+var (
+	dnsConnCols   = []string{"id", "name", "kind", "check_error", "created_at"}
+	dnsDomainCols = []string{"name", "state", "share_all", "org_ids"}
+)
+
+// dnsVerbs are the DNS connector verbs of one level: the server's
+// (`stkr server connectors`, admin; base /admin/dns-connectors, ops
+// admin.dns-*) or an org's (`stkr org connectors`, owner; ops dns.*).
+// base resolves the API path; server says which level.
+func (a *app) dnsVerbs(server bool, base func(c *cobra.Command) (string, error)) []*cobra.Command {
+	op := func(name string) string {
+		if server {
+			return "admin.dns-" + name
+		}
+		return "dns." + name
+	}
+	domains := leaf("domains <connector>", op("domains"),
+		"List the account's domains: managed, not managed, or DNS elsewhere", exact(1),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			v, err := a.call(GET, b+"/"+url.PathEscape(args[0])+"/domains", nil)
+			if err != nil {
+				return err
+			}
+			return a.showDomains(v)
+		})
+
+	var shared bool
+	var under string
+	plan := leaf("plan <connector> <domain>", op("plan"),
+		"Show the records managing a domain would write, and the existing ones stackr may adopt", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			if !server && (shared || a.serverOwned(b, args[0])) {
+				b = "/admin/dns-connectors" // a server connector answers only at the server level
+			}
+			path := b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1]) + "/plan"
+			if under != "" {
+				path += "?under=" + url.QueryEscape(under)
+			}
+			v, err := a.call(GET, path, nil)
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.show(v)
+			}
+			m := asMap(v)
+			if err := a.show(m["writes"], "host", "type", "value"); err != nil {
+				return err
+			}
+			if err := a.show(m["adopt"], "host", "type", "serves"); err != nil {
+				return err
+			}
+			left := asList(m["left_alone"])
+			if len(left) == 0 {
+				return nil
+			}
+			a.say("%s outside %s left alone:", plural(len(left), "record", "records"), cell(m["scope"]))
+			return a.show(left, "host", "type", "value")
+		})
+	plan.Flags().StringVar(&under, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
+
+	if !server {
+		plan.Flags().BoolVar(&shared, "server", false, "the connector is a server one (admin)")
+	}
+
+	var orgs []string
+	var adopt bool
+	manage := leaf("manage <connector> <domain>", op("manage"),
+		"Let stackr manage a domain's DNS records", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			if server && len(orgs) == 0 {
+				if err := a.confirm("Make " + args[1] + " available to every organization?"); err != nil {
+					return err
+				}
+			}
+			path := b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1])
+			body := map[string]any{"org_ids": append([]string{}, orgs...)}
+			if under != "" {
+				body["under"] = under
+			}
+			if adopt { // what the panel ticks: the plan's records a tile serves
+				q := ""
+				if under != "" {
+					q = "?under=" + url.QueryEscape(under)
+				}
+				p, err := a.call(GET, path+"/plan"+q, nil)
+				if err != nil {
+					return err
+				}
+				take := []map[string]any{}
+				for _, r := range asList(asMap(p)["adopt"]) {
+					if r := asMap(r); r["serves"] == true {
+						take = append(take, map[string]any{"name": r["name"], "type": r["type"], "value": r["value"]})
+					}
+				}
+				body["adopt"] = take
+			}
+			v, err := a.call(PUT, path, body)
+			if err != nil {
+				return err
+			}
+			return a.showDomains(v)
+		})
+	manage.Flags().StringVar(&under, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
+	manage.Flags().BoolVar(&adopt, "adopt", true, "take over the existing records the plan lists as serving a tile")
+	if server {
+		manage.Short += "; --org limits who may use it (default: every organization)"
+		manage.Flags().StringArrayVar(&orgs, "org", nil, "available to this organization id only (repeatable)")
+	}
+
+	var reUnder string
+	var reAdopt bool
+	rescope := leaf("rescope <connector> <domain>", op("rescope-plan")+","+op("rescope"),
+		"Change what part of a managed domain stackr manages; shows the plan, then asks", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			path := b + "/" + url.PathEscape(args[0]) + "/domains/" + url.PathEscape(args[1]) + "/rescope"
+			q := ""
+			if reUnder != "" {
+				q = "?under=" + url.QueryEscape(reUnder)
+			}
+			p, err := a.call(GET, path+q, nil)
+			if err != nil {
+				return err
+			}
+			m := asMap(p)
+			show := a.showRescope
+			if a.json { // the plan as plan prints it, then the answer
+				show = func(m map[string]any) error { return a.show(m) }
+			}
+			if err := show(m); err != nil {
+				return err
+			}
+			if err := a.confirm("Change the scope of " + args[1] + "?"); err != nil {
+				return err
+			}
+			body := map[string]any{"adopt": []map[string]any{}, "from": m["from"]}
+			if reUnder != "" {
+				body["under"] = reUnder
+			}
+			if reAdopt { // what the panel ticks: the plan's records a tile serves
+				take := []map[string]any{}
+				for _, r := range asList(m["adopt"]) {
+					if r := asMap(r); r["serves"] == true {
+						take = append(take, map[string]any{"name": r["name"], "type": r["type"], "value": r["value"]})
+					}
+				}
+				body["adopt"] = take
+			}
+			v, err := a.call(POST, path, body)
+			if err != nil {
+				return err
+			}
+			return a.showDomains(v)
+		})
+	rescope.Flags().StringVar(&reUnder, "under", "", "manage only this name and below it, e.g. stackr (default: the whole domain)")
+	rescope.Flags().BoolVar(&reAdopt, "adopt", true, "take over the existing records the plan lists as serving a tile")
+
+	unmanage := leaf("unmanage <connector> <domain>", op("unmanage"),
+		"Stop managing a domain; stackr deletes the records it made, other records stay", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			_, err = a.call(DELETE, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1]), nil)
+			return err
+		})
+
+	var confirm string
+	takeover := leaf("takeover <connector> <domain>", op("takeover"),
+		"Switch a domain to its provider's DNS; records at its current DNS host stop applying", exact(2),
+		func(c *cobra.Command, args []string) error {
+			b, err := base(c)
+			if err != nil {
+				return err
+			}
+			if confirm == "" && a.tty && !a.json {
+				_, _ = fmt.Fprintf(a.errw, "Records at %s's current DNS host stop applying. Type the domain to confirm: ", args[1])
+				line, _ := a.in.ReadString('\n')
+				confirm = strings.TrimSpace(line)
+			}
+			if confirm == "" {
+				return usage("type the domain to confirm: --confirm %s", args[1])
+			}
+			_, err = a.call(POST, b+"/"+url.PathEscape(args[0])+"/domains/"+url.PathEscape(args[1])+"/takeover",
+				map[string]string{"confirm": confirm})
+			return err
+		})
+	takeover.Flags().StringVar(&confirm, "confirm", "", "the domain, typed out (-y does not skip this)")
+
+	return []*cobra.Command{domains, plan, manage, rescope, unmanage, takeover, a.dnsRecords(op, base)}
+}
+
+// showRescope prints a rescope plan: the records handed back first, then
+// what stackr writes and may adopt, and where generated names go.
+func (a *app) showRescope(m map[string]any) error {
+	if back := asList(m["hand_back"]); len(back) > 0 {
+		a.say("These become yours; stackr stops updating them:")
+		if err := a.show(back, "host", "type", "value"); err != nil {
+			return err
+		}
+	}
+	if w := asList(m["writes"]); len(w) > 0 {
+		a.say("stackr writes:")
+		if err := a.show(w, "host", "type", "value"); err != nil {
+			return err
+		}
+	}
+	if ad := asList(m["adopt"]); len(ad) > 0 {
+		a.say("Already pointing at your nodes (serves = adopted):")
+		if err := a.show(ad, "host", "type", "value", "serves"); err != nil {
+			return err
+		}
+	}
+	if r := cell(m["resource"]); r != "(none)" {
+		a.say("Generated names go under %s.", r)
+	}
+	return nil
+}
+
+// showDomains is a domain or a list of them; a managed domain with a scope
+// reads "managed under <scope>".
+func (a *app) showDomains(v any) error {
+	if !a.json {
+		rows := asList(v)
+		if rows == nil {
+			rows = []any{v}
+		}
+		for _, r := range rows {
+			if m := asMap(r); m["state"] == "managed" && cell(m["scope"]) != "(none)" {
+				m["state"] = "managed under " + cell(m["scope"])
+			}
+		}
+	}
+	return a.show(v, dnsDomainCols...)
+}
+
+// serverOwned says whether connector id is missing from the org's DNS
+// connectors at orgBase, which list only the org's own: a shared one is the
+// server's. A list that cannot be read says no.
+func (a *app) serverOwned(orgBase, id string) bool {
+	v, err := a.call(GET, orgBase, nil)
+	list, ok := v.([]any)
+	if err != nil || !ok {
+		return false
+	}
+	for _, it := range list {
+		if cell(asMap(it)["id"]) == id {
+			return false
+		}
+	}
+	return true
+}
+
+// orgFlag adds --org to every leaf under cs: the org to work in, over the
+// logged-in one.
+func (a *app) orgFlag(cs ...*cobra.Command) {
+	for _, c := range cs {
+		if c.HasSubCommands() {
+			a.orgFlag(c.Commands()...)
+			continue
+		}
+		c.Flags().String("org", "", "the org (default: the logged-in one)")
+		c.PreRunE = func(c *cobra.Command, _ []string) error {
+			if o := flag(c, "org"); o != "" {
+				a.orgSlug = o
+			}
+			return nil
+		}
+	}
+}

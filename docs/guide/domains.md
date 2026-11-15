@@ -27,10 +27,10 @@ An org owner can add the org's own Namecheap account under the org's Connectors 
 A connector is only added in the panel: Server settings, Connectors for the server's, or the org's Connectors tab for an org's. Some kinds sign in on the provider's site, which a command line can't do. Once added, the CLI reaches it:
 
 ```bash
-stackr server connectors domains <connector>
+stkr server connectors domains <connector>
 ```
 
-An org owner uses `stackr org connectors` with the same verbs.
+An org owner uses `stkr org connectors` with the same verbs.
 
 ## Pick the domains stackr manages
 
@@ -43,9 +43,9 @@ Each domain on the account shows one of three states:
 A managed domain on a server connector says which orgs may use it under **Available to**. None ticked means every org, which is the default.
 
 ```bash
-stackr server connectors manage <connector> example.com
-stackr server connectors unmanage <connector> example.com
-stackr server connectors takeover <connector> example.com --confirm example.com
+stkr server connectors manage <connector> example.com
+stkr server connectors unmanage <connector> example.com
+stkr server connectors takeover <connector> example.com --confirm example.com
 ```
 
 `manage` takes over the existing records a tile already serves, as the panel ticks them. `--adopt=false` leaves them alone.
@@ -53,8 +53,8 @@ stackr server connectors takeover <connector> example.com --confirm example.com
 To manage only part of a domain, give the name below it. stackr then writes only at and under `stackr.example.com` and never touches the rest. The plan lists the records it leaves alone. The domain list shows `managed under stackr.example.com`.
 
 ```bash
-stackr server connectors plan <connector> example.com --under stackr
-stackr server connectors manage <connector> example.com --under stackr
+stkr server connectors plan <connector> example.com --under stackr
+stkr server connectors manage <connector> example.com --under stackr
 ```
 
 ### Change scope
@@ -67,8 +67,8 @@ Change scope on a managed domain picks again between all of it and only under a 
 The domain resource stackr made for the domain moves with the scope, so generated names go under the new one. Change scope is refused, naming the hosts, while a generated or wildcard hostname would fall outside the new scope, or while tile domains are named after the resource that moves. Remove those domains first.
 
 ```bash
-stackr server connectors rescope <connector> example.com --under test
-stackr server connectors rescope <connector> example.com
+stkr server connectors rescope <connector> example.com --under test
+stkr server connectors rescope <connector> example.com
 ```
 
 Without `--under` it widens to the whole domain. `rescope` prints the plan and asks; `-y` skips the question. `--adopt=false` leaves the existing records alone.
@@ -108,17 +108,17 @@ The rules:
 From the CLI:
 
 ```bash
-stackr tile domain records ls shop.example.com
-stackr tile domain records add shop.example.com TXT "google-site-verification=abc"
-stackr tile domain records add shop.example.com TXT "v=DMARC1; p=none" --name _dmarc
-stackr tile domain records rm shop.example.com <id or value>
+stkr tile domain records ls shop.example.com
+stkr tile domain records add shop.example.com TXT "google-site-verification=abc"
+stkr tile domain records add shop.example.com TXT "v=DMARC1; p=none" --name _dmarc
+stkr tile domain records rm shop.example.com <id or value>
 
-stackr server connectors records ls <connector> example.com
-stackr server connectors records add <connector> example.com MX "10 mx.example.net"
-stackr server connectors records rm <connector> example.com <id or value>
+stkr server connectors records ls <connector> example.com
+stkr server connectors records add <connector> example.com MX "10 mx.example.net"
+stkr server connectors records rm <connector> example.com <id or value>
 ```
 
-`stackr org connectors records` does the same for an org's own connector.
+`stkr org connectors records` does the same for an org's own connector.
 
 ### In the stack file
 
@@ -157,10 +157,10 @@ A custom record stackr put back after it changed at the DNS host says "Changed o
 The page reads stackr's own table, never the provider. Records stackr did not write are not listed; see them at your DNS host. It has no actions of its own: Change scope and Records on a domain row open that connector's settings on them, where the viewer may change them.
 
 ```bash
-stackr server domains
-stackr server domains example.com
-stackr org domains
-stackr org domains example.com
+stkr server domains
+stkr server domains example.com
+stkr org domains
+stkr org domains example.com
 ```
 
 Without a domain it lists the domains; with one it prints the domain and its records.
@@ -179,7 +179,7 @@ The domain itself and anything else gets its own certificate. The panel's domain
 Records point at the ingress node's detected public IP. To point them somewhere else, such as a floating IP or a load balancer, set the node's public IP: Admin, Nodes, the node, Network, Public IP. Empty goes back to the detected address.
 
 ```bash
-stackr node set vps-fsn1 --public-ip 203.0.113.10
+stkr node set vps-fsn1 --public-ip 203.0.113.10
 ```
 
 A node behind NAT has no public address of its own, and stackr holds its records until it has one. Set its public IP to the router's address, with ports 80 and 443 forwarded to the node.
@@ -197,8 +197,8 @@ When the panel's name sits in a managed domain, stackr writes its record. The se
 With `auto` and nothing to point at, stackr writes no record and raises a problem asking you to type an address or choose `self`. The install wizard's DNS step asks the same when the box has no public address.
 
 ```bash
-stackr admin setting panel_address 203.0.113.5
-stackr admin setting panel_address self
+stkr admin setting panel_address 203.0.113.5
+stkr admin setting panel_address self
 ```
 
 After every records sync and daily, stackr resolves the panel's name through public DNS and compares it with that address, and when a node outside exists it fetches the name over HTTPS from there. A name that does not resolve to this server, or that the outside cannot reach, raises a problem that clears when it is fixed. stackr repairs nothing by itself. With `self` only the reach check runs.

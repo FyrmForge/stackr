@@ -212,7 +212,7 @@ func (l *Leaf) For(ctx context.Context, orgID, id string) (store.BackupDest, err
 		return d, err
 	}
 	if d.OrgID == nil && !d.Shared {
-		return store.BackupDest{}, errs.Refusedf("the server destination %s is not shared with this org; an admin can share it (stackr dest set %s --server --shared)", d.Name, d.Name)
+		return store.BackupDest{}, errs.Refusedf("the server destination %s is not shared with this org; an admin can share it (stkr dest set %s --server --shared)", d.Name, d.Name)
 	}
 	if !visible(d, orgID) {
 		return store.BackupDest{}, errs.ErrNotFound

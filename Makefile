@@ -56,7 +56,7 @@ admin:
 
 ## installcli: Install the stackr CLI into GOBIN
 installcli:
-	go install -ldflags "-X main.version=$(VERSION)" ./cmd/stackr
+	go install -ldflags "-X main.version=$(VERSION)" ./cmd/stkr
 
 ## installer: Build the installer binary (bin/stackr-install)
 installer:

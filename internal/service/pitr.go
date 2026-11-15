@@ -758,7 +758,7 @@ type PITRBase struct {
 	Active bool      `json:"active,omitempty"` // running now
 }
 
-// PITRHealth is what the Backups tab and `stackr operated pitr status` show.
+// PITRHealth is what the Backups tab and `stkr operated pitr status` show.
 type PITRHealth struct {
 	On   bool `json:"on"`
 	Days int  `json:"days"`

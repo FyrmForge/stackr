@@ -827,7 +827,7 @@ func doneText(in installspec.Input, key, admin string, cli, dry bool) string {
 
   panel     %s
 %s  data      %s
-  cli       stackr <command>          (reaches the panel through its URL)
+  cli       stkr <command>            (reaches the panel through its URL)
   upgrade   Admin, Update in the panel
   people    invite them from the org's People tab
 `, status, in.BaseURL(), login, in.DataDir)

@@ -221,7 +221,7 @@ func (l *Leaf) ByKey(ctx context.Context, token string) (store.User, store.APIKe
 // the hash is stored. A key never holds more than its minter (B36): it is
 // bound to orgID, where the minter must hold roleInOrg (the caller reads the
 // membership); an unbound key (orgID "") is the account's, its user's live
-// roles in every org (stackr login; the service gates who mints one). level is
+// roles in every org (stkr login; the service gates who mints one). level is
 // the key's ceiling ("" = none, else viewer|member|owner|admin) and may not
 // exceed the minter's rung in that org; stackID narrows it to one stack
 // (the caller checked it is in the org).

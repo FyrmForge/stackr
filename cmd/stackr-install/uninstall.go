@@ -182,7 +182,7 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 	e.removeVolumes(ctx, fail, true)
 	e.removeImages(ctx, fail, host)
 	if ctrl {
-		// What `stackr registry login` or a `docker login` gave the panel's
+		// What `stkr registry login` or a `docker login` gave the panel's
 		// registry: that host's entry only, the rest of the config stays.
 		try("docker", "logout", registryHost(host))
 	}
@@ -253,7 +253,7 @@ func stackrVolumes(names, managed []string, all bool) []string {
 	return vs
 }
 
-// registryHost is the panel's registry name, as `stackr registry login`
+// registryHost is the panel's registry name, as `stkr registry login`
 // derives it.
 func registryHost(panelHost string) string { return "registry." + panelHost }
 

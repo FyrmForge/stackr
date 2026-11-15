@@ -41,10 +41,10 @@ Admin, Alerts, Heartbeat. Paste the ping URL and save. A blank URL keeps the sto
 From the CLI:
 
 ```bash
-printf '%s' "$SECRET" | stackr admin alerts set --url https://hooks.example.com/stackr --secret-stdin
-stackr admin alerts test
-stackr admin alerts show
-stackr admin alerts clear
+printf '%s' "$SECRET" | stkr admin alerts set --url https://hooks.example.com/stackr --secret-stdin
+stkr admin alerts test
+stkr admin alerts show
+stkr admin alerts clear
 ```
 
 A webhook URL often carries a token in its path. The panel shows it as `https://host/…` everywhere: the Alerts tab, `alerts show` and `GET /admin/settings/alert_webhook_url`.

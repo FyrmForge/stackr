@@ -33,7 +33,7 @@ func (o *Orchestrator) CLICode(ctx context.Context, by *Principal, name string) 
 	// the code buys the account's key, so a limited key may not ask for one:
 	// an org's key would otherwise trade itself for every org (B36)
 	if a := by.Access; a.KeyCapped || a.KeyStack != "" || a.KeyOrg != "" {
-		return "", errs.Refusedf("only a signed-in account or a stackr login key can approve a CLI login")
+		return "", errs.Refusedf("only a signed-in account or a stkr login key can approve a CLI login")
 	}
 	userID := by.User.ID
 	b := make([]byte, 32)

@@ -198,7 +198,7 @@ func TestPGExtBlockers(t *testing.T) {
 		}
 		// no startup module, official: the old text
 		w.instance(t, "staging", func(m *store.OperatedInstance) { m.Preload = nil })
-		if p := w.plan(t, "b2c", infraFile+"      major: 18\n"); !blocked(p, "stackr operated upgrade") {
+		if p := w.plan(t, "b2c", infraFile+"      major: 18\n"); !blocked(p, "stkr operated upgrade") {
 			t.Errorf("blockers = %v", p.Blockers)
 		}
 	})

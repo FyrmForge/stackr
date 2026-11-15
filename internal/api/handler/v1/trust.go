@@ -7,7 +7,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
-// The cluster trust verbs behind `stackr cluster trust`, `rotate-root`,
+// The cluster trust verbs behind `stkr cluster trust`, `rotate-root`,
 // `break-glass` and `revoke-controller-cert`. Server admins only; the
 // per-node rejoin command is the existing node rejoin route.
 

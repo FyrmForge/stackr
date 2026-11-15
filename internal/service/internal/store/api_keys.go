@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// APIKey is a row of api_keys. OrgID nil = unbound, the account's key (stackr login).
+// APIKey is a row of api_keys. OrgID nil = unbound, the account's key (stkr login).
 type APIKey struct {
 	ID        string    `db:"id" json:"id"`
 	UserID    string    `db:"user_id" json:"user_id"`

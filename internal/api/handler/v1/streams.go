@@ -136,7 +136,7 @@ func (h *H) Exec() Endpoint {
 const ForwardPortHeader = "X-Stackr-Port"
 
 // Forward tunnels a websocket to a TCP port in one replica
-// (?container=, ?port=), the server half of `stackr forward`: one socket
+// (?container=, ?port=), the server half of `stkr forward`: one socket
 // per local connection, binary frames are the bytes. The dial comes first
 // so every failure is an HTTP status.
 func (h *H) Forward() Endpoint {

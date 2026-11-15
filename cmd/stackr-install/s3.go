@@ -18,7 +18,7 @@ import (
 )
 
 // The S3 destination a restore reads from, by the names the CLI's
-// `stackr dest add` already takes its keys from.
+// `stkr dest add` already takes its keys from.
 const (
 	s3EndpointEnv  = "STACKR_BACKUP_ENDPOINT"
 	s3RegionEnv    = "STACKR_BACKUP_REGION"

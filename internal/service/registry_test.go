@@ -89,7 +89,7 @@ func TestRegistryToken(t *testing.T) {
 	}
 }
 
-// `stackr registry login` hands docker a short-lived token minted for the
+// `stkr registry login` hands docker a short-lived token minted for the
 // caller: it works at the registry front for the caller's orgs only, and a
 // tampered or API-key-shaped value does not.
 func TestRegistryLoginToken(t *testing.T) {

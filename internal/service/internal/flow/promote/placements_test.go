@@ -113,7 +113,7 @@ func TestPlanPlacing(t *testing.T) {
 				return map[string]planfile.MoveFact{"shop/dev": move, "shop/prd": move}, nil
 			}},
 			impact:  "moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s",
-			blocker: "pin eu-prod moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s; confirm that move on the Placement tab or with stackr pin eu-prod --stack shop, then promote again",
+			blocker: "pin eu-prod moves 2 envs (shop/dev, shop/prd) to eu-prod; each stops for about 20 s; confirm that move on the Placement tab or with stkr pin eu-prod --stack shop, then promote again",
 		},
 		{
 			name: "pin whose checks fail", file: placeHead + "environments:\n  dev: {pin: eu-prod}\n  prd: {from: promote}\n", env: "dev", changes: "pin:dev", blocker: "shop/dev cannot move: target online: h4 offline",

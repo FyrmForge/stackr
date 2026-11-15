@@ -1,8 +1,8 @@
 # CLI reference
 
-Generated from the command definitions: `go test ./cmd/stackr -run TestCLIReference -update`. `stackr <command> --help` prints the same text.
+Generated from the command definitions: `go test ./cmd/stkr -run TestCLIReference -update`. `stkr <command> --help` prints the same text.
 
-Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stackr@latest`, or pin a release with `@vX.Y.Z`. From a checkout: `make installcli`.
+Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stkr@latest`, or pin a release with `@vX.Y.Z`. From a checkout: `make installcli`.
 
 ```
 Drive a stackr server from the terminal.
@@ -11,7 +11,7 @@ Environment (each beats the config file; nothing here is written to disk):
   STACKR_KEY     API key, so CI needs no login
   STACKR_SERVER  server URL
   STACKR_ORG     org slug
-  STACKR_PROFILE login to use (see stackr profile ls); --profile beats it
+  STACKR_PROFILE login to use (see stkr profile ls); --profile beats it
   STACKR_CONFIG  config file path
 ```
 
@@ -19,47 +19,47 @@ Environment (each beats the config file; nothing here is written to disk):
 
 ```
       --json             print JSON; errors go to stderr as {error, status, code}
-      --profile string   the saved login to use (stackr profile ls); login makes it
+      --profile string   the saved login to use (stkr profile ls); login makes it
       --utc              print times in UTC, not this machine's zone
   -y, --yes              skip confirmation prompts (never overrides a server refusal)
 ```
 
 Exit codes: 0 fine, 1 failed, 2 wrong command line, 3 refused without `--yes` (no terminal, or `--json`).
 
-## `stackr admin`
+## `stkr admin`
 
 Server administration (stackr admins)
 
-### `stackr admin admin`
+### `stkr admin admin`
 
 Make a user a stackr admin, or not (--on=false)
 
 ```
-stackr admin admin <user-id> [flags]
+stkr admin admin <user-id> [flags]
 ```
 
 ```
       --on   admin or not (default true)
 ```
 
-### `stackr admin alerts`
+### `stkr admin alerts`
 
 Alert webhook: node offline, failed backups, expiring certs, low disk (admin)
 
-#### `stackr admin alerts clear`
+#### `stkr admin alerts clear`
 
 Turn alerts off: forget the URL and secret
 
 ```
-stackr admin alerts clear
+stkr admin alerts clear
 ```
 
-#### `stackr admin alerts set`
+#### `stkr admin alerts set`
 
 Set the alert webhook URL and its signing secret
 
 ```
-stackr admin alerts set [flags]
+stkr admin alerts set [flags]
 ```
 
 ```
@@ -68,28 +68,28 @@ stackr admin alerts set [flags]
       --url string     where alerts are posted (http or https); empty keeps the current one
 ```
 
-#### `stackr admin alerts show`
+#### `stkr admin alerts show`
 
 Show the alert webhook and its last delivery
 
 ```
-stackr admin alerts show
+stkr admin alerts show
 ```
 
-#### `stackr admin alerts test`
+#### `stkr admin alerts test`
 
 Send a test alert now
 
 ```
-stackr admin alerts test
+stkr admin alerts test
 ```
 
-### `stackr admin audit`
+### `stkr admin audit`
 
 The security audit log (server admin)
 
 ```
-stackr admin audit [flags]
+stkr admin audit [flags]
 ```
 
 ```
@@ -105,121 +105,121 @@ stackr admin audit [flags]
 Example:
 
 ```
-  stackr admin audit --since 24h
-  stackr admin audit --action 'cert.*' --outcome ok
+  stkr admin audit --since 24h
+  stkr admin audit --action 'cert.*' --outcome ok
 ```
 
-### `stackr admin defaults`
+### `stkr admin defaults`
 
 Show or change the server's settings defaults
 
 ```
-stackr admin defaults [flags]
+stkr admin defaults [flags]
 ```
 
 ```
       --clear stringArray   give a knob back to the built-in default
-      --set stringArray     knob=value (stackr knobs lists them)
+      --set stringArray     knob=value (stkr knobs lists them)
 ```
 
-### `stackr admin dest-grant-approve`
+### `stkr admin dest-grant-approve`
 
 Let an org's backup destination reach its private address (id or name)
 
 ```
-stackr admin dest-grant-approve <dest>
+stkr admin dest-grant-approve <dest>
 ```
 
-### `stackr admin dest-grant-revoke`
+### `stkr admin dest-grant-revoke`
 
 Take back an org backup destination's access to its private address (id or name)
 
 ```
-stackr admin dest-grant-revoke <dest>
+stkr admin dest-grant-revoke <dest>
 ```
 
-### `stackr admin dest-grants`
+### `stkr admin dest-grants`
 
 List the org backup destinations on a private address and whether they wait for approval
 
 ```
-stackr admin dest-grants
+stkr admin dest-grants
 ```
 
-### `stackr admin disable`
+### `stkr admin disable`
 
 Disable a user; their sessions and keys close
 
 ```
-stackr admin disable <user-id>
+stkr admin disable <user-id>
 ```
 
-### `stackr admin enable`
+### `stkr admin enable`
 
 Enable a user; closed sessions and keys stay closed
 
 ```
-stackr admin enable <user-id>
+stkr admin enable <user-id>
 ```
 
-### `stackr admin host-grants`
+### `stkr admin host-grants`
 
 List every stack's elevated access and what waits for approval
 
 ```
-stackr admin host-grants
+stkr admin host-grants
 ```
 
-### `stackr admin image-check`
+### `stkr admin image-check`
 
 Check every image for a newer tag; a moved tag writes a release
 
 ```
-stackr admin image-check [flags]
+stkr admin image-check [flags]
 ```
 
 ```
       --no-wait   print the job and return; it runs server-side
 ```
 
-### `stackr admin images`
+### `stkr admin images`
 
 List the images stackr knows
 
 ```
-stackr admin images
+stkr admin images
 ```
 
-### `stackr admin key`
+### `stkr admin key`
 
 Make an admin key bound to no org; the token is shown once
 
 ```
-stackr admin key <name>
+stkr admin key <name>
 ```
 
-### `stackr admin observe`
+### `stkr admin observe`
 
 Show metrics history and logs: on or off, retention, data size and free disk
 
 ```
-stackr admin observe
+stkr admin observe
 ```
 
-### `stackr admin orgs`
+### `stkr admin orgs`
 
 List every org
 
 ```
-stackr admin orgs
+stkr admin orgs
 ```
 
-### `stackr admin panel-backup`
+### `stkr admin panel-backup`
 
 Back up stackr's own database now
 
 ```
-stackr admin panel-backup [flags]
+stkr admin panel-backup [flags]
 ```
 
 ```
@@ -227,32 +227,32 @@ stackr admin panel-backup [flags]
       --no-wait       print the job and return; it runs server-side
 ```
 
-### `stackr admin panel-backups`
+### `stkr admin panel-backups`
 
 List backups of stackr's own database
 
 ```
-stackr admin panel-backups
+stkr admin panel-backups
 ```
 
-### `stackr admin password`
+### `stkr admin password`
 
 Set a user's password
 
 ```
-stackr admin password <user-id>
+stkr admin password <user-id>
 ```
 
-### `stackr admin placement`
+### `stkr admin placement`
 
 Placements: named places envs belong to, each on one node (server admin)
 
-#### `stackr admin placement add`
+#### `stkr admin placement add`
 
 Make a placement, on a node or none yet (server admin)
 
 ```
-stackr admin placement add <name> [flags]
+stkr admin placement add <name> [flags]
 ```
 
 ```
@@ -263,25 +263,25 @@ stackr admin placement add <name> [flags]
 Example:
 
 ```
-  stackr admin placement add eu-prod --node h4
-  stackr admin placement add eu-db --node h3 --open acme,shop
-  stackr admin placement add standby-h5 --node h5 --open none
+  stkr admin placement add eu-prod --node h4
+  stkr admin placement add eu-db --node h3 --open acme,shop
+  stkr admin placement add standby-h5 --node h5 --open none
 ```
 
-#### `stackr admin placement ls`
+#### `stkr admin placement ls`
 
 List placements with their node (server admin)
 
 ```
-stackr admin placement ls
+stkr admin placement ls
 ```
 
-#### `stackr admin placement move`
+#### `stkr admin placement move`
 
 Repoint a placement to another node, moving its envs (server admin)
 
 ```
-stackr admin placement move <name> <node> [flags]
+stkr admin placement move <name> <node> [flags]
 ```
 
 ```
@@ -292,81 +292,81 @@ stackr admin placement move <name> <node> [flags]
 Example:
 
 ```
-  stackr admin placement move eu-prod h5
-  stackr admin placement move eu-prod h5 --yes
-  stackr admin placement move lab h5 --start-empty --yes
+  stkr admin placement move eu-prod h5
+  stkr admin placement move eu-prod h5 --yes
+  stkr admin placement move lab h5 --start-empty --yes
 ```
 
-#### `stackr admin placement open`
+#### `stkr admin placement open`
 
 Open a placement to every org or to a list; envs already there stay (server admin)
 
 ```
-stackr admin placement open <name> <all|none|org,org,...>
+stkr admin placement open <name> <all|none|org,org,...>
 ```
 
-#### `stackr admin placement retry`
+#### `stkr admin placement retry`
 
 Move the envs a failed repoint left behind (server admin)
 
 ```
-stackr admin placement retry <name> [flags]
+stkr admin placement retry <name> [flags]
 ```
 
 ```
       --no-wait   print the job and return; it runs server-side
 ```
 
-#### `stackr admin placement rm`
+#### `stkr admin placement rm`
 
 Delete a placement no pin or env uses (server admin)
 
 ```
-stackr admin placement rm <name>
+stkr admin placement rm <name>
 ```
 
-### `stackr admin proxy-sync`
+### `stkr admin proxy-sync`
 
 Push the routing table to Caddy again
 
 ```
-stackr admin proxy-sync
+stkr admin proxy-sync
 ```
 
-### `stackr admin registry`
+### `stkr admin registry`
 
 The image registry, server-wide
 
-#### `stackr admin registry clean`
+#### `stkr admin registry clean`
 
 Delete the versions no env runs beyond the newest, then free the disk
 
 ```
-stackr admin registry clean [flags]
+stkr admin registry clean [flags]
 ```
 
 ```
       --no-wait   print the job and return; it runs server-side
 ```
 
-#### `stackr admin registry ls`
+#### `stkr admin registry ls`
 
 Show what each org holds and how the last cleanup went
 
 ```
-stackr admin registry ls
+stkr admin registry ls
 ```
 
-### `stackr admin route`
+### `stkr admin route`
 
 Routes: hosts that go to an address outside stackr (admin)
 
-#### `stackr admin route add`
+#### `stkr admin route add`
 
 Add a route
 
 ```
-stackr admin route add <host> [flags]
+stkr admin route add <host> [flags]
 ```
 
 ```
@@ -375,122 +375,122 @@ stackr admin route add <host> [flags]
       --to string     where it goes: host or host:port (443 by default, 80 for http)
 ```
 
-#### `stackr admin route ls`
+#### `stkr admin route ls`
 
 List routes
 
 ```
-stackr admin route ls
+stkr admin route ls
 ```
 
-#### `stackr admin route rm`
+#### `stkr admin route rm`
 
 Remove a route
 
 ```
-stackr admin route rm <host>
+stkr admin route rm <host>
 ```
 
-### `stackr admin setting`
+### `stkr admin setting`
 
 Read or write one server setting
 
 ```
-stackr admin setting <key> [value]
+stkr admin setting <key> [value]
 ```
 
-### `stackr admin upgrade`
+### `stkr admin upgrade`
 
 Upgrade stackr to a release
 
 ```
-stackr admin upgrade [flags]
+stkr admin upgrade [flags]
 ```
 
 ```
       --no-wait      print the job and return; it runs server-side
-      --tag string   the release tag (stackr admin upgrade-check names the newest)
+      --tag string   the release tag (stkr admin upgrade-check names the newest)
 ```
 
-### `stackr admin upgrade-check`
+### `stkr admin upgrade-check`
 
 Is there a newer stackr?
 
 ```
-stackr admin upgrade-check
+stkr admin upgrade-check
 ```
 
-### `stackr admin upgrade-workers`
+### `stkr admin upgrade-workers`
 
 Upgrade every worker to this server's version, one at a time
 
 ```
-stackr admin upgrade-workers [flags]
+stkr admin upgrade-workers [flags]
 ```
 
 ```
       --no-wait   print the job and return; it runs server-side
 ```
 
-### `stackr admin users`
+### `stkr admin users`
 
 List users
 
 ```
-stackr admin users
+stkr admin users
 ```
 
-### `stackr admin version`
+### `stkr admin version`
 
 Show the server's version
 
 ```
-stackr admin version
+stkr admin version
 ```
 
-## `stackr backup`
+## `stkr backup`
 
 Volume backups
 
-### `stackr backup create`
+### `stkr backup create`
 
 Schedule backups of a volume
 
 ```
-stackr backup create <volume-id> [flags]
+stkr backup create <volume-id> [flags]
 ```
 
 ```
       --dest string       the destination id (default: local)
       --keep int          archives to keep (0: all) (default 7)
-      --method string     the backup method (stackr backup methods lists them)
+      --method string     the backup method (stkr backup methods lists them)
       --mode string       the method's mode
       --schedule string   a cron expression
       --tz string         the cron's timezone (default "UTC")
 ```
 
-### `stackr backup ls`
+### `stkr backup ls`
 
 List a volume's backup schedules
 
 ```
-stackr backup ls <volume-id>
+stkr backup ls <volume-id>
 ```
 
-### `stackr backup methods`
+### `stkr backup methods`
 
 List the ways a volume can be backed up
 
 ```
-stackr backup methods <volume-id>
+stkr backup methods <volume-id>
 ```
 
-### `stackr backup restore`
+### `stkr backup restore`
 
 Restore a backup run over a volume. Instances restore with `operated restore`, slices with `slice restore`
 
 ```
-stackr backup restore <volume-id> [flags]
+stkr backup restore <volume-id> [flags]
 ```
 
 ```
@@ -499,20 +499,20 @@ stackr backup restore <volume-id> [flags]
       --target string   restore into this volume instead (default: the source)
 ```
 
-### `stackr backup rm`
+### `stkr backup rm`
 
 Delete a backup schedule
 
 ```
-stackr backup rm <schedule-id>
+stkr backup rm <schedule-id>
 ```
 
-### `stackr backup run`
+### `stkr backup run`
 
 Back a volume up now
 
 ```
-stackr backup run <volume-id> [flags]
+stkr backup run <volume-id> [flags]
 ```
 
 ```
@@ -522,92 +522,92 @@ stackr backup run <volume-id> [flags]
       --no-wait         print the job and return; it runs server-side
 ```
 
-### `stackr backup runs`
+### `stkr backup runs`
 
 List a volume's backup runs
 
 ```
-stackr backup runs <volume-id>
+stkr backup runs <volume-id>
 ```
 
-### `stackr backup set`
+### `stkr backup set`
 
 Change a backup schedule; only the flags given change
 
 ```
-stackr backup set <volume-id> <schedule-id> [flags]
+stkr backup set <volume-id> <schedule-id> [flags]
 ```
 
 ```
       --dest string       the destination id (default: local)
       --keep int          archives to keep (0: all) (default 7)
-      --method string     the backup method (stackr backup methods lists them)
+      --method string     the backup method (stkr backup methods lists them)
       --mode string       the method's mode
       --schedule string   a cron expression
       --tz string         the cron's timezone (default "UTC")
 ```
 
-## `stackr cluster`
+## `stkr cluster`
 
 The cluster at a glance, and its root of trust
 
-### `stackr cluster break-glass`
+### `stkr cluster break-glass`
 
 Wipe the root and every WireGuard key; each node must rejoin (server admin)
 
 ```
-stackr cluster break-glass
+stkr cluster break-glass
 ```
 
-### `stackr cluster revoke-controller-cert`
+### `stkr cluster revoke-controller-cert`
 
 Give the controller a new certificate; workers stop accepting the old one (server admin)
 
 ```
-stackr cluster revoke-controller-cert
+stkr cluster revoke-controller-cert
 ```
 
-### `stackr cluster rotate-root`
+### `stkr cluster rotate-root`
 
 Replace the cluster root; every node gets a new certificate, nothing stops. --finish ends a stuck rollover (server admin)
 
 ```
-stackr cluster rotate-root [flags]
+stkr cluster rotate-root [flags]
 ```
 
 ```
       --finish   end a running rollover now instead of waiting for offline nodes
 ```
 
-### `stackr cluster status`
+### `stkr cluster status`
 
 The whole cluster, grouped by network; exits 1 when anything is down
 
 ```
-stackr cluster status
+stkr cluster status
 ```
 
 Example:
 
 ```
-  stackr cluster status
-  stackr cluster status --json
+  stkr cluster status
+  stkr cluster status --json
 ```
 
-### `stackr cluster trust`
+### `stkr cluster trust`
 
 The cluster root, any rollover and the nodes not rejoined (server admin)
 
 ```
-stackr cluster trust
+stkr cluster trust
 ```
 
-## `stackr deploy`
+## `stkr deploy`
 
 Deploy the tile and follow it
 
 ```
-stackr deploy [tile] [flags]
+stkr deploy [tile] [flags]
 ```
 
 ```
@@ -617,7 +617,7 @@ stackr deploy [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-## `stackr dest`
+## `stkr dest`
 
 Backup destinations
 
@@ -627,12 +627,12 @@ Flags for it and its subcommands:
       --server   the server-wide destinations (admin)
 ```
 
-### `stackr dest add`
+### `stkr dest add`
 
 Add an S3 destination
 
 ```
-stackr dest add <name> [flags]
+stkr dest add <name> [flags]
 ```
 
 ```
@@ -644,32 +644,32 @@ stackr dest add <name> [flags]
       --shared              every org may use it (server destinations)
 ```
 
-### `stackr dest ls`
+### `stkr dest ls`
 
 List destinations
 
 ```
-stackr dest ls
+stkr dest ls
 ```
 
-### `stackr dest rm`
+### `stkr dest rm`
 
 Remove a destination; archives in the bucket are kept
 
 ```
-stackr dest rm <id> [flags]
+stkr dest rm <id> [flags]
 ```
 
 ```
       --force   a deleted org's destination: drop its records without touching the bucket (use when the bucket or credentials are gone)
 ```
 
-### `stackr dest set`
+### `stkr dest set`
 
 Rename or share a destination (endpoint, bucket and keys stay: archives were written with them)
 
 ```
-stackr dest set <id> [flags]
+stkr dest set <id> [flags]
 ```
 
 ```
@@ -677,16 +677,16 @@ stackr dest set <id> [flags]
       --shared        every org may use it
 ```
 
-## `stackr domain`
+## `stkr domain`
 
 Domain resources: the hosts tiles get names under
 
-### `stackr domain add`
+### `stkr domain add`
 
 Add a host tiles get names under, at instance, org or stack level; one the owner already has is kept
 
 ```
-stackr domain add [host] [flags]
+stkr domain add [host] [flags]
 ```
 
 ```
@@ -697,52 +697,52 @@ stackr domain add [host] [flags]
       --owner string        the org's slug, or the stack as org/stack (default: the logged-in org)
 ```
 
-### `stackr domain ls`
+### `stkr domain ls`
 
 List domain resources: the org's and the instance's, or with no --org every one (admin)
 
 ```
-stackr domain ls [flags]
+stkr domain ls [flags]
 ```
 
 ```
       --org string   the org (its slug); without it, every resource on the server (admin)
 ```
 
-### `stackr domain rename`
+### `stkr domain rename`
 
 Move a domain resource to a new host: its auto hosts follow, and each old host redirects to its new one
 
 ```
-stackr domain rename <id or host> <new host> [flags]
+stkr domain rename <id or host> <new host> [flags]
 ```
 
 ```
       --org string   the org (its slug); without it, every resource on the server (admin)
 ```
 
-### `stackr domain rm`
+### `stkr domain rm`
 
 Remove a domain resource; refused while tile domains carry its name
 
 ```
-stackr domain rm <id or host> [flags]
+stkr domain rm <id or host> [flags]
 ```
 
 ```
       --org string   the org (its slug); without it, every resource on the server (admin)
 ```
 
-## `stackr env`
+## `stkr env`
 
 Environments of the stack
 
-### `stackr env color`
+### `stkr env color`
 
 Set the environment's panel colour
 
 ```
-stackr env color <color> [flags]
+stkr env color <color> [flags]
 ```
 
 ```
@@ -750,12 +750,12 @@ stackr env color <color> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env create`
+### `stkr env create`
 
 Make an environment
 
 ```
-stackr env create <name> [flags]
+stkr env create <name> [flags]
 ```
 
 ```
@@ -773,31 +773,31 @@ stackr env create <name> [flags]
 Example:
 
 ```
-  stackr env create dev --stack shop --branch main
-  stackr env create staging --stack shop
+  stkr env create dev --stack shop --branch main
+  stkr env create staging --stack shop
 ```
 
-### `stackr env defaults`
+### `stkr env defaults`
 
 Show or change the environment's settings defaults
 
 ```
-stackr env defaults [flags]
+stkr env defaults [flags]
 ```
 
 ```
       --clear stringArray   give a knob back to the level above
       --env string          the environment (default: the linked one)
-      --set stringArray     knob=value (stackr knobs lists them)
+      --set stringArray     knob=value (stkr knobs lists them)
       --stack string        the stack (default: the linked one)
 ```
 
-### `stackr env from`
+### `stkr env from`
 
 Set where the env's releases come from
 
 ```
-stackr env from [flags]
+stkr env from [flags]
 ```
 
 ```
@@ -808,12 +808,12 @@ stackr env from [flags]
       --stack string       the stack (default: the linked one)
 ```
 
-### `stackr env get`
+### `stkr env get`
 
 Show the environment
 
 ```
-stackr env get [flags]
+stkr env get [flags]
 ```
 
 ```
@@ -821,12 +821,12 @@ stackr env get [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env ladder`
+### `stkr env ladder`
 
 List environments in promote order
 
 ```
-stackr env ladder [flags]
+stkr env ladder [flags]
 ```
 
 ```
@@ -834,12 +834,12 @@ stackr env ladder [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env lock`
+### `stkr env lock`
 
 Lock the environment: other envs cannot read its params
 
 ```
-stackr env lock [flags]
+stkr env lock [flags]
 ```
 
 ```
@@ -847,20 +847,20 @@ stackr env lock [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env lost`
+### `stkr env lost`
 
 List envs whose node was forgotten
 
 ```
-stackr env lost
+stkr env lost
 ```
 
-### `stackr env ls`
+### `stkr env ls`
 
 List environments
 
 ```
-stackr env ls [flags]
+stkr env ls [flags]
 ```
 
 ```
@@ -868,12 +868,12 @@ stackr env ls [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env rename`
+### `stkr env rename`
 
 Rename the environment
 
 ```
-stackr env rename <name> [flags]
+stkr env rename <name> [flags]
 ```
 
 ```
@@ -881,12 +881,12 @@ stackr env rename <name> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env reorder`
+### `stkr env reorder`
 
 Set the promote order, bottom rung first
 
 ```
-stackr env reorder <env>... [flags]
+stkr env reorder <env>... [flags]
 ```
 
 ```
@@ -894,12 +894,12 @@ stackr env reorder <env>... [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env restore`
+### `stkr env restore`
 
 Bring a placement's lost envs back from their backups on a live node (server admin)
 
 ```
-stackr env restore [flags]
+stkr env restore [flags]
 ```
 
 ```
@@ -914,16 +914,16 @@ stackr env restore [flags]
 Example:
 
 ```
-  stackr env restore --placement eu-db --to h5
-  stackr env restore --placement eu-db --to h5 --start-empty
+  stkr env restore --placement eu-db --to h5
+  stkr env restore --placement eu-db --to h5 --start-empty
 ```
 
-### `stackr env rm`
+### `stkr env rm`
 
 Delete the environment
 
 ```
-stackr env rm [env] [flags]
+stkr env rm [env] [flags]
 ```
 
 ```
@@ -931,12 +931,12 @@ stackr env rm [env] [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env sync`
+### `stkr env sync`
 
 Make --env match another env's setup (tiles, settings, params, volumes): prints the plan, then asks
 
 ```
-stackr env sync [flags]
+stkr env sync [flags]
 ```
 
 ```
@@ -951,16 +951,16 @@ stackr env sync [flags]
 Example:
 
 ```
-  stackr env sync --from dev --stack shop --env staging
-  stackr env sync --from dev --stack shop --env staging --tile api
+  stkr env sync --from dev --stack shop --env staging
+  stkr env sync --from dev --stack shop --env staging --tile api
 ```
 
-### `stackr env traffic`
+### `stkr env traffic`
 
 Show tile-to-tile traffic at the last 5 s sample
 
 ```
-stackr env traffic [flags]
+stkr env traffic [flags]
 ```
 
 ```
@@ -968,12 +968,12 @@ stackr env traffic [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr env unlock`
+### `stkr env unlock`
 
 Unlock the environment: other envs may read its params
 
 ```
-stackr env unlock [flags]
+stkr env unlock [flags]
 ```
 
 ```
@@ -981,16 +981,16 @@ stackr env unlock [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-## `stackr exit`
+## `stkr exit`
 
 The placements traffic leaves the cluster through
 
-### `stackr exit ls`
+### `stkr exit ls`
 
 The exit list in force for a scope
 
 ```
-stackr exit ls [flags]
+stkr exit ls [flags]
 ```
 
 ```
@@ -1003,15 +1003,15 @@ stackr exit ls [flags]
 Example:
 
 ```
-  stackr exit ls --stack shop --env prod
+  stkr exit ls --stack shop --env prod
 ```
 
-### `stackr exit set`
+### `stkr exit set`
 
 Set the ordered exit list of a scope: placements, or own for the env's own
 
 ```
-stackr exit set [placement]... [flags]
+stkr exit set [placement]... [flags]
 ```
 
 ```
@@ -1026,16 +1026,16 @@ stackr exit set [placement]... [flags]
 Example:
 
 ```
-  stackr exit set eu-prod home --stack shop --env prod
-  stackr exit set --clear --stack shop --env prod
+  stkr exit set eu-prod home --stack shop --env prod
+  stkr exit set --clear --stack shop --env prod
 ```
 
-## `stackr forward`
+## `stkr forward`
 
 Tunnel a local port to a tile's port
 
 ```
-stackr forward [tile] [flags]
+stkr forward [tile] [flags]
 ```
 
 ```
@@ -1047,16 +1047,16 @@ stackr forward [tile] [flags]
       --tile string        the tile (default: the linked one)
 ```
 
-## `stackr host-grant`
+## `stkr host-grant`
 
 Elevated access: what a server admin approved for a stack
 
-### `stackr host-grant approve`
+### `stkr host-grant approve`
 
 Approve the elevated access the stack's parked jobs ask for (server admin); --only grants part of it. A host network tile can reach every env on its node and the mesh.
 
 ```
-stackr host-grant approve [flags]
+stkr host-grant approve [flags]
 ```
 
 ```
@@ -1065,12 +1065,12 @@ stackr host-grant approve [flags]
       --stack string       the stack (default: the linked one)
 ```
 
-### `stackr host-grant revoke`
+### `stkr host-grant revoke`
 
 Revoke the stack's elevated access, or one tile's with --tile (server admin); running tiles stay, the next deploy that needs it parks
 
 ```
-stackr host-grant revoke [flags]
+stkr host-grant revoke [flags]
 ```
 
 ```
@@ -1079,12 +1079,12 @@ stackr host-grant revoke [flags]
       --tile string    revoke only this tile's lines
 ```
 
-### `stackr host-grant show`
+### `stkr host-grant show`
 
 Show the stack's approved elevated access and what waits for approval
 
 ```
-stackr host-grant show [flags]
+stkr host-grant show [flags]
 ```
 
 ```
@@ -1092,16 +1092,16 @@ stackr host-grant show [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-## `stackr ingress`
+## `stkr ingress`
 
 The placement public traffic enters through
 
-### `stackr ingress get`
+### `stkr ingress get`
 
 Which placement public traffic enters through
 
 ```
-stackr ingress get [flags]
+stkr ingress get [flags]
 ```
 
 ```
@@ -1115,16 +1115,16 @@ stackr ingress get [flags]
 Example:
 
 ```
-  stackr ingress get --stack shop --env prod
-  stackr ingress get --default
+  stkr ingress get --stack shop --env prod
+  stkr ingress get --default
 ```
 
-### `stackr ingress set`
+### `stkr ingress set`
 
 Pick the ingress placement of a scope
 
 ```
-stackr ingress set [placement] [flags]
+stkr ingress set [placement] [flags]
 ```
 
 ```
@@ -1140,11 +1140,11 @@ stackr ingress set [placement] [flags]
 Example:
 
 ```
-  stackr ingress set eu-prod --tile admin --stack shop --env prod
-  stackr ingress set h4 --default
+  stkr ingress set eu-prod --tile admin --stack shop --env prod
+  stkr ingress set h4 --default
 ```
 
-## `stackr job`
+## `stkr job`
 
 Jobs: deploys, promotes, backups, everything queued
 
@@ -1154,28 +1154,28 @@ Flags for it and its subcommands:
       --admin   a job of any org (admin)
 ```
 
-### `stackr job cancel`
+### `stkr job cancel`
 
 Cancel a queued or running job
 
 ```
-stackr job cancel <id>
+stkr job cancel <id>
 ```
 
-### `stackr job get`
+### `stkr job get`
 
 Show a job
 
 ```
-stackr job get <id>
+stkr job get <id>
 ```
 
-### `stackr job log`
+### `stkr job log`
 
 Print a job's log; --follow waits for its end
 
 ```
-stackr job log <id> [flags]
+stkr job log <id> [flags]
 ```
 
 ```
@@ -1185,16 +1185,16 @@ stackr job log <id> [flags]
 Example:
 
 ```
-  stackr job log j1
-  stackr job log j1 --follow
+  stkr job log j1
+  stkr job log j1 --follow
 ```
 
-### `stackr job ls`
+### `stkr job ls`
 
 List the org's jobs, newest first
 
 ```
-stackr job ls [flags]
+stkr job ls [flags]
 ```
 
 ```
@@ -1204,16 +1204,16 @@ stackr job ls [flags]
       --state strings   only these states (queued, running, waiting, done, failed, ...)
 ```
 
-## `stackr key`
+## `stkr key`
 
 Your API keys
 
-### `stackr key add`
+### `stkr key add`
 
 Make a key for this org; the token is shown once
 
 ```
-stackr key add <name> [flags]
+stkr key add <name> [flags]
 ```
 
 ```
@@ -1221,44 +1221,44 @@ stackr key add <name> [flags]
       --stack string   limit the key to one stack, by slug (default: the whole org)
 ```
 
-### `stackr key ls`
+### `stkr key ls`
 
 List your API keys
 
 ```
-stackr key ls
+stkr key ls
 ```
 
-### `stackr key rm`
+### `stkr key rm`
 
 Revoke a key
 
 ```
-stackr key rm <name|id>
+stkr key rm <name|id>
 ```
 
-### `stackr key rotate`
+### `stkr key rotate`
 
 Give a key a new secret; the old one stops working
 
 ```
-stackr key rotate <name|id>
+stkr key rotate <name|id>
 ```
 
-## `stackr knobs`
+## `stkr knobs`
 
 List the settings knobs every defaults level takes
 
 ```
-stackr knobs
+stkr knobs
 ```
 
-## `stackr link`
+## `stkr link`
 
 Bind this directory to a stack, env and tile
 
 ```
-stackr link [flags]
+stkr link [flags]
 ```
 
 ```
@@ -1267,12 +1267,12 @@ stackr link [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-## `stackr login`
+## `stkr login`
 
 Log in to a stackr server
 
 ```
-stackr login <url> [flags]
+stkr login <url> [flags]
 ```
 
 Log in to a stackr server.
@@ -1291,28 +1291,28 @@ login under a name, to keep several servers.
 Example:
 
 ```
-  stackr login https://stackr.example.com
-  stackr login https://stackr.example.com --with-key $KEY --org acme
+  stkr login https://stackr.example.com
+  stkr login https://stackr.example.com --with-key $KEY --org acme
 ```
 
-## `stackr logout`
+## `stkr logout`
 
 Forget the stored key; a browser login's key is revoked
 
 ```
-stackr logout
+stkr logout
 ```
 
-## `stackr logs`
+## `stkr logs`
 
 Print a replica's or a run's log; --follow streams it
 
-### `stackr logs purge`
+### `stkr logs purge`
 
 Delete every kept log line of an environment
 
 ```
-stackr logs purge [flags]
+stkr logs purge [flags]
 ```
 
 ```
@@ -1320,12 +1320,12 @@ stackr logs purge [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr logs search`
+### `stkr logs search`
 
 Search the kept log lines of an environment, or of one --tile, newest first (500 at most)
 
 ```
-stackr logs search [text] [flags]
+stkr logs search [text] [flags]
 ```
 
 ```
@@ -1342,15 +1342,15 @@ stackr logs search [text] [flags]
 Example:
 
 ```
-  stackr logs search --env prod --tile api --source access 500
+  stkr logs search --env prod --tile api --source access 500
 ```
 
-## `stackr metrics`
+## `stkr metrics`
 
 Show a tile's CPU, memory, network, disk IO and requests (a cron or function's runs) over --range
 
 ```
-stackr metrics [tile] [flags]
+stkr metrics [tile] [flags]
 ```
 
 ```
@@ -1360,23 +1360,23 @@ stackr metrics [tile] [flags]
 Example:
 
 ```
-  stackr tile metrics api --stack shop --env prod --range 24h
+  stkr tile metrics api --stack shop --env prod --range 24h
 ```
 
-## `stackr node`
+## `stkr node`
 
 The cluster's machines: the controller and its workers
 
-### `stackr node add`
+### `stkr node add`
 
 Make the join command for a new worker; it gets egress and storage unless --no-storage (server admin)
 
 ```
-stackr node add <name> [flags]
+stkr node add <name> [flags]
 ```
 
 Make the join command for a new worker (server admin). The node gets egress and storage; add more tags with --tag, or leave storage off with --no-storage.
-Orgs reach it through a placement: stackr admin placement add <name> --node <node>.
+Orgs reach it through a placement: stkr admin placement add <name> --node <node>.
 
 ```
       --no-storage        do not give the node the storage tag
@@ -1386,62 +1386,62 @@ Orgs reach it through a placement: stackr admin placement add <name> --node <nod
 Example:
 
 ```
-  stackr node add vps-fsn1 --tag ingress
-  stackr node add vps-edge --no-storage
+  stkr node add vps-fsn1 --tag ingress
+  stkr node add vps-edge --no-storage
 ```
 
-### `stackr node backup`
+### `stkr node backup`
 
 Back up every volume on a node, one env at a time (server admin)
 
 ```
-stackr node backup <name>
+stkr node backup <name>
 ```
 
-### `stackr node backups`
+### `stkr node backups`
 
 List a node's backups, newest first (server admin)
 
 ```
-stackr node backups <name>
+stkr node backups <name>
 ```
 
-### `stackr node confirm`
+### `stkr node confirm`
 
 Accept a worker that called back (server admin)
 
 ```
-stackr node confirm <name>
+stkr node confirm <name>
 ```
 
-### `stackr node exit`
+### `stkr node exit`
 
 Set the exits a node without egress sends its traffic out through, in order, up to three (server admin)
 
 ```
-stackr node exit <name> [<exit>...]
+stkr node exit <name> [<exit>...]
 ```
 
 Example:
 
 ```
-  stackr node exit vps-home vps-fsn1 vps-hel1
+  stkr node exit vps-home vps-fsn1 vps-hel1
 ```
 
-### `stackr node forget`
+### `stkr node forget`
 
 Write off a dead worker for good (server admin)
 
 ```
-stackr node forget <name>
+stkr node forget <name>
 ```
 
-### `stackr node link-metrics`
+### `stkr node link-metrics`
 
 Show the tunnel between two nodes: ping, loss, traffic and handshake age over --range (server admin)
 
 ```
-stackr node link-metrics <node> <peer> [flags]
+stkr node link-metrics <node> <peer> [flags]
 ```
 
 ```
@@ -1451,35 +1451,35 @@ stackr node link-metrics <node> <peer> [flags]
 Example:
 
 ```
-  stackr node link-metrics ct110 ct111 --range 6h
+  stkr node link-metrics ct110 ct111 --range 6h
 ```
 
-### `stackr node ls`
+### `stkr node ls`
 
 List nodes (server admin)
 
 ```
-stackr node ls [flags]
+stkr node ls [flags]
 ```
 
 ```
-      --pending        only nodes waiting for stackr node confirm
+      --pending        only nodes waiting for stkr node confirm
       --state string   only nodes in this state (online, pending, ...)
 ```
 
 Example:
 
 ```
-  stackr node ls
-  stackr node ls --pending
+  stkr node ls
+  stkr node ls --pending
 ```
 
-### `stackr node metrics`
+### `stkr node metrics`
 
 Show a node's CPU, memory and disk over --range (server admin)
 
 ```
-stackr node metrics <name> [flags]
+stkr node metrics <name> [flags]
 ```
 
 ```
@@ -1489,45 +1489,45 @@ stackr node metrics <name> [flags]
 Example:
 
 ```
-  stackr node metrics ct110 --range 6h
+  stkr node metrics ct110 --range 6h
 ```
 
-### `stackr node reject`
+### `stkr node reject`
 
 Turn a worker that called back away (server admin)
 
 ```
-stackr node reject <name>
+stkr node reject <name>
 ```
 
-### `stackr node rejoin`
+### `stkr node rejoin`
 
 New join command for a broken worker; it keeps its envs (server admin)
 
 ```
-stackr node rejoin <name>
+stkr node rejoin <name>
 ```
 
-### `stackr node rm`
+### `stkr node rm`
 
 Take a healthy worker out, once no placement points at it (server admin)
 
 ```
-stackr node rm <name>
+stkr node rm <name>
 ```
 
 Example:
 
 ```
-  stackr node rm vps-fsn1
+  stkr node rm vps-fsn1
 ```
 
-### `stackr node rotate`
+### `stkr node rotate`
 
 Replace a node's mesh keys without a rejoin; --all for every node, --every to schedule (server admin)
 
 ```
-stackr node rotate [<name>] [flags]
+stkr node rotate [<name>] [flags]
 ```
 
 ```
@@ -1538,17 +1538,17 @@ stackr node rotate [<name>] [flags]
 Example:
 
 ```
-  stackr node rotate h3
-  stackr node rotate --all
-  stackr node rotate --every 7
+  stkr node rotate h3
+  stkr node rotate --all
+  stkr node rotate --every 7
 ```
 
-### `stackr node set`
+### `stkr node set`
 
 Set a node's public IP (server admin)
 
 ```
-stackr node set <name> [flags]
+stkr node set <name> [flags]
 ```
 
 ```
@@ -1558,55 +1558,55 @@ stackr node set <name> [flags]
 Example:
 
 ```
-  stackr node set vps-fsn1 --public-ip 203.0.113.10
+  stkr node set vps-fsn1 --public-ip 203.0.113.10
 ```
 
-### `stackr node show`
+### `stkr node show`
 
 Show one node: system, tags, certificate, envs
 
 ```
-stackr node show <name>
+stkr node show <name>
 ```
 
-### `stackr node tag`
+### `stkr node tag`
 
 Add capability tags (ingress, egress, builder, storage) (server admin)
 
 ```
-stackr node tag <name> <tag>...
+stkr node tag <name> <tag>...
 ```
 
 Example:
 
 ```
-  stackr node tag vps-fsn1 egress
+  stkr node tag vps-fsn1 egress
 ```
 
-### `stackr node untag`
+### `stkr node untag`
 
 Remove capability tags (server admin)
 
 ```
-stackr node untag <name> <tag>...
+stkr node untag <name> <tag>...
 ```
 
 Example:
 
 ```
-  stackr node untag vps-fsn1 egress
+  stkr node untag vps-fsn1 egress
 ```
 
-## `stackr operated`
+## `stkr operated`
 
 Operated tiles: postgres and s3 instances
 
-### `stackr operated accept-restore`
+### `stkr operated accept-restore`
 
 (postgres) Make a restored copy the instance it was restored from; the source's apps keep their address and credentials
 
 ```
-stackr operated accept-restore <tile> [flags]
+stkr operated accept-restore <tile> [flags]
 ```
 
 ```
@@ -1615,12 +1615,12 @@ stackr operated accept-restore <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated allow`
+### `stkr operated allow`
 
 Edit who outside the env may cut slices from an operated tile (org:stack:env:tile patterns)
 
 ```
-stackr operated allow <tile> [flags]
+stkr operated allow <tile> [flags]
 ```
 
 ```
@@ -1631,12 +1631,12 @@ stackr operated allow <tile> [flags]
       --stack string      the stack (default: the linked one)
 ```
 
-### `stackr operated create`
+### `stkr operated create`
 
 Make an operated tile (postgres, s3) in --env
 
 ```
-stackr operated create <name> [flags]
+stkr operated create <name> [flags]
 ```
 
 ```
@@ -1664,12 +1664,12 @@ stackr operated create <name> [flags]
       --volumes string      mounts, one per line: volume:/path[:ro], host:/host/path:/path[:ro] (needs admin approval) or share:name/sub:/path[:ro]
 ```
 
-### `stackr operated env-pairs`
+### `stkr operated env-pairs`
 
 Replace an operated tile's env pairs (a consumer's env name to one of this stack's envs); prints the diff, then asks
 
 ```
-stackr operated env-pairs <tile> [consumer-env=env ...] [flags]
+stkr operated env-pairs <tile> [consumer-env=env ...] [flags]
 ```
 
 ```
@@ -1678,16 +1678,16 @@ stackr operated env-pairs <tile> [consumer-env=env ...] [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated extensions`
+### `stkr operated extensions`
 
 (postgres) An instance's extensions
 
-#### `stackr operated extensions apply`
+#### `stkr operated extensions apply`
 
 (postgres) Apply a reviewed extension plan; --yes confirms a plan that restarts the instance
 
 ```
-stackr operated extensions apply <tile> [flags]
+stkr operated extensions apply <tile> [flags]
 ```
 
 ```
@@ -1697,12 +1697,12 @@ stackr operated extensions apply <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated extensions get`
+#### `stkr operated extensions get`
 
 (postgres) Show an instance's image, startup modules and extensions
 
 ```
-stackr operated extensions get <tile> [flags]
+stkr operated extensions get <tile> [flags]
 ```
 
 ```
@@ -1710,12 +1710,12 @@ stackr operated extensions get <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated extensions plan`
+#### `stkr operated extensions plan`
 
 (postgres) Plan an extension change that needs a build; prints the plan and its id for apply
 
 ```
-stackr operated extensions plan <tile> [name...] [flags]
+stkr operated extensions plan <tile> [name...] [flags]
 ```
 
 ```
@@ -1724,12 +1724,12 @@ stackr operated extensions plan <tile> [name...] [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated extensions set`
+#### `stkr operated extensions set`
 
 (postgres) Set an instance's extensions, startup modules or image; with no names and no flags the list is emptied
 
 ```
-stackr operated extensions set <tile> [name...] [flags]
+stkr operated extensions set <tile> [name...] [flags]
 ```
 
 ```
@@ -1740,12 +1740,12 @@ stackr operated extensions set <tile> [name...] [flags]
       --stack string      the stack (default: the linked one)
 ```
 
-### `stackr operated failover`
+### `stkr operated failover`
 
 (postgres) Make a standby the primary when the primary is down
 
 ```
-stackr operated failover <tile> [flags]
+stkr operated failover <tile> [flags]
 ```
 
 ```
@@ -1758,12 +1758,12 @@ stackr operated failover <tile> [flags]
       --to string            the node of the standby to promote (name or slug)
 ```
 
-### `stackr operated ls`
+### `stkr operated ls`
 
 List the env's operated tiles
 
 ```
-stackr operated ls [flags]
+stkr operated ls [flags]
 ```
 
 ```
@@ -1771,16 +1771,16 @@ stackr operated ls [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated pitr`
+### `stkr operated pitr`
 
 (postgres) Point-in-time recovery
 
-#### `stackr operated pitr set`
+#### `stkr operated pitr set`
 
 (postgres) Turn point-in-time recovery on (--days N) or off (--days off); restarts it once
 
 ```
-stackr operated pitr set <tile> [flags]
+stkr operated pitr set <tile> [flags]
 ```
 
 ```
@@ -1790,12 +1790,12 @@ stackr operated pitr set <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated pitr status`
+#### `stkr operated pitr status`
 
 (postgres) Show point-in-time recovery health
 
 ```
-stackr operated pitr status <tile> [flags]
+stkr operated pitr status <tile> [flags]
 ```
 
 ```
@@ -1803,12 +1803,12 @@ stackr operated pitr status <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated restore`
+### `stkr operated restore`
 
 (postgres) Restore an instance to a time into a new instance <tile>-restored-YYYYMMDD-HHMM; the source is not touched. Slices restore with `slice restore`, backups with `backup restore`
 
 ```
-stackr operated restore <tile> [flags]
+stkr operated restore <tile> [flags]
 ```
 
 ```
@@ -1821,16 +1821,16 @@ stackr operated restore <tile> [flags]
 Example:
 
 ```
-  stackr operated restore pg --at 2026-11-07T10:42:00Z
-  stackr operated restore pg --at latest
+  stkr operated restore pg --at 2026-11-07T10:42:00Z
+  stkr operated restore pg --at latest
 ```
 
-### `stackr operated rollback-upgrade`
+### `stkr operated rollback-upgrade`
 
 (postgres) Return to the postgres major before the last change, with the data it had then; what was written since is lost
 
 ```
-stackr operated rollback-upgrade <tile> [flags]
+stkr operated rollback-upgrade <tile> [flags]
 ```
 
 ```
@@ -1839,16 +1839,16 @@ stackr operated rollback-upgrade <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated settings`
+### `stkr operated settings`
 
 (postgres) An instance's settings
 
-#### `stackr operated settings get`
+#### `stkr operated settings get`
 
 Show an instance's settings and where each value comes from
 
 ```
-stackr operated settings get <tile> [flags]
+stkr operated settings get <tile> [flags]
 ```
 
 ```
@@ -1856,12 +1856,12 @@ stackr operated settings get <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated settings set`
+#### `stkr operated settings set`
 
 Set settings; a reload applies them, or the instance restarts when one needs it
 
 ```
-stackr operated settings set <tile> <name=value>... [flags]
+stkr operated settings set <tile> <name=value>... [flags]
 ```
 
 ```
@@ -1870,12 +1870,12 @@ stackr operated settings set <tile> <name=value>... [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated settings unset`
+#### `stkr operated settings unset`
 
 Remove your override of settings, back to the computed or postgres default
 
 ```
-stackr operated settings unset <tile> <name>... [flags]
+stkr operated settings unset <tile> <name>... [flags]
 ```
 
 ```
@@ -1884,16 +1884,16 @@ stackr operated settings unset <tile> <name>... [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated standby`
+### `stkr operated standby`
 
 (postgres) An instance's standbys
 
-#### `stackr operated standby add`
+#### `stkr operated standby add`
 
 Add a standby on a node; it copies the primary, then streams
 
 ```
-stackr operated standby add <tile> [flags]
+stkr operated standby add <tile> [flags]
 ```
 
 ```
@@ -1902,12 +1902,12 @@ stackr operated standby add <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby fence`
+#### `stkr operated standby fence`
 
 Fence a standby: stop it, take it out of the read pool and keep it down
 
 ```
-stackr operated standby fence <tile> <node|id> [flags]
+stkr operated standby fence <tile> <node|id> [flags]
 ```
 
 ```
@@ -1915,12 +1915,12 @@ stackr operated standby fence <tile> <node|id> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby ls`
+#### `stkr operated standby ls`
 
 List an instance's members: the primary and its standbys, with lag and slot size
 
 ```
-stackr operated standby ls <tile> [flags]
+stkr operated standby ls <tile> [flags]
 ```
 
 ```
@@ -1928,12 +1928,12 @@ stackr operated standby ls <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby rebuild`
+#### `stkr operated standby rebuild`
 
 Make a standby again on its node (one that needs a rebuild)
 
 ```
-stackr operated standby rebuild <tile> <node|id> [flags]
+stkr operated standby rebuild <tile> <node|id> [flags]
 ```
 
 ```
@@ -1941,12 +1941,12 @@ stackr operated standby rebuild <tile> <node|id> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby rm`
+#### `stkr operated standby rm`
 
 Remove a standby: its container, volume and slot
 
 ```
-stackr operated standby rm <tile> <node|id> [flags]
+stkr operated standby rm <tile> <node|id> [flags]
 ```
 
 ```
@@ -1954,12 +1954,12 @@ stackr operated standby rm <tile> <node|id> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby sync`
+#### `stkr operated standby sync`
 
 Set whether the primary waits for a standby: auto (while it is close), always or never
 
 ```
-stackr operated standby sync <tile> <node|id> <auto|always|never> [flags]
+stkr operated standby sync <tile> <node|id> <auto|always|never> [flags]
 ```
 
 ```
@@ -1967,12 +1967,12 @@ stackr operated standby sync <tile> <node|id> <auto|always|never> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated standby unfence`
+#### `stkr operated standby unfence`
 
 Unfence a standby: it starts again and rejoins the read pool once it streams
 
 ```
-stackr operated standby unfence <tile> <node|id> [flags]
+stkr operated standby unfence <tile> <node|id> [flags]
 ```
 
 ```
@@ -1980,12 +1980,12 @@ stackr operated standby unfence <tile> <node|id> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated status`
+### `stkr operated status`
 
 (postgres) Show instance health: connections, oldest transaction, standby lag, pooler. Not `tile status`, which shows containers
 
 ```
-stackr operated status <tile> [flags]
+stkr operated status <tile> [flags]
 ```
 
 ```
@@ -1994,12 +1994,12 @@ stackr operated status <tile> [flags]
       --top            also list the costliest statements
 ```
 
-### `stackr operated switchover`
+### `stkr operated switchover`
 
 (postgres) Move the primary to a standby while both run: the primary shuts down cleanly and the standby is promoted
 
 ```
-stackr operated switchover <tile> [flags]
+stkr operated switchover <tile> [flags]
 ```
 
 ```
@@ -2010,16 +2010,16 @@ stackr operated switchover <tile> [flags]
       --to string      the standby's node (name or slug); default is the one that replayed the most
 ```
 
-### `stackr operated sync`
+### `stkr operated sync`
 
 (postgres) Synchronous replication of an instance
 
-#### `stackr operated sync off`
+#### `stkr operated sync off`
 
 Stop waiting for standbys
 
 ```
-stackr operated sync off <tile> [flags]
+stkr operated sync off <tile> [flags]
 ```
 
 ```
@@ -2027,12 +2027,12 @@ stackr operated sync off <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated sync on`
+#### `stkr operated sync on`
 
 Make the primary wait for a standby before it confirms a commit
 
 ```
-stackr operated sync on <tile> [flags]
+stkr operated sync on <tile> [flags]
 ```
 
 ```
@@ -2043,12 +2043,12 @@ stackr operated sync on <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-#### `stackr operated sync status`
+#### `stkr operated sync status`
 
 Show whether writes are protected by a standby now
 
 ```
-stackr operated sync status <tile> [flags]
+stkr operated sync status <tile> [flags]
 ```
 
 ```
@@ -2056,12 +2056,12 @@ stackr operated sync status <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated update`
+### `stkr operated update`
 
 (postgres) Move an instance to the current minor of its postgres major; it restarts
 
 ```
-stackr operated update <tile> [flags]
+stkr operated update <tile> [flags]
 ```
 
 ```
@@ -2070,12 +2070,12 @@ stackr operated update <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr operated upgrade`
+### `stkr operated upgrade`
 
 (postgres) Move an instance to another postgres major (down too); the old data is kept for 7 days. --check only asks whether it can
 
 ```
-stackr operated upgrade <tile> [flags]
+stkr operated upgrade <tile> [flags]
 ```
 
 ```
@@ -2086,12 +2086,12 @@ stackr operated upgrade <tile> [flags]
       --to int         the postgres major to move to
 ```
 
-### `stackr operated version`
+### `stkr operated version`
 
 (postgres) Show the version an instance runs and whether an update is out
 
 ```
-stackr operated version <tile> [flags]
+stkr operated version <tile> [flags]
 ```
 
 ```
@@ -2099,16 +2099,16 @@ stackr operated version <tile> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-## `stackr org`
+## `stkr org`
 
 Orgs, members, invites, credentials, connectors, the org's config file
 
-### `stackr org approve`
+### `stkr org approve`
 
 Apply a pending config plan: prints it, then asks
 
 ```
-stackr org approve <plan> [flags]
+stkr org approve <plan> [flags]
 ```
 
 ```
@@ -2116,45 +2116,45 @@ stackr org approve <plan> [flags]
       --remove stringArray   tick a removal row to apply it (repeatable; the plan lists the keys)
 ```
 
-### `stackr org config-repo`
+### `stkr org config-repo`
 
 Show the org's config repo; --repo binds one and plans it, --unbind drops it
 
 ```
-stackr org config-repo [flags]
+stkr org config-repo [flags]
 ```
 
 ```
       --auto               apply a plan with no blocker without an approve
       --branch string      the branch (empty: the repo's default)
-      --connector string   the connector id (stackr org connectors ls)
+      --connector string   the connector id (stkr org connectors ls)
       --path string        the file in the repo (empty: stackr-org.yml)
       --repo string        the repo to bind, owner/name
       --unbind             drop the binding (asks first; -y skips)
 ```
 
-### `stackr org connectors`
+### `stkr org connectors`
 
 Git connectors and the org's DNS connectors
 
-#### `stackr org connectors domains`
+#### `stkr org connectors domains`
 
 List the account's domains: managed, not managed, or DNS elsewhere
 
 ```
-stackr org connectors domains <connector> [flags]
+stkr org connectors domains <connector> [flags]
 ```
 
 ```
       --org string   the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors ls`
+#### `stkr org connectors ls`
 
 List git connectors; --dns the org's DNS connectors (owner)
 
 ```
-stackr org connectors ls [flags]
+stkr org connectors ls [flags]
 ```
 
 ```
@@ -2162,12 +2162,12 @@ stackr org connectors ls [flags]
       --org string   the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors manage`
+#### `stkr org connectors manage`
 
 Let stackr manage a domain's DNS records
 
 ```
-stackr org connectors manage <connector> <domain> [flags]
+stkr org connectors manage <connector> <domain> [flags]
 ```
 
 ```
@@ -2176,12 +2176,12 @@ stackr org connectors manage <connector> <domain> [flags]
       --under string   manage only this name and below it, e.g. stackr (default: the whole domain)
 ```
 
-#### `stackr org connectors plan`
+#### `stkr org connectors plan`
 
 Show the records managing a domain would write, and the existing ones stackr may adopt
 
 ```
-stackr org connectors plan <connector> <domain> [flags]
+stkr org connectors plan <connector> <domain> [flags]
 ```
 
 ```
@@ -2190,16 +2190,16 @@ stackr org connectors plan <connector> <domain> [flags]
       --under string   manage only this name and below it, e.g. stackr (default: the whole domain)
 ```
 
-#### `stackr org connectors records`
+#### `stkr org connectors records`
 
 Custom DNS records (TXT, MX, CNAME, A, AAAA)
 
-#### `stackr org connectors records add`
+#### `stkr org connectors records add`
 
 Add a custom DNS record: TXT, MX ("10 mx.example.net"), CNAME, A or AAAA
 
 ```
-stackr org connectors records add <connector> <domain> <type> <value> [flags]
+stkr org connectors records add <connector> <domain> <type> <value> [flags]
 ```
 
 ```
@@ -2207,44 +2207,44 @@ stackr org connectors records add <connector> <domain> <type> <value> [flags]
       --org string    the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors records ls`
+#### `stkr org connectors records ls`
 
 List the custom DNS records and where stackr writes them
 
 ```
-stackr org connectors records ls <connector> <domain> [flags]
+stkr org connectors records ls <connector> <domain> [flags]
 ```
 
 ```
       --org string   the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors records rm`
+#### `stkr org connectors records rm`
 
 Remove a custom DNS record by id or value; stackr deletes it from the zone
 
 ```
-stackr org connectors records rm <connector> <domain> <record> [flags]
+stkr org connectors records rm <connector> <domain> <record> [flags]
 ```
 
 ```
       --org string   the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors rename`
+#### `stkr org connectors rename`
 
 Rename a connector
 
 ```
-stackr org connectors rename <id> <name>
+stkr org connectors rename <id> <name>
 ```
 
-#### `stackr org connectors rescope`
+#### `stkr org connectors rescope`
 
 Change what part of a managed domain stackr manages; shows the plan, then asks
 
 ```
-stackr org connectors rescope <connector> <domain> [flags]
+stkr org connectors rescope <connector> <domain> [flags]
 ```
 
 ```
@@ -2253,12 +2253,12 @@ stackr org connectors rescope <connector> <domain> [flags]
       --under string   manage only this name and below it, e.g. stackr (default: the whole domain)
 ```
 
-#### `stackr org connectors rm`
+#### `stkr org connectors rm`
 
 Remove a connector; --dns a DNS one (owner)
 
 ```
-stackr org connectors rm <id> [flags]
+stkr org connectors rm <id> [flags]
 ```
 
 ```
@@ -2266,12 +2266,12 @@ stackr org connectors rm <id> [flags]
       --org string   the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors takeover`
+#### `stkr org connectors takeover`
 
 Switch a domain to its provider's DNS; records at its current DNS host stop applying
 
 ```
-stackr org connectors takeover <connector> <domain> [flags]
+stkr org connectors takeover <connector> <domain> [flags]
 ```
 
 ```
@@ -2279,36 +2279,36 @@ stackr org connectors takeover <connector> <domain> [flags]
       --org string       the org (default: the logged-in one)
 ```
 
-#### `stackr org connectors unmanage`
+#### `stkr org connectors unmanage`
 
 Stop managing a domain; stackr deletes the records it made, other records stay
 
 ```
-stackr org connectors unmanage <connector> <domain> [flags]
+stkr org connectors unmanage <connector> <domain> [flags]
 ```
 
 ```
       --org string   the org (default: the logged-in one)
 ```
 
-### `stackr org create`
+### `stkr org create`
 
 Make an org and switch to it
 
 ```
-stackr org create <name>
+stkr org create <name>
 ```
 
-### `stackr org creds`
+### `stkr org creds`
 
 Registry credentials
 
-#### `stackr org creds add`
+#### `stkr org creds add`
 
 Add a registry credential
 
 ```
-stackr org creds add <name> [flags]
+stkr org creds add <name> [flags]
 ```
 
 ```
@@ -2317,28 +2317,28 @@ stackr org creds add <name> [flags]
       --username string   the registry user
 ```
 
-#### `stackr org creds ls`
+#### `stkr org creds ls`
 
 List registry credentials
 
 ```
-stackr org creds ls
+stkr org creds ls
 ```
 
-#### `stackr org creds rm`
+#### `stkr org creds rm`
 
 Delete a registry credential
 
 ```
-stackr org creds rm <id>
+stkr org creds rm <id>
 ```
 
-#### `stackr org creds set`
+#### `stkr org creds set`
 
 Change a registry credential; unset flags keep their value
 
 ```
-stackr org creds set <id> [flags]
+stkr org creds set <id> [flags]
 ```
 
 ```
@@ -2348,24 +2348,24 @@ stackr org creds set <id> [flags]
       --username string   the registry user
 ```
 
-### `stackr org domains`
+### `stkr org domains`
 
 List the managed domains, or one domain's records stackr wrote
 
 ```
-stackr org domains [domain] [flags]
+stkr org domains [domain] [flags]
 ```
 
 ```
       --org string   the org (default: the logged-in one)
 ```
 
-### `stackr org export`
+### `stkr org export`
 
 Write the org as a stackr-org.yml (stdout, or -o FILE)
 
 ```
-stackr org export [flags]
+stkr org export [flags]
 ```
 
 ```
@@ -2373,24 +2373,24 @@ stackr org export [flags]
   -o, --output string   write here instead of stdout
 ```
 
-### `stackr org get`
+### `stkr org get`
 
 Show this org
 
 ```
-stackr org get
+stkr org get
 ```
 
-### `stackr org invites`
+### `stkr org invites`
 
 Pending invites
 
-#### `stackr org invites add`
+#### `stkr org invites add`
 
 Invite someone; the link is a credential
 
 ```
-stackr org invites add [flags]
+stkr org invites add [flags]
 ```
 
 ```
@@ -2398,96 +2398,96 @@ stackr org invites add [flags]
       --role string    viewer, member or owner: viewer sees, member deploys and edits stacks, owner also manages people and settings (default "member")
 ```
 
-#### `stackr org invites ls`
+#### `stkr org invites ls`
 
 List pending invites; --all adds used and expired ones
 
 ```
-stackr org invites ls [flags]
+stkr org invites ls [flags]
 ```
 
 ```
       --all   add used and expired invites
 ```
 
-#### `stackr org invites rm`
+#### `stkr org invites rm`
 
 Revoke an invite; its link stops working
 
 ```
-stackr org invites rm <id>
+stkr org invites rm <id>
 ```
 
-### `stackr org ls`
+### `stkr org ls`
 
 List your orgs
 
 ```
-stackr org ls
+stkr org ls
 ```
 
-### `stackr org members`
+### `stkr org members`
 
 Org members
 
-#### `stackr org members ls`
+#### `stkr org members ls`
 
 List members
 
 ```
-stackr org members ls
+stkr org members ls
 ```
 
-#### `stackr org members rm`
+#### `stkr org members rm`
 
 Remove a member
 
 ```
-stackr org members rm <user-id>
+stkr org members rm <user-id>
 ```
 
-#### `stackr org members set`
+#### `stkr org members set`
 
 Change a member's role
 
 ```
-stackr org members set <user-id> [flags]
+stkr org members set <user-id> [flags]
 ```
 
 ```
       --role string   viewer, member or owner
 ```
 
-### `stackr org plan`
+### `stkr org plan`
 
 Plan the bound file at its branch's head now
 
 ```
-stackr org plan
+stkr org plan
 ```
 
-### `stackr org plan-show`
+### `stkr org plan-show`
 
 Read a config plan and its changes
 
 ```
-stackr org plan-show <plan>
+stkr org plan-show <plan>
 ```
 
-### `stackr org plans`
+### `stkr org plans`
 
 List the org's last config plans
 
 ```
-stackr org plans
+stkr org plans
 ```
 
-### `stackr org preview`
+### `stkr org preview`
 
 Dry run: show what applying a local stackr-org.yml would change
 
 ```
-stackr org preview [flags]
+stkr org preview [flags]
 ```
 
 Dry run: show what applying the file would change, against the org. Nothing is stored and nothing changes. Also called dry-run.
@@ -2497,52 +2497,52 @@ Dry run: show what applying the file would change, against the org. Nothing is s
   -f, --file string         the file to preview (default "stackr-org.yml")
 ```
 
-### `stackr org reject`
+### `stkr org reject`
 
 Close a pending config plan unapplied
 
 ```
-stackr org reject <plan>
+stkr org reject <plan>
 ```
 
-### `stackr org rename`
+### `stkr org rename`
 
 Rename this org
 
 ```
-stackr org rename <name>
+stkr org rename <name>
 ```
 
-### `stackr org rm`
+### `stkr org rm`
 
 Delete this org
 
 ```
-stackr org rm
+stkr org rm
 ```
 
-### `stackr org settings`
+### `stkr org settings`
 
 Show or change the org's settings defaults
 
 ```
-stackr org settings [flags]
+stkr org settings [flags]
 ```
 
 ```
       --clear stringArray   give a knob back to the level above
-      --set stringArray     knob=value (stackr knobs lists them)
+      --set stringArray     knob=value (stkr knobs lists them)
 ```
 
-### `stackr org use`
+### `stkr org use`
 
 Work in another org (the key must reach it)
 
 ```
-stackr org use <slug>
+stkr org use <slug>
 ```
 
-## `stackr params`
+## `stkr params`
 
 The param store: org and env levels, a tier's (--tier), the PR blocks (--pr), and the server's own (--level server, admin only)
 
@@ -2554,12 +2554,12 @@ Flags for it and its subcommands:
       --tier string    an org tier's params
 ```
 
-### `stackr params export`
+### `stkr params export`
 
 Write every param, secrets included, as collection.NAME=value; the one command that puts secrets on disk
 
 ```
-stackr params export [flags]
+stkr params export [flags]
 ```
 
 ```
@@ -2569,12 +2569,12 @@ stackr params export [flags]
       --stack string    the stack (default: the linked one)
 ```
 
-### `stackr params get`
+### `stkr params get`
 
 List params at the level; secrets stay masked unless --reveal
 
 ```
-stackr params get [collection.NAME] [flags]
+stkr params get [collection.NAME] [flags]
 ```
 
 ```
@@ -2583,12 +2583,12 @@ stackr params get [collection.NAME] [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr params import`
+### `stkr params import`
 
 Set a param per KEY=VALUE line of a .env file, in one collection; others at the level stay
 
 ```
-stackr params import <file> [flags]
+stkr params import <file> [flags]
 ```
 
 ```
@@ -2604,15 +2604,15 @@ stackr params import <file> [flags]
 Example:
 
 ```
-  stackr params import .env --scope env --stack shop --env dev --collection app --secret
+  stkr params import .env --scope env --stack shop --env dev --collection app --secret
 ```
 
-### `stackr params merge`
+### `stkr params merge`
 
 Set every collection.NAME=value line of a file (-f, "-" stdin); others stay
 
 ```
-stackr params merge [flags]
+stkr params merge [flags]
 ```
 
 ```
@@ -2623,12 +2623,12 @@ stackr params merge [flags]
       --wait           follow the redeploys to their end; exit 1 if one fails
 ```
 
-### `stackr params rm`
+### `stkr params rm`
 
 Delete a param at the level
 
 ```
-stackr params rm <collection.NAME> [flags]
+stkr params rm <collection.NAME> [flags]
 ```
 
 ```
@@ -2637,12 +2637,12 @@ stackr params rm <collection.NAME> [flags]
       --wait           follow the redeploys to their end; exit 1 if one fails
 ```
 
-### `stackr params set`
+### `stkr params set`
 
 Set params; others at the level stay
 
 ```
-stackr params set <collection.NAME[=value]>... [flags]
+stkr params set <collection.NAME[=value]>... [flags]
 ```
 
 ```
@@ -2657,16 +2657,16 @@ stackr params set <collection.NAME[=value]>... [flags]
 Example:
 
 ```
-  stackr params set app.mode=prod --env dev
-  stackr params set app.token=s3cret --secret --env dev
+  stkr params set app.mode=prod --env dev
+  stkr params set app.token=s3cret --secret --env dev
 ```
 
-## `stackr password`
+## `stkr password`
 
 Change your password
 
 ```
-stackr password
+stkr password
 ```
 
 Change your password.
@@ -2676,15 +2676,15 @@ one line of stdin. The current password comes first, then the new one:
   STACKR_PASSWORD      the current password
   STACKR_NEW_PASSWORD  the new password
 
-## `stackr pin`
+## `stkr pin`
 
 Pin an org, stack or env to a placement: where its envs run
 
 ```
-stackr pin [placement] [flags]
+stkr pin [placement] [flags]
 ```
 
-Pin an org, stack or env to a placement; stackr placements lists the ones open to the org.
+Pin an org, stack or env to a placement; stkr placements lists the ones open to the org.
 Pinning changes where existing envs run: each one on another node moves, after its plan is shown and --yes.
 
 ```
@@ -2698,18 +2698,18 @@ Pinning changes where existing envs run: each one on another node moves, after i
 Example:
 
 ```
-  stackr pin eu-prod --org acme
-  stackr pin eu-prod --stack shop
-  stackr pin eu-db --stack shop --env prod --yes
-  stackr pin --clear --stack shop
+  stkr pin eu-prod --org acme
+  stkr pin eu-prod --stack shop
+  stkr pin eu-db --stack shop --env prod --yes
+  stkr pin --clear --stack shop
 ```
 
-## `stackr placements`
+## `stkr placements`
 
 List the placements open to the org
 
 ```
-stackr placements [flags]
+stkr placements [flags]
 ```
 
 ```
@@ -2719,36 +2719,36 @@ stackr placements [flags]
 Example:
 
 ```
-  stackr placements
-  stackr placements --org acme
+  stkr placements
+  stkr placements --org acme
 ```
 
-## `stackr profile`
+## `stkr profile`
 
 Saved logins, one per server
 
-### `stackr profile ls`
+### `stkr profile ls`
 
 List the saved logins
 
 ```
-stackr profile ls
+stkr profile ls
 ```
 
-### `stackr profile use`
+### `stkr profile use`
 
 Make a saved login the current one
 
 ```
-stackr profile use <name>
+stkr profile use <name>
 ```
 
-## `stackr promote`
+## `stkr promote`
 
 Promote a release (number or id) into --env: prints the plan, then asks
 
 ```
-stackr promote <release> [flags]
+stkr promote <release> [flags]
 ```
 
 ```
@@ -2762,20 +2762,20 @@ stackr promote <release> [flags]
 Example:
 
 ```
-  stackr promote 7 --stack shop --env prod
-  stackr promote 7 --stack shop --env prod --dry-run
+  stkr promote 7 --stack shop --env prod
+  stkr promote 7 --stack shop --env prod --dry-run
 ```
 
-## `stackr registry`
+## `stkr registry`
 
 The stackr image registry
 
-### `stackr registry login`
+### `stkr registry login`
 
 Let docker push and pull use the stackr registry
 
 ```
-stackr registry login [flags]
+stkr registry login [flags]
 ```
 
 ```
@@ -2785,31 +2785,31 @@ stackr registry login [flags]
 Example:
 
 ```
-  stackr registry login
+  stkr registry login
   docker push registry.example.com/acme/shop/web:1.4
 ```
 
-### `stackr registry ls`
+### `stkr registry ls`
 
 List the org's repositories, or one repo's versions
 
 ```
-stackr registry ls [repo]
+stkr registry ls [repo]
 ```
 
 Example:
 
 ```
-  stackr registry ls
-  stackr registry ls acme/shop/api
+  stkr registry ls
+  stkr registry ls acme/shop/api
 ```
 
-### `stackr registry rm`
+### `stkr registry rm`
 
 Delete a version and every other tag on its digest
 
 ```
-stackr registry rm <repo>:<tag> [flags]
+stkr registry rm <repo>:<tag> [flags]
 ```
 
 ```
@@ -2819,19 +2819,19 @@ stackr registry rm <repo>:<tag> [flags]
 Example:
 
 ```
-  stackr registry rm acme/shop/api:v1
+  stkr registry rm acme/shop/api:v1
 ```
 
-## `stackr release`
+## `stkr release`
 
 Releases of the stack
 
-### `stackr release get`
+### `stkr release get`
 
 Show a release and its pins
 
 ```
-stackr release get <number> [flags]
+stkr release get <number> [flags]
 ```
 
 ```
@@ -2839,12 +2839,12 @@ stackr release get <number> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr release ls`
+### `stkr release ls`
 
 List releases, newest first
 
 ```
-stackr release ls [flags]
+stkr release ls [flags]
 ```
 
 ```
@@ -2852,12 +2852,12 @@ stackr release ls [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-## `stackr restart`
+## `stkr restart`
 
 Restart the tile's containers
 
 ```
-stackr restart [tile] [flags]
+stkr restart [tile] [flags]
 ```
 
 ```
@@ -2867,12 +2867,12 @@ stackr restart [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-## `stackr rollback`
+## `stkr rollback`
 
 Put --env back on an earlier release: prints the plan, then asks
 
 ```
-stackr rollback [flags]
+stkr rollback [flags]
 ```
 
 ```
@@ -2883,16 +2883,16 @@ stackr rollback [flags]
       --tag string     the release to go back to (number or id); required
 ```
 
-## `stackr server`
+## `stkr server`
 
 The server's config file, stackr-server.yml (admin)
 
-### `stackr server apply`
+### `stkr server apply`
 
 Plan a local stackr-server.yml (not the repo's) and apply it: prints the plan, then asks
 
 ```
-stackr server apply [flags]
+stkr server apply [flags]
 ```
 
 ```
@@ -2901,12 +2901,12 @@ stackr server apply [flags]
       --remove stringArray   tick a removal row to apply it (repeatable; the plan lists the keys)
 ```
 
-### `stackr server approve`
+### `stkr server approve`
 
 Apply a pending server plan: prints it, then asks
 
 ```
-stackr server approve <plan> [flags]
+stkr server approve <plan> [flags]
 ```
 
 ```
@@ -2914,12 +2914,12 @@ stackr server approve <plan> [flags]
       --remove stringArray   tick a removal row to apply it (repeatable; the plan lists the keys)
 ```
 
-### `stackr server bind`
+### `stkr server bind`
 
 Show the server's config repo; --repo binds one and plans it, --unbind drops it
 
 ```
-stackr server bind [flags]
+stkr server bind [flags]
 ```
 
 ```
@@ -2931,36 +2931,36 @@ stackr server bind [flags]
       --unbind             drop the binding (asks first; -y skips)
 ```
 
-### `stackr server connectors`
+### `stkr server connectors`
 
 Git and DNS connectors the server owns (admin)
 
-#### `stackr server connectors domains`
+#### `stkr server connectors domains`
 
 List the account's domains: managed, not managed, or DNS elsewhere
 
 ```
-stackr server connectors domains <connector>
+stkr server connectors domains <connector>
 ```
 
-#### `stackr server connectors ls`
+#### `stkr server connectors ls`
 
 List the server's git connectors; --dns its DNS ones
 
 ```
-stackr server connectors ls [flags]
+stkr server connectors ls [flags]
 ```
 
 ```
       --dns   list the DNS connectors
 ```
 
-#### `stackr server connectors manage`
+#### `stkr server connectors manage`
 
 Let stackr manage a domain's DNS records; --org limits who may use it (default: every organization)
 
 ```
-stackr server connectors manage <connector> <domain> [flags]
+stkr server connectors manage <connector> <domain> [flags]
 ```
 
 ```
@@ -2969,64 +2969,64 @@ stackr server connectors manage <connector> <domain> [flags]
       --under string      manage only this name and below it, e.g. stackr (default: the whole domain)
 ```
 
-#### `stackr server connectors plan`
+#### `stkr server connectors plan`
 
 Show the records managing a domain would write, and the existing ones stackr may adopt
 
 ```
-stackr server connectors plan <connector> <domain> [flags]
+stkr server connectors plan <connector> <domain> [flags]
 ```
 
 ```
       --under string   manage only this name and below it, e.g. stackr (default: the whole domain)
 ```
 
-#### `stackr server connectors records`
+#### `stkr server connectors records`
 
 Custom DNS records (TXT, MX, CNAME, A, AAAA)
 
-#### `stackr server connectors records add`
+#### `stkr server connectors records add`
 
 Add a custom DNS record: TXT, MX ("10 mx.example.net"), CNAME, A or AAAA
 
 ```
-stackr server connectors records add <connector> <domain> <type> <value> [flags]
+stkr server connectors records add <connector> <domain> <type> <value> [flags]
 ```
 
 ```
       --name string   the name below, e.g. _dmarc (default: the name itself)
 ```
 
-#### `stackr server connectors records ls`
+#### `stkr server connectors records ls`
 
 List the custom DNS records and where stackr writes them
 
 ```
-stackr server connectors records ls <connector> <domain>
+stkr server connectors records ls <connector> <domain>
 ```
 
-#### `stackr server connectors records rm`
+#### `stkr server connectors records rm`
 
 Remove a custom DNS record by id or value; stackr deletes it from the zone
 
 ```
-stackr server connectors records rm <connector> <domain> <record>
+stkr server connectors records rm <connector> <domain> <record>
 ```
 
-#### `stackr server connectors rename`
+#### `stkr server connectors rename`
 
 Rename a server connector
 
 ```
-stackr server connectors rename <id> <name>
+stkr server connectors rename <id> <name>
 ```
 
-#### `stackr server connectors rescope`
+#### `stkr server connectors rescope`
 
 Change what part of a managed domain stackr manages; shows the plan, then asks
 
 ```
-stackr server connectors rescope <connector> <domain> [flags]
+stkr server connectors rescope <connector> <domain> [flags]
 ```
 
 ```
@@ -3034,20 +3034,20 @@ stackr server connectors rescope <connector> <domain> [flags]
       --under string   manage only this name and below it, e.g. stackr (default: the whole domain)
 ```
 
-#### `stackr server connectors rm`
+#### `stkr server connectors rm`
 
 Remove a server connector
 
 ```
-stackr server connectors rm <id>
+stkr server connectors rm <id>
 ```
 
-#### `stackr server connectors share`
+#### `stkr server connectors share`
 
 Set who may use a server connector: --org ids, --all, or neither to stop sharing
 
 ```
-stackr server connectors share <id> [flags]
+stkr server connectors share <id> [flags]
 ```
 
 ```
@@ -3055,40 +3055,40 @@ stackr server connectors share <id> [flags]
       --org stringArray   share with this organization id (repeatable)
 ```
 
-#### `stackr server connectors takeover`
+#### `stkr server connectors takeover`
 
 Switch a domain to its provider's DNS; records at its current DNS host stop applying
 
 ```
-stackr server connectors takeover <connector> <domain> [flags]
+stkr server connectors takeover <connector> <domain> [flags]
 ```
 
 ```
       --confirm string   the domain, typed out (-y does not skip this)
 ```
 
-#### `stackr server connectors unmanage`
+#### `stkr server connectors unmanage`
 
 Stop managing a domain; stackr deletes the records it made, other records stay
 
 ```
-stackr server connectors unmanage <connector> <domain>
+stkr server connectors unmanage <connector> <domain>
 ```
 
-### `stackr server domains`
+### `stkr server domains`
 
 List the managed domains, or one domain's records stackr wrote
 
 ```
-stackr server domains [domain]
+stkr server domains [domain]
 ```
 
-### `stackr server export`
+### `stkr server export`
 
 Write the server as a stackr-server.yml (stdout, or -o FILE)
 
 ```
-stackr server export [flags]
+stkr server export [flags]
 ```
 
 ```
@@ -3096,32 +3096,32 @@ stackr server export [flags]
   -o, --output string   write here instead of stdout
 ```
 
-### `stackr server pg-extensions`
+### `stkr server pg-extensions`
 
 Postgres extension recipes the server offers (admin)
 
-#### `stackr server pg-extensions list`
+#### `stkr server pg-extensions list`
 
 List the built-in and added postgres extension recipes
 
 ```
-stackr server pg-extensions list
+stkr server pg-extensions list
 ```
 
-#### `stackr server pg-extensions rm`
+#### `stkr server pg-extensions rm`
 
 Remove an added recipe, or a built-in's switch-off row
 
 ```
-stackr server pg-extensions rm <name>
+stkr server pg-extensions rm <name>
 ```
 
-#### `stackr server pg-extensions set`
+#### `stkr server pg-extensions set`
 
 Add or rewrite a recipe, or switch a built-in on or off (--off); --org or --all say who may use it
 
 ```
-stackr server pg-extensions set <name> [flags]
+stkr server pg-extensions set <name> [flags]
 ```
 
 ```
@@ -3139,36 +3139,36 @@ stackr server pg-extensions set <name> [flags]
       --version string       the version to pin
 ```
 
-### `stackr server plan`
+### `stkr server plan`
 
 Plan the bound file at its branch's head now
 
 ```
-stackr server plan
+stkr server plan
 ```
 
-### `stackr server plan-show`
+### `stkr server plan-show`
 
 Read a server plan and its changes
 
 ```
-stackr server plan-show <plan>
+stkr server plan-show <plan>
 ```
 
-### `stackr server plans`
+### `stkr server plans`
 
 List the server's last config plans
 
 ```
-stackr server plans
+stkr server plans
 ```
 
-### `stackr server preview`
+### `stkr server preview`
 
 Dry run: show what applying a local stackr-server.yml would change
 
 ```
-stackr server preview [flags]
+stkr server preview [flags]
 ```
 
 Dry run: show what applying the file would change, against the server. Nothing is stored and nothing changes. Also called dry-run.
@@ -3178,24 +3178,24 @@ Dry run: show what applying the file would change, against the server. Nothing i
   -f, --file string         the file to preview (default "stackr-server.yml")
 ```
 
-### `stackr server reject`
+### `stkr server reject`
 
 Close a pending server plan unapplied
 
 ```
-stackr server reject <plan>
+stkr server reject <plan>
 ```
 
-## `stackr share`
+## `stkr share`
 
 Network shares: NFS or SMB exports tiles mount
 
-### `stackr share add`
+### `stkr share add`
 
 Add a share
 
 ```
-stackr share add <slug> [flags]
+stkr share add <slug> [flags]
 ```
 
 ```
@@ -3206,32 +3206,32 @@ stackr share add <slug> [flags]
       --user string       smb user, plain or an ${{ org.params.<collection>.<name> }} ref
 ```
 
-### `stackr share ls`
+### `stkr share ls`
 
 List the org's shares
 
 ```
-stackr share ls
+stkr share ls
 ```
 
-### `stackr share rm`
+### `stkr share rm`
 
 Remove a share; refused while a tile mounts it
 
 ```
-stackr share rm <slug>
+stkr share rm <slug>
 ```
 
-## `stackr slice`
+## `stkr slice`
 
 Slice tiles: a database or bucket cut from an operated tile
 
-### `stackr slice add`
+### `stkr slice add`
 
 Make a slice tile in --env, cut from --from at its deploy
 
 ```
-stackr slice add <slug> [flags]
+stkr slice add <slug> [flags]
 ```
 
 ```
@@ -3243,12 +3243,12 @@ stackr slice add <slug> [flags]
       --tile string          the tile (default: the linked one)
 ```
 
-### `stackr slice bindings`
+### `stkr slice bindings`
 
 List the tiles holding a cred on the slice
 
 ```
-stackr slice bindings [slice] [flags]
+stkr slice bindings [slice] [flags]
 ```
 
 ```
@@ -3257,12 +3257,12 @@ stackr slice bindings [slice] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr slice branch`
+### `stkr slice branch`
 
 Copy a postgres slice as of now, or --at a past time, into a new slice tile <slice>-br-xxxx
 
 ```
-stackr slice branch <slice> [flags]
+stkr slice branch <slice> [flags]
 ```
 
 ```
@@ -3276,12 +3276,12 @@ stackr slice branch <slice> [flags]
       --to-env string     the env the branch goes to: an env of the stack, or <stack>:<env> (default: the source's)
 ```
 
-### `stackr slice bucket`
+### `stkr slice bucket`
 
 Set a bucket slice's version history, size cap and CORS origins
 
 ```
-stackr slice bucket <slice> [flags]
+stkr slice bucket <slice> [flags]
 ```
 
 ```
@@ -3293,16 +3293,16 @@ stackr slice bucket <slice> [flags]
       --version-days int   days old versions are kept; 0 turns versioning off (default 7)
 ```
 
-### `stackr slice extensions`
+### `stkr slice extensions`
 
 Extensions of a postgres slice's database
 
-#### `stackr slice extensions get`
+#### `stkr slice extensions get`
 
 Show a slice's extensions against the ones its instance allows
 
 ```
-stackr slice extensions get <slice> [flags]
+stkr slice extensions get <slice> [flags]
 ```
 
 ```
@@ -3311,12 +3311,12 @@ stackr slice extensions get <slice> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr slice extensions set`
+#### `stkr slice extensions set`
 
 Set a slice's extensions; with no names the list is emptied
 
 ```
-stackr slice extensions set <slice> [name...] [flags]
+stkr slice extensions set <slice> [name...] [flags]
 ```
 
 ```
@@ -3326,12 +3326,12 @@ stackr slice extensions set <slice> [name...] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr slice forward`
+### `stkr slice forward`
 
 Tunnel a local port to the slice's postgres and print its connection string
 
 ```
-stackr slice forward <slice> [flags]
+stkr slice forward <slice> [flags]
 ```
 
 ```
@@ -3341,12 +3341,12 @@ stackr slice forward <slice> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr slice get`
+### `stkr slice get`
 
 Show a slice tile and the instance it resolves to
 
 ```
-stackr slice get [slice] [flags]
+stkr slice get [slice] [flags]
 ```
 
 ```
@@ -3355,12 +3355,12 @@ stackr slice get [slice] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr slice on-remove`
+### `stkr slice on-remove`
 
 Keep or drop the data when the slice tile is removed
 
 ```
-stackr slice on-remove <slice> <keep|drop> [flags]
+stkr slice on-remove <slice> <keep|drop> [flags]
 ```
 
 ```
@@ -3369,12 +3369,12 @@ stackr slice on-remove <slice> <keep|drop> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr slice restore`
+### `stkr slice restore`
 
 Copy a bucket's objects back as they were at --at, as new versions. Never deletes. Runs file by file, not atomically. Instances restore with `operated restore`, backups with `backup restore`
 
 ```
-stackr slice restore <slice> [flags]
+stkr slice restore <slice> [flags]
 ```
 
 ```
@@ -3387,12 +3387,12 @@ stackr slice restore <slice> [flags]
       --tile string     the tile (default: the linked one)
 ```
 
-### `stackr slice url`
+### `stkr slice url`
 
 Choose whether a postgres slice's url, host and port point at the instance or its pooler
 
 ```
-stackr slice url <slice> <direct|pooled> [flags]
+stkr slice url <slice> <direct|pooled> [flags]
 ```
 
 ```
@@ -3401,12 +3401,12 @@ stackr slice url <slice> <direct|pooled> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr slice usage`
+### `stkr slice usage`
 
 Show a bucket's current bytes and its old versions' bytes, apart
 
 ```
-stackr slice usage [slice] [flags]
+stkr slice usage [slice] [flags]
 ```
 
 ```
@@ -3415,12 +3415,12 @@ stackr slice usage [slice] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-## `stackr ssh`
+## `stkr ssh`
 
 Open a shell in a replica
 
 ```
-stackr ssh [tile] [flags]
+stkr ssh [tile] [flags]
 ```
 
 ```
@@ -3431,21 +3431,21 @@ stackr ssh [tile] [flags]
       --tile string        the tile (default: the linked one)
 ```
 
-## `stackr stack`
+## `stkr stack`
 
 Stacks
 
-### `stackr stack config-repo`
+### `stkr stack config-repo`
 
 Show the stack's config repo; --repo binds one, --unbind drops it
 
 ```
-stackr stack config-repo [flags]
+stkr stack config-repo [flags]
 ```
 
 ```
       --branch string      the branch (default "main")
-      --connector string   the connector id (stackr org connectors ls)
+      --connector string   the connector id (stkr org connectors ls)
       --env string         the environment (default: the linked one)
       --path string        the stack file in the repo (default "stackr-compose.yml")
       --repo string        the git URL to bind
@@ -3453,12 +3453,12 @@ stackr stack config-repo [flags]
       --unbind             drop the binding (asks first; -y skips)
 ```
 
-### `stackr stack create`
+### `stkr stack create`
 
 Make a stack
 
 ```
-stackr stack create <name> [flags]
+stkr stack create <name> [flags]
 ```
 
 ```
@@ -3468,30 +3468,30 @@ stackr stack create <name> [flags]
 Example:
 
 ```
-  stackr stack create shop --desc "The web shop"
+  stkr stack create shop --desc "The web shop"
 ```
 
-### `stackr stack defaults`
+### `stkr stack defaults`
 
 Show or change the stack's settings defaults
 
 ```
-stackr stack defaults [flags]
+stkr stack defaults [flags]
 ```
 
 ```
       --clear stringArray   give a knob back to the level above
       --env string          the environment (default: the linked one)
-      --set stringArray     knob=value (stackr knobs lists them)
+      --set stringArray     knob=value (stkr knobs lists them)
       --stack string        the stack (default: the linked one)
 ```
 
-### `stackr stack export`
+### `stkr stack export`
 
 Write the stack as a stackr-compose.yml (stdout, or -o FILE); --env limits it to one env
 
 ```
-stackr stack export [flags]
+stkr stack export [flags]
 ```
 
 ```
@@ -3501,12 +3501,12 @@ stackr stack export [flags]
       --stack string    the stack (default: the linked one)
 ```
 
-### `stackr stack get`
+### `stkr stack get`
 
 Show the stack
 
 ```
-stackr stack get [flags]
+stkr stack get [flags]
 ```
 
 ```
@@ -3514,12 +3514,12 @@ stackr stack get [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr stack image-check`
+### `stkr stack image-check`
 
 Check the stack's images for a newer tag; a moved tag writes a release
 
 ```
-stackr stack image-check [flags]
+stkr stack image-check [flags]
 ```
 
 ```
@@ -3528,20 +3528,20 @@ stackr stack image-check [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr stack ls`
+### `stkr stack ls`
 
 List stacks
 
 ```
-stackr stack ls
+stkr stack ls
 ```
 
-### `stackr stack rename`
+### `stkr stack rename`
 
 Rename the stack
 
 ```
-stackr stack rename <name> [flags]
+stkr stack rename <name> [flags]
 ```
 
 ```
@@ -3549,12 +3549,12 @@ stackr stack rename <name> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr stack rm`
+### `stkr stack rm`
 
 Delete the stack; --cascade removes its tiles and environments too
 
 ```
-stackr stack rm [stack] [flags]
+stkr stack rm [stack] [flags]
 ```
 
 ```
@@ -3564,84 +3564,84 @@ stackr stack rm [stack] [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-## `stackr status`
+## `stkr status`
 
 Show the server, the user and this directory's link
 
 ```
-stackr status
+stkr status
 ```
 
-## `stackr tier`
+## `stkr tier`
 
 The org's env tiers, bottom first
 
-### `stackr tier add`
+### `stkr tier add`
 
 Add a locked tier on top of the ladder
 
 ```
-stackr tier add <slug>
+stkr tier add <slug>
 ```
 
-### `stackr tier lock`
+### `stkr tier lock`
 
 Lock a tier: other envs cannot read its org params
 
 ```
-stackr tier lock <slug>
+stkr tier lock <slug>
 ```
 
-### `stackr tier ls`
+### `stkr tier ls`
 
 List tiers
 
 ```
-stackr tier ls
+stkr tier ls
 ```
 
-### `stackr tier order`
+### `stkr tier order`
 
 Set the ladder, bottom first: every tier once
 
 ```
-stackr tier order <slug>...
+stkr tier order <slug>...
 ```
 
-### `stackr tier rename`
+### `stkr tier rename`
 
 Rename a tier; stack envs keep their slugs and leave it
 
 ```
-stackr tier rename <slug> <new>
+stkr tier rename <slug> <new>
 ```
 
-### `stackr tier rm`
+### `stkr tier rm`
 
 Delete a tier no stack env is in
 
 ```
-stackr tier rm <slug>
+stkr tier rm <slug>
 ```
 
-### `stackr tier unlock`
+### `stkr tier unlock`
 
 Unlock a tier
 
 ```
-stackr tier unlock <slug>
+stkr tier unlock <slug>
 ```
 
-## `stackr tile`
+## `stkr tile`
 
 Tiles: the deployed units
 
-### `stackr tile access`
+### `stkr tile access`
 
 Set the tile's access to a slice tile of its env; a bound tile is re-granted in place
 
 ```
-stackr tile access [tile] [flags]
+stkr tile access [tile] [flags]
 ```
 
 ```
@@ -3653,12 +3653,12 @@ stackr tile access [tile] [flags]
       --tile string     the tile (default: the linked one)
 ```
 
-### `stackr tile create`
+### `stkr tile create`
 
 Make a tile in --env
 
 ```
-stackr tile create <name> [flags]
+stkr tile create <name> [flags]
 ```
 
 ```
@@ -3708,15 +3708,15 @@ stackr tile create <name> [flags]
 Example:
 
 ```
-  stackr tile create api --stack shop --env dev --image nginx:1.27
+  stkr tile create api --stack shop --env dev --image nginx:1.27
 ```
 
-### `stackr tile deploy`
+### `stkr tile deploy`
 
 Deploy the tile and follow it
 
 ```
-stackr tile deploy [tile] [flags]
+stkr tile deploy [tile] [flags]
 ```
 
 ```
@@ -3726,21 +3726,21 @@ stackr tile deploy [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile domain`
+### `stkr tile domain`
 
 The tile's domains
 
-#### `stackr tile domain add`
+#### `stkr tile domain add`
 
 Route a host to the tile; --auto names one under the nearest domain resource, --domain one in a managed domain
 
 ```
-stackr tile domain add [host] [flags]
+stkr tile domain add [host] [flags]
 ```
 
 ```
       --auto                 take the generated name under the nearest domain resource, like the panel's Add auto domain
-      --domain string        a managed domain (stackr tile domain managed lists them); stackr sets its DNS
+      --domain string        a managed domain (stkr tile domain managed lists them); stackr sets its DNS
       --env string           the environment (default: the linked one)
       --force-https          redirect HTTP to HTTPS (default true)
       --https                serve HTTPS (default true)
@@ -3753,12 +3753,12 @@ stackr tile domain add [host] [flags]
       --tile string          the tile (default: the linked one)
 ```
 
-#### `stackr tile domain caddy`
+#### `stkr tile domain caddy`
 
 Set a domain's raw Caddy config (admin); -f - reads stdin, empty clears
 
 ```
-stackr tile domain caddy <host> [flags]
+stkr tile domain caddy <host> [flags]
 ```
 
 ```
@@ -3768,12 +3768,12 @@ stackr tile domain caddy <host> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain ls`
+#### `stkr tile domain ls`
 
 List the tile's domains
 
 ```
-stackr tile domain ls [tile] [flags]
+stkr tile domain ls [tile] [flags]
 ```
 
 ```
@@ -3782,12 +3782,12 @@ stackr tile domain ls [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain managed`
+#### `stkr tile domain managed`
 
 List the managed domains the tile's domains may sit in
 
 ```
-stackr tile domain managed [tile] [flags]
+stkr tile domain managed [tile] [flags]
 ```
 
 ```
@@ -3796,16 +3796,16 @@ stackr tile domain managed [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain records`
+#### `stkr tile domain records`
 
 Custom DNS records (TXT, MX, CNAME, A, AAAA)
 
-#### `stackr tile domain records add`
+#### `stkr tile domain records add`
 
 Add a custom DNS record: TXT, MX ("10 mx.example.net"), CNAME, A or AAAA
 
 ```
-stackr tile domain records add <host> <type> <value> [flags]
+stkr tile domain records add <host> <type> <value> [flags]
 ```
 
 ```
@@ -3815,12 +3815,12 @@ stackr tile domain records add <host> <type> <value> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain records ls`
+#### `stkr tile domain records ls`
 
 List the custom DNS records and where stackr writes them
 
 ```
-stackr tile domain records ls <host> [flags]
+stkr tile domain records ls <host> [flags]
 ```
 
 ```
@@ -3829,12 +3829,12 @@ stackr tile domain records ls <host> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain records rm`
+#### `stkr tile domain records rm`
 
 Remove a custom DNS record by id or value; stackr deletes it from the zone
 
 ```
-stackr tile domain records rm <host> <record> [flags]
+stkr tile domain records rm <host> <record> [flags]
 ```
 
 ```
@@ -3843,12 +3843,12 @@ stackr tile domain records rm <host> <record> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain rm`
+#### `stkr tile domain rm`
 
 Stop routing a host to the tile
 
 ```
-stackr tile domain rm <host> [flags]
+stkr tile domain rm <host> [flags]
 ```
 
 ```
@@ -3857,12 +3857,12 @@ stackr tile domain rm <host> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-#### `stackr tile domain set`
+#### `stkr tile domain set`
 
 Change a domain; only the flags given change
 
 ```
-stackr tile domain set <host> [flags]
+stkr tile domain set <host> [flags]
 ```
 
 ```
@@ -3878,12 +3878,12 @@ stackr tile domain set <host> [flags]
       --tile string          the tile (default: the linked one)
 ```
 
-### `stackr tile exec`
+### `stkr tile exec`
 
-Run a command in a replica; stdin is closed unless -i (stackr ssh opens a shell)
+Run a command in a replica; stdin is closed unless -i (stkr ssh opens a shell)
 
 ```
-stackr tile exec [tile] -- <cmd>... [flags]
+stkr tile exec [tile] -- <cmd>... [flags]
 ```
 
 ```
@@ -3895,12 +3895,12 @@ stackr tile exec [tile] -- <cmd>... [flags]
       --timeout string     stop the command after this long, e.g. 5m (default 50s, 1h with -i; max 1h)
 ```
 
-### `stackr tile forward`
+### `stkr tile forward`
 
 Tunnel a local port to a tile's port
 
 ```
-stackr tile forward [tile] [flags]
+stkr tile forward [tile] [flags]
 ```
 
 ```
@@ -3912,12 +3912,12 @@ stackr tile forward [tile] [flags]
       --tile string        the tile (default: the linked one)
 ```
 
-### `stackr tile get`
+### `stkr tile get`
 
 Show a tile
 
 ```
-stackr tile get [tile] [flags]
+stkr tile get [tile] [flags]
 ```
 
 ```
@@ -3926,12 +3926,12 @@ stackr tile get [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile image-check`
+### `stkr tile image-check`
 
 Check the tile's image for a newer tag; a moved tag writes a release
 
 ```
-stackr tile image-check [tile] [flags]
+stkr tile image-check [tile] [flags]
 ```
 
 ```
@@ -3941,12 +3941,12 @@ stackr tile image-check [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile jobs`
+### `stkr tile jobs`
 
 List the tile's recent jobs
 
 ```
-stackr tile jobs [tile] [flags]
+stkr tile jobs [tile] [flags]
 ```
 
 ```
@@ -3955,30 +3955,30 @@ stackr tile jobs [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile logs`
+### `stkr tile logs`
 
 Print a replica's or a run's log; --follow streams it
 
 ```
-stackr tile logs [tile] [flags]
+stkr tile logs [tile] [flags]
 ```
 
 ```
       --container string   the replica (default: a running one)
       --env string         the environment (default: the linked one)
   -f, --follow             keep streaming
-      --run string         a cron or function run's log instead (stackr tile runs lists them)
+      --run string         a cron or function run's log instead (stkr tile runs lists them)
       --stack string       the stack (default: the linked one)
       --tail int           lines of history (default 200)
       --tile string        the tile (default: the linked one)
 ```
 
-### `stackr tile ls`
+### `stkr tile ls`
 
 List the env's tiles
 
 ```
-stackr tile ls [flags]
+stkr tile ls [flags]
 ```
 
 ```
@@ -3987,12 +3987,12 @@ stackr tile ls [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile metrics`
+### `stkr tile metrics`
 
 Show a tile's CPU, memory, network, disk IO and requests (a cron or function's runs) over --range
 
 ```
-stackr tile metrics [tile] [flags]
+stkr tile metrics [tile] [flags]
 ```
 
 ```
@@ -4005,15 +4005,15 @@ stackr tile metrics [tile] [flags]
 Example:
 
 ```
-  stackr tile metrics api --stack shop --env prod --range 24h
+  stkr tile metrics api --stack shop --env prod --range 24h
 ```
 
-### `stackr tile pause`
+### `stkr tile pause`
 
 Pause a cron tile's schedule
 
 ```
-stackr tile pause [tile] [flags]
+stkr tile pause [tile] [flags]
 ```
 
 ```
@@ -4022,12 +4022,12 @@ stackr tile pause [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile rebuild`
+### `stkr tile rebuild`
 
 Build the running commit without the build cache and deploy it
 
 ```
-stackr tile rebuild [tile] [flags]
+stkr tile rebuild [tile] [flags]
 ```
 
 ```
@@ -4037,12 +4037,12 @@ stackr tile rebuild [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile rename`
+### `stkr tile rename`
 
 Rename a tile
 
 ```
-stackr tile rename <tile> <name> [flags]
+stkr tile rename <tile> <name> [flags]
 ```
 
 ```
@@ -4051,12 +4051,12 @@ stackr tile rename <tile> <name> [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile restart`
+### `stkr tile restart`
 
 Restart the tile's containers
 
 ```
-stackr tile restart [tile] [flags]
+stkr tile restart [tile] [flags]
 ```
 
 ```
@@ -4066,12 +4066,12 @@ stackr tile restart [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile resume`
+### `stkr tile resume`
 
 Resume a cron tile's schedule
 
 ```
-stackr tile resume [tile] [flags]
+stkr tile resume [tile] [flags]
 ```
 
 ```
@@ -4080,12 +4080,12 @@ stackr tile resume [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile rm`
+### `stkr tile rm`
 
 Remove a tile
 
 ```
-stackr tile rm [tile] [flags]
+stkr tile rm [tile] [flags]
 ```
 
 ```
@@ -4095,12 +4095,12 @@ stackr tile rm [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile run`
+### `stkr tile run`
 
 Run a cron or function tile now and follow it
 
 ```
-stackr tile run [tile] [flags]
+stkr tile run [tile] [flags]
 ```
 
 ```
@@ -4110,12 +4110,12 @@ stackr tile run [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile runs`
+### `stkr tile runs`
 
 List a cron or function tile's runs, newest first; --run shows one
 
 ```
-stackr tile runs [tile] [flags]
+stkr tile runs [tile] [flags]
 ```
 
 ```
@@ -4125,12 +4125,12 @@ stackr tile runs [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile set`
+### `stkr tile set`
 
 Change tile settings; only the flags given are sent
 
 ```
-stackr tile set [tile] [flags]
+stkr tile set [tile] [flags]
 ```
 
 ```
@@ -4180,15 +4180,15 @@ stackr tile set [tile] [flags]
 Example:
 
 ```
-  stackr tile set api --stack shop --env dev --image nginx:1.28
+  stkr tile set api --stack shop --env dev --image nginx:1.28
 ```
 
-### `stackr tile ssh`
+### `stkr tile ssh`
 
 Open a shell in a replica
 
 ```
-stackr tile ssh [tile] [flags]
+stkr tile ssh [tile] [flags]
 ```
 
 ```
@@ -4199,12 +4199,12 @@ stackr tile ssh [tile] [flags]
       --tile string        the tile (default: the linked one)
 ```
 
-### `stackr tile start`
+### `stkr tile start`
 
 Start the tile's containers
 
 ```
-stackr tile start [tile] [flags]
+stkr tile start [tile] [flags]
 ```
 
 ```
@@ -4214,12 +4214,12 @@ stackr tile start [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile status`
+### `stkr tile status`
 
 Show the tile's state and replicas
 
 ```
-stackr tile status [tile] [flags]
+stkr tile status [tile] [flags]
 ```
 
 ```
@@ -4228,12 +4228,12 @@ stackr tile status [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-### `stackr tile stop`
+### `stkr tile stop`
 
 Stop the tile's containers; --run stops one run of a cron or function
 
 ```
-stackr tile stop [tile] [flags]
+stkr tile stop [tile] [flags]
 ```
 
 ```
@@ -4244,15 +4244,15 @@ stackr tile stop [tile] [flags]
       --tile string    the tile (default: the linked one)
 ```
 
-## `stackr unlink`
+## `stkr unlink`
 
 Drop this directory's link
 
 ```
-stackr unlink
+stkr unlink
 ```
 
-## `stackr volume`
+## `stkr volume`
 
 Volumes
 
@@ -4262,12 +4262,12 @@ Flags for it and its subcommands:
       --level string   org, env or server (stack too, for volumes); default: the env given or linked, else the org
 ```
 
-### `stackr volume add`
+### `stkr volume add`
 
 Declare a volume at the level
 
 ```
-stackr volume add <slug> [flags]
+stkr volume add <slug> [flags]
 ```
 
 ```
@@ -4275,12 +4275,12 @@ stackr volume add <slug> [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr volume ls`
+### `stkr volume ls`
 
 List volumes at the level
 
 ```
-stackr volume ls [flags]
+stkr volume ls [flags]
 ```
 
 ```
@@ -4288,12 +4288,12 @@ stackr volume ls [flags]
       --stack string   the stack (default: the linked one)
 ```
 
-### `stackr volume rm`
+### `stkr volume rm`
 
 Delete a volume (its data is kept for the retention window, then backed up and removed)
 
 ```
-stackr volume rm <volume> [flags]
+stkr volume rm <volume> [flags]
 ```
 
 ```

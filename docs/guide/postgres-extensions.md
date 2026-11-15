@@ -69,28 +69,28 @@ Set `vchordrq.probes` per session in the app. Setting it server-wide breaks some
 
 ## CLI
 
-The same actions. `stackr operated` has the alias `opr`.
+The same actions. `stkr operated` has the alias `opr`.
 
 ```bash
-stackr operated extensions get pg
-stackr operated extensions plan pg vchord vector cube earthdistance
-stackr operated extensions apply pg --plan <id from plan>
-stackr slice extensions get immich-db
-stackr slice extensions set immich-db vchord vector cube earthdistance
+stkr operated extensions get pg
+stkr operated extensions plan pg vchord vector cube earthdistance
+stkr operated extensions apply pg --plan <id from plan>
+stkr slice extensions get immich-db
+stkr slice extensions set immich-db vchord vector cube earthdistance
 ```
 
 `plan` takes the whole list the instance should have and prints the plan and its id. `apply` needs that id and asks before a plan that restarts the instance; `--yes` confirms it. `get` shows the image, the startup modules and the extensions.
 
-`stackr operated extensions set pg ...` sets the lists directly, for the official image or a custom one. `--image` sets a custom image, `--preload` its startup modules (`--preload ""` empties them). With no names and no flags the list is emptied. A recipe-built instance takes its extensions through `plan` and `apply`.
+`stkr operated extensions set pg ...` sets the lists directly, for the official image or a custom one. `--image` sets a custom image, `--preload` its startup modules (`--preload ""` empties them). With no names and no flags the list is emptied. A recipe-built instance takes its extensions through `plan` and `apply`.
 
 Admin, for recipes:
 
 ```bash
-stackr server pg-extensions list
-stackr server pg-extensions set pgvector --off
-stackr server pg-extensions set mine --major 17 --major 18 \
+stkr server pg-extensions list
+stkr server pg-extensions set pgvector --off
+stkr server pg-extensions set mine --major 17 --major 18 \
   --package 'postgresql-{major}-mine' --extension mine --all
-stackr server pg-extensions rm mine
+stkr server pg-extensions rm mine
 ```
 
 `set` also takes `--package-url`, `--sha256 17-amd64=hex` (repeatable), `--version`, `--preload`, `--requires`, `--org` (repeatable) and `--on` or `--off`. `rm` on a built-in removes its switch-off row.
@@ -156,7 +156,7 @@ Recipe builds are kept with the instance's backups, so a restore does not rebuil
 
 Once a day stackr checks each recipe-built instance for newer extension builds. Apt packages are compared with the newest build that installs on the instance's image. Release-file recipes (like vchord) are compared with the recipe's current version, which changes when stackr is updated or an admin edits the recipe. Nothing is built, applied or alerted.
 
-An instance with updates shows an "Extension updates" chip on its canvas card and drawer header. The Extensions row lists the changes. Update runs Check with the lists as they stand; Apply plan then goes through the usual confirmation and restart. `stackr operated extensions get` prints the same list, and the API's extensions `GET` has it as `updates`. A check that fails keeps the last list, which goes once the instance is rebuilt.
+An instance with updates shows an "Extension updates" chip on its canvas card and drawer header. The Extensions row lists the changes. Update runs Check with the lists as they stand; Apply plan then goes through the usual confirmation and restart. `stkr operated extensions get` prints the same list, and the API's extensions `GET` has it as `updates`. A check that fails keeps the last list, which goes once the instance is rebuilt.
 
 ## Limits
 

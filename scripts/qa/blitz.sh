@@ -13,7 +13,7 @@
 # `files` needs a config repo and a connector (BLITZ_CONFIG_REPO, BLITZ_CONFIG_CONNECTOR)
 # and the gh CLI to push; the repo needs stackr-compose.yml, conf/app.txt and conf/t.txt.
 #
-# Flags and paths were checked against cmd/stackr and internal/api/routes.go;
+# Flags and paths were checked against cmd/stkr and internal/api/routes.go;
 # the few lines still marked `# verify:` depend on rig behaviour only a run shows.
 set -euo pipefail
 
@@ -50,7 +50,7 @@ T="--stack $QA --env $ENV"
 
 pass=0 fail=0
 rig() { ssh "$RIG" "$@"; }
-sr() { stackr "$@"; }
+sr() { stkr "$@"; }
 ok() { pass=$((pass + 1)); printf 'PASS %s: %s\n' "$1" "$2"; }
 bad() { fail=$((fail + 1)); printf 'FAIL %s: %s\n' "$1" "$2"; }
 # expect NAME EVIDENCE CONDITION: PASS when the condition command succeeds.
@@ -118,7 +118,7 @@ login_check() {
 	if sr status 2>&1 | grep -q "$EMAIL"; then
 		ok login "$(sr status 2>&1 | grep -m1 "$EMAIL")"
 	else
-		bad login "${out:-not logged in}; set STACKR_KEY (a key of $EMAIL, password $PASSWORD) or run: stackr login $SERVER --org $ORG"
+		bad login "${out:-not logged in}; set STACKR_KEY (a key of $EMAIL, password $PASSWORD) or run: stkr login $SERVER --org $ORG"
 		exit 1
 	fi
 	sr stack create "$QA" >/dev/null 2>&1 || true

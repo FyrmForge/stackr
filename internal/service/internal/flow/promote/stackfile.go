@@ -260,7 +260,7 @@ type TileConf struct {
 	// nil = the file leaves the instance's window as it is.
 	PITRDays *int `yaml:"pitr_days"`
 	// operated postgres: the major, 14 to 18; 0 = the newest on create. An
-	// existing instance keeps its image (a minor moves with `stackr operated
+	// existing instance keeps its image (a minor moves with `stkr operated
 	// update`, a major with `operated upgrade`); major: equal to its own is a no-op.
 	Major int `yaml:"major"`
 	// managed postgres: the instance's own settings, name to value; nil = the

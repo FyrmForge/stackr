@@ -144,7 +144,7 @@ func TestKeyMintAndRevokeWriteOneRow(t *testing.T) {
 }
 
 // An unbound key is minted directly only by an admin on a session or an
-// unbound key; anyone else gets one through stackr login, which an org's
+// unbound key; anyone else gets one through stkr login, which an org's
 // key may not start (B36).
 func TestUnboundKeyGates(t *testing.T) {
 	t.Parallel()

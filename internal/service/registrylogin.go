@@ -15,7 +15,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
-// The password `stackr registry login` hands to docker: a short-lived token
+// The password `stkr registry login` hands to docker: a short-lived token
 // that only the registry front accepts (never the CLI's API key), carrying
 // only who minted it (user and key id): the rights are read from live rows on
 // every /token, so a demotion or a revoked key is felt at once. Docker
@@ -25,7 +25,7 @@ import (
 const (
 	registryLoginPrefix = "stackr-rl."
 	// RegistryLoginTTL is how long a docker login lasts before the next
-	// `stackr registry login`.
+	// `stkr registry login`.
 	RegistryLoginTTL = 12 * time.Hour
 )
 

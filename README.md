@@ -73,8 +73,8 @@ The server starts at [http://localhost:3000](http://localhost:3000) (proxied fro
 Needs Go. Install the latest, or pin a release:
 
 ```bash
-go install github.com/FyrmForge/stackr/cmd/stackr@latest
-go install github.com/FyrmForge/stackr/cmd/stackr@vX.Y.Z
+go install github.com/FyrmForge/stackr/cmd/stkr@latest
+go install github.com/FyrmForge/stackr/cmd/stkr@vX.Y.Z
 ```
 
 From a checkout, `make installcli` does the same.
@@ -98,7 +98,7 @@ make db-sh          # Open sqlite3 shell to local dev DB
 
 ```
 cmd/stackrd/             Panel (web UI + API); also `stackrd proxy` and `stackrd worker`
-cmd/stackr/              CLI
+cmd/stkr/                CLI
 cmd/stackr-install/      Installer
 internal/
   api/                   REST API, OpenAPI spec

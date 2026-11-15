@@ -132,7 +132,7 @@ func (o *Orchestrator) PreviewServerConfig(ctx context.Context, file []byte) (Se
 	return o.diffServer(ctx, f)
 }
 
-// PlanServerFile plans a local file (the CLI's `stackr server apply <file>`)
+// PlanServerFile plans a local file (the CLI's `stkr server apply <file>`)
 // and stores the row with source "local" and the bytes in File. Allowed while
 // a repo is bound. A file that does not parse is refused, not stored: the
 // sender has it in hand.

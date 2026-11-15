@@ -7,7 +7,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service"
 )
 
-// The node verbs behind `stackr node` and `stackr cluster`. Nodes are
+// The node verbs behind `stkr node` and `stkr cluster`. Nodes are
 // admin-only hardware: every route here is for server admins, and members see
 // placements instead (placements.go).
 

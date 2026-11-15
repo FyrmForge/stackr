@@ -1,4 +1,4 @@
-// Package cliauth is the browser half of `stackr login`: the CLI opens
+// Package cliauth is the browser half of `stkr login`: the CLI opens
 // /cli/authorize with a loopback port and a state, the signed-in user
 // approves, and the page sends a one-time code to the CLI's listener. The
 // key is the account's, bound to no org; it never passes through the
@@ -34,7 +34,7 @@ func port(raw string) string {
 func (h *handler) Page(c echo.Context) error {
 	v := View{Name: c.QueryParam("name"), Port: port(c.QueryParam("port")), State: c.QueryParam("state")}
 	if v.Port == "" || v.State == "" {
-		v.Error = "This link is not one the stackr CLI made. Run stackr login again."
+		v.Error = "This link is not one the stackr CLI made. Run stkr login again."
 		return render.Page(c, http.StatusBadRequest, "CLI login", page(v))
 	}
 	return render.Page(c, http.StatusOK, "CLI login", page(v))

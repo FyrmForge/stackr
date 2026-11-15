@@ -14,13 +14,13 @@ One button upgrades the panel, then every worker, one at a time.
 
 ## Update checks
 
-The panel looks for a new release on its own: at start when the last check is older than the interval, then again whenever the interval has passed. The Update page says when it last checked. Set the interval with `update_check` on that page, or `stackr admin setting update_check daily`: `off`, `1h`, `6h` (the default), `daily` or `weekly`. With `off` only **Check again** checks. A dev build never checks.
+The panel looks for a new release on its own: at start when the last check is older than the interval, then again whenever the interval has passed. The Update page says when it last checked. Set the interval with `update_check` on that page, or `stkr admin setting update_check daily`: `off`, `1h`, `6h` (the default), `daily` or `weekly`. With `off` only **Check again** checks. A dev build never checks.
 
 ## When a worker fails
 
 The Workers list shows `<node> failed to upgrade, rolled back` and the error. The workers after it are not touched.
 
-1. Fix the cause. The node's row has the error, and `stackr node show <name>` has its state.
+1. Fix the cause. The node's row has the error, and `stkr node show <name>` has its state.
 2. Press **Retry** on the Update page. It starts the rollout again.
 
 A worker that is offline is upgraded when it reconnects.
@@ -30,9 +30,9 @@ If workers are behind and no rollout is running, the button reads **Update worke
 ## From the CLI
 
 ```bash
-stackr admin upgrade-check
-stackr admin upgrade --tag v0.7.0
-stackr admin upgrade-workers
+stkr admin upgrade-check
+stkr admin upgrade --tag v0.7.0
+stkr admin upgrade-workers
 ```
 
 `upgrade-workers` does the same as Update workers and Retry.

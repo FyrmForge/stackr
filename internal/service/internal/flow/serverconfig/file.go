@@ -194,7 +194,7 @@ func (f *File) checkSettings() error {
 		case !ok:
 			return fmt.Errorf("settings: %q is not an install setting", key)
 		case k.ConfigOnly:
-			return fmt.Errorf("settings.%s is the server file's own binding; set it on the Config tab or with stackr server bind", key)
+			return fmt.Errorf("settings.%s is the server file's own binding; set it on the Config tab or with stkr server bind", key)
 		case k.ReadOnly:
 			return fmt.Errorf("settings.%s comes from the installer and cannot be set here", key)
 		}

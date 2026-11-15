@@ -54,7 +54,7 @@ templ registryRepos(v RegistryView) {
 		if v.Host == "" {
 			<p class="text-sm text-rw-faint">Set the panel domain first: the registry lives at registry.&lt;panel domain&gt;.</p>
 		} else {
-			<pre class="panel overflow-x-auto px-4 py-3 font-mono text-xs text-rw-text">{ "$ stackr registry login\n$ docker push " + v.Host + "/" + v.Org + "/<stack>/<tile>:<tag>" }</pre>
+			<pre class="panel overflow-x-auto px-4 py-3 font-mono text-xs text-rw-text">{ "$ stkr registry login\n$ docker push " + v.Host + "/" + v.Org + "/<stack>/<tile>:<tag>" }</pre>
 			<p class="mt-2 text-xs text-rw-faint">Tokens last 12 hours. Members can pull; owners can push.</p>
 		}
 	</div>

@@ -525,7 +525,7 @@ func (o *Orchestrator) FollowLogs(
 	}
 	id, err := o.replica(ctx, tileID, containerID)
 	if errors.Is(err, errNoContainer) {
-		return nil, nil, errs.Conflictf("the tile has no container to follow; stackr logs shows its last job's log")
+		return nil, nil, errs.Conflictf("the tile has no container to follow; stkr logs shows its last job's log")
 	}
 	if err != nil {
 		return nil, nil, err

@@ -4,19 +4,19 @@ Three YAML files describe an install in git. Each has a plan, then an approve th
 
 | File | Scope | Bound with |
 |---|---|---|
-| `stackr-server.yml` | The install: settings, routes, backup destinations, domains, connector shares, orgs, nodes, placements | `stackr server bind --repo <repo>` |
-| `stackr-org.yml` | One org: tiers, params, defaults, stacks, domains, shares, placement | `stackr org config-repo --repo <repo>` |
+| `stackr-server.yml` | The install: settings, routes, backup destinations, domains, connector shares, orgs, nodes, placements | `stkr server bind --repo <repo>` |
+| `stackr-org.yml` | One org: tiers, params, defaults, stacks, domains, shares, placement | `stkr org config-repo --repo <repo>` |
 | `stackr-compose.yml` | One stack: tiles, envs, volumes, domains, params | the org file's `stacks:` entry |
 
 Every file starts with `version: 1`. An unknown key is refused with its line number. A key left out is not touched; a block that is present is the whole list, so what it no longer names becomes a removal row that applies only when ticked.
 
 ## The loop
 
-1. A push to the bound branch, a daily re-plan, or `stackr server plan` / `stackr org plan` stores a plan. Nothing changes yet.
+1. A push to the bound branch, a daily re-plan, or `stkr server plan` / `stkr org plan` stores a plan. Nothing changes yet.
 2. Read it: `plans`, `plan-show <plan>`. `preview -f FILE` is the dry run: it shows what applying a local file would change, and stores nothing. `dry-run` is an alias.
-3. `stackr server approve <plan>` (or `stackr org approve <plan>`) applies it. A plan with impact lines asks first. `--remove KEY` ticks a removal row.
-4. `stackr server apply -f FILE` plans and applies a local file from any machine with an admin key.
-5. `export` writes the live install as a file. A fresh export plans clean. `stackr stack export` has no apply of its own: a stack file reaches the install through the org file (a `stacks:` entry, then `org plan` and `org approve`), a push to the stack's config repo (`stackr stack config-repo --repo <repo>`), or a promote.
+3. `stkr server approve <plan>` (or `stkr org approve <plan>`) applies it. A plan with impact lines asks first. `--remove KEY` ticks a removal row.
+4. `stkr server apply -f FILE` plans and applies a local file from any machine with an admin key.
+5. `export` writes the live install as a file. A fresh export plans clean. `stkr stack export` has no apply of its own: a stack file reaches the install through the org file (a `stacks:` entry, then `org plan` and `org approve`), a push to the stack's config repo (`stkr stack config-repo --repo <repo>`), or a promote.
 
 With `auto` on, a plan with no impact lines and no removals is approved by itself. That includes the daily re-plan and the one at panel start: a panel edit the file does not hold is put back.
 
@@ -35,7 +35,7 @@ A file goes in git, so it never holds a credential. These fields must be one `${
 - `alert_webhook_url` and `heartbeat_url` in `stackr-server.yml` settings, as `${{ server.params.<collection>.<name> }}`
 - the access, secret and archive keys of a backup destination
 
-Params of type `secret` are declared by name and type only. Set the value in the panel or with `stackr params`. Server params are readable only in `stackr-server.yml`; a stack file that refs one is refused.
+Params of type `secret` are declared by name and type only. Set the value in the panel or with `stkr params`. Server params are readable only in `stackr-server.yml`; a stack file that refs one is refused.
 
 An export writes a secret by name only. A stored literal `protect_password` is left out. The stack export swaps the value of an env or build arg whose name looks like a secret (password, secret, token, key, credential, private, auth, dsn) for `${{ params.<tile>.<name> }}` and warns: create that param before you plan the file.
 
@@ -64,7 +64,7 @@ Settings keys:
 - Observe: `observe_enabled`, `observe_metrics_retention`, `observe_min_free`, `observe_logs_enabled`, `observe_logs_retention`, `observe_logs_max_size`, `observe_max_memory`, `observe_access_query`, `observe_access_ip`, `observe_access_headers`.
 - Alerts: `alert_webhook_url`, `heartbeat_url` (refs).
 
-The `server_config_*` knobs are the binding itself. Set them with `stackr server bind`, never in the file. `stackr knobs` lists every knob with its default.
+The `server_config_*` knobs are the binding itself. Set them with `stkr server bind`, never in the file. `stkr knobs` lists every knob with its default.
 
 ## stackr-org.yml
 
@@ -96,16 +96,16 @@ An entry claims the host for the org. Its tiles get names under it, like `web.sh
 
 You do not have to write a file first. Build the org in the panel, then adopt files when you want them.
 
-1. In the org settings, open Config as code. Under Export, press Download stackr-org.yml. CLI: `stackr org export -o stackr-org.yml`.
-2. Commit the file to a repo and bind it on the same page (Config repository, Save and plan). CLI: `stackr org config-repo --repo <repo>`.
-3. Read the plan it makes. A fresh export shows no changes. CLI: `stackr org preview -f stackr-org.yml` does the same for a local file, once a repo is bound.
+1. In the org settings, open Config as code. Under Export, press Download stackr-org.yml. CLI: `stkr org export -o stackr-org.yml`.
+2. Commit the file to a repo and bind it on the same page (Config repository, Save and plan). CLI: `stkr org config-repo --repo <repo>`.
+3. Read the plan it makes. A fresh export shows no changes. CLI: `stkr org preview -f stackr-org.yml` does the same for a local file, once a repo is bound.
 4. From here the file leads. Edit it, push, read the plan, approve it.
 
-A plan never deletes anything on its own. A removal row applies only when you tick it in the panel, or pass `--remove KEY` to `stackr org approve`. The server file works the same way: Config as code in the admin panel, `stackr server export` and `stackr server preview`.
+A plan never deletes anything on its own. A removal row applies only when you tick it in the panel, or pass `--remove KEY` to `stkr org approve`. The server file works the same way: Config as code in the admin panel, `stkr server export` and `stkr server preview`.
 
 ## stackr-compose.yml
 
-Written by hand or with `stackr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stackr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel.
+Written by hand or with `stkr stack export [--env ENV]`. An export is a starting point, not something to apply directly: commit it to a repo the org file lists under `stacks:` (or bind the repo with `stkr stack config-repo`), then plan and approve the org file, or push or promote. Top level: `version`, `stack`, `include`, `ladder`, `head`, `params`, `defaults`, `domains`, `volumes`, `base.tiles`, `environments`, `pr_envs`, `shared`, `pin`, `ingress`, `exits`. A tile's keys follow the panel's tile settings (`image` or `build`, `port`, `env`, `volumes`, `domains`, `healthcheck`, `limits`, `depends_on`, and so on). `volumes.<name>.backup` is refused: set a volume's backup schedule in the panel.
 
 ## Operated and slice tiles
 
@@ -116,7 +116,7 @@ Under a tile in `base.tiles` or an environment. `engine:` alone makes a tile ope
 | Key | Holds |
 |---|---|
 | `engine` | `postgres` or `s3`. Required. |
-| `major` | Postgres major, 14 to 18. 0 or left out = the newest on create. An existing instance keeps its image: a minor moves with `stackr operated update`, a major with `operated upgrade`. A `major` equal to its own is a no-op. |
+| `major` | Postgres major, 14 to 18. 0 or left out = the newest on create. An existing instance keeps its image: a minor moves with `stkr operated update`, a major with `operated upgrade`. A `major` equal to its own is a no-op. |
 | `settings` | Postgres settings, name to value. Left out = the file leaves them as they are. An empty map clears them. |
 | `pitr_days` | Days of WAL kept for point-in-time recovery, 0 (off) to 365. Left out = the window is left as it is. Postgres only. |
 | `standbys` | Nodes (name or slug) holding a standby, each a string or `{node, sync}`. At most 2. Left out = standbys are left as they are. An empty list removes them. |

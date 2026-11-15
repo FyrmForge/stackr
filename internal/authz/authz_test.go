@@ -109,7 +109,7 @@ func TestCan(t *testing.T) {
 	}
 }
 
-// A stackr login key is the account's: it reaches every org its user is in,
+// A stkr login key is the account's: it reaches every org its user is in,
 // no other, and /me for anyone active.
 func TestUnboundKey(t *testing.T) {
 	u := User{ID: "u", Active: true, Roles: map[string]string{"o1": "viewer", "o2": "member"}, Key: true}

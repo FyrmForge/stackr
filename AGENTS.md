@@ -18,7 +18,7 @@ make templint       # Lint .templ files for silent failures and a11y issues
 
 ```
 cmd/stackrd/             Panel entry point (env config loaded here)
-cmd/stackr/              CLI entry point
+cmd/stkr/                CLI entry point
 cmd/stackr-install/      Installer entry point
 internal/db/            Database connection + embedded migrations
 internal/middleware/     Access: session or API key → principal; Require(verb)

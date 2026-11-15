@@ -139,7 +139,7 @@ func (f *Flow) planScope(
 	// A promote has no confirm step, so a pin that moves running envs waits
 	// for the move to be confirmed where it can be; once they are there, the
 	// pin moves nothing and lands.
-	cmd := "stackr pin " + want.Pin + " --stack " + w.st.Slug
+	cmd := "stkr pin " + want.Pin + " --stack " + w.st.Slug
 	if scope == "env" {
 		cmd += " --env " + tile
 	}

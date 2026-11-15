@@ -92,7 +92,7 @@ type User struct {
 	Active bool              // a disabled account may do nothing
 	Roles  map[string]string // org id -> role
 	Key    bool              // authenticated by an API key
-	KeyOrg string            // the org the key is bound to, "" = the account's key (stackr login)
+	KeyOrg string            // the org the key is bound to, "" = the account's key (stkr login)
 	// KeyCapped: the key has a ceiling, KeyLevel. A key does the lower of its
 	// ceiling and its user's live rights.
 	KeyCapped bool
@@ -118,7 +118,7 @@ func Can(u User, v Verb, r Resource) error {
 		case !u.Admin:
 			return errs.Refusedf("admin commands need a stackr admin account")
 		case u.KeyOrg != "":
-			return errs.Refusedf("this key is limited to one org; admin commands need a key from stackr login")
+			return errs.Refusedf("this key is limited to one org; admin commands need a key from stkr login")
 		case u.KeyStack != "":
 			return errs.Refusedf("this key is limited to one stack")
 		case u.KeyCapped && u.KeyLevel < LevelAdmin:
@@ -127,7 +127,7 @@ func Can(u User, v Verb, r Resource) error {
 		return nil
 	}
 	// B36: an org's key is bound to the org it was minted in and does not
-	// travel. An unbound key (stackr login) is the account's: every org the
+	// travel. An unbound key (stkr login) is the account's: every org the
 	// user is in, at their live role there.
 	if u.KeyOrg != "" && u.KeyOrg != r.OrgID {
 		return errs.ErrNotFound

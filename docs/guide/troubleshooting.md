@@ -33,7 +33,7 @@ The node shows offline in Admin, Nodes, and the alerts webhook fires `node.offli
    ```
 
 2. Not running: `systemctl restart stackr-worker`.
-3. Running but offline: the mesh needs UDP 51871 and TCP 7443 and 7444 open between the worker and the controller. `stackr node show <name>` on the controller has the state and the last error.
+3. Running but offline: the mesh needs UDP 51871 and TCP 7443 and 7444 open between the worker and the controller. `stkr node show <name>` on the controller has the state and the last error.
 4. The log says `certificate expired` or `not rejoined`, or the box was reinstalled: [rejoin it](nodes.md#rejoin-a-broken-worker).
 5. A clock more than 30 seconds off the controller's fires `clock.skew` (see [Alerts](alerts.md)). Nothing is refused, but certificates and tokens misbehave. Fix time sync.
 
@@ -45,7 +45,7 @@ Apps on an offline worker keep running. Deploys to it wait.
 
 If the old panel did not come back, the swap's own error names the copy of the database it could not restore. Do not start the panel until the database is right. Restore the pre-upgrade archive ([below](#restore-from-a-backup)) or stop the panel, delete `stackr.db-wal` and `stackr.db-shm`, and move the copy back over `/var/lib/stackr/stackr.db`.
 
-**Workers.** The rollout goes one worker at a time. A worker that does not come back on the new build rolls itself back and the rollout stops. The Workers list on the Update page shows `<node> failed to upgrade, rolled back` and the error. Fix the node, then press **Retry** or run `stackr admin upgrade-workers`. A worker that is offline is upgraded when it reconnects.
+**Workers.** The rollout goes one worker at a time. A worker that does not come back on the new build rolls itself back and the rollout stops. The Workers list on the Update page shows `<node> failed to upgrade, rolled back` and the error. Fix the node, then press **Retry** or run `stkr admin upgrade-workers`. A worker that is offline is upgraded when it reconnects.
 
 A worker stuck between builds: `systemctl status stackr-worker` and `journalctl -u stackr-worker`. If it will not start, [rejoin it](nodes.md#rejoin-a-broken-worker).
 
