@@ -668,7 +668,7 @@ flash-toast[leaving] { opacity: 0; }
     @apply mb-3;
   }
   .settings-find-hit mark {
-    @apply rounded-sm bg-rw-accent/20 px-0.5 text-inherit;
+    @apply rounded-sm bg-rw-accent/20 text-inherit;
   }
   /* the row a search hit opened */
   [data-field].is-found {
