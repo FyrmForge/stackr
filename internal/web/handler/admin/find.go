@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/FyrmForge/hamr/pkg/respond"
@@ -132,7 +133,7 @@ func matchFind(q string, es []findEntry) ui.FindView {
 	if len(settings) < room {
 		room = len(settings)
 	}
-	hits := append(settings[:room:room], secs[:min(len(secs), findCap-room)]...)
+	hits := slices.Concat(settings[:room], secs[:min(len(secs), findCap-room)])
 	return ui.FindView{Total: len(settings) + len(secs), Hits: hits, Asked: true}
 }
 

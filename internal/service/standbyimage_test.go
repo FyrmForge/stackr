@@ -322,8 +322,7 @@ func staleSettings(f *dockerfake.Fake, id string) {
 func (g *imageRig) pendingExec() {
 	g.n.ctlFake.ExecFn = func(cmd []string) string {
 		c := strings.Join(cmd, " ")
-		switch {
-		case strings.Contains(c, "current_setting"):
+		if strings.Contains(c, "current_setting") {
 			return "max_connections|0|100|postmaster\nmax_worker_processes|0|8|postmaster\nmax_wal_senders|0|10|postmaster\nmax_prepared_transactions|0|0|postmaster\nmax_locks_per_transaction|0|64|postmaster\n"
 		}
 		return "1"
