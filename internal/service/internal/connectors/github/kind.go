@@ -33,7 +33,7 @@ func (Kind) New() connectors.Conn { return &Conn{} }
 func (Kind) Steps() []connectors.Step {
 	return []connectors.Step{
 		{Title: "GitHub org", Fields: []connectors.Field{
-			{Name: "owner", Label: "GitHub org", Optional: true, Help: "Leave empty for your personal account."},
+			{Name: "owner", Label: "GitHub org (empty for your own account)", Optional: true, Help: "Your username is not an org."},
 		}},
 		{Title: "Create on GitHub", Intro: "GitHub creates the app, then sends you back here.", Out: true},
 		{Title: "Install", Intro: "Pick the repositories the app may read.", Out: true},
@@ -42,7 +42,7 @@ func (Kind) Steps() []connectors.Step {
 
 // Alt is an App made on GitHub by hand.
 func (Kind) Alt() connectors.Alt {
-	return connectors.Alt{Label: "Use an existing App", Steps: []connectors.Step{{
+	return connectors.Alt{Label: "Use an existing App", Hint: "For an App you already made on GitHub, for example to reuse one across installs.", Steps: []connectors.Step{{
 		Title: "Existing App",
 		Intro: "Point the App's webhook at the URL its settings show once saved.",
 		Fields: []connectors.Field{

@@ -102,6 +102,7 @@ type Alter interface {
 // Alt is that second way: the link to it and its steps.
 type Alt struct {
 	Label string `json:"label"`
+	Hint  string `json:"hint,omitempty"` // one line on who it is for
 	Steps []Step `json:"steps"`
 }
 

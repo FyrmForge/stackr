@@ -24,6 +24,7 @@ type SetupView struct {
 	Out      *OutView
 	Alt      string // GET the other way's screens; "" = none
 	AltLabel string
+	AltHint  string
 	Hidden   map[string]string
 }
 
@@ -208,7 +209,11 @@ templ Setup(v SetupView) {
 									<a href={ templ.SafeURL(s.LinkURL) } target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">{ s.LinkLabel }</a>
 								}
 								if i == 0 && v.Alt != "" {
-									<p class="border-t border-rw-border pt-3"><button type="button" class="link text-xs" hx-get={ v.Alt } hx-target={ "#" + BodyID } hx-swap="outerHTML">{ v.AltLabel }</button></p>
+									<p class="border-t border-rw-border pt-3"><button type="button" class="link text-xs" hx-get={ v.Alt } hx-target={ "#" + BodyID } hx-swap="outerHTML">{ v.AltLabel }</button>
+										if v.AltHint != "" {
+											<span class="block mt-1 text-xs text-rw-faint">{ v.AltHint }</span>
+										}
+									</p>
 								}
 							</div>
 							<div class="modal-foot">

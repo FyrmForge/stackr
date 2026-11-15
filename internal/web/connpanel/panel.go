@@ -192,7 +192,7 @@ func (p Panel) view(c echo.Context, k service.ConnectorKind, alt bool, vals, err
 		v.Hidden["alt"] = "1"
 		v.Back = post + back
 	case k.Alt != nil:
-		v.Alt, v.AltLabel = post+back+"&alt=1", k.Alt.Label
+		v.Alt, v.AltLabel, v.AltHint = post+back+"&alt=1", k.Alt.Label, k.Alt.Hint
 	}
 	for _, s := range formSteps(k, alt) {
 		v.Steps = append(v.Steps, connectors.Step{
