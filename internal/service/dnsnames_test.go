@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/libdns/libdns"
 
-	"github.com/FyrmForge/stackr/internal/authz"
 	"github.com/FyrmForge/stackr/internal/service"
 	"github.com/FyrmForge/stackr/internal/service/errs"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
@@ -41,10 +40,6 @@ func scopedRig(t *testing.T) (*servicetest.Env, string, string) {
 	return env, acme, srv.Connector.ID
 }
 
-func adminOf(t *testing.T, env *servicetest.Env) *service.Principal {
-	id := env.User(t, "root@acme.dev", true)
-	return &service.Principal{User: service.User{ID: id}, Access: authz.User{ID: id, Active: true, Admin: true}}
-}
 
 // Under a scope, only names at or under it get records: the panel's, a
 // node's and a tile's there. A tile host elsewhere on the domain is not

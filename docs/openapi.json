@@ -835,9 +835,6 @@
       },
       "ClusterStatusNode": {
         "properties": {
-          "address": {
-            "type": "string"
-          },
           "arch": {
             "type": "string"
           },
@@ -932,7 +929,6 @@
           "range",
           "wg_address",
           "public_ip",
-          "address",
           "cpu",
           "mem_total",
           "disk_free",
@@ -2978,9 +2974,6 @@
             "format": "date-time",
             "type": "string"
           },
-          "node_address": {
-            "type": "string"
-          },
           "node_name": {
             "type": "string"
           },
@@ -3012,16 +3005,6 @@
       },
       "JoinTokenSpec": {
         "properties": {
-          "node_address": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "node_name": {
             "type": "string"
           },
@@ -3751,17 +3734,6 @@
         ],
         "type": "object"
       },
-      "NodeAddressIn": {
-        "properties": {
-          "node_address": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "node_address"
-        ],
-        "type": "object"
-      },
       "NodeCertOut": {
         "properties": {
           "not_after": {
@@ -3840,9 +3812,6 @@
       },
       "NodeInfo": {
         "properties": {
-          "address": {
-            "type": "string"
-          },
           "arch": {
             "type": "string"
           },
@@ -3971,7 +3940,6 @@
           "range",
           "wg_address",
           "public_ip",
-          "address",
           "cpu",
           "mem_total",
           "disk_free",
@@ -3988,9 +3956,6 @@
       },
       "NodeOut": {
         "properties": {
-          "address": {
-            "type": "string"
-          },
           "arch": {
             "type": "string"
           },
@@ -4078,7 +4043,6 @@
           "range",
           "wg_address",
           "public_ip",
-          "address",
           "cpu",
           "mem_total",
           "disk_free",
@@ -4990,6 +4954,9 @@
           "detail": {
             "type": "string"
           },
+          "helper": {
+            "type": "string"
+          },
           "need_bytes": {
             "type": "integer"
           },
@@ -5021,6 +4988,25 @@
         "required": [
           "plan",
           "confirm"
+        ],
+        "type": "object"
+      },
+      "PGExtChangeOut": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "package": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "package",
+          "from",
+          "to"
         ],
         "type": "object"
       },
@@ -5158,6 +5144,16 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "updates": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PGExtUpdatesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5227,6 +5223,25 @@
           "pg_update",
           "slices",
           "blockers"
+        ],
+        "type": "object"
+      },
+      "PGExtUpdatesOut": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/PGExtChangeOut"
+            },
+            "type": "array"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checked_at",
+          "changes"
         ],
         "type": "object"
       },
@@ -12485,54 +12500,6 @@
               }
             },
             "description": "Accepted"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "error"
-          }
-        },
-        "x-verb": "node.manage"
-      }
-    },
-    "/api/v1/admin/nodes/{node}/address": {
-      "put": {
-        "operationId": "admin.node-address",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "node",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NodeAddressIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NodeOut"
-                }
-              }
-            },
-            "description": "OK"
           },
           "default": {
             "content": {
