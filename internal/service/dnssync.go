@@ -17,12 +17,16 @@ type coalesce struct {
 	fn          func()
 	mu          sync.Mutex
 	busy, again bool
+	closed      bool           // Close ran: a late Kick does nothing
 	wg          sync.WaitGroup // a run going; Wait is for tests
 }
 
 func (k *coalesce) Kick() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.closed {
+		return
+	}
 	if k.busy {
 		k.again = true
 		return
@@ -49,6 +53,15 @@ func (k *coalesce) loop() {
 
 // Wait returns once no run is going.
 func (k *coalesce) Wait() { k.wg.Wait() }
+
+// Close stops new runs and waits for the one going: a Kick from a goroutine
+// that outlives the shutdown starts nothing.
+func (k *coalesce) Close() {
+	k.mu.Lock()
+	k.closed, k.again = true, false
+	k.mu.Unlock()
+	k.wg.Wait()
+}
 
 // dnsState is the last background records sync's failure (nil = it worked).
 type dnsState struct {
