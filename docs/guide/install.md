@@ -53,7 +53,7 @@ The panel is the controller: the web UI, the API and the first node. One box run
 
    The second one is needed. Every stack gets a name under the domain, and each name must resolve before a certificate can be issued. With `--https=false` the installer prints no records; point the same names at the box yourself.
 
-5. The installer logs the CLI on this box in as the admin, server admin commands included. It stores the key in `/var/lib/stackr/cli.json` and never prints it. `stackr` reaches the panel at its public URL, so it works once DNS and the certificate do. See [Log the CLI in](nodes.md#log-the-cli-in).
+5. The installer logs the CLI on this box in as the admin, server admin commands included. It stores the key in `/var/lib/stackr/cli.json` and never prints it. `stkr` reaches the panel at its public URL, so it works once DNS and the certificate do. See [Log the CLI in](nodes.md#log-the-cli-in).
 
 Flags you may want:
 
@@ -81,7 +81,7 @@ The installer caps Docker's container logs at 3 files of 10 MB in `/etc/docker/d
 1. Open `https://stkr.apps.example.com` (your own domain; `http://` with `--https=false`).
 2. Log in with the admin email and password.
 
-Until DNS is live there is no way in, because the panel publishes no port. The `stackr` command the installer put on the box goes through the panel's URL too, so it also waits for DNS and the certificate.
+Until DNS is live there is no way in, because the panel publishes no port. The `stkr` command the installer put on the box goes through the panel's URL too, so it also waits for DNS and the certificate.
 
 ## First login and onboarding
 

@@ -451,7 +451,7 @@ func TestUninstallControllerPurge(t *testing.T) {
 		"docker image rm registry:3 moby/buildkit:buildx-stable-1 ",
 		"docker logout registry.stkr.example.com",
 		"rm -rf " + r.install,
-		"/usr/local/bin/stackr-install.prev /usr/local/bin/stackr",
+		"/usr/local/bin/stackr-install.prev /usr/local/bin/stkr /usr/local/bin/stackr",
 	} {
 		at = index(t, out, step, at)
 	}

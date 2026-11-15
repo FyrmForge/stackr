@@ -55,6 +55,8 @@ The archive is taken before anything changes. It is listed in Backups, under `/v
 
 This is the way off a dev build, which the Update button cannot move.
 
+A box installed before the `stkr` rename keeps its `stackr` command, and the installer never removes it. Running the installer on the panel's box adds `stkr`. The Update button does not: run `sudo ln -s /usr/local/bin/stackr /usr/local/bin/stkr` once.
+
 ## Notes
 
 - A dev build cannot upgrade from the panel. Use the installer.

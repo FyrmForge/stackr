@@ -22,7 +22,7 @@ func cliReference() string {
 	sb.WriteString("# CLI reference\n\n")
 	sb.WriteString("Generated from the command definitions: `go test ./cmd/stkr -run TestCLIReference -update`. ")
 	sb.WriteString("`stkr <command> --help` prints the same text.\n\n")
-	sb.WriteString("Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stkr@latest`, or pin a release with `@vX.Y.Z`. From a checkout: `make installcli`. The CLI does not update itself: when the server runs another version it prints one line to stderr with the `go install` command that matches the server.\n\n")
+	sb.WriteString("Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stkr@latest`, or pin a release with `@vX.Y.Z`. From a checkout, `make installcli` installs the current commit; it does not carry a release version. The CLI does not update itself: when the server runs another version it prints one line to stderr with the `go install` command that matches the server.\n\n")
 	sb.WriteString("```\n" + strings.TrimSpace(root.Long) + "\n```\n\n")
 	sb.WriteString("## Flags on every command\n\n```\n" + strings.TrimRight(root.PersistentFlags().FlagUsages(), "\n ") + "\n```\n\n")
 	sb.WriteString("Exit codes: 0 fine, 1 failed, 2 wrong command line, 3 refused without `--yes` (no terminal, or `--json`).\n\n")

@@ -528,7 +528,11 @@ func waitHealthy(ctx context.Context, url string) error {
 // authenticate from inside the container.
 // The CLI's login lives in the data dir (mounted at the same path in the
 // panel): in the container's home it went with every upgrade's recreate.
-const wrapperPath = "/usr/local/bin/stackr"
+const wrapperPath = "/usr/local/bin/stkr"
+
+// legacyWrapperPath is the name boxes installed before the rename have. An
+// install or upgrade never touches it; only uninstall removes it.
+const legacyWrapperPath = "/usr/local/bin/stackr"
 
 // The STACKR_* variables the CLI reads (STACKR_KEY, STACKR_ORG, the backup
 // keys) are passed on by name, so their values stay off argv.

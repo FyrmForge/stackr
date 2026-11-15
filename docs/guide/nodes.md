@@ -2,7 +2,7 @@
 
 A node is a machine in the cluster. The controller is the first. Workers run envs and can carry public traffic.
 
-The `stackr` commands below run on the controller and need a login first. See [Log the CLI in](#log-the-cli-in).
+The `stkr` commands below run on the controller and need a login first. See [Log the CLI in](#log-the-cli-in).
 
 ## Add a worker node
 
@@ -62,7 +62,7 @@ A worker can run in a Proxmox container. Docker, WireGuard and the mesh need mor
 
 Nodes are hardware, and only server admins see them: `stkr node`, `stkr cluster` and Server settings > Nodes are admin-only. Orgs, stacks and envs name a placement, never a node. A placement stands on one node and an admin repoints it. See [Placements](placements.md) for pins, access and moves.
 
-To take a worker out, repoint its placements first (`stkr admin placement move`); `stkr node remove` refuses while a placement or an env is on the node.
+To take a worker out, repoint its placements first (`stkr admin placement move`); `stkr node rm` refuses while a placement or an env is on the node.
 
 ## Ingress and egress
 
@@ -139,7 +139,7 @@ A second break glass within 10 minutes is refused.
 
 ## Log the CLI in
 
-On the controller, `stackr` runs inside the panel container, so the browser login cannot reach it. Use a key.
+On the controller, `stkr` runs inside the panel container, so the browser login cannot reach it. Use a key.
 
 The first install logs the CLI on the controller in as the admin for you, with a key bound to no org, so it runs server admin commands too. The key is stored in `/var/lib/stackr/cli.json` and never printed. It works once the panel's DNS and certificate do.
 

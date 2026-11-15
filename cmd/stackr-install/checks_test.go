@@ -202,7 +202,7 @@ func TestWrapperPassesStackrEnv(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	w := filepath.Join(dir, "stackr")
+	w := filepath.Join(dir, "stkr")
 	if err := os.WriteFile(w, []byte(wrapper("/data")), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -35,6 +35,8 @@ func TestVersionWarning(t *testing.T) {
 		{"0.8.24", "v0.8.24", ""},
 		{"v0.8.24", "", ""},
 		{"dev", "v0.8.25", ""},
+		{"abc1234", "v0.8.24", ""},
+		{"v0.8.24", "abc1234", "stkr is v0.8.24, the server is abc1234."},
 		{"v0.8.24", "dev", "stkr is v0.8.24, the server is dev."},
 		{"v0.8.24", "v0.8.25-dev.3", "stkr is v0.8.24, the server is v0.8.25-dev.3."},
 	} {

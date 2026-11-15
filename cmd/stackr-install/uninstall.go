@@ -193,7 +193,7 @@ func (e uninstallEnv) run(ctx context.Context, purge bool) error {
 		bins = append(bins, filepath.Join(worker.SwapBinDir, n), filepath.Join(worker.SwapBinDir, n+".prev"))
 	}
 	if ctrl {
-		bins = append(bins, wrapperPath)
+		bins = append(bins, wrapperPath, legacyWrapperPath)
 	}
 	fail(r.run(ctx, "rm", append([]string{"-f"}, bins...)...))
 	r.say("Done. stackr is off this box.")

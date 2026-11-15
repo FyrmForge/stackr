@@ -50,4 +50,4 @@ On the controller, as root:
 sudo stackr-install uninstall --purge
 ```
 
-It asks you to type the panel's host name. Then it removes the panel and every app on the box with their volumes, the images stackr built or pulled, the docker login for the panel's registry, the firewall rules, `stackr0` and the mesh, `/var/lib/stackr`, and `stackr` and `stackr-install` in `/usr/local/bin`. `/etc/docker/daemon.json` stays. Without `--purge` it refuses on the controller.
+It asks you to type the panel's host name. Then it removes the panel and every app on the box with their volumes, the images stackr built or pulled, the docker login for the panel's registry, the firewall rules, `stackr0` and the mesh, `/var/lib/stackr`, and `stkr`, `stackr` (the old wrapper name) and `stackr-install` in `/usr/local/bin`. `/etc/docker/daemon.json` stays. Without `--purge` it refuses on the controller.

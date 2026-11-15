@@ -77,7 +77,7 @@ go install github.com/FyrmForge/stackr/cmd/stkr@latest
 go install github.com/FyrmForge/stackr/cmd/stkr@vX.Y.Z
 ```
 
-From a checkout, `make installcli` does the same. The CLI does not update itself: when the server runs another version, it prints one line to stderr with the `go install` command that matches the server.
+From a checkout, `make installcli` installs the current commit; it does not carry a release version. The CLI does not update itself: when the server runs another version, it prints one line to stderr with the `go install` command that matches the server.
 
 ## Development
 

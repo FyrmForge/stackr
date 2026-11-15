@@ -39,19 +39,25 @@ func shownVersion(stamped, module string) string {
 }
 
 // versionWarning is the one line for a CLI and a server on different builds,
-// or "" when there is nothing to say: a dev CLI, an older server that sends
+// or "" when there is nothing to say: a dev or sha-stamped CLI, an older server that sends
 // no version, or the same release. A server that is not a clean release has
 // nothing to install, so it gets no update command.
 func versionWarning(cli, server string) string {
-	if server == "" || cli == "dev" || strings.TrimPrefix(cli, "v") == strings.TrimPrefix(server, "v") {
+	if server == "" || !cliRelease.MatchString(cli) || strings.TrimPrefix(cli, "v") == strings.TrimPrefix(server, "v") {
 		return ""
 	}
 	msg := "stkr is " + cli + ", the server is " + server + "."
-	if server != "dev" && !strings.ContainsAny(server, "-+") {
-		msg = "stkr is " + cli + ", the server is " + server + ". Update: go install github.com/FyrmForge/stackr/cmd/stkr@v" + strings.TrimPrefix(server, "v")
+	if serverRelease.MatchString(server) {
+		msg += " Update: go install github.com/FyrmForge/stackr/cmd/stkr@v" + strings.TrimPrefix(server, "v")
 	}
 	return msg
 }
+
+// Only a release-shaped CLI warns: a dev or sha-stamped build is not behind.
+var (
+	cliRelease    = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-dev\.\d+)?$`)
+	serverRelease = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+)
 
 func buildVersion() string {
 	mod := ""
