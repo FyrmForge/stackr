@@ -573,12 +573,6 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	return taken, errors.Join(cw.clash...)
 }
 
-// sameRec: one record by name, type and value.
-func sameRec(a, b libdns.Record) bool {
-	x, y := a.RR(), b.RR()
-	return strings.EqualFold(x.Name, y.Name) && x.Type == y.Type && sameData(x.Type, x.Data, y.Data)
-}
-
 // customWork is a zone's custom records against its live records: what to
 // write, the rows to make (new or taken over), the ones put back, and the
 // ones their name cannot hold.
