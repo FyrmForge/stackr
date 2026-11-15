@@ -466,6 +466,11 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 		v.Latest, v.Newer, v.Checked = h.orch.LastUpgradeCheck(ctx)
 	}
 	v.Version, v.Job = h.orch.Version(), job
+	v.CheckedText = h.orch.UpgradeCheckedText(ctx)
+	var err error
+	if v.Settings, err = h.settings(c, "update", nil); err != nil {
+		return nil, err
+	}
 	v.Upgrading = v.Upgrading || h.orch.UpgradeUnderway(ctx)
 	waits, err := h.orch.UpgradeWaits(ctx)
 	if err != nil {
@@ -616,6 +621,7 @@ var knobForms = map[string][]string{
 	"cleanup":      {"image_check_interval", "cleanup_enabled", "cleanup_schedule", "orphans_enabled", "orphans_schedule", "orphan_retention_days"},
 	"org-defaults": {"cpu_limit", "mem_limit_mb", "protect", "protect_user", "protect_password", "pids_limit"},
 	"jobs":         {"workers", "backup_run_concurrency", "backup_restore_concurrency", "seed_max_gb"},
+	"update":       {"update_check"},
 }
 
 // ownEditor is the server knobs a section edits with a form of its own:
@@ -658,6 +664,11 @@ func (h *handler) settings(c echo.Context, form string, refused error) (comp.Set
 			Secret:    s.Secret,
 			ReadOnly:  s.ReadOnly,
 			NoInherit: s.DecidedBy == "install",
+		}
+		if s.Key == "update_check" {
+			for _, o := range service.UpdateCheckChoices() {
+				r.Options = append(r.Options, comp.Option{Value: o, Label: o})
+			}
 		}
 		if vs, ok := posted[s.Key]; ok && !s.Secret && !s.ReadOnly {
 			r.Value = vs[0]

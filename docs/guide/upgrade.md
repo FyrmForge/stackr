@@ -12,6 +12,10 @@ One button upgrades the panel, then every worker, one at a time.
    - One worker at a time. Nodes that other nodes route through go last.
    - A worker that does not come back on the new build rolls itself back, and the rollout stops.
 
+## Update checks
+
+The panel looks for a new release on its own: at start when the last check is older than the interval, then again whenever the interval has passed. The Update page says when it last checked. Set the interval with `update_check` on that page, or `stackr admin setting update_check daily`: `off`, `1h`, `6h` (the default), `daily` or `weekly`. With `off` only **Check again** checks. A dev build never checks.
+
 ## When a worker fails
 
 The Workers list shows `<node> failed to upgrade, rolled back` and the error. The workers after it are not touched.

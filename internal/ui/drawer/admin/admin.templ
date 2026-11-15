@@ -50,6 +50,10 @@ type UpdateView struct {
 	Run      c.ConfirmView // Action "" = may not run
 	Job      *c.JobStatusView
 	Workers  *WorkersView // nil = no workers to roll out to
+	// CheckedText is "Checked 5 min ago" or "Never checked"; "" = not shown.
+	CheckedText string
+	// Settings is the update_check form; ID "" = not shown.
+	Settings c.SettingsFormView
 }
 
 // WorkersView is the worker rollout: one row per worker. Action (POST) is the
@@ -89,12 +93,16 @@ func workerTone(r WorkerRow) string {
 	return ""
 }
 
-func workerState(r WorkerRow) string {
+// workerState is the row's chip. While a panel update is pending (newer), a
+// worker on the panel's build "matches the panel", not "up to date".
+func workerState(r WorkerRow, newer bool) string {
 	switch {
 	case r.State != "":
 		return r.State
 	case r.Behind:
 		return "behind"
+	case newer:
+		return "matches the panel"
 	}
 	return "up to date"
 }
@@ -247,10 +255,16 @@ templ Update(v UpdateView) {
 				if v.Job != nil {
 					@c.JobStatus(*v.Job)
 				}
+				if v.CheckedText != "" && !(v.Checked && v.Latest == "" && v.CheckErr == "") {
+					<p class="text-xs text-rw-faint">{ v.CheckedText }</p>
+				}
 				if !v.Upgrading && !v.Checked {
 					@post("Check for update", Base+"/update/check")
 				} else if !v.Upgrading && (v.Latest != "" || v.CheckErr != "") {
 					@post("Check again", Base+"/update/check")
+				}
+				if v.Settings.ID != "" {
+					@c.SettingsForm(v.Settings)
 				}
 			</div>
 		}
@@ -270,7 +284,7 @@ templ Update(v UpdateView) {
 								if r.Current != "" {
 									<span class="font-mono text-xs text-rw-muted">{ r.Current }</span>
 								}
-								<span class="ml-auto">@c.Chip(workerState(r), workerTone(r))</span>
+								<span class="ml-auto">@c.Chip(workerState(r, v.Newer), workerTone(r))</span>
 							</div>
 							if r.Error != "" {
 								<p class="mt-1 text-xs text-rw-danger">{ r.Error }</p>

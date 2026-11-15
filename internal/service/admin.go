@@ -524,6 +524,10 @@ func (o *Orchestrator) Version() string { return o.cfg.Version }
 // row, not a knob): the Update tab shows it after a restart.
 const keyUpgradeLatest = "upgrade_latest"
 
+// keyUpgradeChecked is when the last check completed (RFC 3339), manual or
+// automatic: the interval counts from it across restarts.
+const keyUpgradeChecked = "upgrade_checked_at"
+
 // CheckUpgrade asks the release host for the latest release and remembers it; newer
 // says whether it is newer than this build (false on a dev build).
 func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer bool, err error) {
@@ -532,6 +536,11 @@ func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer b
 	}
 	if err := o.store.Settings.Set(ctx, keyUpgradeLatest, latest); err != nil {
 		slog.Warn("update check: not remembered", "err", err)
+	}
+	if o.upgrade.Upgradable() {
+		if err := o.store.Settings.Set(ctx, keyUpgradeChecked, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			slog.Warn("update check: time not remembered", "err", err)
+		}
 	}
 	_, newer = o.upgrade.Available(latest)
 	return latest, newer, nil
@@ -551,14 +560,45 @@ func (o *Orchestrator) LastUpgradeCheck(ctx context.Context) (latest string, new
 	return latest, newer, ok
 }
 
-// dailyUpgradeCheck refreshes upgrade_latest so the Update tab and the
-// overview never sit on an old answer. A dev build has nothing to check.
-func (o *Orchestrator) dailyUpgradeCheck(ctx context.Context) {
-	if !o.upgrade.Upgradable() {
+// UpgradeCheckedAt is when the last check completed; zero = never.
+func (o *Orchestrator) UpgradeCheckedAt(ctx context.Context) time.Time {
+	v, _, _ := o.store.Settings.Get(ctx, keyUpgradeChecked)
+	at, _ := time.Parse(time.RFC3339, v)
+	return at
+}
+
+// UpgradeCheckedText is the Update tab's "Checked 5 min ago" line.
+func (o *Orchestrator) UpgradeCheckedText(ctx context.Context) string {
+	at := o.UpgradeCheckedAt(ctx)
+	if at.IsZero() {
+		return "Never checked"
+	}
+	return "Checked " + ago(time.Since(at))
+}
+
+// UpdateCheckChoices is the update_check values, in the order a form shows them.
+func UpdateCheckChoices() []string { return settings.UpdateChecks }
+
+// autoUpgradeCheck refreshes upgrade_latest when the update_check interval
+// has gone by since the last check, so the Update tab and the overview never
+// sit on an old answer. It runs at boot and on the 30s tick; the interval
+// counts from the stored time, so a restart does not reset it. A dev build
+// has nothing to check; "off" never checks by itself.
+func (o *Orchestrator) autoUpgradeCheck(ctx context.Context) {
+	if !o.upgrade.Upgradable() || !o.upgradeChecking.CompareAndSwap(false, true) {
+		return
+	}
+	defer o.upgradeChecking.Store(false)
+	raw, _ := o.settings.Get(ctx, "update_check")
+	every, ok := settings.UpdateCheckEvery(raw)
+	if !ok || every == 0 {
+		return
+	}
+	if at := o.UpgradeCheckedAt(ctx); !at.IsZero() && time.Since(at) < every {
 		return
 	}
 	if _, _, err := o.CheckUpgrade(ctx); err != nil {
-		slog.Warn("update check: daily", "err", err)
+		slog.Warn("update check: automatic", "err", err)
 	}
 }
 

@@ -311,15 +311,16 @@ type Orchestrator struct {
 	sched     *schedule.Runner
 	sync      *domain.Syncer
 
-	hostIfaces   func() []worker.Iface // this host's interfaces (WithHostInterfaces)
-	gitEnv       []string              // WithGit: clone env that replaces the connector's
-	proxyStarted atomic.Value          // the proxy container's last seen start time
-	upgrading    atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
-	vipAsync     sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
-	trustAsync   sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
-	vipLocks     sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
-	earlyMu      sync.Mutex            // guards earlyIPs
-	earlyIPs     map[string]earlyEnt   // container id -> address holding early lan rules
+	hostIfaces      func() []worker.Iface // this host's interfaces (WithHostInterfaces)
+	gitEnv          []string              // WithGit: clone env that replaces the connector's
+	proxyStarted    atomic.Value          // the proxy container's last seen start time
+	upgradeChecking atomic.Bool           // an update check runs (autoUpgradeCheck)
+	upgrading       atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
+	vipAsync        sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
+	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
+	vipLocks        sync.Map              // node ID -> *sync.Mutex: one VIP rebuild per node at a time
+	earlyMu         sync.Mutex            // guards earlyIPs
+	earlyIPs        map[string]earlyEnt   // container id -> address holding early lan rules
 	// downSince is when each instance's primary was first seen down (the
 	// primary-down problem waits for it to last); lease and leasePush: lease.go.
 	downSince sync.Map
@@ -1010,7 +1011,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		})
 		orch.startSyncObserve() // brings it to this build's version
 		// Last: it reads the operated, tiles and settings leaves, wired above.
-		orch.detach(context.Background(), orch.bootPGExtCheck) // a restart never skips the daily extension check
+		orch.detach(context.Background(), orch.bootPGExtCheck)   // a restart never skips the daily extension check
+		orch.detach(context.Background(), orch.autoUpgradeCheck) // a new release is seen at boot when the last check is old
 	} else {
 		orch.markStackrPublished() // no registry to fill
 		if k, err := orch.observeKnobs(ctx); err == nil {

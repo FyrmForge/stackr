@@ -107,6 +107,11 @@ func validate(k Knob, raw string) error {
 			return invalid(k, "Use auto, self or an IP address.")
 		}
 	}
+	if k.Key == "update_check" {
+		if _, ok := UpdateCheckEvery(raw); !ok {
+			return invalid(k, "Use off, 1h, 6h, daily or weekly.")
+		}
+	}
 	if k.Key == "proxy_custom" {
 		// ponytail: shape only; Caddy rejects a route it cannot load at the push.
 		var rs []map[string]any

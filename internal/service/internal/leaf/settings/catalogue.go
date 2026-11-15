@@ -193,6 +193,14 @@ var Catalogue = []Knob{
 		Desc:    "what the panel's DNS record points at: auto, an IP address, or self when you handle that record",
 	},
 	{
+		Key:     "update_check",
+		Label:   "Check for stackr updates",
+		Type:    TStr,
+		Default: "6h",
+		Scopes:  Flat,
+		Desc:    "how often the panel looks for a new stackr release: off, 1h, 6h, daily or weekly",
+	},
+	{
 		Key:    "root_domain",
 		Label:  "Root domain",
 		Type:   TStr,

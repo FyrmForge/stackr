@@ -58,6 +58,7 @@ Settings keys:
 
 - Cascade and limits: `workers`, `image_check_interval`, `orphan_retention_days`, `backup_run_concurrency`, `backup_restore_concurrency`.
 - Domains and proxy: `panel_domain`, `panel_address` (`auto`, an IP address or `self`), `root_domain`, `acme_email`, `ipv6`, `trusted_proxies`, `proxy_custom`.
+- Updates: `update_check` (`off`, `1h`, `6h`, `daily` or `weekly`).
 - Cleanup: `cleanup_enabled`, `cleanup_schedule`, `registry_cleanup_schedule`, `registry_keep`, `orphans_enabled`, `orphans_schedule`.
 - Panel backup: `panel_backup_enabled`, `panel_backup_schedule`, `panel_backup_keep`, `panel_backup_dest` (a destination name).
 - Observe: `observe_enabled`, `observe_metrics_retention`, `observe_min_free`, `observe_logs_enabled`, `observe_logs_retention`, `observe_logs_max_size`, `observe_max_memory`, `observe_access_query`, `observe_access_ip`, `observe_access_headers`.

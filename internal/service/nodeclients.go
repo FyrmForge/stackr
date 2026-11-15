@@ -697,7 +697,6 @@ func (o *Orchestrator) watchNodeClients() {
 				defer cancel()
 				o.dailyChores(ctx)
 				o.reconcileShares(ctx)
-				o.dailyUpgradeCheck(ctx)
 				o.checkPGExtUpdates(ctx)
 				o.dnsKick.Kick() // releases held DNS hosts that now match
 			})
@@ -706,6 +705,7 @@ func (o *Orchestrator) watchNodeClients() {
 			o.dockerAlert(ctx)
 			o.retryDNS()
 			o.recheckPanelName(ctx)
+			o.detach(ctx, o.autoUpgradeCheck)
 			// Off this goroutine: a push can run for minutes (domain.Timeout)
 			// and must not hold up the node refresh below. The Syncer
 			// serialises runs and folds the callers waiting behind one.
