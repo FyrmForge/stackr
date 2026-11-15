@@ -185,6 +185,14 @@ var Catalogue = []Knob{
 		Desc:   "the domain the panel answers on",
 	},
 	{
+		Key:     "panel_address",
+		Label:   "Panel address",
+		Type:    TStr,
+		Default: "auto",
+		Scopes:  Flat,
+		Desc:    "what the panel's DNS record points at: auto, an IP address, or self when you handle that record",
+	},
+	{
 		Key:    "root_domain",
 		Label:  "Root domain",
 		Type:   TStr,

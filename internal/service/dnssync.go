@@ -71,6 +71,7 @@ func (o *Orchestrator) syncDNS() {
 	ctx, cancel := context.WithTimeout(context.Background(), domain.Timeout)
 	defer cancel()
 	err := o.reconcileDNS(ctx, nil)
+	o.checkPanelName(ctx) // the panel's name, after every sync and the daily one
 	o.dnsSync.mu.Lock()
 	defer o.dnsSync.mu.Unlock()
 	if err != nil {

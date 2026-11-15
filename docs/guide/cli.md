@@ -1377,7 +1377,6 @@ Make the join command for a new worker (server admin). The node gets egress and 
 Orgs reach it through a placement: stackr admin placement add <name> --node <node>.
 
 ```
-      --address string    the node's own DNS name (default: <name>.<panel address>; empty for none)
       --no-storage        do not give the node the storage tag
       --tag stringArray   another capability: ingress, builder or storage (repeatable; egress is always on, storage is on unless --no-storage)
 ```
@@ -1544,14 +1543,13 @@ Example:
 
 ### `stackr node set`
 
-Set a node's public IP or its own DNS name (server admin)
+Set a node's public IP (server admin)
 
 ```
 stackr node set <name> [flags]
 ```
 
 ```
-      --address string     the node's own DNS name; empty for none
       --public-ip string   a floating IP or load balancer address; empty goes back to the detected one
 ```
 
@@ -1559,7 +1557,6 @@ Example:
 
 ```
   stackr node set vps-fsn1 --public-ip 203.0.113.10
-  stackr node set vps-fsn1 --address fsn1.example.com
 ```
 
 ### `stackr node show`

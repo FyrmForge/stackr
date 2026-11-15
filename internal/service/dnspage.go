@@ -24,14 +24,13 @@ const (
 	WhoseDomain     = "domain"      // a custom record on the domain itself
 	WhoseUnused     = "unused"      // written for a hostname no app wants any more
 	WhosePanel      = "panel"       // the panel's own address
-	WhoseNode       = "node"        // a node's own address
 	WhoseHandedBack = "handed_back" // a narrowing gave it to the user; stackr no longer touches it
 )
 
 // whoseWords is how the screens say Whose.
 var whoseWords = map[string]string{
 	WhoseApp: "App", WhoseDomain: "Domain", WhoseUnused: "Unused",
-	WhosePanel: "Panel", WhoseNode: "Node", WhoseHandedBack: "Handed back",
+	WhosePanel: "Panel", WhoseHandedBack: "Handed back",
 }
 
 // ManagedRecord is one record stackr wrote on a managed domain. Name is
@@ -73,7 +72,7 @@ type ManagedDomain struct {
 // ManagedDomains is every managed domain and its records as orgID sees
 // them (nil = an admin, who sees all). An org sees the domains it may use;
 // on them its own tiles' records, and on its own connectors' domains the
-// domain's and unused ones too. Panel and node addresses are the admin's.
+// domain's and unused ones too. The panel's address is the admin's.
 func (o *Orchestrator) ManagedDomains(ctx context.Context, orgID *string) ([]ManagedDomain, error) {
 	var zs []store.DNSDomain
 	var err error
@@ -117,8 +116,6 @@ func (o *Orchestrator) ManagedDomains(ctx context.Context, orgID *string) ([]Man
 			switch {
 			case r.Kind == store.RecordName && m.Name == panel:
 				m.Whose = WhosePanel
-			case r.Kind == store.RecordName:
-				m.Whose = WhoseNode
 			case r.DomainID != nil:
 				m.Whose = WhoseApp
 				if t, err = o.tileOfDomain(ctx, tiles, *r.DomainID); err != nil {
@@ -132,7 +129,7 @@ func (o *Orchestrator) ManagedDomains(ctx context.Context, orgID *string) ([]Man
 			}
 			switch {
 			case orgID == nil:
-			case m.Whose == WhosePanel || m.Whose == WhoseNode:
+			case m.Whose == WhosePanel:
 				continue
 			case m.Whose == WhoseApp:
 				if m.Tile == nil || m.Tile.OrgID != *orgID {

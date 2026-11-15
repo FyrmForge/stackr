@@ -241,6 +241,8 @@ func (o *Orchestrator) problemLink(ctx context.Context, key string, nodes map[st
 		return "/-/admin/connectors", "Open connectors", true
 	case "dns": // dns.records
 		return "/-/admin/connectors", "Open connectors", true
+	case "panel": // panel.address, panel.resolve, panel.reach
+		return "/-/admin/domains", "Open domains", true
 	case "config": // config.invalid.server, config.drift.server, ....<org id>
 		if strings.HasSuffix(rest, ".server") {
 			return "/-/admin/config", "Open config", true

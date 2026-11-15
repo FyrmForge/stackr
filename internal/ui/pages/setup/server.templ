@@ -41,6 +41,17 @@ type ServerCertsView struct {
 	Done           bool // a DNS connector is added: Continue, not Skip
 	Host, Wildcard string
 	IP             string
+	Panel          PanelAddressView
+}
+
+// PanelAddressView is the panel name's own record on the DNS screen. Show:
+// the box has no public address (Behind; Seen is the address stackr sees
+// from outside, "" = none) or the name works only through a wildcard.
+// Value is the panel_address setting, Action the POST that saves it.
+type PanelAddressView struct {
+	Show, Behind, Wildcard bool
+	Host, Value, Seen      string
+	Action                 string
 }
 
 // ServerGitView is the git screen: the server's git connectors, each with
@@ -173,7 +184,30 @@ templ ServerCertificates(v ServerCertsView) {
 				v.List.Empty = dnsChoices(v)
 			}
 		}}
+		@panelAddress(v.Panel)
 		@connectors.Tab(v.List, nil)
+	}
+}
+
+// panelAddress is where the panel's own name points, when stackr cannot
+// tell by itself or the name leans on a wildcard record.
+templ panelAddress(v PanelAddressView) {
+	if v.Show {
+		<section class="mb-4 space-y-2" aria-label="Panel address">
+			if v.Wildcard {
+				<p class="text-sm text-rw-warn">This works only through a wildcard record; stackr will write its own record.</p>
+			}
+			if v.Behind {
+				<form novalidate hx-post={ v.Action } class="space-y-2">
+					@formError(v.Action)
+					<label class="label" for="srv-paddr">Address for { v.Host }</label>
+					<input type="text" id="srv-paddr" name="panel_address" value={ val(ctx, "panel_address", v.Value) } placeholder={ cmp.Or(v.Seen, "auto") } class="input font-mono" { invalid(ctx, "panel_address")... }/>
+					@fieldError("panel_address")
+					<p class="text-xs text-rw-faint">This box is behind a router. Type auto, an IP address, or self if you handle that record.</p>
+					<button type="submit" class="btn btn-ghost btn-sm">Save</button>
+				</form>
+			}
+		</section>
 	}
 }
 

@@ -177,6 +177,7 @@ type options struct {
 	kinds        []connectors.Kind
 	ifaces       func() []worker.Iface
 	registryBase string
+	panelSeam    panelSeams
 }
 
 // DNSProvider is one DNS account (the DNS capability): what WithDNS fakes.
@@ -326,6 +327,9 @@ type Orchestrator struct {
 	// would (tests).
 	failCrashAfter string
 	certRecheck    atomic.Bool // a failing-cert recheck runs
+	panelRecheck   atomic.Bool // a panel-name recheck runs
+	wildcard       sync.Map    // panel host -> wildHit (panelname.go)
+	panelSeam      panelSeams  // the outside world, for tests (panelname.go)
 	// tickAttemptFor overrides tickAttempt (tests).
 	tickAttemptFor time.Duration
 	// recoverSyncFor overrides recoverSyncWait (tests).
@@ -630,6 +634,7 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 		return l
 	})
 	orch.kinds, orch.dnsOpen = append(all.Kinds(), o.kinds...), o.dnsOpen
+	orch.panelSeam = o.panelSeam
 	orch.conns = build("leaf/connector", func() *connector.Leaf { return connector.New(st.Connectors, orch.kinds) })
 	orch.dns = build("leaf/dnscap", func() *dnscap.Leaf { return dnscap.New(st.DNSDomains, st.DNSRecords) })
 	orch.operated = build("leaf/operated",
@@ -956,9 +961,6 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 	orch.startSyncWatch()
 	orch.track(orch.pitrLoop)
 	orch.startDNSSocket()
-	if created {
-		orch.defaultControllerAddress(ctx) // a panel address from the boot config
-	}
 	orch.detach(context.Background(), orch.dailyChores)
 	if err := orch.sched.Boot(ctx); err != nil {
 		// A bad schedule row is reported, never fatal: the rest still run.

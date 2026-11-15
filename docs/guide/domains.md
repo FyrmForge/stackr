@@ -182,15 +182,28 @@ Records point at the ingress node's detected public IP. To point them somewhere 
 stackr node set vps-fsn1 --public-ip 203.0.113.10
 ```
 
-A node's own DNS name is its address: Admin, Nodes, the node, Network, Address. stackr writes its record when the name sits in a managed domain. Empty clears it.
-
-```bash
-stackr node set vps-fsn1 --address fsn1.example.com
-```
-
 A node behind NAT has no public address of its own, and stackr holds its records until it has one. Set its public IP to the router's address, with ports 80 and 443 forwarded to the node.
 
 On Hetzner, a floating IP must also be configured on the box's network interface, or traffic to it never reaches the node. Assigning it in the Hetzner console is not enough.
+
+## The panel's own name
+
+When the panel's name sits in a managed domain, stackr writes its record. The setting `panel_address` (Admin, Domains) says where it points:
+
+- `auto` is the default: the panel node's own public address. Behind a router with no public address of its own, it is the address a node outside sees for that network. stackr looks again on every records sync and daily, so a changed home IP moves the record.
+- An IP address, such as `203.0.113.5`, points the name there.
+- `self` writes nothing: you handle that record.
+
+With `auto` and nothing to point at, stackr writes no record and raises a problem asking you to type an address or choose `self`. The install wizard's DNS step asks the same when the box has no public address.
+
+```bash
+stackr admin setting panel_address 203.0.113.5
+stackr admin setting panel_address self
+```
+
+After every records sync and daily, stackr resolves the panel's name through public DNS and compares it with that address, and when a node outside exists it fetches the name over HTTPS from there. A name that does not resolve to this server, or that the outside cannot reach, raises a problem that clears when it is fixed. stackr repairs nothing by itself. With `self` only the reach check runs.
+
+A panel name that only resolves through a wildcard record gets a warning in the wizard: stackr writes its own record.
 
 ## When an ingress node is down
 

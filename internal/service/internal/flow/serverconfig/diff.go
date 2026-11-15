@@ -450,6 +450,9 @@ func norm(key, v string) string {
 		}
 	case key == "panel_domain" || key == "root_domain":
 		return installspec.CleanHost(v)
+	case key == "panel_address":
+		_, _, n, _ := settings.ParsePanelAddress(v)
+		return n
 	case key == "trusted_proxies":
 		fs := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' })
 		for i, f := range fs {

@@ -18,7 +18,7 @@ type Node struct {
 	WGAddress   string    `db:"wg_address" json:"wg_address"`
 	Status      string    `db:"status" json:"status"`
 	PublicIP    string    `db:"public_ip" json:"public_ip"` // records point here; "" = the detected address
-	Address     string    `db:"address" json:"address"`     // the node's own DNS name; "" = none
+	Address     string    `db:"address" json:"-"`           // unused: the column stays
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 }
 

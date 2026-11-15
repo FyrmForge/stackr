@@ -44,6 +44,7 @@ func (h *handler) MountServer(site *echo.Group, a *middleware.Access) {
 	site.POST(ServerBase+"/mode", h.serverMode, bind)
 	set := a.Require("serverdefaults.set")
 	site.POST(ServerBase+"/domains", h.serverDomains, set)
+	site.POST(ServerBase+"/panel-address", h.serverPanelAddress, set)
 	conn := a.Require("connector.admin")
 	site.GET(connBase+"/new", newConnector(h.dnsPanel(), "Add a DNS connector"), conn)
 	h.dnsPanel().Mount(site, connBase, conn, nil)
@@ -214,6 +215,15 @@ func (h *handler) showServerStep(c echo.Context, step string) error {
 				v.Wildcard = "*." + root
 			}
 			v.IP = h.orch.ServerAddress(ctx)
+		}
+		if err == nil && v.Host != "" {
+			var pa service.PanelAddressInfo
+			if pa, err = h.orch.PanelAddress(ctx); err == nil {
+				v.Panel = pages.PanelAddressView{
+					Show: pa.Behind || pa.Wildcard, Behind: pa.Behind, Wildcard: pa.Wildcard,
+					Host: v.Host, Value: pa.Value, Seen: pa.Seen, Action: ServerBase + "/panel-address",
+				}
+			}
 		}
 		if err == nil {
 			v.List.Rows, err = h.dnsPanel().Rows(c)
@@ -415,25 +425,22 @@ func pendingRow(p service.PendingNode) admin.PendingRow {
 
 // adderStep1 is Admin's first add-node step, answering into the panel;
 // refused is the mint's refusal, as Admin's step one shows it.
-func (h *handler) adderStep1(c echo.Context, name, address string, picked []string, refused error) (*admin.AddNodeView, error) {
+func (h *handler) adderStep1(c echo.Context, name string, picked []string, refused error) (*admin.AddNodeView, error) {
 	v := &admin.AddNodeView{
 		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags,
 		Create: nodesBase + "/add", Cancel: nodesBase, Target: "#" + pages.NodesPanelID,
 	}
-	v.AddressSuffix, v.Address = h.orch.NodeAddressSuffix(c.Request().Context()), address
 	if refused == nil {
-		if name != "" && v.AddressSuffix != "" {
-			v.Address = name + v.AddressSuffix // the default after the name
-		}
 		return v, nil
 	}
 	if v.Picked == nil {
 		v.Picked = []string{} // all unticked stays unticked, storage is only the first default
 	}
-	var ok bool
-	if v.AddressError, v.Error, ok = render.OnField(refused, "node_address"); !ok {
+	msg, ok := render.Refused(refused)
+	if !ok {
 		return nil, refused
 	}
+	v.Error = msg
 	return v, nil
 }
 
@@ -452,7 +459,7 @@ func (h *handler) serverNodes(c echo.Context) error {
 	var adder *admin.AddNodeView
 	if c.QueryParam("add") != "" {
 		var err error
-		if adder, err = h.adderStep1(c, "", "", nil, nil); err != nil {
+		if adder, err = h.adderStep1(c, "", nil, nil); err != nil {
 			return middleware.HTTPError(err)
 		}
 	}
@@ -467,9 +474,9 @@ func (h *handler) serverMintNode(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "bad form")
 	}
 	name := strings.TrimSpace(f.Get("name"))
-	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, NodeAddress: new(f.Get("node_address")), Tags: f["tag"]})
+	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{NodeName: name, Tags: f["tag"]})
 	if err != nil {
-		v, err := h.adderStep1(c, name, f.Get("node_address"), f["tag"], err)
+		v, err := h.adderStep1(c, name, f["tag"], err)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
@@ -513,7 +520,7 @@ func (h *handler) serverJoin(confirm bool) echo.HandlerFunc {
 			err = h.orch.RejectJoin(ctx, by, id)
 		}
 		if err != nil {
-			v, err := h.adderStep1(c, "", "", nil, err)
+			v, err := h.adderStep1(c, "", nil, err)
 			if err != nil {
 				return middleware.HTTPError(err)
 			}
@@ -601,6 +608,16 @@ func (h *handler) serverDomains(c echo.Context) error {
 		return h.refillStep(c, err, "domains")
 	}
 	hamrmw.SetFlash(c, "Domains saved.", hamrmw.FlashSuccess)
+	return respond.Redirect(c, stepURL("certificates"))
+}
+
+// POST /-/setup/server/panel-address (panel_address): where the panel's own
+// name points.
+func (h *handler) serverPanelAddress(c echo.Context) error {
+	if err := h.orch.SetSettings(c.Request().Context(), map[string]string{"panel_address": strings.TrimSpace(c.FormValue("panel_address"))}); err != nil {
+		return h.refillStep(c, err, "certificates")
+	}
+	hamrmw.SetFlash(c, "Saved.", hamrmw.FlashSuccess)
 	return respond.Redirect(c, stepURL("certificates"))
 }
 

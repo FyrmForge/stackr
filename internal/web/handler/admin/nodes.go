@@ -72,10 +72,6 @@ func (h *handler) mountNodes(g *echo.Group, a *middleware.Access) {
 		}
 		return h.orch.SaveNodeTags(c.Request().Context(), middleware.Principal(c), c.Param("node"), f["tag"], exits)
 	}), m)
-	g.POST(nodesBase+"/:node/address", h.nodeAct("network", "Saved.", func(c echo.Context) error {
-		_, err := h.orch.SetNodeAddress(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("node_address"))
-		return err
-	}), m)
 	g.POST(nodesBase+"/:node/public-ip", h.nodeAct("network", "Saved.", func(c echo.Context) error {
 		_, err := h.orch.SetNodePublicIP(c.Request().Context(), middleware.Principal(c), c.Param("node"), c.FormValue("public_ip"))
 		return err
@@ -205,34 +201,30 @@ func (h *handler) addNode(c echo.Context) error {
 			tags = append(tags, t)
 		}
 	}
-	v, err := h.step1(c, strings.TrimSpace(c.QueryParam("name")), "", tags, nil)
+	v, err := h.step1(c, strings.TrimSpace(c.QueryParam("name")), tags, nil)
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
 	return h.answer(c, "nodes", "", extra{adder: v}, nil)
 }
 
-// step1 is the first add-node step; refused is the mint's refusal, on its
-// field when it names one (an address), else on top.
-func (h *handler) step1(c echo.Context, name, address string, picked []string, refused error) (*ui.AddNodeView, error) {
+// step1 is the first add-node step; refused is the mint's refusal.
+func (h *handler) step1(c echo.Context, name string, picked []string, refused error) (*ui.AddNodeView, error) {
 	v := &ui.AddNodeView{
 		Step: 1, Name: name, Picked: picked, Tags: service.NodeTags,
 		Create: nodesBase + "/add", Cancel: ui.Href("nodes"),
 	}
-	v.AddressSuffix, v.Address = h.orch.NodeAddressSuffix(c.Request().Context()), address
 	if refused == nil {
-		if name != "" && v.AddressSuffix != "" {
-			v.Address = name + v.AddressSuffix // the default after the name
-		}
 		return v, nil
 	}
 	if v.Picked == nil {
 		v.Picked = []string{} // all unticked stays unticked, storage is only the first default
 	}
-	var ok bool
-	if v.AddressError, v.Error, ok = render.OnField(refused, "node_address"); !ok {
+	msg, ok := render.Refused(refused)
+	if !ok {
 		return nil, refused
 	}
+	v.Error = msg
 	return v, nil
 }
 
@@ -244,10 +236,10 @@ func (h *handler) mintNode(c echo.Context) error {
 	}
 	name := strings.TrimSpace(f.Get("name"))
 	out, err := h.orch.CreateJoinToken(c.Request().Context(), middleware.Principal(c), service.JoinTokenSpec{
-		NodeName: name, NodeAddress: new(f.Get("node_address")), Tags: f["tag"],
+		NodeName: name, Tags: f["tag"],
 	})
 	if err != nil {
-		v, err := h.step1(c, name, f.Get("node_address"), f["tag"], err)
+		v, err := h.step1(c, name, f["tag"], err)
 		if err != nil {
 			return middleware.HTTPError(err)
 		}
@@ -549,9 +541,6 @@ func (h *handler) nodeAnswer(c echo.Context, tab, note string, actErr error) err
 		c.Set(refusedKey, true)
 	}
 	v, err := h.nodeView(c, d, base)
-	if onField, _, _ := render.OnField(actErr, "node_address"); onField != "" {
-		f.Error, v.AddressError = "", onField // on its field, under the form
-	}
 	if err != nil {
 		return middleware.HTTPError(err)
 	}
@@ -563,23 +552,11 @@ func (h *handler) nodeView(c echo.Context, d service.NodeDetail, base string) (u
 		ID: d.ID, Name: d.Name, Role: d.Role, Status: d.Status, Hint: ui.NodeHint(d.Status, d.Stalled), Controller: d.Controller, Tags: d.Tags,
 		Range: d.Range, WGAddress: d.WGAddress, AllTags: service.NodeTags, TagsAction: base + "/tags",
 		PublicIP: d.PublicIP, PublicIPAction: base + "/public-ip",
-		Address: d.Address, AddressAction: base + "/address",
 	}
 	if f := refill(c, v.PublicIPAction); f != nil {
 		v.PublicIP = f.Get("public_ip")
 	}
-	if f := refill(c, v.AddressAction); f != nil {
-		v.Address = f.Get("node_address")
-	}
 	ctx := c.Request().Context()
-	rec, err := h.orch.NodeDNSOf(ctx, d.ID)
-	if err != nil {
-		return v, err
-	}
-	v.AddressManaged, v.AddressNoPublic = rec.Managed, rec.NoPublic
-	for _, r := range rec.Records {
-		v.AddressRecords = append(v.AddressRecords, ui.RecordRow{Type: r.Type, Host: r.Host, Value: r.Value})
-	}
 	down, err := h.orch.DownIngressDomains(ctx, d.ID)
 	if err != nil {
 		return v, err

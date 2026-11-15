@@ -48,9 +48,7 @@ type NodeOut struct {
 	Range      string   `json:"range"`
 	WGAddress  string   `json:"wg_address"`
 	// PublicIP is the address DNS records point at, "" = the detected one.
-	PublicIP string `json:"public_ip"`
-	// Address is the node's own DNS name, "" = none.
-	Address   string `json:"address"`
+	PublicIP  string `json:"public_ip"`
 	CPU       int    `json:"cpu"`
 	MemTotal  uint64 `json:"mem_total"`
 	DiskFree  uint64 `json:"disk_free"`
@@ -288,7 +286,7 @@ func (o *Orchestrator) nodeOut(ctx context.Context, n store.Node) (NodeOut, erro
 	slices.Sort(names)
 	out := NodeOut{
 		ID: n.ID, Name: n.Name, Role: n.Role, State: o.shownStatus(n), Tags: node.Tags(n), Envs: len(es),
-		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{}, PublicIP: n.PublicIP, Address: n.Address,
+		Placements: names, Range: envNets(es), WGAddress: n.WGAddress, DefaultExit: []string{}, PublicIP: n.PublicIP,
 	}
 	if !hasEgress(n) {
 		ids, err := scopeLadder(ctx, o.store, scopeNode, n.ID)
@@ -498,7 +496,7 @@ func (o *Orchestrator) RejoinNode(ctx context.Context, by *Principal, ref string
 	if _, err := o.store.JoinTokens.ExpireUnspentFor(ctx, n.Name, time.Now().UTC()); err != nil {
 		return JoinTokenOut{}, err
 	}
-	out, err := o.mintJoin(ctx, by, n.Name, "", node.Tags(n), 0)
+	out, err := o.mintJoin(ctx, by, n.Name, node.Tags(n), 0)
 	if err != nil {
 		return out, err
 	}

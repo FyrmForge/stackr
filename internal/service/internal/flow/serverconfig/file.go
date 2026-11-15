@@ -259,6 +259,9 @@ func CheckSetting(key, raw string) (string, error) {
 			return "", fmt.Errorf("the panel answers on one name, not a wildcard")
 		}
 		return host, nil
+	case "panel_address":
+		_, _, norm, _ := settings.ParsePanelAddress(raw)
+		return norm, nil
 	case "acme_email":
 		if a, err := mail.ParseAddress(raw); err != nil || a.Address != raw {
 			return "", fmt.Errorf("%s is not an email address", raw)

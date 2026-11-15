@@ -66,7 +66,6 @@ func pageRig(t *testing.T) (env *servicetest.Env, acme, other string) {
 	rec(acmeDev, "acme.dev", "@", "MX", "10 mx.acme.dev", store.RecordCustom, nil, nil)
 	rec(acmeDev, "acme.dev", "old", "A", "198.51.100.1", store.RecordApp, nil, nil)
 	rec(acmeDev, "acme.dev", "panel", "A", "198.51.100.1", store.RecordName, nil, nil)
-	rec(acmeDev, "acme.dev", "n1", "A", "198.51.100.1", store.RecordName, nil, nil)
 	rec(acmeDev, "acme.dev", "gone", "A", "198.51.100.1", store.RecordApp, nil, func(r *store.DNSRecord) { r.HandedBackAt = &now })
 	rec(ownDev, "own.dev", "@", "TXT", "v=own", store.RecordCustom, nil, nil)
 	rec(ownDev, "own.dev", "stale.test", "A", "198.51.100.1", store.RecordApp, nil, nil)
@@ -108,7 +107,6 @@ func TestManagedDomainsClassify(t *testing.T) {
 		"acme.dev MX":       "domain",
 		"old.acme.dev A":    "unused",
 		"panel.acme.dev A":  "panel",
-		"n1.acme.dev A":     "node",
 		"gone.acme.dev A":   "handed_back",
 	}
 	got := whose(d)
@@ -136,7 +134,7 @@ func TestManagedDomainsClassify(t *testing.T) {
 
 // An org sees the domains it may use, its own tiles' records on them,
 // the domain's and unused records only on its own connectors' domains,
-// and never the panel's or nodes' addresses nor another org's name.
+// and never the panel's address nor another org's name.
 func TestManagedDomainsOrgFilter(t *testing.T) {
 	t.Parallel()
 	env, acme, other := pageRig(t)

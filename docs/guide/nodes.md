@@ -39,7 +39,7 @@ stackr node confirm vps-fsn1
 stackr node ls
 ```
 
-A node made from the CLI gets `egress` and `storage`. `--tag ingress` or `--tag builder` adds roles, and `--no-storage` leaves storage off. The node's address defaults to `<name>.<panel address>`; `--address` sets another, `--address ""` none. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
+A node made from the CLI gets `egress` and `storage`. `--tag ingress` or `--tag builder` adds roles, and `--no-storage` leaves storage off. The state is `online` when the node is connected. `stackr node show vps-fsn1` has the detail. To turn a request away: `stackr node reject vps-fsn1`.
 
 ## Proxmox container (LXC)
 

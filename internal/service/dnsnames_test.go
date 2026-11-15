@@ -63,13 +63,9 @@ func TestScopedDomainWritesOnlyUnderScope(t *testing.T) {
 	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "blog.acme.dev"}); err != nil {
 		t.Fatal(err)
 	}
-	ctl, _ := env.Store.Nodes.List(ctx)
-	if _, err := env.Orch.SetNodeAddress(ctx, adminOf(t, env), ctl[0].ID, "n1.stackr.acme.dev"); err != nil {
-		t.Fatal(err)
-	}
 	env.Orch.WaitDNS()
 	z := env.DNS.Zone("acme.dev")
-	for _, n := range []string{"stackr", "shop.stackr", "n1.stackr"} {
+	for _, n := range []string{"stackr", "shop.stackr"} {
 		if !has(z, n, "A", "198.51.100.1") {
 			t.Errorf("no record at %s: %v", n, z)
 		}
@@ -181,44 +177,6 @@ func TestACMEChallengeStaysInScope(t *testing.T) {
 	txt[0].Name = "_acme-challenge.stackr"
 	if _, err := env.Orch.ACMEChallenge(ctx, false, "acme.dev", txt); err != nil {
 		t.Errorf("in scope: %v", err)
-	}
-}
-
-// A node's address outside every managed scope is the record to set by
-// hand; inside one stackr writes it. No public address, no record.
-func TestNodeAddressRecord(t *testing.T) {
-	t.Parallel()
-	env, _, _ := scopedRig(t)
-	ctx := context.Background()
-	adm := adminOf(t, env)
-	ns, _ := env.Store.Nodes.List(ctx)
-	ctl := ns[0]
-	if ctl.Address != "n1.stackr.acme.dev" { // set at the panel's save: the first node's default
-		t.Errorf("controller address = %q", ctl.Address)
-	}
-	if _, err := env.Orch.SetNodeAddress(ctx, adm, ctl.ID, "box1.lan.example.com"); err != nil {
-		t.Fatal(err)
-	}
-	d, err := env.Orch.NodeDNSOf(ctx, ctl.ID)
-	if err != nil || d.Managed || len(d.Records) != 1 || d.Records[0].Value != "198.51.100.1" {
-		t.Errorf("outside a scope: %+v %v", d, err)
-	}
-	if _, err := env.Orch.SetNodeAddress(ctx, adm, ctl.ID, "stackr.acme.dev"); err == nil {
-		t.Error("the panel's own address was taken")
-	}
-	if _, err := env.Orch.SetNodeAddress(ctx, adm, ctl.ID, "n1.stackr.acme.dev"); err != nil {
-		t.Fatal(err)
-	}
-	env.Orch.WaitDNS()
-	if d, _ := env.Orch.NodeDNSOf(ctx, ctl.ID); !d.Managed {
-		t.Errorf("inside the scope: %+v", d)
-	}
-	if !has(env.DNS.Zone("acme.dev"), "n1.stackr", "A", "198.51.100.1") {
-		t.Errorf("no node record: %v", env.DNS.Zone("acme.dev"))
-	}
-	setIP(t, env, "")
-	if d, _ := env.Orch.NodeDNSOf(ctx, ctl.ID); !d.NoPublic || len(d.Records) != 0 {
-		t.Errorf("no public address: %+v", d)
 	}
 }
 

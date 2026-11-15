@@ -76,6 +76,8 @@ func NewWith(t *testing.T, opts []service.Option, edit ...func(*service.Config))
 	orch, err := service.New(cfg, append([]service.Option{
 		service.WithDocker(fake),
 		service.WithDNS(dns.open),
+		// no mesh, no probe and no real lookup: a test's panel name is nobody's
+		service.WithPanelSeams(nil, nil, func(context.Context, string) ([]string, error) { return nil, errors.New("no network in tests") }),
 		service.WithVIP(noVIP{}),
 		service.WithRegistry(emptyRegistry(t)),
 		service.WithHostInterfaces(func() []worker.Iface { return nil }),

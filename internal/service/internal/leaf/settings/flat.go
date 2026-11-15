@@ -102,6 +102,11 @@ func validate(k Knob, raw string) error {
 			return invalid(k, "Not a cron schedule. Use five fields, like 0 3 * * * for 03:00 every day.")
 		}
 	}
+	if k.Key == "panel_address" {
+		if _, _, _, ok := ParsePanelAddress(raw); !ok {
+			return invalid(k, "Use auto, self or an IP address.")
+		}
+	}
 	if k.Key == "proxy_custom" {
 		// ponytail: shape only; Caddy rejects a route it cannot load at the push.
 		var rs []map[string]any

@@ -320,6 +320,7 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 	_, custom := vals["proxy_custom"]
 	was, _ := o.settings.Get(ctx, "proxy_custom")
 	panelWas, _ := o.settings.Get(ctx, "panel_domain")
+	addrWas, _ := o.settings.Get(ctx, "panel_address")
 	reload := false
 	rank := func(k string) int {
 		switch k {
@@ -353,10 +354,10 @@ func (o *Orchestrator) SetSettings(ctx context.Context, vals map[string]string) 
 		}
 		o.startSyncObserve() // a first pull takes a while; the tab shows how it went
 	}
-	if p, ok := vals["panel_domain"]; ok && p != panelWas {
-		o.defaultControllerAddress(ctx) // before the push: its records sync names it
-	}
 	err := o.sync.Sync(ctx)
+	if a, ok := vals["panel_address"]; ok && a != addrWas {
+		o.dnsKick.Kick() // the panel's record follows at once
+	}
 	if p, ok := vals["panel_domain"]; ok && p != panelWas {
 		// connectors keep the webhook URL they were made with; a failure is
 		// logged per App and does not fail the save. Runs even after a failed
@@ -420,6 +421,9 @@ func (o *Orchestrator) checkSetting(ctx context.Context, vals map[string]string,
 		if err := o.checkPanelResolves(ctx, host); err != nil {
 			return err
 		}
+	}
+	if key == "panel_address" {
+		_, _, vals[key], _ = settings.ParsePanelAddress(raw)
 	}
 	if key == "root_domain" {
 		if err := o.checkRootDomain(ctx, raw); err != nil {
