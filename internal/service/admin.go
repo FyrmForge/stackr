@@ -531,8 +531,16 @@ const keyUpgradeChecked = "upgrade_checked_at"
 // CheckUpgrade asks the release host for the latest release and remembers it; newer
 // says whether it is newer than this build (false on a dev build).
 func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer bool, err error) {
+	o.upgradeCheckMu.Lock() // one check at a time: answers land in the order they were asked
+	defer o.upgradeCheckMu.Unlock()
+	o.upgradeTried.Store(time.Now().UnixNano()) // cleared below once an answer is stored
 	if latest, err = o.upgrade.Check(ctx); err != nil {
 		return "", false, err
+	}
+	if latest == "" && o.upgrade.Upgradable() {
+		// a release whose digest is not uploaded yet: nothing learned, so the
+		// last answer and its time stay and the retry comes soon
+		return "", false, nil
 	}
 	if err := o.store.Settings.Set(ctx, keyUpgradeLatest, latest); err != nil {
 		slog.Warn("update check: not remembered", "err", err)
@@ -542,6 +550,7 @@ func (o *Orchestrator) CheckUpgrade(ctx context.Context) (latest string, newer b
 			slog.Warn("update check: time not remembered", "err", err)
 		}
 	}
+	o.upgradeTried.Store(0)
 	_, newer = o.upgrade.Available(latest)
 	return latest, newer, nil
 }
@@ -579,6 +588,10 @@ func (o *Orchestrator) UpgradeCheckedText(ctx context.Context) string {
 // UpdateCheckChoices is the update_check values, in the order a form shows them.
 func UpdateCheckChoices() []string { return settings.UpdateChecks }
 
+// upgradeRetryEvery is how long a failed automatic check waits before the
+// next try.
+const upgradeRetryEvery = 15 * time.Minute
+
 // autoUpgradeCheck refreshes upgrade_latest when the update_check interval
 // has gone by since the last check, so the Update tab and the overview never
 // sit on an old answer. It runs at boot and on the 30s tick; the interval
@@ -595,6 +608,11 @@ func (o *Orchestrator) autoUpgradeCheck(ctx context.Context) {
 		return
 	}
 	if at := o.UpgradeCheckedAt(ctx); !at.IsZero() && time.Since(at) < every {
+		return
+	}
+	// a failed check is not retried on every tick: the release host is asked
+	// again after upgradeRetryEvery at the soonest
+	if t := o.upgradeTried.Load(); t != 0 && time.Since(time.Unix(0, t)) < min(every, upgradeRetryEvery) {
 		return
 	}
 	if _, _, err := o.CheckUpgrade(ctx); err != nil {

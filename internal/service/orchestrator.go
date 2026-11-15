@@ -315,6 +315,8 @@ type Orchestrator struct {
 	gitEnv          []string              // WithGit: clone env that replaces the connector's
 	proxyStarted    atomic.Value          // the proxy container's last seen start time
 	upgradeChecking atomic.Bool           // an update check runs (autoUpgradeCheck)
+	upgradeCheckMu  sync.Mutex            // CheckUpgrade runs one at a time
+	upgradeTried    atomic.Int64          // unix nanos of the last check that stored no answer (0 none)
 	upgrading       atomic.Bool           // an upgrade helper runs on the controller (UpgradeHeld)
 	vipAsync        sync.WaitGroup        // rerouteVIPsAsync runs in flight; tests wait on it
 	trustAsync      sync.WaitGroup        // detached rollover / controller cert steps (detach); Close waits
