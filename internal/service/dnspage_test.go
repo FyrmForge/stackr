@@ -24,6 +24,7 @@ func pageRig(t *testing.T) (env *servicetest.Env, acme, other string) {
 	if err := env.Orch.SetSetting(ctx, "panel_domain", "panel.acme.dev"); err != nil {
 		t.Fatal(err)
 	}
+	env.Orch.WaitDNS() // the setting kicks a records sync; let it end before seeding
 	srv, err := env.Orch.AddConnector(ctx, service.ConnectorAdd{Kind: "namecheap", Values: account()})
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +49,7 @@ func pageRig(t *testing.T) (env *servicetest.Env, acme, other string) {
 
 	shop := env.Domain(t, env.Tile(t, acme).ID, "shop.acme.dev")
 	blog := env.Domain(t, env.Tile(t, other).ID, "blog.acme.dev")
+	env.Orch.WaitDNS() // adding a domain kicks one too
 	rec := func(zid, zname, name, typ, value, kind string, domainID *string, mod func(*store.DNSRecord)) {
 		r := store.DNSRecord{
 			ID: uuid.NewString(), DNSDomainID: &zid, Zone: zname, Name: name, Type: typ, Value: value,
@@ -69,6 +71,7 @@ func pageRig(t *testing.T) (env *servicetest.Env, acme, other string) {
 	rec(acmeDev, "acme.dev", "gone", "A", "198.51.100.1", store.RecordApp, nil, func(r *store.DNSRecord) { r.HandedBackAt = &now })
 	rec(ownDev, "own.dev", "@", "TXT", "v=own", store.RecordCustom, nil, nil)
 	rec(ownDev, "own.dev", "stale.test", "A", "198.51.100.1", store.RecordApp, nil, nil)
+	env.Orch.WaitDNS()
 	return env, acme, other
 }
 

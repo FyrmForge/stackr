@@ -266,7 +266,13 @@ func TestSwitchoverRecomputesSyncNames(t *testing.T) {
 	_, newRep := r.members()
 	_, err = o.members.SetSync(ctx, newRep, SyncAlways, false)
 	must(t, err)
-	must(t, o.syncInstance(ctx, r.tile(), r.inst))
+	// the panel's own sync loops also take this lock; wait for it instead of
+	// racing their pass (syncInstance would answer errSyncBusy)
+	mu := o.topoLock(r.inst.ID)
+	mu.Lock()
+	err = o.syncLocked(ctx, r.tile(), r.inst, false)
+	mu.Unlock()
+	must(t, err)
 	if !r.saw(`ANY 1 ("` + mflow.SlotName(newRep.ID) + `")`) {
 		t.Errorf("the new primary was not told to wait for the old one's slot; log:\n%s", strings.Join(r.events, "\n"))
 	}
