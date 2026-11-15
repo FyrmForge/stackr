@@ -261,16 +261,12 @@ templ install(href, label string) {
 
 // Branch is step 1, the fork the rest of the wizard hangs off. Both
 // buttons post to /setup, which makes the draft.
-templ Branch(gitConnected bool) {
+templ Branch() {
 	@shell(Frame{Title: "Set up your organization", Subtitle: "Stacks, variables, domains and people all live inside one."}) {
 		<form novalidate hx-post="/setup" class="space-y-3">
 			<button type="submit" name="mode" value="config" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Describe it in a config file</span>
-				if gitConnected {
-					<span class="block mt-0.5 text-xs text-rw-muted">Reads one file from a repo to set up the whole organization.</span>
-				} else {
-					<span class="block mt-0.5 text-xs text-rw-muted">Needs a repo stackr can read through a git connector. Connect one first.</span>
-				}
+				<span class="block mt-0.5 text-xs text-rw-muted">Reads one file from a repo, through a git connector, to set up the whole organization.</span>
 			</button>
 			<button type="submit" name="mode" value="ui" class="w-full text-left panel px-4 py-3.5 hover:border-rw-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent/60">
 				<span class="block text-sm font-semibold text-rw-text">Fill it in here</span>
@@ -682,7 +678,7 @@ templ Domain(v DomainView) {
 					<label class="label" for="setup-host">Host</label>
 					if len(v.Zones) > 0 {
 						<div class="flex flex-wrap gap-2 items-center">
-							<input type="text" name="sub" value={ val(ctx, "sub", v.Sub) } aria-label="Name under the domain" placeholder="name" class="input !w-32 font-mono group-has-[.dns-other:checked]/dom:hidden"/>
+							<input type="text" name="sub" value={ val(ctx, "sub", v.Sub) } aria-label="Name under the domain" placeholder="name" class="input !w-32 font-mono group-has-[.dns-other:checked]/dom:hidden" { invalid(ctx, "host")... }/>
 							<span class="text-rw-faint group-has-[.dns-other:checked]/dom:hidden" aria-hidden="true">.</span>
 							<select name="domain" aria-label="Domain" class="input !w-auto">
 								for i, z := range v.Zones {
@@ -691,7 +687,6 @@ templ Domain(v DomainView) {
 								<option value="" class="dns-other" selected?={ picked(ctx, "domain", "", false) }>Other</option>
 							</select>
 						</div>
-						<p class="mt-1.5 text-xs text-rw-faint group-has-[.dns-other:checked]/dom:hidden">Leave the name empty for the domain itself.</p>
 						<input type="text" id="setup-host" name="host" value={ val(ctx, "host", v.Prefill) } placeholder="example.com" class="input font-mono hidden group-has-[.dns-other:checked]/dom:block" { invalid(ctx, "host")... }/>
 						<p class="mt-1.5 text-xs text-rw-faint hidden group-has-[.dns-other:checked]/dom:block">Point an A record at this server first.</p>
 					} else {

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -122,12 +123,7 @@ func isHTMX(c echo.Context) bool { return c.Request().Header.Get("HX-Request") =
 func (h *handler) start(c echo.Context) error {
 	p := middleware.Principal(c)
 	if authz.Can(p.Access, "org.create", authz.Resource{}) == nil {
-		// no org yet, so only the server connectors shared with every org count
-		conns, err := h.orch.ConnectedConnectors(c.Request().Context(), "")
-		if err != nil {
-			return middleware.HTTPError(err)
-		}
-		return render.Bare(c, http.StatusOK, "Setup: Set up your organization", pages.Branch(len(conns) > 0))
+		return render.Bare(c, http.StatusOK, "Setup: Set up your organization", pages.Branch())
 	}
 	orgs, err := h.orch.Orgs(c.Request().Context(), p.User.ID)
 	if err != nil {
@@ -771,7 +767,12 @@ func (h *handler) domain(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
 	host := c.FormValue("host")
 	if d := c.FormValue("domain"); d != "" { // a managed domain and the name under it
-		host = service.ManagedHost(d, c.FormValue("sub"))
+		sub := strings.TrimSpace(c.FormValue("sub"))
+		if sub == "" { // the domain itself is the server's own resource already
+			err := errs.Invalidf("host", "Give it a name.")
+			return refill(c, err, func() error { return h.showStep(c, "domain") })
+		}
+		host = service.ManagedHost(d, sub)
 	}
 	r, err := h.orch.CreateDomainResource(
 		c.Request().Context(),
@@ -829,14 +830,14 @@ func (h *handler) remove(c echo.Context) error {
 func (h *handler) done(c echo.Context) error {
 	og := middleware.ScopeOf(c).Org
 	ctx := c.Request().Context()
-	n, err := h.orch.FinishOrg(ctx, og.ID)
-	if err != nil {
+	form, _ := c.FormParams()
+	n, err := h.orch.FinishOrgSetup(ctx, middleware.Principal(c), og.ID, form["placement"])
+	if err != nil && n.SetupDoneAt == nil {
 		return back(c, err, first(og))
 	}
-	if form, _ := c.FormParams(); len(form["placement"]) > 0 {
-		if err := h.orch.OpenPlacementsToOrg(ctx, middleware.Principal(c), n.Slug, form["placement"]); err != nil {
-			hamrmw.SetFlash(c, "The organization is ready, but its placements could not be opened.", hamrmw.FlashError)
-		}
+	if err != nil {
+		slog.WarnContext(ctx, "setup: opening placements", "org", n.Slug, "err", err)
+		hamrmw.SetFlash(c, "The organization is ready, but its placements could not be opened.", hamrmw.FlashError)
 	}
 	return respond.Redirect(c, "/"+n.Slug)
 }

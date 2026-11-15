@@ -97,8 +97,8 @@ An entry claims the host for the org. Its tiles get names under it, like `web.sh
 You do not have to write a file first. Build the org in the panel, then adopt files when you want them.
 
 1. In the org settings, open Config as code. Under Export, press Download stackr-org.yml. CLI: `stackr org export -o stackr-org.yml`.
-2. Check it before you use it. CLI: `stackr org preview -f stackr-org.yml`. A fresh export shows no changes.
-3. Commit the file to a repo and bind it on the same page (Config repository, Save and plan). CLI: `stackr org config-repo --repo <repo>`.
+2. Commit the file to a repo and bind it on the same page (Config repository, Save and plan). CLI: `stackr org config-repo --repo <repo>`.
+3. Read the plan it makes. A fresh export shows no changes. CLI: `stackr org preview -f stackr-org.yml` does the same for a local file, once a repo is bound.
 4. From here the file leads. Edit it, push, read the plan, approve it.
 
 A plan never deletes anything on its own. A removal row applies only when you tick it in the panel, or pass `--remove KEY` to `stackr org approve`. The server file works the same way: Config as code in the admin panel, `stackr server export` and `stackr server preview`.

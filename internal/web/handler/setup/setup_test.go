@@ -535,7 +535,7 @@ func TestSetupOffers(t *testing.T) {
 	s.DNS.Zones = []service.DNSZone{{Name: "acme.dev", OurDNS: true}}
 	uid, sess := admin(t, s)
 
-	page(t, s, sess, "/setup", "Needs a repo stackr can read through a git connector.")
+	page(t, s, sess, "/setup", "through a git connector")
 	og, _ := draft(t, s, uid, sess, "ui")
 	b := "/" + og.Slug + "/-/setup"
 	redirect(t, s, sess, b+"/name", url.Values{"name": {"Globex"}}, "/globex/-/setup/connector")
@@ -558,6 +558,10 @@ func TestSetupOffers(t *testing.T) {
 	body = page(t, s, sess, b+"/domain", `name="domain"`, `<option value="acme.dev"`, `name="sub" value="globex"`, "Other")
 	if strings.Contains(body, "Stacks generate their hostnames under it. Point an A record") {
 		t.Errorf("the A record line stays over a managed domain:\n%s", body)
+	}
+	// the domain itself is the server's own resource: a name is asked for
+	if rec := s.As(t, sess, "POST", b+"/domain", url.Values{"domain": {"acme.dev"}, "sub": {" "}}); !strings.Contains(rec.Body.String(), "Give it a name.") {
+		t.Errorf("an empty name passed: %d\n%s", rec.Code, rec.Body.String())
 	}
 	redirect(t, s, sess, b+"/domain", url.Values{"domain": {"acme.dev"}, "sub": {"shop"}, "host": {""}}, b+"/team")
 	rs, _ := s.Orch.DomainResources(ctx, org(t, s, uid).ID)

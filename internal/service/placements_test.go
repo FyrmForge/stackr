@@ -724,4 +724,14 @@ func TestOpenPlacementsToOrg(t *testing.T) {
 	if err := n.orch.OpenPlacementsToOrg(ctx, adm, "acme", []string{"nope"}); err == nil {
 		t.Error("an unknown placement was opened")
 	}
+	// an owner who is no admin finishes with no placement ticked; a tick is refused
+	if _, err := n.orch.FinishOrgSetup(ctx, own, acmeID(t, n), nil); err != nil {
+		t.Errorf("an owner could not finish: %v", err)
+	}
+	if _, err := n.orch.FinishOrgSetup(ctx, own, acmeID(t, n), []string{"closed"}); err == nil {
+		t.Error("an owner finished with a placement ticked")
+	}
+	if og, err := n.orch.FinishOrgSetup(ctx, adm, acmeID(t, n), []string{"nope"}); err == nil || og.ID != "" {
+		t.Errorf("an unknown placement finished the org: %+v %v", og, err)
+	}
 }

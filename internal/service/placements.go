@@ -439,6 +439,8 @@ func (o *Orchestrator) OpenPlacementsToOrg(ctx context.Context, by *Principal, o
 	if err := nodeAdmin(by); err != nil {
 		return err
 	}
+	// ponytail: read then replace the list, so two admins opening the same
+	// placement at once can lose one org; an insert-one store call if it bites.
 	for _, name := range names {
 		p, err := o.PlacementByName(ctx, name)
 		if err != nil {
@@ -452,6 +454,27 @@ func (o *Orchestrator) OpenPlacementsToOrg(ctx context.Context, by *Principal, o
 		}
 	}
 	return nil
+}
+
+// FinishOrgSetup closes the setup wizard and opens the ticked placements to
+// the org. The placement names are checked before the org is finished; an org
+// that comes back finished with an error has placements still closed.
+func (o *Orchestrator) FinishOrgSetup(ctx context.Context, by *Principal, orgID string, placements []string) (Org, error) {
+	if len(placements) > 0 {
+		if err := nodeAdmin(by); err != nil {
+			return Org{}, err
+		}
+		for _, name := range placements {
+			if _, err := o.PlacementByName(ctx, name); err != nil {
+				return Org{}, err
+			}
+		}
+	}
+	og, err := o.FinishOrg(ctx, orgID)
+	if err != nil || len(placements) == 0 { // an owner who is no admin ticks none
+		return og, err
+	}
+	return og, o.OpenPlacementsToOrg(ctx, by, og.Slug, placements)
 }
 
 // DeletePlacement (admin) deletes a placement no pin, env, ingress pick or
