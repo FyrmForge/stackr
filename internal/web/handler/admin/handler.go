@@ -483,6 +483,7 @@ func (h *handler) updateTab(c echo.Context, x extra, job *comp.JobStatusView) (t
 			Warning: "The panel archives its database, then restarts on the new image. Running tiles keep running.",
 			Action:  ui.Base + "/update/run?tag=" + url.QueryEscape(v.Latest),
 			Target:  ui.Target,
+			Primary: true, // an upgrade is not destructive: the primary button, not a red one
 		}
 	}
 	w, err := h.workersView(c)
