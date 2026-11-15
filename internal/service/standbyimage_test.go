@@ -2,11 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/dockerfake"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/node"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
 // imageRig is an instance with a standby on w1 whose container carries the
@@ -18,6 +24,10 @@ type imageRig struct {
 	m        InstanceMember
 	old, new string
 }
+
+// prodID is what a primary's container reports as its image on a real
+// install: an image ID (or the registry copy), never the tag.
+const prodID = "sha256:0123456789abcdef"
 
 func newImageRig(t *testing.T, label, primaryNew bool) *imageRig {
 	t.Helper()
@@ -36,66 +46,209 @@ func newImageRig(t *testing.T, label, primaryNew bool) *imageRig {
 	}
 	must(t, n.st.Tiles.SetImageRef(ctx, n.devT.ID, nw))
 	tl, _ := n.orch.tiles.Get(ctx, n.devT.ID)
-	host, err := n.orch.memberHost(ctx, r, r.NodeID)
-	must(t, err)
-	spec, err := n.orch.engines.StandbySpec(ctx, tl, r, host)
-	must(t, err)
-	lbl := map[string]string{LabelMember: r.ID, mflow.LabelConf: spec.Labels[mflow.LabelConf]}
-	if label {
-		lbl[mflow.LabelImage] = old
-	}
-	n.wFake.Containers = append(n.wFake.Containers, docker.Container{ID: "rep1", Name: "rep1", State: "running", Image: old, Labels: lbl})
-	pimg := old
+	g := &imageRig{n: n, t: tl, m: r, old: old, new: nw}
+	g.addStandbyContainer(n.wFake, "rep1", r, label)
+	pl := old
 	if primaryNew {
-		pimg = nw
+		pl = nw
 	}
-	for i := range n.ctlFake.Containers {
-		if n.ctlFake.Containers[i].ID == "pg" {
-			n.ctlFake.Containers[i].Image = pimg
-		}
-	}
+	g.setPrimary(prodID, pl)
 	n.ctlFake.ExecFn = func(cmd []string) string {
 		if strings.Contains(strings.Join(cmd, " "), "current_setting") {
 			return "max_connections|0|100|postmaster\nmax_worker_processes|0|8|postmaster\nmax_wal_senders|0|10|postmaster\nmax_prepared_transactions|0|0|postmaster\nmax_locks_per_transaction|0|64|postmaster\n"
 		}
 		return "0"
 	}
-	return &imageRig{n, tl, r, old, nw}
+	n.orch.probeRuns.Store(r.ID, 1)
+	return g
 }
 
-// recreated says whether a standby container was made on the new image.
-func (g *imageRig) recreated() bool {
-	for _, c := range g.n.wFake.Calls() {
-		if c.Method == "Create" && strings.Contains(strings.Join(c.Args, " "), g.new) {
-			return true
+// addStandbyContainer puts a running standby container of m on f: the
+// settings label the spec has now, the old image, and the image label when
+// label.
+func (g *imageRig) addStandbyContainer(f *dockerfake.Fake, id string, m InstanceMember, label bool) {
+	host, err := g.n.orch.memberHost(context.Background(), m, m.NodeID)
+	if err != nil {
+		panic(err)
+	}
+	spec, err := g.n.orch.engines.StandbySpec(context.Background(), g.t, m, host)
+	if err != nil {
+		panic(err)
+	}
+	lbl := map[string]string{LabelMember: m.ID, mflow.LabelConf: spec.Labels[mflow.LabelConf]}
+	if label {
+		lbl[mflow.LabelImage] = g.old
+	}
+	f.Containers = append(f.Containers, docker.Container{ID: id, Name: id, State: "running", Image: g.old, Labels: lbl})
+}
+
+// setPrimary says what the primary's container runs and what it was made for
+// (the new label; "" = a container made before it).
+func (g *imageRig) setPrimary(image, label string) {
+	for i := range g.n.ctlFake.Containers {
+		if c := &g.n.ctlFake.Containers[i]; c.ID == "pg" {
+			c.Image = image
+			if label != "" {
+				c.Labels[mflow.LabelImage] = label
+			}
 		}
 	}
-	return false
 }
 
+// recreated says whether standby container id was removed and made again on
+// the new image, with its data volume and the image label.
+func (g *imageRig) recreated(f *dockerfake.Fake, id string, m InstanceMember) bool {
+	if !sawCall(f, "StopRemove("+id+")") {
+		return false
+	}
+	return slices.ContainsFunc(f.Specs, func(s docker.ContainerSpec) bool {
+		return s.Image == g.new && s.Labels[mflow.LabelImage] == g.new &&
+			slices.ContainsFunc(s.Volumes, func(v string) bool { return strings.HasPrefix(v, m.Volume+":") })
+	})
+}
+
+func (g *imageRig) pass() { g.n.orch.syncStandbyConf(context.Background(), g.t) }
+
 // A running standby is made again on the instance's new image once the
-// primary runs on it, with no restart pending.
+// primary runs on it, with no restart pending; the primary is as production
+// makes it (an image ID, the tag only in its label).
 func TestStandbyFollowsImage(t *testing.T) {
 	t.Parallel()
 	g := newImageRig(t, true, true)
-	g.n.orch.syncStandbyConf(context.Background(), g.t)
-	if !g.recreated() {
+	g.pass()
+	if !g.recreated(g.n.wFake, "rep1", g.m) {
 		t.Errorf("standby stayed on %s: %v", g.old, callNames(g.n.wFake))
 	}
 }
 
 // A standby does not move to an image its primary is not on (the update
-// failed there), and one with no image label is left alone.
+// failed there, or the primary predates the label).
 func TestStandbyImageHeld(t *testing.T) {
 	t.Parallel()
 	for name, g := range map[string]*imageRig{
 		"primary still on the old image": newImageRig(t, true, false),
-		"container without the label":    newImageRig(t, false, true),
+		"primary without the label":      newImageRig(t, true, true),
 	} {
-		g.n.orch.syncStandbyConf(context.Background(), g.t)
-		if g.recreated() {
+		if name == "primary without the label" {
+			for i := range g.n.ctlFake.Containers {
+				delete(g.n.ctlFake.Containers[i].Labels, mflow.LabelImage)
+			}
+		}
+		g.pass()
+		if sawCall(g.n.wFake, "StopRemove(") {
 			t.Errorf("%s: the standby was made again", name)
 		}
+	}
+}
+
+// A standby made before the image label existed is judged by its image.
+func TestStandbyWithoutLabelFollowsImage(t *testing.T) {
+	t.Parallel()
+	g := newImageRig(t, false, true)
+	g.pass()
+	if !g.recreated(g.n.wFake, "rep1", g.m) {
+		t.Errorf("unlabelled standby on the old image stayed: %v", callNames(g.n.wFake))
+	}
+	g = newImageRig(t, false, true)
+	for i := range g.n.wFake.Containers {
+		g.n.wFake.Containers[i].Image = g.new
+	}
+	g.pass()
+	if sawCall(g.n.wFake, "StopRemove(") {
+		t.Error("unlabelled standby already on the image was made again")
+	}
+}
+
+// With two standbys on the old image a pass makes one, and the next waits
+// until that one is seen streaming.
+func TestStandbyImageOnePerPass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	g := newImageRig(t, true, true)
+	n := g.n
+	must(t, n.st.Nodes.Create(ctx, store.Node{
+		ID: "w2", Name: "w2", Slug: "w2", Role: node.Worker, Tags: "[]", RangeCIDR: "10.210.0.0/16",
+		Status: node.StatusOnline, CreatedAt: time.Now(),
+	}))
+	w2 := dockerfake.New()
+	n.orch.docker.(*DockerRouter).Set("w2", &subnetFake{Fake: w2, nets: map[string]bool{}})
+	m2, err := n.orch.AddStandby(ctx, adminP(), n.devT.ID, "w2")
+	must(t, err)
+	n.orch.vipAsync.Wait()
+	g.addStandbyContainer(w2, "rep2", m2, true)
+	n.orch.probeRuns.Store(m2.ID, 1)
+
+	creates := func() int {
+		c := 0
+		for _, f := range []*dockerfake.Fake{n.wFake, w2} {
+			for _, call := range f.Calls() {
+				if call.Method == "Create" && strings.Contains(strings.Join(call.Args, " "), g.new) {
+					c++
+				}
+			}
+		}
+		return c
+	}
+	base := creates() // adding the second standby made its container on the new image
+	g.pass()
+	if creates()-base != 1 {
+		t.Fatalf("first pass made %d standbys, want 1", creates()-base)
+	}
+	// the made one now runs the new image, and has not been probed yet
+	first, firstID, second := g.m, "rep1", m2
+	f1 := n.wFake
+	if !sawCall(n.wFake, "StopRemove(rep1)") {
+		first, firstID, second, f1 = m2, "rep2", g.m, w2
+	}
+	for i := range f1.Containers {
+		if f1.Containers[i].ID == firstID {
+			f1.Containers[i].Image = g.new
+			f1.Containers[i].Labels[mflow.LabelImage] = g.new
+		}
+	}
+	g.pass()
+	if creates()-base != 1 {
+		t.Fatalf("second pass made another while the first was not streaming: %d", creates()-base)
+	}
+	n.orch.probeRuns.Store(first.ID, 1)
+	g.pass()
+	if creates()-base != 2 {
+		t.Errorf("second standby not made once the first streams: %d (%s)", creates()-base, second.ID)
+	}
+}
+
+// A pull that fails leaves the old container running.
+func TestStandbyImagePullFails(t *testing.T) {
+	t.Parallel()
+	g := newImageRig(t, true, true)
+	g.n.wFake.Err = map[string]error{"Pull": errors.New("registry down")}
+	g.pass()
+	if sawCall(g.n.wFake, "StopRemove(") || sawCall(g.n.wFake, "Create(") {
+		t.Errorf("old container touched: %v", callNames(g.n.wFake))
+	}
+}
+
+// Nothing is made again while the instance fails over, or while the tile has
+// a live job (an extensions change may still be rolled back).
+func TestStandbyImageHeldByFailoverAndJob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	g := newImageRig(t, true, true)
+	inst, err := g.n.orch.operated.GetByTile(ctx, g.t.ID)
+	must(t, err)
+	must(t, g.n.orch.saveFailover(ctx, inst.ID, failover{Kind: foPromoted, Step: stepStop, Started: time.Now()}))
+	g.pass()
+	if sawCall(g.n.wFake, "StopRemove(") {
+		t.Error("made again during a failover")
+	}
+	must(t, g.n.orch.store.Settings.Delete(ctx, failoverKey(inst.ID)))
+	j, err := g.n.orch.jobRows.Create(ctx, "deploy", []string{g.t.ID}, "{}", nil, t.TempDir())
+	must(t, err)
+	_, err = g.n.orch.jobRows.Start(ctx, j)
+	must(t, err)
+	g.pass()
+	if sawCall(g.n.wFake, "StopRemove(") {
+		t.Error("made again during a job")
 	}
 }
 
@@ -109,7 +262,7 @@ func TestStoppedStandbyFollowsImage(t *testing.T) {
 		}
 	}
 	must(t, g.n.orch.startMember(context.Background(), g.m))
-	if !g.recreated() {
+	if !g.recreated(g.n.wFake, "rep1", g.m) {
 		t.Errorf("stopped standby kept its image: %v", callNames(g.n.wFake))
 	}
 }

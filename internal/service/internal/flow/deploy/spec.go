@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
@@ -17,6 +18,7 @@ const LabelRef = "stackr.ref"
 // resolved is every fact spec needs that the row does not hold.
 type resolved struct {
 	name, image string
+	ref         string // the reference asked for, before any import or pin
 	pinRef      string // repo@digest of image when known; "" = image itself
 	env, binds  []string
 	mounts      []docker.Mount // the files: volume, by subpath
@@ -68,6 +70,11 @@ func spec(t store.Tile, r resolved) docker.ContainerSpec {
 		s.CapDrop = []string{"NET_RAW"}
 	}
 	s.Labels = map[string]string{LabelRef: cmp.Or(r.pinRef, r.image)}
+	if t.Kind == tile.Operated {
+		// what a standby compares with: the container's own image is an ID or
+		// the registry copy, never the tag the tile names
+		s.Labels[mflow.LabelImage] = r.ref
+	}
 	// Docker's 30s default would hold the deploy gate half a minute for the
 	// first check.
 	if s.HealthCmd != "" && s.HealthIntervalS == 0 {

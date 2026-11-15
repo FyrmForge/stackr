@@ -55,7 +55,7 @@ func (f *Flow) PromotedSpec(ctx context.Context, it store.Tile, mem store.Operat
 		Cmd:   def.Start(i),
 		Env:   env,
 		Labels: map[string]string{
-			tile.LabelTile: it.ID, tile.LabelRole: "replica", LabelMember: mem.ID,
+			tile.LabelTile: it.ID, tile.LabelRole: "replica", LabelMember: mem.ID, LabelImage: img,
 		},
 		Volumes:    vols,
 		Networks:   []docker.NetAttach{{Name: operated.Network(m.ID), Aliases: []string{i.Host, ReadAlias(i.Host)}, IPv4: ip}},

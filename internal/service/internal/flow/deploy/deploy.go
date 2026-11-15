@@ -497,7 +497,7 @@ func (f *Flow) prepare(
 		// with a later digest pin (promote's runsOther).
 		r.pinRef = RepoOf(ref) + "@" + digest
 	}
-	r.image = run
+	r.image, r.ref = run, ref
 	return r, e, digest, nil
 }
 

@@ -744,7 +744,7 @@ func (o *Orchestrator) startMember(ctx context.Context, m InstanceMember) error 
 				// a container made with other settings is made again, so its
 				// start does not put the old file back over the new one
 				// (a spec that cannot be made now starts the container as it is)
-				if again, err := o.refreshStandby(ctx, t, m, c, false); err != nil {
+				if again, _, err := o.refreshStandby(ctx, t, m, c, false); err != nil {
 					slog.Warn("members: standby settings", "member", m.ID, "err", err)
 				} else if again {
 					continue
