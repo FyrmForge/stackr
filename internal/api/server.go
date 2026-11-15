@@ -49,7 +49,7 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	srv.Echo().Pre(middleware.LiftBodyLimit("/operated/from-dump"))
 	g := api.Group("/v1", middleware.JSONErrors(), hold, deps.Access.Load(), middleware.APIRateLimit(), middleware.APICSRF(deps.CSRFCookie, deps.CookieSecure))
 	for _, r := range Routes(h) {
-		mw := []echo.MiddlewareFunc{gate(deps.Access, r)}
+		mw := []echo.MiddlewareFunc{gate(deps.Access, r, deps.Orch.Version)}
 		if r.E.Idem {
 			mw = append(mw, deps.Access.Idempotent())
 		}
@@ -57,16 +57,26 @@ func RegisterRoutes(srv *server.Server, deps *Deps) {
 	}
 }
 
-func gate(a *middleware.Access, r Route) echo.MiddlewareFunc {
+func gate(a *middleware.Access, r Route, version func() string) echo.MiddlewareFunc {
+	var auth echo.MiddlewareFunc
 	switch r.Verb {
 	case Public:
 		return func(next echo.HandlerFunc) echo.HandlerFunc { return next }
 	case Self:
-		return a.Authed()
+		auth = a.Authed()
 	case "":
 		panic("api: route " + r.Method + " " + r.Path + " names no verb")
+	default:
+		auth = a.Require(r.Verb)
 	}
-	return a.Require(r.Verb)
+	// Stackr-Version rides only past the gate, so a caller the gate turns away
+	// learns nothing; the CLI warns when its own build differs.
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return auth(func(c echo.Context) error {
+			c.Response().Header().Set("Stackr-Version", version())
+			return next(c)
+		})
+	}
 }
 
 // Gzip is the server's compression, off for the streams: a compressor may

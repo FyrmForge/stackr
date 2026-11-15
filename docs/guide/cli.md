@@ -2,7 +2,7 @@
 
 Generated from the command definitions: `go test ./cmd/stkr -run TestCLIReference -update`. `stkr <command> --help` prints the same text.
 
-Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stkr@latest`, or pin a release with `@vX.Y.Z`. From a checkout: `make installcli`.
+Install the CLI (needs Go): `go install github.com/FyrmForge/stackr/cmd/stkr@latest`, or pin a release with `@vX.Y.Z`. From a checkout: `make installcli`. The CLI does not update itself: when the server runs another version it prints one line to stderr with the `go install` command that matches the server.
 
 ```
 Drive a stackr server from the terminal.

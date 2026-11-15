@@ -44,7 +44,9 @@ type app struct {
 	ctx       context.Context
 	orgSlug   string // --org on a placement command: beats STACKR_ORG and the config
 	noEnv     bool   // login: its own arguments, not STACKR_*, say where and as whom
-	planShown bool   // a plan was printed as a table: a job's own "plan:" log lines repeat it
+	ver       string // this build's version, for the server-differs warning
+	warnOnce  sync.Once
+	planShown bool // a plan was printed as a table: a job's own "plan:" log lines repeat it
 }
 
 type (
@@ -321,6 +323,7 @@ func (a *app) request(method, path string, body any) (*http.Response, error) {
 		}
 		return nil, fmt.Errorf("can't reach %s: %w", a.server(), err)
 	}
+	a.warnVersion(res)
 	if res.StatusCode >= 300 {
 		defer func() { _ = res.Body.Close() }()
 		e := &apiErr{Status: res.StatusCode}
@@ -336,6 +339,14 @@ func (a *app) request(method, path string, body any) (*http.Response, error) {
 		return nil, e
 	}
 	return res, nil
+}
+
+// warnVersion prints, once per process and to stderr only, that the CLI and
+// the server run different builds. The command carries on.
+func (a *app) warnVersion(res *http.Response) {
+	if m := versionWarning(a.ver, res.Header.Get("Stackr-Version")); m != "" {
+		a.warnOnce.Do(func() { _, _ = fmt.Fprintln(a.errw, m) })
+	}
 }
 
 // call is request plus a decoded JSON answer (nil on 204).

@@ -38,6 +38,21 @@ func shownVersion(stamped, module string) string {
 	return module
 }
 
+// versionWarning is the one line for a CLI and a server on different builds,
+// or "" when there is nothing to say: a dev CLI, an older server that sends
+// no version, or the same release. A server that is not a clean release has
+// nothing to install, so it gets no update command.
+func versionWarning(cli, server string) string {
+	if server == "" || cli == "dev" || strings.TrimPrefix(cli, "v") == strings.TrimPrefix(server, "v") {
+		return ""
+	}
+	msg := "stkr is " + cli + ", the server is " + server + "."
+	if server != "dev" && !strings.ContainsAny(server, "-+") {
+		msg = "stkr is " + cli + ", the server is " + server + ". Update: go install github.com/FyrmForge/stackr/cmd/stkr@v" + strings.TrimPrefix(server, "v")
+	}
+	return msg
+}
+
 func buildVersion() string {
 	mod := ""
 	if info, ok := debug.ReadBuildInfo(); ok {
@@ -56,7 +71,13 @@ func main() {
 
 // run is the whole CLI against given streams; tests call it directly.
 func run(ctx context.Context, args []string, in io.Reader, out, errw io.Writer, tty bool) int {
+	return runAs(buildVersion(), ctx, args, in, out, errw, tty)
+}
+
+// runAs is run for a CLI that reports ver, so a test can stand in a release.
+func runAs(ver string, ctx context.Context, args []string, in io.Reader, out, errw io.Writer, tty bool) int {
 	a := &app{
+		ver:     ver,
 		ctx:     ctx,
 		in:      bufio.NewReader(in),
 		out:     out,

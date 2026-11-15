@@ -29,6 +29,7 @@ func (a *app) dial(path string, q url.Values) (*websocket.Conn, *http.Response, 
 	h.Set("Authorization", "Bearer "+key)
 	ws, res, err := websocket.Dial(a.ctx, u, &websocket.DialOptions{HTTPHeader: h, HTTPClient: &http.Client{}})
 	if err == nil {
+		a.warnVersion(res)
 		return ws, res, nil
 	}
 	if res == nil || res.StatusCode < 300 {
