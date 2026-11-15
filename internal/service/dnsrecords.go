@@ -268,8 +268,8 @@ func (o *Orchestrator) reconcileDNS(ctx context.Context, replace map[string]bool
 	}
 	err := o.dns.Reconcile(ctx, o.dnsWants, replace, o.dnsAccounts)
 	if after := o.panelRecordValues(ctx); !slices.Equal(slices.Sorted(slices.Values(before)), slices.Sorted(slices.Values(after))) {
-		o.panelGen.Add(1)
 		o.panelDueAt.Store(time.Now().Add(dnscap.TTL * time.Second).UnixNano()) // a resolver may keep the old answer for a TTL
+		o.panelGen.Add(1)                                                       // after due: a check that sees this gen sees this due
 	}
 	return err
 }

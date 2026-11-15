@@ -329,7 +329,8 @@ type Orchestrator struct {
 	certRecheck    atomic.Bool  // a failing-cert recheck runs
 	panelRecheck   atomic.Bool  // a panel-name recheck runs
 	panelGen       atomic.Int64 // bumped when the panel record rows change; a check that saw it move judges nothing
-	panelMu        sync.Mutex   // a panel record write (reconcileDNS) and a panel check never overlap
+	panelMu        sync.Mutex   // a panel record write (reconcileDNS) and a check's verdict never overlap
+	panelCheckMu   sync.Mutex   // panel checks run one at a time
 	panelDueAt     atomic.Int64 // unix nanos: a sync wrote the panel record, the tick rechecks once from then on (0 none)
 	wildcard       sync.Map     // panel host -> wildHit (panelname.go)
 	panelSeam      panelSeams   // the outside world, for tests (panelname.go)

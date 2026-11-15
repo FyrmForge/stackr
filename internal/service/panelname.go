@@ -73,7 +73,6 @@ type panelFacts struct {
 
 type panelFactsKey struct{}
 
-
 // factsOf is the sync's panelFacts in ctx, or a fresh one (asked lazily).
 func factsOf(ctx context.Context) *panelFacts {
 	if f, ok := ctx.Value(panelFactsKey{}).(*panelFacts); ok {
@@ -403,12 +402,17 @@ func outsiders(ips []string, t panelTarget) []string {
 // name not reachable from outside. It runs after every records sync and
 // daily (dnssync.go), and from the tick while one is open.
 func (o *Orchestrator) checkPanelName(ctx context.Context) {
-	due := o.panelDueAt.Load()
+	// checks run one at a time (background only), so verdicts land in the
+	// order they were seen
+	o.panelCheckMu.Lock()
+	defer o.panelCheckMu.Unlock()
 	// a panel record write that lands mid-check makes what it sees stale:
 	// it judges nothing, the write's own check does. The slow part (lookups,
-	// probes) runs unlocked; the verdict is applied under panelMu, which a
-	// record write (reconcileDNS) holds while it writes and bumps panelGen.
+	// probes) runs outside panelMu; the verdict is applied under panelMu,
+	// which a record write (reconcileDNS) holds while it writes and bumps
+	// panelGen. gen is read before due: a writer stores due before gen.
 	gen := o.panelGen.Load()
+	due := o.panelDueAt.Load()
 	var verdict []func()
 	open := func(ctx context.Context, k, sev, msg string) {
 		verdict = append(verdict, func() { o.openProblem(ctx, k, sev, msg) })
