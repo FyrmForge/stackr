@@ -255,6 +255,43 @@ func TestStandbyImageHeldByFailoverAndJob(t *testing.T) {
 	}
 }
 
+// The image changes again while the old one is pulled: under the lock the
+// spec is rebuilt from the tile as it is, and the pass is skipped (the pulled
+// image is outdated); once the primary runs on the newest one, the next pass
+// makes the standby from it. The fake's pull has no hook, so the under-lock
+// re-validation is tested directly.
+func TestStandbyImageChangesDuringPull(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	g := newImageRig(t, true, true)
+	c := g.n.wFake.Containers[len(g.n.wFake.Containers)-1]
+	if _, ok, err := g.n.orch.standbyStillDue(ctx, g.t, g.m, c, g.new); err != nil || !ok {
+		t.Fatalf("unchanged tile: ok=%v err=%v", ok, err)
+	}
+	newer, ok := g.new+"-b", true
+	if !ok {
+		t.Skip("no newer minor known")
+	}
+	must(t, g.n.st.Tiles.SetImageRef(ctx, g.t.ID, newer))
+	if _, ok, err := g.n.orch.standbyStillDue(ctx, g.t, g.m, c, g.new); err != nil || ok {
+		t.Fatalf("outdated pulled image accepted: ok=%v err=%v", ok, err)
+	}
+	// the primary has not reached the newest image: nothing is made
+	g.t, _ = g.n.orch.tiles.Get(ctx, g.t.ID)
+	g.pass()
+	if sawCall(g.n.wFake, "StopRemove(") {
+		t.Error("made again before the primary runs the newest image")
+	}
+	g.setPrimary(prodID, newer)
+	g.pass()
+	if !sawCall(g.n.wFake, "StopRemove(rep1)") || !slices.ContainsFunc(g.n.wFake.Specs, func(s docker.ContainerSpec) bool { return s.Image == newer }) {
+		t.Errorf("standby not made on %s: %v", newer, callNames(g.n.wFake))
+	}
+	if slices.ContainsFunc(g.n.wFake.Specs, func(s docker.ContainerSpec) bool { return s.Image == g.new }) {
+		t.Error("standby made on the outdated image")
+	}
+}
+
 // A stopped standby on an old image is made again at its start.
 func TestStoppedStandbyFollowsImage(t *testing.T) {
 	t.Parallel()

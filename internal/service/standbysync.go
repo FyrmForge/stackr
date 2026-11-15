@@ -177,6 +177,26 @@ func (o *Orchestrator) liveJob(ctx context.Context, t store.Tile) (bool, error) 
 	return err == nil && ok && job.Live(j.State), err
 }
 
+// standbyStillDue re-reads tile t and rebuilds m's spec from it, under the
+// topology lock after the pull of pulled: it returns the fresh tile and
+// whether the container is still only image-stale against that spec, the
+// spec's image is the one pulled and the primary runs on it.
+func (o *Orchestrator) standbyStillDue(ctx context.Context, t store.Tile, m InstanceMember, c docker.Container, pulled string) (store.Tile, bool, error) {
+	fresh, err := o.tiles.Get(ctx, t.ID)
+	if err != nil {
+		return t, false, err
+	}
+	host, err := o.memberHost(ctx, m, m.NodeID)
+	if err != nil {
+		return t, false, err
+	}
+	spec, err := o.engines.StandbySpec(ctx, fresh, m, host)
+	if err != nil {
+		return t, false, err
+	}
+	return fresh, spec.Image == pulled && staleImage(c, spec) && !staleConf(c, spec) && o.primaryOnImage(ctx, fresh, pulled), nil
+}
+
 // refreshStandby makes standby m's container again from its current spec
 // (its data volume stays, and with its completion marker the copy is not
 // redone) when it was made with other settings, and the primary's running
@@ -245,6 +265,13 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 			return false, false, err
 		}
 		m = cur
+		// the image may have changed again during the pull: the container is
+		// made from the tile as it is now, or the pass is skipped
+		fresh, ok, err := o.standbyStillDue(ctx, t, m, c, spec.Image)
+		if err != nil || !ok {
+			return false, false, err
+		}
+		t = fresh
 	}
 	if err := o.docker.StopRemove(nctx, c.ID); err != nil {
 		return false, false, err
