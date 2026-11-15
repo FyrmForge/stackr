@@ -88,6 +88,7 @@ func (o *Orchestrator) checkPGExtUpdates(ctx context.Context) {
 	}
 	live := map[string]bool{}
 	shared := map[string]*mflow.Resolved{} // nil = the resolve failed
+	failed := false
 	for _, m := range ms {
 		eb, _ := mflow.ParseExtBuild(m.ExtBuild)
 		if !eb.Built() {
@@ -96,10 +97,15 @@ func (o *Orchestrator) checkPGExtUpdates(ctx context.Context) {
 		live[m.ID] = true
 		if err := o.checkPGExtUpdate(ctx, m, eb, shared); err != nil {
 			slog.Warn("pg extension updates: check", "instance", m.ID, "err", err)
+			failed = true
 		}
 	}
-	if err := o.store.Settings.Set(ctx, pgextCheckedKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
-		slog.Warn("pg extension updates: run time not kept", "err", err)
+	// a run where an instance's check failed is not a check: the next boot
+	// tries again
+	if !failed {
+		if err := o.store.Settings.Set(ctx, pgextCheckedKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			slog.Warn("pg extension updates: run time not kept", "err", err)
+		}
 	}
 	rows, err := o.store.Settings.ListPrefix(ctx, pgextupdKey)
 	if err != nil {

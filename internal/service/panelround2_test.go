@@ -145,6 +145,7 @@ func TestPanelNoResolveAlarmRightAfterAWrite(t *testing.T) {
 	if m := panelProblem(t, env, "panel.resolve"); m != "" {
 		t.Errorf("alarm right after the write: %q", m)
 	}
+	env.Orch.ForcePanelDue()
 	env.Orch.RecheckPanelName(context.Background()) // the tick, with no problem open yet
 	if panelProblem(t, env, "panel.resolve") == "" {
 		t.Error("the tick's recheck stayed silent after a write")

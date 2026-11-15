@@ -226,14 +226,19 @@ func (l *Leaf) Reconcile(ctx context.Context, wantsFn func(context.Context) ([]W
 	if wants == nil && werr != nil {
 		return werr // the list itself failed: nothing to go on
 	}
-	return errors.Join(werr, l.reconcile(ctx, wants, replace, acct))
+	held, err := l.reconcile(ctx, wants, replace, acct)
+	if held && err == nil { // the panel's new name has its row now: the old one goes
+		_, err = l.reconcile(ctx, wants, replace, acct)
+	}
+	return errors.Join(werr, err)
 }
 
-// reconcile is Reconcile's work, the records lock held.
-func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]bool, acct Accounts) error {
+// reconcile is Reconcile's work, the records lock held. held: a panel-name
+// row was kept back (see below), a second pass may let it go.
+func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]bool, acct Accounts) (held bool, _ error) {
 	rows, err := l.recs.List(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	type plan struct {
 		dnsDomainID string
@@ -253,7 +258,7 @@ func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]b
 		return zones[zone]
 	}
 	want := map[string]Want{}
-	held := map[string]bool{}
+	heldAt := map[string]bool{}
 	custom := map[string]bool{}
 	for _, w := range wants {
 		if w.kind() == store.RecordCustom {
@@ -265,11 +270,25 @@ func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]b
 			continue
 		}
 		if w.Hold {
-			held[w.Zone+"|"+strings.ToLower(w.Name)] = true
+			heldAt[w.Zone+"|"+strings.ToLower(w.Name)] = true
 			continue
 		}
 		if _, dup := want[w.key()]; !dup { // ponytail: one host on two ingress nodes points at the first
 			want[w.key()] = w
+		}
+	}
+	// The panel's old name keeps its record until the current one has a row
+	// (written or taken over): a move whose new name failed, was refused or
+	// sits in another zone never leaves the panel with no name at all.
+	nameWant, nameRow := map[string]bool{}, false
+	for _, w := range wants {
+		if w.kind() == store.RecordName {
+			nameWant[w.Zone+"|"+strings.ToLower(w.Name)] = true
+		}
+	}
+	for _, r := range rows {
+		if r.Kind == store.RecordName && nameWant[r.Zone+"|"+strings.ToLower(r.Name)] {
+			nameRow = true
 		}
 	}
 	have := map[string]store.DNSRecord{}
@@ -285,7 +304,9 @@ func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]b
 		w, ok := want[rowKey(r)]
 		switch {
 		case !ok && r.Adopted: // adopted records are repointed, never deleted
-		case !ok && held[r.Zone+"|"+strings.ToLower(r.Name)]:
+		case !ok && heldAt[r.Zone+"|"+strings.ToLower(r.Name)]:
+		case !ok && r.Kind == store.RecordName && len(nameWant) > 0 && !nameRow:
+			held = true
 		case !ok:
 			id := ""
 			if r.DNSDomainID != nil {
@@ -298,7 +319,7 @@ func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]b
 		case deref(r.DomainID) != w.DomainID || r.Kind != w.kind():
 			r.DomainID, r.Kind = optID(w.DomainID), w.kind()
 			if err := l.recs.Update(ctx, r); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
@@ -322,7 +343,7 @@ func (l *Leaf) reconcile(ctx context.Context, wants []Want, replace map[string]b
 		slices.Sort(taken)
 		errsOut = append(errsOut, &RecordTaken{Hosts: taken})
 	}
-	return errors.Join(errsOut...)
+	return held, errors.Join(errsOut...)
 }
 
 // zoneWork is one zone's part of a reconcile.
@@ -356,7 +377,9 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 	var taken []string
 	var made []Want
 	var cw customWork
-	gone := map[string]bool{} // row ids whose record is off the zone
+	// the names whose delete or put did not land (a provider without
+	// connectors.ReplaceDNS fails step by step); ran: the writes began
+	delPending, putPending, ran := map[string]bool{}, map[string]bool{}, false
 	kept := map[string]bool{} // moved rows that stay as they are
 	err = l.WithZone(ctx, a, zone, func(pv Provider) error {
 		live, noMX, err := readZone(ctx, pv, zone)
@@ -375,7 +398,6 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 			if isLive(r) {
 				del = append(del, rr(r.Name, r.Type, r.Value))
 			}
-			gone[r.ID] = true
 		}
 		// a moved row whose old record is gone or edited: its name is
 		// judged like a new one
@@ -437,68 +459,88 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 			made, taken, cw = nil, nil, customWork{}
 			return err
 		}
-		// A moved record is swapped in one provider step when it can
-		// (only the old value goes), else the new one is appended before the
-		// old one is deleted: a failure never leaves the name bare.
-		type swap struct{ old, put libdns.Record }
-		var swaps []swap
-		var late []libdns.Record // deleted after the puts
-		_, canSwap := pv.(connectors.ReplaceDNS)
-		for _, w := range made {
-			i := slices.IndexFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() && isLive(r) })
-			if i < 0 {
-				continue
+		// One provider step when it can (a fresh read, the exact deletes and
+		// the puts in one write): nothing is half done. Else per name, the
+		// put first and the delete after, so a failure never leaves a name
+		// bare; a CNAME cannot share its name, so there the delete goes first.
+		if rp, ok := pv.(connectors.ReplaceDNS); ok {
+			if len(del)+len(put) > 0 {
+				return rp.Replace(ctx, zone, del, put)
 			}
-			old, nw := rr(move[i].Name, move[i].Type, move[i].Value), rr(w.Name, w.Type, w.Value)
-			del = slices.DeleteFunc(del, func(x libdns.Record) bool { return sameRec(x, old) })
-			if canSwap {
-				put = slices.DeleteFunc(put, func(x libdns.Record) bool { return sameRec(x, nw) })
-				swaps = append(swaps, swap{old, nw})
-			} else {
-				late = append(late, old)
-			}
+			return nil
 		}
-		// deletes at a name that gets a record go first (a CNAME replacing
-		// an A); the rest wait for the puts, so a failed put deletes nothing
-		for _, r := range slices.Clone(del) {
-			x := r.RR()
-			if !slices.ContainsFunc(put, func(p libdns.Record) bool { return strings.EqualFold(p.RR().Name, x.Name) }) {
-				late = append(late, r)
-				del = slices.DeleteFunc(del, func(y libdns.Record) bool { return sameRec(y, r) })
+		ran = true
+		type step struct{ del, put []libdns.Record }
+		steps := map[string]*step{}
+		at := func(r libdns.Record) *step {
+			n := strings.ToLower(r.RR().Name)
+			if steps[n] == nil {
+				steps[n] = &step{}
 			}
+			return steps[n]
 		}
-		if len(del) > 0 {
-			if _, err := pv.Delete(ctx, zone, del); err != nil {
+		for _, r := range del {
+			at(r).del = append(at(r).del, r)
+			delPending[strings.ToLower(r.RR().Name)] = true
+		}
+		for _, r := range put {
+			at(r).put = append(at(r).put, r)
+			putPending[strings.ToLower(r.RR().Name)] = true
+		}
+		for _, n := range slices.Sorted(maps.Keys(steps)) {
+			s := steps[n]
+			delFirst := slices.ContainsFunc(append(slices.Clone(s.del), s.put...), func(r libdns.Record) bool { return r.RR().Type == "CNAME" })
+			doDel := func() error {
+				if len(s.del) == 0 {
+					return nil
+				}
+				if _, err := pv.Delete(ctx, zone, s.del); err != nil {
+					return err
+				}
+				delete(delPending, n)
+				return nil
+			}
+			doPut := func() error {
+				if len(s.put) == 0 {
+					return nil
+				}
+				if _, err := pv.Append(ctx, zone, s.put); err != nil {
+					return err
+				}
+				delete(putPending, n)
+				return nil
+			}
+			first, second := doPut, doDel
+			if delFirst {
+				first, second = doDel, doPut
+			}
+			if err := first(); err != nil {
 				return err
 			}
-		}
-		for _, s := range swaps {
-			if err := pv.(connectors.ReplaceDNS).Replace(ctx, zone, s.old, s.put); err != nil {
-				return err
-			}
-		}
-		if len(put) > 0 {
-			if _, err := pv.Append(ctx, zone, put); err != nil {
-				return err
-			}
-		}
-		if len(late) > 0 {
-			if _, err := pv.Delete(ctx, zone, late); err != nil {
+			if err := second(); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		return taken, err
+	werr := err
+	if werr != nil && !ran {
+		return taken, werr
 	}
+	// After a step failed, the rows still follow what landed: a record
+	// written is adopted (its row), so the next sync heals and never takes
+	// it for someone else's.
+	made = slices.DeleteFunc(made, func(w Want) bool { return putPending[strings.ToLower(w.Name)] })
+	drop = slices.DeleteFunc(drop, func(r store.DNSRecord) bool { return delPending[strings.ToLower(r.Name)] })
 	for _, r := range drop {
 		if err := l.recs.Delete(ctx, r.ID); err != nil {
-			return taken, err
+			return taken, errors.Join(werr, err)
 		}
 	}
-	if err := l.customRows(ctx, d, cw); err != nil {
-		return taken, err
+	if werr == nil {
+		if err := l.customRows(ctx, d, cw); err != nil {
+			return taken, err
+		}
 	}
 	for _, w := range made {
 		i := slices.IndexFunc(move, func(r store.DNSRecord) bool { return rowKey(r) == w.key() })
@@ -516,6 +558,9 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 		}); err != nil {
 			return taken, err
 		}
+	}
+	if werr != nil {
+		return taken, werr
 	}
 	// a moved row left behind (its name now someone else's) is no longer ours
 	for _, r := range move {

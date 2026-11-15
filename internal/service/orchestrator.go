@@ -326,11 +326,11 @@ type Orchestrator struct {
 	// failCrashAfter makes a failover stop after that step, as a dying panel
 	// would (tests).
 	failCrashAfter string
-	certRecheck    atomic.Bool // a failing-cert recheck runs
-	panelRecheck   atomic.Bool // a panel-name recheck runs
-	panelDue       atomic.Bool // a sync wrote the panel record: the tick rechecks once
-	wildcard       sync.Map    // panel host -> wildHit (panelname.go)
-	panelSeam      panelSeams  // the outside world, for tests (panelname.go)
+	certRecheck    atomic.Bool  // a failing-cert recheck runs
+	panelRecheck   atomic.Bool  // a panel-name recheck runs
+	panelDueAt     atomic.Int64 // unix nanos: a sync wrote the panel record, the tick rechecks once from then on (0 none)
+	wildcard       sync.Map     // panel host -> wildHit (panelname.go)
+	panelSeam      panelSeams   // the outside world, for tests (panelname.go)
 	// tickAttemptFor overrides tickAttempt (tests).
 	tickAttemptFor time.Duration
 	// recoverSyncFor overrides recoverSyncWait (tests).
@@ -1006,6 +1006,8 @@ func New(cfg Config, opts ...Option) (*Orchestrator, error) {
 			orch.clearUpgrader(orch.meshCtx) // the Update that started this panel left it
 		})
 		orch.startSyncObserve() // brings it to this build's version
+		// Last: it reads the operated, tiles and settings leaves, wired above.
+		orch.detach(context.Background(), orch.bootPGExtCheck) // a restart never skips the daily extension check
 	} else {
 		orch.markStackrPublished() // no registry to fill
 		if k, err := orch.observeKnobs(ctx); err == nil {

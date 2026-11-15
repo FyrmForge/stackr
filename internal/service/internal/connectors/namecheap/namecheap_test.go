@@ -260,7 +260,7 @@ func TestNamecheapReplaceKeepsOtherRecords(t *testing.T) {
 	n := account(srv.URL)
 	ctx := context.Background()
 	// the old record is gone from the zone: the new one is added, the other stays
-	if err := n.Replace(ctx, "shop.co.uk", libdns.RR{Name: "@", Type: "A", Data: "203.0.113.1"}, libdns.RR{Name: "@", Type: "A", Data: "203.0.113.2"}); err != nil {
+	if err := n.Replace(ctx, "shop.co.uk", []libdns.Record{libdns.RR{Name: "@", Type: "A", Data: "203.0.113.1"}}, []libdns.Record{libdns.RR{Name: "@", Type: "A", Data: "203.0.113.2"}}); err != nil {
 		t.Fatal(err)
 	}
 	got := "|" + strings.Join(set, "|") + "|"
@@ -268,7 +268,7 @@ func TestNamecheapReplaceKeepsOtherRecords(t *testing.T) {
 		t.Errorf("foreign record not kept or new one not added: %s", got)
 	}
 	set = nil
-	if err := n.Replace(ctx, "shop.co.uk", libdns.RR{Name: "@", Type: "A", Data: "109.148.70.232"}, libdns.RR{Name: "@", Type: "A", Data: "203.0.113.2"}); err != nil {
+	if err := n.Replace(ctx, "shop.co.uk", []libdns.Record{libdns.RR{Name: "@", Type: "A", Data: "109.148.70.232"}}, []libdns.Record{libdns.RR{Name: "@", Type: "A", Data: "203.0.113.2"}}); err != nil {
 		t.Fatal(err)
 	}
 	got = "|" + strings.Join(set, "|") + "|"

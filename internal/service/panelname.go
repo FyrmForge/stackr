@@ -405,6 +405,7 @@ func outsiders(ips []string, t panelTarget) []string {
 // name not reachable from outside. It runs after every records sync and
 // daily (dnssync.go), and from the tick while one is open.
 func (o *Orchestrator) checkPanelName(ctx context.Context) {
+	due := o.panelDueAt.Load()
 	p := o.panelDomain(ctx)
 	zones, err := o.dns.All(ctx)
 	if err != nil {
@@ -415,6 +416,7 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 		for _, k := range []string{panelAddrAlert, panelResolveAlert, panelReachAlert} {
 			o.clearProblem(ctx, k)
 		}
+		o.panelDueAt.CompareAndSwap(due, 0) // nothing to judge
 		return
 	}
 	ctx = o.withPanelFacts(ctx, true)
@@ -440,6 +442,7 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	// next tick's recheck judges it (panelDue)
 	fresh, _ := ctx.Value(panelWroteKey{}).(bool)
 	if ips, ok := o.lookupOK(ctx, p); ok && !fresh {
+		o.panelDueAt.CompareAndSwap(due, 0) // judged on a real answer; a failed lookup stays due
 		switch pub := outsiders(ips, t); {
 		case len(ips) == 0:
 			o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
@@ -454,6 +457,9 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 			o.clearProblem(ctx, panelResolveAlert)
 			resolved = true
 		}
+	}
+	if fresh { // the record is minutes old: the next check judges it, probe and all
+		return
 	}
 	v := o.outsideOf(ctx, def)
 	if !resolved || v.Vantage == "" || o.cfg.TLSOff {
@@ -487,12 +493,12 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 // without waiting for the daily one. Off the tick, one at a time.
 func (o *Orchestrator) recheckPanelName(ctx context.Context) {
 	rows, err := o.store.Settings.ListPrefix(ctx, problemPrefix+"panel.")
-	if err != nil || (len(rows) == 0 && !o.panelDue.Load()) || !o.panelRecheck.CompareAndSwap(false, true) {
+	due := o.panelDueAt.Load()
+	if err != nil || (len(rows) == 0 && (due == 0 || time.Now().UnixNano() < due)) || !o.panelRecheck.CompareAndSwap(false, true) {
 		return
 	}
 	o.detach(ctx, func(ctx context.Context) {
 		defer o.panelRecheck.Store(false)
-		o.panelDue.Store(false)
 		o.checkPanelName(ctx)
 	})
 }

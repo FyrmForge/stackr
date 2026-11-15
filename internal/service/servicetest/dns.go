@@ -29,6 +29,9 @@ type DNS struct {
 	Overlap  bool
 	inZone   map[string]int
 	fail     error             // set by Fail: what every record write returns
+	failIn   int               // set by FailAfter: writes left before every one fails
+	failWith error             // what FailAfter then returns
+	noRepl   bool              // set by NoReplace: the account has no Replace
 	noMX     map[string]string // set by NoMX: zone -> why it drops MX records
 	afterGet func()            // set by AfterNextGet
 }
@@ -80,7 +83,11 @@ const BadKey = "bad-key"
 func (d *DNS) open(_ string, c service.DNSCreds) (service.DNSProvider, error) {
 	d.mu.Lock()
 	d.Opened = append(d.Opened, c)
+	plain := d.noRepl
 	d.mu.Unlock()
+	if plain {
+		return struct{ service.DNSProvider }{fakeAccount{d, c}}, nil
+	}
 	return fakeAccount{d, c}, nil
 }
 
@@ -142,12 +149,35 @@ func (a fakeAccount) GetMail(ctx context.Context, zone string) ([]libdns.Record,
 func (d *DNS) Fail(err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.fail = err
+	d.fail, d.failIn, d.failWith = err, 0, nil
+}
+
+// FailAfter lets n more record writes through, then makes every one answer
+// err (Fail(nil) answers again).
+func (d *DNS) FailAfter(n int, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.fail, d.failIn, d.failWith = nil, n, err
+}
+
+// NoReplace makes the accounts opened from now on a provider without the
+// one-write Replace: changes are Appends and Deletes.
+func (d *DNS) NoReplace() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noRepl = true
 }
 
 func (d *DNS) failing() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.fail == nil && d.failWith != nil {
+		if d.failIn == 0 {
+			d.fail = d.failWith
+			return d.fail
+		}
+		d.failIn--
+	}
 	return d.fail
 }
 
@@ -191,25 +221,30 @@ func (a fakeAccount) Set(_ context.Context, zone string, rs []libdns.Record) ([]
 	return rs, nil
 }
 
-// Replace swaps old for put: only old (name, type, value) goes, other
-// records of the name stay.
-func (a fakeAccount) Replace(_ context.Context, zone string, old, put libdns.Record) error {
+// Replace is one write: the del records (name, type, value) go, the put
+// ones are added, other records of the names stay.
+func (a fakeAccount) Replace(_ context.Context, zone string, del, put []libdns.Record) error {
 	if err := a.d.failing(); err != nil {
 		return err
 	}
-	a.d.record(zone, []libdns.Record{put}, &a.d.Appended)
+	a.d.record(zone, put, &a.d.Appended)
+	a.d.record(zone, del, &a.d.Deleted)
 	a.d.mu.Lock()
 	defer a.d.mu.Unlock()
 	a.d.Calls++
 	if a.d.Records == nil {
 		a.d.Records = map[string][]libdns.RR{}
 	}
-	o, p := old.RR(), put.RR()
 	a.d.Records[zone] = slices.DeleteFunc(a.d.Records[zone], func(x libdns.RR) bool {
-		return x.Name == o.Name && x.Type == o.Type && x.Data == o.Data
+		return slices.ContainsFunc(del, func(r libdns.Record) bool {
+			o := r.RR()
+			return x.Name == o.Name && x.Type == o.Type && x.Data == o.Data
+		})
 	})
-	if !slices.Contains(a.d.Records[zone], p) {
-		a.d.Records[zone] = append(a.d.Records[zone], p)
+	for _, r := range put {
+		if p := r.RR(); !slices.Contains(a.d.Records[zone], p) {
+			a.d.Records[zone] = append(a.d.Records[zone], p)
+		}
 	}
 	return nil
 }

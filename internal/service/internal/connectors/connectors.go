@@ -173,12 +173,12 @@ type MailDNS interface {
 	GetMail(ctx context.Context, zone string) ([]libdns.Record, string, error)
 }
 
-// ReplaceDNS is a DNS account that can swap one record for another in one
-// fresh read and write: only old (name, type, value) goes, so a record
-// someone added at the same name and type meanwhile stays. Without it a
-// move is an Append, then a Delete.
+// ReplaceDNS is a DNS account that can change a zone in one fresh read and
+// one write: only the del records (name, type, value) go and the put ones
+// are added, so a record someone added meanwhile stays and a failure leaves
+// nothing half done. Without it a change is Appends and Deletes per name.
 type ReplaceDNS interface {
-	Replace(ctx context.Context, zone string, old, put libdns.Record) error
+	Replace(ctx context.Context, zone string, del, put []libdns.Record) error
 }
 
 // GitSource is the Git source capability: a git host account.

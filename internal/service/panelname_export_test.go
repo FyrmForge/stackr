@@ -16,5 +16,10 @@ func (o *Orchestrator) RecheckPanelName(ctx context.Context) {
 	o.trustAsync.Wait()
 }
 
+// ForcePanelDue makes the one-shot recheck due now; PanelDue says whether
+// one is still waiting.
+func (o *Orchestrator) ForcePanelDue() { o.panelDueAt.Store(1) }
+func (o *Orchestrator) PanelDue() bool { return o.panelDueAt.Load() != 0 }
+
 // CheckPanelName runs the panel name check now.
 func (o *Orchestrator) CheckPanelName(ctx context.Context) { o.checkPanelName(ctx) }
