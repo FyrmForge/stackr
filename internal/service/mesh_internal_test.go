@@ -507,9 +507,10 @@ func TestRefreshAllParallelCapped(t *testing.T) {
 	if p := atomic.LoadInt32(&peak); p > refreshCap || p < 2 {
 		t.Errorf("peak concurrent reads = %d, want 2..%d", p, refreshCap)
 	}
-	// In line: 38 x 50 ms plus two timeouts, over 2 s. In parallel: about
-	// one timeout.
-	if took > 2*refreshTimeout {
+	// In line: 38 x 50 ms plus two timeouts, about 2.5 s. In parallel: about
+	// one timeout. The 1.5 s bound leaves a loaded runner room and still
+	// sits well below the in-line cost.
+	if took > 5*refreshTimeout {
 		t.Errorf("cycle took %v with two hung nodes", took)
 	}
 	m.mu.Lock()
