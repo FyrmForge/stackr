@@ -13,7 +13,7 @@ Every file starts with `version: 1`. An unknown key is refused with its line num
 ## The loop
 
 1. A push to the bound branch, a daily re-plan, or `stackr server plan` / `stackr org plan` stores a plan. Nothing changes yet.
-2. Read it: `plans`, `plan-show <plan>`. `preview -f FILE` diffs a local file without storing it.
+2. Read it: `plans`, `plan-show <plan>`. `preview -f FILE` is the dry run: it shows what applying a local file would change, and stores nothing. `dry-run` is an alias.
 3. `stackr server approve <plan>` (or `stackr org approve <plan>`) applies it. A plan with impact lines asks first. `--remove KEY` ticks a removal row.
 4. `stackr server apply -f FILE` plans and applies a local file from any machine with an admin key.
 5. `export` writes the live install as a file. A fresh export plans clean. `stackr stack export` has no apply of its own: a stack file reaches the install through the org file (a `stacks:` entry, then `org plan` and `org approve`), a push to the stack's config repo (`stackr stack config-repo --repo <repo>`), or a promote.
@@ -76,10 +76,32 @@ The `server_config_*` knobs are the binding itself. Set them with `stackr server
 | `defaults` | The org rung of the cascade, as in the server file. |
 | `env_colors` | Env slug to colour. |
 | `stacks` | Slug to `repo`, `branch`, `path`, `connector` (a connector name), or `path` alone for a file in the org repo. |
-| `domains` | The org's domain resources. |
+| `domains` | The org's domain resources. See below. |
 | `shares` | Network shares: `kind`, `source`, `options`, `user`, `password` (a ref). |
 | `moved` | Stack or env renames. |
 | `pin`, `ingress`, `exits` | Placement names. An empty `exits:` clears the ladder. |
+
+### Domains
+
+```yaml
+domains:
+  - host: apps.example.com
+    include_env_on_default: false
+    acme_email: ops@example.com
+```
+
+An entry claims the host for the org. Its tiles get names under it, like `web.shop.apps.example.com`. It writes no DNS by itself. If the host sits in a managed domain the org may use (Managed DNS in the org settings), stackr writes the records for the tiles on the next proxy push. Otherwise point the name at the server yourself. Like any key that holds a list, a host you drop from the list becomes a removal row.
+
+## Start in the panel, move to files later
+
+You do not have to write a file first. Build the org in the panel, then adopt files when you want them.
+
+1. In the org settings, open Config as code. Under Export, press Download stackr-org.yml. CLI: `stackr org export -o stackr-org.yml`.
+2. Check it before you use it. CLI: `stackr org preview -f stackr-org.yml`. A fresh export shows no changes.
+3. Commit the file to a repo and bind it on the same page (Config repository, Save and plan). CLI: `stackr org config-repo --repo <repo>`.
+4. From here the file leads. Edit it, push, read the plan, approve it.
+
+A plan never deletes anything on its own. A removal row applies only when you tick it in the panel, or pass `--remove KEY` to `stackr org approve`. The server file works the same way: Config as code in the admin panel, `stackr server export` and `stackr server preview`.
 
 ## stackr-compose.yml
 

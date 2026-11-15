@@ -59,7 +59,7 @@ func (a *app) serverConfig() *cobra.Command {
 	var file string
 	var detailed bool
 	preview := leaf("preview", "admin.config-plan-preview",
-		"Diff a local stackr-server.yml against the server; nothing is stored", exact(0),
+		"Dry run: show what applying a local stackr-server.yml would change", exact(0),
 		func(*cobra.Command, []string) error {
 			b, err := os.ReadFile(file)
 			if err != nil {
@@ -85,6 +85,8 @@ func (a *app) serverConfig() *cobra.Command {
 			}
 			return planExit(pl)
 		})
+	preview.Aliases = []string{"dry-run"}
+	preview.Long = "Dry run: show what applying the file would change, against the server. Nothing is stored and nothing changes. Also called dry-run."
 	preview.Flags().StringVarP(&file, "file", "f", "stackr-server.yml", "the file to preview")
 	preview.Flags().BoolVar(&detailed, "detailed-exitcode", false, "exit 0 no changes, 1 blocked or error, 2 changes")
 

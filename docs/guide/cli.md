@@ -2482,11 +2482,13 @@ stackr org plans
 
 ### `stackr org preview`
 
-Diff a local stackr-org.yml against the org; nothing is stored
+Dry run: show what applying a local stackr-org.yml would change
 
 ```
 stackr org preview [flags]
 ```
+
+Dry run: show what applying the file would change, against the org. Nothing is stored and nothing changes. Also called dry-run.
 
 ```
       --detailed-exitcode   exit 0 no changes, 1 blocked or error, 2 changes
@@ -3161,11 +3163,13 @@ stackr server plans
 
 ### `stackr server preview`
 
-Diff a local stackr-server.yml against the server; nothing is stored
+Dry run: show what applying a local stackr-server.yml would change
 
 ```
 stackr server preview [flags]
 ```
+
+Dry run: show what applying the file would change, against the server. Nothing is stored and nothing changes. Also called dry-run.
 
 ```
       --detailed-exitcode   exit 0 no changes, 1 blocked or error, 2 changes

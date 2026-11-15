@@ -56,7 +56,7 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 
 	var file string
 	var detailed bool
-	preview := leaf("preview", "org.plan-preview", "Diff a local stackr-org.yml against the org; nothing is stored",
+	preview := leaf("preview", "org.plan-preview", "Dry run: show what applying a local stackr-org.yml would change",
 		exact(0), func(*cobra.Command, []string) error {
 			b, err := os.ReadFile(file)
 			if err != nil {
@@ -84,6 +84,8 @@ func (a *app) orgConfig(org func(func(p string) error) error) []*cobra.Command {
 				return planExit(pl)
 			})
 		})
+	preview.Aliases = []string{"dry-run"}
+	preview.Long = "Dry run: show what applying the file would change, against the org. Nothing is stored and nothing changes. Also called dry-run."
 	preview.Flags().StringVarP(&file, "file", "f", "stackr-org.yml", "the file to preview")
 	preview.Flags().BoolVar(&detailed, "detailed-exitcode", false, "exit 0 no changes, 1 blocked or error, 2 changes")
 
