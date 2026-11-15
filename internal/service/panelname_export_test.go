@@ -20,6 +20,7 @@ func (o *Orchestrator) RecheckPanelName(ctx context.Context) {
 // one is still waiting.
 func (o *Orchestrator) ForcePanelDue() { o.panelDueAt.Store(1) }
 func (o *Orchestrator) PanelDue() bool { return o.panelDueAt.Load() != 0 }
+func (o *Orchestrator) BumpPanelGen()  { o.panelGen.Add(1) }
 
 // CheckPanelName runs the panel name check once the TTL of any record
 // written has passed (a check inside the TTL judges nothing).

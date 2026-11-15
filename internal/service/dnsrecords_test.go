@@ -359,3 +359,30 @@ func TestSyncErrorPerOrg(t *testing.T) {
 		t.Errorf("other's sync error = %q", got)
 	}
 }
+
+// Provider without Replace. Move .1 -> .2 whose delete fails (custom row
+// for .1), then the address goes back to .1 and the delete fails again
+// (custom row for .2; the custom row for .1 is still there next to the
+// main row, now .1 too). The next clean sync deletes the wanted record.
+func TestDNSFlipBackKeepsWantedRecord(t *testing.T) {
+	env, _, _, tl := recordsRig(t)
+	env.DNS.NoReplace()
+	ctx := context.Background()
+	if _, err := env.Orch.AttachDomain(ctx, tl.ID, service.DomainSpec{Host: "shop.acme.dev"}); err != nil {
+		t.Fatal(err)
+	}
+	env.Orch.WaitDNS()
+	for _, ip := range []string{"198.51.100.2", "198.51.100.1"} {
+		setIP(t, env, ip)
+		env.DNS.FailAfter(1, errProviderDown) // the put lands, the delete fails
+		_ = env.Orch.SyncProxy(ctx)
+		env.Orch.WaitDNS()
+		}
+	env.DNS.Fail(nil)
+	resync(t, env)
+	resync(t, env)
+	resync(t, env)
+	if z := env.DNS.Zone("acme.dev"); !has(z, "shop", "A", "198.51.100.1") {
+		t.Errorf("the wanted record is gone: %v", z)
+	}
+}

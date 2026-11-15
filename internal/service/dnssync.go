@@ -76,6 +76,7 @@ func (o *Orchestrator) syncDNS() {
 	err := o.reconcileDNS(ctx, nil)
 	if after := o.panelRecordValues(ctx); !slices.Equal(slices.Sorted(slices.Values(before)), slices.Sorted(slices.Values(after))) {
 		ctx = context.WithValue(ctx, panelWroteKey{}, true)
+		o.panelGen.Add(1)
 		o.panelDueAt.Store(time.Now().Add(dnscap.TTL * time.Second).UnixNano()) // a resolver may keep the old answer for a TTL
 	}
 	o.checkPanelName(ctx) // the panel's name, after every sync and the daily one

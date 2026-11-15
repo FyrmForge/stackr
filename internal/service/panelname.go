@@ -406,6 +406,19 @@ func outsiders(ips []string, t panelTarget) []string {
 // daily (dnssync.go), and from the tick while one is open.
 func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	due := o.panelDueAt.Load()
+	// a panel record write that lands mid-check makes what it sees stale:
+	// it judges nothing, the write's own check does
+	gen := o.panelGen.Load()
+	open := func(ctx context.Context, k, sev, msg string) {
+		if o.panelGen.Load() == gen {
+			o.openProblem(ctx, k, sev, msg)
+		}
+	}
+	clear := func(ctx context.Context, k string) {
+		if o.panelGen.Load() == gen {
+			o.clearProblem(ctx, k)
+		}
+	}
 	p := o.panelDomain(ctx)
 	zones, err := o.dns.All(ctx)
 	if err != nil {
@@ -414,7 +427,7 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	def, derr := o.DefaultIngress(ctx)
 	if _, managed := dnscap.ZoneOf(p, zones); p == "" || !managed || derr != nil || def == "" {
 		for _, k := range []string{panelAddrAlert, panelResolveAlert, panelReachAlert} {
-			o.clearProblem(ctx, k)
+			clear(ctx, k)
 		}
 		o.panelDueAt.CompareAndSwap(due, 0) // nothing to judge
 		return
@@ -426,12 +439,12 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	}
 	switch {
 	case t.Saw.IsValid() && len(t.HeldAt) > 0:
-		o.openProblem(ctx, panelAddrAlert, SevWarning, fmt.Sprintf("%s points at %s; stackr sees %s. Type the address to use, or say you handle that record yourself.", p, strings.Join(t.HeldAt, ", "), t.Saw))
+		open(ctx, panelAddrAlert, SevWarning, fmt.Sprintf("%s points at %s; stackr sees %s. Type the address to use, or say you handle that record yourself.", p, strings.Join(t.HeldAt, ", "), t.Saw))
 	case t.Saw.IsValid() && len(t.HeldAt) == 0: // the lookup failed: the alert stays as it is
 	case t.Mode == settings.PanelAuto && !t.V4.IsValid() && !t.Saw.IsValid() && (t.none() || o.panelHasA(ctx)):
-		o.openProblem(ctx, panelAddrAlert, SevWarning, "stackr cannot tell which address "+p+" should point at. Type an address, or say you handle that record yourself.")
+		open(ctx, panelAddrAlert, SevWarning, "stackr cannot tell which address "+p+" should point at. Type an address, or say you handle that record yourself.")
 	case o.hasProblem(ctx, panelAddrAlert):
-		o.clearProblem(ctx, panelAddrAlert)
+		clear(ctx, panelAddrAlert)
 		o.dnsKick.Kick() // an address is known now: write the record
 	}
 	// A lookup that fails (timeout, SERVFAIL) keeps the alert as it is; an
@@ -447,16 +460,16 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 		o.panelDueAt.CompareAndSwap(due, 0) // judged on a real answer; a failed lookup stays due
 		switch pub := outsiders(ips, t); {
 		case len(ips) == 0:
-			o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
+			open(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
 			resolved = false
 		case len(pub) == 0 || t.Mode == settings.PanelSelf || t.none():
-			o.clearProblem(ctx, panelResolveAlert)
+			clear(ctx, panelResolveAlert)
 			resolved = true
 		case !panelResolves(pub, t):
-			o.openProblem(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
+			open(ctx, panelResolveAlert, SevCritical, p+" does not resolve to this server.")
 			resolved = false
 		default:
-			o.clearProblem(ctx, panelResolveAlert)
+			clear(ctx, panelResolveAlert)
 			resolved = true
 		}
 	}
@@ -465,7 +478,7 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	}
 	v := o.outsideOf(ctx, def)
 	if !resolved || v.Vantage == "" || o.cfg.TLSOff {
-		o.clearProblem(ctx, panelReachAlert) // a name that does not resolve is the problem, not the router
+		clear(ctx, panelReachAlert) // a name that does not resolve is the problem, not the router
 		return
 	}
 	ctl, err := o.controllerID(ctx)
@@ -480,13 +493,13 @@ func (o *Orchestrator) checkPanelName(ctx context.Context) {
 	switch {
 	case !ok:
 	case who == def:
-		o.clearProblem(ctx, panelReachAlert)
+		clear(ctx, panelReachAlert)
 	default:
 		name := def
 		if n, err := o.store.Nodes.Get(ctx, def); err == nil {
 			name = n.Name
 		}
-		o.openProblem(ctx, panelReachAlert, SevCritical, fmt.Sprintf("%s is not reachable from outside: check the router forwards 443 to %s.", p, name))
+		open(ctx, panelReachAlert, SevCritical, fmt.Sprintf("%s is not reachable from outside: check the router forwards 443 to %s.", p, name))
 	}
 }
 

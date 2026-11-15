@@ -396,7 +396,12 @@ func (l *Leaf) apply(ctx context.Context, zone, dnsDomainID string, zw zoneWork,
 		}
 		var del, put []libdns.Record
 		for _, r := range drop {
-			if isLive(r) {
+			// another surviving row owns the same record: drop the row only
+			owned := slices.ContainsFunc(rows, func(o store.DNSRecord) bool {
+				return o.ID != r.ID && rowCKey(o) == rowCKey(r) &&
+					!slices.ContainsFunc(drop, func(d store.DNSRecord) bool { return d.ID == o.ID })
+			})
+			if isLive(r) && !owned {
 				del = append(del, rr(r.Name, r.Type, r.Value))
 			}
 		}

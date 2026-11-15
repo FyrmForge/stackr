@@ -190,3 +190,22 @@ func TestPanelNameChecks(t *testing.T) {
 		t.Error("self: want no resolve banner and a reach banner")
 	}
 }
+
+// A panel record write that lands while the check is deciding makes the
+// check's view stale: it opens no alarm.
+func TestPanelCheckIgnoresWriteMidCheck(t *testing.T) {
+	t.Parallel()
+	env, _, _ := scopedRig(t)
+	env.Orch.SetPanelSeams(
+		func(context.Context, string) (string, string) { return "", "" },
+		nil,
+		func(context.Context, string) ([]string, error) {
+			env.Orch.BumpPanelGen() // the write lands during the lookup
+			return nil, nil         // would open "does not resolve"
+		},
+	)
+	env.Orch.CheckPanelName(context.Background())
+	if m := panelProblem(t, env, "panel.resolve"); m != "" {
+		t.Errorf("stale check opened an alarm: %q", m)
+	}
+}
