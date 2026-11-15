@@ -38,6 +38,9 @@ const (
 	// LabelConf is the hash of the settings file a standby's container was
 	// made with; a start with another one makes the container again.
 	LabelConf = "stackr.conf"
+	// LabelImage is the image reference a standby container was made from;
+	// containers made before it have none, their image is not known.
+	LabelImage = "stackr.image"
 	// LabelMember marks a standby's containers (service.LabelMember).
 	LabelMember = "stackr.member"
 	// ReadSuffix is added to the instance's alias for its read alias.
@@ -544,7 +547,7 @@ func (f *Flow) StandbySpec(ctx context.Context, it store.Tile, mem store.Operate
 		Image:      img,
 		Cmd:        standbyCommand(i),
 		Env:        env,
-		Labels:     map[string]string{LabelMember: mem.ID, LabelConf: hex.EncodeToString(sum[:8])},
+		Labels:     map[string]string{LabelMember: mem.ID, LabelConf: hex.EncodeToString(sum[:8]), LabelImage: img},
 		Volumes:    []string{mem.Volume + ":" + pgMount(i.Major)},
 		Networks:   []docker.NetAttach{{Name: operated.Network(m.ID), Aliases: []string{ReadAlias(i.Host)}}},
 		ExtraHosts: []string{hostLine},

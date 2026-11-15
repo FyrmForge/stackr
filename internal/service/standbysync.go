@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"github.com/FyrmForge/stackr/internal/service/internal/docker"
 	mflow "github.com/FyrmForge/stackr/internal/service/internal/flow/operated"
 	"github.com/FyrmForge/stackr/internal/service/internal/leaf/opmember"
+	"github.com/FyrmForge/stackr/internal/service/internal/leaf/tile"
 	"github.com/FyrmForge/stackr/internal/service/internal/store"
 )
 
@@ -116,11 +118,31 @@ func staleConf(c docker.Container, spec docker.ContainerSpec) bool {
 	return c.Labels[mflow.LabelConf] != spec.Labels[mflow.LabelConf]
 }
 
+// staleImage says whether container c was made from another image than the
+// spec now has. One made before the image label existed is not known to be.
+func staleImage(c docker.Container, spec docker.ContainerSpec) bool {
+	img := c.Labels[mflow.LabelImage]
+	return img != "" && img != spec.Image
+}
+
+// primaryOnImage says whether the instance's primary container runs on image:
+// a standby only follows an image change the primary has made (an update that
+// failed on the primary leaves the stored image ahead of it).
+func (o *Orchestrator) primaryOnImage(ctx context.Context, t store.Tile, image string) bool {
+	node, err := o.primaryNode(ctx, t)
+	if err != nil {
+		return false
+	}
+	cs, err := o.docker.List(docker.WithNode(ctx, node), map[string]string{tile.LabelTile: t.ID, tile.LabelRole: "replica"})
+	return err == nil && slices.ContainsFunc(cs, func(c docker.Container) bool { return c.State == "running" && c.Image == image })
+}
+
 // refreshStandby makes standby m's container again from its current spec
 // (its data volume stays, and with its completion marker the copy is not
 // redone) when it was made with other settings, and the primary's running
-// limits allow it. running: the container is up; it is then only made again
-// when it has a restart pending (a reload-only change is already live).
+// limits allow it, or from another image, once the primary runs on that one.
+// running: the container is up; it is then only made again when it has a
+// restart pending (a reload-only change is already live) or its image is old.
 // recreated says it did.
 func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m InstanceMember, c docker.Container, running bool) (bool, error) {
 	host, err := o.memberHost(ctx, m, m.NodeID)
@@ -128,8 +150,12 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 		return false, err
 	}
 	spec, err := o.engines.StandbySpec(ctx, t, m, host)
-	if err != nil || !staleConf(c, spec) {
+	img := err == nil && staleImage(c, spec)
+	if err != nil || !staleConf(c, spec) && !img {
 		return false, err
+	}
+	if img && !o.primaryOnImage(ctx, t, spec.Image) {
+		return false, nil
 	}
 	inst, err := o.operated.Get(ctx, m.InstanceID)
 	if err != nil {
@@ -140,7 +166,7 @@ func (o *Orchestrator) refreshStandby(ctx context.Context, t store.Tile, m Insta
 		return false, nil // the primary cannot be asked, or has not taken the lower limit yet
 	}
 	nctx := docker.WithNode(ctx, m.NodeID)
-	if running {
+	if running && !img {
 		exec := func(_ context.Context, cmd []string) (string, error) { return o.docker.Exec(nctx, c.ID, cmd) }
 		if pending, err := o.engines.StandbyPending(ctx, t, exec); err != nil || !pending {
 			return false, err
@@ -166,8 +192,14 @@ func (o *Orchestrator) syncStandbyConf(ctx context.Context, t Tile) {
 		if err != nil || len(cs) == 0 {
 			continue
 		}
-		if _, err := o.refreshStandby(ctx, t, c.m, cs[0], true); err != nil {
+		again, err := o.refreshStandby(ctx, t, c.m, cs[0], true)
+		if err != nil {
 			slog.Warn("members: standby settings", "member", c.m.ID, "err", err)
+		}
+		// One standby on a new image per pass, so a synchronous primary keeps
+		// another to wait for; the tick comes back for the rest.
+		if old := cs[0].Labels[mflow.LabelImage]; again && old != "" && old != cmp.Or(t.ImageRef, mflow.Engines["postgres"].Definition().Image) {
+			return
 		}
 	}
 }
