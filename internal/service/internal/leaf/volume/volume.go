@@ -27,6 +27,7 @@ type Docker interface {
 	RemoveVolume(ctx context.Context, name string) error
 	ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error)
 	InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error)
+	VolumeDevice(ctx context.Context, name string) (found bool, device string, err error)
 	EnsureTool(ctx context.Context) error
 	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error
 	UntarVolume(ctx context.Context, name string, src io.Reader) error
@@ -39,6 +40,7 @@ type Leaf struct {
 	volumes store.VolumeStore
 	shares  store.ShareStore // nil until WithShares; network shares live in share.go
 	docker  Docker
+	disk    Disk // nil until WithDisk: every node is then DiskNone
 	// Node, when set, is the node a scope's volumes live on: an env's own
 	// node; "" (a stack, an org, a share) is the controller.
 	Node func(ctx context.Context, scopeKind, scopeID string) (nodeID string, err error)
@@ -54,21 +56,21 @@ func (l *Leaf) WithNode(f func(ctx context.Context, scopeKind, scopeID string) (
 	return l
 }
 
-// at is ctx for Docker calls on the node v lives on. A NodeID wins over the
-// scope lookup: an orphan's env row is gone, and a volume with no row at all
-// (a move leftover) only knows its node.
-func (l *Leaf) at(ctx context.Context, v store.Volume) (context.Context, error) {
+// at is ctx for Docker calls on the node v lives on, and that node's id ("" when
+// unknown). A NodeID wins over the scope lookup: an orphan's env row is gone,
+// and a volume with no row at all (a move leftover) only knows its node.
+func (l *Leaf) at(ctx context.Context, v store.Volume) (context.Context, string, error) {
 	if v.NodeID != "" {
-		return docker.WithNode(ctx, v.NodeID), nil
+		return docker.WithNode(ctx, v.NodeID), v.NodeID, nil
 	}
 	if l.Node == nil {
-		return ctx, nil
+		return ctx, "", nil
 	}
 	id, err := l.Node(ctx, v.ScopeKind, v.ScopeID)
 	if err != nil {
-		return ctx, err
+		return ctx, "", err
 	}
-	return docker.WithNode(ctx, id), nil
+	return docker.WithNode(ctx, id), id, nil
 }
 
 // orController keeps the node ctx already names, else the controller's: a
@@ -169,11 +171,11 @@ func (l *Leaf) Declare(
 // Ensure makes the Docker volume; an existing one is fine. Returns its name.
 // ponytail: no size cap; the local driver has no quota.
 func (l *Leaf) Ensure(ctx context.Context, v store.Volume) (string, error) {
-	ctx, err := l.at(ctx, v)
+	ctx, node, err := l.at(ctx, v)
 	if err != nil {
 		return v.Name, err
 	}
-	return v.Name, l.docker.CreateVolume(ctx, v.Name, "local", nil, map[string]string{"stackr.volume": v.ID})
+	return v.Name, l.EnsureNamed(ctx, node, v.Name, map[string]string{"stackr.volume": v.ID})
 }
 
 // Orphan flags the volume; row and data stay. Idempotent: the first
@@ -202,11 +204,34 @@ func (l *Leaf) Expired(ctx context.Context, retention time.Duration, now time.Ti
 
 // HoldsData is the one answer to "is there anything to lose". Fails safe: a
 // size Docker cannot tell (-1) or an inspect error counts as data; only a
-// volume that is gone or measured empty does not.
+// volume that is gone or measured empty does not. A disk volume is never
+// measured by Docker: only the disk's own answer can say empty, and a latched
+// or unreadable disk, a ghost or a failed lookup all count as data.
 func (l *Leaf) HoldsData(ctx context.Context, v store.Volume) bool {
-	ctx, err := l.at(ctx, v)
+	ctx, node, err := l.at(ctx, v)
 	if err != nil {
 		return true
+	}
+	st, err := l.state(ctx, node)
+	if err != nil {
+		return true
+	}
+	if st != DiskNone {
+		p, err := l.resolve(ctx, node, v.Name, st)
+		if err != nil {
+			return true
+		}
+		switch p.rt {
+		case RouteMissing, RouteGhost:
+			return true
+		case RouteDisk:
+			if !p.hasRow && !p.obj.Found {
+				return false // nothing was ever made
+			}
+			use, err := l.disk.Usage(ctx, node, UseEmpty, v.Name)
+			u := use[v.Name]
+			return err != nil || u.Missing || !u.Empty
+		}
 	}
 	info, err := l.docker.InspectVolume(ctx, v.Name)
 	if errors.Is(err, docker.ErrNotFound) {
@@ -216,17 +241,19 @@ func (l *Leaf) HoldsData(ctx context.Context, v store.Volume) bool {
 }
 
 // Delete removes the Docker volume and the row: explicit, from the UI or
-// CLI, or the orphan job after its backup. mountedBy are the slugs of the
-// tiles whose volumes lines still name it.
+// CLI, or the orphan job after its backup. For a disk volume the folder goes
+// between the two, and a latched disk, a ghost or a failed state lookup fails
+// the delete and keeps the row. mountedBy are the slugs of the tiles whose
+// volumes lines still name it.
 func (l *Leaf) Delete(ctx context.Context, v store.Volume, mountedBy []string) error {
 	if err := detached(mountedBy); err != nil {
 		return err
 	}
-	ctx, err := l.at(ctx, v)
+	ctx, node, err := l.at(ctx, v)
 	if err != nil {
 		return err
 	}
-	if err := l.docker.RemoveVolume(ctx, v.Name); err != nil {
+	if err := l.RemoveNamed(ctx, node, v.Name); err != nil {
 		return err
 	}
 	return l.volumes.Delete(ctx, v.ID)
@@ -244,7 +271,8 @@ func (l *Leaf) Retire(ctx context.Context, v store.Volume, mountedBy []string) e
 	return err
 }
 
-// DeleteRow is Delete for a volume whose node is gone: the row only.
+// DeleteRow is Delete for a volume whose node is gone: the row only. The
+// folder cannot be reached, so it stays on the disk with its folder row.
 func (l *Leaf) DeleteRow(ctx context.Context, v store.Volume, mountedBy []string) error {
 	if err := detached(mountedBy); err != nil {
 		return err
@@ -259,11 +287,25 @@ func detached(mountedBy []string) error {
 	return nil
 }
 
-// SizeBytes is the volume's uncompressed size; -1 when Docker cannot tell.
+// SizeBytes is the volume's uncompressed size; -1 when Docker cannot tell. A
+// disk volume's size comes from the disk's cache.
 func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
-	ctx, err := l.at(ctx, v)
+	ctx, node, err := l.at(ctx, v)
 	if err != nil {
 		return -1
+	}
+	st, err := l.state(ctx, node)
+	if err != nil {
+		return -1
+	}
+	if st != DiskNone {
+		p, err := l.resolve(ctx, node, v.Name, st)
+		if err != nil || p.rt == RouteMissing || p.rt == RouteGhost {
+			return -1
+		}
+		if p.rt == RouteDisk {
+			return l.diskSizes(ctx, node, v.Name)[v.Name]
+		}
 	}
 	info, err := l.docker.InspectVolume(ctx, v.Name)
 	if err != nil {
@@ -272,46 +314,108 @@ func (l *Leaf) SizeBytes(ctx context.Context, v store.Volume) int64 {
 	return info.SizeBytes
 }
 
-// Sizes is each of vs' sizes by id, from one Docker read on the node the
-// first lives on (vs share a scope, so a node); -1 = Docker cannot tell.
-// ponytail: still one disk-usage scan per call; load it lazily if a big
-// volume makes the caller's page slow.
-func (l *Leaf) Sizes(ctx context.Context, vs []store.Volume) map[string]int64 {
+// diskSizes is the cached usage of names, -1 for any the disk cannot tell.
+func (l *Leaf) diskSizes(ctx context.Context, node string, names ...string) map[string]int64 {
 	out := map[string]int64{}
-	for _, v := range vs {
-		out[v.ID] = -1
-	}
-	if len(vs) == 0 {
-		return out
-	}
-	ctx, err := l.at(ctx, vs[0])
-	if err != nil {
-		return out
-	}
-	infos, err := l.docker.ListVolumes(ctx, nil)
-	if err != nil {
-		return out
-	}
-	for _, v := range vs {
-		if i := slices.IndexFunc(infos, func(x docker.VolumeInfo) bool { return x.Name == v.Name }); i >= 0 {
-			out[v.ID] = infos[i].SizeBytes
+	use, err := l.disk.Usage(ctx, node, UseCached, names...)
+	for _, n := range names {
+		out[n] = -1
+		if u, ok := use[n]; ok && err == nil && !u.Missing {
+			out[n] = u.Bytes
 		}
 	}
 	return out
 }
 
+// Sizes is each of vs' sizes by id; -1 = cannot tell. Volumes are grouped by
+// the node each lives on (a failover relocation can split a scope); a node
+// gets one Docker read for its plain volumes and one cached disk read for
+// the ones on its disk.
+// ponytail: still one disk-usage scan per call; load it lazily if a big
+// volume makes the caller's page slow.
+func (l *Leaf) Sizes(ctx context.Context, vs []store.Volume) map[string]int64 {
+	out := map[string]int64{}
+	byNode := map[string][]store.Volume{}
+	var order []string
+	for _, v := range vs {
+		out[v.ID] = -1
+		_, node, err := l.at(ctx, v)
+		if err != nil {
+			continue
+		}
+		if _, ok := byNode[node]; !ok {
+			order = append(order, node)
+		}
+		byNode[node] = append(byNode[node], v)
+	}
+	for _, node := range order {
+		l.nodeSizes(ctx, node, byNode[node], out)
+	}
+	return out
+}
+
+func (l *Leaf) nodeSizes(ctx context.Context, node string, vs []store.Volume, out map[string]int64) {
+	ctx, _, err := l.at(ctx, vs[0])
+	if err != nil {
+		return
+	}
+	st, err := l.state(ctx, node)
+	if err != nil {
+		return
+	}
+	var plain, disk []store.Volume
+	for _, v := range vs {
+		if st == DiskNone {
+			plain = append(plain, v)
+			continue
+		}
+		p, err := l.resolve(ctx, node, v.Name, st)
+		switch {
+		case err != nil || p.rt == RouteMissing || p.rt == RouteGhost:
+		case p.rt == RouteDisk:
+			disk = append(disk, v)
+		default:
+			plain = append(plain, v)
+		}
+	}
+	if len(disk) > 0 {
+		names := make([]string, len(disk))
+		for i, v := range disk {
+			names[i] = v.Name
+		}
+		sizes := l.diskSizes(ctx, node, names...)
+		for _, v := range disk {
+			out[v.ID] = sizes[v.Name]
+		}
+	}
+	if len(plain) == 0 {
+		return
+	}
+	infos, err := l.docker.ListVolumes(ctx, nil)
+	if err != nil {
+		return
+	}
+	for _, v := range plain {
+		if i := slices.IndexFunc(infos, func(x docker.VolumeInfo) bool { return x.Name == v.Name }); i >= 0 {
+			out[v.ID] = infos[i].SizeBytes
+		}
+	}
+}
+
 // EnsureTool pulls the tar helper on the volume's node; call it before freezing anything.
 func (l *Leaf) EnsureTool(ctx context.Context, v store.Volume) error {
-	ctx, err := l.at(ctx, v)
+	ctx, _, err := l.at(ctx, v)
 	if err != nil {
 		return err
 	}
 	return l.docker.EnsureTool(ctx)
 }
 
-// Tar streams a gzipped tar of the volume into w.
+// Tar streams a gzipped tar of the volume into w. On a node with a disk row
+// the volume is ensured first, so a missing Docker object is rebound to its
+// folder and never auto-created empty; a node with no row makes today's call.
 func (l *Leaf) Tar(ctx context.Context, v store.Volume, w io.Writer, live bool) error {
-	ctx, err := l.at(ctx, v)
+	ctx, err := l.ensureOnDisk(ctx, v)
 	if err != nil {
 		return err
 	}
@@ -319,11 +423,25 @@ func (l *Leaf) Tar(ctx context.Context, v store.Volume, w io.Writer, live bool) 
 }
 
 // Untar WIPES the volume and extracts src into it. The caller verifies the
-// archive first: there is no way back from the wipe.
+// archive first: there is no way back from the wipe. Ensured first like Tar.
 func (l *Leaf) Untar(ctx context.Context, v store.Volume, src io.Reader) error {
-	ctx, err := l.at(ctx, v)
+	ctx, err := l.ensureOnDisk(ctx, v)
 	if err != nil {
 		return err
 	}
 	return l.docker.UntarVolume(ctx, v.Name, src)
+}
+
+// ensureOnDisk is at, plus EnsureNamed when the node has a disk row (or the
+// lookup fails: that error stops the verb).
+func (l *Leaf) ensureOnDisk(ctx context.Context, v store.Volume) (context.Context, error) {
+	ctx, node, err := l.at(ctx, v)
+	if err != nil {
+		return ctx, err
+	}
+	st, err := l.state(ctx, node)
+	if err != nil || st == DiskNone {
+		return ctx, err
+	}
+	return ctx, l.EnsureNamed(ctx, node, v.Name, map[string]string{"stackr.volume": v.ID})
 }
