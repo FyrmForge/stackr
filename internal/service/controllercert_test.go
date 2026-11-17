@@ -24,6 +24,8 @@ type ackNode struct {
 	fail bool
 }
 
+func (a *ackNode) PutDisks(context.Context, []worker.DiskReg) error { return nil }
+
 func (a *ackNode) ApplyMesh(_ context.Context, s worker.MeshSpec) error {
 	a.mu2.Lock()
 	defer a.mu2.Unlock()

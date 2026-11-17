@@ -140,6 +140,10 @@ func (l localMesh) ApplyMesh(ctx context.Context, spec worker.MeshSpec) error {
 	return l.s.ApplyMesh(ctx, spec)
 }
 
+func (l localMesh) PutDisks(_ context.Context, regs []worker.DiskReg) error {
+	return l.s.PutDisks(regs)
+}
+
 // workerVIP is a worker's VIP table: the vip.Table logic, with its
 // iptables-restore sent through the worker's extras API and the jumps (which
 // the table installs with `iptables -C/-I`, argv the worker does not take)

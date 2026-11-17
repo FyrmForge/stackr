@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/mesh"
 )
 
@@ -69,6 +70,16 @@ type Facts struct {
 	// TimeMS is the node's clock when the facts were read, unix ms (0 from
 	// an older worker: unknown). The controller reads its skew from it.
 	TimeMS int64 `json:"time_ms,omitempty"`
+	// Disks are the registered disk paths: mount table facts plus the last
+	// background read of each stamp and its free space (disks.go).
+	Disks []hostdisk.Fact `json:"disks,omitempty"`
+	// DiskRegs is the registry the worker holds, for the controller to compare.
+	DiskRegs []DiskReg `json:"disk_regs,omitempty"`
+	// DisksRead: this worker reports disks (false from an older one).
+	DisksRead bool `json:"disks_read,omitempty"`
+	// DisksStale: a cached read is older than two intervals or stuck. A stale
+	// read never means missing.
+	DisksStale bool `json:"disks_stale,omitempty"`
 }
 
 // IngressPorts are what a node's ingress proxy binds on the host.
@@ -301,6 +312,7 @@ func (s *Server) Facts(ctx context.Context) Facts {
 		}
 		f.Ping = s.pingPeers(ctx)
 	}
+	s.diskFacts(&f)
 	f.TimeMS = time.Now().UnixMilli() // last: closest to the reply
 	return f
 }

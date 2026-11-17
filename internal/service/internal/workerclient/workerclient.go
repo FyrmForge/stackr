@@ -130,6 +130,12 @@ func (c *Client) PutState(ctx context.Context, st worker.State) error {
 	return c.call(ctx, "PUT", "/v1/state", "application/json", b, nil)
 }
 
+// PutDisks replaces the node's registered disks (PUT /v1/disks).
+func (c *Client) PutDisks(ctx context.Context, regs []worker.DiskReg) error {
+	b, _ := json.Marshal(regs)
+	return c.call(ctx, "PUT", "/v1/disks", "application/json", b, nil)
+}
+
 func (c *Client) GetState(ctx context.Context) (worker.State, error) {
 	var st worker.State
 	err := c.call(ctx, "GET", "/v1/state", "", nil, &st)

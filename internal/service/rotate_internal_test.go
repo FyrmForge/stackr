@@ -115,6 +115,7 @@ type orderNode struct {
 
 func (n orderNode) Facts(context.Context) (worker.Facts, error)       { return worker.Facts{}, nil }
 func (n orderNode) MeshInfo(context.Context) (worker.MeshInfo, error) { return worker.MeshInfo{}, nil }
+func (n orderNode) PutDisks(context.Context, []worker.DiskReg) error { return nil }
 func (n orderNode) ApplyMesh(ctx context.Context, sp worker.MeshSpec) error {
 	for _, p := range sp.Peers {
 		if p.NodeID == n.ctlID {

@@ -178,6 +178,8 @@ func (f *fakeMeshNode) ApplyMesh(_ context.Context, s worker.MeshSpec) error {
 	return nil
 }
 
+func (f *fakeMeshNode) PutDisks(context.Context, []worker.DiskReg) error { return nil }
+
 func TestMeshSyncPushesOnChangeAndRemoveNode(t *testing.T) {
 	ctx := context.Background()
 	st := storetest.Store(t)
@@ -789,5 +791,23 @@ func TestPoolWidePrefixProblem(t *testing.T) {
 	_, _ = m.taken(ctx)
 	if o.hasProblem(ctx, key) {
 		t.Fatal("problem not cleared")
+	}
+}
+
+func TestLocalMeshPutDisksReachesTheInProcessServer(t *testing.T) {
+	ctx := context.Background()
+	w := worker.New(worker.Config{StateDir: t.TempDir(), DockerSock: "/nonexistent"})
+	t.Cleanup(w.Stop)
+	var n MeshNode = localMesh{w}
+	regs := []worker.DiskReg{{ID: "d1", Path: "/mnt/data", Owner: "n1"}}
+	if err := n.PutDisks(ctx, regs); err != nil {
+		t.Fatal(err)
+	}
+	f, err := n.Facts(ctx)
+	if err != nil || !f.DisksRead || !slices.Equal(f.DiskRegs, regs) {
+		t.Fatalf("facts %+v err %v", f.DiskRegs, err)
+	}
+	if n.PutDisks(ctx, []worker.DiskReg{{ID: "d1", Path: "rel", Owner: "n1"}}) == nil {
+		t.Error("a bad list must be refused")
 	}
 }

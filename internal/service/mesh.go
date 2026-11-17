@@ -42,6 +42,8 @@ type MeshNode interface {
 	Facts(ctx context.Context) (worker.Facts, error)
 	MeshInfo(ctx context.Context) (worker.MeshInfo, error)
 	ApplyMesh(ctx context.Context, spec worker.MeshSpec) error
+	// PutDisks replaces the node worker's registered disks (PUT /v1/disks).
+	PutDisks(ctx context.Context, regs []worker.DiskReg) error
 }
 
 // MeshNodes finds a node's worker; false when it has no client (yet).

@@ -20,6 +20,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 )
 
 // APIVersion is sent in VersionHeader on every response.
@@ -80,7 +82,13 @@ type Server struct {
 	lastCtl atomic.Int64
 	// lease binds primaries to the panel's contact (lease.go).
 	lease leaseState
-	own   ownCert // the node cert, swapped on renewal
+	// disks is the registered-disk registry and its refresh cache (disks.go).
+	dmu         sync.Mutex
+	disks       diskState
+	readDisk    func(ctx context.Context, path string) (hostdisk.Stamp, uint64, uint64, error)
+	diskEvery   time.Duration
+	diskTimeout time.Duration
+	own         ownCert // the node cert, swapped on renewal
 	// renewNow makes the next cert check renew even when not due, once.
 	renewNow atomic.Bool
 	// renewKick wakes the cert check early: a new signing root arrived.
@@ -105,6 +113,7 @@ func New(cfg Config) *Server {
 	}
 	s.renewNow.Store(cfg.RenewCertNow)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.readDisk, s.diskEvery, s.diskTimeout = s.readDiskDefault, diskEvery, diskTimeout
 	s.heardController() // a fresh start gives the controller its full window
 	return s
 }
@@ -138,6 +147,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/mesh", s.getMesh)
 	mux.HandleFunc("POST "+RotatePath, s.postRotate)
 	mux.HandleFunc("PUT /v1/state", s.putState)
+	mux.HandleFunc("PUT /v1/disks", s.putDisks)
 	mux.HandleFunc("GET /v1/state", s.getState)
 	mux.HandleFunc("PUT "+LeasePath, s.putLease)
 	mux.HandleFunc("POST /v1/replay", s.replay)
@@ -187,6 +197,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if s.ResumeRotation() {
 		slog.Warn("worker: a key rotation was cut short by a restart; resuming it")
 	}
+	s.replayDisks()
 	s.leaseBoot() // what an earlier run bound is stopped before this one serves
 	raw, err := (&net.ListenConfig{Control: freebind}).Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
