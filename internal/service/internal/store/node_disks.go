@@ -17,6 +17,7 @@ type NodeDisk struct {
 	OpNodeID     string    `db:"op_node_id" json:"op_node_id"`
 	OpFromNodeID string    `db:"op_from_node_id" json:"op_from_node_id"`
 	OpMountPath  string    `db:"op_mount_path" json:"op_mount_path"`
+	OpEnvIDs     string    `db:"op_env_ids" json:"op_env_ids"`
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 }
 

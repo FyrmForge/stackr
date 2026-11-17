@@ -25,15 +25,16 @@ func TestNodeDiskRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := s.NodeDisks.GetByNode(ctx, "n1")
-	if err != nil || got.ID != "d1" || got.OpNodeID != "" || got.OpFromNodeID != "" || got.OpMountPath != "" || !got.CreatedAt.Equal(t0) {
+	if err != nil || got.ID != "d1" || got.OpNodeID != "" || got.OpFromNodeID != "" || got.OpMountPath != "" || got.OpEnvIDs != "" || !got.CreatedAt.Equal(t0) {
 		t.Fatalf("GetByNode = %+v, %v", got, err)
 	}
 	got.State = "missing"
 	got.OpNodeID = "n2"
+	got.OpEnvIDs = `["e1","e2"]`
 	if err := s.NodeDisks.Update(ctx, got); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := s.NodeDisks.Get(ctx, "d1"); again.State != "missing" || again.OpNodeID != "n2" {
+	if again, _ := s.NodeDisks.Get(ctx, "d1"); again.State != "missing" || again.OpNodeID != "n2" || again.OpEnvIDs != `["e1","e2"]` {
 		t.Errorf("after Update: %+v", again)
 	}
 	if rows, err := s.NodeDisks.List(ctx); err != nil || len(rows) != 1 {
