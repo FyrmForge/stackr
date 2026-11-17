@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FyrmForge/stackr/internal/hostdisk"
 	"github.com/FyrmForge/stackr/internal/worker"
 )
 
@@ -261,11 +262,27 @@ func (h hostRun) logCap(ctx context.Context) error {
 		"/usr/local/bin/stackr-install", "docker-logcap")
 }
 
-// runHostRun is `stackrd host-run uninstall --yes` or `host-run docker-logcap`.
+// runDisk is `stackrd host-run disk <base64 JSON request>`: one disk op on
+// the host's filesystem, answered as one result line on stdout. An error
+// return is a crash; a refusal is a result with Error set and exit 0.
+func runDisk(arg string) error {
+	req, err := hostdisk.DecodeRequest(arg)
+	if err != nil {
+		return err
+	}
+	fmt.Println(hostdisk.EncodeResult(hostdisk.Run(context.Background(), hostdisk.Env{Root: "/host"}, req)))
+	return nil
+}
+
+// runHostRun is `stackrd host-run uninstall --yes`, `host-run docker-logcap`
+// or `host-run disk <base64>`.
 func runHostRun(args []string) error {
+	if len(args) == 2 && args[0] == "disk" {
+		return runDisk(args[1])
+	}
 	uninstall := len(args) == 2 && args[0] == "uninstall" && args[1] == "--yes"
 	if !uninstall && (len(args) != 1 || args[0] != "docker-logcap") {
-		return errors.New("usage: host-run uninstall --yes | host-run docker-logcap")
+		return errors.New("usage: host-run uninstall --yes | host-run docker-logcap | host-run disk <request>")
 	}
 	self, err := os.Executable()
 	if err != nil {
