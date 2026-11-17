@@ -87,6 +87,8 @@ type Tables struct {
 	IngressPicks      IngressPickStore
 	TileVIPs          TileVIPStore
 	RegistryImages    RegistryImageStore
+	NodeDisks         NodeDiskStore
+	DiskFolders       DiskFolderStore
 }
 
 func bind(q querier, box *secrets.Box) Tables {
@@ -147,6 +149,8 @@ func bind(q querier, box *secrets.Box) Tables {
 		IngressPicks:      ingressPicks{q},
 		TileVIPs:          tileVIPs{q},
 		RegistryImages:    registryImages{crud[RegistryImage]{q, box, registryImagesT}},
+		NodeDisks:         nodeDisks{crud[NodeDisk]{q, box, nodeDisksT}},
+		DiskFolders:       diskFolders{crud[DiskFolder]{q, box, diskFoldersT}},
 	}
 }
 
