@@ -1,0 +1,279 @@
+// Package disk owns node_disks and disk_folders: the one disk a node's
+// volumes may live on, its folder rows, and the filesystem they stand for.
+// The filesystem work is a hostdisk.Request run on the node through Host.
+// "No disk" is no row; any row that is not ready refuses with *MissingError.
+package disk
+
+import (
+	"context"
+	"errors"
+	"path"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/FyrmForge/stackr/internal/hostdisk"
+	"github.com/FyrmForge/stackr/internal/service/errs"
+	"github.com/FyrmForge/stackr/internal/service/internal/docker"
+	"github.com/FyrmForge/stackr/internal/service/internal/store"
+)
+
+// Row states.
+const (
+	StateAdding  = "adding"
+	StateReady   = "ready"
+	StateMissing = "missing"
+)
+
+const kindPath = "path"
+
+// Host runs one disk command on a node.
+type Host interface {
+	Disk(ctx context.Context, nodeID string, r hostdisk.Request) (hostdisk.Result, error)
+}
+
+// MissingError: the node's disk is not ready, so nothing was done.
+type MissingError struct{ Node string }
+
+func (e *MissingError) Error() string { return "Its disk is missing." }
+func (e *MissingError) Unwrap() error { return errs.ErrBusy }
+
+type Leaf struct {
+	disks   store.NodeDiskStore
+	folders store.DiskFolderStore
+	host    Host
+}
+
+func New(disks store.NodeDiskStore, folders store.DiskFolderStore, h Host) *Leaf {
+	return &Leaf{disks: disks, folders: folders, host: h}
+}
+
+// BindOpts are the Docker volume options that bind a volume to its folder.
+func BindOpts(mount, diskID, name string) map[string]string {
+	return docker.BindOpts(path.Join(mount, diskID, name))
+}
+
+// OfNode is the node's disk row; ok is false when it has none.
+// ponytail: phase 2 also finds an adopting row by op_node_id.
+func (l *Leaf) OfNode(ctx context.Context, nodeID string) (store.NodeDisk, bool, error) {
+	d, err := l.disks.GetByNode(ctx, nodeID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return store.NodeDisk{}, false, nil
+	}
+	return d, err == nil, err
+}
+
+func (l *Leaf) req(d store.NodeDisk, op string, names ...string) hostdisk.Request {
+	return hostdisk.Request{Op: op, Kind: d.Kind, DiskID: d.ID, Owner: d.NodeID, Mount: d.MountPath, Names: names}
+}
+
+// run sends r and turns a refusal into an error. disk_missing on a ready row
+// latches it missing and returns *MissingError.
+func (l *Leaf) run(ctx context.Context, d store.NodeDisk, r hostdisk.Request) (hostdisk.Result, error) {
+	res, err := l.host.Disk(ctx, d.NodeID, r)
+	if err != nil {
+		return res, err
+	}
+	if res.Error == nil {
+		return res, nil
+	}
+	if res.Error.Code == hostdisk.CodeDiskMissing {
+		if _, err := l.MarkMissing(ctx, d); err != nil {
+			return res, err
+		}
+		return res, &MissingError{Node: d.NodeID}
+	}
+	return res, res.Error
+}
+
+// live re-reads the row: a latch set by another call must stop this one.
+func (l *Leaf) live(ctx context.Context, d store.NodeDisk) (store.NodeDisk, error) {
+	cur, err := l.disks.Get(ctx, d.ID)
+	if errors.Is(err, errs.ErrNotFound) {
+		return d, &MissingError{Node: d.NodeID}
+	}
+	if err != nil {
+		return d, err
+	}
+	if cur.State != StateReady {
+		return cur, &MissingError{Node: cur.NodeID}
+	}
+	return cur, nil
+}
+
+// Probe reads a path on the node and writes nothing.
+func (l *Leaf) Probe(ctx context.Context, nodeID, mount string) (hostdisk.Fact, error) {
+	res, err := l.host.Disk(ctx, nodeID, hostdisk.Request{Op: "probe", Kind: kindPath, Mount: mount})
+	if err != nil {
+		return hostdisk.Fact{}, err
+	}
+	if res.Error != nil {
+		return hostdisk.Fact{}, res.Error
+	}
+	if res.Disk == nil {
+		return hostdisk.Fact{}, errors.New("disk: probe returned no fact")
+	}
+	return *res.Disk, nil
+}
+
+// AddPath writes the row in adding, has the host stamp the disk, then sets
+// ready. A retry resumes an adding row of this node at the same path. A
+// refusal removes a row this call made; a crash keeps it.
+func (l *Leaf) AddPath(ctx context.Context, nodeID, mount, installID string) (store.NodeDisk, error) {
+	d, ok, err := l.OfNode(ctx, nodeID)
+	if err != nil {
+		return d, err
+	}
+	fresh := false
+	switch {
+	case ok && (d.State != StateAdding || d.MountPath != mount):
+		return d, errs.Conflictf("This node already has a disk.")
+	case !ok:
+		d = store.NodeDisk{ID: uuid.NewString(), NodeID: nodeID, Kind: kindPath, MountPath: mount, State: StateAdding, CreatedAt: time.Now().UTC()}
+		if err := l.disks.Create(ctx, d); err != nil {
+			return d, err
+		}
+		fresh = true
+	}
+	r := l.req(d, "add")
+	r.Install = installID
+	res, err := l.host.Disk(ctx, nodeID, r)
+	if err != nil {
+		return d, err // a crash leaves the row for a retry
+	}
+	if res.Error != nil {
+		if fresh {
+			_ = l.disks.Delete(context.WithoutCancel(ctx), d.ID)
+		}
+		return d, res.Error
+	}
+	d.State = StateReady
+	return d, l.disks.Update(ctx, d)
+}
+
+// Verify runs the host verify and sets ready, or missing on disk_missing.
+// Other refusals change nothing. Only ready, adding and missing rows move.
+func (l *Leaf) Verify(ctx context.Context, d store.NodeDisk) (store.NodeDisk, error) {
+	cur, err := l.disks.Get(ctx, d.ID)
+	if err != nil {
+		return d, err
+	}
+	switch cur.State {
+	case StateReady, StateAdding, StateMissing:
+	default:
+		return cur, nil
+	}
+	res, err := l.host.Disk(ctx, cur.NodeID, l.req(cur, "verify"))
+	if err != nil {
+		return cur, err
+	}
+	if res.Error != nil {
+		if res.Error.Code == hostdisk.CodeDiskMissing && cur.State != StateAdding {
+			return l.MarkMissing(ctx, cur)
+		}
+		return cur, res.Error
+	}
+	cur.State = StateReady
+	return cur, l.disks.Update(ctx, cur)
+}
+
+// MarkMissing latches a ready row missing. Any other state is left alone, so
+// it can never overwrite the state of an unfinished operation.
+func (l *Leaf) MarkMissing(ctx context.Context, d store.NodeDisk) (store.NodeDisk, error) {
+	cur, err := l.disks.Get(ctx, d.ID)
+	if err != nil || cur.State != StateReady {
+		return cur, err
+	}
+	cur.State = StateMissing
+	return cur, l.disks.Update(ctx, cur)
+}
+
+// Folders are the disk's folder rows.
+func (l *Leaf) Folders(ctx context.Context, d store.NodeDisk) ([]store.DiskFolder, error) {
+	return l.folders.ListByDisk(ctx, d.ID)
+}
+
+// HasFolders reports which names have a folder row. A DB read.
+func (l *Leaf) HasFolders(ctx context.Context, d store.NodeDisk, names ...string) (map[string]bool, error) {
+	rows, err := l.folders.ListByDisk(ctx, d.ID)
+	if err != nil {
+		return nil, err
+	}
+	have := map[string]bool{}
+	for _, f := range rows {
+		have[f.Name] = true
+	}
+	out := map[string]bool{}
+	for _, n := range names {
+		out[n] = have[n]
+	}
+	return out, nil
+}
+
+// Place is get-or-create: the folder row, then the folder. A lost race on the
+// row is not an error. A refused folder removes a row this call made.
+func (l *Leaf) Place(ctx context.Context, d store.NodeDisk, name string) (map[string]string, error) {
+	d, err := l.live(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	made := true
+	row := store.DiskFolder{ID: uuid.NewString(), DiskID: d.ID, Name: name, CreatedAt: time.Now().UTC()}
+	if err := l.folders.Create(ctx, row); err != nil {
+		if _, ok := errs.IsConflict(err); !ok {
+			return nil, err
+		}
+		made = false
+	}
+	if _, err := l.run(ctx, d, l.req(d, "folder", name)); err != nil {
+		if made {
+			_ = l.folders.Delete(context.WithoutCancel(ctx), row.ID)
+		}
+		return nil, err
+	}
+	return BindOpts(d.MountPath, d.ID, name), nil
+}
+
+// Usage asks the host; a failure is an error, never a zero.
+func (l *Leaf) Usage(ctx context.Context, d store.NodeDisk, sizes bool, names ...string) (map[string]hostdisk.Use, error) {
+	d, err := l.live(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	r := l.req(d, "usage", names...)
+	r.Sizes = sizes
+	res, err := l.run(ctx, d, r)
+	if err != nil {
+		return nil, err
+	}
+	if res.Usage == nil {
+		return map[string]hostdisk.Use{}, nil
+	}
+	return res.Usage, nil
+}
+
+// Drop removes the folder on the host, then its row. A failure keeps the row.
+func (l *Leaf) Drop(ctx context.Context, d store.NodeDisk, name string) error {
+	d, err := l.live(ctx, d)
+	if err != nil {
+		return err
+	}
+	if _, err := l.run(ctx, d, l.req(d, "drop", name)); err != nil {
+		return err
+	}
+	rows, err := l.folders.ListByDisk(ctx, d.ID)
+	if err != nil {
+		return err
+	}
+	for _, f := range rows {
+		if f.Name == name {
+			return l.folders.Delete(ctx, f.ID)
+		}
+	}
+	return nil
+}
+
+// Delete removes the disk row and, by cascade, its folder rows. Rows only.
+func (l *Leaf) Delete(ctx context.Context, d store.NodeDisk) error {
+	return l.disks.Delete(ctx, d.ID)
+}
