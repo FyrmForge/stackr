@@ -36,8 +36,9 @@ type VolumeCreate struct {
 }
 
 type Fake struct {
-	mu    sync.Mutex
-	calls []Call
+	mu      sync.Mutex
+	calls   []Call
+	volOpts map[string]map[string]string // name -> opts of its first create
 
 	// Err makes a method fail: Err["Pull"] = errors.New("registry down"). A
 	// key can also name one call, as Call.String does: Err["Start(new)"].
@@ -363,11 +364,20 @@ func (f *Fake) MemberAddr(_ context.Context, network, id string) (string, string
 func (f *Fake) CreateVolume(_ context.Context, name, driver string, opts, labels map[string]string) error {
 	f.mu.Lock()
 	f.Created = append(f.Created, VolumeCreate{name, driver, opts, labels})
+	if _, ok := f.volOpts[name]; !ok { // the first create wins, as the daemon's does
+		if f.volOpts == nil {
+			f.volOpts = map[string]map[string]string{}
+		}
+		f.volOpts[name] = opts
+	}
 	f.mu.Unlock()
 	return f.rec("CreateVolume", name)
 }
 
 func (f *Fake) RemoveVolume(_ context.Context, name string) error {
+	f.mu.Lock()
+	delete(f.volOpts, name)
+	f.mu.Unlock()
 	return f.rec("RemoveVolume", name)
 }
 
@@ -378,6 +388,20 @@ func (f *Fake) InspectVolume(_ context.Context, name string) (docker.VolumeInfo,
 		}
 	}
 	return docker.VolumeInfo{}, f.rec("InspectVolume", name)
+}
+
+// VolumeDevice answers from the options the volume was first created with; a
+// volume only listed in Volumes is plain.
+func (f *Fake) VolumeDevice(_ context.Context, name string) (bool, string, error) {
+	f.mu.Lock()
+	opts, ok := f.volOpts[name]
+	f.mu.Unlock()
+	if !ok {
+		for _, v := range f.Volumes {
+			ok = ok || v.Name == name
+		}
+	}
+	return ok, docker.DeviceOf(opts), f.rec("VolumeDevice", name)
 }
 
 func (f *Fake) ListVolumes(_ context.Context, labels map[string]string) ([]docker.VolumeInfo, error) {

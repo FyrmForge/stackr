@@ -110,3 +110,36 @@ func TestPinnedDigestsStayApart(t *testing.T) {
 		}
 	}
 }
+
+func TestVolumeDeviceAndFirstOptsWin(t *testing.T) {
+	ctx, dir := context.Background(), t.TempDir()
+	d, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, dev, err := d.VolumeDevice(ctx, "v"); err != nil || found || dev != "" {
+		t.Fatalf("missing: %v %q %v", found, dev, err)
+	}
+	if err := d.CreateVolume(ctx, "plain", "local", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if found, dev, _ := d.VolumeDevice(ctx, "plain"); !found || dev != "" {
+		t.Fatalf("plain: %v %q", found, dev)
+	}
+	if err := d.CreateVolume(ctx, "b", "local", docker.BindOpts("/mnt/d/b"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CreateVolume(ctx, "b", "local", docker.BindOpts("/mnt/other"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if found, dev, _ := d.VolumeDevice(ctx, "b"); !found || dev != "/mnt/d/b" {
+		t.Fatalf("bound: %v %q", found, dev)
+	}
+	d, err = New(dir) // survives a reload
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, dev, _ := d.VolumeDevice(ctx, "b"); dev != "/mnt/d/b" {
+		t.Fatalf("after reload: %q", dev)
+	}
+}

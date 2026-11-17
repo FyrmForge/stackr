@@ -55,6 +55,7 @@ type Docker interface {
 	CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error
 	RemoveVolume(ctx context.Context, name string) error
 	InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error)
+	VolumeDevice(ctx context.Context, name string) (found bool, device string, err error)
 	ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error)
 	EnsureTool(ctx context.Context) error
 	TarVolume(ctx context.Context, name string, w io.Writer, live bool) error

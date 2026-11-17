@@ -349,6 +349,9 @@ func (n nodeDocker) CreateVolume(ctx context.Context, name, driver string, opts,
 func (n nodeDocker) InspectVolume(ctx context.Context, name string) (docker.VolumeInfo, error) {
 	return n.d.InspectVolume(n.c(ctx), name)
 }
+func (n nodeDocker) VolumeDevice(ctx context.Context, name string) (bool, string, error) {
+	return n.d.VolumeDevice(n.c(ctx), name)
+}
 func (n nodeDocker) EnsureTool(ctx context.Context) error { return n.d.EnsureTool(n.c(ctx)) }
 func (n nodeDocker) TarVolume(ctx context.Context, name string, w io.Writer, live bool) error {
 	return n.d.TarVolume(n.c(ctx), name, w, live)

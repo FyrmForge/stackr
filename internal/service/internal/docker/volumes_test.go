@@ -30,3 +30,20 @@ func TestLabelFilterEmptyValue(t *testing.T) {
 		t.Errorf("filter = %v", f.Get("label"))
 	}
 }
+
+func TestDeviceOf(t *testing.T) {
+	for name, c := range map[string]struct {
+		opts map[string]string
+		want string
+	}{
+		"plain":    {nil, ""},
+		"bound":    {BindOpts("/mnt/d/v"), "/mnt/d/v"},
+		"bind+opt": {map[string]string{"type": "none", "o": "rbind,bind", "device": "/x"}, "/x"},
+		"tmpfs":    {map[string]string{"type": "tmpfs", "o": "size=1m", "device": "tmpfs"}, ""},
+		"nfs":      {map[string]string{"type": "nfs", "o": "addr=h", "device": ":/p"}, ""},
+	} {
+		if got := DeviceOf(c.opts); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}

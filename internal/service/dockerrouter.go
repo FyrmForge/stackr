@@ -223,6 +223,15 @@ func (r *DockerRouter) InspectVolume(ctx context.Context, name string) (docker.V
 	return via(r, ctx, func(c Docker) (docker.VolumeInfo, error) { return c.InspectVolume(ctx, name) })
 }
 
+func (r *DockerRouter) VolumeDevice(ctx context.Context, name string) (found bool, device string, err error) {
+	err = r.do(ctx, func(c Docker) error {
+		var e error
+		found, device, e = c.VolumeDevice(ctx, name)
+		return e
+	})
+	return
+}
+
 func (r *DockerRouter) ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error) {
 	return via(r, ctx, func(c Docker) ([]docker.VolumeInfo, error) { return c.ListVolumes(ctx, labels) })
 }

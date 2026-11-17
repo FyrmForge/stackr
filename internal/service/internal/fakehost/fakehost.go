@@ -72,6 +72,7 @@ type network struct {
 type volume struct {
 	Name, Driver, Created string
 	Labels                map[string]string
+	Opts                  map[string]string // driver options at create; the first create wins
 }
 
 type image struct {
@@ -779,7 +780,7 @@ func (d *Docker) MemberAddr(ctx context.Context, name, containerID string) (stri
 
 // ---- Volumes.
 
-func (d *Docker) CreateVolume(ctx context.Context, name, driver string, _, labels map[string]string) error {
+func (d *Docker) CreateVolume(ctx context.Context, name, driver string, opts, labels map[string]string) error {
 	if err := d.chaos.hit(ctx, "volumes", "CreateVolume"); err != nil {
 		return err
 	}
@@ -791,7 +792,7 @@ func (d *Docker) CreateVolume(ctx context.Context, name, driver string, _, label
 	if driver == "" {
 		driver = "local"
 	}
-	d.st.Volumes[name] = &volume{Name: name, Driver: driver, Created: now(), Labels: withManaged(labels)}
+	d.st.Volumes[name] = &volume{Name: name, Driver: driver, Created: now(), Labels: withManaged(labels), Opts: maps.Clone(opts)}
 	return d.save()
 }
 
@@ -847,6 +848,19 @@ func (d *Docker) InspectVolume(ctx context.Context, name string) (docker.VolumeI
 		return docker.VolumeInfo{}, notFound("volume", name)
 	}
 	return d.info(v), nil
+}
+
+func (d *Docker) VolumeDevice(ctx context.Context, name string) (bool, string, error) {
+	if err := d.chaos.hit(ctx, "volumes", "VolumeDevice"); err != nil {
+		return false, "", err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	v, ok := d.st.Volumes[name]
+	if !ok {
+		return false, "", nil
+	}
+	return true, docker.DeviceOf(v.Opts), nil
 }
 
 func (d *Docker) ListVolumes(ctx context.Context, labels map[string]string) ([]docker.VolumeInfo, error) {

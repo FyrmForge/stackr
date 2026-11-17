@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -30,6 +31,34 @@ func (d *Client) CreateVolume(ctx context.Context, name, driver string, opts, la
 		Labels:     all,
 	})
 	return err
+}
+
+// BindOpts is the local driver's options for a volume bound to a host folder.
+func BindOpts(device string) map[string]string {
+	return map[string]string{"type": "none", "o": "bind", "device": device}
+}
+
+// DeviceOf is the folder a volume's driver options bind it to, "" for a plain
+// volume or any other kind.
+func DeviceOf(opts map[string]string) string {
+	if opts["type"] != "none" || opts["device"] == "" || !slices.Contains(strings.Split(opts["o"], ","), "bind") {
+		return ""
+	}
+	return opts["device"]
+}
+
+// VolumeDevice reports a volume as Docker holds it: found false when there is
+// none, device "" for a plain one, else the folder it is bound to. It is
+// VolumeInspect only, no disk-usage scan.
+func (d *Client) VolumeDevice(ctx context.Context, name string) (found bool, device string, err error) {
+	v, err := d.cli.VolumeInspect(ctx, name)
+	if cerrdefs.IsNotFound(err) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	return true, DeviceOf(v.Options), nil
 }
 
 // RemoveVolume removes a volume; a missing one is fine. Docker refuses while
