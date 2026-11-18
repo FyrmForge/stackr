@@ -68,12 +68,12 @@ func (o *Orchestrator) ServerSettings(ctx context.Context) ([]ServerSetting, err
 
 // SetServerSettings writes only the knobs whose value changed: a cascade
 // change redeploys every running tile (B34), so an untouched form must be a
-// no-op. An empty secret keeps the stored one.
+// no-op. It returns how many knobs it wrote. An empty secret keeps the stored one.
 // ponytail: a secret cannot be cleared from here; the API's PUT does it.
-func (o *Orchestrator) SetServerSettings(ctx context.Context, vals map[string]string) error {
+func (o *Orchestrator) SetServerSettings(ctx context.Context, vals map[string]string) (int, error) {
 	cur, err := o.ServerSettings(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	flat, cascade := map[string]string{}, map[string]string{}
 	for _, s := range cur {
@@ -90,11 +90,14 @@ func (o *Orchestrator) SetServerSettings(ctx context.Context, vals map[string]st
 	// the flat knobs as one save, so every refused one shows at once
 	if len(flat) > 0 {
 		if err := o.SetSettings(ctx, flat); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if len(cascade) == 0 {
-		return nil
+		return len(flat), nil
 	}
-	return o.SetSettingDefaults(ctx, cascade)
+	if err := o.SetSettingDefaults(ctx, cascade); err != nil {
+		return 0, err
+	}
+	return len(flat) + len(cascade), nil
 }

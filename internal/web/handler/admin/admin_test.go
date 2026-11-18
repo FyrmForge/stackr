@@ -542,6 +542,21 @@ func TestAdminAnswerInItsCard(t *testing.T) {
 
 // A settings form refused on several knobs marks each one at once, and a
 // save's answer sits after its Save button (data-acted), not over the form.
+// Posting a form that changes nothing says so instead of "Saved.".
+func TestAdminSettingsNothingChanged(t *testing.T) {
+	s := webtest.New(t)
+	root := s.Session(t, s.User(t, "root@x.test", true))
+	post := func() string {
+		return s.As(t, root, "POST", "/-/admin/settings/jobs", url.Values{"workers": {"3"}}).Body.String()
+	}
+	if b := post(); !strings.Contains(b, "Saved.") {
+		t.Fatalf("first save: %s", b)
+	}
+	if b := post(); !strings.Contains(b, "Nothing changed.") || strings.Contains(b, "Saved.") {
+		t.Errorf("repeat save: %s", b)
+	}
+}
+
 func TestAdminSettingsEveryRefusalAndNoteBySave(t *testing.T) {
 	s := webtest.New(t)
 	root := s.Session(t, s.User(t, "root@x.test", true))

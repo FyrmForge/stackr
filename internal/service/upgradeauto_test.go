@@ -133,12 +133,12 @@ func TestUpdateCheckSetting(t *testing.T) {
 		t.Errorf("default = %q, want 6h", v)
 	}
 	for _, ok := range []string{"off", "1h", "6h", "daily", "weekly", ""} {
-		if err := w.orch.SetServerSettings(ctx, map[string]string{"update_check": ok}); err != nil {
+		if _, err := w.orch.SetServerSettings(ctx, map[string]string{"update_check": ok}); err != nil {
 			t.Errorf("%q refused: %v", ok, err)
 		}
 	}
 	for _, bad := range []string{"2h", "never", "Daily", "6"} {
-		if err := w.orch.SetServerSettings(ctx, map[string]string{"update_check": bad}); err == nil {
+		if _, err := w.orch.SetServerSettings(ctx, map[string]string{"update_check": bad}); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
 	}

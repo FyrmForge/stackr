@@ -731,7 +731,7 @@ func (h *handler) SaveSettings(c echo.Context) error {
 		}
 	}
 	ctx, redeployed := service.CollectRedeploys(c.Request().Context())
-	actErr := h.orch.SetServerSettings(ctx, vals)
+	wrote, actErr := h.orch.SetServerSettings(ctx, vals)
 	if _, ok := render.Refused(actErr); actErr != nil && !ok {
 		return middleware.HTTPError(actErr)
 	}
@@ -749,6 +749,8 @@ func (h *handler) SaveSettings(c echo.Context) error {
 			names = append(names, r.Path())
 		}
 		v.Note = "Saved. Redeploying " + strings.Join(names, ", ") + "."
+	case wrote == 0:
+		v.Note = "Nothing changed."
 	default:
 		v.Note = "Saved."
 	}
